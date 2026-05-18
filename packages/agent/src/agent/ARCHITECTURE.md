@@ -4,167 +4,128 @@
 This document describes the implementation under `packages/agent/src/agent` in `@dzupagent/agent`.
 
 In scope:
-- core runtime class in `dzip-agent.ts`
-- run orchestration helpers in `run-engine.ts`, `streaming-run.ts`, and `structured-generate.ts`
-- coordination helpers in `agent-construction.ts`, `event-bus-installer.ts`, `provider-selection.ts`, `model-invocation.ts`, `rate-limit-coordinator.ts`, `message-preparation.ts`, and `consolidation-coordinator.ts`
-- loop/runtime primitives in `tool-loop.ts`, `tool-loop/*`, `parallel-executor.ts`, `tool-arg-validator.ts`, and `stuck-error.ts`
-- context and instruction helpers in `instruction-resolution.ts`, `memory-context-loader.ts`, `memory-profiles.ts`, `message-utils.ts`, `middleware-runtime.ts`, and `resume-utils.ts`
-- launch and run-control APIs in `daemon-launcher.ts`, `run-handle.ts`, and `run-handle-types.ts`
-- supporting surfaces in `agent-types.ts`, `tool-loop-learning.ts`, `tool-registry.ts`, `agent-state.ts`, `agent-factory.ts`, and `agent-finalizers.ts`
+- Core runtime and configuration surfaces in `dzip-agent.ts`, `agent-types*.ts`, and constructor wiring helpers.
+- Generate/stream execution machinery in `run-engine*.ts`, `streaming-run*.ts`, and `tool-loop*.ts`.
+- Policy/governance and tool execution support (`tool-lifecycle-policy.ts`, `tool-arg-validator.ts`, `production-tool-governance-preset.ts`, `tool-registry.ts`, `parallel-executor.ts`).
+- Memory/instruction/message preparation and finalization (`instruction-resolution.ts`, `memory-context-loader*.ts`, `message-preparation.ts`, `agent-finalizers.ts`, `consolidation-coordinator.ts`).
+- Background-run controls (`daemon-launcher.ts`, `run-handle.ts`, `run-handle-types.ts`, `resume-utils.ts`).
 
 Out of scope:
-- sibling subsystems under `src/orchestration/**`, `src/pipeline/**`, templates, approval, replay, and other package-level modules that consume this runtime
+- Sibling module families such as `src/orchestration/**`, `src/pipeline/**`, `src/workflow/**`, `src/replay/**`, and package-wide barrel design beyond direct integration points from this runtime.
 
 ## Responsibilities
-`src/agent` is the execution kernel for top-level agent runs.
-
-It is responsible for:
-- constructing and configuring `DzupAgent` from `DzupAgentConfig`
-- model resolution from direct model, tier, or registry name with provider-fallback selection behavior
-- optional run-level provider retry/failover for tier-based models, kept distinct from selection-time fallback and gated around tool side effects
-- constructor-time subsystem wiring for mailbox tools, distributed guardrails, instruction resolution, memory context loading, middleware runtime, tokenizer, and permission-tier audit events
-- preparing run inputs with instruction resolution, phase windowing, memory context, and conversation summary
-- coordinating model invocation through rate limits, middleware, provider circuit-breaker accounting, distributed cost accounting, and same-run provider failover
-- executing the ReAct loop (`runToolLoop`) with budgets, stuck detection, tool invocation, token accounting, and stop reasons while keeping model turns, scheduling, and policy-enabled tool execution as separate internal stages
-- streaming and non-streaming execution paths with shared preparation and post-run finalization
-- structured-output generation with native structured output first, then text+JSON correction fallback
-- optional mailbox tool wiring (`send_mail`, `check_mail`) when mailbox config is present
-- optional memory write-back of final output
-- optional background runs via `launch()` and `RunHandle`
-- runtime telemetry emission through `eventBus`
+`src/agent` is the package’s single-agent execution kernel. It is responsible for:
+- Constructing `DzupAgent` from `DzupAgentConfig`, including early config validation and model/tokenizer/rate-limiter resolution.
+- Resolving model/provider strategy from direct model, model tier, or registry model name.
+- Preparing run inputs: instructions, optional AGENTS.md merge, phase-aware windowing, memory context loading, and conversation summary threading.
+- Enforcing guardrails and governance around model/tool execution (iteration and token budgets, stuck detection, permission policies, governance approvals, argument validation, per-tool timeouts, safety scans).
+- Coordinating both non-streaming (`generate`) and streaming (`stream`) loops with shared lifecycle semantics.
+- Supporting structured output via native structured-output path when available, with text+JSON parse/correction fallback.
+- Emitting runtime telemetry to `eventBus` for tool lifecycle, stop reasons, fallback events, provider failover, and token halt scenarios.
+- Optional run-state snapshot persistence (`runStateStore`) and optional memory write-back/consolidation.
+- Providing asynchronous background run control via `RunHandle` (`pause`, `resume`, `cancel`, `fork`, `resumeFromStep`, `result`).
 
 ## Structure
 Primary files by concern:
-- entrypoint runtime: `dzip-agent.ts`, `agent-types.ts`
-- run execution: `run-engine.ts`, `tool-loop.ts`, `streaming-run.ts`, `structured-generate.ts`
-- agent coordination: `agent-construction.ts`, `event-bus-installer.ts`, `provider-selection.ts`, `model-invocation.ts`, `rate-limit-coordinator.ts`, `message-preparation.ts`, `consolidation-coordinator.ts`
-- runtime helpers: `instruction-resolution.ts`, `memory-context-loader.ts`, `memory-profiles.ts`, `middleware-runtime.ts`, `message-utils.ts`, `resume-utils.ts`
-- tooling/state helpers: `tool-loop/contracts.ts`, `tool-loop/model-turn-kernel.ts`, `tool-loop/tool-scheduler-kernel.ts`, `tool-loop/policy-enabled-tool-executor.ts`, `tool-arg-validator.ts`, `parallel-executor.ts`, `stuck-error.ts`, `tool-loop-learning.ts`, `tool-registry.ts`, `agent-state.ts`
-- background run support: `daemon-launcher.ts`, `run-handle.ts`, `run-handle-types.ts`
-- factory/finalizer helpers: `agent-factory.ts`, `agent-finalizers.ts`
+- Core agent class and composition: `dzip-agent.ts`, `agent-construction.ts`, `event-bus-installer.ts`, `provider-selection.ts`, `model-invocation.ts`, `rate-limit-coordinator.ts`.
+- Run engine and generation: `run-engine.ts`, `run-engine-generate-tool-loop.ts`, `run-engine-generate-process.ts`, `run-engine-generate-audit.ts`, `run-engine-generate-snapshot.ts`, `run-engine-defaults.ts`.
+- Streaming execution: `streaming-run.ts`, `streaming-run-iteration.ts`, `streaming-run-provider.ts`, `streaming-run-tool-handler.ts`, `streaming-run-policy.ts`, `streaming-run-fallback.ts`.
+- Tool loop kernel and policy stages: `tool-loop.ts`, `tool-loop/model-turn-kernel.ts`, `tool-loop/tool-scheduler-kernel.ts`, `tool-loop/policy-checks.ts`, `tool-loop/policy-enabled-tool-executor.ts`, `tool-loop/tool-invoker.ts`, `tool-loop/result-pipeline.ts`, `tool-loop/loop-stages.ts`.
+- Context/instruction/memory preparation: `instruction-resolution.ts`, `message-preparation.ts`, `memory-context-loader.ts`, `memory-context-loader-*.ts`, `memory-profiles.ts`.
+- Finalization and persistence helpers: `agent-finalizers.ts`, `consolidation-coordinator.ts`, `resume-utils.ts`.
+- Background run control: `daemon-launcher.ts`, `run-handle-types.ts`, `run-handle.ts`.
+- Public support utilities: `production-tool-governance-preset.ts`, `tool-arg-validator.ts`, `parallel-executor.ts`, `tool-registry.ts`, `agent-factory.ts`.
 
 ## Runtime and Control Flow
-1. Construction
-- `DzupAgent` resolves model via `provider-selection.ts`.
-- Model resolution rules: direct `BaseChatModel` uses the instance; tier strings use `registry.getModelWithFallback(...)`; name strings use `registry.getModelByName(...)`.
-- `getModelWithFallback(...)` is selection-time only. If `providerFailover.enabled` is set, each model turn can build an explicit provider-attempt chain from `registry.getModelFallbackCandidates(...)`.
-- Constructor validation, tokenizer selection, rate-limiter instantiation, and tool-filter audit emission live in `agent-construction.ts`.
-- Event-bus-aware wiring for mailbox, distributed rate/cost guardrails, instruction resolver, memory context loader, and middleware runtime lives in `event-bus-installer.ts`.
-
-2. `generate()`
-- Calls `prepareRunState(...)` to resolve iteration limits and optional `IterationBudget`, prepare messages, bind tools, initialize stuck detection, and optionally rehydrate from journal (`options._resume.lastStateSeq`).
-- Message preparation delegates to `message-preparation.ts`, which resolves instructions, applies optional phase-window trimming, loads memory context, emits structured memory fallback telemetry, and maintains the conversation summary through a private accessor.
-- Calls `executeGenerateRun(...)`, which delegates to `runToolLoop(...)`, applies optional tool-execution policy forwarding (`toolExecution.*`), emits telemetry, applies optional `guardrails.outputFilter`, updates summary, and runs optional reflection callback.
-- Model calls delegate to `model-invocation.ts`; rate-limit and distributed-cost hooks are centralized in `rate-limit-coordinator.ts`.
-- When `providerFailover.enabled` is set for a tier-based model, model invocation retries transient failures on another provider up to `providerFailover.maxAttempts`; retry is suppressed after tool results unless `allowRetryAfterToolResults` is true.
-- Returns `GenerateResult` with content, messages, usage, stop reason, tool stats, and optional memory/compression fields.
-- On non-failed runs, optionally writes final content to memory when write-back is enabled.
-
-3. `stream()`
-- Uses `streamRun(...)`.
-- Fallback mode is used when native streaming is unavailable or model-call middleware wrapping is enabled; fallback delegates to `executeGenerateRun(...)` and emits synthesized stream events.
-- Native mode yields `text`, `tool_call`, `tool_result`, `budget_warning`, `stuck`, and `done` events while sharing preparation and finalization behavior.
-- Native stream failover is limited to failures opening the stream before any chunk is yielded. Mid-stream failures are recorded and surfaced without replaying on another provider.
-
-4. Tool loop (`runToolLoop`)
-- Performs per-iteration abort/budget checks and iteration warning handling.
-- Optionally injects tool performance hint text before model calls.
-- Delegates model invocation and token extraction to `tool-loop/model-turn-kernel.ts`.
-- Tracks usage, optional compression (`maybeCompress`), and optional halt (`shouldHalt`) as loop policy around the model-turn kernel.
-- Delegates sequential/parallel tool-call ordering and concurrency limits to `tool-loop/tool-scheduler-kernel.ts`.
-- Composes `tool-loop/policy-enabled-tool-executor.ts` as the single-tool policy stage for governance, approval-gating, permission policy checks, budget tool blocks, argument validation/repair, timeouts, safety scanning, tracing, canonical lifecycle telemetry, checkpoint telemetry, and stuck detection.
-- Each policy-enabled tool invocation receives a fresh `AbortSignal`. Per-tool timeouts and parent run cancellation abort that signal before the runtime emits the terminal tool status. Cancellable tools can observe the abort through LangChain's tool config; non-cancellable tools still get an observational deadline.
-- Production tool governance remains opt-in. `production-tool-governance-preset.ts` composes the existing policy primitives into a named factory that returns `toolExecution`, `eventBus`, `SafetyMonitor`, `ToolGovernance`, and a permission policy. The preset uses fail-closed scanner behavior, strict argument validation, run ID propagation, canonical lifecycle telemetry, and a default-deny permission policy unless the consumer supplies an allowlist or custom policy.
-- Stop reasons include `complete`, `iteration_limit`, `budget_exceeded`, `aborted`, `error`, `stuck`, `token_exhausted`, and `approval_pending`.
-
-5. Background runs
-- `launchDaemon(...)` creates an in-memory journal and `ConcreteRunHandle`, then starts async `generate(...)`.
-- `ConcreteRunHandle` provides pause/resume/cancel/result/fork/checkpoint/resume-from-step semantics.
-
-6. Memory consolidation
-- `consolidate()` delegates to `consolidation-coordinator.ts`.
-- The coordinator preserves the compatibility contract: missing memory, namespace, scope, `getStore()`, or consolidation failures return an empty summary instead of throwing.
+1. Construction: `DzupAgent` runs `validateConfig`, `resolveModel`, `resolveRateLimiter`, `resolveTokenizer`, and `installEventBus`; tool visibility is constrained via permission tier filtering (`filterToolsByTier`) with `agent:tools-filtered` audit emission.
+2. Pre-run preparation (`prepareRunState`): computes guardrail defaults, runs `prepareMessages`, optionally rehydrates from journal (`options._resume.lastStateSeq`), scans/sanitizes human input using `config.security`, injects prompt-cache markers, and applies issuance-time permission-policy tool filtering before model binding.
+3. Non-streaming run (`generate` -> `executeGenerateRun`): `setupModelCall` builds `ToolLoopConfig` with policy/telemetry/token-lifecycle wiring, `runToolLoop` executes model+tool turns, `processGeneratedRun` emits terminal telemetry and post-filters output, and non-failed runs can write back memory.
+4. Streaming run (`stream` -> `streamRun`): reuses `prepareRunState`, chooses native stream or fallback mode, then handles chunk emission, usage accounting, compression adoption, tool-call handling, and terminal finalization.
+5. Tool execution policy stack: `executePolicyEnabledToolCall` applies permission/governance/approval checks, validation, timeout/retry, safety scan, output validation, lifecycle telemetry, and stuck escalation behavior.
+6. Provider failover behavior: construction-time resolution may use registry fallback, same-run failover may use provider attempts from `getModelFallbackCandidates` through `attemptWithFailover`, and retry behavior is gated by tool-result-aware failover policy.
+7. Structured output: `generateStructured` emits schema telemetry, attempts native `withStructuredOutput`, and falls back to text+JSON extraction with correction retries and enriched error context.
+8. Background runs: `launchDaemon` creates `InMemoryRunJournal` + `ConcreteRunHandle`, starts async execution, and maps completion/failure into run-handle result state.
 
 ## Key APIs and Types
-Runtime APIs:
-- `DzupAgent` with `generate`, `stream`, `generateStructured`, `asTool`, and `launch`
-- `runToolLoop(model, messages, tools, config)`
-- `executeToolsParallel(...)`
-- `validateAndRepairToolArgs(...)` and `formatSchemaHint(...)`
-- `createAgentWithMemory(...)`
-- `createProductionToolGovernancePreset(...)` and `withProductionToolGovernancePreset(...)`
-- `launchDaemon(...)`
+Public runtime APIs exported via `src/agent.ts` and root exports:
+- `DzupAgent`
+- `createAgentWithMemory`
+- `runToolLoop`
+- `executeToolsParallel`
 - `ConcreteRunHandle`
-- `DynamicToolRegistry` and `OwnershipPermissionPolicy`
-- legacy adapters: `serializeMessages(...)` and `deserializeMessages(...)`
+- `validateAndRepairToolArgs`, `formatSchemaHint`
+- `createProductionToolGovernancePreset`, `withProductionToolGovernancePreset`, `createAllowlistPermissionPolicy`
+- `DynamicToolRegistry`, `OwnershipPermissionPolicy`
+- `ToolOutputValidator`
 
-Core types:
+Primary runtime types:
 - `DzupAgentConfig`
-- `GenerateOptions`
-- `GenerateResult`
-- `AgentStreamEvent`
+- `GenerateOptions`, `GenerateResult`, `AgentStreamEvent`
 - `ToolExecutionConfig`, `PerToolTimeoutMap`, `ArgumentValidator`, `ToolTracer`
 - `ToolLoopConfig`, `ToolLoopResult`, `StopReason`, `ToolStat`
 - `RunHandle`, `RunResult`, `LaunchOptions`, `CheckpointInfo`
+- `ProviderFailoverPolicy`, `MemoryProfilePreset`, `ArrowMemoryConfig`
+
+Notable internal coordinators (not main external API):
+- `prepareRunState`, `executeGenerateRun`, `streamRun`, `generateStructured`
+- `invokeModelWithMiddleware`, `attemptWithFailover`
+- `runConsolidation`, `launchDaemon`
 
 ## Dependencies
-External dependencies used directly by `src/agent`:
-- `@langchain/core` (`messages`, `chat_models`, `tools`)
-- `zod`
+Package-level dependencies from `package.json` that this module family relies on:
 - `@dzupagent/core`
 - `@dzupagent/context`
 - `@dzupagent/memory`
-- `@dzupagent/memory-ipc` (dynamically imported in memory loader)
+- `@dzupagent/memory-ipc`
+- `@dzupagent/security`
 - `@dzupagent/agent-types`
-- `node:crypto`
+- `@dzupagent/adapter-types`
+- `@dzupagent/runtime-contracts`
 
-Internal dependencies in `packages/agent/src`:
-- `guardrails`
-- `instructions`
-- `mailbox`
-- `reflection`
-- `token-lifecycle-wiring`
-- `tools/agent-as-tool`
+Peer dependencies used by this runtime surface:
+- `@langchain/core`
+- `@langchain/langgraph` (peer surface for package, though `src/agent` itself primarily uses `@langchain/core`)
+- `zod`
+
+Direct Node/runtime primitives used in this scope:
+- `node:crypto` (`randomUUID` and related helpers)
 
 ## Integration Points
-Internal package integrations:
-- `src/orchestration/**` consumes `DzupAgent` and related exports from this module
-- `src/__tests__/**` exercises both direct `agent/*` internals and orchestrator paths that depend on `DzupAgent`
+Internal package integration points:
+- `src/tools/agent-as-tool.ts` wraps `DzupAgent.generate` into LangChain tool form.
+- `src/guardrails/**`, `src/approval/**`, `src/observability/**`, `src/reflection/**` are called from this runtime path.
+- `src/orchestration/**` and `src/workflow/**` consume the `DzupAgent` runtime and run-handle semantics rather than re-implementing loops.
 
-Operational integration hooks via `eventBus` include:
-- `agent:context_fallback`
-- `agent:stuck_detected`
-- `agent:stop_reason`
-- `run:halted:token-exhausted`
-- `llm:invoked`
-- `tool:latency`
-- `agent:structured_schema_prepared`
-- `agent:structured_native_rejected`
-- `agent:structured_fallback_used`
-- `agent:structured_validation_failed`
-- `tool:called`
-- `tool:result`
-- `tool:error`
-- `approval:requested`
+Cross-package contracts:
+- Model registry and provider fallback (`@dzupagent/core/llm`) for model selection and circuit-breaker accounting.
+- Event bus (`@dzupagent/core/events`) for lifecycle and audit telemetry.
+- Memory service and consolidation (`@dzupagent/memory`) plus optional Arrow runtime loader (`@dzupagent/memory-ipc`).
+- Security scanners (`@dzupagent/security`) for input and memory-write sanitation controls.
+- Persistence (`@dzupagent/core/persistence`) for run journals and optional `runStateStore` snapshots.
 
 ## Testing and Observability
-Representative tests for this module:
-- core runtime: `dzip-agent.test.ts`, `dzip-agent-run-parity.test.ts`, `dzip-agent-concurrency.test.ts`, `dzip-agent-provider-fallback.test.ts`, `dzip-agent-tool-policy.test.ts`
-- loop/tool behavior: `tool-loop-core.test.ts`, `tool-loop-deep.test.ts`, `tool-loop-approval.test.ts`, `tool-loop-token-halt.test.ts`, `parallel-tool-loop.test.ts`, `parallel-tool-governance-parity.test.ts`, `tool-loop-canonical-audit.test.ts`, `tool-timeout.test.ts`, `tool-permission.test.ts`
-- run engine/memory/middleware: `run-engine.test.ts`, `run-engine-resume.test.ts`, `memory-context-loader.test.ts`, `memory-context-loader-branches.test.ts`, `memory-context-fallback-detail.test.ts`, `middleware-runtime.test.ts`
-- launch/run handle: `run-handle.test.ts`, `run-handle-terminal-branches.test.ts`
+Testing coverage in this package includes dedicated runtime tests under `src/__tests__`, with agent-focused suites such as:
+- `dzip-agent.test.ts`, `dzip-agent-run-parity.test.ts`, `dzip-agent-provider-fallback.test.ts`, `dzip-agent-tool-policy.test.ts`
+- `run-engine.test.ts`, `run-engine-resume.test.ts`, `run-engine-generate-helpers.test.ts`, `run-engine-streaming-helpers.test.ts`
+- `tool-loop-core.test.ts`, `tool-loop-deep.test.ts`, `tool-loop-approval.test.ts`, `tool-loop-token-halt.test.ts`, `tool-loop-retry.test.ts`, `policy-enabled-tool-executor.test.ts`
+- `streaming.test.ts`, `streaming-run-failover.test.ts`, `stream-tool-guardrail-parity.test.ts`
+- `memory-context-loader.test.ts`, `memory-context-loader-branches.test.ts`, `memory-context-fallback-detail.test.ts`
+- `run-handle.test.ts`, `run-handle-terminal-branches.test.ts`, `run-state-store.test.ts`
 
-Observability outputs include:
-- event-bus telemetry listed above
-- run-return telemetry in `GenerateResult`: usage, stopReason, toolStats, optional compression log, optional memory frame
+Observed telemetry/event surfaces emitted directly from this runtime:
+- Agent lifecycle and fallback: `agent:tools-filtered`, `agent:context_fallback`, `agent:stuck_detected`, `agent:stop_reason`, `agent:rate_limited`
+- Token and model flow: `llm:invoked`, `run:halted:token-exhausted`
+- Tool lifecycle: `tool:called`, `tool:result`, `tool:error`, `tool:latency`, `tool:cancel_requested`, `tool:output:invalid`
+- Governance/provider: `approval:requested`, `provider:run_attempt`, `provider:run_selected`, `provider:run_failure`
+- Structured output: `agent:structured_schema_prepared`, `agent:structured_native_rejected`, `agent:structured_fallback_used`, `agent:structured_validation_failed`
+- Memory write-back path: `memory:written`, `memory:error`
 
 ## Risks and TODOs
-- Native streaming tool execution still has its own implementation in `run-engine.ts`; it mirrors the non-streaming policy-enabled tool stage and is covered by parity tests, but future policy additions should keep those contracts synchronized.
-- `GenerateResult` defines optional `learnings`, but `executeGenerateRun(...)` currently does not populate that field. Self-learning setup is partially initialized without result projection.
-- `dzip-agent.ts` now acts as a thin coordinator over extracted helpers. Keep future cross-cutting additions in the relevant helper module first, then expose only the minimal wrapper needed on `DzupAgent`.
-- `src/index.ts` exports `dzupagent_AGENT_VERSION = '0.2.0'`, matching `packages/agent/package.json`.
+- `GenerateResult` includes optional `learnings`, but current generate path does not populate that field. `prepareRunState` initializes learning-hook loading only.
+- `launchDaemon` currently uses `InMemoryRunJournal`; background-run control is process-local unless callers build a separate durable resume pattern.
+- Streaming and non-streaming paths intentionally share policy concepts but are implemented in separate coordinators; parity depends on continued synchronized updates to both stacks.
+- Legacy and modern summarization/finalizer helpers coexist (`message-preparation.ts` and `agent-finalizers.ts` include overlapping concerns). Functional behavior is preserved, but ownership boundaries should stay explicit to avoid drift.
 
 ## Changelog
-- 2026-05-07: refreshed after `dzip-agent.ts` coordination extraction into construction, event-bus, provider-selection, model-invocation, rate-limit, message-preparation, and consolidation helpers.
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-- 2026-04-26: refreshed against current `packages/agent/src/agent` implementation (runtime flow, policy surfaces, stop reasons, run-handle integration, testing, and observability).
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: refreshed against current `packages/agent/src/agent` runtime, streaming, policy, and run-handle implementation.

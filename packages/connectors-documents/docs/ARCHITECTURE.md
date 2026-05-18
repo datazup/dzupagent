@@ -1,80 +1,84 @@
 # @dzupagent/connectors-documents Architecture
 
 ## Scope
-`@dzupagent/connectors-documents` is a focused document-ingestion connector package inside `dzupagent/packages/connectors-documents`.
+`@dzupagent/connectors-documents` is a document ingestion package in `packages/connectors-documents` that converts supported document bytes into text and optionally splits that text into LLM-friendly chunks.
 
-It covers three concrete concerns:
-- Parse document bytes into plain text (`parseDocument` with PDF/DOCX/text/markdown routing).
-- Split text into semantic chunks (`splitIntoChunks` and chunking helpers).
-- Expose these capabilities as two forge tools (`createDocumentConnector`).
+Current in-scope capabilities are:
+- MIME-type gating and normalization for a fixed allowlist.
+- Parsing of PDF, DOCX, Markdown, and plain text payloads.
+- Chunking pipeline utilities (`headings -> paragraphs -> sentences`) with optional overlap.
+- Packaging of parsing/chunking as two forge tools (`parse-document`, `chunk-document`).
+- Tool contract normalization helpers for connector consumers.
 
-It does not include persistent storage, OCR, remote file fetching, or workflow orchestration.
+Out of scope in the current code:
+- OCR and image-to-text extraction.
+- Remote file fetching/storage and ingestion orchestration.
+- Embedding generation, vector storage, or retrieval workflows.
+- OTEL or third-party tracing dependencies.
 
 ## Responsibilities
-- Maintain an allowlist of supported MIME types and normalization (`SUPPORTED_MIME_TYPES`, `isSupportedDocumentType`).
-- Provide format-specific parsing:
-  - PDF via `pdf-parse` (`parsePDF`).
-  - DOCX via `mammoth` (`parseDOCX`).
-  - Plain text/markdown via UTF-8 buffer decoding.
-- Provide chunking with staged fallback (headings -> paragraphs -> sentences) and optional overlap.
-- Provide tool wrappers for agent/runtime integration:
-  - `parse-document`
-  - `chunk-document`
-- Normalize tool contracts to `BaseConnectorTool` shape (`normalizeDocumentTool`, `normalizeDocumentTools`).
+- Expose a stable package entrypoint (`src/index.ts`) for connector tools and low-level helpers.
+- Validate supported MIME types via `SUPPORTED_MIME_TYPES` and `isSupportedDocumentType`.
+- Route parsing by normalized MIME type in `parseDocument`.
+- Parse PDF with `pdf-parse` (`PDFParse`) and DOCX with `mammoth.extractRawText`.
+- Chunk large text with deterministic fallback stages and overlap injection.
+- Wrap tools with `createForgeTool` and convert generic `StructuredToolInterface` into `DocumentConnectorTool` using `normalizeDocumentTool(s)`.
 
 ## Structure
-Top-level package layout:
-- `src/index.ts`: public export surface.
-- `src/document-connector.ts`: `createDocumentConnector`, config, tool schemas, output shaping.
-- `src/connector-contract.ts`: StructuredTool -> normalized connector-tool bridge.
-- `src/parse-document.ts`: MIME-based routing for parse operations.
-- `src/supported-types.ts`: allowlist + MIME normalization helper.
-- `src/parsers/pdf-parser.ts`: PDF extraction via `PDFParse`.
-- `src/parsers/docx-parser.ts`: DOCX extraction via `mammoth.extractRawText`.
-- `src/chunking/*`: chunking pipeline primitives.
-- `src/__tests__/*`: unit/integration/deep tests for parsing, chunking, tool wrappers, and contract normalization.
-- `README.md`: usage and API quick reference.
-- `package.json`: package metadata and dependency boundary.
+- `src/index.ts`: Public exports for connector factory, parser/chunker helpers, MIME utilities, and types.
+- `src/document-connector.ts`: `DocumentConnectorConfig`, `createDocumentConnector`, tool schemas, output truncation, model-output formatting.
+- `src/parse-document.ts`: MIME normalization and switch-based parser dispatch.
+- `src/supported-types.ts`: `SUPPORTED_MIME_TYPES` set and type-check helper.
+- `src/parsers/pdf-parser.ts`: `parsePDF` with `MAX_PDF_PAGES = 50` limit passed to `PDFParse#getText`.
+- `src/parsers/docx-parser.ts`: `parseDOCX` using `mammoth`.
+- `src/chunking/heading-chunker.ts`: Heading split on markdown `##` and `###` boundaries.
+- `src/chunking/paragraph-chunker.ts`: Paragraph merge/split based on max-size envelope.
+- `src/chunking/sentence-chunker.ts`: Sentence-boundary split fallback.
+- `src/chunking/overlap.ts`: Context overlap insertion with `\n---\n` separator.
+- `src/chunking/split-into-chunks.ts`: Orchestrates chunking pipeline and defaults.
+- `src/connector-contract.ts`: `DocumentConnectorTool` alias and normalization helpers.
+- `src/validation.ts`: Boundary validation for MIME/chunk/parser limits and optional parse/chunk telemetry wrapper.
+- `src/__tests__/*.test.ts`: Unit, integration, and deep behavior tests.
+- `README.md`: Usage examples and feature summary.
 
 ## Runtime and Control Flow
 1. Connector creation:
-- `createDocumentConnector(config?)` resolves defaults (`maxChunkSize=4000`, `overlap=200`).
-- It creates two tools through `createForgeTool` from `@dzupagent/core`.
+- `createDocumentConnector(config)` resolves defaults (`maxChunkSize = 4000`, `overlap = 200`).
+- Validates connector chunk defaults (`maxChunkSize > 0`, finite integer, `<= 20000`; `overlap < maxChunkSize`).
+- Returns two `StructuredToolInterface` instances via `createForgeTool`.
 
-2. `parse-document` tool flow:
-- Input schema: `{ content: string(base64), contentType: string }` (Zod).
-- Validates type using `isSupportedDocumentType`.
-- Decodes base64 to `Buffer`.
+2. Parse tool (`parse-document`) flow:
+- Accepts `{ content: base64 string, contentType: string }`.
+- Validates MIME allowlist and parser size limits (`maxDocumentBytes` default: 10 MiB) before parsing.
+- Decodes base64 into a `Buffer`.
 - Calls `parseDocument(buffer, contentType)`.
-- Truncates output to `MAX_OUTPUT_LENGTH` (8000 chars) with `\n...[truncated]` suffix when needed.
-- Returns either extracted text or `Error: <message>`.
+- Truncates successful output at `MAX_OUTPUT_LENGTH = 8000` chars with `\n...[truncated]` suffix.
+- Emits optional telemetry callback events with `{ operation, durationMs, success, error? }`.
+- Throws parse errors after telemetry emission.
 
-3. `parseDocument` routing:
-- Normalizes MIME by stripping parameters and lowercasing.
-- Routes to:
-  - `parsePDF` for `application/pdf`.
-  - `parseDOCX` for DOCX MIME.
-  - `buffer.toString('utf-8')` for `text/plain` and `text/markdown`.
-- Throws for unsupported types.
+3. `parseDocument` dispatch:
+- Normalizes MIME (`split(';')[0]`, trim, lowercase).
+- Routes `application/pdf` to `parsePDF`.
+- Routes DOCX MIME to `parseDOCX`.
+- Routes `text/markdown` and `text/plain` to `buffer.toString('utf-8')`.
+- Throws `Unsupported document type: ...` for all other values.
 
-4. `chunk-document` tool flow:
-- Input schema: `{ text: string, maxChunkSize?: number, overlap?: number }`.
-- Resolves runtime chunk size/overlap from input or connector defaults.
-- Calls `splitIntoChunks(text, chunkSize, overlapSize)`.
-- Serializes chunk array as JSON in `execute`.
-- `toModelOutput` returns `<N> chunks created` when output parses as JSON array; otherwise raw text.
+4. Chunk tool (`chunk-document`) flow:
+- Accepts `{ text, maxChunkSize?, overlap? }`.
+- Resolves runtime values from input or connector defaults.
+- Validates `maxChunkSize` and `overlap` before chunking starts.
+- Calls `splitIntoChunks`.
+- `execute` returns JSON-stringified chunk arrays.
+- `toModelOutput` attempts `JSON.parse`; if successful returns `"<N> chunks created"`, otherwise raw text.
+- Emits optional telemetry callback events with `{ operation, durationMs, success, error? }`.
 
-5. Chunking pipeline internals (`splitIntoChunks`):
-- Empty/whitespace input -> `[]`.
-- If whole input fits max size -> single trimmed chunk.
-- Otherwise:
-  - `splitOnHeadings` (`##` / `###` boundaries),
-  - fallback `splitOnParagraphs` for oversized sections,
-  - fallback `splitOnSentences` for still-oversized paragraph chunks,
-  - optional `addOverlap` with `"\n---\n"` separator.
+5. Chunking pipeline behavior:
+- Empty or whitespace text returns `[]`.
+- Text within `maxChunkSize` returns a single trimmed chunk.
+- Oversized text is split by headings, then paragraphs, then sentences as needed.
+- If `overlapSize > 0` and multiple chunks exist, overlap from prior chunk tail is prepended with `\n---\n`.
 
 ## Key APIs and Types
-Public exports from `src/index.ts`:
 - `createDocumentConnector(config?: DocumentConnectorConfig): StructuredToolInterface[]`
 - `normalizeDocumentTool(tool): DocumentConnectorTool`
 - `normalizeDocumentTools(tools): DocumentConnectorTool[]`
@@ -82,65 +86,47 @@ Public exports from `src/index.ts`:
 - `splitIntoChunks(text: string, maxChunkSize?: number, overlapSize?: number): string[]`
 - `isSupportedDocumentType(mimeType: string): boolean`
 - `SUPPORTED_MIME_TYPES: Set<string>`
-- `ChunkOptions` type
-- `DocumentConnectorConfig` type
-- `DocumentConnectorTool` type alias
-
-Key constants and defaults used in runtime behavior:
-- `MAX_OUTPUT_LENGTH = 8000` in `document-connector.ts`
-- default chunk config: `maxChunkSize = 4000`, `overlap = 200`
-- `MAX_PDF_PAGES = 50` in `pdf-parser.ts`
+- `DocumentConnectorConfig` with `maxChunkSize?: number`, `overlap?: number`, `maxDocumentBytes?: number`, and `telemetryCallback?: (event) => void`.
+- `ChunkOptions` with `maxChunkSize?: number`, `overlapSize?: number`.
+- `DocumentConnectorTool<Input, Output>` as alias to `BaseConnectorTool<Input, Output>`.
 
 ## Dependencies
-Runtime dependencies:
-- `@dzupagent/core`: `createForgeTool`, `normalizeBaseConnectorTool`, `BaseConnectorTool` types.
-- `mammoth`: DOCX text extraction.
-- `pdf-parse`: PDF text extraction (`PDFParse` API).
-
-Peer dependency:
-- `zod >=4.0.0` (tool input schemas).
-
-Dev/testing dependencies:
-- `vitest`, `typescript`, `tsup`, `@types/pdf-parse`, `zod`.
-
-Build/runtime target:
-- ESM package, Node 20 target (`tsup` config), single entry `src/index.ts` -> `dist`.
+- Runtime: `@dzupagent/core`, `pdf-parse`, `mammoth`.
+- Peer: `zod >=4.0.0`.
+- Dev: `vitest`, `typescript`, `tsup`, `@types/pdf-parse`, `zod`.
+- Build/package shape: ESM output (`type: module`), single entry `src/index.ts`, declarations in `dist/index.d.ts`, `tsup` target `node20`, `@dzupagent/*` marked external.
 
 ## Integration Points
-- Tool-runtime integration via `createForgeTool` from `@dzupagent/core`.
-- Consumer-facing tools are `StructuredToolInterface` compatible and named:
-  - `parse-document`
-  - `chunk-document`
-- Contract normalization via `normalizeDocumentTool(s)` bridges generic structured tools to connector-specific `DocumentConnectorTool` shape.
-- In current monorepo source search, runtime usage is concentrated inside this package and tests; README shows expected external consumer usage.
+- Tooling surface: `parse-document` for document bytes -> text, `chunk-document` for text -> chunk summary.
+- Core bridge: `createForgeTool` for tool construction in DzupAgent runtime.
+- Contract bridge: `normalizeDocumentTool(s)` for converting `StructuredToolInterface` to normalized connector-tool shape.
+- Consumer usage: direct helper calls (`parseDocument`, `splitIntoChunks`) or connector-tool usage via `createDocumentConnector`.
 
 ## Testing and Observability
-Test setup:
-- Framework: Vitest (`yarn workspace @dzupagent/connectors-documents test`).
-- Current local run (2026-04-26) passed:
-  - 11 test files
-  - 164 tests
-  - 0 failures
-
-Covered areas include:
-- MIME normalization and support checks.
-- Parser success/failure paths (PDF/DOCX/text/markdown).
-- Chunking primitives and pipeline behavior.
-- Tool behavior (output truncation, error wrapping, model output formatting).
+- Test framework: Vitest (`yarn workspace @dzupagent/connectors-documents test`).
+- Latest local run in this workspace:
+- `11` test files passed.
+- `165` tests passed.
+- `0` failures.
+- Coverage focus:
+- MIME support and normalization.
+- Parser dispatch and error propagation for PDF/DOCX/plain/markdown.
+- PDF/DOCX no-extractable-text failures.
+- Chunking primitives and overlap boundaries.
+- Tool-level truncation, error wrapping, `toModelOutput` behavior.
 - Contract normalization behavior.
-- End-to-end parse->chunk connector paths.
-
-Observability notes:
-- No dedicated telemetry, metrics, or tracing hooks are implemented in this package.
-- Operational visibility is currently test-based and caller-managed (errors returned as strings in tool layer).
+- End-to-end parse->chunk integration scenarios.
+- Observability status:
+- Optional in-process telemetry callback is available for parse/chunk duration and failures.
+- No hard dependency on OTEL or external telemetry libraries.
 
 ## Risks and TODOs
-- `parse-document` truncates content at 8000 chars, which protects downstream context but can hide tail content of large documents.
-- `chunk-document` returns only a summary string (`<N> chunks created`) to model output; consumers needing actual chunk payloads must rely on execution-layer output handling rather than model-facing text.
-- PDF extraction depends on embedded text (`pdf-parse`) and does not provide OCR for image-only scans.
-- MIME allowlist is intentionally narrow (PDF, DOCX, text/markdown); adding formats requires parser implementation and allowlist updates.
-- No package-level runtime telemetry exists yet for parse latency, failure rates, or chunking volume.
+- Output truncation in `parse-document` (8000 chars) can hide tail content of long documents.
+- `chunk-document` model output is a summary string, not raw chunks; callers must capture execution output when chunk payloads are needed downstream.
+- PDF parsing depends on embedded text and does not cover OCR/image-only PDFs.
+- Heading splitting recognizes only markdown `##` and `###`; `#` headings are not split boundaries.
+- MIME support is intentionally narrow (4 types); new formats require allowlist and parser changes.
+- Parser byte limits are coarse (global 10 MiB default); per-format tuning may be needed for large documents.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

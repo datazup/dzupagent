@@ -1,127 +1,145 @@
 # Tools Architecture (`packages/codegen/src/tools`)
 
 ## Scope
-This document covers the `@dzupagent/codegen` tools layer implemented in:
+This document describes the tool modules implemented under `packages/codegen/src/tools`:
 
-- `src/tools/write-file.tool.ts`
-- `src/tools/edit-file.tool.ts`
-- `src/tools/multi-edit.tool.ts`
-- `src/tools/generate-file.tool.ts`
-- `src/tools/run-tests.tool.ts`
-- `src/tools/validate.tool.ts`
-- `src/tools/preview-app.tool.ts`
-- `src/tools/lint-validator.ts`
-- `src/tools/tool-context.ts`
+- `write-file.tool.ts`
+- `edit-file.tool.ts`
+- `multi-edit.tool.ts`
+- `generate-file.tool.ts`
+- `run-tests.tool.ts`
+- `validate.tool.ts`
+- `preview-app.tool.ts`
+- `lint-validator.ts`
+- `tool-context.ts`
+
+It also references how these modules are exported through:
+
+- `packages/codegen/src/index.ts` (root package API)
+- `packages/codegen/src/tools.ts` (`@dzupagent/codegen/tools` facade)
 
 Out of scope:
 
-- Git tools in `src/git/*`
-- Pipeline/guardrail orchestration in `src/pipeline/*` and `src/guardrails/*`
-- Runtime tool resolution in `packages/server/src/runtime/tool-resolver.ts` (referenced only as an integration point)
+- Git tooling in `packages/codegen/src/git/*`
+- Workspace implementation details in `packages/codegen/src/workspace/*`
+- Runtime tool resolution and activation in `packages/server/src/runtime/tool-resolver.ts`
 
 ## Responsibilities
-The tools subsystem provides LangChain-compatible tool factories and lightweight lint helpers for codegen workflows.
+The tools layer provides LangChain-compatible tool factories for common codegen actions plus lightweight lint validation helpers.
 
-Current responsibilities are:
+Current responsibilities:
 
-- Define tool names, input schemas, and output contracts for file mutation/generation/validation/test/preview tasks.
-- Bridge tool execution between in-memory `VirtualFS` and optional `Workspace` implementations (`CodegenToolContext`).
-- Provide output normalization for model-facing loops (mostly JSON strings, with text summaries for edit tools).
-- Offer low-cost syntax checking (`quickSyntaxCheck`) and optional sandboxed ESLint parsing with fallback (`sandboxLintCheck`).
+- Define stable tool names, input schemas, and return payloads for file writing/editing, generation, test execution, validation, and preview.
+- Bridge file operations across `VirtualFS` and optional `Workspace` via `CodegenToolContext`.
+- Apply write-permission fail-fast checks for workspace-aware write tools when `permissionTier` is provided.
+- Return model-consumable outputs:
+  - JSON string payloads for `write_file`, `generate_file`, `run_tests`, `validate_feature`, and `preview_app`.
+  - Human-readable text summaries for `edit_file` and `multi_edit`.
+- Provide two lint checks:
+  - `quickSyntaxCheck` (local delimiter/string/comment scanner for JS/TS/Vue-family files)
+  - `sandboxLintCheck` (sandbox ESLint JSON parse, with fallback to `quickSyntaxCheck`)
 
 ## Structure
-`src/tools` currently has three groups:
+`src/tools` is organized as follows:
 
 - File mutation tools:
-  - `write_file`: metadata-first write intent, optionally workspace-backed writes.
-  - `edit_file`: sequential search/replace edits in a single file.
-  - `multi_edit`: batched search/replace edits across files.
-- Execution/quality tools:
-  - `generate_file`: delegates generation to `CodeGenService`.
-  - `run_tests`: executes one command through `SandboxProtocol`.
-  - `validate_feature`: delegates scoring to `QualityScorer`.
-  - `preview_app`: runs a dev command in a session-based sandbox and exposes a URL.
-- Shared types/utilities:
-  - `CodegenToolContext` (`vfs?`, `workspace?`) in `tool-context.ts`.
-  - `quickSyntaxCheck` and `sandboxLintCheck` in `lint-validator.ts`.
+  - `createWriteFileTool` (`write_file`)
+  - `createEditFileTool` (`edit_file`)
+  - `createMultiEditTool` (`multi_edit`)
+- Generation/validation/execution tools:
+  - `createGenerateFileTool` (`generate_file`)
+  - `createRunTestsTool` (`run_tests`)
+  - `createValidateTool` (`validate_feature`)
+  - `createPreviewAppTool` (`preview_app`)
+- Shared tool context and lint utilities:
+  - `CodegenToolContext` (`vfs?`, `workspace?`, `permissionTier?`)
+  - `quickSyntaxCheck`, `sandboxLintCheck`, `LintError`, `LintResult`
 
-Implementation split between `tool(...)` and `DynamicStructuredTool`:
+Tool-construction style in current code:
 
-- Uses `tool(...)`: `write_file`, `generate_file`, `run_tests`, `validate_feature`.
-- Uses `DynamicStructuredTool`: `edit_file`, `multi_edit`, `preview_app`.
-
-`edit_file` and `multi_edit` explicitly use `DynamicStructuredTool` to avoid nested schema interop issues called out in source comments/tests.
+- Uses `tool(...)` from `@langchain/core/tools`:
+  - `write-file.tool.ts`
+  - `generate-file.tool.ts`
+  - `run-tests.tool.ts`
+  - `validate.tool.ts`
+- Uses `DynamicStructuredTool`:
+  - `edit-file.tool.ts`
+  - `multi-edit.tool.ts`
+  - `preview-app.tool.ts`
 
 ## Runtime and Control Flow
-### 1) `write_file`
-- Input: `{ filePath, content }`.
-- If `context.workspace` exists, writes immediately via `workspace.writeFile(...)`.
-- Workspace-backed writes rely on `Workspace` path containment; `LocalWorkspace`
-  rejects absolute paths and root escapes before the write.
-- Otherwise, returns a JSON payload describing a successful write intent; caller must apply state mutation externally.
-- Output shape:
-  - Success: `{ action: 'write_file', filePath, size, success: true }`
-  - Error (workspace mode): `{ action: 'write_file', filePath, success: false, error }`
+1. `write_file` (`createWriteFileTool`)
+- Optional issuance guard: when `context.permissionTier` exists, `assertTierAllowsWrite` runs before tool construction.
+- Invocation input: `{ filePath, content }`.
+- If `context.workspace` exists, the tool writes immediately with `workspace.writeFile`.
+- On workspace write success/failure, returns JSON payload with `success` and optional `error`.
+- Without workspace, returns JSON write intent only; caller must apply the state mutation separately.
 
-### 2) `edit_file`
-- Input: `{ filePath, edits[] }`, each edit `{ oldText, newText, replaceAll? }`.
-- Resolves runtime backend:
-  - If passed `CodegenToolContext`, prefers `workspace`; otherwise uses `context.vfs`.
-  - If passed `VirtualFS`, uses it directly.
-- Reads file, applies edits sequentially, writes modified content back only if at least one edit succeeds.
-- In workspace mode, path-containment errors are returned as explicit errors
-  instead of being masked as missing files.
-- Returns plain text status (not JSON), including partial-failure summaries.
+2. `edit_file` (`createEditFileTool`)
+- Accepts either `VirtualFS` or `CodegenToolContext`.
+- For `CodegenToolContext`, it prefers `workspace`; otherwise falls back to `context.vfs`.
+- Optional issuance guard for context mode: `assertTierAllowsWrite(permissionTier, 'edit_file')`.
+- Reads target file, applies edits sequentially, and writes back only if at least one edit succeeded.
+- `replaceAll` toggles global replacement; otherwise only first match is replaced.
+- Returns text summaries, including partial-failure and all-failed cases.
+- If workspace read throws `WorkspacePathSecurityError`, returns that explicit error text rather than masking it as not found.
 
-### 3) `multi_edit`
-- Input: `{ fileEdits[] }`, each entry `{ filePath, edits[] }`.
-- Reads and mutates only `VirtualFS` (no workspace branch).
-- Skips missing files and keeps processing the rest.
-- Commits pending writes after processing all entries.
-- Returns plain text status with per-file outcomes.
+3. `multi_edit` (`createMultiEditTool`)
+- Works on `VirtualFS` only.
+- Input: `{ fileEdits: [{ filePath, edits: [{ oldText, newText }] }] }`.
+- Each file is processed independently:
+  - missing file => skipped
+  - matching edits => staged in `pending`
+- Writes staged changes after processing all file entries.
+- Returns text summary with per-file results and counts.
 
-### 4) `generate_file`
+4. `generate_file` (`createGenerateFileTool`)
 - Input: `{ filePath, purpose, referenceCode? }`.
-- Calls `CodeGenService.generateFile(...)` with optional `referenceFiles.reference`.
-- Returns JSON result with generated content and aggregate token count (`inputTokens + outputTokens`).
+- Delegates to `CodeGenService.generateFile(...)`, passing optional `referenceFiles.reference`.
+- Returns JSON payload with generated content metadata:
+  - `action`, `filePath`, `content`, `language`, `source`, `tokensUsed`
+  - `tokensUsed` is `inputTokens + outputTokens`.
 
-### 5) `run_tests`
-- Input: `{ testCommand?, timeoutMs? }`.
+5. `run_tests` (`createRunTestsTool`)
 - Checks `sandbox.isAvailable()` first.
-- Executes command via `sandbox.execute(...)` (`npx vitest run --reporter=json` by default).
-- Returns JSON with success flag, exit code, truncation-limited logs (`stdout` 5000 chars, `stderr` 2000 chars), and timeout marker.
+- If unavailable, returns JSON error payload without execution.
+- Executes command through `SandboxProtocol.execute` with default:
+  - `npx vitest run --reporter=json`
+  - default timeout `60000`.
+- Returns JSON payload including `exitCode`, `timedOut`, and truncated logs (`stdout` max 5000 chars, `stderr` max 2000 chars).
 
-### 6) `validate_feature`
+6. `validate_feature` (`createValidateTool`)
 - Input: `{ featureId, vfsSnapshot, context? }`.
-- Casts optional context into `QualityContext` and delegates to `QualityScorer.evaluate(...)`.
-- Returns JSON payload including `quality`, `success`, per-dimension outputs, errors, and warnings.
-- Tool name is `validate_feature`; returned action string is `validate`.
+- Casts optional `context` to `QualityContext`.
+- Delegates to `QualityScorer.evaluate(vfsSnapshot, qualityContext)`.
+- Returns JSON payload with `quality`, `success`, `dimensions`, `errors`, and `warnings`.
+- Tool name is `validate_feature`; result payload action is `validate`.
 
-### 7) `preview_app`
+7. `preview_app` (`createPreviewAppTool`)
 - Input: `{ command, port, timeoutMs?, sessionId? }`.
-- Uses `SandboxProtocolV2`:
-  - Start/reuse session.
-  - Expose port.
-  - Execute command via `executeStream(...)`.
-- Health resolution:
-  - First `stdout`/`stderr` event => `ready`.
-  - `exit` event => `ready` on code 0, otherwise `error`.
-  - stream exception => `error`.
-  - no early signal can remain `starting`.
-- Returns JSON: `{ sessionId, url, health, message? }`.
+- Uses `SandboxProtocolV2` flow:
+  - start or reuse session
+  - expose port
+  - stream command execution through `executeStream`
+- Health mapping:
+  - first `stdout` or `stderr` => `ready`
+  - `exit` with `0` => `ready`
+  - `exit` non-zero or thrown exception => `error`
+  - no early event before timeout window can remain `starting`
+- Returns JSON payload: `{ sessionId, url, health, message? }`.
 
-### 8) Lint utilities
+8. Lint validators
 - `quickSyntaxCheck(filePath, content)`:
-  - Applies only to `ts/tsx/js/jsx/vue` extensions.
-  - Tracks braces/brackets/parens plus string/template/comment states.
-  - Returns `LintResult` with `LintError[]`.
+  - Active only for `ts`, `tsx`, `js`, `jsx`, `vue`.
+  - Tracks braces, brackets, parens, string/template states, and comment states.
+  - Returns `{ valid, errors }`.
 - `sandboxLintCheck(filePath, content, sandbox)`:
-  - Runs ESLint JSON via sandbox command.
-  - Parses severity `>= 2` as errors.
-  - Falls back to `quickSyntaxCheck` on sandbox/parse/no-message paths.
+  - Executes ESLint JSON via sandbox command.
+  - Converts messages with `severity >= 2` to `LintError[]`.
+  - Falls back to `quickSyntaxCheck` when sandbox execution or JSON parsing is not usable.
 
 ## Key APIs and Types
-Tool factories:
+Primary factories and helpers:
 
 - `createWriteFileTool(context?: CodegenToolContext)`
 - `createEditFileTool(vfsOrContext: VirtualFS | CodegenToolContext)`
@@ -130,90 +148,94 @@ Tool factories:
 - `createRunTestsTool(sandbox: SandboxProtocol)`
 - `createValidateTool(scorer: QualityScorer)`
 - `createPreviewAppTool(sandbox: SandboxProtocolV2)`
-
-Utility APIs:
-
 - `quickSyntaxCheck(filePath: string, content: string): LintResult`
 - `sandboxLintCheck(filePath: string, content: string, sandbox: SandboxProtocol): Promise<LintResult>`
 
-Primary types in this folder:
+Core local types:
 
-- `CodegenToolContext` (`vfs?: VirtualFS`, `workspace?: Workspace`)
+- `CodegenToolContext`
+  - `vfs?: VirtualFS`
+  - `workspace?: Workspace`
+  - `permissionTier?: PermissionTier`
 - `LintError`, `LintResult`
 - `PreviewAppResult`
 
-Export surface:
+Public export entrypoints:
 
-- Re-exported from `packages/codegen/src/index.ts` as part of `@dzupagent/codegen` package API.
+- Root API: `packages/codegen/src/index.ts` exports all of the above.
+- Subpath API: `packages/codegen/src/tools.ts` re-exports `src/tools/*` plus git/workspace/PTC surfaces for `@dzupagent/codegen/tools`.
+- Package export map (`package.json`) exposes `./tools` -> `dist/tools.js`.
 
 ## Dependencies
-Direct package dependencies relevant to this subsystem:
+External dependencies used directly by `src/tools/*`:
 
-- Runtime deps (`package.json`):
-  - `@dzupagent/core`
-  - `@dzupagent/adapter-types`
-- Peer deps used by tool implementations:
-  - `@langchain/core` (tool factories/types)
-  - `zod` (schemas)
+- `@langchain/core/tools` (`tool`, `DynamicStructuredTool`)
+- `zod` (tool input schema definitions)
 
-Internal codegen dependencies consumed by tool modules:
+Internal dependencies used directly by `src/tools/*`:
 
 - `../vfs/virtual-fs.js`
 - `../workspace/types.js`
-- `../sandbox/sandbox-protocol.js`
-- `../sandbox/sandbox-protocol-v2.js`
 - `../generation/code-gen-service.js`
 - `../quality/quality-scorer.js`
 - `../quality/quality-types.js`
+- `../sandbox/sandbox-protocol.js`
+- `../sandbox/sandbox-protocol-v2.js`
+- `../sandbox/permission-tiers.js`
+
+Package-level context (`packages/codegen/package.json`):
+
+- Runtime deps: `@dzupagent/core`, `@dzupagent/adapter-types`
+- Peer deps relevant to tools API: `@langchain/core`, `zod`
 
 ## Integration Points
-Confirmed integrations in current repo:
+Documented and code-confirmed integration points:
 
-- `packages/codegen/src/index.ts` exports all tool factories and related types.
-- `packages/codegen/src/workspace/__tests__/workspace-integration.test.ts` validates workspace-backed `createWriteFileTool(...)` behavior end-to-end.
-- `packages/codegen/src/ci/failure-router.ts` references tool names (`edit_file`, `run_tests`, `write_file`) in fix strategy suggestions.
-- `packages/core/src/security/tool-permission-tiers.ts` classifies `write_file`, `edit_file`, `multi_edit`, and `generate_file` in default `log` tier.
-- `packages/core/src/subagent/subagent-spawner.ts` only extracts file deltas from a narrow tool set (`write_file`, `edit_file`, `create_file`) and only from specific arg keys.
-- `packages/server/src/runtime/tool-resolver.ts` currently auto-resolves git tools from `@dzupagent/codegen`; tools from `src/tools/*` are not auto-wired there.
-
-Documentation alignment note:
-
-- `packages/codegen/README.md` still describes some outdated signatures (`createWriteFileTool(vfs)`, `createValidateTool(sandbox)`), while current implementations use `createWriteFileTool(context?)` and `createValidateTool(scorer)`.
+- `packages/codegen/src/index.ts` exports tool factories/types in the root `@dzupagent/codegen` API.
+- `packages/codegen/src/tools.ts` exports these tool modules as part of `@dzupagent/codegen/tools`.
+- `packages/codegen/src/ci/failure-router.ts` recommends `edit_file`, `write_file`, and `run_tests` in failure strategies.
+- `packages/core/src/security/tool-permission-tiers.ts` classifies `write_file`, `edit_file`, `multi_edit`, and `generate_file` in `DEFAULT_LOG_TOOLS`.
+- `packages/core/src/subagent/subagent-spawner.ts` only extracts file changes for `write_file`, `edit_file`, and `create_file` from tool-call args.
+- `packages/server/src/runtime/tool-resolver.ts` dynamically resolves git/connectors/MCP tools; it does not auto-register `src/tools/*` codegen tools directly.
+- `packages/codegen/README.md` currently contains stale signatures for tool factories (`createWriteFileTool(vfs)`, `createValidateTool(sandbox)`), while code uses `createWriteFileTool(context?)` and `createValidateTool(scorer)`.
 
 ## Testing and Observability
-Tests directly covering this subsystem include:
+Direct test coverage for the tools layer includes:
 
 - `src/__tests__/tools-suite.test.ts`
 - `src/__tests__/edit-file-tool.test.ts`
 - `src/__tests__/multi-edit-tool.test.ts`
-- `src/__tests__/validate-tool.test.ts`
 - `src/__tests__/preview-app-tool.test.ts`
+- `src/__tests__/validate-tool.test.ts`
 - `src/__tests__/lint-validator.test.ts`
 - `src/__tests__/branch-coverage-edits.test.ts`
 - `src/__tests__/branch-coverage-sandbox-lint.test.ts`
+- `src/workspace/__tests__/workspace-integration.test.ts` (workspace-backed write path integration)
 
-Coverage intent in tests:
+Observed behavior from implementation/tests:
 
-- Core tool names and output payloads.
-- Partial-success/failure behavior for edit tools.
-- Workspace-backed branches (`write_file`, `edit_file`).
-- `preview_app` session start/reuse/error and stream event branches.
-- `sandboxLintCheck` parse-success and fallback branches.
+- `edit_file` and `multi_edit` tests call `_call(...)` directly as a workaround for nested-schema interop issues noted in comments.
+- `run_tests` explicitly verifies output truncation and sandbox availability handling.
+- `preview_app` covers session reuse, expose-port failures, stream event branches, and stream exceptions.
+- `sandboxLintCheck` covers clean ESLint output, severity filtering, and all fallback paths.
 
-Observability characteristics in implementation:
+Observability characteristics:
 
-- Tools return explicit action/result payloads to calling orchestrators.
-- `run_tests` includes bounded log snippets and `timedOut` signal.
-- `preview_app` emits a coarse health state (`starting|ready|error`) and optional message.
-- No direct metrics/tracing emission inside tool modules; telemetry is expected to be handled by higher-level runtime/event layers.
+- Tools communicate outcomes through structured return payloads (or deterministic text summaries for edit tools).
+- `run_tests` and `preview_app` include runtime-state details (`exitCode`, `timedOut`, `health`, `message`) suitable for higher-level event logging.
+- No direct metrics/tracing emission exists inside `src/tools/*`; telemetry is expected from orchestration/runtime layers.
 
 ## Risks and TODOs
-- `validate_feature` naming mismatch: tool name is `validate_feature`, but payload action is `validate`, and other packages commonly reference `validate` as a tool concept.
-- File extraction mismatch risk in `SubAgentSpawner`: extractor only understands `{path|file_path|filePath}` + `{content|new_content|newContent}` patterns and does not parse `multi_edit` or `generate_file` result payloads.
-- `multi_edit` is VFS-only while `write_file`/`edit_file` can run with `Workspace`; mixed usage can create inconsistent write paths in workspace-first flows.
-- `preview_app` readiness heuristic is event-first (first `stdout`/`stderr` => ready) rather than protocol-level health probing; false-ready states are possible for noisy startup logs.
-- `sandboxLintCheck` shells content through `echo ${JSON.stringify(content)}`; very large content and shell quoting/size edge cases are still command-shape sensitive.
-- Documentation drift remains in package README tool signatures and should be updated to match current code.
+- Tool/action naming drift: `validate_feature` tool returns `action: "validate"` in payload.
+- Output-shape divergence: file edit tools return text, while most others return JSON strings; downstream parsers must branch by tool.
+- `multi_edit` only supports `VirtualFS`, while `write_file`/`edit_file` support workspace-backed execution, creating mixed behavior in workspace-first flows.
+- `SubAgentSpawner` file extraction remains limited to argument shapes for `write_file`/`edit_file`/`create_file`; it does not parse `multi_edit` or `generate_file` result payloads.
+- `preview_app` readiness is based on first stream event or exit status, not on explicit HTTP health probing.
+- `sandboxLintCheck` shells code through `echo ${JSON.stringify(content)}`; very large payloads and shell-escaping edges remain possible.
+- `createWriteFileTool`/`createEditFileTool` enforce permission tiers at tool construction, but there is no dedicated test in `src/__tests__` that asserts the throw path for read-only tiers.
+- `packages/codegen/README.md` tool API section is out of sync with current signatures.
 
 ## Changelog
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+

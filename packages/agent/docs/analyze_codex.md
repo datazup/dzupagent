@@ -3,6 +3,8 @@
 Date: 2026-04-02  
 Scope: `packages/agent` implementation review focused on TypeScript practices, LangGraph alignment, AI-agent architecture/organization, refactoring opportunities, gap analysis, and SWOT.
 
+> Historical snapshot note (updated 2026-05-16): Finding #1 below is no longer a live defect for the planning path. Current implementation keys duplicate-specialist batches by stable assignment ID (`assignment.id ?? specialistId`) and includes direct-caller guardrails with warn/strict behavior. See `packages/agent/src/orchestration/parallel-delegation-aggregator.ts`, `packages/agent/src/orchestration/assignment-validator.ts`, `packages/agent/src/__tests__/planning-agent.test.ts`, and `packages/agent/src/__tests__/delegating-supervisor.test.ts`.
+
 ## Executive Summary
 
 `@dzupagent/agent` is ambitious and feature-rich (large API surface, broad orchestration patterns, and good test volume), but it is now carrying architectural entropy:
@@ -252,4 +254,3 @@ Recommended direction:
 2. Add targeted tests for the high-severity paths listed above.
 3. `yarn typecheck --filter=@dzupagent/agent`
 4. `yarn lint --filter=@dzupagent/agent`
-

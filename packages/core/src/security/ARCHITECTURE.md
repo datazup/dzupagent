@@ -1,214 +1,220 @@
-# Core Security Architecture
+# Security Architecture (`packages/core/src/security`)
 
 ## Scope
-This document describes the security subsystem implemented in `packages/core/src/security`.
+This document describes the security subsystem implemented under `packages/core/src/security` in `@dzupagent/core`.
 
-It covers:
-- Public security API surface exported from `packages/core/src/security/index.ts`.
-- Curated facade surface exported from `packages/core/src/facades/security.ts` and published as `@dzupagent/core/security` (`package.json` subpath export `./security -> dist/facades/security.js`).
-- Internal security helper `content-sanitizer.ts` that is consumed inside `@dzupagent/core` (not part of the public security barrel).
-- Security-focused tests under `packages/core/src/__tests__`.
+In scope:
+- top-level security modules: `index.ts`, `risk-classifier.ts`, `tool-permission-tiers.ts`, `secrets-scanner.ts`, `pii-detector.ts`, `output-pipeline.ts`, `outbound-url-policy.ts`, `content-sanitizer.ts`
+- grouped modules: `audit/*`, `policy/*`, `monitor/*`, `memory/*`, `output/*`, `classification/*`
+- export wiring and reachability through `src/facades/security.ts` and `src/index.ts`
 
-It does not cover:
-- Security logic implemented in other packages.
-- App-level policy orchestration outside `@dzupagent/core`.
+Checked integration call sites in `packages/core`:
+- `src/mcp/mcp-client.ts` (outbound URL policy)
+- `src/skills/skill-manager.ts` (content sanitizer before skill writes)
 
 ## Responsibilities
-The `src/security` module provides composable primitives for:
-- Tool risk tiering (`auto`, `log`, `require-approval`) via configurable and default tool lists.
-- Secret detection and redaction (regex plus entropy heuristic for assigned strings).
-- PII detection and redaction for email/phone/SSN/card/IP patterns.
-- Multi-stage output sanitization through a configurable pipeline.
-- Policy modeling, storage abstraction, synchronous evaluation, and LLM-assisted policy translation.
-- Tamper-evident audit logging via append-only hash chaining in a store interface.
-- Runtime safety monitoring with built-in rules and optional custom rules.
-- Memory poisoning defense (homoglyph normalization, encoded payload detection, bulk-fact guardrails).
-- Data classification and classification-aware output redaction helpers.
-- Shared outbound URL validation for SSRF-sensitive fetch surfaces. The default policy allows public HTTPS destinations only, rejects loopback/private/link-local literal and DNS-resolved IPs, and requires explicit host/IP allowlists for trusted internal deployments.
-- Input content scanning used by skill persistence (`skills/skill-manager.ts` imports `scanContent` from `security/content-sanitizer.ts`).
+The subsystem provides reusable security primitives for runtime governance and content safety:
+
+- tool risk tiering for operation gating (`auto`, `log`, `require-approval`)
+- secrets and PII detection/redaction for arbitrary text payloads
+- staged output sanitization pipelines with configurable redaction and truncation
+- outbound URL validation and secure fetch wrapper with redirect re-validation
+- policy evaluation (enforcement), policy translation (authoring helper), and policy version storage
+- tamper-evident-style compliance audit logging with chain verification and query/export APIs
+- safety monitoring with built-in rules plus host-provided rule/scanner overrides
+- memory poisoning heuristics for mixed scripts, encoded payloads, and bulk fact writes
+- data classification based on sensitivity patterns
+- internal content scanning helper (`content-sanitizer.ts`) used by write paths outside the public security facade
 
 ## Structure
-Current `src/security` layout:
-
-- `risk-classifier.ts`: creates `RiskClassifier` and classification logic.
-- `tool-permission-tiers.ts`: default tool names grouped by risk tier.
-- `outbound-url-policy.ts`: shared public-destination URL validator and secure fetch wrapper that revalidates redirect hops.
-- `secrets-scanner.ts`: `scanForSecrets` and `redactSecrets`.
-- `pii-detector.ts`: `detectPII` and `redactPII`.
-- `output-pipeline.ts`: `OutputPipeline` and `createDefaultPipeline`.
-- `content-sanitizer.ts`: internal prompt-injection/exfiltration/invisible-unicode scanner used by skills.
-- `policy/`
-- `policy/policy-types.ts`: policy types and `InMemoryPolicyStore`.
-- `policy/policy-evaluator.ts`: synchronous deny-overrides evaluator and validator.
-- `policy/policy-translator.ts`: LLM-based rule translation/explanation.
-- `policy/index.ts`: policy barrel exports.
-- `audit/`
-- `audit/audit-types.ts`: audit entry/filter/retention/integrity types.
-- `audit/audit-store.ts`: `ComplianceAuditStore` interface.
-- `audit/in-memory-audit-store.ts`: in-memory append/search/verify/export implementation.
-- `audit/audit-logger.ts`: event-bus integrated logger.
-- `audit/index.ts`: audit barrel exports.
-- `monitor/`
-- `monitor/built-in-rules.ts`: built-in rule definitions and `getBuiltInRules()`.
-- `monitor/safety-monitor.ts`: `createSafetyMonitor` implementation.
-- `monitor/index.ts`: monitor barrel exports.
-- `memory/`
-- `memory/memory-defense.ts`: memory poisoning defense implementation.
-- `memory/index.ts`: memory-defense barrel exports.
-- `output/`
-- `output/output-filter-enhanced.ts`: harmful-content and classification-aware filter stages.
-- `output/index.ts`: enhanced output barrel exports.
-- `classification/`
-- `classification/data-classification.ts`: classifier, levels, default patterns.
-- `classification/index.ts`: classification barrel exports.
-- `index.ts`: top-level security barrel for the public security surface.
+| Path | Role | Main exports |
+| --- | --- | --- |
+| `src/security/index.ts` | Security barrel used by root exports | Re-exports risk/scanners/pipeline/policy/audit/monitor/memory/output/classification |
+| `src/security/risk-classifier.ts` | Tool risk classifier | `createRiskClassifier`, `RiskTier`, `RiskClassifier` |
+| `src/security/tool-permission-tiers.ts` | Default tool-tier lists | `DEFAULT_AUTO_APPROVE_TOOLS`, `DEFAULT_LOG_TOOLS`, `DEFAULT_REQUIRE_APPROVAL_TOOLS` |
+| `src/security/secrets-scanner.ts` | Regex + entropy secret scan/redaction | `scanForSecrets`, `redactSecrets`, `SecretMatch`, `ScanResult` |
+| `src/security/pii-detector.ts` | Adapter over `@dzupagent/security` PII scanner | `detectPII`, `redactPII`, `PIIType`, `PIIDetectionResult` |
+| `src/security/output-pipeline.ts` | Ordered sanitization stage runner | `OutputPipeline`, `createDefaultPipeline`, pipeline types |
+| `src/security/outbound-url-policy.ts` | SSRF-focused URL validation + secure fetch | `validateOutboundUrlSyntax`, `validateOutboundUrl`, `fetchWithOutboundUrlPolicy`, `isPublicIpAddress` |
+| `src/security/content-sanitizer.ts` | Internal threat scan for persisted content | `scanContent`, `stripInvisibleUnicode` |
+| `src/security/policy/*` | Policy model, evaluator, translator, in-memory store | `InMemoryPolicyStore`, `PolicyEvaluator`, `PolicyTranslator`, policy types |
+| `src/security/audit/*` | Audit model, store contract, in-memory store, logger | `InMemoryAuditStore`, `ComplianceAuditLogger`, audit types |
+| `src/security/monitor/*` | Built-in safety rules + monitor runtime | `createSafetyMonitor`, `getBuiltInRules`, safety types |
+| `src/security/memory/*` | Memory poisoning defense | `createMemoryDefense`, defense types |
+| `src/security/output/*` | Additional output filter stages | `createHarmfulContentFilter`, `createClassificationAwareRedactor` |
+| `src/security/classification/*` | Sensitivity classification model + defaults | `DataClassifier`, `DEFAULT_CLASSIFICATION_PATTERNS`, classification types |
 
 ## Runtime and Control Flow
-Security behavior is composition-based; there is no single central orchestrator in this folder.
+Risk classifier flow:
+1. `createRiskClassifier(config)` builds lookup sets from config or default tier arrays.
+2. `classify(toolName, args)` checks `require-approval`, then `log`, then `auto`.
+3. For unclassified names, optional `customClassifier` can override.
+4. Final fallback is `defaultTier` (default `'log'`).
 
-Typical flow for tool governance and audit:
-1. Caller classifies a tool call through `createRiskClassifier().classify(toolName, args)`.
-2. Caller evaluates request context with `PolicyEvaluator.evaluate(policySet, context)`.
-3. Caller emits runtime events on `DzupEventBus` (`policy:*`, `tool:*`, `memory:*`, `safety:*`, `agent:*`, `llm:*`).
-4. `ComplianceAuditLogger.attach(eventBus)` receives mapped event types via `onAny` and appends entries through `ComplianceAuditStore`.
+Secrets scanner flow:
+1. `scanForSecrets(content)` runs curated regex patterns (provider tokens, keys, connection strings, JWT, private key, generic assignments).
+2. It then runs entropy checks on assignment-like quoted values (`>20` chars and entropy `>4.5`).
+3. It builds redactions from end-to-start offsets and returns `{ hasSecrets, matches, redacted }`.
 
-Output hardening flow:
-1. Build `OutputPipeline` directly or via `createDefaultPipeline`.
-2. Run `await pipeline.process(content)`.
-3. Optional enhanced stages (`createHarmfulContentFilter`, `createClassificationAwareRedactor`) can be inserted as `SanitizationStage` providers.
-4. Result returns transformed content and metadata: `appliedStages`, `truncated`, `originalLength`.
+PII detector flow:
+1. `detectPII(content)` delegates to `PiiDetector.scanDetailed()` from `@dzupagent/security`.
+2. It narrows matches to core-supported canonical types: `email`, `phone`, `ssn`, `credit-card`, `ip-address`.
+3. It generates redacted content using `[REDACTED:<type>]` markers.
+
+Output pipeline flow:
+1. `OutputPipeline.process()` runs enabled stages in declared order.
+2. It tracks `appliedStages` only when stage output differs from previous content.
+3. It enforces `maxOutputLength` (default `100_000`) and appends `[TRUNCATED]` when exceeded.
+4. `createDefaultPipeline()` wires PII redaction, secrets redaction, and optional deny-list replacement stage.
+5. `output/output-filter-enhanced.ts` provides optional stages for harmful-content replacement and level-based extra redaction.
+
+Outbound URL policy flow:
+1. `validateOutboundUrlSyntax(url, policy)` parses URL, enforces protocol, blocks local/metadata hosts, and rejects non-public literal IPs unless allowlisted.
+2. `validateOutboundUrl(url, policy)` optionally performs DNS resolution (`lookup`) and rejects hostnames that resolve to non-public addresses unless IP-allowlisted.
+3. `fetchWithOutboundUrlPolicy(url, init, options)` validates each request URL and each redirect hop (`redirect: 'manual'`) with abort checks and redirect cap (default `5`).
+
+Policy flow:
+1. `PolicyEvaluator.evaluate(policySet, context)` sorts rules by `priority` descending.
+2. It matches principal, action/resource glob rules, condition operators, and expiration windows.
+3. Decision semantics are deny-overrides with default deny on no match.
+4. `PolicyEvaluator.validate()` performs structural checks (required fields, duplicate IDs, date validity, condition shape).
+5. `PolicyTranslator` is separate from enforcement and only handles NL-to-rule JSON translation plus human explanation.
 
 Safety monitor flow:
-1. Build monitor via `createSafetyMonitor(config?)`.
-2. Optionally attach to `DzupEventBus`; current subscriptions are `tool:error` and `memory:written`.
-3. `scanContent` evaluates built-in/custom rules and records violations.
-4. For each violation, monitor emits `safety:violation`; then emits `safety:blocked` for `block` actions or `safety:kill_requested` for `kill` actions.
+1. `createSafetyMonitor(config)` builds rules from built-ins unless `replaceBuiltInRules` is set.
+2. Built-ins include prompt injection, PII leak, secret leak, tool abuse, and escalation.
+3. Optional `SecurityPolicyConfig` can disable/downgrade prompt injection, PII, and escalation handling; tool abuse threshold reads from `policy.toolAbuse.maxCallsPerTool`.
+4. `scanContent()` executes rules defensively; rule failures are swallowed.
+5. Violations are always emitted as `safety:violation`.
+6. Violations with action `block` also emit `safety:blocked`.
+7. Violations with action `kill` also emit `safety:kill_requested`.
+8. `attach(eventBus)` subscribes to `tool:error` and `memory:written` and feeds those payloads through `scanContent`.
+
+Audit flow:
+1. `ComplianceAuditLogger.attach(eventBus)` subscribes to all events via `onAny`.
+2. A fixed event-type map determines which events become audit entries.
+3. Tool event details are sanitized before persistence (`tool:called` strips `input`, `tool:result` strips `output`).
+4. `InMemoryAuditStore.append()` assigns monotonic `seq`, links `previousHash`, computes hash, and stores entry.
+5. `verifyIntegrity()` recomputes chain links/hashes and reports the first break if present.
 
 Memory defense flow:
-1. Call `createMemoryDefense().scan(content, metadata?)`.
-2. Module checks mixed-script/homoglyph patterns, base64/hex encoded payloads, and approximate fact-count limit.
-3. Returns `{ allowed, threats, normalizedContent? }` for caller-side allow/quarantine/reject decisions.
-
-Internal skill-write guard flow:
-1. `SkillManager` (`src/skills/skill-manager.ts`) runs `scanContent` from `security/content-sanitizer.ts` before create/edit/patch writes.
-2. Unsafe content short-circuits with security-scan failure.
+1. `createMemoryDefense(config).scan(content)` optionally runs homoglyph normalization checks and records mixed-script threats.
+2. It optionally detects long base64/hex payloads and decodes when printable.
+3. It counts statement-like segments and flags over-limit writes (`maxFactsPerWrite`, default `10`).
+4. Any `quarantine` or `reject` threat results in `allowed: false`.
 
 ## Key APIs and Types
-Risk classification:
-- `createRiskClassifier(config?)`
+Risk and tool gating:
+- `createRiskClassifier`
 - `RiskTier`, `RiskClassification`, `RiskClassifierConfig`, `RiskClassifier`
 - `DEFAULT_AUTO_APPROVE_TOOLS`, `DEFAULT_LOG_TOOLS`, `DEFAULT_REQUIRE_APPROVAL_TOOLS`
 
-Outbound URL policy:
-- `validateOutboundUrl(url, policy?)`
-- `validateOutboundUrlSyntax(url, policy?)`
-- `fetchWithOutboundUrlPolicy(url, init?, options?)`
-- `isPublicIpAddress(address)`
-- `OutboundUrlSecurityPolicy`
+Secret and PII scanning:
+- `scanForSecrets`, `redactSecrets`
+- `SecretMatch`, `ScanResult`
+- `detectPII`, `redactPII`
+- `PIIType`, `PIIMatch`, `PIIDetectionResult`
 
-Secrets and PII:
-- `scanForSecrets(content)`, `redactSecrets(content)`
-- `detectPII(content)`, `redactPII(content)`
-- `SecretMatch`, `ScanResult`, `PIIType`, `PIIMatch`, `PIIDetectionResult`
-
-Output sanitization:
-- `OutputPipeline`, `createDefaultPipeline(config?)`
+Output safety:
+- `OutputPipeline`, `createDefaultPipeline`
 - `SanitizationStage`, `OutputPipelineConfig`, `PipelineResult`
+- `createHarmfulContentFilter`, `createClassificationAwareRedactor`, `HarmfulContentCategory`
 
-Policy subsystem:
-- `InMemoryPolicyStore`
-- `PolicyEvaluator` (`evaluate`, `validate`)
-- `PolicyTranslator` (`translate`, `explain`)
-- `PolicySet`, `PolicyRule`, `PolicyContext`, `PolicyDecision`, `PolicyCondition`, `ConditionOperator`, `PolicyTranslationResult`
+Outbound network controls:
+- `validateOutboundUrlSyntax`, `validateOutboundUrl`, `fetchWithOutboundUrlPolicy`, `isPublicIpAddress`
+- `OutboundUrlSecurityPolicy`, `OutboundUrlResolvedAddress`, `OutboundUrlPolicyResult`, `SecureFetchOptions`
 
-Audit subsystem:
-- `ComplianceAuditStore` interface
-- `InMemoryAuditStore`
-- `ComplianceAuditLogger`
-- `ComplianceAuditEntry`, `AuditFilter`, `AuditRetentionPolicy`, `IntegrityCheckResult`, `AuditLoggerConfig`
+Policy system:
+- `InMemoryPolicyStore`, `PolicyEvaluator`, `PolicyTranslator`
+- `PolicySet`, `PolicyRule`, `PolicyContext`, `PolicyDecision`, `PolicyStore`
+- `PolicyTranslatorConfig`, `PolicyTranslationResult`
 
-Safety monitoring:
-- `createSafetyMonitor(config?)`
-- `getBuiltInRules()`
-- `SafetyMonitor`, `SafetyRule`, `SafetyViolation`, `SafetyCategory`, `SafetySeverity`, `SafetyAction`
+Audit system:
+- `InMemoryAuditStore`, `ComplianceAuditLogger`
+- `ComplianceAuditStore`
+- `ComplianceAuditEntry`, `AuditFilter`, `AuditRetentionPolicy`, `IntegrityCheckResult`, `AuditActor`, `AuditResult`
 
-Memory defense:
-- `createMemoryDefense(config?)`
+Safety monitor and memory defense:
+- `createSafetyMonitor`, `getBuiltInRules`
+- `SafetyMonitor`, `SafetyMonitorConfig`, `SafetyRule`, `SafetyViolation`
+- `SafetyCategory`, `SafetySeverity`, `SafetyAction`
+- `InjectionScannerCallback`, `PiiScannerCallback`
+- `createMemoryDefense`
 - `MemoryDefense`, `MemoryDefenseConfig`, `MemoryDefenseResult`, `MemoryThreat`, `MemoryThreatAction`, `EncodedContentMatch`
 
-Enhanced output + classification:
-- `createHarmfulContentFilter(categories?)`
-- `createClassificationAwareRedactor(level?)`
+Classification:
 - `DataClassifier`, `DEFAULT_CLASSIFICATION_PATTERNS`
 - `ClassificationLevel`, `DataClassificationTag`, `ClassificationPattern`, `ClassificationConfig`
 
-Internal-only security helper in this folder:
-- `scanContent(content)`, `stripInvisibleUnicode(content)` from `content-sanitizer.ts`.
-
 ## Dependencies
-Direct dependencies used by files in `src/security` are intentionally minimal.
+Direct package dependency used by this subsystem:
+- `@dzupagent/security` for `PiiDetector`, `PromptInjectionDetector`, and shared `SecurityPolicyConfig` type
 
-Internal package dependencies:
-- `../../events/event-bus.js` (`DzupEventBus`) used by audit logger and safety monitor.
-- `../../errors/forge-error.js` (`ForgeError`) used by `PolicyTranslator`.
-- Cross-module security imports (for example `output-pipeline` using `secrets-scanner` and `pii-detector`).
+Node built-ins used directly in security modules:
+- `node:dns/promises` (`lookup`) for DNS checks in outbound policy
+- `node:net` (`isIP`) for IP family parsing in outbound policy
 
-Platform APIs:
-- `performance.now()` in `PolicyEvaluator` for microsecond timing.
-- `Buffer` in memory-defense encoded-content detection.
-- `Date`, `Math.random`, and `RegExp` across scanner/evaluator/logger implementations.
+Internal `@dzupagent/core` dependencies:
+- `../../events/event-bus.js` consumed by monitor and audit logger
+- `../../errors/forge-error.js` used by `PolicyTranslator` for recoverable invalid-response errors
+- cross-module composition within `src/security` (`output-pipeline` uses secret/PII scanners, monitor/policy/audit/memory/classification are layered modules)
 
-Package-level dependencies in `packages/core/package.json` remain workspace-level (`@dzupagent/agent-types`, `@dzupagent/runtime-contracts`), but the security subtree itself does not import third-party runtime libraries directly in current code.
+Package exposure context (`packages/core/package.json`):
+- published facade entrypoint: `@dzupagent/core/security` via `./security` export (`dist/facades/security.*`)
+- root entrypoint `@dzupagent/core` also re-exports security APIs from `src/index.ts`
 
 ## Integration Points
-Public surfaces:
-- `@dzupagent/core/security` (`./security` subpath export to facade build output).
-- Root exports from `@dzupagent/core` (`src/index.ts` re-exports security APIs).
-- Namespaced facade export via `@dzupagent/core/facades` (`security` namespace).
+Public integration:
+- `src/facades/security.ts` is the curated import surface for `@dzupagent/core/security`
+- `src/index.ts` re-exports the same security primitives for root imports
 
-Event integration:
-- `ComplianceAuditLogger` maps and records specific bus events including:
-- `policy:evaluated`, `policy:denied`, `policy:set_updated`
-- `safety:violation`, `safety:blocked`, `safety:kill_requested`
-- `memory:threat_detected`, `memory:quarantined`
-- `agent:started`, `agent:completed`, `agent:failed`
-- `tool:called`, `tool:error`
-- `llm:invoked`
+Internal runtime integrations in `packages/core`:
+- `src/mcp/mcp-client.ts` uses `fetchWithOutboundUrlPolicy` for `tools/list` and `tools/call` HTTP/SSE requests, including redirect-safe outbound execution
+- `src/skills/skill-manager.ts` uses `scanContent` from `content-sanitizer.ts` before create/edit/patch writes to `SKILL.md`
 
-Cross-module integration inside `@dzupagent/core`:
-- `skills/skill-manager.ts` uses `security/content-sanitizer.ts` prior to persisting skill files.
-- Output filters from `security/output/*` plug into `OutputPipeline` as sanitization stages.
-- Classification output can be used by callers to pick stricter output redaction behavior.
+Event integrations:
+- `SafetyMonitor` emits `safety:violation`, `safety:blocked`, and `safety:kill_requested`
+- `ComplianceAuditLogger` observes global event traffic via `eventBus.onAny` and records selected security-relevant actions
+
+Boundary note:
+- `content-sanitizer.ts` is intentionally internal and not exported from `src/security/index.ts` or the security facade
 
 ## Testing and Observability
-Security module tests are concentrated in `packages/core/src/__tests__` and include:
-- `risk-classifier.test.ts`, `security-risk-classifier.test.ts`
-- `secrets-scanner.test.ts`, `secrets-scanner-deep.test.ts`
-- `pii-detector.test.ts`, `pii-detector-deep.test.ts`, `security-pii-detector.test.ts`
-- `output-pipeline.test.ts`
-- `policy-engine.test.ts`, `security-policy-engine.test.ts`
-- `compliance-audit.test.ts`
-- `security-monitor.test.ts`
-- `data-classification.test.ts`
+Security-focused tests under `packages/core/src/__tests__` include:
 - `facade-security.test.ts`
-- regression bundle coverage in `w15-b2-security.test.ts`
+- `risk-classifier.test.ts`
+- `security-risk-classifier.test.ts`
+- `secrets-scanner.test.ts`
+- `secrets-scanner-deep.test.ts`
+- `pii-detector.test.ts`
+- `pii-detector-deep.test.ts`
+- `security-pii-detector.test.ts`
+- `policy-engine.test.ts`
+- `security-policy-engine.test.ts`
+- `compliance-audit.test.ts`
+- `llm-audit-event.test.ts`
+- `security-monitor.test.ts`
+- `safety-monitor-delegation.test.ts`
+- `outbound-url-policy.test.ts`
+- `output-pipeline.test.ts`
+- `data-classification.test.ts`
+- `w15-b2-security.test.ts`
+- `mcp-security.test.ts` (adjacent MCP security helpers and integration assumptions)
 
-Observability model:
-- Event-driven: `SafetyMonitor` emits safety events; `ComplianceAuditLogger` turns selected runtime events into persisted audit entries.
-- Audit integrity: `ComplianceAuditStore.verifyIntegrity()` provides chain verification hooks.
-- No dedicated metrics collector is implemented directly in `src/security`; metrics are expected to be provided by higher-level observability modules.
+Operational observability implemented in code:
+- monitor and audit paths are event-bus integrated
+- monitor rule exceptions and audit auto-record failures are intentionally non-fatal
+- policy evaluation returns per-call timing (`evaluationTimeUs`)
+- audit chain can be integrity-checked via `verifyIntegrity()`
 
 ## Risks and TODOs
-Current risks and open improvement targets visible from implementation:
-- `InMemoryAuditStore` uses a djb2-style hash variant rather than cryptographic hashing/signing; suitable for development, weak for high-assurance compliance scenarios.
-- `InMemoryPolicyStore.get()` returns last inserted version, not explicitly max numeric version when version history is inserted out of order.
-- `PolicyTranslator.translate()` validates JSON shape only at a shallow level (`rule` presence) and does not run full schema validation on generated rules.
-- `SafetyMonitor.attach()` subscribes only to `tool:error` and `memory:written`; broader scanning requires explicit `scanContent` calls by consumers.
-- `createDefaultPipeline({ customDenyList })` compiles deny-list patterns with `new RegExp`; invalid patterns throw during pipeline construction.
-- Classification level vocabularies are not fully unified:
-- `DataClassifier` supports `public | internal | confidential | restricted`.
-- `createClassificationAwareRedactor` additionally recognizes `top_secret`.
-- `content-sanitizer.ts` is security-relevant but not exported through security barrels, so external consumers cannot rely on it as a public API contract.
+- `InMemoryAuditStore` uses a custom synchronous hash function (djb2 variant), not cryptographic hashing
+- `in-memory-audit-store.ts` header comment references SHA-256 while implementation is custom hash chaining
+- `PolicyTranslator` trusts model output shape after JSON parse with limited semantic validation
+- regex and heuristic detectors can produce false positives/false negatives (`secrets-scanner`, `content-sanitizer`, `memory-defense`, enhanced output filters, classification patterns)
+- `MemoryDefense` fact counting is sentence/newline heuristic and can mis-estimate dense or highly structured text
+- `SafetyMonitor` violation history is in-memory only (no persistence/aggregation in this module)
+- outbound URL safety depends on correct allowlists (`allowedHosts`, `allowedIpAddresses`) and DNS behavior in deployment
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

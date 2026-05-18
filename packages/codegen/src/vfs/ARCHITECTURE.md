@@ -1,7 +1,8 @@
-# VFS Module Architecture (`packages/codegen/src/vfs`)
+# VFS Architecture (`packages/codegen/src/vfs`)
 
 ## Scope
-This document covers the code under `packages/codegen/src/vfs` in `@dzupagent/codegen`:
+This document describes the current implementation under `packages/codegen/src/vfs`:
+
 - `virtual-fs.ts`
 - `vfs-types.ts`
 - `cow-vfs.ts`
@@ -13,170 +14,187 @@ This document covers the code under `packages/codegen/src/vfs` in `@dzupagent/co
 - `checkpoint-manager.ts`
 - `path-security-error.ts`
 
-It also references package-level exports from `packages/codegen/src/index.ts` and direct in-package consumers where relevant.
+It also covers how this surface is exposed through `src/index.ts` and `src/vfs.ts`, and where it is consumed in the surrounding `@dzupagent/codegen` package.
 
 ## Responsibilities
-The VFS module is the codegen package's file-state and patch/execution substrate. It is responsible for:
-- Holding generated files in memory (`VirtualFS`).
-- Creating isolated forked views for speculative edits (`CopyOnWriteVFS`).
-- Running and selecting parallel generation attempts (`sample`, `selectBest`, `sampleAndCommitBest`).
-- Parsing and applying unified diffs with typed outcomes (`parseUnifiedDiff`, `applyPatch`, `applyPatchSet`).
-- Providing backend-neutral workspace file operations (`WorkspaceFS` and implementations).
-- Bridging in-memory snapshots to sandbox command execution (`WorkspaceRunner`).
-- Persisting and restoring snapshots via a caller-owned store (`saveSnapshot`, `loadSnapshot`).
-- Creating rollback checkpoints for real directories using shadow git repos (`CheckpointManager`).
-- Enforcing root confinement on disk-backed workspace paths (`PathSecurityError` via `DiskWorkspaceFS.resolveSafe`).
+The VFS layer is the file-state and patch/execution substrate for codegen workflows. It is responsible for:
+
+- In-memory file storage and diffing via `VirtualFS`.
+- Copy-on-write for speculative edits via `CopyOnWriteVFS`.
+- Parallel attempt orchestration and winner commit (`sample`, `selectBest`, `commitBest`, `sampleAndCommitBest`).
+- Parsing and applying unified diffs (`parseUnifiedDiff`, `applyPatch`, `applyPatchSet`).
+- Providing a backend-neutral file workspace interface (`WorkspaceFS`) with in-memory, disk, and worktree-backed implementations.
+- Bridging a `VirtualFS` snapshot into sandbox command execution (`WorkspaceRunner`).
+- Persisting snapshots through a caller-provided store contract (`SnapshotStore`).
+- Creating rollback checkpoints on real directories using isolated shadow git repositories (`CheckpointManager`).
+- Enforcing workspace root confinement for disk operations (`PathSecurityError` in `DiskWorkspaceFS.resolveSafe`).
 
 ## Structure
 - `virtual-fs.ts`
-  - `VirtualFS` class and `FileDiff` type.
-  - Basic map-backed CRUD/list/snapshot/diff/merge API.
+  - Defines `VirtualFS` and `FileDiff`.
+  - Map-backed file CRUD, listing, snapshot import/export, diff, and merge.
 - `vfs-types.ts`
-  - Shared CoW/sampling types: `MergeStrategy`, `MergeConflict`, `MergeResult`, `VFSDiff`, `SampleResult`.
+  - Shared type contracts for CoW and sampling: `MergeStrategy`, `MergeConflict`, `MergeResult`, `VFSDiff`, `SampleResult<T>`.
 - `cow-vfs.ts`
-  - `CopyOnWriteVFS` with overlay/deletion masks, parent chaining, conflict detection, merge strategies, and depth guard (`MAX_FORK_DEPTH = 3`).
+  - Defines `CopyOnWriteVFS`.
+  - Overlay + delete mask over parent VFS chain, conflict detection, merge strategies, and `MAX_FORK_DEPTH = 3`.
 - `parallel-sampling.ts`
-  - Sampling orchestration primitives over `CopyOnWriteVFS` (`sample`, `selectBest`, `commitBest`, `sampleAndCommitBest`).
+  - Sampling orchestration over `CopyOnWriteVFS`.
+  - Enforces sample count bounds (`1..10`) and captures `durationMs` plus optional `error`.
 - `patch-engine.ts`
-  - Unified diff parser and applier with typed hunk/file results and rollback-capable patch-set application.
+  - Unified diff parser (`parseUnifiedDiff`) and hunk applier (`applyPatch`).
+  - Multi-file orchestration with optional rollback (`applyPatchSet`).
+  - Typed error model including `PatchParseError`.
 - `workspace-fs.ts`
-  - `WorkspaceFS` interface.
+  - `WorkspaceFS` interface and patch options/result contracts.
   - Implementations: `InMemoryWorkspaceFS`, `DiskWorkspaceFS`, `GitWorktreeWorkspaceFS`.
 - `workspace-runner.ts`
-  - `WorkspaceRunner` plus `WorkspaceRunOptions`/`WorkspaceRunResult`.
+  - `WorkspaceRunner` for snapshot upload, command execution, optional sync-back, and availability/cleanup delegation.
 - `vfs-snapshot.ts`
-  - Snapshot store contract and non-throwing save/load helpers.
+  - Snapshot persistence contract (`SnapshotStore`) and non-throwing save/load wrappers.
 - `checkpoint-manager.ts`
-  - Shadow-git checkpoint system with per-turn dedup and restore/diff/list helpers.
+  - Checkpoint creation/list/diff/restore against a shadow git repo keyed by target directory hash.
 - `path-security-error.ts`
-  - Dedicated error type thrown when a resolved path escapes workspace root.
+  - Dedicated traversal error class carrying attempted path and workspace root.
 
 ## Runtime and Control Flow
-1. In-memory editing flow:
-- Callers mutate `VirtualFS` using `write/read/delete/list`.
-- Optional `toSnapshot()`/`fromSnapshot()` are used to move state across pipeline boundaries.
+1. In-memory edit flow
+- Callers mutate `VirtualFS` with `write`, `read`, `delete`, and `list`.
+- `toSnapshot()` and `VirtualFS.fromSnapshot()` move state across pipeline boundaries.
+- `diff` and `merge` provide simple file-level reconciliation.
 
-2. Copy-on-write sampling flow:
-- `sample`/`sampleAndCommitBest` create `CopyOnWriteVFS` forks from a root `VirtualFS`.
-- Each fork runs independently.
-- `selectBest` filters errored samples and scores successful results.
-- `commitBest` merges the winner into parent with `theirs` strategy.
+2. Copy-on-write speculative flow
+- A `CopyOnWriteVFS` wraps `VirtualFS` (or another CoW fork) with isolated overlay and deletion masking.
+- `fork()` creates nested forks up to depth 3.
+- `merge(strategy)` writes selected child changes back to parent (`theirs` default, `ours`, or conflict-only `manual`).
 
-3. Unified patch flow:
-- `parseUnifiedDiff` converts raw diff text into `FilePatch[]`.
-- `applyPatch` applies hunks for one file with context matching and fuzz search (`MAX_FUZZ = 3`).
-- `applyPatchSet` orchestrates multi-file application with optional rollback (`rollbackOnFailure`).
-- `WorkspaceFS.applyPatch` in both in-memory and disk implementations delegates to that engine.
+3. Parallel sampling flow
+- `sample` or `sampleAndCommitBest` forks a source `VirtualFS` `N` times.
+- Each fork runs independently through caller logic and returns a `SampleResult<T>`.
+- `selectBest` ignores errored samples and picks the highest scorer.
+- `commitBest` merges winner changes to parent using `theirs`.
 
-4. Sandbox run flow:
-- `WorkspaceRunner.run` snapshots a `VirtualFS`.
-- Uploads snapshot to `SandboxProtocol.uploadFiles`.
-- Executes command via `SandboxProtocol.execute`.
-- If `syncBack` is enabled, downloads selected paths and writes changed content back into `VirtualFS`.
+4. Unified patch flow
+- `parseUnifiedDiff` turns text patches into `FilePatch[]`.
+- `applyPatch` applies each hunk with context matching and fuzz search (up to `MAX_FUZZ = 3`), returning per-hunk outcomes.
+- `applyPatchSet` applies multi-file patches with optional rollback via `rollbackOnFailure`.
+- `WorkspaceFS.applyPatch` implementations delegate to this patch engine.
 
-5. Checkpoint flow for real directories:
-- `CheckpointManager.ensureCheckpoint` resolves target dir, applies safety checks, and deduplicates once per turn.
-- Uses shadow git repo (`GIT_DIR`/`GIT_WORK_TREE`) to stage and commit snapshot state.
-- `restore` creates a pre-rollback snapshot, then checks out target checkpoint content.
-- `list` and `diff` expose checkpoint history and drift stats.
+5. Workspace abstraction flow
+- `InMemoryWorkspaceFS` forwards directly to `VirtualFS`.
+- `DiskWorkspaceFS` resolves all paths against a root and rejects traversal via `PathSecurityError`.
+- `GitWorktreeWorkspaceFS` is a thin adapter around `DiskWorkspaceFS` rooted at an externally managed worktree directory.
+
+6. Sandbox execution flow
+- `WorkspaceRunner.run` snapshots `VirtualFS`, uploads all files to `SandboxProtocol`, executes command, and returns structured execution results.
+- If `syncBack` is enabled, it downloads selected paths and writes changed content back into `VirtualFS`.
+
+7. Checkpoint flow
+- `CheckpointManager.ensureCheckpoint` performs per-turn dedup, safety checks, and size checks before snapshotting.
+- Snapshots are git commits in a shadow repo using `GIT_DIR` and `GIT_WORK_TREE`.
+- `list` reads commit history, `diff` compares checkpoint to current state, and `restore` snapshots current state then checks out target checkpoint content.
 
 ## Key APIs and Types
 Core state:
 - `VirtualFS`
   - `write(path, content)`, `read(path)`, `exists(path)`, `delete(path)`, `list(directory?)`, `size`
-  - `toSnapshot()`, `fromSnapshot(snapshot)`
+  - `toSnapshot()`, `VirtualFS.fromSnapshot(snapshot)`
   - `diff(other)`, `merge(other)`
 - `FileDiff`
 
-Forking and sampling:
+Copy-on-write and sampling:
 - `CopyOnWriteVFS`
-  - `fork()`, `merge(strategy)`, `conflicts(other)`, `diff()`, `forkDelta()`, `detach()`
+  - `fork(label?)`, `merge(strategy?)`, `conflicts(other)`, `diff()`, `forkDelta()`, `detach()`
   - `getModifiedFiles()`, `getDeletedFiles()`, `toSnapshot()`, `depth`, `label`
 - `MergeStrategy`, `MergeConflict`, `MergeResult`, `VFSDiff`, `SampleResult<T>`
 - `sample`, `selectBest`, `commitBest`, `sampleAndCommitBest`
 
-Patch engine:
-- `parseUnifiedDiff(diff)`
-- `applyPatch(content, patch)`
+Patching:
+- `parseUnifiedDiff(diff: string): FilePatch[]`
+- `applyPatch(content: string, patch: FilePatch): PatchApplyResult`
 - `applyPatchSet(patches, readFile, writeFile, options?)`
-- Types: `PatchErrorCode`, `PatchLine`, `PatchHunk`, `FilePatch`, `HunkResult`, `PatchApplyResult`, `ApplyPatchSetOptions`
-- Error: `PatchParseError`
+- `PatchParseError`
+- `PatchErrorCode`, `PatchLine`, `PatchHunk`, `FilePatch`, `HunkResult`, `PatchApplyResult`, `ApplyPatchSetOptions`
 
-Workspace abstraction:
-- `WorkspaceFS` interface
+Workspace adapters:
+- `WorkspaceFS`
 - `InMemoryWorkspaceFS`, `DiskWorkspaceFS`, `GitWorktreeWorkspaceFS`
 - `PatchOptions`, `WorkspacePatchResult`
-- Error: `PathSecurityError`
+- `PathSecurityError` (internal source file; not part of the package export surface)
 
 Execution and persistence:
-- `WorkspaceRunner`
-- `WorkspaceRunOptions`, `WorkspaceRunResult`
+- `WorkspaceRunner`, `WorkspaceRunOptions`, `WorkspaceRunResult`
 - `SnapshotStore`, `saveSnapshot`, `loadSnapshot`, `SnapshotSaveResult`, `SnapshotLoadResult`
 - `CheckpointManager`, `CheckpointManagerConfig`, `CheckpointResult`, `CheckpointEntry`, `CheckpointDiff`
 
 ## Dependencies
-Internal dependencies inside `packages/codegen`:
-- `workspace-runner.ts` depends on `../sandbox/sandbox-protocol.js` (`SandboxProtocol`, `ExecOptions`, `ExecResult`).
-- `workspace-fs.ts` depends on `patch-engine.ts` and `path-security-error.ts`.
-- `parallel-sampling.ts` depends on `cow-vfs.ts` and `vfs-types.ts`.
+Internal module dependencies:
 - `cow-vfs.ts` depends on `virtual-fs.ts` and `vfs-types.ts`.
+- `parallel-sampling.ts` depends on `cow-vfs.ts` and `vfs-types.ts`.
+- `workspace-fs.ts` depends on `patch-engine.ts` and `path-security-error.ts`.
+- `workspace-runner.ts` depends on `../sandbox/sandbox-protocol.ts`.
 
-Node.js runtime dependencies used by VFS layer:
-- Filesystem/path: `node:fs/promises`, `node:path`.
-- Process/crypto/git helpers: `node:child_process`, `node:crypto`, `node:util`.
+Node runtime dependencies used directly in `src/vfs`:
+- `node:fs/promises`
+- `node:path`
+- `node:child_process`
+- `node:crypto`
+- `node:util`
 
-Package-level note:
-- `@dzupagent/codegen` runtime dependencies are `@dzupagent/core` and `@dzupagent/adapter-types`.
-- VFS source files themselves do not directly import package peer dependencies (`@langchain/*`, `zod`, tree-sitter packages).
+Package dependency note:
+- `@dzupagent/codegen` depends on `@dzupagent/core` and `@dzupagent/adapter-types`, but `src/vfs/*` does not directly import those packages.
 
 ## Integration Points
-Inside `@dzupagent/codegen`:
-- Public exports: `packages/codegen/src/index.ts` re-exports the full VFS surface.
-- Tools:
-  - `tools/edit-file.tool.ts` supports both direct `VirtualFS` and workspace-backed file edits through `CodegenToolContext`.
-  - `tools/multi-edit.tool.ts` mutates `VirtualFS` directly.
-  - `tools/write-file.tool.ts` can route writes to workspace when provided.
-- Validation:
-  - `validation/import-validator.ts` traverses `VirtualFS` to resolve relative imports.
-- Git/worktree bridge:
-  - `GitWorktreeWorkspaceFS` provides a filesystem adapter for directories created by git worktree flows (worktree creation itself is outside `src/vfs`).
+Package exports:
+- VFS APIs are exported from both `src/index.ts` and the dedicated subpath facade `src/vfs.ts` (published as `@dzupagent/codegen/vfs` via package exports).
+- `path-security-error.ts` exists as source but is not exported through `src/index.ts` or `src/vfs.ts`.
 
-Cross-module behavior coupling:
-- `WorkspaceRunner` expects sandbox backends implementing `SandboxProtocol` upload/execute/download semantics.
-- `DiskWorkspaceFS` patch application security relies on centralized `resolveSafe` checks and throws `PathSecurityError` for path traversal attempts.
+In-package consumers:
+- `tools/edit-file.tool.ts` supports `VirtualFS` directly and also workspace-backed reads/writes through `CodegenToolContext.workspace`.
+- `tools/multi-edit.tool.ts` edits `VirtualFS` directly.
+- `tools/tool-context.ts` carries optional `vfs` and `workspace` handles for tool routing.
+- `validation/import-validator.ts` reads from `VirtualFS` for import graph checks.
+
+Cross-package consumers in this monorepo:
+- `packages/code-edit-kit` imports `WorkspaceFS` types and in tests uses `InMemoryWorkspaceFS` + `VirtualFS` from `@dzupagent/codegen`.
+- `packages/server` and `packages/evals` import `@dzupagent/codegen` for runtime/tool contracts, but they do not import `src/vfs/*` internals directly.
+
+Related but separate workspace layer:
+- `src/workspace/*` defines a distinct `Workspace` abstraction and its own `WorkspacePathSecurityError`; this is separate from `src/vfs/path-security-error.ts`.
 
 ## Testing and Observability
-Primary VFS-focused suites under `src/__tests__`:
-- `vfs.test.ts` (35 tests)
-- `vfs-snapshot.test.ts` (7 tests)
-- `vfs/cow-vfs.test.ts` (53 tests)
-- `vfs/cow-vfs-extended.test.ts` (35 tests)
-- `vfs/parallel-sampling.test.ts` (48 tests)
-- `patch-engine.test.ts` (33 tests)
-- `workspace-fs.test.ts` (19 tests)
-- `workspace-runner.test.ts` (17 tests)
-- `checkpoint-manager.test.ts` (20 tests)
+VFS-focused coverage is implemented in:
+- `src/__tests__/vfs.test.ts`
+- `src/__tests__/vfs-snapshot.test.ts`
+- `src/__tests__/vfs/cow-vfs.test.ts`
+- `src/__tests__/vfs/cow-vfs-extended.test.ts`
+- `src/__tests__/vfs/parallel-sampling.test.ts`
+- `src/__tests__/patch-engine.test.ts`
+- `src/__tests__/workspace-fs.test.ts`
+- `src/__tests__/workspace-runner.test.ts`
+- `src/__tests__/checkpoint-manager.test.ts`
 
-Additional VFS-adjacent coverage:
-- `atomic-apply.test.ts` validates multi-file patching and rollback semantics.
-- `path-traversal.test.ts` validates traversal rejection behavior for `DiskWorkspaceFS.applyPatch`.
-- `branch-coverage-vfs-pipeline.test.ts` exercises VFS and CoW edge branches.
+VFS-adjacent behavior tests:
+- `src/__tests__/atomic-apply.test.ts` for patch rollback behavior.
+- `src/__tests__/path-traversal.test.ts` for traversal rejection in `DiskWorkspaceFS.applyPatch`.
+- `src/__tests__/branch-coverage-vfs-pipeline.test.ts` for VFS/CoW edge branches.
 
-Observability characteristics in current implementation:
-- Sampling captures `durationMs` and error strings per candidate result.
-- `WorkspaceRunner.run` returns structured command execution telemetry (`success`, `exitCode`, `stdout`, `stderr`, `timedOut`, `durationMs`, optional `modifiedFiles`).
-- Checkpoint paths return discriminated status results (`created`, `deduplicated`, `skipped`, `failed`) instead of throwing for most expected failure modes.
-- No dedicated logging/metrics emitter exists in `src/vfs`; observability is primarily through returned result objects and tests.
+Observability characteristics in code:
+- Sampling returns timing and captured errors per attempt (`SampleResult.durationMs`, optional `error`).
+- `WorkspaceRunner.run` returns structured execution telemetry (`success`, `exitCode`, `stdout`, `stderr`, `timedOut`, `durationMs`, optional `modifiedFiles`).
+- Checkpoint operations return discriminated result objects (`created`, `deduplicated`, `skipped`, `failed`) rather than throwing for most expected failures.
+- The module has no dedicated logger or metrics sink; returned result payloads are the primary runtime signal surface.
 
 ## Risks and TODOs
-- `PatchOptions.bestEffort` is defined on `WorkspaceFS` patch options but is not used by `InMemoryWorkspaceFS` or `DiskWorkspaceFS` implementations.
-- `WorkspaceRunner.syncBack` only checks `syncPaths` or original snapshot keys; new files created inside sandbox are not synced unless explicitly included in `syncPaths`.
-- `CheckpointManager.ensureCheckpoint` uses `readdir` entry count as a size guard; this is a shallow count heuristic, not a recursive file-count limit.
-- `applyPatchSet` rollback writes prior content back via `writeFile`; when a patch creates a new file and later rolls back, behavior depends on writer semantics for empty-string restoration rather than explicit delete-on-rollback.
-- `CheckpointManager` is heavily mocked in tests; there is no end-to-end integration test against a real git binary and filesystem state transitions.
-- `DiskWorkspaceFS.read` catches all read errors and returns `null`, which intentionally simplifies callers but can hide permission or encoding failures.
+- `PatchOptions.bestEffort` is defined but not used in either `InMemoryWorkspaceFS.applyPatch` or `DiskWorkspaceFS.applyPatch`.
+- `InMemoryWorkspaceFS.applyPatch` does not set a default `rollbackOnFailure`; behavior comes from `applyPatchSet` default (`false`), while `DiskWorkspaceFS` defaults to `true`.
+- `WorkspaceRunner.syncBack` only downloads `syncPaths` or original snapshot keys; files created during sandbox execution are not synced unless explicitly listed.
+- `DiskWorkspaceFS.read` and `DiskWorkspaceFS.delete` swallow all errors and return `null`/`false`, which simplifies callers but hides specific IO failures.
+- `CheckpointManager.ensureCheckpoint` uses shallow `readdir` entry count for `maxFiles`; this is not a recursive size guard.
+- `CheckpointManager.pruneOldSnapshots` uses a `rebase --onto` strategy and treats pruning failures as non-fatal, so retention enforcement can silently drift.
+- Checkpoint tests heavily mock git and filesystem calls; there is no end-to-end suite here that validates real git process behavior on disk.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-- 2026-04-26: rewrote document against current `packages/codegen/src/vfs` implementation, exports, and test suite.
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: rewrote document against current `packages/codegen/src/vfs` source, exports, and test surface.
 

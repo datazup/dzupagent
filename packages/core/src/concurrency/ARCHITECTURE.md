@@ -1,61 +1,87 @@
 # Concurrency Architecture (`packages/core/src/concurrency`)
 
 ## Scope
-This document covers the concurrency primitives implemented in `packages/core/src/concurrency`:
-- `semaphore.ts`
-- `pool.ts`
-- `index.ts`
+This document describes the concurrency primitives in `@dzupagent/core` under:
+- `src/concurrency/semaphore.ts`
+- `src/concurrency/pool.ts`
+- `src/concurrency/index.ts`
 
-It reflects the current local code in `@dzupagent/core` and the package-level integration points that import these primitives.
+It also covers how these primitives are surfaced from package entry points (`src/index.ts`, `src/facades/orchestration.ts`, `src/utils.ts`) and how behavior is validated by current tests in `src/__tests__`.
 
 ## Responsibilities
-The concurrency module provides two orchestration-level building blocks:
-- `Semaphore`: a counting semaphore with FIFO waiter queueing for bounded parallelism.
-- `ConcurrencyPool`: a higher-level execution pool that combines global concurrency limits, optional per-key limits, lifecycle statistics, and `drain()` coordination.
+The concurrency module provides in-process coordination helpers for async workloads:
+- `Semaphore`: counting semaphore with FIFO waiter queueing.
+- `ConcurrencyPool`: keyed execution pool with:
+  - a global concurrency cap,
+  - optional per-key cap,
+  - activity and outcome counters,
+  - per-key semaphore lifecycle controls (idle eviction and tracked-key cap),
+  - `drain()` coordination for "wait until idle" flows.
 
-The module does not include:
-- cancellation-aware acquire APIs (callers implement abort wrappers externally),
-- time-slicing or priority scheduling,
-- distributed coordination across processes.
+Out of scope for this module:
+- cross-process/distributed coordination,
+- scheduling priority classes,
+- cancellation-aware permit acquisition,
+- built-in timeout policies for `acquire()` or `drain()`.
 
 ## Structure
-Files:
 - `semaphore.ts`
-  - `Semaphore` class with `acquire()`, `release()`, `run()`, `available`, and `queueLength`.
+  - Declares `Semaphore`.
+  - Maintains `permits`, `maxPermits`, and FIFO `waiting` queue.
+  - Exposes `acquire()`, `release()`, `run()`, `available`, and `queueLength`.
 - `pool.ts`
-  - `PoolConfig` interface.
-  - `PoolStats` interface.
-  - `ConcurrencyPool` class with `execute()`, `stats()`, `drain()`, and `trackedKeyCount()`.
+  - Declares `PoolConfig`, `PoolStats`, and `ConcurrencyPool`.
+  - Uses `Semaphore` for global limits and optional per-key limits.
+  - Tracks per-key state (`keySems`, `keyLastUsedAt`, `activeCounts`) and global counters (`queued`, `completed`, `failed`).
+  - Holds `drainResolvers` for pending `drain()` calls.
 - `index.ts`
-  - re-exports `Semaphore`, `ConcurrencyPool`, `PoolConfig`, and `PoolStats`.
-
-Package export surfaces:
-- Root exports in `packages/core/src/index.ts`.
-- Orchestration facade exports in `packages/core/src/facades/orchestration.ts`, consumed as `@dzupagent/core/orchestration`.
+  - Re-exports `Semaphore`, `ConcurrencyPool`, `PoolConfig`, and `PoolStats` from local module files.
 
 ## Runtime and Control Flow
-`Semaphore` control flow:
-1. Constructor stores `maxPermits` and initializes `permits` to that value; it throws only when `maxPermits < 1`.
-2. `acquire()` decrements immediately when permits are available; otherwise enqueues a resolver in `waiting`.
-3. `release()` either resumes the next waiter (`shift()`) or increments permits; over-release throws when permits are already at `maxPermits`.
+`Semaphore` lifecycle:
+1. `new Semaphore(maxPermits)` throws if `maxPermits < 1`, then initializes available permits to `maxPermits`.
+2. `acquire()`:
+   - decrements immediately when a permit is available,
+   - otherwise enqueues a resolver and waits.
+3. `release()`:
+   - transfers the permit directly to the next queued waiter when present,
+   - otherwise increments `permits`,
+   - throws on over-release (`permits >= maxPermits` with no queued waiter).
 4. `run(fn)` wraps `acquire()`/`release()` in `try/finally`.
 
-`ConcurrencyPool.execute(key, fn)` control flow:
-1. Resolves an optional per-key semaphore via `getKeySemaphore(key)` when `maxPerKey` is configured.
-2. Touches key usage timestamp via `touchKey(key)`.
-3. Increments `queued`, then acquires global and optional per-key permits.
-4. Decrements `queued`, increments active count for `key`, runs `fn`.
-5. On success increments `completed`; on throw increments `failed` and rethrows.
-6. In `finally`, decrements active count, releases semaphores, touches key, attempts idle eviction, and checks pending `drain()` resolvers.
+`ConcurrencyPool.execute(key, fn)` lifecycle:
+1. Resolve per-key semaphore via `getKeySemaphore(key)` when `maxPerKey` is configured.
+2. Update key recency with `touchKey(key)`.
+3. Increment `queued`.
+4. Acquire permits:
+   - global semaphore always,
+   - key semaphore as well when present.
+5. Decrement `queued` once acquisition phase exits.
+6. Increment key activity via `incrementActive(key)`.
+7. Execute `fn`.
+8. Update counters:
+   - `completed++` on success,
+   - `failed++` on error, then rethrow.
+9. In `finally`:
+   - decrement active count,
+   - release global/key semaphores,
+   - retouch key timestamp,
+   - run idle and capacity-based key eviction,
+   - run `checkDrain()` to resolve waiters when pool becomes idle.
 
-`drain()` behavior:
-- resolves immediately when `active === 0` and `queued === 0`,
-- otherwise stores resolver callbacks in `drainResolvers` until `checkDrain()` sees idle state.
+`drain()` lifecycle:
+1. If `stats().active === 0` and `queued === 0`, resolve immediately.
+2. Otherwise append resolver to `drainResolvers`.
+3. `checkDrain()` resolves all stored resolvers once both active and queued work drop to zero.
 
-Per-key semaphore lifecycle:
-- created lazily when `maxPerKey` is enabled,
-- evicted by idle timeout (`maxIdleMsPerKey`) only when key is idle and semaphore is fully available,
-- evicted by tracked-key pressure (`maxTrackedKeys`) using oldest `keyLastUsedAt` among evictable keys.
+Per-key semaphore management:
+- Lazy creation only when `maxPerKey` is set.
+- Eviction is eligible only when `canEvictKey(...)` is true:
+  - no active work for key,
+  - key semaphore has no queue,
+  - all key permits are currently available.
+- `evictIdleKeySemaphores()` removes keys idle longer than `maxIdleMsPerKey` (when finite).
+- `enforceTrackedKeyLimit()` applies LRU-style eviction among eligible keys when tracked key count exceeds `maxTrackedKeys` (when finite).
 
 ## Key APIs and Types
 `Semaphore`:
@@ -68,7 +94,7 @@ Per-key semaphore lifecycle:
 
 `PoolConfig`:
 - `maxConcurrent: number` (default `10`)
-- `maxPerKey?: number`
+- `maxPerKey?: number` (optional per-key cap)
 - `maxIdleMsPerKey?: number` (default `300_000`)
 - `maxTrackedKeys?: number` (default `1000`)
 
@@ -87,64 +113,71 @@ Per-key semaphore lifecycle:
 - `trackedKeyCount(): number`
 
 ## Dependencies
-Direct module dependencies:
-- `pool.ts` depends on local `Semaphore` from `./semaphore.js`.
-- No third-party runtime dependency is used by the concurrency module itself.
+Module-level dependencies:
+- `pool.ts` imports local `Semaphore` from `./semaphore.js`.
+- `semaphore.ts` has no imports.
+- No third-party runtime dependency is used directly by `src/concurrency/*`.
 
-Package-level dependencies (from `packages/core/package.json`) that contextualize export/use:
-- direct: `@dzupagent/agent-types`, `@dzupagent/runtime-contracts`
-- peer: `@langchain/core`, `@langchain/langgraph`, `zod` (plus optional lancedb/arrow peers)
-
-Concurrency primitives are standalone utility classes and are not coupled to LangChain/LangGraph internals.
+Package context (`packages/core/package.json`):
+- Package runtime dependencies are `@dzupagent/agent-types`, `@dzupagent/runtime-contracts`, and `@dzupagent/security`.
+- The concurrency module does not import those dependencies directly.
 
 ## Integration Points
-Within `@dzupagent/core`:
-- re-exported via `src/index.ts` and `src/facades/orchestration.ts`.
-- validated by direct unit tests and facade tests in `src/__tests__`.
+Exports and entry-point integration in `@dzupagent/core`:
+- Root entry re-exports from `src/index.ts`.
+- Orchestration facade re-exports from `src/facades/orchestration.ts`.
+- Utility facade re-exports from `src/utils.ts`.
+- Local barrel is `src/concurrency/index.ts`.
 
-Cross-package imports in the current repo:
-- `packages/agent/src/orchestration/map-reduce.ts` imports `Semaphore`.
-- `packages/agent-adapters/src/orchestration/supervisor.ts` imports `Semaphore`.
-- `packages/agent-adapters/src/orchestration/map-reduce.ts` imports `Semaphore`.
-- `packages/agent-adapters/src/testing/ab-test-runner.ts` imports `Semaphore`.
-- `packages/evals/src/runner/enhanced-runner.ts` imports `Semaphore`.
-- `packages/evals/src/prompt-experiment/prompt-experiment.ts` imports `Semaphore`.
+Package export surface (`package.json`):
+- No dedicated `./concurrency` subpath is exported.
+- Consumers access these APIs via:
+  - `@dzupagent/core`
+  - `@dzupagent/core/orchestration`
+  - `@dzupagent/core/utils`
 
-Current adoption note:
-- `ConcurrencyPool` usage is currently concentrated in `@dzupagent/core` tests/facade exposure; there are no non-core package instantiations in `packages/*`.
+Current internal usage:
+- In `packages/core/src` runtime code, these primitives are currently exposed as building blocks and not instantiated by other non-test modules.
+- Behavior is primarily exercised through direct concurrency tests and facade-level tests.
 
 ## Testing and Observability
-Relevant tests in `packages/core/src/__tests__`:
-- `concurrency.test.ts`
-  - semaphore basics, invalid constructor values (`0`, negative), queueing/unblocking, `run()`, and concurrency cap checks.
-  - pool defaults, success/failure counters, global and per-key concurrency limits, active key reporting, `drain()`, and tracked-key eviction behavior.
-- `pool-drain.test.ts`
-  - idle drain, waiting for active tasks, waiting for queued tasks, and concurrent `drain()` callers.
-- `w15-h2-branch-coverage.test.ts`
-  - branch-specific checks for `ConcurrencyPool` decrement behavior, `Infinity` idle-window branch, idle eviction triggering, tracked-key limit enforcement, failure path, and behavior when `maxPerKey` is unset.
-- facade coverage:
-  - `facade-orchestration.test.ts`
-  - `w15-b1-facades.test.ts`
-  - `facades.test.ts`
+Test coverage in current tree:
+- `src/__tests__/concurrency.test.ts`
+  - constructor validation and permit accounting,
+  - queue blocking/unblocking behavior,
+  - `run()` success/error release guarantees,
+  - global and per-key concurrency limit behavior,
+  - stats counters and `activeKeys`,
+  - key-tracking eviction behavior.
+- `src/__tests__/pool-drain.test.ts`
+  - immediate drain on idle pool,
+  - drain waiting for active and queued tasks,
+  - multiple concurrent `drain()` waiters.
+- `src/__tests__/w15-h2-branch-coverage.test.ts` (concurrency section)
+  - decrement branch behavior with same-key concurrency,
+  - idle eviction finite vs `Infinity`,
+  - tracked-key cap enforcement,
+  - no-`maxPerKey` path,
+  - failure counter path,
+  - additional `drain()` branch coverage.
+- Facade coverage:
+  - `src/__tests__/facades.test.ts`
+  - `src/__tests__/facade-orchestration.test.ts`
+  - `src/__tests__/w15-b1-facades.test.ts`
+  - confirms export wiring and basic behavior via facade entry points.
 
-Built-in observability surface:
-- `ConcurrencyPool.stats()` returns live counters and active key list.
-- `trackedKeyCount()` exposes currently tracked per-key semaphores.
-- `Semaphore.available` and `Semaphore.queueLength` expose internal permit/queue state.
-
-No event bus or metrics collector integration is implemented in this module; observability is pull-based through the APIs above.
+Observability surfaces:
+- `Semaphore.available` and `Semaphore.queueLength`.
+- `ConcurrencyPool.stats()` and `trackedKeyCount()`.
+- No built-in event emission, logging, or metrics instrumentation in this module.
 
 ## Risks and TODOs
-- `Semaphore` constructor validation only checks `< 1`.
-  - `NaN` passes the current guard and can produce invalid semaphore state.
-  - `Infinity` is accepted and effectively creates an unbounded semaphore.
-- `ConcurrencyPool` does not validate numeric config fields (`maxConcurrent`, `maxPerKey`, `maxIdleMsPerKey`, `maxTrackedKeys`) for finiteness or integer constraints before constructing semaphores/threshold logic.
-- `touchKey(key)` runs even when `maxPerKey` is unset.
-  - with high-cardinality keys, `keyLastUsedAt` can grow while `keySems` stays empty.
-- `stats()` recomputes `active` by iterating `activeCounts` on each call; cost grows with active-key cardinality.
-- `drain()` relies on internal counters and completion paths; there is no timeout/cancellation support for waiting callers.
-- `ConcurrencyPool` still lacks cross-package production usage, so behavior under non-test workloads is less exercised than `Semaphore`.
+- `Semaphore` validates only `maxPermits < 1`; non-finite values are not explicitly rejected.
+- `ConcurrencyPool` constructor currently applies defaults but does not enforce strict numeric validation for each config field.
+- `drain()` has no timeout or cancellation path; it depends on all scheduled work eventually finishing.
+- `stats()` recomputes `active` and `activeKeys` by iterating `activeCounts` on each call.
+- `touchKey()` runs for every `execute` call, including cases where per-key semaphores are disabled (`maxPerKey` undefined), so `keyLastUsedAt` may accumulate timestamps even with `trackedKeyCount() === 0`.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 

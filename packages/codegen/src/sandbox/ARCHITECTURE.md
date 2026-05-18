@@ -1,178 +1,227 @@
 # Sandbox Architecture (`@dzupagent/codegen`)
 
 ## Scope
-This document covers `packages/codegen/src/sandbox` and the direct in-package consumers that depend on sandbox contracts.
+This document covers the sandbox subsystem under `packages/codegen/src/sandbox` and its direct in-package consumers in `src/tools`, `src/vfs`, and `src/workspace`.
 
-The sandbox subsystem provides execution isolation primitives for codegen workflows through:
+The scope includes:
 
-- Protocol contracts (`sandbox-protocol.ts`, `sandbox-protocol-v2.ts`)
-- Provider implementations (`docker`, `e2b`, `fly`, `k8s`, `mock`)
-- Operational layers (`audit`, `pool`, `volumes`)
-- Security helpers (`permission-tiers.ts`, `security-profile.ts`, `sandbox-hardening.ts`)
-- In-process WASM sandbox primitives (`wasm/*`)
+- Core execution contracts (`sandbox-protocol.ts`, `sandbox-protocol-v2.ts`).
+- Provider implementations (`docker-sandbox.ts`, `e2b-sandbox.ts`, `fly-sandbox.ts`, `k8s/k8s-sandbox.ts`, `mock-sandbox.ts`, `mock-sandbox-v2.ts`).
+- Security and policy helpers (`permission-tiers.ts`, `security-profile.ts`, `sandbox-hardening.ts`).
+- Operational helpers (`audit/*`, `pool/*`, `volumes/*`).
+- WASM-local sandboxing primitives (`wasm/*`).
+- Governed process-tool-call wiring (`ptc/*`).
 
 ## Responsibilities
-- Define a backend-agnostic execution contract for command execution and file staging.
-- Provide concrete providers for local Docker, cloud sandboxes, Kubernetes pod-backed execution, and test doubles.
-- Support preview/session workflows through V2 session and stream APIs.
-- Expose security policy helpers for tiered permissions and hardening flag generation.
-- Provide optional reliability/compliance helpers: pooling, reset strategies, volume lifecycle metadata, and audit chains.
-- Provide WASM-local execution primitives (filesystem, capability checks, resource-limited execution, TS transpilation fallback).
+- Provide a common async command/file contract (`SandboxProtocol`) for isolated execution backends.
+- Provide an extended session/stream/preview contract (`SandboxProtocolV2`) for long-lived preview workflows.
+- Implement concrete sandbox providers with backend-specific lifecycle handling.
+- Offer security control layers (tier defaults, profile-to-flag conversion, hardening flags, escape-pattern detection).
+- Offer operational support layers (audit chain, pooling, reset strategy, volume metadata management).
+- Provide in-process WASM sandbox capabilities for code execution and file operations.
+- Bridge governed code execution (`ptc`) into the same tool-governance pipeline used by agent tools.
 
 ## Structure
-- `sandbox-protocol.ts`
-  - Base `SandboxProtocol` and `ExecOptions`/`ExecResult`.
-- `sandbox-protocol-v2.ts`
-  - `SandboxProtocolV2` with `startSession`, `executeStream`, `exposePort`, `stopSession`.
-- `sandbox-factory.ts`
-  - `createSandbox()` for provider selection across `docker | e2b | fly | mock`.
+- Protocols and factory:
+  - `sandbox-protocol.ts`: `ExecOptions`, `ExecResult`, `SandboxProtocol`.
+  - `sandbox-protocol-v2.ts`: `SessionOptions`, `ExecEvent`, `SandboxProtocolV2`.
+  - `sandbox-factory.ts`: `createSandbox(config)` for `docker | e2b | fly | mock`.
 
-- Provider implementations:
-  - `docker-sandbox.ts`: `DockerSandbox` implementing V1 + V2.
-  - `e2b-sandbox.ts`: `E2BSandbox` REST adapter.
-  - `fly-sandbox.ts`: `FlySandbox` REST adapter.
-  - `k8s/*`: CRD types, K8s REST client, and `K8sPodSandbox`.
-  - `mock-sandbox.ts`, `mock-sandbox-v2.ts`: test doubles.
+- Providers:
+  - `docker-sandbox.ts`: `DockerSandbox` implementing `SandboxProtocolV2`.
+  - `e2b-sandbox.ts`: `E2BSandbox` REST adapter implementing `SandboxProtocol`.
+  - `fly-sandbox.ts`: `FlySandbox` REST adapter implementing `SandboxProtocol`.
+  - `k8s/k8s-sandbox.ts`: `K8sPodSandbox` implementing `SandboxProtocol`.
+  - `mock-sandbox.ts`: V1 in-memory test sandbox.
+  - `mock-sandbox-v2.ts`: V2 in-memory test sandbox with recorded calls/streams.
 
-- Security and policy helpers:
-  - `permission-tiers.ts`: trust tiers and conversion helpers.
-  - `security-profile.ts`: profile model + docker-flag conversion.
-  - `sandbox-hardening.ts`: hardening config-to-flags + escape-pattern detector.
+- Security and policy:
+  - `permission-tiers.ts`: core `PermissionTier` re-export, defaults, validation, write-gate assertion.
+  - `security-profile.ts`: profile model and conversion to Docker flags.
+  - `sandbox-hardening.ts`: hardening config and Docker security flag generation, escape detection.
+
+- Kubernetes support:
+  - `k8s/operator-types.ts`: `AgentSandbox` CRD data model and helper.
+  - `k8s/k8s-client.ts`: direct REST client for CRD CRUD, phase wait, and pod exec.
+  - `k8s/index.ts`: K8s export surface.
 
 - Operational extensions:
-  - `pool/*`: `SandboxPool`, metrics, wait-queue behavior, reset strategies.
-  - `volumes/*`: `VolumeManager` contract + in-memory implementation.
-  - `audit/*`: audit types/store + `AuditedSandbox` decorator.
+  - `audit/audit-types.ts`, `audit/memory-audit-store.ts`, `audit/audited-sandbox.ts`.
+  - `pool/sandbox-pool.ts`, `pool/sandbox-reset.ts`.
+  - `volumes/volume-manager.ts`, `volumes/memory-volume-manager.ts`.
 
 - WASM subsystem:
-  - `wasm/wasi-fs.ts`: in-memory WASI-like filesystem with serialization.
-  - `wasm/capability-guard.ts`: capability checks and mutation APIs.
-  - `wasm/wasm-sandbox.ts`: optional QuickJS-backed execution path + resource guardrails.
-  - `wasm/ts-transpiler.ts`: `esbuild-wasm` path with regex fallback.
-  - `wasm/sandbox-errors.ts`: resource/timeout/access error types.
+  - `wasm/wasi-fs.ts`: in-memory WASI-style filesystem.
+  - `wasm/capability-guard.ts`: capability checks (`fs-read`, `fs-write`, etc.).
+  - `wasm/wasm-sandbox.ts`: optional QuickJS-backed execution and resource/path/output limits.
+  - `wasm/ts-transpiler.ts`: optional `esbuild-wasm` transpile, regex fallback.
+  - `wasm/sandbox-errors.ts`: typed error classes.
+
+- Governed PTC:
+  - `ptc/ptc-types.ts`: request/result/governance types.
+  - `ptc/ptc-governance-adapter.ts`: access check and blocked-result helpers.
+  - `ptc/ptc-tool.ts`: LangChain tool factory that runs through governance and `WasmSandbox`.
 
 ## Runtime and Control Flow
-- Base V1 flow:
-  1. Consumer acquires provider instance.
-  2. Files are staged via `uploadFiles()`.
-  3. Commands run via `execute(command, { cwd, timeoutMs })`.
-  4. Outputs or modified files are read back via `downloadFiles()`.
-  5. Resources are released with `cleanup()`.
+1. V1 execution contract flow:
+   - Caller uploads staged files with `uploadFiles`.
+   - Caller executes a command with optional `cwd` and `timeoutMs`.
+   - Caller reads selected paths with `downloadFiles`.
+   - Caller releases resources with `cleanup`.
 
-- V2 preview flow (currently Docker-backed):
-  1. `startSession()` creates long-lived container session.
-  2. `executeStream()` yields `stdout`/`stderr`/`exit` events.
-  3. `exposePort()` returns preview URL metadata.
-  4. `stopSession()` tears down session.
+2. Factory-based provider selection:
+   - `createSandbox({ provider })` instantiates `DockerSandbox`, `E2BSandbox`, `FlySandbox`, or `MockSandbox`.
+   - For `e2b` and `fly`, missing provider-specific config throws immediately.
 
-- Kubernetes flow:
-  1. `K8sPodSandbox` creates `AgentSandbox` CRD via `K8sClient`.
-  2. Polls until status phase is `Ready`.
-  3. Runs shell commands via K8s exec API.
-  4. Deletes CRD on cleanup.
+3. Docker V1/V2 flow:
+   - V1 `execute` runs one-shot `docker run` with secure defaults unless `previewMode` is enabled.
+   - V2 `startSession` launches a detached container, `executeStream` yields `stdout`/`stderr`/`exit`, `exposePort` returns `http://localhost:<port>`, and `stopSession` stops/removes the container.
+   - `uploadFiles`/`downloadFiles` stage files in a temp directory guarded by path-traversal checks.
 
-- Audit decorator flow:
-  1. `AuditedSandbox` wraps any `SandboxProtocol`.
-  2. `execute`/`upload`/`download`/`cleanup` are appended to a hash-linked store.
-  3. Secret-like patterns in command text are redacted before write.
-  4. Chain integrity is checked with `verifyChain()`.
+4. Cloud sandbox flow (E2B/Fly):
+   - `execute` lazily initializes backend runtime (`sandboxId`/`machineId`) on first call.
+   - `uploadFiles`/`downloadFiles` require a ready backend and will throw if called before initialization.
+   - `cleanup` is best-effort and clears local runtime IDs.
 
-- Pooling flow:
-  1. `SandboxPool.start()` prewarms up to `minIdle`.
-  2. `acquire()` reuses idle instances or creates new up to `maxSize`.
-  3. Waiters block until release or timeout (`PoolExhaustedError`).
-  4. `drain()` rejects waiters and destroys idle instances.
+5. Kubernetes flow:
+   - `K8sPodSandbox.ensurePod()` creates an `AgentSandbox` CRD using `K8sClient`.
+   - It waits for phase `Ready`, resolves `podName`, then executes via `K8sClient.exec`.
+   - `cleanup` deletes the CRD resource.
+
+6. Auditing flow:
+   - `AuditedSandbox` decorates any `SandboxProtocol` implementation.
+   - On each operation, it appends a hash-linked entry to `SandboxAuditStore`.
+   - `execute` records redacted command text and summarized result metadata.
+   - Consumers can query trail entries and verify chain integrity.
+
+7. Pooling flow:
+   - `SandboxPool.start()` prewarms to `minIdle`.
+   - `acquire()` takes idle, creates new up to `maxSize`, or waits up to `maxWaitMs`.
+   - `release()` either hands directly to a waiter or returns to idle.
+   - `drain()` rejects pending waiters and destroys idle instances.
+
+8. WASM and governed PTC flow:
+   - `createPtcTool` performs governance checks (`checkPtcAccess`) before any execution.
+   - Optional TypeScript transpilation is attempted via `WasmTypeScriptTranspiler`.
+   - `WasmSandbox.execute` dynamically loads `quickjs-emscripten`; if unavailable, it throws a descriptive error.
+   - Result auditing is reported through `ToolGovernance.auditResult`.
 
 ## Key APIs and Types
-- Protocols:
-  - `SandboxProtocol`
-  - `SandboxProtocolV2`
-  - `ExecOptions`, `ExecResult`, `ExecEvent`
+- Core protocols:
+  - `SandboxProtocol`, `ExecOptions`, `ExecResult`.
+  - `SandboxProtocolV2`, `SessionOptions`, `ExecEvent`.
 
-- Provider selection and provider configs:
-  - `createSandbox(config: SandboxFactoryConfig)`
-  - `SandboxProvider = 'docker' | 'e2b' | 'fly' | 'mock'`
-  - `DockerSandboxConfig`, `E2BSandboxConfig`, `FlySandboxConfig`, `K8sSandboxConfig`
+- Provider APIs:
+  - `DockerSandbox`, `DockerSandboxConfig`.
+  - `E2BSandbox`, `E2BSandboxConfig`.
+  - `FlySandbox`, `FlySandboxConfig`.
+  - `K8sPodSandbox`, `K8sSandboxConfig`, `K8sClient`, `K8sClientConfig`.
+  - `MockSandbox`, `MockSandboxV2`.
+  - `createSandbox`, `SandboxProvider`, `SandboxFactoryConfig`.
 
-- Security/policy:
-  - `PermissionTier`, `TierConfig`, `TIER_DEFAULTS`
-  - `SecurityProfile`, `SecurityLevel`, `SECURITY_PROFILES`
-  - `HardenedSandboxConfig`, `toDockerSecurityFlags()`, `detectEscapeAttempt()`
+- Security/policy APIs:
+  - `PermissionTier` (re-export from `@dzupagent/core/tools`), `TierConfig`, `TIER_DEFAULTS`.
+  - `validateTierConfig`, `mergeTierConfig`, `tierToDockerFlags`, `tierToE2bConfig`.
+  - `assertTierAllowsWrite`, `PermissionTierViolationError`.
+  - `SecurityProfile`, `SecurityLevel`, `SECURITY_PROFILES`, `toDockerFlags`.
+  - `HardenedSandboxConfig`, `toDockerSecurityFlags`, `detectEscapeAttempt`.
 
 - Audit/pool/volumes:
-  - `AuditedSandbox`, `InMemoryAuditStore`, `SandboxAuditEntry`
-  - `SandboxPool`, `PooledSandbox`, `SandboxPoolMetrics`, `PoolExhaustedError`
-  - `VolumeManager`, `VolumeDescriptor`, `VolumeInfo`, `InMemoryVolumeManager`
+  - `SandboxAuditEntry`, `SandboxAuditStore`, `InMemoryAuditStore`, `AuditedSandbox`, `redactSecrets`.
+  - `SandboxPool`, `PooledSandbox`, `SandboxPoolConfig`, `SandboxPoolMetrics`, `PoolExhaustedError`.
+  - `DockerResetStrategy`, `CloudResetStrategy`, `SandboxResetStrategy`.
+  - `VolumeManager`, `VolumeDescriptor`, `VolumeInfo`, `InMemoryVolumeManager`.
 
-- WASM:
-  - `WasmSandbox`, `WasmSandboxConfig`, `WasmExecResult`
-  - `WasiFilesystem`, `CapabilityGuard`, `WasmTypeScriptTranspiler`
-  - `SandboxResourceError`, `SandboxTimeoutError`, `SandboxAccessDeniedError`
+- WASM and PTC:
+  - `WasiFilesystem`, `CapabilityGuard`, `CapabilityDeniedError`.
+  - `WasmSandbox`, `WasmSandboxConfig`, `WasmExecResult`, `SandboxResourceLimits`.
+  - `WasmTypeScriptTranspiler`, `TranspileResult`.
+  - `SandboxResourceError`, `SandboxTimeoutError`, `SandboxAccessDeniedError`.
+  - `createPtcTool`, `checkPtcAccess`, `buildBlockedPtcResult`, `PtcRequest`, `PtcResult`, `PtcGovernanceConfig`.
 
 ## Dependencies
-- Package-level runtime dependencies for `@dzupagent/codegen`:
+- Direct package dependencies (`packages/codegen/package.json`):
   - `@dzupagent/core`
   - `@dzupagent/adapter-types`
 
-- Peer dependencies relevant to sandbox usage:
-  - `@langchain/core`, `@langchain/langgraph`, `zod`
-  - Optional peers in package metadata: `tree-sitter-wasms`, `web-tree-sitter`
+- Peer dependencies relevant to this subsystem:
+  - `@langchain/core` (tool factory usage)
+  - `@langchain/langgraph` (upstream package workflows that consume tools)
+  - `zod` (tool input schemas)
+  - Optional: `tree-sitter-wasms`, `web-tree-sitter` (package-wide optional peers, not sandbox-specific runtime requirements)
 
-- Optional runtime modules loaded dynamically in WASM subsystem:
-  - `quickjs-emscripten` for `WasmSandbox.execute()`
-  - `esbuild-wasm` for high-fidelity `WasmTypeScriptTranspiler`
+- Optional/dynamic sandbox dependencies:
+  - `quickjs-emscripten` (loaded dynamically by `WasmSandbox.execute`)
+  - `esbuild-wasm` (loaded dynamically by `WasmTypeScriptTranspiler`)
 
-- Platform/system expectations by provider:
-  - Docker CLI for `DockerSandbox`
-  - Networked REST access to E2B/Fly APIs for cloud providers
-  - Kubernetes API access and `AgentSandbox` CRD/operator for K8s provider
+- Environment prerequisites by backend:
+  - Docker CLI for `DockerSandbox`.
+  - Network access and credentials for E2B/Fly control-plane APIs.
+  - Kubernetes API connectivity and `AgentSandbox` CRD/operator for K8s flows.
 
 ## Integration Points
-- Inside `@dzupagent/codegen`:
-  - `src/vfs/workspace-runner.ts` uses `SandboxProtocol` for snapshot execution and sync-back.
-  - `src/workspace/sandboxed-workspace.ts` routes writes and command execution through a sandbox.
-  - `src/tools/run-tests.tool.ts` and `src/tools/lint-validator.ts` execute commands through V1 protocol.
-  - `src/tools/preview-app.tool.ts` requires `SandboxProtocolV2`.
+- In-package integrations:
+  - `src/vfs/workspace-runner.ts` runs VFS snapshots through `SandboxProtocol`.
+  - `src/workspace/sandboxed-workspace.ts` routes writes/commands to `SandboxProtocol`.
+  - `src/workspace/workspace-factory.ts` requires explicit sandbox backend for sandbox-enabled mode unless local fallback is allowed.
+  - `src/tools/run-tests.tool.ts` and `src/tools/lint-validator.ts` execute through `SandboxProtocol`.
+  - `src/tools/preview-app.tool.ts` depends on `SandboxProtocolV2`.
+  - `src/tools/write-file.tool.ts` and `src/tools/edit-file.tool.ts` enforce permission-tier write gating via `assertTierAllowsWrite`.
 
-- Cross-package:
-  - `packages/evals/src/contracts/suites/sandbox-contract.ts` defines sandbox contract checks against codegen protocol shape.
-  - `packages/evals/src/__tests__/sandbox-contracts.test.ts` dynamically exercises `MockSandbox` and (when available) `DockerSandbox`.
+- Cross-package integrations in `dzupagent`:
+  - `packages/evals/src/__tests__/sandbox-contracts.test.ts` validates sandbox adapters, including conditional use of `@dzupagent/codegen` `MockSandbox`.
+  - `packages/agent/src/agent/production-tool-governance-preset.ts` documents the expected `createPtcTool(...)` integration path for governed PTC tools.
 
-- Public exports:
-  - `src/index.ts` re-exports sandbox providers, protocols, helpers, k8s modules, audit/pool/volume APIs, and WASM APIs.
+- Export surfaces:
+  - Root: `src/index.ts` exports sandbox providers/helpers plus K8s, WASM, audit, pool, volumes, and PTC APIs.
+  - Facades: `src/runtime.ts` and `src/tools.ts` expose sandbox subsets for runtime/tool consumers.
 
 ## Testing and Observability
-- Sandbox-focused tests in `@dzupagent/codegen` include:
+- Sandbox-focused test coverage in `packages/codegen/src/__tests__` includes:
   - `sandbox-protocol-and-factory.test.ts`
   - `sandbox-cloud-adapters.test.ts`
+  - `docker-sandbox-path-traversal.test.ts`
+  - `mock-sandbox-v2.test.ts`
   - `sandbox-infrastructure.test.ts`
   - `sandbox-limits.test.ts`
-  - `wasm-sandbox.test.ts`
   - `k8s-sandbox.test.ts`
-  - `mock-sandbox-v2.test.ts`
-  - `docker-sandbox-path-traversal.test.ts`
+  - `wasm-sandbox.test.ts`
   - `preview-app-tool.test.ts`
   - `workspace-runner.test.ts`
-  - `tools-suite.test.ts`
   - `workspace/__tests__/sandboxed-workspace.test.ts`
+  - `sandbox/permission-tiers.test.ts`
 
-- Current observability hooks in this subsystem:
-  - Structured operation capture through `AuditedSandbox` + `SandboxAuditStore`.
-  - Hash-chain verification with `verifyChain()` for tamper evidence.
-  - Pool metrics (`totalCreated`, `totalDestroyed`, active/idle counts, acquire wait samples).
-  - Provider health probes through `isAvailable()` methods.
-
-- External contract verification:
-  - `packages/evals` sandbox contract suite validates required/recommended behavior across sandbox implementations.
+- Observability and diagnostics in this subsystem:
+  - `AuditedSandbox` records operation metadata with redaction and chain verification.
+  - `SandboxPool.metrics()` exposes lifecycle and wait-time metrics.
+  - All providers expose `isAvailable()` health probes.
+  - PTC integrates with governance audit hooks (`audit`, `auditResult`) and optional `approval:requested` event emission.
 
 ## Risks and TODOs
-- `createSandbox()` only returns `SandboxProtocol` and supports `docker|e2b|fly|mock`; it does not factory-create `k8s` or `wasm` backends.
-- V2 session APIs are effectively Docker-only in this package; consumers needing `SandboxProtocolV2` must use concrete V2 implementations directly.
-- `DockerSandbox.exposePort()` currently returns `http://localhost:<port>` without explicit Docker port-publishing management.
-- `E2BSandbox` and `FlySandbox` initialize lazily on `execute()`, while `uploadFiles()`/`downloadFiles()` require readiness; upload-first workflows can fail without an explicit initialization step.
-- K8s tests include optional operator-driven scenarios and can be partially skipped when operator modules are not present in the workspace.
-- WASM execution path depends on optional `quickjs-emscripten`; many tests validate non-QuickJS paths and guardrails rather than full runtime execution.
+- Factory coverage mismatch:
+  - `createSandbox` returns `SandboxProtocol` and supports only `docker | e2b | fly | mock`; K8s and WASM are constructed separately.
+
+- V2 availability mismatch:
+  - V2 protocol support is implemented by Docker and Mock V2 classes; factory output is typed and returned as V1.
+
+- Docker preview exposure gap:
+  - `exposePort` returns `http://localhost:<port>` without explicit port-publishing orchestration in `startSession`.
+
+- Cloud readiness sequencing:
+  - `E2BSandbox` and `FlySandbox` lazily initialize on `execute`; `uploadFiles`/`downloadFiles` before first execute throw readiness errors.
+
+- WASM optional runtime:
+  - Without `quickjs-emscripten`, `WasmSandbox.execute` is unavailable even though file/capability operations still work.
+
+- Governance default ambiguity:
+  - `PtcGovernanceConfig` docs describe `transpileTypeScript` as default false, while `createPtcTool` currently treats it as enabled by default (`?? true`).
+
+- Hardening portability:
+  - Flag generation in `security-profile.ts`/`sandbox-hardening.ts` assumes Docker flag support for seccomp-related options; runtime compatibility depends on Docker environment.
+
+- Audit chain strength:
+  - `InMemoryAuditStore` uses a deterministic non-cryptographic hash (`simpleHash`), appropriate for tamper-evidence in dev/test but not a cryptographic ledger.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 

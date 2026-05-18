@@ -2,196 +2,237 @@
 
 ## Scope
 
-This document covers the persistence-related code under `packages/core/src/persistence`:
+This document covers persistence-related code in `packages/core/src/persistence` and the package-level export wiring that exposes this surface (`src/persistence.ts`, `src/index.ts`, and `src/facades/orchestration.ts`).
 
-- Canonical run and agent execution spec contracts (`RunStore`, `AgentExecutionSpecStore`) and in-memory implementations.
-- Event log storage plus event-bus sink (`EventLogStore`, `InMemoryEventLog`, `EventLogSink`).
-- Append-only run journal primitives (`RunJournal*`, `InMemoryRunJournal`) and bridge adapter (`RunJournalBridgeRunStore`).
-- Session-scoped in-process working memory (`WorkingMemory`).
-- LangGraph checkpoint and thread config helpers (`createCheckpointer`, `SessionManager`).
-- Legacy low-level run-record API (`RunRecordStore`, `InMemoryRunRecordStore`) kept for compatibility.
+In scope:
+- Canonical run persistence contracts and in-memory implementations (`RunStore`, `InMemoryRunStore`, `AgentExecutionSpecStore`, `InMemoryAgentStore`).
+- Event history capture (`EventLogStore`, `InMemoryEventLog`, `EventLogSink`).
+- Run journal contracts and in-memory implementation (`RunJournal*`, `InMemoryRunJournal`) plus dual-write bridge (`RunJournalBridgeRunStore`).
+- Run snapshot stores (`DzupRunStateStore`, `InMemoryRunStateStore`, `DeltaRunStateStore`).
+- Stage-aware context artifact backend (`VersionedContextBackend`, `InMemoryVersionedContextBackend`).
+- Session-scoped typed memory (`WorkingMemory` and related types).
+- LangGraph session/checkpoint helpers (`SessionManager`, `createCheckpointer`).
+- Legacy run-record compatibility interfaces (`RunRecordStore`, `InMemoryRunRecordStore`).
 
-It does not include server-side durable implementations; those are implemented outside this package.
+Out of scope:
+- Durable database-backed implementations (implemented in other packages, not here).
+- Agent orchestration logic and runtime execution loops outside persistence contracts.
 
 ## Responsibilities
 
-The persistence module provides three different persistence layers used by core orchestration:
+The persistence layer in `@dzupagent/core` is responsible for:
 
-1. Runtime run/agent persistence contracts:
-- `RunStore` tracks run lifecycle state, metadata, and structured logs.
-- `AgentExecutionSpecStore` tracks runnable agent specs.
-
-2. Execution history persistence:
-- `EventLogStore` captures high-volume timeline events for replay/debug.
-- `RunJournal` captures append-only lifecycle/state entries with compaction support.
-
-3. Local process/session state:
-- `WorkingMemory<T>` stores typed per-session key/value state with TTL and LRU options.
-- `SessionManager` provides deterministic LangGraph `thread_id` derivation.
-- `createCheckpointer` creates LangGraph checkpoint savers.
+1. Defining canonical contracts for runs, run logs, event timelines, snapshots, and agent execution specs.
+2. Providing default in-memory implementations for local development, tests, and single-process flows.
+3. Capturing append-only execution history through both event logs and journal entries.
+4. Supporting resumability through full and delta-based run-state snapshot stores.
+5. Exposing process-local working memory with TTL, LRU eviction, snapshot, and restore behavior.
+6. Providing deterministic session/thread ID derivation and LangGraph checkpointer creation.
+7. Maintaining backward compatibility for the legacy run-record API while keeping `RunStore` as the canonical run interface.
 
 ## Structure
 
-| File | Purpose |
+| Path | Purpose |
 | --- | --- |
-| `store-interfaces.ts` | Canonical `RunStore`, `Run`, `RunStatus`, `AgentExecutionSpecStore` contracts. |
-| `in-memory-store.ts` | `InMemoryRunStore` and `InMemoryAgentStore` reference implementations with retention limits. |
-| `event-log.ts` | `RunEvent` model, `EventLogStore` interface, `InMemoryEventLog`, and `EventLogSink`. |
-| `run-journal-types.ts` | Run-journal entry/query/config types and `RunJournal` interface. |
-| `run-journal.ts` | Type re-exports and helpers (`createEntryBase`, `isTerminalEntry`, `deserializeEntry`). |
-| `in-memory-run-journal.ts` | In-memory `RunJournal` implementation with auto-compaction and optional state-schema validation. |
-| `run-journal-bridge.ts` | `RunStore` wrapper that dual-writes lifecycle transitions to `RunJournal` when enabled. |
-| `working-memory-types.ts` | `WorkingMemoryConfig` and `WorkingMemorySnapshot<T>`. |
-| `working-memory.ts` | `WorkingMemory<T>` implementation and `createWorkingMemory` factory. |
-| `checkpointer.ts` | `createCheckpointer` factory for `MemorySaver` or `PostgresSaver`. |
-| `session.ts` | `SessionManager` for deterministic thread IDs and `RunnableConfig` construction. |
-| `run-store.ts` | Legacy `RunRecordStore` interface for provider/model/token-centric execution records. |
-| `in-memory-run-store.ts` | `InMemoryRunRecordStore` legacy in-memory implementation. |
-| `index.ts` | Persistence-only barrel exports (checkpointer/session/working-memory/run-journal surface). |
-
-Root package exports in `src/index.ts` also expose persistence symbols, including both canonical and legacy store APIs.
+| `store-interfaces.ts` | Canonical run and agent-execution store contracts (`RunStore`, `Run`, `RunFilter`, `RunStatus`, `AgentExecutionSpecStore`). |
+| `in-memory-store.ts` | In-memory `RunStore` and `AgentExecutionSpecStore` implementations with retention controls. |
+| `event-log.ts` | Event timeline model and store (`RunEvent`, `EventLogStore`, `InMemoryEventLog`) plus `EventLogSink` bridge. |
+| `run-journal-types.ts` | Journal entry union, query/page types, journal config, and `RunJournal` contract. |
+| `run-journal.ts` | Journal helper utilities (`createEntryBase`, `isTerminalEntry`, `deserializeEntry`) and type re-exports. |
+| `in-memory-run-journal.ts` | In-memory append-only journal with per-run sequence counters and compaction. |
+| `run-journal-bridge.ts` | `RunStore` wrapper that optionally dual-writes selected lifecycle changes into a `RunJournal`. |
+| `run-state-store.ts` | `DzupRunState` snapshot contract and supporting snapshot sub-types. |
+| `in-memory-run-state-store.ts` | Clone-on-save/load full snapshot store. |
+| `delta-run-state-store.ts` | Delta-encoded snapshot store with periodic full checkpoints and replay. |
+| `versioned-context-backend.ts` | Stage-aware artifact backend (`dev`/`staging`/`prod`) with promotion and tenant scoping. |
+| `working-memory-types.ts` | `WorkingMemoryConfig` and `WorkingMemorySnapshot` definitions. |
+| `working-memory.ts` | `WorkingMemory<T>` implementation (`set/get/delete/restore/snapshot/keys/size`) and factory. |
+| `checkpointer.ts` | `createCheckpointer` factory for LangGraph memory/postgres checkpoint savers. |
+| `session.ts` | `SessionManager` thread ID derivation and `RunnableConfig` builder. |
+| `run-store.ts` | Legacy run-record interfaces (`RunRecordStore`, `RunRecord`, `StoredRunEvent`, filters). |
+| `in-memory-run-store.ts` | In-memory implementation of legacy `RunRecordStore`. |
+| `index.ts` | Local barrel exporting checkpointer/session/working memory/journal APIs only. |
+| `__tests__/` | Persistence-specific tests for journal, bridge, delta snapshots, and versioned context backend. |
 
 ## Runtime and Control Flow
 
-Primary run persistence flow:
+1. Canonical run writes and reads:
+- `InMemoryRunStore.create()` generates run IDs (`crypto.randomUUID()`), sets initial status to `queued`, initializes logs, then enforces run retention.
+- `update()`, `get()`, `list()`, and `count()` apply agent/status/tenant/owner filters; list results are sorted by `startedAt` desc and paginated via `offset` + `limit`.
+- `addLog()` and `addLogs()` append timestamped entries and enforce per-run log retention.
 
-1. Caller creates a run through `RunStore.create(input)`.
-2. `InMemoryRunStore.create` assigns `id` (`crypto.randomUUID()`), sets initial status to `queued`, stamps `startedAt`, and initializes log storage.
-3. Callers mutate state with `RunStore.update(id, patch)` and write diagnostics via `addLog`/`addLogs`.
-4. Read paths use `get`, `list`, and optional `count`.
+2. Event timeline capture:
+- `InMemoryEventLog.append()` assigns per-run monotonic `seq`, stamps `timestamp = Date.now()`, appends to run-local arrays, and enforces retention limits.
+- Consumers use `getEvents()`, `getEventsSince()`, and `getLatest()` for replay and incremental views.
+- `EventLogSink.attach()` subscribes to an event bus `onAny(...)` handler and forwards each event as fire-and-forget appends.
 
-Event log flow:
+3. Journaled lifecycle dual-write:
+- `RunJournalBridgeRunStore` wraps any `RunStore`.
+- If enabled, `create()` writes `run_started` after primary store creation.
+- On `update()` with status changes, mapped entries are appended:
+`completed -> run_completed`, `failed -> run_failed`, `cancelled -> run_cancelled`, `paused -> run_paused`, `suspended -> run_suspended`, `running -> run_resumed`.
+- Journal errors are swallowed; primary run-store writes remain authoritative.
+- Log writes (`addLog`, `addLogs`) are deliberately not mirrored into the journal.
 
-1. Runtime emits domain events on an event bus.
-2. `EventLogSink.attach(eventBus, runId)` subscribes via `onAny`.
-3. Each event is appended to `EventLogStore` as `{ runId, type, payload }`, with per-run monotonic `seq` and wall clock `timestamp`.
-4. Consumers query with `getEvents`, `getEventsSince`, or `getLatest`.
+4. In-memory journal internals:
+- `InMemoryRunJournal.append()` assigns sequence numbers synchronously before async boundaries.
+- Optional `stateSchema.parse(...)` validates `state_updated` payloads; failures warn but do not reject writes.
+- Auto-compaction runs when non-snapshot entries reach `compactionThreshold` (default `500`): a `snapshot` entry is created and older entries are compacted while retaining recent entries.
+- `query()` supports cursor pagination (`afterSeq`), type filtering, optional compacted-entry inclusion, and page limits.
 
-Run journal flow:
+5. Run-state snapshots:
+- `InMemoryRunStateStore` keeps one cloned snapshot per `runId` and returns cloned state on load.
+- `DeltaRunStateStore.save()` appends message/usage deltas plus scalar changes and persists full snapshots every `fullSnapshotInterval` saves (default `10`).
+- `DeltaRunStateStore.replay()` reconstructs current state from nearest full snapshot plus subsequent deltas.
 
-1. `RunJournalBridgeRunStore` wraps any `RunStore`.
-2. When bridge is enabled, `create()` writes `run_started` after store create succeeds.
-3. On `update()`, lifecycle statuses are mapped to journal entries (`run_completed`, `run_failed`, `run_cancelled`, `run_paused`, `run_suspended`, `run_resumed`).
-4. Journal writes are best-effort and non-fatal; wrapped `RunStore` remains source of truth for reads.
-5. `InMemoryRunJournal` appends entries with per-run sequence assignment and triggers compaction when non-snapshot entries reach threshold (default `500`).
+6. Versioned context artifacts:
+- `InMemoryVersionedContextBackend.put()` upserts stage-specific artifacts while preserving `createdAt` and updating `updatedAt`.
+- `list()` enforces tenant matching and optional `kind`, `stage`, and ID-substring filters.
+- `promote()` follows `dev -> staging -> prod`, with optional benchmark gating (`requireBenchmark`).
 
-Working memory flow:
-
-1. `WorkingMemory.set` stores values with optional per-key TTL and optional global TTL default.
-2. Reads (`get`, `has`, `keys`, `size`) prune expired entries.
-3. Optional LRU eviction runs when `maxKeys` is exceeded.
-4. `snapshot()` returns deep-cloned immutable data; `restore()` replaces full state and emits `onChange` callbacks for changed keys.
-
-Checkpoint/session helpers:
-
-1. `createCheckpointer({ type: 'memory' })` returns `MemorySaver`.
-2. `createCheckpointer({ type: 'postgres', connectionString })` creates `PostgresSaver`, runs `setup()`, and returns it.
-3. `SessionManager.getThreadId(scope)` sorts scope keys, hashes `k:v|...` with SHA-256, and truncates to 32 hex chars.
-4. `SessionManager.getConfig(threadId, callbacks?)` returns LangGraph `RunnableConfig` with `configurable.thread_id`.
+7. Session and checkpointer wiring:
+- `SessionManager.getThreadId(scope)` sorts scope keys, builds a deterministic string, hashes with SHA-256, and truncates to 32 hex characters.
+- `SessionManager.getConfig(threadId, callbacks?)` returns LangGraph `RunnableConfig` using `configurable.thread_id`.
+- `createCheckpointer()` returns:
+`MemorySaver` for `type: 'memory'`, or `PostgresSaver` (with mandatory `connectionString` and `setup()`) for `type: 'postgres'`.
 
 ## Key APIs and Types
 
-Canonical run store (`store-interfaces.ts`):
-
+Canonical run/agent APIs:
 - `RunStatus`:
 `pending | queued | running | executing | awaiting_approval | approved | paused | suspended | completed | halted | failed | rejected | cancelled`
 - `RunStore`:
 `create`, `update`, `get`, `list`, optional `count`, `addLog`, `addLogs`, `getLogs`
-- `Run` includes run data plus optional tenant-scoping fields (`ownerId`, `tenantId`).
+- `RunFilter`:
+`agentId`, `status`, `limit`, `offset`, `tenantId`, `ownerId`, `includeLegacyOwnerless`
 - `AgentExecutionSpecStore`:
 `save`, `get`, `list`, `delete`
 
-Event log (`event-log.ts`):
+Event log APIs:
+- `EventLogStore`:
+`append`, `getEvents`, `getEventsSince`, `getLatest`
+- `RunEvent`:
+`{ runId, seq, timestamp, type, payload }`
 
-- `RunEvent`: `{ runId, seq, timestamp, type, payload }`
-- `EventLogStore`: `append`, `getEvents`, `getEventsSince`, `getLatest`
-- `InMemoryEventLog` default retention: `maxRuns=10_000`, `maxEventsPerRun=5_000`
-- `EventLogSink.attach(...)` returns an unsubscribe function.
+Run journal APIs:
+- `RunJournalEntryType`:
+`run_started | step_started | step_completed | step_failed | state_updated | run_completed | run_failed | run_paused | run_resumed | run_suspended | run_cancelled | snapshot | unknown`
+- `RunJournal`:
+`append`, `query`, `getAll`, `compact`, `needsCompaction`
+- `RunJournalConfig`:
+`compactionThreshold`, optional `stateSchema`
+- Utilities:
+`createEntryBase`, `isTerminalEntry`, `deserializeEntry`
 
-Run journal (`run-journal-types.ts`, `in-memory-run-journal.ts`, `run-journal-bridge.ts`):
+Run-state snapshot APIs:
+- `DzupRunState` fields:
+`version`, `runId`, `agentId`, optional `tenantId`, `messages`, `iteration`, `cumulativeUsage`, optional `budget`, optional `stuckDetector`, optional `pendingApproval`, optional `terminalReason`, `snapshotAt`
+- `DzupRunStateStore`:
+`save`, `load`, `delete`, `listRunIds`
+- `DeltaRunStateStoreOptions`:
+`fullSnapshotInterval`
 
-- `RunJournalEntryType` includes lifecycle, step, state update, snapshot, and unknown forward-compat entry types.
-- `RunJournal.append/query/getAll/compact/needsCompaction`.
-- `InMemoryRunJournal` supports optional `stateSchema.parse(...)` validation for `state_updated` entries; validation warnings are non-fatal.
-- `RunJournalBridgeRunStore` dual-writes lifecycle transitions when enabled and exposes `count()` fallback behavior if wrapped store lacks `count`.
+Versioned context APIs:
+- `ContextStage`: `dev | staging | prod`
+- `ContextKind`: `prompt | skill | memory | policy`
+- `VersionedContextBackend`:
+`put`, `get`, `list`, `promote`, `delete`
 
-Working memory (`working-memory.ts`):
-
+Working memory APIs:
 - `WorkingMemory<T>`:
 `set`, `get`, `has`, `delete`, `clear`, `snapshot`, `restore`, `keys`, `size`
-- `WorkingMemoryConfig`: `maxKeys`, `defaultTtlMs`, `onChange`
-- `createWorkingMemory<T>(config?)` convenience constructor.
+- `createWorkingMemory<T>(config?)`
+- `WorkingMemoryConfig`:
+`maxKeys`, `defaultTtlMs`, `onChange`
 
-Legacy API (`run-store.ts`, `in-memory-run-store.ts`):
+Legacy compatibility APIs:
+- `RunRecordStore` and `InMemoryRunRecordStore` remain exported for low-level run record usage and are documented as deprecated in favor of `RunStore`.
 
-- `RunRecordStore` and `InMemoryRunRecordStore` are explicitly marked deprecated in favor of canonical `RunStore`.
+Export surface notes:
+- Root entry (`src/index.ts`) exports the full persistence surface, including `DeltaRunStateStore` and `InMemoryVersionedContextBackend`.
+- Public subpath entry (`src/persistence.ts`, consumed as `@dzupagent/core/persistence`) exports canonical run/event/journal APIs and `InMemoryRunStateStore`, plus legacy run-record APIs, but does not export `DeltaRunStateStore` or `InMemoryVersionedContextBackend`.
+- Local barrel (`src/persistence/index.ts`) is narrower than both and mostly intended for internal modularization.
 
 ## Dependencies
 
-External dependencies directly imported by persistence code:
-
-- `@langchain/langgraph` (`MemorySaver`, `BaseCheckpointSaver` type).
+Direct external imports used by this module:
+- `@langchain/langgraph` (`MemorySaver`, `BaseCheckpointSaver`).
 - `@langchain/langgraph-checkpoint-postgres` (`PostgresSaver`).
-- `@langchain/core/runnables` and `@langchain/core/callbacks/manager` (`RunnableConfig`, `Callbacks`).
+- `@langchain/core/runnables` (`RunnableConfig`).
+- `@langchain/core/callbacks/manager` (`Callbacks`).
+- `@langchain/core/messages` (`BaseMessage`) for run-state message snapshots.
+- Node built-in `node:crypto` (`createHash`) for deterministic thread ID generation.
 
-Node and internal dependencies:
+Internal dependencies:
+- `../utils/logger.js` is used for unbounded retention warnings in in-memory stores.
 
-- `node:crypto` (`createHash`) for deterministic thread IDs.
-- `../utils/logger.js` for retention warning logs in in-memory stores/event log.
-
-Package-level dependency notes from `packages/core/package.json`:
-
-- Runtime deps: `@dzupagent/agent-types`, `@dzupagent/runtime-contracts`.
-- Peer deps include `@langchain/core`, `@langchain/langgraph`, `zod` (LanceDB/Arrow optional).
-- `@langchain/langgraph-checkpoint-postgres` is currently in `devDependencies`, but imported by runtime code in `checkpointer.ts`.
+Package metadata:
+- `package.json` exports `./persistence` -> `dist/persistence.js`.
+- `@langchain/langgraph-checkpoint-postgres` is currently declared in `devDependencies` while imported from runtime code in `checkpointer.ts`.
 
 ## Integration Points
 
-Inside `@dzupagent/core`:
+Within `@dzupagent/core`:
+- `src/index.ts` re-exports the complete persistence surface.
+- `src/persistence.ts` defines the curated public subpath API.
+- `src/facades/orchestration.ts` re-exports canonical run and event-log contracts/implementations for orchestration consumers.
+- `EventLogSink` depends only on an `onAny` event-bus shape, keeping coupling minimal.
 
-- `src/index.ts` exports persistence APIs to the main package surface.
-- `src/facades/orchestration.ts` re-exports run/agent/event log contracts and in-memory implementations for orchestration-focused imports.
-- `src/events/event-bus.ts` integrates with `EventLogSink` through the minimal `onAny` contract.
-
-Cross-package contract points:
-
-- `store-interfaces.ts` comments explicitly identify canonical implementations as `InMemoryRunStore` (core) and `PostgresRunStore` (server package).
-- `run-journal-types.ts` declares `InMemoryRunJournal` (core) and `PostgresRunJournal` (server package) as intended implementations.
+Across package boundaries:
+- Store interfaces are designed for adapter-style replacement by durable implementations in other packages.
+- The run journal bridge enables incremental adoption of journal-backed auditing without forcing callers to switch away from the `RunStore` read path.
 
 ## Testing and Observability
 
-Persistence-specific test coverage exists in:
-
+Persistence-focused tests currently present:
 - `src/__tests__/in-memory-store.test.ts`
 - `src/__tests__/event-log.test.ts`
-- `src/__tests__/run-store.test.ts` (legacy API)
+- `src/__tests__/run-state-store.test.ts`
+- `src/__tests__/working-memory.test.ts`
+- `src/__tests__/run-store.test.ts`
 - `src/persistence/__tests__/run-journal.test.ts`
 - `src/persistence/__tests__/run-journal-bridge.test.ts`
-- `src/__tests__/core.integration.test.ts` (event bus + sink + run store flow)
-- `src/__tests__/working-memory.test.ts`
-- `src/__tests__/w15-h2-branch-coverage.test.ts` (extra branch coverage for bridge/legacy run store paths)
+- `src/persistence/__tests__/delta-run-state-store.test.ts`
+- `src/persistence/__tests__/versioned-context-backend.test.ts`
 
-Observability and diagnostics built into persistence code:
+Observed diagnostics and introspection hooks:
+- `InMemoryRunStore` and `InMemoryEventLog` expose retention limits via `getRetentionLimits()` and attach non-enumerable `__dzupagentRetention` metadata.
+- Explicit `Infinity` limits emit warnings through the framework logger.
+- `InMemoryEventLog.totalEvents` provides cross-run event count.
+- `InMemoryRunStateStore` exposes `size` and `clear()` helpers.
+- `InMemoryRunJournal` exposes `_entryCount()` and `_clear()` helpers.
+- `DeltaRunStateStore` exposes `deltaCount()` and `snapshotCount()` helpers.
+- Event sink append behavior is intentionally fire-and-forget and does not surface append failures to emitters.
 
-- In-memory run store and event log expose non-enumerable `__dzupagentRetention` metadata with configured limits and `explicitUnbounded` marker.
-- Explicit unbounded retention (`Infinity`) emits warnings via framework logger.
-- `EventLogSink` is fire-and-forget and intentionally swallows append failures to avoid affecting run execution.
-- `InMemoryRunJournal` emits schema validation warnings (`console.warn`) instead of rejecting `state_updated` appends.
-
-Notably absent in current core tests:
-
-- No direct unit tests for `checkpointer.ts`.
-- No direct unit tests for `session.ts`.
+Current direct test gaps:
+- No dedicated unit tests for `checkpointer.ts`.
+- No dedicated unit tests for `session.ts`.
+- No explicit export-parity test that enforces expected differences between `src/index.ts`, `src/persistence.ts`, and `src/persistence/index.ts`.
 
 ## Risks and TODOs
 
-- `checkpointer.ts` imports `@langchain/langgraph-checkpoint-postgres` but package metadata currently lists it under `devDependencies`; this can break downstream runtime installs where dev dependencies are omitted.
-- `SessionManager.getThreadId` can collide if scope values include reserved separators (`:` or `|`) because inputs are concatenated without escaping before hashing.
-- `RunJournalBridgeRunStore` only journals status-driven lifecycle transitions and intentionally skips log entries; this limits fidelity if full trace reconstruction is expected from journal alone.
-- Two run persistence abstractions remain (`RunStore` vs deprecated `RunRecordStore`), which increases onboarding and naming ambiguity.
-- `InMemoryRunJournal` compaction currently scans entries and rewrites run arrays in memory; long-lived runs in single-process mode may still incur memory pressure before compaction points.
+- Runtime dependency classification:
+`checkpointer.ts` imports `@langchain/langgraph-checkpoint-postgres`, but the package is declared under `devDependencies`.
+
+- Export drift:
+Three different persistence entry surfaces exist (root, curated subpath, local barrel), which can drift without explicit parity/contract tests.
+
+- Session scope encoding:
+`SessionManager.getThreadId()` hashes raw `k:v|...` concatenation; delimiter collisions are unlikely after hashing but the pre-hash key format is not escaped.
+
+- Journal coverage tradeoff:
+`RunJournalBridgeRunStore` only journals selected lifecycle transitions; fine-grained logs remain only in `RunStore` log storage.
+
+- In-memory retention limits are finite by default but still process-local:
+long-running/high-throughput usage can grow memory pressure, especially when explicit unbounded limits are configured.
+
+- Delta replay assumptions:
+`DeltaRunStateStore` assumes append-only growth for `messages` and `cumulativeUsage`; non-append edits are not represented as granular reverse deltas.
+
+- Legacy surface maintenance:
+`RunRecordStore` remains available for compatibility, increasing persistence API surface area and potential confusion vs `RunStore`.
 
 ## Changelog
 
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 

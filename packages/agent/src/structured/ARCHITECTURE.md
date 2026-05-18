@@ -1,224 +1,203 @@
 # Structured Output Architecture (`packages/agent/src/structured`)
 
 ## Scope
-This document covers the structured-output subsystem in `@dzupagent/agent`:
+This document covers the structured-output engine implemented in:
 
 - `src/structured/index.ts`
 - `src/structured/structured-output-types.ts`
 - `src/structured/structured-output-engine.ts`
 
-It also covers direct runtime consumers inside `packages/agent` and relevant public exports.
+It also covers code paths inside `packages/agent` that call these files directly.
 
 Out of scope:
 
-- `src/agent/structured-generate.ts` and `DzupAgent.generateStructured(...)` (separate implementation path)
-- Provider SDK-native structured output wiring in other packages
+- `src/agent/structured-generate.ts` and `DzupAgent.generateStructured(...)` in `src/agent/dzip-agent.ts` (separate implementation path for the main agent runtime)
+- Provider SDK internals outside this package
 
 ## Responsibilities
-The subsystem is responsible for turning LLM responses into validated typed data with stable schema diagnostics.
+`src/structured` is a small, dependency-focused extraction layer that converts LLM responses into validated typed results.
 
-Core responsibilities:
+Responsibilities implemented today:
 
-- Resolve structured-output capabilities from explicit config, model metadata, or model-name heuristics.
-- Build a schema contract via `prepareStructuredOutputSchemaContract(...)`, including:
-  - stable schema name
-  - schema hash
-  - optional envelope (`{ result: ... }`) for non-object schemas
-  - provider-oriented schema normalization (`generic` vs `openai`)
-- Execute retry-aware parse loops with corrective prompts using `executeStructuredParseLoop(...)`.
-- Support strategy execution and fallback ordering.
-- Attach structured diagnostics to thrown errors (failure category, schema refs, provider/model context, message count).
+- Resolve structured-output capabilities using explicit config first, then model metadata, then model-name heuristics.
+- Build provider-aware schema contracts with stable naming and hashing through `prepareStructuredOutputSchemaContract(...)`.
+- Handle non-object schema envelopes (`{ result: ... }`) and unwrap successful parsed data back to caller shape.
+- Execute structured parse retries through `executeStructuredParseLoop(...)`.
+- Apply strategy fallback ordering when callers do not force a specific strategy.
+- Attach structured diagnostics to terminal failures using `attachStructuredOutputErrorContext(...)`.
 
 ## Structure
 - `index.ts`
-  - Re-exports:
-    - `generateStructured`
-    - `detectStrategy` (alias of `detectStructuredOutputStrategy` from `@dzupagent/core`)
-    - `resolveStructuredOutputCapabilities`
-  - Re-exports types:
-    - `StructuredOutputStrategy`
-    - `StructuredOutputCapabilities`
-    - `StructuredOutputConfig`
-    - `StructuredOutputResult`
-    - `StructuredLLM`
-    - `StructuredLLMWithMeta`
+- Barrel for the module.
+- Re-exports:
+- `generateStructured`
+- `detectStrategy`
+- `resolveStructuredOutputCapabilities`
+- type exports from `structured-output-types.ts`
+- `StructuredLLM` and `StructuredLLMWithMeta` from `structured-output-engine.ts`
 
 - `structured-output-types.ts`
-  - Defines API-facing config/result types.
-  - `StructuredOutputConfig<T>` includes:
-    - `schema` (required)
-    - optional `strategy`
-    - optional explicit `capabilities`
-    - `maxRetries`
-    - `schemaName`
-    - `agentId`
-    - `intent`
-    - `schemaDescription`
-    - `schemaProvider` (`generic` or `openai`)
-  - `StructuredOutputResult<T>` includes:
-    - `data`
-    - `strategy`
-    - `retries`
-    - `raw`
-    - `schemaName`
-    - `schemaHash`
+- Declares public types for this subsystem.
+- `StructuredOutputConfig<T>` includes schema, strategy/capability controls, retry count, schema naming metadata, and provider normalization target.
+- `StructuredOutputResult<T>` includes `data`, `strategy`, `retries`, raw output text, and stable schema identity (`schemaName`, `schemaHash`).
 
 - `structured-output-engine.ts`
-  - Public API:
-    - `generateStructured<T>(llm, messages, config)`
-    - `detectStrategy`
-    - `resolveStructuredOutputCapabilities`
-  - Internal helpers:
-    - `extractJson(...)`
-    - `buildSchemaPrompt(...)`
-    - `tryParse(...)`
-    - `tryStrategy(...)`
+- Core logic.
+- Public exports:
+- `generateStructured<T>(llm, messages, config)`
+- `detectStrategy` (alias of `detectStructuredOutputStrategy`)
+- `resolveStructuredOutputCapabilities`
+- `StructuredLLM` / `StructuredLLMWithMeta`
+- Internal helpers:
+- `extractJson(...)`
+- `buildSchemaPrompt(...)`
+- `tryParse(...)`
+- `tryStrategy(...)`
 
 ## Runtime and Control Flow
-1. Caller invokes `generateStructured(llm, messages, config)`.
-2. Engine resolves capabilities:
-   - `config.capabilities` (highest priority)
-   - `llm.structuredOutputCapabilities`
-   - heuristic `detectStrategy` from model/modelName/name
-3. Engine resolves schema provider via `resolveStructuredOutputSchemaProvider(...)`.
-4. Engine builds a schema contract with `prepareStructuredOutputSchemaContract(...)`:
-   - derives stable `schemaName`
-   - computes request/response schema descriptors and hashes
-   - wraps non-object schemas in envelope form
-5. Engine computes strategy list:
-   - if `config.strategy` is set: run only that strategy
-   - otherwise: run `preferredStrategy` plus either capability-defined fallbacks or default fallbacks (`generic-parse`, `fallback-prompt`, deduped)
-6. For each strategy, `tryStrategy(...)` runs `executeStructuredParseLoop(...)`:
-   - optional envelope system instruction is appended when required
-   - for `fallback-prompt`, schema instructions (name/hash/JSON Schema) are injected
-   - each attempt calls `llm.invoke(messages)`
-   - output is parsed (`extractJson` -> `JSON.parse` -> `schema.safeParse`)
-   - on parse/validation failure, retry state appends assistant raw output plus corrective user message from `buildStructuredOutputCorrectionPrompt(...)`
-7. On first success, return `StructuredOutputResult`.
-8. On exhaustion/failure:
-   - choose terminal error (`parse_exhausted` vs provider execution error)
-   - enrich via `attachStructuredOutputErrorContext(...)`
-   - attach `structuredOutputStrategies` and `structuredOutputMaxRetriesPerStrategy`
-   - throw enriched error
+1. `generateStructured(...)` receives an LLM-like object (`invoke(messages)`), message list, and typed config.
+2. Capabilities resolve in precedence order:
+3. `config.capabilities`
+4. `llm.structuredOutputCapabilities`
+5. heuristic detection from `model`/`modelName`/`name`
+6. Schema provider (`generic` or `openai`) resolves through `resolveStructuredOutputSchemaProvider(...)`.
+7. `prepareStructuredOutputSchemaContract(...)` builds request/response schema descriptors, stable schema hashes, and envelope requirements.
+8. Strategy list is computed:
+9. explicit `config.strategy`: single strategy only
+10. otherwise: preferred strategy plus either capability-defined fallbacks or default fallback sequence (`generic-parse`, `fallback-prompt`, deduplicated)
+11. Each strategy executes via `tryStrategy(...)`:
+12. optionally appends a system envelope instruction for non-object schemas
+13. optionally appends fallback schema prompt for `fallback-prompt`
+14. calls `llm.invoke(...)`
+15. parses and validates JSON (`extractJson` -> `JSON.parse` -> `safeParse`)
+16. on parse/validation failure, appends correction turn generated by `buildStructuredOutputCorrectionPrompt(...)`
+17. First successful strategy returns `StructuredOutputResult<T>`.
+18. If all strategies fail:
+19. classify terminal failure as `parse_exhausted` or `provider_execution_failed`
+20. enrich error context with schema/provider/model/attempt metadata
+21. attach `structuredOutputStrategies` and `structuredOutputMaxRetriesPerStrategy`
+22. throw the enriched error
 
 ## Key APIs and Types
 - `generateStructured<T>(llm, messages, config): Promise<StructuredOutputResult<T>>`
-  - Main entrypoint for typed structured extraction.
+- Main structured extraction entrypoint for this module.
 
 - `detectStrategy(runtime): StructuredOutputStrategy`
-  - Heuristic strategy detection based on model metadata.
+- Strategy heuristic from model metadata.
 
 - `resolveStructuredOutputCapabilities(runtime, config?)`
-  - Capability resolution utility exposed for callers/tests.
+- Capability resolution helper used by callers and tests.
 
 - `StructuredLLM`
-  - Minimal contract: `invoke(messages) => Promise<{ content: string }>`.
+- Minimal runtime contract:
+- `invoke(messages: unknown[]): Promise<{ content: string }>`
 
 - `StructuredLLMWithMeta`
-  - Optional metadata fields for strategy/capability resolution:
-    - `model`
-    - `modelName`
-    - `name`
-    - `structuredOutputCapabilities`
+- Extends `StructuredLLM` with optional capability-relevant metadata:
+- `model`
+- `modelName`
+- `name`
+- `structuredOutputCapabilities`
 
-- Strategy identifiers (from `@dzupagent/core`):
-  - `anthropic-tool-use`
-  - `openai-json-schema`
-  - `generic-parse`
-  - `fallback-prompt`
+- `StructuredOutputConfig<T>`
+- Call configuration including:
+- `schema`
+- optional `strategy`
+- optional `capabilities`
+- `maxRetries`
+- `schemaName`
+- `agentId`
+- `intent`
+- `schemaDescription`
+- `schemaProvider`
+
+- `StructuredOutputResult<T>`
+- Success payload including parsed `data`, selected `strategy`, retry count, raw output, and stable schema identifiers.
 
 ## Dependencies
-Direct package dependencies used by this subsystem:
+Direct imports used by this subsystem:
 
-- `@dzupagent/core`
-  - `detectStructuredOutputStrategy`
-  - `resolveStructuredOutputCapabilities`
-  - `resolveStructuredOutputSchemaProvider`
-  - `prepareStructuredOutputSchemaContract`
-  - `executeStructuredParseLoop`
-  - `buildStructuredOutputCorrectionPrompt`
-  - `buildStructuredOutputExhaustedError`
-  - `isStructuredOutputExhaustedErrorMessage`
-  - `attachStructuredOutputErrorContext`
-  - `unwrapStructuredEnvelope`
+- `@dzupagent/core/pipeline`
+- `attachStructuredOutputErrorContext`
+- `executeStructuredParseLoop`
+- `buildStructuredOutputCorrectionPrompt`
+- `buildStructuredOutputExhaustedError`
+- `detectStructuredOutputStrategy`
+- `isStructuredOutputExhaustedErrorMessage`
+- `prepareStructuredOutputSchemaContract`
+- `resolveStructuredOutputCapabilities`
+- `resolveStructuredOutputSchemaProvider`
+- `unwrapStructuredEnvelope`
+
+- `../utils/exact-optional.ts`
+- `omitUndefined` helper for clean optional payload construction.
+
 - `zod`
-  - Runtime schema validation through the prepared schema contract.
+- schema type surface in config/types and runtime validation via prepared contracts.
 
-`package.json` context for `@dzupagent/agent`:
+Package-level context (`packages/agent/package.json`):
 
-- Internal runtime dependencies include `@dzupagent/core` and related framework packages.
-- Peer dependencies include `zod` and LangChain packages.
+- Internal runtime deps include `@dzupagent/core`, `@dzupagent/context`, `@dzupagent/memory`, `@dzupagent/memory-ipc`, `@dzupagent/runtime-contracts`, and `@dzupagent/security`.
+- Peer deps include `zod`, `@langchain/core`, and `@langchain/langgraph`.
 
 ## Integration Points
-Primary runtime integration:
+- `src/orchestration/planning-decomposition.ts`
+- Primary runtime consumer of `generateStructured(...)`.
+- `decomposeGoal(...)` calls this engine with:
+- `schema: DecompositionSchema`
+- explicit capability override (`preferredStrategy: generic-parse`, fallback `fallback-prompt`)
+- explicit `schemaProvider: generic`
+- stable schema metadata (`agentId`, `intent`, `schemaName`, `schemaDescription`)
 
 - `src/orchestration/planning-agent.ts`
-  - Imports `generateStructured` and `StructuredLLM`.
-  - `PlanningAgent.decompose(...)` calls `generateStructured(...)` with:
-    - explicit capabilities (`preferredStrategy: generic-parse`, fallback `fallback-prompt`)
-    - explicit `schemaProvider: generic`
-    - stable schema metadata (`agentId`, `intent`, `schemaName`, `schemaDescription`)
+- Uses `StructuredLLM` type in `decompose(...)`, then delegates to `decomposeGoal(...)`.
 
-Related orchestration integration:
-
-- `src/orchestration/delegating-supervisor.ts`
-  - Uses `StructuredLLM` type in `planAndDelegate` options.
-  - Falls back to keyword planning if LLM-based decomposition fails.
-
-Public API integration:
+- `src/orchestration/delegating-supervisor-types.ts`
+- `PlanAndDelegateOptions.llm` is typed as `StructuredLLM`.
+- `DelegatingSupervisor.planAndDelegate(...)` uses `PlanningAgent.decompose(...)` and can fall back to keyword planning on decomposition failure.
 
 - `src/index.ts`
-  - Re-exports `generateStructured` as `generateStructuredOutput`.
-  - Re-exports strategy/config/result/capability/LLM types from `src/structured`.
+- Re-exports this module’s API to package consumers:
+- `generateStructured` as `generateStructuredOutput`
+- `detectStrategy`
+- structured output config/result/capability/LLM types
 
-Adjacent but separate path:
-
-- `src/agent/dzip-agent.ts` -> `src/agent/structured-generate.ts`
-  - `DzupAgent.generateStructured(...)` does not call this subsystem.
+- `src/agent/dzip-agent.ts` + `src/agent/structured-generate.ts`
+- Separate structured-output path for `DzupAgent.generateStructured(...)`.
+- Does not call `src/structured/structured-output-engine.ts`.
 
 ## Testing and Observability
-Test coverage in `packages/agent` directly exercises this module and its planning integration.
+Test coverage in `packages/agent/src/__tests__` includes:
 
-Direct structured-output tests:
+- `structured-output.test.ts`
+- strategy detection matrix
+- capability precedence
+- JSON extraction (plain and fenced)
+- retry loop behavior
+- fallback ordering
+- explicit strategy pinning behavior
+- envelope handling for non-object schemas
+- enriched diagnostics for parse exhaustion and provider errors
 
-- `src/__tests__/structured-output.test.ts`
-  - strategy detection matrix checks
-  - capability resolution precedence
-  - parse from plain JSON and fenced code blocks
-  - retries and corrective loop behavior
-  - fallback ordering
-  - explicit strategy behavior
-  - envelope wrapping/unwrapping for non-object schemas
-  - provider/schema diagnostics on failures
-  - provider execution failure categorization
+- `plan-decomposition.test.ts`
+- `PlanningAgent.decompose(...)` behavior over structured plan output
+- unknown specialist and dangling dependency diagnostics
+- cycle handling and `maxNodes` behavior
+- `DelegatingSupervisor.planAndDelegate(...)` fallback behavior when LLM decomposition fails
 
-Integration-adjacent tests:
+Observability behavior in this module:
 
-- `src/__tests__/plan-decomposition.test.ts`
-  - `PlanningAgent.decompose(...)` behavior relying on structured extraction
-  - invalid specialist filtering, dependency cleanup, cycle detection, max-node enforcement
-  - `DelegatingSupervisor.planAndDelegate(...)` LLM fallback behavior
-
-Local verification run used for this refresh:
-
-- `yarn workspace @dzupagent/agent test -- structured-output.test.ts plan-decomposition.test.ts`
-- Result: 2 test files passed, 48 tests passed.
-
-Observability/error surface:
-
-- thrown errors are enriched with:
-  - `failureCategory`
-  - `schemaName`
-  - `schemaHash`
-  - provider/model metadata
-  - structured request/response schema references
-  - selected strategy list and retry budget per strategy
+- terminal errors are enriched with structured-output context (schema info, provider/model details, failure category, and schema descriptors).
+- enriched errors also include strategy metadata:
+- `structuredOutputStrategies`
+- `structuredOutputMaxRetriesPerStrategy`
 
 ## Risks and TODOs
-- Strategy names imply provider-native modes (`anthropic-tool-use`, `openai-json-schema`), but this engine currently executes all strategies through `llm.invoke(...)` plus parse/validate loops.
-- `extractJson(...)` remains regex-based and can still mis-handle ambiguous mixed-content responses.
-- Cancellation is not wired into `generateStructured(...)`/`tryStrategy(...)` (no `AbortSignal` path in this module).
-- The module intentionally relies on caller-provided capability metadata for deterministic behavior; call sites that omit explicit capabilities may still depend on heuristic model-name detection.
+- Strategy labels such as `openai-json-schema` and `anthropic-tool-use` are selection semantics in this module, but execution still flows through generic `llm.invoke(...)` parsing loops.
+- JSON extraction is regex/string-heuristic based (`extractJson`) and can still be brittle with mixed natural-language output.
+- This module has no explicit cancellation path (`AbortSignal` is not part of `StructuredLLM` contract or `generateStructured(...)` config).
+- If callers do not provide explicit capabilities, behavior depends on model-name heuristics; deterministic environments should prefer explicit capability metadata.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+

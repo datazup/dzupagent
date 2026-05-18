@@ -1,145 +1,249 @@
 # Subagent Architecture (`packages/core/src/subagent`)
 
 ## Scope
+This document covers the implementation currently present in:
 
-This document describes the implementation in `packages/core/src/subagent`:
+- `packages/core/src/subagent/subagent-types.ts`
+- `packages/core/src/subagent/subagent-spawner.ts`
+- `packages/core/src/subagent/file-merge.ts`
 
-- `subagent-types.ts`
-- `subagent-spawner.ts`
-- `file-merge.ts`
+It also references direct package-level integration points that expose this module:
 
-It is limited to code that currently exists in `@dzupagent/core` and its direct integrations in this package.
+- `packages/core/src/index.ts`
+- `packages/core/src/facades/orchestration.ts`
+- `packages/core/src/pipeline.ts`
+- `packages/core/package.json`
+- `packages/core/src/__tests__/subagent-spawner.test.ts`
+- `packages/core/src/__tests__/facades.test.ts`
 
 ## Responsibilities
+The subagent module provides a focused runtime primitive for delegated child-agent execution within `@dzupagent/core`.
 
-- Provide a `SubAgentSpawner` runtime for creating child-agent executions from a parent workflow.
-- Support two execution modes:
-- Single-turn spawn (`spawn`)
-- Iterative tool-calling ReAct loop (`spawnReAct`)
-- Resolve the model for a sub-agent from either:
-- An explicit `BaseChatModel` instance
-- A `ModelTier` resolved through `ModelRegistry`
-- Attach structured-output capability metadata to the resolved model when `structuredOutputCapabilities` is supplied.
-- Optionally enrich the sub-agent system prompt with selected skill content via `SkillLoader`.
-- Build an optional parent-file context block and append it to the task prompt.
-- Capture file edits from recognized file-writing tool calls and optionally merge them back into parent files.
+Implemented responsibilities are:
+
+- Define subagent config/result/usage contracts (`SubAgentConfig`, `SubAgentResult`, `SubAgentUsage`) and runtime defaults (`REACT_DEFAULTS`).
+- Run a one-shot child invocation (`spawn`) with optional parent-file context injection.
+- Run an iterative tool-calling child loop (`spawnReAct`) with iteration and depth limits.
+- Resolve child models from either:
+  - explicit `BaseChatModel`, or
+  - registry tier (`ModelTier`) through `ModelRegistry`.
+- Attach structured-output capabilities to the resolved model when requested.
+- Optionally hydrate child system prompts with selected skill content via optional `SkillLoader`.
+- Capture file writes from known file tools and merge back to parent file maps (`spawnAndMerge`, `mergeFileChanges`, `fileDataReducer`).
 
 ## Structure
-
-| File | Purpose |
-|---|---|
-| `subagent-types.ts` | Shared contracts: `SubAgentConfig`, `SubAgentUsage`, `SubAgentResult`, and `REACT_DEFAULTS`. |
-| `subagent-spawner.ts` | `SubAgentSpawner` implementation (`spawn`, `spawnReAct`, `spawnAndMerge`) and private helpers for model resolution, skill prompt building, context shaping, and file extraction. |
-| `file-merge.ts` | Merge and reducer helpers for file snapshots: `mergeFileChanges` and `fileDataReducer`. |
-
-## Runtime and Control Flow
-
-1. `spawn(config, task, parentFiles?)`:
-- Resolves model via `resolveModel` (`config.model` or `registry.getModel('codegen')`).
-- Applies optional structured-output capability override (`attachStructuredOutputCapabilities`).
-- Builds system prompt (base prompt plus optional loaded skills).
-- Builds optional file-context block from `parentFiles` and optional `contextFilter`.
-- Optionally binds tools when tools are provided and model supports `bindTools`.
-- Invokes once and returns a `SubAgentResult` with one AI response and empty `files`.
-
-2. `spawnReAct(config, task, parentFiles?)`:
-- Enforces recursion-depth guard (`_depth` compared against `options.maxDepth` or `REACT_DEFAULTS.maxDepth`).
-- Resolves/binds model and tools, creates initial `SystemMessage` + `HumanMessage`.
-- Starts timeout watchdog with `AbortController`.
-- Iterates up to `maxIterations`:
-- Invokes model.
-- Aggregates token usage via `extractTokenUsage`.
-- Reads `AIMessage.tool_calls`.
-- Executes each tool call and appends `ToolMessage` with result or error.
-- Extracts file updates from recognized file tools (`write_file`, `edit_file`, `create_file`).
-- Stops when no tool calls remain, timeout is observed, or iteration cap is reached.
-- Returns full message trace, usage totals, metadata, file map, and `hitIterationLimit`.
-
-3. `spawnAndMerge(config, task, parentFiles)`:
-- Chooses `spawnReAct` when tools are configured; otherwise uses `spawn`.
-- Merges `parentFiles` and `result.files` via `mergeFileChanges`.
-- Returns both raw `result` and `mergedFiles`.
-
-## Key APIs and Types
+### `subagent-types.ts`
+Defines:
 
 - `SubAgentConfig`
-- Required: `name`, `description`, `systemPrompt`
-- Optional: `model`, `structuredOutputCapabilities`, `tools`, `skills`, `middleware`, `maxIterations`, `timeoutMs`, `_depth`, `contextFilter`
 - `SubAgentUsage`
-- `inputTokens`, `outputTokens`, `llmCalls`
 - `SubAgentResult`
-- `messages`, `files`, `metadata`, optional `usage`, optional `hitIterationLimit`
-- `REACT_DEFAULTS`
-- `maxIterations: 10`
-- `timeoutMs: 120_000`
-- `maxDepth: 3`
-- `SubAgentSpawner`
-- Constructor: `(registry: ModelRegistry, options?: { skillLoader?: SkillLoader; maxDepth?: number })`
-- Public methods: `spawn`, `spawnReAct`, `spawnAndMerge`
+- `REACT_DEFAULTS` (`maxIterations: 10`, `timeoutMs: 120_000`, `maxDepth: 3`)
+
+`SubAgentConfig` includes model selection, tool list, skill names, optional structured-output capabilities, iteration/timeout controls, recursion depth marker (`_depth`), and optional `contextFilter`.
+
+### `subagent-spawner.ts`
+Defines:
+
+- `SubAgentSpawner` class with public methods:
+  - `spawn`
+  - `spawnReAct`
+  - `spawnAndMerge`
+
+Private helpers in this file:
+
+- `resolveModel`
+- `buildSystemPrompt`
+- `buildContextBlock`
+- `extractFilesFromToolCall`
+
+It also defines `FILE_TOOL_NAMES` as:
+- `write_file`
+- `edit_file`
+- `create_file`
+
+### `file-merge.ts`
+Defines:
+
 - `mergeFileChanges(parent, child, strategy?)`
-- Strategies: `'last-write-wins'` (default), `'conflict-error'`
+  - strategy: `'last-write-wins' | 'conflict-error'`
 - `fileDataReducer(current, update)`
-- Applies updates and treats `null` values as delete signals.
+  - `null` values delete files from the result map
+
+## Runtime and Control Flow
+### `spawn(config, task, parentFiles?)`
+1. Resolve model using `resolveModel`:
+- default to registry tier `'codegen'` when `config.model` is missing
+- resolve tier name through `ModelRegistry` when `config.model` is a string
+- use provided model instance when `config.model` is a model object
+- always run through `attachStructuredOutputCapabilities(...)`
+
+2. Build system prompt with optional skill content (`buildSystemPrompt`).
+
+3. Build parent file context block (`buildContextBlock`) and append it to the human task message.
+
+4. If tools exist and the model supports `bindTools`, bind tools before invoking.
+
+5. Invoke once and return:
+- `messages: [response]`
+- `files: {}`
+- metadata with `agentName` and `modelUsed`
+
+### `spawnReAct(config, task, parentFiles?)`
+1. Enforce recursion guard:
+- `currentDepth = config._depth ?? 0`
+- stop early if `currentDepth >= (options.maxDepth ?? REACT_DEFAULTS.maxDepth)`
+
+2. Resolve iteration and timeout controls:
+- `maxIterations = config.maxIterations ?? REACT_DEFAULTS.maxIterations`
+- `timeoutMs = config.timeoutMs ?? REACT_DEFAULTS.timeoutMs`
+
+3. Resolve/bind model and initialize message history (`SystemMessage`, `HumanMessage`).
+
+4. Start loop up to `maxIterations`:
+- check abort state first
+- invoke model
+- accumulate usage via `extractTokenUsage`
+- append AI response
+- inspect `AIMessage.tool_calls`
+- if no tool calls, finish
+- otherwise execute each tool call and append `ToolMessage` for:
+  - success payload
+  - missing tool errors
+  - thrown tool errors
+
+5. For recognized file tools, extract file path/content from tool args into `files`.
+
+6. Mark `hitIterationLimit = true` if loop reaches last allowed iteration.
+
+7. Clear timeout timer in `finally` and return full result:
+- complete `messages`
+- collected `files`
+- `metadata` with `agentName`, `modelUsed`, and `depth`
+- aggregated `usage`
+- `hitIterationLimit`
+
+### `spawnAndMerge(config, task, parentFiles)`
+- Chooses:
+  - `spawnReAct` when tools are configured
+  - `spawn` when tools are not configured
+- Merges child `result.files` into `parentFiles` using `mergeFileChanges(...)`
+- Returns `{ result, mergedFiles }`
+
+### File extraction and merge semantics
+- Path aliases: `path`, `file_path`, `filePath`
+- Content aliases: `content`, `new_content`, `newContent`
+- `mergeFileChanges` default strategy is `last-write-wins`
+- `conflict-error` throws when both parent and child define the same file with different content
+- `fileDataReducer` supports deletion by setting update value to `null`
+
+## Key APIs and Types
+### Class
+- `SubAgentSpawner`
+  - constructor:
+    - `(registry: ModelRegistry, options?: { skillLoader?: SkillLoader; maxDepth?: number })`
+  - methods:
+    - `spawn(config, task, parentFiles?)`
+    - `spawnReAct(config, task, parentFiles?)`
+    - `spawnAndMerge(config, task, parentFiles)`
+
+### Types
+- `SubAgentConfig`
+  - required: `name`, `description`, `systemPrompt`
+  - optional: `model`, `structuredOutputCapabilities`, `tools`, `skills`, `middleware`, `maxIterations`, `timeoutMs`, `_depth`, `contextFilter`
+- `SubAgentUsage`
+  - `inputTokens`, `outputTokens`, `llmCalls`
+- `SubAgentResult`
+  - `messages`, `files`, `metadata`, optional `usage`, optional `hitIterationLimit`
+
+### Constants and functions
+- `REACT_DEFAULTS`
+- `mergeFileChanges(...)`
+- `fileDataReducer(...)`
 
 ## Dependencies
+Direct external imports in `src/subagent/*`:
 
-- External packages:
 - `@langchain/core/messages`
 - `@langchain/core/language_models/chat_models`
 - `@langchain/core/tools`
-- Internal `packages/core` modules:
+
+Direct internal imports in `src/subagent/*`:
+
 - `../llm/model-registry.js`
-- `../llm/invoke.js`
+- `../llm/invoke.js` (`extractTokenUsage`)
 - `../llm/structured-output-capabilities.js`
-- `../skills/skill-loader.js`
-- `./file-merge.js`
-- Type dependencies from other internal modules:
-- `ModelTier`, `StructuredOutputModelCapabilities` from `../llm/model-config.js`
-- `AgentMiddleware` from `../middleware/types.js`
+- `../llm/model-config.js` (types)
+- `../skills/skill-loader.js` (type in constructor options)
+- `../middleware/types.js` (type in `SubAgentConfig`)
+- local subagent files (`./subagent-types.js`, `./file-merge.js`)
+
+Package-level context (`packages/core/package.json`):
+
+- ESM package (`"type": "module"`)
+- build/test scripts use `tsup`, `tsc`, `vitest`
+- peer dependency on `@langchain/core` (`>=1.0.0`)
 
 ## Integration Points
+Subagent exports are re-exposed through three active surfaces:
 
-- Root package exports (`src/index.ts`) expose:
+- Root barrel: `@dzupagent/core` (`src/index.ts`)
+- Orchestration facade: `@dzupagent/core/orchestration` (`src/facades/orchestration.ts`)
+- Pipeline subpath: `@dzupagent/core/pipeline` (`src/pipeline.ts`)
+
+Exported symbols across those surfaces:
+
 - `SubAgentSpawner`
 - `REACT_DEFAULTS`
 - `SubAgentConfig`, `SubAgentResult`, `SubAgentUsage`
 - `mergeFileChanges`, `fileDataReducer`
-- Orchestration facade (`src/facades/orchestration.ts`) re-exports the same subagent API for `@dzupagent/core/orchestration`.
-- Stable entrypoint (`src/stable.ts`) exports facade namespaces from `src/facades/index.ts`; subagent APIs are consumed via the `orchestration` namespace.
-- Advanced entrypoint (`src/advanced.ts`) re-exports the full root surface, including subagent APIs.
-- Subagent execution relies on caller-provided runtime wiring:
-- A `ModelRegistry` instance is mandatory.
-- Optional `SkillLoader` enables skill content injection.
-- Tool implementations are caller-supplied `StructuredToolInterface[]`.
+
+Runtime collaborators required by callers:
+
+- `ModelRegistry` instance passed to `SubAgentSpawner`
+- optional `SkillLoader` for skill prompt hydration
+- optional `StructuredToolInterface[]` for ReAct tool execution paths
 
 ## Testing and Observability
+### Tests
+Primary behavior coverage exists in `src/__tests__/subagent-spawner.test.ts`:
 
-- `src/__tests__/subagent-spawner.test.ts` covers:
-- Single-turn `spawn`
-- Parent-file context injection
-- Structured-output capability attachment on direct model instances
-- ReAct loop behavior (tool success, missing tool, tool error)
-- Iteration-limit handling
-- Depth guard behavior
-- Usage aggregation
-- `spawnAndMerge` branch behavior
-- Subagent behavior is observable through returned data:
-- `metadata` includes `agentName`, `modelUsed`, and `depth` (ReAct path)
-- `usage` tracks aggregate token/call counts for ReAct runs
-- `messages` includes `ToolMessage` entries for both successful and failed tool calls
-- No dedicated logger or metrics hook is implemented inside `src/subagent`; observability is primarily via return payloads and upstream event/telemetry layers in other modules.
+- `spawn` single-turn invocation behavior
+- parent file context injection
+- structured-output capability attachment on direct model instance
+- ReAct loop behavior with:
+  - normal tool call + final response
+  - max iteration stop
+  - missing tools
+  - tool execution errors
+- file extraction from `write_file` tool args
+- max-depth guard behavior
+- cumulative token usage accumulation
+- `spawnAndMerge` mode selection and merge result
+
+Facade/export coverage in `src/__tests__/facades.test.ts` confirms `SubAgentSpawner` is available through orchestration facade exports.
+
+### Observability
+The subagent module itself does not emit metrics or logs directly. Operational signals are returned in `SubAgentResult`:
+
+- full message trace (`messages`)
+- usage counters (`usage`)
+- stop hints in metadata (`stoppedReason`, `depth`)
+- iteration cap marker (`hitIterationLimit`)
 
 ## Risks and TODOs
+Current code-visible limitations:
 
-- `SubAgentConfig.middleware` is defined but not consumed by `SubAgentSpawner`.
-- Timeout handling uses `AbortController`, but `model.invoke(...)` and `tool.invoke(...)` are not passed abort signals, so in-flight calls are not forcibly canceled.
-- `buildContextBlock` embeds full file contents directly in prompt text, which can increase token usage for large parent snapshots.
+- `SubAgentConfig.middleware` is part of the public type but is not consumed by `SubAgentSpawner`.
+- Timeout is tracked via `AbortController`, but the signal is not passed into model/tool invocations, so long-running calls are not forcibly cancelled.
+- `buildContextBlock` inlines complete file contents, which can significantly increase prompt size and token cost on large parent snapshots.
 - File extraction is intentionally narrow:
-- Tool name must be one of `write_file`, `edit_file`, `create_file`.
-- Path/content extraction only checks a fixed alias set (`path`/`file_path`/`filePath`, `content`/`new_content`/`newContent`).
-- Unknown `config.skills` entries are silently ignored if not discovered by `SkillLoader`.
-- `subagent-spawner.ts` generates fallback tool-call ids using `Date.now()` and `Math.random()`, which is non-deterministic for trace replay.
+  - only known tool names are considered
+  - only simple path/content arg aliases are parsed
+  - tool result payload is ignored for file extraction
+- Unknown skill names are silently skipped (no warning channel in this module).
+- Synthetic fallback tool call IDs use timestamp/random generation, which is non-deterministic for strict replay correlation.
 
 ## Changelog
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js

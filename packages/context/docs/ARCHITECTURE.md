@@ -1,174 +1,197 @@
 # @dzupagent/context Architecture
 
 ## Scope
-`@dzupagent/context` is the DzupAgent package for context-window management primitives used around long-running LLM conversations.
+`@dzupagent/context` is the Layer-2 context-engineering package in `dzupagent/packages/context`. It provides reusable primitives for:
+- message-history compression and summarization,
+- token-budget tracking and compression triggers,
+- prompt-cache marker injection for Claude-compatible flows,
+- context transfer between intent boundaries,
+- frozen memory snapshot construction,
+- large-content eviction and description completeness scoring.
 
-Current scope in `packages/context` includes:
-- Message-history compression and summarization primitives (`message-manager.ts`, `auto-compress.ts`, `progressive-compress.ts`).
-- Context-retention policy helpers (`phase-window.ts`, `context-eviction.ts`, `context-transfer.ts`).
-- Prompt-cache and reminder helpers (`prompt-cache.ts`, `system-reminder.ts`).
-- Token accounting utilities (`token-lifecycle.ts`, `char-estimate-counter.ts`, `tiktoken-counter.ts`).
-- Memory integration bridges that do not hard-depend on `@dzupagent/memory` (`extraction-bridge.ts`, `snapshot-builder.ts`).
-- Feature-input scoring utility (`completeness-scorer.ts`).
-
-Out of scope for this package:
-- Owning model provider clients.
-- Persisting memory directly (handled by external memory services).
-- Agent orchestration loops and transport concerns (owned by other packages/apps).
+The package is intentionally model-runtime-adjacent, not model-runtime-owning:
+- it consumes `@langchain/core` message/model abstractions,
+- it does not own provider transport,
+- it does not own memory storage,
+- it does not own agent loop orchestration.
 
 ## Responsibilities
-This package is responsible for:
-- Detecting when message history should be compressed (`shouldSummarize`).
-- Compressing history while trying to keep tool-call/tool-result structure valid.
-- Producing and formatting structured summary context for later turns.
-- Offering gradual compression policies (levels 0-4) and budget-oriented entrypoints.
-- Providing context transfer between intent boundaries.
-- Providing token lifecycle accounting and optional precise token counting.
-- Providing Anthropic cache breakpoint marking for both Anthropic-native payloads and LangChain messages.
-- Providing a non-fatal frozen snapshot builder from memory-service-like sources.
+The current codebase assigns these responsibilities to this package:
+- Decide when compression should happen (`shouldSummarize`) from message-count and estimated token thresholds.
+- Compress transcripts while preserving tool-call/tool-result structural validity (`pruneToolResults`, `repairOrphanedToolPairs`, safe split alignment, summary generation).
+- Run automatic compression orchestration (`autoCompress`) with optional pre-summarize extraction hook, optional memory-frame overlap filtering, and optional hard budget truncation fallback.
+- Provide progressive compression levels (`compressToLevel`, `compressToBudget`, `selectCompressionLevel`) from no-op to ultra-compressed modes.
+- Inject Anthropic prompt-cache markers with strategy controls and model-awareness (`applyCacheBreakpoints`, `injectPromptCacheMarkers*`).
+- Track token lifecycle pressure across phases (`TokenLifecycleManager`) and expose recommendations.
+- Build transferable context blocks across intent switches (`ContextTransferService`).
+- Build frozen memory snapshots from a memory-service-like interface without direct dependency on `@dzupagent/memory` (`buildFrozenSnapshot`).
+- Offer utility surfaces for content eviction, completeness scoring, reminder reinjection, and token counters.
 
 ## Structure
-Package layout:
-- `src/index.ts`: public export surface.
-- `src/message-manager.ts`: core compression primitives.
-- `src/auto-compress.ts`: summarize-on-threshold orchestration + hard budget truncation + `FrozenSnapshot` class.
-- `src/progressive-compress.ts`: level-based compression and budget-level selection.
-- `src/phase-window.ts`: phase detection and retention scoring/split policy.
-- `src/context-transfer.ts`: intent-scoped context extraction, relevance matching, and injection.
-- `src/context-eviction.ts`: large-content head/tail truncation utility.
-- `src/prompt-cache.ts`: Anthropic cache-control helpers and content-addressed breakpoint strategy.
-- `src/system-reminder.ts`: interval-based `<system-reminder>` reinjection helper.
-- `src/token-lifecycle.ts`: budget model, lifecycle manager, recommendations, token-counter interface.
-- `src/char-estimate-counter.ts`: chars/4 heuristic counter.
-- `src/tiktoken-counter.ts`: lazy `js-tiktoken` counter with fallback to chars/4.
-- `src/extraction-bridge.ts`: pre-summarize extraction hook adapter.
-- `src/snapshot-builder.ts`: frozen snapshot construction from `MemoryServiceLike`.
-- `src/completeness-scorer.ts`: heuristic spec completeness scoring.
-- `src/__tests__/*.test.ts`: unit and integration coverage for the above modules.
+Source modules in `src/`:
+- `index.ts`: package export surface.
+- `message-manager.ts`: core summarize/trim pipeline helpers and summary context formatting.
+- `auto-compress.ts`: automatic compression orchestration; includes `FrozenSnapshot` class.
+- `progressive-compress.ts`: level-based and budget-based compression APIs.
+- `phase-window.ts`: phase detection + message retention scoring/split heuristics.
+- `context-transfer.ts`: extract/format/inject context between intents.
+- `prompt-cache.ts`: Anthropic cache-control breakpoint placement (`positional` and `content-addressed`).
+- `prompt-cache-injector.ts`: model-id-aware cache marker injection guardrails.
+- `token-lifecycle.ts`: budget model + usage tracking + status/reporting.
+- `char-estimate-counter.ts`: lightweight chars/4 token counter.
+- `tiktoken-counter.ts`: optional `js-tiktoken`/Anthropic-tokenizer-backed counter with graceful fallback.
+- `system-reminder.ts`: interval-based `<system-reminder>` block injector.
+- `context-eviction.ts`: head/tail truncation helper for very large content blocks.
+- `snapshot-builder.ts`: memory-service adapter to construct frozen snapshots.
+- `extraction-bridge.ts`: adapter to turn extraction functions into pre-summarize hooks.
+- `completeness-scorer.ts`: heuristic task-description completeness scoring.
 
-Build and packaging:
-- ESM package (`"type": "module"`) with `tsup` build to `dist/`.
-- Single package export (`.`) from `dist/index.js` + `dist/index.d.ts`.
+Package/build layout:
+- ESM package (`"type": "module"`), single public export path (`.`).
+- Build output: `dist/` via `tsup` (`src/index.ts` entry, ESM, d.ts, sourcemaps, Node 20 target).
+- Tests: `src/**/*.test.ts`/`src/**/*.spec.ts` under Vitest.
 
 ## Runtime and Control Flow
-Primary compression path (`autoCompress`):
-1. Evaluate `shouldSummarize(messages, config)` from message count and/or token estimate.
-2. If summarization needed, optionally call `onBeforeSummarize` with messages that will be summarized away.
-3. If `memoryFrame` is present, run `batchOverlapAnalysis` (`@dzupagent/memory-ipc`) and drop duplicate historical messages while preserving recent messages.
-4. Call `summarizeAndTrim(...)`.
-5. In `summarizeAndTrim`:
-- Prune stale tool outputs (`pruneToolResults`).
-- Compute split boundary aligned to tool-call groups (`alignSplitBoundary`).
-- Repair orphaned tool-call/result pairs on kept recent window (`repairOrphanedToolPairs`).
-- Summarize old window through caller-provided `BaseChatModel` using a fixed structured template.
-- On summarization errors: emit `context:compress_failed` if `eventBus` exists, then return fallback trimmed messages and existing/empty summary.
-6. If `budget` is configured and output is still over budget, truncate oldest messages until estimated tokens fit, set `fallbackReason: 'truncation'`, and invoke `onFallback`.
+### 1) Core Summarization Path (`message-manager.ts`)
+1. `shouldSummarize(messages, config)` checks message count and estimated token usage.
+2. `summarizeAndTrim(...)` applies:
+- tool-result pruning (`pruneToolResults`),
+- split-boundary alignment to avoid breaking tool call/result groups,
+- orphaned pair repair on kept recent window,
+- structured summary generation through caller-provided `BaseChatModel`.
+3. On summarization failure, the module emits `context:compress_failed` through optional `eventBus` and returns a safe trimmed fallback instead of throwing.
 
-Progressive path (`compressToLevel` / `compressToBudget`):
-- Level `0`: no compression.
-- Level `1`: tool-result pruning + orphan repair.
-- Level `2`: level 1 + AI content trimming.
-- Level `3`: level 2 + `summarizeAndTrim`.
-- Level `4`: keep last N messages, repair pairs, optionally truncate long existing summary.
-- `compressToBudget` picks an initial level heuristically via `selectCompressionLevel`, verifies the estimated result, escalates through stronger levels when needed, and finally hard-trims the retained message set if level 4 still exceeds budget.
+### 2) Auto Compression Orchestration (`auto-compress.ts`)
+1. Exit fast if `shouldSummarize` is false.
+2. Optionally run `onBeforeSummarize(oldMessages)` for extract-before-loss workflows.
+3. If `memoryFrame` is provided, call `batchOverlapAnalysis` (`@dzupagent/memory-ipc`) and drop duplicated old messages while preserving recent messages.
+4. Delegate to `summarizeAndTrim`.
+5. If `budget` is configured and output still exceeds it, drop oldest messages until the budget fits and return `fallbackReason: 'truncation'` (also invoking `onFallback`).
 
-Context transfer path (`ContextTransferService.transfer`):
-1. Check relevance rules for `sourceIntent -> targetIntent`.
-2. Extract context from source messages (summary, decision sentences, file paths, optional working state).
-3. Compute transfer scope (all/decisions/files/summary) from highest-priority matching rule.
-4. Format context as a `SystemMessage`, enforce transfer token budget by truncating text if needed.
-5. Inject after first existing system message (or prepend if none).
-6. Skip duplicate injection if same transfer marker is already present.
+`FrozenSnapshot` runtime behavior:
+- Holds frozen context text and optional frame.
+- Can compare frozen vs new frame via `computeFrameDelta` to decide invalidation.
+- Is used by upstream consumers; `AutoCompressConfig.frozenSnapshot` itself is currently only a declared option and not consumed inside `autoCompress` logic.
 
-Token lifecycle path:
-- `TokenLifecycleManager` tracks per-phase token usage, computes status (`ok | warn | critical | exhausted`), and returns recommendations based on thresholds.
+### 3) Progressive Compression (`progressive-compress.ts`)
+Compression levels:
+- `0`: no compression.
+- `1`: prune tool results + repair orphaned pairs.
+- `2`: level 1 + trim verbose AI messages.
+- `3`: level 2 + structured summarization (`summarizeAndTrim`).
+- `4`: keep only latest N messages + summary truncation safeguards.
+
+`compressToBudget(...)` flow:
+1. Choose initial level via `selectCompressionLevel`.
+2. Run compression and verify estimated tokens.
+3. Escalate to stronger levels if still above budget.
+4. If still over budget at level 4, perform hard trimming (`hardTrimToBudget`) with tool-pair repair.
+
+### 4) Prompt Cache Path
+- `applyCacheBreakpoints` enforces Anthropic’s effective four-breakpoint cap by reserving one marker for the last system message and up to three for non-system anchors.
+- Content-addressed mode prefers explicit `additional_kwargs.cacheAnchor === true` and large messages (`>= 2000` chars), then falls back to positional marking when no stable anchors exist.
+- `injectPromptCacheMarkers` / `injectPromptCacheMarkersForModel` apply markers only for Claude-compatible model IDs and only when estimated prompt size passes a minimum threshold (default 1024 tokens).
+
+### 5) Context Transfer Path (`context-transfer.ts`)
+1. Extract summary/decisions/file paths/optional working state from source intent messages.
+2. Determine relevance and transfer scope from configured rules (highest-priority match wins).
+3. Format as a `SystemMessage`, enforce max transfer budget by truncation if needed.
+4. Inject after first system message (or prepend if none).
+5. Idempotency guard skips injection when matching transfer marker already exists.
+
+### 6) Token Lifecycle Path (`token-lifecycle.ts`)
+- `TokenLifecycleManager` tracks phase token usage, computes pressure status (`ok`, `warn`, `critical`, `exhausted`), and returns a report with recommendations.
+- State is in-memory and resettable (`reset()`), designed for per-run/per-conversation wiring.
 
 ## Key APIs and Types
-Public exports are re-exported from `src/index.ts`.
+Public exports are defined in `src/index.ts`.
 
-Core compression APIs:
-- `shouldSummarize`, `summarizeAndTrim`, `formatSummaryContext`, `pruneToolResults`, `repairOrphanedToolPairs`.
-- `MessageManagerConfig`.
-- `autoCompress`, `FrozenSnapshot`.
-- `AutoCompressConfig`, `CompressResult`.
-- `compressToLevel`, `compressToBudget`, `selectCompressionLevel`.
-- `CompressionLevel`, `ProgressiveCompressConfig`, `ProgressiveCompressResult`.
+Compression and summarization:
+- `shouldSummarize`, `summarizeAndTrim`, `formatSummaryContext`
+- `pruneToolResults`, `repairOrphanedToolPairs`
+- `autoCompress`, `FrozenSnapshot`
+- `compressToLevel`, `compressToBudget`, `selectCompressionLevel`
+- Types: `MessageManagerConfig`, `AutoCompressConfig`, `CompressResult`, `AutoCompressTokenizer`, `CompressionLevel`, `ProgressiveCompressConfig`, `ProgressiveCompressResult`
 
-Retention and transfer APIs:
-- `PhaseAwareWindowManager`, `DEFAULT_PHASES`.
-- `ConversationPhase`, `PhaseConfig`, `MessageRetention`, `PhaseDetection`, `PhaseWindowConfig`.
-- `ContextTransferService`.
-- `IntentContext`, `IntentType`, `ContextTransferConfig`, `IntentRelevanceRule`, `TransferScope`.
+Prompt cache:
+- `applyAnthropicCacheControl`, `applyCacheBreakpoints`
+- `injectPromptCacheMarkers`, `injectPromptCacheMarkersForModel`, `isClaudeId`, `resolveModelId`
+- Types: `CacheStrategy`, `CacheBreakpointOptions`
 
-Prompt/cache/reminder APIs:
-- `applyAnthropicCacheControl`, `applyCacheBreakpoints`.
-- `CacheStrategy`, `CacheBreakpointOptions`.
-- `SystemReminderInjector`.
-- `SystemReminderConfig`, `ReminderContent`.
+Context transfer and phase retention:
+- `ContextTransferService`
+- `PhaseAwareWindowManager`, `DEFAULT_PHASES`
+- Types: `IntentContext`, `IntentType`, `ContextTransferConfig`, `IntentRelevanceRule`, `TransferScope`, `ConversationPhase`, `PhaseConfig`, `MessageRetention`, `PhaseDetection`, `PhaseWindowConfig`
 
-Token/snapshot/extraction APIs:
-- `TokenLifecycleManager`, `createTokenBudget`.
-- `TokenBudget`, `TokenPhaseUsage`, `TokenLifecycleConfig`, `TokenLifecycleStatus`, `TokenLifecycleReport`, `TokenCounter`.
-- `CharEstimateCounter`, `TiktokenCounter`.
-- `buildFrozenSnapshot`.
-- `MemoryServiceLike`, `BuildFrozenSnapshotOptions`.
-- `createExtractionHook`, `MessageExtractionFn`.
+Token lifecycle and counters:
+- `TokenLifecycleManager`, `createTokenBudget`
+- `CharEstimateCounter`, `TiktokenCounter`
+- Types: `TokenBudget`, `TokenPhaseUsage`, `TokenLifecycleConfig`, `TokenLifecycleStatus`, `TokenLifecycleReport`, `TokenCounter`
 
-Utility API:
-- `scoreCompleteness`.
-- `DescriptionInput`, `CompletenessResult`.
-- `evictIfNeeded`.
-- `EvictionConfig`, `EvictionResult`.
+Snapshot/extraction/utilities:
+- `buildFrozenSnapshot`, `createExtractionHook`, `scoreCompleteness`, `evictIfNeeded`, `SystemReminderInjector`
+- Types: `MemoryServiceLike`, `BuildFrozenSnapshotOptions`, `MessageExtractionFn`, `DescriptionInput`, `CompletenessResult`, `EvictionConfig`, `EvictionResult`, `SystemReminderConfig`, `ReminderContent`
 
 ## Dependencies
-Runtime dependencies:
-- `@dzupagent/memory-ipc`: overlap analysis (`batchOverlapAnalysis`) and memory frame delta checks (`computeFrameDelta`) in `auto-compress.ts`.
+Direct runtime dependency:
+- `@dzupagent/memory-ipc`: used by `autoCompress` (`batchOverlapAnalysis`, `computeFrameDelta`).
 
 Peer dependencies:
-- `@langchain/core` (required): message and model types used across all runtime APIs.
-- `js-tiktoken` (optional): consumed lazily by `TiktokenCounter`; package degrades to chars/4 when missing.
+- `@langchain/core` (required): message/model abstractions across all primary APIs.
+- `js-tiktoken` (optional): used lazily by `TiktokenCounter`.
+- `@anthropic-ai/tokenizer` (optional): used lazily by `TiktokenCounter` for Claude-specific counting path.
 
-Dev/build dependencies:
-- `tsup`, `typescript`, `vitest`, `apache-arrow` (typing and tests/build tooling).
+Build/test dependencies relevant to this package:
+- `typescript`, `tsup`, `vitest`, `apache-arrow`.
 
 ## Integration Points
-Inbound (what callers provide):
-- `BaseMessage[]` and `BaseChatModel` (`@langchain/core`).
-- Optional token counter implementation through `MessageManagerConfig.tokenCounter`.
-- Optional `memoryFrame` object consumed by memory-ipc overlap APIs.
-- Optional event bus object (`eventBus.emit(...)`) to observe compression failures.
-- Memory service adapter implementing `MemoryServiceLike` for snapshot building.
+Internal monorepo integration (observed current usage):
+- `packages/agent` imports and uses:
+- compression APIs (`shouldSummarize`, `summarizeAndTrim`, `autoCompress`),
+- prompt-cache marker injection (`injectPromptCacheMarkers*`) in run-engine message preparation,
+- snapshot builder (`buildFrozenSnapshot`) in agent factory bootstrap,
+- token lifecycle types/managers in lifecycle wiring.
+- `packages/server` uses `TokenLifecycleManager`/`createTokenBudget` for per-run lifecycle reporting.
 
-Outbound (what package returns/emits):
-- Compressed message arrays and summary text.
-- Optional fallback metadata (`fallbackReason`) and callback telemetry (`onFallback`).
-- Injected `SystemMessage` blocks for transfer/reminders/summary context.
-- Lifecycle reports for token pressure.
-- Optional event bus emission: `context:compress_failed` on summarization failure.
+Contract boundaries:
+- Does not import `@dzupagent/core` runtime internals; accepts LangChain and structural interfaces.
+- `snapshot-builder` depends on a structural `MemoryServiceLike` interface instead of concrete memory package types.
+- `auto-compress` accepts opaque `memoryFrame` and only interprets it through `@dzupagent/memory-ipc` calls.
+
+Consumer extension hooks:
+- `onBeforeSummarize` to extract knowledge before old messages are compressed away.
+- `onFallback` for hard-truncation telemetry.
+- `eventBus.emit` for summarization failure events.
+- Custom token counters via `MessageManagerConfig.tokenCounter`.
 
 ## Testing and Observability
-Test setup:
-- Vitest (`environment: node`) with coverage thresholds in `vitest.config.ts`:
+Testing:
+- Test runner: Vitest (`environment: node`, `testTimeout: 30_000`).
+- Coverage provider: V8, reporters `text` + `json-summary`.
+- Coverage thresholds:
 - statements `60`, branches `50`, functions `50`, lines `60`.
-- Coverage excludes test/spec files, `__tests__`, fixtures, and `src/index.ts`.
+- Test scope includes extensive suites under `src/__tests__/` for:
+- message compression and edge cases,
+- progressive/budget compression behavior,
+- prompt cache and model-aware injection,
+- context transfer edge paths,
+- snapshot builder,
+- token lifecycle,
+- counters and reminder logic.
 
-Current test surface in `src/__tests__` includes:
-- Compression core: `message-manager`, `auto-compress`, `progressive-compress`, deep branch suites.
-- Policy modules: `phase-window`, `context-transfer`, `context-eviction`, `completeness-scorer` branches via deep/edge suites.
-- Integration helpers: `prompt-cache`, `snapshot-builder`, `extraction-bridge`, `token-lifecycle`, `system-reminder`.
-
-Built-in observability hooks:
-- `MessageManagerConfig.eventBus` emission (`context:compress_failed`) on summarization failure.
-- `onFallback` callback support in `autoCompress` hard-budget truncation path.
-- Fallback behavior is intentionally non-fatal in multiple modules (hook errors, overlap-analysis failures, snapshot memory read failures).
+Observability and failure behavior:
+- Non-fatal error handling is a consistent pattern in compression/snapshot flows.
+- `message-manager` emits `context:compress_failed` through optional event bus on summarize failure.
+- `autoCompress` exposes `onFallback` callback and returns `fallbackReason` when hard truncation occurs.
+- Multiple modules intentionally degrade gracefully (hook failures, overlap analysis failures, missing optional tokenization packages).
 
 ## Risks and TODOs
-Code-observed risks and follow-ups:
-- `AutoCompressConfig.frozenSnapshot` exists as config but is not used inside `autoCompress` logic; currently `FrozenSnapshot` is a separate class consumers must orchestrate themselves.
-- `compressToBudget` now enforces estimated token-budget fit for the returned message set.
-- `applyCacheBreakpoints` enforces a four-breakpoint global cap for LangChain messages by marking only the final system message plus up to three non-system anchors/messages.
-- Token accounting remains estimation-first by default unless callers explicitly inject `TokenCounter`/`TiktokenCounter`.
-- Fallback paths are resilient but mostly callback/event based; central metrics aggregation is caller-owned.
+Codebase-grounded risks and follow-ups:
+- `AutoCompressConfig.frozenSnapshot` is currently a declared config field but is not consumed by `autoCompress`; snapshot behavior is currently driven by explicit `FrozenSnapshot` usage in callers.
+- Token estimation remains heuristic in many paths unless callers wire precise counters/tokenizers (`TokenCounter`, `AutoCompressTokenizer`, or `TiktokenCounter`).
+- `ContextTransferService` may include raw `workingState` content when scope is `all`; callers should ensure sensitive state redaction before transfer in security-sensitive deployments.
+- `README.md` auto-generated metrics are stale versus current test inventory (README reports fewer test files than currently present in `src/__tests__`).
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+

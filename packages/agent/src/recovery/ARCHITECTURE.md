@@ -1,263 +1,309 @@
 # Recovery Module Architecture (`packages/agent/src/recovery`)
 
 ## Scope
-This document describes the recovery subsystem implemented in `packages/agent/src/recovery` inside `@dzupagent/agent`.
+This document describes the recovery subsystem in `packages/agent/src/recovery` within `@dzupagent/agent`.
 
-Included source files:
-- `recovery-types.ts`
+In-scope source files:
+- `default-strategy-generator.ts`
+- `escalation-plan.ts`
 - `failure-analyzer.ts`
-- `strategy-ranker.ts`
-- `recovery-executor.ts`
-- `recovery-copilot.ts`
+- `feedback-recorder.ts`
 - `index.ts`
+- `lesson-boosts.ts`
+- `recovery-copilot.ts`
+- `recovery-executor.ts`
+- `recovery-types.ts`
+- `strategy-ranker.ts`
 
-The scope is limited to the package-local recovery layer that:
-- classifies and fingerprints failures,
-- proposes and ranks recovery strategies,
-- executes approved recovery actions,
-- optionally learns from persisted recovery lessons.
-
-The document also covers direct integration points in `packages/agent/src/pipeline` and `packages/agent/src/self-correction` where this recovery layer is consumed.
+Scope boundaries:
+- Focuses on recovery planning and execution primitives owned by this module.
+- Covers direct runtime integration where recovery is invoked by pipeline runtime (`src/pipeline/pipeline-runtime/node-side-effects.ts`).
+- Does not describe unrelated stuck-detection internals outside recovery, except where recovery consumes `StuckStatus` types or emits shared event types.
 
 ## Responsibilities
-The recovery subsystem is responsible for these concrete behaviors:
+The recovery module is responsible for:
 
-- Define a typed recovery domain model.
-- `FailureType`, `FailureContext`, `RecoveryAction`, `RecoveryStrategy`, `RecoveryPlan`, `RecoveryResult`, and `RecoveryCopilotConfig` are declared in `recovery-types.ts`.
+- Modeling recovery domain types.
+- `recovery-types.ts` defines `FailureType`, `FailureContext`, `RecoveryAction`, `RecoveryStrategy`, `RecoveryPlan`, `RecoveryCopilotConfig`, and `RecoveryResult`.
 
-- Analyze runtime failures.
-- `FailureAnalyzer` classifies error text with regex patterns, builds normalized fingerprints, tracks in-memory failure history, and extracts hints (`file`, `line`, `httpStatus`, `module`).
+- Classifying and fingerprinting failures.
+- `FailureAnalyzer` classifies error text with regex patterns, normalizes/fingerprints error strings, tracks in-memory occurrence history, and extracts lightweight structured hints (`file`, `line`, `httpStatus`, `module`).
 
-- Rank strategy candidates.
-- `StrategyRanker` computes a weighted score from confidence, risk, and estimated steps, and penalizes already-attempted strategy names.
+- Generating candidate strategies.
+- `defaultStrategyGenerator` maps analyzed failure categories to strategy sets and always appends a human escalation fallback.
+- It also adjusts confidence based on recurring fingerprints and previous resolution text.
 
-- Execute selected strategies.
-- `RecoveryExecutor` enforces selected-strategy presence, optional approval gate checks for high-risk plans, optional dry-run mode, sequential action execution via injected `ActionHandler`, and lifecycle event emission.
+- Ranking and selecting strategies.
+- `StrategyRanker` scores strategies using weighted confidence/risk/cost and penalizes previously attempted strategy names.
 
-- Orchestrate end-to-end recovery.
-- `RecoveryCopilot` coordinates analysis, strategy generation, ranking, selection, execution, and plan bookkeeping.
+- Executing approved plans.
+- `RecoveryExecutor` enforces approval for high-risk strategies when configured, supports dry-run mode, executes strategy actions sequentially through injected `ActionHandler`, and updates plan status/error fields.
 
-- Optional learning loop.
-- When `RecoveryFeedback` is injected, `RecoveryCopilot.recover(...)` retrieves similar lessons before planning and records outcome lessons after execution (best effort).
+- Orchestrating end-to-end recovery.
+- `RecoveryCopilot` composes analyzer + generator + lesson boosts + ranker + executor, stores plan history in memory, and exposes one-shot `recover(...)` plus explicit `createPlan(...)` / `executePlan(...)` APIs.
+
+- Recording lessons (optional, best effort).
+- When `RecoveryFeedback` is provided, `RecoveryCopilot` retrieves similar lessons before planning and records outcomes via `recordRecoveryFeedback(...)` after execution or escalation.
 
 ## Structure
-Module layout and role split:
+Module composition and roles:
 
 - `recovery-types.ts`
-- Pure type contracts for failure taxonomy, plan lifecycle, actions, strategy metadata, result payloads, and copilot config.
+- Pure type contracts for failure taxonomy, actions, strategies, plans, config, and results.
 
 - `failure-analyzer.ts`
-- `FailureAnalyzer` class with in-memory history and fingerprint index.
-- Exports `FailureHistoryEntry` and `FailureAnalysis`.
+- `FailureAnalyzer` + `FailureAnalysis` + `FailureHistoryEntry`.
+- Maintains:
+  - `history: FailureHistoryEntry[]`
+  - `fingerprints: Map<string, { count: number; resolutions: string[] }>`
+
+- `default-strategy-generator.ts`
+- Exports `StrategyGenerator` function type and `defaultStrategyGenerator(...)` implementation.
+- Built-in strategy catalog per `FailureType`.
+
+- `lesson-boosts.ts`
+- `applyLessonBoosts(...)` mutates strategy confidence using success/failure tallies from `RecoveryLesson[]`.
 
 - `strategy-ranker.ts`
-- `StrategyRanker` class plus `RankingWeights`.
-- Internal risk mapping: `low -> 1.0`, `medium -> 0.5`, `high -> 0.1`.
+- `StrategyRanker` + `RankingWeights`.
+- Maintains attempted strategy set to avoid repeating failed options.
+
+- `escalation-plan.ts`
+- `buildEscalationPlan(...)` factory for terminal max-attempts escalation plans.
 
 - `recovery-executor.ts`
-- `RecoveryExecutor` class.
-- Runtime dependencies injected via `RecoveryExecutorConfig`:
-  - `eventBus: DzupEventBus`
-  - optional `approvalGate: ApprovalGate`
-  - `copilotConfig: RecoveryCopilotConfig`
-  - `actionHandler: ActionHandler`
+- `RecoveryExecutor` + `ActionHandler` + `RecoveryExecutorConfig`.
+- Handles approval, dry-run, sequential execution, and event emission.
+
+- `feedback-recorder.ts`
+- `recordRecoveryFeedback(...)` helper that creates a `RecoveryLesson`, stores it via `RecoveryFeedback.recordOutcome(...)`, and appends candidate audit entry metadata.
 
 - `recovery-copilot.ts`
-- `RecoveryCopilot` class and `StrategyGenerator` type.
-- Contains:
-  - default config,
-  - default strategy generator,
-  - lesson-based confidence adjustment (`applyLessonBoosts`),
-  - internal in-memory plan map.
+- `RecoveryCopilot` orchestration class.
+- Owns module defaults:
+  - `maxAttempts: 3`
+  - `requireApprovalForHighRisk: true`
+  - `dryRun: false`
+  - `maxStrategies: 5`
+  - `minAutoExecuteConfidence: 0.6`
 
 - `index.ts`
-- Re-exports all public recovery symbols.
+- Recovery module barrel export.
 
-Public package export surface:
-- `packages/agent/src/index.ts` re-exports the same recovery APIs from the package root entrypoint.
+Public export surface shape:
+- Recovery symbols are exported from package root `src/index.ts`.
+- `package.json` does not define a dedicated `./recovery` subpath export; consumers import recovery APIs from `@dzupagent/agent` root exports.
 
 ## Runtime and Control Flow
-Primary runtime paths:
+Primary runtime flows:
 
-1. Plan creation (`RecoveryCopilot.createPlan`)
-- Guard: if `failureContext.previousAttempts >= config.maxAttempts`, return a failed escalation plan (`human_escalation` action, `selectedStrategy: null`).
-- Analyze with `FailureAnalyzer.analyze(...)`.
-- Generate candidate strategies via injected `strategyGenerator` or built-in `defaultStrategyGenerator`.
-- If lessons are provided, mutate strategy confidence through `applyLessonBoosts(...)`.
-- Cap strategy list to `maxStrategies`.
-- Rank with `StrategyRanker.rank(...)`.
-- Select with `StrategyRanker.selectBest(..., minAutoExecuteConfidence)`.
-- Store plan in internal `Map` and emit event-bus telemetry (`type: 'agent:stuck_detected'`).
+1. Failure arrives as `FailureContext`.
+- Pipeline runtime path (`attemptRecovery`) constructs `FailureContext` using:
+  - `classifyFailureType(errorMessage, nodeType)`
+  - `previousAttempts = attemptsUsed - 1`
+  - run and node identifiers.
 
-2. Plan execution (`RecoveryCopilot.executePlan` -> `RecoveryExecutor.execute`)
-- Set `plan.status = 'approved'` before executor handoff.
-- Executor checks `selectedStrategy`.
-- For high-risk strategy + `requireApprovalForHighRisk` + available `approvalGate`, wait on `ApprovalGate.waitForApproval(...)`.
-- In dry-run mode, mark completed without calling `actionHandler`.
-- Otherwise execute strategy actions in order via `actionHandler(action, plan)`.
-- On first action error, mark plan failed and stop.
-- On full success, mark completed and set `completedAt`.
-- Emit lifecycle and per-action events through the bus.
-- After execution, copilot records failure history in analyzer and marks selected strategy as attempted in ranker.
+2. Plan creation (`RecoveryCopilot.createPlan`).
+- If `failureContext.previousAttempts >= maxAttempts`, copilot returns `buildEscalationPlan(...)` with status `failed` and `selectedStrategy: null`.
+- Otherwise:
+  - analyze failure (`FailureAnalyzer.analyze`)
+  - generate strategies (`strategyGenerator` or `defaultStrategyGenerator`)
+  - optionally apply lesson confidence adjustments (`applyLessonBoosts`) when past lessons exist
+  - cap strategy list to `maxStrategies`
+  - rank and select (`StrategyRanker.rank`, `StrategyRanker.selectBest`)
+  - persist plan in in-memory map and emit telemetry event.
 
-3. One-shot recovery (`RecoveryCopilot.recover`)
-- Re-analyze failure.
-- If feedback module exists, load past lessons with `feedback.retrieveSimilar(analysis.type, nodeId)`.
-- Create plan with optional lesson context.
-- If escalation plan is returned (`status: 'failed'`), return early.
-- Execute plan.
-- Record lesson via `feedback.recordOutcome(...)` in a try/catch (best effort only).
+3. Plan execution (`RecoveryCopilot.executePlan` -> `RecoveryExecutor.execute`).
+- Copilot marks status `approved` before dispatch.
+- Executor behavior:
+  - fail immediately if no selected strategy
+  - if selected strategy is `high` risk and approval is required and gate exists, wait on `ApprovalGate.waitForApproval(...)`
+  - in dry-run mode, mark `completed` without invoking action handler
+  - otherwise run actions in order using injected `actionHandler(action, plan)`
+  - on first action error, mark plan failed and stop
+  - on success, mark completed and set `completedAt`.
+- After executor returns, copilot:
+  - records failure/resolution signal in analyzer history
+  - marks selected strategy as attempted in ranker.
 
-4. Stuck-signal bridge (`RecoveryCopilot.handleStuckSignal`)
-- Accepts `StuckStatus` from guardrail layer.
-- If `stuck === false`, returns `null`.
-- If `stuck === true`, creates a `FailureContext` with `type: 'generation_failure'`, derives `previousAttempts` from in-memory plans for that run, and returns a created plan.
+4. One-shot recovery (`RecoveryCopilot.recover`).
+- Re-analyzes failure for lesson lookup keying.
+- If `feedback` exists, calls `feedback.retrieveSimilar(analysis.type, nodeId)`.
+- Creates plan using retrieved lessons.
+- If plan already failed (escalation), returns immediate failed result and still attempts to persist feedback.
+- Otherwise executes plan and persists success/failure feedback best-effort.
 
-5. Pipeline runtime integration (`PipelineRuntime.attemptRecovery`)
-- `PipelineRuntime` checks `config.recoveryCopilot` enablement and node allowlist.
-- Enforces run-scoped recovery attempt budget (`maxRecoveryAttempts`, default `3`).
-- Emits `pipeline:recovery_attempted`.
-- Builds `FailureContext` with `classifyFailureType(errorMessage, nodeType)` from `pipeline-runtime/error-classification.ts`.
-- Calls `rc.copilot.recover(failureContext)`.
-- Emits `pipeline:recovery_succeeded` or `pipeline:recovery_failed`.
-- Returns boolean to control whether failed node should be retried.
+5. Pipeline retry decision (`attemptRecovery`).
+- Emits `pipeline:recovery_attempted` before calling copilot.
+- Calls `copilot.recover(failureContext)`.
+- Emits:
+  - `pipeline:recovery_succeeded` and returns `true` when successful.
+  - `pipeline:recovery_failed` and returns `false` when unsuccessful or when recovery throws.
 
-Default strategy generation behavior in `recovery-copilot.ts`:
-- `build_failure`: `retry_with_fix_prompt`, `reduce_scope`
-- `test_failure`: `retry_with_test_context`, `skip_failing_tests`
-- `timeout`: `retry_with_smaller_scope`, `simple_retry`
-- `resource_exhaustion`: `fallback_to_cheaper_model`, `reduce_scope_and_retry`
-- `generation_failure`: `simple_retry`, `fallback_model`
-- always appends `escalate_to_human`
+6. Stuck-signal helper path.
+- `RecoveryCopilot.handleStuckSignal(stuckStatus, runId, nodeId?)` converts positive `StuckStatus` into a synthetic `generation_failure` context and calls `createPlan`.
+- In current codebase, this method is validated by tests and exposed publicly, but there is no direct production call site in `packages/agent/src`.
 
 ## Key APIs and Types
 Primary classes:
+
 - `RecoveryCopilot`
+- Constructor options:
+  - `eventBus`
+  - `actionHandler`
+  - optional `config`
+  - optional `approvalGate`
+  - optional `strategyGenerator`
+  - optional `feedback`
+- Public methods:
   - `createPlan(failureContext, pastLessons?)`
   - `executePlan(plan)`
   - `recover(failureContext)`
   - `handleStuckSignal(stuckStatus, runId, nodeId?)`
-  - `getPlan(planId)`, `getPlansForRun(runId)`, `getAnalyzer()`, `getRanker()`, `reset()`
+  - `getPlan(planId)`
+  - `getPlansForRun(runId)`
+  - `getAnalyzer()`
+  - `getRanker()`
+  - `reset()`
 
 - `RecoveryExecutor`
-  - `execute(plan)`
+- Public method: `execute(plan)`.
 
 - `FailureAnalyzer`
+- Public methods:
   - `classifyError(error)`
   - `fingerprint(error)`
   - `analyze(ctx)`
   - `recordFailure(ctx, resolution?)`
-  - `getHistory()`, `reset()`
+  - `getHistory()`
+  - `reset()`
 
 - `StrategyRanker`
+- Public methods:
   - `rank(strategies)`
   - `computeScore(strategy)`
   - `selectBest(strategies, minConfidence?)`
-  - `markAttempted(name)`, `wasAttempted(name)`, `reset()`
+  - `markAttempted(strategyName)`
+  - `wasAttempted(strategyName)`
+  - `reset()`
 
-Important extension points:
-- `ActionHandler`
-- async callback responsible for executing concrete recovery actions.
+Extension points:
 
 - `StrategyGenerator`
-- pluggable function for custom strategy generation.
+- Custom strategy generation hook used by `RecoveryCopilot`.
 
-- `RecoveryFeedback` integration (optional dependency)
-- used for retrieving similar lessons and recording outcomes, but implemented in `src/self-correction/recovery-feedback.ts`.
+- `ActionHandler`
+- Runtime action execution hook used by `RecoveryExecutor`.
 
-Core types from `recovery-types.ts`:
-- Failure model: `FailureType`, `FailureContext`
-- Strategy model: `RecoveryActionType`, `RecoveryAction`, `RiskLevel`, `RecoveryStrategy`
-- Plan/result model: `RecoveryPlanStatus`, `RecoveryPlan`, `RecoveryResult`
-- Config model: `RecoveryCopilotConfig`
+- `RecoveryFeedback` integration
+- Optional persistence/learning hook used during `recover(...)`.
+
+Key domain types:
+
+- Failure: `FailureType`, `FailureContext`
+- Action/strategy: `RecoveryActionType`, `RecoveryAction`, `RiskLevel`, `RecoveryStrategy`
+- Plan/result: `RecoveryPlanStatus`, `RecoveryPlan`, `RecoveryResult`
+- Config: `RecoveryCopilotConfig`, `RankingWeights`, `RecoveryExecutorConfig`
 
 ## Dependencies
-Direct code dependencies inside this package:
+Direct dependencies used by recovery code:
 
-- `@dzupagent/core`
-- Provides `DzupEventBus` type used by `RecoveryExecutor` and `RecoveryCopilot` wiring.
+- `@dzupagent/core/events`
+- Provides `DzupEventBus` type used for telemetry emission and approval flow wiring.
 
 - `../approval/approval-gate.js`
-- Optional human approval for high-risk strategies.
+- Optional `ApprovalGate` integration for high-risk strategy gating.
 
 - `../guardrails/stuck-detector.js`
-- `StuckStatus` input type used by `handleStuckSignal`.
+- Supplies `StuckStatus` type consumed by `handleStuckSignal`.
 
 - `../self-correction/recovery-feedback.js`
-- Optional persistence-backed lesson loop for strategy confidence adaptation.
+- Optional lesson retrieval and recording (`RecoveryFeedback`, `RecoveryLesson`).
 
-Package-level dependency context (`packages/agent/package.json`):
-- Runtime deps include `@dzupagent/core`, `@dzupagent/agent-types`, `@dzupagent/context`, `@dzupagent/memory`, `@dzupagent/memory-ipc`.
+- `../utils/exact-optional.js`
+- `omitUndefined(...)` utility used when constructing config/context objects.
+
+Package-level context (`packages/agent/package.json`):
+
+- Runtime deps include `@dzupagent/core`, `@dzupagent/context`, `@dzupagent/memory`, `@dzupagent/memory-ipc`, `@dzupagent/runtime-contracts`, and other internal packages.
 - Peer deps include `@langchain/core`, `@langchain/langgraph`, and `zod`.
 
 ## Integration Points
-Confirmed call and contract boundaries in `packages/agent`:
+Confirmed integration boundaries in `packages/agent`:
 
-- Pipeline runtime caller
-- `src/pipeline/pipeline-runtime.ts` (`attemptRecovery`) is the concrete runtime callsite of `RecoveryCopilot.recover(...)`.
+- Pipeline runtime invocation.
+- `src/pipeline/pipeline-runtime/node-side-effects.ts` owns the production recovery entrypoint (`attemptRecovery`).
 
-- Pipeline runtime config contract
-- `src/pipeline/pipeline-runtime-types.ts` defines `recoveryCopilot` runtime options:
+- Pipeline runtime config.
+- `src/pipeline/pipeline-runtime-types.ts` exposes optional `recoveryCopilot` runtime config:
   - `copilot`
   - optional `enabledForNodes`
-  - optional `maxRecoveryAttempts`
+  - optional `maxRecoveryAttempts`.
 
-- Pipeline event factory
-- `src/pipeline/pipeline-runtime/runtime-events.ts` provides typed recovery events:
+- Pipeline event stream.
+- `src/pipeline/pipeline-runtime/runtime-events.ts` defines:
   - `pipeline:recovery_attempted`
   - `pipeline:recovery_succeeded`
-  - `pipeline:recovery_failed`
+  - `pipeline:recovery_failed`.
 
-- Package root exports
-- `src/index.ts` exports recovery classes/types and separately exports `RecoveryFeedback` from self-correction.
+- Self-learning metrics/hook.
+- `src/self-correction/self-learning-hook.ts` increments recovery metrics from pipeline recovery events and triggers optional callbacks.
+- `src/self-correction/self-learning-runtime.ts` forwards `recoveryCopilot` config into enhanced pipeline runtime.
 
-- Self-correction bridge
-- `RecoveryCopilot` uses `RecoveryFeedback` when injected, but recovery module remains operational without it.
+- Package exports.
+- Recovery classes/types are exported via `src/recovery/index.ts` and re-exported by package root `src/index.ts`.
 
 ## Testing and Observability
-Recovery-focused tests under `packages/agent/src/__tests__`:
+Recovery module tests in `src/__tests__`:
 
 - `failure-analyzer.test.ts`
-- verifies classification, fingerprint stability, recurring detection, extracted info fields, history tracking, and reset behavior.
+- Covers classification routes, fingerprint normalization behavior, recurrence detection, structured info extraction, history accumulation, and reset.
 
 - `strategy-ranker.test.ts`
-- verifies ranking order, risk/cost effects, attempted-strategy penalties, threshold behavior, and custom weight overrides.
+- Covers confidence/risk/cost ranking, attempted-strategy penalty behavior, threshold fallback behavior, and custom weight overrides.
 
 - `recovery-executor.test.ts`
-- verifies successful sequential execution, first-failure stop behavior, dry-run behavior, high-risk approval gating via `ApprovalGate`, and event emission.
+- Covers single/multi-step execution, no-strategy failure handling, first-error short-circuit, dry-run behavior, approval granted/rejected flows, and event emission.
 
 - `recovery-copilot.test.ts`
-- verifies plan creation, max-attempt escalation, custom strategy generator support, one-shot `recover(...)`, stuck-signal bridging, plan lookups, reset, and event emission.
+- Covers plan creation, max-attempt escalation, custom strategy generation, one-shot recovery, stuck signal handling, plan retrieval/reset, event emission, and `RecoveryFeedback` round-trip recording for success/failure/escalation cases.
 
-Related but separate coverage:
-- `pipeline/__tests__/error-classification.test.ts` validates the failure classifier used by `PipelineRuntime` before calling recovery.
-- `recovery-feedback-deep.test.ts` and portions of `self-correction-deep.test.ts` validate `RecoveryFeedback`, but these do not directly assert `RecoveryCopilot + RecoveryFeedback` end-to-end wiring.
+Related integration tests:
 
-Observability channels:
-- Recovery module emits event-bus entries in executor/copilot using `type: 'agent:stuck_detected'` plus `reason`/`recovery` fields.
-- Pipeline runtime emits explicit `pipeline:recovery_*` events around recovery attempts/outcomes.
+- `pipeline/__tests__/error-classification.test.ts`
+- Covers keyword-based failure classification used by pipeline runtime before invoking recovery.
+
+Observability behavior:
+
+- Recovery copilot/executor emit event-bus messages with `type: 'agent:stuck_detected'` and encode recovery lifecycle in `reason`/`recovery` fields.
+- Pipeline runtime emits explicit `pipeline:recovery_*` events for operator-facing runtime timelines.
 
 ## Risks and TODOs
-Current implementation risks and follow-up items grounded in source behavior:
+Current risks and maintenance gaps based on implementation:
 
-- In-memory-only state in copilot internals.
-- `plans`, analyzer history, and attempted strategy tracking are process-local and reset on restart.
+- In-memory state only.
+- Copilot plan storage, analyzer history, and ranker attempt tracking are process-local; restart loses recovery context.
 
-- Event semantic overload.
-- Recovery lifecycle uses `agent:stuck_detected` (same event type used elsewhere for actual stuck detection), which can blur telemetry interpretation.
+- Event type overload.
+- Recovery lifecycle reuses `agent:stuck_detected`, which can blur telemetry semantics between true stuck detection and recovery progress logging.
 
-- Dual failure classifiers.
-- Recovery module classifier (`FailureAnalyzer.classifyError`) and pipeline runtime classifier (`classifyFailureType`) are separate implementations and can diverge over time.
+- Two separate failure classifiers.
+- `FailureAnalyzer.classifyError(...)` and pipeline `classifyFailureType(...)` evolve independently and can drift in matching behavior or precedence.
 
-- Strategy cap order.
-- `createPlan` applies `maxStrategies` by slicing before ranking. If a custom generator returns many strategies, earlier array order influences what survives.
+- Strategy capping before ranking.
+- `createPlan(...)` slices to `maxStrategies` before ranking; large custom generator outputs are sensitive to generator output order.
 
-- Best-effort lesson persistence.
-- Failures in `feedback.recordOutcome(...)` are swallowed by design, so persistence outages do not fail recovery but do reduce learning continuity.
+- Strategy/lesson naming coupling.
+- Lesson boosts depend on exact strategy-name matches; strategy renames can silently reduce learning effectiveness.
 
-- Integration test gap for copilot-feedback loop.
-- There are tests for copilot and for feedback independently, but no dedicated test that asserts `RecoveryCopilot.recover(...)` with injected `RecoveryFeedback` across retrieval + boost + record.
+- Best-effort feedback persistence.
+- `recordRecoveryFeedback(...)` swallows persistence errors by design; outages reduce learning continuity without surfacing hard failures.
+
+- Escalation fallback naming inconsistency.
+- Default generator uses strategy name `escalate_to_human`, while max-attempt escalation plan uses `human_escalation`; this can fragment strategy-level analytics unless normalized downstream.
+
+- Unwired stuck helper in production path.
+- `handleStuckSignal(...)` currently has no non-test call site in `packages/agent/src`; integration remains optional and caller-driven.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

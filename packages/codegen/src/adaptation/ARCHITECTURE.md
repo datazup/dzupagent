@@ -1,188 +1,179 @@
 # Adaptation Architecture
 
 ## Scope
-This document covers the adaptation subsystem in `packages/codegen/src/adaptation`:
+This document covers the adaptation layer under `packages/codegen/src/adaptation` in `@dzupagent/codegen`.
 
+Included files:
 - `framework-adapter.ts`
 - `path-mapper.ts`
 - `languages/language-config.ts`
 - `languages/index.ts`
 
-It also covers how this subsystem is exposed and validated through the surrounding `@dzupagent/codegen` package:
-
-- public exports in `src/index.ts`
-- package metadata in `package.json`
-- package docs (`README.md`, `docs/api-tiers.md`)
-- adaptation-focused tests in `src/__tests__`
+Related package surfaces that expose this layer:
+- `packages/codegen/src/index.ts` (root exports)
+- `packages/codegen/src/compat.ts` (compat re-exports for adapter/path mapper)
+- `packages/codegen/package.json` (package-level export entrypoints)
+- `packages/codegen/README.md` and `packages/codegen/docs/api-tiers.md` (published API descriptions)
 
 ## Responsibilities
-The adaptation subsystem currently provides three utility capabilities:
+The adaptation layer provides lightweight utilities for framework and language adaptation metadata.
 
-- Backend path adaptation:
-  - Maps source file paths from one backend framework layout to another via ordered regex rules (`PathMapper`, `FrameworkAdapter.mapPath`).
-- Frontend migration guidance:
-  - Returns static textual adaptation guides for selected framework pairs (`FrameworkAdapter.getAdaptationGuide`).
-- Language profile registry:
-  - Defines language-specific metadata (extensions, lint/test/build commands, sandbox image, prompt fragment, detection files) and language detection helpers (`LANGUAGE_CONFIGS`, `detectLanguageFromFiles`, `getLanguagePrompt`).
+Current responsibilities:
+- Path mapping between framework folder conventions via ordered regex rules.
+- Framework-to-framework adaptation guide lookup for frontend migrations.
+- Language registry for supported codegen languages, including:
+  - file extensions
+  - prompt conventions
+  - lint/build/test commands
+  - package manager hints
+  - sandbox base image hints
+  - detection file signatures
+- Language detection from project filenames and prompt-fragment retrieval.
 
-Non-responsibilities in the current codebase:
-
-- No AST/code transformation engine is implemented in this module.
-- No runtime pipeline in `src/` currently imports adaptation helpers (outside tests and root exports).
-- Migration planning is implemented separately in `src/migration/migration-planner.ts` and does not call adaptation APIs.
+Out of scope in current code:
+- No AST/code transformation engine.
+- No direct orchestration in generation/pipeline runtime modules.
+- No telemetry or persistence in this layer.
 
 ## Structure
 - `path-mapper.ts`
-  - `PathMapper` stores ordered `{ pattern: RegExp, target: string }` rules.
-  - `addMapping(pattern, target)` compiles regex and appends.
-  - `map(sourcePath)` returns first replacement match or `null`.
+  - Defines `PathMapper`.
+  - Stores internal ordered mappings as `{ pattern: RegExp, target: string }`.
+  - `addMapping(pattern, target)` appends a compiled regex rule.
+  - `map(sourcePath)` applies first matching rule and returns rewritten path, else `null`.
 
 - `framework-adapter.ts`
-  - Defines built-in backend mappings (`BACKEND_MAPPINGS`) for:
-    - `express -> nextjs`
-    - `express -> sveltekit`
-    - `express -> fastify`
-    - `nextjs -> express`
-  - Defines built-in frontend guides (`FRONTEND_GUIDES`) for:
-    - `vue3 -> react`
-    - `react -> vue3`
-    - `vue3 -> svelte`
-    - `react -> svelte`
-  - `FrameworkAdapter` loads built-ins in constructor and supports extension via:
-    - `addBackendMapping(source, target, mapper)`
-    - `addFrontendGuide(source, target, guide)`
+  - Defines built-in backend route/path mapping sets in `BACKEND_MAPPINGS`:
+    - `express->nextjs`
+    - `express->sveltekit`
+    - `express->fastify`
+    - `nextjs->express`
+  - Defines built-in frontend textual guides in `FRONTEND_GUIDES`:
+    - `vue3->react`
+    - `react->vue3`
+    - `vue3->svelte`
+    - `react->svelte`
+  - Exposes `FrameworkAdapter` for builtin loading and extension.
 
 - `languages/language-config.ts`
-  - `SupportedLanguage` union:
+  - Defines `SupportedLanguage` union:
     - `typescript | python | go | rust | java | kotlin`
-  - `LanguageConfig` interface and `LANGUAGE_CONFIGS` registry.
-  - `detectLanguageFromFiles(filenames)` with explicit priority:
-    - `typescript`, `python`, `go`, `rust`, `kotlin`, `java`
-  - `getLanguagePrompt(language)` returns prompt fragment from registry.
+  - Defines `LanguageConfig` interface.
+  - Defines `LANGUAGE_CONFIGS` registry with per-language metadata.
+  - Exposes `detectLanguageFromFiles(filenames)` with explicit check order.
+  - Exposes `getLanguagePrompt(language)`.
 
 - `languages/index.ts`
-  - Re-exports language types/functions/constants from `language-config.ts`.
+  - Re-exports language types/constants/functions from `language-config.ts`.
 
 ## Runtime and Control Flow
-1. Adapter construction:
-   - `new FrameworkAdapter()` calls `loadBuiltinMappings()` and `loadBuiltinGuides()`.
+1. Adapter initialization:
+- `new FrameworkAdapter()` runs `loadBuiltinMappings()` then `loadBuiltinGuides()`.
+- Built-in backend mappings are converted into `PathMapper` instances at construction time.
 
-2. Backend path mapping flow:
-   - Caller invokes `mapPath(path, source, target)`.
-   - Adapter scans `backendMappings` in insertion order.
-   - For matching `(source, target)` entries, it calls `entry.mapper.map(path)`.
-   - First non-`null` result is returned; otherwise `null`.
+2. Backend path adaptation flow:
+- Caller invokes `FrameworkAdapter.mapPath(path, source, target)`.
+- Adapter scans registered backend mappings in insertion order.
+- For matching framework pair, it delegates to that pair’s `PathMapper.map(path)`.
+- First successful mapped path is returned; otherwise `null`.
 
-3. Frontend guide lookup flow:
-   - Caller invokes `getAdaptationGuide(source, target)`.
-   - Adapter returns first matching guide text; otherwise `null`.
+3. Frontend guide adaptation flow:
+- Caller invokes `FrameworkAdapter.getAdaptationGuide(source, target)`.
+- Adapter returns first matching guide text, else `null`.
 
 4. Language detection flow:
-   - `detectLanguageFromFiles` normalizes to basenames.
-   - Checks detection files in fixed priority order.
-   - Returns the first matching language, else `null`.
-   - Kotlin is intentionally checked before Java to prefer `build.gradle.kts`.
+- Caller passes filenames into `detectLanguageFromFiles`.
+- Filenames are normalized to basenames.
+- Detection checks run in priority order:
+  - `typescript`, `python`, `go`, `rust`, `kotlin`, `java`
+- First matching language is returned, else `null`.
+- Kotlin is intentionally checked before Java to avoid `build.gradle.kts` being treated as generic Gradle Java.
 
-Ordering semantics are part of behavior:
-
+Behavioral ordering guarantees:
 - `PathMapper` is first-match-wins.
-- `FrameworkAdapter` built-ins load before custom entries.
-- Custom backend mappings for an existing pair are additive, not global overrides.
+- `FrameworkAdapter` built-ins are loaded before custom registrations.
+- Custom registrations are appended; they do not replace existing entries globally.
 
 ## Key APIs and Types
-- Classes:
-  - `PathMapper`
-    - `addMapping(pattern: string, target: string): this`
-    - `map(sourcePath: string): string | null`
-  - `FrameworkAdapter`
-    - `addBackendMapping(source: string, target: string, mapper: PathMapper): this`
-    - `addFrontendGuide(source: string, target: string, guide: string): this`
-    - `mapPath(path: string, source: string, target: string): string | null`
-    - `getAdaptationGuide(source: string, target: string): string | null`
+Classes:
+- `PathMapper`
+  - `addMapping(pattern: string, target: string): this`
+  - `map(sourcePath: string): string | null`
+- `FrameworkAdapter`
+  - `addBackendMapping(source: string, target: string, mapper: PathMapper): this`
+  - `addFrontendGuide(source: string, target: string, guide: string): this`
+  - `mapPath(path: string, source: string, target: string): string | null`
+  - `getAdaptationGuide(source: string, target: string): string | null`
 
-- Types:
-  - `SupportedLanguage`
-  - `LanguageConfig`
+Types:
+- `SupportedLanguage`
+- `LanguageConfig`
 
-- Constants:
-  - `LANGUAGE_CONFIGS`
+Constants and functions:
+- `LANGUAGE_CONFIGS`
+- `detectLanguageFromFiles(filenames: string[]): SupportedLanguage | null`
+- `getLanguagePrompt(language: SupportedLanguage): string`
 
-- Functions:
-  - `detectLanguageFromFiles(filenames: string[]): SupportedLanguage | null`
-  - `getLanguagePrompt(language: SupportedLanguage): string`
-
-- Package export surface:
-  - Re-exported from `src/index.ts` and shipped via package root `exports` in `package.json`.
+Export surface notes:
+- Root export via `src/index.ts` exposes all adaptation symbols.
+- `src/compat.ts` additionally re-exports `FrameworkAdapter` and `PathMapper`.
+- Package `exports` currently provide root/`vfs`/`tools`/`runtime`/`compat` entrypoints; adaptation symbols are consumed via the root entrypoint (or `compat` for adapter/path mapper).
 
 ## Dependencies
-Direct code dependencies inside `src/adaptation`:
-
+Direct dependencies inside adaptation source:
 - Internal:
-  - `framework-adapter.ts` depends on `PathMapper`.
-  - `languages/index.ts` depends on `languages/language-config.ts`.
+  - `framework-adapter.ts` imports `PathMapper`.
+  - `languages/index.ts` imports from `languages/language-config.ts`.
 - External:
-  - No third-party imports in adaptation source files.
-  - Uses only built-in JS runtime features (`RegExp`, arrays, strings, records).
+  - No third-party imports in adaptation files.
+  - Uses JavaScript/TypeScript runtime primitives only (`RegExp`, `Array`, `Record`, strings).
 
 Package-level context:
-
-- `@dzupagent/codegen` depends on `@dzupagent/core` and `@dzupagent/adapter-types`, but adaptation files do not currently import either.
+- `@dzupagent/codegen` depends on `@dzupagent/core` and `@dzupagent/adapter-types`, but adaptation files do not directly import them.
+- Peer dependencies (`@langchain/*`, `zod`, optional tree-sitter packages) are unrelated to adaptation internals.
 
 ## Integration Points
-Current integration points in the repository:
-
-- Public API:
-  - Exported by `packages/codegen/src/index.ts`.
-  - Distributed through package root export in `packages/codegen/package.json`.
+Active integration points in package code:
+- Public exports:
+  - `src/index.ts` exports adaptation APIs.
+  - `src/compat.ts` re-exports `FrameworkAdapter` and `PathMapper`.
 - Documentation:
-  - Mentioned in `packages/codegen/README.md` and `packages/codegen/docs/api-tiers.md`.
+  - `README.md` lists adaptation APIs in the package API reference.
+  - `docs/api-tiers.md` classifies adaptation exports under the advanced tier.
 - Tests:
-  - Extensively exercised in adaptation-specific and branch-coverage suites under `packages/codegen/src/__tests__`.
+  - adaptation-specific tests and broader suites exercise this layer.
 
-Current non-integration (important for architecture accuracy):
-
-- No non-test runtime modules in `packages/codegen/src` currently import adaptation APIs for generation, pipeline, guardrails, or migration execution orchestration.
-- `src/migration/migration-planner.ts` is a separate utility layer with its own plan/scope/prompt logic.
+Current non-integration:
+- No non-test module in `packages/codegen/src` imports adaptation helpers for generation execution or pipeline orchestration.
+- Adaptation currently behaves as a reusable utility layer exposed to consumers, not an internally wired runtime stage.
 
 ## Testing and Observability
-Adaptation-focused test files include:
-
+Direct adaptation-focused tests:
 - `src/__tests__/path-mapper.test.ts`
 - `src/__tests__/adaptation-language-config.test.ts`
 - `src/__tests__/adaptation-layer.test.ts`
 
-Adaptation behavior is also covered in broader branch suites, including:
-
-- `src/__tests__/branch-coverage-sandbox-lint.test.ts`
-- `src/__tests__/branch-coverage-conventions-validation.test.ts`
-- `src/__tests__/branch-coverage-misc.test.ts`
+Additional coverage that includes adapter behavior:
 - `src/__tests__/convention-detector-and-adapters.test.ts`
+- `src/__tests__/branch-coverage-conventions-validation.test.ts`
+- `src/__tests__/branch-coverage-sandbox-lint.test.ts`
+- `src/__tests__/branch-coverage-misc.test.ts`
 
-Validated in this refresh run:
-
-- Command:
-  - `yarn workspace @dzupagent/codegen test src/__tests__/path-mapper.test.ts src/__tests__/adaptation-language-config.test.ts src/__tests__/adaptation-layer.test.ts`
-- Result:
-  - 3 test files passed
-  - 121 tests passed
-
-Observability status:
-
-- Adaptation module has no built-in logging, tracing, or metrics hooks.
-- Runtime visibility is currently via caller instrumentation and test coverage.
+Observability:
+- No built-in logging/metrics/tracing hooks in adaptation source.
+- Operational visibility is currently test-driven or caller-driven.
 
 ## Risks and TODOs
-- Framework IDs are stringly-typed:
-  - `source`/`target` are plain strings, so invalid pairs degrade to `null` at runtime.
-- Regex safety:
-  - `PathMapper.addMapping` compiles unvalidated regex strings; invalid patterns throw, and costly patterns can affect performance.
+- Stringly framework identifiers:
+  - `FrameworkAdapter` uses raw string `source`/`target` identifiers with no compile-time enum.
+- Regex safety and performance:
+  - `PathMapper.addMapping` accepts arbitrary regex strings; invalid regex throws, and complex patterns can be expensive.
 - Override semantics:
-  - Built-in mappings are loaded first; custom rules are appended and cannot preempt built-ins for the same match shape without changing registration strategy.
-- Static command/image drift:
-  - `LANGUAGE_CONFIGS` embeds command/toolchain assumptions and sandbox image tags that may age independently of runtime environments.
-- Limited runtime adoption:
-  - Adaptation utilities are exported and tested, but not wired into package-internal orchestration flows yet.
+  - Built-ins register first; custom additions append and may not override early matching behavior.
+- Static registry drift:
+  - `LANGUAGE_CONFIGS` hard-codes toolchain commands and container image tags that can drift from real project environments.
+- Limited internal adoption:
+  - The layer is exported and tested, but not yet integrated into internal generation/pipeline control flows.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

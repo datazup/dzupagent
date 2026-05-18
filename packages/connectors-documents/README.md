@@ -69,7 +69,10 @@ const chunks = splitIntoChunks(text, 4000, 200);
 Creates the document tools for DzupAgent.
 
 - `config.maxChunkSize`: Maximum characters per chunk (default: 4000).
+- `config.maxChunkSize` hard limit: `20000` (values above this are rejected).
 - `config.overlap`: Character overlap between chunks (default: 200).
+- `config.maxDocumentBytes`: Maximum decoded payload size accepted for parsing (default: `10485760` bytes / 10 MiB).
+- `config.telemetryCallback`: Optional in-process callback receiving `{ operation, durationMs, success, error? }` for parse/chunk operations.
 
 ### `parseDocument(buffer: Buffer, contentType: string)`
 

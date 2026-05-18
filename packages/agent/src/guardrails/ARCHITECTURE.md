@@ -1,78 +1,98 @@
 # `src/guardrails` Architecture
 
 ## Scope
-This document covers `packages/agent/src/guardrails` inside `@dzupagent/agent`.
+This document describes `packages/agent/src/guardrails` in `@dzupagent/agent`.
 
-Included files:
+In scope:
 - `guardrail-types.ts`
 - `iteration-budget.ts`
 - `stuck-detector.ts`
 - `cascading-timeout.ts`
+- `distributed-rate-limiter.ts`
+- `distributed-budget.ts`
 
-Primary consumers are in `src/agent` (`run-engine.ts`, `tool-loop.ts`, `streaming-run.ts`, `dzip-agent.ts`) plus package exports from `src/index.ts`.
+Primary consumers are in `src/agent/**` (`run-engine`, `tool-loop`, `streaming-run`, `dzip-agent`, `rate-limit-coordinator`, `event-bus-installer`) plus top-level package exports.
+
+Out of scope:
+- Tool-governance policy (`src/agent/tool-loop/**`) except where it calls guardrail primitives.
+- Pipeline-specific stuck/budget systems under `src/pipeline/**` and `src/self-correction/**`.
 
 ## Responsibilities
-The guardrails module provides runtime primitives used to constrain and observe agent execution.
+`src/guardrails` provides reusable safety primitives and contracts for agent execution:
+- In-process budget accounting for tokens, cost, and iterations via `IterationBudget`.
+- Runtime tool blocklist checks (`blockedTools`) plus dynamic per-run blocking (`blockTool`).
+- Stuck-detection import compatibility via `StuckDetector` re-export.
+- Hierarchical timeout utility via `CascadingTimeout`.
+- Optional distributed guardrails (multi-instance rate and spend controls) via `DistributedRateLimiter` and `DistributedCostLedger`.
+- Shared configuration/types via `GuardrailConfig`, `DistributedGuardrailConfig`, `BudgetState`, and `BudgetWarning`.
 
-- Budget accounting and limits through `IterationBudget` (tokens, cost, iterations).
-- Tool deny-list checks through `blockedTools` and runtime blocking via `blockTool`.
-- Stuck-loop detection through `StuckDetector` (repeated calls, error bursts, idle heuristics).
-- Hierarchical timeout utility through `CascadingTimeout`.
-- Shared guardrail contracts through `GuardrailConfig`, `BudgetState`, and `BudgetWarning`.
-
-It does not run the full agent loop by itself; execution control stays in `src/agent`.
+This folder does not orchestrate runs directly; `src/agent/**` owns loop execution and event ordering.
 
 ## Structure
-| File | What it implements |
+| File | Purpose |
 | --- | --- |
-| `guardrail-types.ts` | `GuardrailConfig`, `BudgetState`, `BudgetWarning` |
-| `iteration-budget.ts` | `IterationBudget` class (accounting, warnings, hard limits, blocked tools, shared-state fork) |
-| `stuck-detector.ts` | `StuckDetector`, `StuckStatus`, and `StuckDetectorConfig` re-export |
-| `cascading-timeout.ts` | `CascadingTimeout` and `CascadingTimeoutConfig` |
+| `guardrail-types.ts` | Guardrail contracts (`GuardrailConfig`, `DistributedGuardrailConfig`, `BudgetState`, `BudgetWarning`) |
+| `iteration-budget.ts` | `IterationBudget` implementation for cumulative usage, warning thresholds, hard-limit checks, dynamic tool blocking, and shared-state `fork()` |
+| `stuck-detector.ts` | Compatibility re-export of `StuckDetector`, `StuckStatus`, `StuckDetectorConfig` from `@dzupagent/core/utils` |
+| `cascading-timeout.ts` | `CascadingTimeout` tree-based timeout utility (`create`, `fork`, abort cascade, `dispose`) |
+| `distributed-rate-limiter.ts` | `DistributedRateLimiter` plus structural Redis client and local fallback interfaces |
+| `distributed-budget.ts` | `DistributedCostLedger` plus structural Redis client and record/read/reset semantics |
 
 Export surface:
-- Re-exported from `src/index.ts` as public package APIs.
-- `StuckDetectorConfig` is imported from `@dzupagent/agent-types` and re-exported by `stuck-detector.ts`.
+- Root barrel `src/index.ts` exports all six guardrail modules (including distributed guardrails).
+- `src/agent.ts` and `src/tools.ts` export core guardrails (`IterationBudget`, `StuckDetector`, `CascadingTimeout`) and guardrail types.
+- Distributed guardrail classes/types are currently exposed from the root barrel (`src/index.ts`), not `src/tools.ts`.
 
 ## Runtime and Control Flow
-1. Run-state setup in `src/agent/run-engine.ts`:
-- `prepareRunState()` creates `IterationBudget` only when `config.guardrails` exists.
-- `prepareRunState()` creates `StuckDetector` by default, even when `guardrails` is absent.
-- `StuckDetector` is disabled only when `guardrails.stuckDetector === false`.
+1. Configuration and construction:
+- `DzupAgentConfig.guardrails?: GuardrailConfig` is defined in `src/agent/agent-types-config.ts`.
+- `installEventBus()` (`src/agent/event-bus-installer.ts`) reads `config.guardrails?.distributed` and conditionally constructs:
+- `DistributedRateLimiter` (with optional local `TokenBucket` fallback).
+- `DistributedCostLedger`.
 
-2. Non-stream loop in `src/agent/tool-loop.ts` (`runToolLoop()`):
-- Checks `budget.isExceeded()` before each model call.
-- Records `budget.recordIteration()` and `budget.recordUsage()` and emits warnings.
-- Checks `budget.isToolBlocked(toolName)` before invoking tools.
-- Calls `stuckDetector.recordToolCall(...)` and `stuckDetector.recordError(...)` during tool execution.
-- Uses staged stuck escalation:
-- Stage 1 behavior: block repeated tool when budget exists.
-- Stage 2 behavior: inject stuck nudge system message.
-- Stage 3 behavior: terminate with `stopReason = 'stuck'` and return `StuckError`.
-- Calls idle check with `stuckDetector.recordIteration(toolCalls.length)` after tool-call handling.
+2. Run-state guardrail setup (`prepareRunState` in `src/agent/run-engine.ts`):
+- Always constructs an `IterationBudget`.
+- If `config.guardrails` is defined, budget uses that config directly.
+- If `config.guardrails` is `undefined`, a default budget is installed (`DEFAULT_UNGUARDED_BUDGET`: `maxTokens=50_000`, `maxIterations=5`) and a one-shot warning is logged per agent id.
+- `StuckDetector` is created unless `guardrails.stuckDetector === false`.
+- If `guardrails.stuckDetector` is an object, it is passed through to detector construction.
 
-3. Stream path in `src/agent/streaming-run.ts` and `executeStreamingToolCall()`:
-- Reuses the same run-state `IterationBudget` and `StuckDetector`.
-- Emits stream events for guardrail signals (`budget_warning`, `stuck`, `done` stop reasons).
-- Applies blocked-tool checks and stuck/error handling during tool execution.
+3. Non-streaming execution (`runToolLoop` and staged helpers):
+- Per iteration, budget hard limits are checked (`isExceeded`) and warnings are emitted from `recordIteration` / `recordUsage`.
+- Tool execution checks `budget.isToolBlocked(toolName)` before invocation.
+- Stuck handling uses detector outcomes from tool results/errors and idle checks:
+- Repeated-tool signals can trigger `budget.blockTool(toolName)` and nudge insertion.
+- Escalation can terminate with `stopReason: 'stuck'` and produce `StuckError`.
+- Terminal stop-reason telemetry is emitted by post-processing (`agent:stop_reason`).
 
-4. Output filtering behavior:
-- `guardrails.outputFilter` is applied in non-stream `executeGenerateRun()`.
-- Native `stream()` completion path does not apply `outputFilter`.
+4. Streaming execution (`streamRun` and helpers):
+- Reuses the same `IterationBudget` and `StuckDetector` from prepared run state.
+- Emits `budget_warning` events from both iteration and usage recording.
+- Emits `stuck` stream events and `agent:stuck_detected` on stuck conditions.
+- Applies `guardrails.outputFilter` on final completion content before `done` and memory write-back (parity with generate path for this legacy filter).
 
-5. Child budget behavior:
-- `DzupAgent.createChildBudget()` creates `new IterationBudget(config.guardrails).fork()`.
-- `IterationBudget.fork()` shares budget state and emitted-threshold tracking by reference.
+5. Distributed guardrail enforcement in model invocation:
+- In generate-mode (and the stream fallback path that delegates to generate), `invokeModelWithMiddleware` calls `awaitRateLimit()` before model invocation and `recordDistributedCost()` after success.
+- `awaitRateLimit()` uses distributed limiter when configured, otherwise local limiter path.
+- `recordDistributedCost()` writes to distributed ledger and emits `agent:rate_limited` when ceiling is reached.
+- Distributed ledger/rate errors are best-effort and do not crash runs by themselves.
+
+6. Child-budget behavior:
+- `DzupAgent.createChildBudget()` returns `new IterationBudget(config.guardrails).fork()` when guardrails are configured.
+- `fork()` shares budget state, emitted-threshold tracking, and dynamic blocked-tool set by reference.
 
 ## Key APIs and Types
 `GuardrailConfig` (`guardrail-types.ts`):
-- `maxTokens?: number`
-- `maxCostCents?: number`
-- `maxIterations?: number`
-- `blockedTools?: string[]`
-- `budgetWarnings?: number[]` (default threshold behavior in `IterationBudget` is `[0.7, 0.9]`)
-- `outputFilter?: (output: string) => Promise<string | null>`
-- `stuckDetector?: Partial<StuckDetectorConfig> | false`
+- Limits: `maxTokens`, `maxCostCents`, `maxIterations`.
+- Tool blocklist: `blockedTools`.
+- Warning thresholds: `budgetWarnings` (default used by `IterationBudget`: `[0.7, 0.9]`).
+- Legacy output filter: `outputFilter`.
+- Stuck detector config/disable: `stuckDetector?: Partial<StuckDetectorConfig> | false`.
+- Distributed config: `distributed?: DistributedGuardrailConfig`.
+
+`DistributedGuardrailConfig`:
+- `rateLimiter` config: `client`, `windowMs`, `maxRequests`, `keyPrefix`, `fallbackToLocal`.
+- `costLedger` config: `client`, `maxCostUsd`, `ttlMs`, `keyPrefix`, `fallbackToLocal`.
 
 `IterationBudget` (`iteration-budget.ts`):
 - `recordUsage(usage: TokenUsage): BudgetWarning[]`
@@ -83,49 +103,52 @@ Export surface:
 - `getState(): Readonly<BudgetState>`
 - `fork(): IterationBudget`
 
-`StuckDetector` (`stuck-detector.ts`):
-- `recordToolCall(name: string, input: unknown): StuckStatus`
-- `recordError(error: Error): StuckStatus`
-- `recordIteration(toolCallsThisIteration: number): StuckStatus`
-- `reset(): void`
-- `lastToolCalls` getter
-- Defaults: `maxRepeatCalls=3`, `maxErrorsInWindow=5`, `errorWindowMs=60_000`, `maxIdleIterations=3`
+`StuckDetector` (`stuck-detector.ts` re-export):
+- Exported as a compatibility shim from `@dzupagent/core/utils` (implementation not in this folder).
+- Exposes `StuckDetector`, `StuckStatus`, `StuckDetectorConfig`.
 
 `CascadingTimeout` (`cascading-timeout.ts`):
-- `static create(totalMs: number, reserveMs?: number): CascadingTimeout`
-- `fork(childMs?: number): CascadingTimeout`
+- `create(totalMs, reserveMs?)`
+- `fork(childMs?)`
 - `signal`, `remainingMs`, `expired`
-- `abort(reason?: string): void`
-- `dispose(): void`
+- `abort(reason?)`
+- `dispose()`
+
+Distributed primitives:
+- `DistributedRateLimiter.tryConsume(tenantId, agentId)` and `reset(...)`.
+- `DistributedCostLedger.record(tenantId, agentId, costUsd)`, `read(...)`, `reset(...)`.
 
 ## Dependencies
-Direct module-level dependencies:
-- `iteration-budget.ts` uses `calculateCostCents` and `TokenUsage` from `@dzupagent/core`.
-- `iteration-budget.ts` uses local `GuardrailConfig`, `BudgetState`, and `BudgetWarning`.
-- `stuck-detector.ts` uses Node `crypto` (`createHash`).
-- `stuck-detector.ts` uses `StuckDetectorConfig` from `@dzupagent/agent-types`.
-- `cascading-timeout.ts` uses built-in `AbortController`, `AbortSignal`, and timers.
+Direct module dependencies:
+- `iteration-budget.ts` depends on `@dzupagent/core/llm` (`calculateCostCents`, `TokenUsage`).
+- `stuck-detector.ts` depends on `@dzupagent/core/utils` (re-export only).
+- `distributed-rate-limiter.ts` depends on `@dzupagent/core/llm` type `TokenBucket`.
+- `distributed-budget.ts` depends on local `RateLimiterClient` shape from `distributed-rate-limiter.ts`.
+- `cascading-timeout.ts` uses platform `AbortController`, `AbortSignal`, timers.
 
-Package-level context (`packages/agent/package.json`):
-- Runtime dependencies include `@dzupagent/core` and `@dzupagent/agent-types`, which are part of this module chain.
+Package dependencies relevant to this folder (`packages/agent/package.json`):
+- `@dzupagent/core`
+- `@dzupagent/agent-types` (package-level dependency; current stuck-detector surface is sourced from `@dzupagent/core/utils`)
 
 ## Integration Points
-Internal integration points:
-- `src/agent/agent-types.ts`: `DzupAgentConfig.guardrails?: GuardrailConfig`.
-- `src/agent/run-engine.ts`: creates budget/detector, applies `outputFilter`, threads guardrails into execution.
-- `src/agent/tool-loop.ts`: enforces limits, warnings, blocked tools, and stuck escalation.
-- `src/agent/streaming-run.ts`: enforces corresponding guardrail behavior in stream mode.
-- `src/agent/dzip-agent.ts`: exposes `createChildBudget()` for shared parent/child budgeting.
-- `src/recovery/recovery-copilot.ts`: consumes `StuckStatus` for recovery triggering.
-- `src/index.ts`: publishes guardrail classes/types in package public API.
+Primary integrations:
+- `src/agent/agent-types-config.ts`: public `DzupAgentConfig.guardrails` contract.
+- `src/agent/event-bus-installer.ts`: distributed guardrail object construction and wiring.
+- `src/agent/rate-limit-coordinator.ts`: distributed limiter gate and distributed cost recording.
+- `src/agent/run-engine.ts`: default budget installation and stuck detector setup.
+- `src/agent/tool-loop.ts` and `src/agent/tool-loop/result-pipeline.ts`: budget enforcement, dynamic blocks, stuck escalation.
+- `src/agent/streaming-run*.ts` and `src/agent/stream-result-helpers.ts`: stream-mode parity for budget/stuck behavior and blocked-tool handling.
+- `src/agent/dzip-agent.ts`: `createChildBudget()` helper.
 
-External usage:
-- Callers configure guardrails through `DzupAgentConfig.guardrails`.
-- Callers can import `IterationBudget`, `StuckDetector`, and `CascadingTimeout` directly from `@dzupagent/agent`.
+Public integration:
+- Consumers configure safety through `DzupAgentConfig.guardrails`.
+- Consumers can directly instantiate/import guardrail primitives from `@dzupagent/agent` root exports.
 
 ## Testing and Observability
 Guardrail-focused tests in `src/__tests__` include:
 - `cascading-timeout.test.ts`
+- `distributed-rate-limiter.test.ts`
+- `distributed-budget.test.ts`
 - `stuck-detector.test.ts`
 - `stuck-detector-deep.test.ts`
 - `stuck-detector-integration.test.ts`
@@ -135,17 +158,22 @@ Guardrail-focused tests in `src/__tests__` include:
 - `run-engine.test.ts`
 - `stream-tool-guardrail-parity.test.ts`
 
-Observability signals tied to guardrails:
-- Stream emits `budget_warning`, `stuck`, and `done` stop-reason events.
-- Event bus emits `agent:stuck_detected` from non-stream and stream execution paths.
-- Budget threshold crossings are surfaced through warning callbacks/events.
+Notable tested behaviors:
+- Default unguarded budget fallback (`RF-04`) when `guardrails` is omitted.
+- `stuckDetector: false` fully disables detector wiring.
+- Stream/generate parity for legacy `guardrails.outputFilter`.
+- Distributed limiter/ledger failover behavior (`fallbackToLocal` true/false).
+
+Observability/event surface tied to guardrails:
+- Stream events: `budget_warning`, `stuck`, terminal `done` with stop reason.
+- Event bus: `agent:stuck_detected`, `agent:rate_limited`, `agent:stop_reason`, plus `run:halted:token-exhausted` for halt cases.
 
 ## Risks and TODOs
-- Idle stuck detection is difficult to trigger in the default tool-loop path because `recordIteration()` is called only after non-empty tool-call turns; tests explicitly document this and use mocks for that branch.
-- `outputFilter` is applied in `generate()` result assembly but not in native `stream()` completion.
-- `IterationBudget.blockTool()` mutates `GuardrailConfig.blockedTools` in place; shared-config callers need to treat this as mutable runtime state.
-- `CascadingTimeout` is an exported utility with tests, but it is not wired into agent run-engine timeout orchestration by default.
+- `guardrails: {}` is treated as explicit configuration and bypasses unguarded defaults, which can leave budgets effectively uncapped unless callers set limits intentionally.
+- Distributed cost ceiling currently emits `agent:rate_limited` telemetry when exceeded but does not hard-stop the in-flight run by itself.
+- Native streaming fast path opens provider streams directly and does not currently pass through `awaitRateLimit()` / `recordDistributedCost()`, so distributed guardrail coverage is stronger on generate/fallback paths than on native stream.
+- `CascadingTimeout` is exported and tested, but not yet wired as the default timeout primitive in the main run-engine loop.
+- Distributed guardrail exports are split across entrypoints (`src/index.ts` has them; `src/tools.ts` currently does not), which can surprise subpath consumers expecting symmetry.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

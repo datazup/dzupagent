@@ -1,7 +1,7 @@
 # Generation Architecture (`packages/codegen/src/generation`)
 
 ## Scope
-This document covers the generation subsystem under `packages/codegen/src/generation`:
+This document covers only `packages/codegen/src/generation` in `@dzupagent/codegen`:
 
 - `code-block-parser.ts`
 - `code-gen-service.ts`
@@ -9,235 +9,193 @@ This document covers the generation subsystem under `packages/codegen/src/genera
 - `incremental-gen.ts`
 - `test-generator.ts`
 
-It is limited to what exists in the current local codebase. It does not describe package-wide pipeline, sandbox, or VFS internals except where generation APIs integrate with them.
+It also references direct integration seams outside this folder when they consume these APIs (`src/index.ts`, `src/runtime.ts`, `src/tools/generate-file.tool.ts`, and generation-focused tests).
 
 ## Responsibilities
-The generation subsystem provides five concrete responsibilities:
+The generation subsystem is responsible for:
 
-- Parse and normalize LLM output that contains markdown code fences.
-- Generate full-file content through a `ModelRegistry` path (`CodeGenService`).
-- Route generation through an adapter event stream with optional event-bus forwarding (`CodegenRunEngine`), with direct-registry fallback.
-- Plan and apply line/section-level incremental edits using regex and line-oriented heuristics.
-- Produce LLM-facing test-generation specs (prompt + suggested cases), not runnable tests.
+- Building file-generation prompts and invoking an LLM through `ModelRegistry` (`CodeGenService`).
+- Providing an adapter-routed generation path with event normalization and optional event-bus emission (`CodegenRunEngine`).
+- Parsing markdown code-fence output and extracting the dominant code payload (`code-block-parser`).
+- Offering heuristic incremental-edit helpers for section detection and patch application (`incremental-gen`).
+- Producing structured test-generation specs/prompts from source targets (`test-generator`).
+
+It does not execute tests, run sandbox commands, or orchestrate pipeline DAG execution directly.
 
 ## Structure
-### `code-block-parser.ts`
-- `parseCodeBlocks(text): CodeBlock[]`
-- `extractLargestCodeBlock(text): string`
-- `detectLanguage(filePath): string`
+Current files and roles:
 
-Role:
-- Parses fenced blocks with regex (` ```lang ... ``` `).
-- Chooses the largest parsed code block when multiple are present.
-- Maps file extensions to prompt-language labels (fallback: `text`).
+- `code-block-parser.ts`
+- Exports `CodeBlock`, `parseCodeBlocks`, `extractLargestCodeBlock`, `detectLanguage`.
+- Uses regex fence parsing and extension-to-language mapping with `text` fallback.
 
-### `code-gen-service.ts`
-- `GenerateFileParams`
-- `GenerateFileResult`
-- `CodeGenService`
+- `code-gen-service.ts`
+- Exports `GenerateFileParams`, `GenerateFileResult`, `CodeGenService`.
+- Implements direct model invocation via `registry.getModel(...)`, LangChain messages, and token-usage extraction.
 
-Role:
-- Builds a prompt from `filePath`, `purpose`, optional `referenceFiles`, optional `context`.
-- Resolves a model from `ModelRegistry` (default tier `codegen`, overridable via `modelTier`).
-- Invokes the model with `SystemMessage` + `HumanMessage`.
-- Extracts code content and token usage (`extractTokenUsage` from `@dzupagent/core`).
+- `codegen-run-engine.ts`
+- Exports `CodegenRunEngineConfig`, `CodegenRunEngine`.
+- Routes generation through `AgentCLIAdapter` when available.
+- Falls back to internal `CodeGenService` when only `registry` is configured.
+- Normalizes adapter events to `DzupEventBus` and enforces terminal tool correlation via `requireTerminalToolExecutionRunId`.
 
-### `codegen-run-engine.ts`
-- `CodegenRunEngineConfig`
-- `CodegenRunEngine`
+- `incremental-gen.ts`
+- Exports `CodeSection`, `IncrementalChange`, `IncrementalResult`.
+- Exports `splitIntoSections`, `detectAffectedSections`, `applyIncrementalChanges`, `buildIncrementalPrompt`.
+- Uses line/regex heuristics for top-level declaration boundaries.
 
-Role:
-- Entry point that prefers adapter execution when `adapter` is configured.
-- Builds adapter input (prompt/systemPrompt/maxTurns/optional workingDirectory).
-- Consumes adapter async events, derives final output from `adapter:completed`.
-- Normalizes selected adapter events onto `DzupEventBus` when provided.
-- Enforces terminal tool correlation with `requireTerminalToolExecutionRunId`.
-- Falls back to `CodeGenService` when only `registry` is provided.
-
-### `incremental-gen.ts`
-- `CodeSection`
-- `IncrementalChange`
-- `IncrementalResult`
-- `splitIntoSections(...)`
-- `detectAffectedSections(...)`
-- `applyIncrementalChanges(...)`
-- `buildIncrementalPrompt(...)`
-
-Role:
-- Splits code into top-level sections using pattern-based detection.
-- Detects candidate sections from token overlap in free-text change requests.
-- Applies `add`/`replace`/`delete` changes in descending line order.
-- Produces compact incremental prompts listing affected and unaffected sections.
-
-### `test-generator.ts`
-- `TestStrategy`, `TestFramework`, `TestGenConfig`
-- `TestTarget`, `ExportInfo`, `TestSpec`, `TestCase`
-- `determineTestStrategy(...)`
-- `extractExports(...)`
-- `buildTestPath(...)`
-- `generateTestSpecs(...)`
-
-Role:
-- Selects test strategy from file-path conventions (`unit`, `integration`, `component`, `e2e`).
-- Extracts exported symbols with regex (no AST dependency).
-- Produces deterministic test-file paths.
-- Builds structured test prompts and suggested case sets.
+- `test-generator.ts`
+- Exports `TestStrategy`, `TestFramework`, `TestGenConfig`, `TestTarget`, `ExportInfo`, `TestSpec`, `TestCase`.
+- Exports `determineTestStrategy`, `extractExports`, `buildTestPath`, `generateTestSpecs`.
+- Generates test prompts and suggested test cases, not runnable tests.
 
 ## Runtime and Control Flow
-### Full generation via direct model path
-```text
-caller
-  -> new CodeGenService(registry, { modelTier? })
-  -> generateFile(params, systemPrompt)
-    -> detectLanguage(filePath)
-    -> build user prompt (purpose + optional refs/context)
-    -> registry.getModel(modelTier || "codegen")
-    -> model.invoke([SystemMessage, HumanMessage])
-    -> normalize response content to string
-    -> extractLargestCodeBlock(...)
-    -> extractTokenUsage(...)
-    -> return { content, source: "llm", tokensUsed, language }
-```
+Primary runtime paths:
 
-### Full generation via adapter path
-```text
-caller
-  -> new CodegenRunEngine({ adapter, eventBus?, workingDirectory?, maxTurns?, registry? })
-  -> generateFile(params, systemPrompt)
-    -> generateViaAdapter(...) when adapter exists
-    -> adapter.execute(agentInput) async stream
-    -> track active session/tool for correlation
-    -> forward selected events to DzupEventBus (optional)
-    -> on adapter:failed => throw
-    -> on missing adapter:completed => throw
-    -> extractLargestCodeBlock(completed.result)
-    -> convert adapter usage to core TokenUsage
-    -> return GenerateFileResult
-```
+1. Direct model path (`CodeGenService.generateFile`)
+- Detect language from `filePath`.
+- Build prompt from `filePath`, `purpose`, optional `referenceFiles`, optional `context`.
+- Resolve model from registry (`options.modelTier ?? 'codegen'`).
+- Invoke model with `SystemMessage` and `HumanMessage`.
+- Convert response content to string, extract largest code block, map token usage, return `GenerateFileResult`.
 
-Forwarded event mappings currently implemented:
+2. Adapter path (`CodegenRunEngine.generateFile` with `adapter`)
+- Build adapter `AgentInput` (`prompt`, `systemPrompt`, `maxTurns`, optional `workingDirectory`).
+- Stream `adapter.execute(...)` events.
+- Track active session/tool context and forward mapped events to bus when configured.
+- Stop on `adapter:failed`; require `adapter:completed` for success.
+- Extract code from completed result and map adapter usage to core `TokenUsage`.
+
+3. Fallback path (`CodegenRunEngine.generateFile` without `adapter`)
+- Requires constructor-configured `registry`.
+- Delegates to internal `CodeGenService`.
+
+4. Incremental-edit helper flow
+- `splitIntoSections` partitions top-level declarations.
+- `detectAffectedSections` chooses candidate sections from token overlap.
+- `buildIncrementalPrompt` prepares focused prompt text.
+- `applyIncrementalChanges` applies `add`/`replace`/`delete` operations sorted by descending line position.
+
+5. Test-spec helper flow
+- `determineTestStrategy` picks `unit|integration|component|e2e` from path hints.
+- `extractExports` collects exported symbols (regex-based).
+- `generateTestSpecs` creates prompts/cases and output paths via `buildTestPath`.
+
+Event mapping in `CodegenRunEngine.forwardEvent`:
+
 - `adapter:started` -> `agent:started`
 - `adapter:completed` -> `agent:completed`
-- `adapter:failed` -> `agent:failed` (and `tool:error` when failure occurs during active tool execution)
+- `adapter:failed` -> `agent:failed` and optionally `tool:error` when failure happens during an active tool call
 - `adapter:stream_delta` -> `agent:stream_delta`
 - `adapter:tool_call` -> `tool:called`
 - `adapter:tool_result` -> `tool:result`
-- `adapter:message` and `adapter:progress` are intentionally ignored.
-
-### Engine fallback behavior
-```text
-CodegenRunEngine.generateFile(...)
-  -> if adapter absent:
-       use internal CodeGenService built from registry/modelTier
-```
-
-### Incremental editing helpers
-```text
-original content
-  -> splitIntoSections
-  -> detectAffectedSections(changeDescription)
-  -> buildIncrementalPrompt(...)
-  -> (external caller obtains new/changed section content)
-  -> applyIncrementalChanges(...)
-  -> updated content + change stats
-```
-
-### Test-spec generation helpers
-```text
-TestTarget[]
-  -> determineTestStrategy(filePath)
-  -> extractExports(content)
-  -> generate suggested cases
-  -> buildTestPath(filePath, config)
-  -> build LLM prompt
-  -> TestSpec[]
-```
+- `adapter:message` and `adapter:progress` are intentionally ignored
 
 ## Key APIs and Types
-Generation exports are re-exported from `packages/codegen/src/index.ts`:
+Publicly exported generation APIs come from `src/index.ts` and `src/runtime.ts`:
 
 - `CodeGenService`
-- `GenerateFileParams`, `GenerateFileResult`
+- `GenerateFileParams`
+- `GenerateFileResult`
 - `CodegenRunEngine`
 - `CodegenRunEngineConfig`
-- `parseCodeBlocks`, `extractLargestCodeBlock`, `detectLanguage`
 - `CodeBlock`
-- `splitIntoSections`, `detectAffectedSections`, `applyIncrementalChanges`, `buildIncrementalPrompt`
-- `CodeSection`, `IncrementalChange`, `IncrementalResult`
-- `determineTestStrategy`, `extractExports`, `generateTestSpecs`, `buildTestPath`
-- `TestStrategy`, `TestFramework`, `TestGenConfig`, `TestTarget`, `ExportInfo`, `TestSpec`, `TestCase`
+- `parseCodeBlocks`
+- `extractLargestCodeBlock`
+- `detectLanguage`
+- `CodeSection`
+- `IncrementalChange`
+- `IncrementalResult`
+- `splitIntoSections`
+- `detectAffectedSections`
+- `applyIncrementalChanges`
+- `buildIncrementalPrompt`
+- `TestStrategy`
+- `TestFramework`
+- `TestGenConfig`
+- `TestTarget`
+- `ExportInfo`
+- `TestSpec`
+- `TestCase`
+- `determineTestStrategy`
+- `extractExports`
+- `buildTestPath`
+- `generateTestSpecs`
 
-Important behavioral contracts:
-- `GenerateFileResult.source` is currently fixed to `'llm'`.
-- `CodegenRunEngine` constructor requires at least one of `adapter` or `registry`.
-- `CodegenRunEngine.usesAdapter` reflects whether adapter routing is active.
+Key runtime contracts visible in code:
+
+- `GenerateFileResult.source` is always `'llm'`.
+- `CodegenRunEngine` constructor throws unless at least one of `adapter` or `registry` is provided.
+- `CodegenRunEngine.usesAdapter` reports whether adapter routing is active.
+- Terminal tool events (`tool:result`, `tool:error`) require an execution run id through `requireTerminalToolExecutionRunId`.
 
 ## Dependencies
-Direct generation-subsystem dependencies:
+Direct dependencies used by generation files:
 
-- `@dzupagent/core`
-  - `ModelRegistry`, `ModelTier`, `TokenUsage`, `DzupEventBus`
-  - `extractTokenUsage`
-  - `requireTerminalToolExecutionRunId`
+- `@dzupagent/core/llm`
+- `ModelRegistry`, `ModelTier`, `TokenUsage`, `extractTokenUsage`
+
+- `@dzupagent/core/events`
+- `DzupEventBus`, `requireTerminalToolExecutionRunId`
+
 - `@dzupagent/adapter-types`
-  - `AgentCLIAdapter`, `AgentEvent`, and related adapter event payload types
-- `@langchain/core/messages`
-  - `SystemMessage`, `HumanMessage` for direct model invocation path
+- `AgentCLIAdapter`, `AgentInput`, `AgentEvent`, `AgentCompletedEvent`, `AgentFailedEvent`, adapter `TokenUsage`
 
-Package-level context from `packages/codegen/package.json`:
-- Runtime dependencies include `@dzupagent/core` and `@dzupagent/adapter-types`.
-- Peer dependencies include `@langchain/core`, `@langchain/langgraph`, and `zod` (generation code directly uses `@langchain/core`; `zod` is used by tools, not by files in `src/generation`).
+- `@langchain/core/messages`
+- `SystemMessage`, `HumanMessage`
+
+Package-level dependency declarations (`packages/codegen/package.json`) also include peer dependencies `@langchain/core`, `@langchain/langgraph`, `zod`, and optional `web-tree-sitter` / `tree-sitter-wasms`.
 
 ## Integration Points
-Current integration seams in the codebase:
+Verified integration points in the current codebase:
 
-- Public package export surface:
-  - All generation APIs are exported through `packages/codegen/src/index.ts`.
-- Tooling integration:
-  - `packages/codegen/src/tools/generate-file.tool.ts` accepts a `CodeGenService` and exposes a LangChain tool named `generate_file`.
-  - The tool maps `referenceCode` into `referenceFiles.reference` and returns JSON with content/language/source/token total.
-- Adapter/orchestration integration:
-  - `CodegenRunEngine` consumes `AgentCLIAdapter.execute(...)` streams and can emit normalized events to the shared event bus.
-- Core model integration:
-  - `CodeGenService` relies on `ModelRegistry.getModel(...)` and model `invoke(...)` compatibility.
+- Root exports: `src/index.ts` re-exports all generation APIs.
+- Runtime subpath: `src/runtime.ts` re-exports generation APIs behind `@dzupagent/codegen/runtime`.
+- Tool bridge: `src/tools/generate-file.tool.ts` consumes `CodeGenService` and exposes LangChain tool `generate_file`.
+- Core eventing: `CodegenRunEngine` can emit normalized `agent:*` and `tool:*` events to a provided `DzupEventBus`.
+- Adapter bridge: `CodegenRunEngine` consumes `AgentCLIAdapter.execute(...)` streams and converts adapter completion usage into core token usage format.
 
 ## Testing and Observability
-Generation-focused tests present in `packages/codegen/src/__tests__`:
+Generation behavior is primarily covered by these tests:
 
-- `code-block-parser.test.ts`
-  - Covers markdown fence parsing, largest-block extraction, and extension-based language detection.
-- `incremental-gen-and-test-generator.test.ts`
-  - Covers section splitting/detection, incremental patch operations, prompt builder behavior, strategy selection, export extraction, path generation, and test-spec generation.
-  - This file also contains unrelated `parallel-sampling` tests (VFS helpers), so it is mixed-scope.
-- `codegen-run-engine.unit.test.ts`
-  - Covers constructor guards, event mapping behavior, adapter input shaping, content extraction, error paths, and ignored adapter events.
-- `codegen-run-engine.correlation.test.ts`
-  - Covers `executionRunId` enforcement for `tool:result` and `tool:error` paths.
-- `tools-suite.test.ts` (integration-adjacent)
-  - Verifies `createGenerateFileTool` calls `CodeGenService.generateFile(...)` correctly and formats output JSON.
+- `src/__tests__/code-block-parser.test.ts`
+- Fence parsing, largest-block extraction, language detection map.
 
-Observability currently available:
-- `CodegenRunEngine` can emit lifecycle and tool events via `DzupEventBus`.
-- Direct `CodeGenService` path does not emit events on its own.
+- `src/__tests__/incremental-gen-and-test-generator.test.ts`
+- Section splitting, affected-section detection, incremental apply/prompt behavior.
+- Test strategy detection, export extraction, path generation, test-spec generation.
+- This file also includes `parallel-sampling` coverage from `vfs`, so it is mixed-scope.
 
-Test/validation config context:
-- `packages/codegen/vitest.config.ts` includes `src/**/*.test.ts` and `src/**/*.spec.ts`.
-- Coverage thresholds are package-wide (statements 60, branches 50, functions 50, lines 60).
+- `src/__tests__/codegen-run-engine.unit.test.ts`
+- Constructor guards, adapter input shape, event mapping/order, ignored event types, content extraction, adapter failure paths.
+
+- `src/__tests__/codegen-run-engine.correlation.test.ts`
+- Execution-run-id enforcement for terminal tool events and mid-tool failure handling.
+
+- `src/__tests__/tools-suite.test.ts`
+- `createGenerateFileTool` integration with `CodeGenService` and tool output formatting.
+
+Observability surfaces in this subsystem:
+
+- Adapter path: event forwarding through `DzupEventBus` (`agent:*`, `tool:*`).
+- Direct `CodeGenService` path: no internal event emission/logging hooks.
+- Package test/coverage settings come from `packages/codegen/vitest.config.ts` (`v8` coverage with 60/50/50/60 thresholds).
 
 ## Risks and TODOs
-- Prompt-building duplication:
-  - `CodeGenService.generateFile(...)` and `CodegenRunEngine` `buildUserMessage(...)` use near-identical prompt construction logic; drift risk exists.
-- Fallback-path confidence:
-  - `CodegenRunEngine` fallback behavior is implemented, but current dedicated tests primarily exercise adapter execution paths.
-- Regex-only parsing limits:
-  - `parseCodeBlocks` only matches fences with `\w*` language tags.
-  - `splitIntoSections` and `extractExports` are heuristic and can miss complex syntax/forms.
-- Incremental section matching quality:
-  - `detectAffectedSections` relies on token/name overlap; semantic mismatches are possible for vague change descriptions.
-- Event correlation strictness:
-  - Tool terminal events intentionally fail when execution run ID cannot be resolved; this protects correctness but can hard-fail adapters with incomplete correlation metadata.
+Current risks from implementation reality:
+
+- Prompt-building duplication: `CodeGenService.generateFile` and `CodegenRunEngine` maintain similar message-construction logic separately.
+- Heuristic parsing limits: code blocks, sections, and export extraction are regex-based and can miss advanced syntax/forms.
+- Fallback confidence gap: adapter path has deep tests; direct `CodeGenService` path has comparatively less dedicated test coverage.
+- Correlation strictness: missing execution-run-id on terminal tool events hard-fails generation when event bus forwarding is enabled.
+- Mixed test scope: incremental/test-generator tests share a file with unrelated VFS `parallel-sampling` tests, which can reduce subsystem signal clarity.
+
+Practical TODO direction:
+
+- Consolidate prompt construction into one shared helper used by both generation entry points.
+- Add direct `CodeGenService` unit tests that assert prompt shape, response normalization, and token-usage extraction.
+- Consider optional diagnostics hooks for the direct model path to match adapter-path observability.
+- Consider splitting mixed-scope tests into subsystem-specific files for clearer maintenance boundaries.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-- 2026-04-26: rewritten from current local implementation in `packages/codegen/src/generation`, plus `packages/codegen/src/index.ts`, `packages/codegen/src/tools/generate-file.tool.ts`, `packages/codegen/package.json`, `packages/codegen/README.md`, and `packages/codegen/vitest.config.ts`.
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

@@ -1,32 +1,36 @@
 # @dzupagent/evals Architecture
 
 ## Scope
-`@dzupagent/evals` is the evaluation and conformance package in `dzupagent/packages/evals`.
+`@dzupagent/evals` is the evaluation package in `dzupagent/packages/evals`.
 
-It currently contains:
-- Legacy evaluation APIs (`EvalScorer` style + `runEvalSuite`) kept for compatibility.
-- Enhanced scorer APIs (`Scorer<EvalInput>`), dataset tooling, and concurrent eval runner.
-- Benchmark suites and benchmark comparison/trend utilities.
-- Adapter contract test framework and built-in contract suites.
-- Prompt experiment and prompt optimization workflows.
-- Eval and benchmark orchestrators moved from server (`MC-A02`) and now implemented in this package.
+The package currently includes:
+- Legacy eval primitives (`EvalScorer`/`EvalSuite` style) and `runEvalSuite` compatibility flow.
+- Enhanced scorer APIs (`Scorer<EvalInput>`), dataset parsing/filtering/sampling, and concurrent eval execution.
+- Benchmark execution, baseline comparison, trend analysis, and learning-curve simulation utilities.
+- Adapter contract testing toolkit (suite builder, runner, reporters) with built-in suites for vector store, sandbox, LLM provider, and embedding provider adapters.
+- Prompt experiment (A/B testing with paired statistics) and prompt optimizer (iterative rewrite + version persistence).
+- Eval and benchmark orchestrators with queueing, leasing, retry/cancel/recovery, and regression gate checks.
+- CLI regression gate entrypoint (`src/cli/regression-gate.ts`) built into `dist/cli/regression-gate.js`.
 
-Out of scope for this package:
-- Model/provider implementations.
-- Persistent store implementations (the package consumes store interfaces/contracts).
-- Product-level routing/UI concerns.
+Out of scope:
+- Concrete model/provider implementations.
+- Concrete persistent store implementations (store contracts are injected).
+- Product UI or HTTP routing.
 
 ## Responsibilities
-- Define and export evaluation contracts used by evaluators, runners, and orchestrators.
-- Execute dataset-driven scoring with configurable concurrency, abort support, and regression checks.
-- Provide deterministic and LLM-judge scorer implementations, including domain-specific scoring.
-- Provide reusable benchmark suites and result comparison/trend logic.
-- Provide adapter conformance test generation, execution, and reporting.
-- Provide prompt A/B experimentation and iterative prompt optimization over eval outcomes.
-- Orchestrate eval/benchmark run lifecycle via injected run stores and execution targets.
+- Define and export eval contracts and scorer interfaces used by package consumers.
+- Execute suite-based and dataset-based evaluations.
+- Provide deterministic and LLM-based scoring paths, including domain-specific scoring and evidence-quality scoring.
+- Provide reusable benchmark suites and comparison/trend tools for regression tracking.
+- Validate adapter behavior via contract suites and compliance reports.
+- Support prompt quality workflows (experiment and optimization) using evaluation feedback.
+- Orchestrate eval/benchmark runs against injected stores and execution targets.
 
 ## Structure
-Top-level package surface is `src/index.ts` (single public entrypoint compiled by `tsup`).
+Top-level package entrypoint: `src/index.ts`.
+Build config: `tsup.config.ts` (entries: `src/index.ts`, `src/cli/regression-gate.ts`, ESM, Node 20 target).
+
+Key source layout:
 
 ```text
 src/
@@ -39,212 +43,276 @@ src/
   composite-scorer.ts
   eval-runner.ts
 
-  # Dataset + runner
-  dataset/eval-dataset.ts
-  runner/enhanced-runner.ts
-  runner/eval-runner.ts           # re-export shim
+  # Enhanced runtime
+  dataset/
+    eval-dataset.ts
+  runner/
+    enhanced-runner.ts
+    eval-runner.ts            # shim re-export
 
   # Scorers
-  scorers/deterministic-enhanced.ts
-  scorers/llm-judge-enhanced.ts
-  scorers/llm-judge-scorer.ts     # 5-dimension scorer with Zod schema
-  scorers/evidence-quality-scorer.ts
-  scorers/scorer-registry.ts
-  scorers/domain-scorer.ts
-  scorers/domain-scorer/*
-  scorers/{composite,deterministic,llm-judge}.ts  # legacy re-export shims
+  scorers/
+    deterministic-enhanced.ts
+    llm-judge-enhanced.ts
+    llm-judge-scorer.ts
+    evidence-quality-scorer.ts
+    domain-scorer.ts
+    domain-scorer/{configs,deterministic-checks,helpers,types}.ts
+    scorer-registry.ts
+    criteria.ts
+    {deterministic,llm-judge,composite}.ts  # shim re-exports
 
   # Benchmarks
-  benchmarks/benchmark-runner.ts
-  benchmarks/benchmark-trend.ts
-  benchmarks/benchmark-types.ts    # contract type re-exports
-  benchmarks/suites/{code-gen,qa,tool-use,multi-turn,vector-search,self-correction,learning-curve}.ts
+  benchmarks/
+    benchmark-runner.ts
+    benchmark-trend.ts
+    benchmark-types.ts
+    suites/
+      code-gen.ts
+      qa.ts
+      tool-use.ts
+      multi-turn.ts
+      vector-search.ts
+      learning-curve.ts
+      self-correction.ts
+      self-correction-suite.ts
+      self-correction-scenarios-{a,b}.ts
+      self-correction-types.ts
 
-  # Contracts
-  contracts/contract-types.ts
-  contracts/contract-test-generator.ts
-  contracts/contract-test-runner.ts
-  contracts/contract-test-reporter.ts
-  contracts/suites/{vector-store,sandbox,llm-provider,embedding-provider}.ts
+  # Adapter contracts
+  contracts/
+    contract-types.ts
+    contract-test-generator.ts
+    contract-test-runner.ts
+    contract-test-reporter.ts
+    suites/
+      vector-store-contract.ts
+      sandbox-contract.ts
+      llm-provider-contract.ts
+      embedding-provider-contract.ts
 
-  # Prompt systems
-  prompt-experiment/prompt-experiment.ts
-  prompt-optimizer/prompt-version-store.ts
-  prompt-optimizer/prompt-optimizer.ts
+  # Prompt workflows
+  prompt-experiment/
+    prompt-experiment.ts
+    prompt-experiment-runner.ts
+    prompt-experiment-stats.ts
+    prompt-experiment-report.ts
+    prompt-experiment-types.ts
+  prompt-optimizer/
+    prompt-version-store.ts
+    prompt-optimizer-persistence.ts
+    prompt-optimizer-evaluator.ts
+    prompt-optimizer-generator.ts
+    prompt-optimizer-types.ts
+    prompt-optimizer.ts        # shim re-export
 
-  # Orchestration (migrated from server)
-  orchestrator/eval-orchestrator.ts
-  orchestrator/benchmark-orchestrator.ts
+  # Orchestration
+  orchestrator/
+    eval-orchestrator-impl.ts
+    eval-orchestrator.ts
+    eval-orchestrator-{lease,metrics,runner,recovery,transitions,attempts,cost,errors}.ts
+    benchmark-orchestrator.ts
 
-  __tests__/*.test.ts
+  # CLI
+  cli/
+    regression-gate.ts
+
+  __tests__/
+    *.test.ts
 ```
 
 ## Runtime and Control Flow
-### Legacy eval path
+### Legacy suite flow
 `runEvalSuite(suite, target)`:
-- Runs each case with `target(input)`.
-- Runs all suite scorers for the case via `Promise.all`.
-- Computes per-case aggregate score and pass (`passThreshold`, default `0.7`).
-- Returns suite-level aggregate score and pass rate.
+- Executes each `EvalCase` through `target(input)`.
+- Runs each `EvalScorer` on each output.
+- Computes per-case aggregate and suite-level aggregate/pass-rate.
 
-### Enhanced eval path
+### Enhanced dataset flow
 `EvalRunner.evaluateDataset(dataset)`:
-- Validates concurrency as finite positive integer.
-- Uses `Semaphore` from `@dzupagent/core/orchestration` for bounded parallel entry processing.
-- Optionally executes a `target(input, metadata)` for real outputs; otherwise uses `expectedOutput` fallback behavior based on `strict`/`missingTargetFallback`.
-- Builds `EvalInput` per scorer, aggregates scorer results per entry, and emits optional progress callbacks.
-- Returns report (`entries`, per-scorer averages, overall pass rate/score, duration).
+- Validates concurrency (`finite positive integer`).
+- Uses `Semaphore` from `@dzupagent/core/orchestration` for bounded parallelism.
+- For each dataset entry:
+  - Calls `target(input, metadata)` when configured.
+  - Otherwise falls back to `expectedOutput` when non-strict and fallback policy allows.
+  - Builds `EvalInput` and executes all configured scorers.
+- Produces `EvalReport` with per-entry results, per-scorer averages, pass-rate, average score, and total duration.
 
-`EvalRunner.regressionCheck(dataset, baseline)`:
-- Re-runs dataset and compares per-scorer averages to baseline map.
-- Returns regressions or throws in `ciMode`.
+`EvalRunner.regressionCheck(dataset, baselineMap)`:
+- Re-runs dataset.
+- Compares current scorer averages against baseline map.
+- Returns regression details, or throws in `ciMode`.
 
 ### Scoring flow
-- Deterministic enhanced scorers: JSON schema, keyword, latency, and cost scoring.
-- LLM judging:
-  - `createLLMJudge(...)`: criteria-driven scorer with retry/parsing logic.
-  - `LlmJudgeScorer`: fixed five dimensions (correctness/completeness/coherence/relevance/safety) validated via Zod.
-- `DomainScorer`: domain-specific criteria (`sql`, `code`, `analysis`, `ops`, `general`), with deterministic-only, LLM-only, or combined scoring.
-- `ScorerRegistry`: built-ins (`exact-match`, `contains`, `llm-judge`, `evidence_quality`) + runtime registration.
+- Legacy scorers:
+  - `DeterministicScorer` (`exactMatch`, `contains`, `regex`, `jsonSchema`).
+  - `LLMJudgeScorer` (legacy JSON prompt/parse path).
+  - `CompositeScorer` (weighted aggregation).
+- Enhanced scorers:
+  - `createJSONSchemaScorer`, `createKeywordScorer`, `createLatencyScorer`, `createCostScorer`.
+  - `createLLMJudge` (criteria-based judge with retry + pinned prompt/model drift warnings).
+  - `LlmJudgeScorer` (5-dimension judge with Zod schema validation and token usage tracking).
+  - `DomainScorer` with built-in domains: `sql`, `code`, `analysis`, `ops`, `research`, `general`; supports deterministic-only, LLM-only, combined, and auto-detection modes.
+  - `EvidenceQualityScorer` for coverage/corroboration/reliability scoring from `metadata.evidence`.
+- `ScorerRegistry` provides built-in registry types (`exact-match`, `contains`, `llm-judge`, `evidence_quality`) and runtime registration APIs.
 
 ### Benchmark flow
 `runBenchmark(suite, target, config?)`:
-- Iterates suite dataset and scorer configs.
-- Uses deterministic heuristics for deterministic scorer types.
-- For `llm-judge` scorer type:
-  - Uses real LLM judging when `config.llm` is provided.
-  - Falls back to heuristic (or throws if `strict`).
-- Produces benchmark result and threshold regressions.
+- Executes suite dataset against target callback.
+- Computes scorer averages and baseline threshold regressions.
+- Supports strict-mode failure when `llm-judge` scorer is used without an LLM config.
 
 `compareBenchmarks(current, previous)`:
-- Computes improved/regressed/unchanged scorer IDs using epsilon comparison.
+- Computes improved/regressed/unchanged scorer IDs with epsilon handling.
 
-`BenchmarkTrendStore.trend(...)`:
-- Pulls historical runs from store.
-- Uses linear-regression slope over recent runs to classify trend (`improving`, `degrading`, `stable`, `insufficient_data`).
+`BenchmarkTrendStore.trend(suiteId, targetId, windowSize)`:
+- Pulls run history from a store abstraction.
+- Computes linear regression slope over recent runs.
+- Classifies trend as `improving`, `degrading`, `stable`, or `insufficient_data`.
 
 ### Contract flow
 `ContractSuiteBuilder`:
-- Builds suites with required/recommended/optional tests and duplicate-ID protection.
+- Builds suites with required/recommended/optional tests and duplicate ID protection.
 
 `runContractSuite(config)`:
-- Optional suite setup.
-- Category/test-ID filtering.
-- Sequential test execution with per-test timeout wrapper.
-- Optional teardown.
-- Compliance summarization (percent + level: `full|partial|minimal|none`).
+- Runs optional suite setup.
+- Filters tests by category/test IDs.
+- Executes tests sequentially with per-test timeout.
+- Runs optional teardown.
+- Returns compliance summary (`full|partial|minimal|none`) and detailed report.
 
-Built-in suites:
-- `VECTOR_STORE_CONTRACT`
-- `SANDBOX_CONTRACT`
-- `LLM_PROVIDER_CONTRACT`
-- `EMBEDDING_PROVIDER_CONTRACT`
+Report utilities:
+- `complianceToMarkdown`, `complianceToJSON`, `complianceToCIAnnotations`, `complianceBadge`, `complianceSummary`.
 
-### Prompt experimentation and optimization
+### Prompt experiment flow
 `PromptExperiment.run(variants, dataset)`:
-- Requires >=2 variants.
-- Uses model invocation + scorers for each dataset entry with bounded concurrency.
-- Computes variant metrics, pairwise paired t-test comparisons, winner, and markdown report.
+- Requires at least 2 variants.
+- Runs each variant over dataset using configured model and scorers with bounded concurrency.
+- Collects per-variant metrics (score, pass-rate, latency, cost).
+- Computes pairwise paired t-tests and significance.
+- Produces `ExperimentReport` with markdown formatter.
 
-`PromptOptimizer.optimize(...)`:
+### Prompt optimizer flow
+`PromptOptimizer.optimize({ promptKey, dataset, failures? })`:
 - Loads active prompt version from `PromptVersionStore`.
-- Evaluates baseline prompt on dataset.
-- Generates rewrite candidates with meta model.
-- Evaluates candidates with eval model + scorers.
-- Saves improved versions when score improvement passes threshold.
-- Supports rollback/activation/version lineage through `PromptVersionStore`.
+- Evaluates baseline prompt via eval model + scorers.
+- Generates candidate rewrites via meta model.
+- Evaluates candidates, persists improved prompt versions, and activates best version.
+- Supports bounded rounds/candidates, minimum improvement threshold, and abort handling.
 
-### Orchestrator flow
+`PromptVersionStore`:
+- Persists versioned prompt records in a `BaseStore` namespace.
+- Supports save, activate, rollback, compare, list, and active-version lookup.
+
+### Eval orchestration flow
 `EvalOrchestrator`:
-- Queue/lease-based eval run lifecycle on `EvalRunStore`.
-- Handles enqueue, claim, run, retry, cancel, recovery-on-restart, and lease refresh.
-- Emits queue metrics via optional `MetricsCollector`.
+- Manages queued run IDs in memory while persisting authoritative state in `EvalRunStore`.
+- Startup reconciliation re-queues stale queued/running runs and applies recovery patches for expired leases.
+- Claims runs via `LeaseManager`, executes via `RunExecutor`, emits metrics via `QueueMetricsTracker`.
+- Supports `queueRun`, `cancelRun`, `retryRun`, `getRun`, `listRuns`, `getQueueStats`.
+- Enforces optional cost cap via `assertCostWithinCap` before/after target execution.
 
+### Benchmark orchestration and gate
 `BenchmarkOrchestrator`:
-- Runs named suites against target IDs through injected executor and `BenchmarkRunStore`.
-- Persists runs, compares runs, and manages per-suite baselines.
+- Runs named suites against injected target executor and persists `BenchmarkRunRecord` to `BenchmarkRunStore`.
+- Supports run retrieval/listing, run-to-run compare, baseline CRUD, and `regressionGate`.
+- `regressionGate` throws `RegressionGateError` when score deltas exceed threshold.
+
+CLI regression gate (`src/cli/regression-gate.ts`):
+- Loads current/baseline JSON run records.
+- Runs `BenchmarkOrchestrator.regressionGate` with threshold.
+- Exits non-zero on regressions or invalid input.
 
 ## Key APIs and Types
-Primary public API is exported from `src/index.ts`.
+Public exports are centralized in `src/index.ts`.
 
-Core exported areas:
+Main API groups:
 - Types:
-  - Legacy eval types (`EvalResult`, `EvalScorer`, `EvalSuite`, etc.) re-exported via `types.ts`.
+  - Legacy eval types (`EvalResult`, `EvalScorer`, `EvalCase`, `EvalSuite`, `EvalRunResult`) re-exported from `@dzupagent/eval-contracts` via `types.ts`.
   - Enhanced scorer types (`EvalInput`, `ScorerConfig`, `ScorerResult`, `Scorer`).
-  - Orchestrator/run store contract types re-exported from `@dzupagent/eval-contracts`.
+  - Orchestrator and benchmark contract types re-exported from `@dzupagent/eval-contracts`.
+- Eval execution:
+  - `runEvalSuite`.
+  - `EvalRunner`, `reportToMarkdown`, `reportToJSON`, `reportToCIAnnotations`.
+  - `EvalDataset`.
 - Scorers:
   - Legacy: `DeterministicScorer`, `LLMJudgeScorer`, `CompositeScorer`.
-  - Enhanced: `createLLMJudge`, `LlmJudgeScorer`, deterministic scorer factories, `DomainScorer`, `EvidenceQualityScorer`.
+  - Enhanced: deterministic factories, `createLLMJudge`, `LlmJudgeScorer`, criteria presets, `DomainScorer`, `EvidenceQualityScorer`.
   - Registry: `ScorerRegistry`, `defaultScorerRegistry`.
-- Runners:
-  - `runEvalSuite` (legacy).
-  - `EvalRunner` + report formatters (`reportToMarkdown`, `reportToJSON`, `reportToCIAnnotations`).
-- Dataset:
-  - `EvalDataset`.
 - Benchmarks:
-  - `runBenchmark`, `compareBenchmarks`, suite constants, trend store, learning-curve tools.
+  - `runBenchmark`, `compareBenchmarks`, `createBenchmarkWithJudge`.
+  - Suite constants (`CODE_GEN_SUITE`, `QA_SUITE`, `TOOL_USE_SUITE`, `MULTI_TURN_SUITE`, `VECTOR_SEARCH_SUITE`, self-correction suite exports).
+  - Trend utilities (`BenchmarkTrendStore`, `InMemoryBenchmarkRunStore`).
+  - Learning curve utilities (`runLearningCurveBenchmark`, `createLearningCurveSuite`, etc.).
 - Contracts:
-  - `ContractSuiteBuilder`, `timedTest`, `runContractSuite(s)`, compliance formatters, built-in contract suites.
-- Prompt systems:
-  - `PromptExperiment`, `PromptVersionStore`, `PromptOptimizer`.
+  - Builder/runner/reporter helpers.
+  - Built-in suite factories and constants.
+- Prompt workflows:
+  - `PromptExperiment` and related types.
+  - `PromptVersionStore`, `PromptOptimizer` and related types.
 - Orchestrators:
-  - `EvalOrchestrator`, `BenchmarkOrchestrator`, and orchestrator config types.
+  - `EvalOrchestrator`, `BenchmarkOrchestrator`, error classes, and config/result types.
 
 ## Dependencies
-From `package.json`:
-- Direct dependency: `@dzupagent/core`.
-- Peer dependency: `zod` (`>=4.0.0`).
-- Dev dependencies: `typescript`, `tsup`, `vitest`, `zod`.
+From `packages/evals/package.json`:
+- Runtime dependencies:
+  - `@dzupagent/core`
+  - `@dzupagent/eval-contracts`
+- Peer dependency:
+  - `zod` (`>=4.0.0`)
+- Dev dependencies:
+  - `@dzupagent/codegen`
+  - `tsup`, `typescript`, `vitest`, `zod`
 
-Runtime/module imports used in source:
-- `@dzupagent/eval-contracts` (types/contracts + orchestrator interfaces).
-- `@langchain/core` (prompt experiment, optimizer, domain scorer message/model types).
-- `@langchain/langgraph` (`BaseStore` type for prompt version storage).
-- Node built-ins: `node:crypto`.
+Observed source imports in `src/`:
+- `@dzupagent/core/orchestration` and `@dzupagent/core/utils`.
+- `@dzupagent/eval-contracts`.
+- `@langchain/core/*` and `@langchain/langgraph` (prompt/domain scoring workflows).
+- Node built-ins (`node:crypto`, `node:fs`).
 
-Build configuration (`tsup.config.ts`):
-- ESM output, Node 20 target, declaration generation.
-- `src/index.ts` as entrypoint.
-- Only `zod` marked as external explicitly.
+Build/runtime notes:
+- `tsup` externalizes `zod` explicitly.
+- Package emits ESM only.
+- `evals:regression-gate` script runs the built CLI artifact.
 
 ## Integration Points
-- `@dzupagent/server` (and other consumers) integrate orchestrators through `EvalOrchestratorLike` / `BenchmarkOrchestratorLike` contracts from `@dzupagent/eval-contracts`.
-- Execution targets are injected callbacks (`EvalExecutionTarget`, benchmark `executeTarget`) rather than hard-coded provider/runtime dependencies.
-- Contract suites validate adapter implementations by structural behavior, not concrete class imports.
-- Prompt systems integrate with LangChain-style chat models and BaseStore-compatible persistence.
-- Metric integration is optional through `MetricsCollector` in `EvalOrchestrator`.
+- `@dzupagent/server` and other consumers integrate orchestrators through `EvalOrchestratorLike` and `BenchmarkOrchestratorLike` contracts from `@dzupagent/eval-contracts`.
+- Eval and benchmark execution are callback-injected (`EvalExecutionTarget`, benchmark `executeTarget`) rather than hard-coded to specific providers.
+- Prompt workflows integrate with LangChain chat model and store abstractions (`BaseChatModel`, `BaseStore`).
+- Contract suites are adapter-shape based and avoid direct runtime dependencies on adapter implementation packages.
+- Test-only optional integration exists with `@dzupagent/codegen` (`MockSandbox` and `DockerSandbox`) in sandbox contract tests.
 
 ## Testing and Observability
-Test setup:
-- Vitest (`environment: node`, `testTimeout: 60_000`, `hookTimeout: 60_000`).
-- Coverage thresholds in config:
-  - `statements >= 60`
-  - `branches >= 50`
-  - `functions >= 50`
-  - `lines >= 60`
+Testing:
+- Framework: Vitest (`environment: node`, `pool: forks`, single fork, extended timeouts for heavier contract tests).
+- Includes: `src/**/*.test.ts`, `src/**/*.spec.ts`.
+- Current test file count in package source: `34`.
+- Coverage thresholds in `vitest.config.ts`:
+  - statements `>= 60`
+  - branches `>= 50`
+  - functions `>= 50`
+  - lines `>= 60`
 
-Current local test footprint:
-- `31` `*.test.ts` files under `src/`.
-- Broad coverage across runners, scorers, benchmark paths, contract suites/reporting, prompt systems, dataset parsing, and domain scorer modules.
+Coverage artifact status:
+- `coverage/coverage-summary.json` exists locally.
+- The latest local summary reports total coverage around:
+  - statements/lines `92.28%`
+  - functions `90.72%`
+  - branches `92.96%`
 
-Current local coverage artifact (`coverage/coverage-summary.json`):
-- Total statements/lines: `98.74%`
-- Functions: `99.07%`
-- Branches: `96.00%`
-
-Observability surfaces:
-- `EvalOrchestrator` emits queue gauges/counters/histograms when metrics collector is supplied (pending, active, wait time, lifecycle counters).
-- `EvalRunner`, `PromptExperiment`, and `PromptOptimizer` expose progress and/or structured report outputs for pipeline/CI visibility.
-- Contract and eval report formatters provide markdown/json/CI annotation outputs.
+Observability:
+- `EvalOrchestrator` exposes queue stats and emits optional `MetricsCollector` counters/gauges/histograms (`forge_eval_queue_*` metrics).
+- Eval, contract, and prompt workflows provide machine-friendly report outputs (JSON, CI annotations, markdown) for pipeline visibility.
+- Regression gate CLI provides non-zero exit behavior for CI enforcement.
 
 ## Risks and TODOs
-- Dependency declaration drift risk: source imports `@dzupagent/eval-contracts`, `@langchain/core`, and `@langchain/langgraph`, while `package.json` lists only `@dzupagent/core` (+ `zod` peer). In workspace builds this can be masked by hoisting; for published/isolated installs this should be reconciled.
-- Legacy + enhanced API coexistence increases maintenance and naming ambiguity (`LLMJudgeScorer` legacy vs `LlmJudgeScorer` enhanced).
-- Benchmark runner uses heuristic fallback for `llm-judge` when no LLM is provided and logs `console.warn`; this can silently reduce benchmark fidelity unless strict mode is enabled.
-- `EvalRunner` default non-strict mode can score against `expectedOutput` without executing a real target; useful for fixture checks but can be mistaken for end-to-end validation.
-- There are several one-line re-export shim files (`runner/eval-runner.ts`, `scorers/{deterministic,llm-judge,composite}.ts`) that exist for compatibility; any surface cleanup would require a clear deprecation plan.
-- README auto-generated overview values in this package can drift from current source/test counts and should be refreshed when docs are regenerated.
+- Dependency declaration risk: source imports `@langchain/core` and `@langchain/langgraph`, but they are not declared in `packages/evals/package.json` dependencies/peers. Workspace hoisting can hide this for local builds.
+- API surface complexity: legacy and enhanced scorer APIs coexist with similarly named types/classes, which increases migration and maintenance overhead.
+- Benchmark fallback behavior: non-strict benchmark runs can downgrade `llm-judge` scoring to heuristics when no LLM is provided.
+- Eval fallback behavior: `EvalRunner` non-strict mode can score against `expectedOutput` without executing a real target.
+- Domain scoring calibration: `DomainScorer` assumes normalized criterion scores, but `research` deterministic criterion currently emits a `0..10` style value in config; this can skew aggregate behavior unless normalized.
+- Coverage blind spot in local artifact: CLI files and several orchestrator helpers have lower line coverage in the latest summary despite passing package thresholds.
+- Generated metrics in `README.md` and docs can drift from current code/test counts if not regenerated together.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

@@ -1,212 +1,233 @@
 # Reflection Architecture (`packages/agent/src/reflection`)
 
 ## Scope
-This document covers the reflection subsystem inside `@dzupagent/agent` at `packages/agent/src/reflection`:
+This document describes the reflection subsystem implemented in `packages/agent/src/reflection` and the runtime touchpoints inside `packages/agent/src/agent` that currently invoke it.
 
-- `run-reflector.ts` (heuristic and optional LLM scoring of a single run result)
-- `reflection-analyzer.ts` (pattern detection and aggregate quality scoring from `WorkflowEvent[]`)
-- `reflection-types.ts` (summary, pattern, and store interfaces)
-- `in-memory-reflection-store.ts` (non-persistent `RunReflectionStore` implementation)
-- `learning-bridge.ts` (wiring helpers from reflection summaries into learning handlers)
-- `index.ts` (submodule barrel)
+In-scope reflection files:
+- `run-reflector.ts`
+- `reflection-analyzer.ts`
+- `reflection-types.ts`
+- `in-memory-reflection-store.ts`
+- `learning-bridge.ts`
+- `index.ts`
 
-It also covers the current in-package runtime integration point in `src/agent/run-engine.ts` and public exports from `src/index.ts`.
+In-scope integration files in `packages/agent/src/agent`:
+- `run-engine-generate-process.ts` (post-run callback wiring)
+- `agent-types-config.ts` (`DzupAgentConfig` reflection fields)
+
+Out of scope:
+- `src/self-correction/*` reflection-loop stack (separate subsystem)
+- product-level learning services that consume reflection output
 
 ## Responsibilities
-The reflection subsystem currently has two distinct responsibilities:
+The subsystem has two independent responsibilities:
 
-1. Post-run pattern analysis for agent tool-loop outcomes.
-- `ReflectionAnalyzer` consumes normalized `WorkflowEvent[]`, detects recurring execution patterns, and emits `ReflectionSummary`.
-- `run-engine.ts` invokes this path when `DzupAgentConfig.onReflectionComplete` is configured.
+1. Post-run behavioral analysis from workflow events.
+- `ReflectionAnalyzer` computes aggregate run stats and detects pattern families:
+  - `repeated_tool`
+  - `error_loop`
+  - `slow_step`
+  - `successful_strategy`
+- It emits a `ReflectionSummary` with a normalized quality score in `[0, 1]`.
 
-2. Standalone run quality scoring API.
-- `RunReflector` scores input/output/tool-result quality with lightweight heuristics.
-- It can optionally enrich scores with an external LLM callback (`ReflectorConfig.llm`) using `always` or `on-low-score` modes.
-- This path is exported but not used by `run-engine.ts` in the current package runtime.
+2. Standalone run quality scoring from input/output/tool metadata.
+- `RunReflector` computes heuristic quality dimensions and an overall score.
+- Optional LLM enhancement can override part of the scoring surface when configured.
+
+Bridge responsibility:
+- `learning-bridge.ts` provides adapter helpers so callers can map tool-loop stats to `WorkflowEvent[]` and forward summaries into a learning pipeline.
 
 ## Structure
-Files and roles:
+`run-reflector.ts`
+- Exports:
+  - `RunReflector`
+  - `ReflectionInput`
+  - `ReflectionDimensions`
+  - `ReflectionScore`
+  - `ReflectorConfig`
+- Purpose: score a single run using heuristics, optionally merged with LLM-based scoring.
 
-- `run-reflector.ts`
-- Types: `ReflectionInput`, `ReflectionDimensions`, `ReflectionScore`, `ReflectorConfig`
-- Class: `RunReflector`
-- Main methods: `score()` (async heuristic + optional LLM), `scoreHeuristic()` (sync heuristic-only)
+`reflection-analyzer.ts`
+- Exports:
+  - `ReflectionAnalyzer`
+  - `ReflectionAnalyzerConfig`
+- Purpose: analyze ordered `WorkflowEvent[]` and produce `ReflectionSummary`.
 
-- `reflection-analyzer.ts`
-- Types: `ReflectionAnalyzerConfig`
-- Class: `ReflectionAnalyzer`
-- Main method: `analyze(runId, events)`
-- Internal detectors: repeated tool runs, consecutive error loops, slow steps, successful strategies
+`reflection-types.ts`
+- Exports:
+  - `ReflectionPattern`
+  - `ReflectionSummary`
+  - `RunReflectionStore`
+- Purpose: shared contracts for analyzer output and persistence.
 
-- `reflection-types.ts`
-- Domain contracts: `ReflectionPattern`, `ReflectionSummary`, `RunReflectionStore`
+`in-memory-reflection-store.ts`
+- Exports:
+  - `InMemoryReflectionStore`
+- Purpose: volatile `RunReflectionStore` implementation backed by `Map`.
 
-- `in-memory-reflection-store.ts`
-- Class: `InMemoryReflectionStore implements RunReflectionStore`
-- Extra test-oriented helpers: `size` getter and `clear()`
+`learning-bridge.ts`
+- Exports:
+  - `createReflectionLearningBridge`
+  - `buildWorkflowEventsFromToolStats`
+  - `ReflectionLearningBridgeConfig`
+- Purpose: callback composition and event reconstruction from `ToolStat[]`.
 
-- `learning-bridge.ts`
-- Type: `ReflectionLearningBridgeConfig`
-- Functions:
-  - `createReflectionLearningBridge(config)`
-  - `buildWorkflowEventsFromToolStats(toolStats, stopReason)`
-
-- `index.ts`
-- Reflection-only barrel re-exporting all of the above.
-
-- `src/index.ts`
-- Package-level public export surface for reflection APIs.
+`index.ts`
+- Reflection-only barrel re-exporting all reflection module symbols.
 
 ## Runtime and Control Flow
-### 1) Runtime path wired into `DzupAgent.generate()`
-Current integration is in `src/agent/run-engine.ts` after the tool loop completes:
+Primary runtime wiring path today is `processGeneratedRun()` in `src/agent/run-engine-generate-process.ts`.
 
-1. `result.toolStats` and `result.stopReason` are available from the tool loop.
-2. If `config.onReflectionComplete` is set:
-- `buildWorkflowEventsFromToolStats(result.toolStats, result.stopReason)` creates synthetic `WorkflowEvent[]`.
-- `new ReflectionAnalyzer(config.reflectionAnalyzerConfig).analyze(runId, events)` produces `ReflectionSummary`.
-- `await config.onReflectionComplete(summary)` is invoked.
-3. Any error in analyzer/bridge callback is swallowed (`try/catch` with no rethrow), so reflection is best-effort and never changes run success/failure semantics.
+Control flow:
+1. Tool loop finishes and returns `toolStats` plus `stopReason`.
+2. If `config.onReflectionComplete` is defined:
+- `ReflectionAnalyzer` is created with `config.reflectionAnalyzerConfig`.
+- `buildWorkflowEventsFromToolStats(result.toolStats, result.stopReason)` synthesizes workflow events.
+- `analyzer.analyze(runId, events)` creates a `ReflectionSummary`.
+- `await config.onReflectionComplete(summary)` forwards summary to caller-owned logic.
+3. Any error in this block is caught and suppressed; run output is still returned.
 
-Run ID generation for this callback path is currently ephemeral: `agentId + ':' + Date.now().toString(36)`.
+Run ID behavior in this path:
+- Generated as `params.agentId + ':' + Date.now().toString(36)`.
+- This is process-local and time-derived, not globally durable by itself.
 
-### 2) `ReflectionAnalyzer` scoring flow
-For each `analyze(runId, events)` call:
+`ReflectionAnalyzer` algorithm summary:
+- Counts:
+  - `errorCount`: number of `step:failed`
+  - `toolCallCount`: number of `step:completed`
+- Duration:
+  - Prefer `workflow:completed.durationMs`
+  - Fallback: sum of all `step:completed.durationMs`
+- Pattern detection:
+  - Repeated started-step runs by `stepId` (threshold default `2`)
+  - Consecutive failures (threshold default `2`)
+  - Slow completions above `median(durationMs) * slowStepMultiplier` (default `3`)
+  - Consecutive successful completions (minimum run `3`)
+- Quality score:
+  - Base `1.0`
+  - Error penalty `-min(errorCount * 0.15, 0.6)`
+  - `-0.1` per `error_loop`
+  - `-0.05` per `repeated_tool`
+  - `-0.3` if `workflow:failed` exists
+  - `+0.1` bonus when no errors and at least one completion (capped to `1.0`)
+  - Final clamp `[0, 1]`
 
-1. Basic stats:
-- `errorCount` from `step:failed`
-- `toolCallCount` from `step:completed`
-- `durationMs` from `workflow:completed.durationMs` when present; otherwise sum of completed step durations
-
-2. Pattern detection:
-- `repeated_tool`: repeated consecutive `step:started` with same `stepId`
-- `error_loop`: consecutive `step:failed`
-- `slow_step`: `step:completed.durationMs > median(completedDurations) * slowStepMultiplier` (default multiplier `3`)
-- `successful_strategy`: runs of at least 3 completions without intervening failure
-
-3. Quality score computation (clamped `[0,1]`):
-- start `1.0`
-- `- min(errorCount * 0.15, 0.6)`
-- `- 0.1` per `error_loop` pattern
-- `- 0.05` per `repeated_tool` pattern
-- `- 0.3` if any `workflow:failed`
-- `+ 0.1` success bonus when `errorCount === 0` and at least one completion (capped to `1.0`)
-
-### 3) `RunReflector` flow (exported scoring API)
-`RunReflector.score(input)`:
-
-1. Compute deterministic heuristic result (`scoreHeuristic`) with dimensions:
-- `completeness` (0.3)
-- `coherence` (0.2)
-- `toolSuccess` (0.2)
-- `conciseness` (0.1)
-- `reliability` (0.2)
-
-2. If no `config.llm`, return heuristic score.
-
+`RunReflector` flow:
+1. Always computes heuristic dimensions:
+- `completeness` (weight `0.3`)
+- `coherence` (weight `0.2`)
+- `toolSuccess` (weight `0.2`)
+- `conciseness` (weight `0.1`)
+- `reliability` (weight `0.2`)
+2. If no `config.llm`, returns heuristic score directly.
 3. If `config.llm` exists:
-- mode `always` or `on-low-score` (default) with threshold default `0.6`
-- when invoked, send a fixed JSON-output prompt and parse response
-- require numeric `completeness`, `coherence`, `relevance`; clamp to `[0,1]`
-- merge with heuristic dimensions and blend overall score as `0.6 * llmOverall + 0.4 * heuristicOverall`
-
-4. On LLM failure/parse failure: return heuristic result plus `llm_reflection_failed` flag.
+- `llmMode`: `always` or `on-low-score` (default `on-low-score`)
+- `llmThreshold`: default `0.6` when in low-score mode
+- LLM prompt requests JSON `{ completeness, coherence, relevance, reasoning }`
+- Parse/validate/clamp numeric dimensions
+- Merge score as `overall = clamp01(0.6 * llmOverall + 0.4 * heuristicOverall)`
+- Add `llm_enhanced` flag
+4. If LLM call or parse fails, fallback to heuristic score with `llm_reflection_failed` flag.
 
 ## Key APIs and Types
-### Public classes/functions
+Public reflection API surface (`src/reflection/index.ts`, also re-exported from `src/index.ts`):
 - `RunReflector`
 - `ReflectionAnalyzer`
 - `InMemoryReflectionStore`
 - `createReflectionLearningBridge(config)`
 - `buildWorkflowEventsFromToolStats(toolStats, stopReason)`
 
-### Core type contracts
-- `ReflectionInput`
-- `ReflectionScore`
-- `ReflectionDimensions`
-- `ReflectorConfig`
-- `ReflectionAnalyzerConfig`
-- `ReflectionPattern`
-- `ReflectionSummary`
-- `RunReflectionStore`
-- `ReflectionLearningBridgeConfig`
+Core types:
+- `ReflectionInput`: raw scoring input for `RunReflector`
+- `ReflectionDimensions`: heuristic/merged dimension scores
+- `ReflectionScore`: overall + dimensions + flags
+- `ReflectorConfig`: optional LLM scoring options
+- `ReflectionAnalyzerConfig`: thresholds for pattern detection
+- `ReflectionPattern`: single detected pattern with type/description/indices
+- `ReflectionSummary`: aggregate result for one run
+- `RunReflectionStore`: persistence contract (`save`, `get`, `list`, `getPatterns`)
+- `ReflectionLearningBridgeConfig`: bridge callback/store/filter options
 
-### `DzupAgentConfig` integration fields
-Declared in `src/agent/agent-types.ts`:
-
+`DzupAgentConfig` integration (`src/agent/agent-types-config.ts`):
 - `onReflectionComplete?: (summary: ReflectionSummary) => Promise<void>`
 - `reflectionAnalyzerConfig?: ReflectionAnalyzerConfig`
 
 ## Dependencies
-### Internal module dependencies (within `packages/agent`)
-- `reflection-analyzer.ts` depends on `workflow/workflow-types.ts` (`WorkflowEvent`).
-- `learning-bridge.ts` depends on:
-- `agent/tool-loop.ts` (`ToolStat`, `StopReason`)
-- `workflow/workflow-types.ts` (`WorkflowEvent`)
-- `reflection-types.ts`
-- Runtime hook lives in `agent/run-engine.ts`.
+Internal dependencies used by reflection module:
+- `reflection-analyzer.ts` imports `WorkflowEvent` from `src/workflow/workflow-types.ts`.
+- `learning-bridge.ts` imports:
+  - `WorkflowEvent` from `src/workflow/workflow-types.ts`
+  - `ToolStat` and `StopReason` from `src/agent/tool-loop.ts`
+  - reflection summary/store contracts from `reflection-types.ts`
 
-### Package-level dependencies
-The reflection files themselves do not import external npm libraries directly. They run on local TypeScript/domain types and are exported by `@dzupagent/agent`.
+Runtime integration dependency:
+- `src/agent/run-engine-generate-process.ts` imports `ReflectionAnalyzer` and `buildWorkflowEventsFromToolStats`.
+
+External library usage:
+- Files in `src/reflection/*` do not directly import third-party packages.
+- They are packaged as part of `@dzupagent/agent` and consume local domain types.
 
 ## Integration Points
-- Runtime hook:
-- `src/agent/run-engine.ts` invokes analyzer + callback after each run when `onReflectionComplete` exists.
+Package exports:
+- Root export: `src/index.ts` re-exports all reflection classes/types/functions.
+- Compat export: `src/compat.ts` includes `export * from './reflection/index.js'`.
 
-- Config surface:
-- `src/agent/agent-types.ts` exposes `onReflectionComplete` and `reflectionAnalyzerConfig`.
+Agent runtime:
+- Reflection callback executes in `processGeneratedRun()` after output filtering and summary updates.
+- Reflection processing is best-effort; failures are intentionally non-fatal.
 
-- Public exports:
-- `src/reflection/index.ts` exports reflection internals.
-- `src/index.ts` re-exports reflection APIs as part of package public surface.
+Learning pipeline handoff:
+- `createReflectionLearningBridge()` composes:
+  - optional `filter(summary)` gate
+  - optional `store.save(summary)`
+  - mandatory `onSummary(summary)` callback
+- Bridge errors propagate from `store.save` or `onSummary`; the run engine catches them when this bridge is used as `onReflectionComplete`.
 
-- Learning bridge contract:
-- `createReflectionLearningBridge` provides callback composition (`filter` -> optional `store.save` -> `onSummary`).
-
-- Tool-loop adaptation contract:
-- `buildWorkflowEventsFromToolStats` transforms aggregate tool stats into analyzer-compatible events, including terminal workflow success/failure based on stop reason.
+Tool-loop adaptation:
+- `buildWorkflowEventsFromToolStats()` maps aggregate tool stats into analyzer-compatible events and appends terminal workflow status based on `StopReason`.
 
 ## Testing and Observability
-### Test coverage in scope
-Reflection behavior is covered by dedicated tests under `src/reflection` and `src/__tests__`:
+Reflection-specific tests in `src/reflection`:
+- `reflection.test.ts`
+  - analyzer counters, pattern detection, quality scoring, threshold behavior
+  - in-memory store CRUD ordering and pattern queries
+- `learning-bridge.test.ts`
+  - tool-stat-to-event conversion
+  - stop-reason terminal mapping
+  - filter/store/callback composition
+  - end-to-end analyzer + bridge + store flow
 
-- `src/reflection/reflection.test.ts`
-- `ReflectionAnalyzer` pattern detection, scoring, and thresholds
-- `InMemoryReflectionStore` persistence/query behavior and ordering
+Cross-folder reflection tests in `src/__tests__`:
+- `run-reflector.test.ts`
+  - heuristic dimension behavior, flags, weighted overall, edge cases
+- `run-reflector-llm.test.ts`
+  - LLM gating modes, prompt composition, merge math, parse failures, clamping
 
-- `src/reflection/learning-bridge.test.ts`
-- tool-stats to workflow-events mapping
-- analyzer + bridge integration
-- filter/store/callback behavior
-- error propagation from `store.save` and `onSummary`
-
-- `src/__tests__/run-reflector.test.ts`
-- heuristic dimensions, flags, weighting, and edge cases
-
-- `src/__tests__/run-reflector-llm.test.ts`
-- LLM gating modes, merge behavior, prompt fields, clamp behavior, fallback flags
-
-### Observability characteristics
-- Reflection callback failures in `run-engine.ts` are intentionally non-fatal and silent.
-- No dedicated reflection event is emitted on `eventBus` from this subsystem today.
-- Summary persistence/forwarding observability is caller-owned via `onReflectionComplete` and any configured store/handler instrumentation.
+Observability characteristics:
+- Reflection itself does not emit dedicated event-bus telemetry.
+- Runtime path intentionally swallows reflection callback failures with no built-in logging.
+- Persistence and downstream metrics are caller-owned via `onReflectionComplete` and custom `RunReflectionStore` implementations.
 
 ## Risks and TODOs
-- Event reconstruction fidelity:
-- `buildWorkflowEventsFromToolStats` reconstructs events from aggregated tool stats, not raw chronological events. Pattern detection therefore reflects synthesized order, not exact execution traces.
+- Synthetic event reconstruction can distort chronology.
+  - `buildWorkflowEventsFromToolStats()` derives events from aggregates, not original ordered traces.
+  - It emits all success phases first, then all failures, which can amplify/alter `error_loop` and `successful_strategy` detection.
 
-- Silent failure path:
-- `run-engine.ts` swallows all errors in reflection callback execution. This protects run delivery but can hide reflection regressions unless callers add their own logging/metrics.
+- Stop-reason compression to terminal workflow status is coarse.
+  - Only `stuck` and `error` become `workflow:failed`.
+  - Other terminal reasons (for example `approval_pending`, `token_exhausted`, `budget_exceeded`) are currently represented as `workflow:completed` in reconstructed events.
 
-- Storage durability:
-- Built-in store is memory-only (`InMemoryReflectionStore`). Production retention/querying requires a custom `RunReflectionStore` implementation.
+- Reflection callback failures are silent at runtime.
+  - The catch block in `processGeneratedRun()` protects run success but hides reflection regressions unless hosts add their own instrumentation.
 
-- Divergent scoring surfaces:
-- `ReflectionAnalyzer` (workflow-pattern quality) and `RunReflector` (input/output heuristic + optional LLM) are separate models with different semantics and are not unified in runtime wiring.
+- `RunReflector` is not wired into `DzupAgent.generate()` default flow.
+  - Runtime post-run hook currently uses `ReflectionAnalyzer` only.
+  - `RunReflector` remains an explicit API callers must invoke themselves.
 
-- Run identity stability:
-- Default run ID for analyzer callback is time-derived and process-local; cross-process/global correlation is caller responsibility.
+- Default store is non-durable and unbounded.
+  - `InMemoryReflectionStore` is process-local and has no retention cap.
+  - Production deployments need a durable `RunReflectionStore` implementation with retention and indexing policy.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-- 2026-04-26: rewritten to reflect current multi-file reflection subsystem (`RunReflector`, `ReflectionAnalyzer`, store, learning bridge, and run-engine callback integration).
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: rewritten against current `src/reflection/*` implementation and `run-engine-generate-process.ts` integration.

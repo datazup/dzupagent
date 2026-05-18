@@ -1,82 +1,92 @@
 # CI Architecture (`packages/codegen/src/ci`)
 
 ## Scope
+This document describes the CI helper subsystem in `packages/codegen/src/ci` within `@dzupagent/codegen`.
 
-This document covers the CI helper module in `packages/codegen/src/ci`:
-
+Files covered:
 - `ci-monitor.ts`
 - `failure-router.ts`
 - `fix-loop.ts`
 - `index.ts`
 
-It also covers how these APIs are exported from `packages/codegen/src/index.ts` and validated by CI-focused tests under `packages/codegen/src/__tests__`.
+Package-level context covered:
+- Re-exports from `packages/codegen/src/index.ts` under the `// --- CI ---` section.
+- CI-focused tests in `packages/codegen/src/__tests__/`.
+
+Out of scope:
+- CI provider API clients, webhooks server handlers, or polling loops.
+- Applying code fixes, rerunning pipelines, or persisting run state.
 
 ## Responsibilities
+The CI module provides deterministic parsing, classification, and planning primitives that higher-level orchestrators can use.
 
-The module is a pure transformation/planning layer for CI remediation:
+Primary responsibilities:
+- Convert raw provider payloads into a normalized `CIStatus` shape.
+- Extract failed jobs into `CIFailure` entries.
+- Categorize failures from log excerpts via ordered pattern matching.
+- Map categorized failures to `FixStrategy` definitions.
+- Generate bounded fix-attempt prompts (`FixAttempt[]`) with retry-aware instructions.
 
-- Normalize CI payloads into a shared `CIStatus` / `CIFailure` shape.
-- Classify failure logs into coarse categories (`type-check`, `test`, `lint`, `build`, `deploy`, `unknown`).
-- Route each failure category to a fix strategy (`FixStrategy`).
-- Build structured markdown prompts and bounded attempt plans (`FixAttempt[]`) for an external orchestrator.
-
-Out of scope in this module:
-
-- No CI provider HTTP polling.
-- No pipeline reruns.
-- No code edits, git actions, or tool execution.
-- No persistence, telemetry sink, or queueing.
+Non-responsibilities:
+- No network I/O.
+- No sandbox/tool execution.
+- No git operations or filesystem mutation.
+- No telemetry emission or queue integration.
 
 ## Structure
-
-| File | Main exports | Purpose |
+| File | Exports | Role |
 | --- | --- | --- |
-| `src/ci/ci-monitor.ts` | `categorizeFailure`, `parseGitHubActionsStatus`, `parseCIWebhook` | Parses provider payloads and classifies failure logs. |
-| `src/ci/failure-router.ts` | `DEFAULT_FIX_STRATEGIES`, `routeFailure` | Maps categories to fix strategy hints and attempt budgets. |
-| `src/ci/fix-loop.ts` | `buildFixPrompt`, `generateFixAttempts` | Produces attempt prompts and total-attempt-bounded fix plans. |
-| `src/ci/index.ts` | Barrel re-exports | Local submodule export surface. |
+| `src/ci/ci-monitor.ts` | `categorizeFailure`, `parseGitHubActionsStatus`, `parseCIWebhook` + CI types | Status normalization and log-based categorization. |
+| `src/ci/failure-router.ts` | `DEFAULT_FIX_STRATEGIES`, `routeFailure`, `FixStrategy` | Category-to-strategy routing with optional custom overrides. |
+| `src/ci/fix-loop.ts` | `buildFixPrompt`, `generateFixAttempts` + fix-loop types | Prompt construction and attempt budgeting. |
+| `src/ci/index.ts` | Barrel re-exports | Local entrypoint for the CI folder. |
 
-Top-level package exports re-export the same CI APIs from `src/index.ts` under the `// --- CI ---` section.
+Internal dependency direction:
+- `fix-loop.ts` imports `routeFailure` from `failure-router.ts`.
+- `failure-router.ts` imports `CIFailure` type from `ci-monitor.ts`.
+- `ci-monitor.ts` is standalone.
 
 ## Runtime and Control Flow
+Nominal flow:
 
-```text
-CI payload (GitHub Actions run response or generic webhook-like payload)
-  -> parseGitHubActionsStatus(...) or parseCIWebhook(...)
-  -> CIStatus { failures: CIFailure[] }
-  -> for each failure:
-       routeFailure(failure, optionalCustomStrategies)
-       buildFixPrompt(failure, strategy, attemptNumber)
-  -> generateFixAttempts(...) returns FixAttempt[]
-  -> external orchestrator executes prompts/tools and reruns CI
-```
+1. CI payload arrives from an external caller.
+2. Caller uses one of:
+   - `parseGitHubActionsStatus(apiResponse)`
+   - `parseCIWebhook(payload, provider)`
+3. Parser returns `CIStatus` with normalized status and `failures` array.
+4. For each `CIFailure`, `generateFixAttempts`:
+   - selects strategy via `routeFailure`
+   - creates one or more prompts via `buildFixPrompt`
+   - enforces global max attempts (`maxTotalAttempts`, default `5`)
+5. Caller executes prompts/tooling externally and tracks success outside this module.
 
-Runtime behavior details:
-
-- `categorizeFailure` uses ordered regex matching (`first match wins`).
-- `parseGitHubActionsStatus` prioritizes `conclusion` over `status` for terminal mapping.
-- `parseCIWebhook` accepts alias keys (`runId`/`id`, `branch`/`ref`, `jobName`/`job`, `log`/`logExcerpt`).
-- `generateFixAttempts` enforces global `maxTotalAttempts` (default `5`) while honoring per-strategy `maxAttempts`.
+Important behavior details from implementation:
+- Categorization is first-match-wins (`CATEGORY_PATTERNS` order matters).
+- GitHub parsing prefers `conclusion` for terminal state, then falls back to mapped `status`.
+- Generic webhook parsing supports alias keys (`runId`/`id`, `branch`/`ref`, `jobName`/`job`, `log`/`logExcerpt`).
+- `parseCIWebhook` coerces final status to `failure` when failures are present and incoming status says `success`.
 
 ## Key APIs and Types
-
-Core types:
-
+Core CI status types:
 - `CIProvider = 'github-actions' | 'gitlab-ci' | 'generic'`
 - `CIStatus`:
   - `provider`, `runId`, `branch`, `status`, `failures`, optional `url`, `timestamp`
 - `CIFailure`:
   - `jobName`, optional `step`, `logExcerpt`, optional `exitCode`, optional `errorCategory`
+- `CIMonitorConfig`:
+  - `provider`, optional `pollIntervalMs`, optional `maxLogLines` (declared type, currently not consumed by runtime functions)
+
+Routing and fix-planning types:
 - `FixStrategy`:
   - `category`, `promptHint`, `suggestedTools`, `maxAttempts`
 - `FixLoopConfig`:
   - `maxTotalAttempts`, optional `strategies`
 - `FixAttempt`:
   - `failure`, `strategy`, `attempt`, `prompt`, optional `success`
-- `FixLoopResult` (type only; no builder currently returns this shape)
+- `FixLoopResult`:
+  - `attempts`, `allFixed`, `totalAttempts` (declared type; no constructor function currently returns this shape)
 
-Primary functions:
-
+Main functions:
 - `categorizeFailure(logExcerpt): CIFailure['errorCategory']`
 - `parseGitHubActionsStatus(apiResponse): CIStatus`
 - `parseCIWebhook(payload, provider): CIStatus`
@@ -84,65 +94,77 @@ Primary functions:
 - `buildFixPrompt(failure, strategy, attempt): string`
 - `generateFixAttempts(failures, config?): FixAttempt[]`
 
+Default strategy categories in `DEFAULT_FIX_STRATEGIES`:
+- `type-check`
+- `test`
+- `lint`
+- `build`
+- `deploy`
+- `unknown`
+
 ## Dependencies
+Runtime dependencies for this subsystem:
+- No imports from `@dzupagent/core`, `@dzupagent/adapter-types`, LangChain, or Zod.
+- No external npm dependencies used directly in `src/ci/*`.
+- Uses only JavaScript/TypeScript built-ins (regex/string/object/date operations).
 
-Module-internal dependency graph:
-
-- `fix-loop.ts` depends on `routeFailure` from `failure-router.ts`.
-- `failure-router.ts` depends on `CIFailure` type from `ci-monitor.ts`.
-- `ci-monitor.ts` has no imports from other package modules.
-
-External runtime dependencies:
-
-- This CI submodule itself does not import `@dzupagent/core`, `@dzupagent/adapter-types`, LangChain, or Zod at runtime.
-- It relies only on built-in JS/TS primitives (`Date`, string/regex/object operations).
-- It is compiled and shipped as part of `@dzupagent/codegen`.
+Packaging context:
+- CI exports are available through `@dzupagent/codegen` root exports (`src/index.ts`).
+- `package.json` does not expose a dedicated `./ci` subpath export; consumers import CI APIs from the package root.
 
 ## Integration Points
+Public integration points:
+- Root package exports in `packages/codegen/src/index.ts`:
+  - CI monitor exports and types
+  - failure routing exports and types
+  - fix loop exports and types
 
-- Public package surface:
-  - Re-exported from `packages/codegen/src/index.ts`, so consumers import CI APIs from `@dzupagent/codegen`.
-- Internal `ci/index.ts` barrel:
-  - Provides local grouped exports for direct folder-level imports.
-- Upstream orchestration:
-  - The module emits plan artifacts (`CIStatus`, `FixAttempt[]`, markdown prompts) expected to be consumed by higher-level orchestration/execution code outside `src/ci`.
-- Cross-module conceptual alignment:
-  - PR state transition logic exists in `src/pr`, but `src/ci` has no direct import coupling with PR modules.
+Internal integration points:
+- `src/ci/index.ts` provides a local barrel for direct folder-level imports inside the repo.
+
+Downstream usage model:
+- External orchestrators provide payload input and consume:
+  - normalized status objects (`CIStatus`)
+  - routed strategies (`FixStrategy`)
+  - generated markdown prompts (`FixAttempt.prompt`)
+- Success/failure feedback loops (`FixAttempt.success`) are expected to be populated by those orchestrators after reruns.
+
+Observed repo usage:
+- CI APIs are heavily exercised by unit/branch-coverage tests.
+- Outside tests and export surfaces, there are no direct runtime consumers in `packages/codegen/src` as of this refresh.
 
 ## Testing and Observability
+Test coverage in `packages/codegen/src/__tests__/` includes:
+- `ci-monitor.test.ts`
+- `failure-router.test.ts`
+- `fix-loop.test.ts`
+- Additional branch-focused coverage in:
+  - `branch-coverage-misc.test.ts`
+  - `branch-coverage-conventions-validation.test.ts`
 
-CI-specific tests:
+Verified behaviors covered by tests:
+- Pattern-based category mapping and first-match ordering effects.
+- GitHub Actions parsing for success/failure/cancelled/running and missing fields.
+- Generic webhook parsing with alternate key names and status coercion.
+- Strategy defaulting and custom strategy override behavior.
+- Prompt formatting and retry-note injection for attempts `> 1`.
+- `maxTotalAttempts` enforcement and per-strategy attempt fan-out.
 
-- `src/__tests__/ci-monitor.test.ts`
-- `src/__tests__/failure-router.test.ts`
-- `src/__tests__/fix-loop.test.ts`
-- Additional branch coverage assertions in:
-  - `src/__tests__/branch-coverage-misc.test.ts`
-  - `src/__tests__/branch-coverage-conventions-validation.test.ts`
-
-Validated behavior from tests:
-
-- Provider parsing fallback behavior for missing/alternate fields.
-- Status coercion when failures are present.
-- Strategy override precedence (`customStrategies` over defaults).
-- Prompt content and retry hint behavior.
-- Attempt budgeting semantics.
-- Known pattern-order behavior where some `deploy failed` strings classify as `test`.
-
-Observability in this module:
-
-- No logger, metrics, tracing, or event emitter.
-- Observability is limited to returned structured data (`status`, `failures`, prompts, attempt lists).
+Observability characteristics:
+- No built-in logger, metrics, or tracing in `src/ci/*`.
+- Only structured return values are available for external instrumentation.
 
 ## Risks and TODOs
+Current risks:
+- `CATEGORY_PATTERNS` ordering causes some deploy messages containing "fail" to classify as `test` before `deploy`.
+- `routeFailure` relies on `failure.errorCategory`; it does not re-categorize from `logExcerpt` when category is missing.
+- `CIMonitorConfig` is exported but unused by parser functions.
+- `FixLoopResult` is exported but no function currently assembles/returns it.
+- `DEFAULT_FIX_STRATEGIES` is typed as `Record<string, FixStrategy>`, which allows non-standard keys and weakens compile-time exhaustiveness.
 
-- Regex ordering risk: `test` patterns can shadow `deploy` classification when logs contain generic `fail` text (documented by tests).
-- `CIMonitorConfig` exists but is not consumed by any runtime function in this folder.
-- `FixLoopResult` is defined but no function currently returns that aggregate shape.
-- `FixAttempt.success` is optional and must be set by external orchestration after CI reruns.
-- `routeFailure` relies on precomputed `failure.errorCategory`; it does not re-categorize from logs despite comments implying possible re-categorization.
-- Provider coverage is parser-based only; there is no provider-specific API client, pagination, or job-log fetching in this module.
+Low-level constraints to keep in mind:
+- Parser inputs are intentionally loose (`Record<string, unknown>`), so malformed payloads degrade to empty/default fields rather than hard-failing.
+- This module does not fetch full job logs, so categorization quality depends on provided `log`/`logExcerpt` snippets.
 
 ## Changelog
-
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

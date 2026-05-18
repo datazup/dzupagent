@@ -1,123 +1,131 @@
-# Playground Compatibility Notes
+# Playground Architecture (Compatibility Surface)
 
 ## Scope
-This document describes the **current local reality** for `packages/playground` in this checkout.
+This document covers the current state of `packages/playground` in this checkout.
 
-- Target path exists only as this documentation file: `packages/playground/docs/ARCHITECTURE.md`.
-- The implementation scope directory requested for review, `packages/playground`, is **not present** as a workspace package.
-- There is no local `packages/playground/src`, `packages/playground/package.json`, or `packages/playground/README.md` to inspect.
+Observed local state inside `packages/playground`:
+- `docs/ARCHITECTURE.md` exists.
+- No `src/` directory exists.
+- No `package.json` exists.
+- No `README.md` exists.
 
-The playground surface is currently split across:
-
-- `packages/server/src/routes/playground.ts` for static SPA asset serving at `/playground/*`.
-- `packages/server/src/composition/optional-routes.ts` for conditional mount wiring.
-- `packages/agent/src/playground/*` for framework-internal playground/team coordination runtime types and helpers.
-
-There is no DzupAgent-owned product playground design-system package in this
-checkout. Product debugger/operator UX belongs in consuming applications, not in
-`packages/server` or this compatibility documentation directory.
+As of this refresh, `packages/playground` is a docs-only compatibility location, not an active Yarn workspace package.
 
 ## Responsibilities
-Because `packages/playground` is absent, it has no active package-level runtime responsibility.
+`packages/playground` has no runtime responsibility because it has no implementation package.
 
-Current responsibilities that historically mapped to “playground” are handled by other packages:
+Playground-related behavior currently lives in other packages:
+- `@dzupagent/server`
+  - Hosts optional static SPA assets via `createPlaygroundRoutes(...)`.
+  - Mounts those routes under `/playground` only when `runtimeConfig.playground` is configured.
+  - Applies HTML security headers by default and blocks path traversal.
+- `@dzupagent/agent`
+  - Provides framework-internal trace UI helpers under `src/observability/trace-ui/*`.
+  - Exposes team/shared-workspace orchestration primitives via `src/orchestration/team/*` exports.
 
-- `@dzupagent/server`:
-  - Optional static route mount (`/playground`) via `createPlaygroundRoutes` for prebuilt compatibility assets.
-  - File serving, MIME selection, SPA fallback to `index.html`, and path traversal guardrails.
-- `@dzupagent/agent`:
-  - `AgentPlayground`, `SharedWorkspace`, `TeamCoordinator`, and related playground/team types under `src/playground`.
-  - Internal/runtime coordination primitives, not product UI hosting or a reusable design-system surface.
+Per repo guidance, `packages/server` and `packages/playground` are maintenance/compatibility surfaces, not the forward path for new product UI features.
 
 ## Structure
-There is no package structure under `packages/playground` in this checkout.
+Current structure of `packages/playground`:
 
-Observed adjacent structure that implements playground-related behavior:
+```text
+packages/playground/
+└── docs/
+    └── ARCHITECTURE.md
+```
 
+Adjacent implementation files that now carry playground-related functionality:
 - `packages/server/src/routes/playground.ts`
 - `packages/server/src/composition/optional-routes.ts`
-- `packages/server/src/index.ts` (exports `createPlaygroundRoutes` and `PlaygroundRouteConfig`)
+- `packages/server/src/composition/types.ts`
+- `packages/server/src/extensions.ts`
 - `packages/server/src/__tests__/playground-routes.test.ts`
 - `packages/server/src/__tests__/playground-routes-branches.test.ts`
-- `packages/agent/src/playground/index.ts`
-- `packages/agent/src/playground/playground.ts`
-- `packages/agent/src/playground/shared-workspace.ts`
-- `packages/agent/src/playground/team-coordinator.ts`
-- `packages/agent/src/playground/types.ts`
-- `packages/agent/src/playground/ui/*`
+- `packages/agent/src/observability/trace-ui/index.ts`
+- `packages/agent/src/observability/trace-ui/utils.ts`
+- `packages/agent/src/index.ts` (team/shared-workspace exports)
+- `packages/agent/src/__tests__/playground-ui-utils.test.ts`
 
 ## Runtime and Control Flow
-Current control flow for playground hosting is in server composition:
+There is no package-local runtime in `packages/playground`.
 
-1. Host config provides `runtimeConfig.playground` with `distDir`.
-2. `mountOptionalRoutes(...)` in `packages/server/src/composition/optional-routes.ts` checks `runtimeConfig.playground`.
-3. When configured, server mounts `app.route('/playground', createPlaygroundRoutes(runtimeConfig.playground))`.
-4. `createPlaygroundRoutes(...)` in `packages/server/src/routes/playground.ts` serves:
-   - `/assets/:path` with immutable cache headers.
-   - `/:path{.*}` as static asset or SPA fallback to `index.html`.
-5. If `index.html` is missing, route returns 404 with build guidance.
+Runtime flow for hosted playground assets is implemented in `@dzupagent/server`:
+1. Host composition supplies `runtimeConfig.playground` (`PlaygroundRouteConfig`).
+2. `mountOptionalRoutes(...)` checks that config.
+3. If present, it mounts `app.route('/playground', createPlaygroundRoutes(runtimeConfig.playground))`.
+4. `createPlaygroundRoutes(...)` serves:
+   - `/assets/:path{.+}` as immutable static assets.
+   - `/:path{.*}` as direct static asset when extension is non-HTML, otherwise SPA fallback to `index.html`.
+5. Missing `index.html` returns a 404 text response with guidance to point `distDir` at built consuming-app assets.
 
-For framework runtime playground coordination:
-
-1. Consumers import from `@dzupagent/agent` (`AgentPlayground`, `SharedWorkspace`, `TeamCoordinator`, playground types).
-2. Team and spawned-agent orchestration occurs in-memory through `packages/agent/src/playground/*` abstractions.
+Route-level safeguards in current code:
+- Root-constrained path resolution (`resolveWithinRoot`) blocks traversal attempts.
+- MIME mapping is explicit; unknown extensions fall back to `application/octet-stream`.
+- HTML responses get default hardening headers unless explicitly overridden/disabled.
 
 ## Key APIs and Types
-No APIs are currently exported from a `packages/playground` package in this checkout.
+There are no APIs exported from `packages/playground`.
 
-Key active APIs that replaced/superseded package-level playground behavior:
-
-- Server hosting APIs:
-  - `createPlaygroundRoutes(config: PlaygroundRouteConfig)`
-  - `PlaygroundRouteConfig` with `distDir: string`
-- Agent playground runtime exports (from `packages/agent/src/index.ts`):
-  - `AgentPlayground`
-  - `PlaygroundConfig`
-  - `SharedWorkspace`
-  - `TeamCoordinator`
-  - Playground/team event and spawn types from `packages/agent/src/playground/types.ts`
+Current playground-related public APIs:
+- Server
+  - `createPlaygroundRoutes(config: PlaygroundRouteConfig)` in `packages/server/src/routes/playground.ts`
+  - `PlaygroundRouteConfig`
+    - `distDir: string`
+    - `securityHeaders?: PlaygroundSecurityHeadersConfig | false`
+  - `PlaygroundSecurityHeadersConfig`
+    - `xFrameOptions?: string | false`
+    - `contentSecurityPolicy?: string | false`
+    - `xContentTypeOptions?: string | false`
+    - `referrerPolicy?: string | false`
+- Host configuration
+  - `ForgeCompatibilityRouteFamilyConfig.playground?: PlaygroundRouteConfig` in `packages/server/src/composition/types.ts`
+- Agent internal helpers
+  - Trace UI utility exports from `packages/agent/src/observability/trace-ui/index.ts`
+  - Shared workspace/team runtime exports in `packages/agent/src/index.ts` (`SharedWorkspace`, `TeamRuntime`, related team types)
 
 ## Dependencies
-`packages/playground` has no local dependency graph because the package is absent.
+`packages/playground` has no dependency graph because no package manifest exists.
 
-Relevant dependency/runtime surfaces in active implementations:
+Dependencies used by active playground hosting code (`@dzupagent/server` route layer):
+- `hono`
+- Node `fs/promises` (`readFile`, `stat`)
+- Node `path` (`resolve`, `extname`, `sep`)
 
-- Server playground route implementation depends on:
-  - `hono`
-  - Node `fs/promises` (`readFile`, `stat`)
-  - Node `path` (`resolve`, `extname`, `sep`)
-- Agent playground runtime depends on core agent/orchestration internals under `packages/agent`.
+Dependencies used by agent trace helper surface are owned by `@dzupagent/agent` and replay/observability modules, not by `packages/playground`.
 
 ## Integration Points
-Current integration points tied to “playground” behavior:
-
-- Server optional route composition (`mountOptionalRoutes`) mounts `/playground` when configured.
-- Root onboarding points package-scoped development at real workspace packages; there is no dedicated playground workspace command in this checkout.
-- Server architecture docs should describe `/playground` as a static asset host configured through `runtimeConfig.playground.distDir`.
-- Agent package exports playground runtime primitives via its public index.
-- Product debugger/operator UI work should be owned by consuming apps such as
-  Codev unless a separate reusable UI package is intentionally created with its
-  own package manifest, contract, and validation lane.
+Current integration points for the compatibility playground surface:
+- Server runtime composition (`mountOptionalRoutes`) enables `/playground` only when configured.
+- `@dzupagent/server` re-exports `createPlaygroundRoutes` and `PlaygroundRouteConfig` via `src/extensions.ts`.
+- CLI dev command exposes a `noPlayground` flag (`packages/server/src/cli/dev-command.ts`) for local server startup behavior.
+- Agent trace helper tests (`playground-ui-utils.test.ts`) validate internal trace style/format helpers in `observability/trace-ui`, indicating the previous `src/playground/ui` location has been consolidated.
 
 ## Testing and Observability
-There are no package-local tests under `packages/playground` because the package is absent.
+There are no tests inside `packages/playground` itself.
 
-Active automated coverage for playground-related behavior exists in:
-
+Active test coverage for playground behavior:
 - `packages/server/src/__tests__/playground-routes.test.ts`
+  - root/index serving
+  - security headers defaults and overrides
+  - static asset MIME/cache behavior
+  - path traversal blocking
+  - SPA fallback behavior
 - `packages/server/src/__tests__/playground-routes-branches.test.ts`
+  - MIME branch coverage
+  - unknown extension fallback
+  - missing `index.html` 404 guidance message
 - `packages/agent/src/__tests__/playground-ui-utils.test.ts`
-- Additional agent tests importing playground types in orchestration/team test suites.
+  - rendering-independent trace UI utility contracts (tone/style/density helpers)
 
-Observability and operational behavior for hosted UI route is inherited from server middleware/composition (health, metrics, error handling) rather than a dedicated playground package.
+Observability for `/playground` requests is inherited from server-level middleware and event/metrics infrastructure; there is no package-specific telemetry in `packages/playground`.
 
 ## Risks and TODOs
-- Documentation drift: future docs may reintroduce dedicated playground workspace commands even though no such workspace package exists in this checkout.
-- Architecture drift: references to the removed package can mislead maintenance tasks and automation expecting `packages/playground/src`.
-- TODO: keep root/server docs aligned with current source-of-truth locations (`packages/server/src/routes/playground.ts` and `packages/agent/src/playground/*`).
-- TODO: if a dedicated UI package is reintroduced, add a real `package.json`, `README.md`, and implementation tree under `packages/playground` and replace this decommission note.
+- Documentation drift risk: stale references to `packages/playground/src` or `@dzupagent/playground` commands can reappear in docs or scripts.
+- Ownership confusion risk: internal trace helper utilities in `@dzupagent/agent` may be mistaken for a public product UI package.
+- TODO: keep server-facing docs aligned with current static-host model (`runtimeConfig.playground.distDir`) and security-header defaults.
+- TODO: if a dedicated playground package is intentionally reintroduced, add real package boundaries (`package.json`, `src/`, `README.md`, tests) and replace this compatibility-only architecture note.
 
 ## Changelog
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: refreshed against live checkout; confirmed `packages/playground` is docs-only and updated integrations to current `server` and `agent/observability` paths.
 - 2026-04-29: removed stale onboarding references to a dedicated playground workspace; preserved this document as a decommission/maintenance note.
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-- 2026-04-26: rewritten against live checkout; documented that `packages/playground` package is absent and mapped active playground behavior to server and agent packages.

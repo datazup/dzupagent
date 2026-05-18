@@ -1,8 +1,7 @@
 # Streaming Architecture (`packages/agent/src/streaming`)
 
 ## Scope
-
-This document covers the streaming utilities in `@dzupagent/agent` under `packages/agent/src/streaming`:
+This document covers the streaming helper module implemented in `packages/agent/src/streaming`:
 
 - `stream-action-parser.ts`
 - `streaming-types.ts`
@@ -10,168 +9,157 @@ This document covers the streaming utilities in `@dzupagent/agent` under `packag
 - `text-delta-buffer.ts`
 - `index.ts`
 
-This scope is intentionally limited to the streaming helper module surface. The main agent runtime stream loop lives in `packages/agent/src/agent/streaming-run.ts` and uses `AgentStreamEvent` from `agent-types`, not the `StreamEvent` type from this folder.
+It does not describe the main `DzupAgent.stream()` runtime loop in `packages/agent/src/agent/streaming-run*.ts`, which emits `AgentStreamEvent` and uses separate stream orchestration/tool-dispatch helpers.
 
 ## Responsibilities
+The streaming folder provides reusable primitives, not the primary runtime stream coordinator:
 
-The streaming module currently provides three independent building blocks plus a local barrel export:
-
-- `StreamActionParser`: incremental parsing and execution of tool calls from partial or complete model chunks.
-- `StreamingRunHandle`: in-memory producer/consumer handle for pushing and asynchronously consuming `StreamEvent` items.
-- `TextDeltaBuffer`: whitespace-aware buffering utility for partial text token assembly.
-- `streaming-types`: typed event contract used by `StreamingRunHandle`.
-
-The module does not currently orchestrate `DzupAgent.stream()` directly.
+- Parse partial and complete tool-call payloads from chunked model output and execute tools incrementally (`StreamActionParser`).
+- Provide a bounded async-iterable event queue for producer/consumer stream handoff (`StreamingRunHandle`).
+- Normalize and type the local stream event union (`StreamEvent` and related interfaces).
+- Buffer token deltas into whitespace-bounded text chunks (`TextDeltaBuffer`).
+- Re-export these symbols via a local barrel (`streaming/index.ts`).
 
 ## Structure
-
-| File | Main Exports | Purpose |
+| File | Exports | Notes |
 | --- | --- | --- |
-| `stream-action-parser.ts` | `StreamActionParser`, `StreamedToolCall`, `StreamActionEvent`, `StreamActionParserConfig` | Parse chunked tool call deltas and execute tools as soon as arguments are parseable. |
-| `streaming-types.ts` | `StreamEvent` union and event interfaces | Defines `text_delta`, `tool_call_start`, `tool_call_end`, `done`, and `error` event shapes. |
-| `streaming-run-handle.ts` | `StreamingRunHandle`, `StreamingStatus`, `StreamingRunHandleOptions` | Async-iterable queue abstraction with terminal states and bounded buffering. |
-| `text-delta-buffer.ts` | `TextDeltaBuffer` | Buffers partial text and emits complete whitespace-delimited chunks. |
-| `index.ts` | Re-exports above symbols | Local streaming barrel.
+| `stream-action-parser.ts` | `StreamActionParser`, `StreamedToolCall`, `StreamActionEvent`, `StreamActionParserConfig` | Parses `content`, `tool_call_chunks`, and `tool_calls`; executes matching tools. |
+| `streaming-types.ts` | `StreamEvent`, `TextDeltaEvent`, `ToolCallStartEvent`, `ToolCallEndEvent`, `DoneEvent`, `ErrorEvent` | Local discriminated union for stream transport/consumption. |
+| `streaming-run-handle.ts` | `StreamingRunHandle`, `StreamingStatus`, `StreamingRunHandleOptions` | In-memory async iterator bridge with bounded buffer and terminal states. |
+| `text-delta-buffer.ts` | `TextDeltaBuffer` | Emits complete whitespace-delimited chunks while retaining trailing partial text. |
+| `index.ts` | Barrel re-exports | Convenience exports for this folder. |
 
-`packages/agent/src/index.ts` re-exports these streaming symbols as part of the package public API.
+Package-level exposure:
+
+- `packages/agent/src/index.ts` re-exports all streaming symbols directly from these files.
+- `packages/agent/package.json` exports only top-level entrypoints (`"."`, `"./agent"`, etc.); streaming APIs are consumed from `@dzupagent/agent` top-level exports, not a dedicated `./streaming` subpath.
 
 ## Runtime and Control Flow
-
 ### `StreamActionParser`
+`processChunk()` runs three phases per chunk:
 
-`processChunk(chunk)` behavior:
+1. Extract text from `chunk.content` (`string` or multimodal array with `type: 'text'`).
+2. Accumulate `tool_call_chunks` by `id` (fallback to `index`) into an internal pending map.
+3. Execute any parseable object JSON args (`{...}`) immediately and emit ordered events.
 
-1. Extract text from `chunk.content`.
-1. Emit a `text` event when non-empty content exists.
-1. Merge `tool_call_chunks` by `id` (or `index` fallback) into internal pending state.
-1. When merged JSON args become parseable object JSON (`{...}`), emit `tool_call_start` and execute.
-1. Process complete `tool_calls` in the same pass and execute immediately.
+Execution behavior:
 
-Execution behavior (`exec`):
+- Each tool call emits `tool_call_start` then `tool_call_complete`, then either `tool_result` or `error`.
+- Unknown tools emit `error` (`Tool "<name>" not found`).
+- Sequential mode (`parallelExecution: false`) awaits each tool inline.
+- Parallel mode tracks in-flight executions (`active` set), enforces `maxParallelTools`, and may return a completed prior result when saturation forces `Promise.race`.
 
-- Looks up tool by `tc.name` from constructor-provided `StructuredToolInterface[]`.
-- Emits `error` when tool is missing.
-- Invokes tool and emits:
-  - `tool_call_complete` plus `tool_result` in sequential mode.
-  - `tool_call_complete` immediately and deferred `tool_result`/`error` in parallel mode.
-- In parallel mode, `maxParallelTools` is enforced with an `active` promise set and `Promise.race` when saturated.
+`flush()`:
 
-`flush()` behavior:
-
-1. Re-check pending chunk-assembled calls and execute any newly parseable, unfired call.
-1. Await and drain remaining parallel executions via `Promise.allSettled`.
+1. Re-checks pending chunk-assembled tool calls that were not fired yet.
+2. Drains any in-flight parallel executions with `Promise.allSettled`.
 
 ### `StreamingRunHandle`
-
-Producer/consumer flow:
+Producer/consumer queue flow:
 
 1. Producer calls `push(event)` while status is `running`.
-1. If consumer is waiting, event is delivered directly.
-1. Otherwise event is queued, up to `maxBufferSize` (default `1000`); overflow events are dropped.
-1. Consumer iterates `for await (const event of handle.events())`.
-1. `complete()`, `fail(error)`, or `cancel()` transitions to terminal status and finishes iteration after buffered events drain.
+2. If a consumer is waiting, event resolves immediately.
+3. Otherwise event is enqueued up to `maxBufferSize` (default `1000`); overflow is dropped.
+4. Consumer iterates `for await (const event of handle.events())`.
+5. Terminal calls (`complete`, `fail`, `cancel`) stop new pushes and eventually end iteration after buffered events are drained.
+
+Failure path:
+
+- `fail(error)` enqueues/delivers an `error` `StreamEvent` before transitioning to `failed`.
 
 ### `TextDeltaBuffer`
+Text buffering flow:
 
 1. `push(delta)` appends incoming text.
-1. Finds last whitespace boundary.
-1. Emits complete chunks matched by `/\S+\s*/g`.
-1. Leaves trailing partial token in internal buffer.
-1. `flush()` returns remaining buffered text; `reset()` clears state.
+2. Finds the last whitespace boundary (`space`, `\n`, `\t`, `\r`).
+3. Emits complete chunks matched by `/\S+\s*/g`.
+4. Keeps trailing partial token in the internal buffer.
+5. `flush()` returns leftover content and clears state; `reset()` clears without returning.
 
 ## Key APIs and Types
-
-### `StreamActionParser` API
-
-- `constructor(tools: StructuredToolInterface[], config?: StreamActionParserConfig)`
-- `processChunk(chunk: ChunkInput): Promise<StreamActionEvent[]>`
+### Parser Surface (`stream-action-parser.ts`)
+- `new StreamActionParser(tools, config?)`
+- `processChunk(chunk): Promise<StreamActionEvent[]>`
 - `flush(): Promise<StreamActionEvent[]>`
 
-Related types:
+Relevant types:
 
-- `StreamedToolCall`
-- `StreamActionEvent` with event kinds: `text | tool_call_start | tool_call_complete | tool_result | error`
+- `StreamedToolCall`: `{ id, name, args }`
+- `StreamActionEvent`:
+  - `type`: `'text' | 'tool_call_start' | 'tool_call_complete' | 'tool_result' | 'error'`
+  - `data`: `{ content?, toolCall?, result?, error? }`
 - `StreamActionParserConfig`:
   - `parallelExecution?: boolean`
   - `maxParallelTools?: number`
 
-### `StreamingRunHandle` API
-
-- `status: StreamingStatus` (`running | completed | failed | cancelled`)
+### Run Handle Surface (`streaming-run-handle.ts`)
+- `status: 'running' | 'completed' | 'failed' | 'cancelled'`
 - `push(event: StreamEvent): void`
 - `complete(): void`
 - `fail(error: Error): void`
 - `cancel(): void`
 - `events(): AsyncIterable<StreamEvent>`
 
-### `StreamEvent` contract (`streaming-types.ts`)
+### Event Contract (`streaming-types.ts`)
+`StreamEvent` is a union of:
 
 - `TextDeltaEvent` (`type: 'text_delta'`, `content`)
 - `ToolCallStartEvent` (`type: 'tool_call_start'`, `toolName`, `callId`)
 - `ToolCallEndEvent` (`type: 'tool_call_end'`, `callId`, `result`)
 - `DoneEvent` (`type: 'done'`, `finalOutput`)
-- `ErrorEvent` (`type: 'error'`, `error`)
+- `ErrorEvent` (`type: 'error'`, `error: Error`)
 
 ## Dependencies
+Direct runtime import dependencies inside this folder:
 
-Direct dependencies used by this module:
+- `@langchain/core/tools` (`StructuredToolInterface`) in `stream-action-parser.ts`.
+- Built-in JS/TS primitives (`Map`, `Set`, async iterables, promises).
 
-- `@langchain/core/tools` (`StructuredToolInterface`) in `stream-action-parser.ts`
-- Internal TypeScript/Node runtime primitives (`Promise`, async iterables, Maps/Sets)
+Package-level dependency context (`packages/agent/package.json`):
 
-Package-level context (`packages/agent/package.json`):
-
-- Runtime deps include `@dzupagent/*` packages, but streaming files here only directly import `@langchain/core/tools`.
-- Peer deps include `@langchain/core`, `@langchain/langgraph`, and `zod`.
+- Peer dependencies: `@langchain/core`, `@langchain/langgraph`, `zod`.
+- Runtime dependencies: internal `@dzupagent/*` packages (not directly imported by these streaming helper files).
 
 ## Integration Points
+Internal package integrations:
 
-Current integration surface in `@dzupagent/agent`:
+- Public exports are wired in `packages/agent/src/index.ts` under the `// --- Streaming ---` block.
+- The local `src/streaming/index.ts` barrel mirrors the same streaming symbols.
+- `README.md` streaming section currently documents `StreamActionParser` explicitly; `StreamingRunHandle` and `TextDeltaBuffer` are exported but not highlighted in that section.
 
-- Exported via `packages/agent/src/index.ts` and `packages/agent/src/streaming/index.ts`.
-- Mentioned in `packages/agent/README.md` streaming section.
+Runtime boundary with agent streaming loop:
 
-Current usage status inside the package:
-
-- `StreamActionParser`, `StreamingRunHandle`, and `TextDeltaBuffer` are heavily covered by tests.
-- No production runtime path in `packages/agent/src/agent/streaming-run.ts` currently imports these utilities.
-- `DzupAgent.stream()` currently emits `AgentStreamEvent` (`text`, `tool_call`, `tool_result`, `budget_warning`, `stuck`, `error`, `done`) from `agent/streaming-run.ts`, separate from `StreamEvent` and `StreamActionEvent` contracts in this folder.
+- `DzupAgent.stream()` delegates to `agent/streaming-run.ts` and yields `AgentStreamEvent` (`text`, `tool_call`, `tool_result`, `done`, `error`, `budget_warning`, `stuck`).
+- `agent/streaming-run*.ts` does not import `src/streaming/*` helpers; stream loop tool handling and event emission are implemented in separate `agent/*` modules.
+- Consumers that mix these two surfaces must map between `StreamActionEvent` / `StreamEvent` and `AgentStreamEvent` contracts explicitly.
 
 ## Testing and Observability
+Dedicated tests for this module:
 
-Dedicated streaming tests in `packages/agent/src/__tests__`:
+- `src/__tests__/streaming.test.ts`
+- `src/__tests__/streaming-run-handle-deep.test.ts`
+- `src/__tests__/stream-action-parser.test.ts`
+- `src/__tests__/stream-action-parser-branches.test.ts`
+- `src/__tests__/stream-action-parser-deep.test.ts`
 
-- `streaming.test.ts`
-- `streaming-run-handle-deep.test.ts`
-- `stream-action-parser.test.ts`
-- `stream-action-parser-branches.test.ts`
-- `stream-action-parser-deep.test.ts`
+Covered behavior includes:
 
-Additional stream-adjacent runtime tests:
+- `TextDeltaBuffer`: partial token accumulation, whitespace/newline boundaries, flush/reset/peek behavior.
+- `StreamingRunHandle`: status transitions, waiter handoff, terminal semantics, push-after-terminal errors, fail-path error event delivery, buffer overflow dropping.
+- `StreamActionParser`: multimodal text extraction, chunked tool-call assembly, ID fallback behavior, duplicate suppression, parse edge cases, unknown/missing tools, tool exceptions, sequential vs parallel limits, and `flush()` drain behavior.
 
-- `stream-tool-guardrail-parity.test.ts`
-- `token-lifecycle-stream-wiring.test.ts`
-- `stream-textual-workflow.test.ts`
+Observability in module code:
 
-Observed coverage focus from tests:
-
-- `StreamActionParser`: text extraction branches, chunk assembly, ID fallbacks, duplicate suppression, parse edge cases, unknown tools, thrown tool errors, sequential vs parallel execution, and flush behavior.
-- `StreamingRunHandle`: queueing, waiter handoff, terminal transitions, idempotent terminal calls, error-event delivery, cancellation behavior, and bounded buffer dropping.
-- `TextDeltaBuffer`: whitespace boundary parsing, partial token buffering, newline handling, flush/reset behavior.
-
-Observability characteristics in module code:
-
-- No direct metrics or event bus emission in `src/streaming/*`.
-- Observability is event-shaped output only (`StreamActionEvent` / `StreamEvent`) for consumers to instrument.
+- No direct metrics/tracing/event-bus emission from `src/streaming/*`.
+- Observability is exposed through returned event objects (`StreamActionEvent` and `StreamEvent`), leaving instrumentation to callers.
 
 ## Risks and TODOs
-
-- `StreamActionParser` fallback IDs for missing `tool_calls[].id` use `Date.now()` and `Math.random()`, so IDs are non-deterministic.
-- `StreamingRunHandle` silently drops events after `maxBufferSize`; this avoids unbounded memory growth but can lose data under slow consumers.
-- `StreamEvent` and `StreamActionEvent` contracts differ from `AgentStreamEvent`; adapters need explicit mapping when combining these surfaces.
-- `src/streaming/*` utilities are exported but not currently wired into `DzupAgent.stream()` runtime loop, so behavior can diverge unless maintained intentionally.
+- `StreamActionParser` fallback IDs for missing `tool_calls[].id` are nondeterministic (`Date.now()` + `Math.random()`), which can complicate deterministic replay or correlation.
+- `StreamingRunHandle` silently drops events beyond `maxBufferSize`; this prevents unbounded growth but can hide data loss under slow consumers.
+- `StreamActionParser` retains `pending` and `fired` entries for the parser lifetime; long-lived parser instances can accumulate state unless recreated per run.
+- `tryParseJson` only accepts object-shaped JSON (`{...}`); arrays/primitives in streamed args are treated as unparseable and degrade to `{}` in non-streaming `tool_calls` string mode.
+- There are three streaming event surfaces in this package (`StreamActionEvent`, `StreamEvent`, `AgentStreamEvent`) with different shapes and semantics; adapter glue must remain explicit to avoid contract drift.
 
 ## Changelog
-
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 
