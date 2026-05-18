@@ -8,7 +8,7 @@
 
 import { readdirSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 const DEFAULT_ROOT = resolve(import.meta.dirname, '..')
 
@@ -30,18 +30,11 @@ function determineStatus(dirName, coverageConfig) {
   return 'Alpha'
 }
 
-function extractExports(indexPath) {
+function collectDirectExports(source) {
   const classes = []
   const functions = []
   const types = []
   const constants = []
-
-  let source
-  try {
-    source = readFileSync(indexPath, 'utf-8')
-  } catch {
-    return { classes, functions, types, constants }
-  }
 
   for (const m of source.matchAll(/export\s+class\s+(\w+)/g)) {
     classes.push(m[1])
@@ -100,12 +93,134 @@ function extractExports(indexPath) {
     types.push(m[1])
   }
 
+  return { classes, functions, types, constants }
+}
+
+function dedupeExports(exportsShape) {
   return {
-    classes: [...new Set(classes)],
-    functions: [...new Set(functions)],
-    types: [...new Set(types)],
-    constants: [...new Set(constants)],
+    classes: [...new Set(exportsShape.classes)],
+    functions: [...new Set(exportsShape.functions)],
+    types: [...new Set(exportsShape.types)],
+    constants: [...new Set(exportsShape.constants)],
   }
+}
+
+function mergeExports(target, source) {
+  target.classes.push(...source.classes)
+  target.functions.push(...source.functions)
+  target.types.push(...source.types)
+  target.constants.push(...source.constants)
+}
+
+function resolveLocalModulePath(fromFile, specifier) {
+  if (!specifier.startsWith('.')) return null
+
+  const base = resolve(dirname(fromFile), specifier)
+  const extensionlessBase = base.replace(/\.(mjs|cjs|js)$/, '')
+  const candidates = [
+    base,
+    extensionlessBase,
+    `${base}.ts`,
+    `${base}.tsx`,
+    `${base}.mts`,
+    `${base}.cts`,
+    `${base}.js`,
+    `${base}.jsx`,
+    `${extensionlessBase}.ts`,
+    `${extensionlessBase}.tsx`,
+    `${extensionlessBase}.mts`,
+    `${extensionlessBase}.cts`,
+    `${extensionlessBase}.js`,
+    join(base, 'index.ts'),
+    join(base, 'index.tsx'),
+    join(base, 'index.mts'),
+    join(base, 'index.cts'),
+    join(base, 'index.js'),
+    join(extensionlessBase, 'index.ts'),
+    join(extensionlessBase, 'index.tsx'),
+    join(extensionlessBase, 'index.mts'),
+    join(extensionlessBase, 'index.cts'),
+    join(extensionlessBase, 'index.js'),
+  ]
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+
+  return null
+}
+
+function extractExportsFromFile(filePath, visited = new Set()) {
+  if (visited.has(filePath)) {
+    return { classes: [], functions: [], types: [], constants: [] }
+  }
+  visited.add(filePath)
+
+  let source
+  try {
+    source = readFileSync(filePath, 'utf-8')
+  } catch {
+    return { classes: [], functions: [], types: [], constants: [] }
+  }
+
+  const collected = collectDirectExports(source)
+
+  for (const m of source.matchAll(/export\s+\*\s+from\s+['"]([^'"]+)['"]/g)) {
+    const modulePath = resolveLocalModulePath(filePath, m[1])
+    if (!modulePath) continue
+    mergeExports(collected, extractExportsFromFile(modulePath, visited))
+  }
+
+  return dedupeExports(collected)
+}
+
+function extractExports(indexPath) {
+  const primary = extractExportsFromFile(indexPath)
+  const hasPrimaryExports =
+    primary.classes.length + primary.functions.length + primary.types.length + primary.constants.length > 0
+  if (hasPrimaryExports) return primary
+
+  // Fallback: some packages are pure re-export barrels and regex-only recursive
+  // extraction can still miss symbols in complex chains. Scan src/*.ts files.
+  const srcDir = dirname(indexPath)
+  const fallback = { classes: [], functions: [], types: [], constants: [] }
+  const stack = [srcDir]
+  const visitedDirs = new Set()
+
+  while (stack.length > 0) {
+    const dir = stack.pop()
+    if (!dir || visitedDirs.has(dir)) continue
+    visitedDirs.add(dir)
+
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+
+    const sortedEntries = [...entries].sort((a, b) => a.name.localeCompare(b.name))
+    for (const entry of sortedEntries) {
+      const fullPath = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        stack.push(fullPath)
+        continue
+      }
+      if (!entry.isFile()) continue
+      if (!/\.(ts|tsx|mts|cts)$/.test(entry.name)) continue
+      if (/\.test\./.test(entry.name)) continue
+
+      let source
+      try {
+        source = readFileSync(fullPath, 'utf-8')
+      } catch {
+        continue
+      }
+      mergeExports(fallback, collectDirectExports(source))
+    }
+  }
+
+  return dedupeExports(fallback)
 }
 
 const FALLBACK_DESCRIPTIONS = {
@@ -187,11 +302,17 @@ export function generateCapabilityMatrix(root = DEFAULT_ROOT) {
   lines.push('|---------|-------------|--------|-------------|')
 
   for (const pkg of packages) {
-    const keyExports = [...pkg.classes.slice(0, 5), ...pkg.functions.slice(0, 3)]
+    let keyExports = [...pkg.classes.slice(0, 5), ...pkg.functions.slice(0, 3)]
+    if (keyExports.length === 0) {
+      keyExports = [...pkg.types.slice(0, 8), ...pkg.constants.slice(0, 2)]
+    }
     const keyStr =
       keyExports.length > 0
         ? keyExports.join(', ') +
-          (pkg.classes.length + pkg.functions.length > keyExports.length ? ', ...' : '')
+          (pkg.classes.length + pkg.functions.length + pkg.types.length + pkg.constants.length >
+          keyExports.length
+            ? ', ...'
+            : '')
         : '_none exported_'
     const desc = pkg.description.replace(/\|/g, '\\|')
     lines.push(`| ${pkg.name} | ${desc} | ${pkg.status} | ${keyStr} |`)
