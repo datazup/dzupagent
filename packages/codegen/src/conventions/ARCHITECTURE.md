@@ -1,45 +1,39 @@
 # Conventions Architecture
 
 ## Scope
-This document covers `packages/codegen/src/conventions` in `@dzupagent/codegen`, specifically:
+This document covers the conventions module in `packages/codegen/src/conventions`:
 - `convention-detector.ts`
 - `convention-enforcer.ts`
 - `index.ts`
-- Convention-focused tests under `src/__tests__` that exercise this module
 
-The module is a lightweight, regex/heuristic utility for convention detection, convention enforcement, and prompt shaping. It is exported as part of the package public API, but it is not currently wired into the package's pipeline executor flow by default.
+It also references direct integration and verification points in the same package:
+- package export entrypoints (`src/index.ts`, `src/compat.ts`, `package.json` export map)
+- convention-focused tests in `src/__tests__`
 
 ## Responsibilities
-The conventions module has three responsibilities:
-- Infer style conventions from an in-memory file map (`Record<string, string>`).
-- Check generated or candidate files against selected conventions and produce line-level violations with a normalized score.
-- Convert high-confidence conventions into an LLM prompt fragment (`conventionsToPrompt`) grouped by category.
+The module has three concrete responsibilities:
+- Detect repository style signals from an in-memory file map (`Record<string, string>`) and return a typed `ConventionReport`.
+- Enforce a limited subset of convention names against file contents and return line-level `ConventionViolation` records with a numeric conformance score.
+- Convert detected conventions into a prompt fragment (`conventionsToPrompt`) for downstream LLM usage.
 
-It intentionally does not:
-- Parse ASTs.
-- Read files from disk directly.
-- Apply automatic fixes.
-- Emit logs/metrics or integrate with telemetry.
+Out of scope in current implementation:
+- AST parsing
+- filesystem IO (callers provide file content)
+- auto-fixing/rewrite application
+- logging, metrics, tracing, or event emission
 
 ## Structure
 Module files:
-- `convention-detector.ts`: detection heuristics and `detectConventions` entrypoint.
-- `convention-enforcer.ts`: checker construction, enforcement loop, and prompt formatter.
-- `index.ts`: local barrel re-exports.
+- `convention-detector.ts`
+  - Defines `DetectedConvention`, `ConventionReport`, and `detectConventions(files)`.
+  - Uses private heuristic helpers: `detectNaming`, `detectFormatting`, `detectImports`, `detectPatterns`, `detectStructure`, `detectLanguage`, and `ratio`.
+- `convention-enforcer.ts`
+  - Defines `ConventionViolation`, `EnforcementResult`, `enforceConventions(files, conventions)`, and `conventionsToPrompt(conventions)`.
+  - Uses `buildChecker(convention)` to map supported convention names to line checkers.
+- `index.ts`
+  - Barrel re-exports detector/enforcer APIs and types.
 
-Key internal detector functions in `convention-detector.ts`:
-- `detectNaming(lines)`
-- `detectFormatting(lines)`
-- `detectImports(lines)`
-- `detectPatterns(lines)`
-- `detectStructure(filePaths)`
-- `detectLanguage(filePaths)`
-- `ratio(a, b)` helper
-
-Key internal enforcement function in `convention-enforcer.ts`:
-- `buildChecker(convention)` maps supported convention names to per-line checkers.
-
-Supported enforcement checker names today:
+Supported checker names in `buildChecker`:
 - `single-quotes`
 - `double-quotes`
 - `semicolons`
@@ -51,101 +45,113 @@ Supported enforcement checker names today:
 
 ## Runtime and Control Flow
 Detection flow (`detectConventions`):
-1. Accept `files: Record<string, string>`.
-2. Flatten all file contents into lines and extract file paths.
-3. Run naming/formatting/import/pattern detectors on combined lines.
-4. Run structure detector on file paths.
-5. Infer language by extension count (`ts/tsx` vs `js/jsx`).
-6. Filter out low-confidence conventions (`confidence < 0.1`).
-7. Return `ConventionReport` with conventions, language, and `filesAnalyzed`.
+1. Read `paths = Object.keys(files)` and flatten all file content to line arrays.
+2. Run naming, formatting, import, pattern, and structure detectors.
+3. Infer language from file extensions (`.ts/.tsx` vs `.js/.jsx`; ties resolve to `typescript`).
+4. Filter conventions below confidence `0.1`.
+5. Return `ConventionReport` with `conventions`, `language`, and `filesAnalyzed`.
+
+Notable detection heuristics:
+- Formatting/import/pattern conventions generally require at least 3 observations (`> 2`) before emitting.
+- Structure detection emits `barrel-exports` when `index.[tj]sx?` files are present and `filePaths.length > 3`.
+- Structure depth convention is `flat-structure` vs `nested-structure` from average path depth threshold `<= 3`.
 
 Enforcement flow (`enforceConventions`):
-1. Convert each input `DetectedConvention` to a checker via `buildChecker`.
-2. Ignore unknown convention names (no checker produced).
-3. Iterate every line of every file and execute all active checkers.
-4. Collect `ConventionViolation[]` with `file`, `line`, `expected`, and `actual`.
-5. Compute `score` as a rounded percentage from line-level violation density; empty input or no checkers yields `100`.
+1. Build active line checkers from input conventions via `buildChecker`.
+2. Unknown convention names are ignored (no checker produced).
+3. Evaluate every line in every file against all active checkers.
+4. Collect `ConventionViolation[]` with file path, line number, convention, expected, and actual values.
+5. Compute score as `round((1 - violations/totalLines) * 100)`, clamped to `>= 0`; empty input or no checkers returns score `100`.
 
 Prompt flow (`conventionsToPrompt`):
-1. Group conventions by category.
-2. Keep only conventions with `confidence >= 0.5`.
-3. Build a sectioned prompt headed by `Follow these coding conventions:`.
+1. Group conventions by `category`.
+2. Keep only conventions with confidence `>= 0.5`.
+3. Emit a sectioned prompt starting with `Follow these coding conventions:` and category headers.
 4. Include examples when present.
-5. Return empty string if no high-confidence conventions remain.
+5. Return empty string when no category has high-confidence items.
 
 ## Key APIs and Types
-Primary API:
-- `detectConventions(files): ConventionReport`
-- `enforceConventions(files, conventions): EnforcementResult`
-- `conventionsToPrompt(conventions): string`
+Primary exports from this module:
+- `detectConventions(files: Record<string, string>): ConventionReport`
+- `enforceConventions(files: Record<string, string>, conventions: DetectedConvention[]): EnforcementResult`
+- `conventionsToPrompt(conventions: DetectedConvention[]): string`
 
 Core types:
 - `DetectedConvention`
+  - `category`: `naming | structure | formatting | imports | patterns`
+  - includes `name`, `description`, `examples`, `confidence`
 - `ConventionReport`
+  - `conventions`, `language`, `filesAnalyzed`
 - `ConventionViolation`
+  - `file`, `line`, `convention`, `expected`, `actual`
 - `EnforcementResult`
+  - `violations`, `score`
 
-`DetectedConvention.category` values:
-- `naming`
-- `structure`
-- `formatting`
-- `imports`
-- `patterns`
-
-Notable detector outputs include convention names such as:
-- `camelCase variables` / `snake_case variables`
-- `PascalCase types`
-- `relative-imports` / `alias-imports`
-- `async-await` / `promise-then`
-- `function-style` / `class-style`
-- `named-exports` / `default-exports`
-- `barrel-exports`
-- `flat-structure` / `nested-structure`
+Convention names emitted by detector include:
+- Naming: `camelCase variables`, `snake_case variables`, `PascalCase types`
+- Formatting: `indent-tabs`, `indent-2spaces`, `indent-4spaces`, `single-quotes`, `double-quotes`, `semicolons`, `no-semicolons`
+- Imports: `relative-imports`, `alias-imports`, `type-imports`
+- Patterns: `async-await`, `promise-then`, `function-style`, `class-style`, `named-exports`, `default-exports`
+- Structure: `barrel-exports`, `flat-structure`, `nested-structure`
 
 ## Dependencies
 Direct module dependencies:
-- No external runtime dependencies in `src/conventions/*`.
-- Internal type-only import in enforcer: `./convention-detector.js`.
+- No external runtime imports inside `src/conventions/*`.
+- `convention-enforcer.ts` has only a type import from `./convention-detector.js`.
 
-Package-level context (`packages/codegen/package.json`):
-- This module ships within `@dzupagent/codegen` and is re-exported from package root.
-- The package depends on `@dzupagent/core` and `@dzupagent/adapter-types`, but the conventions module itself does not call either directly.
+Package context (`packages/codegen/package.json`):
+- Runtime dependencies: `@dzupagent/core`, `@dzupagent/adapter-types`.
+- Peer dependencies: `@langchain/core`, `@langchain/langgraph`, `zod`, optional `tree-sitter-wasms`, optional `web-tree-sitter`.
+
+The conventions module itself does not directly call those package dependencies.
 
 ## Integration Points
-Exports:
-- Local barrel: `src/conventions/index.ts`.
-- Package root: `src/index.ts` re-exports detector/enforcer APIs and types.
+Public integration surfaces:
+- Root package exports from `src/index.ts`:
+  - detector/enforcer functions and related types are re-exported.
+- Compat facade re-export from `src/compat.ts`:
+  - `export * from './conventions/index.js'`.
+- Package export map (`package.json`):
+  - module is consumable through root (`@dzupagent/codegen`) and compat path (`@dzupagent/codegen/compat`).
 
-Current in-repo usage:
-- Active usage is in tests and package export surface.
-- No direct runtime call sites were found in other codegen runtime modules (for example pipeline execution paths).
+Current internal usage inside `packages/codegen/src`:
+- No runtime call sites outside the conventions module itself.
+- Current non-export usage is test coverage under `src/__tests__`.
 
-Related but separate convention enforcement surface:
-- `src/quality/convention-gate.ts` defines `ConventionGate` with a different model (`LearnedConvention`) and built-in gate rules.
-- There is no direct adapter between `DetectedConvention` and `LearnedConvention` in current code.
+Adjacent but separate convention systems:
+- `src/quality/convention-gate.ts` (`ConventionGate`, `LearnedConvention`) is a different enforcement model.
+- `src/guardrails/convention-learner.ts` learns `ConventionSet` for guardrail rules.
+- There is no in-code adapter between `DetectedConvention` and `LearnedConvention`/`ConventionSet`.
 
 ## Testing and Observability
-Tests covering this module:
-- `src/__tests__/convention-detector-and-adapters.test.ts` exercises detector behavior across naming, formatting, imports, patterns, structure, language inference, and confidence filtering.
-- `src/__tests__/convention-enforcer.test.ts` exercises enforcement checker behavior, unknown conventions, scoring, and prompt generation.
-- `src/__tests__/branch-coverage-conventions-validation.test.ts` adds branch-focused checks for enforcer and prompt edge paths.
+Direct tests covering this module behavior:
+- `src/__tests__/convention-detector-and-adapters.test.ts`
+  - detector naming/format/import/pattern/structure/language and confidence filtering paths.
+- `src/__tests__/convention-enforcer.test.ts`
+  - checker behavior, unknown convention handling, score behavior, and prompt generation.
+- `src/__tests__/branch-coverage-conventions-validation.test.ts`
+  - branch-heavy enforcer cases (semicolon exceptions, quote/import exceptions, type-import heuristics) and prompt category filtering.
 
-Observability characteristics:
-- No built-in logging, tracing, metrics, or event emission.
-- Operational visibility is via returned data structures (`ConventionReport`, `EnforcementResult`) and test assertions.
+Package test runtime:
+- Vitest (`vitest.config.ts`), Node environment.
+- Includes `src/**/*.test.ts` and `src/**/*.spec.ts`.
+
+Observability:
+- No logging/telemetry hooks in conventions module.
+- Operational visibility is via returned `ConventionReport` and `EnforcementResult` values.
 
 ## Risks and TODOs
-Current risks:
-- Detector and enforcer convention vocabularies only partially overlap; many detected conventions are advisory only and not enforceable by `enforceConventions`.
-- Heuristic regex matching can misclassify edge syntax (for example complex strings/import patterns).
-- Enforcement score is line-density based, so multiple checker hits on one line can disproportionately reduce score.
-- `type-imports` enforcement uses uppercase-name heuristics and may miss or misclassify mixed imports.
+Current risks from implementation:
+- Vocabulary mismatch: detector emits many names that enforcer does not validate; only a subset is enforceable.
+- Heuristic limits: regex-based detection/enforcement can misclassify edge syntax and mixed-style files.
+- Score model: violation density is computed per line, but multiple checker hits can stack on one line and disproportionately reduce score.
+- `type-imports` checker is heuristic (uppercase-name based) and may miss or mislabel mixed imports.
+- Detector currently counts `named`/`defaultImport` in `detectImports` but does not expose a convention derived from those counters.
 
-TODOs inferred from current design gaps:
-- Add a formal mapping/coverage contract between detected convention names and enforceable convention names.
-- Decide whether to bridge `src/conventions/*` and `src/quality/convention-gate.ts` or keep them intentionally separate with explicit conversion utilities.
-- If runtime adoption is desired, add an explicit pipeline integration point rather than relying on ad hoc external calls.
+Practical TODOs:
+- Define and enforce an explicit mapping contract between detected names and enforceable names.
+- Decide whether to bridge conventions module outputs into `ConventionGate`/guardrail convention models.
+- If runtime adoption is expected, add a first-class integration point in pipeline/runtime modules instead of relying only on exported utility calls.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

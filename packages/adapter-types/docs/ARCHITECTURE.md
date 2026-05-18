@@ -1,150 +1,176 @@
 # @dzupagent/adapter-types Architecture
 
 ## Scope
-`@dzupagent/adapter-types` is a standalone TypeScript contract package under `packages/adapter-types`. It defines adapter-facing and consumer-facing types used across the DzupAgent workspace, with no runtime adapter implementation.
+`@dzupagent/adapter-types` is a layer-0 TypeScript contract package in `packages/adapter-types`.
+It ships shared types and minimal helper utilities for provider adapters, routing, workflow execution ports, and run-store telemetry.
 
-This refresh is based on current local files:
-- `src/index.ts`
+This package is intentionally implementation-light:
+- No concrete adapter/provider runtime implementation.
+- No external runtime dependencies in `package.json`.
+- Single public export entrypoint (`src/index.ts` -> `dist/index.js` / `dist/index.d.ts`).
+
+Primary source files:
 - `src/contracts/*.ts`
+- `src/provider-execution-port.ts`
+- `src/pipeline-executor-port.ts`
 - `src/utils/correlation.ts`
-- `src/__tests__/*.test.ts`
-- `package.json`, `tsconfig.json`, `tsup.config.ts`
-- `docs/analyze_codex.md`
-
-`packages/adapter-types/README.md` is still not present.
 
 ## Responsibilities
-- Provide a stable, dependency-light type surface for provider adapters (`AgentCLIAdapter`) and callers (`AgentInput`, `AgentEvent`, routing/config contracts).
-- Define normalized event contracts for adapter lifecycle, streaming deltas, interaction prompts/resolution, and enriched signals (memory recall and skill compilation).
-- Define side-channel persistence and governance contracts (`RawAgentEvent`, `AgentArtifactEvent`, `GovernanceEvent`, `RunSummary`).
-- Define capability matrix contracts used by skill/provider compatibility surfaces.
-- Define DzupAgent path/config contracts for `.dzupagent` memory/config wiring.
-- Export a small runtime helper (`withCorrelationId`) for safe correlation propagation on typed events.
+- Define provider-neutral adapter contracts (`AgentCLIAdapter`, `AgentInput`, `AdapterConfig`, `HealthStatus`, `SessionInfo`).
+- Define normalized adapter event contracts (`AgentEvent`, `AgentStreamEvent`, event payload types, cache stats).
+- Define policy and interaction contracts for pre-execution/run-time controls (`InteractionPolicy`, policy context/guardrail hints).
+- Define routing contracts (`TaskDescriptor`, `RoutingDecision`, `TaskRoutingStrategy`).
+- Define capability matrix contracts used by skill/provider compatibility logic.
+- Define DzupAgent memory/path contracts (`AdapterMemoryConfig`, `DzupAgentPaths`).
+- Define persistence/governance side-channel contracts (`RawAgentEvent`, `AgentArtifactEvent`, `GovernanceEvent`, `RunSummary`).
+- Define pre-flight validation contracts and combinators (`ValidationContract`, `composeValidators`, `passingResult`, `failingResult`).
+- Provide dependency-inverted port interfaces for orchestration integration (`ProviderExecutionPort`, `PipelineExecutorPort` and factory/config types).
+- Provide a single runtime helper for immutable correlation propagation (`withCorrelationId`).
 
 ## Structure
 - `src/index.ts`
-  Re-export entrypoint for all contract modules and utilities.
+  Re-exports all public contracts and helpers.
 - `src/contracts/provider.ts`
-  `AdapterProviderId` union: `claude | codex | gemini | gemini-sdk | qwen | crush | goose | openrouter | openai`.
+  Defines `AdapterProviderId` union: `claude`, `codex`, `gemini`, `gemini-sdk`, `qwen`, `crush`, `goose`, `openrouter`, `openai`.
 - `src/contracts/interaction.ts`
-  Interaction policy model (`InteractionPolicyMode`, `InteractionPolicy`) for mid-execution questions/approvals.
+  Defines interaction policy modes (`auto-approve`, `auto-deny`, `default-answers`, `ai-autonomous`, `ask-caller`) and per-mode options.
+- `src/contracts/token-usage.ts`
+  Defines normalized token/cost accounting shape.
 - `src/contracts/execution.ts`
-  Core execution contracts: `AdapterCapabilityProfile`, `AgentInput`, `TokenUsage`, `HealthStatus`, `SessionInfo`, `EnvFilterConfig`, `AdapterConfig`, `AgentCLIAdapter`.
+  Defines execution input, policy transport types, adapter capability profile, monitor health shape, adapter config, and `AgentCLIAdapter` interface.
 - `src/contracts/events.ts`
-  Unified stream contracts: `AgentEvent`, event payload interfaces, `ProviderRawStreamEvent`, and `AgentStreamEvent`.
+  Defines unified adapter event union, map-reduce runtime event union, provider raw stream wrapper, and cache stats event.
 - `src/contracts/routing.ts`
-  Task routing contracts: `TaskDescriptor`, `RoutingDecision`, `TaskRoutingStrategy`.
+  Defines task routing descriptor/decision/strategy contracts.
 - `src/contracts/capabilities.ts`
-  Capability matrix contracts: `CapabilityStatus`, `ProviderCapabilityRow`, `SkillCapabilityMatrix`.
+  Defines provider capability matrix contracts.
 - `src/contracts/dzupagent.ts`
-  DzupAgent config/path contracts: `CodexMemoryStrategy`, `AdapterMemoryConfig`, deprecated alias `DzupAgentConfig`, `DzupAgentPaths`.
+  Defines adapter memory config/path contracts and deprecated alias `DzupAgentConfig`.
 - `src/contracts/run-store.ts`
-  Persistence/governance contracts: `RawAgentEvent`, `AgentArtifactEvent`, `GovernanceEventKind`, `GovernanceEvent`, `RunStatus`, `RunSummary`.
+  Defines raw event/artifact/governance/run-summary contracts.
+- `src/contracts/validation.ts`
+  Defines pre-flight validation contract types and validator composition/result helpers.
+- `src/provider-execution-port.ts`
+  Defines provider execution DI port (`stream`, `run`) and result type.
+- `src/pipeline-executor-port.ts`
+  Defines pipeline runtime DI port/factory and structural execution/result/event/context contracts.
 - `src/utils/correlation.ts`
-  `withCorrelationId<T extends AgentEvent>(event, correlationId)` helper.
+  Defines `withCorrelationId` helper.
 - `src/__tests__/*.test.ts`
-  Seven contract suites covering core types, lifecycle events, adapter interface fixture, config variants, routing, run-store fixtures, and correlation helper behavior.
-- `tsup.config.ts`
-  ESM build from `src/index.ts`, declaration generation, `target: 'node20'`.
-- `tsconfig.json`
-  Strict NodeNext TypeScript config with declaration/source maps.
+  Contract-focused coverage for public surface, event lifecycle, routing, run-store fixtures, adapter interface fixture, correlation helper, and pipeline executor port.
 
 ## Runtime and Control Flow
-This package is mostly declarative types; runtime behavior is intentionally minimal.
+This package is mostly declarative; runtime behavior is limited to helper/composition utilities.
 
-Contract-level flow modeled by `execution.ts` and `events.ts`:
-1. Caller builds `AgentInput` (`prompt` required; optional controls like `maxTurns`, `maxBudgetUsd`, `resumeSessionId`, `signal`, `outputSchema`, `correlationId`).
-2. Adapter implementation executes `AgentCLIAdapter.execute(input)` and yields `AgentEvent` values.
-3. Consumers discriminate on `event.type` and handle lifecycle, tool, stream, interaction, and terminal events.
-4. Optional raw stream path is `executeWithRaw(input)` yielding `AgentStreamEvent` (`AgentEvent | adapter:provider_raw`).
-5. Resume and control hooks are surfaced by `resumeSession`, `interrupt`, `configure`, `healthCheck`, and optional `respondInteraction`, `listSessions`, `forkSession`, `warmup`.
+Core execution flow modeled by contracts:
+1. Caller constructs `AgentInput` (prompt required; optional budget/turn/policy/correlation/schema fields).
+2. Adapter implementation executes `AgentCLIAdapter.execute(input)` and emits normalized `AgentEvent` items.
+3. Consumers branch on discriminated `event.type` to process lifecycle, streaming, tool, progress, interaction, memory/skills, and terminal events.
+4. Raw-capable adapters may additionally emit `AgentStreamEvent` via `executeWithRaw`, where `adapter:provider_raw` wraps `RawAgentEvent`.
+5. Resume/control hooks (`resumeSession`, `interrupt`, `configure`, `healthCheck`) are standardized on the adapter interface.
 
-Correlation propagation flow:
-1. Caller sets `AgentInput.correlationId`.
-2. Adapters propagate that value on emitted events.
-3. `withCorrelationId` can stamp normalized events without mutating the original event object.
-
-Persistence-side flow represented in `run-store.ts`:
+Run-store and governance side-channel flow modeled by contracts:
 1. Provider-native output can be persisted as `RawAgentEvent`.
-2. File mutations are tracked as `AgentArtifactEvent`.
-3. Governance side-channel signals are modeled by `GovernanceEvent`.
-4. Terminal aggregation is represented by `RunSummary`.
+2. Artifact mutations are modeled as `AgentArtifactEvent`.
+3. Governance-plane signals are modeled as `GovernanceEvent`.
+4. Terminal aggregate state is modeled as `RunSummary` with `RunStatus`.
+
+Validation flow modeled by `validation.ts`:
+1. One or more `ValidationContract` implementations inspect `AgentInput` plus `ValidationContext`.
+2. `composeValidators` runs all validators and merges issues.
+3. `ok: false` indicates error-severity issues and should gate adapter execution before side effects.
 
 ## Key APIs and Types
-- Adapter interface:
-  `AgentCLIAdapter`.
-- Execution input/config:
-  `AgentInput`, `AdapterConfig`, `EnvFilterConfig`, `InteractionPolicy`, `InteractionPolicyMode`.
-- Capability and health:
-  `AdapterCapabilityProfile`, `HealthStatus`, `SessionInfo`, `TokenUsage`.
-- Event model:
-  `AgentEvent`, `AgentStreamEvent`, `ProviderRawStreamEvent`.
-- Event payload types:
-  `AgentStartedEvent`, `AgentMessageEvent`, `AgentToolCallEvent`, `AgentToolResultEvent`, `AgentCompletedEvent`, `AgentFailedEvent`, `AgentRecoveryCancelledEvent`, `AgentStreamDeltaEvent`, `AgentProgressEvent`, `AgentMemoryRecalledEvent`, `AgentSkillsCompiledEvent`, `AgentInteractionRequiredEvent`, `AgentInteractionResolvedEvent`.
-- Routing:
+- Adapter provider and execution contracts:
+  `AdapterProviderId`, `AgentCLIAdapter`, `AgentInput`, `AdapterConfig`, `AdapterCapabilityProfile`, `HealthStatus`, `SessionInfo`, `TokenUsage`.
+- Policy and interaction contracts:
+  `AgentInputPolicy`, `AgentPolicyExecutionContext`, `AgentPolicyGuardrailHints`, `AgentPolicyConformanceMode`, `InteractionPolicy`, `InteractionPolicyMode`.
+- Event contracts:
+  `AgentEvent`, `AgentStreamEvent`, `ProviderRawStreamEvent`, `AgentCacheStatsEvent`, `AdapterRuntimeEventBusEvent`, `MapReduceRuntimeEvent`.
+- Routing contracts:
   `TaskDescriptor`, `RoutingDecision`, `TaskRoutingStrategy`.
-- Skill capability matrix:
+- Capability contracts:
   `CapabilityStatus`, `ProviderCapabilityRow`, `SkillCapabilityMatrix`.
-- DzupAgent config/path:
+- DzupAgent config/path contracts:
   `CodexMemoryStrategy`, `AdapterMemoryConfig`, `DzupAgentConfig` (deprecated alias), `DzupAgentPaths`.
-- Run-store/governance:
+- Run-store and governance contracts:
   `RawAgentEvent`, `AgentArtifactEvent`, `GovernanceEventKind`, `GovernanceEvent`, `RunStatus`, `RunSummary`.
+- Validation contracts/utilities:
+  `ValidationSeverity`, `ValidationIssue`, `ValidationResult`, `ValidationContext`, `ValidationContract`, `composeValidators`, `passingResult`, `failingResult`.
+- Port contracts:
+  `ProviderExecutionPort`, `ProviderExecutionResult`, `PipelineExecutorPort`, `PipelineExecutorFactory`, `PipelineExecutorConfig`, `PipelineExecutorRunResult`, `PipelineExecutorNodeContext`, `PipelineExecutorNodeResult`, `PipelineExecutorState`.
 - Utility:
   `withCorrelationId`.
 
 ## Dependencies
-- Runtime dependencies:
-  none in `package.json`.
-- Dev dependencies:
-  `tsup`, `typescript`.
-- Scripts:
-  `build` (`tsup`), `lint` (`eslint src/`), `test` (`vitest run`), `typecheck` (`tsc --noEmit`).
-- Build/export surface:
-  ESM-only export map at `"."` -> `dist/index.js` with types at `dist/index.d.ts`.
+`package.json` dependencies:
+- Runtime dependencies: none.
+- Dev dependencies: `tsup`, `typescript`.
+
+Build and packaging:
+- ESM package (`"type": "module"`).
+- Entry: `src/index.ts`.
+- Build output: `dist/` with JS + declarations (`tsup`, `dts: true`).
+- Export map exposes only `"."` (`dist/index.js`, `dist/index.d.ts`).
+
+Tooling scripts:
+- `build`: `tsup`
+- `lint`: `eslint src/`
+- `test`: `vitest run`
+- `typecheck`: `tsc --noEmit`
+
+TypeScript configuration highlights (`tsconfig.json`):
+- `module`/`moduleResolution`: `NodeNext`
+- `target`: `ES2022`
+- `strict` enabled
+- `noUncheckedIndexedAccess` enabled
 
 ## Integration Points
-- `packages/agent-adapters/src/types.ts`
-  Re-exports the full surface from `@dzupagent/adapter-types`.
-- `packages/agent/src/orchestration/provider-adapter/provider-execution-port.ts`
-  Imports only adapter-types contracts to preserve dependency inversion between `agent` and `agent-adapters`.
-- `packages/codegen/src/generation/codegen-run-engine.ts`
-  Uses `AgentCLIAdapter`, `AgentInput`, `AgentEvent`, and terminal event types to drive adapter-based codegen flow.
-- `packages/agent-adapters/src/providers.ts`
-  Re-exports adapter contract types (including governance types) for provider-focused consumers.
-- `packages/agent-adapters/src/persistence.ts`
-  Re-exports `RawAgentEvent`, `ProviderRawStreamEvent`, `AgentArtifactEvent`, and `RunSummary`.
-- `packages/agent-adapters/src/skills/skill-capability-matrix.ts`
-  Uses capability matrix contracts and `AdapterProviderId`.
-- `packages/adapter-rules/src/types.ts` and `packages/adapter-rules/src/compiler.ts`
-  Use `AdapterProviderId` in compile-time/runtime plan types and matching logic.
-- `packages/create-dzupagent/src/bridge.ts`
-  Mirrors `DzupAgentPaths` shape for optional dynamic wiring.
+Current package consumers in the monorepo include:
+- `packages/agent-adapters`
+  Uses adapter/event/run-store/capability contracts, validation contracts, and pipeline/provider execution port contracts.
+- `packages/agent`
+  Imports provider execution port contracts in orchestration boundary (`provider-adapter` integration seam).
+- `packages/codegen`
+  Uses adapter execution/event contracts in generation engine and tests.
+- `packages/adapter-rules`
+  Uses `AdapterProviderId` in compiler/projector/type contracts.
+- `packages/runtime-contracts`
+  Mirrors pipeline execution contract shapes to keep runtime boundaries stable.
+- `packages/create-dzupagent`
+  Mirrors/consumes DzupAgent path contract shape (`DzupAgentPaths`) for bridge wiring.
+
+The package is used as a dependency-inversion anchor so higher-level runtime packages can share contract types without importing concrete adapter implementations.
 
 ## Testing and Observability
-- Package test suites:
-  - `adapter-types.test.ts`
-  - `adapter-types.integration.test.ts`
-  - `agent-cli-adapter-contract.test.ts`
-  - `adapter-config-variants.test.ts`
-  - `adapter-routing-contracts.test.ts`
-  - `adapter-run-store-contracts.test.ts`
-  - `correlation.test.ts`
-- Verified on this refresh:
-  - `yarn workspace @dzupagent/adapter-types test` passed (`7` files, `20` tests).
-  - `yarn workspace @dzupagent/adapter-types typecheck` passed.
-- Observability-related contract features:
-  - `correlationId` available on `AgentInput`, all `AgentEvent` payloads, and run-store entities.
-  - Explicit stream/progress/interaction events (`adapter:stream_delta`, `adapter:progress`, `adapter:interaction_required`, `adapter:interaction_resolved`).
-  - Raw provider side-channel modeled by `adapter:provider_raw` and `RawAgentEvent`.
-  - Governance telemetry plane modeled by `GovernanceEvent`.
+Tests under `src/__tests__`:
+- `adapter-types.test.ts`
+- `adapter-types.integration.test.ts`
+- `agent-cli-adapter-contract.test.ts`
+- `adapter-config-variants.test.ts`
+- `adapter-routing-contracts.test.ts`
+- `adapter-run-store-contracts.test.ts`
+- `correlation.test.ts`
+- `pipeline-executor-port.test.ts`
+
+Coverage intent:
+- Preserve discriminated-union behavior for `AgentEvent`.
+- Validate adapter interface fixture semantics.
+- Validate routing/run-store contract shape and fixture compatibility.
+- Validate correlation helper behavior.
+- Validate pipeline executor port structural implementability without `@dzupagent/agent` dependency.
+
+Observability-relevant contract fields:
+- `correlationId` on input/events/run-store entities.
+- Explicit progress/interaction/memory/skills/cache event types.
+- Side-channel raw provider event and governance event contracts.
 
 ## Risks and TODOs
-- Add a package-level `README.md` to document public contracts for external adapter authors.
-- Keep provider-id checks aligned with the current union: some tests still use representative provider subsets and do not assert all union members (`gemini-sdk`, `openai` are not covered in the baseline provider list test).
-- Consider adding compile-time API lock tests (for example `tsd`-style assertions) alongside runtime fixture tests to catch accidental type drift.
-- `DzupAgentConfig` is a deprecated alias of `AdapterMemoryConfig`; consumers should migrate to the non-deprecated name.
-- `src/index.ts` is a broad barrel; monitor merge pressure as contract count grows.
+- `README.md` usage sample depends on root exports staying current (for example `ProviderExecutionPort`); keep README examples synchronized when public exports change.
+- Provider-ID union includes `gemini-sdk` and `openai`; baseline contract tests use a subset list. Keep tests aligned if provider set changes.
+- `DzupAgentConfig` is deprecated alias of `AdapterMemoryConfig`; downstream packages should migrate to the non-deprecated name.
+- The package currently exports a broad barrel from `src/index.ts`; accidental breaking API changes are possible without explicit API snapshot tests.
+- Validation and port contracts are interface-only; runtime conformance depends on downstream implementation discipline.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

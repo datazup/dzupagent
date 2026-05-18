@@ -1,158 +1,153 @@
 # Streaming Architecture (`@dzupagent/codegen`)
 
 ## Scope
-This document covers the code under `packages/codegen/src/streaming`:
+This document covers the streaming subsystem implemented in `packages/codegen/src/streaming`.
 
 - `codegen-stream-event.ts`
 - `merge-codegen-streams.ts`
 - `index.ts`
 
-It also references direct package-level integration points that expose this module:
+It also covers immediate integration points inside `packages/codegen` that expose or verify this subsystem.
 
-- `packages/codegen/src/index.ts` (root exports)
-- `packages/codegen/src/__tests__/codegen-streaming.test.ts` (behavioral coverage)
+- `src/index.ts` (root exports)
+- `src/__tests__/codegen-streaming.test.ts` (behavioral tests)
+- package-level publish surface in `package.json` (`.` root export only)
 
-Out of scope:
+Out of scope for this document:
 
-- Adapter/event-bus streaming in `src/generation/codegen-run-engine.ts`
-- Sandbox command streaming in `src/sandbox/sandbox-protocol-v2.ts` and provider implementations
+- Adapter event streaming and event-bus forwarding in `src/generation/codegen-run-engine.ts`
+- Sandbox session stream events in `src/sandbox/sandbox-protocol-v2.ts`
+- Preview streaming usage in `src/tools/preview-app.tool.ts`
 
-Those are separate streaming surfaces with different event contracts.
+Those are separate streaming contracts.
 
 ## Responsibilities
-`src/streaming` provides a small, generic stream contract for codegen pipeline consumers:
+`src/streaming` has two responsibilities.
 
-- Define a discriminated union (`CodegenStreamEvent`) for pipeline/file/test/error progress events.
-- Provide a fan-in utility (`mergeCodegenStreams`) that merges multiple `AsyncIterable<CodegenStreamEvent>` sources into one async generator.
-- Convert source-level iterable failures into `codegen:error` events so other sources can continue draining.
+- Define a typed codegen stream event union (`CodegenStreamEvent`) for file patch, test result, pipeline step, done, and error events.
+- Provide fan-in merging (`mergeCodegenStreams`) for multiple `AsyncIterable<CodegenStreamEvent>` sources.
 
-The module does not currently:
+It intentionally does not:
 
-- Start or manage generation runs.
-- Connect directly to `DzupEventBus`.
-- Own adapter or sandbox streaming lifecycles.
+- Start code generation runs.
+- Translate adapter events.
+- Emit to `DzupEventBus`.
+- Manage sandbox sessions or command-stream lifecycles.
 
 ## Structure
 Current files and roles:
 
-- `codegen-stream-event.ts`
-- Defines `CodegenStreamEvent` union members and payload shape.
+- `codegen-stream-event.ts`: declares `CodegenStreamEvent` as a discriminated union.
+- `codegen-stream-event.ts` event variants: `codegen:file_patch`, `codegen:test_result`, `codegen:pipeline_step`, `codegen:done`, `codegen:error`.
+- `merge-codegen-streams.ts`: exports `mergeCodegenStreams(...iterables)`.
+- `merge-codegen-streams.ts`: starts one async drain task per source iterable.
+- `merge-codegen-streams.ts`: uses an in-memory queue to interleave source output by arrival.
+- `merge-codegen-streams.ts`: converts source exceptions into emitted `codegen:error` events.
+- `index.ts`: re-exports `CodegenStreamEvent` and `mergeCodegenStreams`.
 
-- `merge-codegen-streams.ts`
-- Implements async fan-in merge with per-source concurrency.
-- Emits synthetic `codegen:error` when a source throws.
+Export surface in package:
 
-- `index.ts`
-- Re-exports `CodegenStreamEvent` and `mergeCodegenStreams`.
-
-Package export path:
-
-- `src/index.ts` re-exports streaming symbols from `./streaming/index.js`.
-- `package.json` exposes only root entrypoint (`dist/index.js`), so streaming is consumed through `@dzupagent/codegen` root exports.
+- `src/index.ts` re-exports streaming APIs.
+- `src/runtime.ts`, `src/tools.ts`, and `src/vfs.ts` do not re-export streaming APIs.
+- `package.json` publishes only root subpath `.` for these symbols (no dedicated `./streaming` export).
 
 ## Runtime and Control Flow
-`mergeCodegenStreams(...iterables)` behavior:
+`mergeCodegenStreams` runtime behavior:
 
-1. If no iterables are passed, it returns immediately.
-2. It starts one async drain task per source iterable.
-3. Each source pushes queue items (`value`, `done`, or `error`) into a shared queue.
-4. The main loop waits for queue notifications and yields events as items arrive.
-5. On source error, it decrements active-source count and yields one `codegen:error` event with normalized message text.
-6. It continues processing remaining sources until all sources have ended (`done` or `error`).
+1. Accepts zero or more `AsyncIterable<CodegenStreamEvent>` sources.
+2. If zero sources are passed, returns immediately.
+3. Spawns one background async loop per source.
+4. Each source loop pushes queue items with one of three shapes: `{ done: false, value, sourceIndex }`, `{ done: true, sourceIndex }`, `{ error: true, sourceIndex, err }`.
+5. A shared notifier resolves waiting consumer loop iterations.
+6. Main loop drains queued items until all sources are terminal (`done` or `error`).
+7. On source error, the merge emits one `codegen:error` event with normalized message text and continues draining remaining sources.
 
-Ordering guarantees and limits:
+Ordering semantics:
 
-- Intra-source order is preserved.
-- Cross-source order is arrival-based (interleaved).
-- No global timestamp ordering or deterministic source prioritization is implemented.
+- Per-source event order is preserved.
+- Cross-source ordering is best-effort arrival order.
+- No global priority, timestamp sort, or fairness policy is implemented.
 
 ## Key APIs and Types
-`CodegenStreamEvent` variants:
+`CodegenStreamEvent` (`src/streaming/codegen-stream-event.ts`):
 
-- `codegen:file_patch`
-- Payload: `{ filePath: string; patch: string }`
+- `{ type: 'codegen:file_patch'; filePath: string; patch: string }`
+- `{ type: 'codegen:test_result'; passed: boolean; output: string; testFile?: string }`
+- `{ type: 'codegen:pipeline_step'; step: string; status: 'started' | 'completed' | 'failed'; durationMs?: number }`
+- `{ type: 'codegen:done'; summary: string; filesChanged: string[] }`
+- `{ type: 'codegen:error'; message: string; step?: string }`
 
-- `codegen:test_result`
-- Payload: `{ passed: boolean; output: string; testFile?: string }`
+`mergeCodegenStreams` (`src/streaming/merge-codegen-streams.ts`):
 
-- `codegen:pipeline_step`
-- Payload: `{ step: string; status: 'started' | 'completed' | 'failed'; durationMs?: number }`
-
-- `codegen:done`
-- Payload: `{ summary: string; filesChanged: string[] }`
-
-- `codegen:error`
-- Payload: `{ message: string; step?: string }`
-
-Merge API:
-
-- `mergeCodegenStreams(...iterables: AsyncIterable<CodegenStreamEvent>[]): AsyncGenerator<CodegenStreamEvent>`
-
-Error handling semantics:
-
-- Source throws do not terminate the merged stream immediately.
-- Each thrown source contributes one emitted `codegen:error` event.
-- Remaining healthy sources continue and can still emit `codegen:done`.
+- Signature: `(...iterables: AsyncIterable<CodegenStreamEvent>[]) => AsyncGenerator<CodegenStreamEvent>`
+- Emits source events unchanged.
+- Emits synthesized `codegen:error` when a source throws.
 
 ## Dependencies
-Direct dependencies inside `src/streaming`:
+Direct dependencies of the streaming module:
 
-- No external package dependencies.
-- Internal dependency only: `merge-codegen-streams.ts` imports `CodegenStreamEvent` type from `codegen-stream-event.ts`.
+- No runtime third-party dependencies.
+- Type-only local dependency from `merge-codegen-streams.ts` to `codegen-stream-event.ts`.
 
-Build/runtime context:
+Build and package context affecting this module:
 
-- Compiled with package TypeScript/tsup pipeline.
-- Exposed through the root package export surface defined in `src/index.ts` and `package.json`.
+- Built by `tsup` from package root entrypoints (`src/index.ts`, `src/runtime.ts`, `src/tools.ts`, `src/vfs.ts`, `src/compat.ts`).
+- Type-checked by package TypeScript config.
+- Published through root export map in `package.json`.
 
 ## Integration Points
-Current verified integrations in `packages/codegen`:
+Verified usage and exposure inside `packages/codegen`:
 
-- Root re-export in `src/index.ts`:
-  - `export type { CodegenStreamEvent } from './streaming/index.js'`
-  - `export { mergeCodegenStreams } from './streaming/index.js'`
+- `src/index.ts` exports `CodegenStreamEvent` from `./streaming/index.js`.
+- `src/index.ts` exports `mergeCodegenStreams` from `./streaming/index.js`.
+- `src/__tests__/codegen-streaming.test.ts` imports both symbols and validates behavior.
 
-- Direct in-package usage:
-  - `src/__tests__/codegen-streaming.test.ts`
+Verified non-integration boundaries that matter for consumers:
 
-Current boundary reality:
-
-- `CodegenRunEngine` uses adapter event types and forwards normalized bus events, but it does not import `CodegenStreamEvent` or `mergeCodegenStreams`.
-- Sandbox streaming (`ExecEvent`) is a separate contract and does not compose with `CodegenStreamEvent` in current code.
+- `CodegenRunEngine` (`src/generation/codegen-run-engine.ts`) maps `adapter:stream_delta` to `agent:stream_delta` on `DzupEventBus`, but does not consume `CodegenStreamEvent` or `mergeCodegenStreams`.
+- `SandboxProtocolV2` defines `ExecEvent` (`stdout`, `stderr`, `exit`) for `executeStream`, separate from `CodegenStreamEvent`.
+- `preview_app` tool consumes sandbox `executeStream` events directly, not `CodegenStreamEvent`.
 
 ## Testing and Observability
-Test coverage for this module lives in:
+Primary tests:
 
 - `src/__tests__/codegen-streaming.test.ts`
 
-Covered behaviors include:
+Covered behaviors in this test file:
 
-- Discriminant/type-shape checks for all `CodegenStreamEvent` variants.
-- Merge with single and multiple sources.
+- Event-type discrimination and field-shape checks for all `CodegenStreamEvent` variants.
+- Single-source pass-through.
+- Multi-source merge and interleaving.
 - Empty-source and zero-source behavior.
-- Error isolation (one source fails, others continue).
-- Non-`Error` thrown values converted to `codegen:error` message.
-- Pass-through integrity for terminal `codegen:done` events.
+- Continued draining when one source throws.
+- Error normalization for non-`Error` thrown values.
+- Pass-through of `codegen:done` payload.
 
-Observability notes:
+Package-level test and coverage environment (applies to this module too):
 
-- This module itself emits no logs/metrics/traces.
-- Observability is provided by consumers that iterate and process emitted events.
+- Vitest `node` environment.
+- Coverage provider `v8`.
+- Thresholds: statements 60, branches 50, functions 50, lines 60.
+
+Observability characteristics:
+
+- This module emits no logs, metrics, or traces.
+- Operational visibility depends on whichever consumer iterates and records emitted events.
 
 ## Risks and TODOs
-Current risks:
+Current risks from implementation reality:
 
-- Unbounded queue growth risk in `mergeCodegenStreams` if producers outpace consumer iteration.
-- No cancellation/abort integration; consumer stop behavior relies on async generator lifecycle only.
-- `codegen:error` events generated by merge include message only (no source identifier in payload), which can reduce debugging precision for multi-source fan-in.
-- Streaming contracts are fragmented across codegen events, adapter events, and sandbox exec events with no current shared adapter layer in this module.
+- In-memory queue is unbounded; high producer throughput can grow memory if consumer iteration is slow.
+- No explicit cancellation or abort hook (for example, `AbortSignal`) in merge API.
+- Synthesized `codegen:error` includes normalized message but omits `sourceIndex` in payload, reducing multi-source debugging fidelity.
+- Streaming contracts remain split across codegen events, adapter events, and sandbox exec events; there is no shared bridge in this module.
 
-Current TODO direction (grounded in existing code boundaries):
+Reasonable TODO directions consistent with current code:
 
-- Add optional backpressure or queue-limit policy for high-volume stream merging.
-- Add optional source metadata propagation in emitted error events (for example, source index).
-- Define and document a mapping layer only if a future consumer needs bridging between `CodegenStreamEvent` and other streaming contracts.
+- Consider optional bounded buffering or backpressure strategy for the merge queue.
+- Consider optional source metadata propagation for synthesized error events.
+- Consider optional cancellation support in the merge API if long-lived fan-in usage expands.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.
-- 2026-04-26: rewritten from current local implementation in `src/streaming`, package root exports, and streaming tests.
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js.
+- 2026-05-17: rewritten against current `src/streaming` implementation, root exports, package manifest, and streaming-focused tests.

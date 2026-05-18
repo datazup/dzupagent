@@ -1,124 +1,86 @@
 # Guardrails Architecture
 
 ## Scope
-This document covers `packages/codegen/src/guardrails` and its direct execution path through `packages/codegen/src/pipeline/guardrail-gate.ts` and `packages/codegen/src/pipeline/pipeline-executor.ts`.
+This document describes the current guardrails subsystem in `packages/codegen/src/guardrails` and its runtime gate integration in `packages/codegen/src/pipeline`.
 
-Within this scope, guardrails are static checks over generated file content (`GeneratedFile[]`) and project layout metadata (`ProjectStructure`). The module does not apply fixes automatically; it reports violations and lets pipeline consumers decide whether to block.
+Covered files are `src/guardrails/guardrail-types.ts`, `src/guardrails/guardrail-engine.ts`, `src/guardrails/convention-learner.ts`, `src/guardrails/guardrail-reporter.ts`, `src/guardrails/rules/*`, and `src/guardrails/index.ts`. Related pipeline touchpoints are `src/pipeline/guardrail-gate.ts`, `src/pipeline/pipeline-executor.ts`, and `src/pipeline/gen-pipeline-builder.ts`.
+
+The module scope is static analysis of `GeneratedFile[]` content and pass/fail gate decisions. It does not apply automatic code fixes.
 
 ## Responsibilities
-- Define shared guardrail contracts (`GuardrailContext`, `GuardrailRule`, `GuardrailReport`, violations, conventions).
-- Execute a configurable set of rules with category/rule disables, fail-fast behavior, and per-rule severity overrides.
-- Provide built-in rules for layering, deep import restrictions, naming conventions, secret detection, type-safety checks, and interface/class contract completeness.
-- Learn naming/import conventions from sample files to parameterize rule behavior.
-- Format reports as text or JSON for pipeline output and developer-facing diagnostics.
-- Expose a gate function (`runGuardrailGate`) used by `PipelineExecutor` to pass/fail phases.
+- Define guardrail contracts for context, rules, violations, reports, project structure, and conventions.
+- Execute registered rules through `GuardrailEngine` with fail-fast, rule/category disable lists, and per-rule severity overrides.
+- Provide built-in rules for layering, deep import restrictions, naming conventions, secret detection, type-safety anti-patterns, and class/interface contract completeness.
+- Learn conventions from file samples through `ConventionLearner`.
+- Render guardrail output as text or JSON through `GuardrailReporter`.
+- Expose gate semantics via `runGuardrailGate` for pipeline-level blocking.
 
 ## Structure
-- `guardrail-types.ts`: Core types for rules, contexts, reports, conventions, and project metadata.
-- `guardrail-engine.ts`: `GuardrailEngine` with rule registration and evaluation.
-- `convention-learner.ts`: `ConventionLearner` heuristics and per-instance caching.
-- `guardrail-reporter.ts`: `GuardrailReporter` (`text`/`json`) with severity filtering and category grouping.
-- `rules/index.ts`: Built-in rule factory exports and `createBuiltinRules()` ordering.
-- `rules/layering-rule.ts`: Layer-direction checks for scoped package imports.
-- `rules/import-restriction-rule.ts`: Deep-import restriction checks for configured scopes.
-- `rules/naming-convention-rule.ts`: File/export naming checks driven by `ConventionSet`.
-- `rules/security-rule.ts`: Regex-based hardcoded secret/token detection.
-- `rules/type-safety-rule.ts`: Forbids `any`, `@ts-ignore`, `@ts-nocheck`; warns on `@ts-expect-error`.
-- `rules/contract-compliance-rule.ts`: Regex/brace-depth interface vs class implementation checks.
-- `index.ts`: Guardrails submodule barrel exports.
-
-Related pipeline wiring in `src/pipeline`:
-- `guardrail-gate.ts`: Adapts engine output to pass/fail gate semantics.
-- `pipeline-executor.ts`: Runs guardrail checks after successful phase execution when configured.
-- `gen-pipeline-builder.ts`: Stores guardrail gate config and inserts a `guardrail` phase descriptor.
+- `guardrail-types.ts`: Defines `GuardrailContext`, `GuardrailRule`, `GuardrailViolation`, `GuardrailReport`, `ProjectStructure`, `ConventionSet`, and category/severity unions. `GuardrailContext` includes optional `repoMap?: RepoMap`.
+- `guardrail-engine.ts`: Implements `GuardrailEngineConfig` and `GuardrailEngine` with in-memory rule registration and report aggregation.
+- `convention-learner.ts`: Implements `ConventionLearner` and `ConventionLearnerConfig` for inferred naming/export/import conventions with instance caching.
+- `guardrail-reporter.ts`: Implements `GuardrailReporter` and `ReporterConfig` for text/JSON output, category grouping, and info-level filtering.
+- `rules/index.ts`: Exports all rule factories and `createBuiltinRules()` in this order: `createLayeringRule()`, `createImportRestrictionRule()`, `createNamingConventionRule()`, `createSecurityRule()`, `createTypeSafetyRule()`, `createContractComplianceRule()`.
+- `rules/layering-rule.ts`: Enforces dependency direction using configured/default package layers.
+- `rules/import-restriction-rule.ts`: Blocks deep scoped-package imports except allowed subpaths.
+- `rules/naming-convention-rule.ts`: Checks filename and export naming against `ConventionSet`.
+- `rules/security-rule.ts`: Detects hardcoded credentials and tokens by regex patterns.
+- `rules/type-safety-rule.ts`: Detects `any`, `@ts-ignore`, `@ts-nocheck`, and warning-level `@ts-expect-error`.
+- `rules/contract-compliance-rule.ts`: Parses interface/class members via regex and brace depth to detect missing implementations.
+- `index.ts`: Barrel export for types, engine, learner, reporter, and built-in rules.
 
 ## Runtime and Control Flow
-1. A consumer creates a `GuardrailEngine`, typically registers rules via `createBuiltinRules()`, and optionally creates a `GuardrailReporter`.
-2. A `GuardrailContext` is built from generated files, project structure, and conventions.
-3. `GuardrailEngine.evaluate(context)` filters disabled categories/rules, executes rules in registration order, applies severity overrides, aggregates violations, and computes counts.
-4. If `failFast` is enabled, evaluation stops on the first rule result that contains error-severity violations.
-5. `runGuardrailGate({ engine, strictMode, reporter }, context)` determines gate result:
-- Non-strict: pass when `errorCount === 0`.
-- Strict: pass when `errorCount === 0 && warningCount === 0`.
-6. In `PipelineExecutor`, when `guardrailGate` and `buildGuardrailContext` are provided, the gate runs after phase output is merged into state.
-7. Executor stores gate summary under `state.__phase_<phaseId>_guardrail` and fails the phase with `summarizeGateResult(...)` when blocking conditions are met.
+1. The caller constructs `GuardrailEngine`, optionally with `GuardrailEngineConfig`, and registers rules.
+2. The caller prepares `GuardrailContext` with `files`, `projectStructure`, `conventions`, and optional `repoMap`.
+3. `GuardrailEngine.evaluate(context)` filters disabled rules/categories, runs enabled rules in order, applies severity overrides, computes per-rule pass state, and aggregates violation counts.
+4. If `failFast` is enabled, evaluation stops after the first rule result containing error-severity violations.
+5. Optional formatting runs through `GuardrailReporter.format(report)`.
+6. Gate evaluation runs through `runGuardrailGate({ engine, strictMode?, reporter? }, context)`. Non-strict mode passes when `errorCount === 0`. Strict mode passes when `errorCount === 0 && warningCount === 0`.
+7. `PipelineExecutor` executes guardrails only when `ExecutorConfig.guardrailGate` and `buildGuardrailContext` are both provided. The executor records `state.__phase_<phaseId>_guardrail = { passed, errorCount, warningCount }` and fails the phase when the gate blocks.
 
 ## Key APIs and Types
-- `GuardrailEngineConfig`
-- `failFast?: boolean`
-- `disabledCategories?: GuardrailCategory[]`
-- `disabledRules?: string[]`
-- `severityOverrides?: Map<string, GuardrailSeverity>`
-
-- `class GuardrailEngine`
-- `addRule(rule: GuardrailRule): this`
-- `addRules(rules: GuardrailRule[]): this`
-- `getRules(): readonly GuardrailRule[]`
-- `evaluate(context: GuardrailContext): GuardrailReport`
-
-- `interface GuardrailContext`
-- `files: GeneratedFile[]`
-- `projectStructure: ProjectStructure`
-- `conventions: ConventionSet`
-- `repoMap?: RepoMap`
-
-- `type GuardrailCategory`
-- `'layering' | 'naming' | 'imports' | 'patterns' | 'security' | 'contracts' | 'file-structure'`
-
-- `createBuiltinRules(): GuardrailRule[]`
-- Rule IDs: `layering`, `import-restriction`, `naming-convention`, `security`, `type-safety`, `contract-compliance`
-
-- `class ConventionLearner`
-- `learn(files: GeneratedFile[]): ConventionSet`
-- `getConventions(files: GeneratedFile[]): ConventionSet`
-- `clearCache(): void`
-
-- `class GuardrailReporter`
-- `format(report: GuardrailReport): string`
-
-- `runGuardrailGate(config, context): GuardrailGateResult`
-- `summarizeGateResult(result): string`
+- Core types: `GuardrailCategory`, `GuardrailSeverity`, `GeneratedFile`, `ProjectStructure`, `PackageInfo`, `ConventionSet`, `FileNamingPattern`, `ExportNamingPattern`, `ImportStylePattern`, `RequiredPattern`, `GuardrailContext`, `GuardrailViolation`, `GuardrailResult`, `GuardrailRule`, `GuardrailReport`.
+- Engine config: `GuardrailEngineConfig` with `failFast?: boolean`, `disabledCategories?: GuardrailCategory[]`, `disabledRules?: string[]`, `severityOverrides?: Map<string, GuardrailSeverity>`.
+- Engine class: `GuardrailEngine.addRule(rule)`, `addRules(rules)`, `getRules()`, `evaluate(context)`.
+- Convention learner: `ConventionLearner.learn(files)`, `getConventions(files)`, `clearCache()`.
+- Reporter: `ReportFormat`, `ReporterConfig`, `GuardrailReporter.format(report)`.
+- Built-in rule factories: `createBuiltinRules()`, `createLayeringRule(customLayers?)`, `createImportRestrictionRule(config?)`, `createNamingConventionRule()`, `createSecurityRule()`, `createTypeSafetyRule()`, `createContractComplianceRule()`.
+- Gate APIs: `GuardrailGateConfig`, `GuardrailGateResult`, `runGuardrailGate(config, context)`, `summarizeGateResult(result)`.
 
 ## Dependencies
-From `@dzupagent/codegen` package metadata and imports used by this module path:
-- Runtime internal dependencies:
-- `@dzupagent/core` (used by pipeline executor through `calculateBackoff` and skill context types).
-- `@dzupagent/adapter-types` is a package dependency but not used directly by `src/guardrails`.
-
-- Peer dependencies relevant to this area:
-- None are directly imported by `src/guardrails` itself.
-- Pipeline-side typing references `@langchain/core/tools` in `gen-pipeline-builder.ts`.
-
-- Test/runtime tooling:
-- Vitest for tests under `src/__tests__`.
+- Package runtime dependencies in `packages/codegen/package.json`: `@dzupagent/core`, `@dzupagent/adapter-types`.
+- Package peer dependencies: `@langchain/core`, `@langchain/langgraph`, `zod`, and optional `tree-sitter-wasms`, `web-tree-sitter`.
+- Guardrails-specific imports are internal to the package. `guardrail-types.ts` imports `RepoMap` type from `../repomap/repo-map-builder.js`.
+- `src/guardrails/*` has no direct third-party runtime imports.
+- Pipeline integration around guardrails depends on `@dzupagent/core/utils` (`calculateBackoff`), `@dzupagent/core/pipeline` types, and `@langchain/core` type imports used by pipeline builder/type modules.
 
 ## Integration Points
-- Package root exports from `src/index.ts` re-export guardrail engine, types, reporter, learner, and built-in rule factories.
-- `GenPipelineBuilder.withGuardrails(...)` captures `GuardrailGateConfig` and appends a `guardrail` phase descriptor.
-- `PipelineExecutor` executes the guardrail gate after phase execution when `ExecutorConfig.guardrailGate` and `buildGuardrailContext` are set.
-- `PipelineExecutor` writes guardrail outcome metadata into pipeline state and can stop pipeline execution on gate failure.
+- Package root exports in `src/index.ts` expose guardrail engine/types/rules plus gate APIs.
+- Runtime facade in `src/runtime.ts` re-exports `./guardrails/index.js` and `./pipeline/guardrail-gate.js`.
+- `GenPipelineBuilder.withGuardrails(config)` stores `GuardrailGateConfig` and appends a `guardrail` phase descriptor named `guardrail-gate`.
+- `PipelineExecutor` does not consume builder descriptors directly. It enforces guardrails through executor config and `buildGuardrailContext`.
+- Guardrail checks run after phase output merges into executor state.
+- `GuardrailContext.repoMap` is available for integration, but current built-in rules do not consume it.
 
 ## Testing and Observability
-Implemented test coverage includes:
-- `src/__tests__/guardrails.test.ts`: engine behavior, all built-in rules, learner behavior, reporter formatting, and end-to-end built-in rule execution.
-- `src/__tests__/guardrail-rules.test.ts`: detailed rule-specific edge cases and metadata assertions.
-- `src/__tests__/pipeline-components.test.ts`: guardrail-gate behavior, summary formatting, and builder integration checks.
-- `src/__tests__/pipeline-executor*.test.ts` files (outside guardrails folder) cover executor-level integration paths.
-
-Observability characteristics in current code:
-- Primary observability artifact is `GuardrailReport` (counts, violations, ruleResults).
-- Optional textual/JSON rendering via `GuardrailReporter`.
-- Pipeline-level state markers `__phase_<id>_guardrail` expose pass/error/warning counts.
-- No dedicated metrics/tracing/log emitter in `src/guardrails` itself.
+- `src/__tests__/guardrails.test.ts` covers engine config behavior, built-in rules, learner behavior, and reporter output.
+- `src/__tests__/guardrail-rules.test.ts` covers edge cases for security/import/naming/type/layering/contract rules.
+- `src/__tests__/pipeline-components.test.ts` covers `runGuardrailGate`, `summarizeGateResult`, and builder guardrail configuration.
+- `src/__tests__/pipeline-executor.test.ts` covers executor-level guardrail blocking and `__phase_<id>_guardrail` state markers.
+- Primary observability artifact is `GuardrailReport` with severity counts, per-rule results, and flattened violations.
+- Optional rendered output is produced through `GuardrailReporter`.
+- Pipeline state stores per-phase guardrail summaries.
+- No dedicated metrics emitter, tracing hook, or structured logging sink exists in `src/guardrails/*`.
 
 ## Risks and TODOs
-- All built-in checks are regex/line-oriented (non-AST). Complex syntax and multiline constructs can produce false positives/negatives.
-- `GuardrailViolation.fix` and `autoFixable` exist in the type model, but built-in rules currently set `autoFixable: false` and do not provide executable fixes.
-- `GuardrailContext.repoMap` is optional and currently unused by built-in rules.
-- Layering uses static default layer lists and path-prefix package resolution; `ProjectStructure.allowedDependencies` is not consumed by the current layering rule implementation.
-- `GuardrailReporter` category grouping maps categories from rule IDs using a static table; custom rule IDs default to `patterns` unless reporter logic is extended.
-- Convention learning cache is instance-level and not keyed by project fingerprint; long-lived instances must call `clearCache()` when input corpus changes.
+- Built-in checks are regex and line-based, not AST-backed, so complex syntax can produce false positives or false negatives.
+- `ProjectStructure.allowedDependencies` is modeled but not used by `layering-rule`, which currently relies on static/default layer matrices.
+- `GuardrailContext.repoMap` is modeled but unused by built-in rules.
+- `GuardrailViolation.fix` and `autoFixable` are modeled, but built-in rules currently emit `autoFixable: false` without executable fixes.
+- `GuardrailReporter` category grouping uses a fixed `ruleId` mapping and falls back to `patterns` for unknown/custom rule IDs.
+- Convention cache in `ConventionLearner` is instance-local and not corpus-fingerprinted, so long-lived processes must call `clearCache()` when inputs change.
+- `GenPipelineBuilder.withGuardrails()` adds a guardrail phase descriptor, but runtime enforcement depends on `PipelineExecutor` config; integrators should not assume descriptor presence alone enables execution-time gating.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 

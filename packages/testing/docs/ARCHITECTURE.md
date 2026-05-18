@@ -1,235 +1,154 @@
 # @dzupagent/testing Architecture
 
 ## Scope
-`@dzupagent/testing` is a test-support package in `dzupagent/packages/testing` that provides deterministic testing utilities and evaluation/security harnesses for agent and model behavior.
+`@dzupagent/testing` provides test-oriented utilities for DzupAgent packages. The package is focused on deterministic LLM testing, evaluation helpers, and security regression suites, plus boundary-enforcement tests that validate architecture constraints in the monorepo.
 
-The current package scope is:
-- LLM record/replay middleware for `@dzupagent/core` model registry calls.
-- A Vitest-oriented registry factory for fixture-driven tests.
-- A mock `SkillStepResolver` implementation for skill-chain tests.
-- A lightweight eval framework (suite runner + scorers + demo suite).
-- A security-suite runner with built-in adversarial case catalogs.
-- Architecture/boundary enforcement tests that validate monorepo package and app dependency rules.
+Included scope in `packages/testing`:
+- LLM record/replay middleware (`LlmRecorder`) for `@dzupagent/core/llm` registries.
+- Vitest helper (`withRecordedRegistry`) for building a recorder-wired `ModelRegistry`.
+- Mock `SkillStepResolver` for workflow/skill-chain tests.
+- Eval framework (`runEvalSuite`) with built-in scorers (`ExactMatchScorer`, `RegexScorer`, `LlmJudgeScorer`) and a deterministic demo suite.
+- Security suite runner (`runSecuritySuite`) with built-in suites: injection, escalation, poisoning, escape.
+- Architecture boundary enforcement tests in `src/__tests__/boundary*.test.ts`.
 
-Out of scope in this package:
-- Runtime serving/orchestration features.
-- Policy enforcement at runtime (this package evaluates behavior; it does not enforce production guardrails itself).
+Out of scope:
+- Runtime policy enforcement in production systems.
+- Agent orchestration/server behavior.
+- Any application-owned product features.
 
 ## Responsibilities
-The package has five primary responsibilities.
-
-1. Deterministic LLM test execution
-- `LlmRecorder` implements `RegistryMiddleware` and can run in `record` or `replay` mode.
-- In replay mode it short-circuits model calls using JSON fixtures.
-- In record mode it persists request/response/usage fixtures for later replay.
-
-2. Test harness bootstrapping
-- `withRecordedRegistry` creates a `ModelRegistry` with a stub provider and attached `LlmRecorder` to make replay-based tests easy to set up.
-
-3. Skill-chain mocking
-- `MockSkillStepResolver` provides in-memory registration and deterministic `WorkflowStep` resolution for `@dzupagent/agent` tests.
-
-4. Eval suite execution
-- `runEvalSuite` executes target functions against cases and scorers, computes case aggregates, pass rate, and suite-level results.
-- Included scorers are exact match, regex, and optional model-judge scoring.
-
-5. Security regression testing
-- `runSecuritySuite` evaluates checker behavior against prebuilt suites: injection, escalation, poisoning, escape.
-- Returns per-case and aggregate pass/fail metrics.
+1. Provide deterministic LLM tests by recording and replaying model interactions as JSON fixtures.
+2. Offer low-friction Vitest setup for replay-first registry tests.
+3. Provide a mock resolver for skill execution tests without live agent dependencies.
+4. Run eval suites that score target outputs against one or more scorers and aggregate pass/fail results.
+5. Run security suites against a caller-provided checker and report per-case plus aggregate security results.
+6. Enforce declared dependency and import-graph boundaries through static test suites.
 
 ## Structure
-Current source layout:
-
-- `src/index.ts`
-  - Public package barrel.
-  - Exports recorder utilities, eval APIs, and security APIs.
-
-- `src/llm-recorder.ts`
-  - `LlmRecorder` middleware.
-  - Fixture hashing, read/write, strict replay misses, seed helpers.
-
-- `src/vitest-llm-setup.ts`
-  - `withRecordedRegistry(options)` factory returning `{ registry, recorder }`.
-
-- `src/mock-skill-step-resolver.ts`
-  - `MockSkillStepResolver` + `MockCall`.
-
+Current package layout:
+- `src/index.ts`: public barrel for recorder, setup helper, eval exports, security exports.
+- `src/llm-recorder.ts`: `LlmRecorder`, fixture hashing/loading/writing, strict replay behavior, seeding helpers.
+- `src/vitest-llm-setup.ts`: `withRecordedRegistry`, returns `{ registry, recorder }`.
+- `src/mock-skill-step-resolver.ts`: `MockSkillStepResolver` and `MockCall` tracking.
 - `src/eval/`
-  - `types.ts`: eval contracts (`EvalSuite`, `EvalScorer`, result types).
-  - `runner.ts`: `runEvalSuite` implementation.
-  - `demo-suite.ts`: deterministic demo suite + stub anthropic client builder.
-  - `scorers/exact-match.ts`: deterministic string equality scoring.
-  - `scorers/regex.ts`: regex-based scoring.
-  - `scorers/llm-judge.ts`: LLM-graded scoring via injected or lazy-loaded Anthropic client.
-
+- `types.ts`: eval contracts.
+- `runner.ts`: `runEvalSuite` implementation.
+- `demo-suite.ts`: deterministic suite + stub Anthropic client factory.
+- `scorers/exact-match.ts`: exact equality scorer.
+- `scorers/regex.ts`: regex match scorer.
+- `scorers/llm-judge.ts`: LLM-based judge scorer with lazy Anthropic SDK import.
 - `src/security/`
-  - `security-test-types.ts`: security test contracts.
-  - `security-runner.ts`: `runSecuritySuite` implementation.
-  - `injection-suite.ts`, `escalation-suite.ts`, `poisoning-suite.ts`, `escape-suite.ts`: built-in case arrays.
-  - `index.ts`: security submodule barrel.
-
-- `src/__tests__/`
-  - Unit tests for recorder, mock resolver, eval framework, security runner/suites.
-  - Export-surface tests.
-  - Monorepo boundary enforcement tests (`boundary-enforcement.test.ts`, `boundary/architecture.test.ts`).
-
-Build and test config:
-- `tsup.config.ts`: ESM build from `src/index.ts`, type declarations enabled.
-- `vitest.config.ts`: node environment, coverage thresholds (statements 40, branches 30, functions 30, lines 40).
+- `security-test-types.ts`: security contracts.
+- `security-runner.ts`: `runSecuritySuite` implementation.
+- `injection-suite.ts`, `escalation-suite.ts`, `poisoning-suite.ts`, `escape-suite.ts`: built-in case catalogs.
+- `index.ts`: security submodule barrel.
+- `src/__tests__/`: unit tests for recorder, resolver, eval, security, export surface, and architecture boundaries.
+- `package.json`: package entrypoints and scripts.
+- `tsup.config.ts`: ESM build config with entries `src/index.ts` and `src/vitest-llm-setup.ts`.
+- `vitest.config.ts`: node test config, single-thread `vmThreads` pool for architecture test stability, coverage thresholds.
 
 ## Runtime and Control Flow
-### LLM record/replay flow
-1. Caller wires `LlmRecorder` into `ModelRegistry` middleware chain.
+### LLM recorder flow
+1. `LlmRecorder` is attached as `RegistryMiddleware` to a `ModelRegistry`.
 2. `beforeInvoke(context)`:
-- `record` mode: returns `{ cached: false }` and allows live call.
-- `replay` mode: computes context hash, loads fixture JSON, returns cached response/usage.
-- Missing fixture in strict replay throws with guidance to run with `LLM_RECORD=1`.
-3. `afterInvoke(context, response, usage)`:
-- Active only in `record` mode.
-- Persists fixture file under `<fixtureDir>/<hash>.json`.
+- In `record` mode: returns `{ cached: false }` and lets the real call proceed.
+- In `replay` mode: computes a stable hash from `messages`, `model`, `temperature`, `maxTokens`, `provider`; loads fixture `<fixtureDir>/<hash>.json`.
+- If fixture is missing and `strict` is true (default), throws an error instructing to run with `LLM_RECORD=1`.
+3. `afterInvoke(context, response, usage)` writes fixture JSON in `record` mode only.
 
-Hashing input includes messages, model, temperature, maxTokens, and provider. File names are a 16-char SHA-256 prefix.
+### Vitest registry helper flow
+1. `withRecordedRegistry(options)` creates `LlmRecorder`.
+2. Creates a fresh `ModelRegistry` from `@dzupagent/core/llm`.
+3. Adds a stub Anthropic provider config.
+4. Attaches the recorder middleware.
+5. Returns `{ registry, recorder }` for test usage.
 
-### `withRecordedRegistry` flow
-1. Creates `LlmRecorder` from caller options.
-2. Creates `ModelRegistry`.
-3. Registers a stub Anthropic provider config.
-4. Attaches recorder middleware.
-5. Returns `{ registry, recorder }`.
+### Eval runner flow
+1. `runEvalSuite(suite)` resolves `passThreshold` (`0.7` default).
+2. For each case, it runs `suite.target` sequentially.
+- Target errors are converted into output strings (`[target error: ...]`) instead of throwing.
+3. For the case output, all scorers run concurrently.
+4. Case aggregate score is the mean of scorer scores; pass when `aggregateScore >= passThreshold`.
+5. Suite result includes per-case details, aggregate score, pass rate, `allPassed`, and timestamp.
 
-This enables replay-first tests without real keys/network.
+### LLM judge scorer flow
+1. `LlmJudgeScorer.score(...)` uses an injected `AnthropicClient` if supplied.
+2. Otherwise it lazy-imports `@anthropic-ai/sdk` and constructs the default client.
+3. Sends a strict JSON response prompt and parses the returned text.
+4. Parsed score is clamped to `[0,1]`; parse/call failures return `{ score: 0, pass: false, reasoning: ... }`.
 
-### Eval flow (`runEvalSuite`)
-1. Resolve `passThreshold` (default `0.7`).
-2. For each case (sequentially):
-- Execute suite target; on target error, convert error to output string (`[target error: ...]`).
-- Execute all scorers concurrently for that case.
-- Compute per-case aggregate score as scorer mean.
-- Mark case pass when aggregate `>= passThreshold`.
-3. Compute suite aggregate score, pass rate, and `allPassed` flag.
-4. Return `EvalRunResult` with timestamp.
-
-### Security flow (`runSecuritySuite`)
-1. Iterate suite cases sequentially.
-2. Invoke `checker(input)`.
-3. Evaluate pass by expected behavior:
-- `block`: `blocked === true`
-- `detect`: `blocked || detected`
-- `safe`: `!blocked && !detected`
-4. Build details string (`[PASS|FAIL] ... expected=..., got blocked=..., detected=...`).
-5. Aggregate `passed`, `failed`, `passRate`, and derive suite name from first case category (or `empty-security-suite`).
+### Security runner flow
+1. `runSecuritySuite(suite, checker)` iterates each `SecurityTestCase` sequentially.
+2. Calls `checker(input)` and evaluates against `expectedBehavior`:
+- `block`: requires `blocked`.
+- `detect`: requires `blocked || detected`.
+- `safe`: requires `!blocked && !detected`.
+3. Builds human-readable `details` for each case.
+4. Returns aggregate counts and `passRate`; suite name is derived from first case category or `empty-security-suite`.
 
 ## Key APIs and Types
-Primary exports from `src/index.ts`:
+Top-level exports from `src/index.ts`:
+- `LlmRecorder`, `LlmRecorderOptions`, `LlmFixture`, `RecorderMode`.
+- `withRecordedRegistry`, `RecordedRegistry`.
+- `MockSkillStepResolver`, `MockCall`.
+- Eval types: `EvalScore`, `EvalScorer`, `EvalCase`, `EvalSuite`, `EvalCaseResult`, `EvalRunResult`.
+- Eval APIs: `runEvalSuite`, `ExactMatchScorer`, `RegexScorer`, `LlmJudgeScorer`, `createDemoEvalSuite`, `buildStubAnthropicClient`.
+- Eval LLM judge types: `AnthropicClient`, `LlmJudgeOptions`.
+- Security types: `SecurityCategory`, `SecuritySeverity`, `SecurityExpectedBehavior`, `SecurityTestCase`, `SecurityTestResult`, `SecuritySuiteResult`, `SecurityChecker`.
+- Security APIs: `runSecuritySuite`, `INJECTION_SUITE`, `ESCALATION_SUITE`, `POISONING_SUITE`, `ESCAPE_SUITE`.
 
-Recorder and setup:
-- `class LlmRecorder`
-- `type LlmRecorderOptions`
-- `type LlmFixture`
-- `type RecorderMode`
-- `function withRecordedRegistry(options): RecordedRegistry`
-
-Skill testing:
-- `class MockSkillStepResolver`
-- `type MockCall`
-
-Eval framework:
-- `runEvalSuite(suite): Promise<EvalRunResult>`
-- `ExactMatchScorer`, `RegexScorer`, `LlmJudgeScorer`
-- `createDemoEvalSuite(judgeClient?)`
-- `buildStubAnthropicClient(override?)`
-- Types: `EvalScore`, `EvalScorer`, `EvalCase`, `EvalSuite`, `EvalCaseResult`, `EvalRunResult`
-- LLM judge types: `AnthropicClient`, `LlmJudgeOptions`
-
-Security framework:
-- `runSecuritySuite(suite, checker): Promise<SecuritySuiteResult>`
-- `INJECTION_SUITE`, `ESCALATION_SUITE`, `POISONING_SUITE`, `ESCAPE_SUITE`
-- Types: `SecurityCategory`, `SecuritySeverity`, `SecurityExpectedBehavior`, `SecurityTestCase`, `SecurityTestResult`, `SecuritySuiteResult`, `SecurityChecker`
-
-Notable contract details:
-- `LlmJudgeScorer` supports injected client and otherwise lazy-imports `@anthropic-ai/sdk`.
-- `MockSkillStepResolver.resolve(skillId)` returns `WorkflowStep` and throws when skill is not registered.
-- `runEvalSuite` tolerates target exceptions but does not swallow scorer exceptions.
-- `runSecuritySuite` currently propagates checker exceptions (no per-case try/catch wrapper).
+Published subpath export:
+- `@dzupagent/testing/vitest-llm-setup` -> `dist/vitest-llm-setup.js` (+ typings).
 
 ## Dependencies
 Runtime dependencies (`package.json`):
-- `@dzupagent/core` (for `RegistryMiddleware`, `ModelRegistry`, and related types)
-- `@dzupagent/agent` (for `WorkflowStep` and `SkillStepResolver` types)
+- `@dzupagent/core` (LLM registry/middleware types and implementation).
+- `@dzupagent/agent` (workflow and resolver types used by mock resolver).
 
-Tooling/dev dependencies:
-- `typescript`
-- `tsup`
-- `vitest`
+Dev/build/test dependencies:
+- `typescript`, `tsup`, `vitest`.
 
-Soft/optional runtime dependency:
-- `@anthropic-ai/sdk` is dynamically imported by `LlmJudgeScorer` only when no client override is supplied.
-- It is intentionally not a direct `package.json` dependency in this package.
+Soft dependency behavior:
+- `LlmJudgeScorer` dynamically imports `@anthropic-ai/sdk` only when no client override is provided.
+- This package does not declare `@anthropic-ai/sdk` directly in `package.json`.
 
-Packaging:
-- ESM-only output (`type: module`, tsup format `esm`).
-- Package export map currently exposes only `.` (`dist/index.js` + declarations).
+Packaging/build characteristics:
+- ESM package (`"type": "module"`).
+- `tsup` builds `src/index.ts` and `src/vitest-llm-setup.ts` to `dist/` with declaration files and sourcemaps.
 
 ## Integration Points
-Current integration points with the broader workspace:
-
-- `@dzupagent/core`
-  - `LlmRecorder` plugs into registry middleware lifecycle (`beforeInvoke`/`afterInvoke`).
-  - `withRecordedRegistry` instantiates `ModelRegistry` and provider config.
-
-- `@dzupagent/agent`
-  - `MockSkillStepResolver` conforms to `SkillStepResolver` and returns `WorkflowStep`.
-
-- External eval providers
-  - `LlmJudgeScorer` can use a real Anthropic SDK client or a test stub client.
-
-- CI/test workflows
-  - Security suites and eval runner support regression gates via pass-rate thresholds and case-level diagnostics.
-  - Boundary tests in this package scan monorepo source/config to enforce architectural constraints across packages/apps.
+- `@dzupagent/core/llm`:
+- `LlmRecorder` implements `RegistryMiddleware`.
+- `withRecordedRegistry` creates and configures `ModelRegistry`.
+- `@dzupagent/agent`:
+- `MockSkillStepResolver` implements `SkillStepResolver` and returns `WorkflowStep`.
+- Anthropic SDK ecosystem:
+- `LlmJudgeScorer` can run with a real Anthropic client or with a stubbed client for deterministic tests.
+- CI/test workflows:
+- Security/eval outputs are structured for assertions and log consumption.
+- Boundary tests validate monorepo dependency policy (`config/architecture-boundaries.json`, `config/package-tiers.json`) by static analysis.
 
 ## Testing and Observability
-Test coverage in `src/__tests__` includes:
+Testing coverage includes:
+- `llm-recorder.test.ts`: replay/record modes, strict misses, fixture helpers.
+- `mock-skill-step-resolver.test.ts`: registration modes, delays/errors, call tracking.
+- `eval/*` tests: scorer correctness and runner aggregation/error behavior.
+- `security*.test.ts`: suite validity and runner pass/fail semantics.
+- `exports.test.ts`: verifies public export surface and vitest setup subpath export.
+- `boundary-enforcement.test.ts`: dependency declarations and cycles checks.
+- `boundary/architecture.test.ts`: static import-graph boundary checks across packages and app workspace rules.
 
-- Recorder behavior
-  - Replay hits/misses, strict mode behavior, fixture path/hash stability, record-mode writing, seeded fixtures.
-
-- Mock resolver behavior
-  - Registration variants (sync, async, delayed, error), call tracking, unregister semantics, resolver isolation.
-
-- Eval framework behavior
-  - Scorer correctness (`exact-match`, `regex`, `llm-judge` parsing/error handling).
-  - Runner aggregation, thresholds, empty cases/scorers, target error handling.
-  - Demo suite completion with stub client.
-
-- Security framework behavior
-  - Suite content structure and schema validity.
-  - Runner pass/fail semantics, details formatting, edge cases, empty suite handling.
-
-- Architectural enforcement
-  - Static checks for forbidden cross-package and cross-app imports.
-  - Declared dependency rules, production import declaration completeness, and circular dependency guardrails.
-  - Validation of boundary policy/config completeness.
-
-Observability surfaces:
-- `SecurityTestResult.details` and `EvalScore.reasoning` provide human-readable diagnostics for CI logs.
-- Recorder fixtures persist request/response/usage artifacts for offline debugging and deterministic replay.
+Observability surfaces from APIs:
+- `SecurityTestResult.details` for explicit case-level pass/fail reasoning.
+- `EvalScore.reasoning` and per-scorer breakdown in `EvalCaseResult`.
+- Recorder fixture JSON stores request/response/usage snapshots for deterministic replay and debugging.
 
 ## Risks and TODOs
-- Export-map contract:
-  - `@dzupagent/testing/vitest-llm-setup` is a declared package subpath and is built as a standalone `dist/vitest-llm-setup.*` artifact for Vitest `setupFiles` consumers.
-
-- Optional Anthropic dependency ergonomics:
-  - `LlmJudgeScorer` lazy-imports `@anthropic-ai/sdk`; environments without the package will fail at runtime when no client is injected.
-
-- Non-deterministic suite content:
-  - `POISONING_SUITE` builds one case with `Math.random()` at module load, which can create snapshot churn and harder fixture comparison.
-
-- Sequential runner throughput:
-  - `runSecuritySuite` processes cases sequentially; large suites may become slow without batching/parallel controls.
-
-- Error handling granularity:
-  - `runSecuritySuite` propagates checker errors and aborts remaining cases; this is useful for fail-fast, but can reduce complete suite diagnostics in flaky environments.
+- `runSecuritySuite` is sequential and fail-fast on checker exceptions; one thrown checker error stops remaining cases.
+- `runEvalSuite` handles target errors but does not isolate scorer exceptions; scorer failures can fail the suite run.
+- `POISONING_SUITE` contains a `Math.random()`-generated payload in one test case, which may reduce deterministic snapshot behavior.
+- `LlmJudgeScorer` default path depends on runtime availability of `@anthropic-ai/sdk`; environments without it must inject a client.
+- Vitest architecture checks are intentionally configured single-threaded due to heavy workspace scanning; this keeps stability but can increase runtime.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-- 2026-04-26: architecture rewritten to reflect current package reality, including eval framework, LLM recorder/replay middleware, Vitest registry setup helper, and boundary enforcement tests.
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

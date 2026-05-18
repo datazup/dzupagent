@@ -1,81 +1,127 @@
 # Repomap Architecture (`src/repomap`)
 
 ## Scope
-This document covers the `packages/codegen/src/repomap` subsystem only:
-- `symbol-extractor.ts`
-- `tree-sitter-extractor.ts`
-- `import-graph.ts`
-- `repo-map-builder.ts`
-- `index.ts`
+This document covers the repo-map subsystem in `packages/codegen/src/repomap` and its package-level integration points in `packages/codegen`.
 
-It describes the current implementation for symbol extraction, import graph construction, and token-budgeted repo-map generation used by `@dzupagent/codegen`.
+Files in scope:
+- `src/repomap/index.ts`
+- `src/repomap/symbol-extractor.ts`
+- `src/repomap/import-graph.ts`
+- `src/repomap/repo-map-builder.ts`
+- `src/repomap/tree-sitter-extractor.ts`
+- `src/repomap/tree-sitter-extractor-types.ts`
+- `src/repomap/tree-sitter-extractor-loader.ts`
+- `src/repomap/tree-sitter-extractor-grammars.ts`
+- `src/repomap/tree-sitter-extractor-node-helpers.ts`
+- `src/repomap/tree-sitter-extractor-walker.ts`
+
+This subsystem provides symbol extraction primitives, import-graph analysis, and token-budgeted markdown repo-map generation used by `@dzupagent/codegen` internals and exports.
 
 ## Responsibilities
-The subsystem provides three concrete capabilities:
-- Extract symbols from source files.
-- Build a relative-import dependency graph across a provided file set.
-- Produce a deterministic markdown repo map constrained by a token budget.
+The subsystem currently owns three primary capabilities:
+- Regex symbol extraction from source text (`extractSymbols`).
+- Optional tree-sitter-backed AST extraction with graceful fallback (`extractSymbolsAST`).
+- Import graph construction and repo-map ranking/rendering (`buildImportGraph`, `buildRepoMap`).
 
-It also provides a tree-sitter-based path for richer symbol extraction with graceful fallback to regex extraction when optional runtime dependencies are unavailable.
+Concrete behavior in current code:
+- Symbol extraction captures `class`, `interface`, `enum`, `type`, `function`, and `const` declarations.
+- Import graph resolution only links relative imports that can be resolved to files in the provided file set.
+- Repo map output is deterministic markdown constrained by a configurable token budget (`maxTokens`, default `4000`).
 
 ## Structure
-- `symbol-extractor.ts`
-  - Defines `ExtractedSymbol`.
-  - Uses ordered regex patterns to detect `class`, `interface`, `enum`, `type`, `function`, and `const` declarations line-by-line.
-  - Skips blank lines and comment-prefixed lines.
-
-- `tree-sitter-extractor.ts`
-  - Defines `SupportedLanguage`, `EXTENSION_MAP`, and `ASTSymbol`.
-  - Dynamically imports `web-tree-sitter` and lazily loads grammars from `tree-sitter-wasms`.
-  - Walks AST nodes using per-language node-kind maps.
-  - Falls back to regex-derived symbols for TypeScript/JavaScript and returns `[]` for unsupported/non-TS/JS fallback paths.
-  - Contains `_resetTreeSitterCache()` helper used by tests.
-
-- `import-graph.ts`
-  - Defines `ImportEdge` and `ImportGraph`.
-  - Parses static `import ... from '...'` forms via regex.
-  - Resolves only relative imports against known file paths.
-  - Builds edge list plus `importedBy()`, `importsFrom()`, and `roots()` lookups.
-
-- `repo-map-builder.ts`
-  - Defines `RepoMapConfig` and `RepoMap`.
-  - Applies exclude-pattern filtering (substring matching).
-  - Extracts symbols, computes import-reference counts, scores symbols, sorts deterministically, and emits markdown within `maxTokens`.
-  - Uses `chars/4` token estimation.
-
 - `index.ts`
   - Barrel exports for all public repomap APIs and types.
 
+- `symbol-extractor.ts`
+  - Defines `ExtractedSymbol`.
+  - Implements line-by-line regex extraction with ordered declaration patterns.
+  - Skips blank lines and comment-prefixed lines (`//`, `/*`, `*`).
+
+- `import-graph.ts`
+  - Defines `ImportEdge` and `ImportGraph`.
+  - Parses `import ... from '...'` forms (named, namespace, default, `import type`).
+  - Resolves relative imports with `.js/.mjs -> .ts`, `.ts` suffix, and `index.ts` fallbacks.
+  - Exposes graph query helpers: `importedBy`, `importsFrom`, `roots`.
+
+- `repo-map-builder.ts`
+  - Defines `RepoMapConfig` and `RepoMap`.
+  - Filters files via substring-based `excludePatterns`.
+  - Uses regex symbol extraction and import graph reference counts for scoring.
+  - Produces `## <file>` sections and `- <symbol>` lines within token budget.
+
+- `tree-sitter-extractor.ts`
+  - Public coordinator for AST extraction.
+  - Wires loader, grammars, and walker modules.
+  - Re-exports tree-sitter-facing types/utilities.
+
+- `tree-sitter-extractor-types.ts`
+  - Public types: `SupportedLanguage`, `ASTSymbol`, `EXTENSION_MAP`.
+  - Opaque internal `TS*` interfaces that mirror `web-tree-sitter` runtime shapes.
+
+- `tree-sitter-extractor-loader.ts`
+  - Lazy parser constructor loading (`web-tree-sitter` dynamic import).
+  - Grammar loading (`tree-sitter-wasms`) with language cache.
+  - Language detection by extension and availability checks.
+  - Cache reset helper for tests.
+
+- `tree-sitter-extractor-grammars.ts`
+  - Language-specific node-kind maps used by AST walker.
+  - Mapping from `SupportedLanguage` to grammar WASM filenames.
+
+- `tree-sitter-extractor-node-helpers.ts`
+  - Symbol detail extraction helpers: name, export status, signature, docstring, parameters, return type.
+
+- `tree-sitter-extractor-walker.ts`
+  - Recursive AST traversal that builds `ASTSymbol[]`.
+  - Handles TS/JS `lexical_declaration` classification (`function` vs `const`) based on value node type.
+
 ## Runtime and Control Flow
-1. Symbol extraction path
-- `extractSymbols(filePath, content)` scans each line and matches the first declaration pattern per line.
-- `extractSymbolsAST(filePath, content)` detects language by extension, attempts tree-sitter parser/grammar initialization, parses and walks AST, then deduplicates symbols by `name:line:kind`.
-- Any parser/grammar/runtime failure routes to fallback behavior.
+1. Regex extraction path
+- `extractSymbols(filePath, content)` splits content by line and tests ordered regex patterns.
+- On first match per line, it emits one `ExtractedSymbol` with normalized `signature`, `line`, `exported`, and `filePath`.
 
-2. Import graph path
-- `buildImportGraph(files, rootDir)` resolves each file to absolute path, scans imports with `IMPORT_RE`, resolves only relative specifiers, and stores `{ from, to, symbols }` edges.
-- Lookup maps are precomputed for reverse/forward traversal.
+2. AST extraction path
+- `extractSymbolsAST(filePath, content)` calls `detectLanguage(filePath)`.
+- For supported extensions (`.ts/.tsx/.js/.jsx/.mjs/.py/.go/.rs/.java`), it attempts:
+  - lazy parser init (`getParserCtor`),
+  - grammar load (`loadLanguage`),
+  - parse + AST walk (`walkTree`).
+- It deduplicates AST results by `name:line:kind`.
+- Any failure falls back to regex conversion for TypeScript/JavaScript.
+- Fallback for non-TS/JS languages returns `[]` when AST parsing is unavailable.
 
-3. Repo map path
-- `buildRepoMap(files, config?)` merges defaults (`maxTokens: 4000`) and filters by `excludePatterns`.
-- Extracts symbols using the regex extractor.
-- Builds import graph to compute per-file inbound reference count.
-- Scores symbols using kind weights + export bonus + ref bonus + focus bonus.
-- Sorts by `score desc`, then `filePath asc`, then `line asc`.
-- Groups by file, emits markdown sections (`## <file>`, `- <signature>`) until budget is reached.
-- Returns `{ content, symbolCount, fileCount, estimatedTokens }`.
+3. Import graph path
+- `buildImportGraph(files, rootDir)` resolves every input file to absolute path.
+- It runs `IMPORT_RE` against each file and resolves only relative specifiers.
+- It emits edges `{ from, to, symbols }` and precomputes lookup maps for:
+  - `importedBy(filePath)`
+  - `importsFrom(filePath)`
+  - `roots()` (files with no outgoing imports).
+
+4. Repo-map path
+- `buildRepoMap(files, config?)` merges config with defaults.
+- Excluded files are filtered by substring matches.
+- Symbols are extracted via `extractSymbols` (regex path).
+- File-level reference counts come from import-graph inbound edges.
+- Score calculation per symbol:
+  - kind weight: class/interface `+3`, function/enum `+2`, type/const `+1`
+  - export bonus: `+3`
+  - inbound file import count: `+N`
+  - focus file bonus: `+5`
+- Sorted output: score desc, then file path asc, then line asc.
+- Markdown rendering stops when adding another heading or symbol would exceed `maxTokens` (estimated as `ceil(chars/4)`).
 
 ## Key APIs and Types
-Primary exported APIs from `src/repomap/index.ts`:
+Public exports from `src/repomap/index.ts`:
 - `extractSymbols(filePath, content): ExtractedSymbol[]`
 - `extractSymbolsAST(filePath, content): Promise<ASTSymbol[]>`
 - `isTreeSitterAvailable(language?): Promise<boolean>`
 - `detectLanguage(filePath): SupportedLanguage | undefined`
+- `EXTENSION_MAP`
 - `buildImportGraph(files, rootDir): ImportGraph`
 - `buildRepoMap(files, config?): RepoMap`
-- `EXTENSION_MAP`
 
-Primary types:
+Public types:
 - `ExtractedSymbol`
 - `ASTSymbol`
 - `SupportedLanguage`
@@ -84,74 +130,75 @@ Primary types:
 - `RepoMapConfig`
 - `RepoMap`
 
-Notable behavior details reflected in code:
-- `buildRepoMap` currently uses `extractSymbols` (regex), not `extractSymbolsAST`.
-- Import parsing handles `import ... from` forms (named, namespace, default, `import type`) and ignores bare package imports.
-- Relative import resolution includes `.js/.mjs -> .ts`, `.ts` suffix fallback, and `index.ts` directory fallback.
+Package-level export behavior in `src/index.ts`:
+- Repomap APIs are re-exported at package root.
+- `repomap.detectLanguage` is aliased as `detectTreeSitterLanguage` to avoid colliding with generation-level `detectLanguage`.
 
 ## Dependencies
-Runtime dependencies inside this subsystem:
+Direct runtime dependencies in this subsystem:
 - Node built-ins:
-  - `node:path` (`import-graph.ts`, `repo-map-builder.ts`, `tree-sitter-extractor.ts`)
-  - `node:module` via dynamic `createRequire` in `tree-sitter-extractor.ts`
+  - `node:path` (`import-graph`, `repo-map-builder`, `tree-sitter-extractor-loader`)
+  - `node:module` (dynamic `createRequire` in `tree-sitter-extractor-loader`)
 
-Optional runtime peers used by AST extraction:
+Optional runtime peer dependencies used by AST extraction:
 - `web-tree-sitter`
 - `tree-sitter-wasms`
 
-Package-level context (`packages/codegen/package.json`):
-- These tree-sitter dependencies are declared as optional peer dependencies.
+Package-level declared dependencies relevant to this subsystem:
+- `zod` is a package peer but not used directly in `src/repomap/*`.
+- `@dzupagent/core` and `@dzupagent/adapter-types` are package dependencies, not direct imports of repomap modules.
 
 ## Integration Points
-Internal integrations in `packages/codegen/src`:
-- `chunking/ast-chunker.ts`
+Internal codegen usage:
+- `src/chunking/ast-chunker.ts`
   - Uses `extractSymbolsAST`, `detectLanguage`, and `ASTSymbol` for AST-aware chunking.
-- `search/code-search-service.ts`
-  - Uses repomap `detectLanguage` for indexing metadata when caller does not supply language.
-- `search/code-search-types.ts`
-  - Re-exports `ASTSymbol` in search-facing type surface.
-- `guardrails/guardrail-types.ts`
-  - `GuardrailContext` optionally includes `repoMap?: RepoMap`.
+- `src/search/code-search-service.ts`
+  - Uses tree-sitter `detectLanguage` for language inference fallback.
+- `src/search/code-search-types.ts`
+  - Imports `ASTSymbol` type from repomap tree-sitter types.
+- `src/guardrails/guardrail-types.ts`
+  - Accepts optional `repoMap?: RepoMap` in `GuardrailContext`.
 
-Package root export surface (`packages/codegen/src/index.ts`):
-- Re-exports repomap APIs at package level.
-- Aliases repomap language detector as `detectTreeSitterLanguage` to avoid clashing with generation-level `detectLanguage`.
+Export surfaces:
+- `src/index.ts` re-exports repomap APIs/types.
+- `src/compat.ts` re-exports `./repomap/index.js` as part of compatibility surface.
 
-Cross-package usage:
-- No direct imports of repomap internals were found outside `packages/codegen`.
+Documentation references in package docs:
+- `docs/api-tiers.md` lists repo-map API as part of stable API surface.
+- `docs/ARCHITECTURE.md` references repomap as part of code intelligence utilities.
 
 ## Testing and Observability
-Test coverage in this package includes multiple repomap-focused suites:
+Repomap-specific tests:
 - `src/__tests__/repomap/symbol-extractor.test.ts`
 - `src/__tests__/repomap/import-graph.test.ts`
 - `src/__tests__/repomap/repo-map-builder.test.ts`
+
+Additional cross-module tests covering repomap behavior:
 - `src/__tests__/repo-map.test.ts`
 - `src/__tests__/import-graph-extended.test.ts`
 - `src/__tests__/tree-sitter-extractor.test.ts`
+- `src/__tests__/branch-coverage-misc.test.ts`
 - `src/__tests__/codegen-multiedit-repomap-deep.test.ts`
-- `src/__tests__/branch-coverage-misc.test.ts` (includes repo-map branch cases)
 
-What these tests emphasize:
-- Symbol extraction correctness for declaration forms, exported flags, signatures, and line tracking.
-- Import graph resolution edge cases (`.js/.mjs`, nested relative paths, circular refs, self-import, root detection).
-- Repo-map ranking and budgeting invariants (kind weights, export/ref/focus scoring effects, deterministic output, tiny/large budgets, exclude patterns).
-- Tree-sitter extractor graceful behavior with and without optional tree-sitter dependencies.
-
-Observability characteristics of runtime code:
-- No dedicated logging/metrics/tracing in repomap modules.
-- Primary runtime introspection is through return values:
-  - `ImportGraph` query helpers (`importedBy`, `importsFrom`, `roots`)
-  - `RepoMap` summary counters (`symbolCount`, `fileCount`, `estimatedTokens`)
+Current observability profile:
+- No dedicated logging, metrics, or tracing in `src/repomap/*`.
+- Runtime insight is available via returned structures:
+  - `ImportGraph.edges` and helper lookups.
+  - `RepoMap` counters (`symbolCount`, `fileCount`, `estimatedTokens`) and markdown output.
 
 ## Risks and TODOs
-Current implementation tradeoffs and gaps visible in code:
-- Regex symbol extraction is intentionally approximate and line-based.
-- `buildRepoMap` scoring/extraction is TS/JS-centric because it uses regex extraction rather than AST extraction.
-- Import parsing is limited to static `import ... from` forms and does not model side-effect-only imports or `require()`.
-- Exclusion uses substring matching, not glob semantics.
-- Token estimation is heuristic (`chars/4`) and model-agnostic.
-- Tree-sitter quality depends on optional dependencies being installed and grammar WASM files being resolvable at runtime.
+Known limitations in current implementation:
+- `buildRepoMap` uses regex extraction (`extractSymbols`) and does not consume AST symbols today.
+- Regex extraction is line-based and intentionally approximate.
+- Import parsing covers static `import ... from` forms only; side-effect imports (`import './x'`) and `require()` are not modeled.
+- `excludePatterns` are substring checks, not glob/ignore semantics.
+- Token counting uses a fixed heuristic (`chars / 4`) and is model-agnostic.
+- AST extraction quality for non-TS/JS languages depends on optional `web-tree-sitter` + `tree-sitter-wasms` availability at runtime.
+
+Potential near-term TODO candidates implied by current design:
+- Optionally support AST-backed scoring/rendering in `buildRepoMap`.
+- Expand import graph parsing coverage for additional import forms if needed by consumers.
+- Add explicit observability hooks when repo-map ranking decisions need runtime introspection.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

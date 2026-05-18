@@ -1,77 +1,55 @@
 # create-dzupagent Architecture
 
 ## Scope
-This document describes the current implementation of `packages/create-dzupagent` in the `dzupagent` monorepo.
+This document covers the current implementation of `packages/create-dzupagent`.
 
 Included:
-- CLI entrypoint, argument parsing, and command routing in `src/cli.ts`
-- Interactive project configuration in `src/wizard.ts`
-- Project generation pipeline in `src/generator.ts`
-- Legacy scaffold API in `src/scaffold-engine.ts`
-- Template, feature, and preset registries in `src/templates/*`, `src/features.ts`, and `src/presets.ts`
-- Optional adapter wiring in `src/bridge.ts`
-- Native-agent sync command implementation in `src/sync.ts`
-- Shared utilities and rendering/logger helpers in `src/utils.ts`, `src/template-renderer.ts`, and `src/logger.ts`
-- Public package exports in `src/index.ts`
-- Tests under `src/__tests__/` and package-level build/test config
+- CLI entrypoint and command routing in `src/cli.ts`.
+- Interactive configuration flow in `src/wizard.ts`.
+- Project generation pipeline in `src/generator.ts`.
+- Legacy scaffold path in `src/scaffold-engine.ts`.
+- Template registry and manifests in `src/templates/*`.
+- Feature and preset registries in `src/features.ts` and `src/presets.ts`.
+- Optional adapter bridge wiring in `src/bridge.ts`.
+- Native-agent sync command in `src/sync.ts`.
+- Public exports in `src/index.ts`.
+- Build/test configuration in `package.json`, `tsup.config.ts`, `tsconfig.json`, and `vitest.config.ts`.
 
 Excluded:
-- Runtime behavior of generated projects after scaffolding
-- Internal behavior of external dependencies (`@dzupagent/*`, `commander`, `@inquirer/prompts`, etc.)
+- Runtime behavior of generated projects after scaffold completion.
+- Internal behavior of external packages (for example `@dzupagent/agent-adapters`, `@dzupagent/agent`, `commander`, `@inquirer/prompts`).
 
 ## Responsibilities
-`create-dzupagent` is a scaffold CLI/package responsible for:
-- Creating DzupAgent project skeletons from built-in template manifests
-- Supporting two configuration entry points:
-  - non-interactive CLI flags
-  - interactive wizard prompts
-- Applying optional feature overlays (`auth`, `dashboard`, `billing`, `teams`, `ai`) on top of templates
-- Generating normalized `package.json`, `.env.example`, `README.md`, and conditional `docker-compose.yml`
-- Running optional post-generation tasks (`git init`, dependency install)
-- Optionally wiring a generated project into `@dzupagent/agent-adapters` (`--wire`)
-- Providing a `sync` command that maps `.dzupagent/` definitions into native agent files via `@dzupagent/agent-adapters`
-- Exposing programmatic scaffold APIs for external tooling
+`create-dzupagent` provides a scaffold toolchain for DzupAgent projects.
+
+Primary responsibilities:
+- Generate new project directories from built-in template manifests.
+- Support non-interactive setup (CLI flags) and interactive setup (wizard prompts).
+- Apply optional feature overlays (`auth`, `dashboard`, `billing`, `teams`, `ai`) on top of a selected template.
+- Synthesize generated files (`package.json`, `.env.example`, `README.md`, and conditional `docker-compose.yml`) instead of copying those directly from template manifests.
+- Optionally run post-generation tasks (`git init` + first commit, package-manager install).
+- Optionally wire scaffold output into the `@dzupagent/agent-adapters` importer flow (`--wire`).
+- Provide `sync <target>` to map `.dzupagent/` definitions into native target files for `claude`, `codex`, `gemini`, `qwen`, `goose`, and `crush`.
+- Expose a programmatic API for generation, template access, overlays, and utility helpers.
 
 ## Structure
-Package layout and roles:
-- `src/cli.ts`
-  - Defines main command (`create-dzupagent [project-name]`) and `sync <target>` subcommand
-  - Handles list commands (`--list`, `--list-presets`, `--list-features`)
-  - Validates template/preset/package-manager values
-  - Calls `runWizard()` when no name/template/preset is passed
-  - Calls `generateProject()` for scaffold execution
-- `src/wizard.ts`
-  - Dynamically imports `@inquirer/prompts`
-  - Supports preset path and custom path
-  - Returns normalized `ProjectConfig`
-- `src/generator.ts`
-  - Main generation orchestrator used by CLI
-  - Writes template files, applies feature overlays, synthesizes generated config/docs, and runs optional post-steps
-- `src/scaffold-engine.ts`
-  - Legacy engine that directly renders every template-manifest file
-  - Does not run overlay logic or synthesized file generation pipeline
-- `src/sync.ts`
-  - Implements `dzupagent sync <target>` with plan/apply/dry-run support
-  - Targets: `claude`, `codex`, `gemini`, `qwen`, `goose`, `crush`
-- `src/bridge.ts`
-  - Optional bridge to `@dzupagent/agent-adapters` importer
-  - Dynamic import to avoid hard runtime dependency
-- `src/features.ts`
-  - Built-in overlay registry and lookup/list helpers
-- `src/presets.ts`
-  - Built-in preset registry (`minimal`, `starter`, `full`, `api-only`, `research`)
-- `src/templates/`
-  - Template manifests and helper generators for synthesized files
-- `src/utils.ts`
-  - Validation, shell execution, package manager detection, overlay file writing, marketplace fetch helper, and command string helpers
-- `src/template-renderer.ts`
-  - `{{variable}}` interpolation helper
-- `src/logger.ts`
-  - ANSI-based color helpers and spinner implementation
-- `src/index.ts`
-  - Public export surface for programmatic use
+Top-level package structure:
+- `src/cli.ts`: CLI setup using `commander`, list commands, scaffold execution path, and `sync` subcommand.
+- `src/wizard.ts`: interactive prompt flow with preset/custom branches and final `ProjectConfig` assembly.
+- `src/generator.ts`: end-to-end generation orchestrator (`generateProject`).
+- `src/scaffold-engine.ts`: legacy engine that renders every template file directly.
+- `src/sync.ts`: `runSyncCommand()` and sync plan/result formatting.
+- `src/bridge.ts`: `wireProject()` bridge to `@dzupagent/agent-adapters/dzupagent` via dynamic import.
+- `src/features.ts`: built-in feature overlay registry and lookup/list helpers.
+- `src/presets.ts`: built-in presets (`minimal`, `starter`, `full`, `api-only`, `research`).
+- `src/templates/*.ts`: template manifests plus synthesized-file generators.
+- `src/utils.ts`: validation, command execution, package-manager detection, overlay writing, and helper command strings.
+- `src/template-renderer.ts`: `{{variable}}` substitution logic.
+- `src/logger.ts`: ANSI color helpers and a simple spinner.
+- `src/index.ts`: public export surface.
+- `src/__tests__/*.test.ts`: 10 test files covering registry integrity, generation flow, wizard paths, CLI args, bridge wiring, and utilities.
 
-Built-in template registry (`src/templates/index.ts`) currently includes 9 template IDs:
+Template registry (`src/templates/index.ts`) currently includes 9 template IDs:
 - `minimal`
 - `full-stack`
 - `codegen`
@@ -82,182 +60,158 @@ Built-in template registry (`src/templates/index.ts`) currently includes 9 templ
 - `cost-constrained-worker`
 - `research`
 
-Note on exported template constants:
-- `src/index.ts` re-exports `templateRegistry`, `getTemplate`, and `listTemplates`
-- It also re-exports individual constants for: `minimal`, `full-stack`, `codegen`, `multi-agent`, `server`, `research`
-- It does not currently re-export individual constants for `production-saas-agent`, `secure-internal-assistant`, or `cost-constrained-worker`
-
 ## Runtime and Control Flow
-Primary CLI flow (`src/cli.ts` + `src/generator.ts`):
-1. Parse CLI args via `commander`.
-2. Route list commands (`--list*`) if requested.
-3. Resolve config:
-   - interactive wizard mode when no project name/template/preset
-   - validated CLI mode otherwise
-4. Call `generateProject(config, outputDir, callbacks, options)`.
-5. In `generateProject`:
-   - create project directory
-   - resolve template manifest
-   - render/write template files except `package.json`, `.env.example`, `README.md`, `docker-compose.yml`
-   - apply selected feature overlays
-   - generate `package.json` via `generatePackageJson()`
-   - generate `.env.example` via `generateEnvExample()`
-   - generate `docker-compose.yml` when `database !== 'none'` or `ai` is selected
-   - generate `README.md` via `generateReadme()`
-   - optionally run `initGitRepo()`
-   - optionally run `installDependencies()`
-   - optionally run `wireProject()` when `--wire`
-6. Return `GenerationResult` including status flags: `gitInitialized`, `depsInstalled`, `wired`.
+Scaffold CLI flow (`create-dzupagent [project-name]`):
+1. `createProgram()` defines options/commands and calls `run(projectName, options)`.
+2. `run()` handles list commands early (`--list`, `--list-presets`, `--list-features`).
+3. If no project name/template/preset is provided, `runWizard()` collects config interactively.
+4. CLI mode validates project name, template, preset, and package manager.
+5. `executeGeneration()` calls `generateProject(config, resolve(process.cwd()), callbacks, { wire })`.
+6. `generateProject()` executes the pipeline:
+   - create project directory.
+   - load template manifest.
+   - render/write template files except `package.json`, `.env.example`, `README.md`, `docker-compose.yml`.
+   - apply selected feature overlay files.
+   - generate and write `package.json` (`generatePackageJson`).
+   - generate and write `.env.example` (`generateEnvExample`).
+   - generate and write `docker-compose.yml` when `database !== 'none'` or `ai` is selected.
+   - generate and write `README.md` (`generateReadme`).
+   - optionally initialize git (`initGitRepo`), non-fatal on failure.
+   - optionally install dependencies (`installDependencies`), non-fatal on failure.
+   - optionally wire project (`wireProject`) when `options.wire` is true, non-fatal on failure.
+7. CLI prints file list, completion flags, and next steps.
 
-Wizard flow (`src/wizard.ts`):
-1. Prompt for project name with npm-style validation.
-2. Prompt preset vs custom path.
-3. Preset path:
-   - choose package manager
-   - choose git/install flags
-   - confirm and return preset-derived config
-4. Custom path:
-   - select template
-   - select features (checkbox)
-   - choose database/auth/package manager/git/install
-   - confirm and return config
-5. On user cancellation, calls `process.exit(0)`.
+Sync command flow (`create-dzupagent sync <target>`):
+1. Validate `target` against `VALID_SYNC_TARGETS`.
+2. Dynamically import `@dzupagent/agent-adapters/dzupagent`.
+3. Resolve workspace paths, construct file loader + skill registry + agent loader + syncer.
+4. Build sync plan (`planSync`), print write/divergence summary.
+5. If neither `--execute` nor `--dry-run` is set, stop after plan preview.
+6. Otherwise call `executeSync(plan, { force, dryRun, dryRunFormat })` and print result summary.
 
-Sync flow (`src/cli.ts` + `src/sync.ts`):
-1. Validate target name against `VALID_SYNC_TARGETS`.
-2. Dynamically import `@dzupagent/agent-adapters`.
-3. Build resolver/loaders/syncer objects.
-4. Create sync plan and print planned writes/diverged files.
-5. Behavior by flags:
-   - default (no `--execute`, no `--dry-run`): print plan only
-   - `--dry-run`: execute sync in dry-run mode for diagnostics/diffs without writes
-   - `--execute`: apply writes (with optional `--force` for diverged files)
-6. Print result summary.
+Wizard flow (`runWizard`):
+1. Prompt for project name (validated with `validateProjectName`).
+2. Prompt for preset vs custom setup.
+3. Preset branch: choose package manager + git/install flags, confirm, return preset-derived config.
+4. Custom branch: choose template/features/database/auth/package manager/git/install, confirm, return config.
+5. User cancellation exits process via `process.exit(0)`.
 
-Optional bridge wiring flow (`src/bridge.ts`):
-1. Dynamically import `@dzupagent/agent-adapters`.
-2. Resolve workspace/project paths.
-3. Plan and execute importer.
-4. Return `WireBridgeResult`.
-5. Never throw to caller; failures return `success: false` with `error`.
+Legacy programmatic flow (`ScaffoldEngine.generate`):
+1. Resolve template manifest.
+2. Render every manifest file with `renderTemplate`.
+3. Write files directly under `outputDir/projectName`.
+4. Return basic scaffold result.
 
 ## Key APIs and Types
-Public package APIs (`src/index.ts`):
-- Generation and wiring:
+Main exports from `src/index.ts`:
+- Generation and wizard:
   - `generateProject(config, outputDir, callbacks?, options?)`
-  - `wireProject(options)`
   - `runWizard()`
-  - `ScaffoldEngine` (legacy)
-- Template/preset/feature access:
-  - `templateRegistry`, `getTemplate`, `listTemplates`
+  - `ScaffoldEngine`
+- Adapter integration:
+  - `wireProject(options)`
+- Template access:
+  - `templateRegistry`, `getTemplate(id)`, `listTemplates()`
+  - individual template constants (`minimalTemplate`, `fullStackTemplate`, `codegenTemplate`, `multiAgentTemplate`, `serverTemplate`, `researchTemplate`)
+- Presets and features:
   - `presets`, `getPreset`, `listPresets`, `PRESET_NAMES`
   - `getFeatureOverlay`, `listFeatures`, `getFeatureSlugs`
-- Template helpers:
+- Template/file helpers:
+  - `renderTemplate`
   - `generatePackageJson`, `generateEnvExample`, `generateDockerCompose`, `generateReadme`
 - Utilities:
   - `validateProjectName`, `detectPackageManager`, `runCommand`, `installDependencies`, `initGitRepo`, `applyOverlay`, `fetchMarketplaceTemplates`, `getInstallCommand`, `getDevCommand`
-- Renderer:
-  - `renderTemplate(content, variables)`
 
-Important types (`src/types.ts` and related modules):
-- `TemplateType` (9-template union)
-- `ProjectConfig`
-- `GenerationResult`
-- `ScaffoldOptions`, `ScaffoldResult` (legacy path)
-- `TemplateManifest`
-- `FeatureDefinition`
-- `DatabaseProvider`, `AuthProvider`, `PackageManagerType`, `PresetName`
-- `MarketplaceTemplate`
-- `GenerateCallbacks`, `GenerateOptions` (`src/generator.ts`)
-- `WireBridgeOptions`, `WireBridgeResult` (`src/bridge.ts`)
-- `CLIOptions` (`src/cli.ts`)
-- `SyncTargetName`, `SyncCommandOptions` (`src/sync.ts`)
+Core types (`src/types.ts` and related modules):
+- `TemplateType`: union of 9 supported template IDs.
+- `ProjectConfig`: scaffold configuration shape used by CLI/wizard/generator.
+- `GenerationResult`: scaffold pipeline result including `gitInitialized`, `depsInstalled`, `wired` flags.
+- `ScaffoldOptions` and `ScaffoldResult`: legacy `ScaffoldEngine` interfaces.
+- `TemplateManifest`: template metadata, file list, dependency maps, optional `availableFeatures`.
+- `FeatureDefinition`: overlay file/dependency/env-var definition.
+- `PresetName` and `PresetConfig`.
+- `SyncTargetName` and `SyncCommandOptions`.
+- `WireBridgeOptions` and `WireBridgeResult`.
 
 ## Dependencies
-Runtime dependencies (`package.json`):
-- `commander` for CLI parsing and command registration
-- `@inquirer/prompts` for interactive wizard input (dynamic import)
-- `chalk` and `ora` are declared, but current implementation uses `src/logger.ts` ANSI utilities instead
+Runtime dependencies declared in `package.json`:
+- `commander`: CLI parser and command router.
+- `@inquirer/prompts`: interactive wizard prompts (loaded dynamically in `runWizard`).
+- `chalk`, `ora`: declared dependencies, but runtime output currently uses local `src/logger.ts`.
 
-Build/test dependencies:
-- `typescript`
-- `tsup`
-- `vitest`
+Optional runtime dependency:
+- `@dzupagent/agent-adapters` (optional dependency + tsup external).
+- Used through dynamic import by `src/bridge.ts` and `src/sync.ts`.
 
-Node built-ins heavily used:
-- `node:fs`, `node:fs/promises`, `node:path`, `node:child_process`, `node:util`, `node:url`
+Development/build dependencies:
+- `typescript`, `tsup`, `vitest`.
+- `@dzupagent/agent` is used in tests (preset bridge checks).
 
-Optional runtime dependency (dynamic import):
-- `@dzupagent/agent-adapters` used by:
-  - `wireProject()`
-  - `runSyncCommand()`
+Node built-ins used across modules:
+- `node:fs`, `node:fs/promises`, `node:path`, `node:child_process`, `node:util`, `node:url`.
 
-Generated project dependency synthesis (`src/templates/package-json.ts`):
-- Base: `@dzupagent/core`, `@dzupagent/agent`
-- Feature/database additions (for example `@dzupagent/server`, `@dzupagent/memory`, `@dzupagent/context`, `stripe`, `bullmq`, `ioredis`, `drizzle-orm`)
-- Template manifest dependencies/devDependencies are merged in
-- Dependency objects are key-sorted before serialization
+Build/package behavior:
+- `tsup` builds ESM outputs for `src/index.ts` and `src/cli.ts` into `dist/`.
+- `bin` points to `dist/cli.js`.
+- Published files include `dist` only.
 
 ## Integration Points
 Filesystem integration:
-- Writes full project tree into `join(outputDir, projectName)`
-- Applies feature overlays as direct file writes relative to project root
-- Creates nested directories as needed
+- Scaffolds into `join(outputDir, projectName)`.
+- Creates directories recursively and writes all generated/template/overlay files.
 
-Process execution:
-- Uses `execFile` in `runCommand()`
-- Optional post-steps:
-  - `git init`, `git add .`, `git commit -m "Initial commit from create-dzupagent"`
-  - package manager install (`npm install`, `pnpm install`, or `yarn`)
+Process execution integration:
+- `initGitRepo()` runs `git init`, `git add .`, and initial commit.
+- `installDependencies()` runs `npm install`, `pnpm install`, or `yarn`.
+- Both are invoked conditionally by `generateProject()` and failures are treated as non-fatal.
 
-Adapter ecosystem integration:
-- `--wire` bridges scaffold output into `.dzupagent/` import path through adapter importer APIs
-- `sync <target>` maps `.dzupagent/` definitions into native agent files (plan/apply/dry-run)
+Adapter integration:
+- `--wire` path calls `wireProject()` to run importer plan/execute against generated output.
+- `sync` path calls sync planner/executor to produce and optionally apply native target file updates.
 
 Network integration:
-- `fetchMarketplaceTemplates(baseUrl)` calls `${baseUrl}/api/marketplace/templates` with abort timeout (5s)
-- This helper is exported but not currently used in CLI or wizard control flow
+- `fetchMarketplaceTemplates(baseUrl)` requests `${baseUrl}/api/marketplace/templates` with a 5-second abort timeout and returns `null` on failures.
 
-Packaging/binary integration:
-- Package publishes `dist` and exposes executable via `bin: ./dist/cli.js`
-- Supports invocation via `npm create dzupagent ...` / `npx create-dzupagent ...`
+CLI integration:
+- `create-dzupagent` supports template/preset/feature listing commands.
+- `create-dzupagent sync` supports plan preview, dry-run diagnostics (`console` or `json`), and execute mode.
 
 ## Testing and Observability
-Current test suites (`src/__tests__/`):
-- `generator.test.ts`: generation pipeline behavior, conditional files, callbacks
-- `scaffold.test.ts`: template registry integrity, renderer behavior, legacy `ScaffoldEngine`, E2E scaffold checks
-- `wizard.test.ts`: preset/custom prompt flows, validation hooks, abort behavior
-- `cli-args.test.ts`: argument parsing and invalid input handling
-- `features.test.ts`: feature registry/overlay structure
-- `presets.test.ts`: preset registry correctness and ordering
-- `research-preset.test.ts`: research preset/template behavior
-- `bridge.test.ts`: wiring success/failure and CLI `--wire` behavior
-- `preset-registry-bridge.test.ts`: scaffold-preset alignment checks against `@dzupagent/agent` preset registry
-- `utils.test.ts`: validation, overlay writing, package manager helpers
+Test coverage surface:
+- `scaffold.test.ts`: template registry, template rendering, and legacy scaffold engine behavior.
+- `generator.test.ts`: generated files, feature overlays, docker compose conditions, callbacks, and configuration outcomes.
+- `wizard.test.ts`: preset/custom prompt flows and cancellation behavior with prompt mocks.
+- `cli-args.test.ts`: argument parsing and invalid-input handling.
+- `features.test.ts`: feature registry correctness.
+- `presets.test.ts`: preset registry correctness.
+- `research-preset.test.ts`: research preset/template scaffold checks.
+- `bridge.test.ts`: wiring behavior and generator `wire` option behavior.
+- `preset-registry-bridge.test.ts`: scaffold preset/tool references against `@dzupagent/agent` preset registry.
+- `utils.test.ts`: validation/helpers/overlay writer behavior.
 
-Coverage and execution config (`vitest.config.ts`):
-- Environment: `node`
-- Timeout: `30_000`
-- Coverage provider: `v8`
-- Reporters: `text`, `json-summary`
-- Thresholds: statements 40, branches 30, functions 30, lines 40
+Current gap:
+- No dedicated `sync.test.ts` suite for `runSyncCommand` and sync output behavior.
 
-Observability in this package:
-- User-facing progress/status output via `Spinner` and `colors`
-- Hook callbacks in `generateProject()`:
-  - `onStep(step)`
-  - `onFileCreated(filePath)`
-- No structured telemetry, tracing, or metrics emitted by `create-dzupagent` itself
+Vitest configuration (`vitest.config.ts`):
+- Node environment, 30s timeout.
+- Coverage provider `v8`; reporters `text` and `json-summary`.
+- Coverage thresholds: statements 40, branches 30, functions 30, lines 40.
+
+Observability characteristics:
+- Human-readable terminal status from `Spinner` and ANSI color helpers.
+- `generateProject()` emits callback hooks (`onStep`, `onFileCreated`) for host-side progress instrumentation.
+- No native structured telemetry, tracing, or metrics stream.
 
 ## Risks and TODOs
-- Drift between `README.md` and implementation: top-level README still references only exported template constants up to `research` and does not document the `sync` command.
-- Export-surface mismatch: `src/index.ts` does not re-export individual constants for three templates that exist in registry (`production-saas-agent`, `secure-internal-assistant`, `cost-constrained-worker`).
-- Dual generation paths: `generateProject()` and `ScaffoldEngine.generate()` intentionally differ; consumers can get different scaffold outputs depending on API choice.
-- Non-fatal failures can be opaque: git/dependency/wire failures are swallowed into boolean flags without surfaced error details in the final CLI summary.
-- `sync.ts` has no dedicated unit tests in `src/__tests__/` despite being user-facing CLI functionality.
-- Declared-but-unused runtime deps (`chalk`, `ora`) increase dependency surface without current runtime use.
-- `fetchMarketplaceTemplates()` is exported but currently disconnected from wizard/CLI selection paths.
+- CLI/README drift: package README documents template usage and API basics but does not document the `sync` command path.
+- Export-surface mismatch: all 9 templates exist in the registry, but `src/index.ts` only re-exports individual constants for 6 templates.
+- Dual generation behavior: `generateProject()` (synthesized files + overlays + optional post-steps) and `ScaffoldEngine.generate()` (manifest-only rendering) can produce different results for the same template.
+- Feature metadata underuse: `FeatureDefinition.dependencies` and `FeatureDefinition.envVars` are not directly consumed by generation logic; package/env synthesis is hardcoded in template generator modules.
+- Template capability metadata underuse: `TemplateManifest.availableFeatures` exists in type shape but is not populated or enforced in current flow.
+- Non-fatal post-step failures are intentionally swallowed into boolean result flags; detailed failure context is not persisted beyond immediate CLI output.
+- `ProjectConfig.marketplaceUrl` and `fetchMarketplaceTemplates()` exist, but marketplace templates are not currently integrated into CLI/wizard selection flow.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: rewritten from current `create-dzupagent` source, tests, and package configuration.
 

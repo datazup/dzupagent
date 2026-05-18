@@ -1,131 +1,146 @@
-# Observability Architecture
+# Observability Architecture (`packages/core/src/observability`)
 
 ## Scope
-This document covers `packages/core/src/observability` in `@dzupagent/core`.
+This document describes the in-process observability primitives implemented in `packages/core/src/observability`.
 
-The scope is intentionally narrow and includes only:
-- In-memory metric collection (`MetricsCollector`, `globalMetrics`)
-- Async health check aggregation (`HealthAggregator`)
-- Module-level re-exports from `src/observability/index.ts`
-
-It does not include:
-- Prometheus formatting/rendering (implemented in `@dzupagent/server`)
-- OpenTelemetry SDK integration (not present in this module)
-- HTTP health route wiring (implemented outside `packages/core/src/observability`)
-
-## Responsibilities
-The observability module provides lightweight primitives that other runtime layers can compose:
-- Capture process-local counters, gauges, and histogram-like observations without external dependencies.
-- Provide deterministic metric series keying by metric name + sorted labels.
-- Expose snapshot/read/reset APIs for tests, diagnostics, and bridge adapters.
-- Aggregate subsystem health checks concurrently and return one normalized report with status, checks, timestamp, and uptime.
-- Isolate individual health-check failures so one rejected check does not abort reporting.
-
-## Structure
-Source files:
+Included source files:
 - `metrics-collector.ts`
 - `health-aggregator.ts`
 - `index.ts`
 
-Primary exports:
-- `MetricsCollector`, `globalMetrics`, `MetricType`
-- `HealthAggregator`, `HealthStatus`, `HealthCheck`, `HealthReport`, `HealthCheckFn`
+Included package surfaces that expose these primitives:
+- `packages/core/src/index.ts` (`@dzupagent/core`)
+- `packages/core/src/facades/orchestration.ts` (`@dzupagent/core/orchestration`)
+- `packages/core/src/utils.ts` (`@dzupagent/core/utils`)
 
-Re-export surfaces inside `@dzupagent/core`:
-- Root barrel: `src/index.ts`
-- Orchestration facade: `src/facades/orchestration.ts`
-- Local barrel: `src/observability/index.ts`
+Explicitly out of scope:
+- HTTP endpoint wiring for `/health` or `/metrics`
+- Prometheus text exposition formatting/export pipelines
+- OpenTelemetry SDK setup/exporters
+- External alerting/dashboard integrations
+
+## Responsibilities
+`src/observability` provides two lightweight runtime building blocks:
+- A mutable in-memory metric registry (`MetricsCollector` and the `globalMetrics` singleton).
+- A composable health check runner that aggregates async subsystem checks (`HealthAggregator`).
+
+Behavior implemented today:
+- Store metrics by `(name + normalized labels)` key.
+- Support counter-style increment, gauge assignment, and histogram-like observation accumulation.
+- Provide point lookup (`get`) and snapshot/reset utilities (`toJSON`, `reset`).
+- Execute health checks concurrently with `Promise.allSettled`.
+- Convert rejected checks into synthetic error entries so one failing check does not abort the full health report.
+- Return aggregate status plus per-check details, report timestamp, and process uptime since aggregator creation.
+
+## Structure
+| File | Role | Exports |
+| --- | --- | --- |
+| `metrics-collector.ts` | In-memory metric storage and mutation | `MetricType`, `MetricsCollector`, `globalMetrics` |
+| `health-aggregator.ts` | Health check registration and aggregation | `HealthStatus`, `HealthCheck`, `HealthReport`, `HealthCheckFn`, `HealthAggregator` |
+| `index.ts` | Local module barrel | re-exports both modules |
+
+Key internal data structures:
+- `MetricsCollector` uses `Map<string, MetricEntry>` where keys are formatted via a private `key(name, labels)` helper.
+- `MetricEntry` stores `name`, `type`, `labels`, `value`, plus optional `sum`/`count`/`buckets`.
+- `HealthAggregator` stores an array of `HealthCheckFn` plus `startTime` for uptime computation.
 
 ## Runtime and Control Flow
-Metrics flow (`MetricsCollector`):
+Metrics path:
 1. Caller invokes `increment`, `gauge`, or `observe`.
-2. Collector builds a series key via `key(name, labels)` where label entries are sorted lexicographically by label name.
-3. Collector updates (or creates) a `Map<string, MetricEntry>` entry.
-4. Consumers read current values via `get(name, labels)` or bulk snapshots via `toJSON()`.
-5. State can be cleared with `reset()` (used for lifecycle/test isolation).
+2. Collector computes a canonical key:
+   - No labels: key is `name`.
+   - With labels: labels are key-sorted, then formatted as `name{k="v",...}`.
+3. Collector updates existing map entry or creates a new one.
+4. Snapshot consumers call `toJSON()` to read all entries, or `get(name, labels)` for one value.
+5. `reset()` clears the map.
 
-Health flow (`HealthAggregator`):
-1. Subsystems register async checks with `register(checkFn)`.
+Current write semantics:
+- `increment`: adds `amount` (default `1`) to `value`.
+- `gauge`: sets `value` to absolute value.
+- `observe`: sets `value` to last sample and accumulates `sum` and `count`.
+
+Health path:
+1. Callers register checks with `register(checkFn)`.
 2. `check()` executes all registered checks with `Promise.allSettled`.
-3. Rejected checks are normalized to synthetic `HealthCheck` entries:
-   - `name: check-<index>`
-   - `status: 'error'`
-   - `message` derived from rejection reason.
-4. Aggregation reduces statuses with precedence:
-   - `error` wins immediately
-   - otherwise any `degraded` yields `degraded`
-   - otherwise `ok`
-5. Returned `HealthReport` includes `checks`, `timestamp` (`ISO string`), and `uptime` (`Date.now() - startTime`).
+3. Fulfilled promises are used as-is.
+4. Rejected promises are converted to `{ name: "check-<index>", status: "error", message }`.
+5. Aggregate status reduction:
+   - any `error` -> report `error`
+   - else any `degraded` -> report `degraded`
+   - else -> report `ok`
+6. `check()` returns `{ status, checks, timestamp, uptime }`.
 
 ## Key APIs and Types
-`metrics-collector.ts`:
+From `metrics-collector.ts`:
 - `type MetricType = 'counter' | 'gauge' | 'histogram'`
 - `class MetricsCollector`
-- `increment(name: string, labels?: Record<string, string>, amount = 1): void`
+- `increment(name: string, labels?: Record<string, string>, amount?: number): void`
 - `gauge(name: string, value: number, labels?: Record<string, string>): void`
 - `observe(name: string, value: number, labels?: Record<string, string>): void`
-- `toJSON(): Record<string, unknown>[]`
 - `get(name: string, labels?: Record<string, string>): number | undefined`
+- `toJSON(): Record<string, unknown>[]`
 - `reset(): void`
-- `globalMetrics: MetricsCollector`
+- `const globalMetrics = new MetricsCollector()`
 
-Behavioral notes:
-- `increment` accumulates `value`.
-- `gauge` overwrites `value`.
-- `observe` tracks histogram-like fields (`sum`, `count`) and stores the last sample in `value`.
-- Internally, metric entries also carry `help` and optional `buckets`, but current write APIs do not populate these fields.
-
-`health-aggregator.ts`:
+From `health-aggregator.ts`:
 - `type HealthStatus = 'ok' | 'degraded' | 'error' | 'unconfigured'`
-- `interface HealthCheck { name; status; latencyMs?; message?; metadata? }`
-- `interface HealthReport { status; checks; timestamp; uptime }`
+- `interface HealthCheck`
+- `interface HealthReport`
 - `type HealthCheckFn = () => Promise<HealthCheck>`
 - `class HealthAggregator`
 - `register(checkFn: HealthCheckFn): void`
 - `check(): Promise<HealthReport>`
 
-## Dependencies
-Direct runtime dependencies for this module:
-- None (no imports from external packages or other internal modules).
+From `index.ts`:
+- Pure barrel re-exports of the symbols above (no additional behavior).
 
-Package-level context (`packages/core/package.json`):
-- `@dzupagent/core` depends on `@dzupagent/agent-types` and `@dzupagent/runtime-contracts`, but observability files themselves do not consume them.
-- No observability-specific peer dependency is required by this module.
+## Dependencies
+Direct runtime dependencies inside `src/observability/*`:
+- None outside language/runtime primitives (`Map`, `Date`, `Promise`).
+
+Package-level context:
+- `@dzupagent/core` declares dependencies on `@dzupagent/agent-types`, `@dzupagent/runtime-contracts`, and `@dzupagent/security`, but observability code does not import them.
+- `src/observability` also does not import optional peer deps (`zod`, `@langchain/*`, tokenizer/vector packages).
 
 ## Integration Points
-Within `@dzupagent/core`:
-- Root package consumers can import observability APIs from `@dzupagent/core` via `src/index.ts` re-exports.
-- Orchestration-focused consumers can import the same APIs from `@dzupagent/core/orchestration` via facade re-exports.
+How consumers get observability APIs:
+- Root surface: `@dzupagent/core` via `src/index.ts`.
+- Orchestration facade: `@dzupagent/core/orchestration`.
+- Utils facade: `@dzupagent/core/utils`.
+- Local module imports inside package internals can use `src/observability/index.ts`.
 
-Cross-package usage in the monorepo:
-- `@dzupagent/server` consumes `MetricsCollector` as a base collector type in routing/runtime services.
-- `packages/server/src/metrics/prometheus-collector.ts` extends `MetricsCollector` to add Prometheus text rendering.
-- Server runtime paths (`eval` orchestration, run worker, metrics route wiring) use the collector abstraction passed through server composition types.
+Packaging details relevant to this module:
+- `package.json` does not define a dedicated `./observability` export.
+- `tsup.config.ts` does not include `src/observability/index.ts` as a standalone build entry.
+- As a result, public consumption is through the root/facade entrypoints, not a direct observability subpath.
 
-Current usage gap:
-- No direct runtime consumers of `HealthAggregator` were found outside core test/facade coverage.
-- `globalMetrics` is exported but has no direct in-repo usage references under `packages/core/src`.
+Current in-repo wiring:
+- No non-observability runtime module in `packages/core/src` imports `observability` for active behavior.
+- Integration today is export-surface availability rather than deep internal coupling.
 
 ## Testing and Observability
-Core tests covering this module today:
-- `src/__tests__/facades.test.ts`
-  - Verifies observability exports (`MetricsCollector`, `HealthAggregator`) are reachable from `facades/orchestration`.
-- `src/__tests__/facade-orchestration.test.ts`
-  - Includes behavioral tests for `HealthAggregator` (`ok`, `degraded`, `error`, thrown check handling).
+Tests touching this module:
+- `packages/core/src/__tests__/facades.test.ts`
+  - verifies orchestration facade exports include `MetricsCollector` and `HealthAggregator`.
+- `packages/core/src/__tests__/facade-orchestration.test.ts`
+  - behavior tests for `HealthAggregator` (`ok`, `degraded`, `error`, thrown-check handling).
+- `packages/core/src/__tests__/w15-b1-facades.test.ts`
+  - includes `HealthAggregator` through orchestration facade in broader facade smoke/behavior coverage.
 
-Coverage gap in core:
-- No dedicated tests for `MetricsCollector` behavior (counter/gauge/observe semantics, label canonicalization, reset behavior, `toJSON` output shape).
-
-Indirect server-side validation:
-- Server tests validate `MetricsCollector` usage through eval metrics and Prometheus collector integration.
+Current coverage gaps:
+- No focused unit tests for `MetricsCollector` mutation/read/reset behavior.
+- No test asserting label canonicalization (`{a:1,b:2}` equals `{b:2,a:1}` keying).
+- No test coverage for `globalMetrics` singleton lifecycle/reset expectations.
+- No direct test for `HealthStatus = 'unconfigured'` handling in aggregation logic.
 
 ## Risks and TODOs
-- `MetricsCollector` does not enforce metric-type consistency per name+labels series. Mixed write patterns can change semantics without explicit guardrails.
-- `observe` models histogram-like aggregates with `sum/count/last value`, but no bucket distribution is produced in core.
-- `MetricEntry.help` and `MetricEntry.buckets` exist structurally but are not written by public APIs.
-- `HealthStatus` includes `'unconfigured'`, but aggregate status reduction in `check()` only escalates on `'error'` and `'degraded'`.
-- `HealthAggregator.check()` returns `'ok'` when no checks are registered; if "no checks" should be treated differently, this must be handled by caller policy or a module change.
-- `globalMetrics` is process-local singleton state; careless shared usage can create cross-test leakage unless `reset()` is called.
+- Metric-type drift risk: the same key can be mutated through different write methods (`increment` then `observe`) without guardrails.
+- Histogram is partial: `observe` tracks `sum` and `count`, but bucket boundaries/distribution are not populated or exported.
+- `MetricEntry.help` and `MetricEntry.buckets` fields exist but are not set through public APIs.
+- `HealthStatus` includes `'unconfigured'`, but aggregate reduction currently treats it like `'ok'`.
+- Empty-check behavior returns overall `'ok'`; some deployments may prefer `'unconfigured'` or `'degraded'`.
+- `globalMetrics` is process-global mutable state and can leak across long-running contexts/tests if callers do not reset.
+- `HealthAggregator` has append-only registration; no unregister or timeout/cancellation controls are built in.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

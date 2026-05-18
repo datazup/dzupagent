@@ -1,137 +1,182 @@
 # Context Module Architecture (`packages/agent/src/context`)
 
 ## Scope
-This document covers the `packages/agent/src/context` folder in `@dzupagent/agent` and its package-level wiring through `packages/agent/src/index.ts`.
+This document covers the context-facing module in `packages/agent/src/context` and its direct integration points inside `@dzupagent/agent`.
 
-It is limited to what this folder owns directly:
-- A compatibility re-export for context compression utilities (`auto-compress.ts`).
-- A local integration layer that connects token pressure tracking to compression (`token-lifecycle-integration.ts`).
+In-scope files:
+- `src/context/auto-compress.ts`
+- `src/context/token-lifecycle-integration.ts`
+- `src/context/ARCHITECTURE.md`
 
-It does not restate internals implemented inside `@dzupagent/context` beyond what is required to describe integration behavior.
+In-scope package wiring:
+- `src/index.ts` context exports
+- `src/runtime.ts` context exports
+- `src/token-lifecycle-wiring.ts` consumption of `withTokenLifecycle`
+- runtime call sites that feed token usage and invoke compression/halt behavior in non-streaming and streaming loops
+
+Out of scope:
+- compression algorithm internals from `@dzupagent/context` (`autoCompress`, `FrozenSnapshot`)
+- broader agent subsystems unrelated to token lifecycle/context compression
 
 ## Responsibilities
-`src/context` currently has two responsibilities:
-- Preserve a stable import path from `@dzupagent/agent` to context utilities implemented in `@dzupagent/context` (`autoCompress`, `FrozenSnapshot`, `AutoCompressConfig`, `CompressResult`).
-- Provide `withTokenLifecycle(manager)` hooks that bridge a `TokenLifecycleManager` to run-loop behavior:
-  - Track usage (`onUsage`, `trackPhase`).
-  - Emit pressure transitions (`onPressure`).
-  - Trigger `autoCompress` when status is under pressure (`warn`, `critical`, `exhausted`).
-  - Reset manager state after successful compression.
+`src/context` has two concrete responsibilities:
+
+1. Compatibility facade for compression primitives:
+- Re-export `autoCompress`, `FrozenSnapshot`, `AutoCompressConfig`, and `CompressResult` from `@dzupagent/context` so agent consumers can keep importing from `@dzupagent/agent`.
+
+2. Token lifecycle integration hooks:
+- Provide `withTokenLifecycle(manager)` to bind a `TokenLifecycleManager` to agent loop-friendly callbacks:
+- `onUsage` for LLM usage accounting
+- `trackPhase` for non-LLM token accounting
+- `maybeCompress` for pressure-triggered compression
+- `onPressure` for transition callbacks
+- `cleanup` for lifecycle teardown
 
 ## Structure
-Current files in this folder:
 - `auto-compress.ts`
-  - Re-export-only shim:
-    - `autoCompress`, `FrozenSnapshot`
-    - `AutoCompressConfig`, `CompressResult`
-- `token-lifecycle-integration.ts`
-  - Defines integration types:
-    - `TokenLifecyclePhase`
-    - `TokenPressureListener`
-    - `TokenLifecycleHooks`
-  - Exposes `withTokenLifecycle(manager)` hook factory.
-- `ARCHITECTURE.md`
-  - This subsystem document.
+- Re-export-only shim to `@dzupagent/context`.
 
-Package root export wiring:
-- `packages/agent/src/index.ts` re-exports the above APIs under the `// --- Context ---` section.
-- `packages/agent/package.json` exports only `"."`, so consumers import these APIs from `@dzupagent/agent` root, not via subpath exports.
+- `token-lifecycle-integration.ts`
+- Owns integration types and logic:
+- `TokenLifecyclePhase`
+- `TokenPressureListener`
+- `TokenLifecycleHooks`
+- `withTokenLifecycle(manager)`
+
+- `ARCHITECTURE.md`
+- This architecture description.
+
+Package/export surface:
+- `src/index.ts` exports the context API at package root (`@dzupagent/agent`).
+- `src/runtime.ts` also exports the same context API for `@dzupagent/agent/runtime`.
+- `package.json` has exports for `"."` and `"./runtime"`, but no dedicated `"./context"` subpath.
 
 ## Runtime and Control Flow
-`auto-compress.ts` has no runtime logic; it delegates fully to `@dzupagent/context`.
+Core context flow is split across two layers:
 
-`withTokenLifecycle(manager)` runtime flow:
-1. Build local listener state and capture initial manager status.
-2. `onUsage(usage, phaseOverride?)`:
-  - Tracks input tokens to `phaseOverride ?? 'input'`.
-  - Tracks output tokens to `phaseOverride ?? 'output'`.
-  - Checks for status transitions and notifies listeners.
-3. `trackPhase(phase, tokens)`:
-  - Tracks arbitrary non-LLM phases (for example tool output ingestion).
-  - Ignores non-positive token counts.
-  - Checks transitions and notifies listeners.
-4. `maybeCompress(messages, model, existingSummary, config?)`:
-  - If manager status is `ok`, returns passthrough (`compressed: false`).
-  - Otherwise calls delegated `autoCompress(...)`.
-  - If compression succeeds (`compressed: true`), calls `manager.reset()` and emits transition notifications (typically returning to `ok`).
-5. `onPressure(listener)` subscribes to transition events and returns unsubscribe.
-6. `cleanup()` is idempotent and disables future tracking/notification from this hook set.
+1. Low-level hooks (`withTokenLifecycle` in `src/context/token-lifecycle-integration.ts`)
+- Creates local listener state and snapshots initial manager status.
+- `onUsage(usage, phaseOverride?)`:
+- tracks positive `inputTokens` and `outputTokens` into the manager
+- defaults phases to `input` / `output` unless overridden
+- calls transition notifier
+- `trackPhase(phase, tokens)`:
+- tracks arbitrary positive token charges
+- ignores `tokens <= 0`
+- calls transition notifier
+- `maybeCompress(messages, model, existingSummary?, config?)`:
+- returns passthrough when manager status is `ok`
+- otherwise calls `autoCompress(...)`
+- if `compressed === true`, resets manager and emits post-reset transition notification
+- `onPressure(listener)` registers transition listeners and returns unsubscribe.
+- listener failures are swallowed so run-loop control flow is not interrupted.
+- `cleanup()` is idempotent and disables future tracking/notifications for this hook instance.
 
-Important behavior boundary:
-- This integration compresses at `warn` or above.
-- The higher-level default-loop plugin in `src/token-lifecycle-wiring.ts` intentionally defers compression to `critical`/`exhausted` and uses `warn` only for soft hints.
+2. Default loop plugin (`createTokenLifecyclePlugin` in `src/token-lifecycle-wiring.ts`)
+- Builds on top of `withTokenLifecycle`.
+- Policy behavior:
+- `warn`: emit optional `onCompressionHint`, no compression
+- `critical` or `exhausted`: forward `onPressure`
+- `maybeCompress`: only compress for `critical`/`exhausted`
+- `shouldHalt`: true only on `exhausted`
+- no manager provided: returns a no-op plugin
+
+Runtime call sites in agent execution:
+- `prepareRunState` charges prompt construction tokens via `tokenLifecyclePlugin.trackPhase('prompt', ...)`.
+- Non-streaming tool loop (`runToolLoop` path):
+- usage is recorded each LLM turn via `onUsage`
+- `maybeCompress` runs after usage recording and before halt/tool execution
+- `shouldHalt` runs before tool execution and can stop with `token_exhausted`
+- tool-result payloads are charged through `trackPhase('tool-result', ...)`
+- Streaming run (`streamRun` path):
+- wraps `options.onUsage` to also feed `tokenLifecyclePlugin.onUsage`
+- runs compression adoption before halt/tool handling
+- checks `shouldHalt` before tool execution
+- charges tool-result payloads through `trackPhase('tool-result', ...)`
 
 ## Key APIs and Types
-Public APIs surfaced from `@dzupagent/agent`:
-- `autoCompress(messages, existingSummary, model, config?)` (re-export from `@dzupagent/context`)
-- `FrozenSnapshot` (re-export from `@dzupagent/context`)
-- `withTokenLifecycle(manager)` (owned by this folder)
+Public API exposed via `@dzupagent/agent` and `@dzupagent/agent/runtime`:
+- `autoCompress`
+- `FrozenSnapshot`
+- `withTokenLifecycle`
 
-Public types surfaced from `@dzupagent/agent`:
-- `AutoCompressConfig`, `CompressResult` (re-export)
+Public types:
+- `AutoCompressConfig`
+- `CompressResult`
 - `TokenLifecycleHooks`
 - `TokenLifecyclePhase`
 - `TokenPressureListener`
 
 `TokenLifecycleHooks` contract:
-- Methods:
-  - `onUsage(usage, phaseOverride?)`
-  - `trackPhase(phase, tokens)`
-  - `maybeCompress(messages, model, existingSummary?, config?)`
-  - `onPressure(listener) -> unsubscribe`
-  - `cleanup()`
-- Properties:
-  - `status` (derived from current manager status)
-  - `manager` (reference to underlying `TokenLifecycleManager`)
+- methods:
+- `onUsage(usage, phaseOverride?)`
+- `trackPhase(phase, tokens)`
+- `maybeCompress(messages, model, existingSummary?, config?)`
+- `onPressure(listener): () => void`
+- `cleanup()`
+- properties:
+- `status` (live manager status)
+- `manager` (underlying `TokenLifecycleManager`)
 
 ## Dependencies
-Direct dependencies used by this subsystem:
+Direct code dependencies used by `src/context`:
 - `@dzupagent/context`
-  - `autoCompress`, `TokenLifecycleManager`, `TokenLifecycleStatus` types.
+- `autoCompress`
+- `TokenLifecycleManager` and `TokenLifecycleStatus` types
+- `@dzupagent/core/llm`
+- `TokenUsage` type
 - `@langchain/core`
-  - `BaseChatModel`, `BaseMessage` types used in hook signatures.
-- `@dzupagent/core`
-  - `TokenUsage` type for usage tracking inputs.
+- `BaseChatModel` type
+- `BaseMessage` type
 
-Packaging/build context:
-- Included in `@dzupagent/agent` package build (`tsup` entrypoint is `src/index.ts`).
-- No dedicated subpath export for `src/context`; access is via root package exports.
+Package-level dependency context (`packages/agent/package.json`):
+- runtime deps include `@dzupagent/context` and `@dzupagent/core`
+- peer deps include `@langchain/core`
 
 ## Integration Points
-Primary integrations:
-- Root package export surface:
-  - `src/index.ts` re-exports context APIs for consumers.
-- Default agent loop lifecycle wiring:
-  - `src/token-lifecycle-wiring.ts` composes this folder's `withTokenLifecycle` hooks into `createTokenLifecyclePlugin(...)`.
-  - Plugin policy layer maps status transitions to:
-    - `warn`: optional compression hint callback.
-    - `critical`: compression attempts.
-    - `exhausted`: compression attempts + halt signal.
-- Run-loop token accounting:
-  - Hook methods are designed to be attached to tool-loop usage events and non-LLM token charges.
+- `src/token-lifecycle-wiring.ts`
+- adapts `withTokenLifecycle` into `AgentLoopPlugin` (`createTokenLifecyclePlugin`)
+- `src/agent/run-engine.ts`
+- prompt-phase token charging (`trackPhase('prompt', ...)`)
+- `src/agent/run-engine-generate-tool-loop.ts`
+- tool-result token charging (`trackPhase('tool-result', ...)`)
+- tool-loop `maybeCompress`/`shouldHalt` wiring
+- `src/agent/tool-loop/loop-stages.ts`
+- resilient compression execution with `context:compress_failed` event emission on hook failure
+- `src/agent/streaming-run.ts` and helpers
+- usage forwarding to plugin in stream mode
+- compression adoption and halt checks in streaming loop
+- tool-result token charging in streaming tool handler
+- package barrels:
+- `src/index.ts`
+- `src/runtime.ts`
 
 ## Testing and Observability
-Direct package tests for this subsystem:
+Direct tests covering this module and its wiring:
 - `src/__tests__/token-lifecycle-integration.test.ts`
-  - Verifies hook API shape, status transitions, listener behavior, compression gating, config forwarding, manager reset behavior, and idempotent cleanup.
-  - Uses a mocked `autoCompress` path for deterministic behavior.
+- `withTokenLifecycle` API shape, usage/phase tracking, pressure transitions, compression gating, reset behavior, cleanup behavior
 - `src/__tests__/token-lifecycle-wiring.test.ts`
-  - Verifies plugin-level policy layered on top of these hooks (warn hint vs critical/exhausted compression, halt behavior, reset/cleanup semantics).
+- `createTokenLifecyclePlugin` no-op mode, hint/pressure callbacks, compression thresholds, halt behavior, reset/cleanup
+- `src/__tests__/token-lifecycle-stream-wiring.test.ts`
+- stream-path `onUsage` forwarding and user callback preservation
+- `src/__tests__/track-phase-wiring.test.ts`
+- prompt/tool-result phase charging in run-engine wiring
+- `src/__tests__/tool-loop-token-halt.test.ts`
+- loop stop behavior for `shouldHalt` and `token_exhausted`
 
-Related context behavior is tested in `@dzupagent/context` (outside this folder), where the actual compression algorithm and `FrozenSnapshot` implementation live.
-
-Observability in this folder:
-- No logging/event-bus emission is implemented here.
-- Pressure transition observability is callback-based through `onPressure(listener)`.
+Observability behavior:
+- `src/context` itself emits no logs or event-bus events.
+- Transition observability is callback-based (`onPressure`).
+- Failures in compression hooks are handled by consumers; the tool loop emits `context:compress_failed` when `maybeCompress` throws.
 
 ## Risks and TODOs
-- Documentation drift risk exists if this module is described as re-export-only; it now also owns token lifecycle integration logic.
-- Root-export contract coverage is indirect. Existing tests import internal module paths; there is no explicit test asserting these context APIs remain exported from `@dzupagent/agent` root.
-- Compression policy can diverge by integration layer:
-  - `withTokenLifecycle`: compress at `warn+`.
-  - `createTokenLifecyclePlugin`: compress at `critical+`.
-  This is intentional in current code but should stay clearly documented to avoid misconfiguration.
+- Threshold split is intentional but easy to misread:
+- `withTokenLifecycle` compresses at `warn+`
+- default plugin compresses only at `critical+`
+- APIs are exported via root/runtime barrels without a dedicated `./context` export; consumers importing internal paths may bypass stable entrypoints.
+- Phase names are string-based (`TokenLifecyclePhase` allows arbitrary strings), so naming drift (`tool-output` vs `tool-result`) is possible across integrations.
+- Export-contract tests are mostly behavior-level; there is no dedicated package-level test that asserts both root and runtime barrels keep exporting this context surface.
 
 ## Changelog
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-

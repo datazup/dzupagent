@@ -1,9 +1,9 @@
 # Skills Architecture (`packages/core/src/skills`)
 
 ## Scope
-This document covers the `packages/core/src/skills` module in `@dzupagent/core`.
+This document covers the current code in `packages/core/src/skills` within `@dzupagent/core`.
 
-In scope:
+Files in scope:
 - `skill-types.ts`
 - `skill-loader.ts`
 - `skill-injector.ts`
@@ -17,259 +17,149 @@ In scope:
 - `agents-md-parser.ts`
 - `hierarchical-walker.ts`
 - `skill-model-v2.ts`
-- `index.ts` (skills sub-barrel)
+- `index.ts` (skills-local barrel)
 
-Also covered where directly integrated:
-- root `src/index.ts` exports
-- `src/facades/orchestration.ts` facade exports
-- `src/subagent/subagent-spawner.ts` skill prompt hydration path
-- `src/formats/agents-md-parser-v2.ts` legacy type bridge import
+Adjacent integration surfaces validated while refreshing this document:
+- `packages/core/src/index.ts`
+- `packages/core/src/pipeline.ts`
+- `packages/core/src/facades/orchestration.ts`
+- `packages/core/src/subagent/subagent-spawner.ts`
+- `packages/core/src/formats/agents-md-parser-v2.ts`
+- `packages/core/package.json`
 
 Out of scope:
-- execution engine for `SkillChain` (this module defines/builds/validates chains)
-- full AGENTS v2 parser internals in `src/formats/*` beyond the legacy config type dependency
+- execution engines outside this module (for example pipeline runtime internals, event buses, LLM invocation internals)
+- non-skills domains in `@dzupagent/core` (MCP, persistence internals, broader security subsystems)
 
 ## Responsibilities
-The skills module currently provides:
-
-1. Skill definitions and registry data types (`SkillDefinition`, `SkillRegistryEntry`, `LoadedSkill`, `SkillMatch`).
-2. Filesystem discovery of skill metadata/content from `SKILL.md` files (`SkillLoader`).
-3. Prompt augmentation helpers (`injectSkills`, registry prompt formatting).
-4. In-memory skill registry with ranking/search by text, category, and tags (`SkillRegistry`).
-5. Recursive directory loading for markdown and JSON skill definitions (`SkillDirectoryLoader`).
-6. Skill lifecycle file operations (create/edit/patch/read) with validation, content-size guardrails, sanitizer scan, and atomic writes (`SkillManager`).
-7. In-memory execution telemetry and optimization/review candidate selection (`SkillLearner`).
-8. Declarative skill-chain modeling via typed steps + fluent builder (`createSkillChain`, `SkillChainBuilder`, `validateChain`).
-9. Workflow command parsing with alias support, separator heuristics, regex safety checks, and optional `IntentRouter` fallback (`WorkflowCommandParser`).
-10. Named workflow storage, search, composition, and JSON snapshot import/export (`WorkflowRegistry`).
-11. AGENTS/CLAUDE markdown parsing and hierarchical config discovery (`parseAgentsMd`, `mergeAgentsMdConfigs`, `discoverAgentConfigs`).
-12. Skill lifecycle/domain types v2 and transition checks (`skill-model-v2.ts`).
+`src/skills` currently provides these capabilities:
+- Skill discovery metadata shape (`SkillDefinition`) and registry-centric skill shapes (`SkillRegistryEntry`, `LoadedSkill`, `SkillMatch`).
+- Filesystem skill discovery and body loading from `SKILL.md` (`SkillLoader`).
+- Prompt augmentation with discovered skills (`injectSkills`).
+- In-memory registration, search, filtering, and prompt formatting (`SkillRegistry`).
+- Recursive skill ingestion from `SKILL.md` and `*.skill.json` (`SkillDirectoryLoader`, `parseMarkdownSkill`, `parseJsonSkill`).
+- Managed skill authoring with validation, security scan, and atomic write semantics (`SkillManager`).
+- In-memory skill execution telemetry and optimization/review candidate selection (`SkillLearner`).
+- Declarative chain modeling and validation (`createSkillChain`, `SkillChainBuilder`, `validateChain`).
+- Natural-language workflow command parsing with alias support, separator heuristics, and optional intent-router fallback (`WorkflowCommandParser`).
+- Named workflow storage/search/compose/serialize helpers (`WorkflowRegistry`).
+- AGENTS-style config parsing and merge behavior (`parseAgentsMd`, `mergeAgentsMdConfigs`).
+- Hierarchical discovery of `AGENTS.md`, `.agents.md`, and `CLAUDE.md` from global to local scope (`discoverAgentConfigs`).
+- Canonical v2 lifecycle/usage/review domain model for skills (`skill-model-v2.ts`).
 
 ## Structure
-- `skill-types.ts`
-Defines the minimal skill type used by `SkillLoader`/injectors and the richer registry entry shape.
-
-- `skill-loader.ts`
-Async, shallow loader: scans immediate subdirectories under configured roots for `SKILL.md`, parses lightweight frontmatter (`name`, `description`, optional compatibility/tool fields), and can load body content by skill name.
-
-- `skill-injector.ts`
-Pure helper: appends a markdown `## Skills Available` section to an existing system prompt.
-
-- `skill-registry.ts`
-In-memory map keyed by `id` with ordered listing, category/tag discovery, confidence-based matching, and prompt formatting.
-
-- `skill-directory-loader.ts`
-Sync recursive loader with parser helpers:
-  - `parseMarkdownSkill(...)` for `SKILL.md`
-  - `parseJsonSkill(...)` for `*.skill.json`
-  - `SkillDirectoryLoader` to register parsed entries into `SkillRegistry`
-
-- `skill-manager.ts`
-Persistent write path for user-managed skills under `skillsDir`; includes name validation, max content limit, sanitizer checks, and atomic temp-file rename.
-
-- `skill-learner.ts`
-Tracks per-skill execution metrics in memory and exposes review/optimization selectors plus optimization prompt generation.
-
-- `skill-chain.ts`
-Typed chain model (including conditional/parallel metadata), chain builder, and missing-skill validation.
-
-- `workflow-command-parser.ts`
-Parses command text into normalized step tokens, supports aliases and configurable keyword regex patterns, and defends against unsafe regex patterns.
-
-- `workflow-registry.ts`
-Stores named `SkillChain` entries with optional tags/description, supports case-insensitive lookup, search scoring, composition, and snapshot serialization.
-
-- `agents-md-parser.ts`
-Parses AGENTS-style markdown into instructions, glob rules, and allow/block tool lists; merges multiple configs with tool deduplication.
-
-- `hierarchical-walker.ts`
-Discovers AGENTS config files from global config to git root to subdirectories between root and CWD.
-
-- `skill-model-v2.ts`
-Defines lifecycle statuses/transitions and canonical V2 skill/persona usage/review context types; re-exports selected runtime contract types.
-
-- `index.ts`
-Skills submodule barrel (curated subset; does not export workflow parser/registry or V2 lifecycle model symbols).
+- `skill-types.ts`: lightweight shared types for discovery (`SkillDefinition`) and registry storage/search (`SkillRegistryEntry`, `LoadedSkill`, `SkillMatch`).
+- `skill-loader.ts`: async, shallow loader over configured source roots. Requires frontmatter with `name` and `description` for discovery; loads body content by stripping frontmatter fences.
+- `skill-injector.ts`: appends a `## Skills Available` section to an existing system prompt; returns prompt unchanged when no skills are provided.
+- `skill-registry.ts`: `Map<string, LoadedSkill>`-backed registry with register/unregister/get/list/search/tag/category utilities and prompt rendering via `formatForPrompt`.
+- `skill-directory-loader.ts`: sync recursive scanner (default `maxDepth=10`) with two parsers: markdown frontmatter and JSON skill file format.
+- `skill-manager.ts`: write-side manager for `SKILL.md` lifecycle (`create`, `edit`, `patch`, `readSkill`, `shouldCreateSkill`) with strict name/content limits and atomic temp-write then rename.
+- `skill-learner.ts`: in-memory aggregate metrics store with rolling averages and threshold-based review/optimization views; generates optimization prompt text.
+- `skill-chain.ts`: chain/step contracts, retry-policy extension over `@dzupagent/agent-types`, fluent builder, parallel-step representation, and availability validation.
+- `workflow-command-parser.ts`: tokenization and normalization pipeline with alias lookup, separator detection (`→`, `->`, `|`, `,`, `then`), basic failure reporting, and optional async LLM intent fallback.
+- `workflow-registry.ts`: case-insensitive workflow registry with search confidence scoring, compose-by-concatenation, and strict snapshot schema checks (`schemaVersion: '1.0.0'`).
+- `agents-md-parser.ts`: line/heading-based parser for top-level instructions, named sections, glob-rule sections, and tools allow/block lists.
+- `hierarchical-walker.ts`: config discovery pipeline using sync file checks and `git rev-parse --show-toplevel` to locate project root before directory traversal.
+- `skill-model-v2.ts`: lifecycle transition map (`SKILL_LIFECYCLE_TRANSITIONS`), transition guard (`isValidSkillTransition`), scope/lifecycle enums, and v2 records for definition/usage/review/resolution.
+- `index.ts`: local barrel exporting discovery/registry/manager/learner/chain surfaces; intentionally narrower than package root and pipeline entrypoints.
 
 ## Runtime and Control Flow
-1. Skill discovery for prompt context:
-- Caller constructs `SkillLoader(sourcePaths)`.
-- `discoverSkills()` scans `<sourcePath>/<dir>/SKILL.md` and returns parsed `SkillDefinition[]`.
-- `injectSkills(systemPrompt, skills)` appends a short list reference.
+1. Discovery + prompt listing path.
+- `SkillLoader.discoverSkills()` scans each configured source directory one level deep.
+- Each candidate folder is accepted only when `<folder>/SKILL.md` exists and frontmatter includes `name` and `description`.
+- `injectSkills(systemPrompt, skills)` appends a human-readable inventory block.
 
-2. Sub-agent skill hydration path:
-- `SubAgentSpawner.buildSystemPrompt(...)` calls injected `SkillLoader` when `config.skills` is non-empty.
-- It discovers all skills, filters by `config.skills.includes(skill.name)`, loads each skill body with `loadSkillContent(skill.name)`, and appends `## Skill: <name>` sections to the system prompt.
+2. Sub-agent prompt hydration path.
+- `SubAgentSpawner` accepts optional constructor option `{ skillLoader }`.
+- During `buildSystemPrompt`, when `config.skills` is non-empty, spawner calls `discoverSkills()`, filters by matching `SkillDefinition.name`, then calls `loadSkillContent(skill.name)` and appends content as `## Skill: <name>` blocks.
 
-3. Registry-driven loading/search:
-- `SkillDirectoryLoader.loadFromDirectory(...)` recursively scans for `SKILL.md` and `*.skill.json`.
-- Parsed entries are registered into `SkillRegistry`.
-- Consumers use `search`, `findByTags`, `listByCategory`, `categories`, `allTags`, and `formatForPrompt`.
+3. Registry loading path.
+- `SkillDirectoryLoader.loadFromDirectory/loadFromDirectories` recursively scans for `SKILL.md` and `*.skill.json`.
+- Parsers convert file content into `SkillRegistryEntry`.
+- Valid entries are registered into `SkillRegistry` with optional `sourcePath`.
 
-4. Skill file lifecycle writes:
-- `SkillManager.create/edit/patch` validates name and size limits.
-- Content is scanned via `scanContent` (imported as `sanitizeMemoryContent`) from `security/content-sanitizer`.
-- Writes use atomic temp-file + `rename`, with temp cleanup on rename failure.
-- `readSkill` parses stored frontmatter back to a `SkillDefinition`.
+4. Skill authoring path.
+- `SkillManager.create/edit/patch` enforces name regex (`^[a-z0-9][a-z0-9._-]*$`), max name length (`64`), and content limit (default `50_000`).
+- All writes pass `scanContent` from `../security/content-sanitizer.js`.
+- Write strategy uses temp file write and `rename` for atomic replacement.
+- `readSkill` parses frontmatter-only metadata back to `SkillDefinition`.
 
-5. Skill telemetry/optimization loop:
-- `SkillLearner.recordExecution(...)` updates running averages and success rate.
-- `getSkillsNeedingReview()` selects low-success skills over thresholded execution count.
-- `getOptimizableSkills()` selects high-success skills over thresholded execution count.
-- `buildOptimizationPrompt(...)` emits a ready-to-send optimization prompt.
+5. Learning path.
+- `SkillLearner.recordExecution` updates cumulative counts and rolling averages.
+- `getSkillsNeedingReview` and `getOptimizableSkills` derive candidate sets from configured thresholds.
+- `buildOptimizationPrompt` renders an optimization prompt with current metrics (if any).
 
-6. Workflow command parsing:
-- `WorkflowCommandParser.parse(text)` performs alias lookup, separator-based split, then single-token fallback.
-- `parseAsync(text)` optionally invokes `IntentRouter.classify(...)` when sync parse fails and converts non-`default` confidence intents into steps.
+6. Workflow command parsing path.
+- `parse(text)` does alias lookup first, then separator-pattern split, then single-token normalization fallback.
+- `parseAsync(text)` returns sync result when successful; otherwise optionally calls `intentRouter.classify(text)`.
+- If fallback classification is non-default confidence, parser returns one normalized step; fallback failures are non-fatal and only optionally logged.
 
-7. Workflow registry flow:
-- Register named chains via `register(...)`.
-- Query with `get/find/list`.
-- Compose larger workflows with `compose(...)` by concatenating steps from registered chains.
-- Persist/restore with `toJSON()` / `WorkflowRegistry.fromJSON(...)` (schema version `1.0.0`).
+7. Workflow registry path.
+- Workflows are keyed case-insensitively (`name.toLowerCase().trim()`).
+- `compose` concatenates steps from named workflows and can optionally re-register the result.
+- `toJSON/fromJSON` provide snapshot export/import with structural validation and schema-version check.
 
-8. AGENTS config layering:
-- `discoverAgentConfigs(cwd)` reads global `~/.config/dzupagent/*`, project-root config files at git root, then directory-level files from root toward `cwd`.
-- Each file is parsed with `parseAgentsMd`.
-- `mergeAgentsMdConfigs` combines instructions/rules and de-duplicates tool allow/block lists.
+8. Hierarchical instruction-config path.
+- `discoverAgentConfigs(cwd)` checks global config directory first (`~/.config/dzupagent`).
+- Then checks git root config files.
+- Then walks directories from git root toward `cwd` and parses each discovered config file.
 
 ## Key APIs and Types
-- Loader/injection:
-  - `class SkillLoader`
-  - `injectSkills(systemPrompt, skills): string`
-
-- Registry/loading:
-  - `class SkillRegistry`
-  - `class SkillDirectoryLoader`
-  - `parseMarkdownSkill(content, sourcePath?)`
-  - `parseJsonSkill(content)`
-
-- Skill lifecycle management:
-  - `class SkillManager`
-  - `type SkillManagerConfig`
-  - `type CreateSkillInput`
-  - `type PatchSkillInput`
-  - `type SkillWriteResult`
-
-- Metrics/learning:
-  - `class SkillLearner`
-  - `type SkillMetrics`
-  - `type SkillExecutionResult`
-  - `type SkillLearnerConfig`
-
-- Chaining/workflows:
-  - `createSkillChain(name, steps)`
-  - `class SkillChainBuilder`
-  - `validateChain(chain, availableSkills)`
-  - `class WorkflowCommandParser`
-  - `class WorkflowRegistry`
-
-- AGENTS config:
-  - `parseAgentsMd(content)`
-  - `mergeAgentsMdConfigs(configs)`
-  - `discoverAgentConfigs(cwd)`
-  - `type AgentsMdConfig`
-  - `type HierarchyLevel`
-
-- V2 lifecycle/domain model:
-  - `type SkillLifecycleStatus`
-  - `const SKILL_LIFECYCLE_TRANSITIONS`
-  - `isValidSkillTransition(from, to)`
-  - `type SkillScope`
-  - `interface SkillDefinitionV2`
-  - `interface SkillUsageRecord`
-  - `interface SkillReviewRecord`
-  - `interface SkillResolutionContext`
+- Discovery and prompt injection: `SkillLoader`, `injectSkills`, `SkillDefinition`.
+- Registry and ingestion: `SkillRegistry`, `SkillDirectoryLoader`, `parseMarkdownSkill`, `parseJsonSkill`, `SkillRegistryEntry`, `LoadedSkill`, `SkillMatch`.
+- Authoring and lifecycle helpers: `SkillManager`, `SkillManagerConfig`, `CreateSkillInput`, `PatchSkillInput`, `SkillWriteResult`.
+- Learning telemetry: `SkillLearner`, `SkillMetrics`, `SkillExecutionResult`, `SkillLearnerConfig`.
+- Chains and workflow parsing: `createSkillChain`, `SkillChainBuilder`, `validateChain`, `SkillChainStep`, `SkillChain`, `ChainValidationResult`, `RetryPolicy`, `ParallelMergeStrategy`, `WorkflowCommandParser`, `WorkflowCommandParseResult` family.
+- Workflow registry: `WorkflowRegistry`, `WorkflowRegistryEntry`, `WorkflowRegistrySnapshot`, `WorkflowFindResult`, `WorkflowComposeOptions`.
+- AGENTS parsing and hierarchy discovery: `parseAgentsMd`, `mergeAgentsMdConfigs`, `discoverAgentConfigs`, `AgentsMdConfig`, `HierarchyLevel`.
+- V2 domain model: `SkillLifecycleStatus`, `SKILL_LIFECYCLE_TRANSITIONS`, `isValidSkillTransition`, `SkillScope`, `SkillDefinitionV2`, `SkillUsageRecord`, `SkillReviewRecord`, `SkillResolutionContext`, `SkillReviewPolicy`.
 
 ## Dependencies
-Direct dependencies used by `src/skills/*`:
+Direct dependencies used from `src/skills/*`:
+- Node built-ins: `node:fs/promises`, `node:fs`, `node:path`, `node:crypto`, `node:child_process`.
+- Workspace packages: `@dzupagent/agent-types` (retry policy extension source), `@dzupagent/runtime-contracts` (type re-exports in `skill-model-v2.ts`).
+- Internal core modules: `../security/content-sanitizer.js`, `../router/intent-router.js` (type-level integration).
 
-- Node built-ins:
-  - `node:fs/promises`
-  - `node:fs`
-  - `node:path`
-  - `node:crypto`
-  - `node:child_process`
-
-- Workspace packages:
-  - `@dzupagent/agent-types` (retry policy base type in `skill-chain.ts`)
-  - `@dzupagent/runtime-contracts` (V2 type re-exports in `skill-model-v2.ts`)
-
-- Internal package modules:
-  - `../security/content-sanitizer.js` (`scanContent`) in `skill-manager.ts`
-  - `../router/intent-router.js` type (optional parser fallback) in `workflow-command-parser.ts`
-
-Package-level notes (`packages/core/package.json`):
-- Runtime dependencies are minimal (`@dzupagent/agent-types`, `@dzupagent/runtime-contracts`).
-- No third-party libraries are imported directly inside `src/skills/*` implementation files.
+Package-level dependency context from `packages/core/package.json`:
+- Runtime dependencies include `@dzupagent/agent-types`, `@dzupagent/runtime-contracts`, and `@dzupagent/security`.
+- No third-party runtime package is imported directly inside files under `src/skills`.
 
 ## Integration Points
-- Root package exports (`src/index.ts`):
-Exports all major skills, workflow parser/registry APIs, AGENTS parser/walker, and V2 lifecycle types/utilities.
-
-- Skills sub-barrel (`src/skills/index.ts`):
-Exports loader/registry/manager/learner/chain APIs, but does not export workflow parser/registry or V2 model symbols.
-
-- Orchestration facade (`src/facades/orchestration.ts`):
-Re-exports selected skills features (`SkillLoader`, `injectSkills`, `SkillManager`, `SkillLearner`, chain helpers, AGENTS parser/walker).
-
-- Subagent integration (`src/subagent/subagent-spawner.ts`):
-Uses `SkillLoader` to enrich sub-agent system prompts when `config.skills` is provided.
-
-- Formats compatibility bridge (`src/formats/agents-md-parser-v2.ts`):
-Imports `AgentsMdConfig` from `skills/agents-md-parser` for `toLegacyConfig(...)` output typing.
+- Package root entrypoint (`packages/core/src/index.ts`) exports the full skills surface, including workflow parser/registry, AGENTS parser/discovery, and v2 lifecycle model.
+- Pipeline entrypoint (`packages/core/src/pipeline.ts`) mirrors that broader skills surface for `@dzupagent/core/pipeline` consumers.
+- Orchestration facade (`packages/core/src/facades/orchestration.ts`) exports a curated subset: `SkillLoader`, `injectSkills`, `SkillManager`, `SkillLearner`, chain helpers, and AGENTS parser/discovery. It does not export workflow parser/registry, directory loader, or v2 model contracts.
+- Local skills barrel (`packages/core/src/skills/index.ts`) is also intentionally narrower than root/pipeline entrypoints.
+- Sub-agent integration (`packages/core/src/subagent/subagent-spawner.ts`) consumes `SkillLoader` to append selected skill content to child system prompts.
+- Formats bridge (`packages/core/src/formats/agents-md-parser-v2.ts`) imports legacy `AgentsMdConfig` from `skills/agents-md-parser` for compatibility conversion (`toLegacyConfig`).
+- Package exports (`packages/core/package.json`) do not define a dedicated `./skills` subpath; consumers import through `@dzupagent/core`, `@dzupagent/core/pipeline`, or `@dzupagent/core/orchestration`.
 
 ## Testing and Observability
-Primary tests under `src/__tests__`:
-- `skill-loader.test.ts`
-- `skill-injector.test.ts`
-- `skill-registry.test.ts`
-- `skill-manager.test.ts`
-- `skill-learner.test.ts`
-- `skill-chain.test.ts`
-- `workflow-command-parser.test.ts`
-- `workflow-registry.test.ts`
-- `agents-md-parser.test.ts`
+Skill-related tests currently present in `packages/core/src/__tests__`:
+- `skill-loader.test.ts`: covers `parseMarkdownSkill`, `parseJsonSkill`, and `SkillDirectoryLoader` behavior with filesystem fixtures.
+- `skill-injector.test.ts`: covers prompt append behavior and formatting edge cases.
+- `skill-registry.test.ts`: covers registration semantics, sorting, search confidence, categories/tags, and prompt formatting output.
+- `skill-manager.test.ts`: covers validation, security scan rejection, create/edit/patch/read behaviors, and atomic-write failure cleanup via mocked fs.
+- `skill-learner.test.ts`: covers metric accumulation, threshold filtering, optimization prompt text generation, and reset behavior.
+- `skill-chain.test.ts`: covers chain creation validation, builder flows, and missing-skill detection.
+- `workflow-command-parser.test.ts`: covers separators, aliases, async intent-router fallback, custom normalizer, and regex safety checks.
+- `workflow-registry.test.ts`: covers registration/lookups, confidence-based find, serialization round-trip, and snapshot validation failures.
+- `subagent-spawner.test.ts`: primarily tests sub-agent flow; indirectly covers skill prompt hydration behavior shape.
+- `w15-h2-branch-coverage.test.ts`: includes additional branch tests for `parseAgentsMd` and `mergeAgentsMdConfigs`.
 
-Observed coverage areas from tests:
-- parser correctness for markdown/json skill formats
-- registry ranking/matching/sorting behavior
-- manager validation, sanitizer failure path, and atomic-write behavior
-- learner thresholds and prompt-generation output
-- chain builder and missing-skill validation
-- workflow parser alias/separator behavior, async fallback, and regex safety checks
-- workflow snapshot schema validation paths
-- AGENTS parse + merge semantics
-
-Cross-module runtime coverage:
-- `subagent-spawner.test.ts` validates sub-agent loops and prompt/context assembly behavior; skills are integrated in implementation via injected loader path.
-
-Observability characteristics:
-- `src/skills/*` does not emit dedicated metrics/events.
-- `WorkflowCommandParser` accepts optional `logger.warn` for non-fatal LLM fallback failures.
-- Operational observability is expected from higher-level modules (events, telemetry, middleware).
+Current observability characteristics in this module:
+- No dedicated event emission pipeline exists in `src/skills`.
+- `WorkflowCommandParser` supports optional warning logs through injected `logger.warn` when async intent fallback fails.
+- `SkillLearner` stores runtime metrics in-memory only; persistence/aggregation must be handled by higher-level modules.
 
 ## Risks and TODOs
-1. Skill identifier mismatch risk in sub-agent hydration:
-- `SubAgentSpawner` filters discovered skills by `skill.name` and then resolves body by `loadSkillContent(skill.name)`, which assumes directory name == `name` field.
-
-2. Overlapping loader implementations:
-- `SkillLoader` (async, shallow, markdown-only metadata shape) and `SkillDirectoryLoader` (sync, recursive, markdown+json registry shape) have different behavior and output contracts.
-
-3. Blocking filesystem/git calls in configuration traversal:
-- `SkillDirectoryLoader` and `hierarchical-walker` use sync FS calls and `execSync` for git root detection.
-
-4. Lightweight frontmatter parsing:
-- Skill and AGENTS parsers use line-based parsing, not full YAML support.
-
-5. Workflow snapshot limitations:
-- `WorkflowRegistry.toJSON()` stores chains structurally, but function-valued fields in `SkillChainStep` (e.g., `condition`, `stateTransformer`) are not durable JSON payloads.
-
-6. Export-surface inconsistency across entry points:
-- root `src/index.ts` exports workflow parser/registry and V2 lifecycle symbols; `src/skills/index.ts` does not.
-
-7. Potential stale type branch in parser separator enum:
-- `WorkflowSeparatorStyle` includes `'whitespace'`, but current parse paths do not emit that style.
+- Sub-agent skill name/path coupling: `SubAgentSpawner` filters by discovered `SkillDefinition.name`, but `SkillLoader.loadSkillContent` resolves by directory name. If frontmatter name differs from folder name, hydration can miss content.
+- Dual loader behavior drift: `SkillLoader` (async, shallow, `SkillDefinition`) and `SkillDirectoryLoader` (sync, recursive, `SkillRegistryEntry`) can return different effective skill sets for the same root.
+- Synchronous filesystem and process calls: `SkillDirectoryLoader` and `hierarchical-walker` rely on sync operations (`readdirSync/statSync/readFileSync/execSync`), which can block in high-throughput hosts.
+- Parser simplicity limits: frontmatter and AGENTS parsing are intentionally lightweight and line-based, so advanced YAML/markdown constructs are not fully interpreted.
+- Workflow snapshot lossiness: function-valued fields in `SkillChainStep` (for example `condition`, `stateTransformer`) are not JSON-serializable in a meaningful way during `toJSON/fromJSON` workflows.
+- Export-surface asymmetry: root/pipeline exports are broader than orchestration and local skills barrel exports, so import-path choice changes available API surface.
+- Dead enum branch risk: `WorkflowSeparatorStyle` includes `'whitespace'`, but parser outputs currently use `alias`, `arrow`, `pipe`, `comma`, `then-keyword`, and `unknown`.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+

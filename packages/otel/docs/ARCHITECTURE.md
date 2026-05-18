@@ -1,173 +1,153 @@
 # @dzupagent/otel Architecture
 
 ## Scope
-`@dzupagent/otel` is the observability package for DzupAgent runtimes. In this package, observability means:
-- tracing helpers (`DzupTracer`, `ForgeSpanAttr`, trace context store)
-- event-to-metric translation (`OTelBridge` + `EVENT_METRIC_MAP` fragments)
-- in-process governance telemetry (`CostAttributor`, `SafetyMonitor`)
-- tamper-evident event audit logging (`AuditTrail` + `InMemoryAuditStore`)
-- plugin-based wiring into `@dzupagent/core` (`createOTelPlugin`)
+`@dzupagent/otel` is a DzupAgent observability package that instruments `@dzupagent/core` event flows. The package scope in `packages/otel/src` covers:
+- tracing helpers and semantic attributes (`DzupTracer`, `ForgeSpanAttr`, trace context helpers)
+- event-to-metric projection (`OTelBridge` + `EVENT_METRIC_MAP`)
+- local governance telemetry (`CostAttributor`, `SafetyMonitor`)
+- tamper-evident audit capture (`AuditTrail`, `AuditStore`, `InMemoryAuditStore`)
+- plugin-first wiring (`createOTelPlugin`) so hosts can enable only selected features
 
-The package is designed to run even when OpenTelemetry SDK packages are absent. All OTel SDK dependencies are optional peers, and the runtime defaults to no-op tracer behavior unless an external tracer is provided.
+The package is intentionally usable without OpenTelemetry SDK runtime installation. It exposes minimal OTel-compatible interfaces and falls back to `NoopTracer`/`NoopSpan` when no real tracer is provided.
 
 ## Responsibilities
-Primary responsibilities implemented in `src/`:
-- expose a minimal OTel-compatible API surface (`otel-types.ts`, `noop.ts`) so the package can operate without hard runtime coupling to OTel SDK packages
-- provide domain-focused span helpers for agent, LLM, tool, memory, and pipeline operations (`tracer.ts`)
-- propagate app-level correlation context through async flows (`trace-context-store.ts`)
-- map `DzupEvent` stream events to counter/histogram/gauge metrics (`event-metric-map*.ts` + `otel-bridge.ts`)
-- attach cost, safety, and audit listeners to the same `DzupEventBus`
-- offer a single plugin factory that wires selected capabilities at registration time (`otel-plugin.ts`)
+- Provide a stable public API from `src/index.ts` for tracing, metrics bridge, safety, cost, audit, plugin wiring, and related types.
+- Keep telemetry collection fail-soft: bridge/safety/audit listeners do not throw into the event bus path.
+- Maintain a central event metric map composed from domain fragments under `src/event-metric-map/`.
+- Offer extension points through `MetricSink` (custom metric export), `AuditStore` (durable audit persistence), and `DzupTracerConfig.tracer` (external tracer injection).
+- Keep package-level behavior framework-oriented (no app-specific dashboards, storage backends, or policy enforcement logic).
 
-Out of scope for this package:
-- exporter configuration, collector wiring, and backend-specific telemetry pipelines
-- durable production storage implementations for audit data (only in-memory store is provided here)
-- hard enforcement or blocking of unsafe actions (safety detection is non-blocking)
+Out of scope in current code:
+- OTel exporter/collector setup
+- durable built-in audit backend (only in-memory store is bundled)
+- hard blocking/remediation actions in safety monitor (detection-only)
 
 ## Structure
-Top-level source modules:
-- `src/index.ts`: public export surface (classes, functions, types, constants)
-- `src/otel-types.ts`: minimal tracer/span/context interfaces + `SpanStatusCode`/`SpanKind`
-- `src/noop.ts`: `NoopTracer`/`NoopSpan` fallback implementations
-- `src/span-attributes.ts`: standardized attribute keys (`forge.*`, `gen_ai.*`)
-- `src/trace-context-store.ts`: `AsyncLocalStorage` context (`withForgeContext`, `currentForgeContext`)
-- `src/tracer.ts`: `DzupTracer` helper for span creation and trace header inject/extract
-- `src/otel-bridge.ts`: event bus subscriber that emits metrics and selected span events
-- `src/event-metric-map.ts`: composed `EVENT_METRIC_MAP` and metric name enumeration
-- `src/event-metric-map/*.ts`: domain-specific metric fragments (`agent-lifecycle`, `tool-lifecycle`, `budget`, `delegation`, `execution-ledger`, `flow-compile`, `governance`, `memory-*`, `pipeline-*`, `platform-*`, `scheduler`, `skill-lifecycle`, `supervisor`, `telemetry`, `vector`, `workflow-domain`, `empty-events`)
-- `src/cost-attribution.ts`: in-memory cost/token aggregation + threshold event emission
-- `src/safety-monitor.ts`: regex-based safety signal detection and tool-failure streak tracking
-- `src/audit-trail.ts`: hash-chain audit entry generation + query/verification helpers
-- `src/vector-metrics.ts`: standalone vector metrics collector/report helper
-- `src/otel-plugin.ts`: plugin factory that conditionally attaches all above components
+- `src/index.ts`: package export surface and `dzupagent_OTEL_VERSION`.
+- `src/otel-plugin.ts`: `createOTelPlugin(config)` factory; conditionally instantiates and attaches tracer/bridge/cost/safety/audit components.
+- `src/tracer.ts`: `DzupTracer` span factories (`startAgentSpan`, `startLLMSpan`, `startToolSpan`, `startMemorySpan`, `startPhaseSpan`), carrier inject/extract, and span completion helpers.
+- `src/trace-context-store.ts`: `AsyncLocalStorage`-based `ForgeTraceContext` (`withForgeContext`, `currentForgeContext`, `forgeContextStore`).
+- `src/span-attributes.ts`: `forge.*` + `gen_ai.*` attribute keys.
+- `src/otel-types.ts` and `src/noop.ts`: minimal tracer/span interfaces and noop implementations.
+- `src/otel-bridge.ts`: event bus subscriber that records metrics and creates limited span events.
+- `src/event-metric-map.ts`: full `EVENT_METRIC_MAP` composition + `getAllMetricNames()`.
+- `src/event-metric-map/*.ts`: runtime/agent/tool fragments (`adapter-runtime`, `agent-lifecycle`, `tool-lifecycle`, `telemetry`, `supervisor`, `delegation`, `scheduler`).
+- `src/event-metric-map/*.ts`: platform/protocol/identity/registry fragments (`platform-identity`, `platform-registry-protocol`, `provider-run`).
+- `src/event-metric-map/*.ts`: memory/vector/pipeline/workflow fragments (`memory-core`, `memory-retrieval-sources`, `vector`, `pipeline-core`, `pipeline-runtime`, `pipeline-retry`, `workflow-domain`).
+- `src/event-metric-map/*.ts`: governance/planning fragments (`budget`, `approval`, `governance`, `execution-ledger`, `flow-compile`, `skill-lifecycle`, `persona-registry`).
+- `src/event-metric-map/*.ts`: coverage and previously-empty event fragments (`empty-events`, `empty-events-agent`, `empty-events-runtime`).
+- `src/cost-attribution.ts`: in-memory cost aggregation and threshold event emission.
+- `src/safety-monitor.ts`: regex pattern detection and tool failure streak tracking.
+- `src/audit-trail.ts`: hash-chain audit entries with query and verification helpers.
+- `src/vector-metrics.ts`: standalone vector metrics accumulator/report generator.
+- `src/__tests__/*.test.ts`: 29 Vitest files for bridge, map coverage, plugin wiring, tracing/context, cost, safety, audit, vector metrics, and branch coverage.
 
-Build/test/config files:
-- `package.json`: workspace package metadata, scripts, dependency contract
-- `tsup.config.ts`: ESM bundle output from `src/index.ts`
-- `vitest.config.ts`: node test environment and coverage thresholds
-- `README.md`: usage and API narrative documentation
+Build/runtime metadata files:
+- `package.json`: scripts, deps, peer deps, and `exports`/`types` contract.
+- `tsup.config.ts`: ESM + d.ts build from `src/index.ts` into `dist/`.
+- `tsconfig.json` + `tsconfig.dts.json`: strict TS config (d.ts config relaxes only `noUnusedLocals`).
+- `vitest.config.ts`: test and coverage thresholds.
+- `README.md`: usage-oriented package guide.
 
 ## Runtime and Control Flow
-1. Host app creates and registers plugin:
-- `createOTelPlugin(config)` returns a `DzupPlugin` with `name: '@dzupagent/otel'`.
-- `onRegister(ctx)` conditionally creates and attaches components based on config flags.
-
-2. Event wiring happens through `DzupEventBus`:
-- `OTelBridge.attach(eventBus)` subscribes with `onAny`.
-- For each event, bridge checks `ignoreEvents`, records mapped metrics, and optionally emits a small set of span events (`agent:started`, `agent:failed`, `tool:error`, `provider:circuit_opened`).
-- Bridge failures are swallowed to keep instrumentation non-fatal.
-
-3. Metric generation path:
-- `EVENT_METRIC_MAP[event.type]` returns mapping rules.
-- each rule’s `extract(event)` produces `{ value, labels }`.
-- sink receives `increment`, `observe`, or `gauge` calls.
-- default sink is `InMemoryMetricSink` (counters, histograms as arrays, gauges).
-
-4. Tracing path:
-- `DzupTracer` starts domain spans with prefilled semantic attributes.
-- `endSpanOk` / `endSpanWithError` set status and end spans.
-- `inject`/`extract` move W3C `traceparent` and `baggage` through string carriers.
-
-5. Context propagation path:
-- `withForgeContext(ctx, fn)` runs code in merged `AsyncLocalStorage` context.
-- `currentForgeContext()` reads active correlation context for downstream code.
-
-6. Governance telemetry:
-- `CostAttributor` tracks in-memory entries and emits `budget:warning` / `budget:exceeded` on threshold crossings.
-- `SafetyMonitor` scans tool input payloads and tracks repeated `tool:error` events.
-- `AuditTrail` maps selected events into category/action/details entries and appends hash-chained records to store.
+1. Host registration: `createOTelPlugin(config)` returns a `DzupPlugin` (`name: '@dzupagent/otel'`, `version: '0.1.0'` in current code), and `onRegister` enables each capability only when configured.
+2. Instantiation and attachment: tracer is created first when requested; bridge reuses or creates a tracer; bridge/cost/safety/audit components attach listeners to the same `DzupEventBus`.
+3. Event-to-metric path: `OTelBridge.attach(eventBus)` subscribes with `onAny`, skips ignored events, looks up `EVENT_METRIC_MAP[event.type]`, runs `extract(event)`, and writes into `MetricSink` as counter/histogram/gauge operations.
+4. Span-event path: bridge emits spans only for `agent:started`, `agent:failed`, `tool:error`, and `provider:circuit_opened`; bridge-side errors are swallowed to keep instrumentation non-fatal.
+5. Tracing and context path: `DzupTracer` creates domain spans with semantic attributes, finalizes via `endSpanOk`/`endSpanWithError`, propagates `traceparent`/`baggage` via inject/extract, and reads context from `AsyncLocalStorage`.
+6. Governance and audit path: `CostAttributor` aggregates and emits budget events, `SafetyMonitor` scans inputs and tracks tool-error streaks, and `AuditTrail` converts mapped events into hash-chained audit records.
 
 ## Key APIs and Types
-Main exported runtime APIs from `src/index.ts`:
-- tracing/context:
-  - `DzupTracer`, `ForgeSpanAttr`, `withForgeContext`, `currentForgeContext`, `forgeContextStore`
-  - types: `DzupTracerConfig`, `ForgeTraceSnapshot`, `ForgeTraceContext`, `ForgeSpanAttrKey`
-- OTel compatibility primitives:
-  - `OTelSpan`, `OTelTracer`, `OTelSpanOptions`, `OTelContext`
-  - `SpanStatusCode`, `SpanKind`
-  - `NoopSpan`, `NoopTracer`
-- metrics bridge:
-  - `OTelBridge`, `InMemoryMetricSink`, `EVENT_METRIC_MAP`, `getAllMetricNames`
-  - types: `OTelBridgeConfig`, `MetricSink`, `MetricMapping`
-- governance and audit:
-  - `CostAttributor`, `SafetyMonitor`, `AuditTrail`, `InMemoryAuditStore`, `VectorMetricsCollector`
-  - types: `CostEntry`, `CostReport`, `CostAlertThreshold`, `CostAttributorConfig`, `SafetyCategory`, `SafetySeverity`, `SafetyEvent`, `SafetyPatternRule`, `SafetyMonitorConfig`, `AuditCategory`, `AuditEntry`, `AuditStore`, `AuditTrailConfig`, `VectorMetrics`, `VectorMetricsReport`
-- plugin:
-  - `createOTelPlugin`
-  - type: `OTelPluginConfig`
+Tracing and context:
+- `DzupTracer`
+- `ForgeSpanAttr`, `ForgeSpanAttrKey`
+- `withForgeContext`, `currentForgeContext`, `forgeContextStore`
+- `DzupTracerConfig`, `ForgeTraceSnapshot`, `ForgeTraceContext`
 
-Current version constants in code:
-- `src/index.ts`: `dzupagent_OTEL_VERSION = '0.2.0'`
-- `src/otel-plugin.ts`: plugin `version: '0.1.0'`
+OTel compatibility primitives:
+- `OTelSpan`, `OTelTracer`, `OTelSpanOptions`, `OTelContext`
+- `SpanStatusCode`, `SpanKind`
+- `NoopSpan`, `NoopTracer`
+
+Metrics bridge and mapping:
+- `OTelBridge`, `OTelBridgeConfig`
+- `MetricSink`, `InMemoryMetricSink`
+- `EVENT_METRIC_MAP`, `MetricMapping`, `getAllMetricNames`
+
+Governance/audit/vector:
+- `CostAttributor`, `CostEntry`, `CostReport`, `CostAlertThreshold`, `CostAttributorConfig`
+- `SafetyMonitor`, `SafetyCategory`, `SafetySeverity`, `SafetyEvent`, `SafetyPatternRule`, `SafetyMonitorConfig`
+- `AuditTrail`, `InMemoryAuditStore`, `AuditCategory`, `AuditEntry`, `AuditStore`, `AuditTrailConfig`
+- `VectorMetricsCollector`, `VectorMetrics`, `VectorMetricsReport`
+
+Plugin integration:
+- `createOTelPlugin`
+- `OTelPluginConfig`
+
+Version constant:
+- `dzupagent_OTEL_VERSION` (currently `'0.2.0'`)
 
 ## Dependencies
-Package-level runtime dependency:
-- `@dzupagent/core` (`0.2.0`): event bus types/runtime and plugin interfaces
+Runtime dependency:
+- `@dzupagent/core@0.2.0` for `DzupEventBus`, `DzupEvent` typing, and plugin contracts.
 
-Optional peer dependencies (consumer-provided):
+Optional peer dependencies:
 - `@opentelemetry/api`
 - `@opentelemetry/sdk-metrics`
 - `@opentelemetry/sdk-trace-base`
 
 Node built-ins used directly:
-- `node:async_hooks` (`AsyncLocalStorage` for context propagation)
-- `node:crypto` (`createHash`, `randomUUID` for audit chaining and IDs)
+- `node:async_hooks` (`AsyncLocalStorage`)
+- `node:crypto` (`createHash`, `randomUUID`)
 
-Build/test toolchain in this package:
-- `tsup` (ESM bundle + d.ts generation)
-- `typescript` (strict TS compilation)
-- `vitest` (unit/integration tests + coverage)
+Build/test toolchain:
+- `tsup`
+- `typescript`
+- `vitest`
 
 ## Integration Points
-How this package integrates with the rest of DzupAgent:
-- event source contract: consumes `DzupEventBus` and `DzupEvent` from `@dzupagent/core`
-- plugin lifecycle: consumed via `PluginRegistry` / plugin registration in hosts using `@dzupagent/core`
-- event taxonomy coupling: `EVENT_METRIC_MAP` is exhaustive over `DzupEvent['type']` through `satisfies Record<...>`; changes in core event types require map updates in this package
-- optional tracer coupling: if consumer provides an OTel tracer-compatible object, `DzupTracer` wraps it; otherwise no-op tracer is used
-- external metric export: `MetricSink` abstraction allows replacing `InMemoryMetricSink` with a sink that forwards to an exporter/backend
-- audit persistence extension: `AuditStore` interface is the extension point for persistent storage beyond `InMemoryAuditStore`
+- Host runtimes integrate via plugin registration (`@dzupagent/core/plugins`).
+- Event taxonomy coupling is direct: metric mapping keys and extraction logic depend on `DzupEvent['type']` and event payload shape from `@dzupagent/core`.
+- `MetricSink` enables routing bridge output to non-memory metrics backends.
+- `AuditStore` is the durable storage extension seam for audit entries.
+- `DzupTracer` accepts injected tracer implementations that satisfy the minimal `OTelTracer` interface, allowing integration with real OTel tracer providers.
 
 ## Testing and Observability
-Test posture in `src/__tests__`:
-- broad unit and integration coverage for bridge, metric map, tracer, context store, cost attribution, safety monitor, audit trail, plugin wiring, vector metrics, and deeper branch scenarios
-- notable test modules include:
-  - `event-metric-map*.test.ts` and `execution-ledger-metrics.test.ts`
-  - `otel-bridge*.test.ts` and `otel-bridge.integration.test.ts`
-  - `tracer*.test.ts`, `trace-context-store.test.ts`
-  - `cost-attribution*.test.ts`, `safety-monitor*.test.ts`, `audit-trail.test.ts`
+Tests:
+- 29 test files in `src/__tests__`.
+- Coverage includes event map validity/type alignment (`event-metric-map.test.ts`, `event-metric-map-coverage.test.ts`, fragment tests).
+- Coverage includes bridge behavior (`otel-bridge.test.ts`, `otel-bridge-extended.test.ts`, `otel-bridge.integration.test.ts`).
+- Coverage includes tracer/context/noop/types (`tracer*.test.ts`, `trace-context-store.test.ts`, `noop-and-span-attributes.test.ts`, `otel-types.test.ts`).
+- Coverage includes governance and audit (`cost-attribution*.test.ts`, `safety-monitor*.test.ts`, `audit-trail.test.ts`, `audit-cost-integration.test.ts`).
+- Coverage includes vector metrics (`vector-metrics*.test.ts`).
 
-Package validation scripts (`package.json`):
-- `yarn workspace @dzupagent/otel build`
-- `yarn workspace @dzupagent/otel typecheck`
-- `yarn workspace @dzupagent/otel lint`
-- `yarn workspace @dzupagent/otel test`
-- `yarn workspace @dzupagent/otel test:coverage`
+Package scripts:
+- `build`: `tsup`
+- `typecheck`: `tsc --noEmit`
+- `lint`: `eslint src/`
+- `test`: `vitest run`
+- `test:coverage`: `vitest run --coverage`
 
-Coverage configuration (`vitest.config.ts`):
+Coverage config (`vitest.config.ts`):
 - provider: `v8`
 - thresholds: statements 90, branches 90, functions 80, lines 90
 
-Operational observability traits of the package itself:
-- instrumentation paths are intentionally fail-soft (exceptions in bridge/safety/audit listeners are swallowed)
-- `InMemoryMetricSink`, `CostAttributor`, `SafetyMonitor`, and `InMemoryAuditStore` expose in-memory query/report methods suited for tests and local inspection
+Operational observability behavior:
+- instrumentation paths are fail-soft by design (listener-side errors are swallowed in bridge/safety/audit attach handlers)
+- in-memory helpers (`InMemoryMetricSink`, `CostAttributor` reports, `SafetyMonitor` event list, `InMemoryAuditStore`) provide local introspection without external telemetry infra
 
 ## Risks and TODOs
-Current code-level risks and drift to track:
-- version drift across package surfaces:
-  - `package.json` and the exported constant are `0.2.0`; the plugin manifest version remains `0.1.0`
-  - README also documents different version values
-- documentation/runtime mismatch in a few areas:
-  - `SafetyMonitor.attach` comment says `tool:result` scans output, but implementation resets failure counters only
-  - `AuditTrail.verifyChain` JSDoc says it can load entries when omitted, but method verifies only provided entries and returns valid for empty/undefined input
-  - `tracer.ts` class comment references callback/context lifecycle behavior not present in current methods
-- memory growth risk in long-lived processes:
-  - `InMemoryMetricSink` stores histogram samples in unbounded arrays
-  - `AuditTrail` default store is in-memory; retention pruning only runs every 100 appended entries
-- governance signal limitations:
-  - `CostAttributor.attach` currently records zero-cost placeholder entries from `agent:completed` and `tool:result`, so accurate cost/token reporting requires explicit `record()` integration from real usage sources
-  - warning/exceeded state is shared across cost and token thresholds, so one dimension can suppress first-time emission in the other dimension
-- audit taxonomy gap:
-  - `AuditCategory` includes `safety_event` and `config_change`, but current `mapEvent` does not emit those categories
+- Version drift: plugin reports `version: '0.1.0'` while package and exported constant are `0.2.0`.
+- In-memory growth risk: `InMemoryMetricSink` stores histogram samples in unbounded arrays.
+- In-memory growth risk: default `InMemoryAuditStore` is unbounded except periodic prune in `AuditTrail` every 100 appended entries.
+- Contract/comment drift: `SafetyMonitor.attach` comment mentions output scanning on `tool:result`, but implementation only resets failure counters.
+- Contract/comment drift: `AuditTrail.verifyChain` comment implies loading entries when omitted, but method only verifies provided entries.
+- Contract/comment drift: `DzupTracer` class comment describes callback/context behavior not implemented by current methods.
+- Cost attribution limitation: attached event handlers create zero-cost placeholder entries (`agent:completed`, `tool:result`), so meaningful cost data still requires explicit `record()` calls with real values.
+- Cost attribution limitation: threshold flags are shared across token and cost channels, so one channel can suppress first-time emission for the other.
+- Audit taxonomy gap: `AuditCategory` includes `safety_event` and `config_change`, but `mapEvent` does not currently emit entries for those categories.
+- Dependency range drift to monitor: peer range for `@opentelemetry/sdk-metrics` is `^1.21.0`, while dev dependency uses `^2.6.0`.
 
 ## Changelog
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

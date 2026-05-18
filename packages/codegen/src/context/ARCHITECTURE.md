@@ -1,128 +1,173 @@
 # `packages/codegen/src/context` Architecture
 
 ## Scope
-This subsystem is the `packages/codegen/src/context` folder and currently contains one implementation file:
+This document covers `packages/codegen/src/context` inside `@dzupagent/codegen`.
 
+Current scope is a single module:
 - `token-budget.ts`
 
-It is exported through the package barrel in `packages/codegen/src/index.ts` under the public `@dzupagent/codegen` API.
+This module is part of the package public surface through the root barrel (`packages/codegen/src/index.ts`), which re-exports:
+- `TokenBudgetManager`
+- `DefaultRoleDetector`
+- `DefaultPriorityMatrix`
+- `summarizeFile`
+- `extractInterfaceSummary`
+- `FileRoleDetector`, `PhasePriorityMatrix`, `FileEntry`, `TokenBudgetOptions`
 
 ## Responsibilities
-`token-budget.ts` is a utility layer for shaping prompt context from a file map (`Record<string, string>`) under a token budget.
+`token-budget.ts` provides phase-aware context shaping for code generation and review workflows by selecting how much file content to include under a token budget heuristic.
 
-Current responsibilities in code are:
-
-- classify each file path into a role via `FileRoleDetector` (`DefaultRoleDetector` by default),
-- map `(phase, role)` to an inclusion level via `PhasePriorityMatrix` (`DefaultPriorityMatrix` by default),
-- compress file content using either:
-- full content,
-- interface-oriented extraction (`extractInterfaceSummary`),
-- one-line summary (`summarizeFile`),
-- return selected file entries as `FileEntry[]` from `TokenBudgetManager.selectFiles()`.
+Primary responsibilities in current code:
+- Classify files by role using `FileRoleDetector` (default: `DefaultRoleDetector` path-based rules).
+- Convert `(phase, role)` to inclusion priority via `PhasePriorityMatrix` (default: `DefaultPriorityMatrix`).
+- Produce compressed context payloads with three levels:
+  - `full`: original file content
+  - `interface`: signature/import-focused extraction
+  - `summary`: one-line metadata summary
+- Iterate through VFS files and emit selected `FileEntry[]` for downstream prompt assembly.
 
 ## Structure
-Single-module structure:
-
+Single-file implementation:
 - `token-budget.ts`
 
-Contained exports:
+Exports are organized as:
+- Interfaces:
+  - `FileRoleDetector`
+  - `PhasePriorityMatrix`
+  - `FileEntry`
+  - `TokenBudgetOptions`
+- Default strategy classes:
+  - `DefaultRoleDetector`
+  - `DefaultPriorityMatrix`
+- Helper functions:
+  - `summarizeFile(path, content)`
+  - `extractInterfaceSummary(path, content)`
+- Orchestrator:
+  - `TokenBudgetManager`
 
-- Interfaces: `FileRoleDetector`, `PhasePriorityMatrix`, `FileEntry`, `TokenBudgetOptions`
-- Default implementations: `DefaultRoleDetector`, `DefaultPriorityMatrix`
-- Helper functions: `summarizeFile`, `extractInterfaceSummary`
-- Main coordinator: `TokenBudgetManager`
+Built-in role taxonomy used by default matrix:
+- `model`
+- `type`
+- `validator`
+- `route`
+- `controller`
+- `service`
+- `component`
+- `store`
+- `composable`
+- `api-client`
+- `test`
+- `config`
+- `other`
 
-Internal model details:
-
-- Built-in file-role taxonomy is string-based (`model`, `type`, `validator`, `route`, `controller`, `service`, `component`, `store`, `composable`, `api-client`, `test`, `config`, `other`).
-- Priority levels are fixed to `'full' | 'interface' | 'summary'`.
-- `DefaultPriorityMatrix` has explicit maps for `generate_db`, `generate_backend`, `generate_frontend`, `generate_tests`, and `fix`; unknown phases default to `full`.
+Supported priority levels:
+- `full`
+- `interface`
+- `summary`
 
 ## Runtime and Control Flow
-`TokenBudgetManager.selectFiles(vfs, phase)` flow:
+`TokenBudgetManager.selectFiles(vfs, phase)` runs this pipeline:
 
-1. Convert VFS map entries to a working list with `{ path, content, priority }`, where priority comes from role detection plus phase matrix lookup.
-2. Sort by priority order: `full` first, then `interface`, then `summary`.
-3. Iterate in sorted order and estimate token usage via `Math.ceil(text.length / charsPerToken)`.
-4. For `full` priority files:
-- include full content if it fits,
-- otherwise try interface summary,
-- otherwise include one-line summary.
-5. For `interface` priority files:
-- include interface summary if it fits,
-- otherwise include one-line summary.
-6. For `summary` priority files:
-- include one-line summary directly.
-7. Return `FileEntry[]`.
+1. Convert each VFS entry to `{ path, content, priority }`.
+2. Determine `role` via `roleDetector.detect(path)`.
+3. Resolve `priority` via `priorityMatrix.getPriority(phase, role)`.
+4. Sort entries by priority order: `full` -> `interface` -> `summary`.
+5. For each file, estimate tokens using `Math.ceil(text.length / charsPerToken)`.
+6. Apply fallback behavior:
+   - `full` priority:
+     - include full content if within remaining budget
+     - otherwise try interface summary
+     - otherwise include one-line summary
+   - `interface` priority:
+     - include interface summary if within remaining budget
+     - otherwise include one-line summary
+   - `summary` priority:
+     - include one-line summary directly
+7. Return accumulated `FileEntry[]`.
 
-Important behavior in current implementation:
+Key behavior details from implementation:
+- Empty input returns `[]`.
+- Unknown phases default to `full` for all roles in `DefaultPriorityMatrix`.
+- For known phases, unmapped roles default to `summary`.
+- Budget enforcement is best-effort rather than hard-capped because fallback summaries are still added even when they push total estimated tokens beyond the configured budget.
 
-- Budget enforcement is soft: summary fallback is still added even if it pushes above `budgetTokens`.
-- Interface extraction is textual and signature-oriented (imports, exported type/interface blocks, exported function signatures, exported arrow function signatures), not AST/tokenizer-based.
-- Stable ordering for same-priority files follows JavaScript object entry insertion semantics from the incoming `vfs` object.
+Phase maps in `DefaultPriorityMatrix`:
+- `generate_db`
+- `generate_backend`
+- `generate_frontend`
+- `generate_tests`
+- `fix`
+
+`extractInterfaceSummary` logic is regex/text driven, not AST-driven. It captures:
+- `import ...` statements
+- exported `type`/`interface` blocks
+- exported function signature lines (`export function`, `export async function`)
+- exported arrow function signatures (`export const name = ... =>`)
+
+If no extractable lines are found, it falls back to `summarizeFile`.
 
 ## Key APIs and Types
-Primary API surface:
-
+Core constructor and methods:
 - `new TokenBudgetManager(options?: TokenBudgetOptions)`
-- `TokenBudgetManager.selectFiles(vfs: Record<string, string>, phase: string): FileEntry[]`
-- `TokenBudgetManager.summarizeFile(path: string, content: string): string`
-- `TokenBudgetManager.extractInterfaceSummary(path: string, content: string): string`
+- `selectFiles(vfs: Record<string, string>, phase: string): FileEntry[]`
+- `summarizeFile(path: string, content: string): string`
+- `extractInterfaceSummary(path: string, content: string): string`
+
+Configuration surface (`TokenBudgetOptions`):
+- `budgetTokens?: number` (default `16000`)
+- `charsPerToken?: number` (default `4`)
+- `roleDetector?: FileRoleDetector`
+- `priorityMatrix?: PhasePriorityMatrix`
 
 Extension points:
+- `FileRoleDetector.detect(path)` lets consumers replace path-based role inference.
+- `PhasePriorityMatrix.getPriority(phase, role)` lets consumers redefine priority policy.
 
-- `FileRoleDetector.detect(path: string): string`
-- `PhasePriorityMatrix.getPriority(phase: string, role: string): 'full' | 'interface' | 'summary'`
-
-Standalone helpers:
-
-- `summarizeFile(path, content)` for compact line/exports metadata
-- `extractInterfaceSummary(path, content)` for signature-level compression
+Helper APIs:
+- `summarizeFile(path, content)` returns `<path>: Exports: ... <lineCount> lines.` format.
+- `extractInterfaceSummary(path, content)` returns extracted interface-level text with a module header comment.
 
 ## Dependencies
-Module-level dependencies (`token-budget.ts`):
-
-- no runtime imports from other local modules,
-- no direct third-party imports.
+Module-level dependencies (`src/context/token-budget.ts`):
+- No imports from other local modules.
+- No third-party runtime imports.
 
 Package-level context:
-
-- exported by `@dzupagent/codegen` (`packages/codegen/src/index.ts`),
-- distributed through package `exports` in `packages/codegen/package.json` (`"." -> dist/index.js` / `dist/index.d.ts`).
+- Package runtime dependency: `@dzupagent/core` (from `packages/codegen/package.json`), but this context module does not currently call it directly.
+- Typescript/Vitest toolchain validates behavior in tests.
 
 ## Integration Points
-Current integration points in local codebase:
+Current integration points in `packages/codegen`:
+- Public export via `src/index.ts`.
+- Direct unit coverage through:
+  - `src/__tests__/token-budget.test.ts`
+  - `src/__tests__/branch-coverage-misc.test.ts`
 
-- public export in `packages/codegen/src/index.ts`,
-- direct execution coverage in:
-- `packages/codegen/src/__tests__/token-budget.test.ts`,
-- `packages/codegen/src/__tests__/branch-coverage-misc.test.ts`.
-
-Based on current source scan, there are no non-test runtime imports of `TokenBudgetManager` within `packages/codegen/src` besides the module itself and barrel export. This indicates it is a published utility surface that is currently validated mainly through tests.
+Current runtime coupling inside this package is minimal; this module is primarily a reusable utility surface exported for external and internal consumers.
 
 ## Testing and Observability
-Current tests touching this subsystem:
+Test coverage includes:
+- Role classification branches in `DefaultRoleDetector`.
+- Priority resolution paths in `DefaultPriorityMatrix`.
+- Summary extraction behavior (`summarizeFile`, `extractInterfaceSummary`).
+- `TokenBudgetManager.selectFiles` behavior under:
+  - empty VFS
+  - enough budget for full files
+  - downgrade to interface summary
+  - summary-priority inclusion
+  - custom detector/matrix injection
+  - branch-focused fallback scenarios
 
-- dedicated suite: `src/__tests__/token-budget.test.ts`,
-- branch coverage extras: `src/__tests__/branch-coverage-misc.test.ts` (token-budget section).
-
-Local verification run:
-
-- command: `yarn workspace @dzupagent/codegen test -- src/__tests__/token-budget.test.ts src/__tests__/branch-coverage-misc.test.ts`
-- result: `2` test files passed, `88` tests passed.
-
-Observability:
-
-- no built-in logging/telemetry hooks in `token-budget.ts`,
-- behavior is observable through deterministic return values and unit tests only.
+Observability status:
+- No internal logger, metrics, or tracing hooks in this module.
+- Behavior is observable through deterministic return values and tests.
 
 ## Risks and TODOs
-- Token estimation uses a fixed `charsPerToken` heuristic; model-specific tokenizer mismatch can affect real prompt budgets.
-- Soft-budget fallback may exceed configured budgets in constrained contexts.
-- Role detection is path-pattern based and can misclassify ambiguous naming patterns.
-- Unknown phases default to `full` for all roles, which can increase context size unexpectedly.
-- Module is currently not wired into another non-test runtime path inside this package; production behavior depends on external consumers invoking it.
+- Token estimation uses fixed `charsPerToken`; mismatch vs model tokenizer can under/over-estimate actual prompt cost.
+- Soft budget behavior can exceed `budgetTokens` after fallback summary insertion.
+- Role detection is heuristic/path-based and may misclassify edge naming patterns.
+- Interface extraction is regex/text based and may miss complex or unconventional TypeScript exports.
+- Unknown phases default to `full`, which can unintentionally inflate prompt context if callers pass non-standard phase names.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

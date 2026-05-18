@@ -1,121 +1,134 @@
 # Contract Extraction Architecture (`packages/codegen/src/contract`)
 
 ## Scope
-`src/contract` is the package-local API contract extraction surface in `@dzupagent/codegen`.
+`src/contract` is a narrow extraction utility inside `@dzupagent/codegen` for deriving backend API contract context from an in-memory file map.
 
-It is intentionally small and currently consists of:
-- `contract-types.ts`: `ApiEndpoint`, `ApiContract`.
-- `api-extractor.ts`: `ApiExtractor` class with `extract(vfs)`.
+Current module scope is exactly two files:
+- `contract-types.ts`
+- `api-extractor.ts`
 
-Input is a virtual filesystem snapshot (`Record<string, string>`). Output is a summarized contract object intended for downstream review, prompt context, or lightweight validation flows.
+Input contract:
+- `Record<string, string>` virtual filesystem snapshot.
+
+Output contract:
+- `ApiContract` with endpoint metadata plus concatenated schema/type sections.
 
 ## Responsibilities
-- Extract backend route endpoints from route/controller-like files using regex matching.
-- Build a compact endpoint record with method, path, auth hint, and description.
-- Aggregate schema content from validator/schema files into one string section.
-- Aggregate shared type content from type/dto files into one string section.
-- Provide fallback type block extraction from service/controller files when no dedicated type files are found.
-- Enforce section length limits for prompt/context safety.
+- Detect Express-style endpoint declarations (`router.*`, `app.*`) from route/controller-shaped files.
+- Build `ApiEndpoint` records with `method`, `path`, `auth`, and `description`.
+- Collect schema content from validator/schema file patterns.
+- Collect shared type content from type/dto file patterns.
+- Run a fallback type extraction pass from service/controller files when no direct type files are found.
+- Enforce fixed max-length truncation (`MAX_SECTION_LENGTH`) for extracted schema/type text blocks.
 
-This module does not do AST parsing, HTTP semantic validation, or frontend/backend call matching.
+Out of scope:
+- AST parsing.
+- OpenAPI generation.
+- Frontend/backend call matching (handled by `src/quality/contract-validator.ts`).
+- Runtime logging/telemetry.
 
 ## Structure
 - `contract-types.ts`
-  - `ApiEndpoint`:
-    - `method: string`
-    - `path: string`
-    - `auth: boolean`
-    - `description: string`
-    - `requestBody?: string`
-    - `responseBody?: string`
-  - `ApiContract`:
-    - `endpoints: ApiEndpoint[]`
-    - `sharedTypes: string`
-    - `zodSchemas: string`
+  - `ApiEndpoint`
+  - `ApiContract`
 - `api-extractor.ts`
-  - `MAX_SECTION_LENGTH = 6000`
-  - `ApiExtractor.extract(vfs: Record<string, string>): ApiContract`
-  - Internal regexes:
-    - route extraction: `(?:router|app).(get|post|put|patch|delete)(...)`
-    - type export fallback detection: `export interface|type ...`
+  - `const MAX_SECTION_LENGTH = 6000`
+  - `class ApiExtractor`
+  - `extract(vfs: Record<string, string>): ApiContract`
 
-Exports are re-exposed from `src/index.ts`:
-- `ApiExtractor`
-- `ApiEndpoint`
-- `ApiContract`
+Export paths:
+- Root package export via `src/index.ts`:
+  - `export { ApiExtractor } from './contract/api-extractor.js'`
+  - `export type { ApiEndpoint, ApiContract } from './contract/contract-types.js'`
+- Compatibility export via `src/compat.ts` re-exporting both files.
 
 ## Runtime and Control Flow
-`ApiExtractor.extract` runs in one pass plus an optional fallback pass:
+`ApiExtractor.extract` executes deterministically in-memory:
 
-1. Initialize `endpoints`, `sharedTypes`, `zodSchemas`.
-2. Iterate every VFS file (`Object.entries(vfs)`).
-3. If path matches route/controller patterns (`.routes.`, `.controller.`, `/routes/`):
-   - Parse route calls (`router.get`, `app.post`, etc.).
-   - Capture `method` and `path`.
-   - Build `description` from preceding `//` comment when present, else default `METHOD path`.
-   - Infer `auth` by checking the route line for `auth|authenticate|protect|requireAuth`.
-4. If path matches schema patterns (`.validator.`, `.schema.`, `/validators/`, `/schemas/`), append full file content to `zodSchemas` with `// --- <file> ---` headers.
-5. If path matches type patterns (`.types.`, `/types/`, `.dto.`), append full file content to `sharedTypes` with `// --- <file> ---` headers.
-6. If no type content was captured, run fallback extraction on `.service.` and `.controller.` files:
-   - Find `export interface` / `export type`.
-   - Attempt to capture a full block via brace counting.
-   - Append captured snippets into `sharedTypes`.
-7. Truncate `sharedTypes` and `zodSchemas` to `MAX_SECTION_LENGTH` and append `// ... (truncated)` when needed.
-8. Return `{ endpoints, sharedTypes, zodSchemas }`.
+1. Initialize `endpoints`, `sharedTypes`, and `zodSchemas`.
+2. Iterate all `vfs` entries.
+3. For files matching route/controller path hints (`.routes.`, `.controller.`, `/routes/`):
+   - Run route regex `/(?:router|app)\.(get|post|put|patch|delete)\(\s*['"`]([^'"`]+)['"`]/gi`.
+   - Capture method/path from each match.
+   - Build description from the immediately preceding `//` line when present, otherwise fallback to `METHOD path`.
+   - Infer auth via route-line keyword check (`auth|authenticate|protect|requireAuth`).
+4. For files matching schema hints (`.validator.`, `.schema.`, `/validators/`, `/schemas/`):
+   - Append full file content into `zodSchemas` with file banner comments.
+5. For files matching shared-type hints (`.types.`, `/types/`, `.dto.`):
+   - Append full file content into `sharedTypes` with file banner comments.
+6. If `sharedTypes` is still empty:
+   - Scan `.service.` and `.controller.` files for `export interface` / `export type`.
+   - Extract text blocks using brace counting and append to `sharedTypes`.
+7. Truncate `sharedTypes` and `zodSchemas` to `6000` chars each and append `// ... (truncated)` if needed.
+8. Return `ApiContract`.
 
 ## Key APIs and Types
+- `interface ApiEndpoint`
+  - `method: string`
+  - `path: string`
+  - `auth: boolean`
+  - `description: string`
+  - `requestBody?: string`
+  - `responseBody?: string`
+- `interface ApiContract`
+  - `endpoints: ApiEndpoint[]`
+  - `sharedTypes: string`
+  - `zodSchemas: string`
 - `class ApiExtractor`
   - `extract(vfs: Record<string, string>): ApiContract`
-- `interface ApiEndpoint`
-- `interface ApiContract`
 
-Important behavior details:
-- Endpoint methods are emitted in lowercase (`get`, `post`, etc.) because they come directly from regex capture.
-- `requestBody` and `responseBody` exist on `ApiEndpoint` but are not populated by `ApiExtractor` today.
-- Extraction relies on file naming/location heuristics plus Express-style route call syntax.
+Behavioral notes:
+- Extracted endpoint methods remain lowercase (`get`, `post`, etc.) because regex captures are not normalized.
+- `requestBody` and `responseBody` are part of the type surface but are not populated by current extractor logic.
 
 ## Dependencies
-Direct runtime dependencies in `src/contract` are minimal:
-- No external packages are imported in this folder.
-- Uses only built-in JS/TS features (`RegExp`, string operations, object iteration).
-- Imports local types from `./contract-types.js`.
+Direct code dependencies for `src/contract`:
+- Local type import: `./contract-types.js`.
+- Standard JS/TS primitives only (regex, string slicing, object iteration).
 
-Package-level dependencies for `@dzupagent/codegen` are defined in `package.json` and include `@dzupagent/core` and `@dzupagent/adapter-types`, but they are not required by the `src/contract` runtime path itself.
+No direct imports from:
+- `@dzupagent/core`
+- `@dzupagent/adapter-types`
+- LangChain packages
+
+Package-level context:
+- `@dzupagent/codegen` declares broader dependencies/peers in `package.json`, but `src/contract` does not consume them at runtime.
 
 ## Integration Points
-- Public package API: exported from `src/index.ts` and published via `dist/index.js` / `dist/index.d.ts`.
-- Package documentation: `packages/codegen/README.md` lists `ApiExtractor` and contract types in the API reference.
-- Adjacent contract logic:
-  - `src/quality/contract-validator.ts` provides backend/frontend call coherence checks (`extractEndpoints`, `extractAPICalls`, `validateContracts`) and is separate from `ApiExtractor`.
-  - `src/guardrails/rules/contract-compliance-rule.ts` validates class/interface implementation completeness and is also separate.
+- Public API consumption through `@dzupagent/codegen` root export.
+- Transitional compatibility consumers can import through `@dzupagent/codegen/compat`.
+- README API reference documents `ApiExtractor`, `ApiEndpoint`, and `ApiContract`.
+- Adjacent but separate contract-related modules:
+  - `src/quality/contract-validator.ts` for endpoint/call coherence validation.
+  - `src/guardrails/rules/contract-compliance-rule.ts` for class/interface implementation checks.
 
-Current local search in `packages/codegen/src` shows no additional runtime consumer of `ApiExtractor` beyond exports and its dedicated test file.
+Current in-repo usage:
+- `ApiExtractor` is referenced by package exports and dedicated tests; no additional internal runtime orchestrator currently invokes it directly.
 
 ## Testing and Observability
-- Dedicated tests exist at `src/__tests__/api-extractor.test.ts`.
-- Covered scenarios in that test file:
-  - Route extraction for all supported HTTP methods.
-  - Auth middleware detection.
-  - Comment-based description extraction.
-  - Schema/type aggregation path patterns.
-  - Fallback type extraction from service files.
-  - Truncation behavior for large schema/type sections.
-  - Empty VFS and non-route-file behavior.
-- Focused local verification run:
-  - `yarn test src/__tests__/api-extractor.test.ts`
-  - Result: 15 tests passed.
+Tests:
+- `src/__tests__/api-extractor.test.ts` covers:
+  - Route extraction across supported methods.
+  - Auth keyword detection.
+  - Comment-based descriptions.
+  - Schema/type file collection.
+  - Fallback type extraction.
+  - Truncation safeguards.
+  - Empty and non-matching input behavior.
+- Focused check run on current tree:
+  - `yarn workspace @dzupagent/codegen test src/__tests__/api-extractor.test.ts`
+  - Result: `1` test file passed, `15` tests passed.
 
-Observability characteristics:
-- No logging, tracing, or metrics are emitted by this module.
-- Operates as a pure in-memory transformation: `Record<string, string> -> ApiContract`.
+Observability:
+- No logging, tracing, metrics, or event bus emission in this module.
+- Pure function-style behavior from input VFS to returned `ApiContract`.
 
 ## Risks and TODOs
-- Regex-based route parsing only recognizes `(router|app).<method>(...)`; alternative frameworks/patterns are out of scope.
-- Route detection depends on file naming/path heuristics; valid routes in differently named files are skipped.
-- Auth detection is a line-level keyword heuristic and can produce false positives/negatives.
-- Method casing differs from `quality/contract-validator.ts` (`lowercase` here vs `uppercase` there), which can cause integration friction if outputs are mixed.
-- `requestBody` and `responseBody` fields are declared but currently unused by extractor logic.
+- Regex/file-name heuristics can miss valid endpoints or types when projects use different naming/layout conventions.
+- Auth detection is keyword-based and may over/under-report protection state.
+- Fallback exported-type extraction is brace-counting text logic and can degrade on complex declarations.
+- Method case mismatch vs `src/quality/contract-validator.ts` (`lowercase` here vs uppercase there) is an integration footgun when consumers combine both outputs.
+- `requestBody` and `responseBody` fields are currently unused and can drift from actual extraction behavior unless implemented or removed.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

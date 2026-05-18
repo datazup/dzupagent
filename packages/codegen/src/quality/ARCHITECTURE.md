@@ -1,143 +1,157 @@
 # `src/quality` Architecture
 
 ## Scope
-`src/quality` provides static, file-map-based quality analysis utilities for `@dzupagent/codegen`. The module works on in-memory snapshots (`Record<string, string>` or `Map<string, string>`) and does not execute compilers, linters, or tests.
+`src/quality` contains static quality and coherence analysis utilities used by `@dzupagent/codegen`. All analyzers operate on in-memory code snapshots and regex/string heuristics; they do not execute tests, run typecheck/lint processes, or parse ASTs.
 
-The scope includes:
-- weighted multi-dimension scoring (`quality-scorer.ts` + `quality-dimensions.ts`)
-- static test-coverage approximation (`coverage-analyzer.ts`)
-- import coherence checks across generated files (`import-validator.ts`)
-- frontend/backend API contract coherence checks (`contract-validator.ts`)
-- convention enforcement with confidence filtering (`convention-gate.ts`)
-- shared scoring types (`quality-types.ts`)
+Files in scope:
+- `quality-types.ts`: shared contracts for quality dimensions and aggregate results.
+- `quality-scorer.ts`: weighted aggregator over `QualityDimension` implementations.
+- `quality-dimensions.ts`: built-in dimensions for strictness/hygiene/completeness/test/docs checks.
+- `coverage-analyzer.ts`: static source-to-test coverage approximation and prioritization of uncovered files.
+- `import-validator.ts`: import coherence validator over `Map`/`Record` snapshots with unresolved/self/circular issue detection.
+- `contract-validator.ts`: backend endpoint vs frontend API call contract validation.
+- `convention-gate.ts`: confidence-filtered convention enforcement with built-in conventions and custom extension points.
 
-It excludes runtime sandbox execution and AST/deep semantic validation.
+Out of scope:
+- sandbox execution (`src/sandbox/*`),
+- VFS-based import validator in `src/validation/import-validator.ts` (separate API and result shape),
+- pipeline execution/runtime orchestration (quality is plugged in by callers).
 
 ## Responsibilities
-- Provide a composable `QualityScorer` that aggregates independent quality dimensions into a normalized `0..100` score.
-- Ship built-in dimensions for common guardrails: type strictness, debug-statement hygiene, test presence, code completeness, and JSDoc presence.
-- Provide standalone static analyzers for:
-  - test coverage heuristics (`analyzeCoverage`, `findUncoveredFiles`)
-  - import graph validity and cycle detection (`validateImports`)
-  - API call/endpoint contract validation (`validateContracts`)
-  - learned/default convention gating (`ConventionGate`)
-- Keep APIs deterministic and side-effect free so they can be run in tools, pipeline nodes, or tests.
+- Provide a deterministic `QualityScorer` API that normalizes dimension scores to `0..100` and flattens diagnostics.
+- Provide opinionated default `QualityDimension`s via `builtinDimensions`.
+- Provide standalone analyzers for:
+  - test coverage heuristics (`analyzeCoverage`, `findUncoveredFiles`),
+  - import coherence and graph issues (`validateImports` in `src/quality/import-validator.ts`),
+  - backend/frontend API contract matching (`extractEndpoints`, `extractAPICalls`, `validateContracts`),
+  - convention-gate checks (`ConventionGate` and related types).
+- Keep module-level behavior side-effect free so it can be reused from tools, pipeline validation phases, and tests.
 
 ## Structure
 - `quality-types.ts`
-  - shared interfaces: `QualityContext`, `DimensionResult`, `QualityResult`, `QualityDimension`.
+  - `QualityContext`, `DimensionResult`, `QualityResult`, `QualityDimension`.
 - `quality-scorer.ts`
-  - `QualityScorer` class with `addDimension`, `addDimensions`, and `evaluate`.
+  - `QualityScorer` with mutable dimension registration (`addDimension`, `addDimensions`) and async `evaluate`.
 - `quality-dimensions.ts`
-  - built-in `QualityDimension` implementations and `builtinDimensions`.
+  - built-ins: `typeStrictness`, `eslintClean`, `hasTests`, `codeCompleteness`, `hasJsDoc`.
+  - `builtinDimensions` ordered array of those five dimensions.
 - `coverage-analyzer.ts`
-  - static source/test matching and uncovered-file prioritization.
+  - `CoverageReport`, `CoverageConfig`, `analyzeCoverage`, `findUncoveredFiles`.
 - `import-validator.ts`
-  - multi-file relative import resolution, self-import detection, and cycle detection.
+  - `ImportIssue`, `ImportValidationResult`, `validateImports(files, rootDir?)`.
 - `contract-validator.ts`
-  - extraction of endpoints/API calls and mismatch reporting.
+  - `APIEndpoint`, `APICall`, `ContractIssue`, `ContractValidationResult`,
+  - `extractEndpoints`, `extractAPICalls`, `validateContracts`.
 - `convention-gate.ts`
-  - convention model (`LearnedConvention`) and `ConventionGate` evaluator.
+  - convention model and categories (`LearnedConvention`, `ConventionCategory`),
+  - gate configuration/result (`ConventionGateConfig`, `ConventionGateResult`),
+  - evaluator class (`ConventionGate` + `withDefaults`).
 
 ## Runtime and Control Flow
-1. Caller provides a file snapshot (`Record<string, string>`).
-2. For scoring flows, caller constructs `QualityScorer` and registers one or more dimensions.
-3. `QualityScorer.evaluate` executes all dimensions concurrently with `Promise.all`.
-4. Scorer aggregates:
-- `quality = round((sum(score) / sum(maxScore)) * 100)` (or `0` if no dimensions)
-- `success = errors.length === 0`
-- flattened `errors` and `warnings` across dimensions
-5. Caller uses returned quality data for gating, reporting, or fix-loop decisions.
+Primary scoring flow:
+1. Caller builds a file snapshot (`Record<string, string>`) and optional `QualityContext`.
+2. Caller creates `QualityScorer` and registers dimensions.
+3. `QualityScorer.evaluate` runs dimensions concurrently via `Promise.all`.
+4. Aggregation logic computes:
+   - `quality = round((sum(score) / sum(maxScore)) * 100)` (or `0` when no dimensions),
+   - `success = errors.length === 0`,
+   - flattened `errors` and `warnings`.
+5. Caller consumes the result for validation gates or correction loop decisions.
 
-Standalone analyzers (`analyzeCoverage`, `validateImports`, `validateContracts`, `ConventionGate.evaluate`) execute independently and return their own result types without requiring `QualityScorer`.
+Standalone analyzer flows:
+- `analyzeCoverage` filters candidate source files by glob-like patterns, excludes configured paths, matches test files by base name/path conventions, and returns covered/uncovered arrays with ratio.
+- `findUncoveredFiles` uses `analyzeCoverage` output and ranks uncovered files by `lineCount * max(exportCount, 1)`.
+- `validateImports` builds a file adjacency graph from relative static and dynamic imports, validates path resolution with extension/index fallbacks, then DFS-detects cycles.
+- `validateContracts` extracts backend endpoints and frontend calls line-by-line, matches by normalized path + method, and reports unmatched/mismatched issues.
+- `ConventionGate.evaluate` filters conventions by `minConfidence`, checks each file against custom tests and/or regex patterns, and returns pass/fail plus violation counts.
 
 ## Key APIs and Types
 - `QualityScorer`
   - `addDimension(dimension: QualityDimension): this`
   - `addDimensions(dimensions: QualityDimension[]): this`
-  - `evaluate(vfs, context?): Promise<QualityResult>`
+  - `evaluate(vfs: Record<string, string>, context?: QualityContext): Promise<QualityResult>`
 - Built-in dimensions (`quality-dimensions.ts`)
-  - `typeStrictness` (`15` points): flags `any`, `@ts-ignore`, `@ts-nocheck` in `.ts/.tsx` excluding `.d.ts`
-  - `eslintClean` (`10` points): warns on `console.log`, `debugger`, `alert()` in non-test source files
-  - `hasTests` (`10` points): checks sibling `.test/.spec` files and skips `index.*`
-  - `codeCompleteness` (`10` points): errors on empty bodies; warns on inline `TODO`/`FIXME` in code lines
-  - `hasJsDoc` (`5` points): warns when exported function/class/const declarations lack nearby JSDoc
-  - `builtinDimensions`: ordered array of the above dimensions
-- Coverage analyzer
+  - `typeStrictness` (`maxPoints: 15`): flags `: any`, `<any>`, `as any`, `@ts-ignore`, `@ts-nocheck`.
+  - `eslintClean` (`10`): warns on `console.log`, `debugger`, `alert(` in non-test source files.
+  - `hasTests` (`10`): checks for sibling `.test/.spec` files for source files (excluding `index.*` source files).
+  - `codeCompleteness` (`10`): errors on empty function bodies; warns on non-comment `TODO`/`FIXME` markers.
+  - `hasJsDoc` (`5`): warns when exported function/class/const declarations lack nearby doc-comment markers.
+  - `builtinDimensions: QualityDimension[]` (current total possible points: `50`).
+- Coverage API
   - `analyzeCoverage(files, config?) => CoverageReport`
-  - `findUncoveredFiles(files, config?) => { filePath, priority, reason }[]`
-- Import coherence
-  - `validateImports(files, rootDir?) => ImportValidationResult` with issues:
-    - `unresolved`
-    - `self-import`
-    - `circular`
-- Contract coherence
+  - `findUncoveredFiles(files, config?) => Array<{ filePath; priority; reason }>`
+- Import coherence API (`src/quality/import-validator.ts`)
+  - `validateImports(files: Map<string, string> | Record<string, string>, rootDir = '') => ImportValidationResult`
+  - issue variants: `'unresolved' | 'circular' | 'self-import'`.
+- Contract API
   - `extractEndpoints(files) => APIEndpoint[]`
   - `extractAPICalls(files) => APICall[]`
   - `validateContracts(backendFiles, frontendFiles) => ContractValidationResult`
-- Convention gating
-  - `ConventionGate` (`new ConventionGate(config)`)
+  - `ContractValidationResult.valid` is driven by `unmatched-call` and `method-mismatch`; `unmatched-endpoint` is reported but does not invalidate.
+- Convention API
+  - `new ConventionGate(config: ConventionGateConfig)`
   - `ConventionGate.withDefaults(overrides?)`
-  - `evaluate(files) => ConventionGateResult`
+  - `evaluate(files: Array<{ path: string; content: string }>) => ConventionGateResult`
+  - built-in conventions include file naming, ESM import extensions, `no any`, `no @ts-ignore`, `no console.log`, `no var`, and export naming checks.
 
 ## Dependencies
-Inside `src/quality`, implementation is dependency-light:
-- No imports from external libraries.
-- `quality-scorer.ts` and `quality-dimensions.ts` depend only on `quality-types.ts`.
-- Other analyzers are self-contained per file.
+Internal dependencies inside `src/quality` are minimal:
+- `quality-scorer.ts` and `quality-dimensions.ts` depend on `quality-types.ts`.
+- Other analyzers are self-contained and only use platform JS/TS features.
 
-Package-level dependencies are provided by `@dzupagent/codegen`, but `src/quality` itself is currently pure TypeScript/regex logic.
+External runtime libraries are not imported directly by these quality files.
+
+Package-level context:
+- `@dzupagent/codegen` depends on `@dzupagent/core` and `@dzupagent/adapter-types`.
+- quality integration with LangChain/Zod happens in `src/tools/validate.tool.ts` (outside `src/quality`), where `QualityScorer` is injected into a LangChain tool.
 
 ## Integration Points
-- Public package exports from `src/index.ts`:
-  - quality types/scorer
-  - all built-in dimensions
-  - `analyzeCoverage`, `findUncoveredFiles`
-  - `validateImportCoherence` (alias of `quality/import-validator.validateImports`)
-  - `extractEndpoints`, `extractAPICalls`, `validateContracts`
-  - `ConventionGate` and related convention types
-- Tool integration:
-  - `src/tools/validate.tool.ts` accepts a `QualityScorer` instance and exposes `validate_feature`, forwarding optional `QualityContext`.
-- Pipeline/correction typing integration:
-  - `src/pipeline/phase-types.ts` and `src/pipeline/gen-pipeline-builder.ts` reference `QualityDimension[]` and thresholds for validation phase configuration.
-  - `src/correction/correction-types.ts` and `src/correction/self-correction-loop.ts` consume quality score fields (`qualityScore`, `qualityThreshold`) at the correction-loop contract level.
-
-Important current-state note:
-- `PipelineExecutor` does not directly run `QualityScorer`; quality execution is supplied by caller-provided phase logic/tools.
+- Package exports (`src/index.ts`)
+  - quality core: `QualityScorer`, `QualityDimension`/result/context types.
+  - dimensions: all five built-ins + `builtinDimensions`.
+  - analyzers: `analyzeCoverage`, `findUncoveredFiles`, `validateImportCoherence` (alias of `src/quality/import-validator.ts`), contract extraction/validation APIs.
+  - conventions: `ConventionGate` and convention model/result types.
+- Runtime facade (`src/runtime.ts`)
+  - re-exports only `quality-scorer`, `quality-dimensions`, and `quality-types` from this subsystem.
+- Tooling integration (`src/tools/validate.tool.ts`)
+  - `createValidateTool(scorer)` runs `scorer.evaluate(vfsSnapshot, context)` and returns structured JSON text with `quality`, `success`, `dimensions`, `errors`, `warnings`.
+- Pipeline/correction integration
+  - `src/pipeline/phase-types.ts` and `src/pipeline/gen-pipeline-builder.ts` reference `QualityDimension[]` + threshold in validation phase config.
+  - `src/correction/correction-types.ts` and `src/correction/self-correction-loop.ts` use `qualityScore` and `qualityThreshold` in correction acceptance criteria.
 
 ## Testing and Observability
-Current tests under `src/__tests__` directly cover the quality module:
+Direct quality-focused test coverage in `src/__tests__`:
 - `quality-scorer.test.ts`
-  - scorer aggregation semantics, success/error flattening, zero-dimension behavior
-  - includes built-in dimension coverage slices
 - `quality-dimensions.test.ts`
-  - detailed behavior and edge cases for all built-in dimensions
 - `coverage-analyzer.test.ts`
-  - source/test matching, exclusion behavior, ratio calculation, uncovered sorting
-- `import-validator-deep.test.ts`
-  - deep path/extension/index/cycle/self-import coverage for `quality/import-validator.ts`
+- `import-validator-deep.test.ts` (covers both `src/quality/import-validator.ts` and `src/validation/import-validator.ts`)
 - `contract-validator.test.ts`
-  - endpoint/call extraction and contract mismatch handling
 - `convention-gate.test.ts`
-  - default rules, confidence filtering, warnings-only mode, custom conventions
-- `validate-tool.test.ts`
-  - tool-level integration that verifies scorer invocation and output shape
+- `validate-tool.test.ts` (integration of `QualityScorer` through tool wrapper)
+
+Additional broader package tests (for example `code-review.test.ts`) also exercise some contract-validator behavior.
 
 Observability characteristics:
-- No internal logging/metrics inside `src/quality`.
-- Diagnostics are returned as structured arrays (`errors`, `warnings`, `issues`, `violations`) for external logging/reporting.
+- No built-in logging/metrics in `src/quality`.
+- Diagnostics are returned as structured arrays:
+  - `errors` / `warnings` for scorer/dimensions,
+  - `issues` for import/contract validation,
+  - `violations` for convention gate.
 
 ## Risks and TODOs
-- Heuristic-only analysis:
-  - regex parsing may miss complex syntax patterns and can produce false positives/negatives.
-- Dual import validators:
-  - `src/quality/import-validator.ts` and `src/validation/import-validator.ts` provide overlapping capabilities with different data models; this can drift.
-- Scoring semantics:
-  - `QualityScorer.success` is based only on `errors`, while some dimensions can fail (`passed: false`) with warnings only; callers must choose gating logic intentionally.
-- Coverage approximation:
-  - `coverage-analyzer` uses naming conventions, not runtime coverage or execution traces.
-- Contract extraction limits:
-  - `contract-validator` targets common `router/app` and `axios/api/http/client/fetch` patterns and does not parse framework-specific abstractions beyond these regexes.
+- Heuristic/regex limitations:
+  - import extraction, endpoint/call extraction, JSDoc checks, and convention checks can miss complex syntax or produce false positives.
+- Dual import-validator surface:
+  - `src/validation/import-validator.ts` (VFS-based, `errors`) and `src/quality/import-validator.ts` (Map/Record-based, `issues`) overlap in purpose but differ in contract and feature set.
+- Scoring semantics nuance:
+  - `QualityScorer.success` is based on aggregated `errors` only; dimensions can return `passed: false` with warnings and still keep `success: true`.
+- Coverage heuristic scope:
+  - `coverage-analyzer` relies on naming/pattern conventions, not executed coverage.
+- Contract normalization behavior:
+  - path normalization lowercases and trims trailing slashes; method/path extraction is pattern-based and may not capture framework-specific abstractions or dynamic routing.
+- Convention gate granularity:
+  - custom `test` functions produce file-level violations (no line number), while regex pattern checks produce line-level violations.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+

@@ -1,158 +1,202 @@
 # LLM Architecture (`packages/core/src/llm`)
 
 ## Scope
-This document describes the LLM layer implemented in `@dzupagent/core` under `packages/core/src/llm`:
+This document describes the LLM subsystem implemented in `packages/core/src/llm` for `@dzupagent/core`.
 
+In scope:
 - `model-config.ts`
-- `model-registry.ts`
 - `structured-output-capabilities.ts`
+- `model-registry.ts`
 - `invoke.ts`
+- `resilient-invoker.ts`
 - `retry.ts`
 - `circuit-breaker.ts`
-- `registry-middleware.ts`
+- `tokenizer.ts`
+- `tokenizer-registry.ts`
 - `embedding-registry.ts`
+- `harness-profile.ts`
+- `registry-middleware.ts`
 
-It also covers direct package-local integrations in `packages/core/src` (facades, config, formats, subagent, MCP reliability) and key cross-package runtime consumers in `packages/agent` and `packages/server`.
+Also covered:
+- package entrypoints that export this surface (`src/index.ts`, `src/llm.ts`, `src/model.ts`)
+- direct in-package consumers (config loading/validation, quick-start, structured-output formatting, sub-agent orchestration, MCP reliability, plugin context typing, token/cost persistence typing, prompt token estimation, and event/audit bridges)
 
 ## Responsibilities
-The LLM layer is responsible for:
-
-- Defining provider/model contracts (`ModelTier`, `LLMProviderConfig`, `ModelSpec`, overrides, structured-output capability metadata).
-- Registering providers and resolving chat model instances by tier, provider, or model name.
-- Providing priority-based fallback with per-provider circuit-breaker gating.
-- Decorating model instances with normalized structured-output capability metadata.
-- Wrapping invocation with timeout, retry/backoff, context-length error classification, and token-usage extraction.
-- Exposing generic reliability primitives (`CircuitBreaker`, `KeyedCircuitBreaker`) used both in LLM routing and MCP reliability.
-- Providing a metadata registry for embedding model selection (`EmbeddingRegistry`).
-- Exposing middleware hook types for registry-level interception contracts.
+The LLM subsystem is responsible for:
+- defining model/provider contracts (`ModelTier`, `LLMProviderConfig`, `ModelSpec`, `ModelOverrides`)
+- creating model instances via `ModelRegistry` + pluggable `ModelFactory`
+- attaching normalized structured-output capability metadata to resolved model instances
+- provider selection with priority ordering and selection-time failover (`getModelWithFallback`, `getModelFallbackCandidates`)
+- invocation with timeout, transient retry, context-length normalization, and token-usage extraction (`invokeWithTimeout`, `extractTokenUsage`)
+- invocation-time failover across model candidates (`ResilientModelInvoker`)
+- provider health tracking using circuit breakers
+- token estimation through tokenizer routing plus deterministic heuristic fallback
+- embedding model metadata registry and built-in default catalog
+- harness-profile registry for per-provider/per-model/per-tier override resolution
+- middleware contract typing and registration storage on `ModelRegistry`
 
 ## Structure
-| File | Purpose | Main Exports |
+| File | Purpose | Primary exports |
 | --- | --- | --- |
-| `model-config.ts` | Core type contracts for providers, tiers, overrides, and structured-output metadata | `ModelTier`, `KnownLLMProvider`, `LLMProviderName`, `ModelSpec`, `LLMProviderConfig`, `ModelOverrides`, `ModelFactory`, `StructuredOutputModelCapabilities`, `StructuredOutputStrategy` |
-| `structured-output-capabilities.ts` | Provider defaults and normalization helpers for structured-output capabilities; attaches metadata onto model instances | `attachStructuredOutputCapabilities`, `normalizeStructuredOutputCapabilities`, `getProviderStructuredOutputDefaults`, `getStructuredOutputDefaultsForProviderName`, `isKnownLLMProvider` |
-| `model-registry.ts` | Provider registration, model creation (default + custom factory), fallback selection, breaker health, middleware list management | `ModelRegistry` |
-| `invoke.ts` | Invocation utility with timeout + retry and token usage extraction helpers | `invokeWithTimeout`, `extractTokenUsage`, `estimateTokens`, `TokenUsage`, `InvokeOptions` |
-| `retry.ts` | Retry defaults and error classification helpers | `DEFAULT_RETRY_CONFIG`, `isTransientError`, `isContextLengthError`, `RetryConfig` (+ `RetryPolicy` re-export) |
-| `circuit-breaker.ts` | Generic circuit-breaker state machine and keyed registry wrapper | `CircuitBreaker`, `KeyedCircuitBreaker`, `CircuitBreakerConfig`, `CircuitState` |
-| `registry-middleware.ts` | Middleware type contracts for pre/post invocation hooks | `RegistryMiddleware`, `MiddlewareContext`, `MiddlewareResult`, `MiddlewareTokenUsage` |
-| `embedding-registry.ts` | Embedding metadata catalog + built-in model list | `EmbeddingRegistry`, `COMMON_EMBEDDING_MODELS`, `createDefaultEmbeddingRegistry`, `EmbeddingModelEntry` |
+| `model-config.ts` | Core types for providers, tiers, specs, structured-output metadata, and factory contracts | `ModelTier`, `KnownLLMProvider`, `LLMProviderName`, `StructuredOutputStrategy`, `StructuredOutputModelCapabilities`, `ModelSpec`, `LLMProviderConfig`, `ModelOverrides`, `ModelFactory` |
+| `structured-output-capabilities.ts` | Structured-output defaults + normalization + attachment helpers | `attachStructuredOutputCapabilities`, `normalizeStructuredOutputCapabilities`, `getProviderStructuredOutputDefaults`, `getStructuredOutputDefaultsForProviderName`, `isKnownLLMProvider`, `inferStructuredOutputSchemaProvider` |
+| `model-registry.ts` | Provider registry, model resolution, fallback-candidate generation, breaker tracking, harness registry hookup, middleware list management | `ModelRegistry`, `ModelFallbackCandidate` |
+| `invoke.ts` | Invoke wrapper with timeout, retry, usage extraction, token estimation | `invokeWithTimeout`, `extractTokenUsage`, `estimateTokens`, `TokenUsage`, `InvokeOptions` |
+| `resilient-invoker.ts` | Invocation-time fallback across provider/model candidates | `ResilientModelInvoker`, `ResilientInvokerOptions` |
+| `retry.ts` | Retry defaults and transient/context-length classifiers | `DEFAULT_RETRY_CONFIG`, `isTransientError`, `isContextLengthError`, `RetryConfig`, `RetryPolicy` (re-export) |
+| `circuit-breaker.ts` | Circuit breaker primitives for provider and keyed reliability control | `CircuitBreaker`, `KeyedCircuitBreaker`, `CircuitBreakerConfig`, `CircuitState` |
+| `tokenizer.ts` | Tokenizer interfaces and implementations with optional backend loading | `Tokenizer`, `TokenizableMessage`, `HeuristicTokenizer`, `AnthropicTokenizer`, `TiktokenTokenizer` |
+| `tokenizer-registry.ts` | Pattern-based tokenizer routing and default process-wide registry | `TokenizerRegistry`, `defaultTokenizerRegistry` |
+| `embedding-registry.ts` | Embedding-model metadata registry + built-in entries | `EmbeddingRegistry`, `EmbeddingModelEntry`, `COMMON_EMBEDDING_MODELS`, `createDefaultEmbeddingRegistry` |
+| `harness-profile.ts` | Versioned harness profile schema + best-match resolver | `HarnessProfileRegistry`, `HarnessProfile`, `ResolvedHarnessOverrides`, override interfaces |
+| `registry-middleware.ts` | Middleware type contracts around registry invocation concerns | `RegistryMiddleware`, `MiddlewareContext`, `MiddlewareResult`, `MiddlewareTokenUsage` |
 
-Public package exports are wired through `packages/core/src/index.ts` and the quick-start facade (`packages/core/src/facades/quick-start.ts`).
+Export surfaces:
+- `src/index.ts`: full core export surface including LLM subsystem and `HarnessProfileRegistry`
+- `src/llm.ts`: broad LLM-oriented facade (modeling + invocation + tokenizer + prompt/router/middleware exports)
+- `src/model.ts`: narrow model/invocation-focused facade
 
 ## Runtime and Control Flow
-1. Provider bootstrap:
-- Callers create `ModelRegistry`.
-- Providers are added via `addProvider`, sorted by ascending `priority`.
-- Optional overrides: `setFactory(...)` for custom transports, `setCircuitBreakerConfig(...)` for breaker behavior.
+Provider registration and resolution:
+1. Callers instantiate `ModelRegistry` and register providers via `addProvider`.
+2. Providers are sorted by ascending `priority`.
+3. `getModel`, `getModelFromProvider`, or `getModelByName` chooses a provider/spec.
+4. `factory(provider, spec, overrides)` creates a `BaseChatModel`.
+5. Structured-output capabilities are resolved and attached with precedence:
+   `spec.structuredOutput` -> `provider.structuredOutputDefaults` -> built-in provider defaults.
 
-2. Model resolution:
-- `getModel(tier)` returns first provider configured for that tier.
-- `getModelFromProvider(provider, tier)` enforces provider/tier existence.
-- `getModelByName(name)` resolves exact match first, then partial `includes` fallback.
-- Resolved instances are decorated with `structuredOutputCapabilities`, sourced in this order:
-  1. model spec `structuredOutput`
-  2. provider `structuredOutputDefaults`
-  3. built-in provider defaults from `structured-output-capabilities.ts`
+Default factory behavior:
+- `anthropic` -> `ChatAnthropic`
+- `openai`, `openrouter`, `google`, `qwen` -> `ChatOpenAI` (OpenAI-compatible transport)
+- `openrouter` default base URL: `https://openrouter.ai/api/v1`
+- `google` default base URL: `https://generativelanguage.googleapis.com/v1beta/openai/`
+- `qwen` default base URL: `https://dashscope.aliyuncs.com/compatible-mode/v1`
+- `azure`, `bedrock`, `custom`, and unknown strings require a custom `ModelFactory` and throw by default
+- temperature is suppressed for reasoning families (`o*`, `gpt-5*`) in OpenAI/OpenRouter branches
+- `reasoningEffort` is passed via `reasoning: { effort }` for OpenAI/OpenRouter branches
 
-3. Fallback routing:
-- `getModelWithFallback(tier)` iterates providers by priority.
-- Providers with open circuits (`canExecute() === false`) are skipped.
-- Factory failures are collected and recorded in breaker state.
-- Exhaustion throws `ForgeError` with code `ALL_PROVIDERS_EXHAUSTED`.
+Selection-time fallback (`ModelRegistry`):
+1. `getModelWithFallback(tier)` iterates providers by priority.
+2. Skips providers with open breakers (`canExecute() === false`).
+3. On factory failure, records breaker failure for that provider.
+4. Returns first successful `{ model, provider }`.
+5. Throws `ForgeError` with `code: 'ALL_PROVIDERS_EXHAUSTED'` if none are usable.
 
-4. Invocation path:
-- `invokeWithTimeout(model, messages, options)` wraps `model.invoke(...)` in `Promise.race` with timeout.
-- Retries only transient failures (`isTransientError`) up to `maxAttempts`, with exponential backoff via `calculateBackoff`.
-- Context-length failures (`isContextLengthError`) are converted to `ForgeError` code `CONTEXT_LENGTH_EXCEEDED` without retry.
-- Optional `onUsage` callback receives usage parsed by `extractTokenUsage`.
+Candidate-chain generation:
+1. `getModelFallbackCandidates(tier)` performs the same selection-time filtering.
+2. Returns ordered `ModelFallbackCandidate[]` for caller-managed failover.
+3. Throws `ALL_PROVIDERS_EXHAUSTED` if candidate set is empty.
 
-5. Health feedback loop:
-- Consumers are expected to call `recordProviderSuccess(provider)` or `recordProviderFailure(provider, error)` after invoke/stream completion.
-- `recordProviderFailure` only increments breaker state for transient errors.
-- `getProviderHealth()` returns current state per registered provider.
+Invocation (`invokeWithTimeout`):
+1. Executes `Promise.race([model.invoke(messages), timeoutPromise])`.
+2. Retries only transient failures (`isTransientError`) up to `retry.maxAttempts`.
+3. Uses exponential backoff via `calculateBackoff`.
+4. Maps context-length failures to `ForgeError(code: 'CONTEXT_LENGTH_EXCEEDED')`.
+5. Emits token usage through `onUsage` callback when provided.
 
-6. Structured-output strategy defaults:
-- Anthropic defaults to `anthropic-tool-use`.
-- OpenAI/Google/Qwen/Azure defaults to `openai-json-schema`.
-- OpenRouter defaults to `generic-parse`.
-- Bedrock/custom have no built-in defaults unless explicitly configured.
+Invocation-time fallback (`ResilientModelInvoker`):
+1. Walks provided `ModelFallbackCandidate[]` in order.
+2. Invokes each candidate via `invokeWithTimeout`.
+3. Non-transient failure short-circuits immediately (no provider hop).
+4. Transient failure triggers optional `onFallback` and continues to next candidate.
+5. Breaker updates (`recordProviderSuccess` / `recordProviderFailure`) are on by default and configurable with `updateBreakers`.
+6. If all candidates fail transiently, throws `ForgeError(code: 'ALL_PROVIDERS_EXHAUSTED')`.
+
+Tokenization and estimation:
+1. `estimateTokens(text, model?)` resolves tokenizer from `defaultTokenizerRegistry`.
+2. Defaults map `claude*` -> `AnthropicTokenizer`, `gpt-*`/`o*` -> `TiktokenTokenizer`.
+3. Optional backends are lazy-loaded; failures fall back to `HeuristicTokenizer`.
+
+Harness profile resolution:
+1. `HarnessProfileRegistry` stores profiles by `id`.
+2. `resolve({ provider, modelName, tier })` filters matches and ranks specificity.
+3. Specificity scoring is `provider(4) + modelGlob(2) + tier(1)`.
+4. `ModelRegistry.resolveHarnessOverrides(...)` proxies into attached harness registry.
+5. LLM subsystem resolves overrides but does not auto-apply them to invocation behavior.
 
 ## Key APIs and Types
-- `ModelRegistry`
-  - Core methods: `addProvider`, `setFactory`, `setCircuitBreakerConfig`, `getModel`, `getModelFromProvider`, `getModelByName`, `getModelWithFallback`, `getSpec`, `recordProviderSuccess`, `recordProviderFailure`, `getProviderHealth`, `use/getMiddlewares/removeMiddleware`.
-- `LLMProviderConfig`
-  - Provider identity, API credentials, optional base URL, per-tier model map, optional structured-output defaults, and priority.
-- `ModelOverrides`
-  - Runtime overrides for model name, temperature, max tokens, streaming, and OpenAI-style `reasoningEffort`.
-- `invokeWithTimeout`
-  - Shared invoke primitive for timeout, retry, and usage callback behavior.
-- `extractTokenUsage`
-  - Handles multiple LangChain/provider metadata shapes (`usage_metadata`, `response_metadata.usage`, nested `usage_metadata`, legacy `tokenUsage`).
-- `CircuitBreaker` and `KeyedCircuitBreaker`
-  - Generic reliability primitives reused outside direct LLM invocation.
-- `EmbeddingRegistry`
-  - Provider-agnostic metadata registry for embedding model dimensions, batch sizes, and cost hints.
+- `ModelRegistry`: registration/config (`addProvider`, `setFactory`, `setCircuitBreakerConfig`, `setHarnessProfileRegistry`), retrieval (`getModel`, `getModelFromProvider`, `getModelByName`, `getSpec`), fallback/health (`getModelWithFallback`, `getModelFallbackCandidates`, `recordProviderSuccess`, `recordProviderFailure`, `getProviderHealth`), and middleware list lifecycle (`use`, `getMiddlewares`, `removeMiddleware`).
+- `invokeWithTimeout(model, messages, options)`: timeout + retry wrapper around `model.invoke`, with optional `onUsage` callback and context-length normalization to `ForgeError`.
+- `extractTokenUsage(response, modelName?)`: supports multiple metadata shapes (`usage_metadata`, `response_metadata.usage`, `response_metadata.usage_metadata`, `response_metadata.tokenUsage`) and captures optional cache token counters.
+- `ResilientModelInvoker`: orchestrates candidate-level fallback and optional breaker synchronization.
+- `StructuredOutputModelCapabilities`: `preferredStrategy`, optional `schemaProvider`, optional `fallbackStrategies`.
+- `CircuitBreaker` and `KeyedCircuitBreaker`: reusable reliability primitives used in LLM and MCP reliability layers.
+- `Tokenizer` and `TokenizerRegistry`: synchronous token counting with provider-aware routing and fallback.
+- `EmbeddingRegistry`: register/list/filter/default/remove operations for embedding metadata entries.
+- `HarnessProfileRegistry`: per-context profile selection returning `ResolvedHarnessOverrides`.
 
 ## Dependencies
-Direct dependencies used by `src/llm`:
+Direct external imports used under `src/llm`:
+- `@langchain/core` (model/message types)
+- `@langchain/anthropic` (`ChatAnthropic`)
+- `@langchain/openai` (`ChatOpenAI`)
+- `@dzupagent/agent-types` (`RetryPolicy` re-export)
+- `node:module` (`createRequire` for optional tokenizer backend loading)
 
-- `@langchain/core` (types: `BaseChatModel`, `BaseMessage`)
-- `@langchain/anthropic` (`ChatAnthropic` default provider factory)
-- `@langchain/openai` (`ChatOpenAI` default provider factory for openai/openrouter/google/qwen-compatible APIs)
-- `@dzupagent/agent-types` (`RetryPolicy` type re-export)
-- Internal core utilities/errors:
-  - `../errors/forge-error.js`
-  - `../utils/backoff.js`
+Internal core dependencies consumed by this subsystem:
+- `../errors/forge-error.js`
+- `../utils/backoff.js`
 
-Package-level metadata (`packages/core/package.json`):
+Optional runtime backends loaded lazily:
+- `@anthropic-ai/tokenizer`
+- `js-tiktoken`
 
-- Runtime deps: `@dzupagent/agent-types`, `@dzupagent/runtime-contracts`
-- Peer deps include `@langchain/core`, `@langchain/langgraph`, and `zod` (plus optional vector DB peers)
-- LLM provider SDKs (`@langchain/anthropic`, `@langchain/openai`) are currently present in this package's `devDependencies` and are directly imported by runtime code in `model-registry.ts`.
+Package metadata notes (`packages/core/package.json`):
+- `@langchain/core` is declared as a peer dependency (and also present in dev dependencies)
+- `@langchain/anthropic` and `@langchain/openai` are imported by runtime code and currently declared in `devDependencies`
+- tokenizer backend dependencies are declared as optional peers via `peerDependenciesMeta`
 
 ## Integration Points
-Within `packages/core`:
+Direct in-package integrations:
+- `src/facades/quick-start.ts`: wires `ModelRegistry` in `createQuickAgent` and applies provider structured-output defaults via `getProviderStructuredOutputDefaults`.
+- `src/config/config-types.ts`: `ProviderConfig.structuredOutputDefaults` uses `StructuredOutputModelCapabilities`.
+- `src/config/config-loader.ts`: normalizes provider structured-output defaults via LLM structured-output helpers.
+- `src/config/config-schema.ts`: validates structured-output strategy and schema-provider values.
+- `src/formats/structured-output-contract.ts`: consumes structured-output capabilities/types to choose runtime schema strategy.
+- `src/subagent/subagent-spawner.ts`: uses `ModelRegistry` for model selection, attaches per-subagent structured-output capabilities, and aggregates usage via `extractTokenUsage`.
+- `src/subagent/subagent-types.ts`: references `ModelTier` and `StructuredOutputModelCapabilities`.
+- `src/plugin/plugin-types.ts`: plugin context exposes typed `modelRegistry`.
+- `src/prompt/fragment-composer.ts`: uses `defaultTokenizerRegistry` for token-budget logic.
+- `src/middleware/cost-tracking.ts`: consumes `TokenUsage` type.
+- `src/persistence/run-state-store.ts` and `src/persistence/delta-run-state-store.ts`: consume `TokenUsage` for persisted run budget/usage state.
+- `src/mcp/mcp-reliability.ts`: reuses `CircuitBreaker` and circuit types.
+- `src/events/event-types-shared.ts` and `src/events/llm-audit-bridge.ts`: define and emit `LlmInvocationRecord` as `llm:invocation_recorded`.
 
-- `src/index.ts`: re-exports all LLM public APIs and types.
-- `src/facades/quick-start.ts`: `createQuickAgent(...)` instantiates `ModelRegistry`, injects provider defaults, and registers chat/codegen specs.
-- `src/config/config-loader.ts` and `src/config/config-schema.ts`: normalize and validate provider structured-output defaults using LLM capability helpers.
-- `src/formats/structured-output-contract.ts`: consumes runtime `structuredOutputCapabilities` to determine schema provider and native structured-output strategy decisions.
-- `src/subagent/subagent-spawner.ts`: attaches/reads structured-output capabilities and uses `extractTokenUsage`.
-- `src/mcp/mcp-reliability.ts`: reuses `CircuitBreaker` for MCP server reliability management.
-
-Cross-package runtime consumers:
-
-- `packages/agent/src/agent/dzip-agent.ts`: resolves tiered models through selection-time `getModelWithFallback`, applies provider success/failure feedback, and uses `getModelFallbackCandidates` only when explicit run-level failover is enabled.
-- `packages/agent/src/agent/streaming-run.ts`: records provider success/failure around `model.stream(...)` path, supports opt-in pre-yield stream-open failover, and uses token extraction fallback behavior.
-- `packages/server/src/runtime/default-run-executor.ts`: resolves fallback model, invokes through `invokeWithTimeout`, logs usage, and updates provider health.
-- `packages/server/src/routes/health.ts` and `packages/server/src/scorecard/integration-scorecard.ts`: surface `getProviderHealth()` output.
+Package export entrypoints:
+- `src/index.ts` exports the full LLM surface including harness profile registry/types
+- `src/llm.ts` exports LLM-focused facade APIs
+- `src/model.ts` exports a narrower model/invocation surface
 
 ## Testing and Observability
-Primary tests for this layer are in `packages/core/src/__tests__`:
+LLM subsystem tests in `packages/core`:
+- `src/__tests__/model-registry.test.ts`: provider ordering, tier/model resolution, structured-output capability precedence, fallback candidate behavior, and middleware registration/removal.
+- `src/__tests__/resilient-invoker.test.ts`: transient vs non-transient fallback behavior, empty-candidate handling, breaker update toggles, and fallback callback behavior.
+- `src/__tests__/invoke-with-timeout.test.ts`: timeout handling, retry behavior, and usage callback behavior.
+- `src/__tests__/extract-token-usage.test.ts`: metadata-shape extraction and estimator behavior.
+- `src/__tests__/retry.test.ts`: transient classifier and retry defaults.
+- `src/__tests__/circuit-breaker.test.ts`: state transitions and reset behavior.
+- `src/__tests__/tokenizer.test.ts`: backend fallback, message counting, and registry resolution order.
+- `src/__tests__/embedding-registry.test.ts`: registry CRUD/list/filter/default behavior.
+- `src/llm/__tests__/harness-profile.test.ts`: profile matching specificity, glob behavior, and update/remove semantics.
+- `src/__tests__/llm-audit-event.test.ts`: `LlmInvocationRecord` compatibility and event bridge safety behavior.
 
-- `model-registry.test.ts`: provider ordering, selection APIs, fallback behavior, middleware list operations, structured-output capability precedence.
-- `invoke-with-timeout.test.ts`: success, timeout, transient retry, non-transient failure, usage callback handling.
-- `extract-token-usage.test.ts`: coverage of token metadata extraction paths and precedence.
-- `retry.test.ts`: transient error classifier behavior and default retry config.
-- `circuit-breaker.test.ts`: state transitions, timeout recovery, reset behavior.
-- `embedding-registry.test.ts`: CRUD/filter/default semantics and common-model bootstrap.
-
-Observability surfaces:
-
-- `InvokeOptions.onUsage` provides usage events to caller-owned telemetry/logging.
-- `ModelRegistry.getProviderHealth()` exposes breaker state per provider.
-- `ModelRegistry.getModelWithFallback()` is selection-time fallback only; `getModelFallbackCandidates()` exposes the ordered provider chain for callers that implement an explicit run-level retry/failover policy.
-- Downstream integrations (notably server run executor) already log usage/provider data and can report degraded provider health.
+Observability hooks:
+- `InvokeOptions.onUsage` for per-call token telemetry
+- `ModelRegistry.getProviderHealth()` for provider circuit-state snapshots
+- `ResilientInvokerOptions.onFallback` for fallback-hop telemetry
+- `attachLlmAuditEventBridge` for structured `llm:invocation_recorded` event emission
 
 ## Risks and TODOs
-- `RegistryMiddleware` is defined and storable in `ModelRegistry`, but no `beforeInvoke`/`afterInvoke` execution pipeline exists in `model-registry.ts` or `invoke.ts`; currently this is a contract-only surface.
-- `InvokeOptions.trackingContext` exists but is not consumed inside `invokeWithTimeout`.
-- `invokeWithTimeout` uses timeout via `Promise.race` without abort/cancel support for the underlying provider request; slow calls may continue in the background after timeout.
-- `isTransientError` and `isContextLengthError` rely on message substring matching, which is provider/SDK wording-sensitive.
-- `getModelByName` partial-name fallback uses first `includes` match across providers, which can be ambiguous when multiple model IDs share substrings.
-- Built-in OpenAI-compatible defaults for `google` and `qwen` route through `ChatOpenAI` compatibility mode; non-compatible or provider-native features require a custom factory.
-- Embedding pricing/capacity data in `COMMON_EMBEDDING_MODELS` is static metadata and can drift from provider pricing.
+- `RegistryMiddleware` is currently a contract + storage surface; no built-in middleware execution pipeline is wired into `ModelRegistry` invocation paths.
+- `InvokeOptions.trackingContext` exists in type shape but is not consumed by `invokeWithTimeout`.
+- Timeout rejection does not cancel the underlying provider request; `Promise.race` only aborts caller wait.
+- Harness profiles are resolvable but not auto-applied by the LLM module itself.
+- Error classification (`isTransientError`, `isContextLengthError`) depends on message substrings and may miss provider-specific error formats.
+- `getModelByName` includes partial-name matching (`spec.name.includes(...)`), which can be ambiguous.
+- `google` and `qwen` paths are OpenAI-compatible adapters in default factory; native-provider SDK behavior requires a custom factory.
+- `COMMON_EMBEDDING_MODELS` is static metadata (dimensions/cost/batch) and can drift from provider changes.
+- Runtime constructors (`@langchain/anthropic`, `@langchain/openai`) are imported in source while currently declared in `devDependencies`, which is a packaging risk.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+

@@ -1,163 +1,212 @@
 # @dzupagent/express Architecture
 
 ## Scope
-`@dzupagent/express` is the Express transport layer for DzupAgent runtime surfaces. In the current codebase, this package provides two HTTP integration families:
+`@dzupagent/express` is the HTTP transport package that adapts DzupAgent runtime primitives to Express routers. The package is intentionally narrow: it does not implement agent orchestration logic, model/tool execution, or MCP protocol internals itself. Instead, it exposes router factories and helper utilities so host applications can mount:
 
-- Agent chat routing via `createAgentRouter(...)` with SSE streaming (`/chat`), sync JSON (`/chat/sync`), and health (`/health`).
-- MCP JSON-RPC routing via `createMcpRouter(...)` with optional helper discovery endpoints (`/mcp/tools`, `/mcp/resources`, `/mcp/resource-templates`) plus request-context auth utilities.
+- Agent chat endpoints (`/chat`, `/chat/sync`, `/health`) around `DzupAgent` instances.
+- MCP JSON-RPC and helper listing endpoints (`/mcp`, `/mcp/tools`, `/mcp/resources`, `/mcp/resource-templates`) around an MCP-compatible server.
+- Request-scoped MCP authentication/context extraction.
+- SSE stream formatting/writing and optional projection views.
 
-The package does not own agent planning/execution internals, MCP protocol core types, or application-level auth policy. It adapts Express request/response primitives to interfaces from `@dzupagent/agent` and `@dzupagent/core`.
+Public entrypoint is `src/index.ts`, built to ESM in `dist/`.
 
 ## Responsibilities
-- Register Express routes that validate request shape, resolve an agent/server target, and map results to HTTP responses.
-- Bridge `AsyncGenerator<AgentStreamEvent>` streams to Server-Sent Events using `SSEHandler` and `SSEWriter`.
-- Expose lifecycle hook points around agent and MCP request handling (`before*`, `after*`, `onError`).
-- Provide request-context auth helpers for MCP routes (`createMcpRequestContextAuth`, context getters/setters, credential extraction).
-- Keep transport concerns minimal and reusable, leaving domain behavior to consuming apps and core runtime packages.
+This package currently owns the following responsibilities:
+
+- Express router composition for chat and MCP routes.
+- Input hardening for chat routes: JSON parsing, body-size enforcement, Zod validation, agent allowlisting, and per-IP rate limiting.
+- Streaming response bridge from `DzupAgent.stream(...)` events to SSE frames.
+- Non-streaming response bridge from `DzupAgent.generate(...)` to JSON payloads.
+- Sanitized error envelopes for chat routes (`INTERNAL_ERROR`) and JSON-RPC envelopes for MCP routes.
+- Optional route lifecycle hooks (`before*`, `after*`, `onError`) used by host apps for audit/logging/metrics.
+- MCP credential extraction and request-context assignment helpers.
+- Additive SSE event projection helpers (`coordinator`, `subagent`, `tools`, `raw`) layered on top of the raw stream.
+
+Out of scope in current code:
+
+- Express app creation and global middleware policy (hosts provide their own app and can mount auth before or via router config).
+- Persistent storage, tenant data model, run state storage, or telemetry sinks.
+- MCP business logic/tool implementations (provided by `@dzupagent/core` server/handlers or caller-provided handlers).
 
 ## Structure
-Current package layout:
+Source layout:
 
-- `src/index.ts`: public barrel exports.
-- `src/agent-router.ts`: `createAgentRouter`, async route wrapper, agent resolution.
-- `src/sse-handler.ts`: `SSEWriter` low-level stream writer and `SSEHandler` high-level stream bridge.
-- `src/mcp-router.ts`: `createMcpRouter` JSON-RPC endpoint + optional listing endpoints.
-- `src/mcp-context.ts`: MCP credential extraction, request-context storage, and auth middleware factory.
-- `src/types.ts`: exported TypeScript contracts for all router, SSE, and MCP surfaces.
-- `src/__tests__/*.test.ts`: route/unit/integration coverage, including SSE edge cases and MCP flows.
-- `README.md`: usage overview (currently emphasizes agent routing; MCP additions are newer than README narrative).
-- `package.json`, `tsup.config.ts`, `tsconfig.json`: packaging/build/typecheck setup.
+- `src/index.ts`: package export surface.
+- `src/types.ts`: all exported config and contract types for routers, SSE, and MCP auth context.
+- `src/agent-router.ts`: `createAgentRouter(...)` plus request parsing/validation/rate-limit/body-parser/error-handler helpers.
+- `src/sse-handler.ts`: `SSEWriter` and `SSEHandler` classes for SSE framing, keepalive, disconnect handling, and stream consumption.
+- `src/sse-projections.ts`: optional projection router (`SSEProjectionRouter`) and namespace/type definitions.
+- `src/mcp-context.ts`: credential extraction and request context helpers/middleware factory.
+- `src/mcp-router.ts`: `createMcpRouter(...)` and request-scoped server resolution for MCP JSON-RPC transport.
+- `src/__tests__/*.test.ts`: unit/integration coverage for routers, SSE behavior, backpressure edge cases, projections, and MCP context.
+
+Build/test packaging:
+
+- `tsup.config.ts`: ESM build from `src/index.ts`, declaration output enabled.
+- `vitest.config.ts`: Node test environment with local aliasing to `../core/src/*` for monorepo-local validation.
+- `package.json`: single export (`.`), `express` as peer dependency, runtime deps on `@dzupagent/agent`, `@dzupagent/core`, `express-rate-limit`, and `zod`.
 
 ## Runtime and Control Flow
-### Agent streaming flow (`POST {basePath}/chat`)
-1. Route validates `body.message` as non-empty string; invalid input returns `400`.
-2. Router resolves target agent by `agentName`; if missing/unknown it falls back to first configured agent; empty agent map returns `503`.
-3. Optional `hooks.beforeAgent(req, agentName)` runs.
-4. Message is wrapped as `HumanMessage` and passed to `agent.stream(...)` with `AbortController.signal`.
-5. `SSEHandler.streamAgent(...)`:
-- Initializes SSE response headers (`text/event-stream`, keep-alive headers).
-- Iterates agent stream and maps event types (`text`, `tool_call`, `tool_result`, `error`, `budget_warning`, `stuck`, `done`) into SSE frames.
-- Tracks aggregate `content` and `toolCalls`, emits final `done` event, closes stream.
-6. Optional `hooks.afterAgent(req, agentName, result)` runs with `AgentResult`.
-7. Errors trigger `hooks.onError`; router returns JSON `500` if headers not sent, otherwise writes fallback SSE data and closes.
+### Agent router flow (`createAgentRouter`)
 
-### Agent sync flow (`POST {basePath}/chat/sync`)
-1. Same validation and agent-resolution path as streaming route.
-2. Optional `beforeAgent` hook runs.
-3. Route calls `agent.generate([HumanMessage])`.
-4. Response maps to JSON payload: `content`, token usage totals, `toolCalls`, and measured `durationMs`.
-5. Optional `afterAgent` hook runs with raw `GenerateResult`.
-6. Errors call `onError` and return JSON `500`.
+1. Router initialization creates `SSEHandler`, resolves `basePath`, and chooses a structured logger (`config.logger` or `defaultLogger`).
+2. Optional `config.auth` middleware is mounted across package routes.
+3. `POST {basePath}/chat` and `POST {basePath}/chat/sync` apply package-owned body parser and rate limiter.
+4. Body parser enforces `bodyLimit` (default `256kb`) and normalizes parser failures to JSON errors:
+   - `413 BODY_TOO_LARGE`
+   - `400 INVALID_JSON`
+5. Body is validated by `ChatRequestSchema` (Zod). Required: non-empty `message` max 32,768 chars. Unknown fields are allowed via `.passthrough()` for compatibility.
+6. `agentName` is validated against configured `agents` map; unknown names return `400 UNKNOWN_AGENT`. Empty map returns `503 NO_AGENTS`.
+7. `hooks.beforeAgent` executes before invoking the chosen agent.
+8. `/chat` path:
+   - Creates a `HumanMessage` from request message.
+   - Starts `agent.stream(...)` with `AbortController`.
+   - Aborts on client `close` event.
+   - Streams events through `SSEHandler.streamAgent(...)`.
+   - Calls `hooks.afterAgent` with `AgentResult`.
+9. `/chat/sync` path:
+   - Calls `agent.generate(...)`.
+   - Maps usage/tool stats into response `{ content, usage, toolCalls, durationMs }`.
+   - Calls `hooks.afterAgent` with raw `GenerateResult`.
+10. Route-level failures call `hooks.onError`, log server-side detail, and return sanitized `500 { error: 'Internal error', code: 'INTERNAL_ERROR' }`.
+11. `GET {basePath}/health` returns `{ status: 'ok', agents, count }`.
+12. Router-local terminal error middleware captures uncaught route errors and emits sanitized 500 response.
 
-### Agent health flow (`GET {basePath}/health`)
-- Returns `{ status: 'ok', agents: string[], count: number }` based on configured agent map.
+### SSE streaming flow (`SSEHandler` / `SSEWriter`)
 
-### MCP flow (`POST {basePath}`; default `/mcp`)
-1. `createMcpRouter` validates request body with `isMCPRequest`.
-2. Invalid body returns JSON-RPC error envelope (`400`, code `-32600`, id `null`).
-3. Router resolves server instance from static `server` or request-scoped resolver function.
-4. Optional `hooks.beforeRequest(req, request)` runs.
-5. Calls `server.handleRequest(request)`.
-6. Optional `hooks.afterRequest(req, request, response)` runs.
-7. If response is `null` (notification), returns `204`; otherwise returns JSON response envelope.
-8. Errors call `hooks.onError(req, error, requestId)` and return JSON-RPC internal error (`500`, code `-32603`).
+1. `initStream` writes SSE headers (`text/event-stream`, `no-cache`, `keep-alive`, `X-Accel-Buffering: no`) plus custom headers.
+2. `SSEWriter` starts keepalive comments (`: keepalive\n\n`) at `keepAliveMs` (default 15s).
+3. `streamAgent` consumes `AsyncGenerator<AgentStreamEvent>` and maps known event types:
+   - `text` -> `chunk`
+   - `tool_call` -> `tool_call`
+   - `tool_result` -> `tool_result`
+   - `done` -> used for fallback content capture when no text chunks accumulated
+   - `error` -> `error`
+   - `budget_warning` -> `budget_warning`
+   - `stuck` -> `stuck`
+4. Aggregates stream result stats (`content`, `toolCalls`, `durationMs`, placeholder `usage`/`cost`).
+5. On disconnect, invokes optional `onDisconnect`, attempts `agentStream.return(...)`, and suppresses `onComplete`.
+6. On stream exception, writes error event when possible, invokes optional `onError`, and returns partial `AgentResult`.
+7. On normal completion, emits `done` event, closes stream, and invokes optional `onComplete`.
 
-### MCP helper endpoints
-Controlled by `config.expose` flags (all default `true`):
-- `GET {basePath}/tools` -> `{ tools: server.listTools() }`
-- `GET {basePath}/resources` -> `{ resources: server.listResources?.() ?? [] }`
-- `GET {basePath}/resource-templates` -> `{ resourceTemplates: server.listResourceTemplates?.() ?? [] }`
+### MCP router flow (`createMcpRouter`)
 
-### MCP request-context auth flow
-`createMcpRequestContextAuth(...)` middleware:
-1. Extract credential from bearer token and/or configured header (default `x-mcp-api-key`).
-2. On missing credential: `401` unauthorized payload (or custom `onAuthFailure`).
-3. Resolve context via `resolveContext(credential, req)`.
-4. On invalid credential: same failure path.
-5. On success: store context on request symbol, optionally call custom assigner, then `next()`.
+1. Router defaults `basePath` to `/mcp`; optional exposure toggles default to enabled for tools/resources/resource-templates routes.
+2. Optional `config.auth` is applied for all MCP routes.
+3. `POST {basePath}` validates payload via `isMCPRequest` from `@dzupagent/core/pipeline`.
+4. Invalid payload returns JSON-RPC invalid request envelope (`400`, code `-32600`).
+5. Server is resolved from either fixed instance or request-scoped resolver function.
+6. Hooks execute around `handleRequest`: `beforeRequest`, `afterRequest`, `onError`.
+7. Notification-style null responses return HTTP `204`.
+8. Errors return JSON-RPC internal error envelope (`500`, code `-32603`) with extracted request id when available.
+9. Optional helper endpoints return lists from server methods:
+   - `GET {basePath}/tools`
+   - `GET {basePath}/resources`
+   - `GET {basePath}/resource-templates`
+
+### MCP request context auth flow (`createMcpRequestContextAuth`)
+
+1. Credential is extracted from bearer token (`Authorization: Bearer ...`) and/or direct header (default `x-mcp-api-key`).
+2. `resolveContext(credential, req)` returns context or null.
+3. Successful auth stores context on request via symbol key and optional custom `assign` callback.
+4. Failure path uses caller `onAuthFailure` if supplied; otherwise returns default `401` payload with timestamp and reason-specific message.
 
 ## Key APIs and Types
-Primary exports from `src/index.ts`:
+Primary exported APIs:
 
-- Agent transport:
 - `createAgentRouter(config: AgentRouterConfig): Router`
-- `SSEHandler`
-- `SSEWriter`
-- MCP transport/context:
 - `createMcpRouter(config: MCPRouterConfig): Router`
-- `createMcpRequestContextAuth(config)`
-- `extractMcpCredential(req, options?)`
+- `createMcpRequestContextAuth<TContext>(config: MCPRequestContextAuthConfig<TContext>)`
+- `extractMcpCredential(req, options)`
 - `setMcpRequestContext(req, context)`
-- `getMcpRequestContext(req)`
-- `requireMcpRequestContext(req, message?)`
+- `getMcpRequestContext<TContext>(req)`
+- `requireMcpRequestContext<TContext>(req, message?)`
+- `SSEHandler` and `SSEWriter`
+- `SSEProjectionRouter` and `withProjection(...)`
 
-Important type contracts from `src/types.ts`:
+Key contracts from `src/types.ts`:
 
-- `AgentRouterConfig`: `{ agents, auth?, sse?, hooks?, basePath? }`
-- `ChatRequestBody`: `{ message, agentName?, conversationId?, model?, configurable? }`
-- `AgentResult`: `{ content, usage?, cost?, toolCalls, durationMs }`
-- `SSEHandlerConfig`: formatter/headers/keepAlive and lifecycle callbacks (`onDisconnect`, `onComplete`, `onError`)
-- `MCPRequestHandler`: minimal handler contract (`handleRequest`, `listTools`, optional resource listing)
-- `MCPRouterConfig`: server/auth/basePath/exposure toggles + request hooks
-- `MCPRequestContextAuthConfig<TContext>`: context resolution/assignment and auth failure behavior
+- `AgentRouterConfig`: agent map, optional auth/hook/SSE/rate-limit/body-limit/logger configuration.
+- `ChatRequestBody`: message + optional routing and metadata fields.
+- `AgentResult`: normalized stream result summary used by SSE completion and hook payload.
+- `MCPRouterConfig`: server resolver, route exposure toggles, and lifecycle hooks.
+- `MCPRequestHandler`: minimal MCP server transport contract expected by router.
+- `MCPRequestContextAuthConfig<TContext>`: credential extraction policy plus context resolver/assign/failure handling.
+- `SSENamespace`, `ProjectionContext`, `SubagentLifecycleEvent`, `AgentMessageEvent`, `ToolInvocationEvent`, `ToolResultEvent`.
+
+Notable behavioral details:
+
+- Chat body validation is strict for required field semantics but permissive for additional fields (`.passthrough()`).
+- Unknown chat `agentName` fails fast with `400` rather than falling back.
+- SSE projection router is additive: raw events are always forwarded, projected events are emitted in parallel when namespace is not `raw`.
 
 ## Dependencies
-Runtime/package dependencies:
+Runtime dependencies declared in `package.json`:
 
-- Direct runtime deps:
-- `@dzupagent/agent` (agent types and runtime interaction for `/chat` routes)
-- `@dzupagent/core` (MCP request typing/validation and server compatibility)
-- Peer dependency:
-- `express >=4.22.1 <5` (host framework)
+- `@dzupagent/agent`: source of `DzupAgent`, `GenerateResult`, and stream/generate behaviors.
+- `@dzupagent/core`: logging utilities and MCP request/response types and validators.
+- `express-rate-limit`: chat route rate limiting and IPv6-safe key generation.
+- `zod`: request schema validation for chat endpoints.
 
-The Express peer lower bound is security-maintained, not only API-compatible.
-Express 5 is not part of this package's declared support range until it is
-validated explicitly.
+Peer dependency:
 
-Build/tooling:
+- `express` (`>=4.22.1 <5`), mounted by consumer app.
 
-- `tsup` for ESM build output from `src/index.ts` to `dist/`
-- TypeScript `NodeNext`, strict mode, and declaration/source map emission
-- Vitest for unit/integration tests
+Development/test dependencies:
 
-Notable imported transitive surface:
+- `@types/express`, `express`, `typescript`, `tsup`, `vitest`.
 
-- `@langchain/core/messages` (`HumanMessage`) in `agent-router.ts` to shape agent input.
+Monorepo-local integration detail:
+
+- Vitest aliases `@dzupagent/core` imports to local `../core/src/*` so package tests validate against current source, not only published build artifacts.
 
 ## Integration Points
-- Host Express app composes parser/auth middleware and mounts routers:
-- `app.use(express.json())`
-- `app.use(createAgentRouter(...))`
-- `app.use(createMcpRouter(...))`
-- Router-level `auth` in config can gate package-owned routes, but most apps still combine it with broader app middleware.
-- Hooks are the primary observability/integration seam:
-- Agent hooks: `beforeAgent`, `afterAgent`, `onError`
-- MCP hooks: `beforeRequest`, `afterRequest`, `onError`
-- Request-scoped MCP server resolution supports tenant-aware behavior (`server: (req) => MCPRequestHandler`).
-- Request-context helper functions provide a transport-safe way to attach and read auth-derived context without mutating route signatures.
+Agent HTTP integration:
+
+- Host app mounts `createAgentRouter(...)` and supplies concrete `DzupAgent` instances keyed by logical names.
+- Host can place authentication middleware globally or pass `auth` inside router config.
+- Host can inject metrics/audit logic via lifecycle hooks without forking transport code.
+
+MCP HTTP integration:
+
+- Host app mounts `createMcpRouter(...)` around `DzupAgentMCPServer` or custom request-scoped server resolver.
+- Request-scoped resolver enables tenant-specific tool/resource catalogs per request.
+- Optional MCP auth context middleware can run before MCP routes to attach validated context to request.
+
+SSE client integration:
+
+- Existing clients can consume raw event stream.
+- Advanced clients can opt into projection events for coordinator/subagent/tools views while retaining backward compatibility.
 
 ## Testing and Observability
-Current test files in `src/__tests__`:
+Test coverage in `src/__tests__` verifies:
 
-- `agent-router.test.ts`: route registration, basePath wiring, request validation, error handling, health endpoint, agent fallback behavior.
-- `express.integration.test.ts`: mounted Express integration for auth middleware, sync/chat endpoints, hooks, and SSE response envelope behavior.
-- `sse-handler.test.ts`: SSE header setup, event mapping, disconnect handling, writer semantics, custom formatter/headers.
-- `sse-backpressure.test.ts`: low-level `SSEWriter` behavior under `res.write()` backpressure signals, timer behavior, idempotency, and connection-state edge cases.
-- `mcp-context.test.ts`: credential extraction, success path context assignment, default/custom auth-failure behavior.
-- `mcp-router.test.ts`: JSON-RPC happy paths, helper endpoints, invalid payload handling, notification `204`, server-thrown errors, and request-scoped server resolution.
+- Route registration and `basePath` behavior.
+- Validation failures (`VALIDATION_ERROR`, `UNKNOWN_AGENT`, `NO_AGENTS`).
+- Body-parser guardrails (`BODY_TOO_LARGE`, `INVALID_JSON`).
+- Rate limiting (`RATE_LIMITED`).
+- Error sanitization (client sees generic internal error while logger captures detailed server-side error).
+- Health route payload correctness.
+- Express integration scenarios with auth middleware and hooks.
+- SSE protocol behavior including headers, chunk/tool/done/error events, disconnect handling, empty streams, event-id formatting, custom formatter/headers, and keepalive timing.
+- SSE writer edge cases including backpressure signal handling and idempotent close behavior.
+- SSE projection routing semantics across namespaces.
+- MCP route behavior for valid/invalid requests, notifications (`204`), helper listing routes, hook execution, error envelopes, and request-scoped server resolution.
+- MCP context auth helpers for bearer/header credential paths, default/custom failure handling, and request-context retrieval.
 
-Observability surfaces in runtime:
+Built-in observability seams:
 
-- Agent/MCP hooks for request tracing, metrics, auditing, and error capture.
-- `SSEHandlerConfig` callbacks (`onDisconnect`, `onComplete`, `onError`) for stream lifecycle instrumentation.
-- No built-in logger dependency; observability is intentionally callback-driven.
+- Structured logger injection in `createAgentRouter` (`FrameworkLogger`).
+- Hook callbacks for pre/post execution and error events in both chat and MCP routers.
+- SSE handler callbacks (`onDisconnect`, `onComplete`, `onError`) for stream lifecycle instrumentation.
 
 ## Risks and TODOs
-- README drift: `README.md` documents agent routes only and does not describe MCP router/context APIs now exported from `index.ts`.
-- `ChatRequestBody` contains `conversationId`, `model`, and `configurable`, but `createAgentRouter` currently ignores these fields when calling `agent.generate`/`agent.stream`.
-- `AgentResult` includes `usage` and `cost`, but streaming path currently never populates these values from `AgentStreamEvent` data.
-- Streaming error fallback in `createAgentRouter` writes raw `data: { error }` when headers are already sent, which differs from standard `event: error` framing used by `SSEWriter`.
-- `SSEWriter.startKeepAlive()` can be called multiple times; tests document behavior but writer does not explicitly guard against timer replacement/leak.
+- `SSEHandler.streamAgent` currently returns `usage` and `cost` as unset placeholders. If upstream stream events start carrying usage/cost data, this adapter should map and expose them consistently.
+- `SSEWriter.startKeepAlive()` does not guard against repeated starts; tests note possible duplicate intervals when called twice directly. Current call sites do not double-start, but the class API permits it.
+- `createMcpRouter` expects request body parsing to be configured by host app (for example `express.json()`). Unlike chat routes, MCP router does not mount its own parser.
+- Error envelope asymmetry is intentional but important: chat routes sanitize internal details, while MCP route 500 currently returns `error.message` from thrown exceptions in JSON-RPC response.
+- `agent-router.ts` imports `HumanMessage` from `@langchain/core/messages`; this package is not declared in `packages/express/package.json` and relies on workspace/transitive resolution. Dependency ownership should be reviewed for publish-time robustness.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+

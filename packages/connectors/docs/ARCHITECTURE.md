@@ -1,222 +1,246 @@
 # @dzupagent/connectors Architecture
 
 ## Scope
-This document covers the current implementation of `@dzupagent/connectors` in:
+This document reflects the current implementation under `packages/connectors`:
 
-- `packages/connectors/src`
-- `packages/connectors/package.json`
-- `packages/connectors/README.md`
-- `packages/connectors/scripts/esm-smoke.mjs`
-- `packages/connectors/vitest.config.ts`
+- `src/` (connector factories, SQL subsystem, resolver modules, and local type shims)
+- `package.json` (published API entrypoint, scripts, dependency shape)
+- `README.md` (consumer-facing examples and package metadata block)
+- `tsup.config.ts` (build output and externalization strategy)
+- `vitest.config.ts` and `coverage/coverage-summary.json` (test/coverage configuration and latest local summary artifact)
+- `scripts/esm-smoke.mjs` (post-build ESM runtime smoke check)
 
-It describes what is implemented in code today, including public exports from `src/index.ts`, internal modules under `src/`, SQL dialect adapters, and test/packaging behavior.
+It describes the package as implemented, not planned.
 
 ## Responsibilities
-`@dzupagent/connectors` provides integration-facing tool surfaces for DzupAgent by converting external capabilities into LangChain `DynamicStructuredTool` instances.
+`@dzupagent/connectors` is a connector/tooling package that turns integration capabilities into LangChain `DynamicStructuredTool` arrays and companion toolkit objects.
 
-Primary responsibilities:
+Current responsibilities:
 
-- Provide prebuilt connector factories for GitHub, HTTP, Slack, and PostgreSQL-oriented database operations.
-- Provide a unified SQL subsystem (`src/sql/*`) for multi-dialect query execution, schema discovery, and DDL generation.
-- Provide connector contract normalization utilities (`normalizeConnectorTool(s)`) on top of `@dzupagent/core` base connector types.
-- Provide toolkit wrappers (`create*ConnectorToolkit`) that package connector tools with connector metadata.
-- Provide async resolver implementations for Stage 3 semantic resolution (`MCPAsyncToolResolver`, `AgentRegistryAsyncToolResolver`) in package source.
-
-## Structure
-Top-level source layout:
-
-- `src/index.ts`: public package barrel exports.
-- `src/connector-types.ts`: legacy connector interfaces and `filterTools` helper.
-- `src/connector-contract.ts`: `ConnectorToolkit`, `ConnectorFactory`, `ConnectorToolLike`, normalization helpers.
-- `src/github/*`: GitHub REST client and connector toolkit/factory.
-- `src/http/*`: generic HTTP connector.
-- `src/slack/*`: Slack connector.
-- `src/database/*`: PostgreSQL-focused connector + operations API.
-- `src/sql/*`: unified SQL types, base class, tools, factory, DDL, adapters.
-- `src/mcp-tool-resolver.ts`: async MCP-backed tool resolver.
-- `src/agent-registry-resolver.ts`: async HTTP-backed agent resolver with TTL cache.
-
-Public exports from `src/index.ts` include:
-
-- Connector/toolkit contracts and normalization helpers.
-- GitHub, HTTP, Slack, Database connectors and related types.
-- Unified SQL APIs: `createSQLConnector`, `createSQLTools`, `BaseSQLConnector`, `generateDDL`, all 8 adapters, and SQL types.
-- `dzupagent_CONNECTORS_VERSION` constant (currently `'0.2.0'`).
-
-`src/index.ts` currently does not export:
-
+- Provide service connectors:
+- GitHub (`createGitHubConnector`, 22 tools)
+- HTTP (`createHTTPConnector`, 1 tool)
+- Slack (`createSlackConnector`, 3 tools)
+- PostgreSQL-oriented database tools (`createDatabaseConnector`, 3 tools)
+- Provide a unified SQL subsystem (`src/sql/*`) for:
+- connector instantiation across 8 dialects
+- query execution and schema discovery through a shared `SQLConnector` interface
+- dialect-aware DDL generation
+- LangChain tool wrappers (`createSQLTools`, 6 tools)
+- Provide connector contract normalization helpers on top of `@dzupagent/core/tools`:
+- `isConnectorTool`
+- `normalizeConnectorTool`
+- `normalizeConnectorTools`
+- Provide toolkit wrappers that return `{ name, tools, enabledTools? }`.
+- Include asynchronous resolver implementations in source for Stage 3 flow-ast resolution:
 - `MCPAsyncToolResolver`
 - `AgentRegistryAsyncToolResolver`
 
+## Structure
+Package layout:
+
+- `src/index.ts`
+- public package barrel
+- exports connector factories, SQL surface, contract helpers, and version constant
+- does not export resolver classes
+- `src/connector-types.ts`
+- `ConnectorConfig`, `Connector`, and `filterTools`
+- `src/connector-contract.ts`
+- `ConnectorToolkit`, `ConnectorFactory`, tool alias types, normalization bridge to `@dzupagent/core/tools`
+- `src/github/`
+- `github-client.ts`: typed GitHub REST wrapper with outbound URL policy support
+- `github-connector.ts`: 22 `DynamicStructuredTool` definitions
+- `src/http/`
+- `http-connector.ts`: single generic `http_request` tool with base-origin and allowlist controls
+- `src/slack/`
+- `slack-connector.ts`: Slack API tool trio
+- `src/database/`
+- `db-connector.ts`: PostgreSQL-focused operations layer + tool wrappers
+- `src/sql/`
+- `types.ts`: dialect and schema/query type contracts
+- `base-sql-connector.ts`: shared discovery orchestration
+- `factory.ts`: dialect-to-adapter mapping
+- `sql-tools.ts`: LangChain tool wrappers and SQL read-only guard
+- `ddl-generator.ts`: dialect-specific DDL generation
+- `adapters/`: `PostgreSQLConnector`, `MySQLConnector`, `ClickHouseConnector`, `SnowflakeConnector`, `BigQueryConnector`, `SQLiteConnector`, `SQLServerConnector`, `DuckDBConnector`
+- `src/mcp-tool-resolver.ts`
+- async MCP-backed resolver with TTL-based catalogue refresh
+- `src/agent-registry-resolver.ts`
+- async HTTP registry-backed resolver with TTL cache and point lookups
+- `src/types/*.d.ts` and `src/pg.d.ts`
+- minimal ambient declarations for driver typing compatibility
+
 ## Runtime and Control Flow
-### 1) Connector creation flow
-1. Consumer calls `createGitHubConnector`, `createHTTPConnector`, `createSlackConnector`, `createDatabaseConnector`, or `createSQLTools`.
-2. Factory creates one or more `DynamicStructuredTool` instances with `zod` schemas.
-3. Optional `enabledTools` filtering is applied via `filterTools`.
-4. Agent/runtime invokes tool `func`; tool delegates to external API/DB SDK and returns string/JSON-string results.
-
-### 2) Toolkit flow
-1. Consumer calls `create*ConnectorToolkit` variant.
-2. Toolkit object returns `{ name, tools, enabledTools? }`.
-3. Consumer can combine multiple toolkit outputs into final agent tool set.
-
-### 3) GitHub connector flow
-1. `createGitHubConnector` constructs `GitHubClient`.
-2. `GitHubClient` executes REST calls with token auth (`Authorization`, `Accept`, `X-GitHub-Api-Version`).
-3. Connector methods wrap client calls in `safe(...)`; `GitHubApiError` is converted to user-facing error strings.
-4. Tool set currently includes 22 operations:
-   - `github_get_file`, `github_list_issues`, `github_get_issue`, `github_create_issue`, `github_update_issue`, `github_add_comment`
-   - `github_list_prs`, `github_get_pr`, `github_create_pr`, `github_merge_pr`, `github_list_pr_reviews`, `github_create_pr_review`, `github_get_pr_checks`
-   - `github_get_repo`, `github_list_branches`, `github_get_commit`, `github_compare_commits`
-   - `github_add_labels`, `github_remove_label`, `github_create_review_comment`, `github_get_workflow_runs`, `github_search_code`
-
-### 4) HTTP connector flow
-1. `http_request` builds `new URL(path, baseUrl)`.
-2. Origin lock rejects requests escaping configured base origin.
-3. Allowed method set is enforced.
-4. `AbortController` timeout is applied (default `30_000ms`).
-5. Output is returned as text status + truncated body (max 5000 chars).
-
-### 5) Slack connector flow
-1. Tools call Slack Web API endpoints via `fetch` to `https://slack.com/api/*`.
-2. Bearer token auth and JSON payload are used.
-3. Tool outputs are formatted as success/error strings.
-4. Exposed tools: `slack_send_message`, `slack_list_channels`, `slack_search_messages`.
-
-### 6) PostgreSQL-oriented database connector flow (`src/database`)
-1. Connector lazily creates operations on first call.
-2. If `config.query` is supplied, custom executor is used; otherwise `pg` pool is created lazily via dynamic import.
-3. `createDatabaseOperations` enforces optional read-only mode via leading-keyword guard and wraps SELECT-like statements with limit if no `LIMIT` exists.
-4. Exposed tools:
-   - `db-query`
-   - `db-list-tables`
-   - `db-describe-table`
-5. Programmatic API `createDatabaseOperations` also exposes `query`, `listTables`, `describeTable`, `getTableInfo`, `healthCheck`, `close`.
-
-### 7) Unified SQL subsystem flow (`src/sql`)
-1. `createSQLConnector(databaseType, config)` instantiates one of 8 adapters:
-   - `PostgreSQLConnector`, `MySQLConnector`, `ClickHouseConnector`, `SnowflakeConnector`, `BigQueryConnector`, `SQLiteConnector`, `SQLServerConnector`, `DuckDBConnector`.
-2. All adapters implement `SQLConnector` via `BaseSQLConnector`.
-3. Shared base discovery flow:
-   - discover table list
-   - apply include/exclude filters
-   - enrich each table with columns, foreign keys, row count estimate, sample values
-4. `createSQLTools` wraps a `SQLConnector` into 6 tools:
-   - `sql-query` (AST-based read-only check via `node-sql-parser`)
-   - `sql-list-tables`
-   - `sql-describe-table`
-   - `sql-discover-schema`
-   - `sql-generate-ddl`
-   - `sql-test-connection`
-5. DDL generation routes by dialect with specific quoting/PK/FK behavior in `ddl-generator.ts`.
-
-### 8) Async resolver control flow
-`MCPAsyncToolResolver`:
-
-1. Caches tool refs from `MCPClient.getEagerTools()` and `getDeferredToolNames()`.
-2. Refreshes cache on TTL expiry (default `60_000ms`) or explicit `refreshCatalogue()`.
-3. `resolve(ref)` parses `server/tool` refs, resolves via `findTool`, and invokes via `client.invokeTool`.
-4. Returns `null` for unknown refs and throws for infra failures.
-
-`AgentRegistryAsyncToolResolver`:
-
-1. Loads and caches remote agent catalogue from HTTP endpoint (`/agents`) with TTL.
-2. Falls back to point lookup (`/agents/{id}`) when cache misses.
-3. Builds `AgentHandle` invoking `/agents/{id}/invoke`.
-4. Preserves contract: unknown refs map to `null`; infra failures throw.
+1. Connector/toolkit creation:
+- Consumer calls a `create*Connector` function to get `DynamicStructuredTool[]`, or a `create*Toolkit` function to get `{ name, tools, enabledTools? }`.
+- `filterTools` applies optional allowlists by tool name.
+2. GitHub connector:
+- `createGitHubConnector` builds `GitHubClient` with token, optional base URL, and optional outbound URL policy.
+- `GitHubClient.request` uses `fetchWithOutboundUrlPolicy`.
+- Tool functions wrap calls with `safe(...)` and return either formatted success payloads or user-readable error text.
+3. HTTP connector:
+- Validates `baseUrl` protocol/host.
+- Builds a policy + custom fetch that enforces base origin with optional explicit host allowlist.
+- `http_request` supports `GET|POST|PUT|PATCH|DELETE`, request timeout, and response truncation to 5000 chars.
+4. Slack connector:
+- Calls `https://slack.com/api/*` via `fetchWithOutboundUrlPolicy`.
+- Exposes `slack_send_message`, `slack_list_channels`, `slack_search_messages`.
+5. Database connector (`src/database/db-connector.ts`):
+- Lazily initializes operations.
+- Uses custom `query` executor when provided; otherwise lazily imports `pg` and creates a pool.
+- Read-only behavior is regex-based (`WRITE_KEYWORDS`) and SELECT-like queries without `LIMIT` are wrapped to enforce max rows.
+- Exposes tools: `db-query`, `db-list-tables`, `db-describe-table`.
+- Programmatic operations surface: `query`, `listTables`, `describeTable`, `getTableInfo`, `healthCheck`, `close`.
+6. Unified SQL subsystem:
+- `createSQLConnector(databaseType, config)` instantiates one dialect adapter.
+- Each adapter implements `SQLConnector` (query/test/schema/destroy) and extends `BaseSQLConnector`.
+- `BaseSQLConnector.discoverSchema` orchestrates table discovery, include/exclude filtering, per-table enrichment (columns, FKs, row estimate, sample values), and timestamps.
+- `createSQLTools` wraps a `SQLConnector` into:
+- `sql-query`
+- `sql-list-tables`
+- `sql-describe-table`
+- `sql-discover-schema`
+- `sql-generate-ddl`
+- `sql-test-connection`
+- `sql-query` enforces read-only by parsing SQL AST with `node-sql-parser` and requiring `select` statements.
+7. Resolver modules in source:
+- `MCPAsyncToolResolver` caches `server/tool` refs from `MCPClient`, refreshes by TTL, returns `null` for unknown refs, and throws infra errors.
+- `AgentRegistryAsyncToolResolver` fetches `/agents`, caches refs/descriptors, falls back to `/agents/{id}`, and creates `AgentHandle` that invokes `/agents/{id}/invoke`.
+8. Build/runtime packaging:
+- `tsup` emits ESM (`dist/index.js`, d.ts, sourcemaps), target `node20`.
+- DB drivers and internal packages are externalized in bundle config.
+- `scripts/esm-smoke.mjs` validates dist export presence and basic connector construction paths (`mysql`, `postgresql`, `clickhouse`).
 
 ## Key APIs and Types
-Core package-level exports:
+Public root exports (via `src/index.ts`):
 
-- `filterTools(tools, enabledTools?)`
-- `isConnectorTool`, `normalizeConnectorTool`, `normalizeConnectorTools`
-- `createGitHubConnector`, `createGitHubConnectorToolkit`, `GitHubClient`, `GitHubApiError`
+- Connector contracts and helpers:
+- `filterTools`
+- `isConnectorTool`
+- `normalizeConnectorTool`
+- `normalizeConnectorTools`
+- types: `Connector`, `ConnectorConfig`, `ConnectorToolkit`, `ConnectorFactory`, `ConnectorTool`, `ConnectorToolLike`
+- GitHub:
+- `createGitHubConnector`, `createGitHubConnectorToolkit`
+- `GitHubClient`, `GitHubApiError`
+- GitHub request/response/config types
+- HTTP:
 - `createHTTPConnector`, `createHttpConnectorToolkit`
+- `HTTPConnectorConfig`
+- Slack:
 - `createSlackConnector`, `createSlackConnectorToolkit`
+- `SlackConnectorConfig`
+- Database:
 - `createDatabaseConnector`, `createDatabaseOperations`, `createDatabaseConnectorToolkit`
+- `DatabaseConnectorConfig`, `DatabaseOperations`, `QueryResult`, `TableInfo`, `ColumnInfo`
+- SQL:
 - `createSQLConnector`, `createSQLTools`, `BaseSQLConnector`, `generateDDL`
-- SQL adapter classes for all supported dialects
+- adapter classes for all 8 dialects
+- core SQL types (`SQLDialect`, `DatabaseType`, `SQLConnectionConfig`, `QueryExecutionOptions`, `QueryResultData`, `ConnectionTestResult`, `DatabaseSchema`, `TableSchema`, `SchemaDiscoveryOptions`, `SQLConnector`, `SQLToolsConfig`)
+- Version:
+- `dzupagent_CONNECTORS_VERSION = '0.2.0'`
 
-Important types:
-
-- `ConnectorToolkit`, `ConnectorFactory`, `ConnectorToolLike`
-- `DatabaseConnectorConfig`, `DatabaseOperations`, `QueryResult` (database path)
-- `SQLDialect`, `DatabaseType`, `SQLConnectionConfig`, `QueryExecutionOptions`, `QueryResultData`, `DatabaseSchema`, `TableSchema`, `SchemaDiscoveryOptions`, `SQLConnector`
-
-Internal-only (present in source, not exported in package root barrel):
+Implemented but not exported from root barrel:
 
 - `MCPAsyncToolResolver`
 - `AgentRegistryAsyncToolResolver`
 
 ## Dependencies
-Direct runtime dependencies in `package.json`:
+Runtime dependencies (declared in `package.json`):
 
+- Internal:
 - `@dzupagent/core`
+- `@dzupagent/flow-ast`
+- SQL parser:
 - `node-sql-parser`
-- SQL/DB drivers: `pg`, `mysql2`, `@clickhouse/client`, `snowflake-sdk`, `@google-cloud/bigquery`, `better-sqlite3`, `mssql`, `duckdb`
+- Database drivers:
+- `pg`
+- `mysql2`
+- `@clickhouse/client`
+- `snowflake-sdk`
+- `@google-cloud/bigquery`
+- `better-sqlite3`
+- `mssql`
+- `duckdb`
 
 Peer dependencies:
 
-- `@langchain/core` (tool interfaces)
+- `@langchain/core` (tool types/runtime interfaces)
 - `zod` (schemas)
 
-Build/runtime packaging behavior:
+Build details:
 
-- ESM output via `tsup` (`target: node20`).
-- Heavy DB drivers are marked external to avoid CJS-in-ESM runtime failures.
-- `scripts/esm-smoke.mjs` validates dist imports and key connector construction paths (mysql/postgresql/clickhouse).
+- ESM-only package output (`type: module`, `exports["."].import = ./dist/index.js`)
+- `tsup` external list keeps heavy/cjs-sensitive drivers unbundled
+- `build:verified` script runs `yarn build && yarn test:esm-smoke`
 
 ## Integration Points
-Internal package integrations:
+Internal integration points:
 
-- `@dzupagent/core`: base connector tool normalization and MCP types.
-- `@dzupagent/flow-ast`: `AsyncToolResolver` / `ResolvedTool` contracts for resolver classes.
+- `@dzupagent/core/tools` for canonical connector-tool normalization contracts
+- `@dzupagent/core/security` for outbound URL policy-aware fetch behavior
+- `@dzupagent/core/pipeline` for MCP and agent handle types used by resolver modules
+- `@dzupagent/flow-ast` for `AsyncToolResolver` / `ResolvedTool` interfaces
 
-External system integrations:
+External integration points:
 
-- GitHub REST API (`https://api.github.com` by default; configurable base URL).
-- Slack Web API (`https://slack.com/api`).
-- Arbitrary HTTP APIs constrained by connector base origin.
-- Databases via adapter-specific drivers:
-  - PostgreSQL (`pg`)
-  - MySQL (`mysql2/promise`)
-  - ClickHouse (`@clickhouse/client`)
-  - Snowflake (`snowflake-sdk`)
-  - BigQuery (`@google-cloud/bigquery`)
-  - SQLite (`better-sqlite3`)
-  - SQL Server (`mssql`)
-  - DuckDB (`duckdb`)
+- GitHub REST API (`https://api.github.com` default; configurable base URL)
+- Slack Web API (`https://slack.com/api`)
+- Generic HTTP endpoints behind connector base URL policy
+- Dialect driver integrations:
+- PostgreSQL (`pg`)
+- MySQL (`mysql2/promise`)
+- ClickHouse (`@clickhouse/client`)
+- Snowflake (`snowflake-sdk`)
+- BigQuery (`@google-cloud/bigquery`)
+- SQLite (`better-sqlite3`)
+- SQL Server (`mssql`)
+- DuckDB (`duckdb`)
+- Remote Agent Registry API (`/agents`, `/agents/{id}`, `/agents/{id}/invoke`) for async registry resolution
 
 ## Testing and Observability
-Test surface (Vitest):
+Test setup:
 
-- Connector and contract tests under `src/__tests__`.
-- SQL subsystem tests under `src/sql/__tests__`.
-- Resolver tests for MCP and Agent Registry async resolvers.
-- Extended/branch-focused suites for GitHub, HTTP, Slack, SQL tools, and DB connector behavior.
+- Runner: Vitest (`environment: node`, `testTimeout: 30_000`)
+- Include: `src/**/*.test.ts`, `src/**/*.spec.ts`
+- Coverage provider: `v8`
+- Coverage thresholds configured at:
+- statements: 40
+- branches: 30
+- functions: 30
+- lines: 40
 
-Current test config (`vitest.config.ts`):
+Current test surface in source:
 
-- Node environment, timeout `30_000ms`.
-- Coverage provider `v8` with low thresholds:
-  - statements `40`
-  - branches `30`
-  - functions `30`
-  - lines `40`
+- Connector behavior and contracts (`src/__tests__/connectors*.test.ts`, `connector-contract*.test.ts`, `connector-toolkit.test.ts`)
+- GitHub/HTTP/Slack/database tool behavior and error branches
+- SQL subsystem tests (`src/sql/__tests__/*`) covering adapters, factory, lazy loading, DDL generation, and tool wrappers
+- Resolver tests:
+- `src/__tests__/mcp-tool-resolver.test.ts`
+- `src/__tests__/agent-registry-resolver.test.ts`
 
-Observability in implementation:
+Latest local coverage summary file (`coverage/coverage-summary.json`) reports high achieved coverage (about 99% lines/statements, about 97% branches), while configured thresholds remain intentionally low.
 
-- No centralized telemetry/metrics integration in this package.
-- Most connector failures are returned as user-facing error strings (or JSON-string error objects in SQL tools).
-- SQL tool/query results include truncation and row metadata where applicable.
+Observability characteristics:
+
+- No package-level telemetry, tracing, or metrics emitters.
+- Tool outputs are primarily plain strings or JSON strings, including error reporting.
+- Resolver modules surface infra errors via thrown exceptions and unknown refs via `null` as contract behavior.
 
 ## Risks and TODOs
-- Version constant is aligned: `src/index.ts` exports `dzupagent_CONNECTORS_VERSION = '0.2.0'`, matching package version `0.2.0`.
-- Export-surface ambiguity: resolver modules are implemented and tested but not exported via package root barrel.
-- Read-only policy inconsistency across DB paths: enforcement differs between `src/database` and SQL adapters/tools.
-- Mixed output contracts: connector tools return a mix of plain text and JSON strings, complicating uniform downstream parsing.
-- Driver packaging trade-off: many heavy DB drivers are direct dependencies even though several adapter loaders treat them as optional/lazy.
-- README drift: generated package stats and some examples do not fully reflect current source surface.
+- Resolver export gap:
+- `MCPAsyncToolResolver` and `AgentRegistryAsyncToolResolver` are implemented and tested but not exported from `src/index.ts`.
+- Dual database surfaces:
+- `src/database/*` and `src/sql/*` overlap functionally and enforce safety differently.
+- Read-only enforcement variance:
+- SQL tools use AST-based `select` gating; database connector uses leading-keyword regex; adapter-level write protection differs by dialect.
+- Output contract inconsistency:
+- return values mix plain text and JSON strings across connectors, which complicates strict downstream parsing.
+- Dependency weight:
+- many heavy drivers are installed as direct dependencies even though adapters use lazy loading/optional runtime guards.
+- Documentation drift risk:
+- `README.md` generated metrics/examples can diverge from current implementation shape.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+

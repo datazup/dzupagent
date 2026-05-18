@@ -1,224 +1,405 @@
-# Orchestration Architecture (`@dzupagent/agent`)
+# Orchestration Architecture
 
 ## Scope
-This document describes the orchestration subsystem under `packages/agent/src/orchestration` in `@dzupagent/agent`.
+This document describes the current orchestration subsystem in `packages/agent/src/orchestration` within `@dzupagent/agent`.
 
-Included modules:
-- Core orchestration entrypoints: `orchestrator.ts`, `map-reduce.ts`, `merge-strategies.ts`, `orchestration-error.ts`, `index.ts`
-- Delegation and planning: `delegation.ts`, `delegating-supervisor.ts`, `planning-agent.ts`
-- Contract-net: `contract-net/*`
-- Routing and merge policy layers: `routing/*`, `routing-policy-types.ts`, `merge/*`, `orchestration-merge-strategy-types.ts`
-- Topology analysis/execution: `topology/*`
-- Provider-adapter boundary: `provider-adapter/*`
-- Team runtime: `team/*`
-- Telemetry helpers and circuit breaker bridge: `orchestration-telemetry.ts`, `circuit-breaker.ts`
+Included code surface:
+- Public orchestration entry points:
+  - `src/orchestration/index.ts`
+  - `src/orchestration.ts` (package subpath export)
+  - `src/index.ts` (root re-exports)
+- Core orchestration runtime:
+  - `orchestrator.ts`
+  - `supervisor-runner.ts`
+  - `concurrency-runner.ts`
+  - `orchestration-error.ts`
+  - `orchestration-telemetry.ts`
+  - `circuit-breaker.ts` and `circuit-breaker-recorder.ts`
+  - `parallel-orchestration-results.ts`
+- Delegation and planning:
+  - `delegation.ts`
+  - `delegating-supervisor.ts`
+  - `delegating-supervisor-types.ts`
+  - `parallel-delegation-aggregator.ts`
+  - `assignment-validator.ts`
+  - `specialist-selection.ts`
+  - `planning-agent.ts`, `planning-decomposition.ts`, `planning-graph.ts`, `planning-executor.ts`, `planning-types.ts`
+- Pattern modules:
+  - `map-reduce.ts`
+  - `merge-strategies.ts`
+  - `merge/*`
+  - `contract-net/*`
+  - `routing/*` and `routing-policy-types.ts`
+  - `topology/*`
+  - `team/*` and `team/patterns/*`
+- Compatibility/type shims:
+  - `provider-adapter/provider-execution-port.ts`
+  - `provider-adapter/index.ts`
+- Test and benchmark coverage under:
+  - `src/orchestration/__tests__/*`
+  - `src/orchestration/topology/__tests__/*`
+  - `src/orchestration/team/__tests__/*`
+  - `src/orchestration/team/patterns/__tests__/*`
+  - `src/orchestration/team/__benches__/team-runtime.bench.ts`
 
 Out of scope:
-- Generic agent loop internals (`src/agent/*`)
-- Workflow and pipeline runtimes outside orchestration folder
-- App-specific orchestration UI/state in downstream applications
+- Agent core loop internals under `src/agent/*` except integration points consumed by orchestration.
+- Workflow builder internals under `src/workflow/*`.
+- App-level orchestration behavior outside this package.
 
 ## Responsibilities
-The orchestration layer provides reusable multi-agent coordination primitives on top of `DzupAgent` and core runtime contracts.
+The orchestration package provides reusable coordination primitives around `DzupAgent` instances.
 
-Primary responsibilities:
-- Execute common multi-agent patterns:
-  - sequential (`AgentOrchestrator.sequential`)
-  - parallel (`AgentOrchestrator.parallel`)
-  - supervisor (`AgentOrchestrator.supervisor`)
-  - debate (`AgentOrchestrator.debate`)
-  - contract-net (`AgentOrchestrator.contractNet` / `ContractNetManager`)
-- Support map-reduce style fan-out/fan-in with bounded concurrency and merge strategies.
-- Provide typed delegation protocol (`DelegationRequest`/`DelegationResult`) with run tracking and lifecycle events.
-- Plan and execute DAG-shaped work decomposition (`PlanningAgent`) with dependency validation and level-by-level execution.
-- Route tasks to specialists through pluggable routing policies.
-- Merge partial outcomes through pluggable merge strategies for timeout/error-tolerant orchestration.
-- Recommend and execute topologies (`hierarchical`, `pipeline`, `star`, `mesh`, `ring`).
-- Provide a dependency-inverted provider execution port for adapter-based execution paths.
-- Provide a declarative `TeamRuntime` for pattern-based team execution plus phase/event tracing and supervision policy.
+Current responsibilities:
+- Multi-agent orchestration façade via `AgentOrchestrator`:
+  - `sequential`
+  - `parallel` (with optional max concurrency, circuit breaker filtering, and typed merge strategy)
+  - `supervisor` (agent mode and provider-adapter mode)
+  - `debate`
+  - `contractNet`
+- Supervisor execution runtime:
+  - Specialist tool injection via `asTool()`.
+  - Optional routing-policy filtering and circuit-breaker filtering.
+  - Optional specialist health checks.
+  - Manager-with-tools caching keyed by manager instance + specialist set.
+- Delegation protocol and tracking:
+  - Typed request/result contracts.
+  - RunStore-backed lifecycle tracking with timeout/cancel handling.
+  - Parallel delegation aggregation and optional merge-strategy hooks.
+  - Duplicate-specialist assignment guard for stable assignment IDs.
+- Planning decomposition and execution:
+  - LLM-driven decomposition into a DAG (`generateStructured` + Zod schema).
+  - Deterministic refinement for unknown specialists / dangling dependencies.
+  - Level-by-level execution with bounded parallelism and dependency skip propagation.
+- Alternative coordination patterns:
+  - Contract-net bidding and award flow.
+  - Topology recommendation/execution (`hierarchical`, `pipeline`, `star`, `mesh`, `ring`) with optional auto-switch retry.
+  - Team runtime with pattern registry (`supervisor`, `contract_net`, `blackboard`, `peer_to_peer`, `council`), lifecycle phases, policy validation, breaker supervision, event hooks, and resume flow.
+- Merge and routing utilities:
+  - String merge helpers (`concat`, `vote`, `numbered`, `json`).
+  - Typed orchestration merge strategies (`all-required`, `use-partial`, `first-wins`).
+  - Routing policies (`rule-based`, `hash`, `llm`, `round-robin`).
+- Compatibility exports:
+  - Legacy circuit breaker path (re-export from `@dzupagent/core/llm`).
+  - Legacy provider adapter path (type re-export from `@dzupagent/adapter-types`).
 
 ## Structure
-Top-level orchestration layout:
-- `index.ts`: barrel exports for the public orchestration surface (routing/merge strategy types and classes, contract-net, map-reduce, orchestrator, telemetry, circuit-breaker bridge).
-- `orchestration-error.ts`: shared `OrchestrationError` tagged by `OrchestrationPattern`.
-- `orchestrator.ts`: static high-level orchestration methods.
-- `map-reduce.ts`: chunk/task fan-out with `Semaphore` from `@dzupagent/core/orchestration`.
-- `merge-strategies.ts`: string merge helpers (`concat`, `vote`, `numbered`, `json`).
-- `delegation.ts`: `SimpleDelegationTracker` backed by `RunStore` and optional `DzupEventBus`.
-- `delegating-supervisor.ts`: specialist registry + delegation execution, optional routing/merge/circuit-breaker/provider-port integration.
-- `planning-agent.ts`: DAG utilities (`buildExecutionLevels`, `validatePlanStructure`) plus LLM decomposition via structured output.
+Top-level layout in `src/orchestration`:
 
-Subdirectories:
-- `contract-net/`: CFP/bidding lifecycle manager, bid strategy implementations, protocol types.
-- `routing/`: `RuleBasedRouting`, `HashRouting`, `RoundRobinRouting`, `LLMRouting`.
-- `merge/`: `AllRequiredMergeStrategy`, `UsePartialMergeStrategy`, `FirstWinsMergeStrategy`.
-- `topology/`: analyzer and executor for topology-based coordination.
-- `provider-adapter/`: `ProviderExecutionPort` and result contract.
-- `team/`: declarative team definitions/policies/phases/checkpoints plus `TeamRuntime`.
+- Core façade and shared primitives:
+  - `orchestrator.ts`: static façade for main patterns.
+  - `supervisor-types.ts`: config/result contracts for supervisor mode.
+  - `supervisor-runner.ts`: concrete supervisor execution path.
+  - `orchestration-error.ts`: typed orchestration error class and pattern labels.
+  - `concurrency-runner.ts`: bounded/unbounded concurrent task helpers.
+  - `orchestration-telemetry.ts`: logger-based structured telemetry helpers.
+
+- Parallel and merge support:
+  - `parallel-orchestration-results.ts`: `Promise.allSettled` normalization and merged-output rendering.
+  - `merge-strategies.ts`: basic string merge functions.
+  - `orchestration-merge-strategy-types.ts`: typed parallel result contract.
+  - `merge/all-required.ts`, `merge/use-partial.ts`, `merge/first-wins.ts`: typed merge strategy implementations.
+
+- Supervisor delegation stack:
+  - `delegating-supervisor.ts`: supervisor wrapper around tracker/provider/routing/circuit-breaker.
+  - `delegating-supervisor-types.ts`: configuration and plan/delegate contracts.
+  - `delegation.ts`: typed protocol and `SimpleDelegationTracker`.
+  - `parallel-delegation-aggregator.ts`: settled-result aggregation.
+  - `assignment-validator.ts`: duplicate-specialist ID guard.
+  - `specialist-selection.ts`: goal decomposition + matching/routing helpers.
+  - `specialist-tool-instrumentation.ts`: wrapper to record breaker outcomes around tool calls.
+
+- Planning:
+  - `planning-types.ts`: core plan and diagnostics types.
+  - `planning-decomposition.ts`: Zod schemas and decomposition/refinement.
+  - `planning-graph.ts`: DAG level building and validation.
+  - `planning-executor.ts`: plan execution engine.
+  - `planning-agent.ts`: thin orchestrator API around above modules.
+
+- Contract-net:
+  - `contract-net/contract-net-manager.ts`: full CFP-bid-award-execute lifecycle.
+  - `contract-net/contract-net-types.ts`: protocol state and payload contracts.
+  - `contract-net/bid-strategies.ts`: ranking strategies.
+
+- Routing:
+  - `routing-policy-types.ts`: routing contracts.
+  - `routing/rule-based-routing.ts`, `routing/hash-routing.ts`, `routing/llm-routing.ts`, `routing/round-robin-routing.ts`.
+
+- Topology:
+  - `topology/topology-types.ts`: topology contracts.
+  - `topology/topology-analyzer.ts`: heuristic recommendation engine.
+  - `topology/topology-executor.ts`: topology execution + optional auto-switch.
+
+- Team runtime:
+  - Core runtime and helpers:
+    - `team/team-runtime.ts`
+    - `team/team-runtime-execute.ts`
+    - `team/team-runtime-resume.ts`
+    - `team/team-runtime-policy-validator.ts`
+    - `team/team-runtime-breaker.ts`
+    - `team/team-runtime-hooks.ts`
+    - `team/team-runtime-memory.ts`
+    - `team/team-runtime-phase.ts`
+    - `team/team-runtime-events.ts`
+    - `team/team-workspace.ts`
+  - Declarative contracts:
+    - `team/team-definition.ts`
+    - `team/team-policy.ts`
+    - `team/team-checkpoint.ts`
+    - `team/team-phase.ts`
+    - `team/supervision-policy.ts`
+  - Pattern implementations and registry:
+    - `team/patterns/index.ts`
+    - `team/patterns/supervisor-pattern.ts`
+    - `team/patterns/contract-net-pattern.ts`
+    - `team/patterns/blackboard-pattern.ts`
+    - `team/patterns/peer-to-peer-pattern.ts`
+    - `team/patterns/council-pattern.ts`
+    - `team/patterns/pattern-utils.ts`
+    - `team/patterns/team-pattern.ts`
+
+- Compatibility shims:
+  - `circuit-breaker.ts` (deprecated re-export alias).
+  - `provider-adapter/provider-execution-port.ts` (type-only shim).
 
 ## Runtime and Control Flow
-### 1) `AgentOrchestrator`
-- `sequential`: passes previous output as the next input in a linear chain.
-- `parallel`:
-  - optional circuit-breaker filtering before fan-out
-  - optional all-settled path with `OrchestrationMergeStrategy`
-  - fallback merge function path (`MergeFn`) if strategy not provided
-- `supervisor`:
-  - supports legacy positional and config overloads
-  - optional provider-adapter mode via `providerPort.run`
-  - optional routing policy and circuit-breaker filtering
-  - optional health check (`asTool()` probes)
-  - injects specialist tools into a cloned manager `DzupAgent`
-- `debate`: proposer rounds then judge synthesis/selection.
-- `contractNet`: delegates to `ContractNetManager.execute`.
+### 1. `AgentOrchestrator`
+- `sequential(agents, initialInput)`:
+  - Passes each agent the prior output (`HumanMessage` chain).
+- `parallel(agents, input, merge?, options?)`:
+  - Optional circuit-breaker filtering first.
+  - If merge strategy or breaker is enabled, runs `runConcurrently` and all-settled normalization.
+  - Records breaker outcomes (`recordSuccess`, `recordFailure`/`recordTimeout`).
+  - Applies typed `OrchestrationMergeStrategy` when provided, otherwise legacy merge behavior.
+  - When no breaker/typed merge is enabled, uses `runAllConcurrently` (reject-on-first-error semantics).
+- `supervisor(...)`:
+  - Accepts config-object form and deprecated positional overload.
+  - Delegates execution to `runSupervisor`.
+- `debate(proposers, judge, task, rounds?)`:
+  - Runs proposer rounds, then asks judge to evaluate/synthesize.
+- `contractNet(config)`:
+  - Directly delegates to `ContractNetManager.execute`.
 
-### 2) Delegation + Planning
-- `SimpleDelegationTracker` flow:
-  - create child run in `RunStore`
-  - register active delegation
-  - execute callback with `AbortController`
-  - race completion against abort/timeout
-  - persist terminal run status and emit lifecycle events
-- `DelegatingSupervisor`:
-  - `delegateTask` handles single specialist delegation (or provider-port execution)
-  - `delegateAndCollect` executes all assignments via `Promise.allSettled`
-  - optional merge strategy receives normalized `AgentResult[]`
-  - `planAndDelegate` chooses LLM decomposition first, then keyword/routing fallback
-- `PlanningAgent`:
-  - validates DAG structure and specialist references
-  - executes by `executionLevels`, chunked by `maxParallelism`
-  - injects predecessor outputs into `_predecessorResults`
-  - skips descendants of failed nodes
+### 2. Supervisor runner (`runSupervisor`)
+- Supports two execution modes:
+  - `executionMode: 'provider-adapter'`: requires `providerPort` and executes through adapter port.
+  - Default agent mode: builds/uses manager-with-tools `DzupAgent`.
+- Agent mode pipeline:
+  - Validate specialists and abort signal.
+  - Optional circuit-breaker filtering + routing diagnostics event emission.
+  - Optional routing policy narrowing.
+  - Optional health check via `specialist.asTool()`.
+  - Build specialist tools (instrumented for breaker recording when breaker exists).
+  - Cache manager-with-tools agent per manager identity + canonical specialist set.
+  - Run manager with task prompt and return content + specialist visibility info.
 
-### 3) Contract-net
+### 3. Delegation and planning
+- `SimpleDelegationTracker`:
+  - Creates run records in `RunStore`, tracks active delegations, handles timeout/cancellation via `AbortController`, updates run status/output, emits lifecycle events.
+- `DelegatingSupervisor.delegateTask`:
+  - Validates specialist, emits start event, then executes through provider port or delegation tracker.
+  - Records circuit-breaker outcomes and completion events.
+- `DelegatingSupervisor.delegateAndCollect`:
+  - Optional breaker-based task filtering.
+  - Duplicate-specialist assignment guard (`allow|warn|strict`).
+  - Parallel `Promise.allSettled` + aggregation (`aggregateSettledResults`).
+- `DelegatingSupervisor.planAndDelegate`:
+  - If `llm` provided: uses `PlanningAgent.decompose` + `executePlan`.
+  - On planning failure: emits fallback event and falls back to keyword/routing-policy assignment.
+- `PlanningAgent` flow:
+  - `decompose` calls structured-output decomposition (`PlanNodeSchema`/`DecompositionSchema`) and deterministic refinement.
+  - `executePlan` validates and executes per DAG levels, injecting `_predecessorResults`, and marking downstream nodes skipped after failures.
+
+### 4. Contract-net
 `ContractNetManager.execute` lifecycle:
-- announce CFP
-- collect bids (deadline enforced by abort-race)
-- evaluate bids (default weighted strategy)
-- award winner
-- execute awarded task with winning specialist
-- emit protocol events through `DzupEventBus` when provided
+1. Validate config (`manager` key is explicitly rejected).
+2. Build CFP and emit `contract-net:cfp_announced` protocol message.
+3. Collect bids in parallel with per-bid deadlines.
+4. Optional single retry when `retryOnNoBids` is true.
+5. Evaluate bids using strategy (default weighted strategy).
+6. Award winner and emit `contract-net:awarded`.
+7. Execute task with winning specialist.
+8. Emit completion/failure events and return `ContractResult`.
 
-`ContractNetConfig` no longer accepts a manager agent. CFP construction,
-bid collection, bid evaluation, award events, and execution are handled by
-the reusable protocol manager class plus the configured specialists and
-strategy; passing a legacy `manager` property raises an explicit
-`OrchestrationError` instead of being silently ignored.
+### 5. Topology execution
+- `TopologyExecutor.execute({ topology, ... })` dispatches:
+  - `mesh`: one-round all-settled fan-out.
+  - `ring`: round-based iterative pass (`maxRounds`, default `3`).
+  - `pipeline`: delegates to `AgentOrchestrator.sequential`.
+  - `star`: delegates to `AgentOrchestrator.parallel`.
+  - `hierarchical`: first agent is coordinator; remainder are workers via supervisor mode.
+- `autoSwitch` path:
+  - If initial topology fails or crosses error-rate threshold, analyzer recommends an alternative and executor retries once.
 
-### 4) Topology
-- `TopologyAnalyzer`: heuristic scoring over task characteristics.
-- `TopologyExecutor`:
-  - native mesh and ring execution paths
-  - routed paths: pipeline -> sequential, star -> parallel, hierarchical -> supervisor
-  - optional auto-switch retries with analyzer recommendation when observed error rate exceeds threshold
-
-### 5) Team runtime
-`TeamRuntime.execute`:
-- creates run/phase model
-- emits runtime events (`phase_changed`, participant/team completion/failure)
-- dispatches by `TeamDefinition.coordinatorPattern`:
-  - `supervisor`, `contract_net`, `blackboard`, `peer_to_peer`, `council`
-- supports optional tracer hooks (`TeamRuntimeTracer`) and supervision policy circuit-breaking
-- supports `resume()` based on `TeamCheckpoint` + `ResumeContract`
-
-Important implementation note:
-- `TeamRuntime` contains concrete orchestration skeletons and event/plumbing logic, but comments explicitly mark it as structural with higher-level model wiring expected from host product code.
+### 6. Team runtime
+- Constructor validates policy support matrix and optionally enables supervision breaker tracking.
+- `execute(task)` pipeline:
+  - Creates run ID and phase model.
+  - Starts optional OTel span and emits lifecycle transitions.
+  - Short-circuits if all participant breakers are open.
+  - Resolves participants, builds per-run context (`SharedWorkspace`, hooks, breaker registry), dispatches to selected pattern.
+  - Runs optional post-run memory consolidation.
+  - Emits completion or failure events.
+- `resume(checkpoint, contract, task)`:
+  - Validates team identity.
+  - Narrows participants via `pendingParticipantIds` when `skipCompletedParticipants` is enabled.
+  - Augments task with serialized shared context.
+  - Reuses normal execute path with narrowed participants.
 
 ## Key APIs and Types
-Core classes/functions:
+Primary orchestration APIs:
 - `AgentOrchestrator`
-- `mapReduce`, `mapReduceMulti`
 - `ContractNetManager`
 - `DelegatingSupervisor`
 - `PlanningAgent`
 - `SimpleDelegationTracker`
-- `TopologyAnalyzer`, `TopologyExecutor`
+- `TopologyAnalyzer`
+- `TopologyExecutor`
 - `TeamRuntime`
+- `mapReduce`, `mapReduceMulti`
 
-Core contracts:
-- `SupervisorConfig`, `SupervisorResult`
-- `MapReduceConfig`, `MapReduceResult`, `AgentOutput`
-- `DelegationRequest`, `DelegationResult`, `DelegationTracker`
-- `ExecutionPlan`, `PlanNode`, `PlanExecutionResult`
-- `RoutingPolicy`, `RoutingDecision`, `AgentSpec`, `AgentTask`
-- `OrchestrationMergeStrategy`, `AgentResult`, `MergedResult`
-- `ContractNetConfig`, `ContractBid`, `ContractResult`
-- `TopologyExecutorConfig`, `TopologyMetrics`, `TopologyRecommendation`
-- `ProviderExecutionPort`, `ProviderExecutionResult`
-- `TeamDefinition`, `TeamPolicies`, `TeamCheckpoint`, `ResumeContract`, `SupervisionPolicy`
+Supervisor and delegation contracts:
+- `SupervisorConfig`, `SupervisorResult`, `MergeFn`
+- `DelegatingSupervisorConfig`, `TaskAssignment`, `AggregatedDelegationResult`, `PlanAndDelegateOptions`, `DelegateTaskOptions`
+- `DelegationRequest`, `DelegationContext`, `DelegationResult`, `DelegationMetadata`, `DelegationTracker`, `DelegationExecutor`, `ActiveDelegation`
+- `DuplicateSpecialistAssignmentIdMode`
+- `MAX_ORCHESTRATION_DEPTH`, `assertDepthAllowed`
 
-Error model:
-- `OrchestrationError` is the shared domain error with pattern tagging for diagnostics.
+Planning contracts:
+- `PlanNode`, `ExecutionPlan`, `PlanExecutionResult`
+- `PlanningAgentConfig`, `PlanningSupervisor`
+- `DecompositionSchema`, `PlanNodeSchema`, `DecompositionResult`
+- `PlanningDecompositionDiagnostics`, `RemovedPlanNodeDiagnostic`, `DanglingPlanDependencyDiagnostic`
+- `buildExecutionLevels`, `validatePlanStructure`
+
+Routing and merge contracts:
+- `RoutingPolicy`, `RoutingDecision`, `RoutingDiagnostics`, `AgentSpec`, `AgentTask`
+- `LLMRoutingConfig`, `RuleBasedRoutingConfig`, `HashRoutingConfig`
+- `AgentResult`, `MergedResult`, `OrchestrationMergeStrategy`, `BuiltInMergeStrategyName`
+- `AllRequiredMergeStrategy`, `UsePartialMergeStrategy`, `FirstWinsMergeStrategy`
+- `MergeStrategyFn`, `MergeStrategyName`, `concatMerge`, `voteMerge`, `numberedMerge`, `jsonArrayMerge`
+
+Contract-net contracts:
+- `ContractNetConfig`, `ContractNetPhase`, `ContractNetState`
+- `CallForProposals`, `ContractBid`, `ContractAward`, `ContractResult`
+- `BidEvaluationStrategy`, `lowestCostStrategy`, `fastestStrategy`, `highestQualityStrategy`, `createWeightedStrategy`
+
+Topology contracts:
+- `TopologyType`, `TaskCharacteristics`, `TopologyRecommendation`, `TopologyMetrics`, `TopologyExecutorConfig`
+- `MeshResult`, `RingResult`, `ExecuteResult`
+
+Team runtime contracts:
+- `TeamDefinition`, `ParticipantDefinition`, `CoordinatorPattern`
+- `TeamPolicies` and policy group types (`ExecutionPolicy`, `GovernancePolicy`, `MemoryPolicy`, `IsolationPolicy`, `MailboxPolicy`, `EvaluationPolicy`)
+- `TeamPhase`, `TeamPhaseModel`
+- `TeamCheckpoint`, `ResumeContract`
+- `SupervisionPolicy`, `AgentBreakerState`
+- `TeamRuntimeEvent`, `TeamRuntimeEventEmitter`
+- `SharedWorkspace`, `TeamRunResult`, `TeamAgentRunResult`, `TeamSpawnedAgent`
 
 ## Dependencies
-Direct internal package dependencies used by orchestration code paths:
+External/runtime dependencies used directly by orchestration modules:
+- `@langchain/core`
+  - `HumanMessage` for prompting
+  - `StructuredToolInterface` for supervisor tool instrumentation
 - `@dzupagent/core`
-  - `RunStore`, `DzupEventBus` (delegation and protocol events)
-  - `Semaphore` (map-reduce concurrency)
-  - `KeyedCircuitBreaker` re-exported as `AgentCircuitBreaker`
+  - `llm` (`KeyedCircuitBreaker` via compatibility alias)
+  - `events` (`DzupEventBus`, `typedEmit`)
+  - `persistence` (`RunStore`, `AgentExecutionSpec`)
+  - `orchestration` (`Semaphore` for map-reduce)
+  - `utils` (`defaultLogger`)
+- `@dzupagent/agent-types`
+  - Base contracts for supervisor/map-reduce/contract-net/team coordination types
 - `@dzupagent/adapter-types`
-  - provider adapter port input/output event/type contracts
-- Structured output utilities in this package (`../structured/structured-output-engine`)
-  - LLM decomposition schema generation in `PlanningAgent`
-- `@langchain/core/messages`
-  - `HumanMessage` for generation prompts
+  - Canonical provider execution port types (re-exported by orchestration shim)
+- `@dzupagent/memory`
+  - `ConsolidationEngine` used by team post-run consolidation path
 - `zod`
-  - decomposition schema definitions (`PlanNodeSchema`, `DecompositionSchema`)
+  - Plan decomposition schemas
 
-Package metadata context (`packages/agent/package.json`):
-- Runtime deps include `@dzupagent/core`, `@dzupagent/context`, `@dzupagent/memory`, `@dzupagent/memory-ipc`, `@dzupagent/adapter-types`, `@dzupagent/agent-types`.
-- Peer deps include `@langchain/core`, `@langchain/langgraph`, `zod`.
+Internal package dependencies within `@dzupagent/agent`:
+- `DzupAgent` (`src/agent/dzip-agent.ts`) for execution and tool conversion.
+- Structured output engine (`src/structured/structured-output-engine.ts`) for LLM plan decomposition.
+- Utility helpers (`src/utils/exact-optional.ts`) for optional-field shaping.
 
 ## Integration Points
-Within `@dzupagent/agent`:
-- Root barrel (`src/index.ts`) re-exports the main orchestration API surface (orchestrator, map-reduce, planning/delegation, contract-net, topology, routing/merge policies, circuit-breaker bridge, provider port types).
-- Team runtime types/module are maintained under `src/orchestration/team/*` and validated via focused team tests/benchmarks.
+Orchestration integrates with the rest of the package and host systems through these contracts:
 
-Cross-package and boundary integration:
-- Provider adapters integrate through `ProviderExecutionPort` (inversion boundary; adapters implement the port externally).
-- Delegation integrates with `RunStore` and `DzupEventBus` from `@dzupagent/core` rather than server-specific wiring.
-- Contract-net emits protocol events through generic event bus payloads (`protocol:message_sent`) for downstream observers.
+- Agent execution and tools:
+  - Calls `DzupAgent.generate(...)` across all orchestration patterns.
+  - Uses `DzupAgent.asTool()` to inject specialists into supervisor manager agents.
+
+- Provider adapter execution:
+  - `ProviderExecutionPort.run(...)` is used in:
+    - `runSupervisor` when `executionMode: 'provider-adapter'`
+    - `DelegatingSupervisor.delegateTask` when `providerPort` is configured
+
+- Persistence and run lifecycle:
+  - `SimpleDelegationTracker` creates/updates run records through `RunStore`.
+
+- Eventing:
+  - Delegation, routing, merge, and team lifecycle events are emitted through `DzupEventBus` and typed team runtime callbacks.
+  - Contract-net emits protocol messages via `protocol:message_sent`.
+
+- Circuit-breaker supervision:
+  - Pattern-level filtering and failure recording via `AgentCircuitBreaker`/`KeyedCircuitBreaker`.
+  - Team-level breaker policy wrapped by `TeamBreakerTracker`.
+
+- Structured planning:
+  - `PlanningAgent.decompose` calls `generateStructured(...)` with `DecompositionSchema`.
+
+- Team memory lifecycle:
+  - Optional post-run consolidation via a host-provided `memory.consolidate(...)` callback or `ConsolidationStore`.
 
 ## Testing and Observability
-Orchestration-focused automated tests in scope:
-- `src/orchestration/__tests__/orchestration-paths.test.ts`
-  - integration-style coverage for supervisor, parallel, contract-net, map-reduce, topology pipeline path, and planning DAG utilities
-- `src/orchestration/__tests__/routing-policy.test.ts`
-  - deterministic/edge behavior of rule/hash/round-robin/LLM routing wrappers
-- `src/orchestration/__tests__/merge-strategy.test.ts`
-- `src/orchestration/__tests__/merge-strategies-extended.test.ts`
-  - merge semantics, edge cases, helper strategy lookup, and depth guard checks
-- `src/orchestration/__tests__/circuit-breaker.test.ts`
-  - legacy `AgentCircuitBreaker` behavior via core re-export
-- `src/orchestration/team/__tests__/team-supervision-policy.spec.ts`
-  - per-agent breaker trip/reset semantics in `TeamRuntime`
-- `src/orchestration/team/__tests__/team-runtime-otel.test.ts`
-  - span attributes/events and success/error completion hooks
+Test coverage inside scope currently includes:
 
-Performance benchmark:
-- `src/orchestration/team/__benches__/team-runtime.bench.ts`
-  - concurrent runtime throughput with p95 latency assertion target.
+- Core orchestration tests (`src/orchestration/__tests__`):
+  - `orchestration-paths.test.ts`: end-to-end happy paths across supervisor, parallel merge, contract-net, map-reduce, topology pipeline, and planning DAG.
+  - `merge-strategy.test.ts` and `merge-strategies-extended.test.ts`: typed merge behavior, helper merge functions, edge cases (empty inputs, timeout/error splits), and depth guard checks.
+  - `routing-policy.test.ts`: rule/hash/round-robin/LLM routing behavior and fallback semantics.
+  - `circuit-breaker.test.ts`: breaker state transitions and filtering behavior.
 
-Observability surfaces in code:
-- `orchestration-telemetry.ts`: structured `console.debug` helpers for routing/merge/circuit-breaker events.
-- `DelegatingSupervisor` + `SimpleDelegationTracker`: event-bus emissions for delegation and plan lifecycle events.
-- `TeamRuntime`: typed event emitter plus tracer hooks (`startPhaseSpan`, `addEvent`, `endSpanOk`, `endSpanWithError`).
+- Topology tests:
+  - `topology/topology-executor-auto-switch.test.ts`: thrown-path and auto-switch behavior.
+
+- Team runtime tests:
+  - `team/__tests__/team-runtime-policy.test.ts`: policy enforcement and blackboard memory bounds.
+  - `team/__tests__/team-runtime-otel.test.ts`: tracing attributes/events and success/failure span handling.
+  - `team/__tests__/team-runtime-pattern-labels.test.ts`: result labeling.
+  - `team/__tests__/team-supervision-policy.spec.ts`: supervision breaker open/reset/callback behavior.
+  - `team/__tests__/team-workspace-contracts.test.ts`: workspace and result contracts.
+  - Pattern-specific suites under `team/patterns/__tests__/*`.
+
+- Benchmarks:
+  - `team/__benches__/team-runtime.bench.ts` for runtime performance profiling.
+
+Observability mechanisms in code:
+- Structured debug telemetry helpers in `orchestration-telemetry.ts`.
+- Supervisor routing and merge events via event bus.
+- Team lifecycle events (`phase_changed`, `participant_*`, `team_*`, `policy_applied`, `team_consolidation_completed`).
+- Optional OTel span integration in team runtime execution/hooks.
 
 ## Risks and TODOs
-Current implementation risks/gaps visible in code:
-- Planning result identity:
-  - The `PlanningAgent.executePlan` path is keyed by node ID: it passes `TaskAssignment.id = node.id` into `DelegatingSupervisor.delegateAndCollect`.
-  - `DelegatingSupervisor.delegateAndCollect` stores results by assignment ID when present, and falls back to `specialistId` only for legacy direct callers.
-  - Direct duplicate-specialist batches without stable assignment IDs now emit `supervisor:duplicate_specialist_assignment_ids` by default, or fail before delegation when `duplicateSpecialistAssignmentIdMode: 'strict'` is set.
-  - Residual collision risk is limited to direct `delegateAndCollect` callers that explicitly choose `duplicateSpecialistAssignmentIdMode: 'allow'`.
-  - Regression coverage exists in `src/__tests__/planning-agent.test.ts` and `src/__tests__/delegating-supervisor.test.ts` for duplicate-specialist batches and the direct-caller guardrail.
-- `MapReduceConfig.mergeStrategy` type union omits supported names (`numbered`, `json`) even though `getMergeStrategy` supports them.
-- `AgentOrchestrator.supervisor` provider-adapter branch requires both `executionMode === 'provider-adapter'` and `providerPort`; missing port silently falls back to agent mode.
-- `TopologyExecutor` routed-path metrics (`pipeline`, `star`, `hierarchical`) currently hardcode `errorCount: 0` unless errors throw, unlike mesh/ring which track per-agent failures.
-- Team runtime pattern labels are not perfectly aligned with coordinator pattern names in all return paths (for example some paths return `'peer-to-peer'`/`'supervisor'` as pattern labels independent of coordinator enum shape).
-- `orchestration-telemetry.ts` currently logs to debug output only; no direct OTel SDK binding in this module.
+Current codebase risks and known gaps (from implementation and tests):
+
+- Compatibility shims still carry legacy API surface:
+  - `circuit-breaker.ts` is deprecated and aliases `KeyedCircuitBreaker` as `AgentCircuitBreaker`.
+  - `provider-adapter/provider-execution-port.ts` is a historical type re-export.
+
+- Team policy support is intentionally partial and fail-closed:
+  - Unsupported today: `execution.timeoutMs`, `execution.retryOnFailure`, `execution.maxRetries`, all `isolation`, `mailbox`, and `evaluation` groups, plus governance `minScore` and `requireUnanimous`.
+
+- `DelegatingSupervisor.planAndDelegate` silently falls back to keyword decomposition after LLM planning errors; this preserves availability but can mask decomposition quality regressions unless event streams are monitored.
+
+- Supervisor agent cache in `supervisor-runner.ts` is process-memory-only and requires explicit invalidation via `AgentOrchestrator.clearSupervisorCache()` when manager/specialist configurations drift.
+
+- Contract-net bid parsing relies on JSON text extraction from model output; malformed responses degrade into missing bids.
+
+- Topology auto-switch uses static inferred characteristics on retry (`inferCharacteristics`) rather than measured run metrics, so retry choice is heuristic and not feedback-driven.
+
+- Documentation drift exists in inline comments:
+  - `team-policy.ts` comments state `consolidateOnComplete` is rejected, but runtime/tests show it is accepted and executed when memory hooks are configured.
 
 ## Changelog
-- 2026-05-02: refreshed planning result identity notes against current `PlanningAgent` and `DelegatingSupervisor` behavior.
-- 2026-05-03: added warn/strict guardrail for direct duplicate-specialist `delegateAndCollect` batches without stable assignment IDs.
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

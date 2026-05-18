@@ -1,199 +1,198 @@
 # @dzupagent/cache Architecture
 
 ## Scope
-`@dzupagent/cache` is a small Node.js ESM package that provides cache primitives for request/response-style LLM workflows. The implemented surface in `packages/cache` includes:
-- A policy-aware middleware (`CacheMiddleware`) for cacheability checks, keying, and backend delegation.
-- Deterministic cache key generation (`generateCacheKey`).
-- Two backend implementations:
-  - `InMemoryCacheBackend` (process-local Map with TTL + LRU and sorted-set helpers).
-  - `RedisCacheBackend` (ioredis-compatible client wrapper with optional prefixing and sorted-set delegation).
-- Shared contracts in `src/types.ts`.
+`@dzupagent/cache` is a small TypeScript/ESM package that provides reusable cache primitives for request/response LLM flows. The implementation in `packages/cache` currently includes:
+- A policy-driven middleware (`CacheMiddleware`) that gates cacheability, generates keys, and delegates to a backend.
+- Deterministic request key generation (`generateCacheKey`) based on a normalized subset of request fields.
+- Two backend implementations of the same contract:
+- `InMemoryCacheBackend` (single-process map with TTL, LRU, and sorted-set helpers).
+- `RedisCacheBackend` (ioredis-compatible wrapper with optional key prefixing and scan-based clear).
+- Shared types and contracts in `src/types.ts`.
 
-This document is grounded in:
-- `src/**`
-- `package.json`
-- `README.md`
-- `src/__tests__/**`
+This document is based on the local implementation under `src/`, package metadata in `package.json`, package usage docs in `README.md`, and the package test suite.
 
 ## Responsibilities
 The package is responsible for:
-- Deciding whether a request is cacheable using `CachePolicy`.
-- Generating stable, deterministic keys from request data.
-- Persisting/retrieving serialized cache entries through a pluggable `CacheBackend`.
-- Providing best-effort behavior for core cache operations so backend failures do not break caller flows.
-- Exposing basic observability hooks (`onHit`, `onMiss`, `onDegraded`).
-- Providing lightweight sorted-set primitives through the same backend abstraction.
+- Defining the cache backend contract (`CacheBackend`) used by middleware and backend implementations.
+- Determining cacheability via policy (`maxTemperature` and optional `isCacheable`).
+- Serializing and storing cache entries (`CacheEntry`) with TTL metadata.
+- Reading cached entries and returning stored `response` payloads.
+- Exposing lightweight cache observability hooks:
+- `onHit(key, model)`
+- `onMiss(key, model)`
+- `onDegraded(operation, reason, key?)`
+- Providing optional sorted-set operations (`zadd`, `zrangebyscore`, `zrem`, `zcard`) on the same backend contract.
 
 The package is not responsible for:
-- Request deduplication/single-flight around concurrent misses.
-- Automatic refresh/stale-while-revalidate behavior.
-- Schema-aware keying of every possible model parameter (current key schema is intentionally narrow).
-- Owning Redis client lifecycle/connection management.
+- Redis connection lifecycle management.
+- Stale-while-revalidate or background refresh.
+- Request coalescing/single-flight on concurrent misses.
+- A full-fidelity key schema for all possible model/provider request parameters.
 
 ## Structure
-Current module layout:
+Current package layout:
 - `src/index.ts`
-  - Public export hub.
+- Public exports for middleware, key generator, backends, and types.
 - `src/types.ts`
-  - Interfaces and core types: `CacheBackend`, `CachePolicy`, `CacheableRequest`, `CacheStats`, `CacheMiddlewareConfig`, `CacheEntry`.
+- Contracts and shared types (`CacheBackend`, `CachePolicy`, `CacheableRequest`, `CacheStats`, `CacheMiddlewareConfig`, `CacheEntry`).
 - `src/key-generator.ts`
-  - `generateCacheKey(request, namespace?)` using SHA-256.
+- `generateCacheKey(request, namespace?)` using `node:crypto` SHA-256.
 - `src/middleware.ts`
-  - `CacheMiddleware` orchestration (`isCacheable`, `get`, `set`, `stats`).
+- `CacheMiddleware` (`isCacheable`, `get`, `set`, `stats`).
 - `src/backends/in-memory.ts`
-  - `InMemoryCacheBackend` with cache-map + sorted-set map.
+- `InMemoryCacheBackend` with TTL expiration, LRU via `Map` insertion order, and in-memory sorted-set maps.
 - `src/backends/redis.ts`
-  - `RedisCacheBackend` with prefixing, SCAN+DEL clear, and sorted-set delegation.
+- `RedisCacheBackend` using an ioredis-compatible client interface, optional prefixing, SCAN+DEL clear loop, and sorted-set delegation.
 - `src/__tests__/*.test.ts`
-  - Unit and deep coverage for middleware, key generation, in-memory backend, Redis backend, sorted-set semantics, and index exports.
+- Coverage for exports, keying, middleware behavior, backend behavior, deep edge cases, and sorted-set semantics.
+- `package.json`
+- Package metadata and optional `ioredis` peer dependency.
 - `tsup.config.ts`
-  - ESM build (`src/index.ts` -> `dist`, DTS enabled, Node 20 target).
+- Build config for ESM + declarations.
 
 ## Runtime and Control Flow
-Typical read/write flow:
-1. Caller builds a `CacheMiddleware` with backend + policy.
+Standard middleware flow:
+1. Caller instantiates a backend and `CacheMiddleware` with `{ backend, policy, callbacks? }`.
 2. `get(request)`:
-- Runs `isCacheable(request)`.
-- If not cacheable, returns `null` without touching backend.
-- If cacheable, computes key via `generateCacheKey(request, policy.namespace)`.
-- Reads backend value.
-- On `null`: emits `onMiss` (if configured), returns `null`.
-- On value: parses JSON as `CacheEntry`, emits `onHit`, returns `entry.response`.
-- On backend/parse/callback errors inside the `try`: emits `onDegraded('get', reason, key)`, emits `onMiss`, returns `null`.
+- Returns `null` immediately if request is not cacheable.
+- Builds key via `generateCacheKey(request, policy.namespace)`.
+- Calls `backend.get(key)`.
+- On missing value: fires `onMiss` and returns `null`.
+- On value: parses JSON `CacheEntry`, fires `onHit`, returns `entry.response`.
+- On any thrown error (backend failure, parse failure, callback throw): fires `onDegraded('get', ...)`, then `onMiss`, then returns `null`.
 3. `set(request, response)`:
-- Runs `isCacheable(request)`; no-op when false.
-- Builds key and `CacheEntry` (`response`, `model`, `cachedAt`, `ttl`).
-- Calls `backend.set(key, serializedEntry, policy.defaultTtlSeconds)`.
-- On failure, emits `onDegraded('set', reason, key)` and does not throw.
-4. `stats()` delegates to backend.
+- No-op if request is not cacheable.
+- Creates `CacheEntry` with `response`, `model`, `cachedAt`, and policy TTL.
+- Serializes entry and calls `backend.set(key, json, ttl)`.
+- On failure, does not throw; fires `onDegraded('set', ...)`.
+4. `stats()` delegates directly to `backend.stats()`.
 
-Cacheability semantics:
-- If `policy.isCacheable` exists, it is authoritative.
-- Otherwise, uses `temperature <= maxTemperature` with `temperature` defaulted to `1` when missing.
+Cacheability logic:
+- If `policy.isCacheable` is provided, it overrides default temperature gating.
+- Otherwise: `request.temperature ?? 1` must be `<= policy.maxTemperature`.
 
-Keying semantics:
-- Hash inputs are limited to:
-  - `messages` (as `"role:content"` entries)
-  - `model`
-  - `temperature` (default `0`)
-  - `maxTokens`
-- Final format:
-  - without namespace: `llm:<sha256>`
-  - with namespace: `<namespace>:llm:<sha256>`
+Key generation details:
+- Key hash input includes only:
+- `messages` as `"role:content"` pairs
+- `model`
+- `temperature` (default `0` in key generator)
+- `maxTokens`
+- Output format:
+- without namespace: `llm:<sha256>`
+- with namespace: `<namespace>:llm:<sha256>`
 
-Backend behavior notes:
-- In-memory backend:
-  - TTL expiry is checked lazily on `get` and during `stats` sweep.
-  - LRU eviction uses Map insertion order.
-  - `clear()` resets both cache and sorted sets.
-- Redis backend:
-  - Optional `prefix` prepends all keys.
-  - `clear()` scans with `MATCH <prefix>:*` when prefixed, otherwise `MATCH *`.
-  - `clear()` resets hit/miss counters.
-  - Core methods (`get/set/delete/clear`) degrade on error; sorted-set ops propagate errors.
+Backend runtime behavior:
+- `InMemoryCacheBackend`:
+- Stores entries in `Map<string, { value, expiresAt }>`.
+- TTL is enforced lazily on `get`, and expired items are purged during `stats()`.
+- LRU eviction removes the oldest map key when at `maxEntries` capacity.
+- Sorted sets are stored separately as `Map<string, Map<string, number>>`.
+- `clear()` resets cache entries, sorted sets, and hit/miss counters.
+- `RedisCacheBackend`:
+- Uses prefix-aware key building (`prefix:key` when configured).
+- `set` uses `EX` only when `ttlSeconds > 0`; otherwise plain set.
+- `clear()` scans keys with `MATCH <prefix>:*` (or `*` when no prefix) and deletes matched batches.
+- Core cache methods (`get/set/delete/clear`) are degraded-safe (catch + callback), while sorted-set methods intentionally propagate client errors.
 
 ## Key APIs and Types
-Public exports from `src/index.ts`:
+Public exports (from `src/index.ts`):
 - `CacheMiddleware`
 - `generateCacheKey`
 - `InMemoryCacheBackend`
 - `RedisCacheBackend`
 - Types:
-  - `CacheBackend`
-  - `CachePolicy`
-  - `CacheableRequest`
-  - `CacheStats`
-  - `CacheMiddlewareConfig`
-  - `CacheEntry`
+- `CacheBackend`
+- `CachePolicy`
+- `CacheableRequest`
+- `CacheStats`
+- `CacheMiddlewareConfig`
+- `CacheEntry`
 
-`CacheBackend` contract:
-- Core cache operations:
-  - `get(key)`
-  - `set(key, value, ttlSeconds?)`
-  - `delete(key)`
-  - `clear()`
-  - `stats()`
-- Sorted-set operations:
-  - `zadd(key, score, member)`
-  - `zrangebyscore(key, min, max)`
-  - `zrem(key, member)`
-  - `zcard(key)`
+`CacheBackend` methods:
+- `get(key): Promise<string | null>`
+- `set(key, value, ttlSeconds?): Promise<void>`
+- `delete(key): Promise<void>`
+- `clear(): Promise<void>`
+- `stats(): Promise<CacheStats>`
+- `zadd(key, score, member): Promise<void>`
+- `zrangebyscore(key, min, max): Promise<string[]>`
+- `zrem(key, member): Promise<void>`
+- `zcard(key): Promise<number>`
 
-`CacheMiddlewareConfig` callbacks:
-- `onHit(key, model)`
-- `onMiss(key, model)`
-- `onDegraded(operation, reason, key?)` where `operation` is one of `get | set | delete | clear`.
+`CachePolicy` fields:
+- `maxTemperature: number`
+- `defaultTtlSeconds: number`
+- `namespace?: string`
+- `isCacheable?: (request) => boolean`
 
-`CacheStats` semantics:
+`CacheStats` fields:
 - `hits`
 - `misses`
 - `size`
 - `hitRate`
-- For Redis backend, `size` is `-1` (unknown by design).
+
+Implementation note:
+- `RedisCacheBackend.stats()` reports `size: -1` by design (unknown without additional Redis-wide counting).
 
 ## Dependencies
-Runtime:
-- Node.js built-in `node:crypto` for SHA-256 key hashing.
-- Optional peer dependency `ioredis >= 5.0.0` (only needed for Redis backend usage).
+Runtime dependencies:
+- Node built-in `node:crypto` for SHA-256 key hashing.
 
-Build/test/tooling:
-- `tsup`
+Peer dependencies:
+- `ioredis` (optional peer, `>=5.0.0`) required only when using `RedisCacheBackend`.
+
+Dev/build/test dependencies:
 - `typescript`
+- `tsup`
 - `vitest`
 
-Package metadata highlights (`package.json`):
-- Package: `@dzupagent/cache`
-- Version: `0.2.0`
-- Module type: ESM
-- Export surface: root export only (`.` -> `dist/index.js`, `dist/index.d.ts`)
+Package scripts (`package.json`):
+- `build`, `dev`, `typecheck`, `test`, `lint`
 
 ## Integration Points
-Primary integration path:
-- Instantiate a backend (`InMemoryCacheBackend` or `RedisCacheBackend`).
-- Construct `CacheMiddleware` with policy and optional callbacks.
-- Wrap upstream LLM invocation with:
-  - `const hit = await cache.get(request)`
-  - if miss: call model and then `await cache.set(request, response)`
+Typical integration:
+1. Choose backend (`InMemoryCacheBackend` for local/single-process, `RedisCacheBackend` for shared cache).
+2. Configure policy and callbacks in `CacheMiddleware`.
+3. Wrap model calls with cache get/set behavior.
 
-Isolation controls:
-- `policy.namespace` influences generated request keys.
-- Redis `prefix` adds backend-level key partitioning.
-- Both can be used together.
+Isolation knobs:
+- `policy.namespace` affects generated cache keys.
+- Redis `prefix` applies backend-level key namespacing.
+- They can be used together when both logical and storage-level partitioning are needed.
 
-Direct backend use cases:
-- Manual invalidation through `backend.delete(key)`.
-- Full clear through `backend.clear()`.
-- Sorted-set operations for lightweight ordered indexing/provenance-like use cases.
+Direct backend integration (without middleware):
+- Manual key deletion via `delete(key)`.
+- Global/prefix clear via `clear()`.
+- Sorted-set operations for lightweight ordered indexes.
 
 ## Testing and Observability
-Test suite coverage currently includes:
-- Key generation determinism and namespace behavior.
-- Middleware policy boundaries, callbacks, degraded-path behavior, TTL pass-through, and shared-backend behavior.
-- In-memory backend CRUD, TTL edges, LRU behavior, stats, and deep edge cases.
-- Redis backend prefixing, clear scan loop behavior, degraded-path callbacks, TTL handling, stats, and constructor options.
-- Sorted-set behavior in both backends.
-- Public export verification from package index.
+Current tests under `src/__tests__` cover:
+- Public export surface (`index-exports.test.ts`).
+- Key generation determinism and namespace effects (`key-generator.test.ts`).
+- Middleware behavior, callbacks, cacheability boundaries, stats delegation, and degraded-mode behavior (`cache-middleware*.test.ts`, `middleware-*.test.ts`).
+- In-memory backend CRUD, TTL, LRU, size/hit-rate accounting, and edge behavior (`in-memory-*.test.ts`).
+- Redis backend prefixing, TTL `EX` semantics, scan clear behavior, degraded handling, and stats behavior (`redis-*.test.ts`).
+- Sorted-set contract behavior in both backends (`sorted-set.test.ts`).
 
-Observability mechanisms in implementation:
-- `onHit` and `onMiss` for request-level cache event hooks.
-- `onDegraded` for non-fatal failures in middleware (`get`, `set`) and Redis backend core operations (`get`, `set`, `delete`, `clear`).
-- Backend `stats()` provides local counters and hit rate.
+Observability mechanisms:
+- Event hooks: `onHit`, `onMiss`, `onDegraded`.
+- Runtime counters via `stats()` in each backend.
 
 ## Risks and TODOs
-Implementation-grounded risks:
-- `generateCacheKey` intentionally ignores extra request fields; different requests can collide if they vary outside `{messages, model, temperature, maxTokens}`.
-- Default temperature normalization differs:
-  - `CacheMiddleware.isCacheable`: missing temperature -> `1`.
-  - `generateCacheKey`: missing temperature -> `0`.
-- `RedisCacheBackend.clear()` with empty prefix scans `*` and can delete all reachable keys for that Redis connection.
-- Middleware has no first-class request invalidation helpers (`delete(request)`/`clearNamespace()`), so callers must compose key generation + backend operations.
-- Core `get` path catches broad exceptions (including parse and callback exceptions in the same try/catch), so some failure modes are intentionally collapsed into misses.
+Current implementation risks:
+- Key collisions for requests that differ only in fields not included in `generateCacheKey` input.
+- Default temperature mismatch between cacheability and keying:
+- cacheability default is `temperature ?? 1`
+- keying default is `temperature ?? 0`
+- `RedisCacheBackend.clear()` with empty prefix uses `MATCH *`, which can affect all keys visible to that client.
+- Middleware provides no first-class request-level invalidation helper (callers must generate key and use backend methods directly).
+- `CacheMiddleware.get()` catches broad failures (backend errors, JSON parse errors, callback errors) and normalizes all to cache miss behavior.
 
-Current TODO direction implied by code/tests/docs (not yet implemented in this package):
-- Optional safer guardrails around unprefixed Redis clear.
-- Broader or configurable key schema for modern model request variance.
-- Higher-level invalidation helpers on middleware.
+Implementation-grounded TODO directions:
+- Add optional safety guardrails for unprefixed Redis clear.
+- Consider configurable key schema expansion for additional request parameters.
+- Consider middleware-level invalidation helpers that accept `CacheableRequest`.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 

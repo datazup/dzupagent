@@ -1,197 +1,209 @@
 # Tools Architecture (`packages/agent/src/tools`)
 
 ## Scope
-This document covers the tool-related code in `packages/agent/src/tools` within `@dzupagent/agent`:
+This document describes the tool-related implementation under `packages/agent/src/tools` in `@dzupagent/agent`.
 
-- `create-tool.ts`
-- `tool-schema-registry.ts`
-- `human-contact-tool.ts`
+Covered files:
 - `agent-as-tool.ts`
+- `create-tool.ts`
+- `human-contact-tool.ts`
+- `tool-schema-registry.ts`
+- `tool-tier-registry.ts`
 
-It also references direct in-package integrations that consume this folder:
-
-- public exports in `src/index.ts`
-- `DzupAgent.asTool()` in `src/agent/dzip-agent.ts`
-- tool argument validation hooks in `src/agent/tool-loop.ts`
-- tests under `src/__tests__` and `src/tools/*.test.ts`
+Primary in-package consumers and exports:
+- `src/index.ts` and `src/tools.ts` public exports for tool surfaces
+- `src/agent/dzip-agent.ts` (`DzupAgent.asTool()` and runtime tool filtering)
+- `src/agent/agent-construction.ts` (`agent:tools-filtered` audit emission)
+- tests in `src/tools/*.test.ts` and `src/__tests__/*tool*`
 
 ## Responsibilities
-The tools module currently provides four distinct responsibilities:
+The module provides five concrete responsibilities:
 
-1. Preserve backward compatibility for tool creation APIs.
-- `create-tool.ts` re-exports `createForgeTool` and `ForgeToolConfig` from `@dzupagent/core` and is marked deprecated for direct imports from this package.
+1. Compatibility re-export for forge tool creation.
+- `create-tool.ts` re-exports `createForgeTool` and `ForgeToolConfig` from `@dzupagent/core/tools`.
+- It is explicitly marked as a deprecated compatibility bridge.
 
-2. Provide a built-in human-in-the-loop tool.
-- `human-contact-tool.ts` builds a LangChain `StructuredToolInterface` named `human_contact`.
-- It standardizes request payloads for approval, clarification, input request, escalation, and custom modes.
-- It persists pending requests via a pluggable store interface and optionally triggers a pause callback.
+2. Human-in-the-loop contact tool creation.
+- `human-contact-tool.ts` builds a LangChain structured tool (`human_contact`) for approval, clarification, input request, escalation, and custom modes.
+- It persists pending contacts via a pluggable store and can invoke an `onPause` callback.
 
-3. Provide a versioned schema registry utility.
-- `tool-schema-registry.ts` stores per-tool versioned schema entries, resolves latest versions, performs backward-compatibility checks, and can generate markdown docs from current registry state.
+3. Versioned schema registry for tools.
+- `tool-schema-registry.ts` stores versioned input/output schemas, returns latest or explicit versions, checks backward compatibility, and generates markdown docs.
 
-4. Adapt an agent instance into a callable tool.
-- `agent-as-tool.ts` wraps a minimal agent surface (`id`, `description`, `generate`) into a structured tool that accepts `{ task, context? }` and returns the agent response text.
-- This helper is used by `DzupAgent.asTool()` rather than being exported publicly from `src/index.ts`.
+4. Permission-tier metadata and filtering for tools.
+- `tool-tier-registry.ts` stores required permission tiers in a `WeakMap` keyed by tool instance.
+- It provides default tier resolution and filtering logic (`filterToolsByTier`) using `tierSatisfies` from `@dzupagent/core/tools`.
+
+5. Agent-to-tool adaptation.
+- `agent-as-tool.ts` wraps a minimal agent surface (`id`, `description`, `generate`) into a LangChain structured tool named `agent-<id>`.
 
 ## Structure
-| File | Role | Public Export |
+| File | Role | Export Surface |
 |---|---|---|
-| `create-tool.ts` | Deprecated compatibility re-export of `createForgeTool` from `@dzupagent/core` | Yes (via `src/index.ts`) |
-| `human-contact-tool.ts` | Built-in human-contact tool factory plus pending-contact store abstractions | Yes (via `src/index.ts`) |
-| `tool-schema-registry.ts` | In-memory schema registry with compatibility and docs generation | Yes (via `src/index.ts`) |
-| `agent-as-tool.ts` | Internal helper used by `DzupAgent.asTool()` | No direct package-root export |
-
-Related tests:
-
-- `src/__tests__/create-tool-deep.test.ts`
-- `src/__tests__/tool-schema-registry.test.ts`
-- `src/__tests__/tool-schema-registry-deep.test.ts`
-- `src/tools/human-contact-tool.test.ts`
-- `src/__tests__/dzip-agent.test.ts` (`asTool()` coverage)
-- `src/__tests__/orchestrator-patterns.test.ts` and `src/__tests__/supervisor.test.ts` (supervisor usage of `asTool()`)
+| `create-tool.ts` | Deprecated bridge to `@dzupagent/core/tools` forge tool APIs | Public via `src/index.ts` and `src/tools.ts` |
+| `human-contact-tool.ts` | HITL contact tool factory + pending-contact store interfaces and in-memory store | Public via `src/index.ts` and `src/tools.ts` |
+| `tool-schema-registry.ts` | In-memory versioned tool schema registry + compatibility checks + markdown docs generation | Public via `src/index.ts` and `src/tools.ts` |
+| `tool-tier-registry.ts` | Sidecar permission-tier registry and tier-based filter helpers | Public via `src/index.ts` only |
+| `agent-as-tool.ts` | Internal helper for `DzupAgent.asTool()` | Internal (imported by `src/agent/dzip-agent.ts`) |
 
 ## Runtime and Control Flow
 ### `createForgeTool` compatibility path
-1. Consumers import `createForgeTool` from `@dzupagent/agent`.
-2. `src/tools/create-tool.ts` forwards directly to `@dzupagent/core`.
-3. Runtime behavior (validation/serialization) is owned by `@dzupagent/core`, not this folder.
+1. Caller imports `createForgeTool` from `@dzupagent/agent` or `@dzupagent/agent/tools`.
+2. `src/tools/create-tool.ts` forwards directly to `@dzupagent/core/tools`.
+3. Validation/execution semantics are owned by `@dzupagent/core/tools`, not this folder.
 
-### Human contact tool flow (`createHumanContactTool`)
-1. Caller creates the tool with optional `defaultChannel`, `pendingStore`, and `onPause`.
-2. Tool invocation validates input against the Zod schema (`mode`, optional `question/context/channel/timeoutHours/fallback/data`).
-3. A `contactId` is generated (`randomUUID`), channel is resolved (`input.channel` -> `defaultChannel` -> `'in-app'`), and timeout is converted into an ISO timestamp when set.
-4. `buildRequest(...)` maps mode-specific fields into a `HumanContactRequest`.
-5. A `PendingHumanContact` is saved through `PendingContactStore`.
-6. `onPause` is called when provided.
-7. Tool returns a JSON string containing `contactId`, `status: "pending"`, channel, and a `resumeWith` URL template.
+### `createHumanContactTool` flow
+1. Factory resolves dependencies from config:
+- `pendingStore` defaults to `InMemoryPendingContactStore`.
+- `defaultChannel` defaults to `'in-app'`.
+2. Tool invocation validates input through Zod schema (`mode`, optional `question`, `context`, `channel`, `timeoutHours`, `fallback`, `data`).
+3. Runtime values are created:
+- `contactId` via `randomUUID()`.
+- `runId` currently hardcoded as `'unknown'`.
+- channel resolved as `input.channel ?? defaultChannel`.
+- `timeoutAt` computed from `timeoutHours` when present.
+4. `buildRequest(...)` maps mode-specific request payloads (`approval`, `clarification`, `input_request`, `escalation`, or passthrough custom type).
+5. A `PendingHumanContact` object is created with resume token and saved to store.
+6. Optional `onPause(contactId, request)` callback is awaited.
+7. Tool returns a JSON string with `contactId`, `status: 'pending'`, channel, message, and a resume endpoint template.
 
-Current implementation details:
+### Permission-tier filtering flow
+1. Tools can be tagged with required tier via `setToolTier(tool, tier)`.
+2. Required tiers are stored in a module-private `WeakMap` (no tool mutation).
+3. Untagged tools resolve to `DEFAULT_TOOL_TIER` (`'read-only'`).
+4. `filterToolsByTier(tools, agentTier)` keeps tools where `tierSatisfies(agentTier, requiredTier)`.
+5. `DzupAgent` applies this filter in `getTools()` so both configured tools and middleware-provided tools are gated.
+6. `emitToolFilterAudit(...)` in `agent-construction.ts` emits `agent:tools-filtered` telemetry (counts and filtered names) when an event bus is configured.
 
-- `runId` is currently hardcoded as `'unknown'` inside the tool.
-- User-profile channel preference resolution is documented as a future step and is not implemented.
-
-### Agent-as-tool flow (`agentAsTool`)
-1. `DzupAgent.asTool()` calls `agentAsTool({ id, description, generate })`.
+### `agentAsTool` flow
+1. `DzupAgent.asTool()` passes `{ id, description, generate }` to `agentAsTool(...)`.
 2. `agentAsTool` dynamically imports `zod`, `@langchain/core/tools`, and `HumanMessage`.
-3. The produced tool name is `agent-${id}`.
-4. On invoke, it builds one `HumanMessage` with `task` and optional formatted context block, calls `generate(...)`, and returns `GenerateResult.content`.
+3. It creates a tool named `agent-<id>` with input schema `{ task, context? }`.
+4. On invoke, it builds one `HumanMessage` from task plus optional context block.
+5. It calls `ctx.generate(messages)` and returns `GenerateResult.content`.
 
-### Schema registry flow (`ToolSchemaRegistry`)
-1. `register(entry)` inserts or replaces an entry by `(name, version)` and sorts versions with numeric dot-split comparison.
-2. `get(name, version?)` returns a specific version or latest version.
-3. `checkBackwardCompat(name, oldVersion, newVersion)` compares `inputSchema` trees and reports breaking changes.
-4. `generateDocs()` emits markdown with latest schema per tool and lists all versions when multiple exist.
-
-Compatibility checks currently enforce:
-
-- field removals are breaking
-- type changes are breaking
-- newly added required fields are breaking when the field did not exist in the old schema
-- array item incompatibilities are breaking
+### `ToolSchemaRegistry` flow
+1. `register(entry)` inserts/replaces by `(name, version)` and sorts versions via numeric dot-split semver comparison.
+2. `get(name, version?)` returns explicit version or latest.
+3. `list()` flattens all stored entries.
+4. `checkBackwardCompat(name, oldVersion, newVersion)` recursively checks input schema compatibility and reports breaking changes.
+5. `generateDocs()` renders markdown with latest schema and version list per tool.
 
 ## Key APIs and Types
-### `create-tool.ts`
-- `createForgeTool` (re-export from `@dzupagent/core`)
+`create-tool.ts`:
+- `createForgeTool` (re-export)
 - `ForgeToolConfig` (re-exported type)
 
-### `human-contact-tool.ts`
+`human-contact-tool.ts`:
 - `createHumanContactTool(config?: HumanContactToolConfig): StructuredToolInterface`
-- `HumanContactInput` (inferred from Zod input schema)
+- `HumanContactInput`
 - `HumanContactToolConfig`
 - `PendingContactStore`
 - `InMemoryPendingContactStore`
 
-### `tool-schema-registry.ts`
+`tool-schema-registry.ts`:
 - `ToolSchemaRegistry`
 - `ToolSchemaEntry`
 - `CompatCheckResult`
 
-### `agent-as-tool.ts` (internal)
-- `agentAsTool(ctx: AgentAsToolContext): Promise<StructuredToolInterface>`
+`tool-tier-registry.ts`:
+- `DEFAULT_TOOL_TIER`
+- `setToolTier(tool, tier)`
+- `getToolTier(tool)`
+- `filterToolsByTier(tools, agentTier)`
+
+`agent-as-tool.ts` (internal):
 - `AgentAsToolContext`
+- `agentAsTool(ctx): Promise<StructuredToolInterface>`
 
 ## Dependencies
-Direct dependencies used by this folder:
-
+Direct dependencies used in this folder:
 - `@langchain/core/tools` (`tool`, `StructuredToolInterface`)
-- `@langchain/core/messages` (`HumanMessage` via dynamic import in `agent-as-tool.ts`)
-- `zod` (schema definitions)
-- `node:crypto` (`randomUUID` for contact and resume tokens)
-- `@dzupagent/core`
-  - `createForgeTool` and `ForgeToolConfig` re-export source
-  - human-contact domain types (`ContactType`, `ContactChannel`, `HumanContactRequest`, `PendingHumanContact`)
+- `@langchain/core/messages` (`HumanMessage` in `agent-as-tool.ts` dynamic import)
+- `zod` (input schemas and inferred types)
+- `node:crypto` (`randomUUID`)
+- `@dzupagent/core/tools`
+  - `createForgeTool` and `ForgeToolConfig`
+  - contact-domain types (`ContactType`, `ContactChannel`, `HumanContactRequest`, `PendingHumanContact`)
+  - permission-tier helpers/types (`PermissionTier`, `tierSatisfies`)
+- internal utility `../utils/exact-optional.js` (`omitUndefined`)
 
-Package-level context (`packages/agent/package.json`):
-
-- peer deps include `@langchain/core`, `@langchain/langgraph`, and `zod`
-- `@dzupagent/core` is a direct dependency, which is required for `createForgeTool` re-export and human-contact types
+Package-level contract (`packages/agent/package.json`):
+- direct dependency on `@dzupagent/core`
+- peer dependencies include `@langchain/core`, `@langchain/langgraph`, and `zod`
 
 ## Integration Points
-1. Package root exports.
-- `src/index.ts` exports `createForgeTool`, `createHumanContactTool`, `InMemoryPendingContactStore`, and `ToolSchemaRegistry` from this folder.
+1. Public package exports.
+- `src/index.ts` exports all public tools from this folder, including the tier registry.
+- `src/tools.ts` exports `createForgeTool`, human-contact tool/store/types, and `ToolSchemaRegistry` (does not export tier-registry helpers).
 
-2. Agent runtime exposure.
-- `DzupAgent.asTool()` delegates to `agentAsTool(...)` in this folder.
-- Supervisor orchestration paths rely on `asTool()` to expose specialist agents as tools.
+2. `DzupAgent` runtime.
+- `asTool()` delegates to `agentAsTool`.
+- private `getTools()` applies `filterToolsByTier(...)` against resolved tool list.
 
-3. Tool loop argument validation.
-- `src/agent/tool-loop.ts` attempts to extract JSON-schema-like shapes from tool schemas for validation/repair.
-- Commented behavior explicitly accounts for schemas from `createForgeTool` or raw JSON-schema-like objects.
+3. Agent constructor audit telemetry.
+- `emitToolFilterAudit(...)` computes allowed vs filtered tools and emits `agent:tools-filtered` on configured event bus.
 
-4. Mailbox tool design alignment.
-- `src/mailbox/mail-tools.ts` follows the same LangChain structured tool factory pattern and references `createHumanContactTool` in comments, but is a separate module.
+4. Orchestration layer usage.
+- supervisor/orchestrator paths use `specialist.asTool()`; resulting tools flow through the same adaptation logic in this module.
+
+5. Mailbox tool design alignment.
+- `src/mailbox/mail-tools.ts` follows the same structured-tool factory style and references `createHumanContactTool` in comments, but remains a separate subsystem.
 
 ## Testing and Observability
-Current tests in this package exercise tool behavior as follows:
+Test coverage in this package includes:
 
-1. `createForgeTool` behavior (`src/__tests__/create-tool-deep.test.ts`).
-- string passthrough
-- JSON serialization of object outputs
-- output schema validation success/failure
-- `toModelOutput` override
-- error propagation
-
-2. `ToolSchemaRegistry` behavior (`tool-schema-registry.test.ts`, `tool-schema-registry-deep.test.ts`).
-- register/get/list semantics
-- version sorting and replacement
-- compatibility outcomes for removals, type changes, required-field additions, and arrays
-- docs generation content and ordering
-
-3. `createHumanContactTool` behavior (`src/tools/human-contact-tool.test.ts`).
-- mode-specific request shaping
+1. `src/tools/human-contact-tool.test.ts`.
+- mode shaping for approval/clarification/input_request/escalation/custom
 - channel fallback behavior
-- timeout/default handling
-- pending-store CRUD behavior
-- `onPause` invocation and error propagation
-- response payload metadata (`status`, `resumeWith`, etc.)
+- timeout/expiresAt handling
+- pending store save/get/delete behavior
+- `onPause` success/failure behavior
+- response payload shape (`status`, `contactId`, `resumeWith`, etc.)
 
-4. `agentAsTool` behavior through `DzupAgent.asTool()` tests (`src/__tests__/dzip-agent.test.ts`) and supervisor orchestration tests.
+2. `src/__tests__/tool-schema-registry.test.ts` and `src/__tests__/tool-schema-registry-deep.test.ts`.
+- register/get/list semantics
+- version replacement and ordering
+- compatibility failure cases (field removal, type changes, required additions, arrays)
+- docs generation behavior
+
+3. `src/__tests__/tool-tier-filtering.test.ts`.
+- default tier behavior for untagged tools
+- non-mutation guarantee (no `requiredTier` property on tool instance)
+- filtering behavior across `read-only`, `workspace-write`, `full-access`
+- `DzupAgent` integration and `agent:tools-filtered` event payload assertions
+- middleware-provided tool filtering coverage
+
+4. `src/__tests__/create-tool-deep.test.ts` and `src/__tests__/dzip-agent.test.ts`.
+- `createForgeTool` behavior through re-export path
+- `DzupAgent.asTool()` behavior via internal adapter path
 
 Observability characteristics:
-
-- No dedicated logger/metrics hooks are emitted from this folder.
-- `human_contact` returns structured JSON payloads suitable for external telemetry pipelines.
-- `ToolSchemaRegistry` is in-memory only; no persistence or event stream is emitted by default.
+- module itself does not emit logs/metrics directly
+- `human_contact` returns structured JSON suitable for external telemetry capture
+- permission-tier filtering has explicit audit event integration via `emitToolFilterAudit`
+- registry/store implementations in this folder are in-memory only by default
 
 ## Risks and TODOs
-1. `human-contact-tool.ts` currently hardcodes `runId = 'unknown'`.
-- Resume URLs include this placeholder, so production wiring must inject real run identity outside this module or extend the API.
+1. `runId` placeholder in human contact tool.
+- `human-contact-tool.ts` currently uses `runId = 'unknown'`; resume endpoint text therefore contains placeholder run IDs unless upstream wiring injects context.
 
-2. Human channel preference step is not implemented.
-- The comments describe a user-profile preference stage, but channel resolution currently only uses input override and config default.
+2. Channel preference chain is intentionally incomplete.
+- file comments mention user-profile preference resolution, but implementation currently resolves only `input.channel` then `defaultChannel`.
 
-3. Default pending-contact store is process-local memory.
-- `InMemoryPendingContactStore` has no TTL sweeper, durability, or cross-process coordination.
+3. Default pending store is process-local and non-durable.
+- `InMemoryPendingContactStore` has no persistence, TTL sweeper, or cross-process synchronization.
 
-4. `ToolSchemaRegistry` version ordering is simple numeric dot-split.
-- It does not implement full semver prerelease/build semantics.
+4. Schema compatibility is limited to input schema and simplified semver parsing.
+- `checkBackwardCompat(...)` ignores output schema.
+- version ordering uses numeric dot-split logic and does not model prerelease/build semver semantics.
 
-5. Compatibility checks target input schemas only.
-- `checkBackwardCompat` does not evaluate output schema compatibility.
+5. Tool tier metadata is process-local.
+- tier tags exist only in runtime memory (`WeakMap`) and are not serialized or persisted across process boundaries.
 
-6. `createForgeTool` behavior is delegated.
-- This package’s tests cover the behavior through the re-export, but implementation ownership is in `@dzupagent/core`; changes there can alter behavior without edits in this folder.
+6. `createForgeTool` implementation ownership is external.
+- behavior can change via `@dzupagent/core/tools` updates without edits inside `packages/agent/src/tools`.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 

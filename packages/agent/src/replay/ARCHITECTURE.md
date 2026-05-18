@@ -1,165 +1,174 @@
 # Replay Architecture
 
 ## Scope
-This document covers `packages/agent/src/replay` in `@dzupagent/agent`.
+This document describes the replay subsystem implemented in `packages/agent/src/replay`.
 
-Included modules:
+Primary files in scope:
 - `replay-types.ts`
 - `trace-capture.ts`
 - `replay-engine.ts`
 - `replay-controller.ts`
 - `replay-inspector.ts`
 - `trace-serializer.ts`
-- `index.ts` (replay barrel)
+- `index.ts`
+
+Related integration files referenced for boundary/context:
+- `src/replay.ts` (public subpath entrypoint for `@dzupagent/agent/replay`)
+- `src/observability/trace-ui/index.ts`, `src/observability/trace-ui/types.ts`, `src/observability/trace-ui/utils.ts` (internal trace UI helpers consuming replay types)
+- `src/__tests__/replay-debugger.test.ts`, `src/__tests__/playground-ui-utils.test.ts` (verification)
 
 Out of scope:
-- Server-side run trace persistence (`@dzupagent/server`)
-- Playground app composables outside this package
-- Snapshot internals in `src/snapshot/*` except where replay consumes `stateSnapshot` fields
+- Persistence and storage services outside this module (for example server-side run archival)
+- Snapshot generation internals outside replay (replay only consumes `stateSnapshot` fields when present)
+- Product UI rendering (this package keeps trace UI helpers rendering-independent)
 
 ## Responsibilities
-The replay subsystem provides an in-memory debugging workflow for agent runs:
-- Capture `DzupEventBus` traffic into a normalized `ReplayEvent[]` stream.
-- Convert a captured trace into one or more navigable `ReplaySession`s.
-- Control playback (play/pause/step/seek/reset) with breakpoint support.
-- Build analysis artifacts (timeline, state diffs, summaries, per-node metrics).
-- Serialize/deserialize traces for storage or sharing, including optional field redaction.
+The replay subsystem provides an in-process trace debugging pipeline for agent runs:
+- Capture `DzupEventBus` traffic as normalized `ReplayEvent` records.
+- Optionally attach periodic cloned state snapshots during capture.
+- Build isolated replay sessions from captured traces.
+- Drive VCR-style playback with speed control, stepping, seeking, and breakpoints.
+- Provide inspection outputs for timelines, state diffs, filtering/search, node metrics, and summary rollups.
+- Serialize/deserialize traces in shareable formats, with optional redaction.
 
 ## Structure
-### Types and contracts
-- `replay-types.ts` defines shared contracts used by all replay classes:
-  - `ReplayEvent`, `Breakpoint`, `ReplayStatus`, `ReplaySession`
-  - `TraceCaptureConfig`, `CapturedTrace`
-  - `StateDiffEntry`, `TimelineNode`, `TimelineData`
-  - `SerializationFormat`, `SerializeOptions`
-
-### Capture
-- `TraceCapture` subscribes to `DzupEventBus.onAny` and appends replay events.
-- Config defaults:
-  - `snapshotInterval: 10`
-  - `maxEvents: 10_000`
-- Supports include/exclude event-type filters with `*` suffix prefix matching.
-
-### Session lifecycle
-- `ReplayEngine` stores sessions in an in-memory `Map<string, ReplaySession>`.
-- Session IDs are generated as `replay_<timestamp>_<counter>`.
-- `createSession()` copies trace events into session-local state (`currentIndex`, `status`, `speed`, `breakpoints`).
-
-### Playback
-- `ReplayController` mutates a provided `ReplaySession` and exposes:
-  - Event callbacks (`onEvent`)
-  - Breakpoint callbacks (`onBreakpointHit`)
-  - Status callbacks (`onStatusChange`)
-- Uses `AbortController` to stop in-flight timed playback.
-
-### Analysis
-- `ReplayInspector` reads a `ReplaySession` and computes:
-  - UI timeline (`getTimeline`)
-  - Snapshot-based diffs (`getStateDiff`)
-  - Search helpers (`findEventsByType`, `findEventsByNode`, `findErrors`, `findRecoveryAttempts`)
-  - Node metrics (`getNodeMetrics`)
-  - Session summary (`getSummary`)
-
-### Serialization
-- `TraceSerializer` supports `json`, `json-compact`, and `binary`.
-- Binary format is `FGTRACE` (7-byte magic) + version byte (`1`) + gzip-compressed JSON payload.
-- Includes `sanitize()` for key-pattern redaction across event data, state snapshots, and trace metadata.
+- `replay-types.ts`
+- Defines shared contracts: `ReplayEvent`, `Breakpoint`, `ReplaySession`, `CapturedTrace`, `TimelineData`, `StateDiffEntry`, and serialization options.
+- `trace-capture.ts`
+- `TraceCapture` subscribes to `DzupEventBus.onAny`, filters event types, extracts `nodeId` from common payload shapes (`nodeId` or `toolName`), optionally snapshots state, and enforces bounded retention (`maxEvents`) with reindexing.
+- `replay-engine.ts`
+- `ReplayEngine` stores sessions in memory (`Map<string, ReplaySession>`), generates IDs (`replay_<timestamp>_<counter>`), and manages create/get/list/delete/clear.
+- `replay-controller.ts`
+- `ReplayController` mutates one `ReplaySession` and exposes callback subscriptions for event hits, breakpoint hits, and status transitions. It owns playback control and breakpoint operations.
+- `replay-inspector.ts`
+- `ReplayInspector` computes timeline and summary aggregates, state diffs, event filtering, and per-node metrics.
+- `trace-serializer.ts`
+- `TraceSerializer` handles `json`, `json-compact`, and binary (`FGTRACE` + version byte + gzip payload) formats, plus recursive key-based redaction.
+- `index.ts`
+- Replay barrel re-exporting replay classes/types and controller callback types.
 
 ## Runtime and Control Flow
-1. `TraceCapture.start(runId, agentId?)` begins bus subscription.
-2. Each bus event is filtered, normalized (`type` + `data`), optionally snapshotted, and appended.
-3. If `maxEvents` is exceeded, oldest events are dropped and remaining events are reindexed.
-4. `TraceCapture.stop()` returns a `CapturedTrace` with schema `1.0.0`, timestamps, config, and events.
-5. `ReplayEngine.createSession(trace, options?)` creates a paused session at `currentIndex = -1`.
-6. `ReplayController` drives navigation:
-   - `play()` advances according to timestamp deltas and `speed`, capped to 2000ms per hop.
-   - `step()`/`stepBack()` move one event at a time.
-   - `seekTo(index)` jumps to a specific event.
-   - `reset()` returns to pre-first-event position.
-7. During playback, breakpoints are checked in-session and can pause execution.
-8. `ReplayInspector` derives timeline/summary/diff views from captured session events.
-9. `TraceSerializer` can persist the trace in selected format, optionally sanitized.
+1. A caller constructs `TraceCapture` with a `DzupEventBus` and optional partial `TraceCaptureConfig`.
+2. `start(runId, agentId?)` resets internal state and subscribes to all bus events.
+3. Each event passes include/exclude matching (`*` suffix prefix support), is normalized into a `ReplayEvent`, and may receive a `stateSnapshot` every `snapshotInterval` events when `stateProvider` is set.
+4. If retention exceeds `maxEvents`, oldest entries are dropped and remaining entries are reindexed from zero.
+5. `stop()` unsubscribes and returns a `CapturedTrace` (`schemaVersion: '1.0.0'`) including run metadata, timestamps, capture config, and event list.
+6. `ReplayEngine.createSession(trace, options?)` copies trace events into a new paused session (`currentIndex = -1`, default `speed = 1`).
+7. `ReplayController` drives session movement:
+- `play()` advances from current index, waits by timestamp delta / speed (delay capped at 2000ms), emits event callbacks, checks breakpoints, and stops at pause/completion.
+- `step()`, `stepBack()`, `seekTo()`, and `reset()` support manual navigation.
+- Status transitions are emitted through `onStatusChange`.
+8. During replay, breakpoint matching supports:
+- `event-type` exact type match
+- `node-id` exact node ID match
+- `error` when `event.data.error` or `event.data.message` exists
+- `condition` user predicate
+9. `ReplayInspector` derives timeline nodes, cost/token aggregates, error/recovery counts, node metrics, event-type counts, and state diffs.
+10. `TraceSerializer` can export/import traces and optionally sanitize sensitive keys in `event.data`, snapshots, and metadata.
 
 ## Key APIs and Types
-### Public classes
 - `TraceCapture`
-  - `setStateProvider(provider)`
-  - `start(runId, agentId?)`
-  - `stop(): CapturedTrace`
-  - `isCapturing()`, `peek()`, `eventCount`
-- `ReplayEngine`
-  - `createSession(trace, options?)`
-  - `getSession(id)`, `listSessions()`, `deleteSession(id)`, `clear()`, `sessionCount`
-- `ReplayController`
-  - Callbacks: `onEvent`, `onBreakpointHit`, `onStatusChange`
-  - Playback: `play`, `pause`, `step`, `stepBack`, `seekTo`, `reset`
-  - Breakpoints: `addBreakpoint`, `removeBreakpoint`, `toggleBreakpoint`, `clearBreakpoints`
-  - State/session: `getState(index)`, `getSession()`, `setSpeed(speed)`
-- `ReplayInspector`
-  - `getTimeline()`, `getStateDiff()`, `getStateAt()`
-  - `findEventsByType()`, `findEventsByNode()`, `findErrors()`, `findRecoveryAttempts()`
-  - `getNodeMetrics()`, `getSummary()`
-- `TraceSerializer`
-  - `serialize(trace, options)`
-  - `deserialize(buffer, format?)`
-  - `sanitize(trace, additionalRedactFields?)`
+- `setStateProvider(provider)`
+- `start(runId, agentId?)`
+- `stop(): CapturedTrace`
+- `isCapturing()`, `peek()`, `eventCount`
 
-### Important type semantics
+- `ReplayEngine`
+- `createSession(trace, options?)`
+- `getSession(sessionId)`, `listSessions()`, `deleteSession(sessionId)`, `clear()`, `sessionCount`
+
+- `ReplayController`
+- Callback subscriptions: `onEvent`, `onBreakpointHit`, `onStatusChange`
+- Playback: `play`, `pause`, `step`, `stepBack`, `seekTo`, `reset`
+- Breakpoints: `addBreakpoint`, `removeBreakpoint`, `toggleBreakpoint`, `clearBreakpoints`
+- Session utilities: `getState(index)`, `getSession()`, `setSpeed(speed)`
+
+- `ReplayInspector`
+- Timeline/state: `getTimeline()`, `getStateDiff(fromIndex, toIndex)`, `getStateAt(index)`
+- Search/filter: `findEventsByType`, `findEventsByNode`, `findErrors`, `findRecoveryAttempts`
+- Metrics/summary: `getNodeMetrics()`, `getSummary()`
+
+- `TraceSerializer`
+- `serialize(trace, options)`
+- `deserialize(data, format?)`
+- `sanitize(trace, additionalRedactFields?)`
+
+Important type semantics:
 - `ReplaySession.currentIndex = -1` means "before first event".
-- `ReplayStatus`: `'paused' | 'playing' | 'stepping' | 'completed'`.
-- Breakpoint types: `'event-type' | 'node-id' | 'condition' | 'error'`.
-- `CapturedTrace.schemaVersion` is fixed to `'1.0.0'`.
+- `ReplayStatus` is `'paused' | 'playing' | 'stepping' | 'completed'`.
+- `Breakpoint.type` is `'event-type' | 'node-id' | 'condition' | 'error'`.
+- `CapturedTrace.schemaVersion` is fixed to `'1.0.0'` in this implementation.
+- `TraceCaptureConfig.snapshotInterval = 0` disables snapshots; `maxEvents = 0` means unlimited retention by contract.
 
 ## Dependencies
-### Direct runtime dependencies used by replay code
-- `@dzupagent/core`
-  - `DzupEventBus`, `DzupEvent` (used by `TraceCapture`)
-- Node built-in `node:zlib`
-  - `gzipSync`, `gunzipSync` (used by `TraceSerializer` binary format)
+Direct code dependencies used by replay modules:
+- `@dzupagent/core/events`
+- `DzupEventBus`, `DzupEvent` for event capture subscription.
+- `node:zlib`
+- `gzipSync`, `gunzipSync` for binary trace encoding/decoding.
+- Internal utility: `../utils/exact-optional.js`
+- `omitUndefined` used when materializing replay events/traces and timeline nodes.
 
-### Package-level context
-- `packages/agent/package.json` does not declare replay-specific external runtime libraries beyond package-level dependencies.
-- Replay APIs are exported through:
-  - `src/replay/index.ts`
-  - `src/index.ts` (package root public surface)
+Package-level context from `packages/agent/package.json`:
+- Replay is distributed as a dedicated subpath export (`./replay` -> `dist/replay.js` / `dist/replay.d.ts`).
+- Build entrypoints include `src/replay.ts` via `tsup.config.ts`.
 
 ## Integration Points
-- Package export integration:
-  - `src/index.ts` re-exports replay classes/types so consumers import from `@dzupagent/agent`.
+- Public package surface:
+- Consumers import replay APIs from `@dzupagent/agent/replay` (wired through `src/replay.ts` and `package.json` `exports`).
 
-- Playground UI type integration inside this package:
-  - `src/playground/ui/types.ts` re-exports `TimelineNode`, `TimelineData`, `StateDiffEntry`, `NodeMetrics`, `ReplaySummary` from replay modules.
-  - `src/playground/ui/utils.ts` imports replay types for derived UI formatting/helpers.
-  - `@dzupagent/agent` intentionally keeps this layer rendering-independent; Vue SFCs belong in a consuming UI package unless this package also adds a local Vue lint/type/test gate.
+- Internal cross-module consumption:
+- `src/observability/trace-ui/types.ts` and `src/observability/trace-ui/index.ts` re-export replay contracts for framework-internal trace helpers.
+- `src/observability/trace-ui/utils.ts` uses `TimelineNode`, `NodeMetrics`, and `ReplaySummary` for rendering-independent formatting/tone/summary helpers.
 
 - Test integration:
-  - `src/__tests__/replay-debugger.test.ts` exercises capture -> engine -> controller -> inspector -> serializer flows.
-  - `src/__tests__/playground-ui-utils.test.ts` validates utility logic operating on replay-derived types.
+- `src/__tests__/replay-debugger.test.ts` validates capture, replay engine lifecycle, controller controls/breakpoints, inspector outputs, serializer formats/redaction, and end-to-end flow.
+- `src/__tests__/playground-ui-utils.test.ts` validates trace UI helper behavior that depends on replay timeline/summary contracts.
+
+- Root barrel note:
+- Current `src/index.ts` does not re-export replay APIs; replay is exposed via the dedicated `./replay` subpath.
 
 ## Testing and Observability
-Current test coverage in this package for replay behavior is primarily in:
-- `src/__tests__/replay-debugger.test.ts`
-  - Capture lifecycle and filtering
-  - Session creation/lifecycle
-  - Playback controls and status transitions
-  - Breakpoint behavior (event-type, node-id, error, condition)
-  - State reconstruction and diff behavior
-  - Serialization/deserialization and sanitization
-  - End-to-end workflow test
-- `src/__tests__/playground-ui-utils.test.ts`
-  - Replay-summary/timeline-driven UI helper behavior
+Replay-specific coverage currently present in `packages/agent`:
+- `replay-debugger.test.ts`
+- Event filtering (`includeTypes`/`excludeTypes`), snapshot interval behavior, retention limits, capture lifecycle errors.
+- Session creation defaults/options and in-memory session management.
+- Playback behavior: play/pause/step/stepBack/seek/reset, status transitions, delay/speed behavior.
+- Breakpoint behavior across all breakpoint kinds, including disabled and callback unsubscription behavior.
+- State reconstruction and inspector summary/timeline/diff/event filtering.
+- Serializer format correctness, auto-detect, validation failures, and redaction behavior.
 
-Observability surface in replay itself:
-- Callback hooks on `ReplayController` (`onEvent`, `onBreakpointHit`, `onStatusChange`).
-- `ReplayInspector.getSummary()` and `getTimeline()` produce aggregation views suitable for dashboards or UI overlays.
+- `playground-ui-utils.test.ts`
+- Formatting/tone/density/diff utilities that operate on replay timeline and summary structures.
+
+Observability surfaces in the replay runtime:
+- `ReplayController` callback hooks: `onEvent`, `onBreakpointHit`, `onStatusChange`.
+- `ReplayInspector` rollups (`getTimeline`, `getSummary`, `getNodeMetrics`) for building dashboards/tooling.
+- `TraceCapture.peek()` and `eventCount` for live capture introspection before `stop()`.
 
 ## Risks and TODOs
-- `ReplayController` error breakpoints match any event with `data.error` or `data.message`; events with generic `message` fields may pause unexpectedly.
-- `getState()` and `getStateDiff()` depend on available snapshots; if snapshots are sparse or disabled, reconstruction quality degrades.
-- State diffing is top-level key based, not deep path diffing.
-- `TraceSerializer.validateTrace()` validates top-level structure and schema version, but does not deeply validate each event payload shape.
-- `ReplayEngine` keeps sessions in-memory only; no built-in persistence, retention policy, or concurrency controls across processes.
-- `TraceCapture` reindexes events after retention trimming, so absolute historical indices are not preserved once older events are dropped.
+- `src/replay.ts` comment drift:
+- The file comment states root-barrel backward re-exports, but current root `src/index.ts` does not export replay symbols.
+
+- Error breakpoint broadness:
+- `ReplayController` treats any event with `data.error` or `data.message` as an error breakpoint hit, which can pause on non-error message payloads.
+
+- Snapshot fidelity constraints:
+- `getState()` and inspector diffs rely on available snapshots and merge only snapshot objects; sparse snapshots reduce reconstruction granularity.
+
+- Diff depth:
+- `ReplayInspector.computeDiff` is top-level key based and reports nested object changes as a single modified key.
+
+- Validation strictness:
+- `TraceSerializer.validateTrace()` checks schema version, `runId`, and `events` array shape, but does not deeply validate per-event payload contracts.
+
+- Retention/index semantics:
+- When `maxEvents` is exceeded, older entries are dropped and indices are rewritten, so original absolute event positions are not preserved.
+
+- Session persistence:
+- `ReplayEngine` stores sessions only in-memory; there is no built-in persistence, TTL, or multi-process coordination.
 
 ## Changelog
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 - 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+

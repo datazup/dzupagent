@@ -1,146 +1,160 @@
 # `src/instructions` Architecture
 
 ## Scope
-This document describes `packages/agent/src/instructions` in `@dzupagent/agent` and how it is used by the runtime instruction resolver in `packages/agent/src/agent/instruction-resolution.ts`.
+This document covers `packages/agent/src/instructions` in `@dzupagent/agent` and its runtime usage through `src/agent/instruction-resolution.ts`.
 
-The scope includes:
-- Parsing AGENTS.md text into a typed hierarchy.
-- Discovering AGENTS.md files from the filesystem.
-- Merging static `DzupAgentConfig.instructions` with AGENTS-derived sections.
-- Utility hierarchy discovery/merging helpers exported from the package surface.
+Included:
+- Parsing `AGENTS.md` content into structured section trees.
+- Layer merging for parsed `AGENTS.md` sections.
+- Filesystem discovery/loading of `AGENTS.md` files under a project tree.
+- Rendering merged static + AGENTS-derived instructions into a system prompt.
+- Export surface for these utilities from `src/instructions/index.ts`, `src/index.ts`, and `src/compat.ts`.
 
-Out of scope:
-- Caching, concurrency deduplication, and fallback behavior policy (implemented in `AgentInstructionResolver`).
-- Message preparation/memory wiring (implemented in `DzupAgent`).
+Not included:
+- Resolver cache lifecycle/concurrency coordination beyond how it consumes this module.
+- Message assembly, memory loading, and token summarization logic outside `src/instructions`.
 
 ## Responsibilities
-`src/instructions` is a pure composition layer for instruction content:
-- `parseAgentsMd` converts markdown heading sections into `AgentsMdSection[]` trees.
-- `mergeAgentsMd` merges multiple section layers (later layers override scalar fields; list fields are union-deduped).
-- `discoverAgentsMdHierarchy` discovers AGENTS.md files from optional global dir and cwd ancestors.
-- `loadAgentsFiles` recursively scans a project subtree for AGENTS files and parses each file.
-- `mergeInstructions` renders a final system prompt by combining static instructions with relevant AGENTS sections.
-
-It intentionally does not hold state or emit events.
+`src/instructions` is a stateless instruction-processing layer with four concrete jobs:
+- Parse markdown headings and known fields (`Role`, `Instructions`, `Tools`, `Constraints`) into `AgentsMdSection` trees.
+- Merge multiple parsed layers by `agentId`, with scalar override semantics and deduped union semantics for list fields.
+- Load and parse `AGENTS.md` files from disk (`loadAgentsFiles`) with depth/filename controls and skip rules.
+- Compose final instruction text (`mergeInstructions`) by combining static instructions with rendered AGENTS sections, optionally filtered to one target agent subtree.
 
 ## Structure
-| File | Role |
-| --- | --- |
-| `agents-md-parser.ts` | Core parser plus layer merge (`mergeAgentsMd`) and ancestor/global discovery (`discoverAgentsMdHierarchy`). |
-| `instruction-loader.ts` | Recursive filesystem loader for AGENTS files (`loadAgentsFiles`). |
-| `instruction-merger.ts` | Prompt composer (`mergeInstructions`) and agent-target filtering. |
-| `index.ts` | Local barrel for this module. |
+- `agents-md-parser.ts`
+  - Defines `AgentsMdSection`.
+  - Implements `parseAgentsMd`, `mergeAgentsMd`, and `discoverAgentsMdHierarchy`.
+  - Includes tree-building, field extraction, id normalization, and hierarchical filesystem discovery helpers.
+- `instruction-loader.ts`
+  - Defines `LoadAgentsOptions` and `LoadedAgentsFile`.
+  - Implements `loadAgentsFiles` (recursive walk, skip directories, simple `.gitignore` support, depth sort).
+- `instruction-merger.ts`
+  - Defines `MergedInstructions`.
+  - Implements `mergeInstructions`, plus internal filtering/rendering helpers.
+- `index.ts`
+  - Barrel export for all parser/loader/merger APIs and types.
 
-Related integration files outside this folder:
-- `src/agent/instruction-resolution.ts`: runtime orchestration, caching, and fallback.
-- `src/agent/agent-types.ts`: `instructionsMode` and `agentsDir` config surface.
-- `src/index.ts`: package-level exports for all instruction APIs/types.
+Related runtime files outside this folder:
+- `src/agent/instruction-resolution.ts`: runtime loader/merger orchestration, caching, and static fallback.
+- `src/agent/event-bus-installer.ts`: instantiates `AgentInstructionResolver` from `DzupAgentConfig`.
+- `src/agent/message-preparation.ts`: calls `instructionResolver.resolve()` before building prepared messages.
+- `src/agent/agent-types-config.ts`: owns `instructionsMode` and `agentsDir` config fields.
 
 ## Runtime and Control Flow
-Normal runtime path when `DzupAgent` is configured with `instructionsMode: 'static+agents'`:
-1. `DzupAgent` creates `AgentInstructionResolver` with `agentId`, static `instructions`, mode, and optional `agentsDir`.
-2. `AgentInstructionResolver.resolve()` executes `loadAndMergeInstructions()` on first call and caches the merged result.
-3. `loadAgentsFiles()` scans `agentsDir` (or `process.cwd()`) up to `maxDepth` (default `5`), skipping known heavy dirs and simple `.gitignore` matches.
-4. Each discovered file is parsed via `parseAgentsMd()` into section trees.
-5. Resolver flattens sections from all files and calls `mergeInstructions(static, allSections, agentId, filePaths)`.
-6. `mergeInstructions()` optionally filters to the target agent subtree, renders markdown-like sections, and returns `systemPrompt` + metadata.
-7. Resolver returns the merged `systemPrompt`; subsequent calls reuse cache.
+Main runtime path (`instructionsMode: 'static+agents'`):
+1. `installEventBus(...)` creates `AgentInstructionResolver` with `agentId`, base `instructions`, optional `instructionsMode`, and optional `agentsDir`.
+2. `DzupAgent` uses that resolver from message preparation (`prepareMessages`), which calls `instructionResolver.resolve()`.
+3. First `resolve()` call triggers `loadAndMergeInstructions()` and stores the in-flight promise to dedupe concurrent callers.
+4. `loadAndMergeInstructions()` chooses scan root: `config.agentsDir ?? process.cwd()`.
+5. `loadAgentsFiles(...)` walks the tree (default `maxDepth=5`, default filenames `['AGENTS.md']`), skipping known heavy/hidden directories and simple `.gitignore` segment matches.
+6. Loader parses each file with `parseAgentsMd(...)`; files with zero parsed sections are ignored.
+7. Resolver flattens all `sections` and calls `mergeInstructions(static, allSections, agentId, sourcePaths)`.
+8. `mergeInstructions(...)` optionally filters tree scope to the requested agent context, renders section blocks, and returns `MergedInstructions`.
+9. Resolver caches the merged result and returns `systemPrompt`; later calls return cached output.
 
-Fallback path:
-- Any loader/merge error is caught in resolver and runtime falls back to the static instructions string.
+Fallback behavior:
+- `instructionsMode !== 'static+agents'`: resolver returns static instructions immediately (no file I/O).
+- Any loader/merge error: resolver falls back to static instructions.
+- No AGENTS files discovered: resolver returns static instructions result object.
 
-Standalone utility path:
-- `discoverAgentsMdHierarchy(cwd, globalDir?)` + `mergeAgentsMd(layers)` can be used directly without `loadAgentsFiles()`.
+Standalone utility flow:
+- `discoverAgentsMdHierarchy(...)` + `mergeAgentsMd(...)` are exported for callers that want explicit global/root/cwd layer merging without using `loadAgentsFiles(...)`.
 
 ## Key APIs and Types
-Parser and hierarchy utilities (`agents-md-parser.ts`):
 - `parseAgentsMd(content: string): AgentsMdSection[]`
+  - Parses heading-based agent sections into a tree (`childSections`).
 - `mergeAgentsMd(layers: AgentsMdSection[][]): AgentsMdSection[]`
+  - Merges layers in order; later layers override scalar values when present, list fields are dedupe-unioned.
 - `discoverAgentsMdHierarchy(cwd: string, globalDir?: string): Promise<AgentsMdSection[][]>`
+  - Reads AGENTS layers in order: optional global dir, then filesystem ancestors root -> cwd.
+- `loadAgentsFiles(projectDir: string, options?: LoadAgentsOptions): Promise<LoadedAgentsFile[]>`
+  - Recursively discovers and parses AGENTS files; returns shallowest-first path ordering.
+- `mergeInstructions(staticInstructions, agentsSections, agentId?, sources?): MergedInstructions`
+  - Produces:
+    - `systemPrompt: string`
+    - `agentHierarchy: AgentsMdSection[]`
+    - `sources: string[]`
+
+Primary types:
 - `AgentsMdSection`
   - `agentId: string`
   - `instructions: string`
-  - optional `role`, `tools`, `constraints`, `childSections`
-
-Loader (`instruction-loader.ts`):
-- `loadAgentsFiles(projectDir: string, options?: LoadAgentsOptions): Promise<LoadedAgentsFile[]>`
+  - `role?: string`
+  - `tools?: string[]`
+  - `constraints?: string[]`
+  - `childSections?: AgentsMdSection[]`
 - `LoadAgentsOptions`
   - `maxDepth?: number`
-  - `fileNames?: string[]` (default `['AGENTS.md']`)
+  - `fileNames?: string[]`
 - `LoadedAgentsFile`
   - `path: string`
   - `sections: AgentsMdSection[]`
-
-Merger (`instruction-merger.ts`):
-- `mergeInstructions(staticInstructions, agentsSections, agentId?, sources?): MergedInstructions`
 - `MergedInstructions`
   - `systemPrompt: string`
   - `agentHierarchy: AgentsMdSection[]`
   - `sources: string[]`
 
-Package exports:
-- Re-exported from `src/instructions/index.ts`.
-- Also re-exported from package root `src/index.ts` for consumer imports from `@dzupagent/agent`.
-
 ## Dependencies
-Direct runtime dependencies in this module:
-- Node.js built-ins:
+Direct dependencies inside `src/instructions`:
+- Node built-ins:
   - `node:fs/promises` (`readFile`, `readdir`)
   - `node:path` (`join`, `resolve`, `dirname`)
-- Internal dependency:
-  - `instruction-loader.ts` imports `parseAgentsMd` from `agents-md-parser.ts`.
-  - `instruction-merger.ts` depends on `AgentsMdSection` type.
+  - `node:fs` types (`Dirent`)
+- Internal package links:
+  - `instruction-loader.ts` depends on parser exports from `agents-md-parser.ts`.
+  - `instruction-merger.ts` depends on `AgentsMdSection` type from parser.
 
-Package-level context (`packages/agent/package.json`):
-- This module ships inside `@dzupagent/agent` and relies on the package build/test toolchain (`tsup`, `vitest`, `typescript`).
-- No external runtime libraries are imported directly by files in `src/instructions`.
+Package context from `packages/agent/package.json`:
+- Runtime dependencies are package-level (`@dzupagent/core`, `@dzupagent/context`, etc.), but this folder itself does not import those runtime packages directly.
+- Build/test toolchain for this module is the package standard (`tsup`, `typescript`, `vitest`).
 
 ## Integration Points
-Primary runtime integration:
-- `AgentInstructionResolver` (`src/agent/instruction-resolution.ts`) calls:
-  - `loadAgentsFiles()`
-  - `mergeInstructions()`
-- `DzupAgent` (`src/agent/dzip-agent.ts`) delegates instruction resolution entirely to `AgentInstructionResolver`.
-
-Configuration integration:
-- `DzupAgentConfig` (`src/agent/agent-types.ts`) exposes:
-  - `instructionsMode?: 'static' | 'static+agents'`
-  - `agentsDir?: string`
-
-Package surface integration:
-- `src/index.ts` re-exports all instruction APIs/types, so app/framework consumers can use parser/loader/merger directly.
-
-Notable non-integration:
-- `discoverAgentsMdHierarchy`/`mergeAgentsMd` are currently utility exports and are not used by `AgentInstructionResolver`, which uses `loadAgentsFiles` + `mergeInstructions`.
+- Runtime integration:
+  - `AgentInstructionResolver` (`src/agent/instruction-resolution.ts`) is the main consumer of `loadAgentsFiles` and `mergeInstructions`.
+  - `DzupAgent` consumes resolved instructions through message-preparation coordination.
+- Config integration:
+  - `DzupAgentConfig` (`src/agent/agent-types-config.ts`) defines:
+    - `instructionsMode?: 'static' | 'static+agents'`
+    - `agentsDir?: string`
+- Export integration:
+  - `src/instructions/index.ts` exports parser/loader/merger APIs.
+  - `src/index.ts` re-exports the same instruction APIs at package root.
+  - `src/compat.ts` re-exports `./instructions/index.js` for transitional compatibility consumers.
+- Not currently wired in runtime resolver:
+  - `discoverAgentsMdHierarchy` and `mergeAgentsMd` are available to consumers but not used by `AgentInstructionResolver`.
 
 ## Testing and Observability
-Test coverage in `packages/agent/src/__tests__`:
-- `agents-md-parser.test.ts`
-  - parser behavior, heading normalization, malformed input, deep nesting, merge precedence (`mergeAgentsMd`), and hierarchy discovery (`discoverAgentsMdHierarchy`).
-- `instruction-loader.test.ts`
-  - recursion, `maxDepth`, skip directories, custom filenames, and simple `.gitignore` behavior.
-- `instruction-merger.test.ts`
-  - full render, agent filtering, parent-context retention, and metadata fields.
-- `instruction-resolution.test.ts`
-  - static mode bypass, cache behavior, concurrent load deduplication, and fallback on loader failure.
+Instruction-focused tests:
+- `src/__tests__/agents-md-parser.test.ts`
+  - Parse behavior, normalization, malformed input handling, deep nesting, merge precedence, hierarchy discovery.
+- `src/__tests__/instruction-loader.test.ts`
+  - Recursive loading, `maxDepth`, skip rules, custom filenames, simple `.gitignore` behavior.
+- `src/__tests__/instruction-merger.test.ts`
+  - Static-only behavior, full merge rendering, agent filtering, parent-context inclusion, source metadata.
+- `src/__tests__/instruction-resolution.test.ts`
+  - Static bypass, successful caching, concurrent load dedupe, fallback on loader failure.
 
-Current local verification run:
-- `yarn workspace @dzupagent/agent test src/__tests__/agents-md-parser.test.ts src/__tests__/instruction-loader.test.ts src/__tests__/instruction-merger.test.ts src/__tests__/instruction-resolution.test.ts`
-- Result: 4 test files passed, 82 tests passed.
+Current local validation:
+- Command:
+  - `yarn workspace @dzupagent/agent test src/__tests__/agents-md-parser.test.ts src/__tests__/instruction-loader.test.ts src/__tests__/instruction-merger.test.ts src/__tests__/instruction-resolution.test.ts`
+- Result:
+  - 4 test files passed
+  - 82 tests passed
 
 Observability:
-- `src/instructions` has no logging or event emission.
-- Runtime failures are intentionally swallowed at loader and resolver boundaries; behavior is fail-open to static instructions.
+- `src/instructions` has no direct logging, metrics, or event emission.
+- Operational visibility is indirect through resolver behavior in the agent runtime; many parse/load failures are intentionally silent and degrade to static instructions.
 
 ## Risks and TODOs
-- `.gitignore` support is intentionally minimal in loader (no wildcard/glob semantics); ignored paths may diverge from real Git behavior in complex repos.
-- Loader and resolver catch-and-skip/catch-and-fallback without diagnostics; debugging bad AGENTS content or unreadable files can be opaque.
-- Parser field extraction expects `Field: value` starting at line start; indented/tab-prefixed fields are not recognized as structured fields.
-- Parser CRLF handling is not normalized internally; callers with raw CRLF content may need normalization for consistent field parsing.
-- `mergeInstructions` filtering is exact `agentId` match only; no aliasing/case-flex matching after normalization.
-- `mergeAgentsMd` merges by `agentId` across layers without source provenance in result objects; troubleshooting “which layer won” requires external tracing.
+- Loader `.gitignore` handling is intentionally simplified (no wildcard/glob support), so discovery can diverge from full Git ignore semantics.
+- Loader/read failures are swallowed; resolver-level failures also fall back silently, which reduces diagnostics for operators.
+- Parser field extraction requires unindented `Field: value` lines; tab/space-indented field lines are not interpreted as structured fields.
+- CRLF normalization is not automatic inside parser internals; behavior is most predictable with normalized `\n` input.
+- `mergeInstructions` agent filtering is exact `agentId` equality and does not apply alias/case-flex matching.
+- Render format always uses `###` headings plus indentation for nested sections, so markdown depth semantics are visual rather than heading-level strict.
+- `loadAgentsFiles` depth sort uses `path.split('/')`; behavior is consistent in this Linux-targeted repo but path-separator assumptions are embedded.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.
-- 2026-04-26: updated to match current `src/instructions` code, runtime resolver wiring, and instruction-focused test suite status.
-
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js

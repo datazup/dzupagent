@@ -1,66 +1,78 @@
-# Telemetry Module Architecture (`packages/core/src/telemetry`)
+# Telemetry Architecture (`packages/core/src/telemetry`)
 
 ## Scope
 This document covers the telemetry module in `@dzupagent/core` under `packages/core/src/telemetry`.
 
-Included files:
+Files in scope:
 - `src/telemetry/trace-propagation.ts`
 - `src/telemetry/ARCHITECTURE.md`
 
-Included integration surfaces inside `packages/core`:
-- root exports in `src/index.ts`
-- orchestration facade exports in `src/facades/orchestration.ts`
-- test coverage in `src/__tests__/trace-propagation.test.ts` and `src/__tests__/facade-orchestration.test.ts`
+Adjacent files reviewed to verify integration and publish surface:
+- `src/index.ts`
+- `src/utils.ts`
+- `src/facades/orchestration.ts`
+- `src/__tests__/trace-propagation.test.ts`
+- `src/__tests__/facade-orchestration.test.ts`
+- `package.json`
+- `README.md`
 
 Out of scope:
-- OpenTelemetry SDK setup and exporter wiring
-- telemetry ingestion backends
-- runtime instrumentation in other packages
+- OpenTelemetry SDK wiring or exporters
+- Span lifecycle management
+- Telemetry backends and dashboards
 
 ## Responsibilities
-The module provides lightweight trace context propagation utilities for metadata crossing process boundaries.
+The telemetry module provides lightweight trace-context propagation helpers with no OpenTelemetry runtime coupling.
 
 Current responsibilities:
-- Define a minimal serializable `TraceContext` shape.
-- Generate new trace identifiers when no valid trace context exists.
-- Format a trace context to a `traceparent` string.
-- Parse and validate a `traceparent` string into `TraceContext`.
-- Inject trace data into metadata under `_trace.traceparent`.
-- Extract trace data from metadata and return `TraceContext | null`.
+- Define a serializable trace context contract (`TraceContext`).
+- Generate `traceId` and `spanId` for metadata that does not yet carry valid trace context.
+- Serialize trace context into a W3C-style `traceparent` value.
+- Parse `traceparent` back into typed trace context.
+- Inject trace context into `_trace.traceparent` on metadata.
+- Extract and validate `_trace.traceparent` from metadata.
 
-Explicit non-responsibilities:
-- Span lifecycle management.
-- Metric emission, logging, or tracing exporters.
-- OTel API context management.
+Non-responsibilities in the current implementation:
+- Span creation/closing.
+- Async context propagation across call stacks.
+- Logging, metrics emission, or event publishing.
+- Direct dependency on `@opentelemetry/api` or `@dzupagent/otel`.
 
 ## Structure
-Telemetry is currently a single-file implementation.
+Telemetry is implemented as a single source module.
 
 | File | Purpose | Public exports |
 | --- | --- | --- |
-| `trace-propagation.ts` | Generate, format, parse, inject, and extract trace context in metadata-safe form | `TraceContext`, `formatTraceparent`, `parseTraceparent`, `injectTraceContext`, `extractTraceContext` |
+| `trace-propagation.ts` | Trace context generation, parsing, serialization, metadata injection/extraction | `TraceContext`, `formatTraceparent`, `parseTraceparent`, `injectTraceContext`, `extractTraceContext` |
 
-Internal implementation details:
-- `TRACE_KEY` constant is fixed to `'_trace'`.
-- `generateTraceId()` uses `randomUUID()` with dashes removed.
-- `generateSpanId()` uses the first 16 hex chars of a UUID-without-dashes string.
+Notable internal details:
+- Private metadata key constant: `TRACE_KEY = '_trace'`.
+- `generateTraceId()` uses `randomUUID().replace(/-/g, '')` for a 32-char lowercase hex trace ID.
+- `generateSpanId()` uses `randomUUID().replace(/-/g, '').slice(0, 16)` for a 16-char lowercase hex span ID.
 
 ## Runtime and Control Flow
-Primary inject/extract flow:
-1. Caller provides optional metadata (`Record<string, unknown>`).
-2. `injectTraceContext` first calls `extractTraceContext(metadata)`.
-3. If extraction returns a valid `TraceContext`, `injectTraceContext` returns a shallow copy of metadata without replacing `_trace`.
-4. If extraction fails, `injectTraceContext` generates a new context (`traceId`, `spanId`, `traceFlags: 1`).
-5. `injectTraceContext` returns a new object containing `_trace.traceparent`.
-6. Downstream code can call `extractTraceContext` and recover the parsed context.
+Primary injection path (`injectTraceContext`):
+1. Accepts optional metadata (`Record<string, unknown>`), defaulting to `{}`.
+2. Calls `extractTraceContext(metadata)`.
+3. If an existing valid trace exists, returns a shallow copy of metadata unchanged.
+4. Otherwise generates a new `TraceContext` with `traceFlags: 1`.
+5. Returns a new metadata object that includes `_trace.traceparent` produced by `formatTraceparent`.
+
+Primary extraction path (`extractTraceContext`):
+1. Returns `null` when metadata is absent.
+2. Reads `metadata._trace`; requires it to be an object.
+3. Reads `_trace.traceparent`; requires it to be a string.
+4. Delegates to `parseTraceparent`; returns parsed context or `null`.
 
 `parseTraceparent` flow:
-1. Split incoming string by `-`.
-2. Require at least 4 parts.
-3. Read part indexes `[1]` as `traceId`, `[2]` as `spanId`, `[3]` as flags.
-4. Validate `traceId` as lowercase 32-char hex and `spanId` as lowercase 16-char hex.
-5. Parse flags with base-16 integer conversion.
-6. Return `TraceContext` or `null` on any malformed input.
+1. Splits input by `-`.
+2. Requires at least 4 segments.
+3. Uses segments `[1]`, `[2]`, `[3]` as `traceId`, `spanId`, and flags.
+4. Validates `traceId` (`32` lowercase hex) and `spanId` (`16` lowercase hex).
+5. Parses flags via `parseInt(flagsHex, 16)` and rejects `NaN`.
+6. Returns `TraceContext` on success, `null` otherwise.
+
+Error behavior is fail-soft (`null`), not exception-based.
 
 ## Key APIs and Types
 `TraceContext`:
@@ -69,63 +81,66 @@ Primary inject/extract flow:
 - `traceFlags: number`
 
 `formatTraceparent(ctx: TraceContext): string`:
-- Returns `00-{traceId}-{spanId}-{flagsHex}`.
-- Uses `traceFlags.toString(16).padStart(2, '0')`.
+- Formats as `00-{traceId}-{spanId}-{flags}`.
+- Flags are padded with `toString(16).padStart(2, '0')`.
 
 `parseTraceparent(traceparent: string): TraceContext | null`:
-- Defensive parser.
-- Returns `null` instead of throwing.
+- Parses and validates ID shapes and flag parseability.
+- Returns `null` on malformed inputs.
 
 `injectTraceContext(metadata?: Record<string, unknown>): Record<string, unknown>`:
-- Non-mutating API (returns new object).
-- Idempotent for already valid `_trace.traceparent`.
+- Idempotent for already-valid `_trace.traceparent`.
+- Preserves existing fields.
+- Returns a new object rather than mutating input.
 
 `extractTraceContext(metadata?: Record<string, unknown>): TraceContext | null`:
 - Reads only `_trace.traceparent`.
-- Returns `null` for missing or invalid payloads.
+- Returns `null` for absent/invalid structures.
 
 ## Dependencies
-Direct runtime dependency in telemetry implementation:
+Runtime dependency of this module:
 - Node built-in `node:crypto` (`randomUUID`).
 
-Package-level context (from `packages/core/package.json`):
-- No direct telemetry dependency on `@langchain/*`, `zod`, or other optional peers.
-- Telemetry utilities are plain TypeScript + Node standard library.
+Package-level dependency context:
+- No telemetry-specific external npm package is required for this module.
+- `@dzupagent/core` package dependencies are broader, but trace propagation is intentionally standalone.
 
 ## Integration Points
-Exports and entrypoints:
-- Root package export path `@dzupagent/core` exposes telemetry utilities via `src/index.ts`.
-- Orchestration facade export path `@dzupagent/core/orchestration` exposes the same telemetry utilities via `src/facades/orchestration.ts`.
-- `@dzupagent/core/stable` reaches telemetry indirectly through facade namespace exports.
+Export and consumption surfaces in `@dzupagent/core`:
+- Main barrel re-export in `src/index.ts`.
+- Utility facade re-export in `src/utils.ts`.
+- Orchestration facade re-export in `src/facades/orchestration.ts`.
 
-Current in-package usage:
-- No non-test runtime module in `src/` imports telemetry utilities directly.
-- Integration is currently API-surface exposure plus test verification.
+Published entry points from `package.json` exports:
+- `@dzupagent/core` (via `.`) includes telemetry helpers through the main barrel.
+- `@dzupagent/core/utils` includes telemetry helpers through the utils facade.
+- `@dzupagent/core/orchestration` includes telemetry helpers through orchestration facade.
+
+Current in-package call sites:
+- No non-test runtime module in `packages/core/src` currently invokes these telemetry helpers directly.
+- The module is presently an exported utility used through external consumers and validated by tests.
 
 ## Testing and Observability
-Telemetry-focused tests:
-- `src/__tests__/trace-propagation.test.ts` covers:
-  - valid and invalid parse cases
-  - format behavior
-  - inject idempotency and immutability
-  - inject/extract round-trips
-  - JSON serialization round-trip safety
+Tests covering telemetry module behavior:
+- `src/__tests__/trace-propagation.test.ts` covers formatting/parsing and round-trip behavior.
+- `src/__tests__/trace-propagation.test.ts` covers malformed input handling.
+- `src/__tests__/trace-propagation.test.ts` covers metadata immutability and idempotency.
+- `src/__tests__/trace-propagation.test.ts` covers generated trace value shape and uniqueness.
+- `src/__tests__/trace-propagation.test.ts` covers JSON serialization round-trip scenario.
+- `src/__tests__/facade-orchestration.test.ts` verifies telemetry helpers through the `orchestration` facade export surface.
 
-Facade exposure tests:
-- `src/__tests__/facade-orchestration.test.ts` validates telemetry exports and behavior through `../facades/orchestration.js`.
-
-Observability status of this module:
-- No internal metrics, logs, or events emitted by telemetry helpers.
-- Module provides correlation payload only; observability execution is delegated to upstream/downstream systems.
+Observability behavior of this module itself:
+- No logs, metrics, or events emitted.
+- Designed as trace-context payload utility for callers that implement observability pipelines.
 
 ## Risks and TODOs
-- `parseTraceparent` accepts strings with more than 4 dash-separated segments because it checks only `parts.length < 4`.
-- Parser does not validate or enforce `version` segment semantics.
-- Parser accepts any parseable hex flags length, not strictly two hex chars.
-- `formatTraceparent` does not constrain `traceFlags` to one byte.
-- Only `traceparent` is modeled; no `tracestate`/baggage handling.
-- Telemetry remains helper-only in this package (no direct production call sites in `packages/core/src` outside export surfaces).
+Current limitations visible from code/tests:
+- `parseTraceparent` accepts strings with more than 4 segments (`parts.length < 4` guard only).
+- The traceparent version segment is not validated beyond position.
+- Trace flag parsing accepts variable-length hex and does not enforce one-byte bounds.
+- `formatTraceparent` does not clamp `traceFlags` to `0x00..0xff`.
+- Only `traceparent` is modeled; no `tracestate` or baggage support.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 

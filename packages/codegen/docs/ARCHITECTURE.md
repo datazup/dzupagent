@@ -1,177 +1,177 @@
 # @dzupagent/codegen Architecture
 
 ## Scope
-`@dzupagent/codegen` is the DzupAgent package for code-generation runtime primitives and supporting automation workflows. The scope in this package includes:
+`@dzupagent/codegen` is the DzupAgent package for code generation runtime primitives, execution isolation helpers, and code-quality/control utilities. The scope in `packages/codegen` includes:
 
-- In-memory and copy-on-write file state (`src/vfs/*`) and workspace abstractions (`src/workspace/*`).
-- LLM-driven generation, incremental edits, and run orchestration (`src/generation/*`, `src/correction/*`, `src/pipeline/*`).
-- Execution backends and isolation layers (`src/sandbox/*`, including Docker, E2B, Fly, K8s, WASM, pool/audit/volumes).
-- Validation, quality, guardrails, conventions, and policy checks (`src/quality/*`, `src/validation/*`, `src/guardrails/*`, `src/conventions/*`).
+- Generation services and orchestration (`src/generation/*`, `src/pipeline/*`, `src/correction/*`, `src/streaming/*`).
+- Virtual file and workspace abstractions (`src/vfs/*`, `src/workspace/*`).
+- Sandbox providers and governance/hardening layers (`src/sandbox/*`, including Docker, E2B, Fly, WASM, K8s, pool, volume, audit, and PTC governance).
+- Guardrails, conventions, validation, and scoring (`src/guardrails/*`, `src/conventions/*`, `src/validation/*`, `src/quality/*`).
 - Code intelligence utilities (`src/repomap/*`, `src/chunking/*`, `src/search/*`, `src/context/*`, `src/contract/*`).
-- Developer workflow helpers for git, CI, review, PR, and migration (`src/git/*`, `src/ci/*`, `src/review/*`, `src/pr/*`, `src/migration/*`).
-- LangChain-compatible tool factories for generation/edit/validation operations (`src/tools/*`).
+- Workflow helpers (`src/git/*`, `src/ci/*`, `src/review/*`, `src/pr/*`, `src/migration/*`).
+- Tool facades for agent/tooling integration (`src/tools/*`, plus `src/tools.ts` export facade).
 
-Out of scope for this package: application-specific product workflows (for example Codev tenancy/workspace policy decisions) that should live in consuming apps.
+Out of scope: app-owned product semantics (for example tenancy/workspace UX and product workflows), which should stay in consuming applications.
 
 ## Responsibilities
-This package is responsible for:
+The package is responsible for:
 
-- Providing a large public TypeScript API from `src/index.ts` (runtime classes, utility functions, and contract types).
-- Running file-generation flows either directly through `ModelRegistry` (`CodeGenService`) or through adapter orchestration (`CodegenRunEngine`).
-- Staging, diffing, patching, and optionally syncing generated code via VFS/workspace/sandbox bridges.
-- Executing validation and repair loops with retry/escalation controls (`PipelineExecutor`, `SelfCorrectionLoop`).
-- Enforcing architecture and coding constraints through convention and guardrail engines.
-- Supplying semantic indexing/search over code chunks using a pluggable `SemanticStore` backend.
-- Exposing composable units for downstream orchestrators rather than one monolithic end-to-end product runtime.
+- Publishing a broad TypeScript API via `src/index.ts` and subpath entrypoints (`/vfs`, `/tools`, `/runtime`, `/compat`).
+- Generating code either directly through `CodeGenService` (ModelRegistry path) or through `CodegenRunEngine` adapter routing.
+- Managing generated code state in memory/workspace abstractions, including snapshots, patching, and checkpointing.
+- Executing phase-based generation flows with dependency ordering, retries, timeout handling, budget checks, and optional guardrail gates.
+- Providing sandbox execution primitives and security configuration helpers used by tools and workspace runners.
+- Exposing reusable review, CI, PR, git, migration, and search primitives for upstream orchestrators.
 
 ## Structure
-Top-level source directories under `src/`:
+Current package layout:
 
-- `adaptation` and `migration`: framework/language adaptation and migration planning helpers.
-- `chunking`, `repomap`, `search`: AST/symbol extraction, import graphing, chunking, semantic search.
-- `ci`, `pr`, `review`, `git`: CI status parsing, PR state transitions, review checks, git tooling.
-- `context`: token budget and context compression strategies.
-- `contract`, `validation`, `quality`: API extraction and quality/validation checks.
-- `conventions`, `guardrails`: convention detection/enforcement and rule-based architecture guardrails.
-- `correction`: iterative evaluate-reflect-fix loop and lesson extraction hooks.
-- `generation`: file generation services, parsing, incremental generation, test generation, adapter-bridge run engine.
-- `pipeline`: phase definitions, execution engine, guardrail gate, budget gate, fix escalation, skill injection.
-- `sandbox`: protocol(s), provider implementations, hardening/security tiers, pooling, auditing, WASM, K8s.
-- `streaming`: stream event types and async stream merge fan-in.
-- `tools`: LangChain tool factories for file edits, generation, validation, tests, preview.
-- `vfs`: virtual filesystem, patch engine, snapshots, checkpoint manager, workspace runner.
-- `workspace`: local/sandboxed workspace adapters and factory.
-- `__tests__`: package tests (83 test files currently matching `src/**/*.test.ts`).
+- `src/index.ts`: main export surface for package consumers.
+- `src/runtime.ts`: runtime-focused facade (generation, sandbox, pipeline, guardrails, quality).
+- `src/tools.ts`: tool and workspace/git facade.
+- `src/vfs.ts`: VFS-specific facade.
+- `src/compat.ts`: transitional facade marked deprecated for future removal.
+- `src/generation`: `CodeGenService`, `CodegenRunEngine`, incremental generation, code-block parsing, test generation.
+- `src/pipeline`: DAG-based pipeline builder/executor, phase conditions, budget gate, guardrail gate, escalation.
+- `src/sandbox`: provider protocols/implementations, security tiers/profiles, hardening, pool, audit, volumes, WASM, K8s, governed PTC.
+- `src/vfs`: `VirtualFS`, copy-on-write VFS, patch engine, snapshots, workspace FS adapters and runner.
+- `src/workspace`: local/sandboxed workspace wrappers and factory.
+- `src/quality`, `src/validation`, `src/guardrails`, `src/conventions`: quality dimensions, import/contract checks, rule engine/reporting, convention detection/enforcement.
+- `src/repomap`, `src/chunking`, `src/search`, `src/context`, `src/contract`: symbol extraction, import graphs, AST chunking, semantic indexing/search, token budgeting, API extraction.
+- `src/git`, `src/ci`, `src/review`, `src/pr`, `src/migration`: workflow assistance modules.
+- `src/__tests__`: package test suite.
 
-Package metadata highlights:
+Build/export shape from `package.json` and `tsup.config.ts`:
 
-- `package.json` exports only the root entry (`dist/index.js`, `dist/index.d.ts`).
-- Runtime dependencies: `@dzupagent/core`, `@dzupagent/adapter-types`.
-- Peer dependencies: `@langchain/core`, `@langchain/langgraph`, `zod`, optional `tree-sitter-wasms` and `web-tree-sitter`.
+- ESM build (`dist/*`) with declaration output.
+- Public export map includes root plus `./vfs`, `./tools`, `./runtime`, and `./compat`.
 
 ## Runtime and Control Flow
-Primary runtime paths in current code:
+Primary control flow paths in current code:
 
-1. `CodeGenService.generateFile(...)`
-- Resolves a model from `ModelRegistry`.
-- Builds a generation prompt from file path, purpose, reference files, and context.
-- Invokes LangChain model messages (`SystemMessage`, `HumanMessage`).
-- Extracts the largest fenced code block and returns token usage via `extractTokenUsage`.
+1. `CodeGenService.generateFile(params, systemPrompt)`
+- Resolves model from `ModelRegistry` (`codegen` tier by default).
+- Builds user prompt from target path, purpose, reference files, and context.
+- Invokes model via LangChain messages and extracts the largest code block.
+- Returns normalized output with token usage and detected language.
 
 2. `CodegenRunEngine.generateFile(...)`
-- If adapter is configured, routes generation through `AgentCLIAdapter.execute(...)`.
-- Emits normalized run/tool events to `DzupEventBus` where configured, including execution-run-id hardening via `requireTerminalToolExecutionRunId`.
-- Falls back to `CodeGenService` when no adapter is present.
+- Uses adapter route when `AgentCLIAdapter` is configured.
+- Streams adapter events, tracks completion/failure, and normalizes generated content.
+- Optionally forwards normalized events to `DzupEventBus`, including execution-run-id checks for tool events.
+- Falls back to `CodeGenService` when adapter is absent and a registry is configured.
 
-3. `PipelineExecutor.execute(...)`
-- Topologically sorts phase configs by dependencies.
-- Applies optional condition checks, budget gate checks, and per-phase skill resolution.
-- Executes each phase with timeout and retry policy (`immediate` or `backoff`).
-- Optionally runs guardrail gate post-phase using caller-provided `buildGuardrailContext`.
-- Returns per-phase status and final state snapshot.
+3. `PipelineExecutor.execute(phases, initialState)`
+- Topologically sorts phases by `dependsOn`.
+- Applies condition checks, optional budget gate, optional skill injection.
+- Executes phase bodies with timeout/retry behavior.
+- Optionally runs guardrail gate per phase when configured.
+- Produces per-phase results and final pipeline status/state.
 
-4. `SelfCorrectionLoop.run(...)`
-- Iterates evaluation -> reflection -> fix with configurable max iterations/cost.
-- Uses injected `CodeEvaluator` and `CodeFixer` implementations.
-- Optionally invokes `ReflectionNode` and `LessonExtractor`.
-- Emits lifecycle callbacks (`onIteration`, `onFixed`, `onExhausted`).
+4. `WorkspaceFactory` + `WorkspaceRunner`
+- `WorkspaceFactory` chooses local vs sandboxed execution based on options and available sandbox backend.
+- `WorkspaceRunner` syncs VFS files into sandbox, runs command, and can sync changed files back.
 
-5. VFS/sandbox execution bridge (`WorkspaceRunner.run(...)`)
-- Materializes VFS snapshot into sandbox via `uploadFiles`.
-- Executes command with timeout options.
-- Optionally syncs changed files back into VFS (`syncBack`).
-
-6. Semantic indexing/search (`CodeSearchService`)
-- Chunks files with AST-aware chunker.
-- Upserts chunks into configured `SemanticStore` collection.
-- Executes query-based and symbol-based searches with metadata filters.
+5. `CodeSearchService`
+- Chunks source using AST-aware chunking.
+- Upserts chunks into a `SemanticStore` collection.
+- Supports query search, symbol search, file removal, and collection reindex.
 
 ## Key APIs and Types
-Representative entry points exported from `src/index.ts`:
+Representative public APIs (from current exports):
 
-- Generation: `CodeGenService`, `CodegenRunEngine`, `GenerateFileParams`, `GenerateFileResult`.
-- Pipeline: `GenPipelineBuilder`, `PipelineExecutor`, `PhaseConfig` variants, `DEFAULT_ESCALATION`, `runGuardrailGate`, `runBudgetGate`.
-- Correction: `SelfCorrectionLoop`, `ReflectionNode`, `LessonExtractor`, `SelfCorrectionConfig`, `CorrectionResult`.
-- VFS/workspace: `VirtualFS`, `CopyOnWriteVFS`, patch helpers, `WorkspaceRunner`, `LocalWorkspace`, `SandboxedWorkspace`, `WorkspaceFactory`.
-  `LocalWorkspace` accepts relative workspace paths only; absolute paths,
-  `..` traversal, symlink escapes, unsafe globs, and command `cwd` escapes are
-  rejected before filesystem or command execution.
-- Sandbox: `SandboxProtocol`, `SandboxProtocolV2`, `createSandbox`, provider classes (Docker/E2B/Fly/Mock/K8s/WASM), security tier/profile helpers.
-- Quality/validation: `QualityScorer`, builtin quality dimensions, import/contract validators, `ConventionGate`.
-- Guardrails: `GuardrailEngine`, `GuardrailReporter`, builtin rule factories.
-- Intelligence/search: `buildRepoMap`, `chunkByAST`, `CodeSearchService`, token-budget helpers.
-- Tooling: `createWriteFileTool`, `createEditFileTool`, `createGenerateFileTool`, `createRunTestsTool`, `createValidateTool`, `createPreviewAppTool`.
-- Workflow helpers: git/PR/CI/review/migration exports.
-- Streaming: `CodegenStreamEvent`, `mergeCodegenStreams`.
+- Generation/runtime:
+  - `CodeGenService`, `CodegenRunEngine`
+  - `GenerateFileParams`, `GenerateFileResult`, `CodegenRunEngineConfig`
+  - `PipelineExecutor`, `GenPipelineBuilder`, `PipelineExecutionResult`
+  - `SelfCorrectionLoop`, `ReflectionNode`, `LessonExtractor`
 
-Notable API reality check:
+- VFS/workspace:
+  - `VirtualFS`, `CopyOnWriteVFS`, `CheckpointManager`
+  - `parseUnifiedDiff`, `applyPatch`, `applyPatchSet`
+  - `WorkspaceRunner`, `InMemoryWorkspaceFS`, `DiskWorkspaceFS`, `GitWorktreeWorkspaceFS`
+  - `LocalWorkspace`, `SandboxedWorkspace`, `WorkspaceFactory`
 
-- `dzupagent_CODEGEN_VERSION` is exported as `'0.2.0'` in `src/index.ts`, matching `package.json`.
+- Sandbox/security:
+  - `createSandbox`, `DockerSandbox`, `E2BSandbox`, `FlySandbox`, `MockSandbox`, `MockSandboxV2`
+  - `SandboxPool` and reset strategies
+  - `TIER_DEFAULTS`, `SECURITY_PROFILES`, hardening helpers
+  - WASM and K8s sandbox exports
+  - PTC governance/tool exports (`createPtcTool`, `checkPtcAccess`, related types)
+
+- Quality/guardrails/validation:
+  - `QualityScorer`, `builtinDimensions`
+  - `ConventionGate`
+  - `GuardrailEngine`, `GuardrailReporter`, builtin guardrail rule factories
+  - `validateImports` (validation path) and import/contract checks in `quality/*`
+
+- Code intelligence and workflow helpers:
+  - `buildRepoMap`, `extractSymbols`, `buildImportGraph`
+  - `chunkByAST`, `CodeSearchService`, `TokenBudgetManager`
+  - git/CI/review/PR/migration utility exports
+
+- Version constant:
+  - `dzupagent_CODEGEN_VERSION` is exported as `'0.2.0'`.
 
 ## Dependencies
-Runtime/internal dependency roles:
+Declared package dependencies and peer dependencies:
 
-- `@dzupagent/core`
-- model registry access, token extraction, backoff utility, skill resolution interfaces, event bus types, sub-agent typing.
-- `@dzupagent/adapter-types`
-- adapter execution contracts for `CodegenRunEngine` adapter path.
-- `@langchain/core`
-- message and tool primitives used by generation/reflection/lesson-extraction and tool factories.
-- `@langchain/langgraph`
-- peer requirement for graph/pipeline usage in consumers (types and orchestration compatibility).
-- `zod`
-- tool and schema validation.
-- `web-tree-sitter` and `tree-sitter-wasms` (optional peers)
-- optional AST parsing improvements for repomap/chunking paths.
+- Runtime dependencies:
+  - `@dzupagent/core`
+  - `@dzupagent/adapter-types`
 
-Build/test toolchain:
+- Peer dependencies:
+  - `@langchain/core`
+  - `@langchain/langgraph`
+  - `zod`
+  - `tree-sitter-wasms` (optional)
+  - `web-tree-sitter` (optional)
 
-- TypeScript + tsup for build output.
-- Vitest (`node` environment) for tests.
-- Coverage threshold config in `vitest.config.ts`: statements 60, branches 50, functions 50, lines 60.
+- Build/test toolchain:
+  - TypeScript + `tsup` (entrypoints: `src/index.ts`, `src/vfs.ts`, `src/tools.ts`, `src/runtime.ts`, `src/compat.ts`)
+  - Vitest (`node` environment)
 
 ## Integration Points
-This package integrates with the rest of DzupAgent and consumers via:
+Current integration seams used by upstream packages/apps:
 
-- Root export surface (`@dzupagent/codegen`) consumed by app/runtime packages.
-- `ModelRegistry` and `SemanticStore` contracts from `@dzupagent/core`.
-- Adapter-driven execution via `AgentCLIAdapter` in `CodegenRunEngine`.
-- Sandbox providers selected by `createSandbox(...)` and used by `WorkspaceRunner` and tooling.
-- Skill resolution seam in pipeline (`SkillRegistry`/`SkillLoader` from core).
-- LangChain tool instances created by `src/tools/*` and `src/git/git-tools.ts`.
-- Optional `DzupEventBus` emission path for agent/tool observability in adapter-based codegen runs.
+- LLM + token accounting contracts from `@dzupagent/core/llm`.
+- Eventing contracts from `@dzupagent/core/events` (`DzupEventBus`, execution-run-id enforcement utilities).
+- Adapter execution contract from `@dzupagent/adapter-types` (`AgentCLIAdapter` and event stream).
+- Semantic indexing/search through core vector-store abstractions (`SemanticStore`).
+- LangChain message/tool ecosystem through `@langchain/core` and package tool factories.
+- Sandbox provider selection/config via `createSandbox` and downstream workspace/tool execution.
 
 ## Testing and Observability
-Testing posture from current package layout/config:
+Testing reality in this package:
 
-- 83 test files under `src/**` (`*.test.ts`) covering VFS, sandbox providers, pipeline, tools, quality, guardrails, generation, correction, git/review, repomap/search, and workspace abstractions.
-- Vitest include patterns: `src/**/*.test.ts`, `src/**/*.spec.ts`.
-- Coverage configured with V8 provider and JSON summary/text reporters.
+- Test runner: Vitest (`vitest run`).
+- Include patterns: `src/**/*.test.ts`, `src/**/*.spec.ts`.
+- Current test file count in `src`: 92.
+- Coverage provider/reporters: V8 with `text` and `json-summary`.
+- Coverage thresholds: statements 60, branches 50, functions 50, lines 60.
 
-Observability hooks currently present:
+Observability hooks:
 
-- `CodegenRunEngine` forwards adapter lifecycle/tool events into `DzupEventBus` when provided.
-- `SelfCorrectionLoop` exposes callback listeners for iteration/fixed/exhausted events.
-- `PipelineExecutor` supports progress callbacks and checkpoints.
-- Streaming module defines typed stream events and a merge utility for multi-source stream fan-in.
+- `CodegenRunEngine` can emit normalized adapter/tool lifecycle events to a provided `DzupEventBus`.
+- `PipelineExecutor` supports `onProgress` and `onCheckpoint` callbacks.
+- `SelfCorrectionLoop` supports lifecycle listeners for iteration/fixed/exhausted events.
+- `streaming/` defines typed stream events and merging helpers for multi-source codegen streams.
 
 ## Risks and TODOs
-Current code-level risks visible in this package:
+Current risks visible from implementation/export shape:
 
-- Version constant drift: `dzupagent_CODEGEN_VERSION` in `src/index.ts` does not match package version.
-- Sandbox lifecycle mismatch risk: `WorkspaceRunner` uploads before execute; E2B/Fly implementations require readiness assertions in `uploadFiles`.
-- API surface complexity: root `index.ts` exports a very large mixed-stability surface, increasing compatibility management overhead.
-- Duplicate import-validation semantics: both `validation/import-validator.ts` and `quality/import-validator.ts` are exported with different result shapes.
-- Documentation drift risk: README examples and generated metadata can diverge from source signatures/runtime behavior.
+- Surface-area risk: root `index.ts` exports a very large mixed-stability API, making compatibility management harder.
+- Dual import-validation paths: both `src/validation/import-validator.ts` and `src/quality/import-validator.ts` are public and can confuse consumers.
+- Transitional API risk: `src/compat.ts` is deprecated but still exported; migration pressure and docs need to stay synchronized.
+- Multi-provider sandbox consistency: lifecycle and capability assumptions differ across Docker/E2B/Fly/WASM/K8s paths.
+- Documentation drift risk: README/generated metadata and architecture docs can diverge from rapidly changing exports.
 
-Concrete TODO candidates:
+TODO candidates for maintainers:
 
-- Align `dzupagent_CODEGEN_VERSION` with `package.json` versioning strategy.
-- Normalize sandbox provider lifecycle semantics (`uploadFiles`/`execute` initialization behavior).
-- Define stricter stability governance for root exports (already partially tracked in `docs/api-tiers.md`).
-- Unify import-validation entry points or document intended split explicitly.
-- Add automated API-example checks to catch doc drift.
+- Define and enforce a stricter stability policy for root exports vs subpath exports.
+- Clarify or consolidate import-validation API split.
+- Continue migration guidance away from `/compat` toward `/vfs`, `/tools`, and `/runtime`.
+- Add stronger automated checks tying docs/examples to exported signatures and versioned entrypoints.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js.
-- 2026-04-26: rewritten from current local implementation in `packages/codegen/src`, `package.json`, `README.md`, and existing package docs.
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

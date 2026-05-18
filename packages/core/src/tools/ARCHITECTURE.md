@@ -1,168 +1,249 @@
 # Tools Module Architecture (`packages/core/src/tools`)
 
 ## Scope
-This document covers the tool primitives implemented in `packages/core/src/tools`:
-- `connector-contract.ts`
-- `create-tool.ts`
-- `tool-stats-tracker.ts`
-- `tool-governance.ts`
-- `human-contact-types.ts`
+This document describes the tools surface in `@dzupagent/core` as implemented in the current local checkout.
 
-Scope is limited to `packages/core` and how these symbols are exported from `src/index.ts`.
+Primary implementation files:
+- `src/tools/connector-contract.ts`
+- `src/tools/create-tool.ts`
+- `src/tools/permission-tier.ts`
+- `src/tools/tool-governance.ts`
+- `src/tools/tool-stats-tracker.ts`
+- `src/tools/human-contact-types.ts`
 
-## Responsibilities
-The module is a shared tool foundation layer, not a full execution runtime. It provides:
-- Canonical connector tool typing and normalization helpers (`BaseConnectorTool`, `isBaseConnectorTool`, `normalizeBaseConnectorTool`, `normalizeBaseConnectorTools`).
-- A LangChain-compatible tool factory with Zod input/output validation (`createForgeTool`).
-- In-memory tool performance tracking and ranking (`ToolStatsTracker`).
-- Policy-style access checks plus audit hooks for tool calls (`ToolGovernance`).
-- Shared request/response type contracts for human-in-the-loop contact workflows (`human-contact-types`).
+Public entrypoints in this package:
+- `src/tools.ts` (subpath barrel used by `@dzupagent/core/tools`)
+- `src/index.ts` (root `@dzupagent/core` barrel that also re-exports tools APIs)
 
-## Structure
-| File | Purpose | Main exports |
-| --- | --- | --- |
-| `connector-contract.ts` | Defines the canonical connector tool shape and structural helpers. | `BaseConnectorTool`, `isBaseConnectorTool`, `normalizeBaseConnectorTool`, `normalizeBaseConnectorTools` |
-| `create-tool.ts` | Builds LangChain `StructuredToolInterface` tools from a typed config. | `createForgeTool`, `ForgeToolConfig` |
-| `tool-stats-tracker.ts` | Tracks tool outcomes in memory and derives ranking/prompt hints. | `ToolStatsTracker`, `ToolCallRecord`, `ToolStats`, `ToolRanking`, `ToolStatsTrackerConfig` |
-| `tool-governance.ts` | Synchronous access checks (blocklist, per-tool rate limit, validator, approval marker) plus optional audit callbacks. | `ToolGovernance`, `ToolGovernanceConfig`, `ToolValidationResult`, `ToolAuditHandler`, `ToolAuditEntry`, `ToolResultAuditEntry`, `ToolAccessResult` |
-| `human-contact-types.ts` | Type-only contracts for human-contact request/response flows. | `ContactType`, `ContactChannel`, request/response unions, `PendingHumanContact` |
-
-## Runtime and Control Flow
-### `ToolGovernance`
-`checkAccess(toolName, input)` applies checks in fixed order:
-1. Blocklist check (`blockedTools`).
-2. Rate-limit check (`rateLimits`) with per-tool in-memory counters and a 60-second window.
-3. Custom validator (`validator`).
-4. Approval marker (`approvalRequired`) returning `{ allowed: true, requiresApproval: true }`.
-5. Default allow.
-
-`audit(entry)` and `auditResult(entry)` forward to `auditHandler` when present. Handler errors are swallowed so auditing is non-fatal.
-
-By default, `auditResult(entry)` forwards the raw `ToolResultAuditEntry.output` value for backwards compatibility. Callers that persist audit records should treat this as raw tool output retention and configure `resultAuditRetention` when raw result bodies are not appropriate:
-- `raw` keeps the current behavior.
-- `metadata-only` replaces `output` with `undefined` and forwards only `outputMetadata` shape data.
-- `redacted` forwards a redacted value, using `resultAuditRedactor` when supplied or a default redaction placeholder otherwise.
-
-### `ToolStatsTracker`
-1. `recordCall(record)` appends a call record by `toolName`.
-2. Per-tool sliding-window eviction keeps only the latest `windowSize` records (default `200`).
-3. `getStats(toolName)` computes aggregate metrics (counts, rates, avg/p95 latency, last-used, grouped top errors).
-4. `getTopTools(limit?, intent?)` ranks tools using:
-   - `score = successRate * successWeight + normalizedSpeed * latencyWeight`
-   - `normalizedSpeed = clamp(1 - avgLatency / maxAvgLatency, 0..1)`
-5. `formatAsPromptHint(limit?, intent?)` renders a ranked, numbered preference list or returns `''` when no data exists.
-
-### `createForgeTool`
-1. Accepts `ForgeToolConfig` with `id`, `description`, `inputSchema`, `execute`, and optional `outputSchema` / `toModelOutput`.
-2. Builds a LangChain tool via `@langchain/core/tools.tool(...)`.
-3. Runtime behavior on invocation:
-   - Executes `config.execute(input)`.
-   - Validates output with `outputSchema.parse(result)` when configured.
-   - Returns `toModelOutput(result)` when provided.
-   - Otherwise returns result as string, or `JSON.stringify(result)` for non-string outputs.
-4. Returns as `StructuredToolInterface` using a compatibility cast documented in code comments.
-
-### `connector-contract`
-- `isBaseConnectorTool(value)` performs structural checks (`id`, `name`, `description`, `schema` key presence, `invoke` function).
-- `normalizeBaseConnectorTool(tool)` defaults blank/missing `id` to `name` and conditionally keeps `toModelOutput`.
-- `normalizeBaseConnectorTools(tools)` maps normalization over an array.
-
-### `human-contact-types`
-This file is type-only. It models request and response contracts for contact modes like `approval`, `clarification`, `input_request`, `escalation`, plus extensible string-based custom modes/channels.
-
-## Key APIs and Types
-### Connector contract
-- `BaseConnectorTool<Input, Output>`: `{ id, name, description, schema, invoke(input, context?), toModelOutput? }`.
-- `BaseConnectorToolExecutionContext`: optional `{ signal?: AbortSignal }` passed by agent runtimes for per-call cancellation.
-- `isBaseConnectorTool(value)`: type guard for structural conformance.
-- `normalizeBaseConnectorTool(...)` / `normalizeBaseConnectorTools(...)`: normalization helpers with `id` fallback.
-
-### Tool factory
-- `ForgeToolConfig<TInput, TOutput>`:
-  - `id`, `description`, `inputSchema`, `execute` required.
-  - `outputSchema`, `toModelOutput` optional.
-- `createForgeTool(config)`: creates a LangChain structured tool wrapper with input/output handling.
-- `execute(input, context)` receives a `ToolExecutionContext` with `signal: AbortSignal`. Tool authors should pass it to cancellable I/O. Existing one-argument tools remain valid; if a tool ignores the signal, agent timeouts still enforce the observable result deadline but cannot stop the underlying operation.
-
-### Cancellation migration notes
-- New or updated tools should accept the execution context and wire `context.signal` into APIs such as `fetch`, subprocess runners, database clients, SDK calls, or polling loops whenever those APIs support cancellation.
-- Connector normalizers preserve the context when wrapping LangChain tools, so framework-created tools can observe run cancellation and per-tool timeout aborts.
-- Tools that cannot honor cancellation should document that they are observational-deadline only: the agent will return a timeout/cancelled result while the underlying side effect may continue externally.
-
-### Governance
-- `ToolGovernanceConfig`:
-  - `blockedTools?: string[]`
-  - `approvalRequired?: string[]`
-  - `rateLimits?: Record<string, number>`
-  - `maxExecutionMs?: number` (declared only; not enforced in this class)
-  - `validator?: (toolName, input) => ToolValidationResult`
-  - `auditHandler?: ToolAuditHandler`
-  - `resultAuditRetention?: 'raw' | 'metadata-only' | 'redacted'` (defaults to `raw`)
-  - `resultAuditRedactor?: (output, entry) => unknown`
-- `ToolAccessResult`: `{ allowed, reason?, requiresApproval? }`.
-- `ToolAuditHandler`: `onToolCall(...)` and optional `onToolResult(...)`.
-
-### Stats
-- `ToolCallRecord`: `{ toolName, success, durationMs, timestamp, intent?, errorType? }`.
-- `ToolStats`: includes `successRate`, `avgDurationMs`, `p95DurationMs`, `lastUsed`, and `topErrors`.
-- `ToolStatsTrackerConfig` defaults:
-  - `windowSize = 200`
-  - `successWeight = 0.7`
-  - `latencyWeight = 0.3`
-
-### Human contact contracts
-- `ContactType` and `ContactChannel` are open unions using `(string & {})` extensibility.
-- `HumanContactRequest` union includes approval/clarification/input/escalation plus generic request.
-- `HumanContactResponse` union includes primary response types plus `timeout`, `late_response`, and generic response.
-- `PendingHumanContact` represents persisted pending state and delivery status.
-
-## Dependencies
-Direct dependencies from `src/tools`:
-- `create-tool.ts` imports:
-  - `@langchain/core/tools` (`tool`, `StructuredToolInterface`)
-  - `zod` types (`z`)
-- Other files (`connector-contract.ts`, `tool-stats-tracker.ts`, `tool-governance.ts`, `human-contact-types.ts`) use only language/runtime primitives.
-
-Package context (`packages/core/package.json`):
-- `@langchain/core` and `zod` are declared as peer dependencies.
-- Build/test uses `tsup`, `typescript`, and `vitest`.
-
-## Integration Points
-- `src/index.ts` re-exports all tool module symbols in the main package entrypoint.
-- `src/advanced.ts` re-exports `src/index.ts`, so tools are available from `@dzupagent/core/advanced`.
-- `src/stable.ts` re-exports only facades, so tools are not available from `@dzupagent/core/stable`.
-- Inside `packages/core`, tool primitives are currently framework building blocks with test-driven usage; there are no additional in-package runtime consumers beyond the module itself and export surface.
-
-## Testing and Observability
-Test coverage present:
+Validation and package context reviewed:
 - `src/__tests__/tool-governance.test.ts`
 - `src/__tests__/tool-stats-tracker.test.ts`
+- `package.json` (subpath export, dependency and peer dependency surface)
+- `README.md` and `docs/ARCHITECTURE.md` (package-level API positioning)
 
-Covered behavior:
-- Governance allow/block/approval/rate-limit/validator paths.
-- Audit invocation and non-fatal audit failure behavior.
-- Rate-limit reset and per-tool separation.
-- Stats empty-state, aggregate metrics, ranking, intent filtering, sliding-window eviction, prompt-hint formatting, error aggregation, reset, and custom weighting.
+Out of scope:
+- Tool execution loops and policy orchestration in other packages (for example `packages/agent` and `packages/codegen`)
+- Connector-specific runtime implementations in `packages/connectors*` and `packages/scraper`
+- Human-contact transport and persistence implementations outside this folder
 
-Not directly tested in dedicated files:
-- `src/tools/create-tool.ts`
-- `src/tools/connector-contract.ts`
-- `src/tools/human-contact-types.ts` (type-only module)
+## Responsibilities
+The `src/tools` module owns shared, reusable primitives for tool definition and governance across the DzupAgent monorepo.
 
-Observability characteristics:
-- `ToolGovernance` exposes push-style audit hooks (`ToolAuditHandler`) but does not own persistence/transport.
-- `ToolStatsTracker` exposes pull-style stats/ranking APIs and emits no events or metrics by itself.
-- Agent lifecycle telemetry distinguishes `tool:cancel_requested` from terminal `tool:error` statuses of `timeout` or `cancelled` where the runtime can infer the cause.
+Current responsibilities:
+- Define the canonical connector tool contract and normalization utilities.
+- Provide a typed factory (`createForgeTool`) that builds LangChain structured tools from Zod input/output schemas.
+- Define the canonical permission-tier vocabulary (`read-only`, `workspace-write`, `full-access`) and comparison helper.
+- Enforce synchronous governance checks (block list, rate limit, validation, approval flag) and provide optional audit hooks.
+- Track in-memory tool outcomes for ranking and prompt-hint generation.
+- Define shared type contracts for human-in-the-loop contact requests, responses, and pending-state records.
+
+## Structure
+`src/tools/connector-contract.ts`:
+- Exports `BaseConnectorTool`, `BaseConnectorToolLike`, and `BaseConnectorToolExecutionContext`.
+- Exports `isBaseConnectorTool` structural guard.
+- Exports normalization helpers: `normalizeBaseConnectorTool` and `normalizeBaseConnectorTools`.
+
+`src/tools/create-tool.ts`:
+- Exports `ForgeToolConfig<TInput, TOutput>`.
+- Exports `ToolExecutionContext` (`signal: AbortSignal`).
+- Exports `createForgeTool(...)` that wraps `@langchain/core/tools.tool(...)` and returns `StructuredToolInterface`.
+
+`src/tools/permission-tier.ts`:
+- Exports `PermissionTier` union type.
+- Keeps numeric ordering private (`TIER_ORDER`).
+- Exports `tierSatisfies(a, b)` for tier comparison.
+
+`src/tools/tool-governance.ts`:
+- Exports config and audit types for tool governance.
+- Exports `ToolGovernance` class with in-memory rate-limit state.
+- Supports result audit retention modes: `raw`, `metadata-only`, `redacted`.
+
+`src/tools/tool-stats-tracker.ts`:
+- Exports call/stat/ranking/config types.
+- Exports `ToolStatsTracker` class using per-tool sliding windows.
+
+`src/tools/human-contact-types.ts`:
+- Exports request/response unions and pending-contact state.
+- Defines extensible `ContactType` and `ContactChannel` unions via `(string & {})`.
+
+Public barrels:
+- `src/tools.ts` re-exports this module’s public API for `@dzupagent/core/tools`.
+- `src/index.ts` mirrors the same tools exports from the root package import path.
+
+Notable export detail:
+- `BaseConnectorToolExecutionContext` is exported from `connector-contract.ts` but is not re-exported by `src/tools.ts` or `src/index.ts`.
+
+## Runtime and Control Flow
+`ToolGovernance.checkAccess(toolName, input)` runs in this fixed order:
+1. Block list check (`blockedTools`).
+2. Per-tool rate-limit check (`rateLimits`, tracked per minute in process memory).
+3. Optional custom validator (`validator`).
+4. Approval flag check (`approvalRequired`) that returns `{ allowed: true, requiresApproval: true }`.
+5. Default allow.
+
+`ToolGovernance.audit(entry)`:
+- Calls `auditHandler.onToolCall(entry)` when configured.
+- Swallows audit handler exceptions (non-fatal by design).
+
+`ToolGovernance.auditResult(entry)`:
+- Applies retention behavior through `prepareResultAuditEntry`.
+- Calls `auditHandler.onToolResult(...)` if present.
+- Swallows audit handler exceptions.
+
+Result audit retention behavior:
+- `raw` (default): forwards original output unchanged.
+- `metadata-only`: sets `output` to `undefined` and attaches metadata (type, object keys, or length).
+- `redacted`: replaces `output` with custom redactor output or `"[REDACTED]"`, and attaches metadata.
+
+`ToolStatsTracker` flow:
+1. `recordCall(record)` appends a call for `toolName`.
+2. If list length exceeds `windowSize` (default `200`), oldest entries are evicted.
+3. `getStats(toolName)` computes totals, success rate, avg latency, p95 latency, last used timestamp, and grouped top errors.
+4. `getTopTools(limit?, intent?)` ranks tools using weighted score:
+   - success component (`successWeight`, default `0.7`)
+   - normalized speed component (`latencyWeight`, default `0.3`)
+5. `formatAsPromptHint(...)` renders a numbered list string for prompt injection.
+
+`createForgeTool(config)` flow:
+1. Builds a LangChain tool with `name`, `description`, and input `schema` from config.
+2. Executes `config.execute(input, { signal })` with runtime signal fallback (`new AbortController().signal`).
+3. Validates output with `outputSchema.parse(result)` when configured.
+4. Returns model output string in this order:
+   - `config.toModelOutput(result)` if provided,
+   - raw string result if already a string,
+   - otherwise `JSON.stringify(result)`.
+
+Connector contract flow:
+- `isBaseConnectorTool` performs structural checks (non-empty `id`, `name`, `description`, presence of `schema`, function `invoke`).
+- `normalizeBaseConnectorTool` ensures `id` is non-empty (`tool.id` or fallback to `tool.name`).
+- `normalizeBaseConnectorTools` maps normalization over arrays.
+
+Human-contact module behavior:
+- `human-contact-types.ts` is type-only and has no runtime logic.
+
+## Key APIs and Types
+Connector contract:
+- `BaseConnectorTool<Input, Output>`
+- `BaseConnectorToolLike<Input, Output>`
+- `BaseConnectorToolExecutionContext`
+- `isBaseConnectorTool(value)`
+- `normalizeBaseConnectorTool(tool)`
+- `normalizeBaseConnectorTools(tools)`
+
+Tool factory:
+- `ForgeToolConfig<TInput, TOutput>`
+- `ToolExecutionContext`
+- `createForgeTool(config): StructuredToolInterface`
+
+Permission tiers:
+- `PermissionTier`
+- `tierSatisfies(currentTier, requiredTier)`
+
+Governance:
+- `ToolGovernanceConfig`
+- `ToolValidationResult`
+- `ToolAuditHandler`
+- `ToolAuditEntry`
+- `ToolResultAuditEntry`
+- `ToolResultAuditMetadata`
+- `ToolResultAuditRetention`
+- `ToolAccessResult`
+- `ToolGovernance` methods: `checkAccess`, `audit`, `auditResult`, `resetRateLimits`
+
+Stats:
+- `ToolCallRecord`
+- `ToolStats`
+- `ToolRanking`
+- `ToolStatsTrackerConfig`
+- `ToolStatsTracker` methods: `recordCall`, `getStats`, `getTopTools`, `getTrackedTools`, `formatAsPromptHint`, `reset`
+
+Human contact contracts:
+- `ContactType`, `ContactChannel`
+- `HumanContactRequest` union (+ concrete request variants)
+- `HumanContactResponse` union (+ concrete response variants)
+- `PendingHumanContact`
+
+## Dependencies
+Direct imports in the module:
+- `@langchain/core/tools` (runtime, in `create-tool.ts`)
+- `zod` type import (`create-tool.ts`)
+- All other files use TypeScript/JS runtime primitives only.
+
+Package-level dependency context (`packages/core/package.json`):
+- Runtime dependencies: `@dzupagent/agent-types`, `@dzupagent/runtime-contracts`, `@dzupagent/security`
+- Peer dependencies relevant to this module:
+  - `@langchain/core` (for `tool`/`StructuredToolInterface`)
+  - `zod` (schema typing and validation)
+- Build/test tooling used for this module: `typescript`, `tsup`, `vitest`
+
+Export surface:
+- Subpath export exists at `./tools` (`dist/tools.js`, `dist/tools.d.ts`).
+- Equivalent tools symbols are also exposed on the root `@dzupagent/core` export path.
+
+## Integration Points
+Inside `packages/core`:
+- `src/tools.ts` defines the public `@dzupagent/core/tools` entrypoint.
+- `src/index.ts` mirrors tools exports for root imports.
+- `src/events/event-types-agent.ts` imports `PermissionTier` for event typing (`agent:tools-filtered`).
+
+Observed consumers in other workspace packages:
+- `packages/agent`:
+  - Uses `ToolGovernance` in tool-loop and policy flows.
+  - Uses `PermissionTier` and `tierSatisfies` for tier filtering.
+  - Uses human-contact types in approval and contact-tool flows.
+  - Maintains a deprecated bridge re-export for `createForgeTool`.
+- `packages/connectors`, `packages/connectors-browser`, `packages/connectors-documents`, `packages/scraper`:
+  - Depend on the canonical connector contract types and normalization helpers.
+  - Use `createForgeTool` to construct tool instances.
+- `packages/codegen`:
+  - Re-exports/consumes canonical `PermissionTier` from `@dzupagent/core/tools`.
+  - Uses `ToolGovernance` via governance adapter types.
+- `packages/testing`:
+  - Includes export checks for `@dzupagent/core/tools` subpath availability.
+
+## Testing and Observability
+Direct test coverage in `packages/core`:
+- `src/__tests__/tool-governance.test.ts` covers:
+  - default allow behavior
+  - blocked tools
+  - approval-required flagging
+  - rate-limit enforcement and reset
+  - custom validator integration
+  - audit callback invocation
+  - result retention modes (`raw`, `metadata-only`, `redacted`)
+  - non-fatal audit handler failures
+  - per-tool rate-limit isolation
+- `src/__tests__/tool-stats-tracker.test.ts` covers:
+  - empty-state behavior
+  - stats aggregation and success/failure accounting
+  - p95 and average latency calculations
+  - ranking and weighting behavior
+  - `limit` and `intent` filtering
+  - sliding-window eviction
+  - prompt-hint formatting
+  - error-type aggregation
+  - reset semantics
+
+No direct tests in `packages/core/src/__tests__` currently target:
+- `connector-contract.ts`
+- `create-tool.ts`
+- `permission-tier.ts`
+- `human-contact-types.ts` (type-only)
+
+Observability hooks provided by this module:
+- `ToolGovernance.audit(...)` and `ToolGovernance.auditResult(...)` callback hooks.
+- Audit-result metadata projection through `ToolResultAuditMetadata`.
+- `ToolStatsTracker` as pull-based in-memory telemetry (no built-in persistence or event emitter).
 
 ## Risks and TODOs
-- `ToolGovernanceConfig.maxExecutionMs` is declared but not enforced in `ToolGovernance`; callers must enforce execution timeouts separately.
-- Governance rate limits are process-local in-memory counters and reset on restart.
-- `checkAccess` consumes rate-limit budget before running custom validator logic.
-- `ToolStatsTracker` has no built-in persistence/export; all telemetry is ephemeral unless callers persist snapshots.
-- Ranking weights are not normalized, so extreme/custom weights can produce unintuitive composite scores.
-- `connector-contract` validates shape, not schema semantics (`schema` is `unknown`).
-- `createForgeTool` stringifies non-string outputs by default, which may lose structure unless consumers provide `toModelOutput`.
-- Human-contact support in this folder is contract-only; delivery/resume/runtime orchestration is implemented elsewhere.
+- `ToolGovernanceConfig.maxExecutionMs` exists but `ToolGovernance` does not enforce execution timeouts; enforcement is delegated to callers.
+- Rate-limit counters are process-local memory and reset on restart.
+- Rate-limit checks occur before custom validator checks, so invalid attempts can still consume rate budget.
+- `isBaseConnectorTool` performs structural checks only; it does not validate schema semantics.
+- `createForgeTool` uses `JSON.stringify` fallback for non-string outputs, which may flatten structured content unless `toModelOutput` is supplied.
+- `ToolStatsTracker` state is memory-only and not persisted across runs.
+- Human-contact contracts are type-level only; channel delivery, timeout handling, and run-resume lifecycle behavior are implemented elsewhere.
+- `BaseConnectorToolExecutionContext` is not exposed from the public barrels (`@dzupagent/core/tools` or root `@dzupagent/core`).
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

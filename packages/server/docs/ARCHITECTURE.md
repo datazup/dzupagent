@@ -1,253 +1,170 @@
 # @dzupagent/server Architecture
 
 ## Scope
-`@dzupagent/server` is the Hono-based hosting package for DzupAgent runtime capabilities in `packages/server`.
+`@dzupagent/server` is the Hono-based runtime host for DzupAgent in `packages/server`.
 
-This package currently provides:
-- The app factory (`createForgeApp`) that composes middleware, route modules, runtime workers, and optional integrations.
-- HTTP APIs for health, agent definitions, run lifecycle, approvals, events/SSE, and additional optional feature planes.
-- Runtime orchestration glue around queue workers, run executors, event gateway, consolidation scheduling, and closed-loop subscribers.
-- Operational helpers (doctor/scorecard via `./ops` export), CLI commands, persistence implementations, and deployment/registry helpers.
+The package centers on `createForgeApp` (`src/app.ts`) and provides:
+- HTTP composition for core runtime routes (`/api/health`, `/api/runs`, `/api/agent-definitions`, approvals/human-contact paths).
+- Optional route families for memory, events/SSE, deploy, learning, evals, benchmarks, playground, A2A, triggers/schedules, prompts/personas/presets, marketplace, reflections, mailbox/clusters, and OpenAI-compatible `/v1/*` APIs.
+- Built-in route-plugin seams for MCP, skills, workflow, and compile routes, plus host-supplied `routePlugins`.
+- Runtime wiring for queue workers, run executors, event gateway, consolidation scheduler, and closed-loop subscribers.
+- Operational and compatibility subpath exports: `@dzupagent/server/ops`, `@dzupagent/server/runtime`, `@dzupagent/server/compat`, and `@dzupagent/server/features`.
 
-Boundary note from repo guidance:
-- `packages/server` is maintained as framework/runtime compatibility infrastructure, not the primary landing zone for new application product features.
-- New product-control-plane concepts such as workspaces, projects, tasks/subtasks,
-  tenant-specific dashboards, Codev operator UX, personas/prompt-template product
-  flows, or app-specific memory policy controls should be owned by consuming apps
-  such as `apps/codev-app`.
-- App-owned routes should integrate through `ServerRoutePlugin` or through the
-  consuming app's own Hono composition around `createForgeApp`.
-- `yarn check:domain-boundaries` enforces this by requiring every production
-  file under `packages/server/src/routes/**` to be classified in
-  `config/architecture-boundaries.json`.
+Repository boundary note (from `dzupagent/AGENTS.md` and package docs): this package is maintenance/runtime infrastructure, not the primary target for new product control-plane features.
 
 ## Responsibilities
-Primary responsibilities implemented in this package:
-- Compose a runnable HTTP app from stores, event bus, model registry, and optional integration config.
-- Expose run-management and agent-definition APIs, including approval and human-contact controls.
-- Provide real-time event delivery through SSE routes backed by an `EventGateway`.
-- Bridge authentication and authorization layers (`auth`, RBAC, tenant scoping, identity/capability helpers) into route enforcement.
-- Host optional runtime modules: memory, learning, evals, benchmarks, deploy confidence/history, prompts/personas/presets, mailbox/clusters, schedules/triggers, marketplace, A2A, MCP/skills/workflows.
-- Start and coordinate background runtime workers when configured (run queue worker, consolidation scheduler, learning/prompt loops, mail DLQ worker).
-- Provide persistence adapters and schemas for Postgres/Drizzle and in-memory fallbacks used by route/runtime modules.
+Implemented responsibilities in current code:
+- Compose a configured app with middleware, core routes, optional routes, and plugin routes (`src/app.ts`, `src/composition/*`).
+- Enforce transport/security policy: auth mode checks, CORS policy, security headers, RBAC, rate limiting, JSON body size limits, shutdown guard, and error handling (`src/composition/middleware.ts`).
+- Provide run lifecycle hosting: run creation/listing/status, queue handoff, run context, approvals/human contact, and run trace endpoints (`src/routes/runs.ts`, `src/routes/run-context.ts`, `src/routes/approval.ts`, `src/routes/run-trace.ts`).
+- Provide realtime event delivery and stream bridge utilities (`src/routes/events.ts`, `src/events/event-gateway.ts`, `src/streaming/sse-streaming-adapter.ts`, `src/ws/*`).
+- Start and coordinate background workers/subscribers when configured (`src/composition/workers.ts`).
+- Expose operational diagnostics and persistence/tooling utilities via the `./ops` subpath (`src/ops.ts`).
 
 ## Structure
-Current source layout (top-level modules under `src/`):
-- `app.ts`: composition entrypoint (`createForgeApp`).
-- `composition/*`: split orchestration helpers (`runtime-config`, `middleware`, `core-routes`, `optional-routes`, `route-plugins`, `workers`, `notifications`, `safety`).
-- `routes/*`: HTTP route families (runs, agents, approvals, health, events, memory, evals, benchmarks, deploy, OpenAI-compat, etc.).
-- `runtime/*`: run execution pipeline, tool resolution, quota integration, consolidation tasks.
-- `queue/*`: `InMemoryRunQueue` and `BullMQRunQueue`.
-- `middleware/*`: auth, rate-limiter, RBAC, tenant-scope, identity/capability.
-- `events/*` and `ws/*`: event gateway and websocket control/bridge utilities.
-- `persistence/*`: Drizzle schemas and stores (run traces, API keys, registry, reflections, mailbox, cluster, workflow domain, vectors).
-- `services/*`: control-plane and learning-related services.
-- `deploy/*`, `registry/*`, `notifications/*`, `triggers/*`, `schedules/*`, `a2a/*`, `marketplace/*`, `scorecard/*`, `docs/*`, `platforms/*`, `cli/*`.
-- `__tests__/*` plus domain-local test folders.
+Current package layout:
+- `src/app.ts`: composition root (`createForgeApp`) and re-exported config types.
+- `src/index.ts`: root API surface; re-exports core routes, middleware, queue, websocket, lifecycle, event gateway, and input-guard utilities.
+- `src/composition/*`: orchestration helpers split by concern.
+- `runtime-config.ts`: default executor/resolver/event-gateway bootstrap.
+- `middleware.ts`: policy middleware assembly.
+- `core-routes.ts`: always-on route mounts.
+- `optional-routes.ts`: optional feature-family route mounts.
+- `route-plugins.ts`: built-in and host plugin composition.
+- `workers.ts`: run worker, consolidation, closed-loop startup.
+- `src/routes/*`: route handlers for runtime and optional features.
+- `src/runtime/*`: run worker, executors, tool resolution, quota integration, consolidation tasks.
+- `src/queue/*`: in-memory and BullMQ queue implementations.
+- `src/middleware/*`: auth, RBAC, rate limit, identity/capability, tenant scope.
+- `src/persistence/*`: Drizzle schemas and store implementations.
+- `src/ws/*` and `src/events/*`: WS bridge/control and event fan-out.
+- `src/services/*`, `src/notifications/*`, `src/deploy/*`, `src/registry/*`, `src/cli/*`, `src/a2a/*`, `src/marketplace/*`, `src/platforms/*`.
+- `docs/ARCHITECTURE.md`: this architecture document.
 
-Public package entrypoints:
-- `.` -> `dist/index.js` (`src/index.ts` export surface).
-- `./ops` -> `dist/ops.js` (doctor/scorecard operational facade).
+Package entrypoints from `package.json` exports:
+- `@dzupagent/server` -> `dist/index.js`
+- `@dzupagent/server/ops` -> `dist/ops.js`
+- `@dzupagent/server/runtime` -> `dist/runtime.js`
+- `@dzupagent/server/compat` -> `dist/compat.js`
+- `@dzupagent/server/features` -> `dist/features.js`
 
 ## Runtime and Control Flow
-`createForgeApp(config)` in `src/app.ts` is the composition root. Current execution order:
+`createForgeApp(config)` flow in current implementation:
+1. Preflight and safety setup.
+- Enforces explicit framework auth requirements for production (`assertExplicitFrameworkApiAuth`).
+- Warns for unbounded in-memory retention.
+- Attaches runtime safety monitor unless disabled.
+- Attaches compliance audit logger when `auditStore` is configured.
 
-1. Runtime safety and defaults:
-- Warn on explicit unbounded in-memory retention (`warnIfUnboundedInMemoryRetention`).
-- Attach safety monitor unless `disableSafetyMonitor` is set.
-- Build runtime defaults in `buildRuntimeBootstrap`:
-  - `eventGateway`: defaults to `InMemoryEventGateway(eventBus)`.
-  - `runExecutor`: defaults to `createDzupAgentRunExecutor({ fallback: createDefaultRunExecutor(modelRegistry) })`.
-  - `executableAgentResolver`: defaults to control-plane resolver over `AgentControlPlaneService`.
+2. Runtime bootstrap defaults (`buildRuntimeBootstrap`).
+- Resolves `eventGateway` to `InMemoryEventGateway` if not provided.
+- Resolves run executor to `createDzupAgentRunExecutor` with `createDefaultRunExecutor` fallback.
+- Resolves executable agent resolver to `ControlPlaneExecutableAgentResolver(AgentControlPlaneService)` if missing.
 
-2. Worker/bootstrap lifecycle:
-- Start queue worker once per queue instance (`maybeStartRunWorker`, guarded by `WeakSet`).
-- Start consolidation scheduler when configured; expose `/api/health/consolidation` only when shutdown handling is also configured.
-- Start prompt feedback and learning event processors when injected.
+3. Worker/subscriber startup.
+- Starts run worker once per `runQueue` instance (`WeakSet` guard).
+- Starts consolidation scheduler and optional `/api/health/consolidation` status endpoint (when consolidation + shutdown are configured).
+- Starts `promptFeedbackLoop` and `learningEventProcessor` when supplied.
 
-3. Middleware stack (`applyMiddleware`):
-- CORS only when configured. Omitted `corsOrigins` emits no CORS headers;
-  production wildcard CORS requires the explicit `allowWildcardCors`
-  compatibility opt-in.
-- Framework `/api/*` auth mode assertion before app startup: `NODE_ENV=production`
-  requires explicit `auth`; `auth: { mode: 'none' }` is a warned
-  development/compatibility opt-out.
-- `/api/*` auth (when configured), with optional API key store auto-wiring.
-- `/api/*` RBAC by default (can disable via `rbac: false`).
-- `/api/*` rate limiting (when configured).
-- Configured compatibility route controls: A2A `/a2a` and `/a2a/*` reuse the
-  framework auth/RBAC context and rate limiter; OpenAI-compatible `/v1/*`
-  reuses the framework rate limiter and enforces RBAC from OpenAI bearer auth
-  metadata when `openai.enabled: true`.
-- `/api/runs` shutdown write guard for POST during drain.
-- Global request metrics instrumentation (when metrics collector provided).
+4. Middleware application order (`applyMiddleware`).
+- CORS (opt-in; wildcard production usage gated by `allowWildcardCors`).
+- Security headers (default on; configurable/disableable).
+- `/api/*` auth and RBAC (RBAC defaults on unless `rbac: false`).
+- Rate limiter (`/api/*`, plus `/a2a*` and `/v1/*` when relevant features are enabled).
+- JSON body-size guard with route-specific overrides.
+- Shutdown guard for `POST /api/runs`.
+- Request metrics instrumentation.
 - Global error handler.
 
-4. Route mounting:
-- Always mounted core routes are generic framework primitives or compatibility
-  aliases: `/api/health`, `/api/runs`, `/api/agent-definitions`,
-  `/api/agents` (compat alias), approvals/human-contact/enrichment routes, plus
-  conditional `/api/registry`, `/api/keys`, `/api/approvals`, run trace routes.
-- Optional routes from integration config are frozen as generic framework
-  primitives or compatibility/maintenance surfaces: memory, deploy, learning,
-  benchmarks, evals, playground, A2A, triggers/schedules,
-  prompts/personas/presets/marketplace, reflections, mailbox/clusters.
-- Events route is mounted by default via optional route layer (`/api/events/stream`) using the resolved event gateway.
-- OpenAI-compatible routes mount under `/v1/*` (`/v1/chat/completions`, `/v1/models`) only when `openai.enabled: true` is configured, with separate OpenAI auth middleware.
+5. Route mount order.
+- Core routes first (`mountCoreRoutes`).
+- Optional route families next (`mountOptionalRoutes`).
+- Built-in route plugins (MCP/skills/workflows/compile), then host plugins (`routePlugins`).
+- Prometheus `/metrics` only when collector is Prometheus and access policy is enabled.
 
-5. Plugin mounting:
-- Built-in route plugins can mount `/api/mcp`, `/api/skills`, `/api/workflows` based on config.
-- Compile route plugin is always mounted under `/api/workflows`.
-- Host-supplied `routePlugins` are mounted after built-ins and are the forward
-  path for app-owned product route integration.
-
-6. Metrics endpoint:
-- `/metrics` is mounted only when metrics collector is `PrometheusMetricsCollector`.
-
-Run lifecycle path (configured queue mode):
-- `POST /api/runs` validates input, applies metadata and tenant/owner scoping, optional quota check, creates run, enqueues job.
-- `startRunWorker` consumes jobs, resolves executable agent, performs input guard checks/redaction, runs executor, updates run state/logs/trace, emits lifecycle events, and records optional reflection/feedback/quota usage.
+6. Run execution path (when queue configured).
+- `POST /api/runs` persists/enqueues run request.
+- `startRunWorker` processes jobs, resolves executable agent, applies input guard and resource checks, executes run, persists logs/traces/outcomes, and emits lifecycle events.
 
 ## Key APIs and Types
-App factory and configuration:
-- `createForgeApp(config: ForgeServerConfig): Hono`.
-- `ForgeHostRuntimeConfig` is the narrower host-runtime seam for new hosts that
-  only need core stores, transport/security policy, runtime lifecycle wiring,
-  and `routePlugins`. It intentionally excludes frozen compatibility
-  route-family fields.
-- `ForgeServerConfig` is composed from `ForgeCoreConfig`, `ForgeTransportConfig`, `ForgeRuntimeConfig`, `ForgeIntegrationsConfig`, and `ForgeSecurityConfig` in `src/composition/types.ts`.
-- Optional route-facing config is further split into feature-family contracts:
-  `ForgeMemoryRouteFamilyConfig`, `ForgeCompatibilityRouteFamilyConfig`,
-  `ForgeEvaluationRouteFamilyConfig`, `ForgeAdapterRouteFamilyConfig`,
-  `ForgeAutomationRouteFamilyConfig`, and
-  `ForgeControlPlaneRouteFamilyConfig`.
-- `ForgeControlPlaneRouteFamilyConfig` is compatibility-only. Do not add new
-  product-control-plane fields to it for workspaces, projects, tasks/subtasks,
-  operator dashboards, prompt-template product flows, marketplace UX, or
-  app-specific memory policy controls.
-- `mountOptionalRoutes` adapts existing `ForgeServerConfig` optional fields into
-  `ServerRoutePlugin` instances, preserving source compatibility while keeping
-  new product route families on the `routePlugins` seam.
+Primary app host API:
+- `createForgeApp(config: ForgeServerConfig): Hono<AppEnv>`
 
-Notable route factories:
-- Core: `createRunRoutes`, `createRunContextRoutes`, `createAgentDefinitionRoutes`, `createApprovalRoutes`, `createHealthRoutes`.
-- Optional: `createMemoryRoutes`, `createLearningRoutes`, `createEvalRoutes`, `createBenchmarkRoutes`, `createDeployRoutes`, `createA2ARoutes`, `createTriggerRoutes`, `createScheduleRoutes`, `createPromptRoutes`, `createPersonaRoutes`, `createMarketplaceRoutes`, `createReflectionRoutes`, `createMailboxRoutes`, `createClusterRoutes`.
-- Compatibility: OpenAI route builders in `routes/openai-compat/*`.
+Configuration types (from `src/composition/types.ts`, re-exported by `src/app.ts`):
+- `ForgeServerConfig` (aggregate).
+- `ForgeHostRuntimeConfig` (narrower host-runtime seam).
+- Feature-family config groups:
+- `ForgeMemoryRouteFamilyConfig`
+- `ForgeCompatibilityRouteFamilyConfig`
+- `ForgeEvaluationRouteFamilyConfig`
+- `ForgeAdapterRouteFamilyConfig`
+- `ForgeAutomationRouteFamilyConfig`
+- `ForgeControlPlaneRouteFamilyConfig`
 
-Runtime and queue APIs:
-- `startRunWorker`, `RunExecutor`, `RunExecutionContext`.
-- `InMemoryRunQueue`, `BullMQRunQueue`, `RunQueue` contract.
-- `createDefaultRunExecutor`, `createDzupAgentRunExecutor`.
+Route plugin seam:
+- `ServerRoutePlugin` and `ServerRoutePluginContext` (`src/route-plugin.ts`).
 
-Realtime APIs:
-- `InMemoryEventGateway` and `EventGateway` interface for SSE subscription fan-out.
-- `EventBridge` and websocket control helpers under `src/ws/*`.
+Core route factories exported at root:
+- `createRunRoutes`, `createAgentDefinitionRoutes`, `createApprovalRoutes`, `createHealthRoutes`, `createEventRoutes`.
 
-Operational/API-key APIs:
-- API key store and route: `PostgresApiKeyStore`, `createApiKeyRoutes`.
-- Ops subpath export (`./ops`): doctor and scorecard interfaces.
+Runtime/queue exports:
+- `InMemoryRunQueue`, `BullMQRunQueue`, `RunQueue` types.
+- `startRunWorker`, `createDefaultRunExecutor`, `createDzupAgentRunExecutor` (also available via `@dzupagent/server/runtime`).
+
+Operational exports:
+- Doctor and scorecard APIs, metrics route/collector, persistence helpers, deploy/registry helpers, and CLI utilities via `@dzupagent/server/ops`.
+
+Compatibility export:
+- OpenAI-compatible mapper/routes/auth types via `@dzupagent/server/compat`.
 
 ## Dependencies
-Direct runtime dependencies (from `package.json`):
-- DzupAgent packages: `@dzupagent/agent`, `@dzupagent/agent-adapters`, `@dzupagent/app-tools`, `@dzupagent/context`, `@dzupagent/core`, `@dzupagent/eval-contracts`, `@dzupagent/flow-ast`, `@dzupagent/flow-compiler`, `@dzupagent/hitl-kit`, `@dzupagent/memory-ipc`, `@dzupagent/otel`.
-- Third-party: `hono`, `drizzle-orm`, `commander`, `@langchain/core`.
-
-Peer dependencies:
-- `postgres` (required by Postgres/Drizzle-backed stores and tooling).
-- `bullmq` (optional peer; required when using `BullMQRunQueue`).
-
-Build/test toolchain:
-- `tsup`, `typescript`, `vitest`, `drizzle-kit`, `testcontainers`.
-
-Focused Postgres integration lane:
-- Tenant-scope persistence coverage is opt-in because it starts a real
-  Postgres container. Run it explicitly with
-  `DZUPAGENT_RUN_TESTCONTAINERS=1 yarn workspace @dzupagent/server test src/__tests__/tenant-scope-postgres.integration.test.ts`.
-  A default skip for that suite only means the container lane was not requested,
-  not that tenant-scope database coverage passed.
+From `packages/server/package.json`:
+- Core internal dependencies:
+- `@dzupagent/agent`, `@dzupagent/agent-adapters`, `@dzupagent/app-tools`, `@dzupagent/context`, `@dzupagent/core`, `@dzupagent/eval-contracts`, `@dzupagent/flow-ast`, `@dzupagent/flow-compiler`, `@dzupagent/hitl-kit`, `@dzupagent/memory-ipc`, `@dzupagent/otel`, `@dzupagent/security`.
+- Third-party runtime dependencies:
+- `hono`, `drizzle-orm`, `commander`, `@langchain/core`.
+- Peer dependencies:
+- `postgres` (for Postgres-backed stores), `bullmq` (optional, for Redis queue mode).
+- Optional dependencies:
+- `@dzupagent/codegen`, `@dzupagent/connectors`, `@dzupagent/memory`.
+- Tooling:
+- `typescript`, `tsup`, `vitest`, `drizzle-kit`, `testcontainers`.
 
 ## Integration Points
-Common integration seams exposed by this package:
-- Host app composition via `createForgeApp` with injected stores, registry, queue, auth/rate/middleware, and optional feature modules.
-- Queue execution swap: in-memory queue for local/dev; BullMQ for Redis-backed workloads.
-- Persistence swap: in-memory stores or Drizzle/Postgres implementations.
-- Event transport:
-  - SSE via `/api/events/stream` and per-run streaming in run routes.
-  - Optional websocket bridge/control wiring through exported WS helpers.
-- Optional control-plane surfaces:
-  - Registry route mounting when `registry` is provided.
-  - Built-in plugin-based routes for MCP, skills, workflow/compile.
-- Compatibility surface for OpenAI-like clients under `/v1/*`.
-- Platform adapters for Lambda/Vercel/Cloudflare host runtimes.
-- Operational integration through doctor/scorecard (`@dzupagent/server/ops`).
-
-## App-Owned Route Migration
-
-When a route is product-specific rather than a reusable framework primitive:
-- Implement the route in the consuming app package, using that app's storage,
-  tenancy, authorization, and UX contracts.
-- Mount it beside `createForgeApp` or pass a `ServerRoutePlugin` through
-  `routePlugins` when the route should share server middleware and lifecycle.
-- Define product route config in the consuming app. Do not expand
-  `ForgeServerConfig` for Codev workspaces, projects, tasks/subtasks, operator
-  dashboards, tenant-specific UX, or similar product control planes.
-- Add RBAC route permissions for `/api/*` plugin prefixes instead of relying on
-  pass-through behavior.
-- Keep any existing server route compatible until a separate deprecation task
-  removes or redirects it.
-
-Server route additions require updating
-`config/architecture-boundaries.json` under `serverRouteBoundaries` with one of
-these classifications:
-- `framework-primitive`: generic runtime/framework capability.
-- `compatibility-maintenance`: existing optional or compatibility route surface.
-- `route-plugin-host-seam`: route-plugin or app-selected host seam.
-- `internal-support`: helper module that does not create product endpoints.
+Main integration seams:
+- Host app wiring through `createForgeApp` with injected stores, registry, event bus, model registry, queue, and security policies.
+- Persistence strategy swap between in-memory stores and Drizzle/Postgres stores.
+- Queue strategy swap between `InMemoryRunQueue` and `BullMQRunQueue`.
+- Route extensibility through `routePlugins` (app-owned routes mounted after built-ins).
+- Optional protocol/feature surfaces:
+- A2A routes.
+- OpenAI-compatible `/v1/*` routes.
+- MCP/skills/workflow/compile route plugins.
+- Platform adapters for serverless hosts: Lambda, Vercel, Cloudflare.
 
 ## Testing and Observability
-Testing setup:
-- Test runner: Vitest (`vitest.config.ts`), Node environment, 60s timeouts.
-- Test selection: `src/**/*.test.ts` and `src/**/*.spec.ts` with targeted excludes.
-- Coverage thresholds:
-  - statements: 70
-  - branches: 60
-  - functions: 60
-  - lines: 70
+Testing:
+- Test runner is Vitest (`vitest.config.ts`).
+- Extensive package-local suite under `src/__tests__/` with additional domain-local tests in subfolders.
+- Scripts in `package.json`: `test`, `test:watch`, `test:coverage`, plus `typecheck`, `lint`, `build`.
 
-Coverage and test footprint in package:
-- Broad route/runtime/security coverage under `src/__tests__`, plus module-local tests in `middleware`, `routes`, `persistence`, `services`, `ws`, `composition`, and `a2a`.
-
-Observability mechanisms in code:
-- Health endpoints:
-  - `/api/health` (liveness)
-  - `/api/health/ready` (run store, agent store, model registry, queue/shutdown state)
-  - `/api/health/metrics` (JSON metric snapshot)
-- Optional Prometheus endpoint: `/metrics` when using `PrometheusMetricsCollector`
-  and explicit `prometheusMetrics.access` protection.
-- Run pipeline instrumentation:
-  - run logs persisted via `runStore.addLog`
-  - lifecycle events emitted on shared event bus
-  - optional run trace persistence (`RunTraceStore`)
-  - optional routing and HTTP metrics increments.
-
-Prometheus metrics exposure:
-- `/metrics` is disabled by default, even when the collector can render
-  Prometheus text. Hosts must configure `prometheusMetrics.access`.
-- Recommended production controls are `mode: 'token'` for Prometheus bearer
-  tokens or `mode: 'middleware'` for host-injected IP, host, listener, or
-  platform guards.
-- `mode: 'unsafe-public'` is an explicit development/compatibility escape hatch
-  for unauthenticated scraping.
-- Ingress blocking and private network policy remain defense in depth; the
-  framework-level route guard is the primary control.
+Observability and diagnostics in code:
+- Health routes:
+- `GET /api/health`
+- `GET /api/health/ready`
+- `GET /api/health/metrics`
+- Optional `GET /api/health/consolidation` when consolidation scheduler + shutdown are configured.
+- Event streaming via `EventGateway` and `/api/events/stream`.
+- Optional Prometheus exposition route `GET /metrics` (gated by collector type and access policy).
+- CLI operational diagnostics via `dzup doctor` and scorecard tooling.
 
 ## Risks and TODOs
-Current risks and explicit TODO markers in code:
-- Version drift risk:
-  - `package.json` version is `0.2.0`.
-  - `src/routes/health.ts` liveness payload still returns `version: '0.1.0'`.
-  - `src/index.ts` exports `dzupagent_SERVER_VERSION = '0.2.0'`, matching `package.json`.
-- Export-map mismatch risk: source has `runtime.ts` and `compat.ts` facades, but current `package.json` `exports` exposes only `.` and `./ops`; consumers expecting subpath imports for runtime/compat will not resolve unless export map is extended.
+Current code-grounded risks or maintenance gaps:
+- Health route version drift: `src/routes/health.ts` liveness payload currently returns `version: '0.1.0'` while package version is `0.2.0`.
+- Route surface breadth: `optional-routes.ts` still mounts many compatibility/control-plane families in this package; maintainers should keep new product features on app-owned routes via `routePlugins` rather than growing server-owned route families.
+- Configuration complexity: `ForgeServerConfig` remains broad for compatibility; incorrect combinations (auth/CORS/rate-limit/OpenAI/A2A settings) can cause policy surprises without focused integration tests.
+- Queue/runtime operational coupling: worker and closed-loop subscribers are auto-started when configured; host processes should ensure lifecycle/shutdown hooks are consistently wired.
 
 ## Changelog
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+

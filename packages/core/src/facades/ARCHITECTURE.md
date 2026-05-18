@@ -1,192 +1,220 @@
 # `@dzupagent/core` Facades Architecture
 
 ## Scope
-This document covers the curated facade layer under `packages/core/src/facades` and how it is published from `@dzupagent/core`.
+This document covers the facade layer under `packages/core/src/facades` and the package-level wiring that exposes those facades to consumers.
 
-In-scope files:
+In scope:
 - `src/facades/quick-start.ts`
 - `src/facades/orchestration.ts`
 - `src/facades/security.ts`
 - `src/facades/index.ts`
-- `src/stable.ts`
-- `src/advanced.ts`
-- `package.json` export map
-- facade-related tests under `src/__tests__`
+- tier entrypoints `src/stable.ts` and `src/advanced.ts`
+- public subpath exports in `packages/core/package.json`
+- build entry wiring in `packages/core/tsup.config.ts`
+- facade-focused tests in `packages/core/src/__tests__`
+- facade-related usage guidance drift in `packages/core/README.md`
 
 Out of scope:
-- internal implementation details of every re-exported subsystem (those belong to each module's own `ARCHITECTURE.md`)
-- the removed `memory` facade implementation (no `src/facades/memory.ts` exists in current source tree)
+- implementation internals of the modules re-exported by facades (router, policy engine, protocol runtime, etc.)
 
 ## Responsibilities
-The facades layer provides a smaller, domain-oriented API surface for consumers who do not want the full `@dzupagent/core` root barrel.
+The facades provide curated import surfaces so consumers can choose a narrower API than the full root barrel.
 
-Current responsibilities:
-- expose fast bootstrap and base runtime wiring via `@dzupagent/core/quick-start`
-- expose orchestration-heavy primitives via `@dzupagent/core/orchestration`
-- expose security and policy primitives via `@dzupagent/core/security`
-- expose namespace-based grouped access via `@dzupagent/core/facades`
-- support a facade-first tier at `@dzupagent/core/stable` (`quickStart`, `orchestration`, `security`)
-- keep `@dzupagent/core/advanced` as an explicit alias of the full root surface (`src/index.ts`)
+Current facade responsibilities:
+- `@dzupagent/core/quick-start`
+  - exposes a minimal bootstrap surface (container, event bus, model registry, config helpers, selected errors/streaming)
+  - owns the only runtime composition helper in this layer: `createQuickAgent(...)`
+- `@dzupagent/core/orchestration`
+  - exposes orchestration-adjacent contracts and utilities across events, hooks, plugins, routing, subagents, skills, pipeline, persistence stores, protocol, middleware, concurrency, observability, and trace propagation
+- `@dzupagent/core/security`
+  - exposes risk classification, permission tiers, outbound URL policy, secret/PII scanning, output filtering/sanitization, policy/audit, safety monitor, memory defense, and data classification
+- `@dzupagent/core/facades`
+  - namespace barrel: `quickStart`, `orchestration`, `security`
+- `@dzupagent/core/stable`
+  - curated facade-first tier, currently `export *` from `facades/index`
+- `@dzupagent/core/advanced`
+  - broad tier mirroring `src/index.ts` root exports
 
-Important boundary: memory/context are intentionally not re-exported from facades (or the root barrel) and are expected to be consumed directly from Layer 2 packages (`@dzupagent/memory`, `@dzupagent/context`).
+Explicit boundary currently enforced in source comments and tests:
+- memory/context are not re-exported by core facades and should be imported from Layer 2 packages (`@dzupagent/memory`, `@dzupagent/context`)
 
 ## Structure
-Current facade module structure:
+### Source layout
+- `quick-start.ts`
+  - curated re-exports for DI, events, errors, model registry/invoke, config helpers, hooks types, SSE transformer types
+  - defines `QuickAgentOptions`, `QuickAgentResult`, provider defaults, and `createQuickAgent(...)`
+- `orchestration.ts`
+  - curated re-export barrel only (no local runtime orchestration logic)
+- `security.ts`
+  - curated re-export barrel only (no local runtime security engine logic)
+  - includes `SecurityPolicyConfig` type re-export from `@dzupagent/security`
+- `index.ts`
+  - namespace barrel only:
+    - `export * as quickStart`
+    - `export * as orchestration`
+    - `export * as security`
 
-1. `quick-start.ts`
-- selective exports: DI container, event bus types, error types, model registry and invoke helpers, config helpers, hook type, SSE transformer types
-- local implementation: `QuickAgentOptions`, `QuickAgentResult`, `createQuickAgent()`
-- provider-default map for `anthropic`, `openai`, `openrouter`, `google`, `qwen`, `azure`, `bedrock`, plus fallback `custom`
+### Tier entrypoints
+- `src/stable.ts`
+  - documented as a narrow facade-first tier
+  - re-exports `./facades/index.js`
+- `src/advanced.ts`
+  - documented as broad mirror tier
+  - re-exports `./index.js`
 
-2. `orchestration.ts`
-- pure curated re-export barrel over orchestration-adjacent modules
-- grouped export sections: events, hooks, plugins, router, sub-agents, skills, pipeline schemas/types/helpers, in-memory run/event stores, protocol bridge/adapters, cost middleware, concurrency, observability, trace propagation
+### Package and build exposure
+`package.json` exports these facade-related subpaths:
+- `./quick-start` -> `dist/facades/quick-start.*`
+- `./orchestration` -> `dist/facades/orchestration.*`
+- `./security` -> `dist/facades/security.*`
+- `./facades` -> `dist/facades/index.*`
+- `./stable` -> `dist/stable.*`
+- `./advanced` -> `dist/advanced.*`
 
-3. `security.ts`
-- pure curated re-export barrel over security modules
-- grouped export sections: risk classifier, tool-permission defaults, secrets/PII scanners, output pipeline, audit store/logger, policy store/evaluator/translator, safety monitor, memory defense, enhanced output filters, data classification
-
-4. `index.ts`
-- namespace exports only:
-  - `quickStart`
-  - `orchestration`
-  - `security`
-
-Entrypoint wiring:
-- `src/stable.ts` re-exports `./facades/index.js` (facade namespace tier)
-- `src/advanced.ts` re-exports `./index.js` (full core surface alias)
-- `package.json` exports subpaths:
-  - `./quick-start`
-  - `./orchestration`
-  - `./security`
-  - `./facades`
-  - `./stable`
-  - `./advanced`
+`tsup.config.ts` includes matching entry files:
+- `src/stable.ts`
+- `src/advanced.ts`
+- `src/facades/index.ts`
+- `src/facades/quick-start.ts`
+- `src/facades/orchestration.ts`
+- `src/facades/security.ts`
 
 ## Runtime and Control Flow
-Only `quick-start.ts` owns runtime behavior. The other facade files are export barrels.
+Only `createQuickAgent(...)` in `quick-start.ts` executes runtime composition. The other facade files are static export surfaces.
 
-`createQuickAgent()` control flow:
-1. Resolve provider defaults from `PROVIDER_DEFAULTS` (or fallback to `custom`).
-2. Resolve structured-output defaults via `getProviderStructuredOutputDefaults(provider)`, unless caller overrides with `structuredOutputCapabilities`.
-3. Instantiate `ForgeContainer`, `DzupEventBus` (`createEventBus()`), and `ModelRegistry`.
-4. Register a single provider in `ModelRegistry#addProvider(...)` with:
-- provider/apiKey/baseUrl
+`createQuickAgent(options)` flow:
+1. Resolve provider model defaults using `PROVIDER_DEFAULTS` and `getQuickStartProviderDefaults(...)`.
+2. Resolve structured output defaults:
+- use `options.structuredOutputCapabilities` when provided
+- otherwise use `getProviderStructuredOutputDefaults(options.provider)`
+3. Instantiate bootstrap primitives:
+- `container = createContainer()`
+- `eventBus = createEventBus()`
+- `registry = new ModelRegistry()`
+4. Configure provider via `registry.addProvider(...)` with:
+- provider credentials (`provider`, `apiKey`, optional `baseUrl`)
 - optional structured-output defaults
-- chat/codegen model specs and token limits
-5. Register `eventBus` and `registry` factories in the container.
+- fixed `priority: 1`
+- `chat` and `codegen` model names/token limits (defaults or overrides)
+5. Register container services:
+- `eventBus`
+- `registry`
 6. Return `{ container, eventBus, registry }`.
 
-Operational implication:
-- facade import paths are static API routing only; orchestration/security facades do not add behavior layers on top of re-exported modules.
-- `stable` keeps consumers on namespace imports, while `advanced` intentionally tracks full root exports for compatibility.
+Current defaults verified in source/tests:
+- chat max tokens default: `4096`
+- codegen max tokens default: `8192`
+- provider defaults include `anthropic`, `openai`, `openrouter`, `google`, `qwen`, `azure`, `bedrock`, plus `custom` fallback
 
 ## Key APIs and Types
-`@dzupagent/core/quick-start`:
+### `@dzupagent/core/quick-start`
+Core runtime helper and curated bootstrap exports:
 - `createQuickAgent(options: QuickAgentOptions): QuickAgentResult`
 - `QuickAgentOptions`, `QuickAgentResult`
 - `ForgeContainer`, `createContainer`
 - `createEventBus`, `DzupEventBus`, `DzupEvent`
-- `ModelRegistry`, provider/model capability types
+- `ModelRegistry`, model/provider capability types
 - `invokeWithTimeout`, `TokenUsage`, `InvokeOptions`
 - `DEFAULT_CONFIG`, `resolveConfig`, `mergeConfigs`
 - `SSETransformer`, `StandardSSEEvent`
 - `ForgeError`, `ForgeErrorCode`
 
-`@dzupagent/core/orchestration` (representative subset):
-- routing: `IntentRouter`, `CostAwareRouter`, `ModelTierEscalationPolicy`, `LLMClassifier`
-- orchestration runtime: `AgentBus`, hook runners, `SubAgentSpawner`
-- skills: `SkillLoader`, `SkillManager`, `SkillLearner`, `createSkillChain`, `parseAgentsMd`
-- pipeline: `PipelineDefinitionSchema`, `serializePipeline`, `deserializePipeline`, `autoLayout` and node/edge/checkpoint types
-- persistence: `InMemoryRunStore`, `InMemoryAgentStore`, `InMemoryEventLog`
-- protocol: `createForgeMessage`, `createResponse`, `ProtocolRouter`, `ProtocolBridge`, `A2AClientAdapter`
-- middleware/concurrency/observability: cost attribution helpers, `Semaphore`, `ConcurrencyPool`, `MetricsCollector`, `HealthAggregator`
-- telemetry: `injectTraceContext`, `extractTraceContext`, `formatTraceparent`, `parseTraceparent`
+### `@dzupagent/core/orchestration`
+Representative export groups:
+- events/hooks: `AgentBus`, `runHooks`, `runModifierHook`, `mergeHooks`
+- plugin layer: `PluginRegistry`, plugin discovery/ordering helpers
+- routing: `IntentRouter`, `KeywordMatcher`, `LLMClassifier`, `CostAwareRouter`, `ModelTierEscalationPolicy`
+- subagents/skills: `SubAgentSpawner`, `mergeFileChanges`, `SkillLoader`, `SkillManager`, `SkillLearner`, `createSkillChain`, `parseAgentsMd`
+- pipeline: `PipelineDefinitionSchema`, node/edge schemas, `serializePipeline`, `deserializePipeline`, `autoLayout`
+- orchestration persistence: `InMemoryRunStore`, `InMemoryAgentStore`, `InMemoryEventLog`
+- protocol: `createForgeMessage`, `createResponse`, `createErrorResponse`, `ProtocolRouter`, `ProtocolBridge`, `A2AClientAdapter`
+- middleware/concurrency: `calculateCostCents`, `getModelCosts`, `CostAttributionCollector`, `Semaphore`, `ConcurrencyPool`
+- observability/tracing: `MetricsCollector`, `globalMetrics`, `HealthAggregator`, trace propagation helpers
 
-`@dzupagent/core/security` (representative subset):
-- risk and tool gating: `createRiskClassifier`, default permission tier lists
-- scanning/redaction: `scanForSecrets`, `redactSecrets`, `detectPII`, `redactPII`
-- output control: `OutputPipeline`, `createDefaultPipeline`
-- policy: `InMemoryPolicyStore`, `PolicyEvaluator`, `PolicyTranslator`
-- audit: `InMemoryAuditStore`, `ComplianceAuditLogger`
-- monitor/defense: `createSafetyMonitor`, `getBuiltInRules`, `createMemoryDefense`
-- classification/output filtering: `DataClassifier`, `DEFAULT_CLASSIFICATION_PATTERNS`, `createHarmfulContentFilter`, `createClassificationAwareRedactor`
+### `@dzupagent/core/security`
+Representative export groups:
+- risk/tool tiers: `createRiskClassifier`, `DEFAULT_AUTO_APPROVE_TOOLS`, `DEFAULT_LOG_TOOLS`, `DEFAULT_REQUIRE_APPROVAL_TOOLS`
+- network policy: `fetchWithOutboundUrlPolicy`, `validateOutboundUrl`, `isPublicIpAddress`
+- scanners/redaction: `scanForSecrets`, `redactSecrets`, `detectPII`, `redactPII`
+- output sanitization: `OutputPipeline`, `createDefaultPipeline`, `createHarmfulContentFilter`, `createClassificationAwareRedactor`
+- policy/audit: `InMemoryPolicyStore`, `PolicyEvaluator`, `PolicyTranslator`, `InMemoryAuditStore`, `ComplianceAuditLogger`
+- safety/memory defense: `createSafetyMonitor`, `getBuiltInRules`, `createMemoryDefense`
+- classification: `DataClassifier`, `DEFAULT_CLASSIFICATION_PATTERNS`
 
-`@dzupagent/core/facades` and `@dzupagent/core/stable`:
-- namespace access to `quickStart`, `orchestration`, `security`
-- no `memory` namespace in current code
+### Namespace and tier surfaces
+- `@dzupagent/core/facades`: namespace exports for `quickStart`, `orchestration`, `security`
+- `@dzupagent/core/stable`: same namespace-level curated surface
+- `@dzupagent/core/advanced`: broad mirror of `@dzupagent/core` root surface
 
 ## Dependencies
-Facade-layer dependencies are mostly internal module imports from `src/*`; they do not add third-party runtime dependencies directly.
+### Direct package dependencies (`package.json`)
+- `@dzupagent/agent-types`
+- `@dzupagent/runtime-contracts`
+- `@dzupagent/security`
 
-Package-level dependency context (`packages/core/package.json`):
-- runtime dependencies: `@dzupagent/agent-types`, `@dzupagent/runtime-contracts`
-- peer dependencies relevant to re-exported types/modules:
-  - `@langchain/core`
-  - `@langchain/langgraph`
-  - `zod`
-  - optional `@lancedb/lancedb`, `apache-arrow`
+### Facade-level source dependencies
+- `quick-start.ts`
+  - local modules from `config`, `events`, `errors`, `llm`, `hooks`, `streaming`
+- `orchestration.ts`
+  - local modules from `events`, `hooks`, `plugin`, `router`, `subagent`, `skills`, `pipeline`, `persistence`, `protocol`, `middleware`, `concurrency`, `observability`, `telemetry`
+- `security.ts`
+  - local modules from `security/*` plus cross-package `SecurityPolicyConfig` type from `@dzupagent/security`
 
-Build/publish dependency path:
-- subpath exports in `package.json` point to `dist/facades/*.js` and `dist/*.js` (`stable`, `advanced`)
-- `tsup` builds these entrypoints from `src/facades/*`, `src/stable.ts`, and `src/advanced.ts`
+### Peer dependencies that may affect consumers
+- `@langchain/core`
+- `@langchain/langgraph`
+- `zod`
+- optional peers used by some surfaced modules: `@anthropic-ai/tokenizer`, `@lancedb/lancedb`, `apache-arrow`, `js-tiktoken`
 
 ## Integration Points
-Consumer integration options:
-1. Subpath imports by domain:
+Primary consumer import choices:
+1. Curated subpaths:
 - `@dzupagent/core/quick-start`
 - `@dzupagent/core/orchestration`
 - `@dzupagent/core/security`
-
-2. Namespace import:
+2. Namespace tier:
 - `@dzupagent/core/facades`
-- `@dzupagent/core/stable` (same namespace surface)
+- `@dzupagent/core/stable`
+3. Broad tier:
+- `@dzupagent/core/advanced`
+- root `@dzupagent/core`
 
-3. Full-surface opt-in:
-- `@dzupagent/core/advanced` (mirror of root `@dzupagent/core`)
+Cross-surface integration represented by facades:
+- quick-start integrates container + event bus + model registry/provider registration for minimal startup
+- orchestration integrates routing, protocol, stores, skills/subagents, and operational utilities
+- security integrates policy/audit controls with scanning/redaction and output safety utilities
 
-Cross-module integration represented by facade exports:
-- orchestration facade bridges many module boundaries (events, router, skills, pipeline, protocol, persistence, middleware, concurrency, telemetry, observability)
-- security facade bridges risk classification, content scanning/redaction, policy/audit, and safety monitoring
-- quick-start facade provides a single bootstrap seam used to wire container + event bus + model registry with provider defaults
+Compatibility relationship:
+- `advanced` intentionally tracks root `index.ts` symbols
+- `stable` intentionally tracks facade namespace surface
 
 ## Testing and Observability
-Facade tests in `src/__tests__` provide both surface and behavioral checks:
-- `facades.test.ts`:
-  - verifies export availability for quick-start/orchestration/security namespaces
-  - verifies `stable` namespace behavior
-  - verifies `advanced` tracks root export identity for representative symbols
-  - verifies memory namespace is absent from facades/stable
-- `facade-quick-start.test.ts`:
-  - verifies provider default model selection for multiple providers
-  - verifies token defaults/overrides
-  - verifies structured-output default behavior and custom overrides
-  - verifies DI container wiring and singleton behavior
-- `facade-orchestration.test.ts`:
-  - validates behavior of exported orchestration primitives (`AgentBus`, hook runners, in-memory stores, semaphores, health checks, protocol helpers)
-- `facade-security.test.ts`:
-  - validates risk classification, scanners/redactors, output pipeline, policy evaluator, safety monitor, memory defense, and data classification behavior
-- `w15-b1-facades.test.ts`:
-  - regression bundle covering additional provider and edge-case behavior
+Facade behavior is covered by dedicated tests in `src/__tests__`:
+- `facades.test.ts`
+  - namespace wiring and representative export smoke checks
+  - asserts `memory` namespace is absent from facades/stable
+  - validates `advanced` identity with root exports for representative symbols
+- `facade-quick-start.test.ts`
+  - validates `createQuickAgent` default/override behavior
+  - provider coverage and structured output defaults/overrides
+  - container singleton wiring and event bus/container helper behavior
+- `facade-orchestration.test.ts`
+  - behavior checks for `AgentBus`, hooks, stores, semaphore/pool, health aggregation, trace propagation, cost-aware helpers
+- `facade-security.test.ts`
+  - behavior checks for risk classifier, scanners/redaction, output pipeline, policy evaluator, safety monitor, classification defaults
+- `w15-b1-facades.test.ts`
+  - broader regression checks across quick-start/orchestration/security including policy translation, compliance audit logging/store integrity, harmful content/classification-aware redaction, and additional concurrency/protocol paths
 
-Observability inside facades:
-- no dedicated facade metrics layer exists
-- observability is exposed by re-export (`MetricsCollector`, `HealthAggregator`, trace propagation helpers) through `@dzupagent/core/orchestration`
+Observability notes:
+- facade modules themselves do not add independent telemetry
+- observability primitives are surfaced from orchestration (`MetricsCollector`, `globalMetrics`, `HealthAggregator`, trace propagation helpers)
 
 ## Risks and TODOs
-Current drift and maintenance risks visible from local code:
-
-1. README drift:
-- `packages/core/README.md` still documents `@dzupagent/core/memory` imports and memory namespace examples under facades, which do not match current `package.json` exports or `src/facades/index.ts`.
-
-2. Historical facade doc drift:
-- prior `src/facades/ARCHITECTURE.md` content referenced `memory` facade/module and outdated topology.
-
-Recommended follow-up:
-- refresh README facade examples to only include exported subpaths
-- keep facade architecture docs synchronized with `package.json` exports and `src/facades/index.ts`
+- README drift: `packages/core/README.md` still documents `@dzupagent/core/memory` and `memory` namespace in `@dzupagent/core/facades`, but current facades and exports expose only `quickStart`, `orchestration`, and `security`.
+- API churn risk in curated barrels: `orchestration.ts` and `security.ts` aggregate many modules; accidental export changes can become external API breaks.
+- `advanced` coupling risk: because `advanced.ts` re-exports root `index.ts`, any root export change propagates directly to `@dzupagent/core/advanced`.
+- Maintenance TODO: keep `package.json` subpath exports, `tsup.config.ts` entry list, and facade tests aligned whenever facade files/tiers change.
 
 ## Changelog
-- 2026-04-29: removed stale `memory-ipc` and `memory` facade build-entry risk after aligning `tsup.config.ts` with existing source files.
-- 2026-04-26: automated refresh via scripts/refresh-architecture-docs.js
-- 2026-04-26: rewritten from current `packages/core/src/facades` implementation, package export map, and active facade tests.
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
+- 2026-05-17: rewritten against current `packages/core` facade source, tier entrypoints, export map, build entry configuration, and facade test suite.
