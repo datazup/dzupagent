@@ -28,6 +28,7 @@ import { parseSpawn } from './spawn.js'
 import { parseClassify } from './classify.js'
 import { parseEmit } from './emit.js'
 import { parseMemory } from './memory.js'
+import { parseSet } from './set.js'
 import { parseCheckpoint } from './checkpoint.js'
 import { parseRestore } from './restore.js'
 import { parseTryCatch } from './try-catch.js'
@@ -106,6 +107,8 @@ export function parseNode(value: unknown, pointer: string, ctx: ParseContext): F
       return parseEmit(value, pointer, ctx)
     case 'memory':
       return parseMemory(value, pointer, ctx)
+    case 'set':
+      return parseSet(value, pointer, ctx)
     case 'checkpoint':
       return parseCheckpoint(value, pointer, ctx)
     case 'restore':

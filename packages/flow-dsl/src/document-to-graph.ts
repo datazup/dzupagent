@@ -48,6 +48,7 @@ function projectNode(node: FlowNode, state: ProjectionState): ProjectionResult {
     case 'classify':
     case 'emit':
     case 'memory':
+    case 'set':
     case 'checkpoint':
     case 'restore':
     case 'http':
@@ -181,6 +182,8 @@ function labelForNode(node: FlowNode): string {
       return node.event
     case 'memory':
       return `${node.operation}:${node.tier}`
+    case 'set':
+      return `set:${Object.keys(node.assign).length} keys`
     case 'checkpoint':
       return node.label ?? `checkpoint:${node.captureOutputOf}`
     case 'restore':

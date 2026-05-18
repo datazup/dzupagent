@@ -183,6 +183,18 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
       if (node.key) lines.push(`${childIndent}key: ${quote(node.key)}`)
       if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`)
       return
+    case 'set':
+      lines.push(`${indent}- set:`)
+      pushCommon(lines, node, indentLevel + 2)
+      if (Object.keys(node.assign).length > 0) {
+        lines.push(`${childIndent}assign:`)
+        for (const [key, value] of Object.entries(node.assign)) {
+          lines.push(`${childIndent}  ${key}: ${formatScalar(value)}`)
+        }
+      } else {
+        lines.push(`${childIndent}assign: {}`)
+      }
+      return
     case 'checkpoint':
       lines.push(`${indent}- checkpoint:`)
       pushCommon(lines, node, indentLevel + 2)

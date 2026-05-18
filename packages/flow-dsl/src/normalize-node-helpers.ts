@@ -31,6 +31,7 @@ import {
   normalizeLoop,
   normalizeTryCatch,
 } from './normalize-nodes-structural.js'
+import { normalizeSet } from './normalize-nodes-set.js'
 import { normalizeAgent, normalizeValidate } from './normalize-nodes-agent.js'
 import { isPlainObject } from './normalize-value-helpers.js'
 import type { DslDiagnostic } from './types.js'
@@ -126,6 +127,8 @@ export function normalizeNodeWrapper(
       return normalizeEmit(value, path, diagnostics)
     case 'memory':
       return normalizeMemory(value, path, diagnostics)
+    case 'set':
+      return normalizeSet(value, path, diagnostics)
     case 'try_catch':
       return normalizeTryCatch(value, path, diagnostics, normalizeSteps)
     case 'loop':

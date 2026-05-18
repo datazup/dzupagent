@@ -23,6 +23,7 @@ export const FLOW_NODE_VALIDATOR_DESCRIPTORS: ReadonlyArray<{
   { type: 'classify', hasChildren: false },
   { type: 'emit', hasChildren: false },
   { type: 'memory', hasChildren: false },
+  { type: 'set', hasChildren: false },
   { type: 'checkpoint', hasChildren: false },
   { type: 'restore', hasChildren: false },
   { type: 'try_catch', hasChildren: true },
