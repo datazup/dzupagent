@@ -21,6 +21,7 @@ import type { DzupEventBus } from '@dzupagent/core/events'
 import type { ModelRegistry } from '@dzupagent/core/llm'
 import type { AgentExecutionSpecStore } from '@dzupagent/core/persistence'
 import { secureLogger } from '@dzupagent/core/utils'
+import { DEFAULT_TENANT_ID, getOptionalRequestingTenantId } from '../tenant-scope.js'
 import { OpenAICompletionMapper } from './completion-mapper.js'
 import {
   mapRequest,
@@ -93,8 +94,10 @@ export function createOpenAICompatCompletionsRoute(
     const mapped = mapRequest(request)
 
     // --- Resolve agent ---
+    const requestingTenantId = getOptionalRequestingTenantId(c)
     const agentDef = await config.agentStore.get(mapped.agentId)
-    if (!agentDef) {
+    const agentTenantId = (agentDef?.tenantId ?? DEFAULT_TENANT_ID) || DEFAULT_TENANT_ID
+    if (!agentDef || (requestingTenantId !== undefined && agentTenantId !== requestingTenantId)) {
       return c.json(notFoundError(request.model), 404)
     }
 

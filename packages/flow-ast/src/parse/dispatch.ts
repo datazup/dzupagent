@@ -35,6 +35,9 @@ import { parseLoop } from './loop.js'
 import { parseHttp } from './http.js'
 import { parseWait } from './wait.js'
 import { parseSubflow } from './subflow.js'
+import { parsePrompt } from './prompt.js'
+import { parseReturnTo } from './return-to.js'
+import { parseAgent, parseValidateNode } from './agent.js'
 
 export function parseNode(value: unknown, pointer: string, ctx: ParseContext): FlowNode | null {
   if (!isPlainObject(value)) {
@@ -117,6 +120,14 @@ export function parseNode(value: unknown, pointer: string, ctx: ParseContext): F
       return parseWait(value, pointer, ctx)
     case 'subflow':
       return parseSubflow(value, pointer, ctx)
+    case 'prompt':
+      return parsePrompt(value, pointer, ctx)
+    case 'return_to':
+      return parseReturnTo(value, pointer, ctx)
+    case 'agent':
+      return parseAgent(value, pointer, ctx)
+    case 'validate':
+      return parseValidateNode(value, pointer, ctx)
     default:
       // Defensive — KNOWN_NODE_TYPES is the source of truth above.
       ctx.errors.push({

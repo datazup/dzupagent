@@ -121,6 +121,11 @@ function projectNode(node: FlowNode, state: ProjectionState): ProjectionResult {
       })
       return { entryIds: [id], exitIds: exits.length > 0 ? exits : [id] }
     }
+    case 'prompt':
+    case 'return_to':
+    case 'agent':
+    case 'validate':
+      return { entryIds: [id], exitIds: [id] }
     default: {
       const _exhaustive: never = node
       void _exhaustive
@@ -190,6 +195,14 @@ function labelForNode(node: FlowNode): string {
       return `wait:${node.durationMs}ms`
     case 'subflow':
       return `subflow:${node.flowRef}`
+    case 'prompt':
+      return `prompt:${node.outputKey ?? 'result'}`
+    case 'return_to':
+      return `return_to:${node.targetId}`
+    case 'agent':
+      return `agent:${node.agentId}`
+    case 'validate':
+      return node.ref ? `validate:${node.ref}` : 'validate'
     default: {
       const _exhaustive: never = node
       void _exhaustive

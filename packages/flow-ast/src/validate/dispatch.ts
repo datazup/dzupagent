@@ -31,6 +31,9 @@ import { validateLoop } from './loop.js'
 import { validateHttp } from './http.js'
 import { validateWait } from './wait.js'
 import { validateSubflow } from './subflow.js'
+import { validatePrompt } from './prompt.js'
+import { validateReturnTo } from './return-to.js'
+import { validateAgent, validateValidateNode } from './agent.js'
 
 export function validateFlowNode(
   value: unknown,
@@ -108,6 +111,14 @@ export function validateFlowNode(
       return validateWait(value, path, issues)
     case 'subflow':
       return validateSubflow(value, path, issues)
+    case 'prompt':
+      return validatePrompt(value, path, issues)
+    case 'return_to':
+      return validateReturnTo(value, path, issues)
+    case 'agent':
+      return validateAgent(value, path, issues)
+    case 'validate':
+      return validateValidateNode(value, path, issues)
     default:
       issues.push({
         path,

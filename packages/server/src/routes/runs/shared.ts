@@ -11,6 +11,7 @@ import type { Run } from '@dzupagent/core/persistence'
 
 import type { ForgeServerConfig } from '../../composition/types.js'
 import type { AppEnv } from '../../types.js'
+import { getRequestingTenantId as getTenantIdFromContext } from '../tenant-scope.js'
 
 /**
  * Extract the current API key's id from the Hono context (set by the auth
@@ -33,14 +34,7 @@ export function getRequestingKeyId(c: Context): string | undefined {
  * quota accounting and tenant-isolation filters aligned on the same key.
  */
 export function getRequestingTenantId(c: Context): string {
-  const key = (c as Context<AppEnv>).get('apiKey')
-  const tenantId = key?.['tenantId']
-  if (typeof tenantId === 'string' && tenantId.length > 0) return tenantId
-  const ownerId = key?.['ownerId']
-  if (typeof ownerId === 'string' && ownerId.length > 0) return ownerId
-  const id = key?.['id']
-  if (typeof id === 'string' && id.length > 0) return id
-  return 'default'
+  return getTenantIdFromContext(c)
 }
 
 /**

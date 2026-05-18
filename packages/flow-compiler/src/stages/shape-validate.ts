@@ -239,6 +239,48 @@ function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
       }
       return
     }
+    case 'prompt': {
+      if (!isNonEmptyString(node.userPrompt)) {
+        errors.push(missing(node.type, path, 'prompt.userPrompt is required (non-empty string)'))
+      }
+      return
+    }
+    case 'return_to': {
+      if (!isNonEmptyString(node.targetId)) {
+        errors.push(missing(node.type, path, 'return_to.targetId is required (non-empty string)'))
+      }
+      if (!isNonEmptyString(node.condition)) {
+        errors.push(missing(node.type, path, 'return_to.condition is required (non-empty string)'))
+      }
+      return
+    }
+    case 'agent': {
+      if (!isNonEmptyString(node.agentId)) {
+        errors.push(missing(node.type, path, 'agent.agentId is required (non-empty string)'))
+      }
+      if (!isNonEmptyString(node.instructions)) {
+        errors.push(missing(node.type, path, 'agent.instructions is required (non-empty string)'))
+      }
+      if (!isPlainObject(node.output) || !isNonEmptyString(node.output.key)) {
+        errors.push(missing(node.type, path, 'agent.output.key is required (non-empty string)'))
+      }
+      if (
+        isPlainObject(node.output)
+        && node.output.schemaRef === undefined
+        && node.output.schema === undefined
+      ) {
+        errors.push(missing(node.type, path, 'agent.output requires either schemaRef or inline schema'))
+      }
+      return
+    }
+    case 'validate': {
+      const hasRef = isNonEmptyString(node.ref)
+      const hasCommands = Array.isArray(node.commands) && node.commands.length > 0
+      if (!hasRef && !hasCommands) {
+        errors.push(missing(node.type, path, 'validate node requires either ref or non-empty commands'))
+      }
+      return
+    }
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails compilation here.
       const _exhaustive: never = node
@@ -320,6 +362,11 @@ function walkOnError(node: FlowNode, path: string, errors: ValidationError[]): v
       node.body.forEach((child, idx) => walkOnError(child, `${path}.body[${idx}]`, errors))
       return
     }
+    case 'prompt':
+    case 'return_to':
+    case 'agent':
+    case 'validate':
+      return
     default: {
       const _exhaustive: never = node
       void _exhaustive

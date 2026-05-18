@@ -21,6 +21,8 @@ import {
   normalizeEmit,
   normalizeHttp,
   normalizeMemory,
+  normalizePrompt,
+  normalizeReturnTo,
   normalizeSpawn,
   normalizeSubflow,
   normalizeWait,
@@ -29,6 +31,7 @@ import {
   normalizeLoop,
   normalizeTryCatch,
 } from './normalize-nodes-structural.js'
+import { normalizeAgent, normalizeValidate } from './normalize-nodes-agent.js'
 import { isPlainObject } from './normalize-value-helpers.js'
 import type { DslDiagnostic } from './types.js'
 
@@ -133,6 +136,14 @@ export function normalizeNodeWrapper(
       return normalizeWait(value, path, diagnostics)
     case 'subflow':
       return normalizeSubflow(value, path, diagnostics)
+    case 'prompt':
+      return normalizePrompt(value, path, diagnostics)
+    case 'return_to':
+      return normalizeReturnTo(value, path, diagnostics)
+    case 'agent':
+      return normalizeAgent(value, path, diagnostics)
+    case 'validate':
+      return normalizeValidate(value, path, diagnostics)
     default:
       diagnostics.push({
         phase: 'normalize',

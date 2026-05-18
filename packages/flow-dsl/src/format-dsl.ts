@@ -230,6 +230,52 @@ function formatNode(lines: string[], node: FlowNode, indentLevel: number): void 
       lines.push(`${childIndent}flowRef: ${quote(node.flowRef)}`)
       if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`)
       return
+    case 'prompt':
+      lines.push(`${indent}- prompt:`)
+      pushCommon(lines, node, indentLevel + 2)
+      lines.push(`${childIndent}userPrompt: ${quote(node.userPrompt)}`)
+      if (node.systemPrompt) lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`)
+      if (node.outputKey) lines.push(`${childIndent}outputKey: ${node.outputKey}`)
+      if (node.provider) lines.push(`${childIndent}provider: ${node.provider}`)
+      if (node.model) lines.push(`${childIndent}model: ${node.model}`)
+      if (node.tools) lines.push(`${childIndent}tools: true`)
+      return
+    case 'return_to':
+      lines.push(`${indent}- return_to:`)
+      pushCommon(lines, node, indentLevel + 2)
+      lines.push(`${childIndent}targetId: ${node.targetId}`)
+      lines.push(`${childIndent}condition: ${quote(node.condition)}`)
+      if (node.maxIterations !== undefined) lines.push(`${childIndent}maxIterations: ${node.maxIterations}`)
+      return
+    case 'agent':
+      lines.push(`${indent}- agent:`)
+      pushCommon(lines, node, indentLevel + 2)
+      lines.push(`${childIndent}agentId: ${node.agentId}`)
+      if (node.profile) lines.push(`${childIndent}profile: ${node.profile}`)
+      if (node.toolset) lines.push(`${childIndent}toolset: ${node.toolset}`)
+      if (node.model) lines.push(`${childIndent}model: ${node.model}`)
+      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`)
+      lines.push(`${childIndent}output:`)
+      lines.push(`${childIndent}  key: ${node.output.key}`)
+      if (node.output.schemaRef) lines.push(`${childIndent}  schemaRef: ${node.output.schemaRef}`)
+      return
+    case 'validate':
+      lines.push(`${indent}- validate:`)
+      pushCommon(lines, node, indentLevel + 2)
+      if (node.ref) lines.push(`${childIndent}ref: ${node.ref}`)
+      if (node.commands && node.commands.length > 0) {
+        lines.push(`${childIndent}commands:`)
+        for (const cmd of node.commands) {
+          lines.push(`${childIndent}  - command: ${quote(cmd.command)}`)
+          if (cmd.id) lines.push(`${childIndent}    id: ${cmd.id}`)
+        }
+      }
+      if (node.repair) {
+        lines.push(`${childIndent}repair:`)
+        lines.push(`${childIndent}  maxAttempts: ${node.repair.maxAttempts}`)
+        if (node.repair.onFailure) lines.push(`${childIndent}  onFailure: ${node.repair.onFailure}`)
+      }
+      return
     default: {
       const _exhaustive: never = node
       void _exhaustive

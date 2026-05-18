@@ -15,6 +15,11 @@ import type {
 } from './mcp-types.js'
 import { validateMcpExecutablePath, sanitizeMcpEnv } from './mcp-security.js'
 import { fetchWithOutboundUrlPolicy } from '../security/outbound-url-policy.js'
+import {
+  getMcpTransportCapability,
+  listMcpTransportCapabilities,
+  MCPUnsupportedTransportError,
+} from './mcp-transport-capabilities.js'
 
 // ---------------------------------------------------------------------------
 // Connection
@@ -246,6 +251,13 @@ export class MCPClient {
     return false
   }
 
+  /**
+   * Return transport capability descriptors used by this MCP client.
+   */
+  getTransportCapabilities() {
+    return listMcpTransportCapabilities()
+  }
+
   // -------------------------------------------------------------------------
   // Transport implementations
   // -------------------------------------------------------------------------
@@ -261,7 +273,7 @@ export class MCPClient {
       case 'http':
         return this.discoverViaHttp(config, timeout)
       case 'sse':
-        return this.discoverViaSse(config, timeout)
+        throw new MCPUnsupportedTransportError(getMcpTransportCapability('sse'))
       case 'stdio':
         return this.discoverViaStdio(config, timeout)
       default:
@@ -306,15 +318,6 @@ export class MCPClient {
     } finally {
       clearTimeout(timer)
     }
-  }
-
-  private async discoverViaSse(
-    config: MCPServerConfig,
-    timeout: number,
-  ): Promise<MCPToolDescriptor[]> {
-    // SSE transport: POST to the server endpoint with tools/list
-    // The SSE transport uses the same JSON-RPC protocol over HTTP
-    return this.discoverViaHttp(config, timeout)
   }
 
   private async discoverViaStdio(
@@ -374,7 +377,7 @@ export class MCPClient {
 
     switch (config.transport) {
       case 'http':
-      case 'sse': {
+      {
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), timeout)
 
@@ -401,6 +404,9 @@ export class MCPClient {
           clearTimeout(timer)
         }
       }
+
+      case 'sse':
+        throw new MCPUnsupportedTransportError(getMcpTransportCapability('sse'))
 
       case 'stdio': {
         const input = JSON.stringify(request) + '\n'

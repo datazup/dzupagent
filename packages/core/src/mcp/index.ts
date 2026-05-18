@@ -1,4 +1,12 @@
 export { MCPClient } from './mcp-client.js'
+export {
+  getMcpTransportCapability,
+  listMcpTransportCapabilities,
+  validateTransportCapabilityDescriptor,
+  MCPUnsupportedTransportError,
+  MCPTransportCapabilityValidationError,
+} from './mcp-transport-capabilities.js'
+export type { MCPTransportCapabilityDescriptor } from './mcp-transport-capabilities.js'
 export { mcpToolToLangChain, mcpToolsToLangChain, langChainToolToMcp } from './mcp-tool-bridge.js'
 export { DeferredToolLoader } from './deferred-loader.js'
 export { DzupAgentMCPServer, isMCPRequest } from './mcp-server.js'

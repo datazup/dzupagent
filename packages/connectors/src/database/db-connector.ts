@@ -6,7 +6,8 @@
  * dependency via dynamic import with graceful failure.
  *
  * SAFETY: Only parameterized queries are allowed — no string interpolation
- * of user input into SQL. Read-only mode restricts to SELECT/WITH queries.
+ * of user input into SQL. Read-only mode allows only read-safe statement
+ * forms and rejects multi-statement/query-shape bypasses.
  */
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
@@ -40,7 +41,7 @@ export interface DatabaseConnectorConfig {
   queryTimeout?: number
   /** Maximum rows returned per query (default: 1000) */
   maxRows?: number
-  /** Restrict to SELECT queries only (default: true) */
+  /** Restrict to read-safe query shapes only (default: true) */
   readOnly?: boolean
   /** Human-readable database name for tool descriptions */
   databaseName?: string
@@ -80,8 +81,372 @@ export interface ColumnInfo {
 // Internals
 // ---------------------------------------------------------------------------
 
-const WRITE_KEYWORDS = /^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|MERGE|COPY)\b/i
-const SELECT_LIKE = /^\s*(SELECT|WITH|EXPLAIN|SHOW|VALUES)\b/i
+const WRITE_ROOT_KEYWORDS = new Set([
+  'INSERT',
+  'UPDATE',
+  'DELETE',
+  'DROP',
+  'ALTER',
+  'CREATE',
+  'TRUNCATE',
+  'GRANT',
+  'REVOKE',
+  'MERGE',
+  'COPY',
+])
+
+const READ_ONLY_ROOT_KEYWORDS = new Set([
+  'SELECT',
+  'WITH',
+  'EXPLAIN',
+  'SHOW',
+  'VALUES',
+])
+
+const DATA_MODIFYING_KEYWORDS_RE = /\b(INSERT|UPDATE|DELETE|MERGE|COPY)\b/i
+const EXPLAIN_ANALYZE_RE = /\bANALYZE\b/i
+const LIMIT_RE = /\bLIMIT\b/i
+
+function readDollarQuoteTagAt(sql: string, index: number): string | null {
+  if (sql[index] !== '$') return null
+  const end = sql.indexOf('$', index + 1)
+  if (end === -1) return null
+  const inner = sql.slice(index + 1, end)
+  if (inner.length === 0) return '$$'
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(inner)) return null
+  return `$${inner}$`
+}
+
+function splitTopLevelStatements(sql: string): string[] {
+  const statements: string[] = []
+  let current = ''
+  let i = 0
+  let parenDepth = 0
+  let inSingleQuote = false
+  let inDoubleQuote = false
+  let inLineComment = false
+  let blockCommentDepth = 0
+  let dollarTag: string | null = null
+
+  while (i < sql.length) {
+    const ch = sql[i]!
+    const next = i + 1 < sql.length ? sql[i + 1]! : ''
+
+    if (dollarTag) {
+      if (sql.startsWith(dollarTag, i)) {
+        current += dollarTag
+        i += dollarTag.length
+        dollarTag = null
+        continue
+      }
+      current += ch
+      i += 1
+      continue
+    }
+
+    if (inSingleQuote) {
+      current += ch
+      if (ch === "'" && next === "'") {
+        current += next
+        i += 2
+        continue
+      }
+      if (ch === "'") inSingleQuote = false
+      i += 1
+      continue
+    }
+
+    if (inDoubleQuote) {
+      current += ch
+      if (ch === '"' && next === '"') {
+        current += next
+        i += 2
+        continue
+      }
+      if (ch === '"') inDoubleQuote = false
+      i += 1
+      continue
+    }
+
+    if (inLineComment) {
+      current += ch
+      if (ch === '\n') inLineComment = false
+      i += 1
+      continue
+    }
+
+    if (blockCommentDepth > 0) {
+      current += ch
+      if (ch === '/' && next === '*') {
+        blockCommentDepth += 1
+        current += next
+        i += 2
+        continue
+      }
+      if (ch === '*' && next === '/') {
+        blockCommentDepth -= 1
+        current += next
+        i += 2
+        continue
+      }
+      i += 1
+      continue
+    }
+
+    if (ch === '-' && next === '-') {
+      current += ch + next
+      inLineComment = true
+      i += 2
+      continue
+    }
+
+    if (ch === '/' && next === '*') {
+      current += ch + next
+      blockCommentDepth = 1
+      i += 2
+      continue
+    }
+
+    const tag = readDollarQuoteTagAt(sql, i)
+    if (tag) {
+      dollarTag = tag
+      current += tag
+      i += tag.length
+      continue
+    }
+
+    if (ch === "'") {
+      inSingleQuote = true
+      current += ch
+      i += 1
+      continue
+    }
+
+    if (ch === '"') {
+      inDoubleQuote = true
+      current += ch
+      i += 1
+      continue
+    }
+
+    if (ch === '(') parenDepth += 1
+    if (ch === ')') parenDepth = Math.max(0, parenDepth - 1)
+
+    if (ch === ';' && parenDepth === 0) {
+      const trimmed = current.trim()
+      if (trimmed.length > 0) statements.push(trimmed)
+      current = ''
+      i += 1
+      continue
+    }
+
+    current += ch
+    i += 1
+  }
+
+  const trailing = current.trim()
+  if (trailing.length > 0) statements.push(trailing)
+  return statements
+}
+
+function maskSqlLiteralsAndComments(sql: string): string {
+  let out = ''
+  let i = 0
+  let inSingleQuote = false
+  let inDoubleQuote = false
+  let inLineComment = false
+  let blockCommentDepth = 0
+  let dollarTag: string | null = null
+
+  while (i < sql.length) {
+    const ch = sql[i]!
+    const next = i + 1 < sql.length ? sql[i + 1]! : ''
+
+    if (dollarTag) {
+      if (sql.startsWith(dollarTag, i)) {
+        out += ' '.repeat(dollarTag.length)
+        i += dollarTag.length
+        dollarTag = null
+        continue
+      }
+      out += ch === '\n' ? '\n' : ' '
+      i += 1
+      continue
+    }
+
+    if (inSingleQuote) {
+      if (ch === "'" && next === "'") {
+        out += '  '
+        i += 2
+        continue
+      }
+      out += ch === '\n' ? '\n' : ' '
+      if (ch === "'") inSingleQuote = false
+      i += 1
+      continue
+    }
+
+    if (inDoubleQuote) {
+      if (ch === '"' && next === '"') {
+        out += '  '
+        i += 2
+        continue
+      }
+      out += ch === '\n' ? '\n' : ' '
+      if (ch === '"') inDoubleQuote = false
+      i += 1
+      continue
+    }
+
+    if (inLineComment) {
+      out += ch === '\n' ? '\n' : ' '
+      if (ch === '\n') inLineComment = false
+      i += 1
+      continue
+    }
+
+    if (blockCommentDepth > 0) {
+      if (ch === '/' && next === '*') {
+        blockCommentDepth += 1
+        out += '  '
+        i += 2
+        continue
+      }
+      if (ch === '*' && next === '/') {
+        blockCommentDepth -= 1
+        out += '  '
+        i += 2
+        continue
+      }
+      out += ch === '\n' ? '\n' : ' '
+      i += 1
+      continue
+    }
+
+    if (ch === '-' && next === '-') {
+      inLineComment = true
+      out += '  '
+      i += 2
+      continue
+    }
+
+    if (ch === '/' && next === '*') {
+      blockCommentDepth = 1
+      out += '  '
+      i += 2
+      continue
+    }
+
+    const tag = readDollarQuoteTagAt(sql, i)
+    if (tag) {
+      dollarTag = tag
+      out += ' '.repeat(tag.length)
+      i += tag.length
+      continue
+    }
+
+    if (ch === "'") {
+      inSingleQuote = true
+      out += ' '
+      i += 1
+      continue
+    }
+
+    if (ch === '"') {
+      inDoubleQuote = true
+      out += ' '
+      i += 1
+      continue
+    }
+
+    out += ch
+    i += 1
+  }
+
+  return out
+}
+
+function leadingKeyword(sql: string): string | null {
+  const match = sql.match(/^\s*([A-Za-z]+)/)
+  return match ? match[1]!.toUpperCase() : null
+}
+
+function isDataModifyingWithStatement(maskedSql: string): boolean {
+  return DATA_MODIFYING_KEYWORDS_RE.test(maskedSql)
+}
+
+function stripExplainPrefix(maskedSql: string): string {
+  let rest = maskedSql.replace(/^\s*EXPLAIN\b/i, '').trimStart()
+  if (!rest.startsWith('(')) return rest
+
+  let i = 0
+  let depth = 0
+  while (i < rest.length) {
+    const ch = rest[i]!
+    if (ch === '(') depth += 1
+    if (ch === ')') {
+      depth -= 1
+      if (depth === 0) {
+        i += 1
+        break
+      }
+    }
+    i += 1
+  }
+
+  return rest.slice(i).trimStart()
+}
+
+function enforceReadOnlyStatement(sql: string): string {
+  const statements = splitTopLevelStatements(sql)
+  if (statements.length === 0) {
+    throw new Error('Write operations not allowed (read-only mode). SQL query is empty.')
+  }
+  if (statements.length > 1) {
+    throw new Error('Write operations not allowed (read-only mode). Multiple SQL statements are not permitted.')
+  }
+
+  const statement = statements[0]!
+  const masked = maskSqlLiteralsAndComments(statement)
+  const root = leadingKeyword(masked)
+  if (!root || !READ_ONLY_ROOT_KEYWORDS.has(root)) {
+    throw new Error(
+      'Write operations not allowed (read-only mode). Only read-safe SELECT/WITH/SHOW/VALUES/EXPLAIN statements are permitted.',
+    )
+  }
+
+  if (WRITE_ROOT_KEYWORDS.has(root)) {
+    throw new Error('Write operations not allowed (read-only mode).')
+  }
+
+  if (root === 'WITH' && isDataModifyingWithStatement(masked)) {
+    throw new Error('Write operations not allowed (read-only mode). Data-modifying CTEs are not permitted.')
+  }
+
+  if (root === 'EXPLAIN') {
+    if (EXPLAIN_ANALYZE_RE.test(masked)) {
+      throw new Error('Write operations not allowed (read-only mode). EXPLAIN ANALYZE is not permitted.')
+    }
+    const explainedStatement = stripExplainPrefix(masked)
+    const explainedRoot = leadingKeyword(explainedStatement)
+    if (explainedRoot && WRITE_ROOT_KEYWORDS.has(explainedRoot)) {
+      throw new Error('Write operations not allowed (read-only mode). EXPLAIN of write statements is not permitted.')
+    }
+    if (explainedRoot === 'WITH' && isDataModifyingWithStatement(explainedStatement)) {
+      throw new Error('Write operations not allowed (read-only mode). EXPLAIN of data-modifying CTEs is not permitted.')
+    }
+  }
+
+  return statement
+}
+
+function shouldApplyAutoLimit(maskedSql: string): boolean {
+  const root = leadingKeyword(maskedSql)
+  if (!root) return false
+  if (root === 'SHOW' || root === 'EXPLAIN') return false
+  if (root === 'WITH' && isDataModifyingWithStatement(maskedSql)) return false
+  return root === 'SELECT' || root === 'WITH' || root === 'VALUES'
+}
 
 /**
  * Minimal subset of the pg.Pool interface that we depend on, so we do not
@@ -93,7 +458,17 @@ interface PgPool {
     rowCount: number | null
     fields: Array<{ name: string; dataTypeID: number }>
   }>
+  connect?(): Promise<PgPoolClient>
   end(): Promise<void>
+}
+
+interface PgPoolClient {
+  query(text: string, values?: unknown[]): Promise<{
+    rows: Record<string, unknown>[]
+    rowCount: number | null
+    fields: Array<{ name: string; dataTypeID: number }>
+  }>
+  release(): void
 }
 
 /** Data-type OID to human-readable name (PostgreSQL common types). */
@@ -164,6 +539,7 @@ async function createPool(config: DatabaseConnectorConfig): Promise<PgPool> {
 
 interface QueryExecutor {
   execute(sql: string, params?: unknown[]): Promise<QueryResult>
+  executeReadOnly?(sql: string, params?: unknown[]): Promise<QueryResult>
   close(): Promise<void>
 }
 
@@ -193,15 +569,50 @@ function createCustomExecutor(
 }
 
 function createPgExecutor(pool: PgPool): QueryExecutor {
+  function mapPgResult(
+    result: {
+      rows: Record<string, unknown>[]
+      rowCount: number | null
+      fields: Array<{ name: string; dataTypeID: number }>
+    },
+    start: number,
+  ): QueryResult {
+    return {
+      rows: result.rows,
+      rowCount: result.rowCount ?? result.rows.length,
+      fields: result.fields.map(f => ({ name: f.name, type: oidToName(f.dataTypeID) })),
+      duration: Date.now() - start,
+    }
+  }
+
   return {
     async execute(sql: string, params?: unknown[]): Promise<QueryResult> {
       const start = Date.now()
       const result = await pool.query(sql, params)
-      return {
-        rows: result.rows,
-        rowCount: result.rowCount ?? result.rows.length,
-        fields: result.fields.map(f => ({ name: f.name, type: oidToName(f.dataTypeID) })),
-        duration: Date.now() - start,
+      return mapPgResult(result, start)
+    },
+    async executeReadOnly(sql: string, params?: unknown[]): Promise<QueryResult> {
+      if (typeof pool.connect !== 'function') {
+        return this.execute(sql, params)
+      }
+
+      const client = await pool.connect()
+      const start = Date.now()
+      try {
+        await client.query('BEGIN')
+        await client.query('SET LOCAL TRANSACTION READ ONLY')
+        const result = await client.query(sql, params)
+        await client.query('COMMIT')
+        return mapPgResult(result, start)
+      } catch (error) {
+        try {
+          await client.query('ROLLBACK')
+        } catch {
+          // ignore rollback failures; original error is more actionable
+        }
+        throw error
+      } finally {
+        client.release()
       }
     },
     async close() {
@@ -236,25 +647,29 @@ export function createDatabaseOperations(
   const readOnly = config.readOnly ?? true
   const maxRows = config.maxRows ?? 1000
 
+  async function executeSql(sql: string, params?: unknown[]): Promise<QueryResult> {
+    if (readOnly && executor.executeReadOnly) {
+      return executor.executeReadOnly(sql, params)
+    }
+    return executor.execute(sql, params)
+  }
+
   return {
     async query(sql: string, params?: unknown[]): Promise<QueryResult> {
-      if (readOnly && WRITE_KEYWORDS.test(sql)) {
-        throw new Error(
-          'Write operations not allowed (read-only mode). Only SELECT queries are permitted.',
-        )
-      }
+      const candidateSql = readOnly ? enforceReadOnlyStatement(sql) : sql
+      const maskedCandidate = maskSqlLiteralsAndComments(candidateSql)
 
       // Enforce row limit by wrapping SELECT-like queries
-      let safeSql = sql
-      if (SELECT_LIKE.test(sql) && !/\bLIMIT\b/i.test(sql)) {
-        safeSql = `SELECT * FROM (${sql}) AS __limited LIMIT ${maxRows}`
+      let safeSql = candidateSql
+      if (shouldApplyAutoLimit(maskedCandidate) && !LIMIT_RE.test(maskedCandidate)) {
+        safeSql = `SELECT * FROM (${candidateSql}) AS __limited LIMIT ${maxRows}`
       }
 
-      return executor.execute(safeSql, params)
+      return executeSql(safeSql, params)
     },
 
     async listTables(schema = 'public'): Promise<TableInfo[]> {
-      const result = await executor.execute(
+      const result = await executeSql(
         `SELECT table_name, table_schema
          FROM information_schema.tables
          WHERE table_schema = $1
@@ -270,7 +685,7 @@ export function createDatabaseOperations(
     },
 
     async describeTable(tableName: string, schema = 'public'): Promise<ColumnInfo[]> {
-      const result = await executor.execute(
+      const result = await executeSql(
         `SELECT
            c.column_name,
            c.data_type,
@@ -310,7 +725,7 @@ export function createDatabaseOperations(
       // Approximate row count from pg_class (fast, no full scan)
       let rowCount: number | undefined
       try {
-        const countResult = await executor.execute(
+        const countResult = await executeSql(
           `SELECT reltuples::bigint AS estimate
            FROM pg_class
            WHERE relname = $1`,
@@ -327,7 +742,7 @@ export function createDatabaseOperations(
 
     async healthCheck(): Promise<boolean> {
       try {
-        await executor.execute('SELECT 1 AS ok')
+        await executeSql('SELECT 1 AS ok')
         return true
       } catch {
         return false
@@ -389,7 +804,7 @@ export function createDatabaseConnector(config: DatabaseConnectorConfig): Dynami
     // ── db-query ──────────────────────────────────────────
     new DynamicStructuredTool({
       name: 'db-query',
-      description: `Execute a parameterized SQL query against ${dbName}. ${readOnly ? 'Read-only: only SELECT/WITH queries allowed.' : 'Read-write access.'} Results limited to ${maxRows} rows.`,
+      description: `Execute a parameterized SQL query against ${dbName}. ${readOnly ? 'Read-only: allows SELECT/WITH/SHOW/VALUES and safe EXPLAIN only; blocks multi-statement and data-modifying CTE/query shapes.' : 'Read-write access.'} Results limited to ${maxRows} rows.`,
       schema: z.object({
         sql: z.string().describe('Parameterized SQL query (use $1, $2... for parameters)'),
         params: z.array(z.unknown()).optional().describe('Parameter values for $1, $2, etc.'),

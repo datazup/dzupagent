@@ -16,8 +16,19 @@ export { MemoryService } from './memory-service.js'
 
 // --- MemoryClient implementations (ADR-0005) ---
 export { InMemoryMemoryClient } from './in-memory-client.js'
-export { HttpMemoryClient, NotImplementedError } from './http-client.js'
-export type { HttpMemoryClientConfig } from './http-client.js'
+export {
+  HttpMemoryClient,
+  NotImplementedError,
+  HttpMemoryError,
+  HttpMemoryTimeoutError,
+  HttpMemoryAbortError,
+  HttpMemoryResponseError,
+} from './http-client.js'
+export type {
+  HttpMemoryClientConfig,
+  HttpMemoryOperation,
+  HttpMemoryRequestResult,
+} from './http-client.js'
 export { memoryServiceToClient } from './memory-service-adapter.js'
 export type { MemoryServiceLike as AdapterMemoryServiceLike } from './memory-service-adapter.js'
 

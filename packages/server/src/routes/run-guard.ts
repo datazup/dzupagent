@@ -14,14 +14,15 @@
  * so attackers cannot use status-code probing to enumerate run ids that
  * belong to other tenants.
  *
- * The owner/tenant resolution logic mirrors `enforceOwnerAccess` in
- * `routes/runs.ts`; it is duplicated here (rather than re-exported) so this
- * helper has no inbound dependency on the run-lifecycle handlers.
+ * The owner scoping logic mirrors `enforceOwnerAccess` in `routes/runs.ts`.
+ * Tenant resolution itself is centralized in `routes/tenant-scope.ts` so
+ * route families cannot drift on tenant fallback precedence.
  */
 import type { Context } from 'hono'
 import type { Run, RunStore } from '@dzupagent/core/persistence'
 
 import type { AppEnv } from '../types.js'
+import { getRequestingTenantId } from './tenant-scope.js'
 
 /**
  * Extract the current API key's id from the Hono context (set by the auth
@@ -32,22 +33,6 @@ function getRequestingKeyId(c: Context): string | undefined {
   const key = (c as Context<AppEnv>).get('apiKey')
   const id = key?.['id']
   return typeof id === 'string' ? id : undefined
-}
-
-/**
- * Extract the authenticated API key's tenant scope. Prefers `tenantId`,
- * falls back to `ownerId`, then `id`, and finally `'default'` when auth is
- * disabled entirely.
- */
-function getRequestingTenantId(c: Context): string {
-  const key = (c as Context<AppEnv>).get('apiKey')
-  const tenantId = key?.['tenantId']
-  if (typeof tenantId === 'string' && tenantId.length > 0) return tenantId
-  const ownerId = key?.['ownerId']
-  if (typeof ownerId === 'string' && ownerId.length > 0) return ownerId
-  const id = key?.['id']
-  if (typeof id === 'string' && id.length > 0) return id
-  return 'default'
 }
 
 /**

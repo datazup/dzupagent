@@ -7,7 +7,15 @@ import { createForgeTool } from '@dzupagent/core/tools'
 import { z } from 'zod'
 import { parseDocument } from './parse-document.js'
 import { splitIntoChunks } from './chunking/split-into-chunks.js'
-import { isSupportedDocumentType, SUPPORTED_MIME_TYPES } from './supported-types.js'
+import {
+  DEFAULT_MAX_CHUNK_SIZE,
+  DEFAULT_OVERLAP_SIZE,
+  type DocumentConnectorTelemetryCallback,
+  type DocumentConnectorTelemetryEvent,
+  validateChunkConfig,
+  validateParseBoundary,
+  withConnectorTelemetry,
+} from './validation.js'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 
 // ---------------------------------------------------------------------------
@@ -26,6 +34,10 @@ export interface DocumentConnectorConfig {
   maxChunkSize?: number
   /** Character overlap between chunks (default: 200) */
   overlap?: number
+  /** Maximum accepted decoded document payload in bytes (default: 10 MiB) */
+  maxDocumentBytes?: number
+  /** Optional callback for parse/chunk timing and failure events */
+  telemetryCallback?: DocumentConnectorTelemetryCallback
 }
 
 type DocumentToolFactory = (config: {
@@ -65,8 +77,13 @@ export function createDocumentConnector(
 ): StructuredToolInterface[] {
   const createDocumentTool = createForgeTool as unknown as DocumentToolFactory
 
-  const defaultMaxChunkSize = config.maxChunkSize ?? 4000
-  const defaultOverlap = config.overlap ?? 200
+  const defaultMaxChunkSize = config.maxChunkSize ?? DEFAULT_MAX_CHUNK_SIZE
+  const defaultOverlap = config.overlap ?? DEFAULT_OVERLAP_SIZE
+  validateChunkConfig(defaultMaxChunkSize, defaultOverlap)
+
+  const emitTelemetry = (event: DocumentConnectorTelemetryEvent): void => {
+    config.telemetryCallback?.(event)
+  }
 
   // -------------------------------------------------------------------------
   // Tool 1: parseDocumentTool
@@ -86,20 +103,12 @@ export function createDocumentConnector(
     }),
     execute: async (rawInput: unknown): Promise<unknown> => {
       const input = rawInput as { content: string; contentType: string }
-      try {
-        if (!isSupportedDocumentType(input.contentType)) {
-          const supported = [...SUPPORTED_MIME_TYPES].join(', ')
-          return `Error: Unsupported document type "${input.contentType}". Supported types: ${supported}`
-        }
-
+      return withConnectorTelemetry('parse', emitTelemetry, async () => {
         const buffer = Buffer.from(input.content, 'base64')
+        validateParseBoundary(input.contentType, buffer, config.maxDocumentBytes)
         const text = await parseDocument(buffer, input.contentType)
         return truncate(text, MAX_OUTPUT_LENGTH)
-      } catch (err: unknown) {
-        const message =
-          err instanceof Error ? err.message : 'Unknown error parsing document'
-        return `Error: ${message}`
-      }
+      })
     },
     toModelOutput: (output: unknown): string => typeof output === 'string' ? output : String(output),
   })
@@ -125,17 +134,14 @@ export function createDocumentConnector(
     }),
     execute: async (rawInput: unknown): Promise<unknown> => {
       const input = rawInput as { text: string; maxChunkSize?: number; overlap?: number }
-      try {
+      return withConnectorTelemetry('chunk', emitTelemetry, async () => {
         const chunkSize = input.maxChunkSize ?? defaultMaxChunkSize
         const overlapSize = input.overlap ?? defaultOverlap
+        validateChunkConfig(chunkSize, overlapSize)
 
         const chunks = splitIntoChunks(input.text, chunkSize, overlapSize)
         return JSON.stringify(chunks, null, 2)
-      } catch (err: unknown) {
-        const message =
-          err instanceof Error ? err.message : 'Unknown error chunking text'
-        return `Error: ${message}`
-      }
+      })
     },
     toModelOutput: (output: unknown): string => {
       const text = typeof output === 'string' ? output : String(output)

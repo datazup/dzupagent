@@ -1,5 +1,5 @@
 import { readdir, readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 
 /**
@@ -13,6 +13,7 @@ export interface PluginManifest {
   capabilities: string[]
   dependencies?: string[]
   entryPoint: string
+  source?: 'local' | 'npm' | 'builtin'
 }
 
 /**
@@ -34,6 +35,33 @@ export interface PluginDiscoveryConfig {
   builtinPlugins?: PluginManifest[]
 }
 
+export interface ResolvePluginOrderOptions {
+  /** Default false. When true, later duplicates override earlier entries. */
+  allowNameConflicts?: boolean
+}
+
+export interface PluginNameConflictDiagnostic {
+  signal: 'plugin_registration_conflict_count'
+  name: string
+  source: DiscoveredPlugin['source']
+  path: string
+  previousSource: DiscoveredPlugin['source']
+  previousPath: string
+}
+
+export class PluginNameConflictError extends Error {
+  readonly diagnostic: PluginNameConflictDiagnostic
+
+  constructor(diagnostic: PluginNameConflictDiagnostic) {
+    super(
+      `Duplicate plugin name "${diagnostic.name}" detected ` +
+      `(new: ${diagnostic.source}:${diagnostic.path}; existing: ${diagnostic.previousSource}:${diagnostic.previousPath})`,
+    )
+    this.name = 'PluginNameConflictError'
+    this.diagnostic = diagnostic
+  }
+}
+
 const MANIFEST_FILENAME = 'dzupagent-plugin.json'
 
 const REQUIRED_FIELDS: (keyof PluginManifest)[] = ['name', 'version', 'description', 'capabilities', 'entryPoint']
@@ -42,6 +70,51 @@ const DEFAULT_DIRS = [
   join(homedir(), '.dzupagent', 'plugins'),
   resolve('dzupagent-plugins'),
 ]
+
+function isValidSemver(version: string): boolean {
+  const parts = version.split('.')
+  if (parts.length < 3) return false
+  const [major, minor, patchAndRest] = parts
+  if (!major || !minor || !patchAndRest) return false
+  if (!/^\d+$/.test(major) || !/^\d+$/.test(minor)) return false
+  const patch = patchAndRest.split('-')[0]?.split('+')[0] ?? ''
+  return /^\d+$/.test(patch)
+}
+const ALLOWED_MANIFEST_SOURCES = new Set<NonNullable<PluginManifest['source']>>(['local', 'npm', 'builtin'])
+
+function validateStringArray(
+  value: unknown,
+  fieldName: 'capabilities' | 'dependencies',
+  errors: string[],
+): void {
+  if (!Array.isArray(value)) {
+    errors.push(`"${fieldName}" must be an array`)
+    return
+  }
+
+  for (let i = 0; i < value.length; i++) {
+    const item = value[i]
+    if (typeof item !== 'string' || item.trim().length === 0) {
+      errors.push(`"${fieldName}[${i}]" must be a non-empty string`)
+    }
+  }
+}
+
+function validateEntryPoint(entryPoint: string, errors: string[]): void {
+  const normalized = entryPoint.replace(/\\/g, '/')
+  if (normalized.trim().length === 0) {
+    errors.push('"entryPoint" must be non-empty')
+    return
+  }
+
+  if (isAbsolute(normalized) || /^[A-Za-z]:[\\/]/.test(normalized)) {
+    errors.push('"entryPoint" must be a relative path')
+  }
+
+  if (normalized.split('/').includes('..')) {
+    errors.push('"entryPoint" must not contain parent-directory traversal ("..")')
+  }
+}
 
 /**
  * Validate a plugin manifest object.
@@ -62,26 +135,48 @@ export function validateManifest(manifest: unknown): { valid: boolean; errors: s
     }
   }
 
-  if (typeof obj['name'] === 'string' && obj['name'].length === 0) {
+  if (typeof obj['name'] === 'string' && obj['name'].trim().length === 0) {
     errors.push('"name" must be non-empty')
   }
   if (obj['name'] !== undefined && typeof obj['name'] !== 'string') {
     errors.push('"name" must be a string')
   }
+
+  if (typeof obj['version'] === 'string' && !isValidSemver(obj['version'])) {
+    errors.push('"version" must be valid semver')
+  }
   if (obj['version'] !== undefined && typeof obj['version'] !== 'string') {
     errors.push('"version" must be a string')
+  }
+
+  if (typeof obj['description'] === 'string' && obj['description'].trim().length === 0) {
+    errors.push('"description" must be non-empty')
   }
   if (obj['description'] !== undefined && typeof obj['description'] !== 'string') {
     errors.push('"description" must be a string')
   }
-  if (obj['entryPoint'] !== undefined && typeof obj['entryPoint'] !== 'string') {
+
+  if (obj['author'] !== undefined && typeof obj['author'] !== 'string') {
+    errors.push('"author" must be a string')
+  }
+
+  if (typeof obj['entryPoint'] === 'string') {
+    validateEntryPoint(obj['entryPoint'], errors)
+  } else if (obj['entryPoint'] !== undefined) {
     errors.push('"entryPoint" must be a string')
   }
-  if (obj['capabilities'] !== undefined && !Array.isArray(obj['capabilities'])) {
-    errors.push('"capabilities" must be an array')
+
+  if (obj['capabilities'] !== undefined) {
+    validateStringArray(obj['capabilities'], 'capabilities', errors)
   }
-  if (obj['dependencies'] !== undefined && !Array.isArray(obj['dependencies'])) {
-    errors.push('"dependencies" must be an array')
+  if (obj['dependencies'] !== undefined) {
+    validateStringArray(obj['dependencies'], 'dependencies', errors)
+  }
+
+  if (obj['source'] !== undefined) {
+    if (typeof obj['source'] !== 'string' || !ALLOWED_MANIFEST_SOURCES.has(obj['source'] as NonNullable<PluginManifest['source']>)) {
+      errors.push('"source" must be one of: local, npm, builtin')
+    }
   }
 
   return { valid: errors.length === 0, errors }
@@ -135,13 +230,33 @@ export async function discoverPlugins(config?: PluginDiscoveryConfig): Promise<D
   return discovered
 }
 
+function conflictDiagnostic(current: DiscoveredPlugin, previous: DiscoveredPlugin): PluginNameConflictDiagnostic {
+  return {
+    signal: 'plugin_registration_conflict_count',
+    name: current.manifest.name,
+    source: current.source,
+    path: current.path,
+    previousSource: previous.source,
+    previousPath: previous.path,
+  }
+}
+
 /**
  * Resolve plugin load order via topological sort on declared dependencies.
  * Plugins without dependencies come first. Throws on circular dependencies.
  */
-export function resolvePluginOrder(plugins: DiscoveredPlugin[]): DiscoveredPlugin[] {
+export function resolvePluginOrder(
+  plugins: DiscoveredPlugin[],
+  options?: ResolvePluginOrderOptions,
+): DiscoveredPlugin[] {
   const byName = new Map<string, DiscoveredPlugin>()
+  const allowNameConflicts = options?.allowNameConflicts ?? false
+
   for (const p of plugins) {
+    const existing = byName.get(p.manifest.name)
+    if (existing && !allowNameConflicts) {
+      throw new PluginNameConflictError(conflictDiagnostic(p, existing))
+    }
     byName.set(p.manifest.name, p)
   }
 
@@ -173,3 +288,4 @@ export function resolvePluginOrder(plugins: DiscoveredPlugin[]): DiscoveredPlugi
 
   return sorted
 }
+

@@ -42,19 +42,46 @@ export function parseForEach(
   }
 
   if (failed) {
-    // Walk body anyway if it's an array, to surface nested errors in document order
     if (Array.isArray(bodyRaw)) {
-      ctx.parseNodeArray(bodyRaw, joinPointer(pointer, 'body'), ctx)
+      ctx.parseNodeArray(bodyRaw as unknown[], joinPointer(pointer, 'body'), ctx)
     }
     return null
   }
 
   const body = ctx.parseNodeArray(bodyRaw as unknown[], joinPointer(pointer, 'body'), ctx)
+
+  const attachAs = typeof obj.attachAs === 'string' ? obj.attachAs : undefined
+  const concurrency = typeof obj.concurrency === 'number' ? Math.min(Math.max(1, Math.floor(obj.concurrency)), 8) : undefined
+
+  let collect: ForEachNode['collect'] | undefined
+  if (obj.collect && typeof obj.collect === 'object' && !Array.isArray(obj.collect)) {
+    const c = obj.collect as Record<string, unknown>
+    if (typeof c.from === 'string' && typeof c.into === 'string') {
+      collect = { from: c.from, into: c.into }
+    }
+  }
+
+  let accumulator: ForEachNode['accumulator'] | undefined
+  if (obj.accumulator && typeof obj.accumulator === 'object' && !Array.isArray(obj.accumulator)) {
+    const a = obj.accumulator as Record<string, unknown>
+    if (typeof a.key === 'string') {
+      accumulator = {
+        key: a.key,
+        ...(typeof a.window === 'number' ? { window: Math.max(1, Math.floor(a.window)) } : {}),
+        ...(a.initialValue !== undefined ? { initialValue: a.initialValue } : {}),
+      }
+    }
+  }
+
   return {
     type: 'for_each',
     ...parseCommonNodeFields(obj, pointer, ctx),
     source: sourceRaw as string,
     as: asRaw as string,
     body,
+    ...(attachAs !== undefined ? { attachAs } : {}),
+    ...(collect !== undefined ? { collect } : {}),
+    ...(accumulator !== undefined ? { accumulator } : {}),
+    ...(concurrency !== undefined ? { concurrency } : {}),
   }
 }

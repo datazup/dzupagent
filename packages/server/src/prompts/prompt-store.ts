@@ -132,7 +132,9 @@ export class InMemoryPromptStore implements PromptStore {
     return published
   }
 
-  async rollback(_promptId: string, targetId: string, tenantId?: string): Promise<PromptVersionRecord | null> {
+  async rollback(promptId: string, targetId: string, tenantId?: string): Promise<PromptVersionRecord | null> {
+    const target = await this.get(targetId, tenantId)
+    if (!target || target.promptId !== promptId) return null
     return this.publish(targetId, tenantId)
   }
 

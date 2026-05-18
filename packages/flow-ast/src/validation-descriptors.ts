@@ -30,4 +30,8 @@ export const FLOW_NODE_VALIDATOR_DESCRIPTORS: ReadonlyArray<{
   { type: 'http', hasChildren: false },
   { type: 'wait', hasChildren: false },
   { type: 'subflow', hasChildren: false },
+  { type: 'prompt', hasChildren: false },
+  { type: 'return_to', hasChildren: false },
+  { type: 'agent', hasChildren: false },
+  { type: 'validate', hasChildren: false },
 ]

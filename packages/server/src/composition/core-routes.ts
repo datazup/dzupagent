@@ -23,7 +23,7 @@ import { createApiKeyRoutes } from '../routes/api-keys.js'
 
 export function mountCoreRoutes(app: Hono<AppEnv>, runtimeConfig: ForgeServerConfig): void {
   app.route('/api/health', createHealthRoutes(runtimeConfig))
-  app.route('/api/health', createRoutingStatsRoutes({ runStore: runtimeConfig.runStore }))
+  app.route('/api/runs', createRoutingStatsRoutes({ runStore: runtimeConfig.runStore }))
   app.route('/api/runs', createRunRoutes(runtimeConfig))
   app.route('/api/runs', createRunContextRoutes(runtimeConfig))
   app.route('/api/agent-definitions', createAgentDefinitionRoutes(runtimeConfig))
