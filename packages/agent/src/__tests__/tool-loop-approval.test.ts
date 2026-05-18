@@ -220,7 +220,7 @@ describe('Approval-required tool gating (RF-AGENT-04)', () => {
     expect(events).toHaveLength(1)
   })
 
-  it('hard-gates the parallel execution path as well', async () => {
+  it('hard-gates the parallel execution path before sibling calls run', async () => {
     // Two independent tool calls in a single LLM turn. The parallel
     // executor must apply the gate in its pre-validation loop so the
     // approval-required tool is suspended without being invoked.
@@ -260,8 +260,8 @@ describe('Approval-required tool gating (RF-AGENT-04)', () => {
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ runId: 'run-parallel' })
 
-    // The safe call still ran in parallel (it was executed before the
-    // approval-pending result was inspected by the outer loop).
-    expect(safeInvoke).toHaveBeenCalledTimes(1)
+    // T-AP-002: sibling calls are no longer allowed to run once a
+    // parallel batch contains an approval-required tool.
+    expect(safeInvoke).not.toHaveBeenCalled()
   })
 })

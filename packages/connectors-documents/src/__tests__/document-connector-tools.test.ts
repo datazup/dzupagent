@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { DEFAULT_MAX_DOCUMENT_BYTES, MAX_CHUNK_SIZE_LIMIT } from '../validation.js'
 
 // ---------------------------------------------------------------------------
 // Mock pdf-parse and mammoth before importing
@@ -37,7 +38,7 @@ describe('createDocumentConnector', () => {
 
   it('tools have correct names', () => {
     const tools = createDocumentConnector()
-    expect(tools.map(t => t.name)).toEqual(['parse-document', 'chunk-document'])
+    expect(tools.map((t) => t.name)).toEqual(['parse-document', 'chunk-document'])
   })
 
   it('tools have descriptions', () => {
@@ -50,6 +51,12 @@ describe('createDocumentConnector', () => {
   it('accepts custom config', () => {
     const tools = createDocumentConnector({ maxChunkSize: 2000, overlap: 100 })
     expect(tools).toHaveLength(2)
+  })
+
+  it('rejects invalid default chunk config at connector creation', () => {
+    expect(() => createDocumentConnector({ maxChunkSize: 0, overlap: 0 })).toThrow(
+      'maxChunkSize must be a positive finite integer',
+    )
   })
 })
 
@@ -111,61 +118,88 @@ describe('parse-document tool', () => {
     expect(result).toBe('DOCX content extracted')
   })
 
-  it('returns error string for unsupported content type', async () => {
+  it('rejects unsupported content type', async () => {
     const [parseTool] = createDocumentConnector()
     const b64 = Buffer.from('data').toString('base64')
 
-    const result = await parseTool.invoke({
-      content: b64,
-      contentType: 'application/octet-stream',
-    })
-    expect(result).toContain('Unsupported document type')
-    expect(result).toContain('application/octet-stream')
+    await expect(
+      parseTool.invoke({
+        content: b64,
+        contentType: 'application/octet-stream',
+      }),
+    ).rejects.toThrow('Unsupported document type')
   })
 
   it('lists supported types in unsupported error message', async () => {
     const [parseTool] = createDocumentConnector()
     const b64 = Buffer.from('data').toString('base64')
 
-    const result = await parseTool.invoke({
-      content: b64,
-      contentType: 'image/png',
-    })
-    expect(result).toContain('application/pdf')
-    expect(result).toContain('text/plain')
+    await expect(
+      parseTool.invoke({
+        content: b64,
+        contentType: 'image/png',
+      }),
+    ).rejects.toThrow('application/pdf')
   })
 
-  it('returns error string when PDF parsing fails', async () => {
+  it('rejects when payload exceeds parser size limit', async () => {
+    const [parseTool] = createDocumentConnector({ maxDocumentBytes: 8 })
+    const b64 = Buffer.from('this document is too large', 'utf-8').toString('base64')
+
+    await expect(
+      parseTool.invoke({
+        content: b64,
+        contentType: 'text/plain',
+      }),
+    ).rejects.toThrow('exceeds parser size limit')
+  })
+
+  it('rejects invalid parser limit config before parsing', async () => {
+    const [parseTool] = createDocumentConnector({ maxDocumentBytes: 0 })
+    const b64 = Buffer.from('small', 'utf-8').toString('base64')
+
+    await expect(
+      parseTool.invoke({
+        content: b64,
+        contentType: 'text/plain',
+      }),
+    ).rejects.toThrow('maxDocumentBytes must be a positive finite integer')
+  })
+
+  it('rejects when PDF parsing fails', async () => {
     mockGetText.mockRejectedValue(new Error('Corrupt PDF file'))
 
     const [parseTool] = createDocumentConnector()
     const b64 = Buffer.from('bad-pdf').toString('base64')
 
-    const result = await parseTool.invoke({ content: b64, contentType: 'application/pdf' })
-    expect(result).toContain('Error: Corrupt PDF file')
+    await expect(
+      parseTool.invoke({ content: b64, contentType: 'application/pdf' }),
+    ).rejects.toThrow('Corrupt PDF file')
   })
 
-  it('returns error string when DOCX parsing fails', async () => {
+  it('rejects when DOCX parsing fails', async () => {
     mockExtractRawText.mockRejectedValue(new Error('Invalid DOCX'))
 
     const [parseTool] = createDocumentConnector()
     const b64 = Buffer.from('bad-docx').toString('base64')
 
-    const result = await parseTool.invoke({
-      content: b64,
-      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    })
-    expect(result).toContain('Error: Invalid DOCX')
+    await expect(
+      parseTool.invoke({
+        content: b64,
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }),
+    ).rejects.toThrow('Invalid DOCX')
   })
 
-  it('handles non-Error throws gracefully', async () => {
+  it('normalizes non-Error parser throws', async () => {
     mockGetText.mockRejectedValue('string error')
 
     const [parseTool] = createDocumentConnector()
     const b64 = Buffer.from('data').toString('base64')
 
-    const result = await parseTool.invoke({ content: b64, contentType: 'application/pdf' })
-    expect(result).toContain('Error:')
+    await expect(
+      parseTool.invoke({ content: b64, contentType: 'application/pdf' }),
+    ).rejects.toThrow('string error')
   })
 
   it('truncates long output to MAX_OUTPUT_LENGTH', async () => {
@@ -188,15 +222,51 @@ describe('parse-document tool', () => {
     expect(result).not.toContain('truncated')
   })
 
-  it('returns error for empty PDF (no extractable text)', async () => {
+  it('rejects empty PDF (no extractable text)', async () => {
     mockGetText.mockResolvedValue({ text: '', total: 0, pages: [] })
 
     const [parseTool] = createDocumentConnector()
     const b64 = Buffer.from('empty-pdf').toString('base64')
 
-    const result = await parseTool.invoke({ content: b64, contentType: 'application/pdf' })
-    expect(result).toContain('Error:')
-    expect(result).toContain('no extractable text')
+    await expect(
+      parseTool.invoke({ content: b64, contentType: 'application/pdf' }),
+    ).rejects.toThrow('no extractable text')
+  })
+
+  it('emits parse telemetry for success and failure in order (adversarial)', async () => {
+    const events: Array<{ success: boolean; durationMs: number; error?: Error }> = []
+    const [parseTool] = createDocumentConnector({
+      maxDocumentBytes: DEFAULT_MAX_DOCUMENT_BYTES,
+      telemetryCallback: (event) => {
+        if (event.operation === 'parse') {
+          events.push({ success: event.success, durationMs: event.durationMs, error: event.error })
+        }
+      },
+    })
+
+    mockGetText.mockRejectedValueOnce(new Error('first failure'))
+    mockGetText.mockResolvedValueOnce({
+      text: 'later success',
+      total: 1,
+      pages: [{ text: 'later success', num: 1 }],
+    })
+
+    const b64 = Buffer.from('pdf-bytes').toString('base64')
+
+    await expect(
+      parseTool.invoke({ content: b64, contentType: 'application/pdf' }),
+    ).rejects.toThrow('first failure')
+
+    const second = await parseTool.invoke({ content: b64, contentType: 'application/pdf' })
+    expect(second).toBe('later success')
+
+    expect(events).toHaveLength(2)
+    expect(events[0]?.success).toBe(false)
+    expect(events[0]?.error).toBeInstanceOf(Error)
+    expect(events[1]?.success).toBe(true)
+    expect(events[1]?.error).toBeUndefined()
+    expect(events[0]?.durationMs).toBeGreaterThanOrEqual(0)
+    expect(events[1]?.durationMs).toBeGreaterThanOrEqual(0)
   })
 })
 
@@ -206,7 +276,6 @@ describe('chunk-document tool', () => {
     const text = '## Section 1\n' + 'A'.repeat(500) + '\n\n## Section 2\n' + 'B'.repeat(500)
 
     const result = await chunkTool.invoke({ text, maxChunkSize: 200, overlap: 0 })
-    // toModelOutput transforms to "N chunks created"
     expect(result).toMatch(/^\d+ chunks created$/)
   })
 
@@ -242,15 +311,77 @@ describe('chunk-document tool', () => {
 
     const result = await chunkTool.invoke({ text, maxChunkSize: 200, overlap: 50 })
     expect(result).toMatch(/^\d+ chunks created$/)
-    // With overlap, second+ chunks should be larger due to overlap prepend
   })
 
-  it('handles errors gracefully if chunking throws', async () => {
-    // splitIntoChunks shouldn't really throw for valid text, but test the catch path
+  it.each([
+    { label: 'negative', maxChunkSize: -10 },
+    { label: 'zero', maxChunkSize: 0 },
+    { label: 'too large', maxChunkSize: MAX_CHUNK_SIZE_LIMIT + 1 },
+  ])('rejects invalid maxChunkSize: $label', async ({ maxChunkSize }) => {
     const [, chunkTool] = createDocumentConnector()
-    // Null input won't crash splitIntoChunks but will return empty
-    const result = await chunkTool.invoke({ text: '', maxChunkSize: -1, overlap: 0 })
-    // Empty text returns 0 chunks
-    expect(result).toMatch(/0 chunks created/)
+
+    await expect(
+      chunkTool.invoke({ text: 'Hello world', maxChunkSize, overlap: 0 }),
+    ).rejects.toThrow()
+  })
+
+  it('rejects NaN maxChunkSize before chunking starts', async () => {
+    const [, chunkTool] = createDocumentConnector()
+
+    await expect(
+      chunkTool.invoke({ text: 'Hello world', maxChunkSize: Number.NaN, overlap: 0 }),
+    ).rejects.toThrow()
+  })
+
+  it('rejects overlap equal to maxChunkSize', async () => {
+    const [, chunkTool] = createDocumentConnector()
+
+    await expect(
+      chunkTool.invoke({ text: 'Hello world', maxChunkSize: 200, overlap: 200 }),
+    ).rejects.toThrow('overlap must be less than maxChunkSize')
+  })
+
+  it('rejects overlap greater than maxChunkSize', async () => {
+    const [, chunkTool] = createDocumentConnector()
+
+    await expect(
+      chunkTool.invoke({ text: 'Hello world', maxChunkSize: 200, overlap: 500 }),
+    ).rejects.toThrow('overlap must be less than maxChunkSize')
+  })
+
+  it('emits chunk telemetry success then failure in order (adversarial)', async () => {
+    const events: Array<{ success: boolean; durationMs: number; error?: Error }> = []
+    const [, chunkTool] = createDocumentConnector({
+      telemetryCallback: (event) => {
+        if (event.operation === 'chunk') {
+          events.push({ success: event.success, durationMs: event.durationMs, error: event.error })
+        }
+      },
+    })
+
+    const successResult = await chunkTool.invoke({
+      text: '## A\n' + 'x'.repeat(600),
+      maxChunkSize: 200,
+      overlap: 0,
+    })
+    expect(successResult).toMatch(/^\d+ chunks created$/)
+
+    await expect(
+      chunkTool.invoke({ text: 'Hello world', maxChunkSize: 100, overlap: 100 }),
+    ).rejects.toThrow('overlap must be less than maxChunkSize')
+
+    expect(events).toHaveLength(2)
+    expect(events[0]?.success).toBe(true)
+    expect(events[0]?.error).toBeUndefined()
+    expect(events[1]?.success).toBe(false)
+    expect(events[1]?.error).toBeInstanceOf(Error)
+    expect(events[0]?.durationMs).toBeGreaterThanOrEqual(0)
+    expect(events[1]?.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('works without telemetry callback configured', async () => {
+    const [, chunkTool] = createDocumentConnector({ maxChunkSize: 300, overlap: 0 })
+    const result = await chunkTool.invoke({ text: 'A'.repeat(1200) })
+    expect(result).toMatch(/^\d+ chunks created$/)
   })
 })

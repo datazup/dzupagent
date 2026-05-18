@@ -40,6 +40,18 @@ const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode['type'], FlowNode> = {
   http: { type: 'http', url: 'https://example.com/api', method: 'GET' },
   wait: { type: 'wait', durationMs: 1000 },
   subflow: { type: 'subflow', flowRef: 'my-subflow-id' },
+  prompt: { type: 'prompt', userPrompt: 'Summarize the diff.' },
+  return_to: { type: 'return_to', targetId: 'attempt-repair', condition: '{{ state.needsRetry }}' },
+  agent: {
+    type: 'agent',
+    agentId: 'planner',
+    instructions: 'Plan the task',
+    output: { key: 'plan', schemaRef: 'plan.v1' },
+  },
+  validate: {
+    type: 'validate',
+    commands: [{ command: 'yarn typecheck' }],
+  },
 }
 
 describe('parseFlow — public node contract', () => {

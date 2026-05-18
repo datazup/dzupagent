@@ -71,6 +71,42 @@ describe('Database connector', () => {
       expect(query).toHaveBeenCalled()
     })
 
+    it('blocks multi-statement payloads in read-only mode', async () => {
+      const query = mockQuery([{ id: 1 }])
+      const tools = createDatabaseConnector(makeConfig({ query, readOnly: true }))
+      const dbQuery = tools.find(t => t.name === 'db-query')!
+      const result = await dbQuery.invoke({
+        sql: 'SELECT 1 AS id; SELECT 2 AS id',
+      })
+      expect(result).toContain('not allowed')
+      expect(result).toContain('Multiple SQL statements')
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it('blocks data-modifying CTEs in read-only mode', async () => {
+      const query = mockQuery([{ cnt: 0 }])
+      const tools = createDatabaseConnector(makeConfig({ query, readOnly: true }))
+      const dbQuery = tools.find(t => t.name === 'db-query')!
+      const result = await dbQuery.invoke({
+        sql: 'WITH deleted AS (DELETE FROM users WHERE active = false RETURNING id) SELECT count(*) FROM deleted',
+      })
+      expect(result).toContain('not allowed')
+      expect(result).toContain('Data-modifying CTEs')
+      expect(query).not.toHaveBeenCalled()
+    })
+
+    it('blocks EXPLAIN ANALYZE in read-only mode', async () => {
+      const query = mockQuery([{ 'QUERY PLAN': 'Seq Scan' }])
+      const tools = createDatabaseConnector(makeConfig({ query, readOnly: true }))
+      const dbQuery = tools.find(t => t.name === 'db-query')!
+      const result = await dbQuery.invoke({
+        sql: 'EXPLAIN ANALYZE SELECT * FROM users',
+      })
+      expect(result).toContain('not allowed')
+      expect(result).toContain('EXPLAIN ANALYZE')
+      expect(query).not.toHaveBeenCalled()
+    })
+
     it('defaults to read-only when readOnly is omitted', async () => {
       const tools = createDatabaseConnector(makeConfig())
       const dbQuery = tools.find(t => t.name === 'db-query')!

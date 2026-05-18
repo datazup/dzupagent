@@ -38,6 +38,18 @@ const ECHO_AGENT: AgentExecutionSpec = {
   active: true,
 }
 
+const TENANT_A_AGENT: AgentExecutionSpec = {
+  ...ECHO_AGENT,
+  id: 'tenant-a-echo',
+  tenantId: 'tenant-a',
+}
+
+const TENANT_B_AGENT: AgentExecutionSpec = {
+  ...ECHO_AGENT,
+  id: 'tenant-b-echo',
+  tenantId: 'tenant-b',
+}
+
 function createTestConfig(overrides: Partial<ForgeServerConfig> = {}): ForgeServerConfig {
   return {
     runStore: new InMemoryRunStore(),
@@ -323,6 +335,90 @@ describe('OpenAI-compatible routes', () => {
       expect(typeof error['message']).toBe('string')
       expect(error['message']).toContain('non-existent-model-xyz')
       expect(error['type']).toBe('invalid_request_error')
+    })
+  })
+
+  describe('Tenant scoping', () => {
+    async function createTenantScopedApp(): Promise<Hono> {
+      const scopedStore = new InMemoryAgentStore()
+      await scopedStore.save(TENANT_A_AGENT)
+      await scopedStore.save(TENANT_B_AGENT)
+      return createForgeApp(
+        createTestConfig({
+          agentStore: scopedStore,
+          openai: {
+            enabled: true,
+            auth: {
+              enabled: true,
+              validateKey: async (key) => {
+                if (key === 'tenant-a-key') return { id: 'key-a', tenantId: 'tenant-a', role: 'admin' }
+                if (key === 'tenant-b-key') return { id: 'key-b', tenantId: 'tenant-b', role: 'admin' }
+                return null
+              },
+            },
+          },
+        }),
+      )
+    }
+
+    it('returns only tenant-owned models for authenticated callers', async () => {
+      const scopedApp = await createTenantScopedApp()
+      const res = await scopedApp.request('/v1/models', {
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer tenant-a-key',
+        },
+      })
+
+      expect(res.status).toBe(200)
+      const body = await res.json() as { data: Array<{ id: string }> }
+      expect(body.data.map((model) => model.id)).toEqual(['tenant-a-echo'])
+    })
+
+    it('returns 404 for cross-tenant model detail lookup', async () => {
+      const scopedApp = await createTenantScopedApp()
+      const res = await scopedApp.request('/v1/models/tenant-b-echo', {
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer tenant-a-key',
+        },
+      })
+
+      expect(res.status).toBe(404)
+      const body = await res.json() as { error: { code: string } }
+      expect(body.error.code).toBe('model_not_found')
+    })
+
+    it('returns 404 for cross-tenant completions', async () => {
+      const scopedApp = await createTenantScopedApp()
+      const res = await scopedApp.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer tenant-a-key',
+        },
+        body: JSON.stringify(makeCompletionBody({ model: 'tenant-b-echo' })),
+      })
+
+      expect(res.status).toBe(404)
+      const body = await res.json() as { error: { code: string } }
+      expect(body.error.code).toBe('model_not_found')
+      expect(mockGenerate).not.toHaveBeenCalled()
+    })
+
+    it('allows same-tenant completions', async () => {
+      const scopedApp = await createTenantScopedApp()
+      const res = await scopedApp.request('/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer tenant-a-key',
+        },
+        body: JSON.stringify(makeCompletionBody({ model: 'tenant-a-echo' })),
+      })
+
+      expect(res.status).toBe(200)
+      expect(mockGenerate).toHaveBeenCalled()
     })
   })
 

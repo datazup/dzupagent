@@ -16,7 +16,7 @@ function createTestConfig(): ForgeServerConfig {
   }
 }
 
-describe('Routing stats route — GET /api/health/routing', () => {
+describe('Routing stats route — GET /api/runs/routing-stats', () => {
   let config: ForgeServerConfig
   let app: ReturnType<typeof createForgeApp>
 
@@ -32,10 +32,15 @@ describe('Routing stats route — GET /api/health/routing', () => {
   })
 
   it('returns empty stats when no runs exist', async () => {
-    const res = await app.request('/api/health/routing')
+    const res = await app.request('/api/runs/routing-stats')
     expect(res.status).toBe(200)
     const data = await res.json() as { data: { totalRuns: number } }
     expect(data.data.totalRuns).toBe(0)
+  })
+
+  it('does not expose routing stats on legacy health path', async () => {
+    const res = await app.request('/api/health/routing')
+    expect(res.status).toBe(404)
   })
 
   it('aggregates tier, reason, and complexity from run metadata', async () => {
@@ -55,7 +60,7 @@ describe('Routing stats route — GET /api/health/routing', () => {
       metadata: { modelTier: 'chat', routingReason: 'low_complexity', complexity: 'low' },
     })
 
-    const res = await app.request('/api/health/routing')
+    const res = await app.request('/api/runs/routing-stats')
     expect(res.status).toBe(200)
     const data = await res.json() as {
       data: {
@@ -78,7 +83,7 @@ describe('Routing stats route — GET /api/health/routing', () => {
       input: 'no metadata',
     })
 
-    const res = await app.request('/api/health/routing')
+    const res = await app.request('/api/runs/routing-stats')
     const data = await res.json() as {
       data: {
         byTier: Record<string, number>
@@ -109,7 +114,7 @@ describe('Routing stats route — GET /api/health/routing', () => {
       },
     })
 
-    const res = await app.request('/api/health/routing')
+    const res = await app.request('/api/runs/routing-stats')
     const data = await res.json() as {
       data: {
         qualityMetrics: {
@@ -127,10 +132,71 @@ describe('Routing stats route — GET /api/health/routing', () => {
   it('returns null avgQuality when no runs have reflection scores', async () => {
     await config.runStore.create({ agentId: 'agent-1', input: 'x' })
 
-    const res = await app.request('/api/health/routing')
+    const res = await app.request('/api/runs/routing-stats')
     const data = await res.json() as {
       data: { qualityMetrics: { avgQuality: number | null } }
     }
     expect(data.data.qualityMetrics.avgQuality).toBeNull()
+  })
+
+  it('scopes aggregation by requesting API key tenant and owner when auth is enabled', async () => {
+    const authedConfig = createTestConfig()
+    await authedConfig.agentStore.save({
+      id: 'agent-1',
+      name: 'Test Agent',
+      instructions: 'test',
+      modelTier: 'chat',
+    })
+
+    const authedApp = createForgeApp({
+      ...authedConfig,
+      auth: {
+        mode: 'api-key',
+        validateKey: async (token: string) => {
+          if (token === 'key-a') return { id: 'key-a', tenantId: 'tenant-a' }
+          if (token === 'key-b') return { id: 'key-b', tenantId: 'tenant-b' }
+          return null
+        },
+      },
+    })
+
+    await authedConfig.runStore.create({
+      agentId: 'agent-1',
+      input: 'tenant-a-owner-a',
+      ownerId: 'key-a',
+      tenantId: 'tenant-a',
+      metadata: { modelTier: 'chat', routingReason: 'low_complexity', complexity: 'low' },
+    })
+    await authedConfig.runStore.create({
+      agentId: 'agent-1',
+      input: 'tenant-b-owner-b',
+      ownerId: 'key-b',
+      tenantId: 'tenant-b',
+      metadata: { modelTier: 'codegen', routingReason: 'code_detected', complexity: 'high' },
+    })
+    await authedConfig.runStore.create({
+      agentId: 'agent-1',
+      input: 'tenant-a-owner-b',
+      ownerId: 'key-b',
+      tenantId: 'tenant-a',
+      metadata: { modelTier: 'chat', routingReason: 'low_complexity', complexity: 'low' },
+    })
+
+    const unauthorized = await authedApp.request('/api/runs/routing-stats')
+    expect(unauthorized.status).toBe(401)
+
+    const scoped = await authedApp.request('/api/runs/routing-stats', {
+      headers: { Authorization: 'Bearer key-a' },
+    })
+    expect(scoped.status).toBe(200)
+    const body = await scoped.json() as {
+      data: {
+        totalRuns: number
+        byTier: Record<string, number>
+      }
+    }
+    expect(body.data.totalRuns).toBe(1)
+    expect(body.data.byTier['chat']).toBe(1)
+    expect(body.data.byTier['codegen']).toBeUndefined()
   })
 })
