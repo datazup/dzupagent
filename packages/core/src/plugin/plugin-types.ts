@@ -56,3 +56,30 @@ export interface DzupPlugin {
   /** Event handlers to subscribe to the event bus */
   eventHandlers?: Partial<Record<DzupEvent['type'], (event: DzupEvent) => void | Promise<void>>>
 }
+
+export type PluginSource = 'local' | 'npm' | 'builtin' | 'unknown'
+
+export interface PluginRegistrationOptions {
+  source?: PluginSource
+  path?: string
+  overrideExisting?: boolean
+}
+
+export interface PluginRegistrationConflictDiagnostic {
+  signal: 'plugin_registration_conflict_count'
+  name: string
+  source: PluginSource
+  path: string
+  previousSource: PluginSource
+  previousPath: string
+}
+
+export interface PluginDisposeResult {
+  disposed: boolean
+  disposerCount: number
+  telemetry: {
+    signal: 'plugin_disposer_cleanup_count'
+    pluginName: string
+    disposerCount: number
+  }
+}

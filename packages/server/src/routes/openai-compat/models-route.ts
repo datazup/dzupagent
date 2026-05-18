@@ -8,6 +8,7 @@ import { Hono } from 'hono'
 import type { AgentExecutionSpecStore } from '@dzupagent/core/persistence'
 import type { ModelListResponse, ModelObject } from './types.js'
 import type { AppEnv } from '../../types.js'
+import { DEFAULT_TENANT_ID, getOptionalRequestingTenantId } from '../tenant-scope.js'
 
 export interface ModelsRouteConfig {
   agentStore: AgentExecutionSpecStore
@@ -18,7 +19,12 @@ export function createModelsRoute(config: ModelsRouteConfig): Hono<AppEnv> {
 
   // GET /v1/models
   app.get('/', async (c) => {
-    const agents = await config.agentStore.list({ active: true })
+    const requestingTenantId = getOptionalRequestingTenantId(c)
+    const agents = await config.agentStore.list(
+      requestingTenantId === undefined
+        ? { active: true }
+        : { active: true, tenantId: requestingTenantId },
+    )
 
     const models: ModelObject[] = agents.map((agent) => ({
       id: agent.id,
@@ -40,9 +46,11 @@ export function createModelsRoute(config: ModelsRouteConfig): Hono<AppEnv> {
   // GET /v1/models/:model — single model lookup
   app.get('/:model', async (c) => {
     const modelId = c.req.param('model')
+    const requestingTenantId = getOptionalRequestingTenantId(c)
     const agent = await config.agentStore.get(modelId)
 
-    if (!agent) {
+    const agentTenantId = (agent?.tenantId ?? DEFAULT_TENANT_ID) || DEFAULT_TENANT_ID
+    if (!agent || (requestingTenantId !== undefined && agentTenantId !== requestingTenantId)) {
       return c.json(
         {
           error: {

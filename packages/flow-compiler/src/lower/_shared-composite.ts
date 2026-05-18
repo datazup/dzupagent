@@ -108,6 +108,13 @@ export function lowerNodeToPipeline(
       // loop body is lowered as a sequence; condition evaluation is runtime-only.
       return lowerSequence(node.body, ctx, `${path}.body`, lowerNodeToPipeline)
 
+    case 'prompt':
+    case 'return_to':
+    case 'agent':
+    case 'validate':
+      // Runtime-executed leaf nodes: present in AST but not emitted as graph edges.
+      return { nodes: [], edges: [], warnings: [] }
+
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails here.
       const _exhaustive: never = node

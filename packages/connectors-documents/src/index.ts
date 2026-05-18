@@ -21,4 +21,13 @@ export {
   SUPPORTED_MIME_TYPES,
 } from './supported-types.js'
 
+export {
+  DEFAULT_MAX_CHUNK_SIZE,
+  DEFAULT_OVERLAP_SIZE,
+  MAX_CHUNK_SIZE_LIMIT,
+  DEFAULT_MAX_DOCUMENT_BYTES,
+  type DocumentConnectorTelemetryEvent,
+  type DocumentConnectorTelemetryCallback,
+} from './validation.js'
+
 export type { ChunkOptions } from './types.js'

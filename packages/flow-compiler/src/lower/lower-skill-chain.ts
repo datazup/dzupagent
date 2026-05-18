@@ -204,6 +204,12 @@ function walkNode(
       return
     }
 
+    case 'prompt':
+    case 'return_to':
+    case 'agent':
+    case 'validate':
+      return
+
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails here.
       const _exhaustive: never = node

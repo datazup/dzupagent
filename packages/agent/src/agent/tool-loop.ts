@@ -5,7 +5,7 @@
  * appends tool results, and re-invokes until the LLM produces a
  * final text response (no tool calls) or limits are reached.
  */
-import { type AIMessage, type BaseMessage } from '@langchain/core/messages'
+import { ToolMessage, type AIMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { StuckError } from './stuck-error.js'
@@ -164,6 +164,43 @@ export async function runToolLoop(
     if (!toolCalls || toolCalls.length === 0) {
       // No tool calls — this is the final response
       break
+    }
+
+    // T-AP-002: in parallel mode, treat approval-required calls as a
+    // batch-level gate. If ANY sibling in the turn requires approval,
+    // suspend before executing any tool in that batch.
+    if (config.parallelTools && toolCalls.length > 1 && config.toolGovernance) {
+      const governance = config.toolGovernance
+      const approvalTarget = toolCalls.find((tc) => {
+        const access = governance.checkAccess(tc.name, tc.args)
+        return access.allowed && access.requiresApproval
+      })
+
+      if (approvalTarget) {
+        const toolCallId = approvalTarget.id ?? `call_${Date.now()}`
+        const correlationId = config.runId ?? toolCallId
+        const access = governance.checkAccess(approvalTarget.name, approvalTarget.args)
+        const reason = access.reason ?? 'Approval required'
+
+        try {
+          config.eventBus?.emit({
+            type: 'approval:requested',
+            runId: correlationId,
+            plan: { toolName: approvalTarget.name, args: approvalTarget.args },
+          })
+        } catch {
+          // Non-fatal: event emission must not abort the run.
+        }
+
+        config.onToolResult?.(approvalTarget.name, `[approval_pending: ${reason}]`)
+        state.messages.push(new ToolMessage({
+          content: `[approval_pending] Tool "${approvalTarget.name}" requires human approval before execution. ${reason}`,
+          tool_call_id: toolCallId,
+          name: approvalTarget.name,
+        }))
+        stopReason = 'approval_pending'
+        break
+      }
     }
 
     // Kernel stage: schedule tool calls sequentially or in parallel. The

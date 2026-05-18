@@ -106,6 +106,10 @@ export type FlowNode =
   | HttpNode
   | WaitNode
   | SubflowNode
+  | PromptNode
+  | ReturnToNode
+  | AgentNode
+  | ValidateNode
 
 export type SequenceNode = FlowNodeBase & { type: 'sequence'; nodes: FlowNode[] }
 export type ActionNode = FlowNodeBase & {
@@ -119,6 +123,22 @@ export type ForEachNode = FlowNodeBase & {
   source: string
   as: string
   body: FlowNode[]
+  /** Write each item under this key on the item itself (enrichment mode). */
+  attachAs?: string
+  /** Collect body output key `from` into array state key `into`. */
+  collect?: {
+    from: string
+    into: string
+  }
+  /** Accumulate results across iterations in a state key. */
+  accumulator?: {
+    key: string
+    /** Keep last N results; omit for unbounded. */
+    window?: number
+    initialValue?: unknown
+  }
+  /** Run up to N iterations in parallel. Default 1 (sequential). Hard cap: 8. */
+  concurrency?: number
 }
 export type BranchNode = FlowNodeBase & {
   type: 'branch'
@@ -239,6 +259,176 @@ export type SubflowNode = FlowNodeBase & {
   /** State key for the subflow's final state merge (default: subflow id or "subflowResult"). */
   outputVar?: string
 }
+/** Direct LLM call — sends user prompt + optional system prompt and stores the text response. */
+export type PromptNode = FlowNodeBase & {
+  type: 'prompt'
+  /** User-facing prompt. Template expressions ({{ state.key }}) are resolved before invocation. */
+  userPrompt: string
+  /** Optional system prompt override. When omitted, the active persona system prompt is used. */
+  systemPrompt?: string
+  /** State key where the LLM response string is stored. Defaults to node.id ?? "promptResult". */
+  outputKey?: string
+  /** Optional provider override (e.g. "claude", "openai", "openrouter"). */
+  provider?: string
+  /** Optional model override (e.g. "claude-sonnet-4-6"). */
+  model?: string
+  /** When true, the codev MCP server is wired so the LLM can call tools in a loop. Default false. */
+  tools?: boolean
+}
+/**
+ * Loop-back jump — re-executes from a labeled ancestor node while a condition holds.
+ * Equivalent to Flowise's "Loop" back-edge node. Compiles to a bounded-replay region.
+ */
+export type ReturnToNode = FlowNodeBase & {
+  type: 'return_to'
+  /** ID of the preceding sibling node to jump back to when condition is truthy. */
+  targetId: string
+  /** Template expression evaluated before each jump. Falsy → exit (no jump). */
+  condition: string
+  /** Maximum number of jumps allowed (default 10). Hard safety ceiling. */
+  maxIterations?: number
+}
+
+// ---------------------------------------------------------------------------
+// Agent node (dzupflow/v1alpha-agent) — internal LLM loop wrapping
+// `@dzupagent/agent`. Stage 1 of the agent-node implementation plan. See
+// memory: `flow-dsl-agent-node-implementation-plan-2026-05-17`.
+// ---------------------------------------------------------------------------
+
+/**
+ * Policy applied to an agent run. Lowered into the codev-app `ExecutionContext`
+ * at compile time. Top-level `policy:` blocks live in `FlowDocumentV1.meta`
+ * (Stage 3) until promoted; per-agent overrides land here.
+ */
+export interface AgentPolicy {
+  /** Deadline for the agent run in milliseconds. */
+  timeoutMs?: number
+  /** Per-agent budget cap in cents. */
+  budgetCents?: number
+  /** Max tool calls the agent may issue in this run. */
+  maxToolCalls?: number
+  /** Working-directory restriction; relative to repo root. */
+  workingDirectory?: string
+  /** Approval taxonomy — tools matching these classes pause for approval. */
+  approval?: {
+    requiredFor?: string[]
+  }
+  /** Audit capture toggles. */
+  audit?: {
+    captureToolCalls?: boolean
+    captureDiffs?: boolean
+  }
+}
+
+/** Stop conditions for the internal agent loop. */
+export interface AgentStop {
+  /** Hard ceiling on iterations. */
+  maxIterations?: number
+  /** Hard ceiling on tool calls across iterations. */
+  maxToolCalls?: number
+  /** When true, halt without a schema-validated final output is an error. */
+  requireFinalSchema?: boolean
+}
+
+/** Schema-gated output contract. Either `schemaRef` (registry id) or
+ *  inline `schema` (JSON Schema). One is required. */
+export interface AgentOutput {
+  /** State key for the validated result. */
+  key: string
+  /** Registered schema id, resolved by the codev-app schema registry. */
+  schemaRef?: string
+  /** Inline JSON Schema, for one-off shapes. */
+  schema?: Record<string, unknown>
+}
+
+/** Per-agent acceptance criteria (alternative to top-level validate: node). */
+export interface AgentValidation {
+  required: AgentValidationCommand[]
+  repair?: {
+    maxAttempts: number
+  }
+}
+
+export interface AgentValidationCommand {
+  id?: string
+  command: string
+}
+
+/** Distinct retry behavior per failure class. */
+export interface AgentRetry {
+  onInvalidOutput?: {
+    attempts: number
+    /** When true, feed the validation error back to the agent. */
+    repairPrompt?: boolean
+  }
+  onToolError?: {
+    attempts: number
+  }
+  onValidationFailure?: {
+    attempts: number
+    /** When true, retry the entire agent loop (not just the validation step). */
+    fullLoop?: boolean
+  }
+  onModelUnavailable?: {
+    attempts: number
+    /** Fallback profile or model id to swap to. */
+    fallbackProfile?: string
+  }
+}
+
+/** Shorthand for schema-failure retry (alias of `retry.onInvalidOutput`). */
+export interface AgentOnInvalidOutput {
+  retry: number
+  repairPrompt?: boolean
+  failAfterRetries?: boolean
+}
+
+export type AgentNode = FlowNodeBase & {
+  type: 'agent'
+  /** Logical identity for traces/journal. */
+  agentId: string
+  /** Compile-time profile reference (resolved by flow-compiler, never at runtime). */
+  profile?: string
+  /** Compile-time toolset reference, expanded into `tools[]` by the compiler. */
+  toolset?: string
+  /** Explicit tool refs (post-compile result of toolset expansion). */
+  tools?: string[]
+  /** ModelRegistry id; may also be supplied via `profile`. */
+  model?: string
+  /** Provider routing hint. */
+  provider?: string
+  /** System/operator instructions, template-resolved at runtime. */
+  instructions: string
+  /** State-bound input passed to the agent's first user turn. */
+  input?: Record<string, unknown>
+  stop?: AgentStop
+  /** Schema-gated output. Required — no prose-only outputs land. */
+  output: AgentOutput
+  /** Shorthand for `retry.onInvalidOutput`. */
+  onInvalidOutput?: AgentOnInvalidOutput
+  retry?: AgentRetry
+  /** Per-agent acceptance criteria (Stage 1a). */
+  validation?: AgentValidation
+  /** Per-agent policy override; merges flatly over top-level policy. */
+  policy?: AgentPolicy
+}
+
+/**
+ * Visible top-level gate node. Runs declared commands at the documented
+ * graph position and (optionally) retries the nearest prior agent on
+ * failure per `repair.maxAttempts`. See Stage 4 of the plan.
+ */
+export type ValidateNode = FlowNodeBase & {
+  type: 'validate'
+  /** Reference to a top-level validation declaration name. */
+  ref?: string
+  /** Inline commands; alternative to `ref`. */
+  commands?: AgentValidationCommand[]
+  repair?: {
+    maxAttempts: number
+    onFailure?: 'retry-prior-agent' | 'stop'
+  }
+}
 
 export type FlowNodeKind = FlowNode['type']
 
@@ -271,6 +461,10 @@ export const FLOW_NODE_KIND_REGISTRY = {
   http: true,
   wait: true,
   subflow: true,
+  prompt: true,
+  return_to: true,
+  agent: true,
+  validate: true,
 } as const satisfies Record<FlowNodeKind, true>
 
 export const FLOW_NODE_KINDS = Object.keys(FLOW_NODE_KIND_REGISTRY) as FlowNodeKind[]
@@ -279,8 +473,19 @@ export function isFlowNodeKind(value: string): value is FlowNodeKind {
   return Object.prototype.hasOwnProperty.call(FLOW_NODE_KIND_REGISTRY, value)
 }
 
+/**
+ * Supported DSL discriminator values.
+ *
+ * `dzupflow/v1` is the stable, long-lived contract.
+ * `dzupflow/v1alpha-agent` opts into the Stage 1 agent-node primitives
+ *  (agent + validate nodes, top-level policy block). The parser must
+ *  treat these as additive — `v1` documents must continue to round-trip
+ *  unchanged.
+ */
+export type FlowDocumentDsl = 'dzupflow/v1' | 'dzupflow/v1alpha-agent'
+
 export interface FlowDocumentV1 {
-  dsl: 'dzupflow/v1'
+  dsl: FlowDocumentDsl
   id: string
   title?: string
   description?: string

@@ -1,7 +1,7 @@
 /**
  * Routing statistics route.
  *
- * GET /api/health/routing — Aggregated model routing stats from recent runs.
+ * GET /api/runs/routing-stats — Aggregated model routing stats from recent runs.
  *
  * Queries the RunStore for recent runs and aggregates routing decision
  * metadata (modelTier, routingReason, complexity) to give operators
@@ -10,6 +10,7 @@
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { RunStore } from '@dzupagent/core/persistence'
+import { getOptionalRequestingTenantId } from './tenant-scope.js'
 
 export interface RoutingStatsConfig {
   runStore: RunStore
@@ -42,15 +43,29 @@ interface RoutingStatsResponse {
 export function createRoutingStatsRoutes(config: RoutingStatsConfig): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
 
-  app.get('/routing', async (c) => {
-    const runs = await config.runStore.list({ limit: 100 })
+  app.get('/routing-stats', async (c) => {
+    const key = c.get('apiKey')
+    const requestingTenantId = getOptionalRequestingTenantId(c)
+    const requestingOwnerId = typeof key?.['id'] === 'string' ? key['id'] : undefined
+
+    const runs = await config.runStore.list({
+      limit: 100,
+      ...(requestingTenantId ? { tenantId: requestingTenantId } : {}),
+      ...(requestingOwnerId ? { ownerId: requestingOwnerId, includeLegacyOwnerless: true } : {}),
+    })
+
+    // Defense in depth for third-party stores that may not fully implement
+    // owner scoping yet.
+    const visibleRuns = requestingOwnerId
+      ? runs.filter((run) => !run.ownerId || run.ownerId === requestingOwnerId)
+      : runs
 
     const byTier: Record<string, number> = {}
     const byReason: Record<string, number> = {}
     const byComplexity: Record<string, number> = {}
     const tierDurations: Record<string, TierStats> = {}
 
-    for (const run of runs) {
+    for (const run of visibleRuns) {
       const meta = run.metadata as Record<string, unknown> | undefined
       const tier = (typeof meta?.['modelTier'] === 'string' ? meta['modelTier'] : 'unknown')
       const reason = (typeof meta?.['routingReason'] === 'string' ? meta['routingReason'] : 'unknown')
@@ -87,7 +102,7 @@ export function createRoutingStatsRoutes(config: RoutingStatsConfig): Hono<AppEn
     let lowQualityRunCount = 0
     const tierQualitySums: Record<string, { total: number; count: number }> = {}
 
-    for (const run of runs) {
+    for (const run of visibleRuns) {
       const meta = run.metadata as Record<string, unknown> | undefined
       const reflectionScore = meta?.['reflectionScore'] as { overall?: number } | undefined
       if (reflectionScore && typeof reflectionScore.overall === 'number') {
@@ -124,7 +139,7 @@ export function createRoutingStatsRoutes(config: RoutingStatsConfig): Hono<AppEn
     }
 
     const result: RoutingStatsResponse = {
-      totalRuns: runs.length,
+      totalRuns: visibleRuns.length,
       byTier,
       byReason,
       byComplexity,

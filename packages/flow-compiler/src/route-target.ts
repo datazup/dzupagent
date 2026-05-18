@@ -125,6 +125,15 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
         for (const child of node.body) visit(child)
         return
       }
+      case 'prompt':
+        return
+      case 'return_to': {
+        bits |= FEATURE_BITS.FOR_EACH
+        return
+      }
+      case 'agent':
+      case 'validate':
+        return
       default: {
         // Exhaustiveness guard — if a new FlowNode variant is added without
         // a corresponding case, TS will fail compilation here.
@@ -216,6 +225,11 @@ export function hasOnError(ast: FlowNode): boolean {
         for (const child of node.body) visit(child)
         return
       }
+      case 'prompt':
+      case 'return_to':
+      case 'agent':
+      case 'validate':
+        return
       default: {
         const _exhaustive: never = node
         void _exhaustive

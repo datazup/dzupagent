@@ -1,4 +1,4 @@
-import type { EmitNode, HttpNode, MemoryNode, SpawnNode, SubflowNode, WaitNode } from '@dzupagent/flow-ast'
+import type { EmitNode, HttpNode, MemoryNode, PromptNode, ReturnToNode, SpawnNode, SubflowNode, WaitNode } from '@dzupagent/flow-ast'
 
 import { DSL_ERROR } from './errors.js'
 import {
@@ -374,6 +374,109 @@ export function normalizeSubflow(
 
   const outputVarRaw = raw.outputVar ?? raw.output_var
   if (typeof outputVarRaw === 'string') node.outputVar = outputVarRaw
+
+  return node
+}
+
+// ── prompt ────────────────────────────────────────────────────────────────────
+
+const PROMPT_KEYS = new Set<string>([
+  ...COMMON_NODE_KEYS,
+  'userPrompt',
+  'user_prompt',
+  'systemPrompt',
+  'system_prompt',
+  'outputKey',
+  'output_key',
+  'provider',
+  'model',
+  'tools',
+])
+
+export function normalizePrompt(
+  raw: Record<string, unknown>,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): PromptNode {
+  reportUnsupportedFields(raw, PROMPT_KEYS, path, diagnostics)
+  const base = normalizeCommonNodeFields(raw, path, diagnostics)
+
+  const userPrompt =
+    typeof raw.userPrompt === 'string' ? raw.userPrompt
+    : typeof raw.user_prompt === 'string' ? raw.user_prompt
+    : ''
+
+  if (userPrompt.length === 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'prompt.userPrompt is required',
+      path: `${path}.userPrompt`,
+    })
+  }
+
+  const node: PromptNode = { type: 'prompt', ...base, userPrompt }
+
+  const systemPromptRaw = raw.systemPrompt ?? raw.system_prompt
+  if (typeof systemPromptRaw === 'string') node.systemPrompt = systemPromptRaw
+
+  const outputKeyRaw = raw.outputKey ?? raw.output_key
+  if (typeof outputKeyRaw === 'string') node.outputKey = outputKeyRaw
+
+  if (typeof raw.provider === 'string') node.provider = raw.provider
+  if (typeof raw.model === 'string') node.model = raw.model
+  if (typeof raw.tools === 'boolean') node.tools = raw.tools
+
+  return node
+}
+
+// ── return_to ─────────────────────────────────────────────────────────────────
+
+const RETURN_TO_KEYS = new Set<string>([
+  ...COMMON_NODE_KEYS,
+  'targetId',
+  'target_id',
+  'condition',
+  'maxIterations',
+  'max_iterations',
+])
+
+export function normalizeReturnTo(
+  raw: Record<string, unknown>,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): ReturnToNode {
+  reportUnsupportedFields(raw, RETURN_TO_KEYS, path, diagnostics)
+  const base = normalizeCommonNodeFields(raw, path, diagnostics)
+
+  const targetId =
+    typeof raw.targetId === 'string' ? raw.targetId
+    : typeof raw.target_id === 'string' ? raw.target_id
+    : ''
+
+  if (targetId.length === 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'return_to.targetId is required',
+      path: `${path}.targetId`,
+    })
+  }
+
+  const condition = typeof raw.condition === 'string' ? raw.condition : ''
+  if (condition.length === 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'return_to.condition is required',
+      path: `${path}.condition`,
+    })
+  }
+
+  const node: ReturnToNode = { type: 'return_to', ...base, targetId, condition }
+
+  const maxIterRaw = raw.maxIterations ?? raw.max_iterations
+  if (typeof maxIterRaw === 'number' && maxIterRaw > 0) node.maxIterations = maxIterRaw
 
   return node
 }

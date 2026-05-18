@@ -102,6 +102,10 @@ export function validateCanonicalNodeIds(
     case 'http':
     case 'wait':
     case 'subflow':
+    case 'prompt':
+    case 'return_to':
+    case 'agent':
+    case 'validate':
       return
     default: {
       const _exhaustive: never = node

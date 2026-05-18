@@ -1,4 +1,4 @@
-import type { FlowDocumentV1 } from '@dzupagent/flow-ast'
+import type { FlowDocumentDsl, FlowDocumentV1 } from '@dzupagent/flow-ast'
 
 import { DSL_ERROR } from './errors.js'
 import { normalizeSteps } from './normalize-node-helpers.js'
@@ -63,8 +63,12 @@ export function normalizeDslDocument(raw: unknown): NormalizeDslResult {
   const tags = normalizeStringArray(raw.tags, 'root.tags', diagnostics)
   const meta = normalizeObject(raw.meta, 'root.meta', diagnostics)
 
+  const dslDeclared = typeof raw.dsl === 'string' ? raw.dsl : undefined
+  const dslEffective: FlowDocumentDsl =
+    dslDeclared === 'dzupflow/v1alpha-agent' ? 'dzupflow/v1alpha-agent' : 'dzupflow/v1'
+
   const doc: FlowDocumentV1 = {
-    dsl: 'dzupflow/v1',
+    dsl: dslEffective,
     id: typeof raw.id === 'string' ? raw.id : '',
     version: typeof raw.version === 'number' ? raw.version : 0,
     root: {
@@ -80,11 +84,15 @@ export function normalizeDslDocument(raw: unknown): NormalizeDslResult {
   if (defaults !== undefined) doc.defaults = defaults
   if (tags !== undefined) doc.tags = tags
   if (meta !== undefined) doc.meta = meta
-  if (raw.dsl !== undefined && raw.dsl !== 'dzupflow/v1') {
+  if (
+    dslDeclared !== undefined
+    && dslDeclared !== 'dzupflow/v1'
+    && dslDeclared !== 'dzupflow/v1alpha-agent'
+  ) {
     diagnostics.push({
       phase: 'normalize',
       code: DSL_ERROR.INVALID_DSL_VERSION,
-      message: `Unsupported DSL version "${String(raw.dsl)}"; only "dzupflow/v1" is accepted`,
+      message: `Unsupported DSL version "${dslDeclared}"; accepted: "dzupflow/v1", "dzupflow/v1alpha-agent"`,
       path: 'root.dsl',
     })
   }

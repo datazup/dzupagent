@@ -161,6 +161,11 @@ export async function visit(node: FlowNode, path: string, ctx: WalkContext): Pro
       }
       return
     }
+    case 'prompt':
+    case 'return_to':
+    case 'agent':
+    case 'validate':
+      return
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails
       // compilation here.
