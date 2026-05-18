@@ -24,6 +24,7 @@ import { validateSpawn } from './spawn.js'
 import { validateClassify } from './classify.js'
 import { validateEmit } from './emit.js'
 import { validateMemory } from './memory.js'
+import { validateSet } from './set.js'
 import { validateCheckpoint } from './checkpoint.js'
 import { validateRestore } from './restore.js'
 import { validateTryCatch } from './try-catch.js'
@@ -97,6 +98,8 @@ export function validateFlowNode(
       return validateEmit(value, path, issues)
     case 'memory':
       return validateMemory(value, path, issues)
+    case 'set':
+      return validateSet(value, path, issues)
     case 'checkpoint':
       return validateCheckpoint(value, path, issues)
     case 'restore':

@@ -16,10 +16,15 @@ export function parseMemory(
   const tierRaw = obj.tier
   let failed = false
 
-  if (operationRaw !== 'read' && operationRaw !== 'write' && operationRaw !== 'list') {
+  if (
+    operationRaw !== 'read' &&
+    operationRaw !== 'write' &&
+    operationRaw !== 'list' &&
+    operationRaw !== 'search'
+  ) {
     ctx.errors.push({
       code: 'WRONG_FIELD_TYPE',
-      message: `memory.operation must be "read", "write", or "list", received ${describeJsType(operationRaw)}`,
+      message: `memory.operation must be "read", "write", "list", or "search", received ${describeJsType(operationRaw)}`,
       pointer: joinPointer(pointer, 'operation'),
     })
     failed = true
@@ -44,12 +49,42 @@ export function parseMemory(
     optionalStrings.outputVar = value
   })
 
+  let query: string | undefined
+  let limit: number | undefined
+  parseOptionalMemoryStringField(obj, 'query', pointer, ctx, (value) => {
+    query = value
+  })
+  if ('limit' in obj && obj.limit !== undefined) {
+    const limitRaw = obj.limit
+    if (typeof limitRaw === 'number' && Number.isInteger(limitRaw) && limitRaw > 0) {
+      limit = limitRaw
+    } else {
+      ctx.errors.push({
+        code: 'WRONG_FIELD_TYPE',
+        message: `memory.limit must be a positive integer, received ${describeJsType(limitRaw)}`,
+        pointer: joinPointer(pointer, 'limit'),
+      })
+      failed = true
+    }
+  }
+
+  if (operationRaw === 'search' && (query === undefined || query.length === 0)) {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: 'memory.query is required when operation is "search"',
+      pointer: joinPointer(pointer, 'query'),
+    })
+    failed = true
+  }
+
   if (failed) return null
   return {
     type: 'memory',
     ...parseCommonNodeFields(obj, pointer, ctx),
-    operation: operationRaw as 'read' | 'write' | 'list',
+    operation: operationRaw as 'read' | 'write' | 'list' | 'search',
     tier: tierRaw as 'session' | 'project' | 'workspace',
     ...optionalStrings,
+    ...(query !== undefined ? { query } : {}),
+    ...(limit !== undefined ? { limit } : {}),
   }
 }

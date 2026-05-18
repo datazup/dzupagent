@@ -120,7 +120,7 @@ export function parseOptionalStringField(
 
 export function parseOptionalMemoryStringField(
   obj: Record<string, unknown>,
-  key: 'key' | 'valueExpr' | 'outputVar',
+  key: 'key' | 'valueExpr' | 'outputVar' | 'query',
   pointer: string,
   ctx: ParseContext,
   assign: (value: string) => void,

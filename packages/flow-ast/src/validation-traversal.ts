@@ -97,6 +97,7 @@ export function validateCanonicalNodeIds(
     case 'classify':
     case 'emit':
     case 'memory':
+    case 'set':
     case 'checkpoint':
     case 'restore':
     case 'http':

@@ -99,6 +99,7 @@ export type FlowNode =
   | ClassifyNode
   | EmitNode
   | MemoryNode
+  | SetNode
   | CheckpointNode
   | RestoreNode
   | TryCatchNode
@@ -195,11 +196,25 @@ export type EmitNode = FlowNodeBase & {
 }
 export type MemoryNode = FlowNodeBase & {
   type: 'memory'
-  operation: 'read' | 'write' | 'list'
+  operation: 'read' | 'write' | 'list' | 'search'
   tier: 'session' | 'project' | 'workspace'
   key?: string
   valueExpr?: string
   outputVar?: string
+  /** Search query template expression; required when operation === 'search'. */
+  query?: string
+  /** Search result cap; default 10 at runtime. */
+  limit?: number
+}
+/**
+ * Declarative state-mutation node. Merges resolved values from `assign` into
+ * run state. No tool call, no LLM — pure local mutation. Template expressions
+ * inside `assign` values are resolved at execution time.
+ */
+export type SetNode = FlowNodeBase & {
+  type: 'set'
+  /** Map of state keys to values (literals or template expressions). */
+  assign: Record<string, unknown>
 }
 export type CheckpointNode = FlowNodeBase & {
   type: 'checkpoint'
@@ -454,6 +469,7 @@ export const FLOW_NODE_KIND_REGISTRY = {
   classify: true,
   emit: true,
   memory: true,
+  set: true,
   checkpoint: true,
   restore: true,
   try_catch: true,

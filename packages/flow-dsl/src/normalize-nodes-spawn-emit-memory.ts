@@ -135,9 +135,11 @@ const MEMORY_KEYS = new Set<string>([
   'value_expr',
   'outputVar',
   'output_var',
+  'query',
+  'limit',
 ])
 
-const MEMORY_OPERATIONS = new Set(['read', 'write', 'list'])
+const MEMORY_OPERATIONS = new Set(['read', 'write', 'list', 'search'])
 const MEMORY_TIERS = new Set(['session', 'project', 'workspace'])
 
 export function normalizeMemory(
@@ -149,7 +151,10 @@ export function normalizeMemory(
   const base = normalizeCommonNodeFields(raw, path, diagnostics)
 
   const operation =
-    raw.operation === 'read' || raw.operation === 'write' || raw.operation === 'list'
+    raw.operation === 'read' ||
+    raw.operation === 'write' ||
+    raw.operation === 'list' ||
+    raw.operation === 'search'
       ? raw.operation
       : 'read'
 
@@ -169,7 +174,7 @@ export function normalizeMemory(
     diagnostics.push({
       phase: 'normalize',
       code: DSL_ERROR.MISSING_REQUIRED_FIELD,
-      message: 'memory.operation is required and must be "read", "write", or "list"',
+      message: 'memory.operation is required and must be "read", "write", "list", or "search"',
       path: `${path}.operation`,
     })
   }
@@ -234,6 +239,37 @@ export function normalizeMemory(
       code: DSL_ERROR.INVALID_NODE_SHAPE,
       message: 'memory.outputVar must be a string',
       path: `${path}.outputVar`,
+    })
+  }
+
+  if (typeof raw.query === 'string') {
+    node.query = raw.query
+  } else if (raw.query !== undefined) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'memory.query must be a string template expression',
+      path: `${path}.query`,
+    })
+  }
+
+  if (typeof raw.limit === 'number' && Number.isInteger(raw.limit) && raw.limit > 0) {
+    node.limit = raw.limit
+  } else if (raw.limit !== undefined) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'memory.limit must be a positive integer',
+      path: `${path}.limit`,
+    })
+  }
+
+  if (operation === 'search' && !node.query) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
+      message: 'memory.query is required when operation is "search"',
+      path: `${path}.query`,
     })
   }
 
