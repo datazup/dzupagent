@@ -473,6 +473,105 @@ describe('ComplianceAuditLogger', () => {
     logger.dispose()
     logger.dispose() // Idempotent
   })
+
+  it('flush awaits pending fire-and-forget writes and resolves cleanly', async () => {
+    // Use a deferred-append store so we control when the pending write resolves.
+    let resolveAppend: ((entry: ComplianceAuditEntry) => void) | undefined
+    const deferredStore = {
+      append: (
+        partial: Omit<ComplianceAuditEntry, 'seq' | 'previousHash' | 'hash'>,
+      ): Promise<ComplianceAuditEntry> => {
+        return new Promise<ComplianceAuditEntry>((resolve) => {
+          resolveAppend = (entry) =>
+            resolve({ ...partial, seq: 1, previousHash: '', hash: 'h', ...entry })
+        })
+      },
+      search: async () => [],
+      count: async () => 0,
+      verifyIntegrity: async () => ({ valid: true, totalEntries: 0 }),
+      applyRetention: async () => ({ archived: 0, deleted: 0 }),
+      export: async function* () {},
+    }
+
+    const logger = new ComplianceAuditLogger({ store: deferredStore })
+    const bus = createEventBus()
+    logger.attach(bus)
+
+    bus.emit({
+      type: 'policy:denied',
+      policySetId: 'ps-1',
+      action: 'tool:execute',
+      principalId: 'user-1',
+      reason: 'denied',
+    } as DzupEvent)
+
+    // Start the flush — it must not resolve while the write is in-flight.
+    let flushResolved = false
+    const flushPromise = logger.flush().then(() => {
+      flushResolved = true
+    })
+
+    // Yield to the microtask queue to ensure flush snapshotted the pending set.
+    await new Promise((r) => setTimeout(r, 5))
+    expect(flushResolved).toBe(false)
+
+    // Now resolve the in-flight write.
+    expect(resolveAppend).toBeDefined()
+    resolveAppend!({
+      id: 'e1',
+      timestamp: new Date(),
+      actor: { id: 'system', type: 'system' },
+      action: 'policy.denied',
+      result: 'denied',
+      details: {},
+      seq: 1,
+      previousHash: '',
+      hash: 'h',
+    })
+
+    await expect(flushPromise).resolves.toBeUndefined()
+    expect(flushResolved).toBe(true)
+  })
+
+  it('flush surfaces sink errors after pending writes settle', async () => {
+    const sinkError = new Error('audit sink unavailable')
+    const failingStore = {
+      append: async () => {
+        throw sinkError
+      },
+      search: async () => [],
+      count: async () => 0,
+      verifyIntegrity: async () => ({ valid: true, totalEntries: 0 }),
+      applyRetention: async () => ({ archived: 0, deleted: 0 }),
+      export: async function* () {},
+    }
+
+    const captured: unknown[] = []
+    const logger = new ComplianceAuditLogger({
+      store: failingStore,
+      onError: (err) => captured.push(err),
+    })
+    const bus = createEventBus()
+    logger.attach(bus)
+
+    bus.emit({
+      type: 'policy:denied',
+      policySetId: 'ps-1',
+      action: 'tool:execute',
+      principalId: 'user-1',
+      reason: 'denied',
+    } as DzupEvent)
+
+    // Allow the sync emit's microtask to schedule the failing append.
+    await new Promise((r) => setTimeout(r, 5))
+
+    await expect(logger.flush()).rejects.toBe(sinkError)
+    expect(captured).toEqual([sinkError])
+
+    // After flush, the error state is reset so subsequent flushes are clean
+    // unless new writes fail.
+    await expect(logger.flush()).resolves.toBeUndefined()
+  })
 })
 
 // ---------------------------------------------------------------------------
