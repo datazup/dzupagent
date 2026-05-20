@@ -538,6 +538,22 @@
       "transitionalRoot": [],
       "subpaths": {},
       "migrationWindow": "HITL kit root exports are stable Layer 0 human-in-the-loop contracts and store primitives; add allowlist rules before exposing new root modules."
+    },
+    {
+      "packageName": "@dzupagent/connectors-documents",
+      "packageDir": "packages/connectors-documents",
+      "rootIndex": "packages/connectors-documents/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./document-connector.js" },
+        { "match": "exact", "pattern": "./connector-contract.js" },
+        { "match": "exact", "pattern": "./parse-document.js" },
+        { "match": "exact", "pattern": "./supported-types.js" }
+      ],
+      "transitionalRoot": [
+        { "match": "prefix", "pattern": "./chunking/" }
+      ],
+      "subpaths": {},
+      "migrationWindow": "Document connector root exports are stable ingestion primitives; chunking subpath is transitional pending API stabilisation."
     }
   ]
 }
