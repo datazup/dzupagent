@@ -357,6 +357,36 @@ export interface AgentOutput {
   schema?: Record<string, unknown>
 }
 
+/**
+ * Inline JSON Schema validation block for an agent node (Stage 2).
+ *
+ * Runs after `generateStructured` and its schema validation both pass.
+ * The validated value stored at `output.key` is re-checked against
+ * `schema` using a JSON-Schema validator. On failure, `failBehavior`
+ * dictates whether to retry the agent loop, abort the flow, or log a
+ * warning and continue.
+ *
+ * This block is intentionally visible in the DSL — per the Codex amendment
+ * (2026-05-18), validation must not be hidden inside runtime magic.
+ */
+export interface ValidationBlock {
+  /** JSON Schema to validate the agent's output against. */
+  schema: Record<string, unknown>
+  /** Human-readable message appended to the validation-failure error. */
+  errorMessage?: string
+  /**
+   * What to do when validation fails.
+   * - 'retry': re-run the agent (up to `maxRetries` times), injecting the
+   *    validation error into the prompt on each attempt.
+   * - 'abort': emit an error that stops the flow.
+   * - 'continue': log a warning and carry on.
+   * Default: 'abort'
+   */
+  failBehavior?: 'retry' | 'abort' | 'continue'
+  /** Maximum retry attempts when failBehavior='retry'. Default: 1 */
+  maxRetries?: number
+}
+
 /** Per-agent acceptance criteria (alternative to top-level validate: node). */
 export interface AgentValidation {
   required: AgentValidationCommand[]
@@ -425,6 +455,16 @@ export type AgentNode = FlowNodeBase & {
   retry?: AgentRetry
   /** Per-agent acceptance criteria (Stage 1a). */
   validation?: AgentValidation
+  /**
+   * Inline JSON Schema validation gate (Stage 2).
+   *
+   * Runs after `generateStructured` + `output.schema` Zod validation both
+   * pass. The resolved value at `output.key` is re-validated against this
+   * block's `schema`. Use this for cross-field constraints that cannot be
+   * expressed as a Zod type, or to add retry/continue semantics on top of
+   * a permissive output schema.
+   */
+  validate?: ValidationBlock
   /** Per-agent policy override; merges flatly over top-level policy. */
   policy?: AgentPolicy
 }
