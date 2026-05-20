@@ -145,12 +145,21 @@ function applySecurityHeaders(app: Hono<AppEnv>, config: ForgeServerConfig): voi
   })
 }
 
+// DZUPAGENT-SEC-I-03: default clickjacking + CSP guard on all responses.
+// `frame-ancestors 'none'` blocks the host from being embedded in any frame;
+// `default-src 'self'` + `base-uri 'self'` constrain script/asset/base origins
+// for any HTML the framework happens to serve. Hosts can override via the
+// config or pass `false` to disable a specific header.
+const DEFAULT_CONTENT_SECURITY_POLICY =
+  "default-src 'self'; base-uri 'self'; frame-ancestors 'none'"
+const DEFAULT_X_FRAME_OPTIONS = 'DENY'
+
 function resolveSecurityHeaders(config?: SecurityHeadersConfig): Array<[string, string]> {
   const defaults: Array<[string, string | false | undefined]> = [
     ['X-Content-Type-Options', config?.xContentTypeOptions ?? 'nosniff'],
     ['Referrer-Policy', config?.referrerPolicy ?? 'no-referrer'],
-    ['X-Frame-Options', config?.xFrameOptions],
-    ['Content-Security-Policy', config?.contentSecurityPolicy],
+    ['X-Frame-Options', config?.xFrameOptions ?? DEFAULT_X_FRAME_OPTIONS],
+    ['Content-Security-Policy', config?.contentSecurityPolicy ?? DEFAULT_CONTENT_SECURITY_POLICY],
   ]
 
   const headers = new Map<string, string>()

@@ -215,6 +215,12 @@ export async function runToolLoop(
         signal: config.signal,
         agentId: config.agentId,
         toolPermissionPolicy: config.toolPermissionPolicy,
+        // DZUPAGENT-AGENT-H-02 — Forward governance into the kernel so its
+        // approval pre-scan can downgrade parallel batches to serial when a
+        // sibling requires human approval. The outer loop's T-AP-002 pre-scan
+        // already covers this code path; the kernel-level check is
+        // defense-in-depth for direct consumers of `scheduleToolCalls`.
+        toolGovernance: config.toolGovernance,
       }),
       (toolCall) => executePolicyEnabledToolCall(toolCall, {
         toolMap,

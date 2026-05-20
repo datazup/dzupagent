@@ -594,6 +594,9 @@ export type ValidationErrorCode =
   | 'UNRESOLVED_PROFILE_REF'
   | 'MISSING_PROFILE_REGISTRY'
   | 'PROFILE_RESOLVER_INFRA_ERROR'
+  | 'INVALID_TEMPLATE_FRONTMATTER'
+  | 'MISSING_REQUIRED_SECTION'
+  | 'UNKNOWN_FRONTMATTER_KEY'
 
 /**
  * Resolves opaque tool/skill/workflow references emitted by flow-ast
