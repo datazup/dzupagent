@@ -3,6 +3,7 @@
     "targetSpecifiers": [
       "@dzupagent/core",
       "@dzupagent/agent",
+      "@dzupagent/agent-adapters",
       "@dzupagent/codegen"
     ],
     "enforcedFiles": [
