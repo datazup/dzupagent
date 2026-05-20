@@ -8,6 +8,8 @@ import type {
 import type { ParseInput } from '@dzupagent/flow-ast'
 import type { DzupEventBus } from '@dzupagent/core/events'
 
+import type { ProfileRegistry } from './profile-registry.js'
+
 export interface CompilerOptions {
   toolResolver: ToolResolver | AsyncToolResolver
   personaResolver?: PersonaResolver | AsyncPersonaResolver
@@ -22,6 +24,25 @@ export interface CompilerOptions {
    * `flow-node-executor-agent`).
    */
   toolsetResolver?: ToolsetResolver | AsyncToolsetResolver
+  /**
+   * Resolves `profile: <name>` references on AgentNodes into flattened
+   * model/provider/instructions/toolset/policy fields at compile time
+   * (Stage 1.5). Successful resolution mutates the agent node in place
+   * and strips `node.profile` from the emitted AST so the lowered
+   * artifact and the runtime never see an unresolved profile ref.
+   *
+   * Field precedence: node-level fields always win — profiles supply
+   * defaults only. See `@dzupagent/flow-compiler` `ProfileRegistry`
+   * for the contract (synchronous in-process lookup; the registry
+   * snapshot is expected to be hot before compile time).
+   *
+   * When absent, agent.profile refs are preserved on the AST and a
+   * single MISSING_PROFILE_REGISTRY warning is surfaced — consuming
+   * runtimes may still implement their own backfill safety net for
+   * back-compat, but new flows should ship through a compile-time
+   * registry.
+   */
+  profileRegistry?: ProfileRegistry
   /**
    * When `true`, the compiler forwards inner lifecycle events
    * (`flow:compile_started`, `flow:compile_parsed`,

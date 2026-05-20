@@ -6,6 +6,7 @@ import type {
 import { validateConditionExpr } from './semantic-condition.js'
 import type { WalkContext } from './semantic-context.js'
 import { resolvePersonaNode } from './semantic-persona-resolver.js'
+import { resolveAgentProfile } from './semantic-profile-resolver.js'
 import { resolveAction } from './semantic-tool-resolver.js'
 import { resolveAgent } from './semantic-toolset-resolver.js'
 
@@ -163,6 +164,11 @@ export async function visit(node: FlowNode, path: string, ctx: WalkContext): Pro
       return
     }
     case 'agent': {
+      // Profile flattening must run BEFORE toolset resolution so a
+      // profile-supplied `toolset` is expanded by the same compile pass.
+      // After this call the node carries flattened model/provider/
+      // instructions/toolset/policy and `node.profile` is stripped.
+      resolveAgentProfile(node, path, ctx)
       await resolveAgent(node, path, ctx)
       return
     }

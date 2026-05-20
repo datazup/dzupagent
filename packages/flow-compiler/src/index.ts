@@ -84,6 +84,13 @@ export type {
 } from './lower/lower-checkpoint.js'
 export { parseFlow } from '@dzupagent/flow-ast'
 export type { ParseInput } from '@dzupagent/flow-ast'
+export type {
+  ProfileRegistry,
+  ProfileLookupScope,
+  ResolvedProfile,
+  ResolvedProfilePolicy,
+} from './profile-registry.js'
+export { resolveAgentProfile, applyProfileToNode } from './stages/semantic-profile-resolver.js'
 
 // ---------------------------------------------------------------------------
 // Compiler factory
@@ -248,6 +255,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
         toolResolver: opts.toolResolver,
         personaResolver: opts.personaResolver,
         ...(opts.toolsetResolver !== undefined ? { toolsetResolver: opts.toolsetResolver } : {}),
+        ...(opts.profileRegistry !== undefined ? { profileRegistry: opts.profileRegistry } : {}),
         ...(opts.target !== undefined ? { target: opts.target } : {}),
       })
 

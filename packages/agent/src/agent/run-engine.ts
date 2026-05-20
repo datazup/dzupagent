@@ -77,9 +77,18 @@ export async function prepareRunState(
 ): Promise<PreparedRunState> {
   // RF-04 (SEC-08) — when the caller did not supply ANY guardrails, install a
   // default `IterationBudget` so a runaway loop cannot burn unbounded tokens.
-  // Empty `guardrails: {}` is treated as an explicit opt-out (caller has made
-  // an informed choice) and keeps the legacy unbounded behaviour.
+  //
+  // DZUPAGENT-AGENT-L-03 fix: an empty `guardrails: {}` object is NOT a
+  // get-out-of-jail card for the default token/iteration budget. Only a
+  // guardrails object with at least one defined cap field is used verbatim;
+  // an empty object falls back to DEFAULT_UNGUARDED_BUDGET just like the
+  // absent case. The startup warning is still suppressed for empty objects
+  // (the caller explicitly passed guardrails, even if empty) to avoid noise.
   const hasExplicitGuardrails = params.config.guardrails !== undefined
+  // True only when the caller supplied at least one cap field.
+  const hasPopulatedGuardrails =
+    hasExplicitGuardrails &&
+    Object.keys(params.config.guardrails ?? {}).length > 0
   const logger: FrameworkLogger = (params.config as { logger?: FrameworkLogger }).logger
     ?? defaultLogger
 
@@ -90,7 +99,7 @@ export async function prepareRunState(
       ? DEFAULT_GUARDED_MAX_ITERATIONS
       : DEFAULT_UNGUARDED_BUDGET.maxIterations)
 
-  const budget = hasExplicitGuardrails
+  const budget = hasPopulatedGuardrails
     ? new IterationBudget(params.config.guardrails!)
     : new IterationBudget({
         // Combined input + output cap honours `DEFAULT_UNGUARDED_BUDGET.inputTokens`

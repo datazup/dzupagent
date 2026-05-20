@@ -156,18 +156,27 @@ export async function invokeToolWithRetry(
         0,
         `retry ${attempt + 1}/${retryCfg.maxAttempts - 1} after ${delayMs}ms: ${errAsError.message}`,
       )
-      await new Promise<void>((resolve) => {
-        const t = setTimeout(resolve, delayMs)
-        // If the parent signal aborts during backoff, wake up early so
-        // we can surface the cancellation on the next iteration.
-        if (config.signal) {
-          const onAbort = (): void => {
-            clearTimeout(t)
-            resolve()
+      // If the parent signal aborts during backoff, wake up early so
+      // we can surface the cancellation on the next iteration.
+      // The listener is always removed after the promise settles to
+      // prevent accumulation across retries (DZUPAGENT-AGENT-L-05).
+      let onAbort: (() => void) | undefined
+      try {
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, delayMs)
+          if (config.signal) {
+            onAbort = (): void => {
+              clearTimeout(t)
+              resolve()
+            }
+            config.signal.addEventListener('abort', onAbort, { once: true })
           }
-          config.signal.addEventListener('abort', onAbort, { once: true })
+        })
+      } finally {
+        if (onAbort && config.signal) {
+          config.signal.removeEventListener('abort', onAbort)
         }
-      })
+      }
       attempt++
     }
   }
