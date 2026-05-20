@@ -5,7 +5,7 @@
  *   - default in-memory event gateway is created from the bus
  *   - explicit overrides are honoured
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   InMemoryAgentStore,
   InMemoryRunStore,
@@ -14,13 +14,13 @@ import {
 } from '@dzupagent/core'
 
 import { buildRuntimeBootstrap } from '../runtime-config.js'
-import { InMemoryEventGateway } from '../../events/event-gateway.js'
+import { InMemoryEventGateway, type EventEnvelope } from '../../events/event-gateway.js'
 import {
   ControlPlaneExecutableAgentResolver,
   AgentStoreExecutableAgentResolver,
 } from '../../services/executable-agent-resolver.js'
 import type { ForgeServerConfig } from '../types.js'
-import type { RunExecutor } from '../../runtime/run-worker.js'
+import type { RunExecutionContext, RunExecutor } from '../../runtime/run-worker.js'
 
 function baseConfig(overrides: Partial<ForgeServerConfig> = {}): ForgeServerConfig {
   return {
@@ -68,5 +68,78 @@ describe('composition/runtime-config', () => {
     const cfg = baseConfig({ eventBus, eventGateway: customGateway })
     const { eventGateway } = buildRuntimeBootstrap(cfg)
     expect(eventGateway).toBe(customGateway)
+  })
+
+  // SEC-M-01-FOLLOWUP — envelopes emitted via the default executor must
+  // reach a tenant-scoped gateway subscriber with `tenantId` populated.
+  it('default executor stamps tenantId on envelopes delivered to the gateway', async () => {
+    vi.resetModules()
+    vi.doMock('@dzupagent/agent/runtime', () => ({
+      DzupAgent: class {
+        async *stream(): AsyncGenerator<
+          { type: string; data: Record<string, unknown> },
+          void,
+          undefined
+        > {
+          yield { type: 'tool_call', data: { name: 'read_file', args: {} } }
+          yield { type: 'tool_result', data: { name: 'read_file', result: 'ok' } }
+          yield { type: 'done', data: { content: 'done', hitIterationLimit: false } }
+        }
+      },
+    }))
+    vi.doMock('../../runtime/tool-resolver.js', () => ({
+      resolveAgentTools: async () => ({
+        tools: [],
+        activated: [],
+        unresolved: [],
+        warnings: [],
+        cleanup: async () => {},
+      }),
+    }))
+
+    const { buildRuntimeBootstrap: bootstrap } = await import('../runtime-config.js')
+
+    const eventBus = createEventBus()
+    const cfg = baseConfig({ eventBus })
+    const { effectiveRunExecutor, eventGateway } = bootstrap(cfg)
+
+    const delivered: EventEnvelope[] = []
+    eventGateway.subscribe({ tenantId: 'tenant-X' }, (env) => {
+      delivered.push(env)
+    })
+
+    const ctx: RunExecutionContext = {
+      runId: 'run-tenant-bootstrap-1',
+      agentId: 'agent-tenant-bootstrap-1',
+      input: { message: 'hello' },
+      metadata: { tenantId: 'tenant-X' },
+      agent: {
+        id: 'agent-tenant-bootstrap-1',
+        name: 'Agent Tenant Bootstrap',
+        instructions: 'Be concise',
+        modelTier: 'chat',
+      },
+      runStore: new InMemoryRunStore(),
+      eventBus,
+      modelRegistry: new ModelRegistry(),
+      signal: new AbortController().signal,
+    }
+
+    await effectiveRunExecutor(ctx)
+    // Drain the gateway's queueMicrotask deliveries.
+    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    await new Promise<void>((resolve) => queueMicrotask(resolve))
+
+    expect(delivered.length).toBeGreaterThan(0)
+    const types = new Set(delivered.map((env) => env.type))
+    expect(types.has('tool:called')).toBe(true)
+    expect(types.has('tool:result')).toBe(true)
+    expect(types.has('agent:stream_done')).toBe(true)
+    for (const env of delivered) {
+      expect(env.tenantId).toBe('tenant-X')
+    }
+
+    vi.doUnmock('@dzupagent/agent/runtime')
+    vi.doUnmock('../../runtime/tool-resolver.js')
   })
 })
