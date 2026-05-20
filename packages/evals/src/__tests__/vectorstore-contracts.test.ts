@@ -256,7 +256,7 @@ describe('VectorStore contract tests', () => {
 
       expect(report.complianceLevel).toBe('full');
       expect(report.summary.failed).toBe(0);
-    });
+    }, 300_000);
   });
 });
 

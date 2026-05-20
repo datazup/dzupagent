@@ -834,13 +834,12 @@ describe('createDatabaseOperations — LIMIT wrapping', () => {
     }
   }
 
-  it('does not wrap EXPLAIN statements (not SELECT-like by prefix but preserved)', async () => {
+  it('does not wrap EXPLAIN statements', async () => {
     const executor = makeExec({ rows: [], rowCount: 0 })
     const ops = createDatabaseOperations(executor, { maxRows: 100 })
     await ops.query('EXPLAIN SELECT * FROM t')
     const calledSql = executor.execute.mock.calls[0]?.[0]
-    // EXPLAIN starts with SELECT-like pattern (EXPLAIN matches SELECT_LIKE) → wrapped
-    expect(calledSql).toContain('LIMIT')
+    expect(calledSql).toBe('EXPLAIN SELECT * FROM t')
   })
 
   it('does not wrap VALUES statements without LIMIT (gets wrapped)', async () => {
@@ -851,12 +850,12 @@ describe('createDatabaseOperations — LIMIT wrapping', () => {
     expect(calledSql).toContain('LIMIT 50')
   })
 
-  it('does not wrap SHOW TABLES (SELECT-like prefix match → wrapped)', async () => {
+  it('does not wrap SHOW TABLES', async () => {
     const executor = makeExec({ rows: [], rowCount: 0 })
     const ops = createDatabaseOperations(executor, { maxRows: 20 })
     await ops.query('SHOW TABLES')
     const calledSql = executor.execute.mock.calls[0]?.[0]
-    expect(calledSql).toContain('LIMIT 20')
+    expect(calledSql).toBe('SHOW TABLES')
   })
 
   it('uses default maxRows of 1000 when not specified', async () => {

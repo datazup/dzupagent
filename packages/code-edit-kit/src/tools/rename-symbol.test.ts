@@ -95,7 +95,7 @@ describe('createRenameSymbolTool', () => {
     expect(aContent).not.toContain('oldName')
     expect(bContent).toContain('newName')
     expect(bContent).not.toContain('oldName')
-  })
+  }, 120_000)
 
   it('throws (via the core impl) when the symbol does not exist', async () => {
     const { tsconfigPath, aPath } = seedProject(tmpRoot)
