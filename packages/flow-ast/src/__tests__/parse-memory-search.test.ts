@@ -11,7 +11,7 @@ describe('memory.search', () => {
     })
     expect(errors).toEqual([])
     expect(ast).not.toBeNull()
-    const node = (ast as { nodes: Array<Record<string, unknown>> }).nodes[0]!
+    const node = (ast as unknown as { nodes: Array<Record<string, unknown>> }).nodes[0]!
     expect(node.operation).toBe('search')
     expect(node.query).toBe('{{ state.q }}')
     expect(node.limit).toBe(5)

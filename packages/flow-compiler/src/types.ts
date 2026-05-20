@@ -7,7 +7,7 @@ import type {
   ToolsetResolver,
 } from '@dzupagent/flow-ast'
 import type { ParseInput } from '@dzupagent/flow-ast'
-import type { DzupEventBus } from '@dzupagent/core/events'
+import type { DzupEventBus } from '@dzupagent/core'
 
 import type { ProfileRegistry } from './profile-registry.js'
 

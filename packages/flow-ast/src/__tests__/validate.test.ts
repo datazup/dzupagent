@@ -10,7 +10,7 @@ import {
 } from '../validate.js'
 import { FLOW_NODE_VALIDATOR_DESCRIPTORS, KNOWN_NODE_TYPES } from '../validation-descriptors.js'
 import { isFlowValue, isPlainObject, joinPath } from '../validation-helpers.js'
-import { validateCanonicalNodeIds } from '../validation-traversal.js'
+import { validateCanonicalNodeIds, type ValidationTraversalIssue } from '../validation-traversal.js'
 import { FLOW_NODE_KINDS } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -417,7 +417,7 @@ describe('validation extraction seams', () => {
   })
 
   it('reports duplicate canonical ids through the traversal helper', () => {
-    const issues: Array<{ path: string; code: string; message: string }> = []
+    const issues: ValidationTraversalIssue[] = []
     validateCanonicalNodeIds(
       {
         type: 'sequence',

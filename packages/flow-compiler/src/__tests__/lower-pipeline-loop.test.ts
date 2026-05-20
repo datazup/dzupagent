@@ -231,7 +231,7 @@ describe('lowerPipelineLoop', () => {
     // the important contract is: no exception, produces a PipelineDefinition,
     // at least one LoopNode is present.
     let artifact: PipelineDefinition
-    let warnings: string[]
+    let warnings: string[] = []
     expect(() => {
       const result = lowerPipelineLoop({
         ast,
