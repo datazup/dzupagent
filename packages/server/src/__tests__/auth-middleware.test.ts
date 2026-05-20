@@ -57,7 +57,7 @@ describe('authMiddleware', () => {
     expect(res.status).toBe(200)
   })
 
-  it('accepts Authorization header without Bearer prefix', async () => {
+  it('returns 401 when Authorization header does not use Bearer scheme', async () => {
     const app = createApp({
       mode: 'api-key',
       validateKey: async (key) => (key === 'raw-token' ? { id: 'k2' } : null),
@@ -65,7 +65,23 @@ describe('authMiddleware', () => {
     const res = await app.request('/api/agent-definitions', {
       headers: { Authorization: 'raw-token' },
     })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(401)
+    const body = await res.json() as { error: { code: string; message: string } }
+    expect(body.error.code).toBe('UNAUTHORIZED')
+    expect(body.error.message).toBe('Authorization header must use Bearer scheme')
+  })
+
+  it('returns 401 for non-Bearer schemes such as Basic', async () => {
+    const app = createApp({
+      mode: 'api-key',
+      validateKey: async () => ({ id: 'k1' }),
+    })
+    const res = await app.request('/api/agent-definitions', {
+      headers: { Authorization: 'Basic dXNlcjpwYXNz' },
+    })
+    expect(res.status).toBe(401)
+    const body = await res.json() as { error: { message: string } }
+    expect(body.error.message).toBe('Authorization header must use Bearer scheme')
   })
 
   it('skips auth for /api/health endpoints', async () => {

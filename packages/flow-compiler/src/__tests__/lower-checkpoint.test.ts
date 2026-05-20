@@ -17,8 +17,8 @@ import { describe, expect, it } from 'vitest'
 import {
   lowerCheckpointNode,
   lowerRestoreNode,
-} from '../src/lower/lower-checkpoint.js'
-import { semanticResolve } from '../src/stages/semantic.js'
+} from '../lower/lower-checkpoint.js'
+import { semanticResolve } from '../stages/semantic.js'
 
 // ---------------------------------------------------------------------------
 // Fixtures

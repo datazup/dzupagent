@@ -3,8 +3,8 @@
  * Uses `parseFlow` directly (low-level node parser, not document parser).
  */
 import { describe, it, expect } from 'vitest'
-import { parseFlow } from '../src/index.js'
-import type { AgentNode } from '../src/index.js'
+import { parseFlow } from '../index.js'
+import type { AgentNode } from '../index.js'
 
 describe('parseFlow — agent node', () => {
   it('parses a minimal valid agent node with schemaRef', () => {

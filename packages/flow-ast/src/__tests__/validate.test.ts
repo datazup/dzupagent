@@ -7,11 +7,11 @@ import {
   SchemaValidationError,
   validateFlowDocumentShape,
   validateFlowNodeShape,
-} from '../src/validate.js'
-import { FLOW_NODE_VALIDATOR_DESCRIPTORS, KNOWN_NODE_TYPES } from '../src/validation-descriptors.js'
-import { isFlowValue, isPlainObject, joinPath } from '../src/validation-helpers.js'
-import { validateCanonicalNodeIds } from '../src/validation-traversal.js'
-import { FLOW_NODE_KINDS } from '../src/types.js'
+} from '../validate.js'
+import { FLOW_NODE_VALIDATOR_DESCRIPTORS, KNOWN_NODE_TYPES } from '../validation-descriptors.js'
+import { isFlowValue, isPlainObject, joinPath } from '../validation-helpers.js'
+import { validateCanonicalNodeIds } from '../validation-traversal.js'
+import { FLOW_NODE_KINDS } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // flowNodeSchema — happy path

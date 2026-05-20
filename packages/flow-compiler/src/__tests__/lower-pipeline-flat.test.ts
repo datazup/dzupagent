@@ -21,7 +21,7 @@ import type { GateNode, ForkNode, JoinNode, PipelineDefinition, ToolNode } from 
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 import { describe, expect, it } from 'vitest'
 
-import { lowerPipelineFlat } from '../src/lower/lower-pipeline-flat.js'
+import { lowerPipelineFlat } from '../lower/lower-pipeline-flat.js'
 
 // ---------------------------------------------------------------------------
 // Deterministic ID generator for snapshot stability

@@ -28,8 +28,8 @@ import { describe, expect, it } from 'vitest'
 import {
   createToolsetResolverFromCatalog,
   validateToolsetCatalog,
-} from '../src/host-tool-registry.js'
-import { semanticResolve } from '../src/stages/semantic.js'
+} from '../host-tool-registry.js'
+import { semanticResolve } from '../stages/semantic.js'
 
 const emptyToolResolver = (): ToolResolver => ({
   resolve: (ref: string): ResolvedTool | null => null,
