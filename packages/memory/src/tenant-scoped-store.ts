@@ -189,20 +189,23 @@ export class TenantScopedStore {
   scope(additionalPrefix: string): TenantScopedStore {
     // Build a new store that wraps the same underlying store but with extended prefix.
     // We use a thin approach: create a new TenantScopedStore where the tenantId
-    // stays the same but we reconstruct the prefix manually.
+    // stays the same but we reconstruct the prefix via the encapsulated setter.
     const scoped = new TenantScopedStore({
       store: this.store,
       tenantId: this._tenantId,
     })
-    // Override the private prefix with our extended prefix
-    ;(scoped as unknown as { _namespacePrefix: string[] })._namespacePrefix = [
-      ...this._namespacePrefix,
-      additionalPrefix,
-    ]
+    scoped.setPrefix([...this._namespacePrefix, additionalPrefix])
     return scoped
   }
 
   // ---------- Internal -------------------------------------------------------
+
+  /** Overwrite the namespace prefix — used only by {@link scope} to extend a parent prefix. */
+  private setPrefix(prefix: string[]): void {
+    // _namespacePrefix is declared `readonly` to prevent accidental external
+    // mutation; this method is the single authorised write-path within the class.
+    (this as unknown as { _namespacePrefix: string[] })._namespacePrefix = prefix
+  }
 
   /** Prepend the tenant namespace prefix to a namespace */
   private prefix(namespace: string[]): string[] {

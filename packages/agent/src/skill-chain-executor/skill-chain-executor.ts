@@ -315,6 +315,13 @@ export class SkillChainExecutor {
     initialState: Record<string, unknown>,
     opts?: ExecuteOptions,
   ): Promise<Record<string, unknown>> {
+    // Reject immediately if the signal is already aborted before we do anything.
+    if (opts?.signal?.aborted) {
+      throw opts.signal.reason instanceof Error
+        ? opts.signal.reason
+        : new DOMException('The operation was aborted', 'AbortError')
+    }
+
     const eventBus = this.config.eventBus
     const runId = crypto.randomUUID()
 

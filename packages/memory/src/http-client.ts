@@ -19,6 +19,15 @@ export interface HttpMemoryRequestResult {
   errorCode?: string
 }
 
+/**
+ * Thrown when an `HttpMemoryClient` method is invoked but the remote wire
+ * protocol has not yet been implemented.  Callers should treat this as a
+ * hard failure — the operation will never succeed at runtime until the
+ * underlying HTTP handler is shipped.
+ *
+ * @internal Not intended for direct use by consumers; exposed only so that
+ * callers can `instanceof`-guard against it while the protocol is in progress.
+ */
 export class NotImplementedError extends Error {
   constructor(method: string) {
     super(`HttpMemoryClient.${method} is not implemented yet.`)
