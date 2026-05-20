@@ -1498,9 +1498,11 @@ describe('RF-04 default cost ceiling (SEC-08)', () => {
       expect(state.budget!.isExceeded().exceeded).toBe(false)
     })
 
-    it('agent with empty guardrails object opts out of the un-guardrailed defaults', async () => {
-      // Empty guardrails === explicit caller-acknowledged opt-out.
-      // maxIterations falls back to the GUARDED default (10), not 5.
+    it('agent with empty guardrails object still gets DEFAULT_UNGUARDED_BUDGET caps (DZUPAGENT-AGENT-L-03)', async () => {
+      // DZUPAGENT-AGENT-L-03: empty `guardrails: {}` is NOT a get-out-of-jail card.
+      // maxIterations uses the GUARDED default (10) because guardrails is present,
+      // but the IterationBudget still applies DEFAULT_UNGUARDED_BUDGET token/iteration
+      // caps — an empty object does not disable them.
       const params = basePrepareParams({
         config: {
           id: 'rf04-empty-guarded',
@@ -1511,9 +1513,11 @@ describe('RF-04 default cost ceiling (SEC-08)', () => {
       })
       const state = await prepareRunState(params)
       expect(state.maxIterations).toBe(DEFAULT_GUARDED_MAX_ITERATIONS)
-      // Budget is constructed but with no caps — `isExceeded` always false.
-      state.budget!.recordUsage({ inputTokens: 1_000_000, outputTokens: 1_000_000 })
-      expect(state.budget!.isExceeded().exceeded).toBe(false)
+      // Budget is capped at DEFAULT_UNGUARDED_BUDGET — consuming >50_000 input
+      // tokens must trip the limit even with an empty guardrails object.
+      state.budget!.recordUsage({ inputTokens: 50_001, outputTokens: 0 })
+      expect(state.budget!.isExceeded().exceeded).toBe(true)
+      expect(state.budget!.isExceeded().reason).toMatch(/Token limit exceeded/)
     })
   })
 
