@@ -5,6 +5,20 @@ import type { RunReflectionStore, ReflectionSummary } from '@dzupagent/agent'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
 import type { RunJob } from '../queue/run-queue.js'
 import { reportRetrievalFeedback } from './retrieval-feedback-hook.js'
+
+/**
+ * SEC-M-01-EXTENDED — stamp an event envelope with the job's owning tenant
+ * when present. Returns the event unchanged when the job has no
+ * `metadata.tenantId`, preserving the gateway's legacy `DEFAULT_TENANT_ID`
+ * fallback for single-tenant deployments.
+ */
+function stampTenant<T extends object>(event: T, job: RunJob): T & { tenantId?: string } {
+  const tenantId =
+    typeof job.metadata?.['tenantId'] === 'string'
+      ? (job.metadata['tenantId'] as string)
+      : undefined
+  return tenantId !== undefined ? { ...event, tenantId } : event
+}
 import type { ExecutionStageResult } from './run-stages-execution.js'
 import { closeTraceWithTerminalStep, resolveIntent, resolveSessionId } from './run-stages-utils.js'
 import type {
@@ -134,13 +148,13 @@ export async function persistCancellation(options: {
       phase: 'run',
       message: 'Run cancelled',
     })
-    options.eventBus.emit({
+    options.eventBus.emit(stampTenant({
       type: 'agent:failed',
       agentId: options.job.agentId,
       runId: options.job.runId,
       errorCode: 'AGENT_ABORTED',
       message: 'Cancelled by user',
-    })
+    }, options.job))
     await closeTraceWithTerminalStep(options.traceStore, options.job.runId, 'cancelled', { reason: 'Cancelled by user' })
   }
 }
@@ -165,13 +179,13 @@ export async function persistFailure(options: {
     message: 'Run failed',
     data: { error: message, ...(options.traceId ? { traceId: options.traceId } : {}) },
   })
-  options.eventBus.emit({
+  options.eventBus.emit(stampTenant({
     type: 'agent:failed',
     agentId: options.job.agentId,
     runId: options.job.runId,
     errorCode: 'INTERNAL_ERROR',
     message,
-  })
+  }, options.job))
   await closeTraceWithTerminalStep(options.traceStore, options.job.runId, 'failed', { error: message })
 }
 
@@ -330,11 +344,11 @@ async function maybeEscalateModelTier(options: {
           },
         })
       }
-      options.workerOptions.eventBus.emit({
+      options.workerOptions.eventBus.emit(stampTenant({
         type: 'registry:agent_updated',
         agentId: options.job.agentId,
         fields: ['metadata.modelTier'],
-      })
+      }, options.job))
       await options.workerOptions.runStore.addLog(options.job.runId, {
         level: 'info',
         phase: 'escalation',

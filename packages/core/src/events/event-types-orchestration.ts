@@ -12,7 +12,7 @@ export type OrchestrationDomainEvent =
   | { type: 'pipeline:phase_changed'; phase: string; previousPhase: string }
   | { type: 'pipeline:validation_failed'; phase: string; errors: string[] }
   // --- Approval ---
-  | { type: 'approval:requested'; runId: string; plan: unknown; contactId?: string; channel?: string; request?: unknown }
+  | { type: 'approval:requested'; runId: string; plan: unknown; contactId?: string; channel?: string; request?: unknown; tenantId?: string }
   | { type: 'approval:granted'; runId: string; approvedBy?: string }
   | { type: 'approval:rejected'; runId: string; reason?: string }
   | { type: 'approval:timed_out'; runId: string; contactId?: string; timeoutMs: number }

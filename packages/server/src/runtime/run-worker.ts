@@ -54,6 +54,19 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
     const startedAt = Date.now()
     options.shutdown?.trackRun(job.runId)
 
+    // SEC-M-01-EXTENDED — stamp every envelope emitted from this worker
+    // closure with the job's owning tenant. Mirrors the helper pattern in
+    // `dzip-agent-run-executor.ts`. When `metadata.tenantId` is absent the
+    // event is emitted without a `tenantId` field (NOT with `undefined`),
+    // preserving the legacy single-tenant `DEFAULT_TENANT_ID` fallback in
+    // the event gateway.
+    const tenantId =
+      typeof job.metadata?.['tenantId'] === 'string'
+        ? (job.metadata['tenantId'] as string)
+        : undefined
+    const withTenant = <T extends object>(event: T): T & { tenantId?: string } =>
+      tenantId !== undefined ? { ...event, tenantId } : event
+
     let traceId: string | undefined
     let forgeTraceContext: ForgeTraceContext | undefined
     try {
@@ -107,7 +120,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         message: 'Run dequeued for execution',
         data: { jobId: job.id, ...(traceId ? { traceId } : {}) },
       })
-      options.eventBus.emit({ type: 'agent:started', agentId: job.agentId, runId: job.runId })
+      options.eventBus.emit(withTenant({ type: 'agent:started', agentId: job.agentId, runId: job.runId }))
 
       const approved = await waitForRunApproval({
         agent,
@@ -153,12 +166,12 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         durationMs: terminal.durationMs,
       })
 
-      options.eventBus.emit({
+      options.eventBus.emit(withTenant({
         type: 'agent:completed',
         agentId: job.agentId,
         runId: job.runId,
         durationMs: terminal.durationMs,
-      })
+      }))
 
       await recordTelemetryStage({
         workerOptions: options,
