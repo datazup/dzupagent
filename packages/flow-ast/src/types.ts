@@ -530,6 +530,10 @@ export type ValidationErrorCode =
   | 'MISSING_REQUIRED_FIELD'
   | 'DUPLICATE_NODE_ID'
   | 'RESOLVER_INFRA_ERROR'
+  | 'UNRESOLVED_TOOLSET_REF'
+  | 'MISSING_TOOLSET_RESOLVER'
+  | 'INVALID_TOOLSET_RESOLVER_RESULT'
+  | 'TOOLSET_RESOLVER_INFRA_ERROR'
 
 /**
  * Resolves opaque tool/skill/workflow references emitted by flow-ast
@@ -616,4 +620,52 @@ export interface HostToolRegistryEntry {
   aliases?: string[]
   description?: string
   meta?: Record<string, unknown>
+}
+
+/**
+ * Resolves a compile-time toolset reference (the `toolset: <name>` field on
+ * AgentNode) into the concrete list of tool refs the agent is allowed to
+ * invoke at runtime.
+ *
+ * Stage 2 of the Flow DSL pipeline calls this resolver during semantic
+ * resolution; the resolved list is merged with any inline `tools[]` on the
+ * node and written back as the canonical `tools[]` on the AST. Downstream
+ * runtimes (codev-app's `flow-node-executor-agent`) filter the agent's tool
+ * surface against this expanded list — toolsets are runtime-enforced, not
+ * a zero-impact annotation (Codex amendment 2026-05-18).
+ *
+ * Returns `null` (not throws) for unknown toolset names so the compiler can
+ * aggregate every UNRESOLVED_TOOLSET_REF into a single Stage-3 report. An
+ * empty array is a legal result — it just means "no extra tools beyond the
+ * inline list".
+ */
+export interface ToolsetResolver {
+  resolve(ref: string): readonly string[] | null
+  /**
+   * Enumerate every toolset ref currently known. Used for "did you mean…?"
+   * suggestions on UNRESOLVED_TOOLSET_REF.
+   */
+  listAvailable(): string[]
+}
+
+/**
+ * Async variant of {@link ToolsetResolver} for catalogues backed by lazy
+ * loaders (DB, remote registry). Stage 3 duck-types on the return type of
+ * `resolve()`; synchronous resolvers never hit the microtask queue.
+ */
+export interface AsyncToolsetResolver {
+  resolve(ref: string): Promise<readonly string[] | null>
+  listAvailable(): string[]
+}
+
+/**
+ * Catalogue entry for the helper {@link createToolsetResolverFromCatalog} in
+ * `@dzupagent/flow-compiler`. Mirrors the shape consumers already use for
+ * host tool registries: each entry declares the canonical name and the
+ * expanded tool refs it stands for.
+ */
+export interface ToolsetCatalogEntry {
+  name: string
+  tools: readonly string[]
+  description?: string
 }

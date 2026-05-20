@@ -7,6 +7,7 @@ import { validateConditionExpr } from './semantic-condition.js'
 import type { WalkContext } from './semantic-context.js'
 import { resolvePersonaNode } from './semantic-persona-resolver.js'
 import { resolveAction } from './semantic-tool-resolver.js'
+import { resolveAgent } from './semantic-toolset-resolver.js'
 
 const ROOT_PATH = 'root'
 
@@ -161,10 +162,14 @@ export async function visit(node: FlowNode, path: string, ctx: WalkContext): Pro
       }
       return
     }
+    case 'agent': {
+      await resolveAgent(node, path, ctx)
+      return
+    }
     case 'prompt':
     case 'return_to':
-    case 'agent':
     case 'validate':
+    case 'set':
       return
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails

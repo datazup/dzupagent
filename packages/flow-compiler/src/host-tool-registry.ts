@@ -2,6 +2,8 @@ import type {
   HostToolRegistryEntry,
   ResolvedTool,
   ToolResolver,
+  ToolsetCatalogEntry,
+  ToolsetResolver,
 } from '@dzupagent/flow-ast'
 
 import type { CompilationDiagnostic } from './types.js'
@@ -87,6 +89,111 @@ export function createToolResolverFromRegistry(
     },
     listAvailable() {
       return [...byRef.keys(), ...aliasToRef.keys()].sort()
+    },
+  }
+}
+
+export interface ToolsetCatalogValidationResult {
+  valid: boolean
+  diagnostics: CompilationDiagnostic[]
+}
+
+/**
+ * Lints a toolset catalogue for the most common authoring mistakes before
+ * passing it to {@link createToolsetResolverFromCatalog}. Mirrors the shape
+ * of {@link validateHostToolRegistry}.
+ *
+ * Currently checks:
+ *   • non-empty `name`
+ *   • duplicate names
+ *   • `tools` is an array of non-empty strings
+ *
+ * Cross-validating that every expanded tool ref resolves through the host
+ * tool registry is a deliberate non-goal here — the toolset catalogue is
+ * authored independently of the tool registry, and Stage 3 already raises
+ * UNRESOLVED_TOOL_REF for stray tools that survive expansion when the
+ * action node references them.
+ */
+export function validateToolsetCatalog(
+  entries: readonly ToolsetCatalogEntry[],
+): ToolsetCatalogValidationResult {
+  const diagnostics: CompilationDiagnostic[] = []
+  const seen = new Set<string>()
+
+  entries.forEach((entry, index) => {
+    const nodePath = `toolsetCatalog[${index}]`
+    if (typeof entry.name !== 'string' || entry.name.length === 0) {
+      diagnostics.push({
+        stage: 3,
+        code: 'INVALID_TOOLSET_CATALOG_ENTRY',
+        category: 'registry',
+        message: 'Toolset catalogue entries require a non-empty name.',
+        nodePath: `${nodePath}.name`,
+      })
+    } else if (seen.has(entry.name)) {
+      diagnostics.push({
+        stage: 3,
+        code: 'DUPLICATE_TOOLSET_CATALOG_NAME',
+        category: 'registry',
+        message: `Duplicate toolset catalogue name: "${entry.name}".`,
+        nodePath: `${nodePath}.name`,
+      })
+    } else {
+      seen.add(entry.name)
+    }
+
+    if (!Array.isArray(entry.tools)) {
+      diagnostics.push({
+        stage: 3,
+        code: 'INVALID_TOOLSET_CATALOG_ENTRY',
+        category: 'registry',
+        message: `Toolset "${entry.name}" must declare a tools array.`,
+        nodePath: `${nodePath}.tools`,
+      })
+    } else {
+      for (let i = 0; i < entry.tools.length; i++) {
+        const tool = entry.tools[i]
+        if (typeof tool !== 'string' || tool.length === 0) {
+          diagnostics.push({
+            stage: 3,
+            code: 'INVALID_TOOLSET_CATALOG_ENTRY',
+            category: 'registry',
+            message: `Toolset "${entry.name}".tools[${i}] must be a non-empty string.`,
+            nodePath: `${nodePath}.tools[${i}]`,
+          })
+        }
+      }
+    }
+  })
+
+  return {
+    valid: diagnostics.length === 0,
+    diagnostics,
+  }
+}
+
+/**
+ * Build a {@link ToolsetResolver} backed by a static catalogue. Most callers
+ * (tests, in-memory fixtures, codev-app's seed registry) should construct
+ * their resolver via this helper rather than implementing the interface by
+ * hand. Async-backed registries (DB, remote) should implement
+ * {@link AsyncToolsetResolver} directly.
+ */
+export function createToolsetResolverFromCatalog(
+  entries: readonly ToolsetCatalogEntry[],
+): ToolsetResolver {
+  const byName = new Map<string, readonly string[]>()
+  for (const entry of entries) {
+    if (typeof entry.name !== 'string' || entry.name.length === 0) continue
+    if (!Array.isArray(entry.tools)) continue
+    byName.set(entry.name, [...entry.tools])
+  }
+  return {
+    resolve(ref: string) {
+      return byName.get(ref) ?? null
+    },
+    listAvailable() {
+      return [...byName.keys()].sort()
     },
   }
 }
