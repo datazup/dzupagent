@@ -161,6 +161,58 @@ describe('composition/middleware', () => {
     expect(res.headers.get('access-control-allow-origin')).toBe('https://app.example.com')
   })
 
+  // DZUPAGENT-SEC-I-03: clickjacking + CSP defaults must apply on all routes.
+  it('emits default CSP and X-Frame-Options to block clickjacking (SEC-I-03)', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig())
+    app.get('/api/health', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api/health')
+
+    const csp = res.headers.get('content-security-policy')
+    expect(csp).toBeTruthy()
+    expect(csp).toContain("frame-ancestors 'none'")
+    expect(csp).toContain("default-src 'self'")
+    expect(csp).toContain("base-uri 'self'")
+    expect(res.headers.get('x-frame-options')).toBe('DENY')
+  })
+
+  it('allows hosts to override the default CSP and X-Frame-Options', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({
+      securityHeaders: {
+        contentSecurityPolicy: "default-src 'self' https://cdn.example.com",
+        xFrameOptions: 'SAMEORIGIN',
+      },
+    }))
+    app.get('/api/health', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api/health')
+
+    expect(res.headers.get('content-security-policy')).toBe(
+      "default-src 'self' https://cdn.example.com",
+    )
+    expect(res.headers.get('x-frame-options')).toBe('SAMEORIGIN')
+  })
+
+  it('allows hosts to suppress individual security headers with false', async () => {
+    const app = new Hono()
+    applyMiddleware(app, baseConfig({
+      securityHeaders: {
+        contentSecurityPolicy: false,
+        xFrameOptions: false,
+      },
+    }))
+    app.get('/api/health', (c) => c.json({ ok: true }))
+
+    const res = await app.request('/api/health')
+
+    expect(res.headers.get('content-security-policy')).toBeNull()
+    expect(res.headers.get('x-frame-options')).toBeNull()
+    // Other defaults still apply.
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+  })
+
   it('allows hosts to override and disable individual security headers', async () => {
     const app = new Hono()
     applyMiddleware(app, baseConfig({

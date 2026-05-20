@@ -398,6 +398,65 @@ describe('DzupAgent generateStructured()', () => {
     expect(result.data).toEqual({ answer: 42 })
   })
 
+  // DZUPAGENT-AGENT-M-05 — native structured-output path must pass real token
+  // usage through to the caller. Prior to the fix this branch hard-coded
+  // `{ totalInputTokens: 0, totalOutputTokens: 0 }`.
+  it('passes real token usage through when withStructuredOutput returns an includeRaw envelope', async () => {
+    const { z } = await import('zod')
+
+    const rawWithUsage = new AIMessage('structured')
+    ;(rawWithUsage as AIMessage & { usage_metadata: Record<string, number> }).usage_metadata = {
+      input_tokens: 123,
+      output_tokens: 45,
+      total_tokens: 168,
+    }
+
+    const model = createMockModel([new AIMessage('unused')], { withStructuredOutput: true }) as BaseChatModel & {
+      withStructuredOutput: ReturnType<typeof vi.fn>
+    }
+    const includeRawInvoke = vi.fn(async () => ({
+      raw: rawWithUsage,
+      parsed: { answer: 99 },
+    }))
+    model.withStructuredOutput.mockReturnValue({ invoke: includeRawInvoke })
+
+    const agent = new DzupAgent(minimalConfig({ model }))
+    const schema = z.object({ answer: z.number() })
+    const result = await agent.generateStructured([new HumanMessage('what?')], schema)
+
+    expect(result.data).toEqual({ answer: 99 })
+    expect(result.usage.totalInputTokens).toBe(123)
+    expect(result.usage.totalOutputTokens).toBe(45)
+    expect(result.usage.llmCalls).toBe(1)
+    // Verify we requested the raw envelope so providers actually return usage.
+    expect(model.withStructuredOutput).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ includeRaw: true }),
+    )
+  })
+
+  // Legacy/no-op mocks that ignore the `includeRaw` flag still work; usage
+  // simply falls back to zero (we have no AIMessage to extract from).
+  it('still parses correctly when withStructuredOutput ignores includeRaw and returns the parsed object directly', async () => {
+    const { z } = await import('zod')
+
+    const model = createMockModel([new AIMessage('unused')], { withStructuredOutput: true }) as BaseChatModel & {
+      withStructuredOutput: ReturnType<typeof vi.fn>
+    }
+    model.withStructuredOutput.mockReturnValue({
+      invoke: vi.fn(async () => ({ answer: 7 })),
+    })
+
+    const agent = new DzupAgent(minimalConfig({ model }))
+    const schema = z.object({ answer: z.number() })
+    const result = await agent.generateStructured([new HumanMessage('what?')], schema)
+
+    expect(result.data).toEqual({ answer: 7 })
+    expect(result.usage.llmCalls).toBe(1)
+    expect(result.usage.totalInputTokens).toBe(0)
+    expect(result.usage.totalOutputTokens).toBe(0)
+  })
+
   it('falls back to text generation when native structured output rejects the schema', async () => {
     const { z } = await import('zod')
 
