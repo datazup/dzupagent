@@ -34,6 +34,7 @@ import { ComplianceAuditLogger } from '@dzupagent/core/security'
 import type { AppEnv } from './types.js'
 import type { ForgeServerConfig } from './composition/types.js'
 import {
+  registerShutdownDrainHook,
   warnIfUnboundedInMemoryRetention,
 } from './composition/utils.js'
 import { attachSafetyMonitor } from './composition/safety.js'
@@ -96,6 +97,25 @@ export function createForgeApp(config: ForgeServerConfig): Hono<AppEnv> {
   if (config.auditStore) {
     const auditLogger = new ComplianceAuditLogger({ store: config.auditStore })
     auditLogger.attach(config.eventBus)
+
+    // Drain pending fire-and-forget audit writes before process exit so
+    // SIGTERM/SIGINT do not lose in-flight compliance records. Sink errors
+    // surfaced by `flush()` are intentionally swallowed here because the
+    // shutdown path itself is best-effort — but the logger's `onError` (if
+    // configured) and console fallback below ensure visibility.
+    if (config.shutdown) {
+      registerShutdownDrainHook(config.shutdown, async () => {
+        try {
+          await auditLogger.flush()
+        } catch (err) {
+          // Best-effort: surface but do not block shutdown.
+          // eslint-disable-next-line no-console
+          console.warn('[ForgeServer] audit logger flush surfaced error during shutdown', err)
+        } finally {
+          auditLogger.dispose()
+        }
+      })
+    }
   }
 
   // Resolve runtime defaults: executor, executable agent resolver, gateway.
