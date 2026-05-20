@@ -261,10 +261,22 @@ export async function resolveMcpTools(
     return { tools, activated, resolved, warnings, cleanup: () => client.disconnectAll() }
   }
 
+  // Build id→name reverse lookup so pattern matching works whether the caller
+  // referenced the server by id or by its friendly name.
+  const serverNameById = new Map<string, string>()
+  for (const s of targetServers) {
+    if (s.name) serverNameById.set(s.id, s.name)
+  }
+
   const eagerTools = client.getEagerTools()
   for (const descriptor of eagerTools) {
+    const serverName = serverNameById.get(descriptor.serverId)
     const matchesPattern = mcpPatterns.some((pat) => {
-      if (pat.serverFilter && pat.serverFilter !== descriptor.serverId) return false
+      if (pat.serverFilter) {
+        const matchById = pat.serverFilter === descriptor.serverId
+        const matchByName = serverName !== undefined && pat.serverFilter === serverName
+        if (!matchById && !matchByName) return false
+      }
       if (pat.toolFilter && pat.toolFilter !== descriptor.name) return false
       return true
     })

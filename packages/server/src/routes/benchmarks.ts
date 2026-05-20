@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import type { AppEnv } from '../types.js'
 import type {
   BenchmarkOrchestratorLike,
@@ -7,6 +8,8 @@ import type {
 } from '@dzupagent/eval-contracts'
 import { InMemoryBenchmarkRunStore } from '../persistence/benchmark-run-store.js'
 import type { BenchmarkOrchestratorFactory, BenchmarkRouteConfig } from './benchmarks-types.js'
+import { getRequestingTenantId } from './tenant-scope.js'
+import { TenantScopedBenchmarkOrchestrator } from './benchmark-tenant-scope.js'
 
 export type { BenchmarkOrchestratorFactory, BenchmarkRouteConfig } from './benchmarks-types.js'
 
@@ -167,6 +170,14 @@ export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono<AppEnv
     orchestrator = new ReadOnlyBenchmarkOrchestrator(store)
   }
 
+  function scopedOrchestrator(c: Context<AppEnv>): TenantScopedBenchmarkOrchestrator {
+    return new TenantScopedBenchmarkOrchestrator({
+      orchestrator,
+      store,
+      tenantId: getRequestingTenantId(c),
+    })
+  }
+
   app.get('/runs', async (c) => {
     const suiteId = c.req.query('suiteId') || undefined
     const targetId = c.req.query('targetId') || undefined
@@ -184,7 +195,8 @@ export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono<AppEnv
       }, 400)
     }
 
-    const page = await orchestrator.listRuns({ suiteId, targetId, limit, cursor })
+    const scoped = scopedOrchestrator(c)
+    const page = await scoped.listRuns({ suiteId, targetId, limit, cursor })
     return c.json({
       success: true,
       data: page.data,
@@ -233,7 +245,8 @@ export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono<AppEnv
         }, 400)
       }
 
-      const run = await orchestrator.runSuite({
+      const scoped = scopedOrchestrator(c)
+      const run = await scoped.runSuite({
         suiteId: body.suiteId,
         targetId: body.targetId,
         strict: strict.strict,
@@ -250,7 +263,8 @@ export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono<AppEnv
   })
 
   app.get('/runs/:id', async (c) => {
-    const run = await orchestrator.getRun(c.req.param('id'))
+    const scoped = scopedOrchestrator(c)
+    const run = await scoped.getRun(c.req.param('id'))
     if (!run) {
       return c.json({ error: { code: 'NOT_FOUND', message: 'Benchmark run not found' } }, 404)
     }
@@ -267,20 +281,22 @@ export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono<AppEnv
         return c.json({ error: { code: 'VALIDATION_ERROR', message: 'currentRunId is required' } }, 400)
       }
 
+      const scoped = scopedOrchestrator(c)
+
       if (body.previousRunId) {
-        const compared = await orchestrator.compareRuns(body.currentRunId, body.previousRunId)
+        const compared = await scoped.compareRuns(body.currentRunId, body.previousRunId)
         return c.json({ data: compared })
       }
 
-      const currentRun = await orchestrator.getRun(body.currentRunId)
+      const currentRun = await scoped.getRun(body.currentRunId)
       if (!currentRun) {
         return c.json({ error: { code: 'NOT_FOUND', message: 'Current run not found' } }, 404)
       }
-      const baseline = await orchestrator.getBaseline(currentRun.suiteId, currentRun.targetId)
+      const baseline = await scoped.getBaseline(currentRun.suiteId, currentRun.targetId)
       if (!baseline) {
         return c.json({ error: { code: 'NOT_FOUND', message: 'No baseline found for suite/target' } }, 404)
       }
-      const compared = await orchestrator.compareRuns(currentRun.id, baseline.runId)
+      const compared = await scoped.compareRuns(currentRun.id, baseline.runId)
       return c.json({ data: compared })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -292,7 +308,8 @@ export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono<AppEnv
   app.get('/baselines', async (c) => {
     const suiteId = c.req.query('suiteId')
     const targetId = c.req.query('targetId')
-    const baselines = await orchestrator.listBaselines({
+    const scoped = scopedOrchestrator(c)
+    const baselines = await scoped.listBaselines({
       suiteId: suiteId ?? undefined,
       targetId: targetId ?? undefined,
     })
@@ -306,7 +323,8 @@ export function createBenchmarkRoutes(config: BenchmarkRouteConfig): Hono<AppEnv
       if (!suiteId || !body.targetId || !body.runId) {
         return c.json({ error: { code: 'VALIDATION_ERROR', message: 'suiteId, targetId and runId are required' } }, 400)
       }
-      const baseline = await orchestrator.setBaseline({
+      const scoped = scopedOrchestrator(c)
+      const baseline = await scoped.setBaseline({
         suiteId,
         targetId: body.targetId,
         runId: body.runId,
