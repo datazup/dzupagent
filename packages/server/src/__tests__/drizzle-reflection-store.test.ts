@@ -24,6 +24,10 @@ function createMockDb() {
       errorCount: data.errorCount ?? 0,
       patterns: data.patterns ?? [],
       qualityScore: data.qualityScore ?? 0,
+      // RUN-REFLECTION-STORE-WIDEN: schema default mirrors `tenant_id text
+      // NOT NULL DEFAULT 'default'`; ownerId stays NULL for legacy rows.
+      tenantId: data.tenantId ?? 'default',
+      ownerId: data.ownerId ?? null,
       createdAt: data.createdAt instanceof Date ? data.createdAt : now,
     }
   }
@@ -91,8 +95,13 @@ function createMockDb() {
         try {
           let results = Object.values(storage)
 
+          const snakeToCamel: Record<string, string> = {
+            run_id: 'runId',
+            tenant_id: 'tenantId',
+            owner_id: 'ownerId',
+          }
           for (const cond of _whereConditions) {
-            const field = cond.field === 'run_id' ? 'runId' : cond.field
+            const field = snakeToCamel[cond.field] ?? cond.field
             results = results.filter((r) => r[field] === cond.value)
           }
 
@@ -185,8 +194,19 @@ vi.mock('drizzle-orm', () => ({
   desc: (column: { name: string }) => ({
     _mockDesc: column.name,
   }),
-  and: (...conditions: Array<{ _mockField: string; _mockValue: unknown }>) => ({
-    _mockConditions: conditions.map((c) => ({ field: c._mockField, value: c._mockValue })),
+  isNull: (column: { name: string }) => ({
+    _mockIsNull: column.name,
+  }),
+  or: (...args: Array<{ _mockField?: string; _mockValue?: unknown; _mockIsNull?: string }>) => ({
+    _mockOr: args,
+  }),
+  and: (...conditions: Array<{ _mockField?: string; _mockValue?: unknown; _mockOr?: unknown[]; _mockConditions?: Array<{ field: string; value: unknown }> }>) => ({
+    _mockConditions: conditions.flatMap((c) => {
+      if (c._mockOr) return [] // OR branch ignored by mock; tenant filter alone is enough for assertions
+      if (c._mockConditions) return c._mockConditions
+      if (c._mockField !== undefined) return [{ field: c._mockField, value: c._mockValue }]
+      return []
+    }),
   }),
 }))
 
@@ -201,6 +221,8 @@ vi.mock('../persistence/drizzle-schema.js', () => ({
     errorCount: { name: 'error_count' },
     patterns: { name: 'patterns' },
     qualityScore: { name: 'quality_score' },
+    tenantId: { name: 'tenant_id' },
+    ownerId: { name: 'owner_id' },
     createdAt: { name: 'created_at' },
   },
 }))
@@ -891,6 +913,63 @@ describe('DrizzleReflectionStore', () => {
       expect(results).toHaveLength(2)
       expect(results[0]!.runId).toBe('run-mar')
       expect(results[1]!.runId).toBe('run-feb')
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // RUN-REFLECTION-STORE-WIDEN: tenant/owner filter
+  // -------------------------------------------------------------------------
+  describe('tenant/owner filter', () => {
+    it('save: stamps tenantId + ownerId when provided on the summary', async () => {
+      await store.save({
+        runId: 'stamped',
+        completedAt: new Date('2026-05-20T00:00:00.000Z'),
+        durationMs: 100,
+        totalSteps: 1,
+        toolCallCount: 0,
+        errorCount: 0,
+        patterns: [],
+        qualityScore: 0.9,
+        tenantId: 'tenant-a',
+        ownerId: 'key-a',
+      })
+      expect(db._storage['stamped']!.tenantId).toBe('tenant-a')
+      expect(db._storage['stamped']!.ownerId).toBe('key-a')
+    })
+
+    it('save: leaves tenantId at default and ownerId NULL when omitted', async () => {
+      await store.save(makeSummary({ runId: 'bare' }))
+      expect(db._storage['bare']!.tenantId).toBe('default')
+      expect(db._storage['bare']!.ownerId).toBeNull()
+    })
+
+    it('list({ tenantId }) filters via SELECT clause', async () => {
+      db._seed('a', { tenantId: 'tenant-a', durationMs: 1, totalSteps: 1, toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.5 })
+      db._seed('b', { tenantId: 'tenant-b', durationMs: 1, totalSteps: 1, toolCallCount: 0, errorCount: 0, patterns: [], qualityScore: 0.5 })
+
+      const result = await store.list({ tenantId: 'tenant-a' })
+      expect(result.map((s) => s.runId)).toEqual(['a'])
+      expect(result[0]!.tenantId).toBe('tenant-a')
+    })
+
+    it('get: maps tenantId + ownerId onto the returned summary', async () => {
+      db._seed('owned', {
+        durationMs: 1, totalSteps: 1, toolCallCount: 0, errorCount: 0,
+        patterns: [], qualityScore: 0.7, tenantId: 'tenant-z', ownerId: 'key-z',
+      })
+      const result = await store.get('owned')
+      expect(result!.tenantId).toBe('tenant-z')
+      expect(result!.ownerId).toBe('key-z')
+    })
+
+    it('get: omits ownerId from the returned summary when the row is NULL', async () => {
+      db._seed('legacy', {
+        durationMs: 1, totalSteps: 1, toolCallCount: 0, errorCount: 0,
+        patterns: [], qualityScore: 0.7,
+      })
+      const result = await store.get('legacy')
+      expect(result!.tenantId).toBe('default')
+      expect(result!.ownerId).toBeUndefined()
     })
   })
 })

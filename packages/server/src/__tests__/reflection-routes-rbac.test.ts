@@ -7,11 +7,17 @@
  *   - apiKey with tenantId  → only reflections from owned/same-tenant runs.
  *   - apiKey present but lacking string `id`  → 403.
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { Hono } from 'hono'
 import { createReflectionRoutes } from '../routes/reflections.js'
 import type { AppEnv } from '../types.js'
-import type { ReflectionSummary, RunReflectionStore } from '@dzupagent/agent'
+import type {
+  ReflectionListOptions,
+  ReflectionPattern,
+  ReflectionPatternOptions,
+  ReflectionSummary,
+  RunReflectionStore,
+} from '@dzupagent/agent'
 import { InMemoryReflectionStore } from '@dzupagent/agent'
 import { InMemoryRunStore } from '@dzupagent/core'
 
@@ -52,13 +58,20 @@ async function makeFixture(): Promise<Fixture> {
     tenantId: 'tenant-b',
   })
 
+  // RUN-REFLECTION-STORE-WIDEN: summaries now carry tenantId/ownerId so the
+  // store-side filter is what makes the assertions pass (the route no longer
+  // does a per-candidate runStore.get to figure out ownership).
   await reflectionStore.save(makeSummary({
     runId: runA.id,
+    tenantId: 'tenant-a',
+    ownerId: 'key-tenant-a',
     qualityScore: 0.9,
     patterns: [{ type: 'repeated_tool', description: 'tenant-a tool', occurrences: 2, stepIndices: [0, 1] }],
   }))
   await reflectionStore.save(makeSummary({
     runId: runB.id,
+    tenantId: 'tenant-b',
+    ownerId: 'key-tenant-b',
     qualityScore: 0.4,
     patterns: [{ type: 'repeated_tool', description: 'tenant-b tool', occurrences: 3, stepIndices: [0, 1, 2] }],
   }))
@@ -127,7 +140,11 @@ describe('Reflection routes — SEC-M-03 tenant/owner scoping (list)', () => {
         ownerId: 'key-tenant-b',
         tenantId: 'tenant-b',
       })
-      await fixture.reflectionStore.save(makeSummary({ runId: run.id }))
+      await fixture.reflectionStore.save(makeSummary({
+        runId: run.id,
+        tenantId: 'tenant-b',
+        ownerId: 'key-tenant-b',
+      }))
     }
     const res = await fixture.app.request('/api/reflections?limit=10', {
       headers: { Authorization: 'Bearer key-tenant-a' },
@@ -232,7 +249,12 @@ describe('Reflection routes — GET /:runId ownership guard (MJ-SEC-02)', () => 
       ownerId: 'key-tenant-a-other',
       tenantId: 'tenant-a',
     })
-    await fixture.reflectionStore.save(makeSummary({ runId: otherRun.id, qualityScore: 0.1 }))
+    await fixture.reflectionStore.save(makeSummary({
+      runId: otherRun.id,
+      tenantId: 'tenant-a',
+      ownerId: 'key-tenant-a-other',
+      qualityScore: 0.1,
+    }))
 
     const res = await fixture.app.request(`/api/reflections/${otherRun.id}`, {
       headers: { Authorization: 'Bearer key-tenant-a' },
@@ -250,5 +272,131 @@ describe('Reflection routes — GET /:runId ownership guard (MJ-SEC-02)', () => 
     const body = (await res.json()) as { error: { code: string; message: string } }
     expect(body.error.code).toBe('NOT_FOUND')
     expect(body.error.message).toBe('Run not found')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// RUN-REFLECTION-STORE-WIDEN: route delegates filtering to the store
+// ---------------------------------------------------------------------------
+describe('Reflection routes — store-side filter delegation (RUN-REFLECTION-STORE-WIDEN)', () => {
+  /**
+   * Build a spy store that records every call. The route should pass
+   * `{ tenantId, ownerId, limit }` straight through and never do a
+   * per-candidate `runStore.get(...)` lookup — that was the defense-in-depth
+   * hack the widening retires.
+   */
+  function makeSpyStore(): RunReflectionStore & {
+    listCalls: Array<number | ReflectionListOptions | undefined>
+    getPatternsCalls: Array<[ReflectionPattern['type'], ReflectionPatternOptions | undefined]>
+  } {
+    const listCalls: Array<number | ReflectionListOptions | undefined> = []
+    const getPatternsCalls: Array<[ReflectionPattern['type'], ReflectionPatternOptions | undefined]> = []
+    const summary: ReflectionSummary = {
+      runId: 'spy-run',
+      completedAt: new Date('2026-05-20T00:00:00.000Z'),
+      durationMs: 100,
+      totalSteps: 1,
+      toolCallCount: 0,
+      errorCount: 0,
+      patterns: [],
+      qualityScore: 0.9,
+      tenantId: 'tenant-a',
+      ownerId: 'key-tenant-a',
+    }
+    const store: RunReflectionStore & {
+      listCalls: typeof listCalls
+      getPatternsCalls: typeof getPatternsCalls
+    } = {
+      save: vi.fn(async () => { /* noop */ }),
+      get: vi.fn(async () => summary),
+      list: vi.fn(async (opts?: number | ReflectionListOptions) => {
+        listCalls.push(opts)
+        return [summary]
+      }),
+      getPatterns: vi.fn(async (type: ReflectionPattern['type'], opts?: ReflectionPatternOptions) => {
+        getPatternsCalls.push([type, opts])
+        return []
+      }),
+      listCalls,
+      getPatternsCalls,
+    }
+    return store
+  }
+
+  function buildApp(reflectionStore: RunReflectionStore, runStore?: InMemoryRunStore) {
+    const routes = createReflectionRoutes(
+      runStore ? { reflectionStore, runStore } : { reflectionStore },
+    )
+    const app = new Hono<AppEnv>()
+    app.use('/api/reflections/*', async (c, next) => {
+      const auth = c.req.header('Authorization')
+      if (auth?.startsWith('Bearer ')) {
+        const token = auth.slice('Bearer '.length)
+        if (token === 'key-tenant-a') {
+          c.set('apiKey', { id: 'key-tenant-a', tenantId: 'tenant-a' } as Record<string, unknown>)
+        }
+      }
+      await next()
+    })
+    app.route('/api/reflections', routes)
+    return app
+  }
+
+  it('GET / forwards { tenantId, ownerId, limit } to store.list', async () => {
+    const spy = makeSpyStore()
+    const app = buildApp(spy)
+    const res = await app.request('/api/reflections?limit=7', {
+      headers: { Authorization: 'Bearer key-tenant-a' },
+    })
+    expect(res.status).toBe(200)
+    expect(spy.listCalls).toHaveLength(1)
+    expect(spy.listCalls[0]).toEqual({ limit: 7, tenantId: 'tenant-a', ownerId: 'key-tenant-a' })
+  })
+
+  it('GET / sends limit-only opts when request is unauthenticated', async () => {
+    const spy = makeSpyStore()
+    const app = buildApp(spy)
+    const res = await app.request('/api/reflections')
+    expect(res.status).toBe(200)
+    expect(spy.listCalls).toHaveLength(1)
+    expect(spy.listCalls[0]).toEqual({ limit: 20 })
+  })
+
+  it('GET /patterns/:type forwards { tenantId, ownerId } to store.getPatterns', async () => {
+    const spy = makeSpyStore()
+    const app = buildApp(spy)
+    const res = await app.request('/api/reflections/patterns/repeated_tool', {
+      headers: { Authorization: 'Bearer key-tenant-a' },
+    })
+    expect(res.status).toBe(200)
+    expect(spy.getPatternsCalls).toHaveLength(1)
+    expect(spy.getPatternsCalls[0]).toEqual([
+      'repeated_tool',
+      { tenantId: 'tenant-a', ownerId: 'key-tenant-a' },
+    ])
+  })
+
+  it('GET / does NOT call runStore.get per candidate (no defense-in-depth lookup)', async () => {
+    const spy = makeSpyStore()
+    const runStore = new InMemoryRunStore()
+    const runStoreGetSpy = vi.spyOn(runStore, 'get')
+    const app = buildApp(spy, runStore)
+    const res = await app.request('/api/reflections', {
+      headers: { Authorization: 'Bearer key-tenant-a' },
+    })
+    expect(res.status).toBe(200)
+    expect(runStoreGetSpy).not.toHaveBeenCalled()
+  })
+
+  it('GET /patterns/:type does NOT call runStore.get per candidate', async () => {
+    const spy = makeSpyStore()
+    const runStore = new InMemoryRunStore()
+    const runStoreGetSpy = vi.spyOn(runStore, 'get')
+    const app = buildApp(spy, runStore)
+    const res = await app.request('/api/reflections/patterns/repeated_tool', {
+      headers: { Authorization: 'Bearer key-tenant-a' },
+    })
+    expect(res.status).toBe(200)
+    expect(runStoreGetSpy).not.toHaveBeenCalled()
   })
 })
