@@ -28,13 +28,18 @@ export class WSSessionManager {
   ) {}
 
   async attach(client: WSClient, scope?: WSClientScope): Promise<void> {
-    // Attach with an explicit deny-all baseline until the client sends an authorized subscribe filter.
-    this.bridge.addClient(client, { eventTypes: [] })
-
     const resolvedScope = scope ?? await this.options?.resolveScope?.(client) ?? null
+    // SEC-M-WS-01: populate the scope registry BEFORE adding the client to the
+    // bridge so the bridge's tenantResolver (which reads from the registry)
+    // sees the authenticated tenant on the very first subscription. Without
+    // this ordering, the deny-all baseline below would skip tenant scoping
+    // and a later setClientFilter call would have to re-resolve.
     if (resolvedScope) {
       this.scopeRegistry.set(client, resolvedScope)
     }
+
+    // Attach with an explicit deny-all baseline until the client sends an authorized subscribe filter.
+    this.bridge.addClient(client, { eventTypes: [] })
 
     const onControl = createScopedWsControlHandler(
       this.bridge,
