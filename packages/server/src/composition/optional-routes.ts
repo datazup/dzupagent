@@ -278,7 +278,15 @@ function mountConfigStoreRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRo
 
 function mountReflectionRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
   if (runtimeConfig.reflectionStore) {
-    app.route('/api/reflections', createReflectionRoutes({ reflectionStore: runtimeConfig.reflectionStore }))
+    app.route(
+      '/api/reflections',
+      createReflectionRoutes({
+        reflectionStore: runtimeConfig.reflectionStore,
+        // SEC-M-03 sibling sweep: pass the runStore so the list/pattern
+        // endpoints can scope reflections to the requesting tenant/owner.
+        runStore: runtimeConfig.runStore,
+      }),
+    )
   }
 }
 

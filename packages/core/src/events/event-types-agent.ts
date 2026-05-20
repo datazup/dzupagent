@@ -46,8 +46,8 @@ export type AgentDomainEvent =
       allowedTools: number
       filteredTools: string[]
     }
-  | { type: 'agent:stream_delta'; agentId: string; runId: string; content: string }
-  | { type: 'agent:stream_done'; agentId: string; runId: string; finalContent: string }
+  | { type: 'agent:stream_delta'; agentId: string; runId: string; content: string; tenantId?: string }
+  | { type: 'agent:stream_done'; agentId: string; runId: string; finalContent: string; tenantId?: string }
   | { type: 'recovery:cancelled'; agentId: string; runId: string; attempts: number; durationMs: number; reason: string }
   // --- Tool lifecycle (canonical contract — RF-AGENT-05) ---
   // Each tool invocation produces a `tool:called` followed by exactly one
@@ -70,6 +70,8 @@ export type AgentDomainEvent =
       toolCallId?: string
       /** Top-level keys of the validated tool input — values are never logged. */
       inputMetadataKeys?: string[]
+      /** Owning tenant; consumed by event-gateway tenant filtering (DZUPAGENT-SEC-M-01). */
+      tenantId?: string
     }
   | {
       type: 'tool:result'
@@ -82,6 +84,8 @@ export type AgentDomainEvent =
       inputMetadataKeys?: string[]
       /** Outcome discriminator. `'success'` is the canonical happy path. */
       status?: 'success'
+      /** Owning tenant; consumed by event-gateway tenant filtering (DZUPAGENT-SEC-M-01). */
+      tenantId?: string
     }
   | {
       type: 'tool:cancel_requested'
@@ -110,6 +114,8 @@ export type AgentDomainEvent =
       status?: 'error' | 'timeout' | 'denied' | 'cancelled' | 'cancel_requested'
       /** Alias for `message` to match the canonical contract field name. */
       errorMessage?: string
+      /** Owning tenant; consumed by event-gateway tenant filtering (DZUPAGENT-SEC-M-01). */
+      tenantId?: string
     }
   | {
       type: 'tool:output:invalid'

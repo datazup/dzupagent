@@ -10,7 +10,7 @@ export default defineConfig({
     'cli/dzup': 'src/cli/dzup.ts',
   },
   format: ['esm'],
-  dts: true,
+  dts: false,
   clean: true,
   target: 'node20',
   sourcemap: true,
