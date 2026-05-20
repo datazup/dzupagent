@@ -472,6 +472,8 @@ export type {
   ReflectionPattern,
   ReflectionSummary,
   RunReflectionStore,
+  ReflectionListOptions,
+  ReflectionPatternOptions,
 } from './reflection/reflection-types.js'
 export { createReflectionLearningBridge, buildWorkflowEventsFromToolStats } from './reflection/learning-bridge.js'
 export type { ReflectionLearningBridgeConfig } from './reflection/learning-bridge.js'
