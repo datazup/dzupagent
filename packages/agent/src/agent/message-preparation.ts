@@ -88,7 +88,10 @@ export async function prepareMessages(
       }
       // Memory failures are non-fatal; emit structured event so operators can
       // distinguish "no memory configured" from "memory unavailable".
-      const detail = err instanceof Error ? err.message : String(err)
+      // Truncate to 200 chars to avoid leaking full provider stack traces or
+      // internal connection strings in the event payload (DZUPAGENT-AGENT-INFO-01).
+      const rawDetail = err instanceof Error ? err.message : String(err)
+      const detail = rawDetail.slice(0, 200)
       const tokensBefore = estimateConversationTokensForMessages(windowedMessages, tokenizer)
       const provider = describeMemoryProvider(config)
       const namespace = config.memoryNamespace ?? 'unknown'
@@ -231,7 +234,10 @@ export async function maybeUpdateSummary(
   } catch (err) {
     // Summarization failures are non-fatal; emit event so operators can
     // distinguish absence from failure.
-    const detail = err instanceof Error ? err.message : String(err)
+    // Truncate to 200 chars to avoid leaking full provider stack traces or
+    // internal connection strings in the event payload (DZUPAGENT-AGENT-INFO-01).
+    const rawDetail = err instanceof Error ? err.message : String(err)
+    const detail = rawDetail.slice(0, 200)
     const tokensBefore = estimateConversationTokensForMessages(messages, tokenizer)
     const namespace = config.memoryNamespace ?? 'unknown'
     config.onFallback?.('summary_failure', tokensBefore, tokensBefore)

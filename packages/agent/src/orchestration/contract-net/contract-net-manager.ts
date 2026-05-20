@@ -38,6 +38,11 @@ function emitContractEvent(
   payload: Record<string, unknown>,
 ): void {
   if (!eventBus) return
+  // TODO(DZUPAGENT-AGENT-INFO-02): When a domain-specific `contractnet:*` event type
+  // is added to DzupEvent (e.g. `contractnet:cfp_broadcast`, `contractnet:awarded`,
+  // `contractnet:rejected`), replace this `protocol:message_sent` emit with the
+  // appropriate typed event. The generic protocol event works for now but conflates
+  // contract-net lifecycle events with unrelated protocol traffic seen by otel/metrics.
   // Use onAny-compatible custom events by casting to DzupEvent.
   // The task spec says NOT to modify core DzupEvent types, so we
   // emit via the protocol event type which accepts arbitrary string data.

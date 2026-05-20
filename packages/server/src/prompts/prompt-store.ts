@@ -51,6 +51,12 @@ export class InMemoryPromptStore implements PromptStore {
   async save(
     prompt: Omit<PromptVersionRecord, 'createdAt' | 'updatedAt'>,
   ): Promise<PromptVersionRecord> {
+    if (!prompt.id || typeof prompt.id !== 'string' || prompt.id.trim() === '') {
+      throw new Error('PromptStore.save: prompt.id must be a non-empty string')
+    }
+    if (!prompt.promptId || typeof prompt.promptId !== 'string' || prompt.promptId.trim() === '') {
+      throw new Error('PromptStore.save: prompt.promptId must be a non-empty string')
+    }
     const now = new Date().toISOString()
     const existing = this.versions.get(prompt.id)
     const record: PromptVersionRecord = {
@@ -133,6 +139,12 @@ export class InMemoryPromptStore implements PromptStore {
   }
 
   async rollback(promptId: string, targetId: string, tenantId?: string): Promise<PromptVersionRecord | null> {
+    if (!promptId || typeof promptId !== 'string' || promptId.trim() === '') {
+      throw new Error('PromptStore.rollback: promptId must be a non-empty string')
+    }
+    if (!targetId || typeof targetId !== 'string' || targetId.trim() === '') {
+      throw new Error('PromptStore.rollback: targetId must be a non-empty string')
+    }
     const target = await this.get(targetId, tenantId)
     if (!target || target.promptId !== promptId) return null
     return this.publish(targetId, tenantId)
