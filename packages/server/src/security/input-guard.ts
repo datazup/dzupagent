@@ -46,6 +46,20 @@ export interface InputGuardConfig {
    * Defaults to a fresh monitor with built-in rules only.
    */
   safetyMonitor?: SafetyMonitor
+  /**
+   * Controls behaviour when the safety scanner itself throws an unexpected
+   * error.
+   *
+   * - `'fail-open'` (default) — scanner errors are silently swallowed and the
+   *   input is treated as clean. Preserves backward compatibility.
+   * - `'fail-closed'` — scanner errors cause the input to be rejected with
+   *   `{ allowed: false, reason: 'Input safety scanner unavailable' }`.
+   *   Use this in high-security contexts where an unavailable scanner must
+   *   not silently pass untrusted input through.
+   *
+   * @default 'fail-open'
+   */
+  scanFailureMode?: 'fail-open' | 'fail-closed'
 }
 
 export interface InputGuardResult {
@@ -123,6 +137,7 @@ function mapStrings(
 export function createInputGuard(config?: InputGuardConfig): InputGuard {
   const maxInputLength = config?.maxInputLength ?? DEFAULT_MAX_INPUT_LENGTH
   const redactPii = config?.redactPii ?? true
+  const scanFailureMode = config?.scanFailureMode ?? 'fail-open'
   // A dedicated monitor — not attached to any event bus so scans don't emit
   // events into the runtime. Hosts can inject a shared monitor via config.
   const monitor = config?.safetyMonitor ?? createSafetyMonitor()
@@ -145,7 +160,10 @@ export function createInputGuard(config?: InputGuardConfig): InputGuard {
       try {
         violations = monitor.scanContent(serialized, { source: 'input-guard' })
       } catch {
-        // Scanner failure must not take down the pipeline — fall through.
+        if (scanFailureMode === 'fail-closed') {
+          return { allowed: false, reason: 'Input safety scanner unavailable' }
+        }
+        // fail-open: scanner failure must not take down the pipeline — fall through.
         violations = []
       }
 

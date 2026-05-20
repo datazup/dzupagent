@@ -48,6 +48,8 @@ export type OrchestrationDomainEvent =
       provider: string
       model: string
       phase: 'invoke' | 'stream'
+      runId?: string
+      tenantId?: string
     }
   | {
       type: 'provider:run_failure'
@@ -58,6 +60,8 @@ export type OrchestrationDomainEvent =
       phase: 'invoke' | 'stream'
       reason: string
       retrying: boolean
+      runId?: string
+      tenantId?: string
     }
   | {
       type: 'provider:run_selected'
@@ -66,6 +70,8 @@ export type OrchestrationDomainEvent =
       provider: string
       model: string
       phase: 'invoke' | 'stream'
+      runId?: string
+      tenantId?: string
     }
   // --- Adapter Registry ---
   | { type: 'adapter_registry:provider_registered'; providerId: string; name: string }

@@ -51,6 +51,10 @@ export interface AttemptWithFailoverParams<T> {
   attempts: ProviderAttempt[]
   phase: 'invoke' | 'stream'
   agentId: string
+  /** Optional run identifier forwarded to all `provider:*` lifecycle events. */
+  runId?: string
+  /** Optional tenant identifier forwarded to all `provider:*` lifecycle events. */
+  tenantId?: string
   eventBus: DzupEventBus | undefined
   registry?: ProviderFailoverRegistry | undefined
   /**
@@ -77,7 +81,7 @@ export interface AttemptWithFailoverParams<T> {
 export async function attemptWithFailover<T>(
   params: AttemptWithFailoverParams<T>,
 ): Promise<T> {
-  const { attempts, phase, agentId, eventBus, registry, shouldRetry, execute } =
+  const { attempts, phase, agentId, runId, tenantId, eventBus, registry, shouldRetry, execute } =
     params
   let lastError: unknown
 
@@ -94,6 +98,8 @@ export async function attemptWithFailover<T>(
         provider: attempt.provider,
         model: attempt.modelName,
         phase,
+        ...(runId !== undefined && { runId }),
+        ...(tenantId !== undefined && { tenantId }),
       })
     }
 
@@ -108,6 +114,8 @@ export async function attemptWithFailover<T>(
           provider: attempt.provider,
           model: attempt.modelName,
           phase,
+          ...(runId !== undefined && { runId }),
+          ...(tenantId !== undefined && { tenantId }),
         })
       }
       return result
@@ -127,6 +135,8 @@ export async function attemptWithFailover<T>(
           phase,
           reason: asError.message,
           retrying,
+          ...(runId !== undefined && { runId }),
+          ...(tenantId !== undefined && { tenantId }),
         })
       }
       if (!retrying) break
