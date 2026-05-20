@@ -292,8 +292,13 @@ describe('HttpMemoryClient', () => {
     })
 
     await expect(client.get('facts', TENANT)).rejects.toBeInstanceOf(HttpMemoryResponseError)
-    await expect(client.get('facts', TENANT)).resolves.toEqual([
-      makeRecord({ id: 'after-failure' }),
+    await expect(client.get('facts', TENANT)).resolves.toMatchObject([
+      expect.objectContaining({
+        id: 'after-failure',
+        namespace: 'facts',
+        scope: TENANT,
+        content: 'water boils at 100C',
+      }),
     ])
   })
 })
