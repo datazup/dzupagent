@@ -43,6 +43,11 @@ function normalizeHostname(value: string): string {
   return normalizeHost(value).replace(/^\[|\]$/g, '')
 }
 
+function toHostList(value: OutboundUrlSecurityPolicy['allowedHosts']): string[] {
+  if (!value) return []
+  return Array.from(value)
+}
+
 function hostMatches(candidate: URL, allowedHosts: Set<string>): boolean {
   const hostname = normalizeHostname(candidate.hostname)
   const host = normalizeHost(candidate.host)
@@ -61,7 +66,7 @@ function createHttpConnectorPolicy(
     normalizeHostname(base.hostname),
     normalizeHost(base.host),
     ...explicitAllowedHosts,
-    ...Array.from(config.outboundUrlPolicy?.allowedHosts ?? []).map(normalizeHost).filter(Boolean),
+    ...toHostList(config.outboundUrlPolicy?.allowedHosts).map(normalizeHost).filter(Boolean),
   ])
   const policy: OutboundUrlSecurityPolicy = {
     ...config.outboundUrlPolicy,
