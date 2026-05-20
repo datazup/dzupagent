@@ -311,9 +311,10 @@ export type ReturnToNode = FlowNodeBase & {
 // ---------------------------------------------------------------------------
 
 /**
- * Policy applied to an agent run. Lowered into the codev-app `ExecutionContext`
- * at compile time. Top-level `policy:` blocks live in `FlowDocumentV1.meta`
- * (Stage 3) until promoted; per-agent overrides land here.
+ * Policy applied to a single agent run. Per-agent overrides on individual
+ * AgentNodes. The document-level ceiling lives in `FlowDocumentV1.policy`
+ * (Stage 3). Both fields are stored separately — the document policy is a
+ * ceiling, the agent policy is a local limit.
  */
 export interface AgentPolicy {
   /** Deadline for the agent run in milliseconds. */
@@ -500,6 +501,20 @@ export function isFlowNodeKind(value: string): value is FlowNodeKind {
  */
 export type FlowDocumentDsl = 'dzupflow/v1' | 'dzupflow/v1alpha-agent'
 
+/**
+ * Top-level policy constraints for an entire flow run. Acts as a ceiling that
+ * applies to all nodes unless a per-agent `AgentPolicy` narrows the scope
+ * further. Stage 3 (policy threading).
+ */
+export interface FlowDocumentPolicy {
+  /** Hard budget ceiling in USD cents for the entire flow run. */
+  budgetCents?: number
+  /** Hard timeout in ms for the entire flow run. */
+  timeoutMs?: number
+  /** Default working directory applied to all validate/command nodes. */
+  workingDirectory?: string
+}
+
 export interface FlowDocumentV1 {
   dsl: FlowDocumentDsl
   id: string
@@ -510,6 +525,8 @@ export interface FlowDocumentV1 {
   defaults?: FlowDefaults
   tags?: string[]
   meta?: FlowNodeMetadata
+  /** Top-level policy constraints for the entire flow run (Stage 3). */
+  policy?: FlowDocumentPolicy
   root: SequenceNode
 }
 
@@ -534,6 +551,9 @@ export type ValidationErrorCode =
   | 'MISSING_TOOLSET_RESOLVER'
   | 'INVALID_TOOLSET_RESOLVER_RESULT'
   | 'TOOLSET_RESOLVER_INFRA_ERROR'
+  | 'UNRESOLVED_PROFILE_REF'
+  | 'MISSING_PROFILE_REGISTRY'
+  | 'PROFILE_RESOLVER_INFRA_ERROR'
 
 /**
  * Resolves opaque tool/skill/workflow references emitted by flow-ast

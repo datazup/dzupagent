@@ -2,6 +2,7 @@ import type {
   AsyncToolResolver,
   AsyncToolsetResolver,
   FlowDiagnosticCategory,
+  FlowDocumentPolicy,
   ToolResolver,
   ToolsetResolver,
 } from '@dzupagent/flow-ast'
@@ -148,6 +149,13 @@ export interface CompileSuccess {
   reasons: CompilationTargetReason[]
   evidence: FlowCompileEvidence
   diagnosticCountsByCategory?: Record<string, number>
+  /**
+   * Document-level policy extracted from `FlowDocumentV1.policy`, propagated
+   * from `compileDocument()`. Absent when the source had no top-level policy
+   * block or when the compile entry point was `compile()` / `compileDsl()`.
+   * Stage 3 (policy threading) — runtime wires this into `ExecutionContext`.
+   */
+  documentPolicy?: FlowDocumentPolicy
 }
 
 export interface CompileFailure {

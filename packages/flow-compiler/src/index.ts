@@ -26,7 +26,7 @@
 
 import { createHash } from 'node:crypto'
 import { parseFlow } from '@dzupagent/flow-ast'
-import type { FlowNode, ParseInput } from '@dzupagent/flow-ast'
+import type { FlowDocumentPolicy, FlowNode, ParseInput } from '@dzupagent/flow-ast'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core/events'
 
 import { validateShape } from './stages/shape-validate.js'
@@ -83,7 +83,7 @@ export type {
   LoweredRestoreNode,
 } from './lower/lower-checkpoint.js'
 export { parseFlow } from '@dzupagent/flow-ast'
-export type { ParseInput } from '@dzupagent/flow-ast'
+export type { FlowDocumentPolicy, ParseInput } from '@dzupagent/flow-ast'
 export type {
   ProfileRegistry,
   ProfileLookupScope,
@@ -396,10 +396,20 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
         diagnosticCountsByCategory: countDiagnosticsByCategory(prepared.errors),
       }
     }
-    return compile(prepared.flowInput, {
+
+    // Extract document-level policy before handing off only the root to compile().
+    // The policy is validated by validateFlowDocumentShape (inside prepareFlowInputFromDocument)
+    // so by the time we reach here the fields are guaranteed to be well-typed.
+    const documentPolicy = extractDocumentPolicy(document)
+
+    const result = await compile(prepared.flowInput, {
       sourceKind: 'flow-document',
       source: document,
     })
+
+    if ('errors' in result) return result
+
+    return { ...result, ...(documentPolicy !== undefined ? { documentPolicy } : {}) }
   }
 
   async function compileDsl(source: unknown): Promise<CompileSuccess | CompileFailure> {
@@ -602,4 +612,21 @@ function targetReasons(
   }
 
   return reasons
+}
+
+/**
+ * Defensively extract `policy` from a raw document object. Called only after
+ * `prepareFlowInputFromDocument` has already validated the shape, so the
+ * cast is safe. Returns `undefined` when the field is absent.
+ */
+function extractDocumentPolicy(document: unknown): FlowDocumentPolicy | undefined {
+  if (typeof document !== 'object' || document === null) return undefined
+  const raw = (document as Record<string, unknown>)['policy']
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const policy: FlowDocumentPolicy = {}
+  const p = raw as Record<string, unknown>
+  if (typeof p['budgetCents'] === 'number') policy.budgetCents = p['budgetCents'] as number
+  if (typeof p['timeoutMs'] === 'number') policy.timeoutMs = p['timeoutMs'] as number
+  if (typeof p['workingDirectory'] === 'string') policy.workingDirectory = p['workingDirectory'] as string
+  return Object.keys(policy).length > 0 ? policy : undefined
 }

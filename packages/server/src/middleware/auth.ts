@@ -51,10 +51,18 @@ export function authMiddleware(config: AuthConfig): MiddlewareHandler<AppEnv> {
       )
     }
 
-    const token = authHeader.startsWith('Bearer ')
-      ? authHeader.slice(7)
-      : authHeader
-
+    if (!authHeader.startsWith('Bearer ')) {
+      return c.json(
+        {
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Authorization header must use Bearer scheme',
+          },
+        },
+        401,
+      )
+    }
+    const token = authHeader.slice(7)
     if (!token) {
       return c.json(
         { error: { code: 'UNAUTHORIZED', message: 'Missing API key' } },
