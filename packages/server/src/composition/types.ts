@@ -189,9 +189,13 @@ export interface SecurityHeadersConfig {
   xContentTypeOptions?: string | false
   /** Defaults to `no-referrer`; pass `false` to disable. */
   referrerPolicy?: string | false
-  /** Optional global clickjacking guard for API hosts. */
+  /** Defaults to `DENY` (clickjacking guard); pass `false` to disable. */
   xFrameOptions?: string | false
-  /** Optional global CSP for API hosts. */
+  /**
+   * Defaults to `default-src 'self'; base-uri 'self'; frame-ancestors 'none'`
+   * (DZUPAGENT-SEC-I-03). Pass `false` to disable, or override with a custom
+   * policy when serving HTML that requires external assets.
+   */
   contentSecurityPolicy?: string | false
   /** Additional explicit headers; pass `false` to suppress a header from this map. */
   additionalHeaders?: Record<string, string | false | undefined>

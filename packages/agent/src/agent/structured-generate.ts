@@ -32,8 +32,9 @@ import {
   unwrapStructuredEnvelope,
 } from '@dzupagent/core/pipeline'
 import { injectPromptCacheMarkersForModel } from '@dzupagent/context'
-import type { StructuredOutputModelCapabilities } from '@dzupagent/core/llm'
+import { extractTokenUsage, type StructuredOutputModelCapabilities } from '@dzupagent/core/llm'
 import { defaultLogger } from '@dzupagent/core/utils'
+import type { AIMessage as AIMessageType } from '@langchain/core/messages'
 import type {
   DzupAgentConfig,
   GenerateOptions,
@@ -105,9 +106,15 @@ export async function generateStructured<T>(
   // Try withStructuredOutput first (Anthropic/OpenAI support this natively)
   if (shouldAttemptNativeStructuredOutput(model, structuredOutputCapabilities)) {
     try {
+      // DZUPAGENT-AGENT-M-05 — request includeRaw so we can recover the
+      // underlying AIMessage and extract real token usage. LangChain's
+      // `withStructuredOutput(schema, { includeRaw: true })` returns
+      // `{ raw: AIMessage, parsed: <schema> }`. We tolerate legacy
+      // implementations that ignore the option and return the parsed value
+      // directly (zero usage in that case).
       const structuredModel = (model as BaseChatModel & {
-        withStructuredOutput: (s: ZodType<T>) => BaseChatModel
-      }).withStructuredOutput(schemaContract.requestSchema as ZodType<T>)
+        withStructuredOutput: (s: ZodType<T>, opts?: { includeRaw?: boolean }) => BaseChatModel
+      }).withStructuredOutput(schemaContract.requestSchema as ZodType<T>, { includeRaw: true })
 
       const prepared = await ctx.prepareMessages(requestMessages)
       // REC-H-10 — apply Anthropic prompt-cache markers before invoking the
@@ -123,11 +130,13 @@ export async function generateStructured<T>(
       )
       const response = await structuredModel.invoke(cachedMessages)
 
-      const parsed = schemaContract.responseSchema.parse(response)
+      const { raw, payload } = unpackIncludeRawResponse(response)
+      const parsed = schemaContract.responseSchema.parse(payload)
+      const usage = buildNativeStructuredUsage(raw, modelName)
 
       return {
         data: unwrapStructuredEnvelope(parsed, schemaContract.requiresEnvelope),
-        usage: { totalInputTokens: 0, totalOutputTokens: 0, llmCalls: 1 },
+        usage,
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -317,6 +326,59 @@ export function extractJsonFromText(text: string): string {
 
   // 3. Last resort — return the trimmed text and let JSON.parse throw
   return trimmed
+}
+
+/**
+ * Unpack the response from `withStructuredOutput(schema, { includeRaw: true })`.
+ *
+ * Per LangChain convention, the returned runnable resolves to
+ * `{ raw: AIMessage, parsed: <schema> }`. Older provider implementations and
+ * test mocks may ignore the `includeRaw` flag and return the parsed value
+ * directly; we tolerate that shape by treating the whole response as the
+ * payload (with no raw message available for usage extraction).
+ */
+function unpackIncludeRawResponse(response: unknown): {
+  raw: AIMessageType | undefined
+  payload: unknown
+} {
+  if (response && typeof response === 'object' && 'parsed' in (response as Record<string, unknown>)) {
+    const envelope = response as { raw?: unknown; parsed: unknown }
+    const raw = envelope.raw
+    return {
+      raw: isLikelyAIMessage(raw) ? (raw as AIMessageType) : undefined,
+      payload: envelope.parsed,
+    }
+  }
+  return { raw: undefined, payload: response }
+}
+
+function isLikelyAIMessage(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return (
+    'usage_metadata' in record
+    || 'response_metadata' in record
+    || 'content' in record
+  )
+}
+
+/**
+ * Build a GenerateResult.usage entry for the native structured-output path
+ * by extracting real token usage from the raw AIMessage when available.
+ */
+function buildNativeStructuredUsage(
+  raw: AIMessageType | undefined,
+  modelName: string,
+): GenerateResult['usage'] {
+  if (!raw) {
+    return { totalInputTokens: 0, totalOutputTokens: 0, llmCalls: 1 }
+  }
+  const usage = extractTokenUsage(raw, modelName)
+  return {
+    totalInputTokens: usage.inputTokens,
+    totalOutputTokens: usage.outputTokens,
+    llmCalls: 1,
+  }
 }
 
 function emptyGenerateUsage(): GenerateResult['usage'] {

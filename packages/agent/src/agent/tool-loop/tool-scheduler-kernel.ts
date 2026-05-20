@@ -1,5 +1,6 @@
 import { ToolMessage } from '@langchain/core/messages'
 import { ForgeError } from '@dzupagent/core/events'
+import type { ToolGovernance } from '@dzupagent/core/tools'
 import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
 import type {
   ToolCall,
@@ -13,21 +14,84 @@ export interface ToolSchedulerOptions {
   signal?: AbortSignal
   agentId?: string
   toolPermissionPolicy?: ToolPermissionPolicy
+  /**
+   * DZUPAGENT-AGENT-H-02 — Optional governance reference used by the kernel's
+   * approval pre-scan. When supplied AND any tool call in a parallel batch
+   * reports `requiresApproval: true`, the kernel downgrades the batch to
+   * sequential scheduling. The sequential path then short-circuits on the
+   * first `approvalPending` result, guaranteeing that no side-effecting
+   * sibling can run before the human-approval gate.
+   *
+   * This is defense-in-depth: the outer tool-loop already performs the same
+   * pre-scan (T-AP-002) before calling the scheduler. Wiring the check at
+   * the kernel layer ensures direct consumers of `scheduleToolCalls` (tests,
+   * custom orchestrators, future agents-as-tools paths) inherit the same
+   * guarantee without needing to replicate the gate themselves.
+   *
+   * The pre-scan only INSPECTS access for approval classification; the
+   * authoritative governance decision (block / approval-emit / audit) still
+   * lives in the executor (`runPolicyChecks`). Rate-limit counters in
+   * `ToolGovernance.checkAccess` are therefore consumed at most once per
+   * scheduled invocation along the approval path (kernel pre-scan +
+   * executor pre-flight share the same per-call counter spend that
+   * already exists in the loop-level pre-scan).
+   */
+  toolGovernance?: ToolGovernance
 }
 
 /**
  * Narrow tool-call scheduler kernel. It decides ordering/concurrency only;
  * the supplied executor owns governance, validation, timeout, scanning,
  * telemetry, and stuck-detection policy.
+ *
+ * DZUPAGENT-AGENT-H-02 — In parallel mode the kernel performs an approval
+ * pre-scan via `toolGovernance.checkAccess`. If any call in the batch
+ * requires human approval, the batch is downgraded to sequential so the
+ * first `approvalPending` result short-circuits the rest of the siblings.
  */
 export async function scheduleToolCalls(
   toolCalls: ToolCall[],
   options: ToolSchedulerOptions,
   execute: ToolCallExecutor,
 ): Promise<ToolCallResult[]> {
-  return options.parallelTools && toolCalls.length > 1
+  const wantsParallel = options.parallelTools === true && toolCalls.length > 1
+  if (wantsParallel && hasApprovalRequiredCall(toolCalls, options.toolGovernance)) {
+    // Defense-in-depth approval gate: downgrade to serial so the executor's
+    // approval pause naturally halts the batch before any side-effecting
+    // sibling runs. See ToolSchedulerOptions.toolGovernance for rationale.
+    return scheduleSequential(toolCalls, execute)
+  }
+  return wantsParallel
     ? scheduleParallel(toolCalls, options, execute)
     : scheduleSequential(toolCalls, execute)
+}
+
+/**
+ * DZUPAGENT-AGENT-H-02 — Classify a parallel batch by approval requirement.
+ * Returns true if at least one tool call in the batch is `allowed` but
+ * `requiresApproval`. Denied calls (allowed=false) are NOT treated as
+ * approval gates here; the executor's `runPolicyChecks` is the authoritative
+ * denial site and will surface its own ToolMessage. The pre-scan is purely
+ * a classification hook for approval-pause sequencing.
+ *
+ * Errors thrown by a custom `checkAccess` implementation are swallowed so a
+ * mis-behaving governance plugin cannot brick the scheduler — the executor's
+ * pre-flight (which re-checks access for every call) is the safety net.
+ */
+function hasApprovalRequiredCall(
+  toolCalls: ToolCall[],
+  governance: ToolGovernance | undefined,
+): boolean {
+  if (!governance) return false
+  for (const tc of toolCalls) {
+    try {
+      const access = governance.checkAccess(tc.name, tc.args)
+      if (access.allowed && access.requiresApproval) return true
+    } catch {
+      // Treat as non-approval; executor will re-check and surface errors.
+    }
+  }
+  return false
 }
 
 async function scheduleSequential(
