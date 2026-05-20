@@ -48,6 +48,16 @@ export function createRoutingStatsRoutes(config: RoutingStatsConfig): Hono<AppEn
     const requestingTenantId = getOptionalRequestingTenantId(c)
     const requestingOwnerId = typeof key?.['id'] === 'string' ? key['id'] : undefined
 
+    // SEC-M-05: If auth mode is active (key present) but the key has no valid
+    // string id, fall back to tenant-only filter would expose cross-key
+    // telemetry. Reject immediately instead.
+    if (key !== undefined && typeof key?.['id'] !== 'string') {
+      return c.json(
+        { error: { code: 'FORBIDDEN', message: 'API key must have a valid id to access routing stats' } },
+        403,
+      )
+    }
+
     const runs = await config.runStore.list({
       limit: 100,
       ...(requestingTenantId ? { tenantId: requestingTenantId } : {}),

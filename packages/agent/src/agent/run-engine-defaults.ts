@@ -6,10 +6,11 @@
  * measure. Without this, a runaway tool loop or compromised prompt could
  * burn unbounded tokens against the underlying provider.
  *
- * Override by supplying `config.guardrails` (any non-undefined value, including
- * an empty object, opts out of these defaults — empty `guardrails: {}` keeps
- * the legacy permissive behaviour intentionally for callers who have made an
- * informed choice).
+ * Override by supplying `config.guardrails` with at least one cap field
+ * (maxIterations, maxTokens, maxCost, etc.). An empty `guardrails: {}` does
+ * NOT opt out — it still applies DEFAULT_UNGUARDED_BUDGET so that callers
+ * cannot accidentally disable token/iteration caps by passing an empty object.
+ * The startup warning is suppressed for explicit (even empty) guardrails.
  *
  * Mapping into `IterationBudget`:
  * - `IterationBudget` exposes a single combined `maxTokens` cap covering input

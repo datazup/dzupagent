@@ -9,6 +9,7 @@ import type {
 } from '@dzupagent/flow-ast'
 import { flowNodeSchema } from '@dzupagent/flow-ast'
 
+import type { ProfileRegistry, ResolvedProfile } from '../profile-registry.js'
 import type { AsyncPersonaResolver, PersonaResolver } from '../types.js'
 
 import type { WalkContext } from './semantic-context.js'
@@ -26,6 +27,17 @@ export interface SemanticOptions {
    * `tools[]` arrays. See {@link CompilerOptions.toolsetResolver}.
    */
   toolsetResolver?: ToolsetResolver | AsyncToolsetResolver
+  /**
+   * Resolves `profile: <name>` references on AgentNodes into flattened
+   * model/provider/instructions/toolset/policy fields at compile time.
+   * After Stage 1.5 the lowered artifact is profile-free: `node.profile`
+   * is stripped from the AST after resolution. See
+   * {@link CompilerOptions.profileRegistry}.
+   *
+   * When absent, agent nodes with `profile` set retain the ref and a
+   * single MISSING_PROFILE_REGISTRY warning is recorded.
+   */
+  profileRegistry?: ProfileRegistry
   /**
    * Maximum Levenshtein distance for "did you mean…?" suggestions.
    * Default: 3. Set to 0 to disable suggestions.
@@ -61,6 +73,14 @@ export interface SemanticResult {
    * the expanded list; this map is exposed for observability and tests.
    */
   expandedAgentTools: Map<string, readonly string[]>
+  /**
+   * Map from AgentNode path → the profile ref that was flattened, along
+   * with the resolved profile snapshot. Empty when no profile registry
+   * was supplied or no agent nodes declared a profile. The AST itself is
+   * also mutated: model/provider/instructions/toolset/policy are filled
+   * in, and `node.profile` is stripped after a successful resolve.
+   */
+  expandedAgentProfiles: Map<string, { ref: string; resolved: ResolvedProfile }>
 }
 
 const DEFAULT_SUGGESTION_DISTANCE = 3
@@ -98,6 +118,7 @@ export async function semanticResolve(
   const resolved = new Map<string, ResolvedTool>()
   const resolvedPersonas = new Map<string, string>()
   const expandedAgentTools = new Map<string, readonly string[]>()
+  const expandedAgentProfiles = new Map<string, { ref: string; resolved: ResolvedProfile }>()
 
   // SC-12: Zod-compatible runtime schema pre-pass.
   //
@@ -150,14 +171,17 @@ export async function semanticResolve(
     resolved,
     resolvedPersonas,
     expandedAgentTools,
+    expandedAgentProfiles,
     toolResolver: opts.toolResolver,
     toolsetResolver: opts.toolsetResolver,
     personaResolver: opts.personaResolver,
+    profileRegistry: opts.profileRegistry,
     suggestionDistance,
     getAvailable,
     getAvailableToolsets,
     missingPersonaResolverEmitted: false,
     missingToolsetResolverEmitted: false,
+    missingProfileRegistryEmitted: false,
     target: opts.target,
   }
 
@@ -170,5 +194,5 @@ export async function semanticResolve(
   //     the flow (missing match is a hard error).
   validateCheckpointRestore(ast, errors, warnings)
 
-  return { ast, errors, warnings, resolved, resolvedPersonas, expandedAgentTools }
+  return { ast, errors, warnings, resolved, resolvedPersonas, expandedAgentTools, expandedAgentProfiles }
 }
