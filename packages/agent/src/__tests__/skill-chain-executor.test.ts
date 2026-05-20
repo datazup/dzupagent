@@ -338,10 +338,18 @@ describe('SkillChainExecutor', () => {
   })
 
   describe('AbortSignal', () => {
-    // The workflow builder does not currently check for pre-aborted signals
-    // before starting execution. This test is a placeholder for when that
-    // behavior is implemented.
-    it.todo('rejects when signal is already aborted')
+    it('rejects when signal is already aborted', async () => {
+      resolver.registerText('a', 'output-a')
+
+      const chain = createSkillChain('abort-chain', [{ skillName: 'a' }])
+
+      const controller = new AbortController()
+      controller.abort()
+
+      await expect(
+        executor.execute(chain, {}, { signal: controller.signal }),
+      ).rejects.toThrow()
+    })
   })
 
   describe('stream()', () => {
