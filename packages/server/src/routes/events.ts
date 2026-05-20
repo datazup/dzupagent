@@ -3,6 +3,7 @@ import type { AppEnv } from '../types.js'
 import { streamSSE } from 'hono/streaming'
 import type { DzupEvent } from '@dzupagent/core/events'
 import type { EventGateway, EventSubscriptionFilter } from '../events/event-gateway.js'
+import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface EventRouteConfig {
   eventGateway: EventGateway
@@ -21,7 +22,14 @@ export function createEventRoutes(config: EventRouteConfig): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
 
   app.get('/stream', async (c) => {
+    // DZUPAGENT-SEC-M-01: the tenantId is always stamped from the
+    // authenticated API key (or DEFAULT_TENANT_ID when auth middleware is
+    // disabled) and ALWAYS wins over any client-supplied query filter.
+    // Optional runId / agentId / types filters narrow the scope further but
+    // can never widen across tenants.
+    const tenantId = getRequestingTenantId(c)
     const filter: EventSubscriptionFilter = {
+      tenantId,
       runId: c.req.query('runId') ?? undefined,
       agentId: c.req.query('agentId') ?? undefined,
       eventTypes: parseEventTypes(c.req.query('types')),
