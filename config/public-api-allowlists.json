@@ -489,7 +489,8 @@
       "stableRoot": [
         { "match": "exact", "pattern": "./types.js" },
         { "match": "exact", "pattern": "./parse.js" },
-        { "match": "exact", "pattern": "./validate.js" }
+        { "match": "exact", "pattern": "./validate.js" },
+        { "match": "exact", "pattern": "./output-key-uniqueness.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},
