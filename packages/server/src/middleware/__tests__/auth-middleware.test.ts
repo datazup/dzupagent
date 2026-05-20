@@ -31,6 +31,24 @@ describe('authMiddleware', () => {
     })
   })
 
+  it('returns 401 when the Authorization header does not use Bearer scheme', async () => {
+    const validateKey = vi.fn().mockResolvedValue({ id: 'key-meta' })
+    const app = createApp({ mode: 'api-key', validateKey })
+
+    const res = await app.request('/protected', {
+      headers: { Authorization: 'Token abc123' },
+    })
+
+    expect(res.status).toBe(401)
+    expect(validateKey).not.toHaveBeenCalled()
+    await expect(res.json()).resolves.toEqual({
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Authorization header must use Bearer scheme',
+      },
+    })
+  })
+
   it('returns 401 when the API key is invalid', async () => {
     const validateKey = vi.fn().mockResolvedValue(null)
     const app = createApp({ mode: 'api-key', validateKey })

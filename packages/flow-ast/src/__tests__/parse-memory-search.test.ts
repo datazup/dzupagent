@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseFlow } from '../src/index.js'
+import { parseFlow } from '../index.js'
 
 describe('memory.search', () => {
   it('parses with query and limit', () => {

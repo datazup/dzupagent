@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 
-import { compileTextInput, createFlowCompiler } from '../src/index.js'
+import { compileTextInput, createFlowCompiler } from '../index.js'
 
 function makeResolver(skillNames: string[]) {
   const registry = new InMemoryDomainToolRegistry()

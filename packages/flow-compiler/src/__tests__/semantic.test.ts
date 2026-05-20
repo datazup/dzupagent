@@ -11,8 +11,8 @@ import type {
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 import { describe, expect, it } from 'vitest'
 
-import { semanticResolve } from '../src/stages/semantic.js'
-import type { PersonaResolver } from '../src/types.js'
+import { semanticResolve } from '../stages/semantic.js'
+import type { PersonaResolver } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Fixture helpers — wrap the canonical InMemoryDomainToolRegistry from

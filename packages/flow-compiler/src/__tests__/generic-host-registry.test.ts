@@ -6,7 +6,7 @@ import {
   createFlowCompiler,
   createToolResolverFromRegistry,
   validateHostToolRegistry,
-} from '../src/index.js'
+} from '../index.js'
 
 const registry: HostToolRegistryEntry[] = [
   {

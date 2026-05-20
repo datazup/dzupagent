@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { parseFlow } from '../src/index.js'
-import type { FlowNode } from '../src/index.js'
-import { checkOutputKeyUniqueness } from '../src/output-key-uniqueness.js'
+import { parseFlow } from '../index.js'
+import type { FlowNode } from '../index.js'
+import { checkOutputKeyUniqueness } from '../output-key-uniqueness.js'
 
 const agentNode = (id: string, key: string): Record<string, unknown> => ({
   type: 'agent',

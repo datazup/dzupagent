@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { flowNodeSchema, validateFlowNodeShape } from '../src/validate.js'
+import { flowNodeSchema, validateFlowNodeShape } from '../validate.js'
 
 // ── agent — happy path ──────────────────────────────────────────────────────
 

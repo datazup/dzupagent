@@ -19,8 +19,8 @@ import type {
 } from '@dzupagent/flow-ast'
 import { describe, expect, it } from 'vitest'
 
-import { semanticResolve } from '../src/stages/semantic.js'
-import type { AsyncPersonaResolver, PersonaResolver } from '../src/types.js'
+import { semanticResolve } from '../stages/semantic.js'
+import type { AsyncPersonaResolver, PersonaResolver } from '../types.js'
 
 // ---------------------------------------------------------------------------
 // Fixtures

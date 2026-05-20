@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { CheckpointNode, FlowNode, RestoreNode } from '../src/types.js'
-import { flowNodeSchema, validateFlowNodeShape } from '../src/validate.js'
+import type { CheckpointNode, FlowNode, RestoreNode } from '../types.js'
+import { flowNodeSchema, validateFlowNodeShape } from '../validate.js'
 
 describe('checkpoint node validation', () => {
   it('accepts a checkpoint node with valid captureOutputOf', () => {

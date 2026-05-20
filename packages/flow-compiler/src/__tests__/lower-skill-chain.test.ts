@@ -18,7 +18,7 @@ import type { SkillChain } from '@dzupagent/core/pipeline'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 import { describe, expect, it } from 'vitest'
 
-import { lowerSkillChain } from '../src/lower/lower-skill-chain.js'
+import { lowerSkillChain } from '../lower/lower-skill-chain.js'
 
 // ---------------------------------------------------------------------------
 // Fixture helpers

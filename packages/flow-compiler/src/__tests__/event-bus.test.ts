@@ -15,7 +15,7 @@ import type { ResolvedTool, ToolResolver } from '@dzupagent/flow-ast'
 import { createEventBus, type DzupEvent } from '@dzupagent/core/events'
 import { describe, expect, it } from 'vitest'
 
-import { createFlowCompiler } from '../src/index.js'
+import { createFlowCompiler } from '../index.js'
 
 function makeResolver(names: string[]): ToolResolver {
   const set = new Set(names)

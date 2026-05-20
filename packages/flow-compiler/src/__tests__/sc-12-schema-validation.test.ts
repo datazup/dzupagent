@@ -9,7 +9,7 @@
 import type { FlowNode, ResolvedTool, ToolResolver } from '@dzupagent/flow-ast'
 import { describe, expect, it } from 'vitest'
 
-import { semanticResolve } from '../src/stages/semantic.js'
+import { semanticResolve } from '../stages/semantic.js'
 
 function emptyResolver(): ToolResolver {
   return {

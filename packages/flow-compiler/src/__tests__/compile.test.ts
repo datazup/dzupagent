@@ -36,7 +36,7 @@ import type { SkillChain, PipelineDefinition } from '@dzupagent/core/pipeline'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 import { describe, expect, it } from 'vitest'
 
-import { createFlowCompiler, hasOnError, routeTarget } from '../src/index.js'
+import { createFlowCompiler, hasOnError, routeTarget } from '../index.js'
 
 // ---------------------------------------------------------------------------
 // Fixture helpers

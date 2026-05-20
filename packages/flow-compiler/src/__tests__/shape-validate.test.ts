@@ -13,7 +13,7 @@ import type {
 } from '@dzupagent/flow-ast'
 import { describe, expect, it } from 'vitest'
 
-import { validateShape } from '../src/stages/shape-validate.js'
+import { validateShape } from '../stages/shape-validate.js'
 
 // ---------------------------------------------------------------------------
 // Builders

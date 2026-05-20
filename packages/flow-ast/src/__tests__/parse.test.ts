@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { FLOW_NODE_KINDS, parseFlow, type ParseResult } from '../src/index.js'
-import type { FlowNode } from '../src/index.js'
+import { FLOW_NODE_KINDS, parseFlow, type ParseResult } from '../index.js'
+import type { FlowNode } from '../index.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const FIXTURES = join(__dirname, 'fixtures')
@@ -448,7 +448,7 @@ describe('parseFlow — purity and re-export', () => {
   })
 
   it('parseFlow is exported from package root', async () => {
-    const root = await import('../src/index.js')
+    const root = await import('../index.js')
     expect(typeof root.parseFlow).toBe('function')
   })
 })

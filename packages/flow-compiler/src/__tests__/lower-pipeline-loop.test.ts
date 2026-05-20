@@ -22,7 +22,7 @@ import type { LoopNode, PipelineDefinition, ToolNode } from '@dzupagent/core/pip
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 import { describe, expect, it } from 'vitest'
 
-import { lowerPipelineLoop } from '../src/lower/lower-pipeline-loop.js'
+import { lowerPipelineLoop } from '../lower/lower-pipeline-loop.js'
 
 // ---------------------------------------------------------------------------
 // Fixture helpers

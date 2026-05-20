@@ -17,7 +17,7 @@ import {
   FEATURE_BITS,
   hasOnError,
   routeTarget,
-} from '../src/route-target.js'
+} from '../route-target.js'
 
 // ---------------------------------------------------------------------------
 // Fixtures — minimal hand-built ASTs (no parser; STAGE 1 hasn't run yet).
