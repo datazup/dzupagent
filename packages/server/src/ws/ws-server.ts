@@ -147,8 +147,18 @@ function composeGuards(
  * Higher-level wiring helper. See module docs.
  */
 export function createWsServer(options: CreateWsServerOptions): WsServerHandle {
-  const bridge = new EventBridge(options.source, options.bridge)
   const scopeRegistry = options.scopeRegistry ?? new WSClientScopeRegistry()
+  // SEC-M-WS-01: lift the authenticated tenant from the scope registry into
+  // every WS subscription filter. The bridge is the single enforcement point;
+  // when the resolver yields undefined (anonymous/local-dev), the legacy
+  // wildcard fan-out is preserved. Caller-supplied bridge.tenantResolver
+  // overrides this default for advanced wiring.
+  const bridge = new EventBridge(options.source, {
+    ...options.bridge,
+    tenantResolver:
+      options.bridge?.tenantResolver ??
+      ((ws) => scopeRegistry.get(ws)?.tenantId),
+  })
   const manager = new WSSessionManager(bridge, scopeRegistry, options.session)
 
   const attach = (httpServer: HttpServer): (() => void) => {
