@@ -1,6 +1,46 @@
 import { describe, expect, it } from 'vitest'
 import { InMemoryPromptStore } from '../prompt-store.js'
 
+describe('InMemoryPromptStore.save invariants', () => {
+  it('throws when id is empty', async () => {
+    const store = new InMemoryPromptStore()
+    await expect(
+      store.save({ id: '', promptId: 'p1', name: 'N', type: 'system', content: 'c', version: 1, status: 'draft' }),
+    ).rejects.toThrow('prompt.id must be a non-empty string')
+  })
+
+  it('throws when promptId is empty', async () => {
+    const store = new InMemoryPromptStore()
+    await expect(
+      store.save({ id: 'v1', promptId: '', name: 'N', type: 'system', content: 'c', version: 1, status: 'draft' }),
+    ).rejects.toThrow('prompt.promptId must be a non-empty string')
+  })
+
+  it('throws when promptId is whitespace-only', async () => {
+    const store = new InMemoryPromptStore()
+    await expect(
+      store.save({ id: 'v1', promptId: '   ', name: 'N', type: 'system', content: 'c', version: 1, status: 'draft' }),
+    ).rejects.toThrow('prompt.promptId must be a non-empty string')
+  })
+})
+
+describe('InMemoryPromptStore.rollback invariants', () => {
+  it('throws when promptId is empty', async () => {
+    const store = new InMemoryPromptStore()
+    await expect(store.rollback('', 'v1')).rejects.toThrow('promptId must be a non-empty string')
+  })
+
+  it('throws when targetId is empty', async () => {
+    const store = new InMemoryPromptStore()
+    await expect(store.rollback('prompt-a', '')).rejects.toThrow('targetId must be a non-empty string')
+  })
+
+  it('throws when targetId is whitespace-only', async () => {
+    const store = new InMemoryPromptStore()
+    await expect(store.rollback('prompt-a', '   ')).rejects.toThrow('targetId must be a non-empty string')
+  })
+})
+
 describe('InMemoryPromptStore.rollback', () => {
   it('returns null when targetId does not belong to the provided promptId', async () => {
     const store = new InMemoryPromptStore()
