@@ -13,6 +13,12 @@ import type { ComplianceAuditEntry, AuditResult } from './audit-types.js'
 
 export interface AuditLoggerConfig {
   store: ComplianceAuditStore
+  /**
+   * Optional sink invoked when a fire-and-forget audit write fails. The error
+   * is otherwise swallowed (audit failures are non-fatal). The most recent
+   * error is also surfaced by `flush()` so graceful-shutdown paths can react.
+   */
+  onError?: (error: unknown) => void
 }
 
 /** Generate a simple unique ID (no external deps). */
@@ -87,10 +93,16 @@ function auditDetailsForEvent(event: Record<string, unknown> & { type: string })
 
 export class ComplianceAuditLogger {
   private readonly store: ComplianceAuditStore
+  private readonly onError: ((error: unknown) => void) | undefined
   private unsubscribe: (() => void) | undefined
+  /** Tracks in-flight fire-and-forget writes so `flush()` can drain them. */
+  private readonly pending = new Set<Promise<void>>()
+  /** Most recent sink error captured during fire-and-forget writes. */
+  private lastError: unknown
 
   constructor(config: AuditLoggerConfig) {
     this.store = config.store
+    this.onError = config.onError
   }
 
   /**
@@ -106,16 +118,54 @@ export class ComplianceAuditLogger {
 
       const details = auditDetailsForEvent(event as Record<string, unknown> & { type: string })
 
-      // Fire-and-forget — audit failures are non-fatal
-      void this.record({
+      // Track the write so flush() can await drain; capture sink errors so
+      // they can be surfaced after flush() instead of being silently lost.
+      const writePromise = this.record({
         actor: { id: 'system', type: 'system' },
         action,
         result: eventToResult(event.type),
         details: details as Record<string, unknown>,
-      }).catch(() => {
-        // Silently ignore audit write failures per non-fatal pattern
+      }).then(
+        () => undefined,
+        (err: unknown) => {
+          this.lastError = err
+          if (this.onError) {
+            try {
+              this.onError(err)
+            } catch {
+              // Sink error handler must not itself throw out of audit path.
+            }
+          }
+        },
+      )
+
+      this.pending.add(writePromise)
+      void writePromise.finally(() => {
+        this.pending.delete(writePromise)
       })
     })
+  }
+
+  /**
+   * Drain any pending fire-and-forget audit writes. Resolves once all
+   * in-flight promises have settled. If a sink error occurred during the
+   * drained writes, it is rethrown (the most recent error wins) so callers
+   * such as graceful-shutdown can surface it.
+   *
+   * Safe to call repeatedly; new writes that arrive after the snapshot is
+   * taken are not awaited in the current call.
+   */
+  async flush(): Promise<void> {
+    // Snapshot to avoid awaiting writes that arrive mid-drain forever.
+    const inFlight = Array.from(this.pending)
+    if (inFlight.length > 0) {
+      await Promise.allSettled(inFlight)
+    }
+    const err = this.lastError
+    if (err !== undefined) {
+      this.lastError = undefined
+      throw err
+    }
   }
 
   /** Detach from the event bus, stopping automatic recording. */

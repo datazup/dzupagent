@@ -429,6 +429,23 @@ export interface AgentOnInvalidOutput {
   failAfterRetries?: boolean
 }
 
+/**
+ * Compile-time template reference on an `agent` node.
+ *
+ * When present, a synthesis pass (e.g. `synthesizeTemplateRefs` in
+ * codev-app) resolves the named template and lowers its `instructions`
+ * string and optional `inputDefaults` into the node's `instructions`
+ * and `input` fields before the flow executor sees the AST. Node-level
+ * `instructions` always win over the template (node is not overwritten
+ * if already set).
+ */
+export interface AgentTemplateRef {
+  /** Name / id of the prompt template to resolve. */
+  ref: string
+  /** Default input values merged into `node.input` (node.input wins per-key). */
+  inputDefaults?: Record<string, unknown>
+}
+
 export type AgentNode = FlowNodeBase & {
   type: 'agent'
   /** Logical identity for traces/journal. */
@@ -443,6 +460,17 @@ export type AgentNode = FlowNodeBase & {
   model?: string
   /** Provider routing hint. */
   provider?: string
+  /**
+   * Compile-time template reference. When present and `instructions` is not
+   * already set on the node, a synthesis pass resolves the named template and
+   * lowers its `instructions` (and optionally `inputDefaults`) into the node
+   * before the flow executor sees the AST. Mutually optional with `instructions`
+   * — at least one must be present after synthesis.
+   *
+   * This field is intentionally optional at the AST layer so both authoring
+   * modes (inline instructions or template ref) are valid DSL inputs.
+   */
+  template?: AgentTemplateRef
   /** System/operator instructions, template-resolved at runtime. */
   instructions: string
   /** State-bound input passed to the agent's first user turn. */

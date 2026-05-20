@@ -5,6 +5,7 @@ import type {
   AgentPolicy,
   AgentRetry,
   AgentStop,
+  AgentTemplateRef,
   AgentValidation,
   AgentValidationCommand,
   FlowNode,
@@ -32,12 +33,25 @@ export function validateAgent(
     ok = false
   }
 
+  // Parse the optional `template` field early so we know whether to require
+  // `instructions`. When `template.ref` is present, instructions may be absent
+  // at parse time — the synthesis pass fills them in before execution.
+  const templateRef = validateAgentTemplateRef(obj['template'], joinPath(path, 'template'), issues)
+
   const instructions = obj['instructions']
-  if (typeof instructions !== 'string' || instructions.length === 0) {
+  const hasTemplateRef = templateRef !== undefined && typeof templateRef.ref === 'string' && templateRef.ref.length > 0
+  if (!hasTemplateRef && (typeof instructions !== 'string' || instructions.length === 0)) {
     issues.push({
       path: joinPath(path, 'instructions'),
       code: 'MISSING_REQUIRED_FIELD',
-      message: `agent.instructions is required (non-empty string), received ${describeJsType(instructions)}`,
+      message: `agent.instructions is required (non-empty string) when template.ref is absent, received ${describeJsType(instructions)}`,
+    })
+    ok = false
+  } else if (instructions !== undefined && typeof instructions !== 'string') {
+    issues.push({
+      path: joinPath(path, 'instructions'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `agent.instructions must be a string when present, received ${describeJsType(instructions)}`,
     })
     ok = false
   }
@@ -47,13 +61,22 @@ export function validateAgent(
 
   if (!ok) return null
 
+  // When instructions is absent (template-ref mode), use a sentinel that the
+  // synthesis pass will replace before execution. This satisfies the AgentNode
+  // type contract at parse time without exposing an empty string to the runtime.
+  const resolvedInstructions = (typeof instructions === 'string' && instructions.length > 0)
+    ? instructions
+    : '' // synthesis pass must fill this before execution
+
   const node: AgentNode = {
     type: 'agent',
     ...common,
     agentId: agentId as string,
-    instructions: instructions as string,
+    instructions: resolvedInstructions,
     output: output as AgentOutput,
   }
+
+  if (templateRef !== undefined) node.template = templateRef
 
   const profile = optionalString(obj, 'profile', path, issues)
   if (profile !== undefined) node.profile = profile
@@ -637,6 +660,44 @@ function validateAgentPolicy(
     }
   }
   return policy
+}
+
+function validateAgentTemplateRef(
+  raw: unknown,
+  path: string,
+  issues: SchemaIssue[],
+): AgentTemplateRef | undefined {
+  if (raw === undefined) return undefined
+  if (!isPlainObject(raw)) {
+    issues.push({
+      path,
+      code: 'MISSING_REQUIRED_FIELD',
+      message: `agent.template must be an object when present, received ${describeJsType(raw)}`,
+    })
+    return undefined
+  }
+  const ref = raw['ref']
+  if (typeof ref !== 'string' || ref.length === 0) {
+    issues.push({
+      path: joinPath(path, 'ref'),
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'agent.template.ref is required (non-empty string)',
+    })
+    return undefined
+  }
+  const out: AgentTemplateRef = { ref }
+  if (raw['inputDefaults'] !== undefined) {
+    if (!isPlainObject(raw['inputDefaults'])) {
+      issues.push({
+        path: joinPath(path, 'inputDefaults'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'agent.template.inputDefaults must be an object when present',
+      })
+    } else {
+      out.inputDefaults = raw['inputDefaults']
+    }
+  }
+  return out
 }
 
 function optionalString(
