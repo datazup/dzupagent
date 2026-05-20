@@ -87,6 +87,10 @@ function buildArtifact(overrides?: Partial<{
 }
 
 function buildRun(overrides: Partial<BenchmarkRunRecord> & Pick<BenchmarkRunRecord, 'id' | 'suiteId' | 'targetId' | 'createdAt'>): BenchmarkRunRecord {
+  // Seeded rows are stamped with the default tenant so route reads (which run
+  // with no `apiKey` context populated -> `DEFAULT_TENANT_ID = 'default'`) can
+  // see them. Cross-tenant tests pass an explicit `metadata.tenantId` override.
+  const metadata: Record<string, unknown> = { tenantId: 'default', ...(overrides.metadata ?? {}) }
   return {
     id: overrides.id,
     suiteId: overrides.suiteId,
@@ -94,7 +98,7 @@ function buildRun(overrides: Partial<BenchmarkRunRecord> & Pick<BenchmarkRunReco
     createdAt: overrides.createdAt,
     strict: overrides.strict ?? false,
     result: overrides.result ?? buildResult(overrides.suiteId, 1),
-    ...(overrides.metadata ? { metadata: overrides.metadata } : {}),
+    metadata,
     ...(overrides.artifact ? { artifact: overrides.artifact } : {}),
   }
 }
