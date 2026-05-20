@@ -252,6 +252,8 @@ describe('InMemoryReflectionStore', () => {
     errorCount: overrides?.errorCount ?? 0,
     patterns: overrides?.patterns ?? [],
     qualityScore: overrides?.qualityScore ?? 0.9,
+    ...(overrides?.tenantId !== undefined ? { tenantId: overrides.tenantId } : {}),
+    ...(overrides?.ownerId !== undefined ? { ownerId: overrides.ownerId } : {}),
   })
 
   beforeEach(() => {
@@ -351,5 +353,99 @@ describe('InMemoryReflectionStore', () => {
     store.clear()
     expect(store.size).toBe(0)
     expect(await store.list()).toEqual([])
+  })
+
+  // -------------------------------------------------------------------------
+  // RUN-REFLECTION-STORE-WIDEN: tenant/owner filtering
+  // -------------------------------------------------------------------------
+  describe('tenant/owner filtering', () => {
+    it('list({ tenantId }) returns only matching-tenant reflections', async () => {
+      await store.save(makeSummary('a', { tenantId: 'tenant-a' }))
+      await store.save(makeSummary('b', { tenantId: 'tenant-b' }))
+      const onlyA = await store.list({ tenantId: 'tenant-a' })
+      expect(onlyA.map((s) => s.runId)).toEqual(['a'])
+    })
+
+    it('list({ tenantId }) treats missing tenantId as "default"', async () => {
+      // Save one row without tenantId — it should match a 'default' filter.
+      await store.save(makeSummary('legacy'))
+      await store.save(makeSummary('newer', { tenantId: 'tenant-x' }))
+      const onlyDefault = await store.list({ tenantId: 'default' })
+      expect(onlyDefault.map((s) => s.runId)).toEqual(['legacy'])
+    })
+
+    it('list({ ownerId }) keeps legacy ownerless rows visible', async () => {
+      await store.save(makeSummary('legacy', { tenantId: 'tenant-a' }))
+      await store.save(makeSummary('owned', { tenantId: 'tenant-a', ownerId: 'key-1' }))
+      await store.save(makeSummary('other', { tenantId: 'tenant-a', ownerId: 'key-2' }))
+      const result = await store.list({ ownerId: 'key-1' })
+      // 'legacy' (ownerless) + 'owned' (key-1) visible; 'other' (key-2) excluded.
+      expect(result.map((s) => s.runId).sort()).toEqual(['legacy', 'owned'])
+    })
+
+    it('list({ tenantId, ownerId }) applies both filters', async () => {
+      await store.save(makeSummary('a-1', { tenantId: 'tenant-a', ownerId: 'key-1' }))
+      await store.save(makeSummary('a-2', { tenantId: 'tenant-a', ownerId: 'key-2' }))
+      await store.save(makeSummary('b-1', { tenantId: 'tenant-b', ownerId: 'key-1' }))
+      const result = await store.list({ tenantId: 'tenant-a', ownerId: 'key-1' })
+      expect(result.map((s) => s.runId)).toEqual(['a-1'])
+    })
+
+    it('list({ tenantId, limit }) caps after filtering', async () => {
+      for (let i = 0; i < 5; i++) {
+        await store.save(makeSummary(`a-${i}`, {
+          tenantId: 'tenant-a',
+          completedAt: new Date(Date.parse('2026-01-01') + i * 1000),
+        }))
+        await store.save(makeSummary(`b-${i}`, { tenantId: 'tenant-b' }))
+      }
+      const result = await store.list({ tenantId: 'tenant-a', limit: 2 })
+      expect(result).toHaveLength(2)
+      expect(result.every((s) => s.runId.startsWith('a-'))).toBe(true)
+    })
+
+    it('list() with no opts is unchanged from legacy behaviour', async () => {
+      await store.save(makeSummary('a', { tenantId: 'tenant-a' }))
+      await store.save(makeSummary('b', { tenantId: 'tenant-b' }))
+      const all = await store.list()
+      expect(all).toHaveLength(2)
+    })
+
+    it('list(numericLimit) preserves the legacy numeric overload', async () => {
+      await store.save(makeSummary('a', { completedAt: new Date('2026-01-01') }))
+      await store.save(makeSummary('b', { completedAt: new Date('2026-02-01') }))
+      await store.save(makeSummary('c', { completedAt: new Date('2026-03-01') }))
+      const result = await store.list(2)
+      expect(result.map((s) => s.runId)).toEqual(['c', 'b'])
+    })
+
+    it('getPatterns(type, { tenantId }) filters parent reflection by tenant', async () => {
+      await store.save(makeSummary('a', {
+        tenantId: 'tenant-a',
+        patterns: [{ type: 'repeated_tool', description: 'a-pat', occurrences: 1, stepIndices: [0] }],
+      }))
+      await store.save(makeSummary('b', {
+        tenantId: 'tenant-b',
+        patterns: [{ type: 'repeated_tool', description: 'b-pat', occurrences: 1, stepIndices: [0] }],
+      }))
+      const onlyA = await store.getPatterns('repeated_tool', { tenantId: 'tenant-a' })
+      expect(onlyA.map((p) => p.description)).toEqual(['a-pat'])
+    })
+
+    it('getPatterns(type, { ownerId }) keeps legacy ownerless patterns visible', async () => {
+      await store.save(makeSummary('legacy', {
+        patterns: [{ type: 'slow_step', description: 'legacy', occurrences: 1, stepIndices: [0] }],
+      }))
+      await store.save(makeSummary('owned', {
+        ownerId: 'key-1',
+        patterns: [{ type: 'slow_step', description: 'key-1', occurrences: 1, stepIndices: [0] }],
+      }))
+      await store.save(makeSummary('other', {
+        ownerId: 'key-2',
+        patterns: [{ type: 'slow_step', description: 'key-2', occurrences: 1, stepIndices: [0] }],
+      }))
+      const result = await store.getPatterns('slow_step', { ownerId: 'key-1' })
+      expect(result.map((p) => p.description).sort()).toEqual(['key-1', 'legacy'])
+    })
   })
 })

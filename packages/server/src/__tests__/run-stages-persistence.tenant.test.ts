@@ -178,3 +178,158 @@ describe('run-stages-persistence tenant stamping (SEC-M-01-EXTENDED)', () => {
     expect(updated.tenantId).toBe('tenant-C')
   })
 })
+
+// ---------------------------------------------------------------------------
+// RUN-REFLECTION-STORE-WIDEN: reflection-summary save-side stamping
+// ---------------------------------------------------------------------------
+describe('run-stages-persistence reflection stamping (RUN-REFLECTION-STORE-WIDEN)', () => {
+  it('stamps tenantId + ownerId on the ReflectionSummary passed to reflectionStore.save', async () => {
+    const runStore = new InMemoryRunStore()
+    const agentStore = new InMemoryAgentStore()
+    const eventBus = createEventBus()
+    const modelRegistry = new ModelRegistry()
+    const runQueue = new InMemoryRunQueue({ concurrency: 1 })
+
+    await agentStore.save({
+      id: 'agent-reflect',
+      name: 'Reflecting Agent',
+      instructions: 'be concise',
+      modelTier: 'chat',
+      active: true,
+    })
+
+    const reflector = {
+      score: vi.fn(() => ({ overall: 0.9, dimensions: {}, flags: [] })),
+    }
+
+    const savedSummaries: Array<{ runId: string; tenantId?: string; ownerId?: string }> = []
+    const reflectionStore = {
+      save: vi.fn(async (summary: { runId: string; tenantId?: string; ownerId?: string }) => {
+        savedSummaries.push({
+          runId: summary.runId,
+          ...(summary.tenantId !== undefined ? { tenantId: summary.tenantId } : {}),
+          ...(summary.ownerId !== undefined ? { ownerId: summary.ownerId } : {}),
+        })
+      }),
+      get: vi.fn(),
+      list: vi.fn(),
+      getPatterns: vi.fn(),
+    }
+
+    const workerOptions: StartRunWorkerOptions = {
+      runQueue,
+      runStore,
+      agentStore,
+      eventBus,
+      modelRegistry,
+      reflector,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      reflectionStore: reflectionStore as any,
+      runExecutor: async () => ({ content: 'ok' }),
+    }
+
+    const run = await runStore.create({ agentId: 'agent-reflect', input: { message: 'hi' } })
+    const job: RunJob = {
+      id: 'job-r',
+      runId: run.id,
+      agentId: 'agent-reflect',
+      input: { message: 'hi' },
+      metadata: { tenantId: 'tenant-R', ownerId: 'key-R', modelTier: 'chat' },
+      priority: 1,
+      attempts: 0,
+      createdAt: new Date(),
+    }
+
+    await runPostRunLearningStage({
+      workerOptions,
+      job,
+      agent: {
+        id: 'agent-reflect',
+        name: 'Reflecting Agent',
+        instructions: 'be concise',
+        modelTier: 'chat',
+      },
+      input: job.input,
+      output: { message: 'done' },
+      additionalLogs: [],
+      durationMs: 500,
+    })
+
+    expect(reflectionStore.save).toHaveBeenCalledOnce()
+    expect(savedSummaries).toHaveLength(1)
+    expect(savedSummaries[0]!.tenantId).toBe('tenant-R')
+    expect(savedSummaries[0]!.ownerId).toBe('key-R')
+  })
+
+  it('omits tenantId + ownerId when job.metadata has neither', async () => {
+    const runStore = new InMemoryRunStore()
+    const agentStore = new InMemoryAgentStore()
+    const eventBus = createEventBus()
+    const modelRegistry = new ModelRegistry()
+    const runQueue = new InMemoryRunQueue({ concurrency: 1 })
+
+    await agentStore.save({
+      id: 'agent-bare',
+      name: 'Bare Agent',
+      instructions: 'be concise',
+      modelTier: 'chat',
+      active: true,
+    })
+
+    const reflector = {
+      score: vi.fn(() => ({ overall: 0.9, dimensions: {}, flags: [] })),
+    }
+
+    const captured: Array<Record<string, unknown>> = []
+    const reflectionStore = {
+      save: vi.fn(async (summary: Record<string, unknown>) => {
+        captured.push(summary)
+      }),
+      get: vi.fn(),
+      list: vi.fn(),
+      getPatterns: vi.fn(),
+    }
+
+    const workerOptions: StartRunWorkerOptions = {
+      runQueue,
+      runStore,
+      agentStore,
+      eventBus,
+      modelRegistry,
+      reflector,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      reflectionStore: reflectionStore as any,
+      runExecutor: async () => ({ content: 'ok' }),
+    }
+
+    const run = await runStore.create({ agentId: 'agent-bare', input: { message: 'hi' } })
+    const job: RunJob = {
+      id: 'job-bare',
+      runId: run.id,
+      agentId: 'agent-bare',
+      input: { message: 'hi' },
+      priority: 1,
+      attempts: 0,
+      createdAt: new Date(),
+    }
+
+    await runPostRunLearningStage({
+      workerOptions,
+      job,
+      agent: {
+        id: 'agent-bare',
+        name: 'Bare Agent',
+        instructions: 'be concise',
+        modelTier: 'chat',
+      },
+      input: job.input,
+      output: { message: 'done' },
+      additionalLogs: [],
+      durationMs: 500,
+    })
+
+    expect(captured).toHaveLength(1)
+    expect('tenantId' in captured[0]!).toBe(false)
+    expect('ownerId' in captured[0]!).toBe(false)
+  })
+})
