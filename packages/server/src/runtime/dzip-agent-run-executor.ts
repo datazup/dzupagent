@@ -84,6 +84,20 @@ export function createDzupAgentRunExecutor(
   return async (ctx): Promise<RunExecutorResult> => {
     const prompt = toPrompt(ctx.input) || 'Proceed with the requested task.'
 
+    // Tenant stamp for every event emitted from this run. Read once at run
+    // start from job metadata (populated by the run worker from the API key's
+    // tenant) and spread onto every `ctx.eventBus.emit(...)` envelope so the
+    // event gateway's tenant filter (DZUPAGENT-SEC-M-01) can enforce
+    // per-tenant SSE delivery. `undefined` falls through to the gateway's
+    // legacy `DEFAULT_TENANT_ID` fallback — preserving back-compat for
+    // single-tenant deployments.
+    const tenantId =
+      typeof ctx.metadata?.['tenantId'] === 'string'
+        ? (ctx.metadata['tenantId'] as string)
+        : undefined
+    const withTenant = <T extends object>(event: T): T & { tenantId?: string } =>
+      tenantId !== undefined ? { ...event, tenantId } : event
+
     let toolCleanup: (() => Promise<void>) | undefined
 
     // --- Token lifecycle manager (per-run) ---
@@ -209,12 +223,12 @@ export function createDzupAgentRunExecutor(
           const content = typeof event.data['content'] === 'string' ? event.data['content'] : ''
           if (content) {
             chunks.push(content)
-            ctx.eventBus.emit({
+            ctx.eventBus.emit(withTenant({
               type: 'agent:stream_delta',
               agentId: ctx.agentId,
               runId: ctx.runId,
               content,
-            })
+            }))
             const now = Date.now()
             if (now - lastFlushAt > 250) {
               lastFlushAt = now
@@ -236,12 +250,12 @@ export function createDzupAgentRunExecutor(
             message: `Tool called: ${toolName}`,
             data: { input },
           })
-          ctx.eventBus.emit({
+          ctx.eventBus.emit(withTenant({
             type: 'tool:called',
             toolName,
             input: input ?? {},
             executionRunId: ctx.runId,
-          } as Parameters<typeof ctx.eventBus.emit>[0])
+          }) as Parameters<typeof ctx.eventBus.emit>[0])
           continue
         }
 
@@ -264,12 +278,12 @@ export function createDzupAgentRunExecutor(
             message: `Tool result: ${toolName}`,
             data: { result: event.data['result'] },
           })
-          ctx.eventBus.emit({
+          ctx.eventBus.emit(withTenant({
             type: 'tool:result',
             toolName,
             durationMs: 0,
             executionRunId,
-          } as Parameters<typeof ctx.eventBus.emit>[0])
+          }) as Parameters<typeof ctx.eventBus.emit>[0])
           continue
         }
 
@@ -295,13 +309,13 @@ export function createDzupAgentRunExecutor(
               toolName: activeToolName,
               executionRunId: ctx.runId,
             })
-            ctx.eventBus.emit({
+            ctx.eventBus.emit(withTenant({
               type: 'tool:error',
               toolName: activeToolName,
               errorCode: 'TOOL_EXECUTION_FAILED',
               message,
               executionRunId,
-            } as Parameters<typeof ctx.eventBus.emit>[0])
+            }) as Parameters<typeof ctx.eventBus.emit>[0])
             activeToolName = undefined
           }
           logs.push({
@@ -331,13 +345,13 @@ export function createDzupAgentRunExecutor(
             // (telemetry, orchestration, OTEL) can react. This mirrors the
             // pattern used inside run-engine.ts. We do NOT throw — token
             // exhaustion is a clean halt, not an error.
-            ctx.eventBus.emit({
+            ctx.eventBus.emit(withTenant({
               type: 'run:halted:token-exhausted',
               agentId: ctx.agentId,
               runId: ctx.runId,
               iterations: tokenExhaustedIterations,
-              reason: 'token_exhausted',
-            })
+              reason: 'token_exhausted' as const,
+            }))
           }
           const doneContent = typeof event.data['content'] === 'string' ? event.data['content'] : ''
           if (doneContent && chunks.length === 0) {
@@ -347,12 +361,12 @@ export function createDzupAgentRunExecutor(
       }
 
       const content = chunks.join('')
-      ctx.eventBus.emit({
+      ctx.eventBus.emit(withTenant({
         type: 'agent:stream_done',
         agentId: ctx.agentId,
         runId: ctx.runId,
         finalContent: content,
-      })
+      }))
 
       // Estimate token usage from content length (~4 chars per token)
       // Input: prompt + tool results accumulated during execution

@@ -59,7 +59,7 @@ export type DomainLifecycleEvent =
   | { type: 'run:paused'; runId: string; agentId: string }
   | { type: 'run:resumed'; runId: string; agentId: string; resumeToken?: string; input?: unknown }
   | { type: 'run:cancelled'; runId: string; agentId: string; reason?: string }
-  | { type: 'run:halted:token-exhausted'; agentId: string; runId?: string; iterations: number; reason: 'token_exhausted' }
+  | { type: 'run:halted:token-exhausted'; agentId: string; runId?: string; iterations: number; reason: 'token_exhausted'; tenantId?: string }
   // --- Run outcome scoring (closed-loop self-improvement) ---
   | {
       type: 'run:scored'
