@@ -39,6 +39,7 @@ export type ForgePermissionResource =
   | 'workflows'
   | 'a2a'
   | 'openai'
+  | 'routingTelemetry'
   | (string & {})
   | '*'
 
@@ -124,6 +125,11 @@ export const DEFAULT_ROUTE_PERMISSIONS: Record<string, RoutePermissionPolicy> = 
   '/api/agent-definitions': { resource: 'agents' },
   '/api/agents': { resource: 'agents' },
   '/api/runs': { resource: 'runs' },
+  // DZUPAGENT-SEC-M-03: Routing telemetry is operator/admin-only. The
+  // more-specific prefix wins because `normalizeRoutePermissions` sorts by
+  // length descending, so `runs:read` viewers do not see fleet-level
+  // routing stats even though `/api/runs` itself is viewer-readable.
+  '/api/runs/routing-stats': { resource: 'routingTelemetry', action: 'read' },
   '/api/approvals': { resource: 'approvals' },
   '/api/events': { resource: 'events', action: 'read' },
   '/api/tools': { resource: 'tools' },
@@ -168,6 +174,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<ForgeRole, ForgePermission[]> = {
     { resource: 'a2a', action: 'execute' },
     { resource: 'openai', action: 'read' },
     { resource: 'openai', action: 'execute' },
+    // DZUPAGENT-SEC-M-03: Operator + admin only see fleet-level routing
+    // telemetry. Viewer and agent roles are intentionally excluded so
+    // routing decisions, complexity heuristics, and per-tier quality
+    // scores are not exposed to read-only or programmatic-only keys.
+    { resource: 'routingTelemetry', action: 'read' },
   ],
   viewer: [
     { resource: 'runs', action: 'read' },
