@@ -248,7 +248,7 @@ async function scoreRunReflection(options: {
     await persistReflectionSummary({
       reflectionStore: options.workerOptions.reflectionStore,
       runStore: options.workerOptions.runStore,
-      runId: options.job.runId,
+      job: options.job,
       additionalLogs: options.additionalLogs,
       errorCount,
       durationMs: options.durationMs,
@@ -282,7 +282,7 @@ async function scoreRunReflection(options: {
 async function persistReflectionSummary(options: {
   reflectionStore?: RunReflectionStore
   runStore: RunStore
-  runId: string
+  job: RunJob
   additionalLogs: NonNullable<RunExecutorResult['logs']>
   errorCount: number
   durationMs: number
@@ -294,8 +294,26 @@ async function persistReflectionSummary(options: {
     const toolCallLogs = options.additionalLogs.filter(
       l => l.phase === 'tool_call' && l.data && typeof l.data === 'object',
     )
+    /*
+     * RUN-REFLECTION-STORE-WIDEN: stamp tenantId + ownerId so the store can
+     * filter reflections natively. The runtime threads both through
+     * `job.metadata.tenantId` and `job.metadata.ownerId` — see
+     * recordTelemetryStage() above for the same derivation. When the job
+     * lacks one (single-tenant deployments, or pre-stamping callers) we
+     * leave the field undefined; the storage backend supplies the
+     * 'default' tenant fallback and `ownerId` stays NULL for legacy rows.
+     */
+    const tenantId =
+      typeof options.job.metadata?.['tenantId'] === 'string'
+        ? (options.job.metadata['tenantId'] as string)
+        : undefined
+    const ownerId =
+      typeof options.job.metadata?.['ownerId'] === 'string'
+        ? (options.job.metadata['ownerId'] as string)
+        : undefined
+
     const summary: ReflectionSummary = {
-      runId: options.runId,
+      runId: options.job.runId,
       completedAt: new Date(),
       durationMs: options.durationMs,
       totalSteps: options.additionalLogs.length,
@@ -303,10 +321,12 @@ async function persistReflectionSummary(options: {
       errorCount: options.errorCount,
       patterns: [],
       qualityScore: options.qualityScore,
+      ...(tenantId !== undefined ? { tenantId } : {}),
+      ...(ownerId !== undefined ? { ownerId } : {}),
     }
     await options.reflectionStore.save(summary)
   } catch (_saveErr) {
-    await options.runStore.addLog(options.runId, {
+    await options.runStore.addLog(options.job.runId, {
       level: 'warn',
       phase: 'reflection',
       message: 'Failed to persist reflection summary',

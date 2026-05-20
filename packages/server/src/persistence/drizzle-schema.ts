@@ -243,17 +243,36 @@ export const scheduleConfigs = pgTable('schedule_configs', {
 // Run Reflections
 // ---------------------------------------------------------------------------
 
-export const runReflections = pgTable('run_reflections', {
-  runId: varchar('run_id', { length: 255 }).primaryKey(),
-  completedAt: timestamp('completed_at').notNull(),
-  durationMs: integer('duration_ms').notNull(),
-  totalSteps: integer('total_steps').notNull(),
-  toolCallCount: integer('tool_call_count').notNull(),
-  errorCount: integer('error_count').notNull(),
-  patterns: jsonb('patterns').$type<ReflectionPattern[]>().notNull().default([]),
-  qualityScore: real('quality_score').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-})
+export const runReflections = pgTable(
+  'run_reflections',
+  {
+    runId: varchar('run_id', { length: 255 }).primaryKey(),
+    completedAt: timestamp('completed_at').notNull(),
+    durationMs: integer('duration_ms').notNull(),
+    totalSteps: integer('total_steps').notNull(),
+    toolCallCount: integer('tool_call_count').notNull(),
+    errorCount: integer('error_count').notNull(),
+    patterns: jsonb('patterns').$type<ReflectionPattern[]>().notNull().default([]),
+    qualityScore: real('quality_score').notNull(),
+    /**
+     * RUN-REFLECTION-STORE-WIDEN: API key id that owns the originating run.
+     * Nullable so legacy ownerless reflections remain visible under
+     * `includeLegacyOwnerless` semantics at the route layer.
+     */
+    ownerId: text('owner_id'),
+    /**
+     * RUN-REFLECTION-STORE-WIDEN: Tenant scope stamped at save time. Defaults
+     * to 'default' so pre-migration rows are filterable by single-tenant
+     * deployments.
+     */
+    tenantId: text('tenant_id').notNull().default('default'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [
+    index('run_reflections_tenant_id_idx').on(table.tenantId),
+    index('run_reflections_owner_id_idx').on(table.ownerId),
+  ],
+)
 
 // ---------------------------------------------------------------------------
 // General-Purpose Vector Storage
