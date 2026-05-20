@@ -26,6 +26,7 @@ import type { AppEnv } from '../types.js'
 import type { RunReflectionStore, ReflectionPattern, ReflectionSummary } from '@dzupagent/agent'
 import type { Run, RunStore } from '@dzupagent/core/persistence'
 import { getOptionalRequestingTenantId } from './tenant-scope.js'
+import { requireOwnedRun } from './run-guard.js'
 
 export interface ReflectionRouteConfig {
   reflectionStore: RunReflectionStore
@@ -192,14 +193,25 @@ export function createReflectionRoutes(config: ReflectionRouteConfig): Hono<AppE
   })
 
   // --- Get single reflection by runId ---
-  // NOTE: per-id reads do NOT use the SEC-M-03 sweep pattern; they rely on
-  // the MJ-SEC-02 `requireOwnedRun` guard (returns 404, not 403, on cross-
-  // owner access to prevent enumeration). The reflection store does not
-  // carry tenant/owner metadata, so without a `runStore` we cannot confirm
-  // ownership for the per-id read either; that gap is tracked separately
-  // and intentionally not covered by this SEC-M-03 sweep.
+  // MJ-SEC-02: per-id reads gate on ownership of the OWNING RUN via the
+  // shared `requireOwnedRun` guard. The reflection summary itself does not
+  // carry tenant/owner metadata, so we authorize by looking up the run and
+  // checking its `ownerId` / `tenantId` against the requesting API key.
+  // Cross-owner / cross-tenant access returns 404 (not 403) to prevent
+  // enumeration of foreign run ids — matching run-context.ts and approvals.ts.
+  //
+  // When `runStore` is unwired (legacy hosts that construct the route in
+  // isolation), the guard is skipped and the route falls back to the
+  // pre-MJ-SEC-02 behaviour. This mirrors the list/pattern endpoints, which
+  // also degrade to unfiltered legacy behaviour without a `runStore`.
   app.get('/:runId', async (c) => {
     const runId = c.req.param('runId')
+
+    if (config.runStore) {
+      const ownedRun = await requireOwnedRun(c, runId, config.runStore)
+      if (ownedRun instanceof Response) return ownedRun
+    }
+
     const reflection = await config.reflectionStore.get(runId)
 
     if (!reflection) {

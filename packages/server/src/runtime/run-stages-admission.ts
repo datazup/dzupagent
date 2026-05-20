@@ -5,6 +5,21 @@ import type { RunJob } from '../queue/run-queue.js'
 import type { InputGuard } from '../security/input-guard.js'
 import { closeTraceWithTerminalStep } from './run-stages-utils.js'
 
+/**
+ * SEC-M-01-EXTENDED — stamp an event envelope with the job's owning tenant
+ * when present. Mirrors the closure helper in `run-worker.ts` and
+ * `dzip-agent-run-executor.ts`. Returns the event unchanged when the job
+ * has no `metadata.tenantId`, preserving the gateway's legacy
+ * `DEFAULT_TENANT_ID` fallback for single-tenant deployments.
+ */
+function stampTenant<T extends object>(event: T, job: RunJob): T & { tenantId?: string } {
+  const tenantId =
+    typeof job.metadata?.['tenantId'] === 'string'
+      ? (job.metadata['tenantId'] as string)
+      : undefined
+  return tenantId !== undefined ? { ...event, tenantId } : event
+}
+
 export type AdmissionStageResult =
   | { agent: AgentExecutionSpec; input: unknown; rejected: false }
   | { agent?: AgentExecutionSpec; input: unknown; rejected: true }
@@ -24,13 +39,13 @@ export async function runAdmissionStage(options: {
       error: `Agent "${options.job.agentId}" not found`,
       completedAt: new Date(),
     })
-    options.eventBus.emit({
+    options.eventBus.emit(stampTenant({
       type: 'agent:failed',
       agentId: options.job.agentId,
       runId: options.job.runId,
       errorCode: 'REGISTRY_AGENT_NOT_FOUND',
       message: `Agent "${options.job.agentId}" not found`,
-    })
+    }, options.job))
     return { input: options.job.input, rejected: true }
   }
 
@@ -59,13 +74,13 @@ export async function runAdmissionStage(options: {
         })),
       },
     })
-    options.eventBus.emit({
+    options.eventBus.emit(stampTenant({
       type: 'agent:failed',
       agentId: options.job.agentId,
       runId: options.job.runId,
       errorCode: 'POLICY_DENIED',
       message: reason,
-    })
+    }, options.job))
     await closeTraceWithTerminalStep(
       options.traceStore,
       options.job.runId,
@@ -114,7 +129,7 @@ export async function waitForRunApproval(options: {
     message: 'Awaiting approval before execution',
     data: { timeoutMs },
   })
-  options.eventBus.emit({ type: 'approval:requested', runId: options.job.runId, plan: { input: options.input } })
+  options.eventBus.emit(stampTenant({ type: 'approval:requested', runId: options.job.runId, plan: { input: options.input } }, options.job))
 
   const decision = await waitForApprovalDecision(options.eventBus, options.job.runId, timeoutMs)
   if (!decision.approved) {
@@ -128,13 +143,13 @@ export async function waitForRunApproval(options: {
       phase: 'approval',
       message: `Run rejected before execution: ${decision.reason ?? 'no reason provided'}`,
     })
-    options.eventBus.emit({
+    options.eventBus.emit(stampTenant({
       type: 'agent:failed',
       agentId: options.job.agentId,
       runId: options.job.runId,
       errorCode: 'APPROVAL_REJECTED',
       message: decision.reason ?? 'Run rejected by approval policy',
-    })
+    }, options.job))
     await closeTraceWithTerminalStep(
       options.traceStore,
       options.job.runId,

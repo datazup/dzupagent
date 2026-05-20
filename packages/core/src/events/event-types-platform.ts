@@ -13,7 +13,7 @@ export type PlatformDomainEvent =
   // --- Registry ---
   | { type: 'registry:agent_registered'; agentId: string; name: string }
   | { type: 'registry:agent_deregistered'; agentId: string; reason: string }
-  | { type: 'registry:agent_updated'; agentId: string; fields: string[] }
+  | { type: 'registry:agent_updated'; agentId: string; fields: string[]; tenantId?: string }
   | { type: 'registry:health_changed'; agentId: string; previousStatus: string; newStatus: string }
   | { type: 'registry:capability_added'; agentId: string; capability: string }
   // --- Protocol ---

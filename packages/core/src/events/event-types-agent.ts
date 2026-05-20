@@ -8,7 +8,7 @@ import type { ToolStatSummary } from './event-types-shared.js'
  */
 export type AgentDomainEvent =
   // --- Agent lifecycle ---
-  | { type: 'agent:started'; agentId: string; runId: string }
+  | { type: 'agent:started'; agentId: string; runId: string; tenantId?: string }
   | {
       type: 'agent:completed'
       agentId: string
@@ -26,8 +26,10 @@ export type AgentDomainEvent =
         /** Optional model name for downstream attribution. */
         model?: string
       }
+      /** Owning tenant; consumed by event-gateway tenant filtering (DZUPAGENT-SEC-M-01). */
+      tenantId?: string
     }
-  | { type: 'agent:failed'; agentId: string; runId: string; errorCode: ForgeErrorCode; message: string }
+  | { type: 'agent:failed'; agentId: string; runId: string; errorCode: ForgeErrorCode; message: string; tenantId?: string }
   | { type: 'agent:rate_limited'; agentId: string; reason: string }
   /**
    * Emitted once at agent construction after applying the configured
