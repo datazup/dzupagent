@@ -178,3 +178,77 @@ describe('Reflection routes — SEC-M-03 tenant/owner scoping (patterns)', () =>
     expect(res.status).toBe(400)
   })
 })
+
+describe('Reflection routes — GET /:runId ownership guard (MJ-SEC-02)', () => {
+  let fixture: Fixture
+  let runAId = ''
+  let runBId = ''
+  beforeEach(async () => {
+    fixture = await makeFixture()
+    runAId = ''
+    runBId = ''
+    // makeFixture creates exactly two runs + reflections; recover their ids
+    // by joining the reflection summaries with their owning runs (the order
+    // is an implementation detail of InMemoryReflectionStore.list()).
+    const all = await fixture.reflectionStore.list(100)
+    for (const r of all) {
+      const run = await fixture.runStore.get(r.runId)
+      if (run?.tenantId === 'tenant-a') runAId = r.runId
+      if (run?.tenantId === 'tenant-b') runBId = r.runId
+    }
+  })
+
+  it('returns the reflection unauth\'d when the runId exists (preserves legacy behaviour)', async () => {
+    const res = await fixture.app.request(`/api/reflections/${runAId}`)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as ReflectionSummary
+    expect(body.qualityScore).toBe(0.9)
+  })
+
+  it('returns the reflection when authenticated request matches the run\'s tenant + owner', async () => {
+    const res = await fixture.app.request(`/api/reflections/${runAId}`, {
+      headers: { Authorization: 'Bearer key-tenant-a' },
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as ReflectionSummary
+    expect(body.qualityScore).toBe(0.9)
+  })
+
+  it('returns 404 (not 403) when authenticated caller requests another tenant\'s run', async () => {
+    const res = await fixture.app.request(`/api/reflections/${runBId}`, {
+      headers: { Authorization: 'Bearer key-tenant-a' },
+    })
+    expect(res.status).toBe(404)
+    const body = (await res.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe('NOT_FOUND')
+    expect(body.error.message).toBe('Run not found')
+  })
+
+  it('returns 404 when authenticated caller shares tenant but owner id differs', async () => {
+    // Create a run in tenant-a but owned by a different key.
+    const otherRun = await fixture.runStore.create({
+      agentId: 'agent-1',
+      input: 'test',
+      ownerId: 'key-tenant-a-other',
+      tenantId: 'tenant-a',
+    })
+    await fixture.reflectionStore.save(makeSummary({ runId: otherRun.id, qualityScore: 0.1 }))
+
+    const res = await fixture.app.request(`/api/reflections/${otherRun.id}`, {
+      headers: { Authorization: 'Bearer key-tenant-a' },
+    })
+    expect(res.status).toBe(404)
+    const body = (await res.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe('NOT_FOUND')
+  })
+
+  it('returns 404 for a runId that does not exist in the run store', async () => {
+    const res = await fixture.app.request('/api/reflections/run-does-not-exist', {
+      headers: { Authorization: 'Bearer key-tenant-a' },
+    })
+    expect(res.status).toBe(404)
+    const body = (await res.json()) as { error: { code: string; message: string } }
+    expect(body.error.code).toBe('NOT_FOUND')
+    expect(body.error.message).toBe('Run not found')
+  })
+})
