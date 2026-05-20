@@ -191,6 +191,12 @@ function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
     case 'memory': {
       return
     }
+    case 'set': {
+      if (!isPlainObject(node.assign)) {
+        errors.push(missing(node.type, path, 'set.assign is required (object)'))
+      }
+      return
+    }
     case 'checkpoint': {
       if (!isNonEmptyString(node.captureOutputOf)) {
         errors.push(missing(node.type, path, 'checkpoint.captureOutputOf is required (non-empty string)'))
@@ -346,6 +352,7 @@ function walkOnError(node: FlowNode, path: string, errors: ValidationError[]): v
     case 'classify':
     case 'emit':
     case 'memory':
+    case 'set':
     case 'checkpoint':
     case 'restore':
     case 'http':

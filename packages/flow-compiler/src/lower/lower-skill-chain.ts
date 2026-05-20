@@ -208,6 +208,7 @@ function walkNode(
     case 'return_to':
     case 'agent':
     case 'validate':
+    case 'set':
       return
 
     default: {

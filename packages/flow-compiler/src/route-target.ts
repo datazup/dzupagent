@@ -106,6 +106,7 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case 'classify':
       case 'emit':
       case 'memory':
+      case 'set':
       case 'checkpoint':
       case 'restore':
       case 'http':
@@ -209,6 +210,7 @@ export function hasOnError(ast: FlowNode): boolean {
       case 'classify':
       case 'emit':
       case 'memory':
+      case 'set':
       case 'checkpoint':
       case 'restore':
       case 'http':

@@ -112,6 +112,7 @@ export function lowerNodeToPipeline(
     case 'return_to':
     case 'agent':
     case 'validate':
+    case 'set':
       // Runtime-executed leaf nodes: present in AST but not emitted as graph edges.
       return { nodes: [], edges: [], warnings: [] }
 

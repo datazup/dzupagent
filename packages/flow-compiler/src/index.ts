@@ -59,9 +59,14 @@ export { prepareFlowInputFromDocument, prepareFlowInputFromDsl } from './authori
 export { compileTextInput, isFlowDocumentJson } from './cli-input.js'
 export {
   createToolResolverFromRegistry,
+  createToolsetResolverFromCatalog,
   validateHostToolRegistry,
+  validateToolsetCatalog,
 } from './host-tool-registry.js'
-export type { HostToolRegistryValidationResult } from './host-tool-registry.js'
+export type {
+  HostToolRegistryValidationResult,
+  ToolsetCatalogValidationResult,
+} from './host-tool-registry.js'
 export { collectFlowArtifactMetadata } from './flow-artifact-metadata.js'
 export type {
   FlowArtifactMetadata,
@@ -242,6 +247,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
       const semanticResult = await semanticResolve(ast, {
         toolResolver: opts.toolResolver,
         personaResolver: opts.personaResolver,
+        ...(opts.toolsetResolver !== undefined ? { toolsetResolver: opts.toolsetResolver } : {}),
         ...(opts.target !== undefined ? { target: opts.target } : {}),
       })
 

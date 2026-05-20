@@ -1,10 +1,27 @@
-import type { AsyncToolResolver, FlowDiagnosticCategory, ToolResolver } from '@dzupagent/flow-ast'
+import type {
+  AsyncToolResolver,
+  AsyncToolsetResolver,
+  FlowDiagnosticCategory,
+  ToolResolver,
+  ToolsetResolver,
+} from '@dzupagent/flow-ast'
 import type { ParseInput } from '@dzupagent/flow-ast'
 import type { DzupEventBus } from '@dzupagent/core/events'
 
 export interface CompilerOptions {
   toolResolver: ToolResolver | AsyncToolResolver
   personaResolver?: PersonaResolver | AsyncPersonaResolver
+  /**
+   * Resolves `toolset: <name>` references on AgentNodes into expanded
+   * `tools[]` arrays. When absent, agent nodes that declare `toolset` emit
+   * `UNRESOLVED_TOOLSET_REF` at Stage 3 (semantic resolution). Agent nodes
+   * with only inline `tools[]` (no `toolset`) compile unaffected.
+   *
+   * See Stage 2 of the Flow DSL implementation plan; runtime enforcement of
+   * the expanded list happens in the consuming runtime (codev-app's
+   * `flow-node-executor-agent`).
+   */
+  toolsetResolver?: ToolsetResolver | AsyncToolsetResolver
   /**
    * When `true`, the compiler forwards inner lifecycle events
    * (`flow:compile_started`, `flow:compile_parsed`,

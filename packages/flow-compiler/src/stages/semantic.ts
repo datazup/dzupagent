@@ -1,8 +1,10 @@
 import type {
   AsyncToolResolver,
+  AsyncToolsetResolver,
   FlowNode,
   ResolvedTool,
   ToolResolver,
+  ToolsetResolver,
   ValidationError,
 } from '@dzupagent/flow-ast'
 import { flowNodeSchema } from '@dzupagent/flow-ast'
@@ -19,6 +21,11 @@ import { validateCheckpointRestore, visit } from './semantic-walk.js'
 export interface SemanticOptions {
   toolResolver: ToolResolver | AsyncToolResolver
   personaResolver?: PersonaResolver | AsyncPersonaResolver
+  /**
+   * Resolves `toolset: <name>` references on AgentNodes into expanded
+   * `tools[]` arrays. See {@link CompilerOptions.toolsetResolver}.
+   */
+  toolsetResolver?: ToolsetResolver | AsyncToolsetResolver
   /**
    * Maximum Levenshtein distance for "did you mean…?" suggestions.
    * Default: 3. Set to 0 to disable suggestions.
@@ -47,6 +54,13 @@ export interface SemanticResult {
   resolved: Map<string, ResolvedTool>
   /** Map from dot-notation node path to the persona ref that was confirmed. */
   resolvedPersonas: Map<string, string>
+  /**
+   * Map from AgentNode path to the post-expansion `tools[]` list (inline +
+   * toolset, de-duplicated). Empty when no agent nodes declared a toolset.
+   * The AST itself is also mutated so downstream lowering and runtime see
+   * the expanded list; this map is exposed for observability and tests.
+   */
+  expandedAgentTools: Map<string, readonly string[]>
 }
 
 const DEFAULT_SUGGESTION_DISTANCE = 3
@@ -83,6 +97,7 @@ export async function semanticResolve(
   const warnings: ValidationError[] = []
   const resolved = new Map<string, ResolvedTool>()
   const resolvedPersonas = new Map<string, string>()
+  const expandedAgentTools = new Map<string, readonly string[]>()
 
   // SC-12: Zod-compatible runtime schema pre-pass.
   //
@@ -120,17 +135,29 @@ export async function semanticResolve(
     }
     return availableCache
   }
+  let availableToolsetsCache: string[] | null = null
+  const getAvailableToolsets = (): string[] => {
+    if (availableToolsetsCache === null) {
+      availableToolsetsCache =
+        opts.toolsetResolver !== undefined ? opts.toolsetResolver.listAvailable() : []
+    }
+    return availableToolsetsCache
+  }
 
   const ctx: WalkContext = {
     errors,
     warnings,
     resolved,
     resolvedPersonas,
+    expandedAgentTools,
     toolResolver: opts.toolResolver,
+    toolsetResolver: opts.toolsetResolver,
     personaResolver: opts.personaResolver,
     suggestionDistance,
     getAvailable,
+    getAvailableToolsets,
     missingPersonaResolverEmitted: false,
+    missingToolsetResolverEmitted: false,
     target: opts.target,
   }
 
@@ -143,5 +170,5 @@ export async function semanticResolve(
   //     the flow (missing match is a hard error).
   validateCheckpointRestore(ast, errors, warnings)
 
-  return { ast, errors, warnings, resolved, resolvedPersonas }
+  return { ast, errors, warnings, resolved, resolvedPersonas, expandedAgentTools }
 }
