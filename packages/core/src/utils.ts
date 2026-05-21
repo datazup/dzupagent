@@ -71,6 +71,8 @@ export { hashToolInput } from './utils/hash.js'
 export { omitUndefined } from './utils/exact-optional.js'
 export type { OmitUndefined } from './utils/exact-optional.js'
 export { getString, getNumber, getObject, toJsonString } from './utils/event-record.js'
+export { parseJsonl } from './utils/parse-jsonl.js'
+export type { ParseJsonlOptions, ParseJsonlSkipReason } from './utils/parse-jsonl.js'
 
 // ---------------------------------------------------------------------------
 // Guardrails

@@ -10,6 +10,8 @@ import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { basename, join, relative } from 'node:path'
 
+import { parseJsonl } from '@dzupagent/core'
+
 import { runLogRoot } from './run-log-root.js'
 
 import type {
@@ -419,15 +421,7 @@ export class ScriptRunEventStore {
   private async readJsonLines<T>(file: BufferedScriptEntry['file']): Promise<T[]> {
     try {
       const raw = await readFile(join(this.runDir, this.fileNameFor(file)), 'utf8')
-      if (raw.trim().length === 0) {
-        return []
-      }
-
-      return raw
-        .trimEnd()
-        .split('\n')
-        .filter((line) => line.trim().length > 0)
-        .map((line) => JSON.parse(line) as T)
+      return parseJsonl<T>(raw)
     } catch (err: unknown) {
       this.handleDiskError(`read ${this.fileNameFor(file)} for run ${this.runId}`, err)
       return []

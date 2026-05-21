@@ -23,6 +23,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { DzupEventBus } from '@dzupagent/core/events'
+import { parseJsonl } from '@dzupagent/core'
 import type { EvalScorer, EvalResult } from '@dzupagent/eval-contracts'
 import { runLogRoot } from '@dzupagent/agent-adapters'
 import type { AgentEvent, RunSummary } from '@dzupagent/agent-adapters'
@@ -221,20 +222,6 @@ async function readRunSummary(projectDir: string, runId: string): Promise<RunSum
     if (isNotFound(err)) return null
     throw err
   }
-}
-
-function parseJsonl<T>(raw: string): T[] {
-  const out: T[] = []
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      out.push(JSON.parse(trimmed) as T)
-    } catch {
-      // Skip malformed lines — the store tolerates partial writes on disk errors.
-    }
-  }
-  return out
 }
 
 function deriveMetrics(events: AgentEvent[], summary: RunSummary | null): RunOutcomeAnalysis['metrics'] {
