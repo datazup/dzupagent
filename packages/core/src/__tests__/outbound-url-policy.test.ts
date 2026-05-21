@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { createServer, type Server } from 'node:http'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   fetchWithOutboundUrlPolicy,
   isPublicIpAddress,
@@ -124,5 +125,103 @@ describe('outbound URL security policy', () => {
     expect(isPublicIpAddress('127.0.0.1')).toBe(false)
     expect(isPublicIpAddress('169.254.169.254')).toBe(false)
     expect(isPublicIpAddress('::1')).toBe(false)
+  })
+
+  describe('DNS rebinding TOCTOU defense', () => {
+    let server: Server
+    let port: number
+    let receivedHostHeaders: string[] = []
+
+    beforeAll(async () => {
+      server = createServer((req, res) => {
+        receivedHostHeaders.push(req.headers.host ?? '')
+        res.writeHead(200, { 'content-type': 'text/plain' })
+        res.end('ok')
+      })
+      await new Promise<void>((resolve) => {
+        server.listen(0, '127.0.0.1', () => resolve())
+      })
+      const address = server.address()
+      if (!address || typeof address === 'string') {
+        throw new Error('Failed to bind test HTTP server')
+      }
+      port = address.port
+    })
+
+    afterAll(async () => {
+      await new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()))
+      })
+    })
+
+    it('pins the TCP connection to the validated IP and does not re-resolve DNS at connect', async () => {
+      // Simulate a DNS-rebinding attacker: first lookup returns 127.0.0.1
+      // (our trusted local server, allowlisted below). Any subsequent lookup
+      // (which would happen without the pinned dispatcher) returns 8.8.8.8.
+      // If the connection re-resolved DNS, we would never reach the local
+      // server (or we would reach a different IP entirely).
+      let lookupCount = 0
+      const lookup = vi.fn(async () => {
+        lookupCount += 1
+        if (lookupCount === 1) {
+          return [{ address: '127.0.0.1', family: 4 }]
+        }
+        return [{ address: '8.8.8.8', family: 4 }]
+      })
+
+      receivedHostHeaders = []
+
+      const response = await fetchWithOutboundUrlPolicy(
+        `http://trusted.example.test:${port}/probe`,
+        {},
+        {
+          // Local test server is plaintext, so allow HTTP and allowlist the
+          // validated IP. The hostname is still resolved via the mock lookup,
+          // and the pinned dispatcher forwards the TCP connect to 127.0.0.1.
+          policy: {
+            lookup,
+            allowHttp: true,
+            allowedIpAddresses: ['127.0.0.1'],
+          },
+        },
+      )
+
+      expect(response).toBeDefined()
+      // validateOutboundUrl must have been called exactly once — the dispatcher
+      // does not trigger a fresh DNS resolution.
+      expect(lookup).toHaveBeenCalledTimes(1)
+      // The local server received the request, proving the TCP connection went
+      // to the validated 127.0.0.1 (not 8.8.8.8 from the racing DNS swap).
+      expect(receivedHostHeaders.length).toBeGreaterThan(0)
+      expect(receivedHostHeaders[0]).toContain(`trusted.example.test:${port}`)
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('ok')
+    })
+
+    it('does not attach a pinned dispatcher when caller provides a custom fetchImpl', async () => {
+      const seenInits: RequestInit[] = []
+      const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        seenInits.push(init ?? {})
+        return new Response('mocked', { status: 200 })
+      })
+
+      const response = await fetchWithOutboundUrlPolicy(
+        'https://example.com/path',
+        {},
+        {
+          fetchImpl: fetchMock as typeof fetch,
+          policy: {
+            lookup: async () => [{ address: '93.184.216.34', family: 4 }],
+          },
+        },
+      )
+
+      expect(response.status).toBe(200)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      // The init passed to the caller-supplied fetch must NOT contain a
+      // dispatcher field — the caller owns their own security posture.
+      const init = seenInits[0] as Record<string, unknown>
+      expect(init.dispatcher).toBeUndefined()
+    })
   })
 })
