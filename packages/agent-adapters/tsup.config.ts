@@ -18,7 +18,7 @@ export default defineConfig({
     'src/enrichment.ts',
   ],
   format: ['esm'],
-  dts: true,
+  dts: false,
   clean: true,
   target: 'node20',
   sourcemap: true,
