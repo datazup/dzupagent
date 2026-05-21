@@ -177,6 +177,15 @@ export async function maybeWriteBackMemory(
     void runConsolidateFinalizer(agentId, config)
   } catch {
     config.eventBus?.emit({
+      type: 'memory:put_failed',
+      agentId,
+      ...(runId !== undefined ? { runId } : {}),
+      namespace: config.memoryNamespace,
+      key,
+      scopeKeys: getSafeScopeKeys(config.memoryScope),
+      message: 'Memory write-back failed',
+    })
+    config.eventBus?.emit({
       type: 'memory:error',
       agentId,
       ...(runId !== undefined ? { runId } : {}),

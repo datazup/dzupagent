@@ -93,6 +93,10 @@ function extractDetails(event: DzupEvent): string {
       return `ns=${event.namespace} query="${event.query}" results=${event.resultCount}`
     case 'memory:error':
       return `ns=${event.namespace} ${event.message}`
+    case 'memory:put_failed':
+      return `ns=${event.namespace} key=${event.key} ${event.message}`
+    case 'audit:sink_failure':
+      return `sink=${event.sink} ${event.message}`
     case 'budget:warning':
       return `level=${event.level} ${event.usage.percent}%`
     case 'budget:exceeded':
