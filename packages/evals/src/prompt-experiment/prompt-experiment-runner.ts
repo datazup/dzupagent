@@ -7,7 +7,7 @@
  */
 
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import type { Semaphore } from '@dzupagent/core/orchestration';
+import type { Semaphore } from '@dzupagent/core/utils';
 
 import type { EvalDataset, EvalEntry } from '../dataset/eval-dataset.js';
 import type { EvalInput, ScorerResult } from '../types.js';
