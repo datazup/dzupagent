@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-05-20
+Date: 2026-05-21
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -306,7 +306,7 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./reflection/run-reflector.js` | 5 | `prefix:./reflection/` | `RunReflector`, `ReflectionScore`, `ReflectionDimensions`, `ReflectionInput` |
 | `deprecated-transitional` | `./reflection/reflection-analyzer.js` | 2 | `prefix:./reflection/` | `ReflectionAnalyzer`, `ReflectionAnalyzerConfig` |
 | `deprecated-transitional` | `./reflection/in-memory-reflection-store.js` | 1 | `prefix:./reflection/` | `InMemoryReflectionStore` |
-| `deprecated-transitional` | `./reflection/reflection-types.js` | 3 | `prefix:./reflection/` | `ReflectionPattern`, `ReflectionSummary`, `RunReflectionStore` |
+| `deprecated-transitional` | `./reflection/reflection-types.js` | 5 | `prefix:./reflection/` | `ReflectionPattern`, `ReflectionSummary`, `RunReflectionStore`, `ReflectionListOptions` |
 | `deprecated-transitional` | `./reflection/learning-bridge.js` | 3 | `prefix:./reflection/` | `createReflectionLearningBridge`, `buildWorkflowEventsFromToolStats`, `ReflectionLearningBridgeConfig` |
 | `deprecated-transitional` | `./recovery/recovery-copilot.js` | 2 | `prefix:./recovery/` | `RecoveryCopilot`, `StrategyGenerator` |
 | `deprecated-transitional` | `./recovery/failure-analyzer.js` | 3 | `prefix:./recovery/` | `FailureAnalyzer`, `FailureHistoryEntry`, `FailureAnalysis` |
@@ -966,6 +966,31 @@ No stable subpaths configured.
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
+
+## @dzupagent/connectors-documents
+
+Root index: `packages/connectors-documents/src/index.ts`
+
+- Stable root sources: `6`
+- Deprecated transitional root sources: `1`
+- Internal-only root candidates: `0`
+- Migration window: Document connector root exports are stable ingestion primitives; chunking subpath is transitional pending API stabilisation.
+
+### Stable Subpaths
+
+No stable subpaths configured.
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
+| `stable` | `./document-connector.js` | 2 | `exact:./document-connector.js` | `createDocumentConnector`, `DocumentConnectorConfig` |
+| `stable` | `./connector-contract.js` | 3 | `exact:./connector-contract.js` | `normalizeDocumentTool`, `normalizeDocumentTools`, `DocumentConnectorTool` |
+| `stable` | `./parse-document.js` | 1 | `exact:./parse-document.js` | `parseDocument` |
+| `deprecated-transitional` | `./chunking/split-into-chunks.js` | 1 | `prefix:./chunking/` | `splitIntoChunks` |
+| `stable` | `./supported-types.js` | 2 | `exact:./supported-types.js` | `isSupportedDocumentType`, `SUPPORTED_MIME_TYPES` |
+| `stable` | `./validation.js` | 6 | `exact:./validation.js` | `DEFAULT_MAX_CHUNK_SIZE`, `DEFAULT_OVERLAP_SIZE`, `MAX_CHUNK_SIZE_LIMIT`, `DEFAULT_MAX_DOCUMENT_BYTES` |
+| `stable` | `./types.js` | 1 | `exact:./types.js` | `ChunkOptions` |
 
 ## @dzupagent/server
 
