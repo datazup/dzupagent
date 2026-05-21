@@ -24,7 +24,9 @@ export default defineConfig({
     'src/events/event-types.ts',
   ],
   format: ['esm'],
-  dts: { compilerOptions: { composite: false, exactOptionalPropertyTypes: false } },
+  // DTS generation via tsup can hang in this package due to the large multi-entry graph.
+  // We emit declarations with tsc in the build script instead.
+  dts: false,
   clean: true,
   sourcemap: true,
   target: 'node20',

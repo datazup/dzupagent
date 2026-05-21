@@ -100,6 +100,9 @@ export { createCostTrackingMiddleware, createGuardrailsMiddleware } from './midd
 export { sanitizeContent, createContentSanitizerMiddleware } from './middleware/content-sanitizer.js'
 export type { ContentSanitizerConfig } from './middleware/content-sanitizer.js'
 
+// --- Event factories ---
+export * from './events/index.js'
+
 // --- Orchestration ---
 export { SupervisorOrchestrator, KeywordTaskDecomposer } from './orchestration/supervisor.js'
 export type {
