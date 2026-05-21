@@ -6,7 +6,7 @@
  * pluggable merge strategy.
  */
 import { HumanMessage } from '@langchain/core/messages'
-import { Semaphore } from '@dzupagent/core/orchestration'
+import { Semaphore } from '@dzupagent/core/utils'
 import type { BaseMapReduceContract } from '@dzupagent/agent-types'
 import type { DzupAgent } from '../agent/dzip-agent.js'
 import type { MergeStrategyFn, MergeStrategyName } from './merge-strategies.js'

@@ -3,7 +3,7 @@
  * abort support, regression checks, and report formatting.
  */
 
-import { Semaphore } from '@dzupagent/core/orchestration';
+import { Semaphore } from '@dzupagent/core/utils';
 
 import type { EvalDataset, EvalEntry } from '../dataset/eval-dataset.js';
 import type { EvalInput, Scorer, ScorerResult } from '../types.js';

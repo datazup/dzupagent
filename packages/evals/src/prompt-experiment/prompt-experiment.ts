@@ -14,7 +14,7 @@
  * This file re-exports the public types to preserve the original API.
  */
 
-import { Semaphore } from '@dzupagent/core/orchestration';
+import { Semaphore } from '@dzupagent/core/utils';
 
 import type { EvalDataset, EvalEntry } from '../dataset/eval-dataset.js';
 
