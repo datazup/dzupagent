@@ -29,6 +29,8 @@ export type {
 
 export type {
   ObservabilityConfigSlice,
+  AuditRedactionMode,
+  AuditRedactionPolicy,
   FallbackDetailEvent,
 } from './agent-types-observability.js'
 

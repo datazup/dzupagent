@@ -18,6 +18,34 @@ export interface FallbackDetailEvent {
   tokensAfter?: number
 }
 
+/**
+ * Redaction mode for prompt/response payloads written to `auditStore`.
+ *
+ * - `off`: no redaction.
+ * - `secrets`: redact high-risk secrets/tokens only.
+ * - `secrets-and-pii`: redact secrets and PII markers.
+ */
+export type AuditRedactionMode = 'off' | 'secrets' | 'secrets-and-pii'
+
+/** Configuration for LLM-call audit payload redaction/retention. */
+export interface AuditRedactionPolicy {
+  /**
+   * Redaction mode applied to prompt/response/error payloads before writing
+   * to the audit sink and before emitting `audit:sink_failure`.
+   *
+   * Default: `secrets-and-pii`.
+   */
+  mode?: AuditRedactionMode
+
+  /**
+   * Whether to include full `prompt` / `response` strings in audit entries.
+   * Snippets remain enabled when available.
+   *
+   * Default: `true`.
+   */
+  includeFullPayloads?: boolean
+}
+
 /** Observability and tokenizer configuration slice. */
 export interface ObservabilityConfigSlice {
   /**
@@ -30,6 +58,12 @@ export interface ObservabilityConfigSlice {
    * sink never stalls a run.
    */
   auditStore?: LlmCallAuditSink
+
+  /**
+   * Optional redaction/retention policy for payloads captured by `auditStore`.
+   * Defaults to redacting secrets + PII while still keeping full payload fields.
+   */
+  auditRedaction?: AuditRedactionPolicy
 
   /**
    * Telemetry callback invoked when memory falls back or compression truncates.
