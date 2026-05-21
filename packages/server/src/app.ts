@@ -55,15 +55,19 @@ import { registerEnvNotificationChannels } from './composition/notifications.js'
 
 // Re-export the public composition types so legacy `import { ... } from
 // '@dzupagent/server/app'` paths continue to resolve. The aggregate type
-// `ForgeServerConfig` is the canonical surface; the focused sub-interfaces
-// are exposed here for callers that prefer narrower types.
+// `ForgeServerConfig` is the canonical surface; the route-family
+// sub-interfaces are exposed here (and at the package root) for callers that
+// prefer narrower types.
+//
+// The package-root public surface is `@dzupagent/server` (see `index.ts`).
+// The seven `Forge{Core,Transport,Runtime,Integrations,Security}Config` and
+// `{PromptFeedbackLoop,LearningEventProcessor}Like` re-exports below are
+// `@deprecated` legacy compatibility aliases for the `@dzupagent/server/app`
+// loose import path; they have zero workspace consumers and are not promoted
+// to the package root.
 export type {
   ForgeServerConfig,
   ForgeHostRuntimeConfig,
-  ForgeCoreConfig,
-  ForgeTransportConfig,
-  ForgeRuntimeConfig,
-  ForgeIntegrationsConfig,
   ForgeRouteFamiliesConfig,
   ForgeMemoryRouteFamilyConfig,
   ForgeCompatibilityRouteFamilyConfig,
@@ -71,10 +75,26 @@ export type {
   ForgeAdapterRouteFamilyConfig,
   ForgeAutomationRouteFamilyConfig,
   ForgeControlPlaneRouteFamilyConfig,
-  ForgeSecurityConfig,
   ConsolidationConfig,
   MailDeliveryConfig,
+} from './composition/types.js'
+// Legacy `@dzupagent/server/app` compatibility aliases — see notice above.
+// These are internal composition building blocks; prefer `ForgeServerConfig`
+// or `ForgeHostRuntimeConfig` for new code.
+export type {
+  /** @deprecated Use `ForgeServerConfig`. Internal composition building block re-exported only for the `@dzupagent/server/app` legacy path. */
+  ForgeCoreConfig,
+  /** @deprecated Use `ForgeServerConfig`. Internal composition building block re-exported only for the `@dzupagent/server/app` legacy path. */
+  ForgeTransportConfig,
+  /** @deprecated Use `ForgeServerConfig`. Internal composition building block re-exported only for the `@dzupagent/server/app` legacy path. */
+  ForgeRuntimeConfig,
+  /** @deprecated Use `ForgeServerConfig` or `ForgeRouteFamiliesConfig`. Internal composition building block re-exported only for the `@dzupagent/server/app` legacy path. */
+  ForgeIntegrationsConfig,
+  /** @deprecated Use `ForgeServerConfig` or `ForgeHostRuntimeConfig`. Internal composition building block re-exported only for the `@dzupagent/server/app` legacy path. */
+  ForgeSecurityConfig,
+  /** @deprecated Inline the `{ start(): void; stop(): void }` shape, or import `PromptFeedbackLoop` directly. Re-exported only for the `@dzupagent/server/app` legacy path. */
   PromptFeedbackLoopLike,
+  /** @deprecated Inline the `{ start(): void; stop(): void }` shape, or import `LearningEventProcessor` directly. Re-exported only for the `@dzupagent/server/app` legacy path. */
   LearningEventProcessorLike,
 } from './composition/types.js'
 export type { HttpConnectorProfile } from './runtime/tool-resolver.js'

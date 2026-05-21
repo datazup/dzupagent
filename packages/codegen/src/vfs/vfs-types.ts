@@ -40,16 +40,35 @@ export interface VFSDiff {
   deleted: FileDiff[]
 }
 
-/** Result of a parallel sampling run */
-export interface SampleResult<T> {
-  /** The CoW fork used for this sample */
-  forkIndex: number
-  /** The result produced by the sampling function */
-  result: T
-  /** Index of this sample (0-based) */
-  index: number
-  /** Duration of the sampling function in milliseconds */
-  durationMs: number
-  /** Whether the sampling function threw an error */
-  error?: string
-}
+/**
+ * Result of a parallel sampling run.
+ *
+ * Discriminated by `ok` so callers cannot accidentally read `result` from a
+ * failed sample. Narrow with `if (r.ok)` (success) or `if (!r.ok)` (failure)
+ * before accessing `result` or `error` respectively.
+ */
+export type SampleResult<T> =
+  | {
+      /** Discriminator: the sample succeeded */
+      ok: true
+      /** The CoW fork used for this sample */
+      forkIndex: number
+      /** Index of this sample (0-based) */
+      index: number
+      /** Duration of the sampling function in milliseconds */
+      durationMs: number
+      /** The result produced by the sampling function */
+      result: T
+    }
+  | {
+      /** Discriminator: the sample failed */
+      ok: false
+      /** The CoW fork used for this sample */
+      forkIndex: number
+      /** Index of this sample (0-based) */
+      index: number
+      /** Duration of the sampling function in milliseconds */
+      durationMs: number
+      /** Error message captured from the thrown value */
+      error: string
+    }

@@ -24,14 +24,14 @@ function makeVFS(initial?: Record<string, string>): VirtualFS {
 
 /** Build a SampleResult without error. */
 function okResult<T>(forkIndex: number, result: T, durationMs = 5): SampleResult<T> {
-  return { forkIndex, result, index: forkIndex, durationMs }
+  return { ok: true, forkIndex, index: forkIndex, durationMs, result }
 }
 
 /** Build a SampleResult with an error. */
 function errResult<T>(forkIndex: number, error: string, durationMs = 5): SampleResult<T> {
   return {
+    ok: false,
     forkIndex,
-    result: undefined as unknown as T,
     index: forkIndex,
     durationMs,
     error,
@@ -83,17 +83,19 @@ describe('sample()', () => {
     expect(receivedIndices.sort((a, b) => a - b)).toEqual([0, 1, 2, 3])
   })
 
-  it('successful result has forkIndex, index, result, durationMs — and no error field', async () => {
+  it('successful result has ok:true, forkIndex, index, result, durationMs', async () => {
     const results = await sample(root, 1, async (_fork, _index) => {
       return 'hello'
     })
 
     const r = results[0]!
+    expect(r.ok).toBe(true)
     expect(r.forkIndex).toBe(0)
     expect(r.index).toBe(0)
-    expect(r.result).toBe('hello')
+    if (r.ok) {
+      expect(r.result).toBe('hello')
+    }
     expect(r.durationMs).toBeTypeOf('number')
-    expect(r.error).toBeUndefined()
   })
 
   it('forkIndex matches index for every successful result', async () => {
@@ -104,15 +106,16 @@ describe('sample()', () => {
     }
   })
 
-  it('failed fn is captured: error field set, result is undefined-like', async () => {
+  it('failed fn is captured: ok:false and error field set', async () => {
     const results = await sample(root, 1, async () => {
       throw new Error('boom')
     })
 
     const r = results[0]!
-    expect(r.error).toBe('boom')
-    // The source sets result to `undefined as unknown as T` on error
-    expect(r.result).toBeUndefined()
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.error).toBe('boom')
+    }
     expect(r.forkIndex).toBe(0)
     expect(r.durationMs).toBeTypeOf('number')
   })
@@ -122,7 +125,11 @@ describe('sample()', () => {
       return Promise.reject('string-error')
     })
 
-    expect(results[0]!.error).toBe('string-error')
+    const r = results[0]!
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.error).toBe('string-error')
+    }
   })
 
   it('count=0 throws with message about valid range', async () => {
@@ -140,13 +147,13 @@ describe('sample()', () => {
   it('count=10 works (upper boundary)', async () => {
     const results = await sample(root, 10, async (_fork, index) => index)
     expect(results).toHaveLength(10)
-    expect(results.every(r => r.error === undefined)).toBe(true)
+    expect(results.every(r => r.ok)).toBe(true)
   })
 
   it('count=1 works (lower boundary)', async () => {
     const results = await sample(root, 1, async (_fork, index) => index)
     expect(results).toHaveLength(1)
-    expect(results[0]!.error).toBeUndefined()
+    expect(results[0]!.ok).toBe(true)
   })
 
   it('mixed success/failure: correct forkIndex on both kinds', async () => {
@@ -158,19 +165,25 @@ describe('sample()', () => {
     expect(results).toHaveLength(4)
 
     const sorted = [...results].sort((a, b) => a.forkIndex - b.forkIndex)
-    expect(sorted[0]!.forkIndex).toBe(0)
-    expect(sorted[0]!.error).toBeUndefined()
-    expect(sorted[0]!.result).toBe('ok-0')
+    const r0 = sorted[0]!
+    expect(r0.forkIndex).toBe(0)
+    expect(r0.ok).toBe(true)
+    if (r0.ok) expect(r0.result).toBe('ok-0')
 
-    expect(sorted[1]!.forkIndex).toBe(1)
-    expect(sorted[1]!.error).toBe('fail-1')
+    const r1 = sorted[1]!
+    expect(r1.forkIndex).toBe(1)
+    expect(r1.ok).toBe(false)
+    if (!r1.ok) expect(r1.error).toBe('fail-1')
 
-    expect(sorted[2]!.forkIndex).toBe(2)
-    expect(sorted[2]!.error).toBeUndefined()
-    expect(sorted[2]!.result).toBe('ok-2')
+    const r2 = sorted[2]!
+    expect(r2.forkIndex).toBe(2)
+    expect(r2.ok).toBe(true)
+    if (r2.ok) expect(r2.result).toBe('ok-2')
 
-    expect(sorted[3]!.forkIndex).toBe(3)
-    expect(sorted[3]!.error).toBe('fail-3')
+    const r3 = sorted[3]!
+    expect(r3.forkIndex).toBe(3)
+    expect(r3.ok).toBe(false)
+    if (!r3.ok) expect(r3.error).toBe('fail-3')
   })
 
   it('durationMs is a non-negative number for all results', async () => {
@@ -302,7 +315,7 @@ describe('selectBest()', () => {
 
     // Give a huge score to what the error result's result would be if it
     // weren't excluded — but since it's excluded the scorer never sees it.
-    const best = selectBest(results, r => r === (undefined as unknown as number) ? 999 : r)
+    const best = selectBest(results, r => (r === (undefined as unknown as number) ? 999 : r))
     expect(best!.forkIndex).toBe(2)
     expect(best!.result).toBe(7)
   })
@@ -549,10 +562,12 @@ describe('sampleAndCommitBest()', () => {
     expect(outcome!.allResults).toHaveLength(4)
 
     const sorted = [...outcome!.allResults].sort((a, b) => a.forkIndex - b.forkIndex)
-    expect(sorted[2]!.error).toBe('middle-fail')
-    expect(sorted[0]!.error).toBeUndefined()
-    expect(sorted[1]!.error).toBeUndefined()
-    expect(sorted[3]!.error).toBeUndefined()
+    const failed = sorted[2]!
+    expect(failed.ok).toBe(false)
+    if (!failed.ok) expect(failed.error).toBe('middle-fail')
+    expect(sorted[0]!.ok).toBe(true)
+    expect(sorted[1]!.ok).toBe(true)
+    expect(sorted[3]!.ok).toBe(true)
   })
 
   it('count=0 throws with valid-range message', async () => {
@@ -618,7 +633,7 @@ describe('sampleAndCommitBest()', () => {
     expect(outcome!.winner.forkIndex).toBe(2)
   })
 
-  it('winner object has forkIndex, result, index, durationMs and no error', async () => {
+  it('winner object has ok:true, forkIndex, result, index, durationMs', async () => {
     const outcome = await sampleAndCommitBest(
       root,
       2,
@@ -627,10 +642,10 @@ describe('sampleAndCommitBest()', () => {
     )
 
     const w = outcome!.winner
+    expect(w.ok).toBe(true)
     expect(w.forkIndex).toBeTypeOf('number')
     expect(w.index).toBeTypeOf('number')
     expect(w.durationMs).toBeGreaterThanOrEqual(0)
-    expect(w.error).toBeUndefined()
     expect(w.result).toMatch(/^result-/)
   })
 })

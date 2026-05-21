@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { VirtualFS } from '../../vfs/virtual-fs.js'
 import { CopyOnWriteVFS } from '../../vfs/cow-vfs.js'
 import { sample, selectBest, commitBest, sampleAndCommitBest } from '../../vfs/parallel-sampling.js'
+import type { SampleResult } from '../../vfs/vfs-types.js'
 
 describe('CopyOnWriteVFS', () => {
   let root: VirtualFS
@@ -489,7 +490,7 @@ describe('Parallel Sampling', () => {
       })
 
       expect(results).toHaveLength(3)
-      expect(results.map(r => r.result)).toEqual([0, 1, 2])
+      expect(results.map(r => (r.ok ? r.result : null))).toEqual([0, 1, 2])
 
       // Parent should be unchanged
       expect(root.read('src/index.ts')).toBe('export const version = "1.0.0"')
@@ -502,9 +503,11 @@ describe('Parallel Sampling', () => {
       })
 
       expect(results).toHaveLength(3)
-      expect(results[0]!.error).toBeUndefined()
-      expect(results[1]!.error).toBe('intentional failure')
-      expect(results[2]!.error).toBeUndefined()
+      expect(results[0]!.ok).toBe(true)
+      const r1 = results[1]!
+      expect(r1.ok).toBe(false)
+      if (!r1.ok) expect(r1.error).toBe('intentional failure')
+      expect(results[2]!.ok).toBe(true)
     })
 
     it('tracks duration for each sample', async () => {
@@ -525,10 +528,10 @@ describe('Parallel Sampling', () => {
 
   describe('selectBest()', () => {
     it('selects the sample with the highest score', () => {
-      const results = [
-        { forkIndex: 0, result: { score: 5 }, index: 0, durationMs: 10 },
-        { forkIndex: 1, result: { score: 9 }, index: 1, durationMs: 20 },
-        { forkIndex: 2, result: { score: 7 }, index: 2, durationMs: 15 },
+      const results: SampleResult<{ score: number }>[] = [
+        { ok: true, forkIndex: 0, result: { score: 5 }, index: 0, durationMs: 10 },
+        { ok: true, forkIndex: 1, result: { score: 9 }, index: 1, durationMs: 20 },
+        { ok: true, forkIndex: 2, result: { score: 7 }, index: 2, durationMs: 15 },
       ]
 
       const best = selectBest(results, r => r.score)
@@ -538,9 +541,9 @@ describe('Parallel Sampling', () => {
     })
 
     it('skips errored samples', () => {
-      const results = [
-        { forkIndex: 0, result: { score: 5 }, index: 0, durationMs: 10, error: 'failed' },
-        { forkIndex: 1, result: { score: 3 }, index: 1, durationMs: 20 },
+      const results: SampleResult<{ score: number }>[] = [
+        { ok: false, forkIndex: 0, index: 0, durationMs: 10, error: 'failed' },
+        { ok: true, forkIndex: 1, result: { score: 3 }, index: 1, durationMs: 20 },
       ]
 
       const best = selectBest(results, r => r.score)
@@ -548,9 +551,9 @@ describe('Parallel Sampling', () => {
     })
 
     it('returns null when all samples errored', () => {
-      const results = [
-        { forkIndex: 0, result: { score: 5 }, index: 0, durationMs: 10, error: 'fail1' },
-        { forkIndex: 1, result: { score: 9 }, index: 1, durationMs: 20, error: 'fail2' },
+      const results: SampleResult<{ score: number }>[] = [
+        { ok: false, forkIndex: 0, index: 0, durationMs: 10, error: 'fail1' },
+        { ok: false, forkIndex: 1, index: 1, durationMs: 20, error: 'fail2' },
       ]
 
       const best = selectBest(results, r => r.score)
