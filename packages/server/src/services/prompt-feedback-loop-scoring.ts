@@ -10,6 +10,7 @@ import { join } from 'node:path'
 
 import { runLogRoot } from '@dzupagent/agent-adapters'
 import type { AgentEvent } from '@dzupagent/agent-adapters'
+import { parseJsonl } from '@dzupagent/core'
 
 import type { ScorerBreakdownEntry } from './prompt-feedback-loop-types.js'
 
@@ -19,19 +20,10 @@ export async function readNormalizedEvents(projectDir: string, runId: string): P
   return parseJsonl<AgentEvent>(raw)
 }
 
-export function parseJsonl<T>(raw: string): T[] {
-  const out: T[] = []
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    try {
-      out.push(JSON.parse(trimmed) as T)
-    } catch {
-      // Skip malformed lines.
-    }
-  }
-  return out
-}
+// Re-exported for backward compatibility with any external consumer importing
+// `parseJsonl` from this module. Prefer importing directly from
+// `@dzupagent/core` going forward.
+export { parseJsonl }
 
 /**
  * Extract unique prompt strings from run events. Currently looks at

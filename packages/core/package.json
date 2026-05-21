@@ -144,7 +144,8 @@
   "dependencies": {
     "@dzupagent/agent-types": "0.2.0",
     "@dzupagent/runtime-contracts": "0.2.0",
-    "@dzupagent/security": "0.2.0"
+    "@dzupagent/security": "0.2.0",
+    "undici": "^5.29.0"
   },
   "peerDependencies": {
     "@anthropic-ai/tokenizer": ">=0.0.4",

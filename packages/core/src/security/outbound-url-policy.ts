@@ -1,5 +1,6 @@
 import { lookup as defaultLookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { Agent as UndiciAgent, buildConnector } from 'undici'
 
 export interface OutboundUrlSecurityPolicy {
   /**
@@ -223,6 +224,43 @@ function isRedirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308
 }
 
+/**
+ * Builds an undici dispatcher that pins outbound TCP connections to a single
+ * pre-validated IP address, defeating DNS-rebinding TOCTOU between
+ * `validateOutboundUrl` and the actual TCP connect.
+ *
+ * The URL's hostname is left intact so TLS SNI and the HTTP `Host` header
+ * remain correct; only the underlying socket's lookup is overridden.
+ */
+function createIpPinnedDispatcher(address: OutboundUrlResolvedAddress): UndiciAgent {
+  const pinnedAddress = address.address
+  const pinnedFamily: 0 | 4 | 6 = address.family === 4 || address.family === 6 ? address.family : 0
+
+  const baseConnector = buildConnector({
+    lookup: (_hostname, options, callback) => {
+      if (options && options.all === true) {
+        callback(null, [{ address: pinnedAddress, family: pinnedFamily }] as never, pinnedFamily as never)
+        return
+      }
+      callback(null, pinnedAddress as never, pinnedFamily as never)
+    },
+  })
+
+  return new UndiciAgent({
+    connect: baseConnector,
+  })
+}
+
+function getResolvedAddressForPinning(
+  validation: Extract<OutboundUrlPolicyResult, { ok: true }>,
+): OutboundUrlResolvedAddress | undefined {
+  for (const entry of validation.resolvedAddresses) {
+    const normalized = normalizeHostname(entry.address)
+    if (isIP(normalized) !== 0) return { address: normalized, family: entry.family }
+  }
+  return undefined
+}
+
 function throwIfAborted(signal: AbortSignal | null | undefined): void {
   if (!signal?.aborted) return
 
@@ -239,6 +277,7 @@ export async function fetchWithOutboundUrlPolicy(
   options: SecureFetchOptions = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS
+  const callerProvidedFetch = options.fetchImpl !== undefined
   // eslint-disable-next-line no-restricted-globals -- intentional: this is the central secure-fetch wrapper that validates URLs before delegating to the platform fetch implementation
   const fetchImpl = options.fetchImpl ?? fetch
   let currentUrl = typeof url === 'string' ? url : url.href
@@ -254,10 +293,29 @@ export async function fetchWithOutboundUrlPolicy(
 
     throwIfAborted(currentInit.signal)
 
-    const response = await fetchImpl(validation.url.href, {
+    // DNS-rebinding TOCTOU defense: when the caller has not supplied a custom
+    // fetchImpl, pin the TCP connection to the address we just validated so a
+    // racing DNS swap cannot redirect the connection to a private/internal IP
+    // between validation and connect. We skip pinning when the caller owns the
+    // fetch implementation (they manage their own security posture) and when
+    // validation produced no resolved addresses (e.g., IP-literal or example
+    // hosts that took the syntax-only path).
+    const pinnedAddress = callerProvidedFetch ? undefined : getResolvedAddressForPinning(validation)
+    const requestInit: RequestInit = {
       ...currentInit,
       redirect: 'manual',
-    })
+    }
+    if (pinnedAddress) {
+      // The `dispatcher` field is an undici extension that Node's built-in
+      // fetch honors at runtime. The shipped `undici` package and Node's
+      // bundled `undici-types` declare slightly different Dispatcher shapes,
+      // so we erase the type via an unknown-cast before assigning.
+      Object.assign(requestInit as Record<string, unknown>, {
+        dispatcher: createIpPinnedDispatcher(pinnedAddress) as unknown,
+      })
+    }
+
+    const response = await fetchImpl(validation.url.href, requestInit)
 
     if (!isRedirectStatus(response.status)) return response
 
