@@ -23,7 +23,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { DzupEventBus } from '@dzupagent/core/events'
-import { parseJsonl } from '@dzupagent/core'
+import { parseJsonl } from '@dzupagent/core/utils'
 import type { EvalScorer, EvalResult } from '@dzupagent/eval-contracts'
 import { runLogRoot } from '@dzupagent/agent-adapters/runs'
 import type { AgentEvent, RunSummary } from '@dzupagent/agent-adapters/runs'
