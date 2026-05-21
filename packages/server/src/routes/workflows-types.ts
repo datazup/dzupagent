@@ -3,7 +3,7 @@
  */
 import type { SkillRegistry, WorkflowRegistry } from '@dzupagent/core/pipeline'
 import type { DzupEventBus } from '@dzupagent/core/events'
-import type { SkillStepResolver } from '@dzupagent/agent'
+import type { SkillStepResolver } from '@dzupagent/agent/workflow'
 import type { CompilationTarget } from '@dzupagent/flow-compiler'
 import type { ToolResolver, AsyncToolResolver } from '@dzupagent/flow-ast'
 import type { PersonaResolver, AsyncPersonaResolver } from '@dzupagent/flow-compiler'

@@ -1,7 +1,7 @@
 import type { DzupEventBus } from '@dzupagent/core/events'
 import type { PersistedIntentContext } from '@dzupagent/core/llm'
 import type { AgentExecutionSpec, RunStore } from '@dzupagent/core/persistence'
-import type { RunReflectionStore, ReflectionSummary } from '@dzupagent/agent'
+import type { RunReflectionStore, ReflectionSummary } from '@dzupagent/agent/reflection'
 import type { RunTraceStore } from '../persistence/run-trace-store.js'
 import type { RunJob } from '../queue/run-queue.js'
 import { reportRetrievalFeedback } from './retrieval-feedback-hook.js'

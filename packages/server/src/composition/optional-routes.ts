@@ -20,7 +20,7 @@ import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from './types.js'
 import type { EventGateway } from '../events/event-gateway.js'
 import type { AuthConfig } from '../middleware/auth.js'
-import type { MailboxStore } from '@dzupagent/agent'
+import type { MailboxStore } from '@dzupagent/agent/mailbox'
 import type { ServerRoutePlugin } from '../route-plugin.js'
 import { mountRoutePlugins } from './route-plugins.js'
 
@@ -48,7 +48,7 @@ import { createMailboxRoutes } from '../routes/mailbox.js'
 import { createClusterRoutes } from '../routes/clusters.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { rbacMiddleware } from '../middleware/rbac.js'
-import { InMemoryMailboxStore } from '@dzupagent/agent'
+import { InMemoryMailboxStore } from '@dzupagent/agent/mailbox'
 import {
   MailRateLimiter,
   type MailRateLimiterConfig,

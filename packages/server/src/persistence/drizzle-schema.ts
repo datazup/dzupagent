@@ -19,7 +19,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 import { vectorColumn } from './vector-column.js'
-import type { ReflectionPattern } from '@dzupagent/agent'
+import type { ReflectionPattern } from '@dzupagent/agent/reflection'
 
 // ---------------------------------------------------------------------------
 // Agent Definitions

@@ -15,7 +15,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, isNull, lte, sql } from 'drizzle-orm'
-import type { MailMessage } from '@dzupagent/agent'
+import type { MailMessage } from '@dzupagent/agent/mailbox'
 import { agentMailbox, agentMailDlq } from './drizzle-schema.js'
 import type { DrizzleStoreDatabase } from './drizzle-store-types.js'
 

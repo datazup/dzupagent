@@ -11,7 +11,7 @@
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import { randomUUID } from 'node:crypto'
-import type { MailboxStore, MailMessage } from '@dzupagent/agent'
+import type { MailboxStore, MailMessage } from '@dzupagent/agent/mailbox'
 import type { ClusterStore } from '../persistence/drizzle-cluster-store.js'
 import {
   ClusterCreateSchema,

@@ -7,8 +7,8 @@
  */
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
-import type { AdapterSkillRegistry } from '@dzupagent/agent-adapters'
-import { SkillCapabilityMatrixBuilder } from '@dzupagent/agent-adapters'
+import type { AdapterSkillRegistry } from '@dzupagent/agent-adapters/skills'
+import { SkillCapabilityMatrixBuilder } from '@dzupagent/agent-adapters/skills'
 
 export interface CapabilityRouteConfig {
   skillRegistry: AdapterSkillRegistry

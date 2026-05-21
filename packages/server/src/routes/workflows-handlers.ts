@@ -10,8 +10,8 @@ import {
   executeTextualWorkflow,
   streamTextualWorkflow,
   SkillChainExecutor,
-} from '@dzupagent/agent'
-import type { DryRunResult } from '@dzupagent/agent'
+} from '@dzupagent/agent/workflow'
+import type { DryRunResult } from '@dzupagent/agent/workflow'
 import { sanitizeError } from './route-error.js'
 import {
   type DryRunBody,

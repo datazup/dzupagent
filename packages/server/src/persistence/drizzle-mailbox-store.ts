@@ -6,7 +6,7 @@
  * TTL enforcement uses SQL filtering on read and a sweep query for
  * {@link deleteExpired}.
  */
-import type { MailboxStore, MailMessage, MailboxQuery } from '@dzupagent/agent'
+import type { MailboxStore, MailMessage, MailboxQuery } from '@dzupagent/agent/mailbox'
 import { eq, and, gt, isNull, asc, sql } from 'drizzle-orm'
 import { agentMailbox } from './drizzle-schema.js'
 import type { DrizzleDlqStore } from './drizzle-dlq-store.js'

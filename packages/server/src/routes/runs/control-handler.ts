@@ -16,7 +16,7 @@ import {
   ConcreteRunHandle,
   ForkLimitExceededError,
   InvalidRunStateError,
-} from '@dzupagent/agent'
+} from '@dzupagent/agent/runtime'
 
 import type { ForgeServerConfig } from '../../composition/types.js'
 import {

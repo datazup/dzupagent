@@ -7,9 +7,8 @@
  */
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
-import type { PresetRegistry } from '@dzupagent/agent'
-import { buildConfigFromPreset } from '@dzupagent/agent'
-import type { PresetRuntimeDeps } from '@dzupagent/agent'
+import type { PresetRegistry, PresetRuntimeDeps } from '@dzupagent/agent/presets'
+import { buildConfigFromPreset } from '@dzupagent/agent/presets'
 
 export interface PresetRouteConfig {
   presetRegistry: PresetRegistry

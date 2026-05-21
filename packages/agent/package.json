@@ -44,6 +44,26 @@
     "./compat": {
       "types": "./dist/compat.d.ts",
       "import": "./dist/compat.js"
+    },
+    "./mailbox": {
+      "types": "./dist/mailbox.d.ts",
+      "import": "./dist/mailbox.js"
+    },
+    "./cluster": {
+      "types": "./dist/cluster.d.ts",
+      "import": "./dist/cluster.js"
+    },
+    "./reflection": {
+      "types": "./dist/reflection.d.ts",
+      "import": "./dist/reflection.js"
+    },
+    "./presets": {
+      "types": "./dist/presets.d.ts",
+      "import": "./dist/presets.js"
+    },
+    "./streaming": {
+      "types": "./dist/streaming.d.ts",
+      "import": "./dist/streaming.js"
     }
   },
   "scripts": {

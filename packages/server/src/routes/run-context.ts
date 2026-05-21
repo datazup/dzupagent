@@ -32,7 +32,7 @@ import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { ForgeServerConfig } from '../composition/types.js'
 import type { LogEntry } from '@dzupagent/core/persistence'
-import type { CompressionLogEntry } from '@dzupagent/agent'
+import type { CompressionLogEntry } from '@dzupagent/agent/runtime'
 import { requireOwnedRun } from './run-guard.js'
 import type { TokenLifecycleLike } from './run-context-types.js'
 

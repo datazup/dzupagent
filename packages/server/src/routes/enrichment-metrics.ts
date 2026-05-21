@@ -10,7 +10,7 @@
  * for downstream consumers (dashboards, OTel exporters, replay viewers).
  */
 import { Hono } from 'hono'
-import { EnrichmentPipeline } from '@dzupagent/agent-adapters'
+import { EnrichmentPipeline } from '@dzupagent/agent-adapters/enrichment'
 import type { ForgeServerConfig } from '../composition/types.js'
 import type { AppEnv } from '../types.js'
 import { requireOwnedRun } from './run-guard.js'

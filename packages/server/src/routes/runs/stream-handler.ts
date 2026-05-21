@@ -10,7 +10,7 @@
  */
 import type { Context } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { StreamingRunHandle } from '@dzupagent/agent'
+import { StreamingRunHandle } from '@dzupagent/agent/streaming'
 
 import { secureLogger } from '@dzupagent/core/utils'
 
