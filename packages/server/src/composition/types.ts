@@ -118,6 +118,11 @@ export type ConsolidationConfig =
  * Structural type matching {@link PromptFeedbackLoop}'s lifecycle API.
  * Uses structural typing so hosts can inject custom implementations or mocks
  * without importing the concrete class.
+ *
+ * @deprecated Compatibility alias re-exported via `@dzupagent/server/app` for
+ * legacy callers. Inline the `{ start(): void; stop(): void }` shape or
+ * import `PromptFeedbackLoop` directly. Not part of the package-root public
+ * surface (`@dzupagent/server`).
  */
 export interface PromptFeedbackLoopLike {
   start(): void
@@ -128,6 +133,11 @@ export interface PromptFeedbackLoopLike {
  * Structural type matching {@link LearningEventProcessor}'s lifecycle API.
  * Uses structural typing so hosts can inject custom implementations or mocks
  * without importing the concrete class.
+ *
+ * @deprecated Compatibility alias re-exported via `@dzupagent/server/app` for
+ * legacy callers. Inline the `{ start(): void; stop(): void }` shape or
+ * import `LearningEventProcessor` directly. Not part of the package-root
+ * public surface (`@dzupagent/server`).
  */
 export interface LearningEventProcessorLike {
   start(): void
@@ -136,6 +146,12 @@ export interface LearningEventProcessorLike {
 
 /**
  * Required core wiring: stores, registry, and the shared event bus.
+ *
+ * @deprecated Internal composition building block for {@link ForgeServerConfig}
+ * and {@link ForgeHostRuntimeConfig}. The standalone re-export through
+ * `@dzupagent/server/app` is a legacy compatibility alias with zero workspace
+ * consumers and is not part of the package-root public surface. Prefer the
+ * aggregate `ForgeServerConfig` or `ForgeHostRuntimeConfig` types.
  */
 export interface ForgeCoreConfig {
   runStore: RunStore
@@ -150,6 +166,12 @@ export interface ForgeCoreConfig {
 
 /**
  * HTTP transport / authentication / rate limiting concerns.
+ *
+ * @deprecated Internal composition building block for {@link ForgeServerConfig}
+ * and {@link ForgeHostRuntimeConfig}. The standalone re-export through
+ * `@dzupagent/server/app` is a legacy compatibility alias with zero workspace
+ * consumers and is not part of the package-root public surface. Prefer the
+ * aggregate `ForgeServerConfig` or `ForgeHostRuntimeConfig` types.
  */
 export interface ForgeTransportConfig {
   /**
@@ -213,6 +235,12 @@ export interface JsonBodyLimitConfig {
 
 /**
  * Background runtime: queues, executors, journals, scheduler, lifecycle hooks.
+ *
+ * @deprecated Internal composition building block for {@link ForgeServerConfig}
+ * and {@link ForgeHostRuntimeConfig}. The standalone re-export through
+ * `@dzupagent/server/app` is a legacy compatibility alias with zero workspace
+ * consumers and is not part of the package-root public surface. Prefer the
+ * aggregate `ForgeServerConfig` or `ForgeHostRuntimeConfig` types.
  */
 export interface ForgeRuntimeConfig {
   runQueue?: RunQueue
@@ -376,6 +404,12 @@ export interface ForgeRouteFamiliesConfig
 
 /**
  * Optional integrations and feature toggles that mount additional routes.
+ *
+ * @deprecated Internal composition building block for {@link ForgeServerConfig}.
+ * The standalone re-export through `@dzupagent/server/app` is a legacy
+ * compatibility alias with zero workspace consumers and is not part of the
+ * package-root public surface. Prefer the aggregate `ForgeServerConfig` type,
+ * or `ForgeRouteFamiliesConfig` for the families-only slice.
  */
 export interface ForgeIntegrationsConfig extends ForgeRouteFamiliesConfig {
   /**
@@ -410,6 +444,12 @@ export interface ForgeHostRuntimeConfig
 
 /**
  * Security policy: safety monitor, quotas, input guard.
+ *
+ * @deprecated Internal composition building block for {@link ForgeServerConfig}
+ * and {@link ForgeHostRuntimeConfig}. The standalone re-export through
+ * `@dzupagent/server/app` is a legacy compatibility alias with zero workspace
+ * consumers and is not part of the package-root public surface. Prefer the
+ * aggregate `ForgeServerConfig` or `ForgeHostRuntimeConfig` types.
  */
 export interface ForgeSecurityConfig {
   /** Skip attaching the built-in runtime safety monitor (default false). */

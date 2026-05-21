@@ -115,9 +115,9 @@ export function wrapInvokeModelWithAudit(
   const auditTenantId = params.config.memoryScope?.['tenantId']
   const auditRedactionPolicy = resolveAuditRedactionPolicy(params)
   const sinkFailureContext: SinkFailureEmitContext = {
-    eventBus: params.config.eventBus,
+    ...(params.config.eventBus !== undefined ? { eventBus: params.config.eventBus } : {}),
     agentId: params.agentId,
-    runId: params.options?.runId,
+    ...(params.options?.runId !== undefined ? { runId: params.options.runId } : {}),
     redactionMode: auditRedactionPolicy.mode,
   }
 

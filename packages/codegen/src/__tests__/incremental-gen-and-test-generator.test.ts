@@ -16,6 +16,7 @@ import {
   type ExportInfo,
 } from '../generation/test-generator.js'
 import { sample, selectBest, commitBest } from '../vfs/parallel-sampling.js'
+import type { SampleResult } from '../vfs/vfs-types.js'
 import { VirtualFS } from '../vfs/virtual-fs.js'
 import { CopyOnWriteVFS } from '../vfs/cow-vfs.js'
 
@@ -582,7 +583,7 @@ describe('parallel-sampling', () => {
         return idx
       })
       expect(results.length).toBe(3)
-      expect(results.map(r => r.result)).toEqual([0, 1, 2])
+      expect(results.map(r => (r.ok ? r.result : null))).toEqual([0, 1, 2])
     })
 
     it('captures errors without crashing', async () => {
@@ -591,9 +592,12 @@ describe('parallel-sampling', () => {
         if (idx === 0) throw new Error('boom')
         return idx
       })
-      expect(results[0]!.error).toBe('boom')
-      expect(results[1]!.error).toBeUndefined()
-      expect(results[1]!.result).toBe(1)
+      const r0 = results[0]!
+      expect(r0.ok).toBe(false)
+      if (!r0.ok) expect(r0.error).toBe('boom')
+      const r1 = results[1]!
+      expect(r1.ok).toBe(true)
+      if (r1.ok) expect(r1.result).toBe(1)
     })
 
     it('tracks duration for each sample', async () => {
@@ -619,9 +623,11 @@ describe('parallel-sampling', () => {
         return fork.read('shared.ts')
       })
       // Each fork writes independently
-      expect(results[0]!.result).toBe('version-0')
-      expect(results[1]!.result).toBe('version-1')
-      expect(results[2]!.result).toBe('version-2')
+      for (let i = 0; i < 3; i++) {
+        const r = results[i]!
+        expect(r.ok).toBe(true)
+        if (r.ok) expect(r.result).toBe(`version-${i}`)
+      }
       // Original VFS unchanged
       expect(vfs.read('shared.ts')).toBe('original')
     })
@@ -631,33 +637,35 @@ describe('parallel-sampling', () => {
       const results = await sample(vfs, 1, async () => {
         throw 'string error'
       })
-      expect(results[0]!.error).toBe('string error')
+      const r0 = results[0]!
+      expect(r0.ok).toBe(false)
+      if (!r0.ok) expect(r0.error).toBe('string error')
     })
   })
 
   describe('selectBest()', () => {
     it('selects the highest-scoring result', () => {
-      const results = [
-        { forkIndex: 0, result: 10, index: 0, durationMs: 1 },
-        { forkIndex: 1, result: 30, index: 1, durationMs: 1 },
-        { forkIndex: 2, result: 20, index: 2, durationMs: 1 },
+      const results: SampleResult<number>[] = [
+        { ok: true, forkIndex: 0, result: 10, index: 0, durationMs: 1 },
+        { ok: true, forkIndex: 1, result: 30, index: 1, durationMs: 1 },
+        { ok: true, forkIndex: 2, result: 20, index: 2, durationMs: 1 },
       ]
       const best = selectBest(results, (r) => r)
       expect(best!.result).toBe(30)
     })
 
     it('returns null when all samples errored', () => {
-      const results = [
-        { forkIndex: 0, result: 0 as number, index: 0, durationMs: 1, error: 'fail' },
+      const results: SampleResult<number>[] = [
+        { ok: false, forkIndex: 0, index: 0, durationMs: 1, error: 'fail' },
       ]
       const best = selectBest(results, (r) => r)
       expect(best).toBeNull()
     })
 
     it('skips errored samples', () => {
-      const results = [
-        { forkIndex: 0, result: 100, index: 0, durationMs: 1, error: 'fail' },
-        { forkIndex: 1, result: 50, index: 1, durationMs: 1 },
+      const results: SampleResult<number>[] = [
+        { ok: false, forkIndex: 0, index: 0, durationMs: 1, error: 'fail' },
+        { ok: true, forkIndex: 1, result: 50, index: 1, durationMs: 1 },
       ]
       const best = selectBest(results, (r) => r)
       expect(best!.result).toBe(50)
@@ -665,8 +673,8 @@ describe('parallel-sampling', () => {
     })
 
     it('handles single successful result', () => {
-      const results = [
-        { forkIndex: 0, result: 42, index: 0, durationMs: 1 },
+      const results: SampleResult<number>[] = [
+        { ok: true, forkIndex: 0, result: 42, index: 0, durationMs: 1 },
       ]
       const best = selectBest(results, (r) => r)
       expect(best!.result).toBe(42)
@@ -679,13 +687,25 @@ describe('parallel-sampling', () => {
       const fork = new CopyOnWriteVFS(vfs, 'winner')
       fork.write('a.ts', 'updated')
 
-      const winner = { forkIndex: 0, result: 'ok', index: 0, durationMs: 1 }
+      const winner: SampleResult<string> & { ok: true } = {
+        ok: true,
+        forkIndex: 0,
+        result: 'ok',
+        index: 0,
+        durationMs: 1,
+      }
       commitBest(winner, [fork])
       expect(vfs.read('a.ts')).toBe('updated')
     })
 
     it('throws when fork index is out of range', () => {
-      const winner = { forkIndex: 5, result: 'ok', index: 0, durationMs: 1 }
+      const winner: SampleResult<string> & { ok: true } = {
+        ok: true,
+        forkIndex: 5,
+        result: 'ok',
+        index: 0,
+        durationMs: 1,
+      }
       expect(() => commitBest(winner, [])).toThrow('No fork found')
     })
   })

@@ -36,27 +36,28 @@ export async function sample<T>(
     forks.push(new CopyOnWriteVFS(vfs, `sample-${i}`))
   }
 
-  const promises = forks.map(async (fork, index) => {
+  const promises = forks.map(async (fork, index): Promise<SampleResult<T>> => {
     const start = performance.now()
     try {
       const result = await fn(fork, index)
       const durationMs = performance.now() - start
       return {
+        ok: true,
         forkIndex: index,
-        result,
         index,
         durationMs,
-      } satisfies SampleResult<T>
+        result,
+      }
     } catch (err: unknown) {
       const durationMs = performance.now() - start
       const errorMessage = err instanceof Error ? err.message : String(err)
       return {
+        ok: false,
         forkIndex: index,
-        result: undefined as unknown as T,
         index,
         durationMs,
         error: errorMessage,
-      } satisfies SampleResult<T>
+      }
     }
   })
 
@@ -76,8 +77,10 @@ export async function sample<T>(
 export function selectBest<T>(
   results: SampleResult<T>[],
   scorer: (result: T) => number,
-): SampleResult<T> | null {
-  const successful = results.filter(r => r.error === undefined)
+): (SampleResult<T> & { ok: true }) | null {
+  const successful = results.filter(
+    (r): r is SampleResult<T> & { ok: true } => r.ok,
+  )
   if (successful.length === 0) return null
 
   let best = successful[0]!
@@ -133,7 +136,10 @@ export async function sampleAndCommitBest<T>(
   count: number,
   fn: (fork: CopyOnWriteVFS, index: number) => Promise<T>,
   scorer: (result: T) => number,
-): Promise<{ winner: SampleResult<T>; allResults: SampleResult<T>[] } | null> {
+): Promise<{
+  winner: SampleResult<T> & { ok: true }
+  allResults: SampleResult<T>[]
+} | null> {
   // Create forks manually so we can pass them to commitBest
   if (count < 1 || count > 10) {
     throw new Error(`Sample count must be between 1 and 10, got ${count}`)
@@ -144,27 +150,28 @@ export async function sampleAndCommitBest<T>(
     forks.push(new CopyOnWriteVFS(vfs, `sample-${i}`))
   }
 
-  const promises = forks.map(async (fork, index) => {
+  const promises = forks.map(async (fork, index): Promise<SampleResult<T>> => {
     const start = performance.now()
     try {
       const result = await fn(fork, index)
       const durationMs = performance.now() - start
       return {
+        ok: true,
         forkIndex: index,
-        result,
         index,
         durationMs,
-      } satisfies SampleResult<T>
+        result,
+      }
     } catch (err: unknown) {
       const durationMs = performance.now() - start
       const errorMessage = err instanceof Error ? err.message : String(err)
       return {
+        ok: false,
         forkIndex: index,
-        result: undefined as unknown as T,
         index,
         durationMs,
         error: errorMessage,
-      } satisfies SampleResult<T>
+      }
     }
   })
 
