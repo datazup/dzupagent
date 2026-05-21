@@ -163,22 +163,22 @@
       "package": "flow-ast",
       "path": "src/validate.ts",
       "coveredBy": [
-        "test/validate.test.ts"
+        "src/__tests__/validate.test.ts"
       ]
     },
     {
       "package": "flow-ast",
       "path": "src/parse.ts",
       "coveredBy": [
-        "test/parse.test.ts"
+        "src/__tests__/parse.test.ts"
       ]
     },
     {
       "package": "flow-compiler",
       "path": "src/stages/semantic.ts",
       "coveredBy": [
-        "test/semantic.test.ts",
-        "test/semantic-async.test.ts"
+        "src/__tests__/semantic.test.ts",
+        "src/__tests__/semantic-async.test.ts"
       ]
     },
     {
