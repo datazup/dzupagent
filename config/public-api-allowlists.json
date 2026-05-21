@@ -356,6 +356,7 @@
         { "match": "prefix", "pattern": "./dzupagent/" },
         { "match": "prefix", "pattern": "./interaction/" },
         { "match": "prefix", "pattern": "./enrichment/" },
+        { "match": "prefix", "pattern": "./events/" },
         { "match": "exact", "pattern": "@dzupagent/adapter-types" }
       ],
       "subpaths": {
