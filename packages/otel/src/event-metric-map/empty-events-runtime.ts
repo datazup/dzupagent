@@ -169,6 +169,23 @@ export const emptyRuntimeMetricMap = {
       },
     ),
   ],
+  'audit:sink_failure': [
+    counter(
+      'dzip_audit_sink_failure_total',
+      'Total audit sink write failures',
+      ['sink', 'redaction_mode'],
+      (e) => {
+        const ev = asEvent<'audit:sink_failure'>(e)
+        return {
+          value: 1,
+          labels: {
+            sink: ev.sink,
+            redaction_mode: ev.redactionMode ?? 'unknown',
+          },
+        }
+      },
+    ),
+  ],
   // --- Memory PII redaction ---
   'memory:pii_redacted': [
     counter(
@@ -178,6 +195,17 @@ export const emptyRuntimeMetricMap = {
       (e) => {
         const ev = asEvent<'memory:pii_redacted'>(e)
         return { value: 1, labels: { agent_id: ev.agentId } }
+      },
+    ),
+  ],
+  'memory:put_failed': [
+    counter(
+      'dzip_memory_put_failed_total',
+      'Total failed memory write-back attempts',
+      ['namespace'],
+      (e) => {
+        const ev = asEvent<'memory:put_failed'>(e)
+        return { value: 1, labels: { namespace: ev.namespace } }
       },
     ),
   ],

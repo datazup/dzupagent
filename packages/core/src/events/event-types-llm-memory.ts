@@ -51,6 +51,23 @@ export type LlmMemoryDomainEvent =
       runId?: string
       scopeKeys?: string[]
     }
+  | {
+      type: 'memory:put_failed'
+      namespace: string
+      key: string
+      message: string
+      agentId?: string
+      runId?: string
+      scopeKeys?: string[]
+    }
+  | {
+      type: 'audit:sink_failure'
+      sink: string
+      agentId: string
+      message: string
+      redactionMode?: 'off' | 'secrets' | 'secrets-and-pii'
+      runId?: string
+    }
   | { type: 'memory:retrieval_source_failed'; source: string; error: string; durationMs: number; query: string }
   | { type: 'memory:retrieval_source_succeeded'; source: string; resultCount: number; durationMs: number }
   | { type: 'memory:threat_detected'; threatType: string; namespace: string; key?: string }

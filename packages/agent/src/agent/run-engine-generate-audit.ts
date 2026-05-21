@@ -13,11 +13,54 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
 import { extractTokenUsage } from '@dzupagent/core/llm'
+import { redactPII, redactSecrets } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core/events'
 import type {
   LlmCallAuditEntry,
   LlmCallAuditSink,
 } from '../observability/llm-call-audit.js'
 import type { ExecuteGenerateRunParams } from './run-engine/types.js'
+import type { AuditRedactionMode } from './agent-types-observability.js'
+
+const DEFAULT_AUDIT_REDACTION_MODE: AuditRedactionMode = 'secrets-and-pii'
+
+interface ResolvedAuditRedactionPolicy {
+  mode: AuditRedactionMode
+  includeFullPayloads: boolean
+}
+
+interface SinkFailureEmitContext {
+  eventBus?: DzupEventBus
+  agentId: string
+  runId?: string
+  redactionMode: AuditRedactionMode
+}
+
+function resolveAuditRedactionPolicy(params: ExecuteGenerateRunParams): ResolvedAuditRedactionPolicy {
+  return {
+    mode: params.config.auditRedaction?.mode ?? DEFAULT_AUDIT_REDACTION_MODE,
+    includeFullPayloads: params.config.auditRedaction?.includeFullPayloads ?? true,
+  }
+}
+
+function redactAuditText(
+  text: string,
+  mode: AuditRedactionMode,
+): { text: string; redacted: boolean } {
+  if (mode === 'off') return { text, redacted: false }
+  const withSecretsRedacted = redactSecrets(text)
+  if (mode === 'secrets') {
+    return {
+      text: withSecretsRedacted,
+      redacted: withSecretsRedacted !== text,
+    }
+  }
+  const withPiiAndSecretsRedacted = redactPII(withSecretsRedacted)
+  return {
+    text: withPiiAndSecretsRedacted,
+    redacted: withPiiAndSecretsRedacted !== text,
+  }
+}
 
 /**
  * Push an LLM-call audit entry to the configured sink. Fire-and-forget:
@@ -27,12 +70,23 @@ import type { ExecuteGenerateRunParams } from './run-engine/types.js'
 export async function recordAuditEntry(
   sink: LlmCallAuditSink,
   entry: LlmCallAuditEntry,
+  context: SinkFailureEmitContext,
 ): Promise<void> {
   try {
     await sink.record(entry)
-  } catch {
+  } catch (err) {
     // Audit sink failures must never disturb the run. Compliance reports
     // surface missing entries via downstream reconciliation, not here.
+    const rawMessage = err instanceof Error ? err.message : String(err)
+    const redactedMessage = redactAuditText(rawMessage, context.redactionMode).text
+    context.eventBus?.emit({
+      type: 'audit:sink_failure',
+      sink: 'llm-call-audit',
+      agentId: context.agentId,
+      ...(context.runId !== undefined ? { runId: context.runId } : {}),
+      redactionMode: context.redactionMode,
+      message: redactedMessage,
+    })
   }
 }
 
@@ -59,6 +113,13 @@ export function wrapInvokeModelWithAudit(
   }
 
   const auditTenantId = params.config.memoryScope?.['tenantId']
+  const auditRedactionPolicy = resolveAuditRedactionPolicy(params)
+  const sinkFailureContext: SinkFailureEmitContext = {
+    eventBus: params.config.eventBus,
+    agentId: params.agentId,
+    runId: params.options?.runId,
+    redactionMode: auditRedactionPolicy.mode,
+  }
 
   return async (model, messages) => {
     const startMs = Date.now()
@@ -85,7 +146,10 @@ export function wrapInvokeModelWithAudit(
     // REC-M-05 — bounded prompt preview for compliance dashboards. Always
     // truncated to 500 chars so audit entries stay small even when the
     // full `prompt` field is dropped downstream for privacy.
-    const promptSnippet = promptStr?.slice(0, 500)
+    const redactedPrompt = promptStr === undefined
+      ? undefined
+      : redactAuditText(promptStr, auditRedactionPolicy.mode).text
+    const promptSnippet = redactedPrompt?.slice(0, 500)
     try {
       const response = await params.invokeModel(model, messages)
       const usage = extractTokenUsage(response, modelId)
@@ -99,7 +163,10 @@ export function wrapInvokeModelWithAudit(
       } catch {
         // Serialisation failure must never abort the run.
       }
-      const responseSnippet = responseStr?.slice(0, 500)
+      const redactedResponse = responseStr === undefined
+        ? undefined
+        : redactAuditText(responseStr, auditRedactionPolicy.mode).text
+      const responseSnippet = redactedResponse?.slice(0, 500)
       void recordAuditEntry(auditStore, {
         agentId: params.agentId,
         ...(params.options?.runId !== undefined ? { runId: params.options.runId } : {}),
@@ -110,14 +177,15 @@ export function wrapInvokeModelWithAudit(
         durationMs: Date.now() - startMs,
         timestamp: Date.now(),
         success: true,
-        ...(promptStr !== undefined ? { prompt: promptStr } : {}),
-        ...(responseStr !== undefined ? { response: responseStr } : {}),
+        ...(auditRedactionPolicy.includeFullPayloads && redactedPrompt !== undefined ? { prompt: redactedPrompt } : {}),
+        ...(auditRedactionPolicy.includeFullPayloads && redactedResponse !== undefined ? { response: redactedResponse } : {}),
         ...(promptSnippet !== undefined ? { promptSnippet } : {}),
         ...(responseSnippet !== undefined ? { responseSnippet } : {}),
-      })
+      }, sinkFailureContext)
       return response
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
+      const rawErrorMessage = err instanceof Error ? err.message : String(err)
+      const errorMessage = redactAuditText(rawErrorMessage, auditRedactionPolicy.mode).text
       void recordAuditEntry(auditStore, {
         agentId: params.agentId,
         ...(params.options?.runId !== undefined ? { runId: params.options.runId } : {}),
@@ -129,9 +197,9 @@ export function wrapInvokeModelWithAudit(
         timestamp: Date.now(),
         success: false,
         error: errorMessage,
-        ...(promptStr !== undefined ? { prompt: promptStr } : {}),
+        ...(auditRedactionPolicy.includeFullPayloads && redactedPrompt !== undefined ? { prompt: redactedPrompt } : {}),
         ...(promptSnippet !== undefined ? { promptSnippet } : {}),
-      })
+      }, sinkFailureContext)
       throw err
     }
   }
