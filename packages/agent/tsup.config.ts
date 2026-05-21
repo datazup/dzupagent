@@ -19,7 +19,7 @@ export default defineConfig({
     'src/streaming.ts',
   ],
   format: ['esm'],
-  dts: true,
+  dts: { resolve: true },
   clean: true,
   sourcemap: true,
   target: 'node20',
