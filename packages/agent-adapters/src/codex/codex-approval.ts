@@ -18,12 +18,16 @@ import { randomUUID } from 'node:crypto'
 import { withCorrelationId } from '../types.js'
 import type {
   AdapterProviderId,
-  AgentEvent,
   AgentStreamEvent,
   AgentInput,
   InteractionPolicy,
 } from '../types.js'
 import type { InteractionResolver } from '../interaction/interaction-resolver.js'
+import {
+  makeFailedEvent,
+  makeInteractionRequiredEvent,
+  makeInteractionResolvedEvent,
+} from '../events/event-factories.js'
 import type {
   CodexApprovalRequestItem,
   CodexInstance,
@@ -62,15 +66,14 @@ export async function* handleApprovalRequest(
   if (ctx.policy.mode === 'ask-caller') {
     yield annotateProviderIdentity(
       withCorrelationId(
-        {
-          type: 'adapter:interaction_required',
+        makeInteractionRequiredEvent({
           providerId: ctx.providerId,
           interactionId,
           question: item.message,
           kind: item.kind,
           timestamp: ts,
           expiresAt: ts + (ctx.policy.askCaller?.timeoutMs ?? 60_000),
-        } as AgentEvent,
+        }),
         input.correlationId,
       ),
       providerEventId,
@@ -86,15 +89,14 @@ export async function* handleApprovalRequest(
 
   yield annotateProviderIdentity(
     withCorrelationId(
-      {
-        type: 'adapter:interaction_resolved',
+      makeInteractionResolvedEvent({
         providerId: ctx.providerId,
         interactionId,
         question: item.message,
         answer: result.answer,
         resolvedBy: result.resolvedBy,
         timestamp: now(),
-      } as AgentEvent,
+      }),
       input.correlationId,
     ),
     providerEventId,
@@ -127,15 +129,14 @@ export async function* handleTurnFailedApproval(
   if (ctx.policy.mode === 'ask-caller') {
     yield annotateProviderIdentity(
       withCorrelationId(
-        {
-          type: 'adapter:interaction_required',
+        makeInteractionRequiredEvent({
           providerId: ctx.providerId,
           interactionId,
           question: errMsg,
           kind: 'permission',
           timestamp: ts,
           expiresAt: ts + (ctx.policy.askCaller?.timeoutMs ?? 60_000),
-        } as AgentEvent,
+        }),
         input.correlationId,
       ),
       providerEventId,
@@ -151,15 +152,14 @@ export async function* handleTurnFailedApproval(
 
   yield annotateProviderIdentity(
     withCorrelationId(
-      {
-        type: 'adapter:interaction_resolved',
+      makeInteractionResolvedEvent({
         providerId: ctx.providerId,
         interactionId,
         question: errMsg,
         answer: result.answer,
         resolvedBy: result.resolvedBy,
         timestamp: now(),
-      } as AgentEvent,
+      }),
       input.correlationId,
     ),
     providerEventId,
@@ -171,14 +171,13 @@ export async function* handleTurnFailedApproval(
     yield* resumeFn(approvalThread)
   } else {
     yield withCorrelationId(
-      {
-        type: 'adapter:failed',
+      makeFailedEvent({
         providerId: ctx.providerId,
         sessionId,
         error: `Interaction denied by policy: ${errMsg}`,
         code: 'INTERACTION_DENIED',
         timestamp: now(),
-      } as AgentEvent,
+      }),
       input.correlationId,
     )
   }

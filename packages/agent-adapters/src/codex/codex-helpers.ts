@@ -13,6 +13,13 @@ import type {
   TokenUsage,
 } from '../types.js'
 import { withCorrelationId } from '../types.js'
+import {
+  makeFailedEvent,
+  makeMessageEvent,
+  makeProgressEvent,
+  makeToolCallEvent,
+  makeToolResultEvent,
+} from '../events/event-factories.js'
 import type {
   CodexApprovalRequestItem,
   CodexStreamEvent,
@@ -165,14 +172,13 @@ export function mapCodexEvent(
       return [
         annotateProviderIdentity(
           withCorrelationId(
-            {
-              type: 'adapter:failed',
+            makeFailedEvent({
               providerId,
               sessionId,
               error: errMsg,
               code: 'ADAPTER_EXECUTION_FAILED',
               timestamp: ts,
-            } as AgentEvent,
+            }),
             input.correlationId,
           ),
           providerEventId,
@@ -185,14 +191,13 @@ export function mapCodexEvent(
       return [
         annotateProviderIdentity(
           withCorrelationId(
-            {
-              type: 'adapter:failed',
+            makeFailedEvent({
               providerId,
               sessionId,
               error: event.message ?? 'Unknown error',
               code: 'ADAPTER_EXECUTION_FAILED',
               timestamp: ts,
-            } as AgentEvent,
+            }),
             input.correlationId,
           ),
           providerEventId,
@@ -220,13 +225,12 @@ export function mapItemCompleted(
     return [
       annotateProviderIdentity(
         withCorrelationId(
-          {
-            type: 'adapter:message',
+          makeMessageEvent({
             providerId,
             content: item.text ?? '',
             role: 'assistant',
             timestamp: ts,
-          } as AgentEvent,
+          }),
           input.correlationId,
         ),
         providerEventId,
@@ -239,13 +243,12 @@ export function mapItemCompleted(
     return [
       annotateProviderIdentity(
         withCorrelationId(
-          {
-            type: 'adapter:tool_call',
+          makeToolCallEvent({
             providerId,
             toolName: 'shell',
             input: { command: item.command },
             timestamp: ts,
-          } as AgentEvent,
+          }),
           input.correlationId,
         ),
         providerEventId,
@@ -253,14 +256,13 @@ export function mapItemCompleted(
       ),
       annotateProviderIdentity(
         withCorrelationId(
-          {
-            type: 'adapter:tool_result',
+          makeToolResultEvent({
             providerId,
             toolName: 'shell',
             output: item.aggregated_output ?? '',
             durationMs: 0,
             timestamp: ts,
-          } as AgentEvent,
+          }),
           input.correlationId,
         ),
         providerEventId,
@@ -276,14 +278,13 @@ export function mapItemCompleted(
     return [
       annotateProviderIdentity(
         withCorrelationId(
-          {
-            type: 'adapter:tool_result',
+          makeToolResultEvent({
             providerId,
             toolName: 'file_edit',
             output: summary,
             durationMs: 0,
             timestamp: ts,
-          } as AgentEvent,
+          }),
           input.correlationId,
         ),
         providerEventId,
@@ -300,13 +301,12 @@ export function mapItemCompleted(
     return [
       annotateProviderIdentity(
         withCorrelationId(
-          {
-            type: 'adapter:tool_call',
+          makeToolCallEvent({
             providerId,
             toolName,
             input: item.arguments,
             timestamp: ts,
-          } as AgentEvent,
+          }),
           input.correlationId,
         ),
         providerEventId,
@@ -314,14 +314,13 @@ export function mapItemCompleted(
       ),
       annotateProviderIdentity(
         withCorrelationId(
-          {
-            type: 'adapter:tool_result',
+          makeToolResultEvent({
             providerId,
             toolName,
             output: outputContent,
             durationMs: 0,
             timestamp: ts,
-          } as AgentEvent,
+          }),
           input.correlationId,
         ),
         providerEventId,
@@ -334,13 +333,12 @@ export function mapItemCompleted(
     return [
       annotateProviderIdentity(
         withCorrelationId(
-          {
-            type: 'adapter:tool_call',
+          makeToolCallEvent({
             providerId,
             toolName: 'web_search',
             input: { query: item.query },
             timestamp: ts,
-          } as AgentEvent,
+          }),
           input.correlationId,
         ),
         providerEventId,
@@ -353,13 +351,12 @@ export function mapItemCompleted(
     return [
       annotateProviderIdentity(
         withCorrelationId(
-          {
-            type: 'adapter:message',
+          makeMessageEvent({
             providerId,
             content: item.text ?? '',
             role: 'assistant',
             timestamp: ts,
-          } as AgentEvent,
+          }),
           input.correlationId,
         ),
         providerEventId,
@@ -373,8 +370,7 @@ export function mapItemCompleted(
     return [
       annotateProviderIdentity(
         withCorrelationId(
-          {
-            type: 'adapter:progress',
+          makeProgressEvent({
             providerId,
             phase: 'todo_list',
             current: summary.current,
@@ -382,7 +378,7 @@ export function mapItemCompleted(
             percentage: summary.percentage,
             message: summary.message,
             timestamp: ts,
-          } as AgentEvent,
+          }),
           input.correlationId,
         ),
         providerEventId,
@@ -395,13 +391,12 @@ export function mapItemCompleted(
     return [
       annotateProviderIdentity(
         withCorrelationId(
-          {
-            type: 'adapter:failed',
+          makeFailedEvent({
             providerId,
             error: item.message,
             code: 'ADAPTER_EXECUTION_FAILED',
             timestamp: ts,
-          } as AgentEvent,
+          }),
           input.correlationId,
         ),
         providerEventId,

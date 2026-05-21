@@ -18,6 +18,16 @@ import { classifyInteractionText } from '../interaction/interaction-detector.js'
 import type { InteractionResolver } from '../interaction/interaction-resolver.js'
 import type { StreamContext } from '../base/stream-runner.js'
 import {
+  makeCacheStatsEvent,
+  makeCompletedEvent,
+  makeFailedEvent,
+  makeInteractionRequiredEvent,
+  makeMessageEvent,
+  makeStreamDeltaEvent,
+  makeToolCallEvent,
+  makeToolResultEvent,
+} from '../events/event-factories.js'
+import {
   type ClaudeSDKMessage,
   type ResultMessage,
   type StreamEventMessage,
@@ -95,14 +105,12 @@ export function mapAssistantMessage(
 ): AgentEvent | null {
   const text = extractTextFromContentBlocks(raw.content)
   if (text.length === 0) return null
-  return {
-    type: 'adapter:message',
+  return makeMessageEvent({
     providerId: 'claude',
     content: text,
     role: 'assistant',
-    timestamp: Date.now(),
-    ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-  }
+    correlationId: input.correlationId,
+  })
 }
 
 /** State carried across tool_progress messages — owned by the adapter. */
@@ -137,28 +145,25 @@ export function mapToolProgressMessage(
       if (policy.mode === 'ask-caller') {
         // Return interaction_required as the mapped event; the resolver runs async.
         void resolver.resolve({ interactionId, question: questionText, kind })
-        return {
-          type: 'adapter:interaction_required',
+        return makeInteractionRequiredEvent({
           providerId: 'claude',
           interactionId,
           question: questionText,
           kind,
           timestamp: nowMs,
           expiresAt: nowMs + (policy.askCaller?.timeoutMs ?? 60_000),
-          ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-        } as AgentEvent
+          correlationId: input.correlationId,
+        })
       }
       return null
     }
 
-    return {
-      type: 'adapter:tool_call',
+    return makeToolCallEvent({
       providerId: 'claude',
       toolName: raw.tool_name,
       input: raw.input ?? {},
-      timestamp: Date.now(),
-      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-    }
+      correlationId: input.correlationId,
+    })
   }
 
   // completed/failed
@@ -166,15 +171,13 @@ export function mapToolProgressMessage(
   const durationMs = typeof raw.duration_ms === 'number'
     ? raw.duration_ms
     : (state.lastToolName === raw.tool_name ? Date.now() - state.lastToolStartTime : 0)
-  return {
-    type: 'adapter:tool_result',
+  return makeToolResultEvent({
     providerId: 'claude',
     toolName: raw.tool_name,
     output: typeof raw.output === 'string' ? raw.output : '',
     durationMs,
-    timestamp: Date.now(),
-    ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-  }
+    correlationId: input.correlationId,
+  })
 }
 
 /** Map a `stream_event` SDK message → unified `adapter:stream_delta` event. */
@@ -184,13 +187,11 @@ export function mapStreamEventMessage(
 ): AgentEvent | null {
   const delta = raw.delta
   if (typeof delta !== 'string' || delta.length === 0) return null
-  return {
-    type: 'adapter:stream_delta',
+  return makeStreamDeltaEvent({
     providerId: 'claude',
     content: delta,
-    timestamp: Date.now(),
-    ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-  }
+    correlationId: input.correlationId,
+  })
 }
 
 /**
@@ -210,46 +211,40 @@ export function mapResultMessage(
   if (raw.subtype === 'success') {
     const tokenUsage = extractTokenUsage(raw.usage)
     const sessionId = raw.session_id ?? context.sessionId
-    const completedEvent: AgentEvent = {
-      type: 'adapter:completed',
+    const completedEvent = makeCompletedEvent({
       providerId: 'claude',
       sessionId,
       result: typeof raw.result === 'string' ? raw.result : '',
-      ...(tokenUsage !== undefined ? { usage: tokenUsage } : {}),
+      usage: tokenUsage,
       durationMs,
-      timestamp: Date.now(),
-      ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-    }
+      correlationId: input.correlationId,
+    })
     if (tokenUsage && (tokenUsage.cachedInputTokens !== undefined || tokenUsage.cacheWriteTokens !== undefined)) {
       const cacheRead = tokenUsage.cachedInputTokens ?? 0
       const cacheWrite = tokenUsage.cacheWriteTokens ?? 0
       const total = tokenUsage.inputTokens
-      const cacheStatsEvent: AgentEvent = {
-        type: 'adapter:cache_stats',
+      const cacheStatsEvent = makeCacheStatsEvent({
         providerId: 'claude',
         sessionId,
         cacheReadTokens: cacheRead,
         cacheWriteTokens: cacheWrite,
         totalInputTokens: total,
         cacheHitRatio: total > 0 ? cacheRead / total : 0,
-        timestamp: Date.now(),
-        ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-      } as AgentEvent
+        correlationId: input.correlationId,
+      })
       return [completedEvent, cacheStatsEvent]
     }
     return completedEvent
   }
 
   const failedSessionId = raw.session_id ?? (context.sessionId || undefined)
-  return {
-    type: 'adapter:failed',
+  return makeFailedEvent({
     providerId: 'claude',
-    ...(failedSessionId !== undefined ? { sessionId: failedSessionId } : {}),
+    sessionId: failedSessionId,
     error: typeof raw.error === 'string'
       ? raw.error
       : `Claude agent failed with subtype: ${raw.subtype}`,
     code: raw.subtype,
-    timestamp: Date.now(),
-    ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-  }
+    correlationId: input.correlationId,
+  })
 }
