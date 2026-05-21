@@ -1131,13 +1131,20 @@
         ]
       },
       {
-        "id": 99,
-        "name": "tooling",
-        "description": "Parked / tooling packages. Tier-1 and tier-2 packages MUST NOT take a runtime dependency on any tooling package. Tooling packages may depend on lower numbered layers but must never appear upstream of supported product packages.",
+        "id": 98,
+        "name": "tooling-base",
+        "description": "Base tooling packages. These are the canonical home for test infrastructure (eval, security suites, LLM recorder) and CLI scaffolders. May depend on lower numbered layers but must never appear upstream of supported product packages. test-utils (layer 99) may depend on packages in this layer.",
         "packages": [
           "testing",
-          "test-utils",
           "create-dzupagent"
+        ]
+      },
+      {
+        "id": 99,
+        "name": "tooling",
+        "description": "Top-level tooling shim packages. May depend on tooling-base (layer 98) and lower layers. Tier-1 and tier-2 packages MUST NOT take a runtime dependency on any tooling package. Tooling packages must never appear upstream of supported product packages.",
+        "packages": [
+          "test-utils"
         ]
       }
     ],
