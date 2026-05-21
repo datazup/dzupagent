@@ -8,7 +8,7 @@
 
 import { ForgeError } from '@dzupagent/core/events'
 import type { DzupEventBus } from '@dzupagent/core/events'
-import { Semaphore } from '@dzupagent/core/orchestration'
+import { Semaphore } from '@dzupagent/core/utils'
 
 import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
 import type {
