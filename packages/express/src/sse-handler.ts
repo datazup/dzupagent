@@ -1,6 +1,5 @@
 import type { Request, Response } from 'express'
-import type { AgentStreamEvent } from '@dzupagent/agent'
-import type { SSEEvent, SSEHandlerConfig, AgentResult } from './types.js'
+import type { AgentStreamEvent, SSEEvent, SSEHandlerConfig, AgentResult } from './types.js'
 
 /**
  * Default SSE event formatter.
