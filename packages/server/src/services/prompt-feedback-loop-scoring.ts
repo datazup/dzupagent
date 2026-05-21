@@ -10,7 +10,7 @@ import { join } from 'node:path'
 
 import { runLogRoot } from '@dzupagent/agent-adapters/runs'
 import type { AgentEvent } from '@dzupagent/agent-adapters/runs'
-import { parseJsonl } from '@dzupagent/core'
+import { parseJsonl } from '@dzupagent/core/utils'
 
 import type { ScorerBreakdownEntry } from './prompt-feedback-loop-types.js'
 
