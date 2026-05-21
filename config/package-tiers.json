@@ -194,8 +194,9 @@
     ]
   },
   "@dzupagent/connectors-documents": {
-    "tier": 2,
+    "tier": 1,
     "status": "supported-secondary",
+    "architectureRole": "Layer-0 leaf runtime primitive: document parse/chunk/type contracts with no direct dependency on @dzupagent server composition. Promoted from tier-2 to tier-1 to govern root-barrel public API via explicit allowlist rules.",
     "roadmapDriver": false,
     "owners": [
       "apps/nl2sql",
