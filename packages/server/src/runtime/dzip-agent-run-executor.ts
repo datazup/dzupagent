@@ -1,7 +1,14 @@
 import { DzupAgent } from '@dzupagent/agent/runtime'
+import type {
+  AuditRedactionPolicy,
+  GuardrailConfig,
+  LlmCallAuditSink,
+  ProviderFailoverPolicy,
+  ToolExecutionConfig,
+} from '@dzupagent/agent/runtime'
 import { HumanMessage } from '@langchain/core/messages'
 import { requireTerminalToolExecutionRunId } from '@dzupagent/core/advanced'
-import { calculateCostCents } from '@dzupagent/core/orchestration'
+import { calculateCostCents } from '@dzupagent/core/llm'
 import type { TokenUsage, ModelRegistry } from '@dzupagent/core/quick-start'
 import { TokenLifecycleManager, createTokenBudget } from '@dzupagent/context'
 import type { RunExecutor, RunExecutorResult } from './run-worker.js'
@@ -73,6 +80,37 @@ export interface DzupAgentRunExecutorOptions {
   contextWindowTokens?: number
   /** Reserved output tokens. Default: 4_096 */
   reservedOutputTokens?: number
+  /**
+   * AGENT-H-01: Safety guardrails forwarded into DzupAgent on every run.
+   * Enables input/output filtering and policy enforcement at the framework level.
+   */
+  guardrails?: GuardrailConfig
+  /**
+   * AGENT-H-01: LLM-call audit sink forwarded into DzupAgent on every run.
+   * Records every model invocation for compliance traceability (RF-12).
+   */
+  auditStore?: LlmCallAuditSink
+  /**
+   * AGENT-H-01: Redaction policy for audit entries. Defaults to secrets-and-pii
+   * when auditStore is set.
+   */
+  auditRedaction?: AuditRedactionPolicy
+  /**
+   * AGENT-H-01: Tool execution configuration (per-tool timeouts, retries, argument
+   * validation). Forwarded into DzupAgent to enforce server-side tool governance.
+   */
+  toolExecution?: ToolExecutionConfig
+  /**
+   * AGENT-H-01: Provider failover policy forwarded into DzupAgent. Enables
+   * cross-provider retry/fallback on model API failures.
+   */
+  providerFailover?: ProviderFailoverPolicy
+  /**
+   * AGENT-H-01: Memory scope keys forwarded into DzupAgent. Typically carries
+   * tenantId so memory isolation is enforced at the framework level in addition
+   * to the server-side tenant stamp on events.
+   */
+  memoryScope?: Record<string, string>
 }
 
 /**
@@ -172,6 +210,15 @@ export function createDzupAgentRunExecutor(
           : ctx.agent.modelTier
       ) as 'chat' | 'reasoning' | 'codegen' | 'embedding'
 
+      // AGENT-H-01: forward all policy/observability/context surfaces so
+      // the framework-level guardrails, audit sink, tool governance, failover,
+      // and memory scope are active on every server-dispatched run.
+      const memoryScope: Record<string, string> | undefined =
+        options?.memoryScope !== undefined
+          ? options.memoryScope
+          : tenantId !== undefined
+            ? { tenantId }
+            : undefined
       const agent = new DzupAgent({
         id: ctx.agent.id,
         name: ctx.agent.name,
@@ -180,6 +227,13 @@ export function createDzupAgentRunExecutor(
         model: effectiveModelTier,
         registry: ctx.modelRegistry,
         tools: resolvedTools.tools,
+        eventBus: ctx.eventBus,
+        ...(options?.guardrails !== undefined ? { guardrails: options.guardrails } : {}),
+        ...(options?.auditStore !== undefined ? { auditStore: options.auditStore } : {}),
+        ...(options?.auditRedaction !== undefined ? { auditRedaction: options.auditRedaction } : {}),
+        ...(options?.toolExecution !== undefined ? { toolExecution: options.toolExecution } : {}),
+        ...(options?.providerFailover !== undefined ? { providerFailover: options.providerFailover } : {}),
+        ...(memoryScope !== undefined ? { memoryScope } : {}),
       })
 
       const chunks: string[] = []
