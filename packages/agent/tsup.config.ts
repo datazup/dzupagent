@@ -19,7 +19,9 @@ export default defineConfig({
     'src/streaming.ts',
   ],
   format: ['esm'],
-  dts: { resolve: true },
+  // Keep tsup on JS bundling only; declaration bundling is slow for this multi-entry graph.
+  // The package build emits declarations with tsc after tsup, matching core/server.
+  dts: false,
   clean: true,
   sourcemap: true,
   target: 'node20',

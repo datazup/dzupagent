@@ -67,7 +67,7 @@
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc --emitDeclarationOnly",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
