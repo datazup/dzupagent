@@ -1,5 +1,4 @@
 import type { Request, Response, NextFunction } from 'express'
-import type { BaseMessage } from '@langchain/core/messages'
 import type { FrameworkLogger } from '@dzupagent/core/utils'
 import type { MCPRequest, MCPRequestId, MCPResponse, MCPToolDescriptor, MCPResource, MCPResourceTemplate } from '@dzupagent/core/pipeline'
 
@@ -22,9 +21,9 @@ export interface GenerateResult {
 
 /** Minimal agent contract required by the Express router. */
 export interface DzupAgentLike {
-  generate(messages: BaseMessage[]): Promise<GenerateResult>
+  generate(messages: unknown[]): Promise<GenerateResult>
   stream(
-    messages: BaseMessage[],
+    messages: unknown[],
     options?: { signal?: AbortSignal },
   ): AsyncGenerator<AgentStreamEvent, unknown, unknown>
 }
