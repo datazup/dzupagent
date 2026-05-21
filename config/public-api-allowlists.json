@@ -547,7 +547,9 @@
         { "match": "exact", "pattern": "./document-connector.js" },
         { "match": "exact", "pattern": "./connector-contract.js" },
         { "match": "exact", "pattern": "./parse-document.js" },
-        { "match": "exact", "pattern": "./supported-types.js" }
+        { "match": "exact", "pattern": "./supported-types.js" },
+        { "match": "exact", "pattern": "./validation.js" },
+        { "match": "exact", "pattern": "./types.js" }
       ],
       "transitionalRoot": [
         { "match": "prefix", "pattern": "./chunking/" }
