@@ -6,7 +6,7 @@
  * dependency-light so they remain easy to test in isolation.
  */
 
-import { Semaphore } from '@dzupagent/core/orchestration'
+import { Semaphore } from '@dzupagent/core/utils'
 
 export function normalizeConcurrency(value: number | undefined, defaultValue = 2): number {
   const concurrency = value ?? defaultValue

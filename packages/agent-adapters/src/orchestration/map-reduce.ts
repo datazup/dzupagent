@@ -11,7 +11,7 @@
 
 import type { DzupEventBus } from '@dzupagent/core/events'
 import { ForgeError } from '@dzupagent/core/events'
-import { Semaphore } from '@dzupagent/core/orchestration'
+import { Semaphore } from '@dzupagent/core/utils'
 import type { BaseMapReduceContract } from '@dzupagent/agent-types'
 import type { AgentCLIAdapter } from '@dzupagent/adapter-types'
 
