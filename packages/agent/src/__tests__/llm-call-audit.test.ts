@@ -13,6 +13,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import { createEventBus, type DzupEvent } from '@dzupagent/core'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import {
   InMemoryAuditStore,
@@ -122,6 +123,38 @@ describe('LLM-call audit log (RF-12)', () => {
     expect(result.content).toBe('hello')
   })
 
+  it('emits audit:sink_failure when audit sink rejects, with redacted message', async () => {
+    const failingSink: LlmCallAuditSink = {
+      record: () => {
+        throw new Error('sink offline for token AKIAIOSFODNN7EXAMPLE and alice@example.com')
+      },
+    }
+    const bus = createEventBus()
+    const events: DzupEvent[] = []
+    bus.onAny((event) => events.push(event))
+    const agent = new DzupAgent({
+      id: 'sink-failure-event-agent',
+      instructions: 'You are a test agent.',
+      model: createMockModel(),
+      auditStore: failingSink,
+      eventBus: bus,
+    })
+
+    const result = await agent.generate([new HumanMessage('hi')], { runId: 'run-audit-err' })
+    expect(result.content).toBe('hello')
+
+    const sinkFailure = events.find((event) => event.type === 'audit:sink_failure')
+    expect(sinkFailure).toBeDefined()
+    if (sinkFailure?.type === 'audit:sink_failure') {
+      expect(sinkFailure.sink).toBe('llm-call-audit')
+      expect(sinkFailure.agentId).toBe('sink-failure-event-agent')
+      expect(sinkFailure.runId).toBe('run-audit-err')
+      expect(sinkFailure.redactionMode).toBe('secrets-and-pii')
+      expect(sinkFailure.message).not.toContain('AKIAIOSFODNN7EXAMPLE')
+      expect(sinkFailure.message).not.toContain('alice@example.com')
+    }
+  })
+
   it('supports async sinks without blocking the run result', async () => {
     const recorded: LlmCallAuditEntry[] = []
     const asyncSink: LlmCallAuditSink = {
@@ -143,6 +176,53 @@ describe('LLM-call audit log (RF-12)', () => {
 
     expect(recorded).toHaveLength(1)
     expect(recorded[0]!.success).toBe(true)
+  })
+
+  it('redacts audit prompt/response payloads before writing to auditStore', async () => {
+    const auditStore = new InMemoryAuditStore()
+    const agent = new DzupAgent({
+      id: 'audit-redaction-agent',
+      instructions: 'You are a test agent.',
+      model: createMockModel({
+        invoke: () => Promise.resolve(new AIMessage('contact me at alice@example.com token glpat-abcdefghij1234567890')),
+      }),
+      auditStore,
+    })
+
+    await agent.generate([new HumanMessage('my token is AKIAIOSFODNN7EXAMPLE and email is bob@example.com')])
+
+    expect(auditStore.entries).toHaveLength(1)
+    const entry = auditStore.entries[0]!
+    expect(entry.prompt).toBeDefined()
+    expect(entry.response).toBeDefined()
+    expect(entry.promptSnippet).toBeDefined()
+    expect(entry.responseSnippet).toBeDefined()
+    expect(entry.prompt).not.toContain('AKIAIOSFODNN7EXAMPLE')
+    expect(entry.prompt).not.toContain('bob@example.com')
+    expect(entry.response).not.toContain('glpat-abcdefghij1234567890')
+    expect(entry.response).not.toContain('alice@example.com')
+  })
+
+  it('can omit full audit payloads while retaining snippets', async () => {
+    const auditStore = new InMemoryAuditStore()
+    const agent = new DzupAgent({
+      id: 'audit-snippet-only-agent',
+      instructions: 'You are a test agent.',
+      model: createMockModel(),
+      auditStore,
+      auditRedaction: {
+        includeFullPayloads: false,
+      },
+    })
+
+    await agent.generate([new HumanMessage('hello')])
+
+    expect(auditStore.entries).toHaveLength(1)
+    const entry = auditStore.entries[0]!
+    expect(entry.prompt).toBeUndefined()
+    expect(entry.response).toBeUndefined()
+    expect(entry.promptSnippet).toBeDefined()
+    expect(entry.responseSnippet).toBeDefined()
   })
 
   it('does nothing when no auditStore is configured', async () => {

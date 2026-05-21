@@ -101,6 +101,29 @@ describe('TracePrinter.formatEvent branch coverage', () => {
     expect(line).toContain('fail')
   })
 
+  it('formats memory:put_failed', () => {
+    const line = format({
+      type: 'memory:put_failed',
+      namespace: 'ns1',
+      key: 'k9',
+      message: 'write failed',
+    } as DzupEvent)
+    expect(line).toContain('ns=ns1')
+    expect(line).toContain('key=k9')
+    expect(line).toContain('write failed')
+  })
+
+  it('formats audit:sink_failure', () => {
+    const line = format({
+      type: 'audit:sink_failure',
+      sink: 'llm-call-audit',
+      agentId: 'a1',
+      message: 'sink offline',
+    } as DzupEvent)
+    expect(line).toContain('sink=llm-call-audit')
+    expect(line).toContain('sink offline')
+  })
+
   it('formats budget:warning', () => {
     const line = format({
       type: 'budget:warning',

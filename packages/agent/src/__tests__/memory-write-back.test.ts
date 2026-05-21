@@ -270,6 +270,16 @@ describe('DzupAgent memory write-back (P9)', () => {
     const result = await agent.generate([new HumanMessage('hi')], { runId: 'run-err-123' })
 
     expect(result.content).toBe('still works')
+    const putFailed = events.find((event) => event.type === 'memory:put_failed')
+    expect(putFailed).toEqual({
+      type: 'memory:put_failed',
+      agentId: 'put-throws-event',
+      runId: 'run-err-123',
+      namespace: 'facts',
+      key: memory.put.mock.calls[0]![2],
+      scopeKeys: ['project'],
+      message: 'Memory write-back failed',
+    })
     const error = events.find((event) => event.type === 'memory:error')
     expect(error).toEqual({
       type: 'memory:error',
