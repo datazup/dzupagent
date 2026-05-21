@@ -21,6 +21,9 @@ export type {
   ArgumentValidator,
   ToolTracer,
 } from './agent/agent-types.js'
+export type { AuditRedactionPolicy } from './agent/agent-types-observability.js'
+export type { ProviderFailoverPolicy } from './agent/agent-types-failover.js'
+export type { GuardrailConfig } from './guardrails/guardrail-types.js'
 export { getMemoryProfilePreset, resolveArrowMemoryConfig } from './agent/memory-profiles.js'
 export type { MemoryProfile, MemoryProfilePreset } from './agent/memory-profiles.js'
 export { runToolLoop } from './agent/tool-loop.js'
