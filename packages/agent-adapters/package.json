@@ -53,6 +53,14 @@
     "./recovery": {
       "types": "./dist/recovery.d.ts",
       "import": "./dist/recovery.js"
+    },
+    "./skills": {
+      "types": "./dist/skills.d.ts",
+      "import": "./dist/skills.js"
+    },
+    "./enrichment": {
+      "types": "./dist/enrichment.d.ts",
+      "import": "./dist/enrichment.js"
     }
   },
   "scripts": {

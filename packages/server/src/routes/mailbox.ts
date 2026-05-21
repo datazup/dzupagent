@@ -8,7 +8,7 @@
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import { randomUUID } from 'node:crypto'
-import type { MailboxStore, MailMessage } from '@dzupagent/agent'
+import type { MailboxStore, MailMessage } from '@dzupagent/agent/mailbox'
 import type { DrizzleDlqStore } from '../persistence/drizzle-dlq-store.js'
 import { MailRateLimitError } from '../notifications/mail-rate-limiter.js'
 

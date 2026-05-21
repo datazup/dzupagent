@@ -8,8 +8,8 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { runLogRoot } from '@dzupagent/agent-adapters'
-import type { AgentEvent } from '@dzupagent/agent-adapters'
+import { runLogRoot } from '@dzupagent/agent-adapters/runs'
+import type { AgentEvent } from '@dzupagent/agent-adapters/runs'
 import { parseJsonl } from '@dzupagent/core'
 
 import type { ScorerBreakdownEntry } from './prompt-feedback-loop-types.js'

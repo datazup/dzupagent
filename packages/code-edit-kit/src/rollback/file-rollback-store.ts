@@ -22,7 +22,7 @@
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
-import type { WorkspaceFS } from '@dzupagent/codegen'
+import type { WorkspaceFS } from '@dzupagent/codegen/vfs'
 
 // ---------------------------------------------------------------------------
 // Types

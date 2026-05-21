@@ -20,7 +20,7 @@ import type {
   AsyncPersonaResolver,
 } from '@dzupagent/flow-compiler'
 import type { ToolResolver, AsyncToolResolver } from '@dzupagent/flow-ast'
-import type { RunEventStore } from '@dzupagent/agent-adapters'
+import type { RunEventStore } from '@dzupagent/agent-adapters/runs'
 
 import type { EventGateway } from '../../events/event-gateway.js'
 import type { PersonaStore } from '../../personas/persona-store.js'

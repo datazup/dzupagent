@@ -6,7 +6,7 @@
  * or 'error'. Cancels the handle when the client disconnects via
  * stream.onAbort.
  */
-import type { StreamingRunHandle, StreamEvent } from '@dzupagent/agent'
+import type { StreamingRunHandle, StreamEvent } from '@dzupagent/agent/streaming'
 
 /**
  * Minimal interface for Hono's SSEStreamingApi.

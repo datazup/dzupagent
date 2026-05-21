@@ -19,7 +19,7 @@ import type {
   ReflectionPatternOptions,
   ReflectionSummary,
   RunReflectionStore,
-} from '@dzupagent/agent'
+} from '@dzupagent/agent/reflection'
 import { eq, desc, and, isNull, or, type SQL } from 'drizzle-orm'
 import { runReflections } from './drizzle-schema.js'
 import type { DrizzleConflictInsertDatabase } from './drizzle-store-types.js'

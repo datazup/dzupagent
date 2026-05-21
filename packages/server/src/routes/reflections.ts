@@ -24,7 +24,7 @@
  */
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
-import type { RunReflectionStore, ReflectionPattern } from '@dzupagent/agent'
+import type { RunReflectionStore, ReflectionPattern } from '@dzupagent/agent/reflection'
 import type { RunStore } from '@dzupagent/core/persistence'
 import { getOptionalRequestingTenantId } from './tenant-scope.js'
 import { requireOwnedRun } from './run-guard.js'

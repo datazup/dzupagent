@@ -16,7 +16,7 @@
  * call `start()` / `stop()` multiple times and to trigger a drain manually via
  * `tick()` in tests.
  */
-import type { MailboxStore, MailMessage } from '@dzupagent/agent'
+import type { MailboxStore, MailMessage } from '@dzupagent/agent/mailbox'
 import {
   type DrizzleDlqStore,
   dlqRowToMessage,

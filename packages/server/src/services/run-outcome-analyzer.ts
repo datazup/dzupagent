@@ -25,8 +25,8 @@ import { join } from 'node:path'
 import type { DzupEventBus } from '@dzupagent/core/events'
 import { parseJsonl } from '@dzupagent/core'
 import type { EvalScorer, EvalResult } from '@dzupagent/eval-contracts'
-import { runLogRoot } from '@dzupagent/agent-adapters'
-import type { AgentEvent, RunSummary } from '@dzupagent/agent-adapters'
+import { runLogRoot } from '@dzupagent/agent-adapters/runs'
+import type { AgentEvent, RunSummary } from '@dzupagent/agent-adapters/runs'
 
 // ---------------------------------------------------------------------------
 // Public config / types

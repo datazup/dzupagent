@@ -29,7 +29,7 @@ import type {
   PromptVersionStore,
   ScorerBreakdownEntry,
 } from './prompt-feedback-loop-types.js'
-import type { AgentEvent } from '@dzupagent/agent-adapters'
+import type { AgentEvent } from '@dzupagent/agent-adapters/runs'
 
 export class PromptFeedbackLoop {
   private readonly eventBus: DzupEventBus

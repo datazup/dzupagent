@@ -14,6 +14,8 @@ export default defineConfig({
     'src/integration/index.ts',
     'src/dzupagent/index.ts',
     'src/rules.ts',
+    'src/skills.ts',
+    'src/enrichment.ts',
   ],
   format: ['esm'],
   dts: true,

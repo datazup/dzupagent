@@ -17,7 +17,7 @@
  */
 import { z } from 'zod'
 import { DynamicStructuredTool } from '@langchain/core/tools'
-import type { WorkspaceFS } from '@dzupagent/codegen'
+import type { WorkspaceFS } from '@dzupagent/codegen/vfs'
 import {
   FileRollbackStore,
   InMemoryRollbackStore,

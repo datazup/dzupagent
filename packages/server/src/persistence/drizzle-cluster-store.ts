@@ -4,7 +4,7 @@
  * Stores clusters in `agent_clusters` and roles in `cluster_roles`.
  * Follows the same pattern as {@link DrizzleMailboxStore}.
  */
-import type { ClusterRole } from '@dzupagent/agent'
+import type { ClusterRole } from '@dzupagent/agent/cluster'
 import { eq, and } from 'drizzle-orm'
 import { agentClusters, clusterRoles } from './drizzle-schema.js'
 import type { DrizzleStoreDatabase } from './drizzle-store-types.js'
