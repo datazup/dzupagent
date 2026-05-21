@@ -9,11 +9,13 @@ import type {
   AdapterProviderId,
   AgentEvent,
   AgentInput,
+  AgentStartedEvent,
   ProviderRawStreamEvent,
   RawAgentEvent,
 } from '../types.js'
 import type { CodexStreamEvent } from './codex-types.js'
-import { buildProviderEventId, now } from './codex-helpers.js'
+import { annotateProviderIdentity, buildProviderEventId, now } from './codex-helpers.js'
+import { makeStartedEvent } from '../events/event-factories.js'
 import type { RunStreamedThreadContext } from './codex-streamed-thread-types.js'
 
 /**
@@ -94,31 +96,17 @@ export function buildAdapterStartedEvent(
   parentProviderEventId: string | null,
 ): AgentEvent[] {
   const ts = now()
-  const annotated: AgentEvent = {
-    type: 'adapter:started',
+  const wd = ctx.currentInput?.workingDirectory ?? ctx.config.workingDirectory
+  const started: AgentStartedEvent = makeStartedEvent({
     providerId: ctx.providerId,
     sessionId: event.thread_id ?? sessionId,
     timestamp: ts,
-    ...(ctx.currentInput?.prompt !== undefined
-      ? { prompt: ctx.currentInput.prompt }
-      : {}),
-    ...(ctx.currentInput?.systemPrompt !== undefined
-      ? { systemPrompt: ctx.currentInput.systemPrompt }
-      : {}),
+    prompt: ctx.currentInput?.prompt,
+    systemPrompt: ctx.currentInput?.systemPrompt,
     model: ctx.config.model ?? 'gpt-5.4',
-    ...((() => {
-      const wd = ctx.currentInput?.workingDirectory ?? ctx.config.workingDirectory
-      return wd !== undefined ? { workingDirectory: wd } : {}
-    })()),
+    workingDirectory: wd,
     isResume: ctx.isResume,
-  } as AgentEvent
+  })
 
-  if (!providerEventId && !parentProviderEventId) return [annotated]
-  return [
-    {
-      ...annotated,
-      ...(providerEventId ? { providerEventId } : {}),
-      ...(parentProviderEventId ? { parentProviderEventId } : {}),
-    } as AgentEvent,
-  ]
+  return [annotateProviderIdentity(started, providerEventId, parentProviderEventId)]
 }

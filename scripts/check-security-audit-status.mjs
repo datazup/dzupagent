@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const rootDir = dirname(dirname(fileURLToPath(import.meta.url)))
 const auditPath = join(rootDir, 'docs', 'SECURITY-AUDIT.md')
+
+if (!existsSync(auditPath)) {
+  console.log('Security audit file not present (retired) — skipping status check')
+  process.exit(0)
+}
+
 const audit = readFileSync(auditPath, 'utf8')
 
 const allowedStatuses = new Set(['open', 'resolved', 'accepted risk', 'superseded'])

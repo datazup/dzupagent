@@ -8,12 +8,16 @@
  */
 import { defaultLogger } from '@dzupagent/core/utils'
 import type {
-  AgentEvent,
   AgentInput,
   AgentStreamEvent,
   TokenUsage,
 } from '../types.js'
 import { withCorrelationId } from '../types.js'
+import {
+  makeCacheStatsEvent,
+  makeCompletedEvent,
+  makeFailedEvent,
+} from '../events/event-factories.js'
 import type {
   CodexInstance,
   CodexStreamEvent,
@@ -110,8 +114,7 @@ export async function* runStreamedThread(
         { sessionId, reason, durationMs, error: errMsg },
       )
       yield withCorrelationId(
-        {
-          type: 'adapter:failed',
+        makeFailedEvent({
           providerId: ctx.providerId,
           sessionId,
           error: didTimeout
@@ -119,7 +122,7 @@ export async function* runStreamedThread(
             : errMsg,
           code: didTimeout ? 'ADAPTER_TIMEOUT' : 'ADAPTER_EXECUTION_FAILED',
           timestamp: now(),
-        } as AgentEvent,
+        }),
         input.correlationId,
       )
       return
@@ -130,14 +133,13 @@ export async function* runStreamedThread(
       error: errMsg,
     })
     yield withCorrelationId(
-      {
-        type: 'adapter:failed',
+      makeFailedEvent({
         providerId: ctx.providerId,
         sessionId,
         error: errMsg,
         code: 'ADAPTER_EXECUTION_FAILED',
         timestamp: now(),
-      } as AgentEvent,
+      }),
       input.correlationId,
     )
     return
@@ -263,20 +265,22 @@ export async function* runStreamedThread(
         lastEventAgeMs: now() - lastEventAt,
       })
       yield withCorrelationId(
-        {
-          type: didTimeout ? 'adapter:failed' : 'adapter:completed',
-          providerId: ctx.providerId,
-          sessionId,
-          ...(didTimeout
-            ? {
-                error: `Codex adapter timed out after ${now() - startTime}ms`,
-                code: 'ADAPTER_TIMEOUT' as const,
-              }
-            : { result: finalResponse || '(interrupted)' }),
-          ...(lastUsage !== undefined ? { usage: lastUsage } : {}),
-          durationMs: now() - startTime,
-          timestamp: now(),
-        } as AgentEvent,
+        didTimeout
+          ? makeFailedEvent({
+              providerId: ctx.providerId,
+              sessionId,
+              error: `Codex adapter timed out after ${now() - startTime}ms`,
+              code: 'ADAPTER_TIMEOUT',
+              timestamp: now(),
+            })
+          : makeCompletedEvent({
+              providerId: ctx.providerId,
+              sessionId,
+              result: finalResponse || '(interrupted)',
+              usage: lastUsage,
+              durationMs: now() - startTime,
+              timestamp: now(),
+            }),
         input.correlationId,
       )
       return
@@ -288,14 +292,13 @@ export async function* runStreamedThread(
       error: errMsg,
     })
     yield withCorrelationId(
-      {
-        type: 'adapter:failed',
+      makeFailedEvent({
         providerId: ctx.providerId,
         sessionId,
         error: errMsg,
         code: 'ADAPTER_EXECUTION_FAILED',
         timestamp: now(),
-      } as AgentEvent,
+      }),
       input.correlationId,
     )
     return
@@ -313,15 +316,14 @@ export async function* runStreamedThread(
   })
 
   yield withCorrelationId(
-    {
-      type: 'adapter:completed',
+    makeCompletedEvent({
       providerId: ctx.providerId,
       sessionId,
       result: finalResponse || '',
-      ...(lastUsage !== undefined ? { usage: lastUsage } : {}),
+      usage: lastUsage,
       durationMs: now() - startTime,
       timestamp: now(),
-    } as AgentEvent,
+    }),
     input.correlationId,
   )
 
@@ -334,8 +336,7 @@ export async function* runStreamedThread(
     const cacheWrite = lastUsage.cacheWriteTokens ?? 0
     const total = lastUsage.inputTokens
     yield withCorrelationId(
-      {
-        type: 'adapter:cache_stats',
+      makeCacheStatsEvent({
         providerId: ctx.providerId,
         sessionId,
         cacheReadTokens: cacheRead,
@@ -343,7 +344,7 @@ export async function* runStreamedThread(
         totalInputTokens: total,
         cacheHitRatio: total > 0 ? cacheRead / total : 0,
         timestamp: now(),
-      } as AgentEvent,
+      }),
       input.correlationId,
     )
   }
