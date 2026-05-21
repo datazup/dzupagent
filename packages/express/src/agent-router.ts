@@ -3,10 +3,9 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express'
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import { z } from 'zod'
 import { HumanMessage } from '@langchain/core/messages'
-import type { DzupAgent } from '@dzupagent/agent'
 import { defaultLogger, type FrameworkLogger } from '@dzupagent/core/utils'
 import { SSEHandler } from './sse-handler.js'
-import type { AgentRouterConfig, ChatRequestBody, AgentResult } from './types.js'
+import type { AgentRouterConfig, ChatRequestBody, AgentResult, DzupAgentLike } from './types.js'
 
 /**
  * Maximum length for an inbound `message` field — 32 KB.
@@ -66,9 +65,9 @@ function asyncHandler(
  * caller (do NOT silently fall through).
  */
 function resolveAgent(
-  agents: Record<string, DzupAgent>,
+  agents: Record<string, DzupAgentLike>,
   agentName?: string,
-): { agent: DzupAgent; name: string } | null {
+): { agent: DzupAgentLike; name: string } | null {
   if (agentName) {
     const agent = agents[agentName]
     if (agent) return { agent, name: agentName }
@@ -124,7 +123,7 @@ function parseChatBody(req: Request, res: Response): ChatRequestBody | null {
  * On failure: write a 400 with `UNKNOWN_AGENT` and return `false`.
  */
 function ensureAgentAllowed(
-  agents: Record<string, DzupAgent>,
+  agents: Record<string, DzupAgentLike>,
   agentName: string | undefined,
   res: Response,
 ): boolean {

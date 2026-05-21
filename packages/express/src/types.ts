@@ -1,7 +1,33 @@
 import type { Request, Response, NextFunction } from 'express'
-import type { DzupAgent, GenerateResult } from '@dzupagent/agent'
+import type { BaseMessage } from '@langchain/core/messages'
 import type { FrameworkLogger } from '@dzupagent/core/utils'
 import type { MCPRequest, MCPRequestId, MCPResponse, MCPToolDescriptor, MCPResource, MCPResourceTemplate } from '@dzupagent/core/pipeline'
+
+/** A single streamed event from a compatible DzupAgent runtime. */
+export interface AgentStreamEvent {
+  type: 'text' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'budget_warning' | 'stuck'
+  data: Record<string, unknown>
+}
+
+/** Minimal generate result surface consumed by the Express adapter. */
+export interface GenerateResult {
+  content: string
+  usage: {
+    totalInputTokens: number
+    totalOutputTokens: number
+    llmCalls: number
+  }
+  toolStats: unknown[]
+}
+
+/** Minimal agent contract required by the Express router. */
+export interface DzupAgentLike {
+  generate(messages: BaseMessage[]): Promise<GenerateResult>
+  stream(
+    messages: BaseMessage[],
+    options?: { signal?: AbortSignal },
+  ): AsyncGenerator<AgentStreamEvent, unknown, unknown>
+}
 
 /**
  * A single SSE event to be written to the response stream.
@@ -83,8 +109,8 @@ export interface AgentRouterRateLimitConfig {
  * Configuration for the Express router factory.
  */
 export interface AgentRouterConfig {
-  /** Map of agent name to DzupAgent instance */
-  agents: Record<string, DzupAgent>
+  /** Map of agent name to DzupAgent-compatible instance */
+  agents: Record<string, DzupAgentLike>
   /** Express auth middleware to apply to all routes */
   auth?: (req: Request, res: Response, next: NextFunction) => void
   /** SSE streaming configuration */
