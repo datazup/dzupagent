@@ -3,17 +3,23 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_PACKAGES = [
   '@dzupagent/agent',
   '@dzupagent/agent-adapters',
   '@dzupagent/codegen',
+  '@dzupagent/server',
 ];
+
+const DEFAULT_BUDGET_FILE = 'scripts/dts-budgets.json';
 
 function parseArgs(argv) {
   const options = {
     build: false,
+    check: false,
     json: false,
+    budgetFile: DEFAULT_BUDGET_FILE,
     packages: [],
   };
 
@@ -23,8 +29,21 @@ function parseArgs(argv) {
       options.build = true;
       continue;
     }
+    if (arg === '--check') {
+      options.check = true;
+      continue;
+    }
     if (arg === '--json') {
       options.json = true;
+      continue;
+    }
+    if (arg === '--budget-file') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error(`${arg} requires a value`);
+      }
+      options.budgetFile = value;
+      index += 1;
       continue;
     }
     if (arg === '--package' || arg === '--packages') {
@@ -61,6 +80,8 @@ Measures declaration-output size and, with --build, package build duration.
 Options:
   --package <name[,name]>  Package name or packages/<dir> path to measure
   --build                 Run yarn workspace <pkg> build before measuring
+  --check                 Fail when measured output exceeds DTS budgets
+  --budget-file <path>    Budget file for --check (default: ${DEFAULT_BUDGET_FILE})
   --json                  Print machine-readable JSON
   -h, --help              Show this help
 
@@ -69,6 +90,11 @@ Default packages: ${DEFAULT_PACKAGES.join(', ')}`);
 
 async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, 'utf8'));
+}
+
+async function readBudgetFile(root, budgetFile) {
+  const budgetPath = path.resolve(root, budgetFile);
+  return readJson(budgetPath);
 }
 
 async function listWorkspacePackages(root) {
@@ -261,6 +287,90 @@ function printText(results) {
   }
 }
 
+function formatBudgetValue(metric, value) {
+  if (metric.toLowerCase().endsWith('bytes')) {
+    return formatBytes(value);
+  }
+  if (metric.toLowerCase().endsWith('ms')) {
+    return `${(value / 1000).toFixed(2)}s`;
+  }
+  return String(value);
+}
+
+function isMinimumMetric(metric) {
+  return metric.startsWith('min');
+}
+
+function getMeasuredMetric(result, metric) {
+  switch (metric) {
+    case 'maxBuildDurationMs':
+      return result.buildDurationMs;
+    case 'minDeclarationFiles':
+    case 'maxDeclarationFiles':
+      return result.declarations.declarationFileCount;
+    case 'minDeclarationBytes':
+    case 'maxDeclarationBytes':
+      return result.declarations.declarationBytes;
+    case 'maxDeclarationMapFiles':
+      return result.declarations.declarationMapFileCount;
+    case 'maxDeclarationMapBytes':
+      return result.declarations.declarationMapBytes;
+    default:
+      return undefined;
+  }
+}
+
+export function evaluateBudgets(results, budgetConfig) {
+  const packageBudgets = budgetConfig?.packages;
+  if (!packageBudgets || typeof packageBudgets !== 'object' || Array.isArray(packageBudgets)) {
+    throw new Error('DTS budget file must contain a "packages" object');
+  }
+
+  const messages = [];
+  const supportedMetrics = [
+    'minDeclarationFiles',
+    'minDeclarationBytes',
+    'maxBuildDurationMs',
+    'maxDeclarationFiles',
+    'maxDeclarationBytes',
+    'maxDeclarationMapFiles',
+    'maxDeclarationMapBytes',
+  ];
+
+  for (const result of results) {
+    const budget = packageBudgets[result.name];
+    if (!budget) {
+      messages.push(`${result.name}: no DTS budget configured`);
+      continue;
+    }
+
+    for (const metric of supportedMetrics) {
+      const limit = budget[metric];
+      if (limit === undefined) continue;
+      if (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 0) {
+        throw new Error(`${result.name} ${metric} budget must be a non-negative number`);
+      }
+
+      const measured = getMeasuredMetric(result, metric);
+      if (measured === undefined) {
+        continue;
+      }
+      if (isMinimumMetric(metric) ? measured < limit : measured > limit) {
+        const relation = isMinimumMetric(metric) ? 'below minimum' : 'exceeded';
+        messages.push(
+          `${result.name}: ${metric} ${relation} `
+          + `(measured ${formatBudgetValue(metric, measured)}, budget ${formatBudgetValue(metric, limit)})`,
+        );
+      }
+    }
+  }
+
+  return {
+    ok: messages.length === 0,
+    messages,
+  };
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
@@ -302,14 +412,35 @@ async function main() {
   }
 
   if (options.json) {
-    console.log(JSON.stringify({ generatedAt: new Date().toISOString(), results }, null, 2));
+    const budgetResult = options.check
+      ? evaluateBudgets(results, await readBudgetFile(root, options.budgetFile))
+      : undefined;
+    console.log(JSON.stringify({ generatedAt: new Date().toISOString(), results, budgetResult }, null, 2));
+    if (budgetResult && !budgetResult.ok) {
+      process.exitCode = 1;
+    }
     return;
   }
 
   printText(results);
+  if (options.check) {
+    const budgetResult = evaluateBudgets(results, await readBudgetFile(root, options.budgetFile));
+    if (budgetResult.ok) {
+      console.log('\nDTS budgets: ok');
+      return;
+    }
+
+    console.error('\nDTS budgets failed:');
+    for (const message of budgetResult.messages) {
+      console.error(`  - ${message}`);
+    }
+    process.exitCode = 1;
+  }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
