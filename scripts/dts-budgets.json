@@ -115,6 +115,7 @@
     "@dzupagent/core": {
       "minDeclarationFiles": 240,
       "minDeclarationBytes": 500000,
+      "maxDeclarationEmitDurationMs": 60000,
       "maxDeclarationFiles": 330,
       "maxDeclarationBytes": 750000,
       "maxDeclarationMapFiles": 0,
