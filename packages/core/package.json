@@ -134,7 +134,7 @@
     }
   },
   "scripts": {
-    "build": "tsup && tsc --project tsconfig.build.json --emitDeclarationOnly",
+    "build": "tsup && tsc --project tsconfig.build.json --emitDeclarationOnly --declarationMap false",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
