@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { evaluateBudgets } from '../measure-dts-build.mjs';
+import { evaluateBudgets, parseTscExtendedDiagnostics } from '../measure-dts-build.mjs';
 
 function makeResult(name, overrides = {}) {
   return {
@@ -68,6 +68,30 @@ test('uses the slowest declaration emit sample for duration budgets', () => {
   assert.equal(result.ok, false);
   assert.match(result.messages.join('\n'), /@dzupagent\/core: maxDeclarationEmitDurationMs exceeded/);
   assert.match(result.messages.join('\n'), /measured 15\.00s, budget 10\.00s/);
+});
+
+test('parses tsc extended diagnostics into stable numeric fields', () => {
+  const diagnostics = parseTscExtendedDiagnostics(`
+Files:                         382
+Lines of Library:            40124
+Memory used:               219580K
+Parse time:                  1.21s
+Bind time:                   0.41s
+Check time:                 18.54s
+Emit time:                   2.07s
+Total time:                 22.62s
+`);
+
+  assert.equal(diagnostics.metrics.files.value, 382);
+  assert.equal(diagnostics.metricCount, 8);
+  assert.ok(diagnostics.rawLength > 0);
+  assert.equal(diagnostics.metrics.memoryUsed.unit, 'KiB');
+  assert.equal(diagnostics.memoryUsedKb, 219580);
+  assert.equal(diagnostics.timeMs.parseTime, 1210);
+  assert.equal(diagnostics.timeMs.bindTime, 410);
+  assert.equal(diagnostics.timeMs.checkTime, 18540);
+  assert.equal(diagnostics.timeMs.emitTime, 2070);
+  assert.equal(diagnostics.timeMs.totalTime, 22620);
 });
 
 test('fails when declaration maps return for a budgeted package', () => {
