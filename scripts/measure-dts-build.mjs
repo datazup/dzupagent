@@ -9,6 +9,7 @@ const DEFAULT_PACKAGES = [
   '@dzupagent/agent',
   '@dzupagent/agent-adapters',
   '@dzupagent/codegen',
+  '@dzupagent/flow-dsl',
   '@dzupagent/server',
 ];
 
