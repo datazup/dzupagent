@@ -580,6 +580,13 @@ test('omits benchmark deltas when no compatible previous lane exists', () => {
   const records = [
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:00:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [1, 1, 1],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -606,6 +613,13 @@ test('omits benchmark deltas when no compatible previous lane exists', () => {
     }),
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:01:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [1, 1, 1],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -661,6 +675,13 @@ test('filters benchmark summary rows by package and compatible lane fields', () 
   const records = [
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:00:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [1, 1, 1],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -717,6 +738,13 @@ test('filters benchmark summary rows by package and compatible lane fields', () 
     }),
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:01:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [1, 1, 1],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -773,6 +801,13 @@ test('reports target readiness separately from sample readiness', () => {
   const records = [
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:00:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [1, 1, 1],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -799,6 +834,13 @@ test('reports target readiness separately from sample readiness', () => {
     }),
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:01:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [1, 1, 1],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -839,6 +881,8 @@ test('reports target readiness separately from sample readiness', () => {
     compatibleLaneSampleCount: 2,
     missingMetricCount: 0,
   });
+  assert.equal(core.recommendation.status, 'target-failed');
+  assert.match(core.recommendation.reason, /observed max 6\.00s exceeds target 5\.00s/);
 
   const incompleteSummary = summarizeBenchmarkRecords(records.slice(0, 1), {
     targetMaxDeclarationEmitMs: 5000,
@@ -851,6 +895,136 @@ test('reports target readiness separately from sample readiness', () => {
     compatibleLaneSampleCount: 1,
     missingMetricCount: 0,
   });
+  assert.equal(incompleteSummary.packages[0].recommendation.status, 'collect-more-samples');
+});
+
+test('supports package-specific target readiness and budget recommendations', () => {
+  const records = [
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:00:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [1, 1, 1],
+      },
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'core-before', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 4500,
+            medianMs: 5000,
+            meanMs: 5000,
+            maxMs: 5500,
+            lastMs: 5000,
+            samplesMs: [4500, 5000, 5500],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+        {
+          name: '@dzupagent/test-utils',
+          dir: 'packages/test-utils',
+          measurement: { state: 'warm-emit', label: 'test-utils-before', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 5000,
+            medianMs: 5500,
+            meanMs: 5500,
+            maxMs: 6000,
+            lastMs: 5500,
+            samplesMs: [5000, 5500, 6000],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:01:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [1, 1, 1],
+      },
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'core-after', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 4700,
+            medianMs: 5200,
+            meanMs: 5200,
+            maxMs: 5700,
+            lastMs: 5200,
+            samplesMs: [4700, 5200, 5700],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+        {
+          name: '@dzupagent/test-utils',
+          dir: 'packages/test-utils',
+          measurement: { state: 'warm-emit', label: 'test-utils-after', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 5100,
+            medianMs: 5600,
+            meanMs: 5600,
+            maxMs: 6100,
+            lastMs: 5600,
+            samplesMs: [5100, 5600, 6100],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+  ];
+
+  const summary = summarizeBenchmarkRecords(records, {
+    targetMaxDeclarationEmitMs: 5000,
+    packageTargetMaxDeclarationEmitMs: new Map([
+      ['@dzupagent/test-utils', 6500],
+    ]),
+  });
+  const core = summary.packages.find((item) => item.packageName === '@dzupagent/core');
+  const testUtils = summary.packages.find((item) => item.packageName === '@dzupagent/test-utils');
+
+  assert.equal(core.targetReadiness.targetMaxDeclarationEmitMs, 5000);
+  assert.equal(core.targetReadiness.ready, false);
+  assert.equal(core.recommendation.status, 'target-failed');
+  assert.equal(testUtils.targetReadiness.targetMaxDeclarationEmitMs, 6500);
+  assert.equal(testUtils.targetReadiness.ready, true);
+  assert.equal(testUtils.durationVariance.stable, true);
+  assert.equal(testUtils.environmentNoise.noisy, false);
+  assert.equal(testUtils.recommendation.status, 'budget-ready');
 });
 
 test('summarizes duration variance from per-run benchmark samples', () => {
