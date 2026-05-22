@@ -7,7 +7,9 @@ function makeResult(name, overrides = {}) {
   return {
     name,
     buildDurationMs: overrides.buildDurationMs,
+    buildDurationStats: overrides.buildDurationStats,
     declarationEmitDurationMs: overrides.declarationEmitDurationMs,
+    declarationEmitDurationStats: overrides.declarationEmitDurationStats,
     declarations: {
       declarationFileCount: overrides.declarationFileCount ?? 1,
       declarationBytes: overrides.declarationBytes ?? 100,
@@ -36,6 +38,36 @@ test('passes when measured declaration output stays within budget', () => {
 
   assert.equal(result.ok, true);
   assert.deepEqual(result.messages, []);
+});
+
+test('uses the slowest declaration emit sample for duration budgets', () => {
+  const result = evaluateBudgets(
+    [
+      makeResult('@dzupagent/core', {
+        declarationEmitDurationMs: 8_000,
+        declarationEmitDurationStats: {
+          count: 3,
+          minMs: 8_000,
+          medianMs: 9_000,
+          meanMs: 10_667,
+          maxMs: 15_000,
+          lastMs: 8_000,
+          samplesMs: [9_000, 15_000, 8_000],
+        },
+      }),
+    ],
+    {
+      packages: {
+        '@dzupagent/core': {
+          maxDeclarationEmitDurationMs: 10_000,
+        },
+      },
+    },
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(result.messages.join('\n'), /@dzupagent\/core: maxDeclarationEmitDurationMs exceeded/);
+  assert.match(result.messages.join('\n'), /measured 15\.00s, budget 10\.00s/);
 });
 
 test('fails when declaration maps return for a budgeted package', () => {
