@@ -7,6 +7,7 @@ import {
   evaluateBudgets,
   parseTscExtendedDiagnostics,
   shouldCollectDiagnostics,
+  summarizeBenchmarkRecords,
   summarizeTscExtendedDiagnostics,
 } from '../measure-dts-build.mjs';
 
@@ -304,6 +305,93 @@ test('creates compact benchmark records for persisted comparisons', () => {
   assert.equal(record.kind, 'dts-benchmark');
   assert.equal(record.results[0].measurement.diagnosticsSampleMode, 'last');
   assert.equal(record.results[0].declarationDiagnostics.metrics, undefined);
+});
+
+test('summarizes benchmark records with latest rows and deltas', () => {
+  const records = [
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:00:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'before', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 900,
+            medianMs: 1000,
+            meanMs: 1100,
+            maxMs: 1400,
+            lastMs: 900,
+            samplesMs: [1400, 1000, 900],
+          },
+          declarationDiagnosticsSummary: {
+            timeMs: {
+              totalTime: 1200,
+              parseTime: 800,
+              iORead: 100,
+              checkTime: 200,
+              emitTime: 100,
+            },
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:01:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'after', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 700,
+            medianMs: 800,
+            meanMs: 850,
+            maxMs: 1000,
+            lastMs: 700,
+            samplesMs: [1000, 800, 700],
+          },
+          declarationDiagnosticsSummary: {
+            timeMs: {
+              totalTime: 900,
+              parseTime: 600,
+              iORead: 80,
+              checkTime: 150,
+              emitTime: 70,
+            },
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 90,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+  ];
+
+  const summary = summarizeBenchmarkRecords(records);
+  const core = summary.packages[0];
+
+  assert.equal(summary.recordCount, 2);
+  assert.equal(summary.rowCount, 2);
+  assert.equal(core.packageName, '@dzupagent/core');
+  assert.equal(core.latest.label, 'after');
+  assert.equal(core.deltaFromPrevious.declarationEmitMedianMs.delta, -200);
+  assert.equal(core.deltaFromPrevious.declarationEmitMedianMs.percent, -20);
+  assert.equal(core.deltaFromPrevious.diagnosticsTotalMs.delta, -300);
+  assert.equal(core.deltaFromPrevious.declarationBytes.delta, -10);
 });
 
 test('fails when declaration maps return for a budgeted package', () => {
