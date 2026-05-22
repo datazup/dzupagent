@@ -1,0 +1,36 @@
+{
+  "packages": {
+    "@dzupagent/agent": {
+      "minDeclarationFiles": 20,
+      "minDeclarationBytes": 400000,
+      "maxDeclarationFiles": 40,
+      "maxDeclarationBytes": 600000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/agent-adapters": {
+      "minDeclarationFiles": 200,
+      "minDeclarationBytes": 450000,
+      "maxDeclarationFiles": 275,
+      "maxDeclarationBytes": 650000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/codegen": {
+      "minDeclarationFiles": 120,
+      "minDeclarationBytes": 180000,
+      "maxDeclarationFiles": 175,
+      "maxDeclarationBytes": 300000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/server": {
+      "minDeclarationFiles": 220,
+      "minDeclarationBytes": 450000,
+      "maxDeclarationFiles": 300,
+      "maxDeclarationBytes": 700000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    }
+  }
+}
