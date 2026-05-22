@@ -6,11 +6,37 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_PACKAGES = [
+  'create-dzupagent',
+  '@dzupagent/adapter-rules',
+  '@dzupagent/adapter-types',
   '@dzupagent/agent',
   '@dzupagent/agent-adapters',
+  '@dzupagent/agent-types',
+  '@dzupagent/app-tools',
+  '@dzupagent/cache',
+  '@dzupagent/code-edit-kit',
   '@dzupagent/codegen',
+  '@dzupagent/connectors',
+  '@dzupagent/connectors-browser',
+  '@dzupagent/connectors-documents',
+  '@dzupagent/context',
+  '@dzupagent/eval-contracts',
+  '@dzupagent/evals',
+  '@dzupagent/express',
+  '@dzupagent/flow-ast',
+  '@dzupagent/flow-compiler',
   '@dzupagent/flow-dsl',
+  '@dzupagent/hitl-kit',
+  '@dzupagent/memory',
+  '@dzupagent/memory-ipc',
+  '@dzupagent/otel',
+  '@dzupagent/rag',
+  '@dzupagent/runtime-contracts',
+  '@dzupagent/scraper',
+  '@dzupagent/security',
   '@dzupagent/server',
+  '@dzupagent/testing',
+  '@dzupagent/test-utils',
 ];
 
 const DEFAULT_BUDGET_FILE = 'scripts/dts-budgets.json';

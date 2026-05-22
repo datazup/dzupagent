@@ -1,10 +1,34 @@
 {
   "packages": {
-    "@dzupagent/agent": {
+    "create-dzupagent": {
       "minDeclarationFiles": 20,
-      "minDeclarationBytes": 400000,
+      "minDeclarationBytes": 14000,
       "maxDeclarationFiles": 40,
-      "maxDeclarationBytes": 600000,
+      "maxDeclarationBytes": 30000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/adapter-rules": {
+      "minDeclarationFiles": 8,
+      "minDeclarationBytes": 9000,
+      "maxDeclarationFiles": 20,
+      "maxDeclarationBytes": 25000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/adapter-types": {
+      "minDeclarationFiles": 10,
+      "minDeclarationBytes": 30000,
+      "maxDeclarationFiles": 25,
+      "maxDeclarationBytes": 60000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/agent": {
+      "minDeclarationFiles": 280,
+      "minDeclarationBytes": 600000,
+      "maxDeclarationFiles": 360,
+      "maxDeclarationBytes": 850000,
       "maxDeclarationMapFiles": 0,
       "maxDeclarationMapBytes": 0
     },
@@ -16,11 +40,115 @@
       "maxDeclarationMapFiles": 0,
       "maxDeclarationMapBytes": 0
     },
+    "@dzupagent/agent-types": {
+      "minDeclarationFiles": 5,
+      "minDeclarationBytes": 12000,
+      "maxDeclarationFiles": 15,
+      "maxDeclarationBytes": 30000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/app-tools": {
+      "minDeclarationFiles": 12,
+      "minDeclarationBytes": 15000,
+      "maxDeclarationFiles": 25,
+      "maxDeclarationBytes": 35000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/cache": {
+      "minDeclarationFiles": 4,
+      "minDeclarationBytes": 6000,
+      "maxDeclarationFiles": 12,
+      "maxDeclarationBytes": 18000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/code-edit-kit": {
+      "minDeclarationFiles": 5,
+      "minDeclarationBytes": 10000,
+      "maxDeclarationFiles": 15,
+      "maxDeclarationBytes": 30000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
     "@dzupagent/codegen": {
       "minDeclarationFiles": 120,
       "minDeclarationBytes": 180000,
       "maxDeclarationFiles": 175,
       "maxDeclarationBytes": 300000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/connectors": {
+      "minDeclarationFiles": 20,
+      "minDeclarationBytes": 40000,
+      "maxDeclarationFiles": 45,
+      "maxDeclarationBytes": 75000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/connectors-browser": {
+      "minDeclarationFiles": 10,
+      "minDeclarationBytes": 7000,
+      "maxDeclarationFiles": 25,
+      "maxDeclarationBytes": 22000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/connectors-documents": {
+      "minDeclarationFiles": 10,
+      "minDeclarationBytes": 4000,
+      "maxDeclarationFiles": 25,
+      "maxDeclarationBytes": 16000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/context": {
+      "minDeclarationFiles": 12,
+      "minDeclarationBytes": 32000,
+      "maxDeclarationFiles": 25,
+      "maxDeclarationBytes": 65000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/eval-contracts": {
+      "minDeclarationFiles": 4,
+      "minDeclarationBytes": 10000,
+      "maxDeclarationFiles": 12,
+      "maxDeclarationBytes": 25000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/evals": {
+      "minDeclarationFiles": 60,
+      "minDeclarationBytes": 80000,
+      "maxDeclarationFiles": 100,
+      "maxDeclarationBytes": 130000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/express": {
+      "minDeclarationFiles": 5,
+      "minDeclarationBytes": 14000,
+      "maxDeclarationFiles": 15,
+      "maxDeclarationBytes": 30000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/flow-ast": {
+      "minDeclarationFiles": 50,
+      "minDeclarationBytes": 40000,
+      "maxDeclarationFiles": 85,
+      "maxDeclarationBytes": 80000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/flow-compiler": {
+      "minDeclarationFiles": 20,
+      "minDeclarationBytes": 40000,
+      "maxDeclarationFiles": 40,
+      "maxDeclarationBytes": 80000,
       "maxDeclarationMapFiles": 0,
       "maxDeclarationMapBytes": 0
     },
@@ -32,11 +160,91 @@
       "maxDeclarationMapFiles": 0,
       "maxDeclarationMapBytes": 0
     },
+    "@dzupagent/hitl-kit": {
+      "minDeclarationFiles": 4,
+      "minDeclarationBytes": 8000,
+      "maxDeclarationFiles": 12,
+      "maxDeclarationBytes": 22000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/memory": {
+      "minDeclarationFiles": 100,
+      "minDeclarationBytes": 240000,
+      "maxDeclarationFiles": 160,
+      "maxDeclarationBytes": 360000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/memory-ipc": {
+      "minDeclarationFiles": 30,
+      "minDeclarationBytes": 60000,
+      "maxDeclarationFiles": 50,
+      "maxDeclarationBytes": 100000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/otel": {
+      "minDeclarationFiles": 35,
+      "minDeclarationBytes": 70000,
+      "maxDeclarationFiles": 60,
+      "maxDeclarationBytes": 115000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/rag": {
+      "minDeclarationFiles": 15,
+      "minDeclarationBytes": 40000,
+      "maxDeclarationFiles": 30,
+      "maxDeclarationBytes": 80000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/runtime-contracts": {
+      "minDeclarationFiles": 5,
+      "minDeclarationBytes": 12000,
+      "maxDeclarationFiles": 15,
+      "maxDeclarationBytes": 30000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/scraper": {
+      "minDeclarationFiles": 5,
+      "minDeclarationBytes": 7000,
+      "maxDeclarationFiles": 15,
+      "maxDeclarationBytes": 22000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/security": {
+      "minDeclarationFiles": 8,
+      "minDeclarationBytes": 9000,
+      "maxDeclarationFiles": 20,
+      "maxDeclarationBytes": 25000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
     "@dzupagent/server": {
       "minDeclarationFiles": 220,
       "minDeclarationBytes": 450000,
       "maxDeclarationFiles": 300,
       "maxDeclarationBytes": 700000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/testing": {
+      "minDeclarationFiles": 12,
+      "minDeclarationBytes": 15000,
+      "maxDeclarationFiles": 30,
+      "maxDeclarationBytes": 35000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
+    "@dzupagent/test-utils": {
+      "minDeclarationFiles": 4,
+      "minDeclarationBytes": 8000,
+      "maxDeclarationFiles": 12,
+      "maxDeclarationBytes": 20000,
       "maxDeclarationMapFiles": 0,
       "maxDeclarationMapBytes": 0
     }
