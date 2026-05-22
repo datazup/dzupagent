@@ -573,22 +573,34 @@ function validateAgentPolicy(
   }
   const policy: AgentPolicy = {}
   if (raw['timeoutMs'] !== undefined) {
-    if (typeof raw['timeoutMs'] !== 'number') {
+    if (typeof raw['timeoutMs'] !== 'number' || !Number.isFinite(raw['timeoutMs'])) {
       issues.push({
         path: joinPath(path, 'timeoutMs'),
         code: 'MISSING_REQUIRED_FIELD',
-        message: 'agent.policy.timeoutMs must be a number',
+        message: 'agent.policy.timeoutMs must be a finite number',
+      })
+    } else if (raw['timeoutMs'] <= 0) {
+      issues.push({
+        path: joinPath(path, 'timeoutMs'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'agent.policy.timeoutMs must be greater than 0',
       })
     } else {
       policy.timeoutMs = raw['timeoutMs']
     }
   }
   if (raw['budgetCents'] !== undefined) {
-    if (typeof raw['budgetCents'] !== 'number') {
+    if (typeof raw['budgetCents'] !== 'number' || !Number.isFinite(raw['budgetCents'])) {
       issues.push({
         path: joinPath(path, 'budgetCents'),
         code: 'MISSING_REQUIRED_FIELD',
-        message: 'agent.policy.budgetCents must be a number',
+        message: 'agent.policy.budgetCents must be a finite number',
+      })
+    } else if (raw['budgetCents'] <= 0) {
+      issues.push({
+        path: joinPath(path, 'budgetCents'),
+        code: 'MISSING_REQUIRED_FIELD',
+        message: 'agent.policy.budgetCents must be greater than 0',
       })
     } else {
       policy.budgetCents = raw['budgetCents']

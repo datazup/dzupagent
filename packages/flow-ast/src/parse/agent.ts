@@ -538,8 +538,8 @@ function parsePolicy(
     return undefined
   }
   const policy: AgentPolicy = {}
-  numberField(raw, 'timeoutMs', pointer, ctx, (v) => { policy.timeoutMs = v })
-  numberField(raw, 'budgetCents', pointer, ctx, (v) => { policy.budgetCents = v })
+  positiveFiniteNumberField(raw, 'timeoutMs', pointer, ctx, (v) => { policy.timeoutMs = v })
+  positiveFiniteNumberField(raw, 'budgetCents', pointer, ctx, (v) => { policy.budgetCents = v })
   numberField(raw, 'maxToolCalls', pointer, ctx, (v) => { policy.maxToolCalls = v })
   if (raw.workingDirectory !== undefined) {
     if (typeof raw.workingDirectory !== 'string') {
@@ -594,6 +594,34 @@ function parsePolicy(
     }
   }
   return policy
+}
+
+function positiveFiniteNumberField(
+  obj: Record<string, unknown>,
+  key: string,
+  pointer: string,
+  ctx: ParseContext,
+  assign: (v: number) => void,
+): void {
+  if (obj[key] === undefined) return
+  const value = obj[key]
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `${pointer}/${key} must be a finite number`,
+      pointer: joinPointer(pointer, key),
+    })
+    return
+  }
+  if (value <= 0) {
+    ctx.errors.push({
+      code: 'WRONG_FIELD_TYPE',
+      message: `${pointer}/${key} must be greater than 0`,
+      pointer: joinPointer(pointer, key),
+    })
+    return
+  }
+  assign(value)
 }
 
 function numberField(
