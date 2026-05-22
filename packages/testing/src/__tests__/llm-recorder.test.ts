@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LlmRecorder } from '../llm-recorder.js'
 import type { MiddlewareContext } from '@dzupagent/core'
@@ -9,7 +10,7 @@ import type { MiddlewareContext } from '@dzupagent/core'
 // ---------------------------------------------------------------------------
 
 const FIXED_FIXTURE_DIR = join(import.meta.dirname, '__fixtures__/llm')
-const TMP_DIR = join(import.meta.dirname, '__fixtures__/llm-tmp')
+const TMP_FIXTURE_PREFIX = join(tmpdir(), 'dzupagent-llm-recorder-')
 
 function makeCtx(overrides: Partial<MiddlewareContext> = {}): MiddlewareContext {
   return {
@@ -83,17 +84,24 @@ describe('LlmRecorder — strict replay (no fixture)', () => {
 // ---------------------------------------------------------------------------
 
 describe('LlmRecorder — record mode', () => {
-  beforeEach(() => mkdirSync(TMP_DIR, { recursive: true }))
-  afterEach(() => rmSync(TMP_DIR, { recursive: true, force: true }))
+  let tmpFixtureDir = ''
+
+  beforeEach(() => {
+    tmpFixtureDir = mkdtempSync(TMP_FIXTURE_PREFIX)
+  })
+
+  afterEach(() => {
+    rmSync(tmpFixtureDir, { recursive: true, force: true })
+  })
 
   it('passes through (cached=false) in beforeInvoke', async () => {
-    const recorder = new LlmRecorder({ fixtureDir: TMP_DIR, mode: 'record' })
+    const recorder = new LlmRecorder({ fixtureDir: tmpFixtureDir, mode: 'record' })
     const result = await recorder.beforeInvoke(makeCtx())
     expect(result.cached).toBe(false)
   })
 
   it('writes a fixture file after afterInvoke', async () => {
-    const recorder = new LlmRecorder({ fixtureDir: TMP_DIR, mode: 'record' })
+    const recorder = new LlmRecorder({ fixtureDir: tmpFixtureDir, mode: 'record' })
     const ctx = makeCtx()
 
     await recorder.afterInvoke(ctx, 'the answer is 4', { inputTokens: 10, outputTokens: 5, totalTokens: 15 })
@@ -102,13 +110,13 @@ describe('LlmRecorder — record mode', () => {
   })
 
   it('written fixture round-trips correctly in replay mode', async () => {
-    const recorder = new LlmRecorder({ fixtureDir: TMP_DIR, mode: 'record' })
+    const recorder = new LlmRecorder({ fixtureDir: tmpFixtureDir, mode: 'record' })
     const ctx = makeCtx()
 
     await recorder.afterInvoke(ctx, 'the answer is 4', { inputTokens: 10, outputTokens: 5, totalTokens: 15 })
 
     // Switch to replay
-    const replayer = new LlmRecorder({ fixtureDir: TMP_DIR, mode: 'replay' })
+    const replayer = new LlmRecorder({ fixtureDir: tmpFixtureDir, mode: 'replay' })
     const result = await replayer.beforeInvoke(ctx)
 
     expect(result.cached).toBe(true)
@@ -117,7 +125,7 @@ describe('LlmRecorder — record mode', () => {
   })
 
   it('does not write a fixture in replay mode', async () => {
-    const recorder = new LlmRecorder({ fixtureDir: TMP_DIR, mode: 'replay', strict: false })
+    const recorder = new LlmRecorder({ fixtureDir: tmpFixtureDir, mode: 'replay', strict: false })
     const ctx = makeCtx()
 
     await recorder.afterInvoke(ctx, 'should not be written')
@@ -131,11 +139,18 @@ describe('LlmRecorder — record mode', () => {
 // ---------------------------------------------------------------------------
 
 describe('LlmRecorder — seedFixture', () => {
-  beforeEach(() => mkdirSync(TMP_DIR, { recursive: true }))
-  afterEach(() => rmSync(TMP_DIR, { recursive: true, force: true }))
+  let tmpFixtureDir = ''
+
+  beforeEach(() => {
+    tmpFixtureDir = mkdtempSync(TMP_FIXTURE_PREFIX)
+  })
+
+  afterEach(() => {
+    rmSync(tmpFixtureDir, { recursive: true, force: true })
+  })
 
   it('seeds a fixture that replay picks up', async () => {
-    const recorder = new LlmRecorder({ fixtureDir: TMP_DIR, mode: 'replay' })
+    const recorder = new LlmRecorder({ fixtureDir: tmpFixtureDir, mode: 'replay' })
     const ctx = makeCtx({ messages: [{ role: 'user', content: 'seeded question' }] })
 
     recorder.seedFixture(ctx, 'seeded answer', { inputTokens: 5, outputTokens: 3 })
@@ -146,7 +161,7 @@ describe('LlmRecorder — seedFixture', () => {
   })
 
   it('overwrites an existing fixture', async () => {
-    const recorder = new LlmRecorder({ fixtureDir: TMP_DIR, mode: 'replay' })
+    const recorder = new LlmRecorder({ fixtureDir: tmpFixtureDir, mode: 'replay' })
     const ctx = makeCtx({ messages: [{ role: 'user', content: 'overwrite me' }] })
 
     recorder.seedFixture(ctx, 'first answer')
