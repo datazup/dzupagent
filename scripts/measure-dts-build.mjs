@@ -62,6 +62,8 @@ function parseArgs(argv) {
     build: false,
     check: false,
     benchmarkOutput: undefined,
+    benchmarkSummary: undefined,
+    benchmarkSummaryLimit: 20,
     declarationDiagnostics: false,
     declarationEmit: false,
     diagnosticsJsonSummary: false,
@@ -116,6 +118,24 @@ function parseArgs(argv) {
         throw new Error(`${arg} requires a value`);
       }
       options.benchmarkOutput = value;
+      index += 1;
+      continue;
+    }
+    if (arg === '--benchmark-summary') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error(`${arg} requires a value`);
+      }
+      options.benchmarkSummary = value;
+      index += 1;
+      continue;
+    }
+    if (arg === '--benchmark-summary-limit') {
+      const value = Number(argv[index + 1]);
+      if (!Number.isInteger(value) || value < 1) {
+        throw new Error('--benchmark-summary-limit requires a positive integer');
+      }
+      options.benchmarkSummaryLimit = value;
       index += 1;
       continue;
     }
@@ -205,6 +225,10 @@ Options:
                           Free-form label included in JSON/text output
   --benchmark-output <path>
                           Append one compact benchmark JSON record to a JSONL file
+  --benchmark-summary <path>
+                          Read benchmark JSONL and print latest rows plus deltas
+  --benchmark-summary-limit <count>
+                          Max summary rows to print per package (default: 20)
   --check                 Fail when measured output exceeds DTS budgets
   --budget-file <path>    Budget file for --check (default: ${DEFAULT_BUDGET_FILE})
   --runs <count>          Repeat timed build/declaration steps for profiling (default: 1)
@@ -820,6 +844,190 @@ async function appendBenchmarkRecord(root, outputPath, record) {
   await appendFile(resolvedPath, `${JSON.stringify(record)}\n`, 'utf8');
 }
 
+async function readBenchmarkRecords(root, inputPath) {
+  const resolvedPath = path.resolve(root, inputPath);
+  const text = await readFile(resolvedPath, 'utf8');
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      try {
+        return JSON.parse(line);
+      } catch (error) {
+        throw new Error(`Invalid benchmark JSONL at line ${index + 1}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+}
+
+function getBenchmarkMetric(result, metric) {
+  switch (metric) {
+    case 'declarationEmitMedianMs':
+      return result.declarationEmitDurationStats?.medianMs;
+    case 'declarationEmitMaxMs':
+      return result.declarationEmitDurationStats?.maxMs;
+    case 'declarationEmitLastMs':
+      return result.declarationEmitDurationStats?.lastMs ?? result.declarationEmitDurationMs;
+    case 'diagnosticsTotalMs':
+      return result.declarationDiagnostics?.timeMs?.totalTime;
+    case 'diagnosticsParseMs':
+      return result.declarationDiagnostics?.timeMs?.parseTime;
+    case 'diagnosticsIoReadMs':
+      return pickFirstDefined(result.declarationDiagnostics?.timeMs, ['iORead', 'iOReadTime']);
+    case 'diagnosticsCheckMs':
+      return result.declarationDiagnostics?.timeMs?.checkTime;
+    case 'diagnosticsEmitMs':
+      return result.declarationDiagnostics?.timeMs?.emitTime;
+    default:
+      return undefined;
+  }
+}
+
+function createBenchmarkRow(record, result) {
+  const measurement = result.measurement ?? {};
+  return {
+    generatedAt: record.generatedAt,
+    packageName: result.name,
+    packageDir: result.dir,
+    state: measurement.state,
+    label: measurement.label,
+    runs: measurement.runs,
+    diagnosticsSampleMode: measurement.diagnosticsSampleMode,
+    declarationEmitMedianMs: getBenchmarkMetric(result, 'declarationEmitMedianMs'),
+    declarationEmitMaxMs: getBenchmarkMetric(result, 'declarationEmitMaxMs'),
+    declarationEmitLastMs: getBenchmarkMetric(result, 'declarationEmitLastMs'),
+    diagnosticsTotalMs: getBenchmarkMetric(result, 'diagnosticsTotalMs'),
+    diagnosticsParseMs: getBenchmarkMetric(result, 'diagnosticsParseMs'),
+    diagnosticsIoReadMs: getBenchmarkMetric(result, 'diagnosticsIoReadMs'),
+    diagnosticsCheckMs: getBenchmarkMetric(result, 'diagnosticsCheckMs'),
+    diagnosticsEmitMs: getBenchmarkMetric(result, 'diagnosticsEmitMs'),
+    declarationFileCount: result.declarations?.declarationFileCount,
+    declarationBytes: result.declarations?.declarationBytes,
+    declarationMapFileCount: result.declarations?.declarationMapFileCount,
+    declarationMapBytes: result.declarations?.declarationMapBytes,
+  };
+}
+
+function compareBenchmarkRows(current, previous) {
+  const deltas = {};
+  for (const metric of [
+    'declarationEmitMedianMs',
+    'declarationEmitMaxMs',
+    'declarationEmitLastMs',
+    'diagnosticsTotalMs',
+    'diagnosticsParseMs',
+    'diagnosticsIoReadMs',
+    'diagnosticsCheckMs',
+    'diagnosticsEmitMs',
+    'declarationBytes',
+    'declarationMapBytes',
+  ]) {
+    const currentValue = current[metric];
+    const previousValue = previous?.[metric];
+    if (currentValue === undefined || previousValue === undefined) continue;
+    deltas[metric] = {
+      current: currentValue,
+      previous: previousValue,
+      delta: currentValue - previousValue,
+      percent: previousValue === 0 ? undefined : Math.round(((currentValue - previousValue) / previousValue) * 1000) / 10,
+    };
+  }
+  return deltas;
+}
+
+export function summarizeBenchmarkRecords(records, { limit = 20 } = {}) {
+  const rows = [];
+  for (const record of records) {
+    if (record?.kind !== 'dts-benchmark' || !Array.isArray(record.results)) continue;
+    for (const result of record.results) {
+      rows.push(createBenchmarkRow(record, result));
+    }
+  }
+
+  rows.sort((left, right) => {
+    const byPackage = String(left.packageName).localeCompare(String(right.packageName));
+    if (byPackage !== 0) return byPackage;
+    return String(left.generatedAt).localeCompare(String(right.generatedAt));
+  });
+
+  const byPackage = new Map();
+  for (const row of rows) {
+    const packageRows = byPackage.get(row.packageName) ?? [];
+    packageRows.push(row);
+    byPackage.set(row.packageName, packageRows);
+  }
+
+  const packages = [];
+  for (const [packageName, packageRows] of byPackage.entries()) {
+    const latestRows = packageRows.slice(-limit);
+    const latest = packageRows[packageRows.length - 1];
+    const previous = packageRows[packageRows.length - 2];
+    packages.push({
+      packageName,
+      count: packageRows.length,
+      latest,
+      previous,
+      deltaFromPrevious: previous ? compareBenchmarkRows(latest, previous) : undefined,
+      rows: latestRows,
+    });
+  }
+
+  return {
+    recordCount: records.length,
+    rowCount: rows.length,
+    packages,
+  };
+}
+
+function formatMaybeMs(value) {
+  return value === undefined ? '-' : `${(value / 1000).toFixed(2)}s`;
+}
+
+function formatDelta(delta) {
+  if (!delta) return '';
+  const seconds = `${delta.delta >= 0 ? '+' : ''}${(delta.delta / 1000).toFixed(2)}s`;
+  return delta.percent === undefined ? seconds : `${seconds}, ${delta.percent >= 0 ? '+' : ''}${delta.percent}%`;
+}
+
+function printBenchmarkSummary(summary) {
+  console.log(`DTS benchmark records: ${summary.recordCount}, rows: ${summary.rowCount}`);
+  for (const packageSummary of summary.packages) {
+    const latest = packageSummary.latest;
+    const parts = [
+      latest.state,
+      latest.label,
+      latest.runs ? `${latest.runs} run${latest.runs === 1 ? '' : 's'}` : undefined,
+      latest.diagnosticsSampleMode ? `diagnostics ${latest.diagnosticsSampleMode}` : undefined,
+    ].filter(Boolean);
+    console.log(`\n${packageSummary.packageName}`);
+    console.log(`  latest: ${latest.generatedAt}${parts.length > 0 ? ` (${parts.join(', ')})` : ''}`);
+    console.log(
+      `  emit median ${formatMaybeMs(latest.declarationEmitMedianMs)}, `
+      + `max ${formatMaybeMs(latest.declarationEmitMaxMs)}, `
+      + `last ${formatMaybeMs(latest.declarationEmitLastMs)}`,
+    );
+    if (latest.diagnosticsTotalMs !== undefined) {
+      console.log(
+        `  diagnostics total ${formatMaybeMs(latest.diagnosticsTotalMs)}, `
+        + `parse ${formatMaybeMs(latest.diagnosticsParseMs)}, `
+        + `I/O read ${formatMaybeMs(latest.diagnosticsIoReadMs)}, `
+        + `check ${formatMaybeMs(latest.diagnosticsCheckMs)}, `
+        + `emit ${formatMaybeMs(latest.diagnosticsEmitMs)}`,
+      );
+    }
+    if (packageSummary.deltaFromPrevious) {
+      const emitDelta = packageSummary.deltaFromPrevious.declarationEmitMedianMs;
+      const diagnosticsDelta = packageSummary.deltaFromPrevious.diagnosticsTotalMs;
+      if (emitDelta || diagnosticsDelta) {
+        console.log(
+          `  delta: emit median ${emitDelta ? formatDelta(emitDelta) : '-'}, `
+          + `diagnostics total ${diagnosticsDelta ? formatDelta(diagnosticsDelta) : '-'}`,
+        );
+      }
+    }
+  }
+}
+
 function formatBudgetValue(metric, value) {
   if (metric.toLowerCase().endsWith('bytes')) {
     return formatBytes(value);
@@ -915,6 +1123,18 @@ async function main() {
   }
 
   const root = process.cwd();
+  if (options.benchmarkSummary) {
+    const summary = summarizeBenchmarkRecords(await readBenchmarkRecords(root, options.benchmarkSummary), {
+      limit: options.benchmarkSummaryLimit,
+    });
+    if (options.json) {
+      console.log(JSON.stringify(summary, null, 2));
+      return;
+    }
+    printBenchmarkSummary(summary);
+    return;
+  }
+
   const packages = await listWorkspacePackages(root);
   const results = [];
 
