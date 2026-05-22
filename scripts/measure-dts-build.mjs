@@ -1131,6 +1131,12 @@ function summarizeBenchmarkRecommendation({
   durationVariance,
   environmentNoise,
 }) {
+  if (environmentNoise?.noisy) {
+    return {
+      status: 'environment-noisy',
+      reason: `load/cpu ${formatMaybeRatio(environmentNoise.maxLoadPerCpuRatio)} reached threshold ${formatMaybeRatio(environmentNoise.noisyLoadPerCpuRatio)}`,
+    };
+  }
   if (!sampleReadiness?.ready) {
     return {
       status: 'collect-more-samples',
@@ -1141,12 +1147,6 @@ function summarizeBenchmarkRecommendation({
     return {
       status: 'target-unconfigured',
       reason: 'no target max emit threshold configured',
-    };
-  }
-  if (environmentNoise?.noisy) {
-    return {
-      status: 'environment-noisy',
-      reason: `load/cpu ${formatMaybeRatio(environmentNoise.maxLoadPerCpuRatio)} reached threshold ${formatMaybeRatio(environmentNoise.noisyLoadPerCpuRatio)}`,
     };
   }
   if (!targetReadiness.ready) {

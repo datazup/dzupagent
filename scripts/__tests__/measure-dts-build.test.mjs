@@ -1149,6 +1149,7 @@ test('summarizes duration variance from per-run benchmark samples', () => {
     stableMaxMinRatio: 10,
   }).packages[0].durationVariance;
   const environmentNoise = summarizeBenchmarkRecords(records).packages[0].environmentNoise;
+  const recommendation = summarizeBenchmarkRecords(records).packages[0].recommendation;
 
   assert.deepEqual(variance, {
     stable: false,
@@ -1179,6 +1180,8 @@ test('summarizes duration variance from per-run benchmark samples', () => {
     peakOneMinuteLoad: 8,
     peakCpuCount: 8,
   });
+  assert.equal(recommendation.status, 'environment-noisy');
+  assert.match(recommendation.reason, /load\/cpu 1\.00x reached threshold 0\.75x/);
 });
 
 test('benchmark summary text distinguishes missing artifact bytes from zero bytes', () => {
