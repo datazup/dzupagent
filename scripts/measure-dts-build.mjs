@@ -76,6 +76,7 @@ const BENCHMARK_ARTIFACT_DELTA_METRICS = [
   'declarationMapFileCount',
   'declarationMapBytes',
 ];
+const DEFAULT_BUDGET_READY_LANE_SAMPLE_COUNT = 2;
 
 function parseArgs(argv) {
   const options = {
@@ -1044,12 +1045,25 @@ export function summarizeBenchmarkRecords(records, { limit = 20, filters = {} } 
     const latestRows = packageRows.slice(-limit);
     const latest = packageRows[packageRows.length - 1];
     const previous = packageRows[packageRows.length - 2];
+    const compatibleLaneRows = packageRows.filter((row) => isBenchmarkRowCompatible(latest, row));
+    const laneSampleCounts = {
+      total: packageRows.length,
+      compatibleWithLatest: compatibleLaneRows.length,
+      incompatibleWithLatest: packageRows.length - compatibleLaneRows.length,
+    };
+    const budgetReadiness = {
+      ready: laneSampleCounts.compatibleWithLatest >= DEFAULT_BUDGET_READY_LANE_SAMPLE_COUNT,
+      compatibleLaneSampleCount: laneSampleCounts.compatibleWithLatest,
+      requiredCompatibleLaneSampleCount: DEFAULT_BUDGET_READY_LANE_SAMPLE_COUNT,
+    };
     const latestCompatiblePrevious = packageRows
       .slice(0, -1)
       .findLast((row) => isBenchmarkRowCompatible(latest, row));
     packages.push({
       packageName,
       count: packageRows.length,
+      laneSampleCounts,
+      budgetReadiness,
       latest,
       previous,
       latestCompatiblePrevious,
@@ -1138,6 +1152,12 @@ export function printBenchmarkSummary(summary) {
       + `${formatMaybeBytes(latest.declarationBytes)}, `
       + `${latest.declarationMapFileCount ?? '-'} maps, `
       + `${formatMaybeBytes(latest.declarationMapBytes)}`,
+    );
+    console.log(
+      `  lane samples: ${packageSummary.laneSampleCounts.compatibleWithLatest}/`
+      + `${packageSummary.laneSampleCounts.total} compatible with latest lane; `
+      + `budget-ready: ${packageSummary.budgetReadiness.ready ? 'yes' : 'no'} `
+      + `(need ${packageSummary.budgetReadiness.requiredCompatibleLaneSampleCount})`,
     );
     if (latest.diagnosticsTotalMs !== undefined) {
       console.log(
