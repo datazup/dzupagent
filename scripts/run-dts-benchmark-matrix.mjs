@@ -59,6 +59,7 @@ export function parseMatrixArgs(argv) {
     runs: 3,
     state: 'warm-emit',
     summary: true,
+    summaryStableRatio: undefined,
     summaryTargetMaxEmitMs: undefined,
   };
 
@@ -117,6 +118,15 @@ export function parseMatrixArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === '--summary-stable-ratio') {
+      const value = Number(argv[index + 1]);
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new Error('--summary-stable-ratio requires a positive number');
+      }
+      options.summaryStableRatio = value;
+      index += 1;
+      continue;
+    }
     if (arg === '--dry-run') {
       options.dryRun = true;
       continue;
@@ -161,6 +171,8 @@ Options:
   --label-prefix <label>        Prefix for package labels (default: warm-matrix)
   --summary-target-max-emit-ms <ms>
                                 Report whether summary lanes stay under this max emit target
+  --summary-stable-ratio <ratio>
+                                Max emit max/min ratio for duration-stable
   --dry-run                     Print commands without running them
   --no-json                     Do not print per-package JSON payloads
   --no-summary                  Skip summary after collection
@@ -219,6 +231,9 @@ export function createMatrixCommands(options, { nodePath = process.execPath } = 
     ];
     if (options.summaryTargetMaxEmitMs !== undefined) {
       args.push('--benchmark-summary-target-max-emit-ms', String(options.summaryTargetMaxEmitMs));
+    }
+    if (options.summaryStableRatio !== undefined) {
+      args.push('--benchmark-summary-stable-ratio', String(options.summaryStableRatio));
     }
     commands.push({
       command: nodePath,
