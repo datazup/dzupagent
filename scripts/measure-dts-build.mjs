@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -42,6 +42,7 @@ const DEFAULT_PACKAGES = [
 
 const DEFAULT_BUDGET_FILE = 'scripts/dts-budgets.json';
 const DECLARATION_DIAGNOSTICS_TIMEOUT_MS = 120_000;
+const DIAGNOSTICS_SAMPLE_MODES = new Set(['last', 'all']);
 const MEASUREMENT_STATES = new Set([
   'artifact-scan',
   'current-workspace',
@@ -60,9 +61,11 @@ function parseArgs(argv) {
   const options = {
     build: false,
     check: false,
+    benchmarkOutput: undefined,
     declarationDiagnostics: false,
     declarationEmit: false,
     diagnosticsJsonSummary: false,
+    diagnosticsSampleMode: 'last',
     json: false,
     budgetFile: DEFAULT_BUDGET_FILE,
     measurementLabel: undefined,
@@ -96,6 +99,24 @@ function parseArgs(argv) {
     if (arg === '--diagnostics-json-summary') {
       options.diagnosticsJsonSummary = true;
       options.json = true;
+      continue;
+    }
+    if (arg === '--diagnostics-sample-mode') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error(`${arg} requires a value`);
+      }
+      options.diagnosticsSampleMode = normalizeDiagnosticsSampleMode(value);
+      index += 1;
+      continue;
+    }
+    if (arg === '--benchmark-output') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error(`${arg} requires a value`);
+      }
+      options.benchmarkOutput = value;
+      index += 1;
       continue;
     }
     if (arg === '--measurement-label') {
@@ -175,11 +196,15 @@ Options:
                           Capture tsc diagnostics for declaration emit
   --diagnostics-json-summary
                           Print compact JSON with diagnostics summaries and stats
+  --diagnostics-sample-mode <last|all>
+                          Capture diagnostics on the last run only, or every run (default: last)
   --measurement-state <state>
                           Label the run state: fresh-forced-build, warm-emit, partial-workspace
                           Aliases: cold, warm, partial
   --measurement-label <label>
                           Free-form label included in JSON/text output
+  --benchmark-output <path>
+                          Append one compact benchmark JSON record to a JSONL file
   --check                 Fail when measured output exceeds DTS budgets
   --budget-file <path>    Budget file for --check (default: ${DEFAULT_BUDGET_FILE})
   --runs <count>          Repeat timed build/declaration steps for profiling (default: 1)
@@ -187,6 +212,14 @@ Options:
   -h, --help              Show this help
 
 Default packages: ${DEFAULT_PACKAGES.join(', ')}`);
+}
+
+function normalizeDiagnosticsSampleMode(value) {
+  const normalized = String(value).trim().toLowerCase();
+  if (!DIAGNOSTICS_SAMPLE_MODES.has(normalized)) {
+    throw new Error(`--diagnostics-sample-mode must be one of ${[...DIAGNOSTICS_SAMPLE_MODES].join(', ')}`);
+  }
+  return normalized;
 }
 
 function normalizeMeasurementState(value) {
@@ -342,6 +375,13 @@ async function summarizeDeclarations({ root, packageDir }) {
   };
 }
 
+async function removeDeclarationMapFiles(distDir) {
+  const files = await walkFiles(distDir);
+  const declarationMapFiles = files.filter((file) => file.endsWith('.d.ts.map'));
+  await Promise.all(declarationMapFiles.map((file) => unlink(file)));
+  return declarationMapFiles.length;
+}
+
 async function runBuild(packageName) {
   const startedAt = process.hrtime.bigint();
 
@@ -381,6 +421,7 @@ function getDeclarationEmitCommand(root, packageDir, options = {}) {
 async function runDeclarationEmit({ root, packageDir, packageName, collectDiagnostics = false }) {
   const startedAt = process.hrtime.bigint();
   let output = '';
+  await removeDeclarationMapFiles(path.join(root, packageDir, 'dist'));
   const { command, args } = getDeclarationEmitCommand(root, packageDir, {
     extendedDiagnostics: collectDiagnostics,
   });
@@ -565,7 +606,14 @@ function createMeasurementContext(options) {
     state,
     label: options.measurementLabel,
     runs: options.runs,
+    diagnosticsSampleMode: options.declarationDiagnostics ? options.diagnosticsSampleMode : undefined,
   };
+}
+
+export function shouldCollectDiagnostics({ declarationDiagnostics, diagnosticsSampleMode, runs }, runIndex) {
+  if (!declarationDiagnostics) return false;
+  if (diagnosticsSampleMode === 'all') return true;
+  return runIndex === runs - 1;
 }
 
 export function summarizeTscExtendedDiagnostics(diagnostics) {
@@ -758,6 +806,20 @@ export function createDiagnosticsJsonSummary({ generatedAt, results, budgetResul
   };
 }
 
+export function createBenchmarkRecord({ generatedAt, results, budgetResult }) {
+  return {
+    schemaVersion: 1,
+    kind: 'dts-benchmark',
+    ...createDiagnosticsJsonSummary({ generatedAt, results, budgetResult }),
+  };
+}
+
+async function appendBenchmarkRecord(root, outputPath, record) {
+  const resolvedPath = path.resolve(root, outputPath);
+  await mkdir(path.dirname(resolvedPath), { recursive: true });
+  await appendFile(resolvedPath, `${JSON.stringify(record)}\n`, 'utf8');
+}
+
 function formatBudgetValue(metric, value) {
   if (metric.toLowerCase().endsWith('bytes')) {
     return formatBytes(value);
@@ -880,7 +942,7 @@ async function main() {
           root,
           packageDir: pkg.dir,
           packageName: pkg.name,
-          collectDiagnostics: options.declarationDiagnostics,
+          collectDiagnostics: shouldCollectDiagnostics(options, runIndex),
         });
         const diagnosticsSummary = summarizeTscExtendedDiagnostics(emitResult.diagnostics);
         declarationEmitSamples.push({
@@ -932,11 +994,20 @@ async function main() {
     });
   }
 
+  const budgetResult = options.check
+    ? evaluateBudgets(results, await readBudgetFile(root, options.budgetFile))
+    : undefined;
+  const generatedAt = new Date().toISOString();
+
+  if (options.benchmarkOutput) {
+    await appendBenchmarkRecord(root, options.benchmarkOutput, createBenchmarkRecord({
+      generatedAt,
+      results,
+      budgetResult,
+    }));
+  }
+
   if (options.json) {
-    const budgetResult = options.check
-      ? evaluateBudgets(results, await readBudgetFile(root, options.budgetFile))
-      : undefined;
-    const generatedAt = new Date().toISOString();
     const payload = options.diagnosticsJsonSummary
       ? createDiagnosticsJsonSummary({ generatedAt, results, budgetResult })
       : { generatedAt, results, budgetResult };
