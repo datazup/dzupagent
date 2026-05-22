@@ -79,6 +79,7 @@ const BENCHMARK_ARTIFACT_DELTA_METRICS = [
 ];
 const DEFAULT_BUDGET_READY_LANE_SAMPLE_COUNT = 2;
 const DEFAULT_DURATION_STABLE_MAX_MIN_RATIO = 2;
+const DEFAULT_ENVIRONMENT_NOISY_LOAD_PER_CPU_RATIO = 0.75;
 
 function parseArgs(argv) {
   const options = {
@@ -89,6 +90,7 @@ function parseArgs(argv) {
     benchmarkSummaryDiagnosticsSampleMode: undefined,
     benchmarkSummaryLimit: 20,
     benchmarkSummaryRuns: undefined,
+    benchmarkSummaryStableRatio: undefined,
     benchmarkSummaryState: undefined,
     benchmarkSummaryTargetMaxEmitMs: undefined,
     declarationDiagnostics: false,
@@ -191,6 +193,15 @@ function parseArgs(argv) {
         throw new Error('--benchmark-summary-limit requires a positive integer');
       }
       options.benchmarkSummaryLimit = value;
+      index += 1;
+      continue;
+    }
+    if (arg === '--benchmark-summary-stable-ratio') {
+      const value = Number(argv[index + 1]);
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new Error('--benchmark-summary-stable-ratio requires a positive number');
+      }
+      options.benchmarkSummaryStableRatio = value;
       index += 1;
       continue;
     }
@@ -301,8 +312,18 @@ Options:
                           Filter benchmark summary rows to one diagnostics sample mode
   --benchmark-summary-limit <count>
                           Max summary rows to print per package (default: 20)
+  --benchmark-summary-stable-ratio <ratio>
+                          Max emit max/min ratio for duration-stable (default: ${DEFAULT_DURATION_STABLE_MAX_MIN_RATIO})
   --benchmark-summary-target-max-emit-ms <ms>
                           Report whether compatible lane rows stay under this max emit target
+
+Recommended controlled duration-budget check:
+  node scripts/run-dts-benchmark-matrix.mjs \\
+    --summary-target-max-emit-ms 30000 \\
+    --summary-stable-ratio ${DEFAULT_DURATION_STABLE_MAX_MIN_RATIO}
+
+Treat duration budgets as ready only when sample-ready, target-ready,
+duration-stable, and environment-noisy is no for the target package.
   --check                 Fail when measured output exceeds DTS budgets
   --budget-file <path>    Budget file for --check (default: ${DEFAULT_BUDGET_FILE})
   --runs <count>          Repeat timed build/declaration steps for profiling (default: 1)
@@ -1115,7 +1136,64 @@ function getBenchmarkDurationSamples(compatibleLaneRows) {
   return samples;
 }
 
-function summarizeBenchmarkDurationVariance(compatibleLaneRows, sampleReady) {
+function summarizeBenchmarkEnvironmentNoise(samples, compatibleLaneRows) {
+  const environmentSamples = samples
+    .map((sample) => ({
+      label: formatBenchmarkSampleLabel(sample),
+      environment: sample.environment,
+    }))
+    .filter((sample) => sample.environment);
+
+  if (environmentSamples.length === 0) {
+    for (const row of compatibleLaneRows) {
+      if (row.environment) {
+        environmentSamples.push({
+          label: row.label,
+          environment: row.environment,
+        });
+      }
+    }
+  }
+
+  const loadSamples = environmentSamples
+    .map((sample) => {
+      const loadAverage = sample.environment.loadAverage;
+      const oneMinuteLoad = Array.isArray(loadAverage) ? loadAverage[0] : undefined;
+      const cpuCount = sample.environment.cpuCount;
+      if (oneMinuteLoad === undefined || !cpuCount) return undefined;
+      return {
+        label: sample.label,
+        oneMinuteLoad,
+        cpuCount,
+        loadPerCpuRatio: Math.round((oneMinuteLoad / cpuCount) * 100) / 100,
+      };
+    })
+    .filter(Boolean);
+
+  if (loadSamples.length === 0) {
+    return {
+      noisy: false,
+      sampleCount: 0,
+      noisyLoadPerCpuRatio: DEFAULT_ENVIRONMENT_NOISY_LOAD_PER_CPU_RATIO,
+    };
+  }
+
+  const peak = loadSamples.reduce((currentPeak, sample) => (
+    sample.loadPerCpuRatio > currentPeak.loadPerCpuRatio ? sample : currentPeak
+  ));
+
+  return {
+    noisy: peak.loadPerCpuRatio >= DEFAULT_ENVIRONMENT_NOISY_LOAD_PER_CPU_RATIO,
+    sampleCount: loadSamples.length,
+    noisyLoadPerCpuRatio: DEFAULT_ENVIRONMENT_NOISY_LOAD_PER_CPU_RATIO,
+    maxLoadPerCpuRatio: peak.loadPerCpuRatio,
+    peakLoadLabel: peak.label,
+    peakOneMinuteLoad: peak.oneMinuteLoad,
+    peakCpuCount: peak.cpuCount,
+  };
+}
+
+function summarizeBenchmarkDurationVariance(compatibleLaneRows, sampleReady, stableMaxMinRatio) {
   const samples = getBenchmarkDurationSamples(compatibleLaneRows);
   const durations = samples
     .map((sample) => sample.durationMs)
@@ -1125,7 +1203,7 @@ function summarizeBenchmarkDurationVariance(compatibleLaneRows, sampleReady) {
       stable: false,
       sampleReady,
       sampleCount: 0,
-      stableMaxMinRatio: DEFAULT_DURATION_STABLE_MAX_MIN_RATIO,
+      stableMaxMinRatio,
     };
   }
 
@@ -1134,20 +1212,28 @@ function summarizeBenchmarkDurationVariance(compatibleLaneRows, sampleReady) {
   const maxMinRatio = minDurationMs === 0 ? undefined : Math.round((maxDurationMs / minDurationMs) * 100) / 100;
   const slowestSample = samples.find((sample) => sample.durationMs === maxDurationMs);
   return {
-    stable: sampleReady && maxMinRatio !== undefined && maxMinRatio <= DEFAULT_DURATION_STABLE_MAX_MIN_RATIO,
+    stable: sampleReady && maxMinRatio !== undefined && maxMinRatio <= stableMaxMinRatio,
     sampleReady,
     sampleCount: durations.length,
     minDurationMs,
     maxDurationMs,
     maxMinRatio,
-    stableMaxMinRatio: DEFAULT_DURATION_STABLE_MAX_MIN_RATIO,
+    stableMaxMinRatio,
     slowestSampleLabel: slowestSample ? formatBenchmarkSampleLabel(slowestSample) : undefined,
     slowestSampleEnvironment: slowestSample?.environment,
     fallbackSampleCount: samples.filter((sample) => sample.fallbackFromRowMax).length,
   };
 }
 
-export function summarizeBenchmarkRecords(records, { limit = 20, filters = {}, targetMaxDeclarationEmitMs } = {}) {
+export function summarizeBenchmarkRecords(
+  records,
+  {
+    limit = 20,
+    filters = {},
+    stableMaxMinRatio = DEFAULT_DURATION_STABLE_MAX_MIN_RATIO,
+    targetMaxDeclarationEmitMs,
+  } = {},
+) {
   const rows = [];
   for (const record of records) {
     if (record?.kind !== 'dts-benchmark' || !Array.isArray(record.results)) continue;
@@ -1193,7 +1279,13 @@ export function summarizeBenchmarkRecords(records, { limit = 20, filters = {}, t
       targetMaxDeclarationEmitMs,
       sampleReadiness.ready,
     );
-    const durationVariance = summarizeBenchmarkDurationVariance(compatibleLaneRows, sampleReadiness.ready);
+    const durationSamples = getBenchmarkDurationSamples(compatibleLaneRows);
+    const durationVariance = summarizeBenchmarkDurationVariance(
+      compatibleLaneRows,
+      sampleReadiness.ready,
+      stableMaxMinRatio,
+    );
+    const environmentNoise = summarizeBenchmarkEnvironmentNoise(durationSamples, compatibleLaneRows);
     const latestCompatiblePrevious = packageRows
       .slice(0, -1)
       .findLast((row) => isBenchmarkRowCompatible(latest, row));
@@ -1205,6 +1297,7 @@ export function summarizeBenchmarkRecords(records, { limit = 20, filters = {}, t
       budgetReadiness: sampleReadiness,
       targetReadiness,
       durationVariance,
+      environmentNoise,
       latest,
       previous,
       latestCompatiblePrevious,
@@ -1337,6 +1430,15 @@ export function printBenchmarkSummary(summary) {
         + `samples ${variance.sampleCount}, slowest ${variance.slowestSampleLabel ?? '-'})`,
       );
     }
+    if (packageSummary.environmentNoise) {
+      const noise = packageSummary.environmentNoise;
+      console.log(
+        `  environment-noisy: ${noise.noisy ? 'yes' : 'no'} `
+        + `(max load/cpu ${formatMaybeRatio(noise.maxLoadPerCpuRatio)}, `
+        + `threshold ${formatMaybeRatio(noise.noisyLoadPerCpuRatio)}, `
+        + `samples ${noise.sampleCount}, peak ${noise.peakLoadLabel ?? '-'})`,
+      );
+    }
     if (latest.diagnosticsTotalMs !== undefined) {
       console.log(
         `  diagnostics total ${formatMaybeMs(latest.diagnosticsTotalMs)}, `
@@ -1467,6 +1569,7 @@ async function main() {
   if (options.benchmarkSummary) {
     const summary = summarizeBenchmarkRecords(await readBenchmarkRecords(root, options.benchmarkSummary), {
       limit: options.benchmarkSummaryLimit,
+      stableMaxMinRatio: options.benchmarkSummaryStableRatio,
       targetMaxDeclarationEmitMs: options.benchmarkSummaryTargetMaxEmitMs,
       filters: {
         packages: options.packagesExplicit ? options.packages : undefined,
