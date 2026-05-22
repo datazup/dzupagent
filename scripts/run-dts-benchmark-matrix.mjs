@@ -59,6 +59,7 @@ export function parseMatrixArgs(argv) {
     runs: 3,
     state: 'warm-emit',
     summary: true,
+    summaryPackageTargetMaxEmitMs: new Map(),
     summaryStableRatio: undefined,
     summaryTargetMaxEmitMs: undefined,
   };
@@ -118,6 +119,13 @@ export function parseMatrixArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === '--summary-package-target-max-emit-ms') {
+      const value = argv[index + 1];
+      if (!value) throw new Error(`${arg} requires a value`);
+      mergePackageTargetMaxEmitMs(options.summaryPackageTargetMaxEmitMs, value, arg);
+      index += 1;
+      continue;
+    }
     if (arg === '--summary-stable-ratio') {
       const value = Number(argv[index + 1]);
       if (!Number.isFinite(value) || value <= 0) {
@@ -171,6 +179,8 @@ Options:
   --label-prefix <label>        Prefix for package labels (default: warm-matrix)
   --summary-target-max-emit-ms <ms>
                                 Report whether summary lanes stay under this max emit target
+  --summary-package-target-max-emit-ms <package=ms[,package=ms]>
+                                Override the summary target max emit threshold for specific packages
   --summary-stable-ratio <ratio>
                                 Max emit max/min ratio for duration-stable
   --dry-run                     Print commands without running them
@@ -179,6 +189,21 @@ Options:
   -h, --help                    Show this help
 
 Default packages: ${DEFAULT_PACKAGES.join(', ')}`);
+}
+
+function mergePackageTargetMaxEmitMs(targets, value, optionName) {
+  for (const entry of String(value).split(',').map((item) => item.trim()).filter(Boolean)) {
+    const separatorIndex = entry.lastIndexOf('=');
+    if (separatorIndex <= 0 || separatorIndex === entry.length - 1) {
+      throw new Error(`${optionName} entries must use package=ms`);
+    }
+    const packageName = entry.slice(0, separatorIndex).trim();
+    const targetMs = Number(entry.slice(separatorIndex + 1).trim());
+    if (!packageName || !Number.isInteger(targetMs) || targetMs < 1) {
+      throw new Error(`${optionName} entries must use package=positive-integer-ms`);
+    }
+    targets.set(packageName, targetMs);
+  }
 }
 
 export function createMatrixCommands(options, { nodePath = process.execPath } = {}) {
@@ -231,6 +256,9 @@ export function createMatrixCommands(options, { nodePath = process.execPath } = 
     ];
     if (options.summaryTargetMaxEmitMs !== undefined) {
       args.push('--benchmark-summary-target-max-emit-ms', String(options.summaryTargetMaxEmitMs));
+    }
+    for (const [packageName, targetMs] of options.summaryPackageTargetMaxEmitMs?.entries?.() ?? []) {
+      args.push('--benchmark-summary-package-target-max-emit-ms', `${packageName}=${targetMs}`);
     }
     if (options.summaryStableRatio !== undefined) {
       args.push('--benchmark-summary-stable-ratio', String(options.summaryStableRatio));

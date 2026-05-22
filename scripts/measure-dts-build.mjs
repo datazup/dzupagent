@@ -89,6 +89,7 @@ function parseArgs(argv) {
     benchmarkSummary: undefined,
     benchmarkSummaryDiagnosticsSampleMode: undefined,
     benchmarkSummaryLimit: 20,
+    benchmarkSummaryPackageTargetMaxEmitMs: new Map(),
     benchmarkSummaryRuns: undefined,
     benchmarkSummaryStableRatio: undefined,
     benchmarkSummaryState: undefined,
@@ -214,6 +215,15 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === '--benchmark-summary-package-target-max-emit-ms') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error(`${arg} requires a value`);
+      }
+      mergePackageTargetMaxEmitMs(options.benchmarkSummaryPackageTargetMaxEmitMs, value, arg);
+      index += 1;
+      continue;
+    }
     if (arg === '--measurement-label') {
       const value = argv[index + 1];
       if (!value) {
@@ -316,10 +326,13 @@ Options:
                           Max emit max/min ratio for duration-stable (default: ${DEFAULT_DURATION_STABLE_MAX_MIN_RATIO})
   --benchmark-summary-target-max-emit-ms <ms>
                           Report whether compatible lane rows stay under this max emit target
+  --benchmark-summary-package-target-max-emit-ms <package=ms[,package=ms]>
+                          Override the summary target max emit threshold for specific packages
 
 Recommended controlled duration-budget check:
   node scripts/run-dts-benchmark-matrix.mjs \\
     --summary-target-max-emit-ms 30000 \\
+    --summary-package-target-max-emit-ms @dzupagent/core=30000,@dzupagent/test-utils=30000 \\
     --summary-stable-ratio ${DEFAULT_DURATION_STABLE_MAX_MIN_RATIO}
 
 Treat duration budgets as ready only when sample-ready, target-ready,
@@ -351,6 +364,21 @@ function normalizeMeasurementState(value) {
     );
   }
   return canonical;
+}
+
+function mergePackageTargetMaxEmitMs(targets, value, optionName) {
+  for (const entry of String(value).split(',').map((item) => item.trim()).filter(Boolean)) {
+    const separatorIndex = entry.lastIndexOf('=');
+    if (separatorIndex <= 0 || separatorIndex === entry.length - 1) {
+      throw new Error(`${optionName} entries must use package=ms`);
+    }
+    const packageName = entry.slice(0, separatorIndex).trim();
+    const targetMs = Number(entry.slice(separatorIndex + 1).trim());
+    if (!packageName || !Number.isInteger(targetMs) || targetMs < 1) {
+      throw new Error(`${optionName} entries must use package=positive-integer-ms`);
+    }
+    targets.set(packageName, targetMs);
+  }
 }
 
 async function readJson(filePath) {
@@ -1097,6 +1125,71 @@ function summarizeBenchmarkTargetReadiness(compatibleLaneRows, targetMaxDeclarat
   };
 }
 
+function summarizeBenchmarkRecommendation({
+  sampleReadiness,
+  targetReadiness,
+  durationVariance,
+  environmentNoise,
+}) {
+  if (!sampleReadiness?.ready) {
+    return {
+      status: 'collect-more-samples',
+      reason: `need ${sampleReadiness?.requiredCompatibleLaneSampleCount ?? DEFAULT_BUDGET_READY_LANE_SAMPLE_COUNT} compatible lane samples`,
+    };
+  }
+  if (targetReadiness === undefined) {
+    return {
+      status: 'target-unconfigured',
+      reason: 'no target max emit threshold configured',
+    };
+  }
+  if (environmentNoise?.noisy) {
+    return {
+      status: 'environment-noisy',
+      reason: `load/cpu ${formatMaybeRatio(environmentNoise.maxLoadPerCpuRatio)} reached threshold ${formatMaybeRatio(environmentNoise.noisyLoadPerCpuRatio)}`,
+    };
+  }
+  if (!targetReadiness.ready) {
+    if (targetReadiness.missingMetricCount > 0 || targetReadiness.maxObservedDeclarationEmitMs === undefined) {
+      return {
+        status: 'target-failed',
+        reason: `${targetReadiness.missingMetricCount} compatible lane rows are missing max emit metrics`,
+      };
+    }
+    return {
+      status: 'target-failed',
+      reason: `observed max ${formatMaybeMs(targetReadiness.maxObservedDeclarationEmitMs)} exceeds target ${formatMaybeMs(targetReadiness.targetMaxDeclarationEmitMs)}`,
+    };
+  }
+  if (!durationVariance?.stable) {
+    return {
+      status: 'duration-unstable',
+      reason: `duration ratio ${formatMaybeRatio(durationVariance?.maxMinRatio)} exceeds limit ${formatMaybeRatio(durationVariance?.stableMaxMinRatio)}`,
+    };
+  }
+  return {
+    status: 'budget-ready',
+    reason: 'sample, target, duration, and environment gates passed',
+  };
+}
+
+function resolvePackageTargetMaxDeclarationEmitMs(packageName, {
+  targetMaxDeclarationEmitMs,
+  packageTargetMaxDeclarationEmitMs,
+} = {}) {
+  if (packageTargetMaxDeclarationEmitMs instanceof Map && packageTargetMaxDeclarationEmitMs.has(packageName)) {
+    return packageTargetMaxDeclarationEmitMs.get(packageName);
+  }
+  if (
+    packageTargetMaxDeclarationEmitMs
+    && typeof packageTargetMaxDeclarationEmitMs === 'object'
+    && Object.prototype.hasOwnProperty.call(packageTargetMaxDeclarationEmitMs, packageName)
+  ) {
+    return packageTargetMaxDeclarationEmitMs[packageName];
+  }
+  return targetMaxDeclarationEmitMs;
+}
+
 function formatBenchmarkSampleLabel(sample) {
   const parts = [
     sample.packageName,
@@ -1230,6 +1323,7 @@ export function summarizeBenchmarkRecords(
   {
     limit = 20,
     filters = {},
+    packageTargetMaxDeclarationEmitMs: configuredPackageTargetMaxDeclarationEmitMs,
     stableMaxMinRatio = DEFAULT_DURATION_STABLE_MAX_MIN_RATIO,
     targetMaxDeclarationEmitMs,
   } = {},
@@ -1274,9 +1368,13 @@ export function summarizeBenchmarkRecords(
       compatibleLaneSampleCount: laneSampleCounts.compatibleWithLatest,
       requiredCompatibleLaneSampleCount: DEFAULT_BUDGET_READY_LANE_SAMPLE_COUNT,
     };
+    const packageTargetMaxDeclarationEmitMs = resolvePackageTargetMaxDeclarationEmitMs(packageName, {
+      targetMaxDeclarationEmitMs,
+      packageTargetMaxDeclarationEmitMs: configuredPackageTargetMaxDeclarationEmitMs,
+    });
     const targetReadiness = summarizeBenchmarkTargetReadiness(
       compatibleLaneRows,
-      targetMaxDeclarationEmitMs,
+      packageTargetMaxDeclarationEmitMs,
       sampleReadiness.ready,
     );
     const durationSamples = getBenchmarkDurationSamples(compatibleLaneRows);
@@ -1289,6 +1387,12 @@ export function summarizeBenchmarkRecords(
     const latestCompatiblePrevious = packageRows
       .slice(0, -1)
       .findLast((row) => isBenchmarkRowCompatible(latest, row));
+    const recommendation = summarizeBenchmarkRecommendation({
+      sampleReadiness,
+      targetReadiness,
+      durationVariance,
+      environmentNoise,
+    });
     packages.push({
       packageName,
       count: packageRows.length,
@@ -1298,6 +1402,7 @@ export function summarizeBenchmarkRecords(
       targetReadiness,
       durationVariance,
       environmentNoise,
+      recommendation,
       latest,
       previous,
       latestCompatiblePrevious,
@@ -1439,6 +1544,12 @@ export function printBenchmarkSummary(summary) {
         + `samples ${noise.sampleCount}, peak ${noise.peakLoadLabel ?? '-'})`,
       );
     }
+    if (packageSummary.recommendation) {
+      console.log(
+        `  recommendation: ${packageSummary.recommendation.status} `
+        + `(${packageSummary.recommendation.reason})`,
+      );
+    }
     if (latest.diagnosticsTotalMs !== undefined) {
       console.log(
         `  diagnostics total ${formatMaybeMs(latest.diagnosticsTotalMs)}, `
@@ -1569,6 +1680,7 @@ async function main() {
   if (options.benchmarkSummary) {
     const summary = summarizeBenchmarkRecords(await readBenchmarkRecords(root, options.benchmarkSummary), {
       limit: options.benchmarkSummaryLimit,
+      packageTargetMaxDeclarationEmitMs: options.benchmarkSummaryPackageTargetMaxEmitMs,
       stableMaxMinRatio: options.benchmarkSummaryStableRatio,
       targetMaxDeclarationEmitMs: options.benchmarkSummaryTargetMaxEmitMs,
       filters: {
