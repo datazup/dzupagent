@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "stableMaxMinRatio": 2,
+  "targetMaxDeclarationEmitMs": 30000,
+  "packages": {
+    "@dzupagent/core": {
+      "targetMaxDeclarationEmitMs": 30000
+    },
+    "@dzupagent/test-utils": {
+      "targetMaxDeclarationEmitMs": 45000
+    }
+  }
+}

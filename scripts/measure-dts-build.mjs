@@ -42,6 +42,7 @@ const DEFAULT_PACKAGES = [
 ];
 
 const DEFAULT_BUDGET_FILE = 'scripts/dts-budgets.json';
+const DEFAULT_BENCHMARK_SUMMARY_CONFIG_FILE = 'scripts/dts-benchmark-targets.json';
 const DECLARATION_DIAGNOSTICS_TIMEOUT_MS = 120_000;
 const DIAGNOSTICS_SAMPLE_MODES = new Set(['last', 'all']);
 const MEASUREMENT_STATES = new Set([
@@ -87,6 +88,7 @@ function parseArgs(argv) {
     check: false,
     benchmarkOutput: undefined,
     benchmarkSummary: undefined,
+    benchmarkSummaryConfig: undefined,
     benchmarkSummaryDiagnosticsSampleMode: undefined,
     benchmarkSummaryLimit: 20,
     benchmarkSummaryPackageTargetMaxEmitMs: new Map(),
@@ -158,6 +160,15 @@ function parseArgs(argv) {
         throw new Error(`${arg} requires a value`);
       }
       options.benchmarkSummary = value;
+      index += 1;
+      continue;
+    }
+    if (arg === '--benchmark-summary-config') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error(`${arg} requires a value`);
+      }
+      options.benchmarkSummaryConfig = value;
       index += 1;
       continue;
     }
@@ -314,6 +325,8 @@ Options:
                           Append one compact benchmark JSON record to a JSONL file
   --benchmark-summary <path>
                           Read benchmark JSONL and print latest rows plus deltas
+  --benchmark-summary-config <path>
+                          Read candidate duration targets from config (recommended: ${DEFAULT_BENCHMARK_SUMMARY_CONFIG_FILE})
   --benchmark-summary-state <state>
                           Filter benchmark summary rows to one measurement state
   --benchmark-summary-runs <count>
@@ -331,9 +344,7 @@ Options:
 
 Recommended controlled duration-budget check:
   node scripts/run-dts-benchmark-matrix.mjs \\
-    --summary-target-max-emit-ms 30000 \\
-    --summary-package-target-max-emit-ms @dzupagent/core=30000,@dzupagent/test-utils=30000 \\
-    --summary-stable-ratio ${DEFAULT_DURATION_STABLE_MAX_MIN_RATIO}
+    --summary-config ${DEFAULT_BENCHMARK_SUMMARY_CONFIG_FILE}
 
 Treat duration budgets as ready only when sample-ready, target-ready,
 duration-stable, and environment-noisy is no for the target package.
@@ -381,6 +392,67 @@ function mergePackageTargetMaxEmitMs(targets, value, optionName) {
   }
 }
 
+function normalizePositiveIntegerMs(value, label) {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${label} requires a positive integer`);
+  }
+  return value;
+}
+
+function normalizePositiveNumber(value, label) {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${label} requires a positive number`);
+  }
+  return value;
+}
+
+export function parseBenchmarkSummaryConfig(config, { source = 'benchmark summary config' } = {}) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    throw new Error(`${source} must be a JSON object`);
+  }
+
+  const packageTargetMaxDeclarationEmitMs = new Map();
+  const normalized = {
+    stableMaxMinRatio: undefined,
+    targetMaxDeclarationEmitMs: undefined,
+    packageTargetMaxDeclarationEmitMs,
+  };
+
+  if (config.stableMaxMinRatio !== undefined) {
+    normalized.stableMaxMinRatio = normalizePositiveNumber(
+      Number(config.stableMaxMinRatio),
+      `${source} stableMaxMinRatio`,
+    );
+  }
+  if (config.targetMaxDeclarationEmitMs !== undefined) {
+    normalized.targetMaxDeclarationEmitMs = normalizePositiveIntegerMs(
+      Number(config.targetMaxDeclarationEmitMs),
+      `${source} targetMaxDeclarationEmitMs`,
+    );
+  }
+
+  const packages = config.packages ?? {};
+  if (!packages || typeof packages !== 'object' || Array.isArray(packages)) {
+    throw new Error(`${source} packages must be a JSON object`);
+  }
+
+  for (const [packageName, packageConfig] of Object.entries(packages)) {
+    if (!packageConfig || typeof packageConfig !== 'object' || Array.isArray(packageConfig)) {
+      throw new Error(`${source} packages.${packageName} must be a JSON object`);
+    }
+    if (packageConfig.targetMaxDeclarationEmitMs === undefined) continue;
+    packageTargetMaxDeclarationEmitMs.set(
+      packageName,
+      normalizePositiveIntegerMs(
+        Number(packageConfig.targetMaxDeclarationEmitMs),
+        `${source} packages.${packageName}.targetMaxDeclarationEmitMs`,
+      ),
+    );
+  }
+
+  return normalized;
+}
+
 async function readJson(filePath) {
   return JSON.parse(await readFile(filePath, 'utf8'));
 }
@@ -388,6 +460,13 @@ async function readJson(filePath) {
 async function readBudgetFile(root, budgetFile) {
   const budgetPath = path.resolve(root, budgetFile);
   return readJson(budgetPath);
+}
+
+async function readBenchmarkSummaryConfig(root, configFile) {
+  const configPath = path.resolve(root, configFile);
+  return parseBenchmarkSummaryConfig(await readJson(configPath), {
+    source: configFile,
+  });
 }
 
 async function listWorkspacePackages(root) {
@@ -1190,6 +1269,17 @@ function resolvePackageTargetMaxDeclarationEmitMs(packageName, {
   return targetMaxDeclarationEmitMs;
 }
 
+function mergePackageTargetMaps(...maps) {
+  const merged = new Map();
+  for (const map of maps) {
+    if (!map) continue;
+    for (const [packageName, targetMs] of map.entries()) {
+      merged.set(packageName, targetMs);
+    }
+  }
+  return merged;
+}
+
 function formatBenchmarkSampleLabel(sample) {
   const parts = [
     sample.packageName,
@@ -1678,11 +1768,17 @@ async function main() {
 
   const root = process.cwd();
   if (options.benchmarkSummary) {
+    const summaryConfig = options.benchmarkSummaryConfig
+      ? await readBenchmarkSummaryConfig(root, options.benchmarkSummaryConfig)
+      : {};
     const summary = summarizeBenchmarkRecords(await readBenchmarkRecords(root, options.benchmarkSummary), {
       limit: options.benchmarkSummaryLimit,
-      packageTargetMaxDeclarationEmitMs: options.benchmarkSummaryPackageTargetMaxEmitMs,
-      stableMaxMinRatio: options.benchmarkSummaryStableRatio,
-      targetMaxDeclarationEmitMs: options.benchmarkSummaryTargetMaxEmitMs,
+      packageTargetMaxDeclarationEmitMs: mergePackageTargetMaps(
+        summaryConfig.packageTargetMaxDeclarationEmitMs,
+        options.benchmarkSummaryPackageTargetMaxEmitMs,
+      ),
+      stableMaxMinRatio: options.benchmarkSummaryStableRatio ?? summaryConfig.stableMaxMinRatio,
+      targetMaxDeclarationEmitMs: options.benchmarkSummaryTargetMaxEmitMs ?? summaryConfig.targetMaxDeclarationEmitMs,
       filters: {
         packages: options.packagesExplicit ? options.packages : undefined,
         state: options.benchmarkSummaryState,

@@ -5,6 +5,7 @@ import {
   createBenchmarkRecord,
   createDiagnosticsJsonSummary,
   evaluateBudgets,
+  parseBenchmarkSummaryConfig,
   parseTscExtendedDiagnostics,
   printBenchmarkSummary,
   shouldCollectDiagnostics,
@@ -77,6 +78,49 @@ test('uses the slowest declaration emit sample for duration budgets', () => {
   assert.equal(result.ok, false);
   assert.match(result.messages.join('\n'), /@dzupagent\/core: maxDeclarationEmitDurationMs exceeded/);
   assert.match(result.messages.join('\n'), /measured 15\.00s, budget 10\.00s/);
+});
+
+test('parses benchmark summary target config', () => {
+  const config = parseBenchmarkSummaryConfig({
+    stableMaxMinRatio: 1.5,
+    targetMaxDeclarationEmitMs: 30000,
+    packages: {
+      '@dzupagent/core': {
+        targetMaxDeclarationEmitMs: 25000,
+      },
+      '@dzupagent/test-utils': {
+        targetMaxDeclarationEmitMs: 45000,
+      },
+    },
+  });
+
+  assert.equal(config.stableMaxMinRatio, 1.5);
+  assert.equal(config.targetMaxDeclarationEmitMs, 30000);
+  assert.deepEqual([...config.packageTargetMaxDeclarationEmitMs.entries()], [
+    ['@dzupagent/core', 25000],
+    ['@dzupagent/test-utils', 45000],
+  ]);
+});
+
+test('rejects invalid benchmark summary target config', () => {
+  assert.throws(
+    () => parseBenchmarkSummaryConfig({ stableMaxMinRatio: 0 }),
+    /stableMaxMinRatio requires a positive number/,
+  );
+  assert.throws(
+    () => parseBenchmarkSummaryConfig({ targetMaxDeclarationEmitMs: 0 }),
+    /targetMaxDeclarationEmitMs requires a positive integer/,
+  );
+  assert.throws(
+    () => parseBenchmarkSummaryConfig({
+      packages: {
+        '@dzupagent/core': {
+          targetMaxDeclarationEmitMs: 0,
+        },
+      },
+    }),
+    /packages\.@dzupagent\/core\.targetMaxDeclarationEmitMs requires a positive integer/,
+  );
 });
 
 test('parses tsc extended diagnostics into stable numeric fields', () => {

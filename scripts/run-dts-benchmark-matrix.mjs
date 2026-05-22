@@ -59,6 +59,7 @@ export function parseMatrixArgs(argv) {
     runs: 3,
     state: 'warm-emit',
     summary: true,
+    summaryConfig: undefined,
     summaryPackageTargetMaxEmitMs: new Map(),
     summaryStableRatio: undefined,
     summaryTargetMaxEmitMs: undefined,
@@ -116,6 +117,13 @@ export function parseMatrixArgs(argv) {
         throw new Error('--summary-target-max-emit-ms requires a positive integer');
       }
       options.summaryTargetMaxEmitMs = value;
+      index += 1;
+      continue;
+    }
+    if (arg === '--summary-config') {
+      const value = argv[index + 1];
+      if (!value) throw new Error(`${arg} requires a value`);
+      options.summaryConfig = value;
       index += 1;
       continue;
     }
@@ -179,6 +187,7 @@ Options:
   --label-prefix <label>        Prefix for package labels (default: warm-matrix)
   --summary-target-max-emit-ms <ms>
                                 Report whether summary lanes stay under this max emit target
+  --summary-config <path>       Read candidate duration targets from config
   --summary-package-target-max-emit-ms <package=ms[,package=ms]>
                                 Override the summary target max emit threshold for specific packages
   --summary-stable-ratio <ratio>
@@ -256,6 +265,9 @@ export function createMatrixCommands(options, { nodePath = process.execPath } = 
     ];
     if (options.summaryTargetMaxEmitMs !== undefined) {
       args.push('--benchmark-summary-target-max-emit-ms', String(options.summaryTargetMaxEmitMs));
+    }
+    if (options.summaryConfig !== undefined) {
+      args.push('--benchmark-summary-config', options.summaryConfig);
     }
     for (const [packageName, targetMs] of options.summaryPackageTargetMaxEmitMs?.entries?.() ?? []) {
       args.push('--benchmark-summary-package-target-max-emit-ms', `${packageName}=${targetMs}`);
