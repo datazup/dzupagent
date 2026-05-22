@@ -240,6 +240,13 @@ test('collects diagnostics on every run when requested', () => {
 test('creates compact benchmark records for persisted comparisons', () => {
   const record = createBenchmarkRecord({
     generatedAt: '2026-05-22T00:00:00.000Z',
+    environment: {
+      nodeVersion: 'v20.0.0',
+      platform: 'linux',
+      arch: 'x64',
+      cpuCount: 8,
+      loadAverage: [1.5, 1.25, 1],
+    },
     results: [
       {
         name: '@dzupagent/core',
@@ -304,6 +311,13 @@ test('creates compact benchmark records for persisted comparisons', () => {
 
   assert.equal(record.schemaVersion, 1);
   assert.equal(record.kind, 'dts-benchmark');
+  assert.deepEqual(record.environment, {
+    nodeVersion: 'v20.0.0',
+    platform: 'linux',
+    arch: 'x64',
+    cpuCount: 8,
+    loadAverage: [1.5, 1.25, 1],
+  });
   assert.equal(record.results[0].measurement.diagnosticsSampleMode, 'last');
   assert.equal(record.results[0].declarationDiagnostics.metrics, undefined);
 });
@@ -394,6 +408,11 @@ test('summarizes benchmark records with latest rows and deltas', () => {
     incompatibleWithLatest: 0,
   });
   assert.deepEqual(core.budgetReadiness, {
+    ready: true,
+    compatibleLaneSampleCount: 2,
+    requiredCompatibleLaneSampleCount: 2,
+  });
+  assert.deepEqual(core.sampleReadiness, {
     ready: true,
     compatibleLaneSampleCount: 2,
     requiredCompatibleLaneSampleCount: 2,
@@ -573,6 +592,11 @@ test('omits benchmark deltas when no compatible previous lane exists', () => {
     compatibleLaneSampleCount: 1,
     requiredCompatibleLaneSampleCount: 2,
   });
+  assert.deepEqual(core.sampleReadiness, {
+    ready: false,
+    compatibleLaneSampleCount: 1,
+    requiredCompatibleLaneSampleCount: 2,
+  });
   assert.equal(core.deltaFromPrevious, undefined);
   assert.equal(core.incompatiblePrevious.label, 'before');
   assert.equal(core.artifactDeltaFromPrevious.declarationMapFileCount.delta, -1);
@@ -690,6 +714,90 @@ test('filters benchmark summary rows by package and compatible lane fields', () 
   assert.equal(summary.packages[0].latest.label, 'core-warm');
 });
 
+test('reports target readiness separately from sample readiness', () => {
+  const records = [
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:00:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'before', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 1000,
+            medianMs: 1200,
+            meanMs: 1200,
+            maxMs: 1400,
+            lastMs: 1200,
+            samplesMs: [1000, 1200, 1400],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:01:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'after', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 1000,
+            medianMs: 2000,
+            meanMs: 3000,
+            maxMs: 6000,
+            lastMs: 2000,
+            samplesMs: [1000, 2000, 6000],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+  ];
+
+  const summary = summarizeBenchmarkRecords(records, {
+    targetMaxDeclarationEmitMs: 5000,
+  });
+  const core = summary.packages[0];
+
+  assert.equal(core.sampleReadiness.ready, true);
+  assert.deepEqual(core.targetReadiness, {
+    ready: false,
+    sampleReady: true,
+    targetMaxDeclarationEmitMs: 5000,
+    maxObservedDeclarationEmitMs: 6000,
+    compatibleLaneSampleCount: 2,
+    missingMetricCount: 0,
+  });
+
+  const incompleteSummary = summarizeBenchmarkRecords(records.slice(0, 1), {
+    targetMaxDeclarationEmitMs: 5000,
+  });
+  assert.deepEqual(incompleteSummary.packages[0].targetReadiness, {
+    ready: false,
+    sampleReady: false,
+    targetMaxDeclarationEmitMs: 5000,
+    maxObservedDeclarationEmitMs: 1400,
+    compatibleLaneSampleCount: 1,
+    missingMetricCount: 0,
+  });
+});
+
 test('benchmark summary text distinguishes missing artifact bytes from zero bytes', () => {
   const messages = [];
   const originalLog = console.log;
@@ -717,7 +825,60 @@ test('benchmark summary text distinguishes missing artifact bytes from zero byte
     ]));
 
     assert.match(messages.join('\n'), /artifacts: 1 declarations, -, 0 maps, -/);
-    assert.match(messages.join('\n'), /lane samples: 1\/1 compatible with latest lane; budget-ready: no \(need 2\)/);
+    assert.match(messages.join('\n'), /lane samples: 1\/1 compatible with latest lane; sample-ready: no \(need 2\)/);
+  } finally {
+    console.log = originalLog;
+  }
+});
+
+test('benchmark summary text reports environment and target readiness', () => {
+  const messages = [];
+  const originalLog = console.log;
+  try {
+    console.log = (message = '') => {
+      messages.push(String(message));
+    };
+    printBenchmarkSummary(summarizeBenchmarkRecords([
+      {
+        schemaVersion: 1,
+        kind: 'dts-benchmark',
+        generatedAt: '2026-05-22T00:00:00.000Z',
+        environment: {
+          nodeVersion: 'v20.0.0',
+          platform: 'linux',
+          arch: 'x64',
+          cpuCount: 8,
+          loadAverage: [1.5, 1.25, 1],
+        },
+        results: [
+          {
+            name: '@dzupagent/core',
+            dir: 'packages/core',
+            measurement: { state: 'warm-emit', label: 'before', runs: 3 },
+            declarationEmitDurationStats: {
+              count: 3,
+              minMs: 1000,
+              medianMs: 1000,
+              meanMs: 1000,
+              maxMs: 1000,
+              lastMs: 1000,
+              samplesMs: [1000, 1000, 1000],
+            },
+            declarations: {
+              declarationFileCount: 1,
+              declarationBytes: 100,
+              declarationMapFileCount: 0,
+              declarationMapBytes: 0,
+            },
+          },
+        ],
+      },
+    ], {
+      targetMaxDeclarationEmitMs: 500,
+    }));
+
+    assert.match(messages.join('\n'), /environment: node v20\.0\.0, linux\/x64, 8 CPUs, load 1\.50\/1\.25\/1\.00/);
+    assert.match(messages.join('\n'), /target-ready: no \(target max emit 0\.50s, observed max 1\.00s, missing 0\)/);
   } finally {
     console.log = originalLog;
   }
