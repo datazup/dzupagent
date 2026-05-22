@@ -7,6 +7,7 @@ function makeResult(name, overrides = {}) {
   return {
     name,
     buildDurationMs: overrides.buildDurationMs,
+    declarationEmitDurationMs: overrides.declarationEmitDurationMs,
     declarations: {
       declarationFileCount: overrides.declarationFileCount ?? 1,
       declarationBytes: overrides.declarationBytes ?? 100,
@@ -88,4 +89,21 @@ test('fails when a measured package has no configured budget', () => {
 
   assert.equal(result.ok, false);
   assert.deepEqual(result.messages, ['@dzupagent/agent: no DTS budget configured']);
+});
+
+test('fails when declaration emit duration exceeds budget', () => {
+  const result = evaluateBudgets(
+    [makeResult('@dzupagent/core', { declarationEmitDurationMs: 12_000 })],
+    {
+      packages: {
+        '@dzupagent/core': {
+          maxDeclarationEmitDurationMs: 10_000,
+        },
+      },
+    },
+  );
+
+  assert.equal(result.ok, false);
+  assert.match(result.messages.join('\n'), /@dzupagent\/core: maxDeclarationEmitDurationMs exceeded/);
+  assert.match(result.messages.join('\n'), /measured 12\.00s, budget 10\.00s/);
 });
