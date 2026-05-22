@@ -33,6 +33,11 @@ For focused local checks, use Turbo filters (examples):
 - `yarn typecheck --filter=@dzupagent/core`
 - `yarn test --filter=@dzupagent/connectors`
 
+Avoid running multiple independent Turbo build/typecheck/test commands in
+parallel against the same dependency graph. Shared package builds can clean and
+rewrite the same `dist` output, causing transient file-missing failures. Prefer
+one combined Turbo invocation, or run filtered Turbo gates sequentially.
+
 ## LLM / Automation Workflow
 - Prefer package-scoped verification first using `--filter=@dzupagent/<package>`.
 - Run `yarn verify` before finalizing cross-package or shared API changes.
