@@ -56,6 +56,26 @@ const MEASUREMENT_STATE_ALIASES = new Map([
   ['partial', 'partial-workspace'],
   ['warm', 'warm-emit'],
 ]);
+const BENCHMARK_DELTA_METRICS = [
+  'declarationEmitMedianMs',
+  'declarationEmitMaxMs',
+  'declarationEmitLastMs',
+  'diagnosticsTotalMs',
+  'diagnosticsParseMs',
+  'diagnosticsIoReadMs',
+  'diagnosticsCheckMs',
+  'diagnosticsEmitMs',
+  'declarationFileCount',
+  'declarationBytes',
+  'declarationMapFileCount',
+  'declarationMapBytes',
+];
+const BENCHMARK_ARTIFACT_DELTA_METRICS = [
+  'declarationFileCount',
+  'declarationBytes',
+  'declarationMapFileCount',
+  'declarationMapBytes',
+];
 
 function parseArgs(argv) {
   const options = {
@@ -63,7 +83,10 @@ function parseArgs(argv) {
     check: false,
     benchmarkOutput: undefined,
     benchmarkSummary: undefined,
+    benchmarkSummaryDiagnosticsSampleMode: undefined,
     benchmarkSummaryLimit: 20,
+    benchmarkSummaryRuns: undefined,
+    benchmarkSummaryState: undefined,
     declarationDiagnostics: false,
     declarationEmit: false,
     diagnosticsJsonSummary: false,
@@ -73,6 +96,7 @@ function parseArgs(argv) {
     measurementLabel: undefined,
     measurementState: undefined,
     packages: [],
+    packagesExplicit: false,
     runs: 1,
   };
 
@@ -130,6 +154,33 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === '--benchmark-summary-state') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error(`${arg} requires a value`);
+      }
+      options.benchmarkSummaryState = normalizeMeasurementState(value);
+      index += 1;
+      continue;
+    }
+    if (arg === '--benchmark-summary-runs') {
+      const value = Number(argv[index + 1]);
+      if (!Number.isInteger(value) || value < 1) {
+        throw new Error('--benchmark-summary-runs requires a positive integer');
+      }
+      options.benchmarkSummaryRuns = value;
+      index += 1;
+      continue;
+    }
+    if (arg === '--benchmark-summary-diagnostics-sample-mode') {
+      const value = argv[index + 1];
+      if (!value) {
+        throw new Error(`${arg} requires a value`);
+      }
+      options.benchmarkSummaryDiagnosticsSampleMode = normalizeDiagnosticsSampleMode(value);
+      index += 1;
+      continue;
+    }
     if (arg === '--benchmark-summary-limit') {
       const value = Number(argv[index + 1]);
       if (!Number.isInteger(value) || value < 1) {
@@ -181,6 +232,7 @@ function parseArgs(argv) {
         throw new Error(`${arg} requires a value`);
       }
       options.packages.push(...value.split(',').map((item) => item.trim()).filter(Boolean));
+      options.packagesExplicit = true;
       index += 1;
       continue;
     }
@@ -192,9 +244,10 @@ function parseArgs(argv) {
       throw new Error(`Unknown option: ${arg}`);
     }
     options.packages.push(arg);
+    options.packagesExplicit = true;
   }
 
-  if (options.packages.length === 0) {
+  if (options.packages.length === 0 && !options.benchmarkSummary) {
     options.packages = [...DEFAULT_PACKAGES];
   }
   if (options.declarationDiagnostics) {
@@ -227,6 +280,12 @@ Options:
                           Append one compact benchmark JSON record to a JSONL file
   --benchmark-summary <path>
                           Read benchmark JSONL and print latest rows plus deltas
+  --benchmark-summary-state <state>
+                          Filter benchmark summary rows to one measurement state
+  --benchmark-summary-runs <count>
+                          Filter benchmark summary rows to one run count
+  --benchmark-summary-diagnostics-sample-mode <last|all>
+                          Filter benchmark summary rows to one diagnostics sample mode
   --benchmark-summary-limit <count>
                           Max summary rows to print per package (default: 20)
   --check                 Fail when measured output exceeds DTS budgets
@@ -885,7 +944,7 @@ function getBenchmarkMetric(result, metric) {
 
 function createBenchmarkRow(record, result) {
   const measurement = result.measurement ?? {};
-  return {
+  const row = {
     generatedAt: record.generatedAt,
     packageName: result.name,
     packageDir: result.dir,
@@ -906,22 +965,21 @@ function createBenchmarkRow(record, result) {
     declarationMapFileCount: result.declarations?.declarationMapFileCount,
     declarationMapBytes: result.declarations?.declarationMapBytes,
   };
+  row.laneKey = createBenchmarkLaneKey(row);
+  return row;
 }
 
-function compareBenchmarkRows(current, previous) {
+function createBenchmarkLaneKey(row) {
+  return `package=${row.packageName ?? ''};state=${row.state ?? ''};runs=${row.runs ?? ''};diagnostics=${row.diagnosticsSampleMode ?? ''}`;
+}
+
+function isBenchmarkRowCompatible(current, candidate) {
+  return Boolean(candidate) && current.laneKey === candidate.laneKey;
+}
+
+function compareBenchmarkRows(current, previous, metrics = BENCHMARK_DELTA_METRICS) {
   const deltas = {};
-  for (const metric of [
-    'declarationEmitMedianMs',
-    'declarationEmitMaxMs',
-    'declarationEmitLastMs',
-    'diagnosticsTotalMs',
-    'diagnosticsParseMs',
-    'diagnosticsIoReadMs',
-    'diagnosticsCheckMs',
-    'diagnosticsEmitMs',
-    'declarationBytes',
-    'declarationMapBytes',
-  ]) {
+  for (const metric of metrics) {
     const currentValue = current[metric];
     const previousValue = previous?.[metric];
     if (currentValue === undefined || previousValue === undefined) continue;
@@ -935,12 +993,36 @@ function compareBenchmarkRows(current, previous) {
   return deltas;
 }
 
-export function summarizeBenchmarkRecords(records, { limit = 20 } = {}) {
+function benchmarkRowMatchesFilters(row, filters = {}) {
+  if (filters.packages?.length > 0) {
+    const matchesPackage = filters.packages.some((specifier) => (
+      row.packageName === specifier
+      || row.packageDir === specifier
+      || row.packageDir === String(specifier).replace(/^\.\//, '')
+      || path.basename(row.packageDir ?? '') === specifier
+    ));
+    if (!matchesPackage) return false;
+  }
+  if (filters.state !== undefined && row.state !== filters.state) return false;
+  if (filters.runs !== undefined && row.runs !== filters.runs) return false;
+  if (
+    filters.diagnosticsSampleMode !== undefined
+    && row.diagnosticsSampleMode !== filters.diagnosticsSampleMode
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function summarizeBenchmarkRecords(records, { limit = 20, filters = {} } = {}) {
   const rows = [];
   for (const record of records) {
     if (record?.kind !== 'dts-benchmark' || !Array.isArray(record.results)) continue;
     for (const result of record.results) {
-      rows.push(createBenchmarkRow(record, result));
+      const row = createBenchmarkRow(record, result);
+      if (benchmarkRowMatchesFilters(row, filters)) {
+        rows.push(row);
+      }
     }
   }
 
@@ -962,12 +1044,25 @@ export function summarizeBenchmarkRecords(records, { limit = 20 } = {}) {
     const latestRows = packageRows.slice(-limit);
     const latest = packageRows[packageRows.length - 1];
     const previous = packageRows[packageRows.length - 2];
+    const latestCompatiblePrevious = packageRows
+      .slice(0, -1)
+      .findLast((row) => isBenchmarkRowCompatible(latest, row));
     packages.push({
       packageName,
       count: packageRows.length,
       latest,
       previous,
-      deltaFromPrevious: previous ? compareBenchmarkRows(latest, previous) : undefined,
+      latestCompatiblePrevious,
+      deltaFromCompatiblePrevious: latestCompatiblePrevious
+        ? compareBenchmarkRows(latest, latestCompatiblePrevious)
+        : undefined,
+      deltaFromPrevious: latestCompatiblePrevious
+        ? compareBenchmarkRows(latest, latestCompatiblePrevious)
+        : undefined,
+      artifactDeltaFromPrevious: previous
+        ? compareBenchmarkRows(latest, previous, BENCHMARK_ARTIFACT_DELTA_METRICS)
+        : undefined,
+      incompatiblePrevious: previous && !isBenchmarkRowCompatible(latest, previous) ? previous : undefined,
       rows: latestRows,
     });
   }
@@ -975,6 +1070,7 @@ export function summarizeBenchmarkRecords(records, { limit = 20 } = {}) {
   return {
     recordCount: records.length,
     rowCount: rows.length,
+    filters,
     packages,
   };
 }
@@ -995,7 +1091,32 @@ function formatByteDelta(delta) {
   return delta.percent === undefined ? bytes : `${bytes}, ${delta.percent >= 0 ? '+' : ''}${delta.percent}%`;
 }
 
-function printBenchmarkSummary(summary) {
+function formatCountDelta(delta) {
+  if (!delta) return '';
+  const count = `${delta.delta >= 0 ? '+' : ''}${delta.delta}`;
+  return delta.percent === undefined ? count : `${count}, ${delta.percent >= 0 ? '+' : ''}${delta.percent}%`;
+}
+
+function formatMaybeBytes(value) {
+  return value === undefined ? '-' : formatBytes(value);
+}
+
+function formatArtifactDeltaLine(prefix, delta) {
+  if (!delta) return undefined;
+  const declarationCountDelta = delta.declarationFileCount;
+  const declarationBytesDelta = delta.declarationBytes;
+  const mapCountDelta = delta.declarationMapFileCount;
+  const mapBytesDelta = delta.declarationMapBytes;
+  if (!declarationCountDelta && !declarationBytesDelta && !mapCountDelta && !mapBytesDelta) {
+    return undefined;
+  }
+  return `${prefix}: declarations ${declarationCountDelta ? formatCountDelta(declarationCountDelta) : '-'}, `
+    + `declaration bytes ${declarationBytesDelta ? formatByteDelta(declarationBytesDelta) : '-'}, `
+    + `maps ${mapCountDelta ? formatCountDelta(mapCountDelta) : '-'}, `
+    + `map bytes ${mapBytesDelta ? formatByteDelta(mapBytesDelta) : '-'}`;
+}
+
+export function printBenchmarkSummary(summary) {
   console.log(`DTS benchmark records: ${summary.recordCount}, rows: ${summary.rowCount}`);
   for (const packageSummary of summary.packages) {
     const latest = packageSummary.latest;
@@ -1014,9 +1135,9 @@ function printBenchmarkSummary(summary) {
     );
     console.log(
       `  artifacts: ${latest.declarationFileCount ?? '-'} declarations, `
-      + `${formatBytes(latest.declarationBytes ?? 0)}, `
+      + `${formatMaybeBytes(latest.declarationBytes)}, `
       + `${latest.declarationMapFileCount ?? '-'} maps, `
-      + `${formatBytes(latest.declarationMapBytes ?? 0)}`,
+      + `${formatMaybeBytes(latest.declarationMapBytes)}`,
     );
     if (latest.diagnosticsTotalMs !== undefined) {
       console.log(
@@ -1030,16 +1151,22 @@ function printBenchmarkSummary(summary) {
     if (packageSummary.deltaFromPrevious) {
       const emitDelta = packageSummary.deltaFromPrevious.declarationEmitMedianMs;
       const diagnosticsDelta = packageSummary.deltaFromPrevious.diagnosticsTotalMs;
-      const declarationBytesDelta = packageSummary.deltaFromPrevious.declarationBytes;
-      const mapBytesDelta = packageSummary.deltaFromPrevious.declarationMapBytes;
-      if (emitDelta || diagnosticsDelta || declarationBytesDelta || mapBytesDelta) {
+      const artifactDeltaLine = formatArtifactDeltaLine('artifact delta', packageSummary.deltaFromPrevious);
+      if (emitDelta || diagnosticsDelta || artifactDeltaLine) {
         console.log(
           `  delta: emit median ${emitDelta ? formatDelta(emitDelta) : '-'}, `
-          + `diagnostics total ${diagnosticsDelta ? formatDelta(diagnosticsDelta) : '-'}, `
-          + `declaration bytes ${declarationBytesDelta ? formatByteDelta(declarationBytesDelta) : '-'}, `
-          + `map bytes ${mapBytesDelta ? formatByteDelta(mapBytesDelta) : '-'}`,
+          + `diagnostics total ${diagnosticsDelta ? formatDelta(diagnosticsDelta) : '-'}`,
         );
       }
+      if (artifactDeltaLine) {
+        console.log(`  ${artifactDeltaLine}`);
+      }
+    } else if (packageSummary.incompatiblePrevious) {
+      console.log('  delta: previous row has a different benchmark lane; compatible previous row unavailable');
+    }
+    const artifactDeltaLine = formatArtifactDeltaLine('artifact delta vs previous row', packageSummary.artifactDeltaFromPrevious);
+    if (!packageSummary.deltaFromPrevious && artifactDeltaLine) {
+      console.log(`  ${artifactDeltaLine}`);
     }
   }
 }
@@ -1142,6 +1269,12 @@ async function main() {
   if (options.benchmarkSummary) {
     const summary = summarizeBenchmarkRecords(await readBenchmarkRecords(root, options.benchmarkSummary), {
       limit: options.benchmarkSummaryLimit,
+      filters: {
+        packages: options.packagesExplicit ? options.packages : undefined,
+        state: options.benchmarkSummaryState,
+        runs: options.benchmarkSummaryRuns,
+        diagnosticsSampleMode: options.benchmarkSummaryDiagnosticsSampleMode,
+      },
     });
     if (options.json) {
       console.log(JSON.stringify(summary, null, 2));
