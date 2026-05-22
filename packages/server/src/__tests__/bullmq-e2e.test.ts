@@ -65,6 +65,10 @@ const canRun =
   && BullMQRunQueueClass !== undefined
   && containerRuntimeAvailable
 
+// The first worker can pay BullMQ dynamic import and Redis connection cost
+// inside the test body when the full Turbo matrix is under load.
+const BULLMQ_E2E_TEST_TIMEOUT_MS = 45_000
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -182,7 +186,7 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
     expect(processed.runId).toBe('run-enqueue-test')
     expect(processed.agentId).toBe('agent-1')
     expect(processed.input).toEqual({ question: 'what is 2+2?' })
-  }, 15_000)
+  }, BULLMQ_E2E_TEST_TIMEOUT_MS)
 
   it('tracks completed job count in local stats', async () => {
     const queue = createQueue()
@@ -201,7 +205,7 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
 
     const s = queue.stats()
     expect(s.completed).toBeGreaterThanOrEqual(1)
-  }, 15_000)
+  }, BULLMQ_E2E_TEST_TIMEOUT_MS)
 
   it('reports accurate counts from Redis via statsFromRedis()', async () => {
     const queue = createQueue({ concurrency: 1 })
@@ -240,7 +244,7 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
       async () => jobsProcessed >= 2,
       { description: 'queued jobs did not finish after releasing gate' },
     )
-  }, 15_000)
+  }, BULLMQ_E2E_TEST_TIMEOUT_MS)
 
   it('processes higher-priority jobs first', async () => {
     const queue = createQueue({ concurrency: 1 })
@@ -283,7 +287,7 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
     expect(order[0]).toBe('blocker')
     expect(order[1]).toBe('high-prio')
     expect(order[2]).toBe('low-prio')
-  }, 15_000)
+  }, BULLMQ_E2E_TEST_TIMEOUT_MS)
 
   it('populates dead-letter queue after processor failure', async () => {
     // maxRetries=0 means the job fails on first attempt and goes to dead-letter.
@@ -313,7 +317,7 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
     // Verify clearDeadLetter works.
     queue.clearDeadLetter()
     expect(queue.getDeadLetter()).toEqual([])
-  }, 15_000)
+  }, BULLMQ_E2E_TEST_TIMEOUT_MS)
 
   it('tracks failed count in local stats after processor failure', async () => {
     const queue = createQueue({ maxRetries: 0 })
@@ -332,7 +336,7 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
     const s = queue.stats()
     expect(s.failed).toBeGreaterThanOrEqual(1)
     expect(s.deadLetter).toBeGreaterThanOrEqual(1)
-  }, 15_000)
+  }, BULLMQ_E2E_TEST_TIMEOUT_MS)
 
   it('stop() closes the worker gracefully', async () => {
     const queue = createQueue()
@@ -352,5 +356,5 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
     // no new jobs should be processed since the worker is closed.
     const s = queue.stats()
     expect(s.completed).toBeGreaterThanOrEqual(1)
-  }, 15_000)
+  }, BULLMQ_E2E_TEST_TIMEOUT_MS)
 })
