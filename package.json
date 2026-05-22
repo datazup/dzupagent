@@ -59,6 +59,8 @@
     "audit:deps": "yarn audit",
     "audit:deps:summary": "yarn audit --summary",
     "bench:dts": "node scripts/measure-dts-build.mjs",
+    "bench:dts:matrix": "node scripts/run-dts-benchmark-matrix.mjs",
+    "bench:dts:summary": "node scripts/measure-dts-build.mjs --benchmark-summary",
     "bench:turbo": "node scripts/summarize-turbo-run.mjs",
     "bench": "vitest bench --config scripts/bench/vitest.bench.config.ts"
   },
