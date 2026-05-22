@@ -631,6 +631,14 @@ function summarizeTscDiagnosticSamples(samples) {
   };
 }
 
+function pickFirstDefined(source, keys) {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
@@ -672,7 +680,7 @@ function printText(results) {
       const { timeMs, memoryUsedKb } = summarizeTscExtendedDiagnostics(result.declarationDiagnostics);
       const diagnosticParts = [
         ['parse', timeMs.parseTime],
-        ['I/O read', timeMs.iOReadTime],
+        ['I/O read', pickFirstDefined(timeMs, ['iORead', 'iOReadTime'])],
         ['bind', timeMs.bindTime],
         ['check', timeMs.checkTime],
         ['emit', timeMs.emitTime],
@@ -691,7 +699,7 @@ function printText(results) {
       const diagnosticStats = result.declarationDiagnosticsStats.timeMs;
       const statsParts = [
         ['parse', diagnosticStats.parseTime],
-        ['I/O read', diagnosticStats.iOReadTime],
+        ['I/O read', pickFirstDefined(diagnosticStats, ['iORead', 'iOReadTime'])],
         ['check', diagnosticStats.checkTime],
         ['emit', diagnosticStats.emitTime],
         ['total', diagnosticStats.totalTime],
