@@ -31,7 +31,7 @@
  *   with a clear comment explaining the invariant.
  */
 
-import type { ResolvedTool, ToolResolver } from '@dzupagent/flow-ast'
+import type { FlowNode, ResolvedTool, ToolResolver } from '@dzupagent/flow-ast'
 import type { SkillChain, PipelineDefinition } from '@dzupagent/core/pipeline'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 import { describe, expect, it } from 'vitest'
@@ -501,7 +501,7 @@ describe('createFlowCompiler — stage 4 on_error backstop (structural verificat
       toolRef: 'pm.run',
       input: {},
       on_error: { strategy: 'retry' },
-    } as unknown as import('@dzupagent/flow-ast').FlowNode
+    } as unknown as FlowNode
 
     expect(hasOnError(astWithOnError)).toBe(true)
   })
@@ -511,7 +511,7 @@ describe('createFlowCompiler — stage 4 on_error backstop (structural verificat
       type: 'action',
       toolRef: 'pm.run',
       input: {},
-    } as import('@dzupagent/flow-ast').FlowNode
+    } as FlowNode
 
     expect(routeTarget(ast).target).toBe('skill-chain')
   })
