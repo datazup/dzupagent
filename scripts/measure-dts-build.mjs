@@ -132,7 +132,7 @@ Options:
   --build                 Run yarn workspace <pkg> build before measuring
   --declaration-emit      Run package declaration-only tsc emit before measuring
   --declaration-diagnostics
-                          Capture tsc --extendedDiagnostics for declaration emit
+                          Capture tsc diagnostics for declaration emit
   --check                 Fail when measured output exceeds DTS budgets
   --budget-file <path>    Budget file for --check (default: ${DEFAULT_BUDGET_FILE})
   --runs <count>          Repeat timed build/declaration steps for profiling (default: 1)
@@ -305,7 +305,7 @@ async function runBuild(packageName) {
   return Math.round(durationMs);
 }
 
-function getDeclarationEmitCommand(root, packageDir) {
+function getDeclarationEmitCommand(root, packageDir, options = {}) {
   const tsconfigBuildPath = path.join(root, packageDir, 'tsconfig.build.json');
   const tscPath = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
   const args = [tscPath];
@@ -313,30 +313,116 @@ function getDeclarationEmitCommand(root, packageDir) {
     args.push('-p', 'tsconfig.build.json');
   }
   args.push('--emitDeclarationOnly', '--declarationMap', 'false');
+  if (options.extendedDiagnostics) {
+    args.push('--diagnostics', '--pretty', 'false');
+  }
   return { command: process.execPath, args };
 }
 
-async function runDeclarationEmit({ root, packageDir, packageName }) {
+async function runDeclarationEmit({ root, packageDir, packageName, collectDiagnostics = false }) {
   const startedAt = process.hrtime.bigint();
-
-  await new Promise((resolve, reject) => {
-    const { command, args } = getDeclarationEmitCommand(root, packageDir);
-    const child = spawn(command, args, {
-      cwd: path.join(root, packageDir),
-      stdio: 'inherit',
-    });
-    child.on('error', reject);
-    child.on('exit', (code, signal) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(`${packageName} declaration emit failed with ${signal ?? code}`));
-    });
+  let output = '';
+  const { command, args } = getDeclarationEmitCommand(root, packageDir, {
+    extendedDiagnostics: collectDiagnostics,
   });
 
+  if (collectDiagnostics) {
+    try {
+      const tscCommand = [command, ...args].map(shellQuote).join(' ');
+      // TypeScript diagnostics can be suppressed when captured from a non-TTY parent on this machine.
+      // `script` gives tsc a pseudo-terminal while still returning parseable text to this process.
+      output = execSync(`script -q -c ${shellQuote(tscCommand)} /dev/null`, {
+        cwd: path.join(root, packageDir),
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      const status = error && typeof error === 'object' && 'status' in error
+        ? error.status
+        : 'unknown';
+      throw new Error(`${packageName} declaration emit failed with ${status}`);
+    }
+  } else {
+    await new Promise((resolve, reject) => {
+      const child = spawn(command, args, {
+        cwd: path.join(root, packageDir),
+        stdio: 'inherit',
+      });
+      child.on('error', reject);
+      child.on('exit', (code, signal) => {
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        reject(new Error(`${packageName} declaration emit failed with ${signal ?? code}`));
+      });
+    });
+  }
+
   const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-  return Math.round(durationMs);
+  return {
+    durationMs: Math.round(durationMs),
+    diagnostics: collectDiagnostics ? parseTscExtendedDiagnostics(output) : undefined,
+  };
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\\''")}'`;
+}
+
+function toCamelCase(label) {
+  const words = label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return undefined;
+  return words
+    .map((word, index) => (index === 0 ? word : `${word[0].toUpperCase()}${word.slice(1)}`))
+    .join('');
+}
+
+export function parseTscExtendedDiagnostics(output) {
+  const metrics = {};
+  const timeMs = {};
+  let memoryUsedKb;
+
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(/^\s*([^:]+):\s+([0-9]+(?:\.[0-9]+)?)([a-zA-Z]+)?\s*$/);
+    if (!match) continue;
+
+    const [, label, rawValue, rawUnit = 'count'] = match;
+    const key = toCamelCase(label);
+    if (!key) continue;
+
+    const value = Number(rawValue);
+    const unit = rawUnit === 'K' ? 'KiB' : rawUnit;
+    metrics[key] = {
+      label: label.trim(),
+      value,
+      unit,
+    };
+
+    if (unit === 's') {
+      timeMs[key] = Math.round(value * 1000);
+    } else if (unit === 'ms') {
+      timeMs[key] = Math.round(value);
+    }
+
+    if (key === 'memoryUsed' && unit === 'KiB') {
+      memoryUsedKb = value;
+    }
+  }
+
+  return {
+    metrics,
+    timeMs,
+    memoryUsedKb,
+    metricCount: Object.keys(metrics).length,
+    rawLength: output.length,
+  };
 }
 
 function summarizeDurationSamples(samples) {
@@ -389,6 +475,24 @@ function printText(results) {
           + `median ${(result.declarationEmitDurationStats.medianMs / 1000).toFixed(2)}s, `
           + `max ${(result.declarationEmitDurationStats.maxMs / 1000).toFixed(2)}s)`,
         );
+      }
+    }
+    if (result.declarationDiagnostics) {
+      const { timeMs, memoryUsedKb } = result.declarationDiagnostics;
+      const diagnosticParts = [
+        ['parse', timeMs.parseTime],
+        ['bind', timeMs.bindTime],
+        ['check', timeMs.checkTime],
+        ['emit', timeMs.emitTime],
+        ['total', timeMs.totalTime],
+      ]
+        .filter(([, value]) => value !== undefined)
+        .map(([label, value]) => `${label} ${(value / 1000).toFixed(2)}s`);
+      if (memoryUsedKb !== undefined) {
+        diagnosticParts.push(`memory ${formatBytes(memoryUsedKb * 1024)}`);
+      }
+      if (diagnosticParts.length > 0) {
+        console.log(`  declaration diagnostics: ${diagnosticParts.join(', ')}`);
       }
     }
     console.log(`  exports: ${result.exportSubpathCount} package subpaths`);
@@ -521,14 +625,22 @@ async function main() {
 
     const buildDurationSamples = [];
     const declarationEmitDurationSamples = [];
+    let declarationDiagnostics;
     for (let runIndex = 0; runIndex < options.runs; runIndex += 1) {
       if (options.build) {
         buildDurationSamples.push(await runBuild(pkg.name));
       }
       if (options.declarationEmit) {
-        declarationEmitDurationSamples.push(
-          await runDeclarationEmit({ root, packageDir: pkg.dir, packageName: pkg.name }),
-        );
+        const emitResult = await runDeclarationEmit({
+          root,
+          packageDir: pkg.dir,
+          packageName: pkg.name,
+          collectDiagnostics: options.declarationDiagnostics && runIndex === options.runs - 1,
+        });
+        declarationEmitDurationSamples.push(emitResult.durationMs);
+        if (emitResult.diagnostics) {
+          declarationDiagnostics = emitResult.diagnostics;
+        }
       }
     }
     const buildDurationStats = summarizeDurationSamples(buildDurationSamples);
@@ -552,6 +664,7 @@ async function main() {
       buildDurationStats,
       declarationEmitDurationMs,
       declarationEmitDurationStats,
+      declarationDiagnostics,
       exportSubpathCount: getExportSubpathCount(pkg.packageJson),
       tsupEntryCount: tsupEntries.count,
       tsupEntries: tsupEntries.entries,
