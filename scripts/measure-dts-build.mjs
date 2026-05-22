@@ -46,6 +46,7 @@ function parseArgs(argv) {
   const options = {
     build: false,
     check: false,
+    declarationEmit: false,
     json: false,
     budgetFile: DEFAULT_BUDGET_FILE,
     packages: [],
@@ -55,6 +56,10 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === '--build') {
       options.build = true;
+      continue;
+    }
+    if (arg === '--declaration-emit') {
+      options.declarationEmit = true;
       continue;
     }
     if (arg === '--check') {
@@ -108,6 +113,7 @@ Measures declaration-output size and, with --build, package build duration.
 Options:
   --package <name[,name]>  Package name or packages/<dir> path to measure
   --build                 Run yarn workspace <pkg> build before measuring
+  --declaration-emit      Run package declaration-only tsc emit before measuring
   --check                 Fail when measured output exceeds DTS budgets
   --budget-file <path>    Budget file for --check (default: ${DEFAULT_BUDGET_FILE})
   --json                  Print machine-readable JSON
@@ -279,6 +285,38 @@ async function runBuild(packageName) {
   return Math.round(durationMs);
 }
 
+function getDeclarationEmitArgs(root, packageDir) {
+  const tsconfigBuildPath = path.join(root, packageDir, 'tsconfig.build.json');
+  const args = ['-s', 'tsc'];
+  if (existsSync(tsconfigBuildPath)) {
+    args.push('-p', 'tsconfig.build.json');
+  }
+  args.push('--emitDeclarationOnly', '--declarationMap', 'false');
+  return args;
+}
+
+async function runDeclarationEmit({ root, packageDir, packageName }) {
+  const startedAt = process.hrtime.bigint();
+
+  await new Promise((resolve, reject) => {
+    const child = spawn('yarn', getDeclarationEmitArgs(root, packageDir), {
+      cwd: path.join(root, packageDir),
+      stdio: 'inherit',
+    });
+    child.on('error', reject);
+    child.on('exit', (code, signal) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`${packageName} declaration emit failed with ${signal ?? code}`));
+    });
+  });
+
+  const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+  return Math.round(durationMs);
+}
+
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
@@ -290,6 +328,9 @@ function printText(results) {
     console.log(`\n${result.name} (${result.dir})`);
     if (result.buildDurationMs !== undefined) {
       console.log(`  build: ${(result.buildDurationMs / 1000).toFixed(2)}s`);
+    }
+    if (result.declarationEmitDurationMs !== undefined) {
+      console.log(`  declaration emit: ${(result.declarationEmitDurationMs / 1000).toFixed(2)}s`);
     }
     console.log(`  exports: ${result.exportSubpathCount} package subpaths`);
     console.log(`  tsup entries: ${result.tsupEntryCount}`);
@@ -333,6 +374,8 @@ function getMeasuredMetric(result, metric) {
   switch (metric) {
     case 'maxBuildDurationMs':
       return result.buildDurationMs;
+    case 'maxDeclarationEmitDurationMs':
+      return result.declarationEmitDurationMs;
     case 'minDeclarationFiles':
     case 'maxDeclarationFiles':
       return result.declarations.declarationFileCount;
@@ -359,6 +402,7 @@ export function evaluateBudgets(results, budgetConfig) {
     'minDeclarationFiles',
     'minDeclarationBytes',
     'maxBuildDurationMs',
+    'maxDeclarationEmitDurationMs',
     'maxDeclarationFiles',
     'maxDeclarationBytes',
     'maxDeclarationMapFiles',
@@ -417,6 +461,9 @@ async function main() {
     }
 
     const buildDurationMs = options.build ? await runBuild(pkg.name) : undefined;
+    const declarationEmitDurationMs = options.declarationEmit
+      ? await runDeclarationEmit({ root, packageDir: pkg.dir, packageName: pkg.name })
+      : undefined;
     const tsupConfigPath = path.join(root, pkg.dir, 'tsup.config.ts');
     const tsupConfigText = existsSync(tsupConfigPath)
       ? await readFile(tsupConfigPath, 'utf8')
@@ -431,6 +478,7 @@ async function main() {
       name: pkg.name,
       dir: pkg.dir,
       buildDurationMs,
+      declarationEmitDurationMs,
       exportSubpathCount: getExportSubpathCount(pkg.packageJson),
       tsupEntryCount: tsupEntries.count,
       tsupEntries: tsupEntries.entries,
