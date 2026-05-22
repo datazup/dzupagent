@@ -6,6 +6,7 @@ import {
   createDiagnosticsJsonSummary,
   evaluateBudgets,
   parseTscExtendedDiagnostics,
+  printBenchmarkSummary,
   shouldCollectDiagnostics,
   summarizeBenchmarkRecords,
   summarizeTscExtendedDiagnostics,
@@ -337,8 +338,8 @@ test('summarizes benchmark records with latest rows and deltas', () => {
           declarations: {
             declarationFileCount: 1,
             declarationBytes: 100,
-            declarationMapFileCount: 0,
-            declarationMapBytes: 0,
+            declarationMapFileCount: 2,
+            declarationMapBytes: 50,
           },
         },
       ],
@@ -370,7 +371,7 @@ test('summarizes benchmark records with latest rows and deltas', () => {
             },
           },
           declarations: {
-            declarationFileCount: 1,
+            declarationFileCount: 2,
             declarationBytes: 90,
             declarationMapFileCount: 0,
             declarationMapBytes: 0,
@@ -391,7 +392,314 @@ test('summarizes benchmark records with latest rows and deltas', () => {
   assert.equal(core.deltaFromPrevious.declarationEmitMedianMs.delta, -200);
   assert.equal(core.deltaFromPrevious.declarationEmitMedianMs.percent, -20);
   assert.equal(core.deltaFromPrevious.diagnosticsTotalMs.delta, -300);
+  assert.equal(core.deltaFromPrevious.declarationFileCount.delta, 1);
   assert.equal(core.deltaFromPrevious.declarationBytes.delta, -10);
+  assert.equal(core.deltaFromPrevious.declarationMapFileCount.delta, -2);
+  assert.equal(core.deltaFromPrevious.declarationMapBytes.delta, -50);
+});
+
+test('compares benchmark deltas only against compatible package lanes', () => {
+  const records = [
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:00:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'compatible-before', runs: 1 },
+          declarationEmitDurationStats: {
+            count: 1,
+            minMs: 1000,
+            medianMs: 1000,
+            meanMs: 1000,
+            maxMs: 1000,
+            lastMs: 1000,
+            samplesMs: [1000],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 1,
+            declarationMapBytes: 10,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:01:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'different-run-count', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 2000,
+            medianMs: 2500,
+            meanMs: 2600,
+            maxMs: 3000,
+            lastMs: 3000,
+            samplesMs: [2000, 2500, 3000],
+          },
+          declarations: {
+            declarationFileCount: 2,
+            declarationBytes: 200,
+            declarationMapFileCount: 2,
+            declarationMapBytes: 20,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:02:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'compatible-after', runs: 1 },
+          declarationEmitDurationStats: {
+            count: 1,
+            minMs: 700,
+            medianMs: 700,
+            meanMs: 700,
+            maxMs: 700,
+            lastMs: 700,
+            samplesMs: [700],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+  ];
+
+  const summary = summarizeBenchmarkRecords(records);
+  const core = summary.packages[0];
+
+  assert.equal(core.previous.label, 'different-run-count');
+  assert.equal(core.incompatiblePrevious.label, 'different-run-count');
+  assert.equal(core.latestCompatiblePrevious.label, 'compatible-before');
+  assert.equal(core.deltaFromCompatiblePrevious.declarationEmitMedianMs.delta, -300);
+  assert.equal(core.deltaFromPrevious.declarationEmitMedianMs.delta, -300);
+  assert.equal(core.deltaFromPrevious.declarationMapFileCount.delta, -1);
+  assert.equal(core.artifactDeltaFromPrevious.declarationMapFileCount.delta, -2);
+});
+
+test('omits benchmark deltas when no compatible previous lane exists', () => {
+  const records = [
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:00:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'before', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 1000,
+            medianMs: 1200,
+            meanMs: 1200,
+            maxMs: 1400,
+            lastMs: 1400,
+            samplesMs: [1000, 1200, 1400],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 1,
+            declarationMapBytes: 10,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:01:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'after', runs: 1 },
+          declarationEmitDurationStats: {
+            count: 1,
+            minMs: 700,
+            medianMs: 700,
+            meanMs: 700,
+            maxMs: 700,
+            lastMs: 700,
+            samplesMs: [700],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+  ];
+
+  const summary = summarizeBenchmarkRecords(records);
+  const core = summary.packages[0];
+
+  assert.equal(core.previous.label, 'before');
+  assert.equal(core.latestCompatiblePrevious, undefined);
+  assert.equal(core.deltaFromPrevious, undefined);
+  assert.equal(core.incompatiblePrevious.label, 'before');
+  assert.equal(core.artifactDeltaFromPrevious.declarationMapFileCount.delta, -1);
+});
+
+test('filters benchmark summary rows by package and compatible lane fields', () => {
+  const records = [
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:00:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: {
+            state: 'warm-emit',
+            label: 'core-warm',
+            runs: 3,
+            diagnosticsSampleMode: 'last',
+          },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 1000,
+            medianMs: 1200,
+            meanMs: 1200,
+            maxMs: 1400,
+            lastMs: 1400,
+            samplesMs: [1000, 1200, 1400],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+        {
+          name: '@dzupagent/test-utils',
+          dir: 'packages/test-utils',
+          measurement: {
+            state: 'warm-emit',
+            label: 'test-utils-warm',
+            runs: 3,
+            diagnosticsSampleMode: 'last',
+          },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 500,
+            medianMs: 600,
+            meanMs: 600,
+            maxMs: 700,
+            lastMs: 700,
+            samplesMs: [500, 600, 700],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 50,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:01:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: {
+            state: 'warm-emit',
+            label: 'core-one-run',
+            runs: 1,
+            diagnosticsSampleMode: 'last',
+          },
+          declarationEmitDurationStats: {
+            count: 1,
+            minMs: 900,
+            medianMs: 900,
+            meanMs: 900,
+            maxMs: 900,
+            lastMs: 900,
+            samplesMs: [900],
+          },
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+  ];
+
+  const summary = summarizeBenchmarkRecords(records, {
+    filters: {
+      packages: ['core'],
+      state: 'warm-emit',
+      runs: 3,
+      diagnosticsSampleMode: 'last',
+    },
+  });
+
+  assert.deepEqual(summary.filters, {
+    packages: ['core'],
+    state: 'warm-emit',
+    runs: 3,
+    diagnosticsSampleMode: 'last',
+  });
+  assert.equal(summary.rowCount, 1);
+  assert.equal(summary.packages.length, 1);
+  assert.equal(summary.packages[0].packageName, '@dzupagent/core');
+  assert.equal(summary.packages[0].latest.label, 'core-warm');
+});
+
+test('benchmark summary text distinguishes missing artifact bytes from zero bytes', () => {
+  const messages = [];
+  const originalLog = console.log;
+  try {
+    console.log = (message = '') => {
+      messages.push(String(message));
+    };
+    printBenchmarkSummary(summarizeBenchmarkRecords([
+      {
+        schemaVersion: 1,
+        kind: 'dts-benchmark',
+        generatedAt: '2026-05-22T00:00:00.000Z',
+        results: [
+          {
+            name: '@dzupagent/core',
+            dir: 'packages/core',
+            measurement: { state: 'warm-emit', label: 'legacy', runs: 1 },
+            declarations: {
+              declarationFileCount: 1,
+              declarationMapFileCount: 0,
+            },
+          },
+        ],
+      },
+    ]));
+
+    assert.match(messages.join('\n'), /artifacts: 1 declarations, -, 0 maps, -/);
+  } finally {
+    console.log = originalLog;
+  }
 });
 
 test('fails when declaration maps return for a budgeted package', () => {
