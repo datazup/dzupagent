@@ -59,6 +59,7 @@ export function parseMatrixArgs(argv) {
     runs: 3,
     state: 'warm-emit',
     summary: true,
+    summaryTargetMaxEmitMs: undefined,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -107,6 +108,15 @@ export function parseMatrixArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === '--summary-target-max-emit-ms') {
+      const value = Number(argv[index + 1]);
+      if (!Number.isInteger(value) || value < 1) {
+        throw new Error('--summary-target-max-emit-ms requires a positive integer');
+      }
+      options.summaryTargetMaxEmitMs = value;
+      index += 1;
+      continue;
+    }
     if (arg === '--dry-run') {
       options.dryRun = true;
       continue;
@@ -149,6 +159,8 @@ Options:
   --diagnostics-sample-mode <last|all>
                                 Diagnostics sampling mode (default: last)
   --label-prefix <label>        Prefix for package labels (default: warm-matrix)
+  --summary-target-max-emit-ms <ms>
+                                Report whether summary lanes stay under this max emit target
   --dry-run                     Print commands without running them
   --no-json                     Do not print per-package JSON payloads
   --no-summary                  Skip summary after collection
@@ -192,21 +204,25 @@ export function createMatrixCommands(options, { nodePath = process.execPath } = 
   });
 
   if (options.summary) {
+    const args = [
+      scriptPath,
+      '--benchmark-summary',
+      options.output,
+      '--benchmark-summary-state',
+      options.state,
+      '--benchmark-summary-runs',
+      String(options.runs),
+      '--benchmark-summary-diagnostics-sample-mode',
+      options.diagnosticsSampleMode,
+      '--benchmark-summary-limit',
+      '5',
+    ];
+    if (options.summaryTargetMaxEmitMs !== undefined) {
+      args.push('--benchmark-summary-target-max-emit-ms', String(options.summaryTargetMaxEmitMs));
+    }
     commands.push({
       command: nodePath,
-      args: [
-        scriptPath,
-        '--benchmark-summary',
-        options.output,
-        '--benchmark-summary-state',
-        options.state,
-        '--benchmark-summary-runs',
-        String(options.runs),
-        '--benchmark-summary-diagnostics-sample-mode',
-        options.diagnosticsSampleMode,
-        '--benchmark-summary-limit',
-        '5',
-      ],
+      args,
       label: 'summary',
       packageName: undefined,
     });
