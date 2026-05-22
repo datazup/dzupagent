@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-05-21
+Date: 2026-05-22
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -40,7 +40,7 @@ No stable subpaths configured.
 Root index: `packages/core/src/index.ts`
 
 - Stable root sources: `49`
-- Deprecated transitional root sources: `87`
+- Deprecated transitional root sources: `88`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
 
@@ -195,6 +195,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./utils/hash.js` | 1 | `prefix:./utils/` | `hashToolInput` |
 | `deprecated-transitional` | `./utils/exact-optional.js` | 2 | `prefix:./utils/` | `omitUndefined`, `OmitUndefined` |
 | `deprecated-transitional` | `./utils/event-record.js` | 4 | `prefix:./utils/` | `getString`, `getNumber`, `getObject`, `toJsonString` |
+| `deprecated-transitional` | `./utils/parse-jsonl.js` | 3 | `prefix:./utils/` | `parseJsonl`, `ParseJsonlOptions`, `ParseJsonlSkipReason` |
 | `deprecated-transitional` | `./guardrails/stuck-detector.js` | 3 | `prefix:./guardrails/` | `StuckDetector`, `StuckStatus`, `StuckDetectorConfig` |
 | `stable` | `<local>:dzupagent_CORE_VERSION` | 1 | `exact:<local>:dzupagent_CORE_VERSION` | `dzupagent_CORE_VERSION` |
 
@@ -215,6 +216,11 @@ Root index: `packages/agent/src/index.ts`
 | `@dzupagent/agent/workflow` | workflow, orchestration, delegation, and skill-chain execution |
 | `@dzupagent/agent/tools` | tools, approval, guardrails, and tool schema registry |
 | `@dzupagent/agent/compat` | legacy and fast-moving compatibility surface |
+| `@dzupagent/agent/mailbox` | mailbox store, dead-letter queue, mail tools |
+| `@dzupagent/agent/cluster` | agent cluster roles and in-memory coordination |
+| `@dzupagent/agent/reflection` | post-run reflection analysis and pattern storage |
+| `@dzupagent/agent/presets` | agent preset registry and built-in presets |
+| `@dzupagent/agent/streaming` | streaming run handles and stream event types |
 
 ### Root Allowlist
 
@@ -637,6 +643,8 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `@dzupagent/agent-adapters/rules` | adapter-rule RuntimePlan preparation, governance diagnostics, and watcher-path projection bridge |
 | `@dzupagent/agent-adapters/learning` | learning loop, A/B testing, interaction policy, and enrichment pipeline |
 | `@dzupagent/agent-adapters/recovery` | recovery copilot, policies, escalation, cross-provider handoff, and approval gates |
+| `@dzupagent/agent-adapters/skills` | adapter skill registry, capability matrix, and bundle/compiled-skill contracts |
+| `@dzupagent/agent-adapters/enrichment` | context enrichment pipeline |
 
 ### Root Allowlist
 
