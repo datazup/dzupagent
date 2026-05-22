@@ -23,6 +23,7 @@
  * it gates by the owning run, not the reflection row.
  */
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { RunReflectionStore, ReflectionPattern } from '@dzupagent/agent/reflection'
 import type { RunStore } from '@dzupagent/core/persistence'
@@ -60,7 +61,7 @@ interface RbacContext {
  * key is present but malformed (matches the routing-stats pattern).
  */
 function resolveRbacContext(
-  c: import('hono').Context<AppEnv>,
+  c: Context<AppEnv>,
   resource: string,
 ): RbacContext | Response {
   const key = c.get('apiKey')
