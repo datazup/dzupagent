@@ -20,6 +20,7 @@ const DEFAULT_PACKAGES = [
   '@dzupagent/connectors-browser',
   '@dzupagent/connectors-documents',
   '@dzupagent/context',
+  '@dzupagent/core',
   '@dzupagent/eval-contracts',
   '@dzupagent/evals',
   '@dzupagent/express',
