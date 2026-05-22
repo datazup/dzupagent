@@ -111,7 +111,6 @@ function parseArgs(argv) {
   if (options.packages.length === 0) {
     options.packages = [...DEFAULT_PACKAGES];
   }
-
   return options;
 }
 
@@ -382,6 +381,24 @@ function printText(results) {
         );
       }
     }
+    if (result.declarationDiagnostics) {
+      const { timeMs, memoryUsedKb } = result.declarationDiagnostics;
+      const diagnosticParts = [
+        ['parse', timeMs.parseTime],
+        ['bind', timeMs.bindTime],
+        ['check', timeMs.checkTime],
+        ['emit', timeMs.emitTime],
+        ['total', timeMs.totalTime],
+      ]
+        .filter(([, value]) => value !== undefined)
+        .map(([label, value]) => `${label} ${(value / 1000).toFixed(2)}s`);
+      if (memoryUsedKb !== undefined) {
+        diagnosticParts.push(`memory ${formatBytes(memoryUsedKb * 1024)}`);
+      }
+      if (diagnosticParts.length > 0) {
+        console.log(`  declaration diagnostics: ${diagnosticParts.join(', ')}`);
+      }
+    }
     console.log(`  exports: ${result.exportSubpathCount} package subpaths`);
     console.log(`  tsup entries: ${result.tsupEntryCount}`);
     console.log(
@@ -512,14 +529,22 @@ async function main() {
 
     const buildDurationSamples = [];
     const declarationEmitDurationSamples = [];
+    let declarationDiagnostics;
     for (let runIndex = 0; runIndex < options.runs; runIndex += 1) {
       if (options.build) {
         buildDurationSamples.push(await runBuild(pkg.name));
       }
       if (options.declarationEmit) {
-        declarationEmitDurationSamples.push(
-          await runDeclarationEmit({ root, packageDir: pkg.dir, packageName: pkg.name }),
-        );
+        const emitResult = await runDeclarationEmit({
+          root,
+          packageDir: pkg.dir,
+          packageName: pkg.name,
+          collectDiagnostics: options.declarationDiagnostics && runIndex === options.runs - 1,
+        });
+        declarationEmitDurationSamples.push(emitResult.durationMs);
+        if (emitResult.diagnostics) {
+          declarationDiagnostics = emitResult.diagnostics;
+        }
       }
     }
     const buildDurationStats = summarizeDurationSamples(buildDurationSamples);
@@ -543,6 +568,7 @@ async function main() {
       buildDurationStats,
       declarationEmitDurationMs,
       declarationEmitDurationStats,
+      declarationDiagnostics,
       exportSubpathCount: getExportSubpathCount(pkg.packageJson),
       tsupEntryCount: tsupEntries.count,
       tsupEntries: tsupEntries.entries,
