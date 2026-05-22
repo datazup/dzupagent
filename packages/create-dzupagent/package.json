@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
