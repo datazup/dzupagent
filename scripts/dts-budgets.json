@@ -24,6 +24,14 @@
       "maxDeclarationMapFiles": 0,
       "maxDeclarationMapBytes": 0
     },
+    "@dzupagent/flow-dsl": {
+      "minDeclarationFiles": 10,
+      "minDeclarationBytes": 10000,
+      "maxDeclarationFiles": 30,
+      "maxDeclarationBytes": 30000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
     "@dzupagent/server": {
       "minDeclarationFiles": 220,
       "minDeclarationBytes": 450000,
