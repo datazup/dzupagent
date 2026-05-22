@@ -112,6 +112,14 @@
       "maxDeclarationMapFiles": 0,
       "maxDeclarationMapBytes": 0
     },
+    "@dzupagent/core": {
+      "minDeclarationFiles": 240,
+      "minDeclarationBytes": 500000,
+      "maxDeclarationFiles": 330,
+      "maxDeclarationBytes": 750000,
+      "maxDeclarationMapFiles": 0,
+      "maxDeclarationMapBytes": 0
+    },
     "@dzupagent/eval-contracts": {
       "minDeclarationFiles": 4,
       "minDeclarationBytes": 10000,
