@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { spawn } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_PACKAGES = [
@@ -46,6 +46,7 @@ function parseArgs(argv) {
   const options = {
     build: false,
     check: false,
+    declarationDiagnostics: false,
     declarationEmit: false,
     json: false,
     budgetFile: DEFAULT_BUDGET_FILE,
@@ -61,6 +62,10 @@ function parseArgs(argv) {
     }
     if (arg === '--declaration-emit') {
       options.declarationEmit = true;
+      continue;
+    }
+    if (arg === '--declaration-diagnostics') {
+      options.declarationDiagnostics = true;
       continue;
     }
     if (arg === '--check') {
@@ -111,6 +116,9 @@ function parseArgs(argv) {
   if (options.packages.length === 0) {
     options.packages = [...DEFAULT_PACKAGES];
   }
+  if (options.declarationDiagnostics) {
+    options.declarationEmit = true;
+  }
   return options;
 }
 
@@ -123,6 +131,8 @@ Options:
   --package <name[,name]>  Package name or packages/<dir> path to measure
   --build                 Run yarn workspace <pkg> build before measuring
   --declaration-emit      Run package declaration-only tsc emit before measuring
+  --declaration-diagnostics
+                          Capture tsc --extendedDiagnostics for declaration emit
   --check                 Fail when measured output exceeds DTS budgets
   --budget-file <path>    Budget file for --check (default: ${DEFAULT_BUDGET_FILE})
   --runs <count>          Repeat timed build/declaration steps for profiling (default: 1)
@@ -381,24 +391,6 @@ function printText(results) {
         );
       }
     }
-    if (result.declarationDiagnostics) {
-      const { timeMs, memoryUsedKb } = result.declarationDiagnostics;
-      const diagnosticParts = [
-        ['parse', timeMs.parseTime],
-        ['bind', timeMs.bindTime],
-        ['check', timeMs.checkTime],
-        ['emit', timeMs.emitTime],
-        ['total', timeMs.totalTime],
-      ]
-        .filter(([, value]) => value !== undefined)
-        .map(([label, value]) => `${label} ${(value / 1000).toFixed(2)}s`);
-      if (memoryUsedKb !== undefined) {
-        diagnosticParts.push(`memory ${formatBytes(memoryUsedKb * 1024)}`);
-      }
-      if (diagnosticParts.length > 0) {
-        console.log(`  declaration diagnostics: ${diagnosticParts.join(', ')}`);
-      }
-    }
     console.log(`  exports: ${result.exportSubpathCount} package subpaths`);
     console.log(`  tsup entries: ${result.tsupEntryCount}`);
     console.log(
@@ -529,22 +521,14 @@ async function main() {
 
     const buildDurationSamples = [];
     const declarationEmitDurationSamples = [];
-    let declarationDiagnostics;
     for (let runIndex = 0; runIndex < options.runs; runIndex += 1) {
       if (options.build) {
         buildDurationSamples.push(await runBuild(pkg.name));
       }
       if (options.declarationEmit) {
-        const emitResult = await runDeclarationEmit({
-          root,
-          packageDir: pkg.dir,
-          packageName: pkg.name,
-          collectDiagnostics: options.declarationDiagnostics && runIndex === options.runs - 1,
-        });
-        declarationEmitDurationSamples.push(emitResult.durationMs);
-        if (emitResult.diagnostics) {
-          declarationDiagnostics = emitResult.diagnostics;
-        }
+        declarationEmitDurationSamples.push(
+          await runDeclarationEmit({ root, packageDir: pkg.dir, packageName: pkg.name }),
+        );
       }
     }
     const buildDurationStats = summarizeDurationSamples(buildDurationSamples);
@@ -568,7 +552,6 @@ async function main() {
       buildDurationStats,
       declarationEmitDurationMs,
       declarationEmitDurationStats,
-      declarationDiagnostics,
       exportSubpathCount: getExportSubpathCount(pkg.packageJson),
       tsupEntryCount: tsupEntries.count,
       tsupEntries: tsupEntries.entries,
