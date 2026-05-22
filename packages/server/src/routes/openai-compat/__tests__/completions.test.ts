@@ -21,7 +21,7 @@ import {
   createEventBus,
 } from '@dzupagent/core'
 import type { AgentExecutionSpec } from '@dzupagent/core'
-import { DzupAgent } from '@dzupagent/agent'
+import { DzupAgent } from '@dzupagent/agent/runtime'
 import { Hono as HonoApp } from 'hono'
 import { createOpenAICompatCompletionsRoute } from '../completions.js'
 import type { OpenAICompatCompletionsConfig } from '../completions.js'
@@ -34,7 +34,7 @@ const mockGenerate = vi.fn()
 const mockStream = vi.fn()
 let capturedConfig: Record<string, unknown> | undefined
 
-vi.mock('@dzupagent/agent', async (importOriginal) => {
+vi.mock('@dzupagent/agent/runtime', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
   return {
     ...actual,
