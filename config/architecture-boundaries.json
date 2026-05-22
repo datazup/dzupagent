@@ -178,6 +178,7 @@
         "rationale": "Shared route support modules that do not create product-control-plane endpoints by themselves.",
         "files": [
           "packages/server/src/routes/a2a-types.ts",
+          "packages/server/src/routes/benchmark-tenant-scope.ts",
           "packages/server/src/routes/benchmarks-types.ts",
           "packages/server/src/routes/compile-types.ts",
           "packages/server/src/routes/compile/json-handler.ts",
