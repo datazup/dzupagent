@@ -186,6 +186,19 @@ describe('parseFlow — agent node', () => {
     expect(node?.policy?.audit?.captureToolCalls).toBe(true)
   })
 
+  it('rejects non-positive timeout and budget policy limits', () => {
+    const result = parseFlow({
+      type: 'agent',
+      id: 'a-policy',
+      agentId: 'planner',
+      instructions: 'Plan.',
+      output: { key: 'plan', schemaRef: 'plan.v1' },
+      policy: { timeoutMs: 0, budgetCents: -1 },
+    })
+    expect(result.errors.some((e) => e.pointer.endsWith('/policy/timeoutMs'))).toBe(true)
+    expect(result.errors.some((e) => e.pointer.endsWith('/policy/budgetCents'))).toBe(true)
+  })
+
   it('returns error when instructions is missing', () => {
     const result = parseFlow({
       type: 'agent',
