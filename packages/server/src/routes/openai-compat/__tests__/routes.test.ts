@@ -8,7 +8,7 @@ import {
 } from '@dzupagent/core'
 import type { AgentExecutionSpec } from '@dzupagent/core'
 import { createForgeApp, type ForgeServerConfig } from '../../../app.js'
-import { DzupAgent } from '@dzupagent/agent'
+import { DzupAgent } from '@dzupagent/agent/runtime'
 
 // ---------------------------------------------------------------------------
 // Mock DzupAgent so we never need a real LLM
@@ -17,7 +17,7 @@ import { DzupAgent } from '@dzupagent/agent'
 const mockGenerate = vi.fn()
 const mockStream = vi.fn()
 
-vi.mock('@dzupagent/agent', async (importOriginal) => {
+vi.mock('@dzupagent/agent/runtime', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
   return {
     ...actual,
