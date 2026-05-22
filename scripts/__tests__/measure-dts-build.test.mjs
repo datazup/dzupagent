@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
+  createBenchmarkRecord,
   createDiagnosticsJsonSummary,
   evaluateBudgets,
   parseTscExtendedDiagnostics,
+  shouldCollectDiagnostics,
   summarizeTscExtendedDiagnostics,
 } from '../measure-dts-build.mjs';
 
@@ -80,7 +82,7 @@ test('parses tsc extended diagnostics into stable numeric fields', () => {
 Files:                         382
 Lines of Library:            40124
 Memory used:               219580K
-I/O Read time:                0.02s
+I/O Read:                    0.02s
 Parse time:                  1.21s
 Bind time:                   0.41s
 Check time:                 18.54s
@@ -93,7 +95,7 @@ Total time:                 22.62s
   assert.ok(diagnostics.rawLength > 0);
   assert.equal(diagnostics.metrics.memoryUsed.unit, 'KiB');
   assert.equal(diagnostics.memoryUsedKb, 219580);
-  assert.equal(diagnostics.timeMs.iOReadTime, 20);
+  assert.equal(diagnostics.timeMs.iORead, 20);
   assert.equal(diagnostics.timeMs.parseTime, 1210);
   assert.equal(diagnostics.timeMs.bindTime, 410);
   assert.equal(diagnostics.timeMs.checkTime, 18540);
@@ -111,7 +113,7 @@ Symbols:                     41000
 Types:                       12000
 Instantiations:              26000
 Memory used:               219580K
-I/O Read time:                0.02s
+I/O Read:                    0.02s
 Parse time:                  1.21s
 Check time:                 18.54s
 Emit time:                   2.07s
@@ -128,7 +130,7 @@ Total time:                 22.62s
   assert.equal(summary.types, 12000);
   assert.equal(summary.instantiations, 26000);
   assert.equal(summary.memoryUsedKb, 219580);
-  assert.equal(summary.timeMs.iOReadTime, 20);
+  assert.equal(summary.timeMs.iORead, 20);
   assert.equal(summary.timeMs.checkTime, 18540);
   assert.equal(summary.metrics, undefined);
 });
@@ -207,6 +209,101 @@ Total time:                  0.50s
   assert.equal(payload.results[0].declarationDiagnostics.checkTime, undefined);
   assert.equal(payload.results[0].declarationDiagnostics.timeMs.checkTime, 300);
   assert.equal(payload.results[0].declarationDiagnostics.metrics, undefined);
+});
+
+test('collects diagnostics on the last run by default', () => {
+  const options = {
+    declarationDiagnostics: true,
+    diagnosticsSampleMode: 'last',
+    runs: 3,
+  };
+
+  assert.equal(shouldCollectDiagnostics(options, 0), false);
+  assert.equal(shouldCollectDiagnostics(options, 1), false);
+  assert.equal(shouldCollectDiagnostics(options, 2), true);
+});
+
+test('collects diagnostics on every run when requested', () => {
+  const options = {
+    declarationDiagnostics: true,
+    diagnosticsSampleMode: 'all',
+    runs: 3,
+  };
+
+  assert.equal(shouldCollectDiagnostics(options, 0), true);
+  assert.equal(shouldCollectDiagnostics(options, 1), true);
+  assert.equal(shouldCollectDiagnostics(options, 2), true);
+});
+
+test('creates compact benchmark records for persisted comparisons', () => {
+  const record = createBenchmarkRecord({
+    generatedAt: '2026-05-22T00:00:00.000Z',
+    results: [
+      {
+        name: '@dzupagent/core',
+        dir: 'packages/core',
+        measurement: {
+          state: 'warm-emit',
+          label: 'warm-repeat',
+          runs: 3,
+          diagnosticsSampleMode: 'last',
+        },
+        buildSamples: [],
+        declarationEmitDurationMs: 500,
+        declarationEmitDurationStats: {
+          count: 3,
+          minMs: 500,
+          medianMs: 550,
+          meanMs: 600,
+          maxMs: 750,
+          lastMs: 500,
+          samplesMs: [750, 550, 500],
+        },
+        declarationEmitSamples: [
+          {
+            run: 3,
+            durationMs: 500,
+            measurementState: 'warm-emit',
+            measurementLabel: 'warm-repeat',
+            diagnosticsSummary: {
+              metricCount: 1,
+              rawLength: 20,
+              files: 10,
+              memoryUsedKb: 2048,
+              timeMs: { totalTime: 500 },
+            },
+          },
+        ],
+        declarationDiagnosticsSummary: {
+          metricCount: 1,
+          rawLength: 20,
+          files: 10,
+          memoryUsedKb: 2048,
+          timeMs: { totalTime: 500 },
+        },
+        declarations: {
+          declarationFileCount: 1,
+          declarationBytes: 100,
+          declarationMapFileCount: 0,
+          declarationMapBytes: 0,
+          topDeclarationDirs: [],
+        },
+        exportSubpathCount: 1,
+        rootBarrel: {
+          sourceCount: 1,
+          explicitExportCount: 1,
+          starExportCount: 0,
+        },
+        tsupEntryCount: 1,
+      },
+    ],
+    budgetResult: undefined,
+  });
+
+  assert.equal(record.schemaVersion, 1);
+  assert.equal(record.kind, 'dts-benchmark');
+  assert.equal(record.results[0].measurement.diagnosticsSampleMode, 'last');
+  assert.equal(record.results[0].declarationDiagnostics.metrics, undefined);
 });
 
 test('fails when declaration maps return for a budgeted package', () => {
