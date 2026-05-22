@@ -989,6 +989,12 @@ function formatDelta(delta) {
   return delta.percent === undefined ? seconds : `${seconds}, ${delta.percent >= 0 ? '+' : ''}${delta.percent}%`;
 }
 
+function formatByteDelta(delta) {
+  if (!delta) return '';
+  const bytes = `${delta.delta >= 0 ? '+' : '-'}${formatBytes(Math.abs(delta.delta))}`;
+  return delta.percent === undefined ? bytes : `${bytes}, ${delta.percent >= 0 ? '+' : ''}${delta.percent}%`;
+}
+
 function printBenchmarkSummary(summary) {
   console.log(`DTS benchmark records: ${summary.recordCount}, rows: ${summary.rowCount}`);
   for (const packageSummary of summary.packages) {
@@ -1006,6 +1012,12 @@ function printBenchmarkSummary(summary) {
       + `max ${formatMaybeMs(latest.declarationEmitMaxMs)}, `
       + `last ${formatMaybeMs(latest.declarationEmitLastMs)}`,
     );
+    console.log(
+      `  artifacts: ${latest.declarationFileCount ?? '-'} declarations, `
+      + `${formatBytes(latest.declarationBytes ?? 0)}, `
+      + `${latest.declarationMapFileCount ?? '-'} maps, `
+      + `${formatBytes(latest.declarationMapBytes ?? 0)}`,
+    );
     if (latest.diagnosticsTotalMs !== undefined) {
       console.log(
         `  diagnostics total ${formatMaybeMs(latest.diagnosticsTotalMs)}, `
@@ -1018,10 +1030,14 @@ function printBenchmarkSummary(summary) {
     if (packageSummary.deltaFromPrevious) {
       const emitDelta = packageSummary.deltaFromPrevious.declarationEmitMedianMs;
       const diagnosticsDelta = packageSummary.deltaFromPrevious.diagnosticsTotalMs;
-      if (emitDelta || diagnosticsDelta) {
+      const declarationBytesDelta = packageSummary.deltaFromPrevious.declarationBytes;
+      const mapBytesDelta = packageSummary.deltaFromPrevious.declarationMapBytes;
+      if (emitDelta || diagnosticsDelta || declarationBytesDelta || mapBytesDelta) {
         console.log(
           `  delta: emit median ${emitDelta ? formatDelta(emitDelta) : '-'}, `
-          + `diagnostics total ${diagnosticsDelta ? formatDelta(diagnosticsDelta) : '-'}`,
+          + `diagnostics total ${diagnosticsDelta ? formatDelta(diagnosticsDelta) : '-'}, `
+          + `declaration bytes ${declarationBytesDelta ? formatByteDelta(declarationBytesDelta) : '-'}, `
+          + `map bytes ${mapBytesDelta ? formatByteDelta(mapBytesDelta) : '-'}`,
         );
       }
     }
