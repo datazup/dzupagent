@@ -274,6 +274,13 @@ test('creates compact benchmark records for persisted comparisons', () => {
             durationMs: 500,
             measurementState: 'warm-emit',
             measurementLabel: 'warm-repeat',
+            environment: {
+              nodeVersion: 'v20.0.0',
+              platform: 'linux',
+              arch: 'x64',
+              cpuCount: 8,
+              loadAverage: [1.5, 1.25, 1],
+            },
             diagnosticsSummary: {
               metricCount: 1,
               rawLength: 20,
@@ -320,6 +327,13 @@ test('creates compact benchmark records for persisted comparisons', () => {
   });
   assert.equal(record.results[0].measurement.diagnosticsSampleMode, 'last');
   assert.equal(record.results[0].declarationDiagnostics.metrics, undefined);
+  assert.deepEqual(record.results[0].declarationEmitSamples[0].environment, {
+    nodeVersion: 'v20.0.0',
+    platform: 'linux',
+    arch: 'x64',
+    cpuCount: 8,
+    loadAverage: [1.5, 1.25, 1],
+  });
 });
 
 test('summarizes benchmark records with latest rows and deltas', () => {
@@ -417,6 +431,19 @@ test('summarizes benchmark records with latest rows and deltas', () => {
     compatibleLaneSampleCount: 2,
     requiredCompatibleLaneSampleCount: 2,
   });
+  const { slowestSampleEnvironment, ...durationVariance } = core.durationVariance;
+  assert.deepEqual(durationVariance, {
+    stable: true,
+    sampleReady: true,
+    sampleCount: 2,
+    minDurationMs: 1000,
+    maxDurationMs: 1400,
+    maxMinRatio: 1.4,
+    stableMaxMinRatio: 2,
+    slowestSampleLabel: '@dzupagent/core before',
+    fallbackSampleCount: 2,
+  });
+  assert.equal(typeof slowestSampleEnvironment?.nodeVersion, 'string');
   assert.equal(core.latest.label, 'after');
   assert.equal(core.deltaFromPrevious.declarationEmitMedianMs.delta, -200);
   assert.equal(core.deltaFromPrevious.declarationEmitMedianMs.percent, -20);
@@ -798,6 +825,131 @@ test('reports target readiness separately from sample readiness', () => {
   });
 });
 
+test('summarizes duration variance from per-run benchmark samples', () => {
+  const records = [
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:00:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'before', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 1000,
+            medianMs: 2000,
+            meanMs: 3000,
+            maxMs: 6000,
+            lastMs: 2000,
+            samplesMs: [1000, 2000, 6000],
+          },
+          declarationEmitSamples: [
+            {
+              run: 1,
+              durationMs: 1000,
+              measurementState: 'warm-emit',
+              measurementLabel: 'before',
+            },
+            {
+              run: 2,
+              durationMs: 2000,
+              measurementState: 'warm-emit',
+              measurementLabel: 'before',
+            },
+            {
+              run: 3,
+              durationMs: 6000,
+              measurementState: 'warm-emit',
+              measurementLabel: 'before',
+              environment: {
+                nodeVersion: 'v20.0.0',
+                platform: 'linux',
+                arch: 'x64',
+                cpuCount: 8,
+                loadAverage: [8, 4, 2],
+              },
+            },
+          ],
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+    createBenchmarkRecord({
+      generatedAt: '2026-05-22T00:01:00.000Z',
+      results: [
+        {
+          name: '@dzupagent/core',
+          dir: 'packages/core',
+          measurement: { state: 'warm-emit', label: 'after', runs: 3 },
+          declarationEmitDurationStats: {
+            count: 3,
+            minMs: 1500,
+            medianMs: 1600,
+            meanMs: 1600,
+            maxMs: 1700,
+            lastMs: 1600,
+            samplesMs: [1500, 1600, 1700],
+          },
+          declarationEmitSamples: [
+            {
+              run: 1,
+              durationMs: 1500,
+              measurementState: 'warm-emit',
+              measurementLabel: 'after',
+            },
+            {
+              run: 2,
+              durationMs: 1600,
+              measurementState: 'warm-emit',
+              measurementLabel: 'after',
+            },
+            {
+              run: 3,
+              durationMs: 1700,
+              measurementState: 'warm-emit',
+              measurementLabel: 'after',
+            },
+          ],
+          declarations: {
+            declarationFileCount: 1,
+            declarationBytes: 100,
+            declarationMapFileCount: 0,
+            declarationMapBytes: 0,
+          },
+        },
+      ],
+      budgetResult: undefined,
+    }),
+  ];
+
+  const variance = summarizeBenchmarkRecords(records).packages[0].durationVariance;
+
+  assert.deepEqual(variance, {
+    stable: false,
+    sampleReady: true,
+    sampleCount: 6,
+    minDurationMs: 1000,
+    maxDurationMs: 6000,
+    maxMinRatio: 6,
+    stableMaxMinRatio: 2,
+    slowestSampleLabel: '@dzupagent/core before run 3',
+    slowestSampleEnvironment: {
+      nodeVersion: 'v20.0.0',
+      platform: 'linux',
+      arch: 'x64',
+      cpuCount: 8,
+      loadAverage: [8, 4, 2],
+    },
+    fallbackSampleCount: 0,
+  });
+});
+
 test('benchmark summary text distinguishes missing artifact bytes from zero bytes', () => {
   const messages = [];
   const originalLog = console.log;
@@ -826,6 +978,7 @@ test('benchmark summary text distinguishes missing artifact bytes from zero byte
 
     assert.match(messages.join('\n'), /artifacts: 1 declarations, -, 0 maps, -/);
     assert.match(messages.join('\n'), /lane samples: 1\/1 compatible with latest lane; sample-ready: no \(need 2\)/);
+    assert.match(messages.join('\n'), /duration-stable: no \(ratio -, limit 2\.00x, samples 0, slowest -\)/);
   } finally {
     console.log = originalLog;
   }
@@ -879,6 +1032,7 @@ test('benchmark summary text reports environment and target readiness', () => {
 
     assert.match(messages.join('\n'), /environment: node v20\.0\.0, linux\/x64, 8 CPUs, load 1\.50\/1\.25\/1\.00/);
     assert.match(messages.join('\n'), /target-ready: no \(target max emit 0\.50s, observed max 1\.00s, missing 0\)/);
+    assert.match(messages.join('\n'), /duration-stable: no \(ratio 1\.00x, limit 2\.00x, samples 1, slowest @dzupagent\/core before\)/);
   } finally {
     console.log = originalLog;
   }
