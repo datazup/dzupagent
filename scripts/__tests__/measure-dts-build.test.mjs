@@ -388,6 +388,16 @@ test('summarizes benchmark records with latest rows and deltas', () => {
   assert.equal(summary.recordCount, 2);
   assert.equal(summary.rowCount, 2);
   assert.equal(core.packageName, '@dzupagent/core');
+  assert.deepEqual(core.laneSampleCounts, {
+    total: 2,
+    compatibleWithLatest: 2,
+    incompatibleWithLatest: 0,
+  });
+  assert.deepEqual(core.budgetReadiness, {
+    ready: true,
+    compatibleLaneSampleCount: 2,
+    requiredCompatibleLaneSampleCount: 2,
+  });
   assert.equal(core.latest.label, 'after');
   assert.equal(core.deltaFromPrevious.declarationEmitMedianMs.delta, -200);
   assert.equal(core.deltaFromPrevious.declarationEmitMedianMs.percent, -20);
@@ -553,6 +563,16 @@ test('omits benchmark deltas when no compatible previous lane exists', () => {
 
   assert.equal(core.previous.label, 'before');
   assert.equal(core.latestCompatiblePrevious, undefined);
+  assert.deepEqual(core.laneSampleCounts, {
+    total: 2,
+    compatibleWithLatest: 1,
+    incompatibleWithLatest: 1,
+  });
+  assert.deepEqual(core.budgetReadiness, {
+    ready: false,
+    compatibleLaneSampleCount: 1,
+    requiredCompatibleLaneSampleCount: 2,
+  });
   assert.equal(core.deltaFromPrevious, undefined);
   assert.equal(core.incompatiblePrevious.label, 'before');
   assert.equal(core.artifactDeltaFromPrevious.declarationMapFileCount.delta, -1);
@@ -697,6 +717,7 @@ test('benchmark summary text distinguishes missing artifact bytes from zero byte
     ]));
 
     assert.match(messages.join('\n'), /artifacts: 1 declarations, -, 0 maps, -/);
+    assert.match(messages.join('\n'), /lane samples: 1\/1 compatible with latest lane; budget-ready: no \(need 2\)/);
   } finally {
     console.log = originalLog;
   }
