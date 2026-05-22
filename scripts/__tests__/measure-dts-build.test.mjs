@@ -340,6 +340,13 @@ test('summarizes benchmark records with latest rows and deltas', () => {
   const records = [
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:00:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [0, 0, 0],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -375,6 +382,13 @@ test('summarizes benchmark records with latest rows and deltas', () => {
     }),
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:01:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [0, 0, 0],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -458,6 +472,13 @@ test('compares benchmark deltas only against compatible package lanes', () => {
   const records = [
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:00:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [0, 0, 0],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -484,6 +505,13 @@ test('compares benchmark deltas only against compatible package lanes', () => {
     }),
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:01:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [0, 0, 0],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -829,6 +857,13 @@ test('summarizes duration variance from per-run benchmark samples', () => {
   const records = [
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:00:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [0, 0, 0],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -882,6 +917,13 @@ test('summarizes duration variance from per-run benchmark samples', () => {
     }),
     createBenchmarkRecord({
       generatedAt: '2026-05-22T00:01:00.000Z',
+      environment: {
+        nodeVersion: 'v20.0.0',
+        platform: 'linux',
+        arch: 'x64',
+        cpuCount: 8,
+        loadAverage: [0, 0, 0],
+      },
       results: [
         {
           name: '@dzupagent/core',
@@ -929,6 +971,10 @@ test('summarizes duration variance from per-run benchmark samples', () => {
   ];
 
   const variance = summarizeBenchmarkRecords(records).packages[0].durationVariance;
+  const customVariance = summarizeBenchmarkRecords(records, {
+    stableMaxMinRatio: 10,
+  }).packages[0].durationVariance;
+  const environmentNoise = summarizeBenchmarkRecords(records).packages[0].environmentNoise;
 
   assert.deepEqual(variance, {
     stable: false,
@@ -947,6 +993,17 @@ test('summarizes duration variance from per-run benchmark samples', () => {
       loadAverage: [8, 4, 2],
     },
     fallbackSampleCount: 0,
+  });
+  assert.equal(customVariance.stable, true);
+  assert.equal(customVariance.stableMaxMinRatio, 10);
+  assert.deepEqual(environmentNoise, {
+    noisy: true,
+    sampleCount: 6,
+    noisyLoadPerCpuRatio: 0.75,
+    maxLoadPerCpuRatio: 1,
+    peakLoadLabel: '@dzupagent/core before run 3',
+    peakOneMinuteLoad: 8,
+    peakCpuCount: 8,
   });
 });
 
@@ -979,6 +1036,7 @@ test('benchmark summary text distinguishes missing artifact bytes from zero byte
     assert.match(messages.join('\n'), /artifacts: 1 declarations, -, 0 maps, -/);
     assert.match(messages.join('\n'), /lane samples: 1\/1 compatible with latest lane; sample-ready: no \(need 2\)/);
     assert.match(messages.join('\n'), /duration-stable: no \(ratio -, limit 2\.00x, samples 0, slowest -\)/);
+    assert.match(messages.join('\n'), /environment-noisy: no \(max load\/cpu -, threshold 0\.75x, samples 0, peak -\)/);
   } finally {
     console.log = originalLog;
   }
@@ -1033,6 +1091,7 @@ test('benchmark summary text reports environment and target readiness', () => {
     assert.match(messages.join('\n'), /environment: node v20\.0\.0, linux\/x64, 8 CPUs, load 1\.50\/1\.25\/1\.00/);
     assert.match(messages.join('\n'), /target-ready: no \(target max emit 0\.50s, observed max 1\.00s, missing 0\)/);
     assert.match(messages.join('\n'), /duration-stable: no \(ratio 1\.00x, limit 2\.00x, samples 1, slowest @dzupagent\/core before\)/);
+    assert.match(messages.join('\n'), /environment-noisy: no \(max load\/cpu 0\.19x, threshold 0\.75x, samples 1, peak @dzupagent\/core before\)/);
   } finally {
     console.log = originalLog;
   }
