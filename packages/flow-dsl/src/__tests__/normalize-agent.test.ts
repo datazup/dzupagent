@@ -130,6 +130,23 @@ describe('normalizeDslDocument — agent wrapper', () => {
       true,
     )
   })
+
+  it('rejects non-positive timeout and budget policy limits', () => {
+    const raw = makeRaw([
+      {
+        agent: {
+          id: 'plan',
+          agentId: 'planner',
+          instructions: 'Plan',
+          output: { key: 'plan', schemaRef: 'plan.v1' },
+          policy: { timeoutMs: 0, budgetCents: -1 },
+        },
+      },
+    ])
+    const { diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics.some((d) => d.path?.endsWith('.policy.timeoutMs'))).toBe(true)
+    expect(diagnostics.some((d) => d.path?.endsWith('.policy.budgetCents'))).toBe(true)
+  })
 })
 
 describe('normalizeDslDocument — validate wrapper', () => {

@@ -533,8 +533,12 @@ function normalizePolicy(
     return undefined
   }
   const policy: AgentPolicy = {}
-  if (typeof raw.timeoutMs === 'number') policy.timeoutMs = raw.timeoutMs
-  if (typeof raw.budgetCents === 'number') policy.budgetCents = raw.budgetCents
+  normalizePositiveFinitePolicyNumber(raw, 'timeoutMs', path, diagnostics, (value) => {
+    policy.timeoutMs = value
+  })
+  normalizePositiveFinitePolicyNumber(raw, 'budgetCents', path, diagnostics, (value) => {
+    policy.budgetCents = value
+  })
   if (typeof raw.maxToolCalls === 'number') policy.maxToolCalls = raw.maxToolCalls
   if (typeof raw.workingDirectory === 'string') policy.workingDirectory = raw.workingDirectory
   if (raw.approval !== undefined) {
@@ -584,4 +588,34 @@ function normalizePolicy(
     }
   }
   return policy
+}
+
+function normalizePositiveFinitePolicyNumber(
+  raw: Record<string, unknown>,
+  key: 'timeoutMs' | 'budgetCents',
+  path: string,
+  diagnostics: DslDiagnostic[],
+  assign: (value: number) => void,
+): void {
+  if (raw[key] === undefined) return
+  const value = raw[key]
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: `agent.policy.${key} must be a finite number`,
+      path: `${path}.${key}`,
+    })
+    return
+  }
+  if (value <= 0) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: `agent.policy.${key} must be greater than 0`,
+      path: `${path}.${key}`,
+    })
+    return
+  }
+  assign(value)
 }

@@ -1,6 +1,10 @@
 import type { AgentNode, ValidationError } from '@dzupagent/flow-ast'
 
-import type { ProfileRegistry, ResolvedProfile } from '../profile-registry.js'
+import type {
+  ProfileRegistry,
+  ResolvedProfile,
+  ResolvedProfilePolicy,
+} from '../profile-registry.js'
 
 import type { WalkContext } from './semantic-context.js'
 
@@ -75,6 +79,10 @@ export function resolveAgentProfile(
     return
   }
 
+  if (!validateProfilePolicy(resolved.policy, path, node.profile, ctx)) {
+    return
+  }
+
   applyProfileToNode(node, resolved)
   ctx.expandedAgentProfiles.set(path, { ref: node.profile, resolved })
 
@@ -137,6 +145,58 @@ function mergePolicy(
     }
   }
   return out
+}
+
+function validateProfilePolicy(
+  policy: ResolvedProfilePolicy | undefined,
+  path: string,
+  ref: string,
+  ctx: WalkContext,
+): boolean {
+  if (policy === undefined) return true
+
+  let valid = true
+  if (!validatePositiveFinitePolicyNumber(policy.timeoutMs, 'timeoutMs', path, ref, ctx)) {
+    valid = false
+  }
+  if (!validatePositiveFinitePolicyNumber(policy.budgetCents, 'budgetCents', path, ref, ctx)) {
+    valid = false
+  }
+  return valid
+}
+
+function validatePositiveFinitePolicyNumber(
+  value: number | undefined,
+  key: 'timeoutMs' | 'budgetCents',
+  path: string,
+  ref: string,
+  ctx: WalkContext,
+): boolean {
+  if (value === undefined) return true
+  if (!Number.isFinite(value)) {
+    ctx.errors.push(invalidProfilePolicyError(path, ref, key, 'must be a finite number'))
+    return false
+  }
+  if (value <= 0) {
+    ctx.errors.push(invalidProfilePolicyError(path, ref, key, 'must be greater than 0'))
+    return false
+  }
+  return true
+}
+
+function invalidProfilePolicyError(
+  path: string,
+  ref: string,
+  key: 'timeoutMs' | 'budgetCents',
+  message: string,
+): ValidationError {
+  return {
+    nodeType: 'agent',
+    nodePath: `${path}.policy.${key}`,
+    code: 'INVALID_PROFILE_POLICY',
+    category: 'policy',
+    message: `Profile "${ref}" policy.${key} ${message}.`,
+  }
 }
 
 function unresolvedProfileError(
