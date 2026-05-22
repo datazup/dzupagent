@@ -30,7 +30,7 @@
     }
   },
   "scripts": {
-    "build": "tsup && tsc --emitDeclarationOnly",
+    "build": "tsup && tsc --emitDeclarationOnly --declarationMap false",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
