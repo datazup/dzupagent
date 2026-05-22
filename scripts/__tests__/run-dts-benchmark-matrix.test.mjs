@@ -15,6 +15,7 @@ test('plans default controlled DTS benchmark matrix commands', () => {
   assert.equal(options.runs, 3);
   assert.equal(options.state, 'warm-emit');
   assert.equal(options.diagnosticsSampleMode, 'last');
+  assert.equal(options.summaryStableRatio, undefined);
   assert.equal(options.summaryTargetMaxEmitMs, undefined);
   assert.equal(commands.length, 3);
 
@@ -62,6 +63,8 @@ test('plans custom matrix lane and disables summary', () => {
     'controlled',
     '--summary-target-max-emit-ms',
     '30000',
+    '--summary-stable-ratio',
+    '1.5',
     '--no-summary',
   ]);
   const commands = createMatrixCommands(options, { nodePath: 'node' });
@@ -73,18 +76,22 @@ test('plans custom matrix lane and disables summary', () => {
   assert.match(commands[0].args.join(' '), /--runs 5/);
   assert.match(commands[0].args.join(' '), /--diagnostics-sample-mode all/);
   assert.equal(options.summaryTargetMaxEmitMs, 30000);
+  assert.equal(options.summaryStableRatio, 1.5);
 });
 
 test('passes matrix target emit threshold to the summary command', () => {
   const options = parseMatrixArgs([
     '--summary-target-max-emit-ms',
     '30000',
+    '--summary-stable-ratio',
+    '1.5',
   ]);
   const commands = createMatrixCommands(options, { nodePath: 'node' });
   const summary = commands.at(-1);
 
   assert.equal(summary.label, 'summary');
   assert.match(summary.args.join(' '), /--benchmark-summary-target-max-emit-ms 30000/);
+  assert.match(summary.args.join(' '), /--benchmark-summary-stable-ratio 1\.5/);
 });
 
 test('rejects invalid matrix run count and diagnostics mode', () => {
@@ -96,5 +103,9 @@ test('rejects invalid matrix run count and diagnostics mode', () => {
   assert.throws(
     () => parseMatrixArgs(['--summary-target-max-emit-ms', '0']),
     /--summary-target-max-emit-ms requires a positive integer/,
+  );
+  assert.throws(
+    () => parseMatrixArgs(['--summary-stable-ratio', '0']),
+    /--summary-stable-ratio requires a positive number/,
   );
 });
