@@ -18,6 +18,8 @@ This document supplements the root `ARCHITECTURE.md` with package-specific detai
 | `./rules` | Adapter-rule RuntimePlan preparation, governance diagnostics |
 | `./learning` | Learning loop, A/B testing, interaction policy, and enrichment pipeline |
 | `./recovery` | Recovery copilot, policies, escalation, cross-provider handoff, approval gates |
+| `./skills` | Skill loading, indexing, registry, and prompt assembly helpers |
+| `./enrichment` | Task enrichment planning, context enrichment, and execution helpers |
 
 All subpaths are defined in `package.json` `exports`. New consumers should prefer subpath imports over the root `.` barrel.
 

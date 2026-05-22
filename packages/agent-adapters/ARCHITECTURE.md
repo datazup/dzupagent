@@ -30,7 +30,7 @@ Current responsibilities:
 Top-level source layout:
 - `src/index.ts`: compatibility root barrel; broad export surface.
 - `src/types.ts`: re-export bridge for `@dzupagent/adapter-types`.
-- Plane barrels: `src/providers.ts`, `src/orchestration.ts`, `src/workflow.ts`, `src/http.ts`, `src/persistence.ts`, `src/learning.ts`, `src/recovery.ts`.
+- Plane barrels: `src/providers.ts`, `src/orchestration.ts`, `src/workflow.ts`, `src/http.ts`, `src/persistence.ts`, `src/learning.ts`, `src/recovery.ts`, `src/skills.ts`, `src/enrichment.ts`.
 - Provider modules: `src/claude`, `src/codex`, `src/gemini`, `src/qwen`, `src/crush`, `src/goose`, `src/openrouter`, `src/openai`.
 - Registry/routing: `src/registry/*`.
 - Facade: `src/facade/*`.
@@ -57,6 +57,8 @@ Published package subpaths (`package.json` `exports`):
 - `./rules`
 - `./learning`
 - `./recovery`
+- `./skills`
+- `./enrichment`
 
 ## Runtime and Control Flow
 Primary single-run path (`OrchestratorFacade.run`):
