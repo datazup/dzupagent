@@ -50,6 +50,7 @@ function parseArgs(argv) {
     json: false,
     budgetFile: DEFAULT_BUDGET_FILE,
     packages: [],
+    runs: 1,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -68,6 +69,15 @@ function parseArgs(argv) {
     }
     if (arg === '--json') {
       options.json = true;
+      continue;
+    }
+    if (arg === '--runs') {
+      const value = Number(argv[index + 1]);
+      if (!Number.isInteger(value) || value < 1) {
+        throw new Error('--runs requires a positive integer');
+      }
+      options.runs = value;
+      index += 1;
       continue;
     }
     if (arg === '--budget-file') {
@@ -116,6 +126,7 @@ Options:
   --declaration-emit      Run package declaration-only tsc emit before measuring
   --check                 Fail when measured output exceeds DTS budgets
   --budget-file <path>    Budget file for --check (default: ${DEFAULT_BUDGET_FILE})
+  --runs <count>          Repeat timed build/declaration steps for profiling (default: 1)
   --json                  Print machine-readable JSON
   -h, --help              Show this help
 
@@ -285,21 +296,23 @@ async function runBuild(packageName) {
   return Math.round(durationMs);
 }
 
-function getDeclarationEmitArgs(root, packageDir) {
+function getDeclarationEmitCommand(root, packageDir) {
   const tsconfigBuildPath = path.join(root, packageDir, 'tsconfig.build.json');
-  const args = ['-s', 'tsc'];
+  const tscPath = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
+  const args = [tscPath];
   if (existsSync(tsconfigBuildPath)) {
     args.push('-p', 'tsconfig.build.json');
   }
   args.push('--emitDeclarationOnly', '--declarationMap', 'false');
-  return args;
+  return { command: process.execPath, args };
 }
 
 async function runDeclarationEmit({ root, packageDir, packageName }) {
   const startedAt = process.hrtime.bigint();
 
   await new Promise((resolve, reject) => {
-    const child = spawn('yarn', getDeclarationEmitArgs(root, packageDir), {
+    const { command, args } = getDeclarationEmitCommand(root, packageDir);
+    const child = spawn(command, args, {
       cwd: path.join(root, packageDir),
       stdio: 'inherit',
     });
@@ -317,6 +330,27 @@ async function runDeclarationEmit({ root, packageDir, packageName }) {
   return Math.round(durationMs);
 }
 
+function summarizeDurationSamples(samples) {
+  if (samples.length === 0) return undefined;
+
+  const sorted = [...samples].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  const medianMs = sorted.length % 2 === 0
+    ? Math.round((sorted[middle - 1] + sorted[middle]) / 2)
+    : sorted[middle];
+  const totalMs = samples.reduce((sum, value) => sum + value, 0);
+
+  return {
+    count: samples.length,
+    minMs: sorted[0],
+    medianMs,
+    meanMs: Math.round(totalMs / samples.length),
+    maxMs: sorted[sorted.length - 1],
+    lastMs: samples[samples.length - 1],
+    samplesMs: samples,
+  };
+}
+
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
@@ -328,9 +362,25 @@ function printText(results) {
     console.log(`\n${result.name} (${result.dir})`);
     if (result.buildDurationMs !== undefined) {
       console.log(`  build: ${(result.buildDurationMs / 1000).toFixed(2)}s`);
+      if (result.buildDurationStats?.count > 1) {
+        console.log(
+          `  build samples: ${result.buildDurationStats.samplesMs.map((duration) => (duration / 1000).toFixed(2)).join('s, ')}s `
+          + `(min ${(result.buildDurationStats.minMs / 1000).toFixed(2)}s, `
+          + `median ${(result.buildDurationStats.medianMs / 1000).toFixed(2)}s, `
+          + `max ${(result.buildDurationStats.maxMs / 1000).toFixed(2)}s)`,
+        );
+      }
     }
     if (result.declarationEmitDurationMs !== undefined) {
       console.log(`  declaration emit: ${(result.declarationEmitDurationMs / 1000).toFixed(2)}s`);
+      if (result.declarationEmitDurationStats?.count > 1) {
+        console.log(
+          `  declaration emit samples: ${result.declarationEmitDurationStats.samplesMs.map((duration) => (duration / 1000).toFixed(2)).join('s, ')}s `
+          + `(min ${(result.declarationEmitDurationStats.minMs / 1000).toFixed(2)}s, `
+          + `median ${(result.declarationEmitDurationStats.medianMs / 1000).toFixed(2)}s, `
+          + `max ${(result.declarationEmitDurationStats.maxMs / 1000).toFixed(2)}s)`,
+        );
+      }
     }
     console.log(`  exports: ${result.exportSubpathCount} package subpaths`);
     console.log(`  tsup entries: ${result.tsupEntryCount}`);
@@ -373,9 +423,9 @@ function isMinimumMetric(metric) {
 function getMeasuredMetric(result, metric) {
   switch (metric) {
     case 'maxBuildDurationMs':
-      return result.buildDurationMs;
+      return result.buildDurationStats?.maxMs ?? result.buildDurationMs;
     case 'maxDeclarationEmitDurationMs':
-      return result.declarationEmitDurationMs;
+      return result.declarationEmitDurationStats?.maxMs ?? result.declarationEmitDurationMs;
     case 'minDeclarationFiles':
     case 'maxDeclarationFiles':
       return result.declarations.declarationFileCount;
@@ -460,10 +510,22 @@ async function main() {
       throw new Error(`Unknown workspace package: ${specifier}`);
     }
 
-    const buildDurationMs = options.build ? await runBuild(pkg.name) : undefined;
-    const declarationEmitDurationMs = options.declarationEmit
-      ? await runDeclarationEmit({ root, packageDir: pkg.dir, packageName: pkg.name })
-      : undefined;
+    const buildDurationSamples = [];
+    const declarationEmitDurationSamples = [];
+    for (let runIndex = 0; runIndex < options.runs; runIndex += 1) {
+      if (options.build) {
+        buildDurationSamples.push(await runBuild(pkg.name));
+      }
+      if (options.declarationEmit) {
+        declarationEmitDurationSamples.push(
+          await runDeclarationEmit({ root, packageDir: pkg.dir, packageName: pkg.name }),
+        );
+      }
+    }
+    const buildDurationStats = summarizeDurationSamples(buildDurationSamples);
+    const declarationEmitDurationStats = summarizeDurationSamples(declarationEmitDurationSamples);
+    const buildDurationMs = buildDurationStats?.lastMs;
+    const declarationEmitDurationMs = declarationEmitDurationStats?.lastMs;
     const tsupConfigPath = path.join(root, pkg.dir, 'tsup.config.ts');
     const tsupConfigText = existsSync(tsupConfigPath)
       ? await readFile(tsupConfigPath, 'utf8')
@@ -478,7 +540,9 @@ async function main() {
       name: pkg.name,
       dir: pkg.dir,
       buildDurationMs,
+      buildDurationStats,
       declarationEmitDurationMs,
+      declarationEmitDurationStats,
       exportSubpathCount: getExportSubpathCount(pkg.packageJson),
       tsupEntryCount: tsupEntries.count,
       tsupEntries: tsupEntries.entries,
