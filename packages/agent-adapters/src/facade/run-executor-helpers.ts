@@ -53,6 +53,7 @@ export function buildChatInput(prompt: string, options: ChatOptions | undefined)
   if (options?.temperature != null) adapterOptions.temperature = options.temperature
   if (options?.maxTokens != null) adapterOptions.maxTokens = options.maxTokens
   if (options?.topP != null) adapterOptions.topP = options.topP
+  if (options?.reasoning != null) adapterOptions.reasoning = options.reasoning
   if (options?.timeoutMs != null) adapterOptions.timeoutMs = options.timeoutMs
   return {
     prompt,

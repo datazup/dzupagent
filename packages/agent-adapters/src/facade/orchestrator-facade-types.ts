@@ -114,6 +114,8 @@ export interface ChatOptions {
   maxTokens?: number | undefined
   /** Top-p nucleus sampling */
   topP?: number | undefined
+  /** Normalized reasoning effort for adapters that support it. */
+  reasoning?: 'low' | 'medium' | 'high' | undefined
   /** Per-turn adapter timeout override (milliseconds) */
   timeoutMs?: number | undefined
   /** When true and an approvalGate is configured, requires approval before execution. */
