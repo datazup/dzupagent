@@ -409,6 +409,67 @@ describe('CodexAdapter', () => {
       })
     })
 
+    it('AC-001: preserves provider raw identity and normalized identity across failed-then-success stream events', async () => {
+      const thread = createMockThread([
+        threadStartedEvent('thread-ac001'),
+        { type: 'error', message: 'transient upstream error' },
+        itemCompletedEvent({ type: 'agent_message', id: 'msg-recover', text: 'Recovered answer' }),
+        turnCompletedEvent({ input_tokens: 7, output_tokens: 9 }),
+      ])
+      mockStartThread.mockReturnValue(thread)
+
+      const events = await collectEvents(adapter.executeWithRaw(makeInput()))
+      const rawEvents = events
+        .filter((event) => event.type === 'adapter:provider_raw')
+        .map((event) => event.rawEvent)
+
+      expect(rawEvents).toHaveLength(4)
+      const threadRaw = rawEvents[0]
+      expect(threadRaw?.payload).toMatchObject({
+        type: 'thread.started',
+        thread_id: 'thread-ac001',
+      })
+      expect(typeof threadRaw?.providerEventId).toBe('string')
+
+      const nonThreadRaw = rawEvents.slice(1)
+      expect(nonThreadRaw.every((raw) => raw.parentProviderEventId === threadRaw?.providerEventId)).toBe(
+        true,
+      )
+
+      const failedIndex = events.findIndex((event) => event.type === 'adapter:failed')
+      const recoveredMessageIndex = events.findIndex(
+        (event, idx) => idx > failedIndex && event.type === 'adapter:message',
+      )
+      expect(failedIndex).toBeGreaterThanOrEqual(0)
+      expect(recoveredMessageIndex).toBeGreaterThan(failedIndex)
+
+      const failed = events[failedIndex]
+      expect(failed?.type).toBe('adapter:failed')
+      if (failed?.type === 'adapter:failed') {
+        expect(failed.providerEventId).toBeDefined()
+        expect(failed.parentProviderEventId).toBe(threadRaw?.providerEventId)
+      }
+
+      const recovered = events[recoveredMessageIndex]
+      expect(recovered?.type).toBe('adapter:message')
+      if (recovered?.type === 'adapter:message') {
+        expect(recovered.providerEventId).toBeDefined()
+        expect(recovered.parentProviderEventId).toBe(threadRaw?.providerEventId)
+        expect(recovered.content).toBe('Recovered answer')
+      }
+
+      const completed = events.find((event) => event.type === 'adapter:completed')
+      expect(completed?.type).toBe('adapter:completed')
+      if (completed?.type === 'adapter:completed') {
+        expect(completed.result).toBe('Recovered answer')
+        expect(completed.usage).toEqual({
+          inputTokens: 7,
+          outputTokens: 9,
+          cachedInputTokens: undefined,
+        })
+      }
+    })
+
     it('emits failed event when SDK throws during runStreamed', async () => {
       const thread = {
         runStreamed: vi.fn().mockRejectedValue(new Error('Connection refused')),
@@ -517,6 +578,37 @@ describe('CodexAdapter', () => {
       expect(mockStartThread).toHaveBeenCalledWith(
         expect.objectContaining({ sandboxMode: 'danger-full-access' }),
       )
+    })
+
+    it('FEAT-003: does not project generic tool definitions into Codex thread options', async () => {
+      const thread = createMockThread([
+        threadStartedEvent('thread-no-generic-tools'),
+        turnCompletedEvent(),
+      ])
+      mockStartThread.mockReturnValue(thread)
+
+      await collectEvents(
+        adapter.execute(makeInput({
+          options: {
+            tools: [
+              {
+                type: 'function',
+                function: {
+                  name: 'lookup_docs',
+                  description: 'Lookup docs by id',
+                  parameters: { type: 'object', properties: { id: { type: 'string' } } },
+                },
+              },
+            ],
+            toolChoice: 'auto',
+          },
+        })),
+      )
+
+      const threadOpts = mockStartThread.mock.calls[0]?.[0] as Record<string, unknown> | undefined
+      expect(threadOpts).toBeDefined()
+      expect(threadOpts).not.toHaveProperty('tools')
+      expect(threadOpts).not.toHaveProperty('toolChoice')
     })
 
     it('defaults model to gpt-5.4', async () => {
