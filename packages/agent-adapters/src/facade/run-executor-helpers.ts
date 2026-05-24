@@ -55,6 +55,8 @@ export function buildChatInput(prompt: string, options: ChatOptions | undefined)
   if (options?.topP != null) adapterOptions.topP = options.topP
   if (options?.reasoning != null) adapterOptions.reasoning = options.reasoning
   if (options?.timeoutMs != null) adapterOptions.timeoutMs = options.timeoutMs
+  if (options?.tools != null) adapterOptions.tools = options.tools
+  if (options?.toolResults != null) adapterOptions.toolResults = options.toolResults
   return {
     prompt,
     workingDirectory: options?.workingDirectory,

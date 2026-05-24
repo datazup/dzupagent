@@ -98,6 +98,18 @@ export interface RunResult {
   error?: string | undefined
 }
 
+export interface ChatToolDefinition {
+  name: string
+  description?: string | undefined
+  parameters?: Record<string, unknown> | undefined
+}
+
+export interface ChatToolResultTurn {
+  toolName: string
+  toolCallId?: string | undefined
+  content: string
+}
+
 export interface ChatOptions {
   /** Resume existing workflow or create new */
   workflowId?: string | undefined
@@ -118,6 +130,10 @@ export interface ChatOptions {
   reasoning?: 'low' | 'medium' | 'high' | undefined
   /** Per-turn adapter timeout override (milliseconds) */
   timeoutMs?: number | undefined
+  /** Provider-neutral per-turn tool definitions available to this chat turn. */
+  tools?: ChatToolDefinition[] | undefined
+  /** Provider-neutral tool-result turns to feed back into this chat turn. */
+  toolResults?: ChatToolResultTurn[] | undefined
   /** When true and an approvalGate is configured, requires approval before execution. */
   requireApproval?: boolean | undefined
   /** Approval context metadata forwarded to the approval gate. */
