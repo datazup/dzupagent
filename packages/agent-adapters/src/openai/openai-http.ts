@@ -36,20 +36,36 @@ export function resolveOpenAIApiKey(config: OpenAIConfig): string {
   return apiKey
 }
 
-/** Build chat-completion message array from a prompt + optional system prompt. */
+interface OpenAITextMessage {
+  role: 'system' | 'user'
+  content: string
+}
+
+interface OpenAIToolResultMessage {
+  role: 'tool'
+  tool_call_id: string
+  content: string
+  name?: string
+}
+
+type OpenAIChatMessage = OpenAITextMessage | OpenAIToolResultMessage
+
+/** Build chat-completion message array from prompt/system text plus optional tool-result turns. */
 export function buildOpenAIMessages(
   prompt: string,
   systemPrompt?: string,
-): Array<{ role: string; content: string }> {
-  const messages: Array<{ role: string; content: string }> = []
+  toolResults?: unknown,
+): OpenAIChatMessage[] {
+  const messages: OpenAIChatMessage[] = []
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+  messages.push(...normalizeToolResultMessages(toolResults))
   messages.push({ role: 'user', content: prompt })
   return messages
 }
 
 export interface PostChatCompletionsArgs {
   config: OpenAIConfig
-  messages: Array<{ role: string; content: string }>
+  messages: OpenAIChatMessage[]
   model: string
   stream: boolean
   signal?: AbortSignal
@@ -186,6 +202,37 @@ export function resolveOpenAIAuditErrorCode(error: unknown): string {
     if (typeof code === 'string' && code.length > 0) return code
   }
   return 'ADAPTER_EXECUTION_FAILED'
+}
+
+function normalizeToolResultMessages(toolResults: unknown): OpenAIToolResultMessage[] {
+  if (!Array.isArray(toolResults)) return []
+  const messages: OpenAIToolResultMessage[] = []
+  for (const entry of toolResults) {
+    if (entry === null || typeof entry !== 'object') continue
+    const record = entry as { toolName?: unknown; toolCallId?: unknown; content?: unknown }
+    if (typeof record.toolCallId !== 'string' || record.toolCallId.length === 0) continue
+    const content = normalizeToolResultContent(record.content)
+    if (content === null) continue
+    messages.push({
+      role: 'tool',
+      tool_call_id: record.toolCallId,
+      content,
+      ...(typeof record.toolName === 'string' && record.toolName.length > 0
+        ? { name: record.toolName }
+        : {}),
+    })
+  }
+  return messages
+}
+
+function normalizeToolResultContent(content: unknown): string | null {
+  if (typeof content === 'string') return content
+  if (content === undefined) return null
+  try {
+    return JSON.stringify(content)
+  } catch {
+    return String(content)
+  }
 }
 
 export interface NonStreamingRunArgs {

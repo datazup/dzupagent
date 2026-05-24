@@ -145,7 +145,11 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
     const toolChoice = input.options?.['tool_choice']
     const response = await postChatCompletions({
       config: this.config,
-      messages: buildOpenAIMessages(input.prompt, input.systemPrompt),
+      messages: buildOpenAIMessages(
+        input.prompt,
+        input.systemPrompt,
+        input.options?.['toolResults'],
+      ),
       model: this.currentModel,
       stream: true,
       signal,

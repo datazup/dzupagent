@@ -53,6 +53,8 @@ export interface AgentToolCallEvent {
   providerId: AdapterProviderId
   toolName: string
   input: unknown
+  /** Provider-native tool call identity when available. */
+  toolCallId?: string | undefined
   timestamp: number
   /** Correlation ID from the originating request */
   correlationId?: string | undefined
@@ -64,6 +66,8 @@ export interface AgentToolResultEvent {
   toolName: string
   output: string
   durationMs: number
+  /** Provider-native tool call identity when available. */
+  toolCallId?: string | undefined
   timestamp: number
   /** Correlation ID from the originating request */
   correlationId?: string | undefined

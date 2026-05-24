@@ -79,6 +79,7 @@ export class OpenAIToolCallAccumulator {
         type: 'adapter:tool_call',
         providerId,
         toolName: call.name,
+        ...(call.id !== undefined ? { toolCallId: call.id } : {}),
         input: parseToolArguments(call.arguments),
         timestamp: Date.now(),
         ...(correlationId ? { correlationId } : {}),

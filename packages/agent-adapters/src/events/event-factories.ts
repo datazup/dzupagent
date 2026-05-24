@@ -95,6 +95,7 @@ export interface MakeToolCallEventArgs {
   providerId: AdapterProviderId
   toolName: string
   input: unknown
+  toolCallId?: string | undefined
   correlationId?: string | undefined
   timestamp?: number
 }
@@ -105,6 +106,7 @@ export function makeToolCallEvent(args: MakeToolCallEventArgs): AgentToolCallEve
     providerId: args.providerId,
     toolName: args.toolName,
     input: args.input,
+    ...(args.toolCallId !== undefined ? { toolCallId: args.toolCallId } : {}),
     timestamp: args.timestamp ?? Date.now(),
     ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
   }
@@ -115,6 +117,7 @@ export interface MakeToolResultEventArgs {
   toolName: string
   output: string
   durationMs: number
+  toolCallId?: string | undefined
   correlationId?: string | undefined
   timestamp?: number
 }
@@ -126,6 +129,7 @@ export function makeToolResultEvent(args: MakeToolResultEventArgs): AgentToolRes
     toolName: args.toolName,
     output: args.output,
     durationMs: args.durationMs,
+    ...(args.toolCallId !== undefined ? { toolCallId: args.toolCallId } : {}),
     timestamp: args.timestamp ?? Date.now(),
     ...(args.correlationId !== undefined ? { correlationId: args.correlationId } : {}),
   }
