@@ -207,6 +207,47 @@ function createPolicyCapturingRawAdapter(
   }
 }
 
+function createChatInputCapturingAdapter(
+  providerId: AdapterProviderId = 'claude',
+): {
+  adapter: AgentCLIAdapter
+  getCapturedInputs: () => AgentInput[]
+} {
+  const capturedInputs: AgentInput[] = []
+  const adapter: AgentCLIAdapter = {
+    providerId,
+    async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+      capturedInputs.push(input)
+      yield {
+        type: 'adapter:started',
+        providerId,
+        sessionId: `sess-${providerId}`,
+        timestamp: Date.now(),
+      }
+      yield {
+        type: 'adapter:completed',
+        providerId,
+        sessionId: `sess-${providerId}`,
+        result: 'chat-ok',
+        usage: { inputTokens: 10, outputTokens: 5 },
+        durationMs: 1,
+        timestamp: Date.now(),
+      }
+    },
+    async *resumeSession() {},
+    interrupt() {},
+    async healthCheck() {
+      return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
+    },
+    configure() {},
+  }
+
+  return {
+    adapter,
+    getCapturedInputs: () => capturedInputs,
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -635,6 +676,61 @@ describe('OrchestratorFacade', () => {
         expect.objectContaining({ type: 'approval:requested', runId: 'chat-approval-1' }),
         expect.objectContaining({ type: 'approval:granted', runId: 'chat-approval-1' }),
       ]))
+    })
+
+    it('round-trips tools and toolResults options into AgentInput for chat turns', async () => {
+      const { adapter, getCapturedInputs } = createChatInputCapturingAdapter('claude')
+      const facade = createOrchestrator({
+        adapters: [adapter],
+        eventBus: bus,
+      })
+
+      for await (const _event of facade.chat('Use tools', {
+        tools: [{ name: 'search', description: 'Search docs', parameters: { type: 'object' } }],
+        toolResults: [{ toolName: 'search', toolCallId: 'call-1', content: '{"hits":3}' }],
+      })) {
+        // Drain stream.
+      }
+
+      const captured = getCapturedInputs()
+      expect(captured).toHaveLength(1)
+      expect(captured[0]).toMatchObject({
+        prompt: 'Use tools',
+        options: {
+          tools: [{ name: 'search', description: 'Search docs', parameters: { type: 'object' } }],
+          toolResults: [{ toolName: 'search', toolCallId: 'call-1', content: '{"hits":3}' }],
+        },
+      })
+    })
+
+    it('does not leak prior-turn tools/toolResults into later turns when omitted', async () => {
+      const { adapter, getCapturedInputs } = createChatInputCapturingAdapter('claude')
+      const facade = createOrchestrator({
+        adapters: [adapter],
+        eventBus: bus,
+      })
+
+      for await (const _event of facade.chat('Turn 1', {
+        tools: [{ name: 'search', parameters: { type: 'object' } }],
+        toolResults: [{ toolName: 'search', toolCallId: 'call-1', content: 'done' }],
+      })) {
+        // Drain stream.
+      }
+
+      const workflowId = facade.sessions.listWorkflows()[0]!.workflowId
+      for await (const _event of facade.chat('Turn 2', { workflowId })) {
+        // Drain stream.
+      }
+
+      const captured = getCapturedInputs()
+      expect(captured.length).toBeGreaterThanOrEqual(2)
+      expect(captured[0]!.options).toMatchObject({
+        tools: [{ name: 'search', parameters: { type: 'object' } }],
+        toolResults: [{ toolName: 'search', toolCallId: 'call-1', content: 'done' }],
+      })
+      const secondOptions = captured[1]!.options as Record<string, unknown> | undefined
+      expect(secondOptions?.['tools']).toBeUndefined()
+      expect(secondOptions?.['toolResults']).toBeUndefined()
     })
   })
 
