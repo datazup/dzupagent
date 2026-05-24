@@ -165,6 +165,17 @@ Observability:
 - `RunEventStore` and `ScriptRunEventStore` persist execution/run evidence for automation flows.
 - Recovery trace modules persist failure/recovery context for postmortems.
 
+## Codex Boundary Evidence (P003)
+- FEAT-003 boundary: Codex adapter maps only verified local thread options (`model`, `sandboxMode`, `workingDirectory`, `approvalPolicy`, `networkAccessEnabled`, `skipGitRepoCheck`, `reasoningEffort`) and does not claim direct ingestion of generic function-tool definitions.
+- FEAT-003 negative case coverage is enforced in [src/__tests__/codex-adapter.test.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/agent-adapters/src/__tests__/codex-adapter.test.ts) (`FEAT-003: does not project generic tool definitions into Codex thread options`).
+- AC-001 observability: Codex `executeWithRaw` emits `adapter:provider_raw` records with `providerEventId` / `parentProviderEventId`, and mapped normalized events preserve provider identity fields for app-layer bridge decisions.
+- AC-001 adversarial coverage is enforced in [src/__tests__/codex-adapter.test.ts](/media/ninel/Second/code/datazup/ai-internal-dev/dzupagent/packages/agent-adapters/src/__tests__/codex-adapter.test.ts) (`AC-001: preserves provider raw identity and normalized identity across failed-then-success stream events`).
+
+## P007a/P007b Split Notes
+- P007a (framework, this package): maintain provider-neutral event contracts, provider-raw identity visibility, and explicit Codex capability boundaries validated by package-local tests.
+- P007b (app integration, codev-app): apply app-specific tool wiring, UX policy, and ownership semantics outside `@dzupagent/agent-adapters`.
+- External split-plan documentation outputs under `workspace-docs/...` are tracked as handoff artifacts and are not mutated by repo-scoped dzupagent packets.
+
 ## Risks and TODOs
 - Root entrypoint remains very broad for backward compatibility; API growth should prefer plane subpaths.
 - Subpath exports exist for major planes, but several secondary domains still only flow through root barrel, increasing accidental coupling risk.
