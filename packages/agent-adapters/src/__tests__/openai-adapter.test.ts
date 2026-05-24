@@ -33,6 +33,11 @@ function mockFetchResponse(
   } as unknown as Response
 }
 
+function readRequestBody(call: unknown): Record<string, unknown> {
+  const [, opts] = call as [string, RequestInit]
+  return JSON.parse(opts.body as string) as Record<string, unknown>
+}
+
 describe('OpenAIAdapter', () => {
   const originalEnv = process.env['OPENAI_API_KEY']
 
@@ -164,6 +169,59 @@ describe('OpenAIAdapter', () => {
     expect(body.messages[1]).toEqual({ role: 'user', content: 'hi' })
     expect(body.stream).toBe(true)
     expect(body.stream_options).toEqual({ include_usage: true })
+  })
+
+  it('serializes input.options.toolResults into OpenAI tool-role messages', async () => {
+    const sseLines = ['data: {"choices":[{"delta":{"content":"ok"}}]}', 'data: [DONE]']
+    const fetchMock = vi.fn().mockResolvedValue(mockFetchResponse(createSSEStream(sseLines)))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const adapter = new OpenAIAdapter({ apiKey: 'k' })
+    await collectEvents(
+      adapter.execute({
+        prompt: 'Continue from tool output',
+        options: {
+          toolResults: [
+            { toolName: 'search', toolCallId: 'call_1', content: '{"hits":2}' },
+            { toolName: 'stats', toolCallId: 'call_2', content: { ok: true } },
+            { toolName: 'missing_id', content: 'skip me' },
+          ],
+        },
+      }),
+    )
+
+    const body = readRequestBody(fetchMock.mock.calls[0])
+    expect(body['messages']).toEqual([
+      { role: 'tool', tool_call_id: 'call_1', name: 'search', content: '{"hits":2}' },
+      { role: 'tool', tool_call_id: 'call_2', name: 'stats', content: '{"ok":true}' },
+      { role: 'user', content: 'Continue from tool output' },
+    ])
+  })
+
+  it('does not inject tool-role messages into later requests when toolResults are omitted', async () => {
+    const sseLines = ['data: {"choices":[{"delta":{"content":"ok"}}]}', 'data: [DONE]']
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(mockFetchResponse(createSSEStream(sseLines)))
+      .mockResolvedValueOnce(mockFetchResponse(createSSEStream(sseLines)))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const adapter = new OpenAIAdapter({ apiKey: 'k' })
+    await collectEvents(
+      adapter.execute({
+        prompt: 'Turn 1',
+        options: { toolResults: [{ toolName: 'search', toolCallId: 'call_1', content: 'done' }] },
+      }),
+    )
+    await collectEvents(adapter.execute({ prompt: 'Turn 2' }))
+
+    const firstBody = readRequestBody(fetchMock.mock.calls[0])
+    const secondBody = readRequestBody(fetchMock.mock.calls[1])
+    expect(firstBody['messages']).toEqual([
+      { role: 'tool', tool_call_id: 'call_1', name: 'search', content: 'done' },
+      { role: 'user', content: 'Turn 1' },
+    ])
+    expect(secondBody['messages']).toEqual([{ role: 'user', content: 'Turn 2' }])
   })
 
   it('honours custom baseURL for OpenAI-compatible endpoints', async () => {

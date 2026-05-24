@@ -209,6 +209,7 @@ describe('OpenAIAdapter — tool calling', () => {
     const toolCalls = toolCallEvents(events)
     expect(toolCalls).toHaveLength(1)
     expect(toolCalls[0]!.toolName).toBe('get_weather')
+    expect(toolCalls[0]!.toolCallId).toBe('call_1')
     expect(toolCalls[0]!.input).toEqual({ city: 'Paris' })
 
     // adapter:tool_call must precede adapter:completed in the event stream.
@@ -282,7 +283,37 @@ describe('OpenAIAdapter — tool calling', () => {
 
     const toolCalls = toolCallEvents(events)
     expect(toolCalls).toHaveLength(1)
+    expect(Object.hasOwn(toolCalls[0]!, 'toolCallId')).toBe(false)
     expect(toolCalls[0]!.input).toBe('not-json')
+  })
+
+  it('preserves provider toolCallId when present and does not fabricate IDs when absent', async () => {
+    const sseLines = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"legacy_no_id","arguments":"{}"}},{"index":1,"id":"call_with_id","type":"function","function":{"name":"identified","arguments":"{}"}}]}}]}',
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+      'data: [DONE]',
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockFetchResponse(createSSEStream(sseLines))))
+
+    const adapter = new OpenAIAdapter({ apiKey: 'k' })
+    const events = await collectEvents(
+      adapter.execute({
+        prompt: 'mix ids',
+        options: {
+          tools: [
+            { name: 'legacy_no_id', parameters: {} },
+            { name: 'identified', parameters: {} },
+          ],
+        },
+      }),
+    )
+
+    const toolCalls = toolCallEvents(events)
+    expect(toolCalls).toHaveLength(2)
+    expect(toolCalls[0]!.toolName).toBe('legacy_no_id')
+    expect(Object.hasOwn(toolCalls[0]!, 'toolCallId')).toBe(false)
+    expect(toolCalls[1]!.toolName).toBe('identified')
+    expect(toolCalls[1]!.toolCallId).toBe('call_with_id')
   })
 
   it('emits both stream_delta and tool_call when content + tool_calls interleave', async () => {

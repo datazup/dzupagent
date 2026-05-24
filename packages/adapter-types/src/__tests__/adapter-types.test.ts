@@ -3,7 +3,10 @@ import type {
   AdapterCapabilityProfile,
   AdapterConfig,
   AdapterProviderId,
+  AgentEvent,
   AgentInput,
+  AgentToolCallEvent,
+  AgentToolResultEvent,
   HealthStatus,
   SessionInfo,
   TokenUsage,
@@ -106,5 +109,89 @@ describe('adapter-types public surface', () => {
     expect(health.healthy).toBe(true)
     expect(session.providerId).toBe('claude')
     expect(usage.inputTokens).toBe(42)
+  })
+
+  it('keeps tool call/result contracts backward compatible when toolCallId is omitted', () => {
+    const toolCall: AgentToolCallEvent = {
+      type: 'adapter:tool_call',
+      providerId: 'claude',
+      toolName: 'search',
+      input: { q: 'latest release notes' },
+      timestamp: 1,
+    }
+
+    const toolResult: AgentToolResultEvent = {
+      type: 'adapter:tool_result',
+      providerId: 'claude',
+      toolName: 'search',
+      output: 'ok',
+      durationMs: 12,
+      timestamp: 2,
+    }
+
+    expect(Object.hasOwn(toolCall, 'toolCallId')).toBe(false)
+    expect(Object.hasOwn(toolResult, 'toolCallId')).toBe(false)
+    expect(toolCall.toolCallId).toBeUndefined()
+    expect(toolResult.toolCallId).toBeUndefined()
+  })
+
+  it('preserves toolCallId only when explicitly supplied across mixed event sequences', () => {
+    const events: AgentEvent[] = [
+      {
+        type: 'adapter:tool_call',
+        providerId: 'claude',
+        toolName: 'legacy-tool',
+        input: { mode: 'legacy' },
+        timestamp: 10,
+      },
+      {
+        type: 'adapter:tool_call',
+        providerId: 'claude',
+        toolName: 'modern-tool',
+        input: { mode: 'modern' },
+        toolCallId: 'tool-call-2',
+        timestamp: 11,
+      },
+      {
+        type: 'adapter:tool_result',
+        providerId: 'claude',
+        toolName: 'legacy-tool',
+        output: 'legacy-ok',
+        durationMs: 5,
+        timestamp: 12,
+      },
+      {
+        type: 'adapter:tool_result',
+        providerId: 'claude',
+        toolName: 'modern-tool',
+        output: 'modern-ok',
+        durationMs: 6,
+        toolCallId: 'tool-call-2',
+        timestamp: 13,
+      },
+    ]
+
+    const [legacyCall, identifiedCall, legacyResult, identifiedResult] = events
+    expect(legacyCall?.type).toBe('adapter:tool_call')
+    if (legacyCall?.type === 'adapter:tool_call') {
+      expect(legacyCall.toolCallId).toBeUndefined()
+      expect(Object.hasOwn(legacyCall, 'toolCallId')).toBe(false)
+    }
+
+    expect(identifiedCall?.type).toBe('adapter:tool_call')
+    if (identifiedCall?.type === 'adapter:tool_call') {
+      expect(identifiedCall.toolCallId).toBe('tool-call-2')
+    }
+
+    expect(legacyResult?.type).toBe('adapter:tool_result')
+    if (legacyResult?.type === 'adapter:tool_result') {
+      expect(legacyResult.toolCallId).toBeUndefined()
+      expect(Object.hasOwn(legacyResult, 'toolCallId')).toBe(false)
+    }
+
+    expect(identifiedResult?.type).toBe('adapter:tool_result')
+    if (identifiedResult?.type === 'adapter:tool_result') {
+      expect(identifiedResult.toolCallId).toBe('tool-call-2')
+    }
   })
 })
