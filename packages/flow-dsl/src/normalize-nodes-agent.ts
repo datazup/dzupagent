@@ -401,7 +401,9 @@ function normalizeStop(
   }
   const stop: AgentStop = {}
   if (typeof raw.maxIterations === 'number') stop.maxIterations = raw.maxIterations
-  if (typeof raw.maxToolCalls === 'number') stop.maxToolCalls = raw.maxToolCalls
+  normalizePositiveFinitePolicyNumber(raw, 'maxToolCalls', path, diagnostics, (value) => {
+    stop.maxToolCalls = value
+  })
   if (typeof raw.requireFinalSchema === 'boolean') stop.requireFinalSchema = raw.requireFinalSchema
   return stop
 }
@@ -653,7 +655,9 @@ function normalizePolicy(
   normalizePositiveFinitePolicyNumber(raw, 'budgetCents', path, diagnostics, (value) => {
     policy.budgetCents = value
   })
-  if (typeof raw.maxToolCalls === 'number') policy.maxToolCalls = raw.maxToolCalls
+  normalizePositiveFinitePolicyNumber(raw, 'maxToolCalls', path, diagnostics, (value) => {
+    policy.maxToolCalls = value
+  })
   if (typeof raw.workingDirectory === 'string') policy.workingDirectory = raw.workingDirectory
   if (raw.approval !== undefined) {
     if (!isPlainObject(raw.approval)) {
@@ -706,18 +710,19 @@ function normalizePolicy(
 
 function normalizePositiveFinitePolicyNumber(
   raw: Record<string, unknown>,
-  key: 'timeoutMs' | 'budgetCents',
+  key: 'timeoutMs' | 'budgetCents' | 'maxToolCalls',
   path: string,
   diagnostics: DslDiagnostic[],
   assign: (value: number) => void,
 ): void {
   if (raw[key] === undefined) return
   const value = raw[key]
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
+  const needsInteger = key === 'maxToolCalls'
+  if (typeof value !== 'number' || !Number.isFinite(value) || (needsInteger && !Number.isInteger(value))) {
     diagnostics.push({
       phase: 'normalize',
       code: DSL_ERROR.INVALID_NODE_SHAPE,
-      message: `agent.policy.${key} must be a finite number`,
+      message: needsInteger ? `${path}.${key} must be a positive integer` : `${path}.${key} must be a finite number`,
       path: `${path}.${key}`,
     })
     return
@@ -726,7 +731,7 @@ function normalizePositiveFinitePolicyNumber(
     diagnostics.push({
       phase: 'normalize',
       code: DSL_ERROR.INVALID_NODE_SHAPE,
-      message: `agent.policy.${key} must be greater than 0`,
+      message: `${path}.${key} must be greater than 0`,
       path: `${path}.${key}`,
     })
     return

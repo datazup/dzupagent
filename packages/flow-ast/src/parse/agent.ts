@@ -291,13 +291,14 @@ function parseStop(
     } else stop.maxIterations = raw.maxIterations
   }
   if (raw.maxToolCalls !== undefined) {
-    if (typeof raw.maxToolCalls !== 'number') {
+    const mtc = raw.maxToolCalls
+    if (typeof mtc !== 'number' || !Number.isFinite(mtc) || !Number.isInteger(mtc) || mtc <= 0) {
       ctx.errors.push({
         code: 'WRONG_FIELD_TYPE',
-        message: 'agent.stop.maxToolCalls must be a number',
+        message: 'agent.stop.maxToolCalls must be a positive integer',
         pointer: joinPointer(pointer, 'maxToolCalls'),
       })
-    } else stop.maxToolCalls = raw.maxToolCalls
+    } else stop.maxToolCalls = mtc
   }
   if (raw.requireFinalSchema !== undefined) {
     if (typeof raw.requireFinalSchema !== 'boolean') {

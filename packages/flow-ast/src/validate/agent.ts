@@ -607,14 +607,15 @@ function validateAgentPolicy(
     }
   }
   if (raw['maxToolCalls'] !== undefined) {
-    if (typeof raw['maxToolCalls'] !== 'number') {
+    const mtc = raw['maxToolCalls']
+    if (typeof mtc !== 'number' || !Number.isFinite(mtc) || !Number.isInteger(mtc) || mtc <= 0) {
       issues.push({
         path: joinPath(path, 'maxToolCalls'),
         code: 'MISSING_REQUIRED_FIELD',
-        message: 'agent.policy.maxToolCalls must be a number',
+        message: 'agent.policy.maxToolCalls must be a positive integer',
       })
     } else {
-      policy.maxToolCalls = raw['maxToolCalls']
+      policy.maxToolCalls = mtc
     }
   }
   if (raw['workingDirectory'] !== undefined) {
