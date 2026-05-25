@@ -301,7 +301,10 @@ export interface ToolLoopConfig {
    *   `tool:error`, and returns a safe scanner-failure marker to the
    *   conversation.
    *
-   * Defaults to `fail-open` for backwards compatibility.
+   * Defaults to `fail-closed` (AGENT-M-01): an unset value is treated as
+   * fail-closed so a crashing scanner cannot silently leak tool output.
+   * Only an explicit `fail-open` (dev preset) restores the legacy
+   * permissive behavior.
    */
   scanFailureMode?: ToolResultScanFailureMode
 
