@@ -95,17 +95,45 @@ export function lowerChildren(
 
   const merged = mergeResults(parts)
 
-  // Add sequential edges between last node of part[i] and first node of part[i+1]
+  // Add sequential edges between every terminal tail of part[i] and the first
+  // node of part[i+1]. Most subtrees expose a single tail (the last node), but
+  // control-flow that fans out — e.g. a `branch` with then- and else-paths —
+  // exposes one tail per path so the continuation reaches *every* path rather
+  // than only the last node emitted (which previously orphaned the then-path).
   for (let i = 0; i < parts.length - 1; i++) {
     const cur = parts[i]
     const nxt = parts[i + 1]
     if (cur === undefined || nxt === undefined) continue
-    const lastNode = cur.nodes[cur.nodes.length - 1]
     const firstNode = nxt.nodes[0]
-    if (lastNode !== undefined && firstNode !== undefined) {
-      merged.edges.push(seqEdge(lastNode.id, firstNode.id))
+    if (firstNode === undefined) continue
+    for (const tailId of resultTails(cur)) {
+      merged.edges.push(seqEdge(tailId, firstNode.id))
+    }
+  }
+
+  // Propagate tails so a parent stitching this merged result onto its own
+  // sibling reaches every terminal path. The tails are those of the *last*
+  // part (continuations of earlier parts were already consumed above).
+  const lastPart = parts[parts.length - 1]
+  if (lastPart !== undefined) {
+    const tails = resultTails(lastPart)
+    if (tails.length > 0) {
+      merged.tails = tails
     }
   }
 
   return merged
+}
+
+/**
+ * Resolve the terminal tail IDs of a lowering result. Prefers an explicit
+ * `tails` list (set by fan-out lowerers); otherwise falls back to the single
+ * last node in `nodes`, preserving historical single-tail behaviour.
+ */
+export function resultTails(result: LowerPipelineResult): string[] {
+  if (result.tails !== undefined && result.tails.length > 0) {
+    return result.tails
+  }
+  const lastNode = result.nodes[result.nodes.length - 1]
+  return lastNode !== undefined ? [lastNode.id] : []
 }
