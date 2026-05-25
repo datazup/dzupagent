@@ -360,6 +360,149 @@ describe('lowerPipelineFlat', () => {
     expect(artifact.version).toBe('0.1.0')
   })
 
+  it('gold-file: branch(then, else) → action wires BOTH branch tails into the continuation', () => {
+    /*
+     * Regression for FLOW-H-01: branch lowering previously exposed only the
+     * last node emitted (the else-tail) as terminal, so the then-path
+     * dead-ended after the branch resolved. A `branch → action` flow must
+     * connect BOTH the then-tail AND the else-tail to the following action.
+     *
+     * AST shape:
+     *   sequence
+     *     [0] branch(condition='flag')
+     *           then:  [action('path.yes')]
+     *           else:  [action('path.no')]
+     *     [1] action('after.join')
+     *
+     * Expected nodes (in order):
+     *   GateNode  (b-1)  ← branch gate
+     *   ToolNode  (b-2)  ← path.yes (then-tail)
+     *   ToolNode  (b-3)  ← path.no  (else-tail)
+     *   ToolNode  (b-5)  ← after.join (continuation)
+     *
+     * Expected sequential continuation edges:
+     *   b-2 (then-tail) → b-5 (continuation)
+     *   b-3 (else-tail) → b-5 (continuation)
+     */
+    const resolver = makeResolver(['path.yes', 'path.no', 'after.join'])
+    const ast = sequence(
+      branch('flag', [action('path.yes')], [action('path.no')]),
+      action('after.join'),
+    )
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.nodes[0].then[0]', toolRef: 'path.yes' },
+      { nodePath: 'root.nodes[0].else[0]', toolRef: 'path.no' },
+      { nodePath: 'root.nodes[1]', toolRef: 'after.join' },
+    ])
+
+    const { artifact, warnings } = lowerPipelineFlat({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      name: 'branch-then-action',
+      _idGen: makeIdGen('b'),
+    })
+
+    expect(warnings).toHaveLength(0)
+
+    // gate, then-tool, else-tool, continuation-tool — no extra join node.
+    expect(artifact.nodes.map((n) => n.type)).toEqual([
+      'gate',
+      'tool',
+      'tool',
+      'tool',
+    ])
+
+    const gateNode = artifact.nodes[0] as GateNode
+    const thenNode = artifact.nodes[1] as ToolNode
+    const elseNode = artifact.nodes[2] as ToolNode
+    const continuationNode = artifact.nodes[3] as ToolNode
+
+    expect(gateNode.type).toBe('gate')
+    expect(thenNode.toolName).toBe('path.yes')
+    expect(elseNode.toolName).toBe('path.no')
+    expect(continuationNode.toolName).toBe('after.join')
+    expect(artifact.entryNodeId).toBe(gateNode.id)
+
+    // The gate fans out to both then and else via a single conditional edge.
+    const condEdges = artifact.edges.filter((e) => e.type === 'conditional')
+    expect(condEdges).toHaveLength(1)
+    const condEdge = condEdges[0]
+    if (condEdge?.type === 'conditional') {
+      expect(condEdge.sourceNodeId).toBe(gateNode.id)
+      expect(condEdge.branches['true']).toBe(thenNode.id)
+      expect(condEdge.branches['false']).toBe(elseNode.id)
+    }
+
+    // BOTH tails must connect to the continuation action — this is the fix.
+    const seqPairs = artifact.edges
+      .filter((e) => e.type === 'sequential')
+      .map((e) => (e.type === 'sequential' ? `${e.sourceNodeId}->${e.targetNodeId}` : ''))
+
+    expect(seqPairs).toContain(`${thenNode.id}->${continuationNode.id}`)
+    expect(seqPairs).toContain(`${elseNode.id}->${continuationNode.id}`)
+
+    // No dangling node: the continuation has exactly two inbound sequential
+    // edges (one per branch path) and no node is left without an inbound edge
+    // except the entry gate.
+    const inboundCount = new Map<string, number>()
+    for (const e of artifact.edges) {
+      if (e.type === 'sequential') {
+        inboundCount.set(e.targetNodeId, (inboundCount.get(e.targetNodeId) ?? 0) + 1)
+      } else if (e.type === 'conditional') {
+        for (const target of Object.values(e.branches)) {
+          inboundCount.set(target, (inboundCount.get(target) ?? 0) + 1)
+        }
+      }
+    }
+    expect(inboundCount.get(continuationNode.id)).toBe(2)
+    expect(inboundCount.get(thenNode.id)).toBe(1)
+    expect(inboundCount.get(elseNode.id)).toBe(1)
+    // Entry gate has no inbound edges.
+    expect(inboundCount.get(gateNode.id)).toBeUndefined()
+  })
+
+  it('branch(then-only) → action wires both the then-tail and the gate false-path into the continuation', () => {
+    /*
+     * Regression for FLOW-H-01: a branch with no `else` must still route its
+     * `false` outcome to the continuation — otherwise the false-path dead-ends.
+     * The gate itself is the false-path tail, so the continuation receives an
+     * edge from the then-tail AND from the gate.
+     */
+    const resolver = makeResolver(['path.yes', 'after.join'])
+    const ast = sequence(
+      branch('flag', [action('path.yes')]),
+      action('after.join'),
+    )
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.nodes[0].then[0]', toolRef: 'path.yes' },
+      { nodePath: 'root.nodes[1]', toolRef: 'after.join' },
+    ])
+
+    const { artifact, warnings } = lowerPipelineFlat({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      name: 'branch-then-only-action',
+      _idGen: makeIdGen('t'),
+    })
+
+    expect(warnings).toHaveLength(0)
+    expect(artifact.nodes.map((n) => n.type)).toEqual(['gate', 'tool', 'tool'])
+
+    const gateNode = artifact.nodes[0] as GateNode
+    const thenNode = artifact.nodes[1] as ToolNode
+    const continuationNode = artifact.nodes[2] as ToolNode
+
+    const seqPairs = artifact.edges
+      .filter((e) => e.type === 'sequential')
+      .map((e) => (e.type === 'sequential' ? `${e.sourceNodeId}->${e.targetNodeId}` : ''))
+
+    // then-tail → continuation (true path) and gate → continuation (false path)
+    expect(seqPairs).toContain(`${thenNode.id}->${continuationNode.id}`)
+    expect(seqPairs).toContain(`${gateNode.id}->${continuationNode.id}`)
+  })
+
   it('branch with else branch produces two conditional branches', () => {
     const resolver = makeResolver(['path.yes', 'path.no'])
     const ast = branch('flag', [action('path.yes')], [action('path.no')])
