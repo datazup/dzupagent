@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { BaseStore } from '@langchain/langgraph'
+
+let _id = 0
+const nextId = () => `run-${String(++_id).padStart(4, '0')}`
 import {
   TrajectoryCalibrator,
   type StepReward,
@@ -55,7 +58,7 @@ function createMemoryStore(): BaseStore {
 function makeStep(overrides: Partial<StepReward> = {}): StepReward {
   return {
     nodeId: 'gen_backend',
-    runId: `run_${Math.random().toString(36).slice(2, 8)}`,
+    runId: nextId(),
     qualityScore: 0.85,
     durationMs: 1200,
     tokenCost: 500,
@@ -66,7 +69,7 @@ function makeStep(overrides: Partial<StepReward> = {}): StepReward {
 }
 
 function makeTrajectory(overrides: Partial<TrajectoryRecord> = {}): TrajectoryRecord {
-  const runId = overrides.runId ?? `run_${Math.random().toString(36).slice(2, 8)}`
+  const runId = overrides.runId ?? nextId()
   return {
     runId,
     steps: overrides.steps ?? [

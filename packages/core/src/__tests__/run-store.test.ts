@@ -2,9 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { InMemoryRunRecordStore } from '../persistence/in-memory-run-store.js'
 import type { RunRecord } from '../persistence/run-store.js'
 
+let _id = 0
+const nextId = () => `run-${String(++_id).padStart(4, '0')}`
+
 function makeRun(overrides?: Partial<RunRecord>): RunRecord {
   return {
-    id: `run-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    id: nextId(),
     providerId: 'claude',
     status: 'running',
     prompt: 'test prompt',

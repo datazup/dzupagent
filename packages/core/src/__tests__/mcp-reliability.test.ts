@@ -20,7 +20,7 @@ describe('McpReliabilityManager', () => {
       heartbeatIntervalMs: 1000,
       maxHeartbeatFailures: 3,
       discoveryCacheTtlMs: 5000,
-      circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 10_000 },
+      circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 10_000, jitterFactor: 0 },
     })
   })
 

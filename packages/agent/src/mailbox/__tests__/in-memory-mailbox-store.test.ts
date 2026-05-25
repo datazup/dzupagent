@@ -8,9 +8,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { InMemoryMailboxStore } from '../in-memory-mailbox-store.js'
 import type { MailMessage } from '../types.js'
 
+let _id = 0
+const nextId = () => `msg-${String(++_id).padStart(4, '0')}`
+
 function makeMessage(overrides: Partial<MailMessage> = {}): MailMessage {
   return {
-    id: overrides.id ?? `msg-${Math.random().toString(36).slice(2, 8)}`,
+    id: overrides.id ?? nextId(),
     from: overrides.from ?? 'sender',
     to: overrides.to ?? 'recipient',
     subject: overrides.subject ?? 'test subject',

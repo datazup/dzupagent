@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { BaseStore } from '@langchain/langgraph'
+
+let _id = 0
+const nextId = () => `run-${String(++_id).padStart(4, '0')}`
 import {
   PostRunAnalyzer,
   type RunAnalysis,
@@ -66,7 +69,7 @@ function createFailingStore(): BaseStore {
 
 function makeRun(overrides: Partial<RunAnalysis> = {}): RunAnalysis {
   return {
-    runId: overrides.runId ?? `run_${Math.random().toString(36).slice(2, 8)}`,
+    runId: overrides.runId ?? nextId(),
     nodeScores: overrides.nodeScores ?? new Map([
       ['plan', 0.9],
       ['gen_backend', 0.85],

@@ -9,6 +9,7 @@ describe('CircuitBreaker', () => {
       failureThreshold: 3,
       resetTimeoutMs: 1000,
       halfOpenMaxAttempts: 1,
+      jitterFactor: 0, // deterministic for tests
     })
   })
 

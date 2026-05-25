@@ -2,10 +2,13 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { PipelineAnalytics } from '../pipeline/pipeline-analytics.js'
 import type { AnalyticsRunInput } from '../pipeline/pipeline-analytics.js'
 
+let _id = 0
+const nextId = () => `run-${String(++_id).padStart(4, '0')}`
+
 /** Helper to create a run input. */
 function makeRun(overrides: Partial<AnalyticsRunInput> & { pipelineId: string }): AnalyticsRunInput {
   return {
-    runId: `run-${Math.random().toString(36).slice(2, 8)}`,
+    runId: nextId(),
     state: 'completed',
     nodeResults: new Map(),
     totalDurationMs: 1000,
