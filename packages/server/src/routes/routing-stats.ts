@@ -58,10 +58,15 @@ export function createRoutingStatsRoutes(config: RoutingStatsConfig): Hono<AppEn
       )
     }
 
+    const keyRole = typeof key?.['role'] === 'string' ? key['role'] : undefined
+    const isOperator = keyRole === 'admin' || keyRole === 'operator'
+    const includeOwnerless = isOperator
+      && c.req.query('includeLegacyOwnerless') === 'true'
+
     const runs = await config.runStore.list({
       limit: 100,
       ...(requestingTenantId ? { tenantId: requestingTenantId } : {}),
-      ...(requestingOwnerId ? { ownerId: requestingOwnerId, includeLegacyOwnerless: true } : {}),
+      ...(requestingOwnerId ? { ownerId: requestingOwnerId, includeLegacyOwnerless: includeOwnerless } : {}),
     })
 
     // Defense in depth for third-party stores that may not fully implement
