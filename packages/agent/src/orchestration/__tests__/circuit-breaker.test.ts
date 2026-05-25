@@ -5,7 +5,7 @@ describe('AgentCircuitBreaker', () => {
   let breaker: AgentCircuitBreaker
 
   beforeEach(() => {
-    breaker = new AgentCircuitBreaker({ failureThreshold: 3, cooldownMs: 1000 })
+    breaker = new AgentCircuitBreaker({ failureThreshold: 3, cooldownMs: 1000, jitterFactor: 0 })
   })
 
   it('starts available for unknown agents', () => {

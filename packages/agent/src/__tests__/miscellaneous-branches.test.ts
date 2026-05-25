@@ -59,6 +59,7 @@ describe('AgentCircuitBreaker — branch coverage', () => {
     const cb = new AgentCircuitBreaker({
       failureThreshold: 1,
       cooldownMs: 100,
+      jitterFactor: 0,
     })
     cb.recordTimeout('a')
     expect(cb.getState('a')).toBe('open')
