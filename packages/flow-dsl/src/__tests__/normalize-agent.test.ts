@@ -147,6 +147,40 @@ describe('normalizeDslDocument — agent wrapper', () => {
     expect(diagnostics.some((d) => d.path?.endsWith('.policy.timeoutMs'))).toBe(true)
     expect(diagnostics.some((d) => d.path?.endsWith('.policy.budgetCents'))).toBe(true)
   })
+
+  it('rejects non-positive-integer maxToolCalls in policy and stop', () => {
+    const raw = makeRaw([
+      {
+        agent: {
+          id: 'plan',
+          agentId: 'planner',
+          instructions: 'Plan',
+          output: { key: 'plan', schemaRef: 'plan.v1' },
+          policy: { maxToolCalls: 0 },
+          stop: { maxToolCalls: -1 },
+        },
+      },
+    ])
+    const { diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics.some((d) => d.path?.endsWith('.policy.maxToolCalls'))).toBe(true)
+    expect(diagnostics.some((d) => d.path?.endsWith('.stop.maxToolCalls'))).toBe(true)
+  })
+
+  it('rejects fractional maxToolCalls', () => {
+    const raw = makeRaw([
+      {
+        agent: {
+          id: 'plan',
+          agentId: 'planner',
+          instructions: 'Plan',
+          output: { key: 'plan', schemaRef: 'plan.v1' },
+          policy: { maxToolCalls: 1.5 },
+        },
+      },
+    ])
+    const { diagnostics } = normalizeDslDocument(raw)
+    expect(diagnostics.some((d) => d.path?.endsWith('.policy.maxToolCalls'))).toBe(true)
+  })
 })
 
 describe('normalizeDslDocument — validate wrapper', () => {
