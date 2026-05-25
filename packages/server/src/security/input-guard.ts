@@ -137,7 +137,12 @@ function mapStrings(
 export function createInputGuard(config?: InputGuardConfig): InputGuard {
   const maxInputLength = config?.maxInputLength ?? DEFAULT_MAX_INPUT_LENGTH
   const redactPii = config?.redactPii ?? true
-  const scanFailureMode = config?.scanFailureMode ?? 'fail-open'
+  const isProduction = process.env['NODE_ENV'] === 'production'
+  const scanFailureMode = config?.scanFailureMode ?? (isProduction ? 'fail-closed' : 'fail-open')
+  if (isProduction && scanFailureMode === 'fail-open') {
+    // eslint-disable-next-line no-console
+    console.warn('[InputGuard] WARNING: scanFailureMode=fail-open in production. Scanner failures will pass input through.')
+  }
   // A dedicated monitor — not attached to any event bus so scans don't emit
   // events into the runtime. Hosts can inject a shared monitor via config.
   const monitor = config?.safetyMonitor ?? createSafetyMonitor()

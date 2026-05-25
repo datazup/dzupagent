@@ -228,7 +228,7 @@ function applyRateLimit(app: Hono<AppEnv>, config: ForgeServerConfig): void {
 function getRateLimitedRoutePatterns(config: ForgeServerConfig): string[] {
   const paths = ['/api/*']
   if (config.a2a) {
-    paths.push('/a2a', '/a2a/*')
+    paths.push('/a2a', '/a2a/*', '/.well-known/*')
   }
   if (config.openai?.enabled === true) {
     paths.push('/v1/*')
