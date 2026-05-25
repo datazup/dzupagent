@@ -28,6 +28,7 @@ import { createHash } from 'node:crypto'
 import { parseFlow } from '@dzupagent/flow-ast'
 import type { FlowDocumentPolicy, FlowNode, ParseInput } from '@dzupagent/flow-ast'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
+import { canonicalizeDsl } from '@dzupagent/flow-dsl'
 
 import { validateShape } from './stages/shape-validate.js'
 import { semanticResolve } from './stages/semantic.js'
@@ -421,10 +422,15 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
         diagnosticCountsByCategory: countDiagnosticsByCategory(prepared.errors),
       }
     }
-    return compile(prepared.flowInput, {
+
+    const canonicalized = canonicalizeDsl(source as string)
+    const documentPolicy = canonicalized.ok ? extractDocumentPolicy(canonicalized.document) : undefined
+    const result = await compile(prepared.flowInput, {
       sourceKind: 'dzupflow-dsl',
       source,
     })
+    if ('errors' in result) return result
+    return { ...result, ...(documentPolicy !== undefined ? { documentPolicy } : {}) }
   }
 
   return {
