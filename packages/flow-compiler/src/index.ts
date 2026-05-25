@@ -32,7 +32,7 @@ import { canonicalizeDsl } from '@dzupagent/flow-dsl'
 
 import { validateShape } from './stages/shape-validate.js'
 import { semanticResolve } from './stages/semantic.js'
-import { routeTarget } from './route-target.js'
+import { collectUnsupportedRuntimeNodes, routeTarget } from './route-target.js'
 import { lowerSkillChain } from './lower/lower-skill-chain.js'
 import { lowerPipelineFlat } from './lower/lower-pipeline-flat.js'
 import { lowerPipelineLoop } from './lower/lower-pipeline-loop.js'
@@ -76,7 +76,13 @@ export type {
 export { validateShape } from './stages/shape-validate.js'
 export { semanticResolve } from './stages/semantic.js'
 export type { SemanticOptions, SemanticResult } from './stages/semantic.js'
-export { routeTarget, computeFeatureBitmask, hasOnError, FEATURE_BITS } from './route-target.js'
+export {
+  collectUnsupportedRuntimeNodes,
+  routeTarget,
+  computeFeatureBitmask,
+  hasOnError,
+  FEATURE_BITS,
+} from './route-target.js'
 export { lowerCheckpointNode, lowerRestoreNode } from './lower/lower-checkpoint.js'
 export type {
   LoweredNode,
@@ -297,6 +303,31 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
       // Stage 4: Route + lower
       // -----------------------------------------------------------------------
       const { target, bitmask } = routeTarget(ast)
+      const unsupportedRuntimeNodes = collectUnsupportedRuntimeNodes(ast, target)
+      if (unsupportedRuntimeNodes.length > 0) {
+        const stage4Errors: CompilationError[] = unsupportedRuntimeNodes.map((node) => ({
+          stage: 4,
+          code: 'UNSUPPORTED_RUNTIME_NODE_FOR_TARGET',
+          message:
+            `Node type "${node.type}" at "${node.path}" is valid in the AST but cannot be represented by ` +
+            `the "${target}" generic compiler target. Use a runtime that executes this node kind or add a ` +
+            'reviewed executable target contract before emitting artifacts.',
+          nodePath: node.path,
+          category: 'lowering',
+        }))
+        emit({
+          type: 'flow:compile_failed',
+          compileId,
+          stage: 4,
+          errorCount: stage4Errors.length,
+          durationMs: Date.now() - startedAt,
+        })
+        return {
+          errors: stage4Errors,
+          compileId,
+          diagnosticCountsByCategory: countDiagnosticsByCategory(stage4Errors),
+        }
+      }
 
       // Stage 4 defense-in-depth: skill-chain target must not carry on_error.
       // validateShape (stage 2) already catches this via OI-4, but if a caller

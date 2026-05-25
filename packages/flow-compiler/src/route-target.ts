@@ -2,6 +2,18 @@ import type { FlowNode } from '@dzupagent/flow-ast'
 
 import type { CompilationTarget } from './types.js'
 
+export interface UnsupportedRuntimeNode {
+  type: FlowNode['type']
+  path: string
+}
+
+const UNSUPPORTED_GENERIC_TARGET_NODES = new Set<FlowNode['type']>([
+  'agent',
+  'validate',
+  'prompt',
+  'return_to',
+])
+
 /**
  * D2 — Feature bitmask (canonical).
  *
@@ -147,6 +159,92 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
 
   visit(ast)
   return bits
+}
+
+export function collectUnsupportedRuntimeNodes(
+  ast: FlowNode,
+  target: CompilationTarget,
+): UnsupportedRuntimeNode[] {
+  const unsupported: UnsupportedRuntimeNode[] = []
+
+  const visit = (node: FlowNode, path: string): void => {
+    if (
+      UNSUPPORTED_GENERIC_TARGET_NODES.has(node.type)
+      && (target === 'skill-chain' || node.type === 'prompt' || node.type === 'return_to')
+    ) {
+      unsupported.push({ type: node.type, path })
+    }
+
+    switch (node.type) {
+      case 'sequence': {
+        node.nodes.forEach((child, index) => visit(child, `${path}.nodes[${index}]`))
+        return
+      }
+      case 'branch': {
+        node.then.forEach((child, index) => visit(child, `${path}.then[${index}]`))
+        node.else?.forEach((child, index) => visit(child, `${path}.else[${index}]`))
+        return
+      }
+      case 'parallel': {
+        node.branches.forEach((branch, branchIndex) => {
+          branch.forEach((child, index) => visit(child, `${path}.branches[${branchIndex}][${index}]`))
+        })
+        return
+      }
+      case 'for_each': {
+        node.body.forEach((child, index) => visit(child, `${path}.body[${index}]`))
+        return
+      }
+      case 'approval': {
+        node.onApprove.forEach((child, index) => visit(child, `${path}.onApprove[${index}]`))
+        node.onReject?.forEach((child, index) => visit(child, `${path}.onReject[${index}]`))
+        return
+      }
+      case 'persona': {
+        node.body.forEach((child, index) => visit(child, `${path}.body[${index}]`))
+        return
+      }
+      case 'route': {
+        node.body.forEach((child, index) => visit(child, `${path}.body[${index}]`))
+        return
+      }
+      case 'try_catch': {
+        node.body.forEach((child, index) => visit(child, `${path}.body[${index}]`))
+        node.catch.forEach((child, index) => visit(child, `${path}.catch[${index}]`))
+        return
+      }
+      case 'loop': {
+        node.body.forEach((child, index) => visit(child, `${path}.body[${index}]`))
+        return
+      }
+      case 'action':
+      case 'clarification':
+      case 'complete':
+      case 'spawn':
+      case 'classify':
+      case 'emit':
+      case 'memory':
+      case 'set':
+      case 'checkpoint':
+      case 'restore':
+      case 'http':
+      case 'wait':
+      case 'subflow':
+      case 'prompt':
+      case 'return_to':
+      case 'agent':
+      case 'validate':
+        return
+      default: {
+        const _exhaustive: never = node
+        void _exhaustive
+        return
+      }
+    }
+  }
+
+  visit(ast, 'root')
+  return unsupported
 }
 
 /**

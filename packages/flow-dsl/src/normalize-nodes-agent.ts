@@ -336,17 +336,19 @@ function normalizeValidateBlock(
     return undefined
   }
 
-  if (!isPlainObject(raw.schema)) {
+  const schema = raw.schema
+  const hasValidSchema = isPlainObject(schema)
+  if (!hasValidSchema) {
     diagnostics.push({
       phase: 'normalize',
       code: DSL_ERROR.MISSING_REQUIRED_FIELD,
       message: 'agent.validate.schema is required and must be an object',
       path: `${path}.schema`,
     })
-    return undefined
   }
 
-  const validate: ValidationBlock = { schema: raw.schema }
+  const validate: Partial<ValidationBlock> = {}
+  if (hasValidSchema) validate.schema = schema
   if (typeof raw.errorMessage === 'string') validate.errorMessage = raw.errorMessage
 
   if (raw.failBehavior !== undefined) {
@@ -379,7 +381,7 @@ function normalizeValidateBlock(
     }
   }
 
-  return validate
+  return hasValidSchema ? validate as ValidationBlock : undefined
 }
 
 function normalizeStop(
