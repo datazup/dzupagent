@@ -172,7 +172,7 @@ export class MemoryService {
   ): Promise<Record<string, unknown>[]> {
     const ns = getNamespace(this.nsMap, namespace)
     if (!ns.searchable) {
-      return this.get(namespace, scope)
+      return this.get(namespace, scope, undefined, readContext)
     }
     // Validate scope eagerly so callers get the same "missing key" error
     // surface they had with the inlined implementation.
