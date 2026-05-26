@@ -2,8 +2,8 @@
  * Mock implementation of SkillStepResolver for deterministic testing
  * of skill chain execution without real agent/LLM dependencies.
  */
-import type { WorkflowStep } from '@dzupagent/agent'
-import type { SkillStepResolver } from '@dzupagent/agent'
+import type { WorkflowStep } from '@dzupagent/agent/workflow'
+import type { SkillStepResolver } from '@dzupagent/agent/workflow'
 
 export interface MockCall {
   skillId: string

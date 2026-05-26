@@ -27,7 +27,7 @@
 import { createHash } from 'node:crypto'
 import { parseFlow } from '@dzupagent/flow-ast'
 import type { FlowDocumentPolicy, FlowNode, ParseInput } from '@dzupagent/flow-ast'
-import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
+import type { DzupEvent, DzupEventBus } from '@dzupagent/core/events'
 import { canonicalizeDsl } from '@dzupagent/flow-dsl'
 
 import { validateShape } from './stages/shape-validate.js'

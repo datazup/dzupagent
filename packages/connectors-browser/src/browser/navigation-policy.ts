@@ -1,3 +1,4 @@
+import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import type { Page, Response } from 'playwright'
 import type { BrowserNavigationPolicy } from '../types.js'
@@ -72,6 +73,20 @@ function isBlockedPrivateTarget(hostname: string): boolean {
   return isLocalHostname(normalized)
 }
 
+async function isDnsResolvedPrivate(hostname: string): Promise<boolean> {
+  // Only perform DNS resolution for non-literal-IP hostnames
+  const normalized = hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  if (isIP(normalized) !== 0) return false
+  if (isLocalHostname(normalized)) return true
+  try {
+    const { address } = await lookup(hostname)
+    return isBlockedPrivateTarget(address)
+  } catch {
+    // DNS failure — allow through; connection will fail naturally
+    return false
+  }
+}
+
 export function validateBrowserNavigationUrl(
   url: string,
   policy: BrowserNavigationPolicy = {},
@@ -119,10 +134,30 @@ export async function installBrowserNavigationPolicy(
 
   await page.route('**/*', async route => {
     const request = route.request()
-    if (request.isNavigationRequest() || request.resourceType() === 'document') {
-      try {
-        validateBrowserNavigationUrl(request.url(), policy)
-      } catch {
+    const url = request.url()
+
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      await route.continue()
+      return
+    }
+
+    // Block all request types (navigation, fetch, xhr, script, etc.)
+    // First apply the synchronous literal-IP / hostname checks
+    try {
+      validateBrowserNavigationUrl(url, policy)
+    } catch {
+      await route.abort('blockedbyclient')
+      return
+    }
+
+    // For non-IP hostnames, additionally check whether DNS resolution
+    // would resolve to a private/link-local address (SSRF via DNS rebinding)
+    if (!policy.allowPrivateNetwork && isIP(parsed.hostname) === 0) {
+      const blocked = await isDnsResolvedPrivate(parsed.hostname)
+      if (blocked) {
         await route.abort('blockedbyclient')
         return
       }

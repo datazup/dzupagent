@@ -32,6 +32,10 @@ export type { AnthropicClient, LlmJudgeOptions } from './eval/index.js';
 export { runEvalSuite } from './eval/index.js';
 export { createDemoEvalSuite, buildStubAnthropicClient } from './eval/index.js';
 
+// Polling utility
+export { waitForCondition } from './wait-for-condition.js';
+export type { WaitForConditionOptions } from './wait-for-condition.js';
+
 // Security testing framework (ECO-183)
 export type {
   SecurityCategory,
