@@ -16,7 +16,7 @@ class MockWsClient implements WSClient {
 }
 
 function drain(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0))
+  return Promise.resolve()
 }
 
 type ReceivedEnvelope = {

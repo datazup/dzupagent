@@ -238,13 +238,13 @@ describe('StagedWriter', () => {
       const w = new StagedWriter({ maxPending: 3, autoPromoteThreshold: 2 })
 
       w.capture(baseRecord({ key: 'oldest', confidence: 0.1 }))
-      await new Promise((r) => setTimeout(r, 2))
+      await Promise.resolve()
       w.capture(baseRecord({ key: 'middle', confidence: 0.1 }))
-      await new Promise((r) => setTimeout(r, 2))
+      await Promise.resolve()
       w.capture(baseRecord({ key: 'newest', confidence: 0.1 }))
 
       // Capture one more -> should evict oldest first
-      await new Promise((r) => setTimeout(r, 2))
+      await Promise.resolve()
       w.capture(baseRecord({ key: 'fourth', confidence: 0.1 }))
 
       expect(w.get('oldest')).toBeUndefined()

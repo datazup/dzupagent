@@ -41,7 +41,7 @@ async function postCompile(
 }
 
 function drain(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0))
+  return Promise.resolve()
 }
 
 class MockWsClient implements WSClient {

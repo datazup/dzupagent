@@ -31,7 +31,7 @@ describe('ws-control-protocol', () => {
     ws.sent = []
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r2' })
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
 
     expect(ws.sent).toHaveLength(1)
     const event = JSON.parse(ws.sent[0] ?? '{}') as { runId?: string }
@@ -52,7 +52,7 @@ describe('ws-control-protocol', () => {
 
     ws.sent = []
     bus.emit({ type: 'tool:called', toolName: 'search', input: {} })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
     expect(ws.sent).toHaveLength(1)
   })
 

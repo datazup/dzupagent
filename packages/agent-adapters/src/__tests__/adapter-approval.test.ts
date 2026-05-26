@@ -56,8 +56,9 @@ describe('AdapterApprovalGate', () => {
       // Start requesting (will block until grant/reject/timeout)
       const promise = gate.requestApproval(ctx)
 
-      // Wait a tick for the request to be registered
-      await new Promise((r) => setTimeout(r, 10))
+      // pending.set() is synchronous; a microtask flush is enough to ensure
+      // the async function frame has executed up to the internal Promise.
+      await Promise.resolve()
 
       const pending = gate.listPending()
       expect(pending).toHaveLength(1)
@@ -109,7 +110,7 @@ describe('AdapterApprovalGate', () => {
       const gate = new AdapterApprovalGate({ mode: 'required', timeoutMs: 5000 })
       const promise = gate.requestApproval(createContext())
 
-      await new Promise((r) => setTimeout(r, 10))
+      await Promise.resolve()
 
       const pending = gate.listPending()
       const found = gate.grant(pending[0]!.requestId, 'admin')
@@ -130,7 +131,7 @@ describe('AdapterApprovalGate', () => {
       const gate = new AdapterApprovalGate({ mode: 'required', timeoutMs: 5000 })
       const promise = gate.requestApproval(createContext())
 
-      await new Promise((r) => setTimeout(r, 10))
+      await Promise.resolve()
 
       const pending = gate.listPending()
       const found = gate.reject(pending[0]!.requestId, 'too risky')
@@ -196,7 +197,7 @@ describe('AdapterApprovalGate', () => {
       gate.requestApproval(createContext({ runId: 'run-1' }))
       gate.requestApproval(createContext({ runId: 'run-2' }))
 
-      await new Promise((r) => setTimeout(r, 10))
+      await Promise.resolve()
 
       const pending = gate.listPending()
       expect(pending).toHaveLength(2)
@@ -213,7 +214,7 @@ describe('AdapterApprovalGate', () => {
       const gate = new AdapterApprovalGate({ mode: 'required', timeoutMs: 5000 })
       gate.requestApproval(createContext())
 
-      await new Promise((r) => setTimeout(r, 10))
+      await Promise.resolve()
 
       const pending = gate.listPending()
       const req = gate.getRequest(pending[0]!.requestId)
@@ -236,7 +237,7 @@ describe('AdapterApprovalGate', () => {
       gate.requestApproval(createContext({ runId: 'a' }))
       gate.requestApproval(createContext({ runId: 'b' }))
 
-      await new Promise((r) => setTimeout(r, 10))
+      await Promise.resolve()
 
       expect(gate.listPending()).toHaveLength(2)
 
@@ -294,7 +295,7 @@ describe('AdapterApprovalGate', () => {
       // Start consuming in background
       const eventsPromise = collectEvents(guardGen)
 
-      await new Promise((r) => setTimeout(r, 10))
+      await Promise.resolve()
 
       // Reject the pending request
       const pending = gate.listPending()
@@ -342,7 +343,7 @@ describe('AdapterApprovalGate', () => {
 
       const promise = gate.requestApproval(createContext())
 
-      await new Promise((r) => setTimeout(r, 10))
+      await Promise.resolve()
 
       const pending = gate.listPending()
       gate.grant(pending[0]!.requestId, 'admin')
@@ -366,7 +367,7 @@ describe('AdapterApprovalGate', () => {
 
       const promise = gate.requestApproval(createContext())
 
-      await new Promise((r) => setTimeout(r, 10))
+      await Promise.resolve()
 
       const pending = gate.listPending()
       gate.reject(pending[0]!.requestId, 'too risky')
@@ -398,8 +399,9 @@ describe('AdapterApprovalGate', () => {
         }),
       )
 
-      // Webhook is fire-and-forget, wait a tick
-      await new Promise((r) => setTimeout(r, 20))
+      // Webhook is fire-and-forget; the mock fetch resolves on the next
+      // microtask, so a Promise.resolve() flush is sufficient.
+      await Promise.resolve()
 
       expect(fetchSpy).toHaveBeenCalledOnce()
       const [url, options] = fetchSpy.mock.calls[0]!
@@ -429,7 +431,7 @@ describe('AdapterApprovalGate', () => {
 
       await gate.requestApproval(createContext())
 
-      await new Promise((r) => setTimeout(r, 20))
+      await Promise.resolve()
 
       expect(fetchSpy).toHaveBeenCalledOnce()
       const [url] = fetchSpy.mock.calls[0]!

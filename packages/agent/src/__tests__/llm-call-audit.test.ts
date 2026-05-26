@@ -159,7 +159,7 @@ describe('LLM-call audit log (RF-12)', () => {
     const recorded: LlmCallAuditEntry[] = []
     const asyncSink: LlmCallAuditSink = {
       record: async (entry) => {
-        await new Promise((resolve) => setTimeout(resolve, 0))
+        await Promise.resolve()
         recorded.push(entry)
       },
     }

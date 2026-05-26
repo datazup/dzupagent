@@ -20,7 +20,7 @@ function createMockClient(readyState = 1): WSClient & {
 
 /** Yield a microtask so the InMemoryEventGateway drain loop flushes queued envelopes. */
 async function flush(): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  await Promise.resolve()
 }
 
 describe('EventBridge', () => {

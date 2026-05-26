@@ -3,7 +3,7 @@
  * Mocks bullmq to avoid Redis dependency in unit tests.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { waitForCondition } from '@dzupagent/test-utils'
+import { waitForCondition } from '@dzupagent/testing'
 
 // Mock bullmq module
 const mockAdd = vi.fn(async () => ({ id: 'bull-job-1' }))

@@ -4,6 +4,14 @@ import type { StoreQueryOptions } from '../store-factory.js'
 import { getMemoryStoreCapabilities } from '../store-capabilities.js'
 import type { BaseStore } from '@langchain/langgraph'
 
+/** Minimal structural type for the InMemoryBaseStore search seam (not exported). */
+interface SearchableStore {
+  search(
+    namespace: string[],
+    options?: StoreQueryOptions,
+  ): Promise<Array<{ namespace: string[]; key: string; value: Record<string, unknown> }>>
+}
+
 /**
  * Typed helper to call search with query options on the in-memory store.
  * The BaseStore interface does not expose StoreQueryOptions directly,
@@ -14,8 +22,7 @@ async function searchWithOptions(
   namespace: string[],
   options?: StoreQueryOptions,
 ): Promise<Array<{ namespace: string[]; key: string; value: Record<string, unknown> }>> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (store as any).search(namespace, options)
+  return (store as unknown as SearchableStore).search(namespace, options)
 }
 
 describe('InMemoryBaseStore search parity', () => {
@@ -184,8 +191,7 @@ describe('InMemoryBaseStore search parity', () => {
     })
 
     it('exposes searchParity as limited on the raw store', async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rawStore = store as any
+      const rawStore = store as unknown as { searchParity: string }
       expect(rawStore.searchParity).toBe('limited')
     })
 

@@ -6,7 +6,7 @@ import {
   createEventBus,
 } from '@dzupagent/core'
 import { currentForgeContext } from '@dzupagent/otel'
-import { waitForCondition } from '@dzupagent/test-utils'
+import { waitForCondition } from '@dzupagent/testing'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
 import { startRunWorker } from '../runtime/run-worker.js'
 import type {

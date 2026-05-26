@@ -674,7 +674,7 @@ describe('Database connector — extended', () => {
       let counter = 0
       const query = vi.fn().mockImplementation(async () => {
         const id = ++counter
-        await new Promise(resolve => setTimeout(resolve, 1))
+        await Promise.resolve()
         return { rows: [{ id }], rowCount: 1 }
       })
       const tools = createDatabaseConnector(makeConfig({ query }))

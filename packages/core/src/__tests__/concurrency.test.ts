@@ -203,7 +203,7 @@ describe('ConcurrencyPool', () => {
     expect(pool.trackedKeyCount()).toBe(1)
 
     // Allow timestamps to advance so idle eviction is eligible.
-    await new Promise((r) => setTimeout(r, 1))
+    await Promise.resolve()
 
     await pool.execute('k2', async () => 'ok')
     expect(pool.trackedKeyCount()).toBeLessThanOrEqual(1)

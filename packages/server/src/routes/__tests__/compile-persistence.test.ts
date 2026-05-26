@@ -164,7 +164,7 @@ describe('compile route — RunEventStore persistence', () => {
     expect(json.compileId).toBe(SUCCESS_RESULT.compileId)
 
     // Allow the fire-and-forget promise to settle
-    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
 
     expect(store.appendArtifact).toHaveBeenCalledTimes(1)
     const [call] = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls
@@ -188,7 +188,7 @@ describe('compile route — RunEventStore persistence', () => {
     // Compiler failure → 400
     expect(res.status).toBe(400)
 
-    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
 
     expect(store.appendArtifact).not.toHaveBeenCalled()
   })
@@ -208,7 +208,7 @@ describe('compile route — RunEventStore persistence', () => {
 
     expect(res.status).toBe(200)
 
-    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
 
     expect(store.appendArtifact).toHaveBeenCalledTimes(1)
     const [call] = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls
@@ -228,7 +228,7 @@ describe('compile route — RunEventStore persistence', () => {
 
     expect(res.status).toBe(200)
 
-    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
 
     expect(store.appendArtifact).toHaveBeenCalledTimes(1)
     const [call] = (store.appendArtifact as ReturnType<typeof vi.fn>).mock.calls

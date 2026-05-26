@@ -510,12 +510,14 @@ describe('MCPMemoryHandler', () => {
   // ---- AG-02: tenantId enforcement in constructor --------------------------
 
   describe('AG-02 — tenantId enforcement at construction', () => {
+    /** Shorthand cast for intentionally invalid scopes used in runtime-enforcement tests. */
+    type InvalidScope = MCPMemoryServices['defaultScope']
+
     it('throws when defaultScope.tenantId is missing', () => {
       expect(() => {
         new MCPMemoryHandler({
           memory: createMockMemoryService(),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          defaultScope: {} as any,
+          defaultScope: {} as unknown as InvalidScope,
           defaultNamespace: 'general',
         })
       }).toThrow('tenantId is required')
@@ -525,8 +527,7 @@ describe('MCPMemoryHandler', () => {
       expect(() => {
         new MCPMemoryHandler({
           memory: createMockMemoryService(),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          defaultScope: { tenantId: '' } as any,
+          defaultScope: { tenantId: '' } as unknown as InvalidScope,
           defaultNamespace: 'general',
         })
       }).toThrow('tenantId is required')
@@ -536,8 +537,7 @@ describe('MCPMemoryHandler', () => {
       expect(() => {
         new MCPMemoryHandler({
           memory: createMockMemoryService(),
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          defaultScope: { tenantId: '   ' } as any,
+          defaultScope: { tenantId: '   ' } as unknown as InvalidScope,
           defaultNamespace: 'general',
         })
       }).toThrow('tenantId is required')

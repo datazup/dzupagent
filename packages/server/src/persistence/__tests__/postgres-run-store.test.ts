@@ -5,6 +5,7 @@
  * without any real database connection.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { PostgresRunStore } from '../postgres-stores.js'
 import type { LogEntry } from '@dzupagent/core'
 
@@ -46,13 +47,16 @@ interface MockDbOptions {
   log?: CallLogEntry[]
 }
 
-function buildMockDb(options: MockDbOptions = {}): {
+/** Structural shape returned by buildMockDb — used as the store constructor arg type. */
+interface MockDb {
   select: ReturnType<typeof vi.fn>
   insert: ReturnType<typeof vi.fn>
   update: ReturnType<typeof vi.fn>
   delete: ReturnType<typeof vi.fn>
   log: CallLogEntry[]
-} {
+}
+
+function buildMockDb(options: MockDbOptions = {}): MockDb {
   const log = options.log ?? []
   return {
     select: vi.fn(() => makeChain(options.selectRows ?? [], 'select', log)),
@@ -61,6 +65,19 @@ function buildMockDb(options: MockDbOptions = {}): {
     delete: vi.fn(() => makeChain(options.deleteRows ?? [], 'delete', log)),
     log,
   }
+}
+
+/**
+ * Wraps the structural mock db in a PostgresRunStore.
+ *
+ * The mock Proxy satisfies the Drizzle fluent API at runtime but not at the
+ * type level — a single typed cast here avoids repeating `as unknown as DB`
+ * at every call site throughout this test file.
+ */
+function buildStore(options: MockDbOptions = {}): { store: PostgresRunStore; db: MockDb } {
+  const db = buildMockDb(options)
+  const store = new PostgresRunStore(db as unknown as PostgresJsDatabase<Record<string, never>>)
+  return { store, db }
 }
 
 // ---------------------------------------------------------------------------
@@ -91,9 +108,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
         startedAt: new Date('2026-04-20T00:00:00Z'),
         completedAt: null,
       }
-      const db = buildMockDb({ insertRows: [row] })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore({ insertRows: [row] })
 
       const created = await store.create({ agentId: 'agent-A', input: { ask: 'ping' } })
 
@@ -115,9 +130,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
         costCents: null, error: null, metadata: { foo: 'bar' },
         startedAt: new Date(), completedAt: null,
       }
-      const db = buildMockDb({ insertRows: [row] })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore({ insertRows: [row] })
 
       await store.create({ agentId: 'a', input: null, metadata: { foo: 'bar' } })
 
@@ -131,9 +144,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
 
   describe('update()', () => {
     it('is a no-op when no fields are supplied', async () => {
-      const db = buildMockDb()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore()
 
       await store.update('run-1', {})
 
@@ -141,9 +152,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
     })
 
     it('splits tokenUsage into two columns and forwards other fields', async () => {
-      const db = buildMockDb()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore()
       const completedAt = new Date('2026-04-20T12:00:00Z')
 
       await store.update('run-2', {
@@ -178,9 +187,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
         error: null, metadata: { tag: 'x' },
         startedAt: new Date(), completedAt: new Date(),
       }
-      const db = buildMockDb({ selectRows: [row] })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore({ selectRows: [row] })
 
       const run = await store.get('run-G')
 
@@ -192,9 +199,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
     })
 
     it('returns null when no row matches', async () => {
-      const db = buildMockDb({ selectRows: [] })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store } = buildStore({ selectRows: [] })
 
       expect(await store.get('missing')).toBeNull()
     })
@@ -204,9 +209,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
 
   describe('list()', () => {
     it('applies default limit=50 and offset=0 when filter is omitted', async () => {
-      const db = buildMockDb({ selectRows: [] })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore({ selectRows: [] })
 
       const runs = await store.list()
 
@@ -218,9 +221,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
     })
 
     it('respects filter.agentId, filter.status, filter.limit, filter.offset', async () => {
-      const db = buildMockDb({ selectRows: [] })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore({ selectRows: [] })
 
       await store.list({ agentId: 'a-1', status: 'running', limit: 7, offset: 3 })
 
@@ -237,9 +238,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
         { id: '1', agentId: 'a', status: 'completed', input: null, output: null, plan: null, tokenUsageInput: 0, tokenUsageOutput: 0, costCents: null, error: null, metadata: null, startedAt: now, completedAt: null },
         { id: '2', agentId: 'a', status: 'failed', input: null, output: null, plan: null, tokenUsageInput: 0, tokenUsageOutput: 0, costCents: null, error: 'oops', metadata: null, startedAt: now, completedAt: null },
       ]
-      const db = buildMockDb({ selectRows: rows })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore({ selectRows: rows })
 
       const runs = await store.list()
 
@@ -253,9 +252,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
 
   describe('addLog()', () => {
     it('inserts a single log entry with runId, level, message', async () => {
-      const db = buildMockDb()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore()
       const entry: LogEntry = { level: 'info', message: 'started' }
 
       await store.addLog('run-X', entry)
@@ -270,9 +267,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
     })
 
     it('uses supplied phase, data, and timestamp when provided', async () => {
-      const db = buildMockDb()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore()
       const ts = new Date('2026-04-20T08:00:00Z')
 
       await store.addLog('run-X', {
@@ -295,9 +290,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
 
   describe('addLogs()', () => {
     it('no-ops on empty array without invoking insert', async () => {
-      const db = buildMockDb()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore()
 
       await store.addLogs('run-1', [])
 
@@ -305,9 +298,7 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
     })
 
     it('inserts all entries in a single batch call', async () => {
-      const db = buildMockDb()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store, db } = buildStore()
 
       await store.addLogs('run-1', [
         { level: 'info', message: 'a' },
@@ -333,23 +324,19 @@ describe('PostgresRunStore (persistence/__tests__)', () => {
 
   describe('getLogs()', () => {
     it('returns empty array when no rows exist', async () => {
-      const db = buildMockDb({ selectRows: [] })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
+      const { store } = buildStore({ selectRows: [] })
 
       expect(await store.getLogs('run-1')).toEqual([])
     })
 
     it('maps rows to LogEntry with undefined for null phase/data', async () => {
       const ts = new Date()
-      const db = buildMockDb({
+      const { store } = buildStore({
         selectRows: [
           { level: 'info', phase: 'start', message: 'hello', data: { k: 1 }, timestamp: ts },
           { level: 'error', phase: null, message: 'boom', data: null, timestamp: ts },
         ],
       })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const store = new PostgresRunStore(db as any)
 
       const logs = await store.getLogs('run-1')
 

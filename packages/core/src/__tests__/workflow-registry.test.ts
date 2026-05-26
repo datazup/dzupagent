@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { WorkflowRegistry } from '../skills/workflow-registry.js'
+import type { WorkflowRegistrySnapshot } from '../skills/workflow-registry.js'
 import { createSkillChain } from '../skills/skill-chain.js'
 import type { SkillChain } from '../skills/skill-chain.js'
 
@@ -149,8 +150,7 @@ describe('WorkflowRegistry', () => {
         exportedAt: new Date().toISOString(),
         entries: [],
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect(() => WorkflowRegistry.fromJSON(bad as any)).toThrow(/Unsupported schema version/)
+      expect(() => WorkflowRegistry.fromJSON(bad as unknown as WorkflowRegistrySnapshot)).toThrow(/Unsupported schema version/)
     })
   })
 

@@ -24,7 +24,7 @@ import {
 import type { EvalResult, EvalScorer } from '@dzupagent/eval-contracts'
 import { runLogRoot } from '@dzupagent/agent-adapters'
 import type { AgentEvent } from '@dzupagent/agent-adapters'
-import { waitForCondition } from '@dzupagent/test-utils'
+import { waitForCondition } from '@dzupagent/testing'
 
 import { RunOutcomeAnalyzer } from '../services/run-outcome-analyzer.js'
 import { InMemoryRunQueue } from '../queue/run-queue.js'

@@ -66,7 +66,7 @@ describe('EventBridge branch coverage', () => {
     bridge.addClient(ws)
 
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
 
     expect(ws.sent.length).toBeGreaterThan(0)
     bridge.destroy()
@@ -85,7 +85,7 @@ describe('EventBridge branch coverage', () => {
 
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r2' })
-    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
 
     expect(ws.sent.length).toBe(1)
     const payload = JSON.parse(ws.sent[0] ?? '{}') as { runId?: string }
@@ -118,7 +118,7 @@ describe('EventBridge branch coverage', () => {
     ws.readyState = 3 // CLOSED
 
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
 
     expect(ws.sent).toHaveLength(0)
     expect(bridge.clientCount).toBe(0)
@@ -132,7 +132,7 @@ describe('EventBridge branch coverage', () => {
     expect(bridge.clientCount).toBe(1)
 
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
 
     expect(bridge.clientCount).toBe(0)
   })

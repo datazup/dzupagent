@@ -69,7 +69,7 @@ describe('OutputPipeline', () => {
       {
         name: 'async-stage',
         process: async (c) => {
-          await new Promise((r) => setTimeout(r, 1))
+          await Promise.resolve()
           return c.toUpperCase()
         },
       },

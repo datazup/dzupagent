@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { waitForCondition } from '@dzupagent/test-utils'
+import { waitForCondition } from '@dzupagent/testing'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
 import type { RunJob } from '../queue/run-queue.js'
 

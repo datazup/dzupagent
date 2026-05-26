@@ -240,7 +240,7 @@ describe('createWsControlHandler branch coverage', () => {
     ws.sent = []
     bus.emit({ type: 'tool:called', toolName: 't', input: {} })
     bus.emit({ type: 'agent:failed', agentId: 'a1', runId: 'r1', errorCode: 'E', message: 'x' })
-    await new Promise((r) => setTimeout(r, 0))
+    await Promise.resolve()
 
     expect(ws.sent).toHaveLength(1)
     const ev = JSON.parse(ws.sent[0] ?? '{}') as { type?: string }
@@ -269,7 +269,7 @@ describe('createWsControlHandler branch coverage', () => {
 
     const handler = createWsControlHandler(bridge, ws, {
       authorizeFilter: async ({ filter }) => {
-        await new Promise((r) => setTimeout(r, 1))
+        await Promise.resolve()
         return filter.runId === 'allowed'
       },
     })

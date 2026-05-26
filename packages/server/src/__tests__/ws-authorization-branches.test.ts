@@ -64,7 +64,7 @@ describe('createScopedAuthorizeFilter branch coverage', () => {
     const authorize = createScopedAuthorizeFilter({
       resolveClientScope: () => ({}),
       canAccessAgent: async ({ agentId }) => {
-        await new Promise((r) => setTimeout(r, 1))
+        await Promise.resolve()
         return agentId === 'allowed'
       },
     })

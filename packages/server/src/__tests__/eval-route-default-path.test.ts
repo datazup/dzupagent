@@ -17,7 +17,7 @@
  *      stale-run recovery, retry — all under one implementation.
  */
 import { describe, it, expect } from 'vitest'
-import { waitForCondition } from '@dzupagent/test-utils'
+import { waitForCondition } from '@dzupagent/testing'
 import { createForgeApp, type ForgeServerConfig } from '../app.js'
 import {
   InMemoryRunStore,

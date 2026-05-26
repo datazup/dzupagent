@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import type { RunJob, JobProcessor } from '../queue/run-queue.js'
-import { waitForCondition } from '@dzupagent/test-utils'
+import { waitForCondition } from '@dzupagent/testing'
 
 // ---------------------------------------------------------------------------
 // Conditional imports — skip the entire suite when deps are missing

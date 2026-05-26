@@ -17,7 +17,7 @@ describe('InMemoryEventGateway', () => {
 
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r2' })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
 
     expect(received).toHaveLength(1)
   })
@@ -32,7 +32,7 @@ describe('InMemoryEventGateway', () => {
 
     gateway.publish({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
     gateway.publish({ type: 'agent:failed', agentId: 'a1', runId: 'r1', errorCode: 'INTERNAL_ERROR', message: 'x' })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
 
     expect(types).toEqual(['agent:failed'])
   })
@@ -47,7 +47,7 @@ describe('InMemoryEventGateway', () => {
 
     gateway.publish({ type: 'tool:called', toolName: 'a', input: {} })
     gateway.publish({ type: 'tool:called', toolName: 'b', input: {} })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
 
     // At least one event is delivered; with queue size 1 and microtask drain,
     // newest events are preserved under pressure.
@@ -63,7 +63,7 @@ describe('InMemoryEventGateway', () => {
     })
 
     gateway.publish({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
 
     expect(received).toHaveLength(0)
   })

@@ -208,7 +208,7 @@ describe('AdapterStreamRunner', () => {
         for (let i = 0; i < 100; i++) {
           if (signal.aborted) return
           yield { kind: 'message', content: `msg-${i}` } as RawEvent
-          await new Promise((r) => setTimeout(r, 1))
+          await Promise.resolve()
         }
       },
       mapRawEvent(raw, _ctx): AgentEvent | null {

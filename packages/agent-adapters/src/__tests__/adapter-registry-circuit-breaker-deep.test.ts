@@ -1069,7 +1069,7 @@ describe('EventBusBridge — scoping and cleanup', () => {
     unsub()
     // Verify: emit no longer reaches handler
     bus.emit({ type: 'agent:started', agentId: 'claude', runId: 'r1' })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
     expect(handler).not.toHaveBeenCalled()
   })
 

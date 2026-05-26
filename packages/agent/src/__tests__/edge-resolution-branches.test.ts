@@ -85,8 +85,9 @@ describe('getNextNodeIds — branch coverage', () => {
     const result = getNextNodeIds(
       'A',
       edges,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { bucket: (() => 'red') as any },
+      // The predicate returns a string branch key rather than a boolean — this
+      // tests the conditional-branch lookup path in edge-resolution.
+      { bucket: (() => 'red') as unknown as (state: Record<string, unknown>) => boolean },
       {},
     )
     expect(result).toEqual(['R'])

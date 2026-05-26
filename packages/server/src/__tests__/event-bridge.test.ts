@@ -21,7 +21,7 @@ describe('EventBridge', () => {
     bridge.addClient(ws)
 
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
 
     expect(ws.sent).toHaveLength(1)
     const payload = JSON.parse(ws.sent[0] ?? '{}') as { type?: string }
@@ -35,7 +35,7 @@ describe('EventBridge', () => {
     bridge.addClient(ws, { runId: 'r1' })
 
     bus.emit({ type: 'tool:called', toolName: 'search', input: {} })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
 
     expect(ws.sent).toHaveLength(0)
   })
@@ -48,7 +48,7 @@ describe('EventBridge', () => {
 
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r2' })
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
 
     expect(ws.sent).toHaveLength(1)
     const payload = JSON.parse(ws.sent[0] ?? '{}') as { runId?: string }
@@ -65,7 +65,7 @@ describe('EventBridge', () => {
 
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r2' })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    await Promise.resolve()
 
     expect(ws.sent).toHaveLength(1)
     const payload = JSON.parse(ws.sent[0] ?? '{}') as { runId?: string }

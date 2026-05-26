@@ -73,7 +73,7 @@ describe('WSSessionManager branch coverage', () => {
     const scopeRegistry = new WSClientScopeRegistry()
     const manager = new WSSessionManager(bridge, scopeRegistry, {
       resolveScope: async () => {
-        await new Promise((r) => setTimeout(r, 1))
+        await Promise.resolve()
         return { runIds: ['async-r1'] }
       },
     })

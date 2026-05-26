@@ -67,7 +67,7 @@ class MockNodeSocket extends EventEmitter implements WSClient {
 }
 
 function flushMicrotasks(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0))
+  return Promise.resolve()
 }
 
 // ---------------------------------------------------------------------------
