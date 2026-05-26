@@ -8,7 +8,7 @@
  * the side-effect surface stays in one place.
  */
 
-import { ForgeError } from '@dzupagent/core/advanced'
+import { ForgeError } from '@dzupagent/core/events'
 
 import type {
   AdapterProviderId,

@@ -13,11 +13,71 @@
  * and perform event-bus emission.
  */
 
-import { CircuitBreaker } from '@dzupagent/core/advanced'
-import type { CircuitBreakerConfig, CircuitState } from '@dzupagent/core/advanced'
-
 import type { AdapterProviderId, AgentCLIAdapter, HealthStatus } from '../types.js'
 import { getDefaultMonitorStatus } from '../provider-catalog.js'
+
+export interface CircuitBreakerConfig {
+  failureThreshold: number
+  resetTimeout: number
+  halfOpenMaxCalls: number
+}
+
+export type CircuitState = 'closed' | 'open' | 'half-open'
+
+const DEFAULT_CONFIG: CircuitBreakerConfig = {
+  failureThreshold: 5,
+  resetTimeout: 60_000,
+  halfOpenMaxCalls: 1,
+}
+
+class CircuitBreaker {
+  private state: CircuitState = 'closed'
+  private failures = 0
+  private lastFailureAt = 0
+  private halfOpenCalls = 0
+  private readonly config: CircuitBreakerConfig
+
+  constructor(config?: Partial<CircuitBreakerConfig>) {
+    this.config = { ...DEFAULT_CONFIG, ...config }
+  }
+
+  canExecute(): boolean {
+    if (this.state === 'closed') return true
+    if (this.state === 'open') {
+      if (Date.now() - this.lastFailureAt >= this.config.resetTimeout) {
+        this.state = 'half-open'
+        this.halfOpenCalls = 0
+      } else {
+        return false
+      }
+    }
+    if (this.halfOpenCalls >= this.config.halfOpenMaxCalls) return false
+    this.halfOpenCalls += 1
+    return true
+  }
+
+  recordSuccess(): void {
+    this.state = 'closed'
+    this.failures = 0
+    this.halfOpenCalls = 0
+  }
+
+  recordFailure(): void {
+    this.failures += 1
+    this.lastFailureAt = Date.now()
+    this.halfOpenCalls = 0
+    if (this.state === 'half-open' || this.failures >= this.config.failureThreshold) {
+      this.state = 'open'
+    }
+  }
+
+  getState(): CircuitState {
+    if (this.state === 'open' && Date.now() - this.lastFailureAt >= this.config.resetTimeout) {
+      return 'half-open'
+    }
+    return this.state
+  }
+}
 
 /** Detailed per-adapter health including circuit breaker diagnostics. */
 export interface ProviderAdapterHealthDetail {
