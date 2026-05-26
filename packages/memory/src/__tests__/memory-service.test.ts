@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { MemoryService } from '../memory-service.js'
 import type { BaseStore } from '@langchain/langgraph'
 import type { NamespaceConfig, SemanticStoreAdapter } from '../memory-types.js'
+import type { ReferenceTracker } from '../provenance/reference-tracker.js'
 
 function makeStore(): {
   store: BaseStore
@@ -252,6 +253,35 @@ describe('MemoryService', () => {
         'q',
       )
       expect(results.length).toBeGreaterThan(0)
+    })
+
+    it('preserves read context when non-searchable search falls back to get()', async () => {
+      const { store, data } = makeStore()
+      data.set('k1', { id: 'decision-1', text: 'decision' })
+      const tracker = {
+        trackReference: vi.fn(async () => undefined),
+      }
+      const svc = new MemoryService(store, nsConfigs, {
+        referenceTracker: tracker as unknown as ReferenceTracker,
+      })
+
+      await svc.search(
+        'decisions',
+        { tenantId: 't1', projectId: 'p1' },
+        'q',
+        5,
+        { runId: 'run-non-searchable' },
+      )
+      await Promise.resolve()
+
+      expect(tracker.trackReference).toHaveBeenCalledWith(
+        'run-non-searchable',
+        'decision-1',
+        expect.objectContaining({
+          namespace: 'decisions',
+          rank: 0,
+        }),
+      )
     })
 
     it('returns decay-scored results (no semantic store)', async () => {
