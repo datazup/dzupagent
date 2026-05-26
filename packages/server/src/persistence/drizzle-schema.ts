@@ -136,10 +136,13 @@ export const deploymentHistory = pgTable(
     outcome: text('outcome'),
     completedAt: timestamp('completed_at'),
     notes: text('notes'),
+    /** SEC-M-06: Tenant that owns this deployment record. */
+    tenantId: text('tenant_id').default('default'),
   },
   (table) => [
     index('deployment_history_environment_idx').on(table.environment),
     index('deployment_history_deployed_at_idx').on(table.deployedAt),
+    index('deployment_history_tenant_id_idx').on(table.tenantId),
   ],
 )
 

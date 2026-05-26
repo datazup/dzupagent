@@ -27,6 +27,8 @@ export function isTerminalStatus(status: EvalRunRecord['status']): boolean {
 export interface QueueRunInput {
   suite: EvalSuite
   metadata?: Record<string, unknown>
+  /** Tenant that should own this run (SEC-M-06). */
+  tenantId?: string | undefined
 }
 
 export async function persistQueuedRun(
@@ -47,6 +49,7 @@ export async function persistQueuedRun(
       createAttemptRecord({ attempt: 1, status: 'queued', queuedAt: timestamp }),
     ],
     ...(input.metadata ? { metadata: input.metadata } : {}),
+    ...(input.tenantId ? { tenantId: input.tenantId } : {}),
   }
 
   await store.saveRun(run)

@@ -9,6 +9,7 @@ import type {
 } from '@dzupagent/eval-contracts'
 import { InMemoryEvalRunStore } from '../persistence/eval-run-store.js'
 import type { EvalOrchestratorFactory, EvalRouteConfig } from './evals-types.js'
+import { getRequestingTenantId } from './tenant-scope.js'
 
 export type { EvalOrchestratorFactory, EvalRouteConfig } from './evals-types.js'
 
@@ -152,7 +153,11 @@ class ReadOnlyEvalOrchestrator implements EvalOrchestratorLike {
     return false
   }
 
-  async queueRun(): Promise<never> {
+  async queueRun(_input: {
+    suite: EvalSuite
+    metadata?: Record<string, unknown>
+    tenantId?: string | undefined
+  }): Promise<never> {
     const err = new Error(
       'Eval execution target is not configured. This server is running in read-only mode.',
     )
@@ -282,6 +287,8 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
   })
 
   app.get('/runs', async (c) => {
+    // SEC-M-06: scope list to requesting tenant.
+    const tenantId = getRequestingTenantId(c)
     const suiteId = c.req.query('suiteId') || undefined
     const status = parseRunStatus(c.req.query('status') || undefined)
     const limit = parseLimit(c.req.query('limit') || undefined)
@@ -295,7 +302,7 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
       }, 400)
     }
 
-    const runs = await orchestrator.listRuns({ suiteId, status: status ?? undefined, limit })
+    const runs = await orchestrator.listRuns({ suiteId, status: status ?? undefined, limit, tenantId })
     const meta: EvalRunListMeta = {
       service: serviceName,
       mode,
@@ -316,8 +323,18 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
   })
 
   app.get('/runs/:id', async (c) => {
+    // SEC-M-06: extract tenant for cross-tenant guard below.
+    const tenantId = getRequestingTenantId(c)
     const run = await orchestrator.getRun(c.req.param('id'))
     if (!run) {
+      return c.json({
+        success: false,
+        error: buildNotFoundError('Eval run not found'),
+      }, 404)
+    }
+
+    // SEC-M-06: cross-tenant access returns 404 (not 403) to avoid tenant enumeration.
+    if (run.tenantId !== undefined && run.tenantId !== tenantId) {
       return c.json({
         success: false,
         error: buildNotFoundError('Eval run not found'),
@@ -376,10 +393,13 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
       }, 503)
     }
 
+    // SEC-M-06: stamp the requesting tenant onto the created run.
+    const tenantId = getRequestingTenantId(c)
     try {
       const run = await orchestrator.queueRun({
         suite,
         metadata: body.metadata,
+        tenantId,
       })
       return c.json({ success: true, data: run }, 202)
     } catch (error) {
@@ -392,9 +412,19 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
   })
 
   app.post('/runs/:id/cancel', async (c) => {
+    // SEC-M-06: extract tenant for cross-tenant guard below.
+    const tenantId = getRequestingTenantId(c)
     const id = c.req.param('id')
     const run = await orchestrator.getRun(id)
     if (!run) {
+      return c.json({
+        success: false,
+        error: buildNotFoundError('Eval run not found'),
+      }, 404)
+    }
+
+    // SEC-M-06: cross-tenant access returns 404 to avoid tenant enumeration.
+    if (run.tenantId !== undefined && run.tenantId !== tenantId) {
       return c.json({
         success: false,
         error: buildNotFoundError('Eval run not found'),
@@ -421,9 +451,19 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
   })
 
   app.post('/runs/:id/retry', async (c) => {
+    // SEC-M-06: extract tenant for cross-tenant guard below.
+    const tenantId = getRequestingTenantId(c)
     const id = c.req.param('id')
     const run = await orchestrator.getRun(id)
     if (!run) {
+      return c.json({
+        success: false,
+        error: buildNotFoundError('Eval run not found'),
+      }, 404)
+    }
+
+    // SEC-M-06: cross-tenant access returns 404 to avoid tenant enumeration.
+    if (run.tenantId !== undefined && run.tenantId !== tenantId) {
       return c.json({
         success: false,
         error: buildNotFoundError('Eval run not found'),

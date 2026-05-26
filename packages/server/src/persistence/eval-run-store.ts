@@ -120,6 +120,7 @@ export class InMemoryEvalRunStore implements EvalRunStore {
     return Array.from(this.runs.values())
       .filter((run) => filter?.suiteId === undefined || run.suiteId === filter.suiteId)
       .filter((run) => filter?.status === undefined || run.status === filter.status)
+      .filter((run) => filter?.tenantId === undefined || run.tenantId === filter.tenantId)
       .sort((a, b) => {
         const queuedOrder = b.queuedAt.localeCompare(a.queuedAt)
         if (queuedOrder !== 0) return queuedOrder
