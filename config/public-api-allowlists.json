@@ -43,7 +43,14 @@
       "packages/server/src/services/prompt-feedback-loop-publisher.ts",
       "packages/code-edit-kit/src/atomic-multi-edit.tool.ts",
       "packages/code-edit-kit/src/rollback/file-rollback-store.ts",
-      "packages/code-edit-kit/src/tools/apply-patch.tool.ts"
+      "packages/code-edit-kit/src/tools/apply-patch.tool.ts",
+      "packages/agent/src/agent/run-engine-generate-audit.ts",
+      "packages/agent-adapters/src/runs/script-run-event-store.ts",
+      "packages/codegen/src/sandbox/ptc/ptc-governance-adapter.ts",
+      "packages/codegen/src/sandbox/ptc/ptc-tool.ts",
+      "packages/flow-compiler/src/index.ts",
+      "packages/flow-compiler/src/types.ts",
+      "packages/testing/src/mock-skill-step-resolver.ts"
     ],
     "migrationAllowlist": []
   },
