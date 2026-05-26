@@ -37,7 +37,7 @@ describe('attachNodeWsSession', () => {
     })
 
     socket.emit('message', JSON.stringify({ type: 'subscribe', filter: { runId: 'run-1' } }))
-    await Promise.resolve()
+    await new Promise((resolve) => setImmediate(resolve))
 
     const ack = JSON.parse(socket.sent[0] ?? '{}') as { type?: string }
     expect(ack.type).toBe('subscribed')
