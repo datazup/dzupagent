@@ -151,6 +151,126 @@ describe('AgentMemoryContextLoader', () => {
     )
   })
 
+  it('prefers query-aware search for standard prompt memory when available', async () => {
+    const memory = {
+      get: vi.fn(async () => [{ text: 'fallback fact' }]),
+      search: vi.fn(async () => [{ text: 'query matched fact' }]),
+      formatForPrompt: vi.fn((records: Array<Record<string, unknown>>) =>
+        records.length === 0 ? '' : `## Memory Context\n- ${String(records[0]?.['text'] ?? '')}`),
+    }
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => 42,
+      memoryReadContext: { runId: 'run-search' },
+    })
+
+    await expect(loader.load([new HumanMessage('find the auth token rule')])).resolves.toMatchObject({
+      context: '## Memory Context\n- query matched fact',
+    })
+
+    expect(memory.search).toHaveBeenCalledWith(
+      'facts',
+      { project: 'demo' },
+      'find the auth token rule',
+      10,
+      { runId: 'run-search' },
+    )
+    expect(memory.get).not.toHaveBeenCalled()
+  })
+
+  it('falls back to get when standard prompt memory search rejects', async () => {
+    const memory = {
+      get: vi.fn(async () => [{ text: 'fallback fact' }]),
+      search: vi.fn(async () => {
+        throw new Error('search unavailable')
+      }),
+      formatForPrompt: vi.fn((records: Array<Record<string, unknown>>) =>
+        records.length === 0 ? '' : `## Memory Context\n- ${String(records[0]?.['text'] ?? '')}`),
+    }
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => 42,
+      memoryReadContext: { runId: 'run-search-fallback' },
+    })
+
+    await expect(loader.load([new HumanMessage('find the auth token rule')])).resolves.toMatchObject({
+      context: '## Memory Context\n- fallback fact',
+    })
+
+    expect(memory.search).toHaveBeenCalledTimes(1)
+    expect(memory.get).toHaveBeenCalledWith(
+      'facts',
+      { project: 'demo' },
+      undefined,
+      { runId: 'run-search-fallback' },
+    )
+  })
+
+  it('preserves search result order under tight standard memory bounds', async () => {
+    const now = Date.now()
+    const relevant = {
+      text: 'relevant auth token rotation rule',
+      _decay: {
+        strength: 0.1,
+        accessCount: 0,
+        lastAccessedAt: now - 30 * 24 * 60 * 60 * 1000,
+        createdAt: now - 30 * 24 * 60 * 60 * 1000,
+        halfLifeMs: 1,
+      },
+    }
+    const irrelevant = {
+      text: 'irrelevant billing dashboard preference',
+      _decay: {
+        strength: 1,
+        accessCount: 100,
+        lastAccessedAt: now,
+        createdAt: now,
+        halfLifeMs: 30 * 24 * 60 * 60 * 1000,
+      },
+    }
+    const memory = {
+      get: vi.fn(async () => [irrelevant, relevant]),
+      search: vi.fn(async () => [relevant, irrelevant]),
+      formatForPrompt: vi.fn((
+        input: Array<Record<string, unknown>>,
+        options?: { maxItems?: number; maxCharsPerItem?: number },
+      ) => {
+        const maxItems = options?.maxItems ?? input.length
+        const maxCharsPerItem = options?.maxCharsPerItem ?? Number.MAX_SAFE_INTEGER
+        return [
+          '## Memory Context',
+          ...input.slice(0, maxItems).map((record) => {
+            const text = String(record['text'] ?? '')
+            return `- ${text.slice(0, maxCharsPerItem)}`
+          }),
+        ].join('\n')
+      }),
+    }
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => 0,
+      limits: { standardMaxItems: 1 },
+    })
+
+    const result = await loader.load([new HumanMessage('auth token rotation')])
+
+    expect(result.context).toContain('relevant auth token rotation rule')
+    expect(result.context).not.toContain('irrelevant billing dashboard preference')
+    expect(memory.formatForPrompt).toHaveBeenCalledWith(
+      [relevant, irrelevant],
+      expect.objectContaining({ maxItems: 1 }),
+    )
+  })
+
   it('uses Arrow selection when configured and formats the selected records', async () => {
     const memory = createMemoryService()
     const phaseWeightedSelection = vi.fn(() => [{ rowIndex: 1 }])
@@ -302,8 +422,13 @@ describe('AgentMemoryContextLoader', () => {
     expect(result.context).not.toContain('record-10')
   })
 
-  it('passes read provenance context through the bounded Arrow fallback path', async () => {
-    const memory = createMemoryService()
+  it('passes read provenance context through search in the bounded Arrow fallback path', async () => {
+    const memory = {
+      get: vi.fn(async () => [{ text: 'fallback fact' }]),
+      search: vi.fn(async () => [{ text: 'search fallback fact' }]),
+      formatForPrompt: vi.fn((records: Array<Record<string, unknown>>) =>
+        records.length === 0 ? '' : `## Memory Context\n- ${String(records[0]?.['text'] ?? '')}`),
+    }
     const loader = new AgentMemoryContextLoader({
       instructions: 'Base instructions',
       memory,
@@ -323,12 +448,14 @@ describe('AgentMemoryContextLoader', () => {
 
     await loader.load([new HumanMessage('hello')], { runId: 'run-fallback' })
 
-    expect(memory.get).toHaveBeenCalledWith(
+    expect(memory.search).toHaveBeenCalledWith(
       'facts',
       { project: 'demo' },
-      undefined,
+      'hello',
+      10,
       { runId: 'run-fallback' },
     )
+    expect(memory.get).not.toHaveBeenCalled()
   })
 
   it('invokes onFallback with arrow_fallback when Arrow path throws', async () => {
