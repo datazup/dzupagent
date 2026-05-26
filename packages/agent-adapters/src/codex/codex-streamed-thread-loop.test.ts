@@ -445,6 +445,43 @@ describe('runStreamedThread', () => {
     expect(last?.type).toBe('adapter:completed')
   }, 5000)
 
+  it('emits adapter:failed when an upstream registry timeout aborts mid-stream', async () => {
+    vi.useRealTimers()
+
+    const abortCtrl = new AbortController()
+    const timeoutReason = new Error('Adapter execution timed out after 30ms') as Error & { code?: string }
+    timeoutReason.code = 'ADAPTER_TIMEOUT'
+
+    const hangThread: CodexThread = {
+      async runStreamed(_input, opts) {
+        return {
+          events: (async function* () {
+            yield { type: 'thread.started', thread_id: 'tid-registry-timeout' } as CodexStreamEvent
+            await new Promise<void>((_, reject) => {
+              opts?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+            })
+          })(),
+        }
+      },
+    }
+
+    const ctx = makeCtx()
+    const input = makeInput()
+    const codex = makeCodexInstance()
+    const genPromise = collectAll(
+      runStreamedThread(hangThread, input, codex, abortCtrl.signal, ctx),
+    )
+
+    await new Promise((r) => setTimeout(r, 10))
+    abortCtrl.abort(timeoutReason)
+
+    const collected = await genPromise
+    const last = collected[collected.length - 1]
+
+    expect(last?.type).toBe('adapter:failed')
+    expect((last as { code?: string }).code).toBe('ADAPTER_TIMEOUT')
+  }, 5000)
+
   it('emits adapter:failed for mid-stream non-abort errors', async () => {
     const events: CodexStreamEvent[] = [
       { type: 'thread.started', thread_id: 'tid-err' },
