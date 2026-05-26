@@ -13,6 +13,7 @@ export {
 export {
   SkillCapabilityMatrixBuilder,
 } from './skills/skill-capability-matrix.js'
+export { ClaudeSkillCompiler } from './skills/compilers/claude-skill-compiler.js'
 export type {
   CapabilityStatus,
   ProviderCapabilityRow,

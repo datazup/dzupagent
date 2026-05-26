@@ -350,7 +350,7 @@ export function createProgram(): Command {
     .action(async (opts: { projectRoot: string }) => {
       try {
         const { WorkspaceResolver, DzupAgentFileLoader, DzupAgentAgentLoader, DzupAgentMemoryLoader } =
-          await import('@dzupagent/agent-adapters')
+          await import('@dzupagent/agent-adapters/dzupagent')
         const { readFile } = await import('node:fs/promises')
 
         const resolver = new WorkspaceResolver()
@@ -392,13 +392,11 @@ export function createProgram(): Command {
     .option('--project-root <path>', 'Path to the project root', process.cwd())
     .action(async (skillId: string, opts: { projectRoot: string }) => {
       try {
-        const {
-          WorkspaceResolver,
-          DzupAgentFileLoader,
-          AdapterSkillRegistry,
-          ClaudeSkillCompiler,
-          SkillCapabilityMatrixBuilder,
-        } = await import('@dzupagent/agent-adapters')
+        const { WorkspaceResolver, DzupAgentFileLoader } = await import(
+          '@dzupagent/agent-adapters/dzupagent'
+        )
+        const { AdapterSkillRegistry, ClaudeSkillCompiler, SkillCapabilityMatrixBuilder } =
+          await import('@dzupagent/agent-adapters/skills')
 
         const resolver = new WorkspaceResolver()
         const workspace = await resolver.resolve(opts.projectRoot)

@@ -133,7 +133,7 @@ export class InMemoryMcpAdapterManager {
     }
 
     try {
-      const { MCPClient } = await import(/* webpackIgnore: true */ '@dzupagent/core')
+      const { MCPClient } = await import(/* webpackIgnore: true */ '@dzupagent/core/mcp')
       const client = new MCPClient()
       client.addServer({
         id: server.id,
