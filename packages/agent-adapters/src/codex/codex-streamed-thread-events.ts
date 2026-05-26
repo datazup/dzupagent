@@ -64,18 +64,23 @@ export function combineSignals(
   const combined = new AbortController()
 
   if (external.aborted || internal.aborted) {
-    combined.abort()
+    combined.abort(external.aborted ? external.reason : internal.reason)
     return combined.signal
   }
 
-  const onAbort = () => {
-    combined.abort()
-    external.removeEventListener('abort', onAbort)
-    internal.removeEventListener('abort', onAbort)
+  const onExternalAbort = () => {
+    combined.abort(external.reason)
+    external.removeEventListener('abort', onExternalAbort)
+    internal.removeEventListener('abort', onInternalAbort)
+  }
+  const onInternalAbort = () => {
+    combined.abort(internal.reason)
+    external.removeEventListener('abort', onExternalAbort)
+    internal.removeEventListener('abort', onInternalAbort)
   }
 
-  external.addEventListener('abort', onAbort, { once: true })
-  internal.addEventListener('abort', onAbort, { once: true })
+  external.addEventListener('abort', onExternalAbort, { once: true })
+  internal.addEventListener('abort', onInternalAbort, { once: true })
 
   return combined.signal
 }

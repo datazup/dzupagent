@@ -64,8 +64,8 @@ export function setupAttemptTimeout(
 } {
   const controller = new AbortController()
   if (baseSignal) {
-    if (baseSignal.aborted) controller.abort()
-    else baseSignal.addEventListener('abort', () => controller.abort(), { once: true })
+    if (baseSignal.aborted) controller.abort(baseSignal.reason)
+    else baseSignal.addEventListener('abort', () => controller.abort(baseSignal.reason), { once: true })
   }
 
   let didTimeout = false
@@ -73,7 +73,9 @@ export function setupAttemptTimeout(
   const timeoutHandle = timeoutEnabled
     ? setTimeout(() => {
         didTimeout = true
-        controller.abort()
+        const reason = new Error(`Adapter execution timed out after ${String(timeoutMs)}ms`)
+        ;(reason as Error & { code?: string }).code = 'ADAPTER_TIMEOUT'
+        controller.abort(reason)
       }, timeoutMs as number)
     : null
 

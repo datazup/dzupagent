@@ -38,6 +38,20 @@ import {
   type RunStreamedThreadContext,
 } from './codex-streamed-thread-types.js'
 
+function buildTimeoutAbortReason(timeoutMs: number): Error & { code?: string } {
+  const reason: Error & { code?: string } = new Error(`Codex adapter timed out after ${timeoutMs}ms`)
+  reason.code = 'ADAPTER_TIMEOUT'
+  return reason
+}
+
+function signalHasTimeoutReason(signal: AbortSignal): boolean {
+  const reason = signal.reason as { code?: unknown; message?: unknown } | string | undefined
+  if (!reason) return false
+  if (typeof reason === 'object' && reason.code === 'ADAPTER_TIMEOUT') return true
+  const text = typeof reason === 'string' ? reason : String(reason.message ?? '')
+  return /ADAPTER_TIMEOUT|timed out|timeout/i.test(text)
+}
+
 /**
  * Run a streamed Codex thread and yield unified AgentStreamEvent items.
  *
@@ -78,7 +92,7 @@ export async function* runStreamedThread(
       `[codex-streamed-thread:run] timeout after ${timeoutMs}ms — aborting`,
       { sessionId },
     )
-    ctx.abort()
+    ctx.abort(buildTimeoutAbortReason(timeoutMs))
   }, timeoutMs)
 
   defaultLogger.debug('[codex-streamed-thread:run] starting', {
@@ -104,8 +118,9 @@ export async function* runStreamedThread(
   } catch (err: unknown) {
     clearTimeout(timeoutHandle)
     const errMsg = err instanceof Error ? err.message : String(err)
-    if (didTimeout || signal.aborted) {
-      const reason = didTimeout
+    const abortedByTimeout = didTimeout || (signal.aborted && signalHasTimeoutReason(signal))
+    if (abortedByTimeout || signal.aborted) {
+      const reason = abortedByTimeout
         ? 'timeout_before_stream_start'
         : 'caller_abort_before_stream_start'
       const durationMs = now() - startTime
@@ -117,10 +132,10 @@ export async function* runStreamedThread(
         makeFailedEvent({
           providerId: ctx.providerId,
           sessionId,
-          error: didTimeout
+          error: abortedByTimeout
             ? `Codex adapter timed out after ${durationMs}ms`
             : errMsg,
-          code: didTimeout ? 'ADAPTER_TIMEOUT' : 'ADAPTER_EXECUTION_FAILED',
+          code: abortedByTimeout ? 'ADAPTER_TIMEOUT' : 'ADAPTER_EXECUTION_FAILED',
           timestamp: now(),
         }),
         input.correlationId,
@@ -254,7 +269,8 @@ export async function* runStreamedThread(
     clearTimeout(timeoutHandle)
 
     if (signal.aborted) {
-      const reason = didTimeout ? 'timeout' : 'caller_abort'
+      const abortedByTimeout = didTimeout || signalHasTimeoutReason(signal)
+      const reason = abortedByTimeout ? 'timeout' : 'caller_abort'
       defaultLogger.warn('[codex-streamed-thread:run] aborted', {
         sessionId,
         reason,
@@ -265,7 +281,7 @@ export async function* runStreamedThread(
         lastEventAgeMs: now() - lastEventAt,
       })
       yield withCorrelationId(
-        didTimeout
+        abortedByTimeout
           ? makeFailedEvent({
               providerId: ctx.providerId,
               sessionId,
