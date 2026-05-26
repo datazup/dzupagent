@@ -50,7 +50,14 @@
       "packages/codegen/src/sandbox/ptc/ptc-tool.ts",
       "packages/flow-compiler/src/index.ts",
       "packages/flow-compiler/src/types.ts",
-      "packages/testing/src/mock-skill-step-resolver.ts"
+      "packages/testing/src/mock-skill-step-resolver.ts",
+      "packages/agent-adapters/src/mcp/mcp-adapter-manager.ts",
+      "packages/server/src/cli/dzup.ts",
+      "packages/agent-adapters/src/integration/agent-bridge.ts",
+      "packages/agent-adapters/src/mcp/mcp-tool-sharing.ts",
+      "packages/agent-adapters/src/middleware/cost-tracking.ts",
+      "packages/agent-adapters/src/base/base-sdk-adapter.ts",
+      "packages/agent-adapters/src/facade/facade-factory.ts"
     ],
     "migrationAllowlist": []
   },

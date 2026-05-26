@@ -181,6 +181,7 @@
           "packages/server/src/routes/benchmark-tenant-scope.ts",
           "packages/server/src/routes/benchmarks-types.ts",
           "packages/server/src/routes/compile-types.ts",
+          "packages/server/src/routes/crud-helpers.ts",
           "packages/server/src/routes/compile/json-handler.ts",
           "packages/server/src/routes/compile/shared.ts",
           "packages/server/src/routes/compile/sse-handler.ts",
