@@ -30,9 +30,9 @@
  * ```
  */
 
-import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
+import { fetchWithOutboundUrlPolicy } from '../utils/security-lite.js'
 import type { DzupEvent } from '@dzupagent/core/events'
-import type { OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
+import type { OutboundUrlSecurityPolicy } from '../utils/security-lite.js'
 
 import type { AgentEvent, AgentStreamEvent } from '../types.js'
 import { validateWebhookUrl } from '../utils/url-validator.js'

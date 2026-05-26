@@ -6,7 +6,7 @@
  * alongside the helpers that use them.
  */
 import type { LlmAuditSink } from '@dzupagent/core/events'
-import type { OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
+import type { OutboundUrlSecurityPolicy } from '../utils/security-lite.js'
 import type { AdapterConfig } from '../types.js'
 
 /**

@@ -9,7 +9,7 @@
  */
 
 import { ForgeError, typedEmit } from '@dzupagent/core/events'
-import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
+import { fetchWithOutboundUrlPolicy } from '../utils/security-lite.js'
 import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { AdapterProviderId, AgentInput } from '../types.js'

@@ -7,7 +7,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { ForgeError } from '@dzupagent/core/events'
-import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
+import { fetchWithOutboundUrlPolicy } from '../utils/security-lite.js'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,

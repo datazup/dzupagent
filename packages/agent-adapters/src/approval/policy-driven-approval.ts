@@ -26,10 +26,14 @@
  * ```
  */
 
-import { PolicyEvaluator } from '@dzupagent/core/security'
-import type { PolicySet, PolicyContext } from '@dzupagent/core/security'
-import { createRiskClassifier } from '@dzupagent/core/security'
-import type { RiskClassifier, RiskClassifierConfig } from '@dzupagent/core/security'
+import {
+  PolicyEvaluator,
+  createRiskClassifier,
+  type PolicySet,
+  type PolicyContext,
+  type RiskClassifier,
+  type RiskClassifierConfig,
+} from '../utils/security-lite.js'
 
 import type { ApprovalContext } from './approval-types.js'
 

@@ -6,7 +6,7 @@
  * adapters use to feed an answer back to the sub-agent and emit audit events.
  */
 
-import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
+import { fetchWithOutboundUrlPolicy } from '../utils/security-lite.js'
 
 import type {
   AgentInteractionResolvedEvent,
