@@ -51,8 +51,7 @@ describe('GitHub connector', () => {
       const getFile = getTool('github_get_file')
       await getFile.invoke({ owner: 'org', repo: 'app', path: 'file.ts', ref: 'v2.0' })
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('?ref=v2.0')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('?ref=v2.0'), expect.any(Object))
     })
 
     it('returns error string on API failure', async () => {
@@ -92,8 +91,7 @@ describe('GitHub connector', () => {
       expect(result).toContain('Bug report')
       expect(result).toContain('Feature request')
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('per_page=10')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('per_page=10'), expect.any(Object))
     })
 
     it('passes state, labels, and assignee filters', async () => {
@@ -209,8 +207,7 @@ describe('GitHub connector', () => {
         owner: 'org', repo: 'app', issue_number: 5, body: 'LGTM',
       })
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('/issues/5/comments')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('/issues/5/comments'), expect.any(Object))
       const calledInit = mock.mock.calls[0]![1] as RequestInit
       const body = JSON.parse(calledInit.body as string) as Record<string, unknown>
       expect(body['body']).toBe('LGTM')
@@ -364,8 +361,7 @@ describe('GitHub connector', () => {
         owner: 'org', repo: 'app', pr_number: 10, body: 'Some comments', event: 'COMMENT',
       })
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('/pulls/10/reviews')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('/pulls/10/reviews'), expect.any(Object))
       const calledInit = mock.mock.calls[0]![1] as RequestInit
       const body = JSON.parse(calledInit.body as string) as Record<string, unknown>
       expect(body['body']).toBe('Some comments')
@@ -460,8 +456,7 @@ describe('GitHub connector', () => {
       const compare = getTool('github_compare_commits')
       await compare.invoke({ owner: 'org', repo: 'app', base: 'v1.0', head: 'feature/new' })
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('/compare/v1.0...feature%2Fnew')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('/compare/v1.0...feature%2Fnew'), expect.any(Object))
     })
   })
 
@@ -506,8 +501,7 @@ describe('GitHub connector', () => {
       })
       await tools.find(t => t.name === 'github_list_issues')!.invoke({ owner: 'o', repo: 'r' })
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl.startsWith('https://ghe.corp.com/api/v3')).toBe(true)
+      expect(mock).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/ghe\.corp\.com\/api\/v3/), expect.any(Object))
     })
   })
 
@@ -588,8 +582,7 @@ describe('GitHubClient', () => {
     })
     await client.listBranches('org', 'app')
 
-    const calledUrl = mock.mock.calls[0]![0] as string
-    expect(calledUrl.startsWith('https://ghe.corp.com/api/v3')).toBe(true)
+    expect(mock).toHaveBeenCalledWith(expect.stringMatching(/^https:\/\/ghe\.corp\.com\/api\/v3/), expect.any(Object))
   })
 
   it('listIssues builds query string correctly', async () => {
@@ -609,8 +602,11 @@ describe('GitHubClient', () => {
     const client = new GitHubClient({ token: 'tok' })
     await client.createIssue('org', 'app', 'Test', 'Body', { labels: ['bug'] })
 
+    expect(mock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ method: 'POST' }),
+    )
     const calledInit = mock.mock.calls[0]![1] as RequestInit
-    expect(calledInit.method).toBe('POST')
     const body = JSON.parse(calledInit.body as string) as Record<string, unknown>
     expect(body['title']).toBe('Test')
     expect(body['labels']).toEqual(['bug'])
@@ -621,8 +617,7 @@ describe('GitHubClient', () => {
     const client = new GitHubClient({ token: 'tok' })
     await client.updateIssue('org', 'app', 1, { state: 'closed' })
 
-    const calledInit = mock.mock.calls[0]![1] as RequestInit
-    expect(calledInit.method).toBe('PATCH')
+    expect(mock).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: 'PATCH' }))
   })
 
   it('mergePR sends PUT', async () => {
@@ -630,8 +625,11 @@ describe('GitHubClient', () => {
     const client = new GitHubClient({ token: 'tok' })
     await client.mergePR('org', 'app', 10, { merge_method: 'squash' })
 
+    expect(mock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ method: 'PUT' }),
+    )
     const calledInit = mock.mock.calls[0]![1] as RequestInit
-    expect(calledInit.method).toBe('PUT')
     const body = JSON.parse(calledInit.body as string) as Record<string, unknown>
     expect(body['merge_method']).toBe('squash')
   })
@@ -641,8 +639,7 @@ describe('GitHubClient', () => {
     const client = new GitHubClient({ token: 'tok' })
     await client.compareCommits('org', 'app', 'main', 'feat/new')
 
-    const calledUrl = mock.mock.calls[0]![0] as string
-    expect(calledUrl).toContain('/compare/main...feat%2Fnew')
+    expect(mock).toHaveBeenCalledWith(expect.stringContaining('/compare/main...feat%2Fnew'), expect.any(Object))
   })
 
   it('createPRReview sends correct event', async () => {

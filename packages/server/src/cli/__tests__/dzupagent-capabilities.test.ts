@@ -72,13 +72,14 @@ const FAKE_MATRIX = {
   },
 }
 
-vi.mock('@dzupagent/agent-adapters', () => {
+// The `capabilities` command imports workspace/file loaders from the
+// `/dzupagent` subpath and skill registry/compiler/matrix from the `/skills`
+// subpath (see DZUPAGENT-ARCH-MED-03). Mock both subpaths so the spies are
+// intercepted regardless of which subpath a symbol resolves through.
+vi.mock('@dzupagent/agent-adapters/dzupagent', () => {
   // Assign fresh vi.fn() instances into the shared container.
   spies.resolve = vi.fn().mockResolvedValue({ projectDir: '/fake/project' })
   spies.loadSkills = vi.fn().mockResolvedValue([FAKE_BUNDLE])
-  spies.register = vi.fn()
-  spies.registerBundle = vi.fn()
-  spies.buildForSkill = vi.fn().mockReturnValue(FAKE_MATRIX)
 
   return {
     WorkspaceResolver: vi.fn().mockImplementation(() => ({
@@ -87,6 +88,15 @@ vi.mock('@dzupagent/agent-adapters', () => {
     DzupAgentFileLoader: vi.fn().mockImplementation(() => ({
       loadSkills: spies.loadSkills,
     })),
+  }
+})
+
+vi.mock('@dzupagent/agent-adapters/skills', () => {
+  spies.register = vi.fn()
+  spies.registerBundle = vi.fn()
+  spies.buildForSkill = vi.fn().mockReturnValue(FAKE_MATRIX)
+
+  return {
     AdapterSkillRegistry: vi.fn().mockImplementation(() => ({
       register: spies.register,
       registerBundle: spies.registerBundle,

@@ -80,9 +80,8 @@ describe('GitHub connector — Wave 19 expansion', () => {
       await tool('github_get_pr_checks').invoke({
         owner: 'org', repo: 'app', pr_number: 99,
       })
-      const calledUrl = m.mock.calls[0]![0] as string
       // 99/head encodes as 99%2Fhead
-      expect(calledUrl).toContain('/repos/org/app/commits/99%2Fhead/check-runs')
+      expect(m).toHaveBeenCalledWith(expect.stringContaining('/repos/org/app/commits/99%2Fhead/check-runs'), expect.any(Object))
     })
 
     it('returns API error string on 404', async () => {
@@ -148,8 +147,7 @@ describe('GitHub connector — Wave 19 expansion', () => {
       await tool('github_add_labels').invoke({
         owner: 'o', repo: 'r', issue_number: 7, labels: ['x'],
       })
-      const url = m.mock.calls[0]![0] as string
-      expect(url).toContain('/repos/o/r/issues/7/labels')
+      expect(m).toHaveBeenCalledWith(expect.stringContaining('/repos/o/r/issues/7/labels'), expect.any(Object))
     })
 
     it('returns success message even if response is empty array', async () => {
@@ -218,8 +216,7 @@ describe('GitHub connector — Wave 19 expansion', () => {
       await tool('github_remove_label').invoke({
         owner: 'o', repo: 'r', issue_number: 1, label: 'priority/high',
       })
-      const url = m.mock.calls[0]![0] as string
-      expect(url).toContain('/labels/priority%2Fhigh')
+      expect(m).toHaveBeenCalledWith(expect.stringContaining('/labels/priority%2Fhigh'), expect.any(Object))
     })
 
     it('uses DELETE method', async () => {
@@ -227,8 +224,7 @@ describe('GitHub connector — Wave 19 expansion', () => {
       await tool('github_remove_label').invoke({
         owner: 'o', repo: 'r', issue_number: 1, label: 'bug',
       })
-      const init = m.mock.calls[0]![1] as RequestInit
-      expect(init.method).toBe('DELETE')
+      expect(m).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: 'DELETE' }))
     })
 
     it('returns generic Error message on network failure', async () => {
@@ -280,8 +276,7 @@ describe('GitHub connector — Wave 19 expansion', () => {
       await tool('github_create_review_comment').invoke({
         owner: 'o', repo: 'r', pr_number: 7, body: 'x', path: 'a.ts', line: 1,
       })
-      const url = m.mock.calls[0]![0] as string
-      expect(url).toContain('/repos/o/r/pulls/7/comments')
+      expect(m).toHaveBeenCalledWith(expect.stringContaining('/repos/o/r/pulls/7/comments'), expect.any(Object))
     })
 
     it('sends body, path, and line in POST body', async () => {
@@ -337,8 +332,7 @@ describe('GitHub connector — Wave 19 expansion', () => {
     it('hits /actions/runs when workflow_id is omitted', async () => {
       const m = mockFetch({ workflow_runs: [] })
       await tool('github_get_workflow_runs').invoke({ owner: 'o', repo: 'r' })
-      const url = m.mock.calls[0]![0] as string
-      expect(url).toContain('/repos/o/r/actions/runs')
+      expect(m).toHaveBeenCalledWith(expect.stringContaining('/repos/o/r/actions/runs'), expect.any(Object))
     })
 
     it('hits /actions/workflows/{id}/runs when workflow_id is provided', async () => {
@@ -346,8 +340,7 @@ describe('GitHub connector — Wave 19 expansion', () => {
       await tool('github_get_workflow_runs').invoke({
         owner: 'o', repo: 'r', workflow_id: 'ci.yml',
       })
-      const url = m.mock.calls[0]![0] as string
-      expect(url).toContain('/repos/o/r/actions/workflows/ci.yml/runs')
+      expect(m).toHaveBeenCalledWith(expect.stringContaining('/repos/o/r/actions/workflows/ci.yml/runs'), expect.any(Object))
     })
 
     it('encodes workflow_id with special characters', async () => {
@@ -355,8 +348,7 @@ describe('GitHub connector — Wave 19 expansion', () => {
       await tool('github_get_workflow_runs').invoke({
         owner: 'o', repo: 'r', workflow_id: 'release main.yml',
       })
-      const url = m.mock.calls[0]![0] as string
-      expect(url).toContain('release%20main.yml')
+      expect(m).toHaveBeenCalledWith(expect.stringContaining('release%20main.yml'), expect.any(Object))
     })
 
     it('returns "No workflow runs found" for empty list', async () => {
@@ -598,8 +590,7 @@ describe('GitHubClient — new W19 methods', () => {
       const m = mockFetch({ check_runs: [] })
       const client = new GitHubClient({ token: 'tok' })
       await client.getPRChecks('o', 'r', 'abc123')
-      const url = m.mock.calls[0]![0] as string
-      expect(url).toContain('/repos/o/r/commits/abc123/check-runs')
+      expect(m).toHaveBeenCalledWith(expect.stringContaining('/repos/o/r/commits/abc123/check-runs'), expect.any(Object))
     })
 
     it('throws GitHubApiError on failure', async () => {
@@ -614,8 +605,8 @@ describe('GitHubClient — new W19 methods', () => {
       const m = mockFetch([{ name: 'bug' }])
       const client = new GitHubClient({ token: 'tok' })
       await client.addLabels('o', 'r', 1, ['bug'])
+      expect(m).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: 'POST' }))
       const init = m.mock.calls[0]![1] as RequestInit
-      expect(init.method).toBe('POST')
       const body = JSON.parse(init.body as string) as Record<string, unknown>
       expect(body['labels']).toEqual(['bug'])
     })
@@ -633,10 +624,10 @@ describe('GitHubClient — new W19 methods', () => {
       const m = mockFetch([])
       const client = new GitHubClient({ token: 'tok' })
       await client.removeLabel('o', 'r', 1, 'priority high')
-      const init = m.mock.calls[0]![1] as RequestInit
-      expect(init.method).toBe('DELETE')
-      const url = m.mock.calls[0]![0] as string
-      expect(url).toContain('/labels/priority%20high')
+      expect(m).toHaveBeenCalledWith(
+        expect.stringContaining('/labels/priority%20high'),
+        expect.objectContaining({ method: 'DELETE' }),
+      )
     })
 
     it('throws GitHubApiError on 404', async () => {
@@ -651,8 +642,8 @@ describe('GitHubClient — new W19 methods', () => {
       const m = mockFetch({ id: 1, body: 'x' })
       const client = new GitHubClient({ token: 'tok' })
       await client.createReviewComment('o', 'r', 5, 'comment', 'file.ts', 10)
+      expect(m).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: 'POST' }))
       const init = m.mock.calls[0]![1] as RequestInit
-      expect(init.method).toBe('POST')
       const body = JSON.parse(init.body as string) as Record<string, unknown>
       expect(body['body']).toBe('comment')
       expect(body['path']).toBe('file.ts')
@@ -675,25 +666,22 @@ describe('GitHubClient — new W19 methods', () => {
       const m = mockFetch({ workflow_runs: [] })
       const client = new GitHubClient({ token: 'tok' })
       await client.getWorkflowRuns('o', 'r')
-      const url = m.mock.calls[0]![0] as string
-      expect(url).toContain('/repos/o/r/actions/runs')
-      expect(url).not.toContain('/workflows/')
+      expect(m).toHaveBeenCalledWith(expect.stringContaining('/repos/o/r/actions/runs'), expect.any(Object))
+      expect(m).not.toHaveBeenCalledWith(expect.stringContaining('/workflows/'), expect.any(Object))
     })
 
     it('hits per-workflow endpoint when workflow_id is a string', async () => {
       const m = mockFetch({ workflow_runs: [] })
       const client = new GitHubClient({ token: 'tok' })
       await client.getWorkflowRuns('o', 'r', 'ci.yml')
-      const url = m.mock.calls[0]![0] as string
-      expect(url).toContain('/actions/workflows/ci.yml/runs')
+      expect(m).toHaveBeenCalledWith(expect.stringContaining('/actions/workflows/ci.yml/runs'), expect.any(Object))
     })
 
     it('hits per-workflow endpoint when workflow_id is a number', async () => {
       const m = mockFetch({ workflow_runs: [] })
       const client = new GitHubClient({ token: 'tok' })
       await client.getWorkflowRuns('o', 'r', 12345)
-      const url = m.mock.calls[0]![0] as string
-      expect(url).toContain('/actions/workflows/12345/runs')
+      expect(m).toHaveBeenCalledWith(expect.stringContaining('/actions/workflows/12345/runs'), expect.any(Object))
     })
 
     it('throws GitHubApiError on 404', async () => {

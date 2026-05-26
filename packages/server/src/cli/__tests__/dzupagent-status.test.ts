@@ -27,7 +27,9 @@ const spies = {
   readFile: vi.fn(),
 }
 
-vi.mock('@dzupagent/agent-adapters', () => {
+// The `status` command imports its loaders from the `/dzupagent` subpath
+// (see DZUPAGENT-ARCH-MED-03), so the mock targets that subpath.
+vi.mock('@dzupagent/agent-adapters/dzupagent', () => {
   // Assign fresh vi.fn() instances into the shared container.
   spies.resolve = vi.fn().mockResolvedValue({ projectDir: '/fake/project' })
   spies.loadSkills = vi.fn().mockResolvedValue([{}, {}])

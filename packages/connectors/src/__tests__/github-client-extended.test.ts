@@ -156,8 +156,7 @@ describe('GitHubClient — extended', () => {
       const client = new GitHubClient({ token: 'tok' })
       await client.listIssues('org', 'repo')
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('per_page=30')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('per_page=30'), expect.any(Object))
     })
 
     it('passes page parameter for pagination', async () => {
@@ -213,8 +212,7 @@ describe('GitHubClient — extended', () => {
       const client = new GitHubClient({ token: 'tok' })
       await client.listPRs('org', 'repo')
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('per_page=30')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('per_page=30'), expect.any(Object))
     })
   })
 
@@ -224,8 +222,7 @@ describe('GitHubClient — extended', () => {
       const client = new GitHubClient({ token: 'tok' })
       await client.getPR('org', 'repo', 42)
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('/repos/org/repo/pulls/42')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('/repos/org/repo/pulls/42'), expect.any(Object))
     })
   })
 
@@ -235,10 +232,11 @@ describe('GitHubClient — extended', () => {
       const client = new GitHubClient({ token: 'tok' })
       await client.createPR('org', 'repo', 'Title', 'Body', 'feat-branch', 'main')
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('/repos/org/repo/pulls')
+      expect(mock).toHaveBeenCalledWith(
+        expect.stringContaining('/repos/org/repo/pulls'),
+        expect.objectContaining({ method: 'POST' }),
+      )
       const calledInit = mock.mock.calls[0]![1] as RequestInit
-      expect(calledInit.method).toBe('POST')
       const body = JSON.parse(calledInit.body as string) as Record<string, unknown>
       expect(body['title']).toBe('Title')
       expect(body['body']).toBe('Body')
@@ -277,8 +275,7 @@ describe('GitHubClient — extended', () => {
       const client = new GitHubClient({ token: 'tok' })
       await client.listPRReviews('org', 'repo', 7)
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('/repos/org/repo/pulls/7/reviews')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('/repos/org/repo/pulls/7/reviews'), expect.any(Object))
     })
   })
 
@@ -319,8 +316,7 @@ describe('GitHubClient — extended', () => {
       expect(commit.sha).toBe('deadbeef')
       expect(commit.commit.message).toBe('fix: bug')
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('/repos/org/repo/commits/deadbeef')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('/repos/org/repo/commits/deadbeef'), expect.any(Object))
     })
   })
 
@@ -338,9 +334,11 @@ describe('GitHubClient — extended', () => {
       const client = new GitHubClient({ token: 'tok' })
       await client.getContent('org', 'repo', 'README.md')
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('/repos/org/repo/contents/README.md')
-      expect(calledUrl).not.toContain('?ref=')
+      expect(mock).toHaveBeenCalledWith(
+        expect.stringContaining('/repos/org/repo/contents/README.md'),
+        expect.any(Object),
+      )
+      expect(mock).not.toHaveBeenCalledWith(expect.stringContaining('?ref='), expect.any(Object))
     })
 
     it('passes ref as query parameter', async () => {
@@ -354,8 +352,7 @@ describe('GitHubClient — extended', () => {
       const client = new GitHubClient({ token: 'tok' })
       await client.getContent('org', 'repo', 'file.ts', 'v2.0')
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('?ref=v2.0')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('?ref=v2.0'), expect.any(Object))
     })
 
     it('encodes ref with special characters', async () => {
@@ -369,8 +366,7 @@ describe('GitHubClient — extended', () => {
       const client = new GitHubClient({ token: 'tok' })
       await client.getContent('org', 'repo', 'file.ts', 'feat/new thing')
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('?ref=feat%2Fnew%20thing')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('?ref=feat%2Fnew%20thing'), expect.any(Object))
     })
   })
 
@@ -382,10 +378,11 @@ describe('GitHubClient — extended', () => {
       const client = new GitHubClient({ token: 'tok' })
       await client.addComment('org', 'repo', 42, 'Great work!')
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('/repos/org/repo/issues/42/comments')
+      expect(mock).toHaveBeenCalledWith(
+        expect.stringContaining('/repos/org/repo/issues/42/comments'),
+        expect.objectContaining({ method: 'POST' }),
+      )
       const calledInit = mock.mock.calls[0]![1] as RequestInit
-      expect(calledInit.method).toBe('POST')
       const body = JSON.parse(calledInit.body as string) as Record<string, unknown>
       expect(body['body']).toBe('Great work!')
     })
@@ -401,8 +398,7 @@ describe('GitHubClient — extended', () => {
 
       expect(issue.number).toBe(99)
       expect(issue.title).toBe('Bug')
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('/repos/org/repo/issues/99')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('/repos/org/repo/issues/99'), expect.any(Object))
     })
   })
 
@@ -455,8 +451,7 @@ describe('GitHubClient — extended', () => {
       })
       await client.getRepo('org', 'repo')
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toBe('https://git.company.com/api/v3/repos/org/repo')
+      expect(mock).toHaveBeenCalledWith('https://git.company.com/api/v3/repos/org/repo', expect.any(Object))
     })
 
     it('removes trailing slash from base URL gracefully', async () => {
@@ -468,8 +463,7 @@ describe('GitHubClient — extended', () => {
       })
       await client.listBranches('org', 'repo')
 
-      const calledUrl = mock.mock.calls[0]![0] as string
-      expect(calledUrl).toContain('/repos/org/repo/branches')
+      expect(mock).toHaveBeenCalledWith(expect.stringContaining('/repos/org/repo/branches'), expect.any(Object))
     })
   })
 })
