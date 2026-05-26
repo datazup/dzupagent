@@ -67,7 +67,10 @@ class MockNodeSocket extends EventEmitter implements WSClient {
 }
 
 function flushMicrotasks(): Promise<void> {
-  return Promise.resolve()
+  // The node-adapter fires `void manager.handleMessage(...)` which chains multiple
+  // microtask ticks. A setImmediate tick ensures those async hops complete before
+  // we assert on socket.sent.
+  return new Promise((resolve) => setImmediate(resolve))
 }
 
 // ---------------------------------------------------------------------------

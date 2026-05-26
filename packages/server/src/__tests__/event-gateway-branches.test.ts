@@ -8,6 +8,15 @@ import { describe, it, expect } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import { InMemoryEventGateway } from '../events/event-gateway.js'
 
+/**
+ * Flush the microtask queue twice so that queueMicrotask-scheduled drains
+ * in InMemoryEventGateway have a chance to execute.
+ */
+async function flushGatewayDrain(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
 describe('InMemoryEventGateway branch coverage', () => {
   it('uses drop_new overflow strategy and drops incoming events when full', async () => {
     const gateway = new InMemoryEventGateway()
@@ -23,7 +32,7 @@ describe('InMemoryEventGateway branch coverage', () => {
     gateway.publish({ type: 'tool:called', toolName: 'b', input: {} })
     gateway.publish({ type: 'tool:called', toolName: 'c', input: {} })
 
-    await new Promise((r) => setTimeout(r, 10))
+    await flushGatewayDrain()
     // With drop_new and queue size 1, only the first event is kept
     expect(received.length).toBeGreaterThanOrEqual(1)
     expect(received.length).toBeLessThanOrEqual(3)
@@ -43,7 +52,7 @@ describe('InMemoryEventGateway branch coverage', () => {
     gateway.publish({ type: 'tool:called', toolName: 'b', input: {} })
     gateway.publish({ type: 'tool:called', toolName: 'c', input: {} })
 
-    await new Promise((r) => setTimeout(r, 10))
+    await flushGatewayDrain()
     expect(gateway.subscriberCount).toBe(0)
     expect(received).toBeGreaterThanOrEqual(0)
   })
@@ -59,7 +68,7 @@ describe('InMemoryEventGateway branch coverage', () => {
 
     gateway.publish({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
     gateway.publish({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    await new Promise((r) => setTimeout(r, 10))
+    await flushGatewayDrain()
 
     expect(calls).toBe(1)
     expect(gateway.subscriberCount).toBe(0)
@@ -73,7 +82,7 @@ describe('InMemoryEventGateway branch coverage', () => {
 
     gateway.publish({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
     gateway.publish({ type: 'agent:started', agentId: 'a2', runId: 'r1' })
-    await new Promise((r) => setTimeout(r, 10))
+    await flushGatewayDrain()
 
     expect(types).toEqual(['agent:started'])
   })
@@ -87,7 +96,7 @@ describe('InMemoryEventGateway branch coverage', () => {
     gateway.publish({ type: 'agent:started', agentId: 'a1', runId: 'r2' })
     gateway.publish({ type: 'agent:started', agentId: 'a2', runId: 'r1' })
     gateway.publish({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    await new Promise((r) => setTimeout(r, 10))
+    await flushGatewayDrain()
 
     expect(types).toHaveLength(1)
   })
@@ -101,7 +110,7 @@ describe('InMemoryEventGateway branch coverage', () => {
     })
 
     gateway.publish({ type: 'tool:called', toolName: 'x', input: {} })
-    await new Promise((r) => setTimeout(r, 10))
+    await flushGatewayDrain()
 
     expect(envelopes).toHaveLength(1)
     expect(envelopes[0]?.runId).toBeUndefined()
@@ -130,7 +139,7 @@ describe('InMemoryEventGateway branch coverage', () => {
     gateway.subscribe({}, (env) => { received.push(env.type) })
 
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
-    await new Promise((r) => setTimeout(r, 10))
+    await flushGatewayDrain()
     expect(received).toHaveLength(1)
 
     gateway.destroy()
@@ -138,7 +147,7 @@ describe('InMemoryEventGateway branch coverage', () => {
 
     // Post-destroy events should not produce subscriptions
     bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'r2' })
-    await new Promise((r) => setTimeout(r, 10))
+    await flushGatewayDrain()
     expect(received).toHaveLength(1)
   })
 
@@ -154,7 +163,7 @@ describe('InMemoryEventGateway branch coverage', () => {
 
     gateway.publish({ type: 'agent:started', agentId: 'a1', runId: 'r1' })
     gateway.publish({ type: 'agent:started', agentId: 'a1', runId: 'r2' })
-    await new Promise((r) => setTimeout(r, 10))
+    await flushGatewayDrain()
 
     // First event dequeues and triggers unsubscribe; further iterations are skipped.
     expect(received.length).toBeGreaterThanOrEqual(1)
@@ -177,7 +186,7 @@ describe('InMemoryEventGateway branch coverage', () => {
 
     gateway.publish({ type: 'tool:called', toolName: 'a', input: {} })
     gateway.publish({ type: 'tool:called', toolName: 'b', input: {} })
-    await new Promise((r) => setTimeout(r, 10))
+    await flushGatewayDrain()
 
     expect(received.length).toBeGreaterThanOrEqual(1)
   })
