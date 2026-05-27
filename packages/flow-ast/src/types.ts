@@ -246,6 +246,8 @@ export type LoopNode = FlowNodeBase & {
   body: FlowNode[]
   /** Maximum iterations (default 100, prevents infinite loops). */
   maxIterations?: number
+  /** State key of the worker step whose answer is monitored for no-progress stall detection. */
+  progressKey?: string
 }
 /** Lightweight HTTP action node — calls an external URL without a registered skill. */
 export type HttpNode = FlowNodeBase & {
