@@ -52,6 +52,7 @@ export interface AgentToolCallEvent {
   type: 'adapter:tool_call'
   providerId: AdapterProviderId
   toolName: string
+  toolCallId?: string | undefined
   input: unknown
   timestamp: number
   /** Correlation ID from the originating request */
@@ -62,6 +63,7 @@ export interface AgentToolResultEvent {
   type: 'adapter:tool_result'
   providerId: AdapterProviderId
   toolName: string
+  toolCallId?: string | undefined
   output: string
   durationMs: number
   timestamp: number

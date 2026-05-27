@@ -4,6 +4,8 @@ import type {
   AdapterConfig,
   AdapterProviderId,
   AgentInput,
+  AgentToolCallEvent,
+  AgentToolResultEvent,
   HealthStatus,
   SessionInfo,
   TokenUsage,
@@ -106,5 +108,49 @@ describe('adapter-types public surface', () => {
     expect(health.healthy).toBe(true)
     expect(session.providerId).toBe('claude')
     expect(usage.inputTokens).toBe(42)
+  })
+
+  it('keeps tool call/result events backward-compatible when toolCallId is omitted', () => {
+    const toolCallEvent: AgentToolCallEvent = {
+      type: 'adapter:tool_call',
+      providerId: 'claude',
+      toolName: 'search_docs',
+      input: { q: 'contract widening' },
+      timestamp: 1,
+    }
+    const toolResultEvent: AgentToolResultEvent = {
+      type: 'adapter:tool_result',
+      providerId: 'claude',
+      toolName: 'search_docs',
+      output: 'ok',
+      durationMs: 2,
+      timestamp: 3,
+    }
+
+    expect('toolCallId' in toolCallEvent).toBe(false)
+    expect('toolCallId' in toolResultEvent).toBe(false)
+  })
+
+  it('passes through explicit toolCallId for tool call/result events', () => {
+    const toolCallEvent: AgentToolCallEvent = {
+      type: 'adapter:tool_call',
+      providerId: 'claude',
+      toolName: 'search_docs',
+      toolCallId: 'call_123',
+      input: { q: 'identity' },
+      timestamp: 10,
+    }
+    const toolResultEvent: AgentToolResultEvent = {
+      type: 'adapter:tool_result',
+      providerId: 'claude',
+      toolName: 'search_docs',
+      toolCallId: 'call_123',
+      output: 'done',
+      durationMs: 5,
+      timestamp: 15,
+    }
+
+    expect(toolCallEvent.toolCallId).toBe('call_123')
+    expect(toolResultEvent.toolCallId).toBe('call_123')
   })
 })
