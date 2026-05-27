@@ -212,6 +212,36 @@ describe('AgentMemoryContextLoader', () => {
     )
   })
 
+  it('emits a console.warn when standard prompt memory search rejects', async () => {
+    const memory = {
+      get: vi.fn(async () => [{ text: 'fallback fact' }]),
+      search: vi.fn(async () => {
+        throw new Error('quota exceeded')
+      }),
+      formatForPrompt: vi.fn((records: Array<Record<string, unknown>>) =>
+        records.length === 0 ? '' : `## Memory Context\n- ${String(records[0]?.['text'] ?? '')}`),
+    }
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base instructions',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      estimateConversationTokens: () => 42,
+    })
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await loader.load([new HumanMessage('find the auth token rule')])
+
+      expect(warnSpy).toHaveBeenCalledOnce()
+      const [warnMsg] = warnSpy.mock.calls[0] as [string]
+      expect(warnMsg).toContain('quota exceeded')
+      expect(warnMsg).toContain('memory.get()')
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
   it('preserves search result order under tight standard memory bounds', async () => {
     const now = Date.now()
     const relevant = {

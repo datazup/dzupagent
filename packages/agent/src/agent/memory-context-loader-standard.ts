@@ -81,9 +81,13 @@ async function loadStandardMemoryRecords(
         ),
         queryRanked: true,
       }
-    } catch {
+    } catch (err) {
       // Preserve legacy non-fatal behavior by falling back to broad scoped
       // recall when a search-capable memory service rejects.
+      const message = err instanceof Error ? err.message : String(err)
+      console.warn(
+        `[memory-context-loader] searchableMemory.search() failed: ${message}. Falling back to memory.get().`,
+      )
     }
   }
 
