@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
 
@@ -159,6 +159,56 @@ describe('MCPToolSharingBridge', () => {
 
       expect('systemPromptTools' in qwenConfig).toBe(true)
       expect('systemPromptTools' in crushConfig).toBe(true)
+    })
+
+    describe('mcpMode discriminator', () => {
+      let warnSpy: ReturnType<typeof vi.spyOn>
+
+      beforeEach(() => {
+        warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      })
+
+      afterEach(() => {
+        warnSpy.mockRestore()
+      })
+
+      it('marks claude config as native MCP', () => {
+        const config = bridge.buildAdapterToolConfig('claude')
+
+        expect(config.mcpMode).toBe('native')
+      })
+
+      it('marks codex config as native MCP (dynamic tools)', () => {
+        const config = bridge.buildAdapterToolConfig('codex')
+
+        expect(config.mcpMode).toBe('native')
+      })
+
+      it('does not warn for native providers', () => {
+        bridge.buildAdapterToolConfig('claude')
+        bridge.buildAdapterToolConfig('codex')
+
+        expect(warnSpy).not.toHaveBeenCalled()
+      })
+
+      it.each(['gemini', 'qwen', 'goose', 'crush'] as const)(
+        'marks %s config as system-prompt-fallback',
+        (providerId) => {
+          const config = bridge.buildAdapterToolConfig(providerId)
+
+          expect(config.mcpMode).toBe('system-prompt-fallback')
+        },
+      )
+
+      it('warns when falling back to system-prompt injection', () => {
+        bridge.buildAdapterToolConfig('gemini')
+
+        expect(warnSpy).toHaveBeenCalledTimes(1)
+        const message = String(warnSpy.mock.calls[0]![0])
+        expect(message).toContain('[MCPToolSharingBridge]')
+        expect(message).toContain('gemini')
+        expect(message).toContain('system-prompt-fallback')
+      })
     })
   })
 
