@@ -6,13 +6,17 @@ import type {
   AgentCLIAdapter,
   AdapterCapabilityProfile,
   AgentEvent,
+  AgentStreamEvent,
   AgentInput,
   GovernanceEvent,
   HealthStatus,
   AdapterMonitorStatus,
   InteractionPolicy,
+  ProviderRawStreamEvent,
+  RawAgentEvent,
 } from '../types.js'
 import { withCorrelationId } from '../types.js'
+import type { RunEventStore } from '../runs/run-event-store.js'
 import { isBinaryAvailable, spawnAndStreamJsonl } from '../utils/process-helpers.js'
 import type { SpawnJsonlOptions } from '../utils/process-helpers.js'
 import { InteractionResolver } from '../interaction/interaction-resolver.js'
@@ -60,11 +64,30 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   private readonly governance: GovernanceEmitter
   private readonly artifactWatcherHost: ArtifactWatcherHost
 
+  /**
+   * Optional per-run event store. When attached, every raw provider event
+   * processed by the CLI stream is persisted to `raw-events.jsonl` (alongside
+   * the live `adapter:provider_raw` emission). Wire via {@link setRunStore}.
+   */
+  private runStore: RunEventStore | null = null
+
   constructor(providerId: AdapterProviderId, config: AdapterConfig = {}) {
     this.providerId = providerId
     this.config = { ...config }
     this.governance = new GovernanceEmitter(providerId)
     this.artifactWatcherHost = new ArtifactWatcherHost(providerId)
+  }
+
+  /**
+   * Attach (or clear) the {@link RunEventStore} used to persist raw provider
+   * events for the current run. Pass `null` to detach. Persistence is
+   * best-effort — store-side errors never break the adapter stream.
+   *
+   * Codex maintains its own raw channel via the SDK loop, so this CLI-level
+   * persistence path is intentionally inert for the `codex` provider.
+   */
+  setRunStore(store: RunEventStore | null): void {
+    this.runStore = store
   }
 
   onGovernanceEvent(listener: (event: GovernanceEvent) => void): () => void {
@@ -93,6 +116,17 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   }
 
   async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+    // Drop the side-channel raw events; execute() yields only normalized events.
+    for await (const event of this.executeWithRaw(input)) {
+      if (event.type !== 'adapter:provider_raw') {
+        yield event
+      }
+    }
+  }
+
+  async *executeWithRaw(
+    input: AgentInput,
+  ): AsyncGenerator<AgentStreamEvent, void, undefined> {
     const sessionId = randomUUID()
     const startTime = Date.now()
     const runIdForContext = input.correlationId ?? sessionId
@@ -110,6 +144,14 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     const policy = this.resolveInteractionPolicy(input)
     const resolver = policy.mode !== 'auto-approve' ? new InteractionResolver(policy) : null
     const pendingEvents: AgentEvent[] = []
+
+    // Raw provider events captured per record by mapRawEvent and drained into
+    // the outer stream immediately before the normalized events of the same
+    // record. Codex maintains its own raw channel, so we skip CLI-level raw
+    // emission for that provider to avoid double-emitting.
+    const emitsRaw = this.providerId !== 'codex'
+    const pendingRawEvents: ProviderRawStreamEvent[] = []
+    let rawOrdinal = 0
 
     // Per-run mutable state consumed by the AdapterStreamSource methods.
     let hasCompleted = false
@@ -152,6 +194,27 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         const events: AgentEvent[] = []
         for (const evt of pendingEvents.splice(0)) events.push(evt)
 
+        // Capture + persist the raw provider event (non-Codex providers only).
+        // The runner only yields AgentEvents, so we buffer the side-channel
+        // ProviderRawStreamEvent here and drain it in the outer loop right
+        // before this record's normalized events.
+        if (emitsRaw) {
+          const rawEvent: RawAgentEvent = {
+            providerId: adapter.providerId,
+            runId: runIdForContext,
+            sessionId,
+            providerEventId: `${adapter.providerId}:${sessionId}:${rawOrdinal}`,
+            timestamp: Date.now(),
+            source: 'stdout',
+            payload: record,
+            ...(input.correlationId ? { correlationId: input.correlationId } : {}),
+          }
+          rawOrdinal += 1
+          pendingRawEvents.push({ type: 'adapter:provider_raw', rawEvent })
+          // Best-effort persistence — store-side errors never break the stream.
+          void adapter.runStore?.appendRaw(rawEvent)
+        }
+
         // Emit governance:hook_executed for recognized hook records.
         adapter.governance.emitHookExecutedIfRecognized(record, {
           runId: input.correlationId ?? sessionId,
@@ -186,6 +249,11 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       // Track whether the runner emitted its own adapter:failed (from its
       // catch path) so we can suppress the synthetic adapter:completed.
       for await (const event of runner.run(source, input, input.signal)) {
+        // Drain raw events captured for the just-processed record so each
+        // adapter:provider_raw is emitted immediately before that record's
+        // normalized event(s).
+        for (const raw of pendingRawEvents.splice(0)) yield raw
+
         if (event.type === 'adapter:failed') {
           hasFailed = true
           // Re-emit the runner's adapter:failed but normalize the error code
@@ -205,7 +273,10 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         yield event
       }
 
-      // Flush any pending events emitted by the resolver after the stream ended.
+      // Flush raw events captured for records that produced no normalized
+      // events (e.g. governance-only records or records mapProviderEvent
+      // skipped), then any resolver events emitted after the stream ended.
+      for (const raw of pendingRawEvents.splice(0)) yield raw
       for (const evt of pendingEvents.splice(0)) yield evt
 
       // Synthesise adapter:completed when the stream ended without a terminal.

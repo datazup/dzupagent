@@ -7,7 +7,7 @@
  */
 
 export { WorkspaceResolver } from './workspace-resolver.js'
-export { loadDzupAgentConfig, getCodexMemoryStrategy, getMaxMemoryTokens } from './config.js'
+export { loadDzupAgentConfig, loadConfig, getCodexMemoryStrategy, getMaxMemoryTokens } from './config.js'
 export { parseMarkdownFile } from './md-frontmatter-parser.js'
 export type { ParsedFrontmatter, ParsedSection, ParsedMarkdownFile, FrontmatterValue } from './md-frontmatter-parser.js'
 export { DzupAgentFileLoader } from './file-loader.js'

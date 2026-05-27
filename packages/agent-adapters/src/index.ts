@@ -508,6 +508,7 @@ export type { BatchConfig } from './utils/batched-event-emitter.js'
 export {
   WorkspaceResolver,
   loadDzupAgentConfig,
+  loadConfig,
   getCodexMemoryStrategy,
   getMaxMemoryTokens,
   parseMarkdownFile,

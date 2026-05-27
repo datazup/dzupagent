@@ -61,6 +61,13 @@ export class ArtifactWatcherHost {
   private watcher: ArtifactWatcherHandle | null = null
   private factory: ArtifactWatcherFactory | null = null
   private status: AdapterMonitorStatus
+  /**
+   * Tracks whether a watcher handle has ever been successfully created via
+   * {@link start}. Used by {@link watcherActivationStatus} to distinguish a
+   * watcher that was started and then stopped (`'stopped'`) from one that has
+   * never run (`'not_configured'`).
+   */
+  private watcherStarted = false
 
   constructor(private readonly providerId: AdapterProviderId) {
     this.status = getDefaultMonitorStatus(providerId)
@@ -69,6 +76,10 @@ export class ArtifactWatcherHost {
   /**
    * Wire an artifact-watcher factory. Passing `null` clears the wiring.
    * The current monitor status is recomputed to reflect the change.
+   *
+   * Host integration responsibility — this must be called at application
+   * startup. Until called, {@link watcherActivationStatus} returns
+   * `'not_configured'`.
    */
   setFactory(factory: ArtifactWatcherFactory | null): void {
     this.factory = factory
@@ -78,6 +89,21 @@ export class ArtifactWatcherHost {
   /** Returns a defensive copy of the current monitor status. */
   getStatus(): AdapterMonitorStatus {
     return { ...this.status }
+  }
+
+  /**
+   * Coarse-grained lifecycle view of the watcher, independent of the richer
+   * {@link AdapterMonitorStatus} state machine:
+   *
+   * - `'not_configured'` — no factory has been wired (or none has been wired
+   *   and no watcher has ever been started).
+   * - `'active'` — a watcher handle is currently running.
+   * - `'stopped'` — a watcher was started and has since been stopped.
+   */
+  watcherActivationStatus(): 'active' | 'not_configured' | 'stopped' {
+    if (this.watcher) return 'active'
+    if (this.watcherStarted) return 'stopped'
+    return 'not_configured'
   }
 
   /**
@@ -111,6 +137,7 @@ export class ArtifactWatcherHost {
     }
     try {
       this.watcher = this.factory(paths, this.providerId)
+      this.watcherStarted = true
       this.status = {
         ...this.monitorBase(),
         state: 'active',
