@@ -13,6 +13,9 @@ import {
 } from '../facade/orchestrator-facade.js'
 import { AdapterApprovalGate } from '../approval/adapter-approval.js'
 import { AdapterGuardrails } from '../guardrails/adapter-guardrails.js'
+import { OpenAIAdapter } from '../openai/openai-adapter.js'
+import { ToolSpanTracker } from '../observability/tool-span-tracker.js'
+import type { TraceSpan } from '../observability/trace-types.js'
 import type { AdapterPolicy } from '../policy/policy-compiler.js'
 import type {
   AdapterProviderId,
@@ -205,6 +208,33 @@ function createPolicyCapturingRawAdapter(
     getCapturedInput: () => capturedInput,
     configureSpy,
   }
+}
+
+function createSSEStream(lines: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder()
+  const payload = lines.join('\n') + '\n'
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(payload))
+      controller.close()
+    },
+  })
+}
+
+function mockFetchResponse(
+  body: ReadableStream<Uint8Array>,
+  status = 200,
+  ok = true,
+): Response {
+  return {
+    ok,
+    status,
+    statusText: ok ? 'OK' : 'Error',
+    body,
+    text: () => Promise.resolve(''),
+    json: () => Promise.resolve({}),
+    headers: new Headers(),
+  } as unknown as Response
 }
 
 // ---------------------------------------------------------------------------
@@ -654,6 +684,62 @@ describe('OrchestratorFacade', () => {
       expect(events.map((event) => event.type)).toContain('adapter:provider_raw')
       expect(events.map((event) => event.type)).toContain('adapter:completed')
       expect(facade.getCostReport()?.totalCostCents ?? 0).toBeGreaterThan(0)
+    })
+
+    it('roundtrip: toolCallId propagates through adapter emit and consume', async () => {
+      const sseLines = [
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"test-id-123","type":"function","function":{"name":"lookup","arguments":"{\\"query\\":\\"dzupagent\\"}"}}]}}]}',
+        'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}',
+        'data: [DONE]',
+      ]
+      const fetchMock = vi.fn().mockResolvedValue(mockFetchResponse(createSSEStream(sseLines)))
+      vi.stubGlobal('fetch', fetchMock)
+
+      try {
+        const openaiAdapter = new OpenAIAdapter({ apiKey: 'k' })
+        const facade = createOrchestrator({
+          adapters: [openaiAdapter],
+          eventBus: bus,
+        })
+
+        const events: AgentStreamEvent[] = []
+        for await (const event of facade.chatWithRaw('Run lookup', { provider: 'openai' })) {
+          events.push(event)
+        }
+
+        const toolCall = events.find((event): event is Extract<AgentEvent, { type: 'adapter:tool_call' }> =>
+          event.type === 'adapter:tool_call',
+        )
+        expect(toolCall).toBeDefined()
+        expect(toolCall?.toolCallId).toBe('test-id-123')
+
+        const toolResult: Extract<AgentEvent, { type: 'adapter:tool_result' }> = {
+          type: 'adapter:tool_result',
+          providerId: 'openai',
+          toolName: 'lookup',
+          toolCallId: 'test-id-123',
+          output: '{"ok":true}',
+          durationMs: 8,
+          timestamp: Date.now(),
+        }
+
+        const tracker = new ToolSpanTracker()
+        const span: TraceSpan = {
+          traceId: 'trace-1',
+          spanId: 'span-1',
+          name: 'tool.lookup',
+          startTime: Date.now(),
+          status: 'unset',
+          attributes: {},
+          events: [],
+        }
+
+        tracker.add(toolCall!, span)
+        const consumed = tracker.take(toolResult)
+        expect(consumed).toBe(span)
+      } finally {
+        vi.unstubAllGlobals()
+      }
     })
 
     it('applies guardrails without dropping provider raw events emitted before the violation', async () => {

@@ -50,7 +50,7 @@ It does **not** parse raw provider wire formats.
 ## Facade vs Adapter
 
 - **Adapter**: a provider implementation (`OpenAIAdapter`, `ClaudeAdapter`, etc.) that turns provider-native streams into unified events.
-- **Facade**: orchestration entrypoint (`OrchestratorFacade`) that routes requests through registry + pipeline + session handling and yields streamed events.
+- **Facade**: orchestration entrypoint (`packages/agent-adapters/src/facade/orchestrator-facade.ts`) that routes requests through registry + pipeline + session handling and yields streamed events.
 
 In practice:
 1. `OrchestratorFacade.chatWithRaw(...)` delegates to `executeChatWithRaw(...)`.
@@ -144,6 +144,16 @@ ToolSpanTracker.take(tool_result)
 - Finalize app-facing/facade contract for tool result ingestion semantics.
 - Lock down any additional API shape needed for first-class tool loop handling beyond event-level parity.
 - Keep provider-specific parsing in adapters; keep orchestration policy and UX semantics above the adapter boundary.
+
+## Code References
+
+- `packages/agent-adapters/src/openai/openai-tool-calls.ts`
+  - `OpenAIToolCallAccumulator.flush(...)` is the adapter emit path for normalized `adapter:tool_call` events.
+  - The emitted object includes `toolCallId: call.id` when OpenAI provides an ID.
+- `packages/agent-adapters/src/facade/orchestrator-facade.ts`
+  - `OrchestratorFacade.chatWithRaw(...)` is the facade stream entrypoint that preserves adapter-emitted events.
+- `packages/agent-adapters/src/__tests__/orchestrator-facade.test.ts`
+  - `roundtrip: toolCallId propagates through adapter emit and consume` proves tool-call/tool-result correlation through the facade path.
 
 ## Contributor guidance
 
