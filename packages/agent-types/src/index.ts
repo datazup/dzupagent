@@ -6,19 +6,19 @@
  * `@dzupagent/*` package to keep it at the bottom of the dependency graph.
  */
 
-export type { StuckDetectorConfig } from './guardrails.js'
-export type { RetryPolicy } from './retry.js'
+export type { StuckDetectorConfig } from "./guardrails.js";
+export type { RetryPolicy } from "./retry.js";
 export type {
   ToolScope,
   ToolPermissionEntry,
   ToolPermissionPolicy,
-} from './tool-permission.js'
+} from "./tool-permission.js";
 export type {
   BaseSupervisorContract,
   BaseMapReduceContract,
   BaseContractNetContract,
   BaseTeamCoordinationContract,
-} from './orchestration-contracts.js'
+} from "./orchestration-contracts.js";
 export type {
   MemoryClient,
   MemoryScope,
@@ -29,4 +29,6 @@ export type {
   ReadContext,
   WriteContext,
   CancellationSignal,
-} from './memory-client.js'
+} from "./memory-client.js";
+
+export * from "./orchestration/fleet/index.js";

@@ -31,7 +31,7 @@ describe("Executor interface", () => {
       knowledgeHandle: {} as never,
       mailboxAddress: "m",
       config: {},
-    } as WorkerSpec);
+    } as unknown as WorkerSpec);
     const outcome = await h.wait();
     expect(outcome.state).toBe("completed");
   });

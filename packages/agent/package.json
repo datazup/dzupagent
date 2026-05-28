@@ -17,10 +17,6 @@
       "types": "./dist/orchestration.d.ts",
       "import": "./dist/orchestration.js"
     },
-    "./orchestration/fleet": {
-      "types": "./dist/orchestration/fleet/index.d.ts",
-      "import": "./dist/orchestration/fleet/index.js"
-    },
     "./self-correction": {
       "types": "./dist/self-correction.d.ts",
       "import": "./dist/self-correction.js"
