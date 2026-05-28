@@ -10,25 +10,64 @@
     "@jridgewell/gen-mapping" "^0.3.5"
     "@jridgewell/trace-mapping" "^0.3.24"
 
-"@anthropic-ai/claude-agent-sdk@^0.2.98":
-  version "0.2.110"
-  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-agent-sdk/-/claude-agent-sdk-0.2.110.tgz#25bdb9cebdc6cb0c2653d4098c7b7faf102825f8"
-  integrity sha512-pS7QlPcJwQU8a87F8qChKlmnjddt3smUi6X7WvSluD0kzt72jphCe30QmKKXPJnjW3SVHu12cu6SLzfYQrWwHg==
+"@anthropic-ai/claude-agent-sdk-darwin-arm64@0.2.141":
+  version "0.2.141"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-agent-sdk-darwin-arm64/-/claude-agent-sdk-darwin-arm64-0.2.141.tgz#4b7f5e8c506d83072b36f0997c2d4789c15d4268"
+  integrity sha512-9HZ0ot6+FwOfQ1aeMqQLH4IJGMm/DcP08SysDxscVjBm6l2JjqleHohxi3zid0DurfGweqT+4x9GScJffwg55g==
+
+"@anthropic-ai/claude-agent-sdk-darwin-x64@0.2.141":
+  version "0.2.141"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-agent-sdk-darwin-x64/-/claude-agent-sdk-darwin-x64-0.2.141.tgz#4aa7c6b88aa2869731e3812dea99fc8bf77b5c52"
+  integrity sha512-4iAdarJaQ+2R58s6QJswZCzUdz2WQmL5lYG7Y+FLzWbRSROFfcH0QYpmOqSaPXd2KRQhIJwEacqecDZd/Q1XKQ==
+
+"@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.2.141":
+  version "0.2.141"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/-/claude-agent-sdk-linux-arm64-musl-0.2.141.tgz#000bfd50f6f986c05978f8a43427e5dd638bc4cf"
+  integrity sha512-6H1AJ/AVaWNnV22kubUPkOTRzZFH0+qP9k7WlhriHMN9gtgZcVAsITMddDeGjQsQJMCAdhXFd6sgi7TM1LdeOQ==
+
+"@anthropic-ai/claude-agent-sdk-linux-arm64@0.2.141":
+  version "0.2.141"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-agent-sdk-linux-arm64/-/claude-agent-sdk-linux-arm64-0.2.141.tgz#ed657d60e7d961b35c12401102bce3ce3e5a736a"
+  integrity sha512-Jdf0ZEwJzOP8sE6rPqdJN+SxMb0/L8sxJg4twCv/7S+Qzk0hJtls+wxSi+0Tjh6EEMaNxJqEGc7S3fx99Wi99Q==
+
+"@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.2.141":
+  version "0.2.141"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-agent-sdk-linux-x64-musl/-/claude-agent-sdk-linux-x64-musl-0.2.141.tgz#c499300244556606ee544cf96c95142dee966064"
+  integrity sha512-fTI1YuM4cxOa4nSgsyMAdB5ELizkWp+w5Ispo4JnnYtcczMAL4D9GBNjWPW0sUzKvjsJOUVim68SmWLWhUOpXQ==
+
+"@anthropic-ai/claude-agent-sdk-linux-x64@0.2.141":
+  version "0.2.141"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-agent-sdk-linux-x64/-/claude-agent-sdk-linux-x64-0.2.141.tgz#bc7ee4ab38f70ffc2216dd18105003ee9ca55934"
+  integrity sha512-DVjp72f3HmrRYpbneWZZWIqkUht5kTZXS7wXGFiwzLz6eNYEgjjh+GcsnhIi8UOwZUtNiKUrjZnoP38ovFqV8A==
+
+"@anthropic-ai/claude-agent-sdk-win32-arm64@0.2.141":
+  version "0.2.141"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-agent-sdk-win32-arm64/-/claude-agent-sdk-win32-arm64-0.2.141.tgz#81602e3c9afa58cf7e71191aa3f6f39a64e1801e"
+  integrity sha512-Wm10J6kfbufbPGFELokiJ/7Y5Oqug4Uag3HXFsV8g7TWCpaItx/oqVaJoiGptuAtXQB7xGLQVTuk082wER+Y5w==
+
+"@anthropic-ai/claude-agent-sdk-win32-x64@0.2.141":
+  version "0.2.141"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-agent-sdk-win32-x64/-/claude-agent-sdk-win32-x64-0.2.141.tgz#ff99e4a4bf1f11e8666ca188d364c69d155e6365"
+  integrity sha512-IXuP29YJuWbR5Q6xOHrjFVGG54V2s1FC61UVNwEN5fpxL09MwPnbwtQL6fqgzt/U1MP7vWAwpXZriYAklkH/mg==
+
+"@anthropic-ai/claude-agent-sdk@^0.2.141":
+  version "0.2.141"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/claude-agent-sdk/-/claude-agent-sdk-0.2.141.tgz#1c2ae35764a2f7c642970427d6dc2727ed04e1f8"
+  integrity sha512-AIBacMWGcZIUcXlUoObqjwJ6pmJI3BayAqPAFXuvSq3DHJXdiuZVs7l/zTB5l3nRhRv5cqSrI2XbiDeHgZWizw==
   dependencies:
-    "@anthropic-ai/sdk" "^0.81.0"
+    "@anthropic-ai/sdk" "^0.93.0"
     "@modelcontextprotocol/sdk" "^1.29.0"
   optionalDependencies:
-    "@img/sharp-darwin-arm64" "^0.34.2"
-    "@img/sharp-darwin-x64" "^0.34.2"
-    "@img/sharp-linux-arm" "^0.34.2"
-    "@img/sharp-linux-arm64" "^0.34.2"
-    "@img/sharp-linux-x64" "^0.34.2"
-    "@img/sharp-linuxmusl-arm64" "^0.34.2"
-    "@img/sharp-linuxmusl-x64" "^0.34.2"
-    "@img/sharp-win32-arm64" "^0.34.2"
-    "@img/sharp-win32-x64" "^0.34.2"
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64" "0.2.141"
+    "@anthropic-ai/claude-agent-sdk-darwin-x64" "0.2.141"
+    "@anthropic-ai/claude-agent-sdk-linux-arm64" "0.2.141"
+    "@anthropic-ai/claude-agent-sdk-linux-arm64-musl" "0.2.141"
+    "@anthropic-ai/claude-agent-sdk-linux-x64" "0.2.141"
+    "@anthropic-ai/claude-agent-sdk-linux-x64-musl" "0.2.141"
+    "@anthropic-ai/claude-agent-sdk-win32-arm64" "0.2.141"
+    "@anthropic-ai/claude-agent-sdk-win32-x64" "0.2.141"
 
-"@anthropic-ai/sdk@^0.74.0", "@anthropic-ai/sdk@^0.81.0", "@anthropic-ai/sdk@^0.91.1":
+"@anthropic-ai/sdk@^0.74.0", "@anthropic-ai/sdk@^0.91.1", "@anthropic-ai/sdk@^0.93.0":
   version "0.91.1"
   resolved "https://registry.yarnpkg.com/@anthropic-ai/sdk/-/sdk-0.91.1.tgz#09eeee4b12b91ba6d827ca249c2ede61e521aa00"
   integrity sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw==
@@ -1798,100 +1837,6 @@
   resolved "https://registry.yarnpkg.com/@humanwhocodes/retry/-/retry-0.4.3.tgz#c2b9d2e374ee62c586d3adbea87199b1d7a7a6ba"
   integrity sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ==
 
-"@img/sharp-darwin-arm64@^0.34.2":
-  version "0.34.5"
-  resolved "https://registry.yarnpkg.com/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.34.5.tgz#6e0732dcade126b6670af7aa17060b926835ea86"
-  integrity sha512-imtQ3WMJXbMY4fxb/Ndp6HBTNVtWCUI0WdobyheGf5+ad6xX8VIDO8u2xE4qc/fr08CKG/7dDseFtn6M6g/r3w==
-  optionalDependencies:
-    "@img/sharp-libvips-darwin-arm64" "1.2.4"
-
-"@img/sharp-darwin-x64@^0.34.2":
-  version "0.34.5"
-  resolved "https://registry.yarnpkg.com/@img/sharp-darwin-x64/-/sharp-darwin-x64-0.34.5.tgz#19bc1dd6eba6d5a96283498b9c9f401180ee9c7b"
-  integrity sha512-YNEFAF/4KQ/PeW0N+r+aVVsoIY0/qxxikF2SWdp+NRkmMB7y9LBZAVqQ4yhGCm/H3H270OSykqmQMKLBhBJDEw==
-  optionalDependencies:
-    "@img/sharp-libvips-darwin-x64" "1.2.4"
-
-"@img/sharp-libvips-darwin-arm64@1.2.4":
-  version "1.2.4"
-  resolved "https://registry.yarnpkg.com/@img/sharp-libvips-darwin-arm64/-/sharp-libvips-darwin-arm64-1.2.4.tgz#2894c0cb87d42276c3889942e8e2db517a492c43"
-  integrity sha512-zqjjo7RatFfFoP0MkQ51jfuFZBnVE2pRiaydKJ1G/rHZvnsrHAOcQALIi9sA5co5xenQdTugCvtb1cuf78Vf4g==
-
-"@img/sharp-libvips-darwin-x64@1.2.4":
-  version "1.2.4"
-  resolved "https://registry.yarnpkg.com/@img/sharp-libvips-darwin-x64/-/sharp-libvips-darwin-x64-1.2.4.tgz#e63681f4539a94af9cd17246ed8881734386f8cc"
-  integrity sha512-1IOd5xfVhlGwX+zXv2N93k0yMONvUlANylbJw1eTah8K/Jtpi15KC+WSiaX/nBmbm2HxRM1gZ0nSdjSsrZbGKg==
-
-"@img/sharp-libvips-linux-arm64@1.2.4":
-  version "1.2.4"
-  resolved "https://registry.yarnpkg.com/@img/sharp-libvips-linux-arm64/-/sharp-libvips-linux-arm64-1.2.4.tgz#b1b288b36864b3bce545ad91fa6dadcf1a4ad318"
-  integrity sha512-excjX8DfsIcJ10x1Kzr4RcWe1edC9PquDRRPx3YVCvQv+U5p7Yin2s32ftzikXojb1PIFc/9Mt28/y+iRklkrw==
-
-"@img/sharp-libvips-linux-arm@1.2.4":
-  version "1.2.4"
-  resolved "https://registry.yarnpkg.com/@img/sharp-libvips-linux-arm/-/sharp-libvips-linux-arm-1.2.4.tgz#b9260dd1ebe6f9e3bdbcbdcac9d2ac125f35852d"
-  integrity sha512-bFI7xcKFELdiNCVov8e44Ia4u2byA+l3XtsAj+Q8tfCwO6BQ8iDojYdvoPMqsKDkuoOo+X6HZA0s0q11ANMQ8A==
-
-"@img/sharp-libvips-linux-x64@1.2.4":
-  version "1.2.4"
-  resolved "https://registry.yarnpkg.com/@img/sharp-libvips-linux-x64/-/sharp-libvips-linux-x64-1.2.4.tgz#df4183e8bd8410f7d61b66859a35edeab0a531ce"
-  integrity sha512-tJxiiLsmHc9Ax1bz3oaOYBURTXGIRDODBqhveVHonrHJ9/+k89qbLl0bcJns+e4t4rvaNBxaEZsFtSfAdquPrw==
-
-"@img/sharp-libvips-linuxmusl-arm64@1.2.4":
-  version "1.2.4"
-  resolved "https://registry.yarnpkg.com/@img/sharp-libvips-linuxmusl-arm64/-/sharp-libvips-linuxmusl-arm64-1.2.4.tgz#c8d6b48211df67137541007ee8d1b7b1f8ca8e06"
-  integrity sha512-FVQHuwx1IIuNow9QAbYUzJ+En8KcVm9Lk5+uGUQJHaZmMECZmOlix9HnH7n1TRkXMS0pGxIJokIVB9SuqZGGXw==
-
-"@img/sharp-libvips-linuxmusl-x64@1.2.4":
-  version "1.2.4"
-  resolved "https://registry.yarnpkg.com/@img/sharp-libvips-linuxmusl-x64/-/sharp-libvips-linuxmusl-x64-1.2.4.tgz#be11c75bee5b080cbee31a153a8779448f919f75"
-  integrity sha512-+LpyBk7L44ZIXwz/VYfglaX/okxezESc6UxDSoyo2Ks6Jxc4Y7sGjpgU9s4PMgqgjj1gZCylTieNamqA1MF7Dg==
-
-"@img/sharp-linux-arm64@^0.34.2":
-  version "0.34.5"
-  resolved "https://registry.yarnpkg.com/@img/sharp-linux-arm64/-/sharp-linux-arm64-0.34.5.tgz#7aa7764ef9c001f15e610546d42fce56911790cc"
-  integrity sha512-bKQzaJRY/bkPOXyKx5EVup7qkaojECG6NLYswgktOZjaXecSAeCWiZwwiFf3/Y+O1HrauiE3FVsGxFg8c24rZg==
-  optionalDependencies:
-    "@img/sharp-libvips-linux-arm64" "1.2.4"
-
-"@img/sharp-linux-arm@^0.34.2":
-  version "0.34.5"
-  resolved "https://registry.yarnpkg.com/@img/sharp-linux-arm/-/sharp-linux-arm-0.34.5.tgz#5fb0c3695dd12522d39c3ff7a6bc816461780a0d"
-  integrity sha512-9dLqsvwtg1uuXBGZKsxem9595+ujv0sJ6Vi8wcTANSFpwV/GONat5eCkzQo/1O6zRIkh0m/8+5BjrRr7jDUSZw==
-  optionalDependencies:
-    "@img/sharp-libvips-linux-arm" "1.2.4"
-
-"@img/sharp-linux-x64@^0.34.2":
-  version "0.34.5"
-  resolved "https://registry.yarnpkg.com/@img/sharp-linux-x64/-/sharp-linux-x64-0.34.5.tgz#55abc7cd754ffca5002b6c2b719abdfc846819a8"
-  integrity sha512-MEzd8HPKxVxVenwAa+JRPwEC7QFjoPWuS5NZnBt6B3pu7EG2Ge0id1oLHZpPJdn3OQK+BQDiw9zStiHBTJQQQQ==
-  optionalDependencies:
-    "@img/sharp-libvips-linux-x64" "1.2.4"
-
-"@img/sharp-linuxmusl-arm64@^0.34.2":
-  version "0.34.5"
-  resolved "https://registry.yarnpkg.com/@img/sharp-linuxmusl-arm64/-/sharp-linuxmusl-arm64-0.34.5.tgz#d6515ee971bb62f73001a4829b9d865a11b77086"
-  integrity sha512-fprJR6GtRsMt6Kyfq44IsChVZeGN97gTD331weR1ex1c1rypDEABN6Tm2xa1wE6lYb5DdEnk03NZPqA7Id21yg==
-  optionalDependencies:
-    "@img/sharp-libvips-linuxmusl-arm64" "1.2.4"
-
-"@img/sharp-linuxmusl-x64@^0.34.2":
-  version "0.34.5"
-  resolved "https://registry.yarnpkg.com/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.34.5.tgz#d97978aec7c5212f999714f2f5b736457e12ee9f"
-  integrity sha512-Jg8wNT1MUzIvhBFxViqrEhWDGzqymo3sV7z7ZsaWbZNDLXRJZoRGrjulp60YYtV4wfY8VIKcWidjojlLcWrd8Q==
-  optionalDependencies:
-    "@img/sharp-libvips-linuxmusl-x64" "1.2.4"
-
-"@img/sharp-win32-arm64@^0.34.2":
-  version "0.34.5"
-  resolved "https://registry.yarnpkg.com/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.34.5.tgz#3706e9e3ac35fddfc1c87f94e849f1b75307ce0a"
-  integrity sha512-WQ3AgWCWYSb2yt+IG8mnC6Jdk9Whs7O0gxphblsLvdhSpSTtmu69ZG1Gkb6NuvxsNACwiPV6cNSZNzt0KPsw7g==
-
-"@img/sharp-win32-x64@^0.34.2":
-  version "0.34.5"
-  resolved "https://registry.yarnpkg.com/@img/sharp-win32-x64/-/sharp-win32-x64-0.34.5.tgz#a81ffb00e69267cd0a1d626eaedb8a8430b2b2f8"
-  integrity sha512-+29YMsqY2/9eFEiW93eqWnuLcWcufowXewwSNIT6UwZdUUCrM3oFjMWH/Z6/TMmb4hlFenmfAVbpWeup2jryCw==
-
 "@inquirer/ansi@^1.0.2":
   version "1.0.2"
   resolved "https://registry.npmjs.org/@inquirer/ansi/-/ansi-1.0.2.tgz"
@@ -2456,54 +2401,54 @@
     mkdirp "^1.0.4"
     rimraf "^3.0.2"
 
-"@openai/codex-darwin-arm64@npm:@openai/codex@0.133.0-darwin-arm64":
-  version "0.133.0-darwin-arm64"
-  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.133.0-darwin-arm64.tgz#ae255a8f75aa3d071c68f8d6039a28c17c7832e9"
-  integrity sha512-W7f8+DckLujnqGlptKCzgJU+ooeHKMuk6KYgMFP6A9asn7YUsGUgJqjiBaX8oNcXO6w/pTbKGRARx1kCNS8lIg==
+"@openai/codex-darwin-arm64@npm:@openai/codex@0.135.0-darwin-arm64":
+  version "0.135.0-darwin-arm64"
+  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.135.0-darwin-arm64.tgz#f0b224ea11bdf5afd718d9a5e4c870ca9ae45d24"
+  integrity sha512-wpNzssusKfrldVlq39+HyQh1wCyc9SQNpHdAFGKtPenrgRte4Ct8/oVsDtKWuFZsqLBFwbL4MrzrevnB63+9HA==
 
-"@openai/codex-darwin-x64@npm:@openai/codex@0.133.0-darwin-x64":
-  version "0.133.0-darwin-x64"
-  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.133.0-darwin-x64.tgz#a0832131ea4c6e675699b9f81d1748b533e3f0e6"
-  integrity sha512-Ek8ikvLOiXZ8emcIJVBXxK6fm8ratBy0kaEt3JNisTNszxGshUHf/R4xxDxIyKNcUkYYXjW7A/rMwW3iu3OFlg==
+"@openai/codex-darwin-x64@npm:@openai/codex@0.135.0-darwin-x64":
+  version "0.135.0-darwin-x64"
+  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.135.0-darwin-x64.tgz#d81427eaa8f97d7ffe8352fb933483650645608d"
+  integrity sha512-ZrjAqce23lbv9KfkYOhElf1lTI+SysXmyGM0FV5u4+PBCKPkkEs4eaS3H8Uig0i4bUSu1QylrOOCskzYhZ6VyQ==
 
-"@openai/codex-linux-arm64@npm:@openai/codex@0.133.0-linux-arm64":
-  version "0.133.0-linux-arm64"
-  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.133.0-linux-arm64.tgz#30eaa970ac58ff4f32f3542ac6a08bf16e669f64"
-  integrity sha512-uKXYYSJ3mY16sp4hcG/4BMNRjva/ZS4oARiI1+7k8+NiuoAhdCGWNe5u4KJ3sMuL3tp/IXcmc6B56EFX1+WDBQ==
+"@openai/codex-linux-arm64@npm:@openai/codex@0.135.0-linux-arm64":
+  version "0.135.0-linux-arm64"
+  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.135.0-linux-arm64.tgz#f1dc75e2eb0f7f69121bd2c54b1e064da3062e21"
+  integrity sha512-dM+cv5ZL+BgIQzEIvMg9AxZ98n5lkKLgtp5zJLXWSrbCllbnUSqxYMUiWI5c1a1uBDUtkbY9fcGKXFLf+d+gyg==
 
-"@openai/codex-linux-x64@npm:@openai/codex@0.133.0-linux-x64":
-  version "0.133.0-linux-x64"
-  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.133.0-linux-x64.tgz#f7b5aea9d92a11d2ab5b88d7e2c54412eb52bdad"
-  integrity sha512-9YfyqrfUj/UZ2+aXE4zBz47t6RXbVni95ZorGsNh857vxYK/asVpUtR2cymo9lB3JaI4mQaKFfV/t7IRItqkuA==
+"@openai/codex-linux-x64@npm:@openai/codex@0.135.0-linux-x64":
+  version "0.135.0-linux-x64"
+  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.135.0-linux-x64.tgz#f8883fde1d5754c22313dc7b50e17465ad9ae563"
+  integrity sha512-5EosY67yU28UJSnl/obdN2F1CDaimYbzm9SLR8dwwzkeBBnY6dHgAKJ2GTu9Nc8CmgmtVFBGzgPqehsIcueVvA==
 
-"@openai/codex-sdk@^0.133.0":
-  version "0.133.0"
-  resolved "https://registry.yarnpkg.com/@openai/codex-sdk/-/codex-sdk-0.133.0.tgz#b2dfa65beafdfbb522a556d7f31d8abaf2f9ad5c"
-  integrity sha512-PB82D/1Q0C7nzaV5O+1O4y5LcVwiUvxyHvCUTfz8Cwztv6bOWQ40gFHE5ZFX1EFPJx1cMV0GPVODWuXIKAuayQ==
+"@openai/codex-sdk@^0.135.0":
+  version "0.135.0"
+  resolved "https://registry.yarnpkg.com/@openai/codex-sdk/-/codex-sdk-0.135.0.tgz#6681e81e75d23f69107936d5ebb80bfc1430a135"
+  integrity sha512-4FziwR9RmYexAkAUqnWBQRUcFGWpBeBwDJpJKlabnuUXxaKQtBtKMTEYBA27ymn8W6mxxDMmwZC+inw7foFFaA==
   dependencies:
-    "@openai/codex" "0.133.0"
+    "@openai/codex" "0.135.0"
 
-"@openai/codex-win32-arm64@npm:@openai/codex@0.133.0-win32-arm64":
-  version "0.133.0-win32-arm64"
-  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.133.0-win32-arm64.tgz#9decf4d726a946603225878331bc04829f2af4ae"
-  integrity sha512-mRzND0PSGHRoLk0X41GTSoc3tFjZSF4HgDlfjU5fiQcWVi0/kLb7Ku6/tPFT/X2hOLa3YdJkbIcHC0Hc9ni80g==
+"@openai/codex-win32-arm64@npm:@openai/codex@0.135.0-win32-arm64":
+  version "0.135.0-win32-arm64"
+  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.135.0-win32-arm64.tgz#2b625437e36d8b9694cd158746e1030685c1b35d"
+  integrity sha512-SAeR+CUv7KWwE6eTc2UFaFjo6FpHywYfDFKrK6FqLms1rq1NPju2SoX7rhM6UEew/lUx2mdZv/LDs11s/N/Qgg==
 
-"@openai/codex-win32-x64@npm:@openai/codex@0.133.0-win32-x64":
-  version "0.133.0-win32-x64"
-  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.133.0-win32-x64.tgz#6a5c1094380a2308c32962571ea4087cd541618b"
-  integrity sha512-u3ji78DIPZCGJeELuovsAnaZH+vK9gsA4F6M1y+Uy2s80Sz7/i1S0KL81qGReYji3urSjgBpkQuNP47GXOqxrQ==
+"@openai/codex-win32-x64@npm:@openai/codex@0.135.0-win32-x64":
+  version "0.135.0-win32-x64"
+  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.135.0-win32-x64.tgz#2a00f424e34c40fbfee1fa94a47021b5214c7d8c"
+  integrity sha512-uYwUBMbOfmVlCESJZmZsOG+cYwNFYvkMbQ+FB6C1u9RYz0m3mZeYNN0j+l1hRSyUgPMFJHzNpgNx1Usal5QZFQ==
 
-"@openai/codex@0.133.0":
-  version "0.133.0"
-  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.133.0.tgz#279aca2089ddde6b8e93d72c18e358ceab7f91af"
-  integrity sha512-Gh42kLLBo/6gpnHmDzUWDVvyS57ekCB1+1Dz0RG2oIl3Lhk1uwrjSj/PwaJWWh4Rw/rUp1RqkwrMugFfFEOlqQ==
+"@openai/codex@0.135.0":
+  version "0.135.0"
+  resolved "https://registry.yarnpkg.com/@openai/codex/-/codex-0.135.0.tgz#6248523a2616a6ed0881a0d81514a173ef4cedec"
+  integrity sha512-ID75QEYmAT1WsUQmpxPlNsL5W1a+2eeD7fP6ywdwGseiXUG8D5i16L+dzbr8MT+2oTkaVqzOdvAqVOCeV/H/Bw==
   optionalDependencies:
-    "@openai/codex-darwin-arm64" "npm:@openai/codex@0.133.0-darwin-arm64"
-    "@openai/codex-darwin-x64" "npm:@openai/codex@0.133.0-darwin-x64"
-    "@openai/codex-linux-arm64" "npm:@openai/codex@0.133.0-linux-arm64"
-    "@openai/codex-linux-x64" "npm:@openai/codex@0.133.0-linux-x64"
-    "@openai/codex-win32-arm64" "npm:@openai/codex@0.133.0-win32-arm64"
-    "@openai/codex-win32-x64" "npm:@openai/codex@0.133.0-win32-x64"
+    "@openai/codex-darwin-arm64" "npm:@openai/codex@0.135.0-darwin-arm64"
+    "@openai/codex-darwin-x64" "npm:@openai/codex@0.135.0-darwin-x64"
+    "@openai/codex-linux-arm64" "npm:@openai/codex@0.135.0-linux-arm64"
+    "@openai/codex-linux-x64" "npm:@openai/codex@0.135.0-linux-x64"
+    "@openai/codex-win32-arm64" "npm:@openai/codex@0.135.0-win32-arm64"
+    "@openai/codex-win32-x64" "npm:@openai/codex@0.135.0-win32-x64"
 
 "@opentelemetry/api@^1.9.0":
   version "1.9.1"
