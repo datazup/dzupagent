@@ -1,23 +1,23 @@
 import * as path from "node:path";
 
-export function runDir(rootDir: string, runId: string): string {
-  return path.join(rootDir, `run-${runId}`);
+export function scopeDir(rootDir: string, scopeKey: string): string {
+  return path.join(rootDir, scopeKey);
 }
-export function knowledgeDir(rootDir: string, runId: string): string {
-  return path.join(runDir(rootDir, runId), "knowledge");
+export function knowledgeDir(rootDir: string, scopeKey: string): string {
+  return path.join(scopeDir(rootDir, scopeKey), "knowledge");
 }
-export function entriesPath(rootDir: string, runId: string): string {
-  return path.join(knowledgeDir(rootDir, runId), "entries.ndjson");
+export function entriesPath(rootDir: string, scopeKey: string): string {
+  return path.join(knowledgeDir(rootDir, scopeKey), "entries.ndjson");
 }
 export function snapshotPath(
   rootDir: string,
-  runId: string,
+  scopeKey: string,
   kind: string,
   key: string
 ): string {
   const safeKey = key.replace(/[^\w.-]/g, "_");
   return path.join(
-    knowledgeDir(rootDir, runId),
+    knowledgeDir(rootDir, scopeKey),
     "snapshots",
     kind,
     `${safeKey}.json`

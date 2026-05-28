@@ -14,7 +14,7 @@ import { KnowledgeCollisionError } from "@dzupagent/agent-types/fleet";
 import {
   entriesPath,
   knowledgeDir,
-  runDir,
+  scopeDir,
   snapshotPath,
 } from "./knowledge-paths.js";
 
@@ -22,14 +22,14 @@ interface Options {
   rootDir: string;
 }
 
-function parseScope(scope: string): {
-  kind: "run" | "global" | "repo";
-  id: string;
-} {
+// Maps a logical scope string ("run:<id>", "global", "repo:<id>") to a
+// disjoint on-disk directory name. Prefixes prevent collisions between
+// (e.g.) a run literally named "global" and the global scope itself.
+function parseScope(scope: string): string {
   const [k, id] = scope.split(":", 2);
-  if (k === "run" && id) return { kind: "run", id };
-  if (k === "global") return { kind: "global", id: "global" };
-  if (k === "repo" && id) return { kind: "repo", id };
+  if (k === "run" && id) return `run-${id}`;
+  if (k === "global" && !id) return "global";
+  if (k === "repo" && id) return `repo-${id}`;
   throw new Error(`Invalid scope: ${scope}`);
 }
 
@@ -43,18 +43,17 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
   }
 
   async append(scope: string, entry: KnowledgeEnvelope): Promise<KnowledgeRef> {
-    const parsed = parseScope(scope);
-    const rid = parsed.kind === "run" ? parsed.id : parsed.kind;
-    const dir = knowledgeDir(this.rootDir, rid);
+    const scopeKey = parseScope(scope);
+    const dir = knowledgeDir(this.rootDir, scopeKey);
     await fs.mkdir(path.join(dir, "snapshots", entry.kind), {
       recursive: true,
     });
-    const ndjson = entriesPath(this.rootDir, rid);
+    const ndjson = entriesPath(this.rootDir, scopeKey);
     await fs.mkdir(path.dirname(ndjson), { recursive: true });
 
-    const release = await this.lock(rid);
+    const release = await this.lock(scopeKey);
     try {
-      await this.assertNoCollision(rid, entry);
+      await this.assertNoCollision(scope, scopeKey, entry);
       const handle = await fs.open(ndjson, "a");
       try {
         await handle.write(JSON.stringify(entry) + "\n");
@@ -62,7 +61,7 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
       } finally {
         await handle.close();
       }
-      await this.updateSnapshot(rid, entry);
+      await this.updateSnapshot(scopeKey, entry);
     } finally {
       await release();
     }
@@ -76,9 +75,8 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
     kind: KnowledgeKind,
     key: string
   ): Promise<T | null> {
-    const parsed = parseScope(scope);
-    const rid = parsed.kind === "run" ? parsed.id : parsed.kind;
-    const file = snapshotPath(this.rootDir, rid, kind, key);
+    const scopeKey = parseScope(scope);
+    const file = snapshotPath(this.rootDir, scopeKey, kind, key);
     try {
       const buf = await fs.readFile(file, "utf8");
       return JSON.parse(buf) as T;
@@ -93,11 +91,10 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
       throw new Error(
         "filter.scope is required for FilesystemKnowledgeStore.query"
       );
-    const parsed = parseScope(filter.scope);
-    const rid = parsed.kind === "run" ? parsed.id : parsed.kind;
+    const scopeKey = parseScope(filter.scope);
     let raw: string;
     try {
-      raw = await fs.readFile(entriesPath(this.rootDir, rid), "utf8");
+      raw = await fs.readFile(entriesPath(this.rootDir, scopeKey), "utf8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
       throw err;
@@ -129,8 +126,8 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
     };
   }
 
-  private async lock(rid: string): Promise<() => Promise<void>> {
-    const dir = runDir(this.rootDir, rid);
+  private async lock(scopeKey: string): Promise<() => Promise<void>> {
+    const dir = scopeDir(this.rootDir, scopeKey);
     await fs.mkdir(dir, { recursive: true });
     return lockfile.lock(dir, {
       retries: { retries: 50, minTimeout: 5, maxTimeout: 50 },
@@ -138,12 +135,13 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
   }
 
   private async assertNoCollision(
-    rid: string,
+    scope: string,
+    scopeKey: string,
     entry: KnowledgeEnvelope
   ): Promise<void> {
     let raw: string;
     try {
-      raw = await fs.readFile(entriesPath(this.rootDir, rid), "utf8");
+      raw = await fs.readFile(entriesPath(this.rootDir, scopeKey), "utf8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
       throw err;
@@ -157,7 +155,7 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
         e.version === entry.version
       ) {
         throw new KnowledgeCollisionError(
-          `run:${rid}`,
+          scope,
           entry.kind,
           entry.key,
           entry.version
@@ -166,11 +164,14 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
     }
   }
 
+  // NOTE: NDJSON append commits before this; if snapshot write fails, the
+  // entry is still durable in the log. Task 6's snapshot rebuilder restores
+  // the snapshot from the NDJSON, so the asymmetry is recoverable by design.
   private async updateSnapshot(
-    rid: string,
+    scopeKey: string,
     entry: KnowledgeEnvelope
   ): Promise<void> {
-    const file = snapshotPath(this.rootDir, rid, entry.kind, entry.key);
+    const file = snapshotPath(this.rootDir, scopeKey, entry.kind, entry.key);
     let current: KnowledgeEnvelope | null = null;
     try {
       current = JSON.parse(
