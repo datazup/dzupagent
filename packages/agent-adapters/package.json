@@ -88,9 +88,9 @@
     "zod": ">=4.0.0"
   },
   "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.98",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.141",
     "@google/generative-ai": "^0.24.1",
-    "@openai/codex-sdk": "^0.133.0"
+    "@openai/codex-sdk": "^0.135.0"
   },
   "devDependencies": {
     "@langchain/core": "^1.1.39",
