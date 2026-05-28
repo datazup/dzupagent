@@ -124,7 +124,22 @@ export const DEFAULT_MODEL = 'gpt-4o-mini'
 export function defaultOpenAIOutboundPolicy(baseURL: string): OutboundUrlSecurityPolicy | undefined {
   try {
     const parsed = new URL(baseURL)
-    return { allowedHosts: [parsed.host] }
+    const host = parsed.hostname.toLowerCase()
+    const isHttp = parsed.protocol === 'http:'
+    const isPrivate =
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      host === '0.0.0.0' ||
+      host.startsWith('127.') ||
+      host.startsWith('10.') ||
+      host.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[0-1])\./.test(host) ||
+      host === '::1'
+    return {
+      allowedHosts: [host],
+      ...(isHttp ? { allowHttp: true } : {}),
+      ...(isPrivate ? { allowPrivateNetwork: true } : {}),
+    }
   } catch {
     return undefined
   }
