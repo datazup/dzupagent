@@ -38,6 +38,38 @@ describe("InProcessExecutor", () => {
     const outcome = await handle.wait();
     expect(outcome.state).toBe("cancelled");
   });
+
+  it("does not push events into the buffer after cancel closes the iterator", async () => {
+    // The producer IIFE runs its first iteration synchronously on spawn, so
+    // step_start lands in the buffer before cancel() is ever called.
+    // After cancel() calls close(), any events the producer pushes during
+    // subsequent delay cycles must be dropped (push must guard `if (closed)`).
+    //
+    // Observable: consume exactly the first event, then cancel and wait for
+    // the producer to finish all its delay cycles. The buffer must stay at 0
+    // after that — step_done and exit must not accumulate.
+    const exec = new InProcessExecutor({
+      script: [
+        { kind: "step_start", stepId: "s1", at: "t" },
+        { kind: "step_done", stepId: "s1", at: "t" },
+        { kind: "exit", code: 0, reason: null, at: "t" },
+      ],
+      delayMsBetweenEvents: 20,
+    });
+    const handle = await exec.spawn(stubSpec());
+    // Consume step_start, then cancel immediately
+    for await (const e of handle.events) {
+      expect(e.kind).toBe("step_start");
+      void handle.cancel("after-first");
+      break;
+    }
+    await handle.wait();
+    // After the producer has finished all delay cycles, the iterator must be
+    // closed and yield nothing — step_done and exit were dropped by push()
+    const leaked: string[] = [];
+    for await (const e of handle.events) leaked.push(e.kind);
+    expect(leaked).toHaveLength(0);
+  });
 });
 
 function stubSpec(): WorkerSpec {

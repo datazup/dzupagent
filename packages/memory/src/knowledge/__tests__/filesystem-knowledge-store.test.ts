@@ -15,6 +15,38 @@ runKnowledgeStoreContract("FilesystemKnowledgeStore", async () => {
 });
 
 describe("FilesystemKnowledgeStore specifics", () => {
+  it("append is retry-safe when snapshot write fails after NDJSON commit", async () => {
+    const store = new FilesystemKnowledgeStore({ rootDir: tmp });
+    const entry = {
+      id: "i-retry",
+      runId: "r1",
+      repo: null,
+      kind: "finding" as const,
+      key: "k-retry",
+      version: 1,
+      authorWorkerId: null,
+      parentId: null,
+      createdAt: new Date().toISOString(),
+      supersededAt: null,
+      payload: {
+        category: "hotspot" as const,
+        location: "a:1",
+        summary: "",
+        evidence: [],
+        confidence: 1,
+      },
+      tags: [],
+    };
+    // First append succeeds
+    await store.append("run:r1", entry);
+    // Retrying the exact same (scope, kind, key, version) should NOT throw —
+    // it must be idempotent (the entry is already durable)
+    await expect(store.append("run:r1", entry)).resolves.toMatchObject({
+      id: "i-retry",
+      version: 1,
+    });
+  });
+
   it("writes entries.ndjson and a snapshot file", async () => {
     const store = new FilesystemKnowledgeStore({ rootDir: tmp });
     await store.append("run:r1", {

@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { FilesystemKnowledgeStore } from "../filesystem-knowledge-store.js";
 import { rebuildSnapshots } from "../knowledge-snapshot-rebuilder.js";
+import { scopeKeyForRun } from "../knowledge-paths.js";
 
 let tmp: string;
 beforeEach(async () => {
@@ -11,13 +12,28 @@ beforeEach(async () => {
 });
 
 describe("rebuildSnapshots", () => {
+  it("succeeds on a fresh run that has never had any knowledge appended", async () => {
+    await expect(
+      rebuildSnapshots({ rootDir: tmp, runId: "never-written" })
+    ).resolves.toBeUndefined();
+  });
+
+  it("uses scopeKeyForRun() from knowledge-paths consistently with the store", async () => {
+    // scopeKeyForRun must produce the same directory name the store uses for
+    // "run:r1" — if it diverges, rebuilder writes snapshots to the wrong path
+    expect(scopeKeyForRun("r1")).toBe("run-r1");
+  });
+
   it("rebuilds snapshots from NDJSON after they are deleted", async () => {
     const store = new FilesystemKnowledgeStore({ rootDir: tmp });
     await store.append("run:r1", mkFinding("k1", 1));
     await store.append("run:r1", mkFinding("k1", 2));
-    await fs.rm(path.join(tmp, "run-r1", "knowledge", "snapshots"), {
-      recursive: true,
-    });
+    await fs.rm(
+      path.join(tmp, scopeKeyForRun("r1"), "knowledge", "snapshots"),
+      {
+        recursive: true,
+      }
+    );
     await rebuildSnapshots({ rootDir: tmp, runId: "r1" });
     const snap = JSON.parse(
       await fs.readFile(

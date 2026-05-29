@@ -40,4 +40,30 @@ describe("CodexSubprocessExecutor", () => {
     expect(kinds).toContain("exit");
     expect(outcome.state).toBe("completed");
   });
+
+  it("throws when send() receives an unhandled WorkerInbound kind", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "codex-fake-"));
+    const script = path.join(tmp, "hang.js");
+    // A binary that stays alive until stdin closes
+    await fs.writeFile(script, "process.stdin.resume()");
+    const exec = new CodexSubprocessExecutor({
+      command: process.execPath,
+      args: [script],
+    });
+    const handle = await exec.spawn({
+      workerId: "w1",
+      repo: { name: "r", path: tmp },
+      repoPath: tmp,
+      taskBundle: { id: "t", description: "", payload: {}, dependsOn: [] },
+      knowledgeHandle: { store: {} as never, scope: "run:x", repo: "r" },
+      mailboxAddress: "m",
+      config: {},
+    });
+    // contract-update is a valid WorkerInbound variant — must not be silently dropped
+    await expect(
+      handle.send({ kind: "contract-update", surface: "test-surface" })
+    ).rejects.toThrow(/contract-update/);
+    await handle.cancel("cleanup");
+    await handle.wait();
+  });
 });

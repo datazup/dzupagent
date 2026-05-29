@@ -44,4 +44,22 @@ describe("parseCodexLine", () => {
     const line = JSON.stringify({ type: "unknown", detail: "x" });
     expect(parseCodexLine(line)).toBeNull();
   });
+
+  it("maps a non-fatal error event with fatal:false by default", () => {
+    const line = JSON.stringify({ type: "error", message: "oops" });
+    const e = parseCodexLine(line);
+    expect(e?.kind).toBe("error");
+    if (e?.kind === "error") expect(e.fatal).toBe(false);
+  });
+
+  it("forwards fatal:true when the subprocess emits it", () => {
+    const line = JSON.stringify({
+      type: "error",
+      message: "fatal oops",
+      fatal: true,
+    });
+    const e = parseCodexLine(line);
+    expect(e?.kind).toBe("error");
+    if (e?.kind === "error") expect(e.fatal).toBe(true);
+  });
 });
