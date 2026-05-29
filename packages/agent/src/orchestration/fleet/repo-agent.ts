@@ -95,7 +95,9 @@ export class RepoAgent {
       repo: this.deps.repo.name,
       kind: "task-state",
       key: taskId,
-      version: Date.now(),
+      version:
+        Date.now() * 1000 +
+        (Math.abs(this.workerId.charCodeAt(this.workerId.length - 1)) % 1000),
       authorWorkerId: this.workerId,
       parentId: null,
       createdAt: new Date().toISOString(),
