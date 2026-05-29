@@ -1,0 +1,26 @@
+version: dzupflow/v1
+metadata:
+  name: fleet/coordinated-feature
+nodes:
+  - id: propose
+    type: fleet.dispatch
+    mode: supervisor
+    repos: ${run.repos}
+    task: ${run.proposeTask}
+    on_contract_change: reconcile
+    output: proposals
+  - id: reconcile
+    type: knowledge.query
+    filter: { kind: contract, status: proposed }
+    output: pending
+  - id: implement
+    type: fleet.dispatch
+    mode: supervisor
+    repos: ${run.repos}
+    task: ${run.implementTask}
+    output: outcomes
+  - id: gather
+    type: fleet.gather
+    source: outcomes
+    strategy: concat
+    output: changeset

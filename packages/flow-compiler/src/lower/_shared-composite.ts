@@ -10,28 +10,24 @@
  * @module lower/_shared-composite
  */
 
-import type { FlowNode } from '@dzupagent/flow-ast'
+import type { FlowNode } from "@dzupagent/flow-ast";
 
 import type {
   LowerPipelineContext,
   LowerPipelineResult,
-} from './_shared-types.js'
+} from "./_shared-types.js";
 import {
   lowerAction,
   lowerClarification,
   lowerComplete,
   lowerForEach,
-} from './_shared-leaf.js'
+} from "./_shared-leaf.js";
 import {
   lowerBranch,
   lowerParallel,
   lowerSequence,
-} from './_shared-control.js'
-import {
-  lowerApproval,
-  lowerPersona,
-  lowerRoute,
-} from './_shared-suspend.js'
+} from "./_shared-control.js";
+import { lowerApproval, lowerPersona, lowerRoute } from "./_shared-suspend.js";
 
 /**
  * Lower a single FlowNode (and its subtree) into a flat list of
@@ -45,82 +41,89 @@ import {
 export function lowerNodeToPipeline(
   node: FlowNode,
   ctx: LowerPipelineContext,
-  path: string,
+  path: string
 ): LowerPipelineResult {
   switch (node.type) {
-    case 'sequence':
-      return lowerSequence(node.nodes, ctx, path, lowerNodeToPipeline)
+    case "sequence":
+      return lowerSequence(node.nodes, ctx, path, lowerNodeToPipeline);
 
-    case 'action':
-      return lowerAction(node, ctx, path, lowerNodeToPipeline)
+    case "action":
+      return lowerAction(node, ctx, path, lowerNodeToPipeline);
 
-    case 'for_each':
-      return lowerForEach(node, ctx, path, lowerNodeToPipeline)
+    case "for_each":
+      return lowerForEach(node, ctx, path, lowerNodeToPipeline);
 
-    case 'branch':
-      return lowerBranch(node, ctx, path, lowerNodeToPipeline)
+    case "branch":
+      return lowerBranch(node, ctx, path, lowerNodeToPipeline);
 
-    case 'parallel':
-      return lowerParallel(node, ctx, path, lowerNodeToPipeline)
+    case "parallel":
+      return lowerParallel(node, ctx, path, lowerNodeToPipeline);
 
-    case 'approval':
-      return lowerApproval(node, ctx, path, lowerNodeToPipeline)
+    case "approval":
+      return lowerApproval(node, ctx, path, lowerNodeToPipeline);
 
-    case 'clarification':
-      return lowerClarification(node, ctx, path)
+    case "clarification":
+      return lowerClarification(node, ctx, path);
 
-    case 'persona':
-      return lowerPersona(node, ctx, path, lowerNodeToPipeline)
+    case "persona":
+      return lowerPersona(node, ctx, path, lowerNodeToPipeline);
 
-    case 'route':
-      return lowerRoute(node, ctx, path, lowerNodeToPipeline)
+    case "route":
+      return lowerRoute(node, ctx, path, lowerNodeToPipeline);
 
-    case 'complete':
-      return lowerComplete(node, ctx, path)
+    case "complete":
+      return lowerComplete(node, ctx, path);
 
-    case 'spawn':
-    case 'emit':
-    case 'memory':
+    case "spawn":
+    case "emit":
+    case "memory":
       // Runtime-executed nodes: present in AST but not emitted as graph edges.
       // Consumers of the lowered graph should not expect these to appear as nodes/edges.
       return {
         nodes: [],
         edges: [],
         warnings: [
-          `Node type "${node.type}" (id: ${JSON.stringify(node.id ?? path)}) is runtime-executed and does not appear in the lowered pipeline graph.`,
+          `Node type "${node.type}" (id: ${JSON.stringify(
+            node.id ?? path
+          )}) is runtime-executed and does not appear in the lowered pipeline graph.`,
         ],
-      }
+      };
 
-    case 'classify':
-    case 'checkpoint':
-    case 'restore':
-    case 'http':
-    case 'wait':
-    case 'subflow':
+    case "classify":
+    case "checkpoint":
+    case "restore":
+    case "http":
+    case "wait":
+    case "subflow":
       // Runtime-executed nodes: present in AST but not emitted as graph edges.
-      return { nodes: [], edges: [], warnings: [] }
+      return { nodes: [], edges: [], warnings: [] };
 
-    case 'try_catch':
+    case "try_catch":
       // try_catch body is lowered normally; the catch branch is runtime-only (error path).
-      return lowerSequence(node.body, ctx, `${path}.body`, lowerNodeToPipeline)
+      return lowerSequence(node.body, ctx, `${path}.body`, lowerNodeToPipeline);
 
-    case 'loop':
+    case "loop":
       // loop body is lowered as a sequence; condition evaluation is runtime-only.
-      return lowerSequence(node.body, ctx, `${path}.body`, lowerNodeToPipeline)
+      return lowerSequence(node.body, ctx, `${path}.body`, lowerNodeToPipeline);
 
-    case 'prompt':
-    case 'return_to':
-    case 'agent':
-    case 'validate':
-    case 'set':
+    case "prompt":
+    case "return_to":
+    case "agent":
+    case "validate":
+    case "set":
+    case "fleet.dispatch":
+    case "fleet.gather":
+    case "fleet.contract-net":
+    case "knowledge.write":
+    case "knowledge.query":
       // Runtime-executed leaf nodes: present in AST but not emitted as graph edges.
-      return { nodes: [], edges: [], warnings: [] }
+      return { nodes: [], edges: [], warnings: [] };
 
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails here.
-      const _exhaustive: never = node
-      void _exhaustive
-      return { nodes: [], edges: [], warnings: [] }
+      const _exhaustive: never = node;
+      void _exhaustive;
+      return { nodes: [], edges: [], warnings: [] };
     }
   }
 }

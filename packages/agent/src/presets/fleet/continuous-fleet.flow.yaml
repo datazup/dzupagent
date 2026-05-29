@@ -1,0 +1,9 @@
+version: dzupflow/v1
+metadata:
+  name: fleet/continuous-fleet
+nodes:
+  - id: bid-loop
+    type: fleet.contract-net
+    repos: ${run.repos}
+    task: ${run.task}
+    output: outcomes

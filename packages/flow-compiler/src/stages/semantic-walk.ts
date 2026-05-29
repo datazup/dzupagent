@@ -1,188 +1,217 @@
-import type {
-  FlowNode,
-  ValidationError,
-} from '@dzupagent/flow-ast'
+import type { FlowNode, ValidationError } from "@dzupagent/flow-ast";
 
-import { validateConditionExpr } from './semantic-condition.js'
-import type { WalkContext } from './semantic-context.js'
-import { resolvePersonaNode } from './semantic-persona-resolver.js'
-import { resolveAgentProfile } from './semantic-profile-resolver.js'
-import { resolveAction } from './semantic-tool-resolver.js'
-import { resolveAgent } from './semantic-toolset-resolver.js'
+import { validateConditionExpr } from "./semantic-condition.js";
+import type { WalkContext } from "./semantic-context.js";
+import { resolvePersonaNode } from "./semantic-persona-resolver.js";
+import { resolveAgentProfile } from "./semantic-profile-resolver.js";
+import { resolveAction } from "./semantic-tool-resolver.js";
+import { resolveAgent } from "./semantic-toolset-resolver.js";
 
-const ROOT_PATH = 'root'
+const ROOT_PATH = "root";
 
 /**
  * Recursive AST traversal for Stage 3. Dispatches to the appropriate
  * resolver/validator sub-pass for each node variant; structural recursion
  * itself stays in this module.
  */
-export async function visit(node: FlowNode, path: string, ctx: WalkContext): Promise<void> {
+export async function visit(
+  node: FlowNode,
+  path: string,
+  ctx: WalkContext
+): Promise<void> {
   switch (node.type) {
-    case 'sequence': {
+    case "sequence": {
       for (let idx = 0; idx < node.nodes.length; idx++) {
-        const child = node.nodes[idx]
+        const child = node.nodes[idx];
         if (child !== undefined) {
-          await visit(child, `${path}.nodes[${idx}]`, ctx)
+          await visit(child, `${path}.nodes[${idx}]`, ctx);
         }
       }
-      return
+      return;
     }
-    case 'action': {
-      await resolveAction(node, path, ctx)
-      return
+    case "action": {
+      await resolveAction(node, path, ctx);
+      return;
     }
-    case 'for_each': {
-      validateConditionExpr(node.type, node.source, `${path}.source`, 'for_each.source', ctx)
+    case "for_each": {
+      validateConditionExpr(
+        node.type,
+        node.source,
+        `${path}.source`,
+        "for_each.source",
+        ctx
+      );
       for (let idx = 0; idx < node.body.length; idx++) {
-        const child = node.body[idx]
+        const child = node.body[idx];
         if (child !== undefined) {
-          await visit(child, `${path}.body[${idx}]`, ctx)
+          await visit(child, `${path}.body[${idx}]`, ctx);
         }
       }
-      return
+      return;
     }
-    case 'branch': {
-      validateConditionExpr(node.type, node.condition, `${path}.condition`, 'branch.condition', ctx)
+    case "branch": {
+      validateConditionExpr(
+        node.type,
+        node.condition,
+        `${path}.condition`,
+        "branch.condition",
+        ctx
+      );
       for (let idx = 0; idx < node.then.length; idx++) {
-        const child = node.then[idx]
+        const child = node.then[idx];
         if (child !== undefined) {
-          await visit(child, `${path}.then[${idx}]`, ctx)
+          await visit(child, `${path}.then[${idx}]`, ctx);
         }
       }
       if (node.else !== undefined) {
         for (let idx = 0; idx < node.else.length; idx++) {
-          const child = node.else[idx]
+          const child = node.else[idx];
           if (child !== undefined) {
-            await visit(child, `${path}.else[${idx}]`, ctx)
+            await visit(child, `${path}.else[${idx}]`, ctx);
           }
         }
       }
-      return
+      return;
     }
-    case 'parallel': {
+    case "parallel": {
       for (let bIdx = 0; bIdx < node.branches.length; bIdx++) {
-        const branch = node.branches[bIdx]
-        if (branch === undefined) continue
+        const branch = node.branches[bIdx];
+        if (branch === undefined) continue;
         for (let idx = 0; idx < branch.length; idx++) {
-          const child = branch[idx]
+          const child = branch[idx];
           if (child !== undefined) {
-            await visit(child, `${path}.branches[${bIdx}][${idx}]`, ctx)
+            await visit(child, `${path}.branches[${bIdx}][${idx}]`, ctx);
           }
         }
       }
-      return
+      return;
     }
-    case 'approval': {
+    case "approval": {
       for (let idx = 0; idx < node.onApprove.length; idx++) {
-        const child = node.onApprove[idx]
+        const child = node.onApprove[idx];
         if (child !== undefined) {
-          await visit(child, `${path}.onApprove[${idx}]`, ctx)
+          await visit(child, `${path}.onApprove[${idx}]`, ctx);
         }
       }
       if (node.onReject !== undefined) {
         for (let idx = 0; idx < node.onReject.length; idx++) {
-          const child = node.onReject[idx]
+          const child = node.onReject[idx];
           if (child !== undefined) {
-            await visit(child, `${path}.onReject[${idx}]`, ctx)
+            await visit(child, `${path}.onReject[${idx}]`, ctx);
           }
         }
       }
-      return
+      return;
     }
-    case 'clarification': {
+    case "clarification": {
       // Leaf — no refs to resolve.
-      return
+      return;
     }
-    case 'persona': {
-      await resolvePersonaNode(node, path, ctx)
+    case "persona": {
+      await resolvePersonaNode(node, path, ctx);
       for (let idx = 0; idx < node.body.length; idx++) {
-        const child = node.body[idx]
+        const child = node.body[idx];
         if (child !== undefined) {
-          await visit(child, `${path}.body[${idx}]`, ctx)
+          await visit(child, `${path}.body[${idx}]`, ctx);
         }
       }
-      return
+      return;
     }
-    case 'route': {
+    case "route": {
       for (let idx = 0; idx < node.body.length; idx++) {
-        const child = node.body[idx]
+        const child = node.body[idx];
         if (child !== undefined) {
-          await visit(child, `${path}.body[${idx}]`, ctx)
+          await visit(child, `${path}.body[${idx}]`, ctx);
         }
       }
-      return
+      return;
     }
-    case 'complete': {
-      return
+    case "complete": {
+      return;
     }
-    case 'spawn': {
+    case "spawn": {
       // waitForCompletion=true is not yet implemented in the Codev FlowRuntime.
       // Warn at compile time so authors know before runtime.
       if (node.waitForCompletion === true) {
         ctx.warnings.push({
           nodeType: node.type,
           nodePath: `${path}.waitForCompletion`,
-          code: 'MISSING_REQUIRED_FIELD',
+          code: "MISSING_REQUIRED_FIELD",
           message:
-            `spawn node "${node.id ?? node.templateRef}": waitForCompletion=true is not yet implemented — ` +
+            `spawn node "${
+              node.id ?? node.templateRef
+            }": waitForCompletion=true is not yet implemented — ` +
             `the spawn will fire-and-forget at runtime regardless. ` +
             `Remove waitForCompletion or set it to false to silence this warning.`,
-          category: 'policy',
-        })
+          category: "policy",
+        });
       }
-      return
+      return;
     }
-    case 'classify':
-    case 'emit':
-    case 'memory':
-    case 'checkpoint':
-    case 'restore':
-    case 'http':
-    case 'wait':
-    case 'subflow': {
+    case "classify":
+    case "emit":
+    case "memory":
+    case "checkpoint":
+    case "restore":
+    case "http":
+    case "wait":
+    case "subflow": {
       // Leaf nodes — no refs to resolve in semantic stage.
-      return
+      return;
     }
-    case 'try_catch': {
+    case "try_catch": {
       for (let idx = 0; idx < node.body.length; idx++) {
-        const child = node.body[idx]
-        if (child !== undefined) await visit(child, `${path}.body[${idx}]`, ctx)
+        const child = node.body[idx];
+        if (child !== undefined)
+          await visit(child, `${path}.body[${idx}]`, ctx);
       }
       for (let idx = 0; idx < node.catch.length; idx++) {
-        const child = node.catch[idx]
-        if (child !== undefined) await visit(child, `${path}.catch[${idx}]`, ctx)
+        const child = node.catch[idx];
+        if (child !== undefined)
+          await visit(child, `${path}.catch[${idx}]`, ctx);
       }
-      return
+      return;
     }
-    case 'loop': {
-      validateConditionExpr(node.type, node.condition, `${path}.condition`, 'loop.condition', ctx)
+    case "loop": {
+      validateConditionExpr(
+        node.type,
+        node.condition,
+        `${path}.condition`,
+        "loop.condition",
+        ctx
+      );
       for (let idx = 0; idx < node.body.length; idx++) {
-        const child = node.body[idx]
-        if (child !== undefined) await visit(child, `${path}.body[${idx}]`, ctx)
+        const child = node.body[idx];
+        if (child !== undefined)
+          await visit(child, `${path}.body[${idx}]`, ctx);
       }
-      return
+      return;
     }
-    case 'agent': {
+    case "agent": {
       // Profile flattening must run BEFORE toolset resolution so a
       // profile-supplied `toolset` is expanded by the same compile pass.
       // After this call the node carries flattened model/provider/
       // instructions/toolset/policy and `node.profile` is stripped.
-      resolveAgentProfile(node, path, ctx)
-      await resolveAgent(node, path, ctx)
-      return
+      resolveAgentProfile(node, path, ctx);
+      await resolveAgent(node, path, ctx);
+      return;
     }
-    case 'prompt':
-    case 'return_to':
-    case 'validate':
-    case 'set':
-      return
+    case "prompt":
+    case "return_to":
+    case "validate":
+    case "set":
+    case "fleet.dispatch":
+    case "fleet.gather":
+    case "fleet.contract-net":
+    case "knowledge.write":
+    case "knowledge.query":
+      return;
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails
       // compilation here.
-      const _exhaustive: never = node
-      void _exhaustive
-      return
+      const _exhaustive: never = node;
+      void _exhaustive;
+      return;
     }
   }
 }
@@ -206,63 +235,70 @@ export async function visit(node: FlowNode, path: string, ctx: WalkContext): Pro
 export function validateCheckpointRestore(
   ast: FlowNode,
   errors: ValidationError[],
-  warnings: ValidationError[],
+  warnings: ValidationError[]
 ): void {
   // Pass 1 — collect all checkpoint labels declared anywhere in the flow.
-  const declaredLabels = new Set<string>()
-  collectCheckpointLabels(ast, declaredLabels)
+  const declaredLabels = new Set<string>();
+  collectCheckpointLabels(ast, declaredLabels);
 
   // Pass 2 — flow-order walk that maintains the rolling set of "earlier"
   // node ids. Each checkpoint validates against this rolling set; restores
   // validate against the labels collected in pass 1.
-  const seenIds = new Set<string>()
-  walkCheckpointRestore(ast, ROOT_PATH, seenIds, declaredLabels, errors, warnings)
+  const seenIds = new Set<string>();
+  walkCheckpointRestore(
+    ast,
+    ROOT_PATH,
+    seenIds,
+    declaredLabels,
+    errors,
+    warnings
+  );
 }
 
 function collectCheckpointLabels(node: FlowNode, out: Set<string>): void {
   switch (node.type) {
-    case 'checkpoint': {
-      const label = node.label ?? node.id
-      if (typeof label === 'string' && label.length > 0) {
-        out.add(label)
+    case "checkpoint": {
+      const label = node.label ?? node.id;
+      if (typeof label === "string" && label.length > 0) {
+        out.add(label);
       }
-      return
+      return;
     }
-    case 'sequence': {
-      for (const child of node.nodes) collectCheckpointLabels(child, out)
-      return
+    case "sequence": {
+      for (const child of node.nodes) collectCheckpointLabels(child, out);
+      return;
     }
-    case 'for_each': {
-      for (const child of node.body) collectCheckpointLabels(child, out)
-      return
+    case "for_each": {
+      for (const child of node.body) collectCheckpointLabels(child, out);
+      return;
     }
-    case 'branch': {
-      for (const child of node.then) collectCheckpointLabels(child, out)
+    case "branch": {
+      for (const child of node.then) collectCheckpointLabels(child, out);
       if (node.else !== undefined) {
-        for (const child of node.else) collectCheckpointLabels(child, out)
+        for (const child of node.else) collectCheckpointLabels(child, out);
       }
-      return
+      return;
     }
-    case 'parallel': {
+    case "parallel": {
       for (const branch of node.branches) {
-        for (const child of branch) collectCheckpointLabels(child, out)
+        for (const child of branch) collectCheckpointLabels(child, out);
       }
-      return
+      return;
     }
-    case 'approval': {
-      for (const child of node.onApprove) collectCheckpointLabels(child, out)
+    case "approval": {
+      for (const child of node.onApprove) collectCheckpointLabels(child, out);
       if (node.onReject !== undefined) {
-        for (const child of node.onReject) collectCheckpointLabels(child, out)
+        for (const child of node.onReject) collectCheckpointLabels(child, out);
       }
-      return
+      return;
     }
-    case 'persona':
-    case 'route': {
-      for (const child of node.body) collectCheckpointLabels(child, out)
-      return
+    case "persona":
+    case "route": {
+      for (const child of node.body) collectCheckpointLabels(child, out);
+      return;
     }
     default:
-      return
+      return;
   }
 }
 
@@ -272,45 +308,45 @@ function walkCheckpointRestore(
   seenIds: Set<string>,
   declaredLabels: Set<string>,
   errors: ValidationError[],
-  warnings: ValidationError[],
+  warnings: ValidationError[]
 ): void {
   // Validate this node first (so its own id is not yet in `seenIds` — a
   // checkpoint cannot capture itself).
-  if (node.type === 'checkpoint') {
+  if (node.type === "checkpoint") {
     if (!seenIds.has(node.captureOutputOf)) {
       warnings.push({
         nodeType: node.type,
         nodePath: path,
-        code: 'MISSING_REQUIRED_FIELD',
+        code: "MISSING_REQUIRED_FIELD",
         message:
           `checkpoint.captureOutputOf="${node.captureOutputOf}" does not reference any node ` +
           `appearing earlier in the flow (forward reference).`,
-      })
+      });
     }
-  } else if (node.type === 'restore') {
+  } else if (node.type === "restore") {
     if (!declaredLabels.has(node.checkpointLabel)) {
       errors.push({
         nodeType: node.type,
         nodePath: path,
-        code: 'MISSING_REQUIRED_FIELD',
+        code: "MISSING_REQUIRED_FIELD",
         message:
           `restore.checkpointLabel="${node.checkpointLabel}" does not match any ` +
           `checkpoint declared in the same flow.`,
-      })
+      });
     }
   }
 
   // Then mark this node's id as "seen" before recursing into children — a
   // checkpoint or restore further down may legitimately refer back to the
   // current node.
-  if (typeof node.id === 'string' && node.id.length > 0) {
-    seenIds.add(node.id)
+  if (typeof node.id === "string" && node.id.length > 0) {
+    seenIds.add(node.id);
   }
 
   switch (node.type) {
-    case 'sequence': {
+    case "sequence": {
       for (let idx = 0; idx < node.nodes.length; idx++) {
-        const child = node.nodes[idx]
+        const child = node.nodes[idx];
         if (child !== undefined) {
           walkCheckpointRestore(
             child,
@@ -318,15 +354,15 @@ function walkCheckpointRestore(
             seenIds,
             declaredLabels,
             errors,
-            warnings,
-          )
+            warnings
+          );
         }
       }
-      return
+      return;
     }
-    case 'for_each': {
+    case "for_each": {
       for (let idx = 0; idx < node.body.length; idx++) {
-        const child = node.body[idx]
+        const child = node.body[idx];
         if (child !== undefined) {
           walkCheckpointRestore(
             child,
@@ -334,15 +370,15 @@ function walkCheckpointRestore(
             seenIds,
             declaredLabels,
             errors,
-            warnings,
-          )
+            warnings
+          );
         }
       }
-      return
+      return;
     }
-    case 'branch': {
+    case "branch": {
       for (let idx = 0; idx < node.then.length; idx++) {
-        const child = node.then[idx]
+        const child = node.then[idx];
         if (child !== undefined) {
           walkCheckpointRestore(
             child,
@@ -350,13 +386,13 @@ function walkCheckpointRestore(
             seenIds,
             declaredLabels,
             errors,
-            warnings,
-          )
+            warnings
+          );
         }
       }
       if (node.else !== undefined) {
         for (let idx = 0; idx < node.else.length; idx++) {
-          const child = node.else[idx]
+          const child = node.else[idx];
           if (child !== undefined) {
             walkCheckpointRestore(
               child,
@@ -364,19 +400,19 @@ function walkCheckpointRestore(
               seenIds,
               declaredLabels,
               errors,
-              warnings,
-            )
+              warnings
+            );
           }
         }
       }
-      return
+      return;
     }
-    case 'parallel': {
+    case "parallel": {
       for (let bIdx = 0; bIdx < node.branches.length; bIdx++) {
-        const branch = node.branches[bIdx]
-        if (branch === undefined) continue
+        const branch = node.branches[bIdx];
+        if (branch === undefined) continue;
         for (let idx = 0; idx < branch.length; idx++) {
-          const child = branch[idx]
+          const child = branch[idx];
           if (child !== undefined) {
             walkCheckpointRestore(
               child,
@@ -384,16 +420,16 @@ function walkCheckpointRestore(
               seenIds,
               declaredLabels,
               errors,
-              warnings,
-            )
+              warnings
+            );
           }
         }
       }
-      return
+      return;
     }
-    case 'approval': {
+    case "approval": {
       for (let idx = 0; idx < node.onApprove.length; idx++) {
-        const child = node.onApprove[idx]
+        const child = node.onApprove[idx];
         if (child !== undefined) {
           walkCheckpointRestore(
             child,
@@ -401,13 +437,13 @@ function walkCheckpointRestore(
             seenIds,
             declaredLabels,
             errors,
-            warnings,
-          )
+            warnings
+          );
         }
       }
       if (node.onReject !== undefined) {
         for (let idx = 0; idx < node.onReject.length; idx++) {
-          const child = node.onReject[idx]
+          const child = node.onReject[idx];
           if (child !== undefined) {
             walkCheckpointRestore(
               child,
@@ -415,17 +451,17 @@ function walkCheckpointRestore(
               seenIds,
               declaredLabels,
               errors,
-              warnings,
-            )
+              warnings
+            );
           }
         }
       }
-      return
+      return;
     }
-    case 'persona':
-    case 'route': {
+    case "persona":
+    case "route": {
       for (let idx = 0; idx < node.body.length; idx++) {
-        const child = node.body[idx]
+        const child = node.body[idx];
         if (child !== undefined) {
           walkCheckpointRestore(
             child,
@@ -433,13 +469,13 @@ function walkCheckpointRestore(
             seenIds,
             declaredLabels,
             errors,
-            warnings,
-          )
+            warnings
+          );
         }
       }
-      return
+      return;
     }
     default:
-      return
+      return;
   }
 }

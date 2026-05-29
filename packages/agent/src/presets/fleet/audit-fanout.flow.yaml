@@ -1,0 +1,15 @@
+version: dzupflow/v1
+metadata:
+  name: fleet/audit-fanout
+nodes:
+  - id: fan-out
+    type: fleet.dispatch
+    mode: fan-out
+    repos: ${run.repos}
+    task: ${run.task}
+    output: outcomes
+  - id: gather
+    type: fleet.gather
+    source: outcomes
+    strategy: audit-synthesis
+    output: report

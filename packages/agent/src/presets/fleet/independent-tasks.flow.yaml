@@ -1,0 +1,10 @@
+version: dzupflow/v1
+metadata:
+  name: fleet/independent-tasks
+nodes:
+  - id: dispatch
+    type: fleet.dispatch
+    mode: dependency
+    repos: ${run.repos}
+    task: ${run.tasks}
+    output: outcomes

@@ -54,7 +54,7 @@ export function collectFleetSteps(ast: FlowNode): LoweredFleetStep[] {
     if (isFleetNode(node)) {
       steps.push(lowerFleetNode(node));
     }
-    const n = node as Record<string, unknown>;
+    const n = node as unknown as Record<string, unknown>;
     for (const key of [
       "nodes",
       "body",
