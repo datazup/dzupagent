@@ -82,7 +82,8 @@
     "@dzupagent/memory": "0.2.0",
     "@dzupagent/memory-ipc": "0.2.0",
     "@dzupagent/runtime-contracts": "0.2.0",
-    "@dzupagent/security": "0.2.0"
+    "@dzupagent/security": "0.2.0",
+    "ulidx": "^2.4.1"
   },
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",
