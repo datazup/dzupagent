@@ -530,6 +530,41 @@ export type ValidateNode = FlowNodeBase & {
   };
 };
 
+export type FleetDispatchNode = FlowNodeBase & {
+  type: "fleet.dispatch";
+  mode: "supervisor" | "contract-net" | "fan-out" | "dependency";
+  repos: string | unknown[];
+  task: unknown;
+  on_contract_change?: string;
+  output?: string;
+};
+
+export type FleetGatherNode = FlowNodeBase & {
+  type: "fleet.gather";
+  source: string;
+  strategy?: string;
+  output?: string;
+};
+
+export type FleetContractNetNode = FlowNodeBase & {
+  type: "fleet.contract-net";
+  repos: string | unknown[];
+  task: unknown;
+  output?: string;
+};
+
+export type KnowledgeWriteNode = FlowNodeBase & {
+  type: "knowledge.write";
+  scope: string;
+  entry: unknown;
+};
+
+export type KnowledgeQueryNode = FlowNodeBase & {
+  type: "knowledge.query";
+  filter: Record<string, unknown>;
+  output: string;
+};
+
 export type FlowNodeKind = FlowNode["type"];
 
 /**
