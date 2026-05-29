@@ -33,7 +33,11 @@ import { collectUnsupportedRuntimeNodes, routeTarget } from "./route-target.js";
 import { lowerSkillChain } from "./lower/lower-skill-chain.js";
 import { lowerPipelineFlat } from "./lower/lower-pipeline-flat.js";
 import { lowerPipelineLoop } from "./lower/lower-pipeline-loop.js";
-import { collectFleetSteps } from "./lower/lower-fleet-nodes.js";
+import {
+  lowerFleetNode,
+  lowerKnowledgeNode,
+} from "./lower/lower-fleet-nodes.js";
+import type { LoweredFleetStep } from "./lower/lower-fleet-nodes.js";
 import { hasOnError } from "./route-target.js";
 import {
   prepareFlowInputFromDocument,
@@ -350,7 +354,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
 
     // Collect fleet/knowledge steps from the AST and attach to the artifact so
     // runtimes that execute fleet nodes can find them without re-walking the tree.
-    const fleetSteps = collectFleetSteps(ast);
+    const fleetSteps = collectLoweredFleetKnowledgeSteps(ast);
     if (fleetSteps.length > 0) {
       (artifact as Record<string, unknown>)["fleetSteps"] = fleetSteps;
     }
@@ -647,6 +651,59 @@ function targetReasons(
   }
 
   return reasons;
+}
+
+function collectLoweredFleetKnowledgeSteps(ast: FlowNode): LoweredFleetStep[] {
+  const steps: LoweredFleetStep[] = [];
+
+  const visit = (node: FlowNode): void => {
+    if (
+      node.type === "fleet.dispatch" ||
+      node.type === "fleet.gather" ||
+      node.type === "fleet.contract-net"
+    ) {
+      steps.push(lowerFleetNode(node));
+    } else if (
+      node.type === "knowledge.write" ||
+      node.type === "knowledge.query"
+    ) {
+      steps.push(lowerKnowledgeNode(node));
+    }
+
+    const dynamicNode = node as unknown as Record<string, unknown>;
+    for (const key of [
+      "nodes",
+      "body",
+      "then",
+      "else",
+      "catch",
+      "onApprove",
+      "onReject",
+    ] as const) {
+      const childNodes = dynamicNode[key];
+      if (!Array.isArray(childNodes)) continue;
+      for (let i = 0; i < childNodes.length; i++) {
+        const child = childNodes[i];
+        if (child === undefined) continue;
+        visit(child as FlowNode);
+      }
+    }
+
+    const branches = dynamicNode["branches"];
+    if (!Array.isArray(branches)) return;
+    for (let i = 0; i < branches.length; i++) {
+      const branch = branches[i];
+      if (!Array.isArray(branch)) continue;
+      for (let j = 0; j < branch.length; j++) {
+        const child = branch[j];
+        if (child === undefined) continue;
+        visit(child as FlowNode);
+      }
+    }
+  };
+
+  visit(ast);
+  return steps;
 }
 
 /**
