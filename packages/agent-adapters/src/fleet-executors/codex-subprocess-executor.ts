@@ -136,10 +136,15 @@ export class CodexSubprocessExecutor implements Executor {
       events,
       async send(msg: WorkerInbound) {
         if (msg.kind === "cancel") return cancelFn(msg.reason);
-        if (msg.kind === "message")
+        if (msg.kind === "message") {
           child.stdin.write(
             JSON.stringify({ type: "inbound", text: msg.text }) + "\n"
           );
+          return;
+        }
+        throw new Error(
+          `CodexSubprocessExecutor: unhandled WorkerInbound kind "${msg.kind}"`
+        );
       },
       cancel: cancelFn,
       async wait() {

@@ -31,6 +31,7 @@ export class InProcessExecutor implements Executor {
     const waiters: Array<() => void> = [];
     let closed = false;
     function push(e: WorkerEvent) {
+      if (closed) return;
       buffer.push(e);
       waiters.splice(0).forEach((fn) => fn());
     }

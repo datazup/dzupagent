@@ -1,5 +1,9 @@
 import * as path from "node:path";
 
+export function scopeKeyForRun(runId: string): string {
+  return `run-${runId}`;
+}
+
 export function scopeDir(rootDir: string, scopeKey: string): string {
   return path.join(rootDir, scopeKey);
 }

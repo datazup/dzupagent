@@ -11,6 +11,7 @@ interface RawCodex {
   code?: number | null;
   reason?: string | null;
   message?: string;
+  fatal?: boolean;
 }
 
 export function parseCodexLine(line: string): WorkerEvent | null {
@@ -54,7 +55,7 @@ export function parseCodexLine(line: string): WorkerEvent | null {
       return {
         kind: "error",
         message: raw.message ?? "unknown",
-        fatal: false,
+        fatal: raw.fatal === true,
         at,
       };
     case "exit":

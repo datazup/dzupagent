@@ -53,7 +53,12 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
 
     const release = await this.lock(scopeKey);
     try {
-      await this.assertNoCollision(scope, scopeKey, entry);
+      const collision = await this.checkCollision(scope, scopeKey, entry);
+      if (collision === "duplicate") {
+        // Already durably written (e.g. snapshot failed on a prior attempt).
+        // Return success so callers can safely retry.
+        return { id: entry.id, version: entry.version };
+      }
       const handle = await fs.open(ndjson, "a");
       try {
         await handle.write(JSON.stringify(entry) + "\n");
@@ -134,16 +139,20 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
     });
   }
 
-  private async assertNoCollision(
+  // Returns "ok" (no prior entry), "duplicate" (exact same id+kind+key+version
+  // already durable — safe to skip and return success), or throws
+  // KnowledgeCollisionError (different id with same kind+key+version — a real
+  // conflict that must not be silently swallowed).
+  private async checkCollision(
     scope: string,
     scopeKey: string,
     entry: KnowledgeEnvelope
-  ): Promise<void> {
+  ): Promise<"ok" | "duplicate"> {
     let raw: string;
     try {
       raw = await fs.readFile(entriesPath(this.rootDir, scopeKey), "utf8");
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return "ok";
       throw err;
     }
     for (const line of raw.split("\n")) {
@@ -154,6 +163,7 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
         e.key === entry.key &&
         e.version === entry.version
       ) {
+        if (e.id === entry.id) return "duplicate";
         throw new KnowledgeCollisionError(
           scope,
           entry.kind,
@@ -162,6 +172,7 @@ export class FilesystemKnowledgeStore implements KnowledgeStore {
         );
       }
     }
+    return "ok";
   }
 
   // NOTE: NDJSON append commits before this; if snapshot write fails, the
