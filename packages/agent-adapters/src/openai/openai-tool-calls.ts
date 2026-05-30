@@ -77,7 +77,6 @@ export class OpenAIToolCallAccumulator {
       if (call.name === undefined || call.name.length === 0) continue
       events.push({
         type: 'adapter:tool_call',
-        ...(call.id !== undefined ? { toolCallId: call.id } : {}),
         providerId,
         toolName: call.name,
         input: parseToolArguments(call.arguments),

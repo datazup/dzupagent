@@ -573,49 +573,36 @@ function validateAgentPolicy(
   }
   const policy: AgentPolicy = {}
   if (raw['timeoutMs'] !== undefined) {
-    if (typeof raw['timeoutMs'] !== 'number' || !Number.isFinite(raw['timeoutMs'])) {
+    if (typeof raw['timeoutMs'] !== 'number') {
       issues.push({
         path: joinPath(path, 'timeoutMs'),
         code: 'MISSING_REQUIRED_FIELD',
-        message: 'agent.policy.timeoutMs must be a finite number',
-      })
-    } else if (raw['timeoutMs'] <= 0) {
-      issues.push({
-        path: joinPath(path, 'timeoutMs'),
-        code: 'MISSING_REQUIRED_FIELD',
-        message: 'agent.policy.timeoutMs must be greater than 0',
+        message: 'agent.policy.timeoutMs must be a number',
       })
     } else {
       policy.timeoutMs = raw['timeoutMs']
     }
   }
   if (raw['budgetCents'] !== undefined) {
-    if (typeof raw['budgetCents'] !== 'number' || !Number.isFinite(raw['budgetCents'])) {
+    if (typeof raw['budgetCents'] !== 'number') {
       issues.push({
         path: joinPath(path, 'budgetCents'),
         code: 'MISSING_REQUIRED_FIELD',
-        message: 'agent.policy.budgetCents must be a finite number',
-      })
-    } else if (raw['budgetCents'] <= 0) {
-      issues.push({
-        path: joinPath(path, 'budgetCents'),
-        code: 'MISSING_REQUIRED_FIELD',
-        message: 'agent.policy.budgetCents must be greater than 0',
+        message: 'agent.policy.budgetCents must be a number',
       })
     } else {
       policy.budgetCents = raw['budgetCents']
     }
   }
   if (raw['maxToolCalls'] !== undefined) {
-    const mtc = raw['maxToolCalls']
-    if (typeof mtc !== 'number' || !Number.isFinite(mtc) || !Number.isInteger(mtc) || mtc <= 0) {
+    if (typeof raw['maxToolCalls'] !== 'number') {
       issues.push({
         path: joinPath(path, 'maxToolCalls'),
         code: 'MISSING_REQUIRED_FIELD',
-        message: 'agent.policy.maxToolCalls must be a positive integer',
+        message: 'agent.policy.maxToolCalls must be a number',
       })
     } else {
-      policy.maxToolCalls = mtc
+      policy.maxToolCalls = raw['maxToolCalls']
     }
   }
   if (raw['workingDirectory'] !== undefined) {

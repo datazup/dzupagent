@@ -6,7 +6,7 @@
  * keep the main adapter class focused on lifecycle.
  */
 import { ForgeError, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core/events'
-import { fetchWithOutboundUrlPolicy } from '../utils/security-lite.js'
+import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
 import { defaultLogger } from '@dzupagent/core/utils'
 import type { AdapterProviderId } from '../types.js'
 import { parseSSEStream } from '../utils/sse-parser.js'

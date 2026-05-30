@@ -22,7 +22,7 @@ class MockWsClient implements WSClient {
 }
 
 async function flushMicrotasks(): Promise<void> {
-  await Promise.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 describe('EventBridge tenant scoping (SEC-M-WS-01)', () => {

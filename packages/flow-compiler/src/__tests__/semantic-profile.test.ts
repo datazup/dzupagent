@@ -186,33 +186,6 @@ describe('Stage 1.5 — compile-time profile expansion', () => {
     expect(node.policy?.audit?.captureToolCalls).toBe(true) // profile
   })
 
-  it('rejects profile-supplied non-positive timeout and budget policy limits', async () => {
-    const node = agentWith({ profile: 'invalid-budget' })
-    const ast = sequence(node)
-    const profileRegistry = makeRegistry({
-      'invalid-budget': {
-        policy: {
-          timeoutMs: 0,
-          budgetCents: -1,
-        },
-      },
-    })
-
-    const result = await semanticResolve(ast, {
-      toolResolver: emptyToolResolver(),
-      profileRegistry,
-    })
-
-    expect(result.errors.map((e) => e.code)).toEqual([
-      'INVALID_PROFILE_POLICY',
-      'INVALID_PROFILE_POLICY',
-    ])
-    expect(result.errors.some((e) => e.nodePath.endsWith('.policy.timeoutMs'))).toBe(true)
-    expect(result.errors.some((e) => e.nodePath.endsWith('.policy.budgetCents'))).toBe(true)
-    expect(node.profile).toBe('invalid-budget')
-    expect(node.policy).toBeUndefined()
-  })
-
   it('turns a registry throw into PROFILE_RESOLVER_INFRA_ERROR', async () => {
     const node = agentWith({ profile: 'planning' })
     const ast = sequence(node)

@@ -21,11 +21,8 @@
  * (QF-03/QF-04/QF-05).
  */
 
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-
-// Sync walk over 500+ source files can exceed the default 30s timeout under load
-vi.setConfig({ testTimeout: 120_000 })
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve, relative } from 'node:path'
 

@@ -1,0 +1,684 @@
+{
+  "auditPath": "dzupagent/audit/full-agent-agent-adapters-2026-05-03/run-001",
+  "generatedAt": "2026-05-03",
+  "workingDirectory": "dzupagent",
+  "phases": {
+    "quick": { "count": 19, "estimatedHours": 25 },
+    "refactor": { "count": 17, "estimatedHours": 85 },
+    "major": { "count": 7, "estimatedHours": 120 }
+  },
+  "warnings": [
+    "QF-03: approval:requested already has runId in payload — requestedAt is missing only. Scope reduced.",
+    "QF-04: ucl/ directory confirmed dead (0 external imports). Safe to delete.",
+    "QF-05: production-tool-governance-preset.ts already uses fail-closed. Default in tool-loop.ts still fail-open. Change is still needed.",
+    "QF-07: duplicate of QF-06 — skipped (already noted in prompt file).",
+    "QF-12: ApprovalMode/ApprovalResult NOT yet in @dzupagent/agent-types (grep returned 0). Both still defined locally. Task needed.",
+    "QF-13: PostgresPipelineCheckpointStore and RedisPipelineCheckpointStore ARE statically imported at lines 19-20. Task needed.",
+    "QF-14: ./pipeline subpath NOT in package.json exports (only ./runtime, ./workflow, ./tools, ./compat). Task needed.",
+    "QF-15: DzupError IS re-exported from providers.ts line 102. Task needed.",
+    "QF-19: auto-compress.ts has backward-compat comment and is re-exported from runtime.ts:56 and index.ts:213. Deletion would break runtime.ts export — scope is update-re-exports, not delete.",
+    "QF-20: dependency-cruiser availability unconfirmed. check:domain-boundaries uses custom script. Adapt task to use same pattern."
+  ],
+  "tasks": [
+    {
+      "id": "QF-01",
+      "phase": "quick",
+      "title": "Fix DzupEvent union to dissolve as-never casts",
+      "findings": ["C-01", "C-02"],
+      "severity": "Critical",
+      "agent": "dzupagent-core-dev",
+      "estimatedHours": 2,
+      "files": [
+        "packages/core/src/event-bus.ts",
+        "packages/agent/src/agent/dzip-agent.ts",
+        "packages/agent/src/orchestration/orchestrator.ts"
+      ],
+      "validation": "grep -r \"as never\" packages/agent/src/ --include=\"*.ts\" | wc -l should be 0; yarn typecheck --filter=@dzupagent/agent",
+      "status": "pending"
+    },
+    {
+      "id": "QF-02",
+      "phase": "quick",
+      "title": "Fix floating Promise in agent-finalizers journal write",
+      "findings": ["C-05"],
+      "severity": "Critical",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 1,
+      "files": [
+        "packages/agent/src/agent/agent-finalizers.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- agent-finalizer",
+      "status": "pending"
+    },
+    {
+      "id": "QF-03",
+      "phase": "quick",
+      "title": "Add requestedAt to approval:requested event payload",
+      "findings": ["M-05"],
+      "severity": "High",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 0.5,
+      "note": "runId already present in payload. Only requestedAt: Date.now() is missing.",
+      "files": [
+        "packages/agent/src/approval/approval-gate.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- approval",
+      "status": "pending"
+    },
+    {
+      "id": "QF-04",
+      "phase": "quick",
+      "title": "Delete dead ucl/ directory",
+      "findings": ["A-04"],
+      "severity": "High",
+      "agent": "dzupagent-connectors-dev",
+      "estimatedHours": 0.5,
+      "note": "Zero production imports confirmed. Safe deletion.",
+      "files": [
+        "packages/agent-adapters/src/ucl/",
+        "packages/agent-adapters/src/index.ts"
+      ],
+      "validation": "yarn build --filter=@dzupagent/agent-adapters",
+      "status": "pending"
+    },
+    {
+      "id": "QF-05",
+      "phase": "quick",
+      "title": "Flip scanFailureMode default to fail-closed",
+      "findings": ["AG-23"],
+      "severity": "High",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 1.5,
+      "note": "production-tool-governance-preset already uses fail-closed. Only the tool-loop.ts default needs changing.",
+      "files": [
+        "packages/agent/src/agent/tool-loop.ts",
+        "packages/agent/src/agent/streaming-run.ts",
+        "packages/agent/src/presets/"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- tool-loop guardrail",
+      "status": "pending"
+    },
+    {
+      "id": "QF-06",
+      "phase": "quick",
+      "title": "Fix IterationBudget config mutation — use private dynamicBlocks Set",
+      "findings": ["AG-22"],
+      "severity": "High",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 1,
+      "files": [
+        "packages/agent/src/guardrails/iteration-budget.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- iteration-budget",
+      "status": "pending"
+    },
+    {
+      "id": "QF-08",
+      "phase": "quick",
+      "title": "Deprecate TeamCoordinator in favour of TeamRuntime",
+      "findings": ["H-02"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 0.5,
+      "files": [
+        "packages/agent/src/playground/team-coordinator.ts",
+        "packages/agent/src/index.ts"
+      ],
+      "validation": "yarn build --filter=@dzupagent/agent",
+      "status": "pending"
+    },
+    {
+      "id": "QF-09",
+      "phase": "quick",
+      "title": "Extract shared extractTokenUsage utility",
+      "findings": ["H-04"],
+      "severity": "Medium",
+      "agent": "dzupagent-connectors-dev",
+      "estimatedHours": 1.5,
+      "files": [
+        "packages/agent-adapters/src/base/extract-token-usage.ts",
+        "packages/agent-adapters/src/claude/claude-adapter.ts",
+        "packages/agent-adapters/src/codex/codex-adapter.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent-adapters",
+      "status": "pending"
+    },
+    {
+      "id": "QF-10",
+      "phase": "quick",
+      "title": "Extract shared validateSkillConfig utility",
+      "findings": ["H-03"],
+      "severity": "Medium",
+      "agent": "dzupagent-connectors-dev",
+      "estimatedHours": 1.5,
+      "files": [
+        "packages/agent-adapters/src/base/validate-skill-config.ts",
+        "packages/agent-adapters/src/claude/claude-adapter.ts",
+        "packages/agent-adapters/src/codex/codex-adapter.ts",
+        "packages/agent-adapters/src/gemini/gemini-adapter.ts"
+      ],
+      "validation": "yarn build --filter=@dzupagent/agent-adapters",
+      "status": "pending"
+    },
+    {
+      "id": "QF-11",
+      "phase": "quick",
+      "title": "Delete dead playground/ui/ module",
+      "findings": ["H-05"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 0.5,
+      "files": [
+        "packages/agent/src/playground/ui/",
+        "packages/agent/src/playground/index.ts",
+        "packages/agent/package.json"
+      ],
+      "validation": "yarn build --filter=@dzupagent/agent",
+      "status": "pending"
+    },
+    {
+      "id": "QF-12",
+      "phase": "quick",
+      "title": "Canonicalize ApprovalMode + ApprovalResult in @dzupagent/agent-types",
+      "findings": ["A-16"],
+      "severity": "Medium",
+      "agent": "dzupagent-core-dev",
+      "estimatedHours": 1,
+      "files": [
+        "packages/agent-types/src/",
+        "packages/agent/src/approval/approval-types.ts",
+        "packages/agent-adapters/src/approval/adapter-approval.ts"
+      ],
+      "validation": "yarn typecheck",
+      "status": "pending"
+    },
+    {
+      "id": "QF-13",
+      "phase": "quick",
+      "title": "Remove static Postgres/Redis imports from pipeline-runtime.ts",
+      "findings": ["A-14"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 1.5,
+      "files": [
+        "packages/agent/src/pipeline/pipeline-runtime.ts"
+      ],
+      "validation": "yarn build --filter=@dzupagent/agent",
+      "status": "pending"
+    },
+    {
+      "id": "QF-14",
+      "phase": "quick",
+      "title": "Add ./pipeline subpath export to @dzupagent/agent",
+      "findings": ["A-18"],
+      "severity": "Low",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 1,
+      "files": [
+        "packages/agent/package.json",
+        "packages/agent-adapters/src/workflow/adapter-workflow.ts"
+      ],
+      "validation": "yarn build",
+      "status": "pending"
+    },
+    {
+      "id": "QF-15",
+      "phase": "quick",
+      "title": "Remove duplicate DzupError re-export from providers.ts",
+      "findings": ["A-19"],
+      "severity": "Low",
+      "agent": "dzupagent-connectors-dev",
+      "estimatedHours": 0.25,
+      "files": [
+        "packages/agent-adapters/src/providers.ts"
+      ],
+      "validation": "yarn build --filter=@dzupagent/agent-adapters",
+      "status": "pending"
+    },
+    {
+      "id": "QF-16",
+      "phase": "quick",
+      "title": "Fix reflection-loop swallowed errors",
+      "findings": ["M-04"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 1,
+      "files": [
+        "packages/agent/src/reflection/reflection-loop.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- reflection",
+      "status": "pending"
+    },
+    {
+      "id": "QF-17",
+      "phase": "quick",
+      "title": "Add maxRepairAttempts guard to structured output repair loop",
+      "findings": ["M-08"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 1,
+      "files": [
+        "packages/agent/src/agent/structured-generate.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- structured",
+      "status": "pending"
+    },
+    {
+      "id": "QF-18",
+      "phase": "quick",
+      "title": "Fix void suppressions in md-frontmatter-parser (3 unused variable suppressions)",
+      "findings": ["M-03"],
+      "severity": "Medium",
+      "agent": "dzupagent-connectors-dev",
+      "estimatedHours": 0.5,
+      "note": "void patterns are unused variable suppressions (void parts, void lastIndex, void lastHeading) not async calls — fix is to remove or use the variables.",
+      "files": [
+        "packages/agent-adapters/src/dzupagent/md-frontmatter-parser.ts"
+      ],
+      "validation": "yarn build --filter=@dzupagent/agent-adapters",
+      "status": "pending"
+    },
+    {
+      "id": "QF-19",
+      "phase": "quick",
+      "title": "Update auto-compress re-exports to import directly from @dzupagent/context",
+      "findings": ["AG-13"],
+      "severity": "Low",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 0.5,
+      "note": "Cannot delete auto-compress.ts outright — runtime.ts and index.ts re-export from it. Fix: update runtime.ts and index.ts to import from @dzupagent/context directly, then delete the shim.",
+      "files": [
+        "packages/agent/src/context/auto-compress.ts",
+        "packages/agent/src/runtime.ts",
+        "packages/agent/src/index.ts"
+      ],
+      "validation": "yarn typecheck --filter=@dzupagent/agent",
+      "status": "pending"
+    },
+    {
+      "id": "QF-20",
+      "phase": "quick",
+      "title": "Add check:layering script extending check:domain-boundaries",
+      "findings": ["AG-25"],
+      "severity": "Medium",
+      "agent": "dzupagent-test-dev",
+      "estimatedHours": 1.5,
+      "note": "dependency-cruiser availability unconfirmed. Use same pattern as check-domain-boundaries.mjs custom script.",
+      "files": [
+        "scripts/check-layer-boundaries.mjs",
+        "package.json"
+      ],
+      "validation": "yarn check:layering",
+      "status": "pending"
+    },
+    {
+      "id": "RF-01",
+      "phase": "refactor",
+      "title": "Extract executeStreamingToolCall into testable helpers",
+      "findings": ["C-03"],
+      "severity": "Critical",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 6,
+      "files": [
+        "packages/agent/src/agent/run-engine.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- run-engine",
+      "status": "pending"
+    },
+    {
+      "id": "RF-02",
+      "phase": "refactor",
+      "title": "Deduplicate executeWithRecovery + executeWithRecoveryStream",
+      "findings": ["C-04"],
+      "severity": "Critical",
+      "agent": "dzupagent-connectors-dev",
+      "estimatedHours": 6,
+      "files": [
+        "packages/agent-adapters/src/recovery/adapter-recovery.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent-adapters -- recovery",
+      "status": "pending"
+    },
+    {
+      "id": "RF-03",
+      "phase": "refactor",
+      "title": "Unit tests for policy-enabled-tool-executor.ts",
+      "findings": ["H-08"],
+      "severity": "High",
+      "agent": "dzupagent-test-dev",
+      "estimatedHours": 6,
+      "files": [
+        "packages/agent/src/__tests__/policy-enabled-tool-executor.test.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- policy-enabled-tool-executor",
+      "status": "pending"
+    },
+    {
+      "id": "RF-04",
+      "phase": "refactor",
+      "title": "Canonicalize ProviderExecutionPort in @dzupagent/adapter-types",
+      "findings": ["A-02"],
+      "severity": "Critical",
+      "agent": "dzupagent-core-dev",
+      "estimatedHours": 4,
+      "files": [
+        "packages/adapter-types/src/",
+        "packages/agent/src/orchestration/provider-adapter/provider-execution-port.ts",
+        "packages/agent-adapters/src/integration/provider-execution-port.ts"
+      ],
+      "validation": "yarn typecheck",
+      "status": "pending"
+    },
+    {
+      "id": "RF-05",
+      "phase": "refactor",
+      "title": "Extract hashToolInput utility + BaseStuckDetectorConfig",
+      "findings": ["A-05"],
+      "severity": "High",
+      "agent": "dzupagent-core-dev",
+      "estimatedHours": 4,
+      "files": [
+        "packages/core/src/utils/hash.ts",
+        "packages/agent-types/src/",
+        "packages/agent/src/guardrails/stuck-detector.ts",
+        "packages/agent-adapters/src/guardrails/adapter-guardrails.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent --filter=@dzupagent/agent-adapters -- stuck",
+      "status": "pending"
+    },
+    {
+      "id": "RF-06",
+      "phase": "refactor",
+      "title": "Create BaseSdkAdapter abstract class",
+      "findings": ["A-12"],
+      "severity": "Medium",
+      "agent": "dzupagent-connectors-dev",
+      "estimatedHours": 6,
+      "files": [
+        "packages/agent-adapters/src/base/base-sdk-adapter.ts",
+        "packages/agent-adapters/src/claude/claude-adapter.ts",
+        "packages/agent-adapters/src/codex/codex-adapter.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent-adapters",
+      "status": "pending"
+    },
+    {
+      "id": "RF-07",
+      "phase": "refactor",
+      "title": "Extract shared structured-output utilities to @dzupagent/core",
+      "findings": ["A-10"],
+      "severity": "Medium",
+      "agent": "dzupagent-core-dev",
+      "estimatedHours": 4,
+      "files": [
+        "packages/core/src/structured/extract.ts",
+        "packages/agent/src/structured/structured-output-engine.ts",
+        "packages/agent-adapters/src/output/structured-output.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent --filter=@dzupagent/agent-adapters -- structured",
+      "status": "pending"
+    },
+    {
+      "id": "RF-08",
+      "phase": "refactor",
+      "title": "Add tool-output schema validation",
+      "findings": ["AG-01"],
+      "severity": "High",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 4,
+      "files": [
+        "packages/agent/src/agent/tool-loop/output-validator.ts",
+        "packages/agent/src/agent/tool-loop/policy-enabled-tool-executor.ts",
+        "packages/agent/src/agent/tool-loop.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- tool-loop",
+      "status": "pending"
+    },
+    {
+      "id": "RF-09",
+      "phase": "refactor",
+      "title": "Add per-tool retry with exponential backoff",
+      "findings": ["AG-02"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 6,
+      "files": [
+        "packages/agent/src/agent/tool-loop/policy-enabled-tool-executor.ts",
+        "packages/agent/src/agent/tool-loop.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- tool-loop",
+      "status": "pending"
+    },
+    {
+      "id": "RF-10",
+      "phase": "refactor",
+      "title": "Wire memory decay/consolidation into agent loop",
+      "findings": ["AG-07"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 6,
+      "files": [
+        "packages/agent/src/agent/memory-context-loader.ts",
+        "packages/agent/src/agent/agent-finalizers.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- memory-context",
+      "status": "pending"
+    },
+    {
+      "id": "RF-11",
+      "phase": "refactor",
+      "title": "Add LLM rate limiting",
+      "findings": ["AG-10"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 6,
+      "files": [
+        "packages/agent-types/src/",
+        "packages/core/src/rate-limit/token-bucket.ts",
+        "packages/agent/src/agent/dzip-agent.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- rate-limit",
+      "status": "pending"
+    },
+    {
+      "id": "RF-12",
+      "phase": "refactor",
+      "title": "Fix stale cost rate table + cached-token accounting",
+      "findings": ["AG-11"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 4,
+      "files": [
+        "packages/core/src/pricing/provider-rates.ts",
+        "packages/agent-adapters/src/middleware/cost-tracking.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/core -- pricing",
+      "status": "pending"
+    },
+    {
+      "id": "RF-13",
+      "phase": "refactor",
+      "title": "Implement Anthropic prompt caching",
+      "findings": ["AG-12"],
+      "severity": "High",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 8,
+      "files": [
+        "packages/context/src/prompt-cache-injector.ts",
+        "packages/agent/src/agent/run-engine.ts",
+        "packages/agent-adapters/src/claude/claude-adapter.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/context -- prompt-cache",
+      "status": "pending"
+    },
+    {
+      "id": "RF-14",
+      "phase": "refactor",
+      "title": "Add semantic plateau detection to stuck detector",
+      "findings": ["AG-14"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 4,
+      "files": [
+        "packages/agent/src/guardrails/stuck-detector.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- stuck-detector",
+      "status": "pending"
+    },
+    {
+      "id": "RF-15",
+      "phase": "refactor",
+      "title": "Add OutputRefinementLoop convergence check",
+      "findings": ["M-09"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 4,
+      "files": [
+        "packages/agent/src/self-correction/output-refinement-loop.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- output-refinement",
+      "status": "pending"
+    },
+    {
+      "id": "RF-16",
+      "phase": "refactor",
+      "title": "Add maxConcurrency guard to AgentOrchestrator.parallel",
+      "findings": ["M-07"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 4,
+      "files": [
+        "packages/agent/src/orchestration/orchestrator.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- orchestrat",
+      "status": "pending"
+    },
+    {
+      "id": "RF-17",
+      "phase": "refactor",
+      "title": "Add PipelineExecutorPort DI for AdapterWorkflowBuilder",
+      "findings": ["A-01"],
+      "severity": "Critical",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 6,
+      "files": [
+        "packages/core/src/pipeline-executor-port.ts",
+        "packages/agent/src/pipeline/pipeline-runtime-port.ts",
+        "packages/agent-adapters/src/workflow/adapter-workflow.ts"
+      ],
+      "validation": "yarn typecheck && yarn test --filter=@dzupagent/agent-adapters -- workflow",
+      "status": "pending"
+    },
+    {
+      "id": "MC-01",
+      "phase": "major",
+      "title": "OWASP-grade prompt-injection defense suite",
+      "findings": ["AG-09", "AG-08"],
+      "severity": "High",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 24,
+      "files": [
+        "packages/security/",
+        "packages/agent/src/agent/run-engine.ts",
+        "packages/agent/src/agent/agent-finalizers.ts",
+        "packages/agent/src/agent/tool-loop/policy-enabled-tool-executor.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/security",
+      "status": "pending"
+    },
+    {
+      "id": "MC-02",
+      "phase": "major",
+      "title": "First-class MemoryClient interface",
+      "findings": ["AG-06"],
+      "severity": "High",
+      "agent": "dzupagent-core-dev",
+      "estimatedHours": 20,
+      "files": [
+        "packages/agent-types/src/memory-client.ts",
+        "packages/memory/src/",
+        "packages/memory-ipc/src/",
+        "packages/agent/src/agent/memory-context-loader.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- memory",
+      "status": "pending"
+    },
+    {
+      "id": "MC-03",
+      "phase": "major",
+      "title": "Durable approval gates + workflow failure-recovery edges",
+      "findings": ["AG-15", "AG-20"],
+      "severity": "High",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 20,
+      "files": [
+        "packages/agent/src/approval/approval-gate.ts",
+        "packages/agent/src/workflow/workflow-builder.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent -- approval workflow",
+      "status": "pending"
+    },
+    {
+      "id": "MC-04",
+      "phase": "major",
+      "title": "Decompose OrchestratorFacade into composable pipeline steps",
+      "findings": ["A-06"],
+      "severity": "High",
+      "agent": "dzupagent-connectors-dev",
+      "estimatedHours": 40,
+      "files": [
+        "packages/agent-adapters/src/facade/orchestrator-facade.ts",
+        "packages/agent-adapters/src/pipeline/"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent-adapters -- orchestrat",
+      "status": "pending"
+    },
+    {
+      "id": "MC-05",
+      "phase": "major",
+      "title": "Decompose AdapterRecoveryCopilot god object",
+      "findings": ["C-04", "A-09"],
+      "severity": "High",
+      "agent": "dzupagent-connectors-dev",
+      "estimatedHours": 24,
+      "files": [
+        "packages/agent-adapters/src/recovery/adapter-recovery.ts",
+        "packages/agent-adapters/src/recovery/execution-trace-store.ts",
+        "packages/agent-adapters/src/recovery/recovery-loop-runner.ts"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent-adapters -- recovery",
+      "status": "pending"
+    },
+    {
+      "id": "MC-06",
+      "phase": "major",
+      "title": "Restructure @dzupagent/agent public API into subpath exports",
+      "findings": ["A-15"],
+      "severity": "Medium",
+      "agent": "dzupagent-agent-dev",
+      "estimatedHours": 16,
+      "files": [
+        "packages/agent/src/",
+        "packages/agent/package.json"
+      ],
+      "validation": "yarn build && yarn typecheck",
+      "status": "pending"
+    },
+    {
+      "id": "MC-07",
+      "phase": "major",
+      "title": "Unify orchestration config types in @dzupagent/agent-types",
+      "findings": ["A-03"],
+      "severity": "High",
+      "agent": "dzupagent-core-dev",
+      "estimatedHours": 24,
+      "files": [
+        "packages/agent-types/src/",
+        "packages/agent/src/orchestration/orchestrator.ts",
+        "packages/agent-adapters/src/orchestration/"
+      ],
+      "validation": "yarn test --filter=@dzupagent/agent --filter=@dzupagent/agent-adapters -- orchestrat",
+      "status": "pending"
+    }
+  ]
+}

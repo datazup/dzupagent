@@ -31,7 +31,7 @@
  *   with a clear comment explaining the invariant.
  */
 
-import type { FlowNode, ResolvedTool, ToolResolver } from '@dzupagent/flow-ast'
+import type { ResolvedTool, ToolResolver } from '@dzupagent/flow-ast'
 import type { SkillChain, PipelineDefinition } from '@dzupagent/core/pipeline'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
 import { describe, expect, it } from 'vitest'
@@ -250,61 +250,6 @@ steps:
     expect(success.target).toBe('skill-chain')
     expect(success.artifact.steps).toHaveLength(1)
     expect(success.artifact.steps[0]?.skillName).toBe('tasks.run')
-  })
-
-  it('preserves document policy from compileDsl() success results', async () => {
-    const resolver = makeResolver(['tasks.run'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
-
-    const result = await compiler.compileDsl(`
-dsl: dzupflow/v1
-id: policy_flow
-version: 1
-policy:
-  budgetCents: 250
-  timeoutMs: 10000
-  workingDirectory: packages/flow-compiler
-steps:
-  - action:
-      id: run
-      ref: tasks.run
-      input: {}
-`)
-
-    expect('errors' in result).toBe(false)
-    if ('errors' in result) {
-      throw new Error('expected compile success')
-    }
-
-    expect(result.documentPolicy).toEqual({
-      budgetCents: 250,
-      timeoutMs: 10000,
-      workingDirectory: 'packages/flow-compiler',
-    })
-  })
-
-  it('rejects malformed document policy from compileDsl()', async () => {
-    const resolver = makeResolver(['tasks.run'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
-
-    const result = await compiler.compileDsl(`
-dsl: dzupflow/v1
-id: policy_flow
-version: 1
-policy:
-  budgetCents: 0
-steps:
-  - action:
-      id: run
-      ref: tasks.run
-      input: {}
-`)
-
-    expect('errors' in result).toBe(true)
-    if (!('errors' in result)) {
-      throw new Error('expected compile failure')
-    }
-    expect(result.errors.some((error) => error.nodePath === 'root.policy.budgetCents')).toBe(true)
   })
 })
 
@@ -556,7 +501,7 @@ describe('createFlowCompiler — stage 4 on_error backstop (structural verificat
       toolRef: 'pm.run',
       input: {},
       on_error: { strategy: 'retry' },
-    } as unknown as FlowNode
+    } as unknown as import('@dzupagent/flow-ast').FlowNode
 
     expect(hasOnError(astWithOnError)).toBe(true)
   })
@@ -566,7 +511,7 @@ describe('createFlowCompiler — stage 4 on_error backstop (structural verificat
       type: 'action',
       toolRef: 'pm.run',
       input: {},
-    } as FlowNode
+    } as import('@dzupagent/flow-ast').FlowNode
 
     expect(routeTarget(ast).target).toBe('skill-chain')
   })

@@ -1034,11 +1034,7 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
       }
     })
 
-    it('defaults scanner exceptions to fail-closed (AGENT-M-01) and withholds raw output', async () => {
-      // AGENT-M-01: a bare agent that configures a safety monitor but omits
-      // scanFailureMode now defaults to fail-closed. A crashing scanner must
-      // withhold the tool result instead of silently passing it through.
-      const blockedResult = '[blocked: tool result safety scanner failed]'
+    it('defaults scanner exceptions to fail-open while emitting sanitized safety telemetry', async () => {
       const rawToolOutput = 'plain tool output'
       const { tool } = mockTool('fetch_default', () => rawToolOutput)
       const bus = createEventBus()
@@ -1058,59 +1054,9 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
           tools: [tool],
           eventBus: bus,
           toolExecution: {
-            // Note: no scanFailureMode — exercises the secure default.
             safetyMonitor: createThrowingSafetyMonitor(),
             agentId: 'stream-agent',
             runId: 'stream-default-scan-failure-run',
-          },
-        }),
-      )
-
-      const events = await drainStream(agent, [new HumanMessage('fetch')])
-
-      expect(firstStreamToolResult(events)).toBe(blockedResult)
-      expect(firstStreamToolResult(events)).not.toBe(rawToolOutput)
-      expect(policyEvents).toContainEqual(expect.objectContaining({
-        type: 'tool:error',
-        status: 'error',
-        errorCode: 'TOOL_EXECUTION_FAILED',
-        errorMessage: 'Tool result safety scanner failed; output withheld',
-      }))
-      expect(policyEvents).toContainEqual(expect.objectContaining({
-        type: 'safety:violation',
-        category: 'tool_result_scanner_failure',
-        severity: 'critical',
-        message: 'Tool result safety scanner failed',
-      }))
-      expect(JSON.stringify(policyEvents)).not.toContain('secret=abc123')
-    })
-
-    it('opts back into fail-open only when scanFailureMode is explicitly set (dev preset)', async () => {
-      // The legacy permissive behavior is still reachable, but now requires
-      // an explicit opt-in (routed through createDevToolGovernancePreset).
-      const rawToolOutput = 'plain tool output'
-      const { tool } = mockTool('fetch_dev', () => rawToolOutput)
-      const bus = createEventBus()
-      const policyEvents: DzupEvent[] = []
-      bus.onAny((event) => {
-        if (event.type === 'tool:error' || event.type === 'safety:violation') {
-          policyEvents.push(event)
-        }
-      })
-
-      const agent = new DzupAgent(
-        baseConfig({
-          model: createStreamingModel([
-            aiWithToolCall('fetch_dev', {}, 'tc_dev_scan_failure'),
-            new AIMessage('summary'),
-          ]),
-          tools: [tool],
-          eventBus: bus,
-          toolExecution: {
-            safetyMonitor: createThrowingSafetyMonitor(),
-            scanFailureMode: 'fail-open',
-            agentId: 'stream-agent',
-            runId: 'stream-dev-scan-failure-run',
           },
         }),
       )

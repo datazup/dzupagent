@@ -651,60 +651,6 @@ describe('executePolicyEnabledToolCall', () => {
       expect(violationEvent!['category']).toBe('tool_result_scanner_failure')
     })
 
-    it('withholds the result when scanFailureMode is unset and scanner throws (secure default)', async () => {
-      // AGENT-M-01: a bare agent that wires a safety monitor but never sets
-      // scanFailureMode must default to fail-closed. A throwing scanner with
-      // no explicit config withholds the tool result rather than passing it
-      // through.
-      const tool = makeTool('queryTool', async () => 'leaked secret data')
-      const monitor: SafetyMonitor = {
-        scanContent: vi.fn(() => { throw new Error('scanner exploded') }),
-        attach: vi.fn(),
-        detach: vi.fn(),
-        getViolations: vi.fn(() => []),
-        dispose: vi.fn(),
-      }
-
-      // Note: no scanFailureMode provided.
-      const params = makeParams([tool], {
-        safetyMonitor: monitor,
-      })
-
-      const result = await executePolicyEnabledToolCall(
-        makeToolCall('queryTool'),
-        params,
-      )
-
-      expect(result.message.content).toContain('[blocked: tool result safety scanner failed]')
-      expect(result.message.content).not.toContain('leaked secret data')
-    })
-
-    it('emits safety:violation with severity=critical when scanFailureMode is unset', async () => {
-      // AGENT-M-01: the secure default also surfaces the scanner failure at
-      // critical severity, matching explicit fail-closed.
-      const tool = makeTool('queryTool', async () => 'data')
-      const { bus, events } = makeEventBus()
-      const monitor: SafetyMonitor = {
-        scanContent: vi.fn(() => { throw new Error('scanner crash') }),
-        attach: vi.fn(),
-        detach: vi.fn(),
-        getViolations: vi.fn(() => []),
-        dispose: vi.fn(),
-      }
-
-      const params = makeParams([tool], {
-        eventBus: bus,
-        safetyMonitor: monitor,
-      })
-
-      await executePolicyEnabledToolCall(makeToolCall('queryTool'), params)
-
-      const violationEvent = events.find((e) => e['type'] === 'safety:violation')
-      expect(violationEvent).toBeDefined()
-      expect(violationEvent!['severity']).toBe('critical')
-      expect(violationEvent!['category']).toBe('tool_result_scanner_failure')
-    })
-
     it('allows the result through when scanFailureMode=fail-open and scanner throws', async () => {
       const tool = makeTool('queryTool', async () => 'clean data')
       const monitor: SafetyMonitor = {

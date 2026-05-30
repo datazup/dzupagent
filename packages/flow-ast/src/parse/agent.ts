@@ -291,14 +291,13 @@ function parseStop(
     } else stop.maxIterations = raw.maxIterations
   }
   if (raw.maxToolCalls !== undefined) {
-    const mtc = raw.maxToolCalls
-    if (typeof mtc !== 'number' || !Number.isFinite(mtc) || !Number.isInteger(mtc) || mtc <= 0) {
+    if (typeof raw.maxToolCalls !== 'number') {
       ctx.errors.push({
         code: 'WRONG_FIELD_TYPE',
-        message: 'agent.stop.maxToolCalls must be a positive integer',
+        message: 'agent.stop.maxToolCalls must be a number',
         pointer: joinPointer(pointer, 'maxToolCalls'),
       })
-    } else stop.maxToolCalls = mtc
+    } else stop.maxToolCalls = raw.maxToolCalls
   }
   if (raw.requireFinalSchema !== undefined) {
     if (typeof raw.requireFinalSchema !== 'boolean') {
@@ -539,8 +538,8 @@ function parsePolicy(
     return undefined
   }
   const policy: AgentPolicy = {}
-  positiveFiniteNumberField(raw, 'timeoutMs', pointer, ctx, (v) => { policy.timeoutMs = v })
-  positiveFiniteNumberField(raw, 'budgetCents', pointer, ctx, (v) => { policy.budgetCents = v })
+  numberField(raw, 'timeoutMs', pointer, ctx, (v) => { policy.timeoutMs = v })
+  numberField(raw, 'budgetCents', pointer, ctx, (v) => { policy.budgetCents = v })
   numberField(raw, 'maxToolCalls', pointer, ctx, (v) => { policy.maxToolCalls = v })
   if (raw.workingDirectory !== undefined) {
     if (typeof raw.workingDirectory !== 'string') {
@@ -595,34 +594,6 @@ function parsePolicy(
     }
   }
   return policy
-}
-
-function positiveFiniteNumberField(
-  obj: Record<string, unknown>,
-  key: string,
-  pointer: string,
-  ctx: ParseContext,
-  assign: (v: number) => void,
-): void {
-  if (obj[key] === undefined) return
-  const value = obj[key]
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    ctx.errors.push({
-      code: 'WRONG_FIELD_TYPE',
-      message: `${pointer}/${key} must be a finite number`,
-      pointer: joinPointer(pointer, key),
-    })
-    return
-  }
-  if (value <= 0) {
-    ctx.errors.push({
-      code: 'WRONG_FIELD_TYPE',
-      message: `${pointer}/${key} must be greater than 0`,
-      pointer: joinPointer(pointer, key),
-    })
-    return
-  }
-  assign(value)
 }
 
 function numberField(

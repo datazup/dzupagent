@@ -9,17 +9,13 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    },
-    "./fleet": {
-      "import": "./dist/fleet.js",
-      "types": "./dist/fleet.d.ts"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
+    "build": "tsup",
     "lint": "eslint src/",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

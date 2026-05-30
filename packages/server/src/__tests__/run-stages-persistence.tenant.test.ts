@@ -6,7 +6,6 @@ import {
   ModelRegistry,
   type DzupEvent,
 } from '@dzupagent/core'
-import type { RunReflectionStore } from '@dzupagent/agent/reflection'
 import type { RunJob } from '../queue/run-queue.js'
 import {
   persistCancellation,
@@ -224,7 +223,8 @@ describe('run-stages-persistence reflection stamping (RUN-REFLECTION-STORE-WIDEN
       eventBus,
       modelRegistry,
       reflector,
-      reflectionStore: reflectionStore as unknown as RunReflectionStore,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      reflectionStore: reflectionStore as any,
       runExecutor: async () => ({ content: 'ok' }),
     }
 
@@ -297,7 +297,8 @@ describe('run-stages-persistence reflection stamping (RUN-REFLECTION-STORE-WIDEN
       eventBus,
       modelRegistry,
       reflector,
-      reflectionStore: reflectionStore as unknown as RunReflectionStore,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      reflectionStore: reflectionStore as any,
       runExecutor: async () => ({ content: 'ok' }),
     }
 

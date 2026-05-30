@@ -10,7 +10,7 @@
  * Knows nothing about routing or fallback orchestration.
  */
 
-import type { DzupEventBus } from '@dzupagent/core/events'
+import type { DzupEventBus } from '@dzupagent/core/advanced'
 
 import type { AdapterProviderId, AgentCLIAdapter } from '../types.js'
 import { getProviderCapabilities } from '../provider-catalog.js'

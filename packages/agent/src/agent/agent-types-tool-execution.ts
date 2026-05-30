@@ -91,12 +91,9 @@ export interface ToolExecutionConfig {
   /**
    * Controls scanner-exception behavior for tool result scanning.
    *
-   * Defaults to `fail-closed` (AGENT-M-01): when left unset and a
-   * safety monitor is configured, a crashing scanner withholds the tool
-   * result instead of silently passing it through. Opt back into the
-   * legacy permissive behavior with `fail-open` — only intended for local
-   * development and routed through the dev tool-governance preset
-   * (`createDevToolGovernancePreset`).
+   * Defaults to `fail-open` for backwards compatibility. Set to
+   * `fail-closed` for production or untrusted presets that must withhold
+   * tool output when the safety scanner itself fails.
    *
    * Forwarded to {@link ToolLoopConfig.scanFailureMode}.
    */

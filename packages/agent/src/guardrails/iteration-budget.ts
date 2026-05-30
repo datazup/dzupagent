@@ -69,12 +69,12 @@ export class IterationBudget {
     return { ...this.state }
   }
 
-  /** Create a child budget that shares counter state with this parent */
+  /** Create a child budget that shares state with this parent */
   fork(): IterationBudget {
     const child = new IterationBudget(this.config)
-    child.state = this.state // shared reference — intentional; counters are shared
-    child.emittedThresholds = new Set(this.emittedThresholds)
-    child.dynamicallyBlockedTools = new Set(this.dynamicallyBlockedTools)
+    child.state = this.state // shared reference
+    child.emittedThresholds = this.emittedThresholds
+    child.dynamicallyBlockedTools = this.dynamicallyBlockedTools
     return child
   }
 

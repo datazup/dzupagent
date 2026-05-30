@@ -93,7 +93,6 @@ export class EvalOrchestrator implements EvalOrchestratorLike {
   async queueRun(input: {
     suite: EvalSuite
     metadata?: Record<string, unknown>
-    tenantId?: string | undefined
   }): Promise<EvalRunRecord> {
     await this.ensureReady()
     if (!this.config.executeTarget) {

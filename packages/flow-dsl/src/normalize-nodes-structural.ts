@@ -65,7 +65,6 @@ const LOOP_KEYS = new Set<string>([
   'body',
   'maxIterations',
   'max_iterations',
-  'progressKey',
 ])
 
 export function normalizeLoop(
@@ -109,10 +108,6 @@ export function normalizeLoop(
       message: 'loop.maxIterations must be a positive number',
       path: `${path}.maxIterations`,
     })
-  }
-
-  if (typeof raw.progressKey === 'string' && raw.progressKey.length > 0) {
-    node.progressKey = raw.progressKey
   }
 
   return node

@@ -59,7 +59,6 @@
     "audit:deps": "yarn audit",
     "audit:deps:summary": "yarn audit --summary",
     "bench:dts": "node scripts/measure-dts-build.mjs",
-    "bench:turbo": "node scripts/summarize-turbo-run.mjs",
     "bench": "vitest bench --config scripts/bench/vitest.bench.config.ts"
   },
   "engines": {

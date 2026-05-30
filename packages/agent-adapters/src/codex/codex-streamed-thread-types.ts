@@ -29,7 +29,7 @@ export interface RunStreamedThreadContext {
   /** Updates the active session id when the SDK emits `thread.started`. */
   setSessionId: (sessionId: string) => void
   /** Triggers `interrupt()` semantics on timeout. */
-  abort: (reason?: unknown) => void
+  abort: () => void
   /** Lazily build the approval-flow context (resolver + thread-options). */
   buildApprovalContext: (input: AgentInput) => CodexApprovalContext
   /**

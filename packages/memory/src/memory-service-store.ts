@@ -80,12 +80,7 @@ export async function putMemoryRecord(
   if (deps.rejectUnsafe) {
     const result = sanitizeMemoryContent(textContent)
     if (!result.safe) {
-      deps.eventBus?.emit({
-        type: 'memory:threat_detected',
-        agentId: deps.agentId ?? 'unknown',
-        namespace: ns.name,
-        threats: result.threats,
-      })
+      // Silently reject — security violations should not surface to the LLM
       return
     }
   }

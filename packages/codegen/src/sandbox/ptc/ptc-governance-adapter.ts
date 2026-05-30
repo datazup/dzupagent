@@ -7,8 +7,8 @@
  * are governed by the same policy object.
  */
 
-import type { ToolGovernance } from '@dzupagent/core/tools'
-import type { DzupEventBus } from '@dzupagent/core/events'
+import type { ToolGovernance } from '@dzupagent/core'
+import type { DzupEventBus } from '@dzupagent/core'
 import type { PtcGovernanceConfig, PtcRequest, PtcResult } from './ptc-types.js'
 
 export interface PtcGovernanceAdapterOptions {

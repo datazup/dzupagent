@@ -40,12 +40,6 @@ interface Fixture {
   runStore: InMemoryRunStore
 }
 
-const TEST_API_KEYS: Record<string, Record<string, unknown>> = {
-  malformed: { tenantId: 'tenant-a' },
-  'key-tenant-a': { id: 'key-tenant-a', tenantId: 'tenant-a' },
-  'key-tenant-b': { id: 'key-tenant-b', tenantId: 'tenant-b' },
-}
-
 async function makeFixture(): Promise<Fixture> {
   const reflectionStore = new InMemoryReflectionStore()
   const runStore = new InMemoryRunStore()
@@ -89,8 +83,13 @@ async function makeFixture(): Promise<Fixture> {
     const auth = c.req.header('Authorization')
     if (auth?.startsWith('Bearer ')) {
       const token = auth.slice('Bearer '.length)
-      const apiKey = TEST_API_KEYS[token]
-      if (apiKey) c.set('apiKey', apiKey)
+      if (token === 'malformed') {
+        c.set('apiKey', { tenantId: 'tenant-a' } as Record<string, unknown>)
+      } else if (token === 'key-tenant-a') {
+        c.set('apiKey', { id: 'key-tenant-a', tenantId: 'tenant-a' } as Record<string, unknown>)
+      } else if (token === 'key-tenant-b') {
+        c.set('apiKey', { id: 'key-tenant-b', tenantId: 'tenant-b' } as Record<string, unknown>)
+      }
     }
     await next()
   })
@@ -333,8 +332,9 @@ describe('Reflection routes — store-side filter delegation (RUN-REFLECTION-STO
       const auth = c.req.header('Authorization')
       if (auth?.startsWith('Bearer ')) {
         const token = auth.slice('Bearer '.length)
-        const apiKey = TEST_API_KEYS[token]
-        if (apiKey) c.set('apiKey', apiKey)
+        if (token === 'key-tenant-a') {
+          c.set('apiKey', { id: 'key-tenant-a', tenantId: 'tenant-a' } as Record<string, unknown>)
+        }
       }
       await next()
     })

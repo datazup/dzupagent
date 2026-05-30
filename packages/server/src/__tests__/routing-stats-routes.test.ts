@@ -7,11 +7,6 @@ import {
   createEventBus,
 } from '@dzupagent/core'
 
-const TEST_API_KEYS: Record<string, { id: string; tenantId: string }> = {
-  'key-a': { id: 'key-a', tenantId: 'tenant-a' },
-  'key-b': { id: 'key-b', tenantId: 'tenant-b' },
-}
-
 function createTestConfig(): ForgeServerConfig {
   return {
     runStore: new InMemoryRunStore(),
@@ -158,7 +153,9 @@ describe('Routing stats route — GET /api/runs/routing-stats', () => {
       auth: {
         mode: 'api-key',
         validateKey: async (token: string) => {
-          return TEST_API_KEYS[token] ?? null
+          if (token === 'key-a') return { id: 'key-a', tenantId: 'tenant-a' }
+          if (token === 'key-b') return { id: 'key-b', tenantId: 'tenant-b' }
+          return null
         },
       },
     })

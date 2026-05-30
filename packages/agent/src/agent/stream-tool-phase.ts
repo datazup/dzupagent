@@ -215,19 +215,15 @@ export async function runToolStreamingPhase(args: {
         }
       }
     } catch {
-      // Secure-by-default (AGENT-M-01): mirror the generate-path policy in
-      // result-pipeline.ts. A scanner failure withholds the result unless
-      // the caller explicitly opted into 'fail-open' (dev preset only).
-      const failOpen = policy.scanFailureMode === 'fail-open'
       policy.eventBus?.emit({
         type: 'safety:violation',
         category: 'tool_result_scanner_failure',
-        severity: failOpen ? 'warning' : 'critical',
+        severity: policy.scanFailureMode === 'fail-closed' ? 'critical' : 'warning',
         ...(policy.agentId !== undefined ? { agentId: policy.agentId } : {}),
         message: 'Tool result safety scanner failed',
       })
 
-      if (!failOpen) {
+      if (policy.scanFailureMode === 'fail-closed') {
         const blockedContent = '[blocked: tool result safety scanner failed]'
         const durationMs = recordToolLatencyOutcome(omitUndefined({
           statTracker,

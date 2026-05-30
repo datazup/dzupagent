@@ -7,10 +7,8 @@
 import { Hono } from 'hono'
 import type { AppEnv } from '../types.js'
 import type { PersonaStore } from '../personas/persona-store.js'
-import { PersonaCreateSchema, PersonaUpdateSchema } from './schemas.js'
-import { body, notFound, tenantOf } from './crud-helpers.js'
-
-const NOT_FOUND = 'Persona not found'
+import { PersonaCreateSchema, PersonaUpdateSchema, validateBodyCompat } from './schemas.js'
+import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface PersonaRouteConfig {
   personaStore: PersonaStore
@@ -21,46 +19,63 @@ export function createPersonaRoutes(config: PersonaRouteConfig): Hono<AppEnv> {
 
   // --- Create persona ---
   app.post('/', async (c) => {
-    const parsed = await body(c, PersonaCreateSchema)
-    if (!parsed.ok) return parsed.response
-    const b = parsed.value
+    const tenantId = getRequestingTenantId(c)
+    const parsed = await validateBodyCompat(c, PersonaCreateSchema)
+    if (parsed instanceof Response) return parsed
+    const body = parsed
 
+    const id = body.id ?? crypto.randomUUID()
     const persona = await config.personaStore.save({
-      id: b.id ?? crypto.randomUUID(),
-      name: b.name,
-      instructions: b.instructions,
-      modelId: b.modelId,
-      temperature: b.temperature,
-      metadata: b.metadata,
-      tenantId: tenantOf(c),
+      id,
+      name: body.name,
+      instructions: body.instructions,
+      modelId: body.modelId,
+      temperature: body.temperature,
+      metadata: body.metadata,
+      tenantId,
     })
+
     return c.json(persona, 201)
   })
 
   // --- List personas ---
   app.get('/', async (c) => {
-    const personas = await config.personaStore.list({ tenantId: tenantOf(c) })
+    const personas = await config.personaStore.list({ tenantId: getRequestingTenantId(c) })
     return c.json({ personas })
   })
 
   // --- Get persona ---
   app.get('/:id', async (c) => {
-    const persona = await config.personaStore.get(c.req.param('id'), tenantOf(c))
-    return persona ? c.json(persona) : notFound(c, NOT_FOUND)
+    const persona = await config.personaStore.get(c.req.param('id'), getRequestingTenantId(c))
+    if (!persona) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Persona not found' } }, 404)
+    }
+    return c.json(persona)
   })
 
   // --- Update persona ---
   app.put('/:id', async (c) => {
-    const parsed = await body(c, PersonaUpdateSchema)
-    if (!parsed.ok) return parsed.response
-    const persona = await config.personaStore.update(c.req.param('id'), parsed.value, tenantOf(c))
-    return persona ? c.json(persona) : notFound(c, NOT_FOUND)
+    const parsed = await validateBodyCompat(c, PersonaUpdateSchema)
+    if (parsed instanceof Response) return parsed
+
+    const persona = await config.personaStore.update(
+      c.req.param('id'),
+      parsed,
+      getRequestingTenantId(c),
+    )
+    if (!persona) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Persona not found' } }, 404)
+    }
+    return c.json(persona)
   })
 
   // --- Delete persona ---
   app.delete('/:id', async (c) => {
-    const deleted = await config.personaStore.delete(c.req.param('id'), tenantOf(c))
-    return deleted ? c.json({ deleted: true }) : notFound(c, NOT_FOUND)
+    const deleted = await config.personaStore.delete(c.req.param('id'), getRequestingTenantId(c))
+    if (!deleted) {
+      return c.json({ error: { code: 'NOT_FOUND', message: 'Persona not found' } }, 404)
+    }
+    return c.json({ deleted: true })
   })
 
   return app

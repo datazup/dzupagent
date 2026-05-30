@@ -64,14 +64,10 @@
     "./streaming": {
       "types": "./dist/streaming.d.ts",
       "import": "./dist/streaming.js"
-    },
-    "./presets/fleet": {
-      "types": "./dist/presets/fleet/index.d.ts",
-      "import": "./dist/presets/fleet/index.js"
     }
   },
   "scripts": {
-    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
+    "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -86,8 +82,7 @@
     "@dzupagent/memory": "0.2.0",
     "@dzupagent/memory-ipc": "0.2.0",
     "@dzupagent/runtime-contracts": "0.2.0",
-    "@dzupagent/security": "0.2.0",
-    "ulidx": "^2.4.1"
+    "@dzupagent/security": "0.2.0"
   },
   "peerDependencies": {
     "@langchain/core": ">=1.0.0",

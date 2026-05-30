@@ -109,7 +109,8 @@ describe('ContentScanner — defensive edge cases', () => {
 
   it('handles non-string defensively', async () => {
     const scanner = new ContentScanner({ promptInjection: 'block', pii: 'redact' })
-    const r = await scanner.scan(undefined as unknown as string)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const r = await scanner.scan(undefined as any)
     expect(r.verdict).toBe('allow')
     expect(r.sanitized).toBe('')
   })

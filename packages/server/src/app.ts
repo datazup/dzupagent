@@ -129,6 +129,7 @@ export function createForgeApp(config: ForgeServerConfig): Hono<AppEnv> {
           await auditLogger.flush()
         } catch (err) {
           // Best-effort: surface but do not block shutdown.
+          // eslint-disable-next-line no-console
           console.warn('[ForgeServer] audit logger flush surfaced error during shutdown', err)
         } finally {
           auditLogger.dispose()

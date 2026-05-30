@@ -1,44 +1,31 @@
 # Flow and Orchestration Authoring Surfaces
 
-This document maps the public authoring surfaces for DzupAgent flow documents,
-text DSL input, compiler expansion, and runtime orchestration. It is the
-cross-package ownership reference for keeping flow authoring and agent
-orchestration contracts aligned.
+This document maps the public authoring surfaces for flow and orchestration across the DzupAgent framework.
 
 ## Package Ownership
 
-| Package | Owner Surface | Public Contract |
-| --- | --- | --- |
-| `@dzupagent/flow-ast` | Flow AST types, parsers, and validators | `FlowDocumentV1` |
-| `@dzupagent/flow-dsl` | Textual YAML-like DSL normalization, formatting, validation, and graph projection | `dzupflow/v1`, `dzupflow/v1alpha-agent` |
-| `@dzupagent/flow-compiler` | Semantic resolution and target artifact expansion from validated flow documents | compiler artifacts and diagnostics |
-| `@dzupagent/agent` | Runtime tool loops, guardrails, workflow execution, planning, and team coordination | `PlanningAgent.ExecutionPlan`, `TeamDefinition` |
-| `@dzupagent/agent-adapters` | Provider adapter orchestration, adapter workflow authoring, routing, and execution bridges | `AdapterWorkflowBuilder` |
+| Package | Authoring Surface | Schema / Version |
+|---------|------------------|-----------------|
+| `@dzupagent/flow-ast` | Flow AST parse + validate primitives | `FlowDocumentV1` |
+| `@dzupagent/flow-dsl` | Flow DSL builder — TypeScript-first flow construction | `dzupflow/v1` |
+| `@dzupagent/flow-compiler` | Flow compiler — lowers flow AST to pipeline graph | (compile-time) |
+| `@dzupagent/agent` | Agent runtime, guardrails, tool loops, workflow execution | (runtime) |
+| `@dzupagent/agent-adapters` | Adapter orchestration, multi-agent patterns, workflow DSL | `AdapterWorkflowBuilder` |
 
-## Public Authoring Contracts
+## Key Types
 
-- `FlowDocumentV1` is the canonical typed flow document owned by
-  `@dzupagent/flow-ast`. Authoring surfaces should normalize into this shape
-  before compiler expansion or runtime execution.
-- `dzupflow/v1` is the stable textual DSL discriminator accepted by
-  `@dzupagent/flow-dsl`; `dzupflow/v1alpha-agent` extends it for agent and
-  validation nodes while that surface is still staged.
-- `@dzupagent/flow-compiler` consumes validated flow documents and expands
-  semantic profiles, policies, tools, and target-specific artifacts. It should
-  not become the source of authored AST validation rules.
-- `PlanningAgent.ExecutionPlan` is the structured planning output used by
-  orchestration flows in `@dzupagent/agent`.
-- `TeamDefinition` is the declarative multi-agent team spec resolved by the
-  `@dzupagent/agent` team runtime.
-- `AdapterWorkflowBuilder` is the adapter-level workflow authoring surface in
-  `@dzupagent/agent-adapters` for provider orchestration that does not require
-  a full flow document.
+- **`FlowDocumentV1`** — the root document type produced by `@dzupagent/flow-ast` parse. Schema version string: `dzupflow/v1`.
+- **`AdapterWorkflowBuilder`** — fluent workflow DSL from `@dzupagent/agent-adapters`; compiles to a `AdapterWorkflow` that the orchestration engine executes.
+- **`PlanningAgent.ExecutionPlan`** — structured plan output from planning-agent runs; used to drive multi-step flow execution.
+- **`TeamDefinition`** — declarative multi-agent team spec; resolved by the orchestration layer to spawn and coordinate agents.
 
-## Boundary Rules
+## Authoring Entry Points
 
-- Keep authored flow shape validation in `@dzupagent/flow-ast`.
-- Keep text DSL parsing and normalization in `@dzupagent/flow-dsl`.
-- Keep profile, policy, and target expansion in `@dzupagent/flow-compiler`.
-- Keep runtime execution and team orchestration in `@dzupagent/agent`.
-- Keep provider-specific orchestration, routing, and adapter workflow helpers
-  in `@dzupagent/agent-adapters`.
+1. **Flow DSL** (`@dzupagent/flow-dsl`): author flows in TypeScript with full type safety, then compile via `@dzupagent/flow-compiler`.
+2. **Workflow builder** (`@dzupagent/agent-adapters`): use `AdapterWorkflowBuilder` for adapter-level orchestration without a full flow document.
+3. **Planning agent**: emit `PlanningAgent.ExecutionPlan` from a planning run and drive execution via the flow runtime.
+4. **Team definition**: declare a `TeamDefinition` and hand it to the orchestration facade for multi-agent coordination.
+
+## Schema Versioning
+
+All flow documents carry a `$schema: 'dzupflow/v1'` field. Breaking schema changes require a new major version and a migration shim in `@dzupagent/flow-ast`.

@@ -11,8 +11,8 @@
  * bookkeeping state from {@link AdapterHealthMonitor}.
  */
 
-import { ForgeError } from '@dzupagent/core/events'
-import type { DzupEventBus, ForgeErrorCode } from '@dzupagent/core/events'
+import { ForgeError } from '@dzupagent/core/advanced'
+import type { DzupEventBus, ForgeErrorCode } from '@dzupagent/core/advanced'
 
 import type {
   AdapterProviderId,

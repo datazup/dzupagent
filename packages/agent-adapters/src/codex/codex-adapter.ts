@@ -308,8 +308,8 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       setSessionId: (sid) => {
         adapter.currentSessionId = sid
       },
-      abort: (reason?: unknown) => {
-        adapter.abortController?.abort(reason)
+      abort: () => {
+        adapter.abortController?.abort()
       },
       buildApprovalContext: (input) => adapter.buildApprovalContext(input),
       isApprovalCapable: (input) =>

@@ -13,7 +13,6 @@ import type { SignalComputationConfig } from '../deploy/signal-checkers.js'
 import { computeAllSignals } from '../deploy/signal-checkers.js'
 import type { GateDecision } from '../deploy/confidence-types.js'
 import type { DeployRouteConfig } from './deploy-types.js'
-import { getRequestingTenantId } from './tenant-scope.js'
 
 export type { DeployRouteConfig } from './deploy-types.js'
 
@@ -87,8 +86,6 @@ export function createDeployRoutes(config: DeployRouteConfig): Hono<AppEnv> {
 
   // POST /api/deploy/record — record a deployment
   app.post('/record', async (c) => {
-    // SEC-M-06: stamp requesting tenant onto the new record.
-    const tenantId = getRequestingTenantId(c)
     const body = await c.req.json<{
       id: string
       confidenceScore: number
@@ -133,7 +130,6 @@ export function createDeployRoutes(config: DeployRouteConfig): Hono<AppEnv> {
       environment,
       rollbackAvailable: body.rollbackAvailable,
       notes: body.notes,
-      tenantId,
     })
 
     return c.json({ data: serializeRecord(record) }, 201)
@@ -141,13 +137,11 @@ export function createDeployRoutes(config: DeployRouteConfig): Hono<AppEnv> {
 
   // GET /api/deploy/history — list recent deployments
   app.get('/history', async (c) => {
-    // SEC-M-06: scope list to requesting tenant.
-    const tenantId = getRequestingTenantId(c)
     const limit = parseInt(c.req.query('limit') ?? '20', 10)
     const environment = c.req.query('environment') ?? undefined
 
     const clampedLimit = Math.min(Math.max(1, limit), 100)
-    const records = await historyStore.getRecent(clampedLimit, environment, tenantId)
+    const records = await historyStore.getRecent(clampedLimit, environment)
 
     return c.json({
       data: records.map(serializeRecord),
@@ -157,8 +151,6 @@ export function createDeployRoutes(config: DeployRouteConfig): Hono<AppEnv> {
 
   // PATCH /api/deploy/:id/outcome — update deployment outcome
   app.patch('/:id/outcome', async (c) => {
-    // SEC-M-06: pass tenantId so store enforces ownership (cross-tenant → null → 404).
-    const tenantId = getRequestingTenantId(c)
     const id = c.req.param('id')
     const body = await c.req.json<{ outcome: string }>()
 
@@ -169,7 +161,7 @@ export function createDeployRoutes(config: DeployRouteConfig): Hono<AppEnv> {
       )
     }
 
-    const updated = await historyStore.markOutcome(id, body.outcome, tenantId)
+    const updated = await historyStore.markOutcome(id, body.outcome)
 
     if (!updated) {
       return c.json(

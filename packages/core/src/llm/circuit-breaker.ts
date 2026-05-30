@@ -21,13 +21,6 @@ export interface CircuitBreakerConfig {
   /** Max attempts allowed in HALF_OPEN state before re-opening (default: 1) */
   halfOpenMaxAttempts: number
   /**
-   * Equal-jitter factor (0–1). The actual reset window is
-   * `resetTimeoutMs * (1 - jitterFactor/2 + random * jitterFactor)`.
-   * Prevents thundering-herd when many breakers share the same config
-   * (default: 0.2 — ±10% of resetTimeoutMs).
-   */
-  jitterFactor?: number
-  /**
    * Alias for `resetTimeoutMs` (orchestration-flavoured name). If both are
    * set, `resetTimeoutMs` takes precedence. Kept for compatibility with
    * the former `AgentCircuitBreaker` API.
@@ -41,12 +34,6 @@ const DEFAULT_CONFIG: CircuitBreakerConfig = {
   failureThreshold: 3,
   resetTimeoutMs: 30_000,
   halfOpenMaxAttempts: 1,
-  jitterFactor: 0.2,
-}
-
-/** Equal-jitter: actual timeout = base * (1 - factor/2 + random * factor) */
-function jitteredTimeout(baseMs: number, factor: number): number {
-  return baseMs * (1 - factor / 2 + Math.random() * factor)
 }
 
 export class CircuitBreaker {
@@ -54,7 +41,6 @@ export class CircuitBreaker {
   private failureCount = 0
   private halfOpenAttempts = 0
   private lastFailureAt = 0
-  private resetTimeoutWithJitter = 0
   private readonly config: CircuitBreakerConfig
 
   constructor(config?: Partial<CircuitBreakerConfig>) {
@@ -75,10 +61,9 @@ export class CircuitBreaker {
         return true
 
       case 'open': {
-        // Check if enough time has passed to try again (uses jittered window)
+        // Check if enough time has passed to try again
         const elapsed = Date.now() - this.lastFailureAt
-        const timeout = this.resetTimeoutWithJitter || this.config.resetTimeoutMs
-        if (elapsed >= timeout) {
+        if (elapsed >= this.config.resetTimeoutMs) {
           this.state = 'half-open'
           this.halfOpenAttempts = 0
           return true
@@ -104,31 +89,22 @@ export class CircuitBreaker {
     this.lastFailureAt = Date.now()
 
     if (this.state === 'half-open') {
-      // Failure during probe — re-open with fresh jitter
+      // Failure during probe — re-open
       this.state = 'open'
-      this.resetTimeoutWithJitter = jitteredTimeout(
-        this.config.resetTimeoutMs,
-        this.config.jitterFactor ?? 0,
-      )
       return
     }
 
     if (this.failureCount >= this.config.failureThreshold) {
       this.state = 'open'
-      this.resetTimeoutWithJitter = jitteredTimeout(
-        this.config.resetTimeoutMs,
-        this.config.jitterFactor ?? 0,
-      )
     }
   }
 
   /** Get current state for diagnostics */
   getState(): CircuitState {
-    // Re-check open→half-open transition on read (uses jittered window)
+    // Re-check open→half-open transition on read
     if (this.state === 'open') {
       const elapsed = Date.now() - this.lastFailureAt
-      const timeout = this.resetTimeoutWithJitter || this.config.resetTimeoutMs
-      if (elapsed >= timeout) {
+      if (elapsed >= this.config.resetTimeoutMs) {
         this.state = 'half-open'
         this.halfOpenAttempts = 0
       }
@@ -142,7 +118,6 @@ export class CircuitBreaker {
     this.failureCount = 0
     this.halfOpenAttempts = 0
     this.lastFailureAt = 0
-    this.resetTimeoutWithJitter = 0
   }
 }
 

@@ -55,8 +55,6 @@ export interface EvalOrchestratorLike {
   queueRun(input: {
     suite: EvalSuite
     metadata?: Record<string, unknown> | undefined
-    /** Tenant that should own the created run (SEC-M-06). */
-    tenantId?: string | undefined
   }): Promise<EvalRunRecord>
   cancelRun(runId: string): Promise<EvalRunRecord>
   retryRun(runId: string): Promise<EvalRunRecord>

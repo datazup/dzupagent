@@ -7,7 +7,7 @@
  */
 
 import { ForgeError } from '@dzupagent/core/events'
-import { validateOutboundUrlSyntax } from './security-lite.js'
+import { validateOutboundUrlSyntax } from '@dzupagent/core/security'
 
 /** Options for webhook URL validation. */
 export interface UrlValidationOptions {

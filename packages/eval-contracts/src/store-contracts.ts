@@ -66,16 +66,12 @@ export interface EvalRunRecord {
   attemptHistory?: EvalRunAttemptRecord[] | undefined
   metadata?: Record<string, unknown> | undefined
   attempts: number
-  /** Tenant that owns this eval run. Used for multi-tenant isolation (SEC-M-06). */
-  tenantId?: string | undefined
 }
 
 export interface EvalRunListFilter {
   suiteId?: string | undefined
   status?: EvalRunStatus | undefined
   limit?: number | undefined
-  /** When set, only runs belonging to this tenant are returned (SEC-M-06). */
-  tenantId?: string | undefined
 }
 
 export interface EvalRunStore {

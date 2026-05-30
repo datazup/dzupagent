@@ -14,7 +14,7 @@
  *   (`productIntegrated: false`) for the authoritative policy.
  */
 
-import type { DzupEventBus } from '@dzupagent/core/events'
+import type { CircuitBreakerConfig, DzupEventBus } from '@dzupagent/core/advanced'
 
 import type {
   AdapterProviderId,
@@ -30,7 +30,6 @@ import type {
 
 import { AdapterHealthMonitor } from './health-monitor.js'
 import type {
-  CircuitBreakerConfig,
   ProviderAdapterHealthDetail,
   ProviderAdapterRegistryHealthStatus,
 } from './health-monitor.js'

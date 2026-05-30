@@ -170,21 +170,15 @@ export function applySafetyScan(
     }
     return { resultStr }
   } catch {
-    // Secure-by-default (AGENT-M-01): the scanner failing is treated as
-    // fail-closed unless a caller has explicitly opted into the legacy
-    // permissive behavior via `scanFailureMode: 'fail-open'` (routed
-    // through the dev tool-governance preset). An unset value therefore
-    // withholds the result rather than silently passing it through.
-    const failOpen = config.scanFailureMode === 'fail-open'
     config.eventBus?.emit({
       type: 'safety:violation',
       category: 'tool_result_scanner_failure',
-      severity: failOpen ? 'warning' : 'critical',
+      severity: config.scanFailureMode === 'fail-closed' ? 'critical' : 'warning',
       ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
       message: 'Tool result safety scanner failed',
     })
 
-    if (!failOpen) {
+    if (config.scanFailureMode === 'fail-closed') {
       const blockedStr = '[blocked: tool result safety scanner failed]'
       config.onToolResult?.(toolName, blockedStr)
       const message = new ToolMessage({

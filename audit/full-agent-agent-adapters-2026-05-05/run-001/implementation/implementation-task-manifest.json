@@ -1,0 +1,38 @@
+{
+  "auditPath": "dzupagent/audit/full-agent-agent-adapters-2026-05-05/run-001",
+  "generatedAt": "2026-05-05",
+  "completedAt": "2026-05-05",
+  "phases": {
+    "quick": [
+      { "id": "QF-01", "title": "Add agent:rate_limited to DzupEvent union", "status": "done", "agent": "dzupagent-core-dev", "effort": "1h" },
+      { "id": "QF-02", "title": "Fix workspace-write sandbox mode in Claude adapter", "status": "done", "agent": "dzupagent-connectors-dev", "effort": "1h" },
+      { "id": "QF-03", "title": "Fix boundary violation — agent test imports @dzupagent/server", "status": "done", "agent": "dzupagent-agent-dev", "effort": "1h" },
+      { "id": "QF-04", "title": "Fix relative-path boundary in agent-adapters test", "status": "done", "agent": "dzupagent-agent-dev", "effort": "30m" },
+      { "id": "QF-05", "title": "Add upstream-package boundary enforcement tests", "status": "done", "agent": "dzupagent-agent-dev", "effort": "1h" },
+      { "id": "QF-06", "title": "Fix retry abort-listener leak", "status": "done", "agent": "dzupagent-agent-dev", "effort": "30m" },
+      { "id": "QF-07", "title": "Fix iteration-budget config mutation", "status": "done", "agent": "dzupagent-agent-dev", "effort": "30m" },
+      { "id": "QF-08", "title": "Add webhook retry + DLQ + observability event", "status": "done", "agent": "dzupagent-agent-dev", "effort": "2h" },
+      { "id": "QF-09", "title": "Fix dead no-op try/catch in orchestrator", "status": "done", "agent": "dzupagent-agent-dev", "effort": "15m" },
+      { "id": "QF-10", "title": "Fix consolidateOnComplete throws — implement or remove", "status": "done", "agent": "dzupagent-agent-dev", "effort": "1h" },
+      { "id": "QF-11", "title": "Fix interrupt() process-level handler leak in Claude adapter", "status": "done", "agent": "dzupagent-connectors-dev", "effort": "30m" },
+      { "id": "QF-12", "title": "Declare timeoutMs on AdapterConfig", "status": "done", "agent": "dzupagent-connectors-dev", "effort": "30m", "note": "timeoutMs was already declared; only the double-cast was removed" },
+      { "id": "QF-13", "title": "Extract sha256 to shared hash-utils", "status": "done", "agent": "dzupagent-connectors-dev", "effort": "30m" },
+      { "id": "QF-14", "title": "Replace console.log/debug with @dzupagent/logger", "status": "done", "agent": "dzupagent-connectors-dev", "effort": "2h", "note": "Also extended FrameworkLogger interface with debug/info methods; 4 residual console calls in structured-generate.ts, orchestrator.ts, dry-run-reporter.ts left for follow-up" },
+      { "id": "QF-15", "title": "Move exact-optional and event-record utils to @dzupagent/core", "status": "done", "agent": "dzupagent-core-dev", "effort": "1h", "note": "Originals kept as deprecated re-export shims to avoid touching 47+ import sites" },
+      { "id": "QF-16", "title": "Add unref to approval-gate timeout", "status": "done", "agent": "dzupagent-agent-dev", "effort": "15m" },
+      { "id": "QF-17", "title": "Add @deprecated JSDoc to AgentPlayground triple-export", "status": "done", "agent": "general-purpose", "effort": "15m" }
+    ],
+    "refactor": [],
+    "major": []
+  },
+  "gateResults": {
+    "typecheck_core": "pass",
+    "typecheck_agent": "pass",
+    "typecheck_agent_adapters": "pass",
+    "test_agent": "3766 passed / 1 todo — 184 files — PASS",
+    "test_agent_adapters": "2658 passed / 3 pre-existing failures — 141 files — pre-existing only"
+  },
+  "warnings": [
+    "3 pre-existing test failures in agent-adapters (adapter-registry + orchestrator-facade event ordering) were present before this sprint and not touched"
+  ]
+}

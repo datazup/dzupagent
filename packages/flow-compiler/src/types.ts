@@ -11,6 +11,8 @@ import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { ProfileRegistry } from './profile-registry.js'
 
+import type { ProfileRegistry } from './profile-registry.js'
+
 export interface CompilerOptions {
   toolResolver: ToolResolver | AsyncToolResolver
   personaResolver?: PersonaResolver | AsyncPersonaResolver

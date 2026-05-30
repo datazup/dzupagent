@@ -52,7 +52,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
 
     const socket = new MockSocket()
     handler({ url: '/x' } as unknown as IncomingMessage, socket as unknown as Duplex, Buffer.alloc(0))
-    await Promise.resolve()
+    await new Promise((r) => setTimeout(r, 0))
 
     expect(socket.destroyed).toBe(false)
   })
@@ -69,7 +69,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
       wss: { handleUpgrade },
       manager,
       shouldHandleRequest: async () => {
-        await Promise.resolve()
+        await new Promise((r) => setTimeout(r, 1))
         return true
       },
     })
@@ -160,7 +160,7 @@ describe('createNodeWsUpgradeHandler branch coverage', () => {
       wss: { handleUpgrade },
       manager,
       resolveScopeFromRequest: async () => {
-        await Promise.resolve()
+        await new Promise((r) => setTimeout(r, 1))
         return { runIds: ['async-resolved'] }
       },
     })

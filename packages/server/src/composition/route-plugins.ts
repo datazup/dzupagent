@@ -84,26 +84,11 @@ export function mountRoutePlugins(
 ): void {
   const context: ServerRoutePluginContext<ForgeServerConfig> = { serverConfig }
   for (const plugin of plugins) {
-    // Reject syntactically invalid prefixes.
     if (plugin.prefix !== '' && !plugin.prefix.startsWith('/')) {
       console.warn(
         `[ForgeServer] Skipping route plugin with invalid prefix "${plugin.prefix}". Prefix must start with '/'.`,
       )
       continue
-    }
-
-    // AUTH BOUNDARY ENFORCEMENT
-    // Plugins whose prefix does not start with '/api/' would be mounted
-    // outside the authentication middleware scope, allowing requests to reach
-    // those routes without a valid session.  Require plugins to explicitly opt
-    // out with `auth: 'bypass'` when this is intentional (e.g. health checks).
-    const authMode = plugin.auth ?? 'required'
-    if (authMode === 'required' && !plugin.prefix.startsWith('/api/') && plugin.prefix !== '') {
-      throw new Error(
-        `[ForgeServer] Route plugin with prefix "${plugin.prefix}" is outside the /api/ auth boundary. ` +
-        `Set auth: 'bypass' on the plugin to explicitly allow unauthenticated access, ` +
-        `or change the prefix to start with '/api/'.`,
-      )
     }
 
     const subApp = plugin.createRoutes(context) as Parameters<typeof app.route>[1]

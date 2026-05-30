@@ -13,7 +13,7 @@
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
 import { extractTokenUsage } from '@dzupagent/core/llm'
-import { redactPII, redactSecrets } from '@dzupagent/core/security'
+import { redactPII, redactSecrets } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core/events'
 import type {
   LlmCallAuditEntry,

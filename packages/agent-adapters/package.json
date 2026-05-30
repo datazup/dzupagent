@@ -61,10 +61,6 @@
     "./enrichment": {
       "types": "./dist/enrichment.d.ts",
       "import": "./dist/enrichment.js"
-    },
-    "./fleet-executors": {
-      "import": "./dist/fleet-executors/index.js",
-      "types": "./dist/fleet-executors/index.d.ts"
     }
   },
   "scripts": {
@@ -92,9 +88,9 @@
     "zod": ">=4.0.0"
   },
   "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.141",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.98",
     "@google/generative-ai": "^0.24.1",
-    "@openai/codex-sdk": "^0.135.0"
+    "@openai/codex-sdk": "^0.118.0"
   },
   "devDependencies": {
     "@langchain/core": "^1.1.39",

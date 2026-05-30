@@ -14,10 +14,8 @@ import type {
   AgentPolicy,
   AgentRetry,
   AgentStop,
-  AgentTemplateRef,
   AgentValidation,
   AgentValidationCommand,
-  ValidationBlock,
   ValidateNode,
 } from '@dzupagent/flow-ast'
 
@@ -39,7 +37,6 @@ const AGENT_KEYS = new Set<string>([
   'tools',
   'model',
   'provider',
-  'template',
   'instructions',
   'input',
   'stop',
@@ -47,7 +44,6 @@ const AGENT_KEYS = new Set<string>([
   'onInvalidOutput',
   'retry',
   'validation',
-  'validate',
   'policy',
 ])
 
@@ -68,7 +64,6 @@ export function normalizeAgent(
 
   const agentId = typeof raw.agentId === 'string' ? raw.agentId : ''
   const instructions = typeof raw.instructions === 'string' ? raw.instructions : ''
-  const template = normalizeTemplate(raw.template, `${path}.template`, diagnostics)
   const output = normalizeOutput(raw.output, `${path}.output`, diagnostics)
 
   if (agentId.length === 0) {
@@ -79,18 +74,11 @@ export function normalizeAgent(
       path: `${path}.agentId`,
     })
   }
-  if (instructions.length === 0 && template === undefined) {
+  if (instructions.length === 0) {
     diagnostics.push({
       phase: 'normalize',
       code: DSL_ERROR.MISSING_REQUIRED_FIELD,
-      message: 'agent.instructions is required when agent.template.ref is absent',
-      path: `${path}.instructions`,
-    })
-  } else if (raw.instructions !== undefined && typeof raw.instructions !== 'string') {
-    diagnostics.push({
-      phase: 'normalize',
-      code: DSL_ERROR.INVALID_NODE_SHAPE,
-      message: 'agent.instructions must be a string when present',
+      message: 'agent.instructions is required',
       path: `${path}.instructions`,
     })
   }
@@ -107,7 +95,6 @@ export function normalizeAgent(
     output: safeOutput,
   }
 
-  if (template !== undefined) node.template = template
   if (typeof raw.profile === 'string') node.profile = raw.profile
   if (typeof raw.toolset === 'string') node.toolset = raw.toolset
   if (typeof raw.model === 'string') node.model = raw.model
@@ -146,9 +133,6 @@ export function normalizeAgent(
 
   const validation = normalizeValidation(raw.validation, `${path}.validation`, diagnostics)
   if (validation !== undefined) node.validation = validation
-
-  const validate = normalizeValidateBlock(raw.validate, `${path}.validate`, diagnostics)
-  if (validate !== undefined) node.validate = validate
 
   const policy = normalizePolicy(raw.policy, `${path}.policy`, diagnostics)
   if (policy !== undefined) node.policy = policy
@@ -220,40 +204,6 @@ export function normalizeValidate(
 
 // ── per-field normalizers ───────────────────────────────────────────────────
 
-function normalizeTemplate(
-  raw: unknown,
-  path: string,
-  diagnostics: DslDiagnostic[],
-): AgentTemplateRef | undefined {
-  if (raw === undefined) return undefined
-  if (!isPlainObject(raw)) {
-    diagnostics.push({
-      phase: 'normalize',
-      code: DSL_ERROR.INVALID_NODE_SHAPE,
-      message: 'agent.template must be an object when present',
-      path,
-    })
-    return undefined
-  }
-  const ref = raw.ref
-  if (typeof ref !== 'string' || ref.length === 0) {
-    diagnostics.push({
-      phase: 'normalize',
-      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
-      message: 'agent.template.ref is required (non-empty string)',
-      path: `${path}.ref`,
-    })
-    return undefined
-  }
-
-  const template: AgentTemplateRef = { ref }
-  if (raw.inputDefaults !== undefined) {
-    const inputDefaults = normalizeObject(raw.inputDefaults, `${path}.inputDefaults`, diagnostics)
-    if (inputDefaults !== undefined) template.inputDefaults = inputDefaults
-  }
-  return template
-}
-
 function normalizeOutput(
   raw: unknown,
   path: string,
@@ -320,70 +270,6 @@ function normalizeOutput(
   return out
 }
 
-function normalizeValidateBlock(
-  raw: unknown,
-  path: string,
-  diagnostics: DslDiagnostic[],
-): ValidationBlock | undefined {
-  if (raw === undefined) return undefined
-  if (!isPlainObject(raw)) {
-    diagnostics.push({
-      phase: 'normalize',
-      code: DSL_ERROR.INVALID_NODE_SHAPE,
-      message: 'agent.validate must be an object',
-      path,
-    })
-    return undefined
-  }
-
-  const schema = raw.schema
-  const hasValidSchema = isPlainObject(schema)
-  if (!hasValidSchema) {
-    diagnostics.push({
-      phase: 'normalize',
-      code: DSL_ERROR.MISSING_REQUIRED_FIELD,
-      message: 'agent.validate.schema is required and must be an object',
-      path: `${path}.schema`,
-    })
-  }
-
-  const validate: Partial<ValidationBlock> = {}
-  if (hasValidSchema) validate.schema = schema
-  if (typeof raw.errorMessage === 'string') validate.errorMessage = raw.errorMessage
-
-  if (raw.failBehavior !== undefined) {
-    if (
-      raw.failBehavior === 'retry'
-      || raw.failBehavior === 'abort'
-      || raw.failBehavior === 'continue'
-    ) {
-      validate.failBehavior = raw.failBehavior
-    } else {
-      diagnostics.push({
-        phase: 'normalize',
-        code: DSL_ERROR.INVALID_ENUM_VALUE,
-        message: 'agent.validate.failBehavior must be "retry", "abort", or "continue"',
-        path: `${path}.failBehavior`,
-      })
-    }
-  }
-
-  if (raw.maxRetries !== undefined) {
-    if (typeof raw.maxRetries === 'number' && Number.isInteger(raw.maxRetries) && raw.maxRetries >= 0) {
-      validate.maxRetries = raw.maxRetries
-    } else {
-      diagnostics.push({
-        phase: 'normalize',
-        code: DSL_ERROR.INVALID_NODE_SHAPE,
-        message: 'agent.validate.maxRetries must be a non-negative integer when present',
-        path: `${path}.maxRetries`,
-      })
-    }
-  }
-
-  return hasValidSchema ? validate as ValidationBlock : undefined
-}
-
 function normalizeStop(
   raw: unknown,
   path: string,
@@ -401,9 +287,7 @@ function normalizeStop(
   }
   const stop: AgentStop = {}
   if (typeof raw.maxIterations === 'number') stop.maxIterations = raw.maxIterations
-  normalizePositiveFinitePolicyNumber(raw, 'maxToolCalls', path, diagnostics, (value) => {
-    stop.maxToolCalls = value
-  })
+  if (typeof raw.maxToolCalls === 'number') stop.maxToolCalls = raw.maxToolCalls
   if (typeof raw.requireFinalSchema === 'boolean') stop.requireFinalSchema = raw.requireFinalSchema
   return stop
 }
@@ -649,15 +533,9 @@ function normalizePolicy(
     return undefined
   }
   const policy: AgentPolicy = {}
-  normalizePositiveFinitePolicyNumber(raw, 'timeoutMs', path, diagnostics, (value) => {
-    policy.timeoutMs = value
-  })
-  normalizePositiveFinitePolicyNumber(raw, 'budgetCents', path, diagnostics, (value) => {
-    policy.budgetCents = value
-  })
-  normalizePositiveFinitePolicyNumber(raw, 'maxToolCalls', path, diagnostics, (value) => {
-    policy.maxToolCalls = value
-  })
+  if (typeof raw.timeoutMs === 'number') policy.timeoutMs = raw.timeoutMs
+  if (typeof raw.budgetCents === 'number') policy.budgetCents = raw.budgetCents
+  if (typeof raw.maxToolCalls === 'number') policy.maxToolCalls = raw.maxToolCalls
   if (typeof raw.workingDirectory === 'string') policy.workingDirectory = raw.workingDirectory
   if (raw.approval !== undefined) {
     if (!isPlainObject(raw.approval)) {
@@ -706,35 +584,4 @@ function normalizePolicy(
     }
   }
   return policy
-}
-
-function normalizePositiveFinitePolicyNumber(
-  raw: Record<string, unknown>,
-  key: 'timeoutMs' | 'budgetCents' | 'maxToolCalls',
-  path: string,
-  diagnostics: DslDiagnostic[],
-  assign: (value: number) => void,
-): void {
-  if (raw[key] === undefined) return
-  const value = raw[key]
-  const needsInteger = key === 'maxToolCalls'
-  if (typeof value !== 'number' || !Number.isFinite(value) || (needsInteger && !Number.isInteger(value))) {
-    diagnostics.push({
-      phase: 'normalize',
-      code: DSL_ERROR.INVALID_NODE_SHAPE,
-      message: needsInteger ? `${path}.${key} must be a positive integer` : `${path}.${key} must be a finite number`,
-      path: `${path}.${key}`,
-    })
-    return
-  }
-  if (value <= 0) {
-    diagnostics.push({
-      phase: 'normalize',
-      code: DSL_ERROR.INVALID_NODE_SHAPE,
-      message: `${path}.${key} must be greater than 0`,
-      path: `${path}.${key}`,
-    })
-    return
-  }
-  assign(value)
 }

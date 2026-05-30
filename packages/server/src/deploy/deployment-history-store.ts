@@ -27,8 +27,6 @@ export interface DeploymentHistoryRecord {
   outcome: string | null
   completedAt: Date | null
   notes: string | null
-  /** Tenant that owns this deployment record (SEC-M-06). */
-  tenantId?: string | undefined
 }
 
 /** Input to `record()` — `id` is required, timestamps default to now. */
@@ -41,8 +39,6 @@ export interface DeploymentHistoryInput {
   environment: string
   rollbackAvailable?: boolean
   notes?: string
-  /** Tenant that should own this deployment (SEC-M-06). */
-  tenantId?: string | undefined
 }
 
 /** Success rate result. */
@@ -61,10 +57,10 @@ export type DeploymentOutcome = 'success' | 'failure' | 'rolled_back'
 
 export interface DeploymentHistoryStoreInterface {
   record(deployment: DeploymentHistoryInput): Promise<DeploymentHistoryRecord>
-  getRecent(limit: number, environment?: string, tenantId?: string): Promise<DeploymentHistoryRecord[]>
+  getRecent(limit: number, environment?: string): Promise<DeploymentHistoryRecord[]>
   getSuccessRate(environment?: string, windowDays?: number): Promise<SuccessRateResult>
-  markOutcome(id: string, outcome: DeploymentOutcome, tenantId?: string): Promise<DeploymentHistoryRecord | null>
-  getById(id: string, tenantId?: string): Promise<DeploymentHistoryRecord | null>
+  markOutcome(id: string, outcome: DeploymentOutcome): Promise<DeploymentHistoryRecord | null>
+  getById(id: string): Promise<DeploymentHistoryRecord | null>
 }
 
 // ---------------------------------------------------------------------------
@@ -89,24 +85,22 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
         environment: input.environment,
         rollbackAvailable: input.rollbackAvailable ?? false,
         notes: input.notes ?? null,
-        tenantId: input.tenantId ?? 'default',
       })
       .returning()
 
     return this.toRecord(rows[0] as DeploymentHistoryRow)
   }
 
-  async getRecent(limit: number, environment?: string, tenantId?: string): Promise<DeploymentHistoryRecord[]> {
-    const conditions = [
-      ...(environment ? [eq(deploymentHistory.environment, environment)] : []),
-      ...(tenantId ? [eq(deploymentHistory.tenantId, tenantId)] : []),
-    ]
+  async getRecent(limit: number, environment?: string): Promise<DeploymentHistoryRecord[]> {
+    const conditions = environment
+      ? eq(deploymentHistory.environment, environment)
+      : undefined
 
     const query = this.db
       .select()
       .from(deploymentHistory)
 
-    const withWhere = conditions.length > 0 ? query.where(and(...conditions)) : query
+    const withWhere = conditions ? query.where(conditions) : query
     const rows = await withWhere
       .orderBy(desc(deploymentHistory.deployedAt))
       .limit(limit) as DeploymentHistoryRow[]
@@ -145,30 +139,21 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
     }
   }
 
-  async markOutcome(id: string, outcome: DeploymentOutcome, tenantId?: string): Promise<DeploymentHistoryRecord | null> {
-    // SEC-M-06: verify tenant ownership before mutating.
-    if (tenantId !== undefined) {
-      const existing = await this.getById(id)
-      if (!existing) return null
-      if (existing.tenantId !== undefined && existing.tenantId !== tenantId) return null
-    }
-
+  async markOutcome(id: string, outcome: DeploymentOutcome): Promise<DeploymentHistoryRecord | null> {
     const rows = await this.db
       .update(deploymentHistory)
       .set({
         outcome,
         completedAt: new Date(),
       })
-      .where(tenantId !== undefined
-        ? and(eq(deploymentHistory.id, id), eq(deploymentHistory.tenantId, tenantId))
-        : eq(deploymentHistory.id, id))
+      .where(eq(deploymentHistory.id, id))
       .returning()
 
     if (rows.length === 0) return null
     return this.toRecord(rows[0] as DeploymentHistoryRow)
   }
 
-  async getById(id: string, tenantId?: string): Promise<DeploymentHistoryRecord | null> {
+  async getById(id: string): Promise<DeploymentHistoryRecord | null> {
     const rows = await this.db
       .select()
       .from(deploymentHistory)
@@ -176,14 +161,7 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
       .limit(1)
 
     if (rows.length === 0) return null
-    const record = this.toRecord(rows[0] as DeploymentHistoryRow)
-
-    // SEC-M-06: cross-tenant access returns null.
-    if (tenantId !== undefined && record.tenantId !== undefined && record.tenantId !== tenantId) {
-      return null
-    }
-
-    return record
+    return this.toRecord(rows[0] as DeploymentHistoryRow)
   }
 
   private toRecord(row: DeploymentHistoryRow): DeploymentHistoryRecord {
@@ -199,7 +177,6 @@ export class PostgresDeploymentHistoryStore implements DeploymentHistoryStoreInt
       outcome: row.outcome,
       completedAt: row.completedAt,
       notes: row.notes,
-      tenantId: row.tenantId ?? undefined,
     }
   }
 }
@@ -224,19 +201,15 @@ export class InMemoryDeploymentHistoryStore implements DeploymentHistoryStoreInt
       outcome: null,
       completedAt: null,
       notes: input.notes ?? null,
-      tenantId: input.tenantId,
     }
     this.records.push(record)
     return record
   }
 
-  async getRecent(limit: number, environment?: string, tenantId?: string): Promise<DeploymentHistoryRecord[]> {
-    const filtered = this.records.filter((r) => {
-      if (environment && r.environment !== environment) return false
-      // SEC-M-06: filter by tenantId when provided.
-      if (tenantId !== undefined && r.tenantId !== tenantId) return false
-      return true
-    })
+  async getRecent(limit: number, environment?: string): Promise<DeploymentHistoryRecord[]> {
+    const filtered = environment
+      ? this.records.filter((r) => r.environment === environment)
+      : [...this.records]
 
     return filtered
       .sort((a, b) => b.deployedAt.getTime() - a.deployedAt.getTime())
@@ -262,30 +235,17 @@ export class InMemoryDeploymentHistoryStore implements DeploymentHistoryStoreInt
     }
   }
 
-  async markOutcome(id: string, outcome: DeploymentOutcome, tenantId?: string): Promise<DeploymentHistoryRecord | null> {
+  async markOutcome(id: string, outcome: DeploymentOutcome): Promise<DeploymentHistoryRecord | null> {
     const record = this.records.find((r) => r.id === id)
     if (!record) return null
-
-    // SEC-M-06: cross-tenant mutations return null (caller treats as 404).
-    if (tenantId !== undefined && record.tenantId !== undefined && record.tenantId !== tenantId) {
-      return null
-    }
 
     record.outcome = outcome
     record.completedAt = new Date()
     return record
   }
 
-  async getById(id: string, tenantId?: string): Promise<DeploymentHistoryRecord | null> {
-    const record = this.records.find((r) => r.id === id) ?? null
-    if (!record) return null
-
-    // SEC-M-06: cross-tenant access returns null.
-    if (tenantId !== undefined && record.tenantId !== undefined && record.tenantId !== tenantId) {
-      return null
-    }
-
-    return record
+  async getById(id: string): Promise<DeploymentHistoryRecord | null> {
+    return this.records.find((r) => r.id === id) ?? null
   }
 
   /** Clear all records (for testing). */

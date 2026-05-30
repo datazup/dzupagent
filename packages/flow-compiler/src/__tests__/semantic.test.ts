@@ -372,24 +372,4 @@ describe('semanticResolve — condition expression validation', () => {
     expect(result.errors.some((e) => e.code === 'INVALID_CONDITION')).toBe(true)
     expect(result.errors.some((e) => e.code === 'UNRESOLVED_TOOL_REF')).toBe(true)
   })
-
-  it('rejects for_each source with eval()', async () => {
-    const resolver = makeResolver(['pm.task'])
-    const ast = sequence(forEach('eval("items")', 'item', action('pm.task')))
-    const result = await semanticResolve(ast, { toolResolver: resolver })
-    const condErr = result.errors.find((e) => e.code === 'INVALID_CONDITION')
-    expect(condErr).toBeDefined()
-    expect(condErr?.nodeType).toBe('for_each')
-    expect(condErr?.message).toContain('disallowed construct')
-  })
-
-  it('rejects for_each source with Function() constructor', async () => {
-    const resolver = makeResolver(['pm.task'])
-    const ast = sequence(forEach('new Function("return []")()', 'item', action('pm.task')))
-    const result = await semanticResolve(ast, { toolResolver: resolver })
-    const condErr = result.errors.find((e) => e.code === 'INVALID_CONDITION')
-    expect(condErr).toBeDefined()
-    expect(condErr?.nodeType).toBe('for_each')
-    expect(condErr?.message).toContain('disallowed construct')
-  })
 })

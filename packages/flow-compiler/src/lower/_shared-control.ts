@@ -25,12 +25,7 @@ import type {
   LowerPipelineContext,
   LowerPipelineResult,
 } from './_shared-types.js'
-import {
-  freshId,
-  lowerChildren,
-  resultTails,
-  seqEdge,
-} from './_shared-utils.js'
+import { freshId, lowerChildren, seqEdge } from './_shared-utils.js'
 
 type LowerOne = (
   child: FlowNode,
@@ -112,49 +107,11 @@ export function lowerBranch(
     branches: branchMap,
   }
 
-  // Expose one tail per branch path so a following sibling receives a
-  // continuation edge from *every* path the gate can take. Previously only the
-  // last node emitted (the else-tail, or then-tail when no else existed) was
-  // treated as terminal, which silently dropped the then-path continuation and
-  // dead-ended `branch → action` flows at runtime.
-  //
-  // - then-path tail(s): the terminal node(s) of the then sub-graph.
-  // - else-path tail(s): the terminal node(s) of the else sub-graph when an
-  //   else branch exists; otherwise the gate itself is the false-path tail so
-  //   the continuation is wired to the gate's `false` outcome.
-  const tails: string[] = []
-  tails.push(...branchTails(thenResult, gateId))
-  if (node.else !== undefined) {
-    tails.push(...branchTails(elseResult, gateId))
-  } else {
-    // No else branch: the gate's `false` outcome flows straight to whatever
-    // follows the branch, so the gate is a terminal tail of the false-path.
-    tails.push(gateId)
-  }
-
   return {
     nodes: [gateNode, ...thenResult.nodes, ...elseResult.nodes],
     edges: [conditionalEdge, ...thenResult.edges, ...elseResult.edges],
     warnings,
-    tails,
   }
-}
-
-/**
- * Resolve the terminal tail IDs of one branch path. An empty path (e.g. a
- * `then: []`) has no nodes of its own, so the gate is its terminal tail — the
- * continuation then attaches directly to the gate's corresponding outcome.
- */
-function branchTails(
-  pathResult: LowerPipelineResult,
-  gateId: string,
-): string[] {
-  const explicit = pathResult.tails
-  if (explicit !== undefined && explicit.length > 0) {
-    return explicit
-  }
-  const lastNode = pathResult.nodes[pathResult.nodes.length - 1]
-  return lastNode !== undefined ? [lastNode.id] : [gateId]
 }
 
 /**
@@ -205,16 +162,13 @@ export function lowerParallel(
     warnings.push(...branchResult.warnings)
 
     const firstNode = branchResult.nodes[0]
+    const lastNode = branchResult.nodes[branchResult.nodes.length - 1]
 
     if (firstNode !== undefined) {
       allEdges.push(seqEdge(forkId, firstNode.id))
     }
-    // Wire every terminal tail of the branch into the join. A branch that ends
-    // in a fan-out (e.g. a nested `branch`) exposes one tail per path; using
-    // `resultTails` ensures all of them converge on the join rather than only
-    // the last node emitted.
-    for (const tailId of resultTails(branchResult)) {
-      allEdges.push(seqEdge(tailId, joinId))
+    if (lastNode !== undefined) {
+      allEdges.push(seqEdge(lastNode.id, joinId))
     }
   }
 

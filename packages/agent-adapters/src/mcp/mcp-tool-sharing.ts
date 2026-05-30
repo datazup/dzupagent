@@ -49,23 +49,8 @@ export interface ToolSharingStats {
 // Adapter-specific config shapes
 // ---------------------------------------------------------------------------
 
-/**
- * Discriminates how a provider receives shared tools.
- *
- * - `native`: the provider gets a real native MCP config (in-process MCP
- *   server for Claude, dynamic tool definitions for Codex). Tools are
- *   executed through actual tool-call plumbing.
- * - `system-prompt-fallback`: the provider has no native MCP support, so the
- *   tools are described in a system-prompt string (prompt injection). This is
- *   NOT equivalent to native MCP execution — the model is merely told the
- *   tools exist and must be invoked through whatever ad-hoc convention the
- *   caller wires up.
- */
-export type MCPMode = 'native' | 'system-prompt-fallback'
-
 /** Config shape returned for Claude adapters (mcpServers) */
 interface ClaudeToolConfig {
-  mcpMode: 'native'
   mcpServers: Record<string, {
     type: 'in-process'
     tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>
@@ -75,7 +60,6 @@ interface ClaudeToolConfig {
 
 /** Config shape returned for Codex adapters (dynamicTools) */
 interface CodexToolConfig {
-  mcpMode: 'native'
   dynamicTools: Array<{
     name: string
     description: string
@@ -85,7 +69,6 @@ interface CodexToolConfig {
 
 /** Config shape returned for CLI-based adapters (system prompt injection) */
 interface CLIToolConfig {
-  mcpMode: 'system-prompt-fallback'
   systemPromptTools: string
 }
 
@@ -185,7 +168,7 @@ export class MCPToolSharingBridge {
       case 'goose':
       case 'openrouter':
       case 'openai':
-        return this.buildCLIConfig(toolList, providerId)
+        return this.buildCLIConfig(toolList)
     }
   }
 
@@ -257,7 +240,6 @@ export class MCPToolSharingBridge {
     toolList: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>,
   ): ClaudeToolConfig {
     return {
-      mcpMode: 'native',
       mcpServers: {
         [this.serverName]: {
           type: 'in-process' as const,
@@ -272,7 +254,6 @@ export class MCPToolSharingBridge {
     toolList: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>,
   ): CodexToolConfig {
     return {
-      mcpMode: 'native',
       dynamicTools: toolList.map(t => ({
         name: t.name,
         description: t.description,
@@ -283,22 +264,11 @@ export class MCPToolSharingBridge {
 
   private buildCLIConfig(
     toolList: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>,
-    providerId: AdapterProviderId,
   ): CLIToolConfig {
-    // This provider has no native MCP support — the tools are injected as a
-    // system-prompt description rather than executed through real MCP plumbing.
-    // Make the degraded behaviour explicit to callers via both the warning and
-    // the `mcpMode` discriminator.
-    console.warn(
-      `[MCPToolSharingBridge] Provider ${providerId} does not support native MCP config — using system-prompt-fallback. ` +
-        'Tools are described in the system prompt and are NOT executed through native MCP.',
-    )
-
     const sections = toolList.map(t =>
       `Tool: ${t.name}\nDescription: ${t.description}\nParams: ${JSON.stringify(t.inputSchema)}`,
     )
     return {
-      mcpMode: 'system-prompt-fallback',
       systemPromptTools: sections.join('\n\n'),
     }
   }

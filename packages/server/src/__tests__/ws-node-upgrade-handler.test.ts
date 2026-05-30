@@ -45,7 +45,7 @@ describe('createNodeWsUpgradeHandler', () => {
 
     const socket = new MockSocket()
     upgradeHandler({ url: '/ws' } as unknown as IncomingMessage, socket as unknown as Duplex, Buffer.alloc(0))
-    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(handleUpgrade).not.toHaveBeenCalled()
     expect(onRejected).toHaveBeenCalledWith(expect.objectContaining({
@@ -70,7 +70,7 @@ describe('createNodeWsUpgradeHandler', () => {
 
     const socket = new MockSocket()
     upgradeHandler({ url: '/not-ws' } as unknown as IncomingMessage, socket as unknown as Duplex, Buffer.alloc(0))
-    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(handleUpgrade).not.toHaveBeenCalled()
     expect(onRejected).toHaveBeenCalledOnce()
@@ -95,7 +95,7 @@ describe('createNodeWsUpgradeHandler', () => {
     })
 
     upgradeHandler({ url: '/ws' } as unknown as IncomingMessage, new MockSocket() as unknown as Duplex, Buffer.alloc(0))
-    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(handleUpgrade).toHaveBeenCalledOnce()
     expect(bridge.clientCount).toBe(1)
@@ -116,7 +116,7 @@ describe('createNodeWsUpgradeHandler', () => {
     })
 
     upgradeHandler({ url: '/ws' } as unknown as IncomingMessage, new MockSocket() as unknown as Duplex, Buffer.alloc(0))
-    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(handleUpgrade).toHaveBeenCalledOnce()
     expect(bridge.clientCount).toBe(1)

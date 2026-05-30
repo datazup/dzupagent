@@ -4,23 +4,22 @@ This document supplements the root `ARCHITECTURE.md` with package-specific detai
 
 ## Package Export Subpaths
 
-| Subpath             | Purpose                                                                                                |
-| ------------------- | ------------------------------------------------------------------------------------------------------ |
-| `.`                 | Root compatibility barrel — broad export surface for legacy consumers                                  |
-| `./providers`       | Provider adapter contracts, concrete adapters, registry primitives, and helpers                        |
-| `./orchestration`   | Multi-agent orchestration, sessions, context routing, and integration bridge                           |
-| `./workflow`        | Workflow DSL builder, resolver, and validator                                                          |
-| `./http`            | HTTP handler, request schemas, and rate limiting                                                       |
-| `./persistence`     | Checkpoint, run manager, run log, and run event store helpers                                          |
-| `./runs`            | Run-log accessors and run-event persistence                                                            |
-| `./integration`     | Adapter-as-tool bridge, external-tool integration, and MCP helpers                                     |
-| `./dzupagent`       | `.dzupagent`/UCL ingestion helpers, skill projection, and script automation                            |
-| `./rules`           | Adapter-rule RuntimePlan preparation, governance diagnostics                                           |
-| `./learning`        | Learning loop, A/B testing, interaction policy, and enrichment pipeline                                |
-| `./recovery`        | Recovery copilot, policies, escalation, cross-provider handoff, approval gates                         |
-| `./skills`          | Skill loading, indexing, registry, and prompt assembly helpers                                         |
-| `./enrichment`      | Task enrichment planning, context enrichment, and execution helpers                                    |
-| `./fleet-executors` | Fleet worker executors (`InProcessExecutor`, `CodexSubprocessExecutor`) and Codex worker-event parsing |
+| Subpath | Purpose |
+|---------|---------|
+| `.` | Root compatibility barrel — broad export surface for legacy consumers |
+| `./providers` | Provider adapter contracts, concrete adapters, registry primitives, and helpers |
+| `./orchestration` | Multi-agent orchestration, sessions, context routing, and integration bridge |
+| `./workflow` | Workflow DSL builder, resolver, and validator |
+| `./http` | HTTP handler, request schemas, and rate limiting |
+| `./persistence` | Checkpoint, run manager, run log, and run event store helpers |
+| `./runs` | Run-log accessors and run-event persistence |
+| `./integration` | Adapter-as-tool bridge, external-tool integration, and MCP helpers |
+| `./dzupagent` | `.dzupagent`/UCL ingestion helpers, skill projection, and script automation |
+| `./rules` | Adapter-rule RuntimePlan preparation, governance diagnostics |
+| `./learning` | Learning loop, A/B testing, interaction policy, and enrichment pipeline |
+| `./recovery` | Recovery copilot, policies, escalation, cross-provider handoff, approval gates |
+| `./skills` | Skill loading, indexing, registry, and prompt assembly helpers |
+| `./enrichment` | Task enrichment planning, context enrichment, and execution helpers |
 
 All subpaths are defined in `package.json` `exports`. New consumers should prefer subpath imports over the root `.` barrel.
 

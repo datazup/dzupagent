@@ -1,79 +1,26 @@
-import { appendFile, mkdir, readdir, readFile, stat, unlink } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { execSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_PACKAGES = [
-  'create-dzupagent',
-  '@dzupagent/adapter-rules',
-  '@dzupagent/adapter-types',
   '@dzupagent/agent',
   '@dzupagent/agent-adapters',
-  '@dzupagent/agent-types',
-  '@dzupagent/app-tools',
-  '@dzupagent/cache',
-  '@dzupagent/code-edit-kit',
   '@dzupagent/codegen',
-  '@dzupagent/connectors',
-  '@dzupagent/connectors-browser',
-  '@dzupagent/connectors-documents',
-  '@dzupagent/context',
-  '@dzupagent/core',
-  '@dzupagent/eval-contracts',
-  '@dzupagent/evals',
-  '@dzupagent/express',
-  '@dzupagent/flow-ast',
-  '@dzupagent/flow-compiler',
-  '@dzupagent/flow-dsl',
-  '@dzupagent/hitl-kit',
-  '@dzupagent/memory',
-  '@dzupagent/memory-ipc',
-  '@dzupagent/otel',
-  '@dzupagent/rag',
-  '@dzupagent/runtime-contracts',
-  '@dzupagent/scraper',
-  '@dzupagent/security',
   '@dzupagent/server',
-  '@dzupagent/testing',
-  '@dzupagent/test-utils',
 ];
 
 const DEFAULT_BUDGET_FILE = 'scripts/dts-budgets.json';
-const DECLARATION_DIAGNOSTICS_TIMEOUT_MS = 120_000;
-const DIAGNOSTICS_SAMPLE_MODES = new Set(['last', 'all']);
-const MEASUREMENT_STATES = new Set([
-  'artifact-scan',
-  'current-workspace',
-  'fresh-forced-build',
-  'partial-workspace',
-  'post-workspace-build',
-  'warm-emit',
-]);
-const MEASUREMENT_STATE_ALIASES = new Map([
-  ['cold', 'fresh-forced-build'],
-  ['partial', 'partial-workspace'],
-  ['warm', 'warm-emit'],
-]);
 
 function parseArgs(argv) {
   const options = {
     build: false,
     check: false,
-    benchmarkOutput: undefined,
-    benchmarkSummary: undefined,
-    benchmarkSummaryLimit: 20,
-    declarationDiagnostics: false,
-    declarationEmit: false,
-    diagnosticsJsonSummary: false,
-    diagnosticsSampleMode: 'last',
     json: false,
     budgetFile: DEFAULT_BUDGET_FILE,
-    measurementLabel: undefined,
-    measurementState: undefined,
     packages: [],
-    runs: 1,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -82,88 +29,12 @@ function parseArgs(argv) {
       options.build = true;
       continue;
     }
-    if (arg === '--declaration-emit') {
-      options.declarationEmit = true;
-      continue;
-    }
-    if (arg === '--declaration-diagnostics') {
-      options.declarationDiagnostics = true;
-      continue;
-    }
     if (arg === '--check') {
       options.check = true;
       continue;
     }
     if (arg === '--json') {
       options.json = true;
-      continue;
-    }
-    if (arg === '--diagnostics-json-summary') {
-      options.diagnosticsJsonSummary = true;
-      options.json = true;
-      continue;
-    }
-    if (arg === '--diagnostics-sample-mode') {
-      const value = argv[index + 1];
-      if (!value) {
-        throw new Error(`${arg} requires a value`);
-      }
-      options.diagnosticsSampleMode = normalizeDiagnosticsSampleMode(value);
-      index += 1;
-      continue;
-    }
-    if (arg === '--benchmark-output') {
-      const value = argv[index + 1];
-      if (!value) {
-        throw new Error(`${arg} requires a value`);
-      }
-      options.benchmarkOutput = value;
-      index += 1;
-      continue;
-    }
-    if (arg === '--benchmark-summary') {
-      const value = argv[index + 1];
-      if (!value) {
-        throw new Error(`${arg} requires a value`);
-      }
-      options.benchmarkSummary = value;
-      index += 1;
-      continue;
-    }
-    if (arg === '--benchmark-summary-limit') {
-      const value = Number(argv[index + 1]);
-      if (!Number.isInteger(value) || value < 1) {
-        throw new Error('--benchmark-summary-limit requires a positive integer');
-      }
-      options.benchmarkSummaryLimit = value;
-      index += 1;
-      continue;
-    }
-    if (arg === '--measurement-label') {
-      const value = argv[index + 1];
-      if (!value) {
-        throw new Error(`${arg} requires a value`);
-      }
-      options.measurementLabel = value;
-      index += 1;
-      continue;
-    }
-    if (arg === '--measurement-state') {
-      const value = argv[index + 1];
-      if (!value) {
-        throw new Error(`${arg} requires a value`);
-      }
-      options.measurementState = normalizeMeasurementState(value);
-      index += 1;
-      continue;
-    }
-    if (arg === '--runs') {
-      const value = Number(argv[index + 1]);
-      if (!Number.isInteger(value) || value < 1) {
-        throw new Error('--runs requires a positive integer');
-      }
-      options.runs = value;
-      index += 1;
       continue;
     }
     if (arg === '--budget-file') {
@@ -197,9 +68,7 @@ function parseArgs(argv) {
   if (options.packages.length === 0) {
     options.packages = [...DEFAULT_PACKAGES];
   }
-  if (options.declarationDiagnostics) {
-    options.declarationEmit = true;
-  }
+
   return options;
 }
 
@@ -211,51 +80,12 @@ Measures declaration-output size and, with --build, package build duration.
 Options:
   --package <name[,name]>  Package name or packages/<dir> path to measure
   --build                 Run yarn workspace <pkg> build before measuring
-  --declaration-emit      Run package declaration-only tsc emit before measuring
-  --declaration-diagnostics
-                          Capture tsc diagnostics for declaration emit
-  --diagnostics-json-summary
-                          Print compact JSON with diagnostics summaries and stats
-  --diagnostics-sample-mode <last|all>
-                          Capture diagnostics on the last run only, or every run (default: last)
-  --measurement-state <state>
-                          Label the run state: fresh-forced-build, warm-emit, partial-workspace
-                          Aliases: cold, warm, partial
-  --measurement-label <label>
-                          Free-form label included in JSON/text output
-  --benchmark-output <path>
-                          Append one compact benchmark JSON record to a JSONL file
-  --benchmark-summary <path>
-                          Read benchmark JSONL and print latest rows plus deltas
-  --benchmark-summary-limit <count>
-                          Max summary rows to print per package (default: 20)
   --check                 Fail when measured output exceeds DTS budgets
   --budget-file <path>    Budget file for --check (default: ${DEFAULT_BUDGET_FILE})
-  --runs <count>          Repeat timed build/declaration steps for profiling (default: 1)
   --json                  Print machine-readable JSON
   -h, --help              Show this help
 
 Default packages: ${DEFAULT_PACKAGES.join(', ')}`);
-}
-
-function normalizeDiagnosticsSampleMode(value) {
-  const normalized = String(value).trim().toLowerCase();
-  if (!DIAGNOSTICS_SAMPLE_MODES.has(normalized)) {
-    throw new Error(`--diagnostics-sample-mode must be one of ${[...DIAGNOSTICS_SAMPLE_MODES].join(', ')}`);
-  }
-  return normalized;
-}
-
-function normalizeMeasurementState(value) {
-  const normalized = String(value).trim().toLowerCase();
-  const canonical = MEASUREMENT_STATE_ALIASES.get(normalized) ?? normalized;
-  if (!MEASUREMENT_STATES.has(canonical)) {
-    throw new Error(
-      `--measurement-state must be one of ${[...MEASUREMENT_STATES].join(', ')} `
-      + `(aliases: ${[...MEASUREMENT_STATE_ALIASES.keys()].join(', ')})`,
-    );
-  }
-  return canonical;
 }
 
 async function readJson(filePath) {
@@ -399,13 +229,6 @@ async function summarizeDeclarations({ root, packageDir }) {
   };
 }
 
-async function removeDeclarationMapFiles(distDir) {
-  const files = await walkFiles(distDir);
-  const declarationMapFiles = files.filter((file) => file.endsWith('.d.ts.map'));
-  await Promise.all(declarationMapFiles.map((file) => unlink(file)));
-  return declarationMapFiles.length;
-}
-
 async function runBuild(packageName) {
   const startedAt = process.hrtime.bigint();
 
@@ -428,289 +251,6 @@ async function runBuild(packageName) {
   return Math.round(durationMs);
 }
 
-function getDeclarationEmitCommand(root, packageDir, options = {}) {
-  const tsconfigBuildPath = path.join(root, packageDir, 'tsconfig.build.json');
-  const tscPath = path.join(root, 'node_modules', 'typescript', 'bin', 'tsc');
-  const args = [tscPath];
-  if (existsSync(tsconfigBuildPath)) {
-    args.push('-p', 'tsconfig.build.json');
-  }
-  args.push('--emitDeclarationOnly', '--declarationMap', 'false');
-  if (options.extendedDiagnostics) {
-    args.push('--diagnostics', '--pretty', 'false');
-  }
-  return { command: process.execPath, args };
-}
-
-async function runDeclarationEmit({ root, packageDir, packageName, collectDiagnostics = false }) {
-  const startedAt = process.hrtime.bigint();
-  let output = '';
-  await removeDeclarationMapFiles(path.join(root, packageDir, 'dist'));
-  const { command, args } = getDeclarationEmitCommand(root, packageDir, {
-    extendedDiagnostics: collectDiagnostics,
-  });
-
-  if (collectDiagnostics) {
-    try {
-      const tscCommand = [command, ...args].map(shellQuote).join(' ');
-      // TypeScript diagnostics can be suppressed when captured from a non-TTY parent on this machine.
-      // `script` gives tsc a pseudo-terminal while still returning parseable text to this process.
-      output = execSync(`script -q -e -c ${shellQuote(tscCommand)} /dev/null`, {
-        cwd: path.join(root, packageDir),
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: DECLARATION_DIAGNOSTICS_TIMEOUT_MS,
-      });
-    } catch (error) {
-      const status = error && typeof error === 'object' && 'status' in error
-        ? error.status
-        : 'unknown';
-      const reason = error && typeof error === 'object' && error.signal === 'SIGTERM'
-        ? `timed out after ${DECLARATION_DIAGNOSTICS_TIMEOUT_MS / 1000}s`
-        : `failed with ${status}`;
-      throw new Error(`${packageName} declaration emit ${reason}`);
-    }
-  } else {
-    await new Promise((resolve, reject) => {
-      const child = spawn(command, args, {
-        cwd: path.join(root, packageDir),
-        stdio: 'inherit',
-      });
-      child.on('error', reject);
-      child.on('exit', (code, signal) => {
-        if (code === 0) {
-          resolve();
-          return;
-        }
-        reject(new Error(`${packageName} declaration emit failed with ${signal ?? code}`));
-      });
-    });
-  }
-
-  const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
-  return {
-    durationMs: Math.round(durationMs),
-    diagnostics: collectDiagnostics ? parseTscExtendedDiagnostics(output) : undefined,
-  };
-}
-
-function shellQuote(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
-}
-
-function toCamelCase(label) {
-  const words = label
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (words.length === 0) return undefined;
-  return words
-    .map((word, index) => (index === 0 ? word : `${word[0].toUpperCase()}${word.slice(1)}`))
-    .join('');
-}
-
-export function parseTscExtendedDiagnostics(output) {
-  const metrics = {};
-  const timeMs = {};
-  let memoryUsedKb;
-
-  for (const line of output.split(/\r?\n/)) {
-    const match = line.match(/^\s*([^:]+):\s+([0-9]+(?:\.[0-9]+)?)([a-zA-Z]+)?\s*$/);
-    if (!match) continue;
-
-    const [, label, rawValue, rawUnit = 'count'] = match;
-    const key = toCamelCase(label);
-    if (!key) continue;
-
-    const value = Number(rawValue);
-    const unit = rawUnit === 'K' ? 'KiB' : rawUnit;
-    metrics[key] = {
-      label: label.trim(),
-      value,
-      unit,
-    };
-
-    if (unit === 's') {
-      timeMs[key] = Math.round(value * 1000);
-    } else if (unit === 'ms') {
-      timeMs[key] = Math.round(value);
-    }
-
-    if (key === 'memoryUsed' && unit === 'KiB') {
-      memoryUsedKb = value;
-    }
-  }
-
-  return {
-    metrics,
-    timeMs,
-    memoryUsedKb,
-    metricCount: Object.keys(metrics).length,
-    rawLength: output.length,
-  };
-}
-
-function summarizeDurationSamples(samples) {
-  if (samples.length === 0) return undefined;
-
-  const sorted = [...samples].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  const medianMs = sorted.length % 2 === 0
-    ? Math.round((sorted[middle - 1] + sorted[middle]) / 2)
-    : sorted[middle];
-  const totalMs = samples.reduce((sum, value) => sum + value, 0);
-
-  return {
-    count: samples.length,
-    minMs: sorted[0],
-    medianMs,
-    meanMs: Math.round(totalMs / samples.length),
-    maxMs: sorted[sorted.length - 1],
-    lastMs: samples[samples.length - 1],
-    samplesMs: samples,
-  };
-}
-
-function summarizeNumericSamples(samples) {
-  if (samples.length === 0) return undefined;
-
-  const sorted = [...samples].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  const median = sorted.length % 2 === 0
-    ? Math.round((sorted[middle - 1] + sorted[middle]) / 2)
-    : sorted[middle];
-  const total = samples.reduce((sum, value) => sum + value, 0);
-
-  return {
-    count: samples.length,
-    min: sorted[0],
-    median,
-    mean: Math.round(total / samples.length),
-    max: sorted[sorted.length - 1],
-    last: samples[samples.length - 1],
-    samples,
-  };
-}
-
-function inferBuildSampleState(options) {
-  if (options.measurementState) return options.measurementState;
-  return 'post-workspace-build';
-}
-
-function inferDeclarationSampleState(options, runIndex) {
-  if (options.measurementState) return options.measurementState;
-  if (options.build) return 'post-workspace-build';
-  if (runIndex > 0) return 'warm-emit';
-  return 'current-workspace';
-}
-
-function createMeasurementSample({ options, runIndex, durationMs, state }) {
-  return {
-    run: runIndex + 1,
-    durationMs,
-    measurementState: state,
-    measurementLabel: options.measurementLabel,
-  };
-}
-
-function createMeasurementContext(options) {
-  let state = 'artifact-scan';
-  if (options.measurementState) {
-    state = options.measurementState;
-  } else if (options.build) {
-    state = 'post-workspace-build';
-  } else if (options.declarationEmit) {
-    state = options.runs > 1 ? 'warm-emit' : 'current-workspace';
-  }
-
-  return {
-    state,
-    label: options.measurementLabel,
-    runs: options.runs,
-    diagnosticsSampleMode: options.declarationDiagnostics ? options.diagnosticsSampleMode : undefined,
-  };
-}
-
-export function shouldCollectDiagnostics({ declarationDiagnostics, diagnosticsSampleMode, runs }, runIndex) {
-  if (!declarationDiagnostics) return false;
-  if (diagnosticsSampleMode === 'all') return true;
-  return runIndex === runs - 1;
-}
-
-export function summarizeTscExtendedDiagnostics(diagnostics) {
-  if (!diagnostics) return undefined;
-  const metricValue = (...keys) => {
-    for (const key of keys) {
-      const value = diagnostics.metrics[key]?.value;
-      if (value !== undefined) return value;
-    }
-    return undefined;
-  };
-
-  return {
-    metricCount: diagnostics.metricCount,
-    rawLength: diagnostics.rawLength,
-    files: metricValue('files'),
-    linesOfLibrary: metricValue('linesOfLibrary'),
-    linesOfDefinitions: metricValue('linesOfDefinitions'),
-    linesOfTypeScript: metricValue('linesOfTypeScript', 'linesOfTypescript'),
-    identifiers: metricValue('identifiers'),
-    symbols: metricValue('symbols'),
-    types: metricValue('types'),
-    instantiations: metricValue('instantiations'),
-    memoryUsedKb: diagnostics.memoryUsedKb,
-    timeMs: Object.fromEntries(
-      Object.entries(diagnostics.timeMs).sort(([left], [right]) => left.localeCompare(right)),
-    ),
-  };
-}
-
-function summarizeTscDiagnosticSamples(samples) {
-  const summaries = samples
-    .map((sample) => sample.diagnosticsSummary)
-    .filter(Boolean);
-  if (summaries.length === 0) return undefined;
-
-  const timeKeys = new Set();
-  for (const summary of summaries) {
-    for (const key of Object.keys(summary.timeMs)) {
-      timeKeys.add(key);
-    }
-  }
-
-  const timeMs = {};
-  for (const key of [...timeKeys].sort()) {
-    const values = summaries
-      .map((summary) => summary.timeMs[key])
-      .filter((value) => value !== undefined);
-    const stats = summarizeDurationSamples(values);
-    if (stats) {
-      timeMs[key] = stats;
-    }
-  }
-
-  const memoryValues = summaries
-    .map((summary) => summary.memoryUsedKb)
-    .filter((value) => value !== undefined);
-
-  return {
-    count: summaries.length,
-    timeMs,
-    memoryUsedKb: summarizeNumericSamples(memoryValues),
-  };
-}
-
-function pickFirstDefined(source, keys) {
-  for (const key of keys) {
-    const value = source?.[key];
-    if (value !== undefined) return value;
-  }
-  return undefined;
-}
-
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
@@ -720,67 +260,8 @@ function formatBytes(bytes) {
 function printText(results) {
   for (const result of results) {
     console.log(`\n${result.name} (${result.dir})`);
-    if (result.measurement?.state || result.measurement?.label) {
-      const parts = [];
-      if (result.measurement.state) parts.push(result.measurement.state);
-      if (result.measurement.label) parts.push(result.measurement.label);
-      console.log(`  measurement: ${parts.join(', ')}`);
-    }
     if (result.buildDurationMs !== undefined) {
       console.log(`  build: ${(result.buildDurationMs / 1000).toFixed(2)}s`);
-      if (result.buildDurationStats?.count > 1) {
-        console.log(
-          `  build samples: ${result.buildDurationStats.samplesMs.map((duration) => (duration / 1000).toFixed(2)).join('s, ')}s `
-          + `(min ${(result.buildDurationStats.minMs / 1000).toFixed(2)}s, `
-          + `median ${(result.buildDurationStats.medianMs / 1000).toFixed(2)}s, `
-          + `max ${(result.buildDurationStats.maxMs / 1000).toFixed(2)}s)`,
-        );
-      }
-    }
-    if (result.declarationEmitDurationMs !== undefined) {
-      console.log(`  declaration emit: ${(result.declarationEmitDurationMs / 1000).toFixed(2)}s`);
-      if (result.declarationEmitDurationStats?.count > 1) {
-        console.log(
-          `  declaration emit samples: ${result.declarationEmitDurationStats.samplesMs.map((duration) => (duration / 1000).toFixed(2)).join('s, ')}s `
-          + `(min ${(result.declarationEmitDurationStats.minMs / 1000).toFixed(2)}s, `
-          + `median ${(result.declarationEmitDurationStats.medianMs / 1000).toFixed(2)}s, `
-          + `max ${(result.declarationEmitDurationStats.maxMs / 1000).toFixed(2)}s)`,
-        );
-      }
-    }
-    if (result.declarationDiagnostics) {
-      const { timeMs, memoryUsedKb } = summarizeTscExtendedDiagnostics(result.declarationDiagnostics);
-      const diagnosticParts = [
-        ['parse', timeMs.parseTime],
-        ['I/O read', pickFirstDefined(timeMs, ['iORead', 'iOReadTime'])],
-        ['bind', timeMs.bindTime],
-        ['check', timeMs.checkTime],
-        ['emit', timeMs.emitTime],
-        ['total', timeMs.totalTime],
-      ]
-        .filter(([, value]) => value !== undefined)
-        .map(([label, value]) => `${label} ${(value / 1000).toFixed(2)}s`);
-      if (memoryUsedKb !== undefined) {
-        diagnosticParts.push(`memory ${formatBytes(memoryUsedKb * 1024)}`);
-      }
-      if (diagnosticParts.length > 0) {
-        console.log(`  declaration diagnostics: ${diagnosticParts.join(', ')}`);
-      }
-    }
-    if (result.declarationDiagnosticsStats?.count > 1) {
-      const diagnosticStats = result.declarationDiagnosticsStats.timeMs;
-      const statsParts = [
-        ['parse', diagnosticStats.parseTime],
-        ['I/O read', pickFirstDefined(diagnosticStats, ['iORead', 'iOReadTime'])],
-        ['check', diagnosticStats.checkTime],
-        ['emit', diagnosticStats.emitTime],
-        ['total', diagnosticStats.totalTime],
-      ]
-        .filter(([, stats]) => stats)
-        .map(([label, stats]) => `${label} median ${(stats.medianMs / 1000).toFixed(2)}s max ${(stats.maxMs / 1000).toFixed(2)}s`);
-      if (statsParts.length > 0) {
-        console.log(`  declaration diagnostics stats: ${statsParts.join(', ')}`);
-      }
     }
     console.log(`  exports: ${result.exportSubpathCount} package subpaths`);
     console.log(`  tsup entries: ${result.tsupEntryCount}`);
@@ -806,244 +287,6 @@ function printText(results) {
   }
 }
 
-export function createDiagnosticsJsonSummary({ generatedAt, results, budgetResult }) {
-  return {
-    generatedAt,
-    results: results.map((result) => ({
-      name: result.name,
-      dir: result.dir,
-      measurement: result.measurement,
-      buildDurationMs: result.buildDurationMs,
-      buildDurationStats: result.buildDurationStats,
-      buildSamples: result.buildSamples,
-      declarationEmitDurationMs: result.declarationEmitDurationMs,
-      declarationEmitDurationStats: result.declarationEmitDurationStats,
-      declarationEmitSamples: result.declarationEmitSamples,
-      declarationDiagnostics: result.declarationDiagnosticsSummary,
-      declarationDiagnosticsStats: result.declarationDiagnosticsStats,
-      exportSubpathCount: result.exportSubpathCount,
-      tsupEntryCount: result.tsupEntryCount,
-      rootBarrel: result.rootBarrel,
-      declarations: result.declarations,
-    })),
-    budgetResult,
-  };
-}
-
-export function createBenchmarkRecord({ generatedAt, results, budgetResult }) {
-  return {
-    schemaVersion: 1,
-    kind: 'dts-benchmark',
-    ...createDiagnosticsJsonSummary({ generatedAt, results, budgetResult }),
-  };
-}
-
-async function appendBenchmarkRecord(root, outputPath, record) {
-  const resolvedPath = path.resolve(root, outputPath);
-  await mkdir(path.dirname(resolvedPath), { recursive: true });
-  await appendFile(resolvedPath, `${JSON.stringify(record)}\n`, 'utf8');
-}
-
-async function readBenchmarkRecords(root, inputPath) {
-  const resolvedPath = path.resolve(root, inputPath);
-  const text = await readFile(resolvedPath, 'utf8');
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line, index) => {
-      try {
-        return JSON.parse(line);
-      } catch (error) {
-        throw new Error(`Invalid benchmark JSONL at line ${index + 1}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    });
-}
-
-function getBenchmarkMetric(result, metric) {
-  switch (metric) {
-    case 'declarationEmitMedianMs':
-      return result.declarationEmitDurationStats?.medianMs;
-    case 'declarationEmitMaxMs':
-      return result.declarationEmitDurationStats?.maxMs;
-    case 'declarationEmitLastMs':
-      return result.declarationEmitDurationStats?.lastMs ?? result.declarationEmitDurationMs;
-    case 'diagnosticsTotalMs':
-      return result.declarationDiagnostics?.timeMs?.totalTime;
-    case 'diagnosticsParseMs':
-      return result.declarationDiagnostics?.timeMs?.parseTime;
-    case 'diagnosticsIoReadMs':
-      return pickFirstDefined(result.declarationDiagnostics?.timeMs, ['iORead', 'iOReadTime']);
-    case 'diagnosticsCheckMs':
-      return result.declarationDiagnostics?.timeMs?.checkTime;
-    case 'diagnosticsEmitMs':
-      return result.declarationDiagnostics?.timeMs?.emitTime;
-    default:
-      return undefined;
-  }
-}
-
-function createBenchmarkRow(record, result) {
-  const measurement = result.measurement ?? {};
-  return {
-    generatedAt: record.generatedAt,
-    packageName: result.name,
-    packageDir: result.dir,
-    state: measurement.state,
-    label: measurement.label,
-    runs: measurement.runs,
-    diagnosticsSampleMode: measurement.diagnosticsSampleMode,
-    declarationEmitMedianMs: getBenchmarkMetric(result, 'declarationEmitMedianMs'),
-    declarationEmitMaxMs: getBenchmarkMetric(result, 'declarationEmitMaxMs'),
-    declarationEmitLastMs: getBenchmarkMetric(result, 'declarationEmitLastMs'),
-    diagnosticsTotalMs: getBenchmarkMetric(result, 'diagnosticsTotalMs'),
-    diagnosticsParseMs: getBenchmarkMetric(result, 'diagnosticsParseMs'),
-    diagnosticsIoReadMs: getBenchmarkMetric(result, 'diagnosticsIoReadMs'),
-    diagnosticsCheckMs: getBenchmarkMetric(result, 'diagnosticsCheckMs'),
-    diagnosticsEmitMs: getBenchmarkMetric(result, 'diagnosticsEmitMs'),
-    declarationFileCount: result.declarations?.declarationFileCount,
-    declarationBytes: result.declarations?.declarationBytes,
-    declarationMapFileCount: result.declarations?.declarationMapFileCount,
-    declarationMapBytes: result.declarations?.declarationMapBytes,
-  };
-}
-
-function compareBenchmarkRows(current, previous) {
-  const deltas = {};
-  for (const metric of [
-    'declarationEmitMedianMs',
-    'declarationEmitMaxMs',
-    'declarationEmitLastMs',
-    'diagnosticsTotalMs',
-    'diagnosticsParseMs',
-    'diagnosticsIoReadMs',
-    'diagnosticsCheckMs',
-    'diagnosticsEmitMs',
-    'declarationBytes',
-    'declarationMapBytes',
-  ]) {
-    const currentValue = current[metric];
-    const previousValue = previous?.[metric];
-    if (currentValue === undefined || previousValue === undefined) continue;
-    deltas[metric] = {
-      current: currentValue,
-      previous: previousValue,
-      delta: currentValue - previousValue,
-      percent: previousValue === 0 ? undefined : Math.round(((currentValue - previousValue) / previousValue) * 1000) / 10,
-    };
-  }
-  return deltas;
-}
-
-export function summarizeBenchmarkRecords(records, { limit = 20 } = {}) {
-  const rows = [];
-  for (const record of records) {
-    if (record?.kind !== 'dts-benchmark' || !Array.isArray(record.results)) continue;
-    for (const result of record.results) {
-      rows.push(createBenchmarkRow(record, result));
-    }
-  }
-
-  rows.sort((left, right) => {
-    const byPackage = String(left.packageName).localeCompare(String(right.packageName));
-    if (byPackage !== 0) return byPackage;
-    return String(left.generatedAt).localeCompare(String(right.generatedAt));
-  });
-
-  const byPackage = new Map();
-  for (const row of rows) {
-    const packageRows = byPackage.get(row.packageName) ?? [];
-    packageRows.push(row);
-    byPackage.set(row.packageName, packageRows);
-  }
-
-  const packages = [];
-  for (const [packageName, packageRows] of byPackage.entries()) {
-    const latestRows = packageRows.slice(-limit);
-    const latest = packageRows[packageRows.length - 1];
-    const previous = packageRows[packageRows.length - 2];
-    packages.push({
-      packageName,
-      count: packageRows.length,
-      latest,
-      previous,
-      deltaFromPrevious: previous ? compareBenchmarkRows(latest, previous) : undefined,
-      rows: latestRows,
-    });
-  }
-
-  return {
-    recordCount: records.length,
-    rowCount: rows.length,
-    packages,
-  };
-}
-
-function formatMaybeMs(value) {
-  return value === undefined ? '-' : `${(value / 1000).toFixed(2)}s`;
-}
-
-function formatDelta(delta) {
-  if (!delta) return '';
-  const seconds = `${delta.delta >= 0 ? '+' : ''}${(delta.delta / 1000).toFixed(2)}s`;
-  return delta.percent === undefined ? seconds : `${seconds}, ${delta.percent >= 0 ? '+' : ''}${delta.percent}%`;
-}
-
-function formatByteDelta(delta) {
-  if (!delta) return '';
-  const bytes = `${delta.delta >= 0 ? '+' : '-'}${formatBytes(Math.abs(delta.delta))}`;
-  return delta.percent === undefined ? bytes : `${bytes}, ${delta.percent >= 0 ? '+' : ''}${delta.percent}%`;
-}
-
-function printBenchmarkSummary(summary) {
-  console.log(`DTS benchmark records: ${summary.recordCount}, rows: ${summary.rowCount}`);
-  for (const packageSummary of summary.packages) {
-    const latest = packageSummary.latest;
-    const parts = [
-      latest.state,
-      latest.label,
-      latest.runs ? `${latest.runs} run${latest.runs === 1 ? '' : 's'}` : undefined,
-      latest.diagnosticsSampleMode ? `diagnostics ${latest.diagnosticsSampleMode}` : undefined,
-    ].filter(Boolean);
-    console.log(`\n${packageSummary.packageName}`);
-    console.log(`  latest: ${latest.generatedAt}${parts.length > 0 ? ` (${parts.join(', ')})` : ''}`);
-    console.log(
-      `  emit median ${formatMaybeMs(latest.declarationEmitMedianMs)}, `
-      + `max ${formatMaybeMs(latest.declarationEmitMaxMs)}, `
-      + `last ${formatMaybeMs(latest.declarationEmitLastMs)}`,
-    );
-    console.log(
-      `  artifacts: ${latest.declarationFileCount ?? '-'} declarations, `
-      + `${formatBytes(latest.declarationBytes ?? 0)}, `
-      + `${latest.declarationMapFileCount ?? '-'} maps, `
-      + `${formatBytes(latest.declarationMapBytes ?? 0)}`,
-    );
-    if (latest.diagnosticsTotalMs !== undefined) {
-      console.log(
-        `  diagnostics total ${formatMaybeMs(latest.diagnosticsTotalMs)}, `
-        + `parse ${formatMaybeMs(latest.diagnosticsParseMs)}, `
-        + `I/O read ${formatMaybeMs(latest.diagnosticsIoReadMs)}, `
-        + `check ${formatMaybeMs(latest.diagnosticsCheckMs)}, `
-        + `emit ${formatMaybeMs(latest.diagnosticsEmitMs)}`,
-      );
-    }
-    if (packageSummary.deltaFromPrevious) {
-      const emitDelta = packageSummary.deltaFromPrevious.declarationEmitMedianMs;
-      const diagnosticsDelta = packageSummary.deltaFromPrevious.diagnosticsTotalMs;
-      const declarationBytesDelta = packageSummary.deltaFromPrevious.declarationBytes;
-      const mapBytesDelta = packageSummary.deltaFromPrevious.declarationMapBytes;
-      if (emitDelta || diagnosticsDelta || declarationBytesDelta || mapBytesDelta) {
-        console.log(
-          `  delta: emit median ${emitDelta ? formatDelta(emitDelta) : '-'}, `
-          + `diagnostics total ${diagnosticsDelta ? formatDelta(diagnosticsDelta) : '-'}, `
-          + `declaration bytes ${declarationBytesDelta ? formatByteDelta(declarationBytesDelta) : '-'}, `
-          + `map bytes ${mapBytesDelta ? formatByteDelta(mapBytesDelta) : '-'}`,
-        );
-      }
-    }
-  }
-}
-
 function formatBudgetValue(metric, value) {
   if (metric.toLowerCase().endsWith('bytes')) {
     return formatBytes(value);
@@ -1061,9 +304,7 @@ function isMinimumMetric(metric) {
 function getMeasuredMetric(result, metric) {
   switch (metric) {
     case 'maxBuildDurationMs':
-      return result.buildDurationStats?.maxMs ?? result.buildDurationMs;
-    case 'maxDeclarationEmitDurationMs':
-      return result.declarationEmitDurationStats?.maxMs ?? result.declarationEmitDurationMs;
+      return result.buildDurationMs;
     case 'minDeclarationFiles':
     case 'maxDeclarationFiles':
       return result.declarations.declarationFileCount;
@@ -1090,7 +331,6 @@ export function evaluateBudgets(results, budgetConfig) {
     'minDeclarationFiles',
     'minDeclarationBytes',
     'maxBuildDurationMs',
-    'maxDeclarationEmitDurationMs',
     'maxDeclarationFiles',
     'maxDeclarationBytes',
     'maxDeclarationMapFiles',
@@ -1139,18 +379,6 @@ async function main() {
   }
 
   const root = process.cwd();
-  if (options.benchmarkSummary) {
-    const summary = summarizeBenchmarkRecords(await readBenchmarkRecords(root, options.benchmarkSummary), {
-      limit: options.benchmarkSummaryLimit,
-    });
-    if (options.json) {
-      console.log(JSON.stringify(summary, null, 2));
-      return;
-    }
-    printBenchmarkSummary(summary);
-    return;
-  }
-
   const packages = await listWorkspacePackages(root);
   const results = [];
 
@@ -1160,45 +388,7 @@ async function main() {
       throw new Error(`Unknown workspace package: ${specifier}`);
     }
 
-    const buildSamples = [];
-    const declarationEmitSamples = [];
-    let declarationDiagnostics;
-    for (let runIndex = 0; runIndex < options.runs; runIndex += 1) {
-      if (options.build) {
-        const durationMs = await runBuild(pkg.name);
-        buildSamples.push(createMeasurementSample({
-          options,
-          runIndex,
-          durationMs,
-          state: inferBuildSampleState(options),
-        }));
-      }
-      if (options.declarationEmit) {
-        const emitResult = await runDeclarationEmit({
-          root,
-          packageDir: pkg.dir,
-          packageName: pkg.name,
-          collectDiagnostics: shouldCollectDiagnostics(options, runIndex),
-        });
-        const diagnosticsSummary = summarizeTscExtendedDiagnostics(emitResult.diagnostics);
-        declarationEmitSamples.push({
-          ...createMeasurementSample({
-            options,
-            runIndex,
-            durationMs: emitResult.durationMs,
-            state: inferDeclarationSampleState(options, runIndex),
-          }),
-          diagnosticsSummary,
-        });
-        if (emitResult.diagnostics) {
-          declarationDiagnostics = emitResult.diagnostics;
-        }
-      }
-    }
-    const buildDurationStats = summarizeDurationSamples(buildSamples.map((sample) => sample.durationMs));
-    const declarationEmitDurationStats = summarizeDurationSamples(declarationEmitSamples.map((sample) => sample.durationMs));
-    const buildDurationMs = buildDurationStats?.lastMs;
-    const declarationEmitDurationMs = declarationEmitDurationStats?.lastMs;
+    const buildDurationMs = options.build ? await runBuild(pkg.name) : undefined;
     const tsupConfigPath = path.join(root, pkg.dir, 'tsup.config.ts');
     const tsupConfigText = existsSync(tsupConfigPath)
       ? await readFile(tsupConfigPath, 'utf8')
@@ -1212,16 +402,7 @@ async function main() {
     results.push({
       name: pkg.name,
       dir: pkg.dir,
-      measurement: createMeasurementContext(options),
       buildDurationMs,
-      buildDurationStats,
-      buildSamples,
-      declarationEmitDurationMs,
-      declarationEmitDurationStats,
-      declarationEmitSamples,
-      declarationDiagnostics,
-      declarationDiagnosticsSummary: summarizeTscExtendedDiagnostics(declarationDiagnostics),
-      declarationDiagnosticsStats: summarizeTscDiagnosticSamples(declarationEmitSamples),
       exportSubpathCount: getExportSubpathCount(pkg.packageJson),
       tsupEntryCount: tsupEntries.count,
       tsupEntries: tsupEntries.entries,
@@ -1230,24 +411,11 @@ async function main() {
     });
   }
 
-  const budgetResult = options.check
-    ? evaluateBudgets(results, await readBudgetFile(root, options.budgetFile))
-    : undefined;
-  const generatedAt = new Date().toISOString();
-
-  if (options.benchmarkOutput) {
-    await appendBenchmarkRecord(root, options.benchmarkOutput, createBenchmarkRecord({
-      generatedAt,
-      results,
-      budgetResult,
-    }));
-  }
-
   if (options.json) {
-    const payload = options.diagnosticsJsonSummary
-      ? createDiagnosticsJsonSummary({ generatedAt, results, budgetResult })
-      : { generatedAt, results, budgetResult };
-    console.log(JSON.stringify(payload, null, 2));
+    const budgetResult = options.check
+      ? evaluateBudgets(results, await readBudgetFile(root, options.budgetFile))
+      : undefined;
+    console.log(JSON.stringify({ generatedAt: new Date().toISOString(), results, budgetResult }, null, 2));
     if (budgetResult && !budgetResult.ok) {
       process.exitCode = 1;
     }

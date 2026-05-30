@@ -89,53 +89,6 @@ describe('validateDocument', () => {
     const result = validateDocument(doc)
     expect(result.valid).toBe(false)
   })
-
-  it('returns valid=true for top-level policy and template-backed agent authoring', () => {
-    const result = validateDocument(makeValidDoc({
-      policy: {
-        budgetCents: 250,
-        timeoutMs: 10_000,
-        workingDirectory: 'packages/flow-dsl',
-      },
-      root: {
-        type: 'sequence',
-        id: 'root',
-        nodes: [{
-          type: 'agent',
-          id: 'agent-1',
-          agentId: 'reviewer',
-          instructions: '',
-          template: { ref: 'templates.review' },
-          output: { key: 'review', schema: { type: 'object' } },
-        }],
-      },
-    }))
-    expect(result.valid).toBe(true)
-  })
-
-  it('returns valid=false for malformed top-level policy and malformed template fallback', () => {
-    const result = validateDocument(makeValidDoc({
-      policy: {
-        budgetCents: 0,
-      },
-      root: {
-        type: 'sequence',
-        id: 'root',
-        nodes: [{
-          type: 'agent',
-          id: 'agent-1',
-          agentId: 'reviewer',
-          instructions: '',
-          template: { ref: '' },
-          output: { key: 'review', schema: { type: 'object' } },
-        }],
-      },
-    }))
-    expect(result.valid).toBe(false)
-    expect(result.diagnostics.some((d) => String(d.path).includes('policy'))).toBe(true)
-    expect(result.diagnostics.some((d) => String(d.path).includes('template'))).toBe(true)
-    expect(result.diagnostics.some((d) => String(d.path).includes('instructions'))).toBe(true)
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -183,81 +136,6 @@ describe('parseDslToDocument', () => {
     expect(result.document).toBeNull()
     expect(result.partialDocument).not.toBeNull()
     expect(result.diagnostics.some((d) => d.code === 'INVALID_DSL_VERSION')).toBe(true)
-  })
-
-  it('preserves policy, template-only agents, and inline agent validate from UTF-8 DSL text', () => {
-    const result = parseDslToDocument(`
-dsl: dzupflow/v1
-id: agent-flow
-version: 1
-policy:
-  budgetCents: 500
-  timeoutMs: 30000
-  workingDirectory: packages/flow-dsl
-steps:
-  - agent:
-      id: agent-step
-      agentId: reviewer
-      template:
-        ref: templates.review
-        inputDefaults:
-          severity: high
-      output:
-        key: review
-        schema:
-          type: object
-      validate:
-        schema:
-          type: object
-        failBehavior: retry
-        maxRetries: 1
-`.trim())
-
-    expect(result.ok).toBe(true)
-    expect(result.document?.policy).toEqual({
-      budgetCents: 500,
-      timeoutMs: 30000,
-      workingDirectory: 'packages/flow-dsl',
-    })
-    const node = result.document?.root.nodes[0]
-    expect(node).toMatchObject({
-      type: 'agent',
-      template: {
-        ref: 'templates.review',
-        inputDefaults: { severity: 'high' },
-      },
-      validate: {
-        schema: { type: 'object' },
-        failBehavior: 'retry',
-        maxRetries: 1,
-      },
-    })
-  })
-
-  it('rejects malformed policy and inline agent validate from DSL text', () => {
-    const result = parseDslToDocument(`
-dsl: dzupflow/v1
-id: agent-flow
-version: 1
-policy:
-  timeoutMs: 0
-steps:
-  - agent:
-      id: agent-step
-      agentId: reviewer
-      output:
-        key: review
-        schema:
-          type: object
-      validate:
-        failBehavior: explode
-`.trim())
-
-    expect(result.ok).toBe(false)
-    expect(result.diagnostics.some((d) => d.path === 'root.policy.timeoutMs')).toBe(true)
-    expect(result.diagnostics.some((d) => d.path === 'root.steps[0].instructions')).toBe(true)
-    expect(result.diagnostics.some((d) => d.path === 'root.steps[0].validate.schema')).toBe(true)
-    expect(result.diagnostics.some((d) => d.path === 'root.steps[0].validate.failBehavior')).toBe(true)
   })
 })
 

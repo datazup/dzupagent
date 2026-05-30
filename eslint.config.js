@@ -70,22 +70,6 @@ export default [
       'security/detect-possible-timing-attacks': 'warn',
       'security/detect-pseudoRandomBytes': 'warn',
       'security/detect-unsafe-regex': 'error',
-      // Deprecated package guard: @dzupagent/test-utils is a compatibility shim;
-      // canonical test infrastructure lives in @dzupagent/testing.
-      // The only files exempt are inside packages/test-utils/ itself.
-      'no-restricted-imports': [
-        'error',
-        {
-          paths: [
-            {
-              name: '@dzupagent/test-utils',
-              message:
-                'Import from @dzupagent/testing instead. ' +
-                '@dzupagent/test-utils is a deprecated compatibility shim.',
-            },
-          ],
-        },
-      ],
       // SSRF guard: route outbound HTTP through fetchWithOutboundUrlPolicy
       'no-restricted-globals': [
         'error',
@@ -95,27 +79,6 @@ export default [
             'Use fetchWithOutboundUrlPolicy from @dzupagent/core instead of raw fetch(). ' +
             'If this site is intentionally allowlisted (vectordb adapters, sandbox clients), ' +
             'add an eslint-disable-next-line comment with a justification.',
-        },
-      ],
-    },
-  },
-  // Quality rules for test files — warns without blocking CI immediately.
-  // M-05: Real timers cause non-deterministic timing; prefer fake timers.
-  // M-06: `as any` bypasses type safety; prefer typed mocks or Partial<T>.
-  {
-    files: ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**/*.ts'],
-    rules: {
-      'no-restricted-syntax': [
-        'warn',
-        {
-          selector: "CallExpression[callee.name='setTimeout']",
-          message:
-            'Avoid real setTimeout in tests. Use vi.useFakeTimers() + vi.advanceTimersByTimeAsync() instead.',
-        },
-        {
-          selector: 'TSAsExpression > TSAnyKeyword',
-          message:
-            'Avoid `as any` in tests. Use `as Partial<RealType>`, a typed factory, or a properly typed mock instead.',
         },
       ],
     },

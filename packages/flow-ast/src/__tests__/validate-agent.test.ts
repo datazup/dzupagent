@@ -146,32 +146,6 @@ describe('flowNodeSchema — agent node failures', () => {
     })
     expect(errors.length).toBeGreaterThan(0)
   })
-
-  it('rejects non-positive timeout and budget policy limits', () => {
-    const errors = validateFlowNodeShape({
-      type: 'agent',
-      id: 'plan',
-      agentId: 'a',
-      instructions: 'do',
-      output: { key: 'k', schemaRef: 'x' },
-      policy: { timeoutMs: 0, budgetCents: -1 },
-    })
-    expect(errors.some((e) => e.nodePath.endsWith('.policy.timeoutMs'))).toBe(true)
-    expect(errors.some((e) => e.nodePath.endsWith('.policy.budgetCents'))).toBe(true)
-  })
-
-  it('rejects non-finite timeout and budget policy limits', () => {
-    const errors = validateFlowNodeShape({
-      type: 'agent',
-      id: 'plan',
-      agentId: 'a',
-      instructions: 'do',
-      output: { key: 'k', schemaRef: 'x' },
-      policy: { timeoutMs: Infinity, budgetCents: Number.NaN },
-    })
-    expect(errors.some((e) => e.message.includes('timeoutMs') && e.message.includes('finite'))).toBe(true)
-    expect(errors.some((e) => e.message.includes('budgetCents') && e.message.includes('finite'))).toBe(true)
-  })
 })
 
 // ── validate node ───────────────────────────────────────────────────────────

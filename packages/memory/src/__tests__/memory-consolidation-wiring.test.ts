@@ -209,8 +209,8 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
     const backing = makeStore()
     const svc = new MemoryService(backing.store, namespaces)
 
-    type Scope = { readonly tenantId: string } & Record<string, string>
-    await expect(svc.consolidateAfterRun('run-x', {} as unknown as Scope, 'observations'))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await expect(svc.consolidateAfterRun('run-x', {} as any, 'observations'))
       .rejects.toThrow('scope.tenantId is required')
 
     // Store must never be touched when tenantId is absent

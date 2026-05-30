@@ -65,15 +65,4 @@ export interface LowerPipelineResult {
    */
   edges: PipelineEdge[]
   warnings: string[]
-  /**
-   * Terminal node IDs that must receive a continuation edge when a sibling
-   * node follows this subtree. Most lowerers expose a single tail (the last
-   * node in `nodes`), but control-flow that fans out (e.g. a `branch` with
-   * both then- and else-paths) exposes one tail per path so the continuation
-   * is stitched onto *every* path, not just the last node emitted.
-   *
-   * When omitted, callers fall back to the last node in `nodes` — preserving
-   * the historical single-tail behaviour for simple subtrees.
-   */
-  tails?: string[]
 }
