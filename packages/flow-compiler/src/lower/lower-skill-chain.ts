@@ -174,7 +174,12 @@ function walkNode(
     case 'restore':
     case 'http':
     case 'wait':
-    case 'subflow': {
+    case 'subflow':
+    case 'fleet.dispatch':
+    case 'fleet.gather':
+    case 'fleet.contract-net':
+    case 'knowledge.write':
+    case 'knowledge.query': {
       // Runtime-executed nodes — no skill-chain step emitted; silently pass through.
       return
     }

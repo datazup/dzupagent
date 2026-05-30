@@ -6,6 +6,9 @@
   "types": "dist/index.d.ts",
   "typesVersions": {
     "*": {
+      "": [
+        "dist/index.d.ts"
+      ],
       "advanced": [
         "dist/advanced.d.ts"
       ],
@@ -56,6 +59,9 @@
       ],
       "vectordb": [
         "dist/vectordb/index.d.ts"
+      ],
+      "*": [
+        "dist/index.d.ts"
       ]
     }
   },

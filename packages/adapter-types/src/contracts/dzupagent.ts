@@ -6,6 +6,22 @@ export type CodexMemoryStrategy =
 
 /** Global/project DzupAgent adapter memory configuration (config.json) */
 export interface AdapterMemoryConfig {
+  $schema?: string | undefined
+  provider?: (Record<string, unknown> & {
+    default?: string | undefined
+  }) | undefined
+  mcp?: (Record<string, unknown> & {
+    servers?: Record<string, unknown> | undefined
+  }) | undefined
+  monitor?: (Record<string, unknown> & {
+    enabled?: boolean | undefined
+  }) | undefined
+  rules?: (Record<string, unknown> & {
+    rules?: string[] | undefined
+  }) | undefined
+  privacy?: (Record<string, unknown> & {
+    redactSecrets?: boolean | undefined
+  }) | undefined
   codex?: {
     /** How to handle memory injection for Codex. Default: 'inject-on-new-thread' */
     memoryStrategy?: CodexMemoryStrategy | undefined

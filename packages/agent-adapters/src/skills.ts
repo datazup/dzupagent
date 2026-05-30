@@ -27,3 +27,6 @@ export type {
 // AdapterProviderId is reused across skill/runtime surfaces — re-exported
 // from the canonical types module to make this subpath self-sufficient.
 export type { AdapterProviderId } from './types.js'
+export { CodexSkillCompiler } from './skills/compilers/codex-skill-compiler.js'
+export { ClaudeSkillCompiler } from './skills/compilers/claude-skill-compiler.js'
+export { CliSkillCompiler, isCliProviderId } from './skills/compilers/cli-skill-compiler.js'

@@ -107,6 +107,11 @@ export function validateCanonicalNodeIds(
     case 'return_to':
     case 'agent':
     case 'validate':
+    case 'fleet.dispatch':
+    case 'fleet.gather':
+    case 'fleet.contract-net':
+    case 'knowledge.write':
+    case 'knowledge.query':
       return
     default: {
       const _exhaustive: never = node

@@ -126,6 +126,11 @@ function projectNode(node: FlowNode, state: ProjectionState): ProjectionResult {
     case 'return_to':
     case 'agent':
     case 'validate':
+    case 'fleet.dispatch':
+    case 'fleet.gather':
+    case 'fleet.contract-net':
+    case 'knowledge.write':
+    case 'knowledge.query':
       return { entryIds: [id], exitIds: [id] }
     default: {
       const _exhaustive: never = node
@@ -206,6 +211,16 @@ function labelForNode(node: FlowNode): string {
       return `agent:${node.agentId}`
     case 'validate':
       return node.ref ? `validate:${node.ref}` : 'validate'
+    case 'fleet.dispatch':
+      return `fleet.dispatch:${node.mode}`
+    case 'fleet.gather':
+      return `fleet.gather:${node.source}`
+    case 'fleet.contract-net':
+      return 'fleet.contract-net'
+    case 'knowledge.write':
+      return `knowledge.write:${node.scope}`
+    case 'knowledge.query':
+      return `knowledge.query:${node.output}`
     default: {
       const _exhaustive: never = node
       void _exhaustive

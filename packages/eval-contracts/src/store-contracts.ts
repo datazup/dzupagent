@@ -53,6 +53,7 @@ export interface EvalRunAttemptRecord {
 export interface EvalRunRecord {
   id: string
   suiteId: string
+  tenantId?: string | undefined
   suite: EvalSuite
   status: EvalRunStatus
   createdAt: string
@@ -70,6 +71,7 @@ export interface EvalRunRecord {
 
 export interface EvalRunListFilter {
   suiteId?: string | undefined
+  tenantId?: string | undefined
   status?: EvalRunStatus | undefined
   limit?: number | undefined
 }

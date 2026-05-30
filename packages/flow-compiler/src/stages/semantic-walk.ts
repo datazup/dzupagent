@@ -140,7 +140,12 @@ export async function visit(node: FlowNode, path: string, ctx: WalkContext): Pro
     case 'restore':
     case 'http':
     case 'wait':
-    case 'subflow': {
+    case 'subflow':
+    case 'fleet.dispatch':
+    case 'fleet.gather':
+    case 'fleet.contract-net':
+    case 'knowledge.write':
+    case 'knowledge.query': {
       // Leaf nodes — no refs to resolve in semantic stage.
       return
     }

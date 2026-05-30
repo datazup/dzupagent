@@ -245,6 +245,51 @@ function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
       }
       return
     }
+    case 'fleet.dispatch': {
+      if (!isNonEmptyString(node.mode)) {
+        errors.push(missing(node.type, path, 'fleet.dispatch.mode is required (non-empty string)'))
+      }
+      if (!isNonEmptyString(node.repos) && !Array.isArray(node.repos)) {
+        errors.push(missing(node.type, path, 'fleet.dispatch.repos is required (string or array)'))
+      }
+      if (node.task === undefined) {
+        errors.push(missing(node.type, path, 'fleet.dispatch.task is required'))
+      }
+      return
+    }
+    case 'fleet.gather': {
+      if (!isNonEmptyString(node.source)) {
+        errors.push(missing(node.type, path, 'fleet.gather.source is required (non-empty string)'))
+      }
+      return
+    }
+    case 'fleet.contract-net': {
+      if (!isNonEmptyString(node.repos) && !Array.isArray(node.repos)) {
+        errors.push(missing(node.type, path, 'fleet.contract-net.repos is required (string or array)'))
+      }
+      if (node.task === undefined) {
+        errors.push(missing(node.type, path, 'fleet.contract-net.task is required'))
+      }
+      return
+    }
+    case 'knowledge.write': {
+      if (!isNonEmptyString(node.scope)) {
+        errors.push(missing(node.type, path, 'knowledge.write.scope is required (non-empty string)'))
+      }
+      if (node.entry === undefined) {
+        errors.push(missing(node.type, path, 'knowledge.write.entry is required'))
+      }
+      return
+    }
+    case 'knowledge.query': {
+      if (!isPlainObject(node.filter)) {
+        errors.push(missing(node.type, path, 'knowledge.query.filter is required (object)'))
+      }
+      if (!isNonEmptyString(node.output)) {
+        errors.push(missing(node.type, path, 'knowledge.query.output is required (non-empty string)'))
+      }
+      return
+    }
     case 'prompt': {
       if (!isNonEmptyString(node.userPrompt)) {
         errors.push(missing(node.type, path, 'prompt.userPrompt is required (non-empty string)'))
@@ -357,7 +402,12 @@ function walkOnError(node: FlowNode, path: string, errors: ValidationError[]): v
     case 'restore':
     case 'http':
     case 'wait':
-    case 'subflow': {
+    case 'subflow':
+    case 'fleet.dispatch':
+    case 'fleet.gather':
+    case 'fleet.contract-net':
+    case 'knowledge.write':
+    case 'knowledge.query': {
       return
     }
     case 'try_catch': {

@@ -97,6 +97,11 @@ export function lowerNodeToPipeline(
     case 'http':
     case 'wait':
     case 'subflow':
+    case 'fleet.dispatch':
+    case 'fleet.gather':
+    case 'fleet.contract-net':
+    case 'knowledge.write':
+    case 'knowledge.query':
       // Runtime-executed nodes: present in AST but not emitted as graph edges.
       return { nodes: [], edges: [], warnings: [] }
 

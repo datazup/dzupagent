@@ -24,21 +24,30 @@
  * parse + shape-validate + lower. See ADR `DECISIONS_WAVE_11.md`.
  */
 
-import { createHash } from 'node:crypto'
-import { parseFlow } from '@dzupagent/flow-ast'
-import type { FlowDocumentPolicy, FlowNode, ParseInput } from '@dzupagent/flow-ast'
-import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
+import { createHash } from "node:crypto";
+import { parseFlow } from "@dzupagent/flow-ast";
+import type {
+  FlowDocumentPolicy,
+  FlowNode,
+  ParseInput,
+} from "@dzupagent/flow-ast";
+import type { DzupEvent, DzupEventBus } from "@dzupagent/core";
 
-import { validateShape } from './stages/shape-validate.js'
-import { semanticResolve } from './stages/semantic.js'
-import { routeTarget } from './route-target.js'
-import { lowerSkillChain } from './lower/lower-skill-chain.js'
-import { lowerPipelineFlat } from './lower/lower-pipeline-flat.js'
-import { lowerPipelineLoop } from './lower/lower-pipeline-loop.js'
-import { hasOnError } from './route-target.js'
-import { prepareFlowInputFromDocument, prepareFlowInputFromDsl } from './authoring-input.js'
-import { compileTextInput, isFlowDocumentJson } from './cli-input.js'
-import { collectFlowArtifactMetadata } from './flow-artifact-metadata.js'
+import { validateShape } from "./stages/shape-validate.js";
+import { semanticResolve } from "./stages/semantic.js";
+import { collectUnsupportedRuntimeNodes, routeTarget } from "./route-target.js";
+import { lowerSkillChain } from "./lower/lower-skill-chain.js";
+import { lowerPipelineFlat } from "./lower/lower-pipeline-flat.js";
+import { lowerPipelineLoop } from "./lower/lower-pipeline-loop.js";
+import { hasOnError } from "./route-target.js";
+import { collectFleetSteps } from "./lower/lower-fleet-nodes.js";
+import type { LoweredFleetStep } from "./lower/lower-fleet-nodes.js";
+import {
+  prepareFlowInputFromDocument,
+  prepareFlowInputFromDsl,
+} from "./authoring-input.js";
+import { compileTextInput, isFlowDocumentJson } from "./cli-input.js";
+import { collectFlowArtifactMetadata } from "./flow-artifact-metadata.js";
 
 import type {
   CompilerOptions,
@@ -52,45 +61,61 @@ import type {
   FlowCompileSourceKind,
   FlowCompiler,
   CompileSuccess,
-} from './types.js'
+} from "./types.js";
 
-export * from './types.js'
-export { prepareFlowInputFromDocument, prepareFlowInputFromDsl } from './authoring-input.js'
-export { compileTextInput, isFlowDocumentJson } from './cli-input.js'
+export * from "./types.js";
+export {
+  prepareFlowInputFromDocument,
+  prepareFlowInputFromDsl,
+} from "./authoring-input.js";
+export { compileTextInput, isFlowDocumentJson } from "./cli-input.js";
 export {
   createToolResolverFromRegistry,
   createToolsetResolverFromCatalog,
   validateHostToolRegistry,
   validateToolsetCatalog,
-} from './host-tool-registry.js'
+} from "./host-tool-registry.js";
 export type {
   HostToolRegistryValidationResult,
   ToolsetCatalogValidationResult,
-} from './host-tool-registry.js'
-export { collectFlowArtifactMetadata } from './flow-artifact-metadata.js'
+} from "./host-tool-registry.js";
+export { collectFlowArtifactMetadata } from "./flow-artifact-metadata.js";
 export type {
   FlowArtifactMetadata,
   FlowArtifactNodeMetadata,
-} from './flow-artifact-metadata.js'
-export { validateShape } from './stages/shape-validate.js'
-export { semanticResolve } from './stages/semantic.js'
-export type { SemanticOptions, SemanticResult } from './stages/semantic.js'
-export { routeTarget, computeFeatureBitmask, hasOnError, FEATURE_BITS } from './route-target.js'
-export { lowerCheckpointNode, lowerRestoreNode } from './lower/lower-checkpoint.js'
+} from "./flow-artifact-metadata.js";
+export { validateShape } from "./stages/shape-validate.js";
+export { semanticResolve } from "./stages/semantic.js";
+export type { SemanticOptions, SemanticResult } from "./stages/semantic.js";
+export {
+  routeTarget,
+  computeFeatureBitmask,
+  hasOnError,
+  FEATURE_BITS,
+  collectUnsupportedRuntimeNodes,
+} from "./route-target.js";
+export type { UnsupportedRuntimeNode } from "./route-target.js";
+export {
+  lowerCheckpointNode,
+  lowerRestoreNode,
+} from "./lower/lower-checkpoint.js";
 export type {
   LoweredNode,
   LoweredCheckpointNode,
   LoweredRestoreNode,
-} from './lower/lower-checkpoint.js'
-export { parseFlow } from '@dzupagent/flow-ast'
-export type { FlowDocumentPolicy, ParseInput } from '@dzupagent/flow-ast'
+} from "./lower/lower-checkpoint.js";
+export { parseFlow } from "@dzupagent/flow-ast";
+export type { FlowDocumentPolicy, ParseInput } from "@dzupagent/flow-ast";
 export type {
   ProfileRegistry,
   ProfileLookupScope,
   ResolvedProfile,
   ResolvedProfilePolicy,
-} from './profile-registry.js'
-export { resolveAgentProfile, applyProfileToNode } from './stages/semantic-profile-resolver.js'
+} from "./profile-registry.js";
+export {
+  resolveAgentProfile,
+  applyProfileToNode,
+} from "./stages/semantic-profile-resolver.js";
 
 // ---------------------------------------------------------------------------
 // Compiler factory
@@ -103,19 +128,19 @@ type FlowCompileEvent = Extract<
   DzupEvent,
   {
     type:
-      | 'flow:compile_started'
-      | 'flow:compile_parsed'
-      | 'flow:compile_shape_validated'
-      | 'flow:compile_semantic_resolved'
-      | 'flow:compile_lowered'
-      | 'flow:compile_completed'
-      | 'flow:compile_failed'
+      | "flow:compile_started"
+      | "flow:compile_parsed"
+      | "flow:compile_shape_validated"
+      | "flow:compile_semantic_resolved"
+      | "flow:compile_lowered"
+      | "flow:compile_completed"
+      | "flow:compile_failed";
   }
->
+>;
 
 const NOOP_EMIT: (_e: FlowCompileEvent) => void = () => {
   /* no-op; forwardInnerEvents is off or no bus provided */
-}
+};
 
 /**
  * Create a reusable flow compiler bound to the supplied resolver options.
@@ -141,9 +166,9 @@ const NOOP_EMIT: (_e: FlowCompileEvent) => void = () => {
 export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
   if (opts.forwardInnerEvents === true && opts.eventBus === undefined) {
     throw new Error(
-      'flow-compiler: forwardInnerEvents=true requires an eventBus — ' +
-        'pass `eventBus` in CompilerOptions or leave forwardInnerEvents unset.',
-    )
+      "flow-compiler: forwardInnerEvents=true requires an eventBus — " +
+        "pass `eventBus` in CompilerOptions or leave forwardInnerEvents unset."
+    );
   }
 
   // Capture `emit` once at factory time. When forwarding is off the callable
@@ -151,341 +176,403 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
   // See ADR §4.5 for the branchless-hot-path rationale.
   const emit: (e: FlowCompileEvent) => void =
     opts.forwardInnerEvents === true && opts.eventBus !== undefined
-      ? ((bus: DzupEventBus) => (e: FlowCompileEvent) => bus.emit(e))(opts.eventBus)
-      : NOOP_EMIT
+      ? (
+          (bus: DzupEventBus) => (e: FlowCompileEvent) =>
+            bus.emit(e)
+        )(opts.eventBus)
+      : NOOP_EMIT;
 
   async function compile(
     input: ParseInput,
-    invocationOptions: CompileInvocationOptions = {},
+    invocationOptions: CompileInvocationOptions = {}
   ): Promise<CompileSuccess | CompileFailure> {
-      const compileId = crypto.randomUUID()
-      const startedAt = Date.now()
-      const sourceKind = invocationOptions.sourceKind ?? defaultSourceKind(input)
-      const sourceHash = hashSource(invocationOptions.source ?? input)
+    const compileId = crypto.randomUUID();
+    const startedAt = Date.now();
+    const sourceKind = invocationOptions.sourceKind ?? defaultSourceKind(input);
+    const sourceHash = hashSource(invocationOptions.source ?? input);
 
+    emit({
+      type: "flow:compile_started",
+      compileId,
+      inputKind: typeof input === "string" ? "json-string" : "object",
+    });
+
+    // -----------------------------------------------------------------------
+    // Stage 1: Parse
+    // -----------------------------------------------------------------------
+    const parseResult = parseFlow(input);
+
+    const stage1Errors: CompilationError[] = parseResult.errors.map((e) => ({
+      stage: 1 as const,
+      code: e.code,
+      message: e.message,
+      nodePath: jsonPointerToNodePath(e.pointer),
+      category: "shape",
+    }));
+
+    emit({
+      type: "flow:compile_parsed",
+      compileId,
+      astNodeType: parseResult.ast === null ? null : parseResult.ast.type,
+      errorCount: stage1Errors.length,
+    });
+
+    if (parseResult.ast === null) {
       emit({
-        type: 'flow:compile_started',
+        type: "flow:compile_failed",
         compileId,
-        inputKind: typeof input === 'string' ? 'json-string' : 'object',
-      })
-
-      // -----------------------------------------------------------------------
-      // Stage 1: Parse
-      // -----------------------------------------------------------------------
-      const parseResult = parseFlow(input)
-
-      const stage1Errors: CompilationError[] = parseResult.errors.map((e) => ({
-        stage: 1 as const,
-        code: e.code,
-        message: e.message,
-        nodePath: jsonPointerToNodePath(e.pointer),
-        category: 'shape',
-      }))
-
-      emit({
-        type: 'flow:compile_parsed',
-        compileId,
-        astNodeType: parseResult.ast === null ? null : parseResult.ast.type,
+        stage: 1,
         errorCount: stage1Errors.length,
-      })
-
-      if (parseResult.ast === null) {
-        emit({
-          type: 'flow:compile_failed',
-          compileId,
-          stage: 1,
-          errorCount: stage1Errors.length,
-          durationMs: Date.now() - startedAt,
-        })
-        return {
-          errors: stage1Errors,
-          compileId,
-          diagnosticCountsByCategory: countDiagnosticsByCategory(stage1Errors),
-        }
-      }
-
-      const ast = parseResult.ast
-
-      // -----------------------------------------------------------------------
-      // Stage 2: Shape validation
-      // -----------------------------------------------------------------------
-      const shapeErrors = validateShape(ast)
-
-      const stage2Errors: CompilationError[] = shapeErrors.map((e) => ({
-        stage: 2 as const,
-        code: e.code,
-        message: e.message,
-        nodePath: e.nodePath,
-        category: 'shape',
-      }))
-
-      emit({
-        type: 'flow:compile_shape_validated',
+        durationMs: Date.now() - startedAt,
+      });
+      return {
+        errors: stage1Errors,
         compileId,
-        errorCount: stage2Errors.length,
-      })
+        diagnosticCountsByCategory: countDiagnosticsByCategory(stage1Errors),
+      };
+    }
 
-      // Stages 1 + 2 combine. If either set is non-empty, return early.
-      const combinedEarly = [...stage1Errors, ...stage2Errors]
-      if (combinedEarly.length > 0) {
-        // Failing stage is whichever produced errors; stage 2 supersedes
-        // stage 1 here only if stage 1 was clean (ast !== null implies
-        // stage 1 at least yielded an AST, possibly with recoverable
-        // warnings; the failing stage from the caller's perspective is 2
-        // when stage 1 reported zero errors).
-        const failingStage: 1 | 2 = stage1Errors.length > 0 ? 1 : 2
-        emit({
-          type: 'flow:compile_failed',
-          compileId,
-          stage: failingStage,
-          errorCount: combinedEarly.length,
-          durationMs: Date.now() - startedAt,
-        })
-        return {
-          errors: combinedEarly,
-          compileId,
-          diagnosticCountsByCategory: countDiagnosticsByCategory(combinedEarly),
-        }
-      }
+    const ast = parseResult.ast;
 
-      // -----------------------------------------------------------------------
-      // Stage 3: Semantic resolution — halts on any error
-      // -----------------------------------------------------------------------
-      const semanticResult = await semanticResolve(ast, {
-        toolResolver: opts.toolResolver,
-        personaResolver: opts.personaResolver,
-        ...(opts.toolsetResolver !== undefined ? { toolsetResolver: opts.toolsetResolver } : {}),
-        ...(opts.profileRegistry !== undefined ? { profileRegistry: opts.profileRegistry } : {}),
-        ...(opts.target !== undefined ? { target: opts.target } : {}),
-      })
+    // -----------------------------------------------------------------------
+    // Stage 2: Shape validation
+    // -----------------------------------------------------------------------
+    const shapeErrors = validateShape(ast);
 
+    const stage2Errors: CompilationError[] = shapeErrors.map((e) => ({
+      stage: 2 as const,
+      code: e.code,
+      message: e.message,
+      nodePath: e.nodePath,
+      category: "shape",
+    }));
+
+    emit({
+      type: "flow:compile_shape_validated",
+      compileId,
+      errorCount: stage2Errors.length,
+    });
+
+    // Stages 1 + 2 combine. If either set is non-empty, return early.
+    const combinedEarly = [...stage1Errors, ...stage2Errors];
+    if (combinedEarly.length > 0) {
+      // Failing stage is whichever produced errors; stage 2 supersedes
+      // stage 1 here only if stage 1 was clean (ast !== null implies
+      // stage 1 at least yielded an AST, possibly with recoverable
+      // warnings; the failing stage from the caller's perspective is 2
+      // when stage 1 reported zero errors).
+      const failingStage: 1 | 2 = stage1Errors.length > 0 ? 1 : 2;
       emit({
-        type: 'flow:compile_semantic_resolved',
+        type: "flow:compile_failed",
         compileId,
-        resolvedCount: semanticResult.resolved.size,
-        personaCount: semanticResult.resolvedPersonas.size,
-        errorCount: semanticResult.errors.length,
-      })
+        stage: failingStage,
+        errorCount: combinedEarly.length,
+        durationMs: Date.now() - startedAt,
+      });
+      return {
+        errors: combinedEarly,
+        compileId,
+        diagnosticCountsByCategory: countDiagnosticsByCategory(combinedEarly),
+      };
+    }
 
-      if (semanticResult.errors.length > 0) {
-        const stage3Errors: CompilationError[] = semanticResult.errors.map((e) => ({
+    // -----------------------------------------------------------------------
+    // Stage 3: Semantic resolution — halts on any error
+    // -----------------------------------------------------------------------
+    const semanticResult = await semanticResolve(ast, {
+      toolResolver: opts.toolResolver,
+      personaResolver: opts.personaResolver,
+      ...(opts.toolsetResolver !== undefined
+        ? { toolsetResolver: opts.toolsetResolver }
+        : {}),
+      ...(opts.profileRegistry !== undefined
+        ? { profileRegistry: opts.profileRegistry }
+        : {}),
+      ...(opts.target !== undefined ? { target: opts.target } : {}),
+    });
+
+    emit({
+      type: "flow:compile_semantic_resolved",
+      compileId,
+      resolvedCount: semanticResult.resolved.size,
+      personaCount: semanticResult.resolvedPersonas.size,
+      errorCount: semanticResult.errors.length,
+    });
+
+    if (semanticResult.errors.length > 0) {
+      const stage3Errors: CompilationError[] = semanticResult.errors.map(
+        (e) => ({
           stage: 3 as const,
           code: e.code,
           message: e.message,
           nodePath: e.nodePath,
-          category: e.category ?? 'resolution',
+          category: e.category ?? "resolution",
           ...extractSuggestionFromMessage(e.message),
-        }))
-        emit({
-          type: 'flow:compile_failed',
-          compileId,
-          stage: 3,
-          errorCount: stage3Errors.length,
-          durationMs: Date.now() - startedAt,
         })
-        return {
-          errors: stage3Errors,
-          compileId,
-          diagnosticCountsByCategory: countDiagnosticsByCategory(stage3Errors),
-        }
-      }
-
-      const { resolved, resolvedPersonas } = semanticResult
-
-      // -----------------------------------------------------------------------
-      // Stage 4: Route + lower
-      // -----------------------------------------------------------------------
-      const { target, bitmask } = routeTarget(ast)
-
-      // Stage 4 defense-in-depth: skill-chain target must not carry on_error.
-      // validateShape (stage 2) already catches this via OI-4, but if a caller
-      // constructs an AST directly and bypasses stage 2, this backstop fires.
-      if (target === 'skill-chain' && hasOnError(ast)) {
-        const stage4Error: CompilationError = {
-          stage: 4,
-          code: 'UNSUPPORTED_FIELD',
-          message: 'on_error is only legal in pipeline-targeted flows',
-          nodePath: 'root',
-          category: 'lowering',
-        }
-        emit({
-          type: 'flow:compile_failed',
-          compileId,
-          stage: 4,
-          errorCount: 1,
-          durationMs: Date.now() - startedAt,
-        })
-        return {
-          errors: [stage4Error],
-          compileId,
-          diagnosticCountsByCategory: countDiagnosticsByCategory([stage4Error]),
-        }
-      }
-
-      let artifact: unknown
-      let warnings: string[]
-      if (target === 'skill-chain') {
-        const out = lowerSkillChain({ ast, resolved, mode: 'executable' })
-        artifact = out.artifact
-        warnings = out.warnings
-      } else if (target === 'workflow-builder') {
-        const out = lowerPipelineFlat({
-          ast,
-          resolved,
-          resolvedPersonas,
-          mode: 'executable',
-        })
-        artifact = out.artifact
-        warnings = out.warnings
-      } else {
-        // target === 'pipeline'
-        const out = lowerPipelineLoop({
-          ast,
-          resolved,
-          resolvedPersonas,
-          mode: 'executable',
-        })
-        artifact = out.artifact
-        warnings = out.warnings
-      }
-
-      // Best-effort node/edge counts. The `artifact` shapes differ by target;
-      // we read common fields defensively to keep the emit site target-agnostic.
-      const { nodeCount, edgeCount } = countArtifact(target, artifact)
-
+      );
       emit({
-        type: 'flow:compile_lowered',
+        type: "flow:compile_failed",
         compileId,
-        target,
-        nodeCount,
-        edgeCount,
-        warningCount: warnings.length,
-      })
-
-      emit({
-        type: 'flow:compile_completed',
-        compileId,
-        target,
+        stage: 3,
+        errorCount: stage3Errors.length,
         durationMs: Date.now() - startedAt,
-      })
-
+      });
       return {
-        target,
-        artifact,
-        warnings: toCompilationWarnings(warnings),
-        reasons: targetReasons(target, bitmask),
+        errors: stage3Errors,
         compileId,
-        evidence: buildCompileEvidence({
-          ast,
-          compileId,
-          target,
-          sourceKind,
-          sourceHash,
-          correlation: invocationOptions.correlation,
-        }),
-        diagnosticCountsByCategory: countDiagnosticsByCategory(toCompilationWarnings(warnings)),
-      }
+        diagnosticCountsByCategory: countDiagnosticsByCategory(stage3Errors),
+      };
+    }
+
+    const { resolved, resolvedPersonas } = semanticResult;
+
+    // -----------------------------------------------------------------------
+    // Stage 4: Route + lower
+    // -----------------------------------------------------------------------
+    const { target, bitmask } = routeTarget(ast);
+
+    // Stage 4: reject unsupported runtime node types before attempting lowering.
+    // Nodes like 'agent', 'validate', 'prompt', and 'return_to' are valid in the
+    // AST but cannot be lowered by the generic compiler targets.
+    const unsupportedRuntimeNodes = collectUnsupportedRuntimeNodes(ast, target);
+    if (unsupportedRuntimeNodes.length > 0) {
+      const stage4Errors: CompilationError[] = unsupportedRuntimeNodes.map(
+        (node) => ({
+          stage: 4 as const,
+          code: "UNSUPPORTED_RUNTIME_NODE_FOR_TARGET",
+          message:
+            `Node type "${node.type}" at "${node.path}" is valid in the AST but cannot be represented by ` +
+            `the "${target}" generic compiler target. Use a runtime that executes this node kind or add a ` +
+            "reviewed executable target contract before emitting artifacts.",
+          nodePath: node.path,
+          category: "lowering",
+        })
+      );
+      emit({
+        type: "flow:compile_failed",
+        compileId,
+        stage: 4,
+        errorCount: stage4Errors.length,
+        durationMs: Date.now() - startedAt,
+      });
+      return {
+        errors: stage4Errors,
+        compileId,
+        diagnosticCountsByCategory: countDiagnosticsByCategory(stage4Errors),
+      };
+    }
+
+    // Stage 4 defense-in-depth: skill-chain target must not carry on_error.
+    // validateShape (stage 2) already catches this via OI-4, but if a caller
+    // constructs an AST directly and bypasses stage 2, this backstop fires.
+    if (target === "skill-chain" && hasOnError(ast)) {
+      const stage4Error: CompilationError = {
+        stage: 4,
+        code: "UNSUPPORTED_FIELD",
+        message: "on_error is only legal in pipeline-targeted flows",
+        nodePath: "root",
+        category: "lowering",
+      };
+      emit({
+        type: "flow:compile_failed",
+        compileId,
+        stage: 4,
+        errorCount: 1,
+        durationMs: Date.now() - startedAt,
+      });
+      return {
+        errors: [stage4Error],
+        compileId,
+        diagnosticCountsByCategory: countDiagnosticsByCategory([stage4Error]),
+      };
+    }
+
+    let artifact: unknown;
+    let warnings: string[];
+    if (target === "skill-chain") {
+      const out = lowerSkillChain({ ast, resolved, mode: "executable" });
+      artifact = out.artifact;
+      warnings = out.warnings;
+    } else if (target === "workflow-builder") {
+      const out = lowerPipelineFlat({
+        ast,
+        resolved,
+        resolvedPersonas,
+        mode: "executable",
+      });
+      artifact = out.artifact;
+      warnings = out.warnings;
+    } else {
+      // target === 'pipeline'
+      const out = lowerPipelineLoop({
+        ast,
+        resolved,
+        resolvedPersonas,
+        mode: "executable",
+      });
+      artifact = out.artifact;
+      warnings = out.warnings;
+    }
+
+    // Collect fleet/knowledge steps from the AST and attach to the artifact so
+    // runtimes that execute fleet nodes can find them without re-walking the tree.
+    const fleetSteps: LoweredFleetStep[] = collectFleetSteps(ast);
+    if (fleetSteps.length > 0) {
+      (artifact as Record<string, unknown>)["fleetSteps"] = fleetSteps;
+    }
+
+    // Best-effort node/edge counts. The `artifact` shapes differ by target;
+    // we read common fields defensively to keep the emit site target-agnostic.
+    const { nodeCount, edgeCount } = countArtifact(target, artifact);
+
+    emit({
+      type: "flow:compile_lowered",
+      compileId,
+      target,
+      nodeCount,
+      edgeCount,
+      warningCount: warnings.length,
+    });
+
+    emit({
+      type: "flow:compile_completed",
+      compileId,
+      target,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return {
+      target,
+      artifact,
+      warnings: toCompilationWarnings(warnings),
+      reasons: targetReasons(target, bitmask),
+      compileId,
+      evidence: buildCompileEvidence({
+        ast,
+        compileId,
+        target,
+        sourceKind,
+        sourceHash,
+        correlation: invocationOptions.correlation,
+      }),
+      diagnosticCountsByCategory: countDiagnosticsByCategory(
+        toCompilationWarnings(warnings)
+      ),
+    };
   }
 
-  async function compileDocument(document: unknown): Promise<CompileSuccess | CompileFailure> {
-    const prepared = prepareFlowInputFromDocument(document)
+  async function compileDocument(
+    document: unknown
+  ): Promise<CompileSuccess | CompileFailure> {
+    const prepared = prepareFlowInputFromDocument(document);
     if (!prepared.ok) {
       return {
         compileId: crypto.randomUUID(),
         errors: prepared.errors,
         diagnosticCountsByCategory: countDiagnosticsByCategory(prepared.errors),
-      }
+      };
     }
 
     // Extract document-level policy before handing off only the root to compile().
     // The policy is validated by validateFlowDocumentShape (inside prepareFlowInputFromDocument)
     // so by the time we reach here the fields are guaranteed to be well-typed.
-    const documentPolicy = extractDocumentPolicy(document)
+    const documentPolicy = extractDocumentPolicy(document);
 
     const result = await compile(prepared.flowInput, {
-      sourceKind: 'flow-document',
+      sourceKind: "flow-document",
       source: document,
-    })
+    });
 
-    if ('errors' in result) return result
+    if ("errors" in result) return result;
 
-    return { ...result, ...(documentPolicy !== undefined ? { documentPolicy } : {}) }
+    return {
+      ...result,
+      ...(documentPolicy !== undefined ? { documentPolicy } : {}),
+    };
   }
 
-  async function compileDsl(source: unknown): Promise<CompileSuccess | CompileFailure> {
-    const prepared = prepareFlowInputFromDsl(source)
+  async function compileDsl(
+    source: unknown
+  ): Promise<CompileSuccess | CompileFailure> {
+    const prepared = prepareFlowInputFromDsl(source);
     if (!prepared.ok) {
       return {
         compileId: crypto.randomUUID(),
         errors: prepared.errors,
         diagnosticCountsByCategory: countDiagnosticsByCategory(prepared.errors),
-      }
+      };
     }
     return compile(prepared.flowInput, {
-      sourceKind: 'dzupflow-dsl',
+      sourceKind: "dzupflow-dsl",
       source,
-    })
+    });
   }
 
   return {
     compile,
     compileDocument,
     compileDsl,
-  }
+  };
 }
 
 function defaultSourceKind(input: ParseInput): FlowCompileSourceKind {
-  return typeof input === 'string' ? 'flow-json-string' : 'flow-object'
+  return typeof input === "string" ? "flow-json-string" : "flow-object";
 }
 
 function hashSource(source: unknown): string {
-  return `sha256:${createHash('sha256').update(stableStringify(source)).digest('hex')}`
+  return `sha256:${createHash("sha256")
+    .update(stableStringify(source))
+    .digest("hex")}`;
 }
 
 function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
-  if (value === null) return 'null'
-  if (typeof value === 'bigint') return JSON.stringify(value.toString())
-  if (typeof value === 'function') return JSON.stringify('[Function]')
-  if (typeof value === 'symbol') return JSON.stringify(value.toString())
-  if (typeof value !== 'object') return JSON.stringify(value) ?? 'undefined'
-  if (seen.has(value)) return JSON.stringify('[Circular]')
+  if (value === null) return "null";
+  if (typeof value === "bigint") return JSON.stringify(value.toString());
+  if (typeof value === "function") return JSON.stringify("[Function]");
+  if (typeof value === "symbol") return JSON.stringify(value.toString());
+  if (typeof value !== "object") return JSON.stringify(value) ?? "undefined";
+  if (seen.has(value)) return JSON.stringify("[Circular]");
 
-  seen.add(value)
-  if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item, seen)).join(',')}]`
+  seen.add(value);
+  if (Array.isArray(value))
+    return `[${value.map((item) => stableStringify(item, seen)).join(",")}]`;
 
-  const record = value as Record<string, unknown>
+  const record = value as Record<string, unknown>;
   const entries = Object.keys(record)
     .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`)
-  return `{${entries.join(',')}}`
+    .map(
+      (key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`
+    );
+  return `{${entries.join(",")}}`;
 }
 
 function buildCompileEvidence(args: {
-  ast: FlowNode
-  compileId: string
-  target: CompilationTarget
-  sourceKind: FlowCompileSourceKind
-  sourceHash: string
-  correlation?: CompileInvocationOptions['correlation']
+  ast: FlowNode;
+  compileId: string;
+  target: CompilationTarget;
+  sourceKind: FlowCompileSourceKind;
+  sourceHash: string;
+  correlation?: CompileInvocationOptions["correlation"];
 }): FlowCompileEvidence {
-  const metadata = collectFlowArtifactMetadata(args.ast)
-  const canonicalNodePaths: FlowCompileEvidence['canonicalNodePaths'] = {}
-  const canonicalNodeIds = new Set<string>()
+  const metadata = collectFlowArtifactMetadata(args.ast);
+  const canonicalNodePaths: FlowCompileEvidence["canonicalNodePaths"] = {};
+  const canonicalNodeIds = new Set<string>();
 
   for (const [path, node] of Object.entries(metadata.nodes)) {
     canonicalNodePaths[path] = {
       type: node.type,
       ...(node.id !== undefined ? { id: node.id } : {}),
-    }
+    };
     if (node.id !== undefined && node.id.length > 0) {
-      canonicalNodeIds.add(node.id)
+      canonicalNodeIds.add(node.id);
     }
   }
 
-  const eventCorrelationId = args.correlation?.eventCorrelationId ?? args.compileId
+  const eventCorrelationId =
+    args.correlation?.eventCorrelationId ?? args.compileId;
 
   return {
-    schema: 'dzupagent.flowCompileEvidence/v1',
+    schema: "dzupagent.flowCompileEvidence/v1",
     sourceKind: args.sourceKind,
     sourceHash: args.sourceHash,
     compileId: args.compileId,
@@ -497,18 +584,18 @@ function buildCompileEvidence(args: {
       eventCorrelationId,
       ...(args.correlation?.runId ? { runId: args.correlation.runId } : {}),
     },
-  }
+  };
 }
 
 function countDiagnosticsByCategory(
-  diagnostics: Array<{ category?: string }>,
+  diagnostics: Array<{ category?: string }>
 ): Record<string, number> {
-  const counts: Record<string, number> = {}
+  const counts: Record<string, number> = {};
   for (const diagnostic of diagnostics) {
-    const category = diagnostic.category ?? 'internal'
-    counts[category] = (counts[category] ?? 0) + 1
+    const category = diagnostic.category ?? "internal";
+    counts[category] = (counts[category] ?? 0) + 1;
   }
-  return counts
+  return counts;
 }
 
 // ---------------------------------------------------------------------------
@@ -520,98 +607,102 @@ function countDiagnosticsByCategory(
  * defensively on unexpected shapes — telemetry must never crash a compile.
  */
 function countArtifact(
-  target: 'skill-chain' | 'workflow-builder' | 'pipeline',
-  artifact: unknown,
+  target: "skill-chain" | "workflow-builder" | "pipeline",
+  artifact: unknown
 ): { nodeCount: number; edgeCount: number } {
-  if (artifact === null || typeof artifact !== 'object') {
-    return { nodeCount: 0, edgeCount: 0 }
+  if (artifact === null || typeof artifact !== "object") {
+    return { nodeCount: 0, edgeCount: 0 };
   }
-  const obj = artifact as { nodes?: unknown; edges?: unknown; steps?: unknown }
-  if (target === 'skill-chain') {
+  const obj = artifact as { nodes?: unknown; edges?: unknown; steps?: unknown };
+  if (target === "skill-chain") {
     return {
       nodeCount: Array.isArray(obj.steps) ? obj.steps.length : 0,
       edgeCount: 0,
-    }
+    };
   }
   return {
     nodeCount: Array.isArray(obj.nodes) ? obj.nodes.length : 0,
     edgeCount: Array.isArray(obj.edges) ? obj.edges.length : 0,
-  }
+  };
 }
 
 function jsonPointerToNodePath(pointer: string): string | undefined {
-  if (pointer.length === 0) return 'root'
+  if (pointer.length === 0) return "root";
 
   const parts = pointer
-    .split('/')
+    .split("/")
     .slice(1)
-    .map((part) => part.replace(/~1/g, '/').replace(/~0/g, '~'))
+    .map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"));
 
-  let path = 'root'
+  let path = "root";
   for (const part of parts) {
     if (/^\d+$/.test(part)) {
-      path += `[${part}]`
+      path += `[${part}]`;
     } else {
-      path += `.${part}`
+      path += `.${part}`;
     }
   }
-  return path
+  return path;
 }
 
-function extractSuggestionFromMessage(message: string): { suggestion?: string } {
-  const match = /Did you mean:\s*"([^"]+)"/.exec(message)
-  return match ? { suggestion: match[1] } : {}
+function extractSuggestionFromMessage(message: string): {
+  suggestion?: string;
+} {
+  const match = /Did you mean:\s*"([^"]+)"/.exec(message);
+  return match ? { suggestion: match[1] } : {};
 }
 
 function toCompilationWarnings(warnings: string[]): CompilationWarning[] {
   return warnings.map((message) => ({
     stage: 4 as const,
-    code: 'LOWERING_WARNING',
-    category: 'lowering',
+    code: "LOWERING_WARNING",
+    category: "lowering",
     message,
-  }))
+  }));
 }
 
 function targetReasons(
   target: CompilationTarget,
-  bitmask: number,
+  bitmask: number
 ): CompilationTargetReason[] {
-  const reasons: CompilationTargetReason[] = []
+  const reasons: CompilationTargetReason[] = [];
 
-  if (bitmask === 0 && target === 'skill-chain') {
+  if (bitmask === 0 && target === "skill-chain") {
     reasons.push({
-      code: 'SEQUENTIAL_ONLY',
-      message: 'No branching, suspend, or loop features were detected; routed to skill-chain.',
-    })
-    return reasons
+      code: "SEQUENTIAL_ONLY",
+      message:
+        "No branching, suspend, or loop features were detected; routed to skill-chain.",
+    });
+    return reasons;
   }
 
   if ((bitmask & (1 << 0)) !== 0) {
     reasons.push({
-      code: 'BRANCH_PRESENT',
-      message: 'Branch control flow is present; skill-chain is not sufficient.',
-    })
+      code: "BRANCH_PRESENT",
+      message: "Branch control flow is present; skill-chain is not sufficient.",
+    });
   }
   if ((bitmask & (1 << 1)) !== 0) {
     reasons.push({
-      code: 'PARALLEL_PRESENT',
-      message: 'Parallel control flow is present; graph-style lowering is required.',
-    })
+      code: "PARALLEL_PRESENT",
+      message:
+        "Parallel control flow is present; graph-style lowering is required.",
+    });
   }
   if ((bitmask & (1 << 2)) !== 0) {
     reasons.push({
-      code: 'SUSPEND_PRESENT',
-      message: 'Suspend-capable nodes are present; routed beyond skill-chain.',
-    })
+      code: "SUSPEND_PRESENT",
+      message: "Suspend-capable nodes are present; routed beyond skill-chain.",
+    });
   }
   if ((bitmask & (1 << 3)) !== 0) {
     reasons.push({
-      code: 'FOR_EACH_PRESENT',
-      message: 'Loop semantics are present; routed to pipeline.',
-    })
+      code: "FOR_EACH_PRESENT",
+      message: "Loop semantics are present; routed to pipeline.",
+    });
   }
 
-  return reasons
+  return reasons;
 }
 
 /**
@@ -619,14 +710,19 @@ function targetReasons(
  * `prepareFlowInputFromDocument` has already validated the shape, so the
  * cast is safe. Returns `undefined` when the field is absent.
  */
-function extractDocumentPolicy(document: unknown): FlowDocumentPolicy | undefined {
-  if (typeof document !== 'object' || document === null) return undefined
-  const raw = (document as Record<string, unknown>)['policy']
-  if (typeof raw !== 'object' || raw === null) return undefined
-  const policy: FlowDocumentPolicy = {}
-  const p = raw as Record<string, unknown>
-  if (typeof p['budgetCents'] === 'number') policy.budgetCents = p['budgetCents'] as number
-  if (typeof p['timeoutMs'] === 'number') policy.timeoutMs = p['timeoutMs'] as number
-  if (typeof p['workingDirectory'] === 'string') policy.workingDirectory = p['workingDirectory'] as string
-  return Object.keys(policy).length > 0 ? policy : undefined
+function extractDocumentPolicy(
+  document: unknown
+): FlowDocumentPolicy | undefined {
+  if (typeof document !== "object" || document === null) return undefined;
+  const raw = (document as Record<string, unknown>)["policy"];
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const policy: FlowDocumentPolicy = {};
+  const p = raw as Record<string, unknown>;
+  if (typeof p["budgetCents"] === "number")
+    policy.budgetCents = p["budgetCents"] as number;
+  if (typeof p["timeoutMs"] === "number")
+    policy.timeoutMs = p["timeoutMs"] as number;
+  if (typeof p["workingDirectory"] === "string")
+    policy.workingDirectory = p["workingDirectory"] as string;
+  return Object.keys(policy).length > 0 ? policy : undefined;
 }

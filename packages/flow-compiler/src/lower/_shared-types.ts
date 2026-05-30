@@ -13,42 +13,39 @@ import type {
   McpToolHandle,
   SkillHandle,
   WorkflowHandle,
-} from '@dzupagent/core/advanced'
-import type { ResolvedTool } from '@dzupagent/flow-ast'
-import type {
-  PipelineEdge,
-  PipelineNode,
-} from '@dzupagent/core/orchestration'
+} from "@dzupagent/core/advanced";
+import type { ResolvedTool } from "@dzupagent/flow-ast";
+import type { PipelineEdge, PipelineNode } from "@dzupagent/core/orchestration";
 
 // Re-export handle types for internal consumers that previously imported
 // them from `_shared.ts`. Keeps the public surface of that module stable
 // while the canonical definitions live in `@dzupagent/core/advanced`.
-export type { AgentHandle, McpToolHandle, SkillHandle, WorkflowHandle }
+export type { AgentHandle, McpToolHandle, SkillHandle, WorkflowHandle };
 
 // ---------------------------------------------------------------------------
 // Context and result types
 // ---------------------------------------------------------------------------
 
-export type LoweringMode = 'executable' | 'diagnostic'
+export type LoweringMode = "executable" | "diagnostic";
 
 export interface LowerPipelineContext {
-  resolved: Map<string, ResolvedTool>
-  resolvedPersonas: Map<string, string>
+  resolved: Map<string, ResolvedTool>;
+  resolvedPersonas: Map<string, string>;
   /**
    * Executable lowering is fail-closed: unresolved semantic references must not
    * become runtime nodes. Diagnostic lowering keeps best-effort stub emission.
    */
-  mode?: LoweringMode
+  mode?: LoweringMode;
   /**
    * lower-pipeline-flat passes false; lower-pipeline-loop passes true.
    * When false, encountering a for_each node throws a router-contract error.
    */
-  allowForEach: boolean
+  allowForEach: boolean;
   /**
    * ID generator for fresh node IDs.
    * Defaults to crypto.randomUUID when not provided.
    */
-  idGen?: () => string
+  idGen?: () => string;
 }
 
 export interface LowerPipelineResult {
@@ -58,11 +55,20 @@ export interface LowerPipelineResult {
    *
    * Type: PipelineNode[]
    */
-  nodes: PipelineNode[]
+  nodes: PipelineNode[];
   /**
    * Flat list of PipelineEdge objects produced by lowering this subtree.
    * Consumers accumulate these into PipelineDefinition.edges.
    */
-  edges: PipelineEdge[]
-  warnings: string[]
+  edges: PipelineEdge[];
+  warnings: string[];
+  /**
+   * When a subtree has multiple exit points (e.g. branch: then-tail + else-tail
+   * or then-tail + gate for the false-path), this lists all node IDs that must
+   * receive a sequential edge to the next sibling in a containing sequence.
+   *
+   * When absent, the stitching logic falls back to `nodes[nodes.length - 1]`
+   * (the default single-tail behaviour).
+   */
+  tailNodeIds?: string[];
 }
