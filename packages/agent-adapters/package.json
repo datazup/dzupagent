@@ -61,6 +61,10 @@
     "./enrichment": {
       "types": "./dist/enrichment.d.ts",
       "import": "./dist/enrichment.js"
+    },
+    "./fleet-executors": {
+      "types": "./dist/fleet-executors/index.d.ts",
+      "import": "./dist/fleet-executors/index.js"
     }
   },
   "scripts": {

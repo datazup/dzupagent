@@ -64,6 +64,10 @@
     "./streaming": {
       "types": "./dist/streaming.d.ts",
       "import": "./dist/streaming.js"
+    },
+    "./fleet": {
+      "types": "./dist/fleet.d.ts",
+      "import": "./dist/fleet.js"
     }
   },
   "scripts": {
