@@ -11,13 +11,13 @@
  *   4. routeTarget + lower — emit artifact            (errors: stage 4)
  *
  * Workflow ownership boundary:
- *   The flow compiler is the canonical owner of FlowDocument/FlowNode
- *   authoring semantics and lowering. Adapter-oriented fluent workflows in
- *   `@dzupagent/agent-adapters` remain a compatibility DSL that shares only
- *   the `@dzupagent/core` `PipelineDefinition` runtime contract; provider
- *   routing, prompt templating, adapter retry policy, adapter loop execution,
- *   adapter parallel merge, and adapter workflow events are not compiler
- *   semantics.
+ *   The flow compiler owns semantic resolution and target artifact expansion.
+ *   Flow shape validation belongs in `@dzupagent/flow-ast`; text DSL parsing
+ *   belongs in `@dzupagent/flow-dsl`. Adapter-oriented fluent workflows in
+ *   `@dzupagent/agent-adapters` share only the `@dzupagent/core`
+ *   `PipelineDefinition` runtime contract; provider routing, prompt
+ *   templating, adapter retry policy, adapter loop execution, adapter parallel
+ *   merge, and adapter workflow events are not compiler semantics.
  *
  * Since Wave 11 `compile()` is always asynchronous. Sync resolvers pay a
  * single unconditional microtask per compile — a negligible cost relative to
@@ -167,7 +167,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
   if (opts.forwardInnerEvents === true && opts.eventBus === undefined) {
     throw new Error(
       "flow-compiler: forwardInnerEvents=true requires an eventBus — " +
-        "pass `eventBus` in CompilerOptions or leave forwardInnerEvents unset."
+        "pass `eventBus` in CompilerOptions or leave forwardInnerEvents unset.",
     );
   }
 
@@ -184,7 +184,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
 
   async function compile(
     input: ParseInput,
-    invocationOptions: CompileInvocationOptions = {}
+    invocationOptions: CompileInvocationOptions = {},
   ): Promise<CompileSuccess | CompileFailure> {
     const compileId = crypto.randomUUID();
     const startedAt = Date.now();
@@ -308,7 +308,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
           nodePath: e.nodePath,
           category: e.category ?? "resolution",
           ...extractSuggestionFromMessage(e.message),
-        })
+        }),
       );
       emit({
         type: "flow:compile_failed",
@@ -346,7 +346,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
             "reviewed executable target contract before emitting artifacts.",
           nodePath: node.path,
           category: "lowering",
-        })
+        }),
       );
       emit({
         type: "flow:compile_failed",
@@ -456,13 +456,13 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
         correlation: invocationOptions.correlation,
       }),
       diagnosticCountsByCategory: countDiagnosticsByCategory(
-        toCompilationWarnings(warnings)
+        toCompilationWarnings(warnings),
       ),
     };
   }
 
   async function compileDocument(
-    document: unknown
+    document: unknown,
   ): Promise<CompileSuccess | CompileFailure> {
     const prepared = prepareFlowInputFromDocument(document);
     if (!prepared.ok) {
@@ -492,7 +492,7 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
   }
 
   async function compileDsl(
-    source: unknown
+    source: unknown,
   ): Promise<CompileSuccess | CompileFailure> {
     const prepared = prepareFlowInputFromDsl(source);
     if (!prepared.ok) {
@@ -541,7 +541,7 @@ function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
   const entries = Object.keys(record)
     .sort()
     .map(
-      (key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`
+      (key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`,
     );
   return `{${entries.join(",")}}`;
 }
@@ -588,7 +588,7 @@ function buildCompileEvidence(args: {
 }
 
 function countDiagnosticsByCategory(
-  diagnostics: Array<{ category?: string }>
+  diagnostics: Array<{ category?: string }>,
 ): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const diagnostic of diagnostics) {
@@ -608,7 +608,7 @@ function countDiagnosticsByCategory(
  */
 function countArtifact(
   target: "skill-chain" | "workflow-builder" | "pipeline",
-  artifact: unknown
+  artifact: unknown,
 ): { nodeCount: number; edgeCount: number } {
   if (artifact === null || typeof artifact !== "object") {
     return { nodeCount: 0, edgeCount: 0 };
@@ -663,7 +663,7 @@ function toCompilationWarnings(warnings: string[]): CompilationWarning[] {
 
 function targetReasons(
   target: CompilationTarget,
-  bitmask: number
+  bitmask: number,
 ): CompilationTargetReason[] {
   const reasons: CompilationTargetReason[] = [];
 
@@ -711,7 +711,7 @@ function targetReasons(
  * cast is safe. Returns `undefined` when the field is absent.
  */
 function extractDocumentPolicy(
-  document: unknown
+  document: unknown,
 ): FlowDocumentPolicy | undefined {
   if (typeof document !== "object" || document === null) return undefined;
   const raw = (document as Record<string, unknown>)["policy"];
