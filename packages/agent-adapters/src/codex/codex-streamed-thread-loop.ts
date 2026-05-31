@@ -6,37 +6,33 @@
  * Helpers for event wrapping, approval handling, and started-event
  * construction live in sibling files; this module orchestrates them.
  */
-import { defaultLogger } from '@dzupagent/core/utils'
-import type {
-  AgentInput,
-  AgentStreamEvent,
-  TokenUsage,
-} from '../types.js'
-import { withCorrelationId } from '../types.js'
+import { defaultLogger } from "@dzupagent/core/utils";
+import type { AgentInput, AgentStreamEvent, TokenUsage } from "../types.js";
+import { withCorrelationId } from "../types.js";
 import {
   makeCacheStatsEvent,
   makeCompletedEvent,
   makeFailedEvent,
-} from '../events/event-factories.js'
+} from "../events/event-factories.js";
 import type {
   CodexInstance,
   CodexStreamEvent,
   CodexThread,
-} from './codex-types.js'
-import { mapCodexEvent, now, toTokenUsage } from './codex-helpers.js'
+} from "./codex-types.js";
+import { mapCodexEvent, now, toTokenUsage } from "./codex-helpers.js";
 import {
   buildAdapterStartedEvent,
   wrapRawProviderEvent,
-} from './codex-streamed-thread-events.js'
+} from "./codex-streamed-thread-events.js";
 import {
   detectApprovalPause,
   handleStreamApprovalRequest,
   handleStreamTurnFailedApproval,
-} from './codex-streamed-thread-approval.js'
+} from "./codex-streamed-thread-approval.js";
 import {
   DEFAULT_CODEX_TIMEOUT_MS,
   type RunStreamedThreadContext,
-} from './codex-streamed-thread-types.js'
+} from "./codex-streamed-thread-types.js";
 
 /**
  * Run a streamed Codex thread and yield unified AgentStreamEvent items.
@@ -54,65 +50,66 @@ export async function* runStreamedThread(
   signal: AbortSignal,
   ctx: RunStreamedThreadContext,
 ): AsyncGenerator<AgentStreamEvent, void, undefined> {
-  const startTime = now()
-  let sessionId = ctx.getSessionId() ?? `codex-${Date.now()}`
-  let lastUsage: TokenUsage | undefined
-  let finalResponse = ''
+  const startTime = now();
+  let sessionId = ctx.getSessionId() ?? `codex-${Date.now()}`;
+  let lastUsage: TokenUsage | undefined;
+  let finalResponse = "";
   const inputTimeoutMs =
-    typeof input.options?.['timeoutMs'] === 'number'
-      ? input.options['timeoutMs']
-      : undefined
-  const configuredTimeoutMs = ctx.config.timeoutMs
-  const timeoutMs = inputTimeoutMs ?? configuredTimeoutMs ?? DEFAULT_CODEX_TIMEOUT_MS
-  let eventCount = 0
-  let lastEventAt = startTime
-  let lastEventType = 'none'
-  let rawEventOrdinal = 0
-  let threadProviderEventId: string | null = null
+    typeof input.options?.["timeoutMs"] === "number"
+      ? input.options["timeoutMs"]
+      : undefined;
+  const configuredTimeoutMs = ctx.config.timeoutMs;
+  const timeoutMs =
+    inputTimeoutMs ?? configuredTimeoutMs ?? DEFAULT_CODEX_TIMEOUT_MS;
+  let eventCount = 0;
+  let lastEventAt = startTime;
+  let lastEventType = "none";
+  let rawEventOrdinal = 0;
+  let threadProviderEventId: string | null = null;
 
   // Auto-abort after timeout so we never hang
-  let didTimeout = false
+  let didTimeout = false;
   const timeoutHandle = setTimeout(() => {
-    didTimeout = true
+    didTimeout = true;
     defaultLogger.error(
       `[codex-streamed-thread:run] timeout after ${timeoutMs}ms — aborting`,
       { sessionId },
-    )
-    ctx.abort()
-  }, timeoutMs)
+    );
+    ctx.abort();
+  }, timeoutMs);
 
-  defaultLogger.debug('[codex-streamed-thread:run] starting', {
+  defaultLogger.debug("[codex-streamed-thread:run] starting", {
     sessionId,
     promptLength: input.prompt.length,
     timeoutMs,
     timeoutSource:
       inputTimeoutMs != null
-        ? 'input.options.timeoutMs'
+        ? "input.options.timeoutMs"
         : configuredTimeoutMs != null
-          ? 'adapter.config.timeoutMs'
-          : 'default',
-  })
+          ? "adapter.config.timeoutMs"
+          : "default",
+  });
 
-  let streamedTurn: { events: AsyncIterable<CodexStreamEvent> }
+  let streamedTurn: { events: AsyncIterable<CodexStreamEvent> };
 
   try {
-    streamedTurn = await thread.runStreamed(input.prompt, { signal })
+    streamedTurn = await thread.runStreamed(input.prompt, { signal });
     defaultLogger.debug(
-      '[codex-streamed-thread:run] runStreamed returned — consuming events',
+      "[codex-streamed-thread:run] runStreamed returned — consuming events",
       { sessionId },
-    )
+    );
   } catch (err: unknown) {
-    clearTimeout(timeoutHandle)
-    const errMsg = err instanceof Error ? err.message : String(err)
+    clearTimeout(timeoutHandle);
+    const errMsg = err instanceof Error ? err.message : String(err);
     if (didTimeout || signal.aborted) {
       const reason = didTimeout
-        ? 'timeout_before_stream_start'
-        : 'caller_abort_before_stream_start'
-      const durationMs = now() - startTime
+        ? "timeout_before_stream_start"
+        : "caller_abort_before_stream_start";
+      const durationMs = now() - startTime;
       defaultLogger.warn(
-        '[codex-streamed-thread:run] runStreamed() aborted before stream events',
+        "[codex-streamed-thread:run] runStreamed() aborted before stream events",
         { sessionId, reason, durationMs, error: errMsg },
-      )
+      );
       yield withCorrelationId(
         makeFailedEvent({
           providerId: ctx.providerId,
@@ -120,42 +117,42 @@ export async function* runStreamedThread(
           error: didTimeout
             ? `Codex adapter timed out after ${durationMs}ms`
             : errMsg,
-          code: didTimeout ? 'ADAPTER_TIMEOUT' : 'ADAPTER_EXECUTION_FAILED',
+          code: didTimeout ? "ADAPTER_TIMEOUT" : "ADAPTER_EXECUTION_FAILED",
           timestamp: now(),
         }),
         input.correlationId,
-      )
-      return
+      );
+      return;
     }
 
-    defaultLogger.error('[codex-streamed-thread:run] runStreamed() threw', {
+    defaultLogger.error("[codex-streamed-thread:run] runStreamed() threw", {
       sessionId,
       error: errMsg,
-    })
+    });
     yield withCorrelationId(
       makeFailedEvent({
         providerId: ctx.providerId,
         sessionId,
         error: errMsg,
-        code: 'ADAPTER_EXECUTION_FAILED',
+        code: "ADAPTER_EXECUTION_FAILED",
         timestamp: now(),
       }),
       input.correlationId,
-    )
-    return
+    );
+    return;
   }
 
   try {
     for await (const event of streamedTurn.events) {
-      if (event.type === 'thread.started' && event.thread_id) {
-        sessionId = event.thread_id
-        ctx.setSessionId(sessionId)
-        defaultLogger.debug('[codex-streamed-thread:run] session assigned', {
+      if (event.type === "thread.started" && event.thread_id) {
+        sessionId = event.thread_id;
+        ctx.setSessionId(sessionId);
+        defaultLogger.debug("[codex-streamed-thread:run] session assigned", {
           sessionId,
-        })
+        });
       }
 
-      rawEventOrdinal += 1
+      rawEventOrdinal += 1;
       const rawProviderEvent = wrapRawProviderEvent(
         ctx.providerId,
         event,
@@ -163,67 +160,76 @@ export async function* runStreamedThread(
         input,
         rawEventOrdinal,
         threadProviderEventId,
-      )
-      if (event.type === 'thread.started') {
+      );
+      if (event.type === "thread.started") {
         threadProviderEventId =
-          rawProviderEvent.rawEvent.providerEventId ?? threadProviderEventId
+          rawProviderEvent.rawEvent.providerEventId ?? threadProviderEventId;
       }
-      yield rawProviderEvent
+      yield rawProviderEvent;
 
-      const eventNow = now()
-      const gapMs = eventNow - lastEventAt
-      eventCount += 1
-      lastEventAt = eventNow
-      lastEventType = event.type
+      const eventNow = now();
+      const gapMs = eventNow - lastEventAt;
+      eventCount += 1;
+      lastEventAt = eventNow;
+      lastEventType = event.type;
       if (gapMs > 15_000) {
         defaultLogger.debug(
-          '[codex-streamed-thread:run] slow stream gap observed',
+          "[codex-streamed-thread:run] slow stream gap observed",
           { sessionId, eventType: event.type, eventCount, gapMs },
-        )
+        );
       }
 
-      const providerEventId = rawProviderEvent.rawEvent.providerEventId ?? null
+      const providerEventId = rawProviderEvent.rawEvent.providerEventId ?? null;
       const parentProviderEventId =
-        rawProviderEvent.rawEvent.parentProviderEventId ?? null
+        rawProviderEvent.rawEvent.parentProviderEventId ?? null;
 
       // Special-case `thread.started` — needs adapter-instance state
       // (currentInput, isResume, model, workingDirectory) that's awkward to
       // pass into a standalone helper; emit it inline.
       const mapped =
-        event.type === 'thread.started'
-          ? buildAdapterStartedEvent(event, sessionId, ctx, providerEventId, parentProviderEventId)
+        event.type === "thread.started"
+          ? buildAdapterStartedEvent(
+              event,
+              sessionId,
+              ctx,
+              providerEventId,
+              parentProviderEventId,
+            )
           : mapCodexEvent(
               ctx.providerId,
               event,
               sessionId,
-              providerEventId ?? '',
+              providerEventId ?? "",
               parentProviderEventId,
               input,
-            )
+            );
 
-      if (event.type === 'turn.completed' && event.usage) {
-        lastUsage = toTokenUsage(event.usage)
+      if (event.type === "turn.completed" && event.usage) {
+        lastUsage = toTokenUsage(event.usage);
         defaultLogger.debug(
-          '[codex-streamed-thread:run] turn.completed — usage captured',
+          "[codex-streamed-thread:run] turn.completed — usage captured",
           { sessionId, usage: lastUsage },
-        )
+        );
       }
 
       // Handle approval_request items (SDK forward-compat)
-      if (event.type === 'item.completed' && event.item?.type === 'approval_request') {
+      if (
+        event.type === "item.completed" &&
+        event.item?.type === "approval_request"
+      ) {
         yield* handleStreamApprovalRequest(
           event,
           input,
           providerEventId,
           parentProviderEventId,
           ctx,
-        )
-        continue
+        );
+        continue;
       }
 
       // Detect turn.failed caused by Codex approval-pause
-      if (event.type === 'turn.failed') {
-        const approvalErrMsg = detectApprovalPause(event, input, ctx)
+      if (event.type === "turn.failed") {
+        const approvalErrMsg = detectApprovalPause(event, input, ctx);
         if (approvalErrMsg !== null) {
           yield* handleStreamTurnFailedApproval(
             approvalErrMsg,
@@ -236,26 +242,42 @@ export async function* runStreamedThread(
             ctx.buildApprovalContext(input),
             (resumedThread) =>
               runStreamedThread(resumedThread, input, codex, signal, ctx),
-          )
-          return
+          );
+          return;
         }
       }
 
       for (const rawAgentEvent of mapped) {
-        const agentEvent = withCorrelationId(rawAgentEvent, input.correlationId)
-        yield agentEvent
+        const agentEvent = withCorrelationId(
+          rawAgentEvent,
+          input.correlationId,
+        );
+        yield agentEvent;
 
-        if (agentEvent.type === 'adapter:message' && agentEvent.role === 'assistant') {
-          finalResponse = agentEvent.content ?? ''
+        if (
+          agentEvent.type === "adapter:message" &&
+          agentEvent.role === "assistant"
+        ) {
+          finalResponse = agentEvent.content ?? "";
         }
       }
     }
   } catch (err: unknown) {
-    clearTimeout(timeoutHandle)
+    clearTimeout(timeoutHandle);
 
     if (signal.aborted) {
-      const reason = didTimeout ? 'timeout' : 'caller_abort'
-      defaultLogger.warn('[codex-streamed-thread:run] aborted', {
+      // An upstream registry (or the internal timer) may abort the signal with
+      // a reason that carries code:'ADAPTER_TIMEOUT'. Treat that the same as
+      // the internal didTimeout flag so callers always get adapter:failed.
+      const abortReason: unknown = signal.reason;
+      const isTimeoutAbort =
+        didTimeout ||
+        (abortReason !== null &&
+          typeof abortReason === "object" &&
+          "code" in abortReason &&
+          (abortReason as { code?: unknown }).code === "ADAPTER_TIMEOUT");
+      const reason = isTimeoutAbort ? "timeout" : "caller_abort";
+      defaultLogger.warn("[codex-streamed-thread:run] aborted", {
         sessionId,
         reason,
         durationMs: now() - startTime,
@@ -263,78 +285,78 @@ export async function* runStreamedThread(
         eventCount,
         lastEventType,
         lastEventAgeMs: now() - lastEventAt,
-      })
+      });
       yield withCorrelationId(
-        didTimeout
+        isTimeoutAbort
           ? makeFailedEvent({
               providerId: ctx.providerId,
               sessionId,
               error: `Codex adapter timed out after ${now() - startTime}ms`,
-              code: 'ADAPTER_TIMEOUT',
+              code: "ADAPTER_TIMEOUT",
               timestamp: now(),
             })
           : makeCompletedEvent({
               providerId: ctx.providerId,
               sessionId,
-              result: finalResponse || '(interrupted)',
+              result: finalResponse || "(interrupted)",
               usage: lastUsage,
               durationMs: now() - startTime,
               timestamp: now(),
             }),
         input.correlationId,
-      )
-      return
+      );
+      return;
     }
 
-    const errMsg = err instanceof Error ? err.message : String(err)
-    defaultLogger.error('[codex-streamed-thread:run] event loop threw', {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    defaultLogger.error("[codex-streamed-thread:run] event loop threw", {
       sessionId,
       error: errMsg,
-    })
+    });
     yield withCorrelationId(
       makeFailedEvent({
         providerId: ctx.providerId,
         sessionId,
         error: errMsg,
-        code: 'ADAPTER_EXECUTION_FAILED',
+        code: "ADAPTER_EXECUTION_FAILED",
         timestamp: now(),
       }),
       input.correlationId,
-    )
-    return
+    );
+    return;
   } finally {
-    clearTimeout(timeoutHandle)
+    clearTimeout(timeoutHandle);
   }
 
-  defaultLogger.debug('[codex-streamed-thread:run] completed normally', {
+  defaultLogger.debug("[codex-streamed-thread:run] completed normally", {
     sessionId,
     durationMs: now() - startTime,
     responseLength: finalResponse.length,
     usage: lastUsage,
     eventCount,
     lastEventType,
-  })
+  });
 
   yield withCorrelationId(
     makeCompletedEvent({
       providerId: ctx.providerId,
       sessionId,
-      result: finalResponse || '',
+      result: finalResponse || "",
       usage: lastUsage,
       durationMs: now() - startTime,
       timestamp: now(),
     }),
     input.correlationId,
-  )
+  );
 
   if (
     lastUsage &&
     (lastUsage.cachedInputTokens !== undefined ||
       lastUsage.cacheWriteTokens !== undefined)
   ) {
-    const cacheRead = lastUsage.cachedInputTokens ?? 0
-    const cacheWrite = lastUsage.cacheWriteTokens ?? 0
-    const total = lastUsage.inputTokens
+    const cacheRead = lastUsage.cachedInputTokens ?? 0;
+    const cacheWrite = lastUsage.cacheWriteTokens ?? 0;
+    const total = lastUsage.inputTokens;
     yield withCorrelationId(
       makeCacheStatsEvent({
         providerId: ctx.providerId,
@@ -346,6 +368,6 @@ export async function* runStreamedThread(
         timestamp: now(),
       }),
       input.correlationId,
-    )
+    );
   }
 }

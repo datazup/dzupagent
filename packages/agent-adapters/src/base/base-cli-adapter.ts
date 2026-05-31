@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomUUID } from "node:crypto";
 
 import type {
   AdapterConfig,
@@ -7,43 +7,49 @@ import type {
   AdapterCapabilityProfile,
   AgentEvent,
   AgentInput,
+  AgentStreamEvent,
   GovernanceEvent,
   HealthStatus,
   AdapterMonitorStatus,
   InteractionPolicy,
-} from '../types.js'
-import { withCorrelationId } from '../types.js'
-import { isBinaryAvailable, spawnAndStreamJsonl } from '../utils/process-helpers.js'
-import type { SpawnJsonlOptions } from '../utils/process-helpers.js'
-import { InteractionResolver } from '../interaction/interaction-resolver.js'
+} from "../types.js";
+import { withCorrelationId } from "../types.js";
+import type { RawAgentEvent } from "@dzupagent/adapter-types";
+import {
+  isBinaryAvailable,
+  spawnAndStreamJsonl,
+} from "../utils/process-helpers.js";
+import type { SpawnJsonlOptions } from "../utils/process-helpers.js";
+import { InteractionResolver } from "../interaction/interaction-resolver.js";
 import {
   GovernanceEmitter,
   type EmitRuleViolationOpts,
   type GuardrailsLike,
   type RuleViolation,
-} from './governance-emitter.js'
+} from "./governance-emitter.js";
 import {
   ArtifactWatcherHost,
   resolveWatcherPaths,
   type ArtifactWatcherHandle,
-} from './artifact-watcher-host.js'
+} from "./artifact-watcher-host.js";
 import {
   buildEnv as buildEnvHelper,
   applyTraceEnv,
   filterSensitiveEnvVars,
-} from './env-builder.js'
+} from "./env-builder.js";
 import {
   normalizeAdapterError,
   shouldRethrowAdapterError,
   type NormalizedAdapterError,
-} from './adapter-error-normalizer.js'
-import { createStdinResponder } from './stdin-responder.js'
-import { AdapterStreamRunner } from './stream-runner.js'
-import type { AdapterStreamSource } from './stream-runner.js'
+} from "./adapter-error-normalizer.js";
+import { createStdinResponder } from "./stdin-responder.js";
+import { AdapterStreamRunner } from "./stream-runner.js";
+import type { AdapterStreamSource } from "./stream-runner.js";
+import type { RunEventStore } from "../runs/run-event-store.js";
 
 // Backward-compat re-exports
-export { filterSensitiveEnvVars }
-export type { ArtifactWatcherHandle }
+export { filterSensitiveEnvVars };
+export type { ArtifactWatcherHandle };
 
 /**
  * Shared base class for CLI-backed adapters (Gemini/Qwen/Crush). Centralizes
@@ -52,71 +58,112 @@ export type { ArtifactWatcherHandle }
  * {@link ArtifactWatcherHost}, env-builder, and adapter-error-normalizer.
  */
 export abstract class BaseCliAdapter implements AgentCLIAdapter {
-  readonly providerId: AdapterProviderId
+  readonly providerId: AdapterProviderId;
 
-  protected config: AdapterConfig
-  private currentAbortController: AbortController | null = null
+  protected config: AdapterConfig;
+  private currentAbortController: AbortController | null = null;
+  private runStore: RunEventStore | null = null;
 
-  private readonly governance: GovernanceEmitter
-  private readonly artifactWatcherHost: ArtifactWatcherHost
+  private readonly governance: GovernanceEmitter;
+  private readonly artifactWatcherHost: ArtifactWatcherHost;
 
   constructor(providerId: AdapterProviderId, config: AdapterConfig = {}) {
-    this.providerId = providerId
-    this.config = { ...config }
-    this.governance = new GovernanceEmitter(providerId)
-    this.artifactWatcherHost = new ArtifactWatcherHost(providerId)
+    this.providerId = providerId;
+    this.config = { ...config };
+    this.governance = new GovernanceEmitter(providerId);
+    this.artifactWatcherHost = new ArtifactWatcherHost(providerId);
+  }
+
+  /**
+   * Wire a RunEventStore so that raw provider events are persisted to
+   * `raw-events.jsonl` on each call to `executeWithRaw`.
+   */
+  setRunStore(store: RunEventStore): void {
+    this.runStore = store;
   }
 
   onGovernanceEvent(listener: (event: GovernanceEvent) => void): () => void {
-    return this.governance.onGovernanceEvent(listener)
+    return this.governance.onGovernanceEvent(listener);
   }
 
   protected emitGovernanceEvent(event: GovernanceEvent): void {
-    this.governance.emit(event)
+    this.governance.emit(event);
   }
 
   emitRuleViolation(opts: EmitRuleViolationOpts): void {
-    this.governance.emitRuleViolation(opts)
+    this.governance.emitRuleViolation(opts);
   }
 
   attachGuardrailsGovernance(guardrails: GuardrailsLike): void {
-    this.governance.attachGuardrails(guardrails)
+    this.governance.attachGuardrails(guardrails);
   }
 
   validateAndEmitRules<TRule, TContext>(
     rules: TRule[],
     context: TContext,
-    validator: (rules: TRule[], context: TContext) => ReadonlyArray<RuleViolation>,
+    validator: (
+      rules: TRule[],
+      context: TContext,
+    ) => ReadonlyArray<RuleViolation>,
     opts?: { runId?: string; sessionId?: string },
   ): ReadonlyArray<RuleViolation> {
-    return this.governance.validateAndEmitRules(rules, context, validator, opts)
+    return this.governance.validateAndEmitRules(
+      rules,
+      context,
+      validator,
+      opts,
+    );
   }
 
-  async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
-    const sessionId = randomUUID()
-    const startTime = Date.now()
-    const runIdForContext = input.correlationId ?? sessionId
-    this.governance.setRunContext({ runId: runIdForContext, sessionId })
+  async *execute(
+    input: AgentInput,
+  ): AsyncGenerator<AgentEvent, void, undefined> {
+    for await (const event of this.executeWithRaw(input)) {
+      if (event.type !== "adapter:provider_raw") {
+        yield event;
+      }
+    }
+  }
 
-    await this.assertReady()
+  /**
+   * Like {@link execute} but also yields `adapter:provider_raw` events
+   * immediately before each normalized event they correspond to. Raw events
+   * are also persisted to the attached {@link RunEventStore} (if any), except
+   * for the `codex` provider which has its own raw channel.
+   */
+  async *executeWithRaw(
+    input: AgentInput,
+  ): AsyncGenerator<AgentStreamEvent, void, undefined> {
+    const sessionId = randomUUID();
+    const startTime = Date.now();
+    const runIdForContext = input.correlationId ?? sessionId;
+    this.governance.setRunContext({ runId: runIdForContext, sessionId });
+
+    await this.assertReady();
 
     // Start artifact watcher (no-op when no factory wired).
     const workingDirectory =
-      input.workingDirectory ?? this.config.workingDirectory ?? process.cwd()
+      input.workingDirectory ?? this.config.workingDirectory ?? process.cwd();
     this.startArtifactWatcher(
       resolveWatcherPaths(this.providerId, input, workingDirectory),
-    )
+    );
 
-    const policy = this.resolveInteractionPolicy(input)
-    const resolver = policy.mode !== 'auto-approve' ? new InteractionResolver(policy) : null
-    const pendingEvents: AgentEvent[] = []
+    const policy = this.resolveInteractionPolicy(input);
+    const resolver =
+      policy.mode !== "auto-approve" ? new InteractionResolver(policy) : null;
+    const pendingEvents: AgentEvent[] = [];
 
     // Per-run mutable state consumed by the AdapterStreamSource methods.
-    let hasCompleted = false
-    let hasFailed = false
-    const captured: { error: NormalizedAdapterError | null } = { error: null }
+    let hasCompleted = false;
+    let hasFailed = false;
+    let rawOrdinal = 0;
+    const captured: { error: NormalizedAdapterError | null } = { error: null };
 
-    const adapter = this
+    // Codex has its own raw channel — skip CLI raw emission for it.
+    const emitRaw = this.providerId !== "codex";
+    const store = this.runStore;
+
+    const adapter = this;
     const source: AdapterStreamSource<Record<string, unknown>> = {
       providerId: this.providerId,
       async *open(_input: AgentInput, signal: AbortSignal) {
@@ -125,7 +172,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
           env: adapter.buildSpawnEnv(_input),
           signal,
           timeoutMs: adapter.config.timeoutMs,
-        }
+        };
         if (resolver) {
           spawnOpts.stdinResponder = createStdinResponder({
             providerId: adapter.providerId,
@@ -135,101 +182,153 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
             sessionId,
             pendingEvents,
             governance: adapter.governance,
-          })
+          });
         }
-        const args = adapter.buildArgs(_input)
+        const args = adapter.buildArgs(_input);
         try {
-          yield* spawnAndStreamJsonl(adapter.getBinaryName(), args, spawnOpts)
+          yield* spawnAndStreamJsonl(adapter.getBinaryName(), args, spawnOpts);
         } catch (err: unknown) {
           // Capture for ForgeError rethrow + custom adapter:failed emission;
           // also rethrow so the runner's catch path triggers its lifecycle
           // bookkeeping (abort handling, finally cleanup).
-          captured.error = adapter.normalizeError(err)
-          throw err
+          captured.error = adapter.normalizeError(err);
+          throw err;
         }
       },
-      mapRawEvent(record: Record<string, unknown>): AgentEvent | AgentEvent[] | null {
-        const events: AgentEvent[] = []
-        for (const evt of pendingEvents.splice(0)) events.push(evt)
+      mapRawEvent(
+        record: Record<string, unknown>,
+        _context: import("./stream-runner.js").StreamContext,
+      ): AgentEvent | AgentEvent[] | null {
+        const events: AgentEvent[] = [];
+        for (const evt of pendingEvents.splice(0)) events.push(evt);
 
         // Emit governance:hook_executed for recognized hook records.
         adapter.governance.emitHookExecutedIfRecognized(record, {
           runId: input.correlationId ?? sessionId,
           sessionId,
-        })
+        });
 
-        const mapped = adapter.mapProviderEvent(record, sessionId)
+        const mapped = adapter.mapProviderEvent(record, sessionId);
         if (mapped) {
-          const event = withCorrelationId(mapped, input.correlationId)
-          if (event.type === 'adapter:completed') hasCompleted = true
-          if (event.type === 'adapter:failed') hasFailed = true
-          events.push(event)
+          const event = withCorrelationId(mapped, input.correlationId);
+          if (event.type === "adapter:completed") hasCompleted = true;
+          if (event.type === "adapter:failed") hasFailed = true;
+          events.push(event);
         }
-        return events.length === 0 ? null : events
+        return events.length === 0 ? null : events;
       },
-    }
+    };
 
     const runner = new AdapterStreamRunner<Record<string, unknown>>({
       emitStartedImmediately: true,
       emitFailedOnAbort: true,
       initialSessionId: sessionId,
       startedExtra: {
-        ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
-        ...(this.config.model !== undefined ? { model: this.config.model } : {}),
+        ...(input.systemPrompt !== undefined
+          ? { systemPrompt: input.systemPrompt }
+          : {}),
+        ...(this.config.model !== undefined
+          ? { model: this.config.model }
+          : {}),
       },
       onAbortController: (ctrl) => {
-        this.currentAbortController = ctrl
+        this.currentAbortController = ctrl;
       },
-    })
+    });
+
+    // Intercept the runner so we can inject raw events before each batch.
+    // We do this by hooking into the source's mapRawEvent indirectly: we
+    // override source.mapRawEvent to also capture the raw record, then emit
+    // the ProviderRawStreamEvent before the normalized events below.
+    const rawQueue: RawAgentEvent[] = [];
+    const originalMapRawEvent = source.mapRawEvent!.bind(source);
+    source.mapRawEvent = (
+      record: Record<string, unknown>,
+      context: import("./stream-runner.js").StreamContext,
+    ) => {
+      if (emitRaw) {
+        rawOrdinal += 1;
+        const providerEventId = `${adapter.providerId}-raw-${rawOrdinal}`;
+        const rawEvent: RawAgentEvent = {
+          providerId: adapter.providerId,
+          runId: input.correlationId ?? sessionId,
+          sessionId,
+          providerEventId,
+          timestamp: Date.now(),
+          source: "stdout",
+          payload: record,
+          ...(input.correlationId !== undefined
+            ? { correlationId: input.correlationId }
+            : {}),
+        };
+        rawQueue.push(rawEvent);
+        // Fire-and-forget persistence — errors are swallowed by RunEventStore
+        if (store) {
+          void store.appendRaw(rawEvent);
+        }
+      }
+      return originalMapRawEvent(record, context);
+    };
 
     try {
       // Track whether the runner emitted its own adapter:failed (from its
       // catch path) so we can suppress the synthetic adapter:completed.
       for await (const event of runner.run(source, input, input.signal)) {
-        if (event.type === 'adapter:failed') {
-          hasFailed = true
+        // Flush any pending raw events before each batch of normalized events.
+        while (rawQueue.length > 0) {
+          yield { type: "adapter:provider_raw", rawEvent: rawQueue.shift()! };
+        }
+
+        if (event.type === "adapter:failed") {
+          hasFailed = true;
           // Re-emit the runner's adapter:failed but normalize the error code
           // back to the captured original (legacy preserves spawn error code).
           if (captured.error) {
-            yield withCorrelationId({
-              type: 'adapter:failed',
-              providerId: adapter.providerId,
-              sessionId,
-              error: captured.error.message,
-              code: captured.error.code,
-              timestamp: Date.now(),
-            }, input.correlationId)
-            continue
+            yield withCorrelationId(
+              {
+                type: "adapter:failed",
+                providerId: adapter.providerId,
+                sessionId,
+                error: captured.error.message,
+                code: captured.error.code,
+                timestamp: Date.now(),
+              },
+              input.correlationId,
+            );
+            continue;
           }
         }
-        yield event
+        yield event;
       }
 
       // Flush any pending events emitted by the resolver after the stream ended.
-      for (const evt of pendingEvents.splice(0)) yield evt
+      for (const evt of pendingEvents.splice(0)) yield evt;
 
       // Synthesise adapter:completed when the stream ended without a terminal.
       if (!hasCompleted && !hasFailed) {
-        yield withCorrelationId({
-          type: 'adapter:completed',
-          providerId: this.providerId,
-          sessionId,
-          result: '',
-          durationMs: Date.now() - startTime,
-          timestamp: Date.now(),
-        }, input.correlationId)
+        yield withCorrelationId(
+          {
+            type: "adapter:completed",
+            providerId: this.providerId,
+            sessionId,
+            result: "",
+            durationMs: Date.now() - startTime,
+            timestamp: Date.now(),
+          },
+          input.correlationId,
+        );
       }
     } finally {
-      resolver?.dispose()
-      this.currentAbortController = null
-      this.stopArtifactWatcher()
-      this.governance.setRunContext(null)
+      resolver?.dispose();
+      this.currentAbortController = null;
+      this.stopArtifactWatcher();
+      this.governance.setRunContext(null);
     }
 
     // Preserve legacy semantics: rethrow ForgeError originals after the
     // adapter:failed event has been yielded so the host can observe them.
     if (captured.error && this.shouldRethrow(captured.error.original)) {
-      throw captured.error.original
+      throw captured.error.original;
     }
   }
 
@@ -237,51 +336,56 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     sessionId: string,
     input: AgentInput,
   ): AsyncGenerator<AgentEvent, void, undefined> {
-    yield* this.execute({ ...input, resumeSessionId: sessionId })
+    yield* this.execute({ ...input, resumeSessionId: sessionId });
   }
 
   interrupt(): void {
-    if (!this.currentAbortController) return
-    this.currentAbortController.abort()
-    this.currentAbortController = null
+    if (!this.currentAbortController) return;
+    this.currentAbortController.abort();
+    this.currentAbortController = null;
   }
 
   async healthCheck(): Promise<HealthStatus> {
-    const binary = this.getBinaryName()
-    const cliAvailable = await isBinaryAvailable(binary)
+    const binary = this.getBinaryName();
+    const cliAvailable = await isBinaryAvailable(binary);
     return {
       healthy: cliAvailable,
       providerId: this.providerId,
       sdkInstalled: cliAvailable,
       cliAvailable,
-      lastError: cliAvailable ? undefined : this.getUnavailableBinaryMessage(binary),
+      lastError: cliAvailable
+        ? undefined
+        : this.getUnavailableBinaryMessage(binary),
       monitorStatus: this.getMonitorStatus(),
-    }
+    };
   }
 
   configure(opts: Partial<AdapterConfig>): void {
-    this.config = { ...this.config, ...opts }
+    this.config = { ...this.config, ...opts };
   }
 
   /** Wire an artifact-watcher factory. See {@link ArtifactWatcherHost}. */
   setArtifactWatcherFactory(
     factory:
-      | ((paths: string[], providerId: AdapterProviderId) => ArtifactWatcherHandle)
+      | ((
+          paths: string[],
+          providerId: AdapterProviderId,
+        ) => ArtifactWatcherHandle)
       | null,
   ): void {
-    this.artifactWatcherHost.setFactory(factory)
+    this.artifactWatcherHost.setFactory(factory);
   }
 
   getMonitorStatus(): AdapterMonitorStatus {
-    return this.artifactWatcherHost.getStatus()
+    return this.artifactWatcherHost.getStatus();
   }
 
   protected startArtifactWatcher(paths: string[]): void {
-    this.artifactWatcherHost.start(paths)
+    this.artifactWatcherHost.start(paths);
   }
 
   protected stopArtifactWatcher(): void {
-    this.artifactWatcherHost.stop()
+    this.artifactWatcherHost.stop();
   }
 
   getCapabilities(): AdapterCapabilityProfile {
@@ -291,26 +395,28 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       supportsToolCalls: true,
       supportsStreaming: true,
       supportsCostUsage: true,
-    }
+    };
   }
 
-  protected getUnavailableBinaryMessage(b: string): string { return `'${b}' binary not found in PATH` }
+  protected getUnavailableBinaryMessage(b: string): string {
+    return `'${b}' binary not found in PATH`;
+  }
 
   protected buildEnv(): Record<string, string> {
-    return buildEnvHelper(this.config)
+    return buildEnvHelper(this.config);
   }
 
   protected buildSpawnEnv(input: AgentInput): Record<string, string> {
     // Honors subclass overrides of buildEnv (e.g. Qwen sets DASHSCOPE_API_KEY).
-    return applyTraceEnv(this.buildEnv(), input)
+    return applyTraceEnv(this.buildEnv(), input);
   }
 
   protected normalizeError(err: unknown): NormalizedAdapterError {
-    return normalizeAdapterError(err)
+    return normalizeAdapterError(err);
   }
 
   protected shouldRethrow(err: unknown): boolean {
-    return shouldRethrowAdapterError(err)
+    return shouldRethrowAdapterError(err);
   }
 
   protected async assertReady(): Promise<void> {
@@ -318,17 +424,21 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   }
 
   protected resolveInteractionPolicy(input: AgentInput): InteractionPolicy {
-    const perCall = input.options?.['interactionPolicy']
-    if (perCall !== null && typeof perCall === 'object' && 'mode' in (perCall as object)) {
-      return perCall as InteractionPolicy
+    const perCall = input.options?.["interactionPolicy"];
+    if (
+      perCall !== null &&
+      typeof perCall === "object" &&
+      "mode" in (perCall as object)
+    ) {
+      return perCall as InteractionPolicy;
     }
-    return this.config.interactionPolicy ?? { mode: 'auto-approve' }
+    return this.config.interactionPolicy ?? { mode: "auto-approve" };
   }
 
-  protected abstract getBinaryName(): string
-  protected abstract buildArgs(input: AgentInput): string[]
+  protected abstract getBinaryName(): string;
+  protected abstract buildArgs(input: AgentInput): string[];
   protected abstract mapProviderEvent(
     record: Record<string, unknown>,
     sessionId: string,
-  ): AgentEvent | undefined
+  ): AgentEvent | undefined;
 }
