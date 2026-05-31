@@ -5,21 +5,25 @@
  * `index`-keyed accumulation of tool_call deltas, ordered flushing into
  * `adapter:tool_call` events, and tool-definition normalization.
  */
-import type { AdapterProviderId, AgentEvent, AgentInput } from '../types.js'
-import type { OpenAIToolWire, SSEChunkChoice, SSEToolCallDelta } from './openai-types.js'
+import type { AdapterProviderId, AgentEvent, AgentInput } from "../types.js";
+import type {
+  OpenAIToolWire,
+  SSEChunkChoice,
+  SSEToolCallDelta,
+} from "./openai-types.js";
 
 export interface SseChoiceProcessResult {
-  events: AgentEvent[]
+  events: AgentEvent[];
   /** Content text appended to the current run's full-text accumulator. */
-  appendedContent: string
+  appendedContent: string;
 }
 
 interface PendingToolCall {
-  index: number
-  id?: string
-  name?: string
-  arguments: string
-  emitted: boolean
+  index: number;
+  id?: string;
+  name?: string;
+  arguments: string;
+  emitted: boolean;
 }
 
 /**
@@ -28,10 +32,10 @@ interface PendingToolCall {
  * {@link OpenAIToolCallAccumulator.reset}.
  */
 export class OpenAIToolCallAccumulator {
-  private pending = new Map<number, PendingToolCall>()
+  private pending = new Map<number, PendingToolCall>();
 
   reset(): void {
-    this.pending = new Map()
+    this.pending = new Map();
   }
 
   /**
@@ -41,21 +45,24 @@ export class OpenAIToolCallAccumulator {
    */
   accumulate(deltas: SSEToolCallDelta[]): void {
     for (const delta of deltas) {
-      const existing = this.pending.get(delta.index)
+      const existing = this.pending.get(delta.index);
       if (existing) {
-        if (delta.id !== undefined) existing.id = delta.id
-        if (delta.function?.name !== undefined) existing.name = delta.function.name
+        if (delta.id !== undefined) existing.id = delta.id;
+        if (delta.function?.name !== undefined)
+          existing.name = delta.function.name;
         if (delta.function?.arguments !== undefined) {
-          existing.arguments += delta.function.arguments
+          existing.arguments += delta.function.arguments;
         }
       } else {
         this.pending.set(delta.index, {
           index: delta.index,
           ...(delta.id !== undefined ? { id: delta.id } : {}),
-          ...(delta.function?.name !== undefined ? { name: delta.function.name } : {}),
-          arguments: delta.function?.arguments ?? '',
+          ...(delta.function?.name !== undefined
+            ? { name: delta.function.name }
+            : {}),
+          arguments: delta.function?.arguments ?? "",
           emitted: false,
-        })
+        });
       }
     }
   }
@@ -68,23 +75,29 @@ export class OpenAIToolCallAccumulator {
    * required by the unified event contract; this should never happen for
    * conformant OpenAI streams.
    */
-  flush(providerId: AdapterProviderId, correlationId: string | undefined): AgentEvent[] {
-    const events: AgentEvent[] = []
-    const ordered = [...this.pending.values()].sort((a, b) => a.index - b.index)
+  flush(
+    providerId: AdapterProviderId,
+    correlationId: string | undefined
+  ): AgentEvent[] {
+    const events: AgentEvent[] = [];
+    const ordered = [...this.pending.values()].sort(
+      (a, b) => a.index - b.index
+    );
     for (const call of ordered) {
-      if (call.emitted) continue
-      call.emitted = true
-      if (call.name === undefined || call.name.length === 0) continue
+      if (call.emitted) continue;
+      call.emitted = true;
+      if (call.name === undefined || call.name.length === 0) continue;
       events.push({
-        type: 'adapter:tool_call',
+        type: "adapter:tool_call",
         providerId,
         toolName: call.name,
+        ...(call.id !== undefined ? { toolCallId: call.id } : {}),
         input: parseToolArguments(call.arguments),
         timestamp: Date.now(),
         ...(correlationId ? { correlationId } : {}),
-      })
+      });
     }
-    return events
+    return events;
   }
 
   /**
@@ -96,31 +109,34 @@ export class OpenAIToolCallAccumulator {
   processSseChoice(
     choice: SSEChunkChoice,
     providerId: AdapterProviderId,
-    correlationId: string | undefined,
+    correlationId: string | undefined
   ): SseChoiceProcessResult {
-    const events: AgentEvent[] = []
-    let appendedContent = ''
+    const events: AgentEvent[] = [];
+    let appendedContent = "";
 
     if (choice.delta?.tool_calls) {
-      this.accumulate(choice.delta.tool_calls)
+      this.accumulate(choice.delta.tool_calls);
     }
 
-    if (typeof choice.delta?.content === 'string' && choice.delta.content.length > 0) {
-      appendedContent = choice.delta.content
+    if (
+      typeof choice.delta?.content === "string" &&
+      choice.delta.content.length > 0
+    ) {
+      appendedContent = choice.delta.content;
       events.push({
-        type: 'adapter:stream_delta',
+        type: "adapter:stream_delta",
         providerId,
         content: appendedContent,
         timestamp: Date.now(),
         ...(correlationId ? { correlationId } : {}),
-      })
+      });
     }
 
-    if (choice.finish_reason === 'tool_calls') {
-      events.push(...this.flush(providerId, correlationId))
+    if (choice.finish_reason === "tool_calls") {
+      events.push(...this.flush(providerId, correlationId));
     }
 
-    return { events, appendedContent }
+    return { events, appendedContent };
   }
 }
 
@@ -130,11 +146,11 @@ export class OpenAIToolCallAccumulator {
  * fails so consumers still receive the model output for diagnostics.
  */
 export function parseToolArguments(buffer: string): unknown {
-  if (buffer.length === 0) return {}
+  if (buffer.length === 0) return {};
   try {
-    return JSON.parse(buffer) as unknown
+    return JSON.parse(buffer) as unknown;
   } catch {
-    return buffer
+    return buffer;
   }
 }
 
@@ -146,49 +162,70 @@ export function parseToolArguments(buffer: string): unknown {
  *
  * Invalid entries are silently skipped to keep parity with other adapters.
  */
-export function resolveOpenAITools(input: AgentInput): OpenAIToolWire[] | undefined {
-  const raw = input.options?.['tools']
-  if (!Array.isArray(raw)) return undefined
-  const wire: OpenAIToolWire[] = []
+export function resolveOpenAITools(
+  input: AgentInput
+): OpenAIToolWire[] | undefined {
+  const raw = input.options?.["tools"];
+  if (!Array.isArray(raw)) return undefined;
+  const wire: OpenAIToolWire[] = [];
   for (const entry of raw) {
-    if (entry === null || typeof entry !== 'object') continue
+    if (entry === null || typeof entry !== "object") continue;
     // Pre-wrapped form
-    if ('type' in entry && (entry as { type?: unknown }).type === 'function' && 'function' in entry) {
-      const fn = (entry as { function?: unknown }).function
+    if (
+      "type" in entry &&
+      (entry as { type?: unknown }).type === "function" &&
+      "function" in entry
+    ) {
+      const fn = (entry as { function?: unknown }).function;
       if (
         fn !== null &&
-        typeof fn === 'object' &&
-        'name' in fn &&
-        typeof (fn as { name?: unknown }).name === 'string'
+        typeof fn === "object" &&
+        "name" in fn &&
+        typeof (fn as { name?: unknown }).name === "string"
       ) {
-        const named = fn as { name: string; description?: unknown; parameters?: unknown }
+        const named = fn as {
+          name: string;
+          description?: unknown;
+          parameters?: unknown;
+        };
         wire.push({
-          type: 'function',
+          type: "function",
           function: {
             name: named.name,
-            ...(typeof named.description === 'string' ? { description: named.description } : {}),
-            ...(named.parameters && typeof named.parameters === 'object'
+            ...(typeof named.description === "string"
+              ? { description: named.description }
+              : {}),
+            ...(named.parameters && typeof named.parameters === "object"
               ? { parameters: named.parameters as Record<string, unknown> }
               : {}),
           },
-        })
+        });
       }
-      continue
+      continue;
     }
     // Flat form
-    if ('name' in entry && typeof (entry as { name?: unknown }).name === 'string') {
-      const flat = entry as { name: string; description?: unknown; parameters?: unknown }
+    if (
+      "name" in entry &&
+      typeof (entry as { name?: unknown }).name === "string"
+    ) {
+      const flat = entry as {
+        name: string;
+        description?: unknown;
+        parameters?: unknown;
+      };
       wire.push({
-        type: 'function',
+        type: "function",
         function: {
           name: flat.name,
-          ...(typeof flat.description === 'string' ? { description: flat.description } : {}),
-          ...(flat.parameters && typeof flat.parameters === 'object'
+          ...(typeof flat.description === "string"
+            ? { description: flat.description }
+            : {}),
+          ...(flat.parameters && typeof flat.parameters === "object"
             ? { parameters: flat.parameters as Record<string, unknown> }
             : {}),
         },
-      })
+      });
     }
   }
-  return wire
+  return wire;
 }

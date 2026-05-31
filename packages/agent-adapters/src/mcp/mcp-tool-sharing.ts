@@ -10,11 +10,15 @@
  * and delegates JSON-RPC handling to DzupAgentMCPServer from @dzupagent/core.
  */
 
-import { DzupAgentMCPServer } from '@dzupagent/core/mcp'
-import type { DzupEventBus } from '@dzupagent/core/events'
-import type { MCPToolDescriptor, MCPRequest, MCPResponse } from '@dzupagent/core/mcp'
+import { DzupAgentMCPServer } from "@dzupagent/core/mcp";
+import type { DzupEventBus } from "@dzupagent/core/events";
+import type {
+  MCPToolDescriptor,
+  MCPRequest,
+  MCPResponse,
+} from "@dzupagent/core/mcp";
 
-import type { AdapterProviderId } from '../types.js'
+import type { AdapterProviderId } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Configuration & shared types
@@ -22,27 +26,27 @@ import type { AdapterProviderId } from '../types.js'
 
 export interface MCPToolSharingConfig {
   /** Server name for the MCP server. Default: 'dzupagent-tools' */
-  serverName?: string
+  serverName?: string;
   /** Server version. Default: '1.0.0' */
-  serverVersion?: string
+  serverVersion?: string;
   /** Event bus for observability */
-  eventBus?: DzupEventBus
+  eventBus?: DzupEventBus;
 }
 
 export interface SharedTool {
-  name: string
-  description: string
-  inputSchema: Record<string, unknown>
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
   /** Which provider originally owns this tool */
-  sourceProvider?: AdapterProviderId
+  sourceProvider?: AdapterProviderId;
   /** Handler that executes the tool */
-  handler: (args: Record<string, unknown>) => Promise<string>
+  handler: (args: Record<string, unknown>) => Promise<string>;
 }
 
 export interface ToolSharingStats {
-  totalTools: number
-  toolsBySource: Record<string, number>
-  toolNames: string[]
+  totalTools: number;
+  toolsBySource: Record<string, number>;
+  toolNames: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -51,25 +55,35 @@ export interface ToolSharingStats {
 
 /** Config shape returned for Claude adapters (mcpServers) */
 interface ClaudeToolConfig {
-  mcpServers: Record<string, {
-    type: 'in-process'
-    tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>
-    handler: (request: unknown) => Promise<unknown>
-  }>
+  mcpMode: "native";
+  mcpServers: Record<
+    string,
+    {
+      type: "in-process";
+      tools: Array<{
+        name: string;
+        description: string;
+        inputSchema: Record<string, unknown>;
+      }>;
+      handler: (request: unknown) => Promise<unknown>;
+    }
+  >;
 }
 
 /** Config shape returned for Codex adapters (dynamicTools) */
 interface CodexToolConfig {
+  mcpMode: "native";
   dynamicTools: Array<{
-    name: string
-    description: string
-    inputSchema: Record<string, unknown>
-  }>
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }>;
 }
 
 /** Config shape returned for CLI-based adapters (system prompt injection) */
 interface CLIToolConfig {
-  systemPromptTools: string
+  mcpMode: "system-prompt-fallback";
+  systemPromptTools: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,19 +91,19 @@ interface CLIToolConfig {
 // ---------------------------------------------------------------------------
 
 export class MCPToolSharingBridge {
-  private readonly tools = new Map<string, SharedTool>()
-  private readonly mcpServer: DzupAgentMCPServer
-  private readonly serverName: string
-  private readonly eventBus: DzupEventBus | undefined
+  private readonly tools = new Map<string, SharedTool>();
+  private readonly mcpServer: DzupAgentMCPServer;
+  private readonly serverName: string;
+  private readonly eventBus: DzupEventBus | undefined;
 
   constructor(config?: MCPToolSharingConfig) {
-    this.serverName = config?.serverName ?? 'dzupagent-tools'
-    this.eventBus = config?.eventBus
+    this.serverName = config?.serverName ?? "dzupagent-tools";
+    this.eventBus = config?.eventBus;
 
     this.mcpServer = new DzupAgentMCPServer({
       name: this.serverName,
-      version: config?.serverVersion ?? '1.0.0',
-    })
+      version: config?.serverVersion ?? "1.0.0",
+    });
   }
 
   /**
@@ -98,7 +112,7 @@ export class MCPToolSharingBridge {
    * MCP server for JSON-RPC handling.
    */
   registerTool(tool: SharedTool): void {
-    this.tools.set(tool.name, tool)
+    this.tools.set(tool.name, tool);
 
     // Mirror registration onto the MCP server for JSON-RPC support
     this.mcpServer.registerTool({
@@ -106,12 +120,12 @@ export class MCPToolSharingBridge {
       description: tool.description,
       inputSchema: tool.inputSchema,
       handler: tool.handler,
-    })
+    });
 
-    this.emitEvent('mcp:connected', {
+    this.emitEvent("mcp:connected", {
       serverName: this.serverName,
       toolCount: this.tools.size,
-    })
+    });
   }
 
   /**
@@ -119,11 +133,11 @@ export class MCPToolSharingBridge {
    * Returns true if the tool existed and was removed, false otherwise.
    */
   unregisterTool(name: string): boolean {
-    const existed = this.tools.delete(name)
+    const existed = this.tools.delete(name);
     if (existed) {
-      this.mcpServer.unregisterTool(name)
+      this.mcpServer.unregisterTool(name);
     }
-    return existed
+    return existed;
   }
 
   /**
@@ -131,7 +145,7 @@ export class MCPToolSharingBridge {
    */
   registerTools(tools: SharedTool[]): void {
     for (const tool of tools) {
-      this.registerTool(tool)
+      this.registerTool(tool);
     }
   }
 
@@ -143,7 +157,7 @@ export class MCPToolSharingBridge {
     return {
       name: this.serverName,
       tools: this.mcpServer.listTools(),
-    }
+    };
   }
 
   /**
@@ -153,22 +167,24 @@ export class MCPToolSharingBridge {
    * - Codex: returns dynamicTools array for codex-sdk
    * - Gemini/Qwen/Crush (CLI-based): returns systemPromptTools string
    */
-  buildAdapterToolConfig(providerId: AdapterProviderId): ClaudeToolConfig | CodexToolConfig | CLIToolConfig {
-    const toolList = this.buildToolList()
+  buildAdapterToolConfig(
+    providerId: AdapterProviderId
+  ): ClaudeToolConfig | CodexToolConfig | CLIToolConfig {
+    const toolList = this.buildToolList();
 
     switch (providerId) {
-      case 'claude':
-        return this.buildClaudeConfig(toolList)
-      case 'codex':
-        return this.buildCodexConfig(toolList)
-      case 'gemini':
-      case 'qwen':
-      case 'crush':
-      case 'gemini-sdk':
-      case 'goose':
-      case 'openrouter':
-      case 'openai':
-        return this.buildCLIConfig(toolList)
+      case "claude":
+        return this.buildClaudeConfig(toolList);
+      case "codex":
+        return this.buildCodexConfig(toolList);
+      case "gemini":
+      case "qwen":
+      case "crush":
+      case "gemini-sdk":
+      case "goose":
+      case "openrouter":
+      case "openai":
+        return this.buildCLIConfig(toolList, providerId);
     }
   }
 
@@ -178,9 +194,9 @@ export class MCPToolSharingBridge {
    * support the MCP protocol natively.
    */
   async handleRequest(request: unknown): Promise<MCPResponse | null> {
-    const mcpRequest = request as MCPRequest
-    const response = await this.mcpServer.handleRequest(mcpRequest)
-    return response
+    const mcpRequest = request as MCPRequest;
+    const response = await this.mcpServer.handleRequest(mcpRequest);
+    return response;
   }
 
   /**
@@ -188,99 +204,129 @@ export class MCPToolSharingBridge {
    * and the list of all tool names.
    */
   getStats(): ToolSharingStats {
-    const toolsBySource: Record<string, number> = {}
+    const toolsBySource: Record<string, number> = {};
 
     for (const tool of this.tools.values()) {
-      const source = tool.sourceProvider ?? 'unknown'
-      toolsBySource[source] = (toolsBySource[source] ?? 0) + 1
+      const source = tool.sourceProvider ?? "unknown";
+      toolsBySource[source] = (toolsBySource[source] ?? 0) + 1;
     }
 
     return {
       totalTools: this.tools.size,
       toolsBySource,
       toolNames: [...this.tools.keys()],
-    }
+    };
   }
 
   /**
    * List all shared tool names.
    */
   listTools(): string[] {
-    return [...this.tools.keys()]
+    return [...this.tools.keys()];
   }
 
   /**
    * Clear all registered tools.
    */
   clear(): void {
-    const names = [...this.tools.keys()]
+    const names = [...this.tools.keys()];
     for (const name of names) {
-      this.mcpServer.unregisterTool(name)
+      this.mcpServer.unregisterTool(name);
     }
-    this.tools.clear()
+    this.tools.clear();
   }
 
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private buildToolList(): Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> {
-    const list: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> = []
+  private buildToolList(): Array<{
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+  }> {
+    const list: Array<{
+      name: string;
+      description: string;
+      inputSchema: Record<string, unknown>;
+    }> = [];
     for (const tool of this.tools.values()) {
       list.push({
         name: tool.name,
         description: tool.description,
         inputSchema: tool.inputSchema,
-      })
+      });
     }
-    return list
+    return list;
   }
 
   private buildClaudeConfig(
-    toolList: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>,
+    toolList: Array<{
+      name: string;
+      description: string;
+      inputSchema: Record<string, unknown>;
+    }>
   ): ClaudeToolConfig {
     return {
+      mcpMode: "native",
       mcpServers: {
         [this.serverName]: {
-          type: 'in-process' as const,
+          type: "in-process" as const,
           tools: toolList,
           handler: async (request: unknown) => this.handleRequest(request),
         },
       },
-    }
+    };
   }
 
   private buildCodexConfig(
-    toolList: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>,
+    toolList: Array<{
+      name: string;
+      description: string;
+      inputSchema: Record<string, unknown>;
+    }>
   ): CodexToolConfig {
     return {
-      dynamicTools: toolList.map(t => ({
+      mcpMode: "native",
+      dynamicTools: toolList.map((t) => ({
         name: t.name,
         description: t.description,
         inputSchema: t.inputSchema,
       })),
-    }
+    };
   }
 
   private buildCLIConfig(
-    toolList: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>,
+    toolList: Array<{
+      name: string;
+      description: string;
+      inputSchema: Record<string, unknown>;
+    }>,
+    providerId: AdapterProviderId
   ): CLIToolConfig {
-    const sections = toolList.map(t =>
-      `Tool: ${t.name}\nDescription: ${t.description}\nParams: ${JSON.stringify(t.inputSchema)}`,
-    )
+    console.warn(
+      `[MCPToolSharingBridge] Provider "${providerId}" does not support native MCP — falling back to system-prompt-fallback injection.`
+    );
+    const sections = toolList.map(
+      (t) =>
+        `Tool: ${t.name}\nDescription: ${
+          t.description
+        }\nParams: ${JSON.stringify(t.inputSchema)}`
+    );
     return {
-      systemPromptTools: sections.join('\n\n'),
-    }
+      mcpMode: "system-prompt-fallback",
+      systemPromptTools: sections.join("\n\n"),
+    };
   }
 
   private emitEvent(
-    type: 'mcp:connected',
-    data: { serverName: string; toolCount: number },
+    type: "mcp:connected",
+    data: { serverName: string; toolCount: number }
   ): void {
-    if (!this.eventBus) return
+    if (!this.eventBus) return;
 
     try {
-      this.eventBus.emit({ type, ...data })
+      this.eventBus.emit({ type, ...data });
     } catch {
       // Event emission is non-fatal — swallow errors silently
     }

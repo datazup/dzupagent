@@ -1,12 +1,19 @@
-import { buildDefaultWatcherRegistrations } from '@dzupagent/adapter-rules'
+import { buildDefaultWatcherRegistrations } from "@dzupagent/adapter-rules";
 
-import type { AdapterMonitorStatus, AdapterProviderId, AgentInput } from '../types.js'
-import { getDefaultMonitorStatus, getProviderCapabilities } from '../provider-catalog.js'
+import type {
+  AdapterMonitorStatus,
+  AdapterProviderId,
+  AgentInput,
+} from "../types.js";
+import {
+  getDefaultMonitorStatus,
+  getProviderCapabilities,
+} from "../provider-catalog.js";
 import {
   getAdapterRuleRuntimePlan,
   resolveAdapterWatchPath,
   resolveRuntimePlanWatcherPaths,
-} from '../rules.js'
+} from "../rules.js";
 
 /**
  * Compute the deduplicated absolute watch paths for a run, combining
@@ -16,20 +23,22 @@ import {
 export function resolveWatcherPaths(
   providerId: AdapterProviderId,
   input: AgentInput,
-  workingDirectory: string,
+  workingDirectory: string
 ): string[] {
-  const runtimePlan = getAdapterRuleRuntimePlan(input, providerId)
+  const runtimePlan = getAdapterRuleRuntimePlan(input, providerId);
   const defaultWatcherPaths = buildDefaultWatcherRegistrations({
     providerId,
     workspaceDir: workingDirectory,
-  }).map((registration) => registration.path)
+  }).map((registration) => registration.path);
   const all = [
-    ...defaultWatcherPaths.map((p) => resolveAdapterWatchPath(p, workingDirectory)),
+    ...defaultWatcherPaths.map((p) =>
+      resolveAdapterWatchPath(p, workingDirectory)
+    ),
     ...(runtimePlan
       ? resolveRuntimePlanWatcherPaths(runtimePlan, workingDirectory)
       : []),
-  ]
-  return [...new Set(all)]
+  ];
+  return [...new Set(all)];
 }
 
 /**
@@ -38,13 +47,13 @@ export function resolveWatcherPaths(
  * intentionally minimal so the adapter-monitor dependency stays optional.
  */
 export interface ArtifactWatcherHandle {
-  stop: () => void
+  stop: () => void;
 }
 
 export type ArtifactWatcherFactory = (
   paths: string[],
-  providerId: AdapterProviderId,
-) => ArtifactWatcherHandle
+  providerId: AdapterProviderId
+) => ArtifactWatcherHandle;
 
 /**
  * Host for the optional artifact-watcher integration.
@@ -58,12 +67,14 @@ export type ArtifactWatcherFactory = (
  * adapter-monitor peer stays optional.
  */
 export class ArtifactWatcherHost {
-  private watcher: ArtifactWatcherHandle | null = null
-  private factory: ArtifactWatcherFactory | null = null
-  private status: AdapterMonitorStatus
+  private watcher: ArtifactWatcherHandle | null = null;
+  private factory: ArtifactWatcherFactory | null = null;
+  private status: AdapterMonitorStatus;
+  private activationState: "not_configured" | "active" | "stopped" =
+    "not_configured";
 
   constructor(private readonly providerId: AdapterProviderId) {
-    this.status = getDefaultMonitorStatus(providerId)
+    this.status = getDefaultMonitorStatus(providerId);
   }
 
   /**
@@ -71,13 +82,23 @@ export class ArtifactWatcherHost {
    * The current monitor status is recomputed to reflect the change.
    */
   setFactory(factory: ArtifactWatcherFactory | null): void {
-    this.factory = factory
-    this.status = this.resolveIdleStatus()
+    this.factory = factory;
+    this.status = this.resolveIdleStatus();
   }
 
   /** Returns a defensive copy of the current monitor status. */
   getStatus(): AdapterMonitorStatus {
-    return { ...this.status }
+    return { ...this.status };
+  }
+
+  /**
+   * Returns a simple activation state string for the watcher:
+   * - `'not_configured'` — no factory wired or watcher never started
+   * - `'active'`         — watcher is currently running
+   * - `'stopped'`        — watcher ran and was subsequently stopped
+   */
+  watcherActivationStatus(): "not_configured" | "active" | "stopped" {
+    return this.activationState;
   }
 
   /**
@@ -86,92 +107,97 @@ export class ArtifactWatcherHost {
    * registered watch-spec.
    */
   start(paths: string[]): void {
-    if (this.watcher) return
+    if (this.watcher) return;
     if (!this.isMonitorSupported()) {
-      this.status = this.unsupportedStatus()
-      return
+      this.status = this.unsupportedStatus();
+      return;
     }
     if (!this.factory) {
       this.status = {
         ...this.monitorBase(),
-        state: 'not_configured',
+        state: "not_configured",
         supported: true,
         watchedPathCount: paths.length,
-      }
-      return
+      };
+      return;
     }
     if (paths.length === 0) {
       this.status = {
         ...this.monitorBase(),
-        state: 'not_configured',
+        state: "not_configured",
         supported: true,
         watchedPathCount: 0,
-      }
-      return
+      };
+      return;
     }
     try {
-      this.watcher = this.factory(paths, this.providerId)
+      this.watcher = this.factory(paths, this.providerId);
+      this.activationState = "active";
       this.status = {
         ...this.monitorBase(),
-        state: 'active',
+        state: "active",
         supported: true,
         watchedPathCount: paths.length,
-      }
+      };
     } catch {
       // Watcher start failures must not break the run — best-effort only.
-      this.watcher = null
+      this.watcher = null;
       this.status = {
         ...this.monitorBase(),
-        state: 'failed_to_start',
+        state: "failed_to_start",
         supported: true,
         watchedPathCount: paths.length,
-        lastError: 'Artifact watcher factory failed to start',
-      }
+        lastError: "Artifact watcher factory failed to start",
+      };
     }
   }
 
   /** Stop the active watcher, if any. Best-effort. */
   stop(): void {
-    if (!this.watcher) return
+    if (!this.watcher) return;
     try {
-      this.watcher.stop()
+      this.watcher.stop();
     } catch {
       // swallow — stopping is best-effort
     }
-    this.watcher = null
-    this.status = this.resolveIdleStatus()
+    this.watcher = null;
+    this.activationState = "stopped";
+    this.status = this.resolveIdleStatus();
   }
 
   private isMonitorSupported(): boolean {
     return (
-      (getProviderCapabilities(this.providerId)?.monitorIntrospection ?? 'none') !== 'none'
-    )
+      (getProviderCapabilities(this.providerId)?.monitorIntrospection ??
+        "none") !== "none"
+    );
   }
 
   private unsupportedStatus(): AdapterMonitorStatus {
     return {
-      state: 'unsupported',
+      state: "unsupported",
       supported: false,
       monitorIntrospection:
-        getProviderCapabilities(this.providerId)?.monitorIntrospection ?? 'none',
-    }
+        getProviderCapabilities(this.providerId)?.monitorIntrospection ??
+        "none",
+    };
   }
 
-  private monitorBase(): Pick<AdapterMonitorStatus, 'monitorIntrospection'> {
+  private monitorBase(): Pick<AdapterMonitorStatus, "monitorIntrospection"> {
     return {
       monitorIntrospection:
-        getProviderCapabilities(this.providerId)?.monitorIntrospection ?? 'none',
-    }
+        getProviderCapabilities(this.providerId)?.monitorIntrospection ??
+        "none",
+    };
   }
 
   private resolveIdleStatus(): AdapterMonitorStatus {
     if (!this.isMonitorSupported()) {
-      return this.unsupportedStatus()
+      return this.unsupportedStatus();
     }
     return {
       ...this.monitorBase(),
-      state: this.factory ? 'ready' : 'not_configured',
+      state: this.factory ? "ready" : "not_configured",
       supported: true,
-    }
+    };
   }
 }
