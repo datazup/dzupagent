@@ -12,39 +12,23 @@
     },
     {
       "importer": "agent",
-      "forbidden": [
-        "server"
-      ]
+      "forbidden": ["server"]
     },
     {
       "importer": "codegen",
-      "forbidden": [
-        "agent",
-        "server",
-        "connectors"
-      ]
+      "forbidden": ["agent", "server", "connectors"]
     },
     {
       "importer": "connectors",
-      "forbidden": [
-        "agent",
-        "codegen",
-        "server"
-      ]
+      "forbidden": ["agent", "codegen", "server"]
     },
     {
       "importer": "agent-adapters",
-      "forbidden": [
-        "server"
-      ]
+      "forbidden": ["server"]
     },
     {
       "importer": "server",
-      "forbidden": [
-        "create-dzupagent",
-        "testing",
-        "test-utils"
-      ]
+      "forbidden": ["create-dzupagent", "testing", "test-utils"]
     }
   ],
   "appWorkspaces": [
@@ -196,7 +180,8 @@
           "packages/server/src/routes/run-context-types.ts",
           "packages/server/src/routes/runs/shared.ts",
           "packages/server/src/routes/route-error.ts",
-          "packages/server/src/routes/tenant-scope.ts"
+          "packages/server/src/routes/tenant-scope.ts",
+          "packages/server/src/routes/crud-helpers.ts"
         ]
       }
     },
@@ -205,33 +190,19 @@
       "files": {
         "packages/server/src/routes/a2a/jsonrpc-route.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            ""
-          ],
-          "endpoints": [
-            "POST /a2a"
-          ],
-          "mountedEndpoints": [
-            "POST /a2a"
-          ]
+          "mounts": [""],
+          "endpoints": ["POST /a2a"],
+          "mountedEndpoints": ["POST /a2a"]
         },
         "packages/server/src/routes/a2a/message-routes.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            ""
-          ],
-          "endpoints": [
-            "POST /a2a/tasks/:id/messages"
-          ],
-          "mountedEndpoints": [
-            "POST /a2a/tasks/:id/messages"
-          ]
+          "mounts": [""],
+          "endpoints": ["POST /a2a/tasks/:id/messages"],
+          "mountedEndpoints": ["POST /a2a/tasks/:id/messages"]
         },
         "packages/server/src/routes/a2a/task-routes.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            ""
-          ],
+          "mounts": [""],
           "endpoints": [
             "GET /a2a/tasks",
             "GET /a2a/tasks/:id",
@@ -247,22 +218,13 @@
         },
         "packages/server/src/routes/a2a/well-known.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            ""
-          ],
-          "endpoints": [
-            "GET /.well-known/agent.json"
-          ],
-          "mountedEndpoints": [
-            "GET /.well-known/agent.json"
-          ]
+          "mounts": [""],
+          "endpoints": ["GET /.well-known/agent.json"],
+          "mountedEndpoints": ["GET /.well-known/agent.json"]
         },
         "packages/server/src/routes/agents.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/agent-definitions",
-            "/api/agents"
-          ],
+          "mounts": ["/api/agent-definitions", "/api/agents"],
           "endpoints": [
             "DELETE /:id",
             "GET /",
@@ -285,15 +247,8 @@
         },
         "packages/server/src/routes/api-keys.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/keys"
-          ],
-          "endpoints": [
-            "DELETE /:id",
-            "GET /",
-            "POST /",
-            "POST /:id/rotate"
-          ],
+          "mounts": ["/api/keys"],
+          "endpoints": ["DELETE /:id", "GET /", "POST /", "POST /:id/rotate"],
           "mountedEndpoints": [
             "DELETE /api/keys/:id",
             "GET /api/keys",
@@ -303,13 +258,8 @@
         },
         "packages/server/src/routes/approval.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/runs"
-          ],
-          "endpoints": [
-            "POST /:id/approve",
-            "POST /:id/reject"
-          ],
+          "mounts": ["/api/runs"],
+          "endpoints": ["POST /:id/approve", "POST /:id/reject"],
           "mountedEndpoints": [
             "POST /api/runs/:id/approve",
             "POST /api/runs/:id/reject"
@@ -317,9 +267,7 @@
         },
         "packages/server/src/routes/approvals.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/approvals"
-          ],
+          "mounts": ["/api/approvals"],
           "endpoints": [
             "POST /:runId/:approvalId/grant",
             "POST /:runId/:approvalId/reject"
@@ -331,9 +279,7 @@
         },
         "packages/server/src/routes/benchmarks.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/benchmarks"
-          ],
+          "mounts": ["/api/benchmarks"],
           "endpoints": [
             "GET /baselines",
             "GET /runs",
@@ -353,21 +299,13 @@
         },
         "packages/server/src/routes/capabilities.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/v1/capabilities"
-          ],
-          "endpoints": [
-            "GET /:skillId"
-          ],
-          "mountedEndpoints": [
-            "GET /api/v1/capabilities/:skillId"
-          ]
+          "mounts": ["/api/v1/capabilities"],
+          "endpoints": ["GET /:skillId"],
+          "mountedEndpoints": ["GET /api/v1/capabilities/:skillId"]
         },
         "packages/server/src/routes/clusters.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/clusters"
-          ],
+          "mounts": ["/api/clusters"],
           "endpoints": [
             "DELETE /:id",
             "DELETE /:id/roles/:roleId",
@@ -387,21 +325,13 @@
         },
         "packages/server/src/routes/compile.ts": {
           "category": "route-plugin-host-seam",
-          "mounts": [
-            "/api/workflows"
-          ],
-          "endpoints": [
-            "POST /compile"
-          ],
-          "mountedEndpoints": [
-            "POST /api/workflows/compile"
-          ]
+          "mounts": ["/api/workflows"],
+          "endpoints": ["POST /compile"],
+          "mountedEndpoints": ["POST /api/workflows/compile"]
         },
         "packages/server/src/routes/deploy.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/deploy"
-          ],
+          "mounts": ["/api/deploy"],
           "endpoints": [
             "GET /confidence",
             "GET /history",
@@ -417,21 +347,13 @@
         },
         "packages/server/src/routes/enrichment-metrics.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/runs"
-          ],
-          "endpoints": [
-            "GET /:id/enrichment-metrics"
-          ],
-          "mountedEndpoints": [
-            "GET /api/runs/:id/enrichment-metrics"
-          ]
+          "mounts": ["/api/runs"],
+          "endpoints": ["GET /:id/enrichment-metrics"],
+          "mountedEndpoints": ["GET /api/runs/:id/enrichment-metrics"]
         },
         "packages/server/src/routes/evals.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/evals"
-          ],
+          "mounts": ["/api/evals"],
           "endpoints": [
             "GET /health",
             "GET /queue/stats",
@@ -453,26 +375,14 @@
         },
         "packages/server/src/routes/events.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/events"
-          ],
-          "endpoints": [
-            "GET /stream"
-          ],
-          "mountedEndpoints": [
-            "GET /api/events/stream"
-          ]
+          "mounts": ["/api/events"],
+          "endpoints": ["GET /stream"],
+          "mountedEndpoints": ["GET /api/events/stream"]
         },
         "packages/server/src/routes/health.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/health"
-          ],
-          "endpoints": [
-            "GET /",
-            "GET /metrics",
-            "GET /ready"
-          ],
+          "mounts": ["/api/health"],
+          "endpoints": ["GET /", "GET /metrics", "GET /ready"],
           "mountedEndpoints": [
             "GET /api/health",
             "GET /api/health/metrics",
@@ -481,26 +391,16 @@
         },
         "packages/server/src/routes/human-contact.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/runs"
-          ],
-          "endpoints": [
-            "POST /:id/human-contact/:contactId/respond"
-          ],
+          "mounts": ["/api/runs"],
+          "endpoints": ["POST /:id/human-contact/:contactId/respond"],
           "mountedEndpoints": [
             "POST /api/runs/:id/human-contact/:contactId/respond"
           ]
         },
         "packages/server/src/routes/learning-handlers-content.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/learning"
-          ],
-          "endpoints": [
-            "GET /lessons",
-            "GET /rules",
-            "POST /ingest"
-          ],
+          "mounts": ["/api/learning"],
+          "endpoints": ["GET /lessons", "GET /rules", "POST /ingest"],
           "mountedEndpoints": [
             "GET /api/learning/lessons",
             "GET /api/learning/rules",
@@ -509,9 +409,7 @@
         },
         "packages/server/src/routes/learning-handlers-dashboard.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/learning"
-          ],
+          "mounts": ["/api/learning"],
           "endpoints": [
             "GET /dashboard",
             "GET /nodes",
@@ -529,9 +427,7 @@
         },
         "packages/server/src/routes/learning-handlers-feedback.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/learning"
-          ],
+          "mounts": ["/api/learning"],
           "endpoints": [
             "GET /feedback/stats",
             "GET /skill-packs",
@@ -547,9 +443,7 @@
         },
         "packages/server/src/routes/mailbox.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/mailbox"
-          ],
+          "mounts": ["/api/mailbox"],
           "endpoints": [
             "GET /:agentId/messages",
             "POST /:agentId/messages/:messageId/ack",
@@ -565,9 +459,7 @@
         },
         "packages/server/src/routes/marketplace.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/marketplace"
-          ],
+          "mounts": ["/api/marketplace"],
           "endpoints": [
             "DELETE /catalog/:id",
             "GET /catalog",
@@ -587,9 +479,7 @@
         },
         "packages/server/src/routes/mcp.ts": {
           "category": "route-plugin-host-seam",
-          "mounts": [
-            "/api/mcp"
-          ],
+          "mounts": ["/api/mcp"],
           "endpoints": [
             "DELETE /profiles/:id",
             "DELETE /servers/:id",
@@ -621,45 +511,25 @@
         },
         "packages/server/src/routes/memory-browse.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/memory-browse"
-          ],
-          "endpoints": [
-            "GET /:namespace"
-          ],
-          "mountedEndpoints": [
-            "GET /api/memory-browse/:namespace"
-          ]
+          "mounts": ["/api/memory-browse"],
+          "endpoints": ["GET /:namespace"],
+          "mountedEndpoints": ["GET /api/memory-browse/:namespace"]
         },
         "packages/server/src/routes/memory-health.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/memory"
-          ],
-          "endpoints": [
-            "GET /health"
-          ],
-          "mountedEndpoints": [
-            "GET /api/memory/health"
-          ]
+          "mounts": ["/api/memory"],
+          "endpoints": ["GET /health"],
+          "mountedEndpoints": ["GET /api/memory/health"]
         },
         "packages/server/src/routes/memory-sync.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            ""
-          ],
-          "endpoints": [
-            "GET /api/memory/sync"
-          ],
-          "mountedEndpoints": [
-            "GET /api/memory/sync"
-          ]
+          "mounts": [""],
+          "endpoints": ["GET /api/memory/sync"],
+          "mountedEndpoints": ["GET /api/memory/sync"]
         },
         "packages/server/src/routes/memory.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/memory"
-          ],
+          "mounts": ["/api/memory"],
           "endpoints": [
             "GET /analytics/agent-performance",
             "GET /analytics/decay-trends",
@@ -685,47 +555,25 @@
         },
         "packages/server/src/routes/metrics.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/metrics"
-          ],
-          "endpoints": [
-            "GET /"
-          ],
-          "mountedEndpoints": [
-            "GET /metrics"
-          ]
+          "mounts": ["/metrics"],
+          "endpoints": ["GET /"],
+          "mountedEndpoints": ["GET /metrics"]
         },
         "packages/server/src/routes/openai-compat/completions.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/v1/chat/completions"
-          ],
-          "endpoints": [
-            "POST /"
-          ],
-          "mountedEndpoints": [
-            "POST /v1/chat/completions"
-          ]
+          "mounts": ["/v1/chat/completions"],
+          "endpoints": ["POST /"],
+          "mountedEndpoints": ["POST /v1/chat/completions"]
         },
         "packages/server/src/routes/openai-compat/models-route.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/v1/models"
-          ],
-          "endpoints": [
-            "GET /",
-            "GET /:model"
-          ],
-          "mountedEndpoints": [
-            "GET /v1/models",
-            "GET /v1/models/:model"
-          ]
+          "mounts": ["/v1/models"],
+          "endpoints": ["GET /", "GET /:model"],
+          "mountedEndpoints": ["GET /v1/models", "GET /v1/models/:model"]
         },
         "packages/server/src/routes/personas.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/personas"
-          ],
+          "mounts": ["/api/personas"],
           "endpoints": [
             "DELETE /:id",
             "GET /",
@@ -743,13 +591,8 @@
         },
         "packages/server/src/routes/playground.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/playground"
-          ],
-          "endpoints": [
-            "GET /:path{.*}",
-            "GET /assets/:path{.+}"
-          ],
+          "mounts": ["/playground"],
+          "endpoints": ["GET /:path{.*}", "GET /assets/:path{.+}"],
           "mountedEndpoints": [
             "GET /playground/:path{.*}",
             "GET /playground/assets/:path{.+}"
@@ -757,14 +600,8 @@
         },
         "packages/server/src/routes/presets.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/presets"
-          ],
-          "endpoints": [
-            "GET /",
-            "GET /:name",
-            "POST /:name/config"
-          ],
+          "mounts": ["/api/presets"],
+          "endpoints": ["GET /", "GET /:name", "POST /:name/config"],
           "mountedEndpoints": [
             "GET /api/presets",
             "GET /api/presets/:name",
@@ -773,9 +610,7 @@
         },
         "packages/server/src/routes/prompts.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/prompts"
-          ],
+          "mounts": ["/api/prompts"],
           "endpoints": [
             "DELETE /:id",
             "GET /",
@@ -799,14 +634,8 @@
         },
         "packages/server/src/routes/reflections.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/reflections"
-          ],
-          "endpoints": [
-            "GET /",
-            "GET /:runId",
-            "GET /patterns/:type"
-          ],
+          "mounts": ["/api/reflections"],
+          "endpoints": ["GET /", "GET /:runId", "GET /patterns/:type"],
           "mountedEndpoints": [
             "GET /api/reflections",
             "GET /api/reflections/:runId",
@@ -815,9 +644,7 @@
         },
         "packages/server/src/routes/registry.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/registry"
-          ],
+          "mounts": ["/api/registry"],
           "endpoints": [
             "DELETE /agents/:id",
             "GET /agents",
@@ -839,25 +666,14 @@
         },
         "packages/server/src/routes/routing-stats.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/health"
-          ],
-          "endpoints": [
-            "GET /routing-stats"
-          ],
-          "mountedEndpoints": [
-            "GET /api/health/routing-stats"
-          ]
+          "mounts": ["/api/health"],
+          "endpoints": ["GET /routing-stats"],
+          "mountedEndpoints": ["GET /api/health/routing-stats"]
         },
         "packages/server/src/routes/run-context.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/runs"
-          ],
-          "endpoints": [
-            "GET /:id/context",
-            "GET /:id/token-report"
-          ],
+          "mounts": ["/api/runs"],
+          "endpoints": ["GET /:id/context", "GET /:id/token-report"],
           "mountedEndpoints": [
             "GET /api/runs/:id/context",
             "GET /api/runs/:id/token-report"
@@ -865,21 +681,13 @@
         },
         "packages/server/src/routes/run-trace.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/runs"
-          ],
-          "endpoints": [
-            "GET /:id/messages"
-          ],
-          "mountedEndpoints": [
-            "GET /api/runs/:id/messages"
-          ]
+          "mounts": ["/api/runs"],
+          "endpoints": ["GET /:id/messages"],
+          "mountedEndpoints": ["GET /api/runs/:id/messages"]
         },
         "packages/server/src/routes/runs.ts": {
           "category": "framework-primitive",
-          "mounts": [
-            "/api/runs"
-          ],
+          "mounts": ["/api/runs"],
           "endpoints": [
             "GET /",
             "GET /:id",
@@ -909,9 +717,7 @@
         },
         "packages/server/src/routes/schedules.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/schedules"
-          ],
+          "mounts": ["/api/schedules"],
           "endpoints": [
             "DELETE /:id",
             "GET /",
@@ -931,9 +737,7 @@
         },
         "packages/server/src/routes/skills.ts": {
           "category": "route-plugin-host-seam",
-          "mounts": [
-            "/api/skills"
-          ],
+          "mounts": ["/api/skills"],
           "endpoints": [
             "GET /",
             "GET /:provider",
@@ -951,9 +755,7 @@
         },
         "packages/server/src/routes/triggers.ts": {
           "category": "compatibility-maintenance",
-          "mounts": [
-            "/api/triggers"
-          ],
+          "mounts": ["/api/triggers"],
           "endpoints": [
             "DELETE /:id",
             "GET /",
@@ -971,9 +773,7 @@
         },
         "packages/server/src/routes/workflows-handlers.ts": {
           "category": "route-plugin-host-seam",
-          "mounts": [
-            "/api/workflows"
-          ],
+          "mounts": ["/api/workflows"],
           "endpoints": [
             "GET /",
             "GET /stream",
@@ -1050,9 +850,7 @@
           "learningEventProcessor",
           "approvalStore"
         ],
-        "ForgeIntegrationsConfig": [
-          "routePlugins"
-        ]
+        "ForgeIntegrationsConfig": ["routePlugins"]
       }
     }
   },
@@ -1080,13 +878,7 @@
         "id": 1,
         "name": "foundation",
         "description": "Core foundation built on contracts. May depend only on layer 0.",
-        "packages": [
-          "core",
-          "adapter-rules",
-          "flow-dsl",
-          "memory",
-          "context"
-        ]
+        "packages": ["core", "adapter-rules", "flow-dsl", "memory", "context"]
       },
       {
         "id": 2,
@@ -1108,45 +900,31 @@
         "id": 3,
         "name": "orchestration",
         "description": "Agent runtime and orchestration. May depend on layers 0–2.",
-        "packages": [
-          "agent",
-          "code-edit-kit"
-        ]
+        "packages": ["agent", "code-edit-kit"]
       },
       {
         "id": 4,
         "name": "composition",
         "description": "Composition and adapter packages that bind multiple orchestration units. May depend on layers 0–3.",
-        "packages": [
-          "agent-adapters",
-          "app-tools",
-          "express"
-        ]
+        "packages": ["agent-adapters", "app-tools", "express"]
       },
       {
         "id": 5,
         "name": "host",
         "description": "Host runtimes. Top of the dependency graph; nothing may depend on this layer.",
-        "packages": [
-          "server"
-        ]
+        "packages": ["server"]
       },
       {
         "id": 98,
         "name": "tooling-base",
         "description": "Base tooling packages. These are the canonical home for test infrastructure (eval, security suites, LLM recorder) and CLI scaffolders. May depend on lower numbered layers but must never appear upstream of supported product packages. test-utils (layer 99) may depend on packages in this layer.",
-        "packages": [
-          "testing",
-          "create-dzupagent"
-        ]
+        "packages": ["testing", "create-dzupagent"]
       },
       {
         "id": 99,
         "name": "tooling",
         "description": "Top-level tooling shim packages. May depend on tooling-base (layer 98) and lower layers. Tier-1 and tier-2 packages MUST NOT take a runtime dependency on any tooling package. Tooling packages must never appear upstream of supported product packages.",
-        "packages": [
-          "test-utils"
-        ]
+        "packages": ["test-utils"]
       }
     ],
     "rules": {
@@ -1155,10 +933,7 @@
       "layerZeroMayHaveExternalRuntimeDeps": true,
       "toolingMayBeUpstreamOfSupported": false,
       "toolingLayerId": 99,
-      "supportedTiers": [
-        1,
-        2
-      ]
+      "supportedTiers": [1, 2]
     }
   }
 }
