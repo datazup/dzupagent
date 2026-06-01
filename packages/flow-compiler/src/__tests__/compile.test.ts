@@ -31,117 +31,115 @@
  *   with a clear comment explaining the invariant.
  */
 
-import type { ResolvedTool, ToolResolver } from '@dzupagent/flow-ast'
-import type { SkillChain, PipelineDefinition } from '@dzupagent/core/pipeline'
-import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
-import { describe, expect, it } from 'vitest'
+import type { FlowNode, ResolvedTool, ToolResolver } from "@dzupagent/flow-ast";
+import type { SkillChain, PipelineDefinition } from "@dzupagent/core/pipeline";
+import { InMemoryDomainToolRegistry } from "@dzupagent/app-tools";
+import { describe, expect, it } from "vitest";
 
-import { createFlowCompiler, hasOnError, routeTarget } from '../index.js'
+import { createFlowCompiler, hasOnError, routeTarget } from "../index.js";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
 // ---------------------------------------------------------------------------
 
 function makeResolver(skillNames: string[]): ToolResolver {
-  const registry = new InMemoryDomainToolRegistry()
+  const registry = new InMemoryDomainToolRegistry();
   for (const name of skillNames) {
-    const namespace = name.split('.')[0] ?? name
+    const namespace = name.split(".")[0] ?? name;
     registry.register({
       name,
       description: `test skill ${name}`,
-      inputSchema: { type: 'object' },
-      outputSchema: { type: 'object' },
-      permissionLevel: 'read',
+      inputSchema: { type: "object" },
+      outputSchema: { type: "object" },
+      permissionLevel: "read",
       sideEffects: [],
       namespace,
-    })
+    });
   }
   return {
     resolve(ref: string): ResolvedTool | null {
-      const def = registry.get(ref)
-      if (!def) return null
-      return { ref, kind: 'skill', inputSchema: def.inputSchema, handle: def }
+      const def = registry.get(ref);
+      if (!def) return null;
+      return { ref, kind: "skill", inputSchema: def.inputSchema, handle: def };
     },
     listAvailable: () => registry.list().map((t) => t.name),
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
 // forwardInnerEvents guard
 // ---------------------------------------------------------------------------
 
-describe('createFlowCompiler — forwardInnerEvents guard', () => {
-  it('throws when forwardInnerEvents is true and no eventBus is provided', () => {
-    const resolver = makeResolver([])
+describe("createFlowCompiler — forwardInnerEvents guard", () => {
+  it("throws when forwardInnerEvents is true and no eventBus is provided", () => {
+    const resolver = makeResolver([]);
     expect(() =>
-      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: true }),
-    ).toThrow(/forwardInnerEvents.*eventBus|eventBus.*forwardInnerEvents/)
-  })
+      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: true })
+    ).toThrow(/forwardInnerEvents.*eventBus|eventBus.*forwardInnerEvents/);
+  });
 
-  it('does not throw when forwardInnerEvents is false', () => {
-    const resolver = makeResolver([])
+  it("does not throw when forwardInnerEvents is false", () => {
+    const resolver = makeResolver([]);
     expect(() =>
-      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: false }),
-    ).not.toThrow()
-  })
+      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: false })
+    ).not.toThrow();
+  });
 
-  it('does not throw when forwardInnerEvents is omitted', () => {
-    const resolver = makeResolver([])
-    expect(() =>
-      createFlowCompiler({ toolResolver: resolver }),
-    ).not.toThrow()
-  })
-})
+  it("does not throw when forwardInnerEvents is omitted", () => {
+    const resolver = makeResolver([]);
+    expect(() => createFlowCompiler({ toolResolver: resolver })).not.toThrow();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Happy path — skill-chain target
 // ---------------------------------------------------------------------------
 
-describe('createFlowCompiler — happy path skill-chain', () => {
-  it('attaches source, target, node-id, and correlation evidence to success results', async () => {
-    const resolver = makeResolver(['pm.create_task'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+describe("createFlowCompiler — happy path skill-chain", () => {
+  it("attaches source, target, node-id, and correlation evidence to success results", async () => {
+    const resolver = makeResolver(["pm.create_task"]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const input = {
-      type: 'action',
-      id: 'step-create',
-      toolRef: 'pm.create_task',
+      type: "action",
+      id: "step-create",
+      toolRef: "pm.create_task",
       input: {},
-    }
+    };
 
     const result = await compiler.compile(input, {
-      sourceKind: 'flow-object',
+      sourceKind: "flow-object",
       source: input,
-      correlation: { runId: 'run-1' },
-    })
+      correlation: { runId: "run-1" },
+    });
 
-    expect('errors' in result).toBe(false)
-    if ('errors' in result) {
-      throw new Error('expected compile success')
+    expect("errors" in result).toBe(false);
+    if ("errors" in result) {
+      throw new Error("expected compile success");
     }
 
     expect(result.evidence).toMatchObject({
-      schema: 'dzupagent.flowCompileEvidence/v1',
-      sourceKind: 'flow-object',
+      schema: "dzupagent.flowCompileEvidence/v1",
+      sourceKind: "flow-object",
       compileId: result.compileId,
-      canonicalNodeIds: ['step-create'],
-      loweredTarget: 'skill-chain',
+      canonicalNodeIds: ["step-create"],
+      loweredTarget: "skill-chain",
       correlationIds: {
         compileId: result.compileId,
         eventCorrelationId: result.compileId,
-        runId: 'run-1',
+        runId: "run-1",
       },
-    })
-    expect(result.evidence.sourceHash).toMatch(/^sha256:[a-f0-9]{64}$/)
+    });
+    expect(result.evidence.sourceHash).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(result.evidence.canonicalNodePaths.root).toEqual({
-      type: 'action',
-      id: 'step-create',
-    })
-  })
+      type: "action",
+      id: "step-create",
+    });
+  });
 
-  it('marks compileDsl evidence as dzupflow-dsl', async () => {
-    const resolver = makeResolver(['pm.create_task'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+  it("marks compileDsl evidence as dzupflow-dsl", async () => {
+    const resolver = makeResolver(["pm.create_task"]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const result = await compiler.compileDsl(`
 dsl: dzupflow/v1
@@ -152,86 +150,88 @@ steps:
       id: step-create
       ref: pm.create_task
       input: {}
-`)
+`);
 
-    expect('errors' in result).toBe(false)
-    if ('errors' in result) {
-      throw new Error('expected compile success')
+    expect("errors" in result).toBe(false);
+    if ("errors" in result) {
+      throw new Error("expected compile success");
     }
 
-    expect(result.evidence.sourceKind).toBe('dzupflow-dsl')
-    expect(result.evidence.canonicalNodeIds).toContain('step-create')
-  })
+    expect(result.evidence.sourceKind).toBe("dzupflow-dsl");
+    expect(result.evidence.canonicalNodeIds).toContain("step-create");
+  });
 
-  it('compiles a 2-action sequence to a SkillChain artifact', async () => {
-    const resolver = makeResolver(['pm.create_task', 'pm.update_task'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+  it("compiles a 2-action sequence to a SkillChain artifact", async () => {
+    const resolver = makeResolver(["pm.create_task", "pm.update_task"]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const input = {
-      type: 'sequence',
+      type: "sequence",
       nodes: [
-        { type: 'action', toolRef: 'pm.create_task', input: {} },
-        { type: 'action', toolRef: 'pm.update_task', input: {} },
+        { type: "action", toolRef: "pm.create_task", input: {} },
+        { type: "action", toolRef: "pm.update_task", input: {} },
       ],
-    }
+    };
 
-    const result = await compiler.compile(input)
+    const result = await compiler.compile(input);
 
-    expect('errors' in result).toBe(false)
+    expect("errors" in result).toBe(false);
     const success = result as {
-      target: string
-      artifact: unknown
-      warnings: Array<{ code: string; message: string }>
-      reasons: Array<{ code: string; message: string }>
-    }
-    expect(success.target).toBe('skill-chain')
+      target: string;
+      artifact: unknown;
+      warnings: Array<{ code: string; message: string }>;
+      reasons: Array<{ code: string; message: string }>;
+    };
+    expect(success.target).toBe("skill-chain");
 
-    const chain = success.artifact as SkillChain
-    expect(chain.name).toBe('flow')
-    expect(chain.steps).toHaveLength(2)
-    expect(chain.steps[0]?.skillName).toBe('pm.create_task')
-    expect(chain.steps[1]?.skillName).toBe('pm.update_task')
-    expect(success.warnings).toEqual([])
+    const chain = success.artifact as SkillChain;
+    expect(chain.name).toBe("flow");
+    expect(chain.steps).toHaveLength(2);
+    expect(chain.steps[0]?.skillName).toBe("pm.create_task");
+    expect(chain.steps[1]?.skillName).toBe("pm.update_task");
+    expect(success.warnings).toEqual([]);
     expect(success.reasons).toEqual([
-      expect.objectContaining({ code: 'SEQUENTIAL_ONLY' }),
-    ])
-  })
+      expect.objectContaining({ code: "SEQUENTIAL_ONLY" }),
+    ]);
+  });
 
   it('uses the default chain name "flow"', async () => {
-    const resolver = makeResolver(['tasks.run'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
-    const result = await compiler.compile({ type: 'action', toolRef: 'tasks.run', input: {} })
-    const success = result as { artifact: SkillChain }
-    expect(success.artifact.name).toBe('flow')
-  })
+    const resolver = makeResolver(["tasks.run"]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
+    const result = await compiler.compile({
+      type: "action",
+      toolRef: "tasks.run",
+      input: {},
+    });
+    const success = result as { artifact: SkillChain };
+    expect(success.artifact.name).toBe("flow");
+  });
 
-  it('compiles a canonical FlowDocument via compileDocument()', async () => {
-    const resolver = makeResolver(['tasks.run'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+  it("compiles a canonical FlowDocument via compileDocument()", async () => {
+    const resolver = makeResolver(["tasks.run"]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const result = await compiler.compileDocument({
-      dsl: 'dzupflow/v1',
-      id: 'doc_flow',
+      dsl: "dzupflow/v1",
+      id: "doc_flow",
       version: 1,
       root: {
-        type: 'sequence',
-        id: 'root',
-        nodes: [
-          { type: 'action', id: 'run', toolRef: 'tasks.run', input: {} },
-        ],
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "action", id: "run", toolRef: "tasks.run", input: {} }],
       },
-    })
+    });
 
-    expect('errors' in result).toBe(false)
-    const success = result as { target: string; artifact: SkillChain }
-    expect(success.target).toBe('skill-chain')
-    expect(success.artifact.steps).toHaveLength(1)
-    expect(success.artifact.steps[0]?.skillName).toBe('tasks.run')
-  })
+    expect("errors" in result).toBe(false);
+    const success = result as { target: string; artifact: SkillChain };
+    expect(success.target).toBe("skill-chain");
+    expect(success.artifact.steps).toHaveLength(1);
+    expect(success.artifact.steps[0]?.skillName).toBe("tasks.run");
+  });
 
-  it('compiles dzupflow DSL text via compileDsl()', async () => {
-    const resolver = makeResolver(['tasks.run'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+  it("compiles dzupflow DSL text via compileDsl()", async () => {
+    const resolver = makeResolver(["tasks.run"]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const result = await compiler.compileDsl(`
 dsl: dzupflow/v1
@@ -243,149 +243,171 @@ steps:
       ref: tasks.run
       input:
         mode: run
-`)
+`);
 
-    expect('errors' in result).toBe(false)
-    const success = result as { target: string; artifact: SkillChain }
-    expect(success.target).toBe('skill-chain')
-    expect(success.artifact.steps).toHaveLength(1)
-    expect(success.artifact.steps[0]?.skillName).toBe('tasks.run')
-  })
-})
+    expect("errors" in result).toBe(false);
+    const success = result as { target: string; artifact: SkillChain };
+    expect(success.target).toBe("skill-chain");
+    expect(success.artifact.steps).toHaveLength(1);
+    expect(success.artifact.steps[0]?.skillName).toBe("tasks.run");
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Happy path — workflow-builder target (branch → workflow-builder)
 // ---------------------------------------------------------------------------
 
-describe('createFlowCompiler — happy path workflow-builder', () => {
-  it('compiles a branch flow to a PipelineDefinition artifact', async () => {
-    const resolver = makeResolver(['tasks.plan', 'tasks.exec-simple', 'tasks.exec-complex'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+describe("createFlowCompiler — happy path workflow-builder", () => {
+  it("compiles a branch flow to a PipelineDefinition artifact", async () => {
+    const resolver = makeResolver([
+      "tasks.plan",
+      "tasks.exec-simple",
+      "tasks.exec-complex",
+    ]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const input = {
-      type: 'branch',
-      condition: 'is_complex',
-      then: [{ type: 'action', toolRef: 'tasks.exec-complex', input: {} }],
-      else: [{ type: 'action', toolRef: 'tasks.exec-simple', input: {} }],
-    }
+      type: "branch",
+      condition: "is_complex",
+      then: [{ type: "action", toolRef: "tasks.exec-complex", input: {} }],
+      else: [{ type: "action", toolRef: "tasks.exec-simple", input: {} }],
+    };
 
-    const result = await compiler.compile(input)
+    const result = await compiler.compile(input);
 
-    expect('errors' in result).toBe(false)
-    const success = result as { target: string; artifact: unknown; reasons: Array<{ code: string }> }
-    expect(success.target).toBe('workflow-builder')
-    expect(success.reasons.some((reason) => reason.code === 'BRANCH_PRESENT')).toBe(true)
+    expect("errors" in result).toBe(false);
+    const success = result as {
+      target: string;
+      artifact: unknown;
+      reasons: Array<{ code: string }>;
+    };
+    expect(success.target).toBe("workflow-builder");
+    expect(
+      success.reasons.some((reason) => reason.code === "BRANCH_PRESENT")
+    ).toBe(true);
 
-    const pipeline = success.artifact as PipelineDefinition
-    expect(typeof pipeline.id).toBe('string')
-    expect(pipeline.nodes.length).toBeGreaterThan(0)
+    const pipeline = success.artifact as PipelineDefinition;
+    expect(typeof pipeline.id).toBe("string");
+    expect(pipeline.nodes.length).toBeGreaterThan(0);
     // GateNode (branch) + 2 action nodes
-    expect(pipeline.nodes.some((n) => n.type === 'gate')).toBe(true)
-    expect(pipeline.nodes.some((n) => n.type === 'tool')).toBe(true)
-  })
-})
+    expect(pipeline.nodes.some((n) => n.type === "gate")).toBe(true);
+    expect(pipeline.nodes.some((n) => n.type === "tool")).toBe(true);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Happy path — pipeline target (for_each → pipeline-loop)
 // ---------------------------------------------------------------------------
 
-describe('createFlowCompiler — happy path pipeline', () => {
-  it('compiles a for_each flow to a PipelineDefinition artifact', async () => {
-    const resolver = makeResolver(['items.process'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+describe("createFlowCompiler — happy path pipeline", () => {
+  it("compiles a for_each flow to a PipelineDefinition artifact", async () => {
+    const resolver = makeResolver(["items.process"]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const input = {
-      type: 'for_each',
-      source: 'items',
-      as: 'item',
-      body: [{ type: 'action', toolRef: 'items.process', input: {} }],
-    }
+      type: "for_each",
+      source: "items",
+      as: "item",
+      body: [{ type: "action", toolRef: "items.process", input: {} }],
+    };
 
-    const result = await compiler.compile(input)
+    const result = await compiler.compile(input);
 
-    expect('errors' in result).toBe(false)
-    const success = result as { target: string; artifact: unknown; reasons: Array<{ code: string }> }
-    expect(success.target).toBe('pipeline')
-    expect(success.reasons.some((reason) => reason.code === 'FOR_EACH_PRESENT')).toBe(true)
+    expect("errors" in result).toBe(false);
+    const success = result as {
+      target: string;
+      artifact: unknown;
+      reasons: Array<{ code: string }>;
+    };
+    expect(success.target).toBe("pipeline");
+    expect(
+      success.reasons.some((reason) => reason.code === "FOR_EACH_PRESENT")
+    ).toBe(true);
 
-    const pipeline = success.artifact as PipelineDefinition
-    expect(typeof pipeline.id).toBe('string')
-    expect(pipeline.nodes.some((n) => n.type === 'loop')).toBe(true)
-  })
-})
+    const pipeline = success.artifact as PipelineDefinition;
+    expect(typeof pipeline.id).toBe("string");
+    expect(pipeline.nodes.some((n) => n.type === "loop")).toBe(true);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Stage 2 shape error
 // ---------------------------------------------------------------------------
 
-describe('createFlowCompiler — stage 2 errors', () => {
-  it('returns stage:2 errors for an empty sequence body', async () => {
-    const resolver = makeResolver([])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+describe("createFlowCompiler — stage 2 errors", () => {
+  it("returns stage:2 errors for an empty sequence body", async () => {
+    const resolver = makeResolver([]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     // Empty sequence body — fails shape validation (EMPTY_BODY)
-    const result = await compiler.compile({ type: 'sequence', nodes: [] })
+    const result = await compiler.compile({ type: "sequence", nodes: [] });
 
-    expect('errors' in result).toBe(true)
-    const failure = result as { errors: Array<{ stage: number; code: string; message: string }> }
-    expect(failure.errors.length).toBeGreaterThan(0)
-    expect(failure.errors.every((e) => e.stage === 2)).toBe(true)
-    expect(failure.errors[0]?.code).toBe('EMPTY_BODY')
-    expect(failure.errors[0]?.message).toMatch(/sequence\.nodes must contain/)
-  })
+    expect("errors" in result).toBe(true);
+    const failure = result as {
+      errors: Array<{ stage: number; code: string; message: string }>;
+    };
+    expect(failure.errors.length).toBeGreaterThan(0);
+    expect(failure.errors.every((e) => e.stage === 2)).toBe(true);
+    expect(failure.errors[0]?.code).toBe("EMPTY_BODY");
+    expect(failure.errors[0]?.message).toMatch(/sequence\.nodes must contain/);
+  });
 
-  it('returns stage:2 errors for a branch missing condition', async () => {
-    const resolver = makeResolver(['a.tool'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+  it("returns stage:2 errors for a branch missing condition", async () => {
+    const resolver = makeResolver(["a.tool"]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     // branch.condition is missing (omitted here as unknown object)
     const result = await compiler.compile({
-      type: 'branch',
-      condition: '',   // empty string triggers MISSING_REQUIRED_FIELD
-      then: [{ type: 'action', toolRef: 'a.tool', input: {} }],
-    })
+      type: "branch",
+      condition: "", // empty string triggers MISSING_REQUIRED_FIELD
+      then: [{ type: "action", toolRef: "a.tool", input: {} }],
+    });
 
-    expect('errors' in result).toBe(true)
-    const failure = result as { errors: Array<{ stage: number }> }
-    expect(failure.errors.every((e) => e.stage === 2)).toBe(true)
-  })
+    expect("errors" in result).toBe(true);
+    const failure = result as { errors: Array<{ stage: number }> };
+    expect(failure.errors.every((e) => e.stage === 2)).toBe(true);
+  });
 
-  it('combines stage 1 + 2 errors when parse partially recovers', async () => {
+  it("combines stage 1 + 2 errors when parse partially recovers", async () => {
     // Pass a JSON string that parses to a valid object but fails shape-validate.
     // (parse succeeds with ast non-null, shape-validate fails)
-    const resolver = makeResolver([])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
-    const result = await compiler.compile(JSON.stringify({ type: 'sequence', nodes: [] }))
-    expect('errors' in result).toBe(true)
-    const failure = result as { errors: Array<{ stage: number }> }
+    const resolver = makeResolver([]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
+    const result = await compiler.compile(
+      JSON.stringify({ type: "sequence", nodes: [] })
+    );
+    expect("errors" in result).toBe(true);
+    const failure = result as { errors: Array<{ stage: number }> };
     // Shape errors — stage 2
-    expect(failure.errors.some((e) => e.stage === 2)).toBe(true)
-  })
+    expect(failure.errors.some((e) => e.stage === 2)).toBe(true);
+  });
 
-  it('compileDocument() returns stage:2 diagnostics for invalid canonical documents', async () => {
-    const resolver = makeResolver([])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+  it("compileDocument() returns stage:2 diagnostics for invalid canonical documents", async () => {
+    const resolver = makeResolver([]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const result = await compiler.compileDocument({
-      dsl: 'dzupflow/v1',
-      id: 'doc_flow',
+      dsl: "dzupflow/v1",
+      id: "doc_flow",
       version: 1,
       root: {
-        type: 'sequence',
-        id: 'root',
+        type: "sequence",
+        id: "root",
         nodes: [],
       },
-    })
+    });
 
-    expect('errors' in result).toBe(true)
-    const failure = result as { errors: Array<{ stage: number; code: string }> }
-    expect(failure.errors.some((e) => e.stage === 2)).toBe(true)
-    expect(failure.errors[0]?.code).toBe('EMPTY_BODY')
-  })
+    expect("errors" in result).toBe(true);
+    const failure = result as {
+      errors: Array<{ stage: number; code: string }>;
+    };
+    expect(failure.errors.some((e) => e.stage === 2)).toBe(true);
+    expect(failure.errors[0]?.code).toBe("EMPTY_BODY");
+  });
 
-  it('compileDsl() returns normalized diagnostics for invalid DSL text', async () => {
-    const resolver = makeResolver([])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+  it("compileDsl() returns normalized diagnostics for invalid DSL text", async () => {
+    const resolver = makeResolver([]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const result = await compiler.compileDsl(`
 dsl: dzupflow/v1
@@ -398,79 +420,92 @@ steps:
       on_error:
         action: retry
       input: {}
-`)
+`);
 
-    expect('errors' in result).toBe(true)
-    const failure = result as { errors: Array<{ stage: number; code: string; nodePath?: string }> }
-    expect(failure.errors.some((e) => e.stage === 2)).toBe(true)
-    expect(failure.errors[0]?.code).toBe('UNSUPPORTED_FIELD')
-    expect(failure.errors[0]?.nodePath).toBe('root.steps[0].on_error')
-  })
+    expect("errors" in result).toBe(true);
+    const failure = result as {
+      errors: Array<{ stage: number; code: string; nodePath?: string }>;
+    };
+    expect(failure.errors.some((e) => e.stage === 2)).toBe(true);
+    expect(failure.errors[0]?.code).toBe("UNSUPPORTED_FIELD");
+    expect(failure.errors[0]?.nodePath).toBe("root.steps[0].on_error");
+  });
 
-  it('newer public node kinds reach shape validation instead of UNKNOWN_NODE_TYPE', async () => {
-    const resolver = makeResolver([])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+  it("newer public node kinds reach shape validation instead of UNKNOWN_NODE_TYPE", async () => {
+    const resolver = makeResolver([]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const result = await compiler.compile({
-      type: 'spawn',
-      templateRef: '',
-    })
+      type: "spawn",
+      templateRef: "",
+    });
 
-    expect('errors' in result).toBe(true)
-    const failure = result as { errors: Array<{ stage: number; code: string; message: string }> }
+    expect("errors" in result).toBe(true);
+    const failure = result as {
+      errors: Array<{ stage: number; code: string; message: string }>;
+    };
     expect(failure.errors).toEqual([
       expect.objectContaining({
         stage: 2,
-        code: 'MISSING_REQUIRED_FIELD',
-        message: 'spawn.templateRef is required (non-empty string)',
+        code: "MISSING_REQUIRED_FIELD",
+        message: "spawn.templateRef is required (non-empty string)",
       }),
-    ])
-    expect(failure.errors.some((e) => e.code === 'UNKNOWN_NODE_TYPE')).toBe(false)
-  })
-})
+    ]);
+    expect(failure.errors.some((e) => e.code === "UNKNOWN_NODE_TYPE")).toBe(
+      false
+    );
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Stage 3 — unresolved ref (halts, does not lower)
 // ---------------------------------------------------------------------------
 
-describe('createFlowCompiler — stage 3 errors', () => {
-  it('returns stage:3 errors for an unresolved toolRef', async () => {
-    const resolver = makeResolver(['known.tool'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+describe("createFlowCompiler — stage 3 errors", () => {
+  it("returns stage:3 errors for an unresolved toolRef", async () => {
+    const resolver = makeResolver(["known.tool"]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const result = await compiler.compile({
-      type: 'action',
-      toolRef: 'unknown.tool',   // not in registry
+      type: "action",
+      toolRef: "unknown.tool", // not in registry
       input: {},
-    })
+    });
 
-    expect('errors' in result).toBe(true)
-    const failure = result as { errors: Array<{ stage: number; code: string; message: string; suggestion?: string }> }
-    expect(failure.errors.length).toBeGreaterThan(0)
-    expect(failure.errors.every((e) => e.stage === 3)).toBe(true)
-    expect(failure.errors[0]?.code).toBe('UNRESOLVED_TOOL_REF')
-    expect(failure.errors[0]?.message).toMatch(/unknown\.tool/)
-  })
+    expect("errors" in result).toBe(true);
+    const failure = result as {
+      errors: Array<{
+        stage: number;
+        code: string;
+        message: string;
+        suggestion?: string;
+      }>;
+    };
+    expect(failure.errors.length).toBeGreaterThan(0);
+    expect(failure.errors.every((e) => e.stage === 3)).toBe(true);
+    expect(failure.errors[0]?.code).toBe("UNRESOLVED_TOOL_REF");
+    expect(failure.errors[0]?.message).toMatch(/unknown\.tool/);
+  });
 
-  it('does not lower when there are stage 3 errors', async () => {
-    const resolver = makeResolver([])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+  it("does not lower when there are stage 3 errors", async () => {
+    const resolver = makeResolver([]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     const result = await compiler.compile({
-      type: 'sequence',
+      type: "sequence",
       nodes: [
-        { type: 'action', toolRef: 'missing.a', input: {} },
-        { type: 'action', toolRef: 'missing.b', input: {} },
+        { type: "action", toolRef: "missing.a", input: {} },
+        { type: "action", toolRef: "missing.b", input: {} },
       ],
-    })
+    });
 
-    expect('errors' in result).toBe(true)
-    const failure = result as { errors: Array<{ stage: number }> }
-    expect(failure.errors.every((e) => e.stage === 3)).toBe(true)
+    expect("errors" in result).toBe(true);
+    const failure = result as { errors: Array<{ stage: number }> };
+    expect(failure.errors.every((e) => e.stage === 3)).toBe(true);
     // 2 unresolved refs → 2 errors
-    expect(failure.errors).toHaveLength(2)
-  })
-})
+    expect(failure.errors).toHaveLength(2);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Stage 4 — on_error backstop (direct path verification)
@@ -493,51 +528,51 @@ describe('createFlowCompiler — stage 3 errors', () => {
 //   c) documenting that the compile() path cannot synthesise this scenario.
 // ---------------------------------------------------------------------------
 
-describe('createFlowCompiler — stage 4 on_error backstop (structural verification)', () => {
-  it('hasOnError detects on_error injected at the action level', () => {
+describe("createFlowCompiler — stage 4 on_error backstop (structural verification)", () => {
+  it("hasOnError detects on_error injected at the action level", () => {
     // Cast to unknown first so noUncheckedIndexedAccess stays satisfied.
     const astWithOnError = {
-      type: 'action',
-      toolRef: 'pm.run',
+      type: "action",
+      toolRef: "pm.run",
       input: {},
-      on_error: { strategy: 'retry' },
-    } as unknown as import('@dzupagent/flow-ast').FlowNode
+      on_error: { strategy: "retry" },
+    } as unknown as FlowNode;
 
-    expect(hasOnError(astWithOnError)).toBe(true)
-  })
+    expect(hasOnError(astWithOnError)).toBe(true);
+  });
 
-  it('routeTarget routes a plain action node to skill-chain', () => {
+  it("routeTarget routes a plain action node to skill-chain", () => {
     const ast = {
-      type: 'action',
-      toolRef: 'pm.run',
+      type: "action",
+      toolRef: "pm.run",
       input: {},
-    } as import('@dzupagent/flow-ast').FlowNode
+    } as FlowNode;
 
-    expect(routeTarget(ast).target).toBe('skill-chain')
-  })
+    expect(routeTarget(ast).target).toBe("skill-chain");
+  });
 
-  it('compile() returns stage:2 when on_error is present in a skill-chain flow (OI-4 fires before stage 4)', async () => {
+  it("compile() returns stage:2 when on_error is present in a skill-chain flow (OI-4 fires before stage 4)", async () => {
     // The only way to get on_error past parseFlow is to pass a pre-parsed
     // object. parseFlow reconstructs TypeScript types and strips it.
     // So compile() always hits stage 2 OI-4, never stage 4.
     // This test documents that guarantee explicitly.
-    const resolver = makeResolver(['pm.run'])
-    const compiler = createFlowCompiler({ toolResolver: resolver })
+    const resolver = makeResolver(["pm.run"]);
+    const compiler = createFlowCompiler({ toolResolver: resolver });
 
     // Pass raw object — parseFlow strips the on_error field when constructing
     // the ActionNode. Shape-validate then produces no on_error error (field is
     // absent). Semantic stage resolves pm.run. Lowering succeeds.
     const result = await compiler.compile({
-      type: 'action',
-      toolRef: 'pm.run',
+      type: "action",
+      toolRef: "pm.run",
       input: {},
       // on_error is an unrecognised field — parseFlow silently drops it
-      on_error: { strategy: 'retry' },
-    })
+      on_error: { strategy: "retry" },
+    });
 
     // Should succeed — on_error was stripped by parseFlow.
-    expect('errors' in result).toBe(false)
-    const success = result as { target: string }
-    expect(success.target).toBe('skill-chain')
-  })
-})
+    expect("errors" in result).toBe(false);
+    const success = result as { target: string };
+    expect(success.target).toBe("skill-chain");
+  });
+});
