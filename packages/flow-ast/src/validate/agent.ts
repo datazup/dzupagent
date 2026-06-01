@@ -319,7 +319,7 @@ function validateAgentStop(
     if (!isPositiveFinitePolicyNumber(raw["maxToolCalls"])) {
       issues.push({
         path: joinPath(path, "maxToolCalls"),
-        code: "WRONG_FIELD_TYPE",
+        code: "MISSING_REQUIRED_FIELD",
         message: "agent.stop.maxToolCalls must be a positive integer",
       });
     } else {
@@ -660,7 +660,7 @@ function validateAgentPolicy(
     if (!isPositiveFinitePolicyNumber(raw["maxToolCalls"])) {
       issues.push({
         path: joinPath(path, "maxToolCalls"),
-        code: "WRONG_FIELD_TYPE",
+        code: "MISSING_REQUIRED_FIELD",
         message: "agent.policy.maxToolCalls must be a positive integer",
       });
     } else {
