@@ -18,6 +18,7 @@ import {
 } from "../validation-helpers.js";
 import { validateCommonNodeFields } from "./shared.js";
 import type { SchemaIssue } from "./shared.js";
+import { isPositiveFinitePolicyNumber } from "../policy-numbers.js";
 
 export function validateAgent(
   obj: Record<string, unknown>,
@@ -315,11 +316,11 @@ function validateAgentStop(
     }
   }
   if (raw["maxToolCalls"] !== undefined) {
-    if (typeof raw["maxToolCalls"] !== "number") {
+    if (!isPositiveFinitePolicyNumber(raw["maxToolCalls"])) {
       issues.push({
         path: joinPath(path, "maxToolCalls"),
-        code: "MISSING_REQUIRED_FIELD",
-        message: "agent.stop.maxToolCalls must be a number",
+        code: "WRONG_FIELD_TYPE",
+        message: "agent.stop.maxToolCalls must be a positive integer",
       });
     } else {
       stop.maxToolCalls = raw["maxToolCalls"];
@@ -656,15 +657,10 @@ function validateAgentPolicy(
     }
   }
   if (raw["maxToolCalls"] !== undefined) {
-    if (
-      typeof raw["maxToolCalls"] !== "number" ||
-      !Number.isFinite(raw["maxToolCalls"]) ||
-      !Number.isInteger(raw["maxToolCalls"]) ||
-      raw["maxToolCalls"] <= 0
-    ) {
+    if (!isPositiveFinitePolicyNumber(raw["maxToolCalls"])) {
       issues.push({
         path: joinPath(path, "maxToolCalls"),
-        code: "MISSING_REQUIRED_FIELD",
+        code: "WRONG_FIELD_TYPE",
         message: "agent.policy.maxToolCalls must be a positive integer",
       });
     } else {

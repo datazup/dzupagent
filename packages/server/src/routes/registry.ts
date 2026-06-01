@@ -13,13 +13,19 @@
  * GET    /api/registry/health       — canonical fleet health DTO
  */
 
-import { Hono } from 'hono'
-import type { AppEnv } from '../types.js'
-import type { AgentRegistry, RegisterAgentInput, DiscoveryQuery, AgentHealthStatus } from '@dzupagent/core/pipeline'
-import type { ForgeCapability } from '@dzupagent/core/identity'
+import { Hono } from "hono";
+import { logRouteError } from "./route-error.js";
+import type { AppEnv } from "../types.js";
+import type {
+  AgentRegistry,
+  RegisterAgentInput,
+  DiscoveryQuery,
+  AgentHealthStatus,
+} from "@dzupagent/core/pipeline";
+import type { ForgeCapability } from "@dzupagent/core/identity";
 
 export interface RegistryRouteConfig {
-  registry: AgentRegistry
+  registry: AgentRegistry;
 }
 
 // ---------------------------------------------------------------------------
@@ -28,14 +34,14 @@ export interface RegistryRouteConfig {
 
 /** Per-agent health summary included in the fleet health response. */
 export interface RegistryAgentHealthSummary {
-  id: string
-  name: string
-  status: AgentHealthStatus
-  circuitState?: 'closed' | 'open' | 'half-open'
-  latencyP50Ms?: number
-  latencyP95Ms?: number
-  consecutiveFailures?: number
-  lastCheckedAt?: string
+  id: string;
+  name: string;
+  status: AgentHealthStatus;
+  circuitState?: "closed" | "open" | "half-open";
+  latencyP50Ms?: number;
+  latencyP95Ms?: number;
+  consecutiveFailures?: number;
+  lastCheckedAt?: string;
 }
 
 /**
@@ -46,50 +52,62 @@ export interface RegistryAgentHealthSummary {
  */
 export interface RegistryFleetHealthDto {
   /** ISO-8601 timestamp of when this snapshot was generated. */
-  timestamp: string
+  timestamp: string;
   /** Overall fleet status derived from per-agent statuses. */
-  status: 'healthy' | 'degraded' | 'unhealthy' | 'empty'
+  status: "healthy" | "degraded" | "unhealthy" | "empty";
   counts: {
-    total: number
-    healthy: number
-    degraded: number
-    unhealthy: number
-    unknown: number
-  }
+    total: number;
+    healthy: number;
+    degraded: number;
+    unhealthy: number;
+    unknown: number;
+  };
   /** Per-agent health summaries (same order as listAgents). */
-  agents: RegistryAgentHealthSummary[]
+  agents: RegistryAgentHealthSummary[];
 }
 
-export function createRegistryRoutes(config: RegistryRouteConfig): Hono<AppEnv> {
-  const app = new Hono<AppEnv>()
-  const { registry } = config
+export function createRegistryRoutes(
+  config: RegistryRouteConfig
+): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
+  const { registry } = config;
 
   // POST /api/registry/agents — Register
-  app.post('/agents', async (c) => {
+  app.post("/agents", async (c) => {
     try {
       const body = await c.req.json<{
-        name: string
-        description: string
-        endpoint?: string
-        protocols?: string[]
-        capabilities: ForgeCapability[]
-        version?: string
-        ttlMs?: number
-        metadata?: Record<string, unknown>
-      }>()
+        name: string;
+        description: string;
+        endpoint?: string;
+        protocols?: string[];
+        capabilities: ForgeCapability[];
+        version?: string;
+        ttlMs?: number;
+        metadata?: Record<string, unknown>;
+      }>();
 
       if (!body.name || !body.description) {
         return c.json(
-          { error: { code: 'VALIDATION_ERROR', message: 'name and description are required' } },
-          400,
-        )
+          {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "name and description are required",
+            },
+          },
+          400
+        );
       }
 
       if (!body.capabilities || body.capabilities.length === 0) {
         return c.json(
-          { error: { code: 'VALIDATION_ERROR', message: 'At least one capability is required' } },
-          400,
-        )
+          {
+            error: {
+              code: "VALIDATION_ERROR",
+              message: "At least one capability is required",
+            },
+          },
+          400
+        );
       }
 
       const input: RegisterAgentInput = {
@@ -101,122 +119,148 @@ export function createRegistryRoutes(config: RegistryRouteConfig): Hono<AppEnv> 
         version: body.version,
         ttlMs: body.ttlMs,
         metadata: body.metadata,
-      }
+      };
 
-      const agent = await registry.register(input)
-      return c.json({ data: agent }, 201)
+      const agent = await registry.register(input);
+      return c.json({ data: agent }, 201);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: { code: 'REGISTRY_ERROR', message } }, 500)
+      const { safe } = logRouteError(c, "registry", err, 500);
+      return c.json({ error: { code: "REGISTRY_ERROR", message: safe } }, 500);
     }
-  })
+  });
 
   // GET /api/registry/agents — List (paginated)
-  app.get('/agents', async (c) => {
+  app.get("/agents", async (c) => {
     try {
-      const limit = parseInt(c.req.query('limit') ?? '100', 10)
-      const offset = parseInt(c.req.query('offset') ?? '0', 10)
+      const limit = parseInt(c.req.query("limit") ?? "100", 10);
+      const offset = parseInt(c.req.query("offset") ?? "0", 10);
 
       const result = await registry.listAgents(
         Math.min(Math.max(limit, 1), 200),
-        Math.max(offset, 0),
-      )
+        Math.max(offset, 0)
+      );
 
-      return c.json({ data: result.agents, total: result.total, limit, offset })
+      return c.json({
+        data: result.agents,
+        total: result.total,
+        limit,
+        offset,
+      });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: { code: 'REGISTRY_ERROR', message } }, 500)
+      const { safe } = logRouteError(c, "registry", err, 500);
+      return c.json({ error: { code: "REGISTRY_ERROR", message: safe } }, 500);
     }
-  })
+  });
 
   // GET /api/registry/agents/:id — Get single
-  app.get('/agents/:id', async (c) => {
+  app.get("/agents/:id", async (c) => {
     try {
-      const agent = await registry.getAgent(c.req.param('id'))
+      const agent = await registry.getAgent(c.req.param("id"));
       if (!agent) {
-        return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
+        return c.json(
+          { error: { code: "NOT_FOUND", message: "Agent not found" } },
+          404
+        );
       }
-      return c.json({ data: agent })
+      return c.json({ data: agent });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: { code: 'REGISTRY_ERROR', message } }, 500)
+      const { safe } = logRouteError(c, "registry", err, 500);
+      return c.json({ error: { code: "REGISTRY_ERROR", message: safe } }, 500);
     }
-  })
+  });
 
   // DELETE /api/registry/agents/:id — Deregister
-  app.delete('/agents/:id', async (c) => {
+  app.delete("/agents/:id", async (c) => {
     try {
-      await registry.deregister(c.req.param('id'))
-      return c.json({ data: { id: c.req.param('id'), deregistered: true } })
+      await registry.deregister(c.req.param("id"));
+      return c.json({ data: { id: c.req.param("id"), deregistered: true } });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      const status = message.includes('not found') ? 404 : 500
-      return c.json({ error: { code: status === 404 ? 'NOT_FOUND' : 'REGISTRY_ERROR', message } }, status)
+      const internalMessage = err instanceof Error ? err.message : String(err);
+      const status = internalMessage.includes("not found") ? 404 : 500;
+      const { safe } = logRouteError(c, "registry.deregister", err, status);
+      // 404 "not found" is a deterministic, client-safe outcome; only the
+      // 500 path must be sanitized to avoid leaking internal error detail.
+      const message = status === 404 ? "Agent not found" : safe;
+      return c.json(
+        {
+          error: {
+            code: status === 404 ? "NOT_FOUND" : "REGISTRY_ERROR",
+            message,
+          },
+        },
+        status
+      );
     }
-  })
+  });
 
   // GET /api/registry/discover — Discovery
-  app.get('/discover', async (c) => {
+  app.get("/discover", async (c) => {
     try {
-      const query: DiscoveryQuery = {}
+      const query: DiscoveryQuery = {};
 
-      const capPrefix = c.req.query('capabilityPrefix')
-      if (capPrefix) query.capabilityPrefix = capPrefix
+      const capPrefix = c.req.query("capabilityPrefix");
+      if (capPrefix) query.capabilityPrefix = capPrefix;
 
-      const capExact = c.req.query('capabilityExact')
-      if (capExact) query.capabilityExact = { name: capExact }
+      const capExact = c.req.query("capabilityExact");
+      if (capExact) query.capabilityExact = { name: capExact };
 
-      const semanticQ = c.req.query('q')
-      if (semanticQ) query.semanticQuery = semanticQ
+      const semanticQ = c.req.query("q");
+      if (semanticQ) query.semanticQuery = semanticQ;
 
-      const tags = c.req.query('tags')
-      if (tags) query.tags = tags.split(',')
+      const tags = c.req.query("tags");
+      if (tags) query.tags = tags.split(",");
 
-      const health = c.req.query('health')
-      if (health) query.healthFilter = health.split(',') as AgentHealthStatus[]
+      const health = c.req.query("health");
+      if (health) query.healthFilter = health.split(",") as AgentHealthStatus[];
 
-      const protocols = c.req.query('protocols')
-      if (protocols) query.protocols = protocols.split(',')
+      const protocols = c.req.query("protocols");
+      if (protocols) query.protocols = protocols.split(",");
 
-      const limit = c.req.query('limit')
-      if (limit) query.limit = parseInt(limit, 10)
+      const limit = c.req.query("limit");
+      if (limit) query.limit = parseInt(limit, 10);
 
-      const offset = c.req.query('offset')
-      if (offset) query.offset = parseInt(offset, 10)
+      const offset = c.req.query("offset");
+      if (offset) query.offset = parseInt(offset, 10);
 
-      const result = await registry.discover(query)
-      return c.json({ data: result })
+      const result = await registry.discover(query);
+      return c.json({ data: result });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: { code: 'REGISTRY_ERROR', message } }, 500)
+      const { safe } = logRouteError(c, "registry", err, 500);
+      return c.json({ error: { code: "REGISTRY_ERROR", message: safe } }, 500);
     }
-  })
+  });
 
   // GET /api/registry/stats — Stats
-  app.get('/stats', async (c) => {
+  app.get("/stats", async (c) => {
     try {
-      const stats = await registry.stats()
-      return c.json({ data: stats })
+      const stats = await registry.stats();
+      return c.json({ data: stats });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: { code: 'REGISTRY_ERROR', message } }, 500)
+      const { safe } = logRouteError(c, "registry", err, 500);
+      return c.json({ error: { code: "REGISTRY_ERROR", message: safe } }, 500);
     }
-  })
+  });
 
   // GET /api/registry/health — Canonical fleet health DTO
-  app.get('/health', async (c) => {
+  app.get("/health", async (c) => {
     try {
-      const { agents } = await registry.listAgents(1000, 0)
+      const { agents } = await registry.listAgents(1000, 0);
 
-      const counts = { total: agents.length, healthy: 0, degraded: 0, unhealthy: 0, unknown: 0 }
-      const summaries: RegistryAgentHealthSummary[] = []
+      const counts = {
+        total: agents.length,
+        healthy: 0,
+        degraded: 0,
+        unhealthy: 0,
+        unknown: 0,
+      };
+      const summaries: RegistryAgentHealthSummary[] = [];
 
       for (const agent of agents) {
-        const s = agent.health.status
-        if (s === 'healthy') counts.healthy++
-        else if (s === 'degraded') counts.degraded++
-        else if (s === 'unhealthy') counts.unhealthy++
-        else counts.unknown++
+        const s = agent.health.status;
+        if (s === "healthy") counts.healthy++;
+        else if (s === "degraded") counts.degraded++;
+        else if (s === "unhealthy") counts.unhealthy++;
+        else counts.unknown++;
 
         summaries.push({
           id: agent.id,
@@ -227,18 +271,18 @@ export function createRegistryRoutes(config: RegistryRouteConfig): Hono<AppEnv> 
           latencyP95Ms: agent.health.latencyP95Ms,
           consecutiveFailures: agent.health.consecutiveFailures,
           lastCheckedAt: agent.health.lastCheckedAt?.toISOString(),
-        })
+        });
       }
 
-      let fleetStatus: RegistryFleetHealthDto['status']
+      let fleetStatus: RegistryFleetHealthDto["status"];
       if (counts.total === 0) {
-        fleetStatus = 'empty'
+        fleetStatus = "empty";
       } else if (counts.unhealthy > 0 && counts.healthy === 0) {
-        fleetStatus = 'unhealthy'
+        fleetStatus = "unhealthy";
       } else if (counts.degraded > 0 || counts.unhealthy > 0) {
-        fleetStatus = 'degraded'
+        fleetStatus = "degraded";
       } else {
-        fleetStatus = 'healthy'
+        fleetStatus = "healthy";
       }
 
       const dto: RegistryFleetHealthDto = {
@@ -246,14 +290,14 @@ export function createRegistryRoutes(config: RegistryRouteConfig): Hono<AppEnv> 
         status: fleetStatus,
         counts,
         agents: summaries,
-      }
+      };
 
-      return c.json({ data: dto })
+      return c.json({ data: dto });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return c.json({ error: { code: 'REGISTRY_ERROR', message } }, 500)
+      const { safe } = logRouteError(c, "registry", err, 500);
+      return c.json({ error: { code: "REGISTRY_ERROR", message: safe } }, 500);
     }
-  })
+  });
 
-  return app
+  return app;
 }

@@ -23,6 +23,7 @@ import {
   joinPointer,
   parseCommonNodeFields,
 } from "./shared.js";
+import { isPositiveFinitePolicyNumber } from "../policy-numbers.js";
 
 export function parseAgent(
   obj: Record<string, unknown>,
@@ -319,12 +320,7 @@ function parseStop(
     } else stop.maxIterations = raw.maxIterations;
   }
   if (raw.maxToolCalls !== undefined) {
-    if (
-      typeof raw.maxToolCalls !== "number" ||
-      !Number.isFinite(raw.maxToolCalls) ||
-      !Number.isInteger(raw.maxToolCalls) ||
-      raw.maxToolCalls <= 0
-    ) {
+    if (!isPositiveFinitePolicyNumber(raw.maxToolCalls)) {
       ctx.errors.push({
         code: "WRONG_FIELD_TYPE",
         message: "agent.stop.maxToolCalls must be a positive integer",
@@ -621,9 +617,17 @@ function parsePolicy(
   numberField(raw, "budgetCents", pointer, ctx, (v) => {
     policy.budgetCents = v;
   });
-  numberField(raw, "maxToolCalls", pointer, ctx, (v) => {
-    policy.maxToolCalls = v;
-  });
+  if (raw.maxToolCalls !== undefined) {
+    if (!isPositiveFinitePolicyNumber(raw.maxToolCalls)) {
+      ctx.errors.push({
+        code: "WRONG_FIELD_TYPE",
+        message: "agent.policy.maxToolCalls must be a positive integer",
+        pointer: joinPointer(pointer, "maxToolCalls"),
+      });
+    } else {
+      policy.maxToolCalls = raw.maxToolCalls;
+    }
+  }
   if (raw.workingDirectory !== undefined) {
     if (typeof raw.workingDirectory !== "string") {
       ctx.errors.push({

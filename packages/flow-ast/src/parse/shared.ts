@@ -6,37 +6,37 @@
  * primitives that all per-kind files consume.
  */
 
-import type { FlowNode, SequenceNode } from '../types.js'
-import { FLOW_NODE_KINDS } from '../types.js'
+import type { FlowNode, SequenceNode } from "../types.js";
+import { FLOW_NODE_KINDS } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Public parse-result surface
 // ---------------------------------------------------------------------------
 
-export type ParseInput = string | object
+export type ParseInput = string | object;
 
 export type ParseErrorCode =
-  | 'INVALID_JSON'
-  | 'NOT_AN_OBJECT'
-  | 'MISSING_TYPE'
-  | 'UNKNOWN_NODE_TYPE'
-  | 'WRONG_FIELD_TYPE'
-  | 'EXPECTED_ARRAY'
-  | 'EXPECTED_OBJECT'
+  | "INVALID_JSON"
+  | "NOT_AN_OBJECT"
+  | "MISSING_TYPE"
+  | "UNKNOWN_NODE_TYPE"
+  | "WRONG_FIELD_TYPE"
+  | "EXPECTED_ARRAY"
+  | "EXPECTED_OBJECT";
 
 export interface ParseError {
-  code: ParseErrorCode
-  message: string
+  code: ParseErrorCode;
+  message: string;
   /** Line/column when input was a string; undefined when input was a pre-parsed object. */
-  position?: { line: number; column: number }
+  position?: { line: number; column: number };
   /** JSON pointer path (RFC 6901-style, "/nodes/0/body/2") — always populated. */
-  pointer: string
+  pointer: string;
 }
 
 export interface ParseResult {
   /** Parsed AST. Present even when errors are non-empty IF the parser could recover; otherwise null. */
-  ast: FlowNode | null
-  errors: ParseError[]
+  ast: FlowNode | null;
+  errors: ParseError[];
 }
 
 // ---------------------------------------------------------------------------
@@ -44,19 +44,19 @@ export interface ParseResult {
 // ---------------------------------------------------------------------------
 
 export interface ParseContext {
-  errors: ParseError[]
+  errors: ParseError[];
   /** Line/column tracking is available only when the original input was a string. */
-  hasPositions: boolean
-  parseNodeArray: ParseNodeArray
+  hasPositions: boolean;
+  parseNodeArray: ParseNodeArray;
 }
 
 export type ParseNodeArray = (
   items: unknown[],
   basePointer: string,
-  ctx: ParseContext,
-) => FlowNode[]
+  ctx: ParseContext
+) => FlowNode[];
 
-export const KNOWN_NODE_TYPES = new Set<string>(FLOW_NODE_KINDS)
+export const KNOWN_NODE_TYPES = new Set<string>(FLOW_NODE_KINDS);
 
 // ---------------------------------------------------------------------------
 // Common-field parsing
@@ -65,98 +65,106 @@ export const KNOWN_NODE_TYPES = new Set<string>(FLOW_NODE_KINDS)
 export function parseCommonNodeFields(
   obj: Record<string, unknown>,
   pointer: string,
-  ctx: ParseContext,
-): Pick<SequenceNode, 'id' | 'name' | 'description' | 'meta'> {
-  const fields: Pick<SequenceNode, 'id' | 'name' | 'description' | 'meta'> = {}
+  ctx: ParseContext
+): Pick<SequenceNode, "id" | "name" | "description" | "meta"> {
+  const fields: Pick<SequenceNode, "id" | "name" | "description" | "meta"> = {};
 
-  parseOptionalStringField(obj, 'id', pointer, ctx, (value) => {
-    fields.id = value
-  })
-  parseOptionalStringField(obj, 'name', pointer, ctx, (value) => {
-    fields.name = value
-  })
-  parseOptionalStringField(obj, 'description', pointer, ctx, (value) => {
-    fields.description = value
-  })
+  parseOptionalStringField(obj, "id", pointer, ctx, (value) => {
+    fields.id = value;
+  });
+  parseOptionalStringField(obj, "name", pointer, ctx, (value) => {
+    fields.name = value;
+  });
+  parseOptionalStringField(obj, "description", pointer, ctx, (value) => {
+    fields.description = value;
+  });
 
-  if ('meta' in obj) {
-    const metaRaw = obj.meta
+  if ("meta" in obj) {
+    const metaRaw = obj.meta;
     if (metaRaw !== undefined) {
       if (isPlainObject(metaRaw)) {
-        fields.meta = metaRaw
+        fields.meta = metaRaw;
       } else {
         ctx.errors.push({
-          code: 'EXPECTED_OBJECT',
-          message: `Field "meta" must be an object when present, received ${describeJsType(metaRaw)}`,
-          pointer: joinPointer(pointer, 'meta'),
-        })
+          code: "EXPECTED_OBJECT",
+          message: `Field "meta" must be an object when present, received ${describeJsType(
+            metaRaw
+          )}`,
+          pointer: joinPointer(pointer, "meta"),
+        });
       }
     }
   }
 
-  return fields
+  return fields;
 }
 
 export function parseOptionalStringField(
   obj: Record<string, unknown>,
-  key: 'id' | 'name' | 'description',
+  key: "id" | "name" | "description",
   pointer: string,
   ctx: ParseContext,
-  assign: (value: string) => void,
+  assign: (value: string) => void
 ): void {
-  if (!(key in obj)) return
-  const raw = obj[key]
-  if (raw === undefined) return
-  if (typeof raw === 'string') {
-    assign(raw)
-    return
+  if (!(key in obj)) return;
+  const raw = obj[key];
+  if (raw === undefined) return;
+  if (typeof raw === "string") {
+    assign(raw);
+    return;
   }
   ctx.errors.push({
-    code: 'WRONG_FIELD_TYPE',
-    message: `Field "${key}" must be a string when present, received ${describeJsType(raw)}`,
+    code: "WRONG_FIELD_TYPE",
+    message: `Field "${key}" must be a string when present, received ${describeJsType(
+      raw
+    )}`,
     pointer: joinPointer(pointer, key),
-  })
+  });
 }
 
 export function parseOptionalMemoryStringField(
   obj: Record<string, unknown>,
-  key: 'key' | 'valueExpr' | 'outputVar' | 'query',
+  key: "key" | "valueExpr" | "outputVar" | "query",
   pointer: string,
   ctx: ParseContext,
-  assign: (value: string) => void,
+  assign: (value: string) => void
 ): void {
-  if (!(key in obj)) return
-  const raw = obj[key]
-  if (raw === undefined) return
-  if (typeof raw === 'string') {
-    assign(raw)
-    return
+  if (!(key in obj)) return;
+  const raw = obj[key];
+  if (raw === undefined) return;
+  if (typeof raw === "string") {
+    assign(raw);
+    return;
   }
   ctx.errors.push({
-    code: 'WRONG_FIELD_TYPE',
-    message: `memory.${key} must be a string when present, received ${describeJsType(raw)}`,
+    code: "WRONG_FIELD_TYPE",
+    message: `memory.${key} must be a string when present, received ${describeJsType(
+      raw
+    )}`,
     pointer: joinPointer(pointer, key),
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Type-introspection helpers
 // ---------------------------------------------------------------------------
 
-export function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+export function isPlainObject(
+  value: unknown
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function describeJsType(value: unknown): string {
-  if (value === null) return 'null'
-  if (Array.isArray(value)) return 'array'
-  return typeof value
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
 }
 
 /** RFC 6901-style pointer join: encode '~' and '/' in segments. */
 export function joinPointer(base: string, segment: string): string {
-  const encoded = segment.replace(/~/g, '~0').replace(/\//g, '~1')
-  return `${base}/${encoded}`
+  const encoded = segment.replace(/~/g, "~0").replace(/\//g, "~1");
+  return `${base}/${encoded}`;
 }
 
 /**
@@ -165,34 +173,38 @@ export function joinPointer(base: string, segment: string): string {
  */
 export function extractJsonErrorPosition(
   message: string,
-  source: string,
+  source: string
 ): { line: number; column: number } | undefined {
   // V8 / Node ≥20: "Unexpected token X in JSON at position N" or "...at position N (line L column C)"
-  const lineColMatch = /line (\d+) column (\d+)/.exec(message)
+  const lineColMatch = /line (\d+) column (\d+)/.exec(message);
   if (lineColMatch && lineColMatch[1] && lineColMatch[2]) {
-    const line = Number(lineColMatch[1])
-    const column = Number(lineColMatch[2])
-    if (Number.isFinite(line) && Number.isFinite(column)) return { line, column }
+    const line = Number(lineColMatch[1]);
+    const column = Number(lineColMatch[2]);
+    if (Number.isFinite(line) && Number.isFinite(column))
+      return { line, column };
   }
-  const positionMatch = /position (\d+)/.exec(message)
+  const positionMatch = /position (\d+)/.exec(message);
   if (positionMatch && positionMatch[1]) {
-    const offset = Number(positionMatch[1])
-    if (Number.isFinite(offset)) return offsetToLineColumn(source, offset)
+    const offset = Number(positionMatch[1]);
+    if (Number.isFinite(offset)) return offsetToLineColumn(source, offset);
   }
-  return undefined
+  return undefined;
 }
 
-export function offsetToLineColumn(source: string, offset: number): { line: number; column: number } {
-  let line = 1
-  let column = 1
-  const limit = Math.min(offset, source.length)
+export function offsetToLineColumn(
+  source: string,
+  offset: number
+): { line: number; column: number } {
+  let line = 1;
+  let column = 1;
+  const limit = Math.min(offset, source.length);
   for (let i = 0; i < limit; i++) {
     if (source.charCodeAt(i) === 10 /* \n */) {
-      line++
-      column = 1
+      line++;
+      column = 1;
     } else {
-      column++
+      column++;
     }
   }
-  return { line, column }
+  return { line, column };
 }

@@ -6,7 +6,9 @@
  * message; everything else returns a generic string.
  */
 
-const GENERIC = 'Internal server error'
+import type { Context } from "hono";
+
+const GENERIC = "Internal server error";
 
 /**
  * Error classes whose messages are safe to expose to clients.
@@ -14,20 +16,20 @@ const GENERIC = 'Internal server error'
  * carry user-facing information (e.g. validation failures).
  */
 const SAFE_PREFIXES = [
-  'Validation',   // "Validation failed: ..."
-  'NotFound',     // "NotFound: ..."
-  'Conflict',     // "Conflict: ..."
-  'BadRequest',   // "BadRequest: ..."
-] as const
+  "Validation", // "Validation failed: ..."
+  "NotFound", // "NotFound: ..."
+  "Conflict", // "Conflict: ..."
+  "BadRequest", // "BadRequest: ..."
+] as const;
 
 /** Returns `true` when the error message is safe to forward to a client. */
 function isSafeMessage(err: unknown): boolean {
-  if (!(err instanceof Error)) return false
-  const name = err.constructor.name
-  if (SAFE_PREFIXES.some((p) => name.startsWith(p))) return true
+  if (!(err instanceof Error)) return false;
+  const name = err.constructor.name;
+  if (SAFE_PREFIXES.some((p) => name.startsWith(p))) return true;
   // Errors whose message starts with a safe prefix (thrown as plain Error)
-  if (SAFE_PREFIXES.some((p) => err.message.startsWith(p))) return true
-  return false
+  if (SAFE_PREFIXES.some((p) => err.message.startsWith(p))) return true;
+  return false;
 }
 
 /**
@@ -39,10 +41,53 @@ function isSafeMessage(err: unknown): boolean {
  * The raw message is always returned as `internal` so callers can still
  * log it server-side.
  */
-export function sanitizeError(err: unknown): { safe: string; internal: string } {
-  const internal = err instanceof Error ? err.message : String(err)
-  const safe = isSafeMessage(err) ? internal : GENERIC
-  return { safe, internal }
+export function sanitizeError(err: unknown): {
+  safe: string;
+  internal: string;
+} {
+  const internal = err instanceof Error ? err.message : String(err);
+  const safe = isSafeMessage(err) ? internal : GENERIC;
+  return { safe, internal };
+}
+
+/**
+ * Log a route error with structured context and return its sanitized form.
+ *
+ * Emits a single structured JSON line to `console.error` (stderr) so failures
+ * are observable server-side, then returns `sanitizeError(err)` so the caller
+ * can build its own response envelope using the client-safe `.safe` message
+ * (never the raw `.internal` message). This is the single chokepoint every
+ * HTTP 500 catch site should route through to stop `err.message` leaks.
+ *
+ * @param c       Hono request context (used for method + path).
+ * @param operation  Short stable identifier for the failing operation, e.g.
+ *                   `'registry.register'`. Used for log filtering/alerting.
+ * @param err     The thrown value.
+ * @param status  HTTP status that will be returned to the client (default 500).
+ */
+export function logRouteError(
+  c: Pick<Context, "req">,
+  operation: string,
+  err: unknown,
+  status = 500
+): { safe: string; internal: string } {
+  const sanitized = sanitizeError(err);
+  const entry = {
+    level: "error",
+    operation,
+    method: c.req.method,
+    path: c.req.path,
+    statusCode: status,
+    error: {
+      message: sanitized.internal,
+      name: err instanceof Error ? err.constructor.name : typeof err,
+      stack: err instanceof Error ? err.stack : undefined,
+    },
+    timestamp: new Date().toISOString(),
+  };
+  // Structured single-line JSON; stderr so it is captured by log shippers.
+  console.error(JSON.stringify(entry));
+  return sanitized;
 }
 
 // ── Numeric query-param parsing ──────────────────────────────────
@@ -56,11 +101,15 @@ export function sanitizeError(err: unknown): { safe: string; internal: string } 
  */
 export function parseIntBounded(
   raw: string | undefined | null,
-  opts: { min?: number | undefined; max?: number | undefined; defaultValue?: number | undefined } = {},
+  opts: {
+    min?: number | undefined;
+    max?: number | undefined;
+    defaultValue?: number | undefined;
+  } = {}
 ): number | undefined {
-  const { min = 0, max = 10_000, defaultValue } = opts
-  if (raw == null || raw === '') return defaultValue
-  const n = parseInt(raw, 10)
-  if (isNaN(n) || n < min || n > max) return undefined
-  return n
+  const { min = 0, max = 10_000, defaultValue } = opts;
+  if (raw == null || raw === "") return defaultValue;
+  const n = parseInt(raw, 10);
+  if (isNaN(n) || n < min || n > max) return undefined;
+  return n;
 }
