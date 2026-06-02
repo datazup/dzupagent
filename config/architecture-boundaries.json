@@ -814,6 +814,7 @@
           "mcpManager",
           "mcpAllowedExecutables",
           "mcpAllowedHttpHosts",
+          "mcpStdioArgPolicy",
           "httpConnectorProfiles",
           "defaultHttpConnectorProfile",
           "githubConnectorProfiles",
