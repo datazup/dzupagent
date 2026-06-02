@@ -146,7 +146,7 @@ function parseTsupEntries(tsupConfigText) {
   return { count: entries.length, entries };
 }
 
-function summarizeRootBarrel(rootIndexText) {
+export function summarizeRootBarrel(rootIndexText) {
   const sources = new Set();
   let explicitExports = 0;
   let starExports = 0;
