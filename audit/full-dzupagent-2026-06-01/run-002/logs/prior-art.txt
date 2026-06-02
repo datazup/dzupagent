@@ -1,0 +1,24 @@
+PRIOR ART for dzupagent full audit run-002 (2026-06-01)
+
+Most-recent prior run: audit/full-dzupagent-2026-06-01/run-001
+  - 56 active findings, stable ID format DZUPAGENT-<DOMAIN>-<SEV>-<NN>
+  - Matrix: audit/full-dzupagent-2026-06-01/run-001/docs/CROSS-DOMAIN-MATRIX.md
+  - Quick fixes QF-1..QF-14 COMPLETED & COMMITTED (commits ce7120c6..30324999)
+  - Refactor (RF-1..RF-11) + Major (MC-1..MC-7) phases were PAUSED.
+
+Tree state for run-002:
+  - HEAD = 30324999 (PAST prior baseline d97d700b — quick fixes now committed)
+  - 87 dirty files: substantial UNCOMMITTED WIP that appears to address refactor/major
+    findings: compile-pipeline.ts DELETED (CODE-H-01/RF-1), flow-dsl/test/normalize.test.ts
+    DELETED (TEST-M-04), 4 zombie server stubs DELETED (TEST-L-04), route-error.ts changes,
+    run-metadata-secrets deep scrub, well-known rate-limit test, rbac-tenant-defaults test,
+    NEW packages/subagents/ + agent-adapters/src/subagents/, tool-loop scanFailureMode changes.
+
+TAGGING INSTRUCTIONS for domain agents:
+  - Read run-001/docs/CROSS-DOMAIN-MATRIX.md and the relevant run-001/docs/<DOMAIN>-AUDIT.md.
+  - REUSE the prior finding ID for any still-open finding (e.g. DZUPAGENT-SEC-H-02).
+  - Tag status: new | regression | still-open-from-2026-06-01-run-001 | confirmed-closed | partially-closed
+  - CRITICAL: the tree has moved. Verify each prior finding against CURRENT code on disk
+    (HEAD 30324999 + dirty WIP). Many run-001 quick-fix findings (ERR-H-01..03, AGENT-L-01/05/08,
+    CODE-M-05/06, SEC-M-03, SEC-L-05) are likely now CLOSED. Confirm by reading the file.
+  - Do NOT re-flag anything a seal/golden/boundary gate already catches — cite the test.
