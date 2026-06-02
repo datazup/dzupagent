@@ -1,4 +1,5 @@
 import type { AgentInput } from "@dzupagent/adapter-types";
+import type { AdapterProviderId } from "../types.js";
 import type {
   SubagentExecutorPort,
   SubagentExecutionContext,
@@ -27,8 +28,18 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
     spec: SubagentSpec,
     ctx: SubagentExecutionContext,
   ): Promise<SubagentResult> {
+    const providerId = resolveRegisteredProviderId(this.registry, spec.agentId);
+    if (!providerId) {
+      throw new ForgeError({
+        code: "REGISTRY_AGENT_NOT_FOUND",
+        message: `Subagent provider "${spec.agentId}" is not registered or is unavailable`,
+        recoverable: false,
+        suggestion: "Register the adapter before spawning a subagent for it.",
+      });
+    }
+
     const adapter =
-      this.registry.getHealthy(spec.agentId) ?? this.registry.get(spec.agentId);
+      this.registry.getHealthy(providerId) ?? this.registry.get(providerId);
     if (!adapter) {
       throw new ForgeError({
         code: "REGISTRY_AGENT_NOT_FOUND",
@@ -85,20 +96,27 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
       }
     } catch (error) {
       this.registry.recordFailure(
-        spec.agentId,
+        providerId,
         error instanceof Error ? error : new Error(String(error)),
       );
       throw error;
     }
 
     if (failureError !== undefined && !resultText) {
-      this.registry.recordFailure(spec.agentId, new Error(failureError));
+      this.registry.recordFailure(providerId, new Error(failureError));
       throw new Error(failureError);
     }
 
-    this.registry.recordSuccess(spec.agentId);
+    this.registry.recordSuccess(providerId);
     return usage !== undefined
       ? { output: resultText, usage }
       : { output: resultText };
   }
+}
+
+function resolveRegisteredProviderId(
+  registry: ProviderAdapterRegistry,
+  agentId: string,
+): AdapterProviderId | undefined {
+  return registry.listAdapters().find((providerId) => providerId === agentId);
 }
