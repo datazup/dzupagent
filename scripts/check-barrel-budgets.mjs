@@ -28,7 +28,7 @@
  *   node scripts/check-barrel-budgets.mjs --budget-file <path>
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
@@ -107,6 +107,56 @@ function countLines(text) {
   return normalized.split('\n').length;
 }
 
+/**
+ * Recursively collect `.ts` source files (excluding tests and declaration
+ * files) under a directory, returned as package-relative POSIX paths.
+ */
+function collectSourceFiles(absDir, packageRoot, acc = []) {
+  if (!existsSync(absDir)) return acc;
+  for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+    const abs = path.join(absDir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === '__tests__' || entry.name === 'node_modules') continue;
+      collectSourceFiles(abs, packageRoot, acc);
+      continue;
+    }
+    if (!entry.isFile()) continue;
+    if (!entry.name.endsWith('.ts')) continue;
+    if (entry.name.endsWith('.test.ts') || entry.name.endsWith('.d.ts')) continue;
+    acc.push(path.relative(packageRoot, abs).split(path.sep).join('/'));
+  }
+  return acc;
+}
+
+/**
+ * Per-file LOC ceiling for a package's source tree (MC-5 / DZUPAGENT-CODE-L-04).
+ * Flags any source file over `maxFileLines` unless it is on `fileLineAllowlist`
+ * (pre-existing debt pinned so the gate is green today and RED on any NEW
+ * oversized file). Returns violation messages.
+ */
+function evaluateFileLineCeiling({ root, packageDir, budget }) {
+  const messages = [];
+  const ceiling = budget.maxFileLines;
+  if (ceiling === undefined) return messages;
+  if (typeof ceiling !== 'number' || !Number.isFinite(ceiling) || ceiling <= 0) {
+    throw new Error('maxFileLines budget must be a positive number');
+  }
+  const allowlist = new Set(budget.fileLineAllowlist ?? []);
+  const srcDir = path.join(root, packageDir, 'src');
+  for (const relFromPackage of collectSourceFiles(srcDir, path.join(root, packageDir))) {
+    if (allowlist.has(relFromPackage)) continue;
+    const measured = countLines(readText(path.join(root, packageDir, relFromPackage)));
+    if (measured !== undefined && measured > ceiling) {
+      messages.push(
+        `${packageDir}/${relFromPackage}: ${measured} LOC exceeds the ${ceiling}-LOC per-file ceiling. `
+        + `Extract a cohesive sub-module (see MC-5 / DZUPAGENT-CODE-L-04), or add the file to `
+        + `fileLineAllowlist with justification if it is irreducible legacy debt.`,
+      );
+    }
+  }
+  return messages;
+}
+
 function packageDirFor(packageName) {
   // "@dzupagent/core" -> "packages/core"; bare names map to packages/<name>.
   const shortName = packageName.startsWith('@dzupagent/')
@@ -163,23 +213,36 @@ export function evaluateBarrelBudgets({ root, budgetConfig }) {
     const measurement = measurePackageBarrel({ root, packageName });
     measurements.push({ packageName, ...measurement });
 
-    for (const [metric, read] of Object.entries(ROOT_BARREL_METRICS)) {
+    const hasBarrelBudget = ROOT_BARREL_METRICS
+      && Object.keys(ROOT_BARREL_METRICS).some((metric) => budget[metric] !== undefined)
+      || budget.maxRootIndexLines !== undefined;
+
+    if (hasBarrelBudget) {
+      for (const [metric, read] of Object.entries(ROOT_BARREL_METRICS)) {
+        evaluateMetric({
+          messages,
+          packageName,
+          metric,
+          measured: read(measurement.rootBarrel),
+          limit: budget[metric],
+        });
+      }
+
       evaluateMetric({
         messages,
         packageName,
-        metric,
-        measured: read(measurement.rootBarrel),
-        limit: budget[metric],
+        metric: 'maxRootIndexLines',
+        measured: measurement.rootIndexLines,
+        limit: budget.maxRootIndexLines,
       });
     }
 
-    evaluateMetric({
-      messages,
-      packageName,
-      metric: 'maxRootIndexLines',
-      measured: measurement.rootIndexLines,
-      limit: budget.maxRootIndexLines,
-    });
+    // Per-file LOC ceiling across the package src tree (MC-5).
+    messages.push(...evaluateFileLineCeiling({
+      root,
+      packageDir: measurement.packageDir,
+      budget,
+    }));
 
     const auxiliaryBudgets = budget.auxiliarySourceLineBudgets;
     if (auxiliaryBudgets !== undefined) {
