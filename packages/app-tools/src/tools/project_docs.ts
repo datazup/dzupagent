@@ -169,9 +169,8 @@ function buildProjectDocsRead(
   };
 }
 
-export function buildProjectDocsTools(rootDir: string): ExecutableDomainTool[] {
-  return [
-    buildProjectDocsList(rootDir) as unknown as ExecutableDomainTool,
-    buildProjectDocsRead(rootDir) as unknown as ExecutableDomainTool,
-  ];
+export function buildProjectDocsTools(
+  rootDir: string,
+): AnyExecutableDomainTool[] {
+  return [buildProjectDocsList(rootDir), buildProjectDocsRead(rootDir)];
 }

@@ -1,26 +1,31 @@
-import type { ApprovalPayload, ClarificationPayload } from '@dzupagent/hitl-kit'
-import { createRenameSymbolTool } from '@dzupagent/code-edit-kit'
-import type { McpClient } from '@dzupagent/code-edit-kit'
-import type { DomainToolDefinition } from '../types.js'
-import { InMemoryDomainToolRegistry } from '../registry.js'
-import { buildHumanTools } from './human.js'
-import {
-  buildPmTools,
-  InMemoryPmTaskStore,
-  type PmTaskStore,
-} from './pm.js'
-import { buildProjectDocsTools } from './project_docs.js'
-import { buildRecordTools, type RecordToolOptions } from './record.js'
-import type { ExecutableDomainTool } from './shared.js'
-import { buildTopicsTools, type TopicRecord } from './topics.js'
+import type {
+  ApprovalPayload,
+  ClarificationPayload,
+} from "@dzupagent/hitl-kit";
+import { createRenameSymbolTool } from "@dzupagent/code-edit-kit";
+import type { McpClient } from "@dzupagent/code-edit-kit";
+import type { DomainToolDefinition } from "../types.js";
+import { InMemoryDomainToolRegistry } from "../registry.js";
+import { buildHumanTools } from "./human.js";
+import { buildPmTools, InMemoryPmTaskStore, type PmTaskStore } from "./pm.js";
+import { buildProjectDocsTools } from "./project_docs.js";
+import { buildRecordTools, type RecordToolOptions } from "./record.js";
+import type {
+  AnyExecutableDomainTool,
+  ExecutableDomainTool,
+} from "./shared.js";
+import { buildTopicsTools, type TopicRecord } from "./topics.js";
 import {
   buildWorkflowTools,
   InMemoryWorkflowRunner,
   type WorkflowDefinition,
   type WorkflowRunner,
-} from './workflow.js'
+} from "./workflow.js";
 
-export type { ExecutableDomainTool } from './shared.js'
+export type {
+  AnyExecutableDomainTool,
+  ExecutableDomainTool,
+} from "./shared.js";
 
 /**
  * Structural shape of `ToolResolver` from `@dzupagent/flow-ast`.
@@ -28,77 +33,77 @@ export type { ExecutableDomainTool } from './shared.js'
  * while remaining structurally compatible at the call site.
  */
 export interface ResolvedToolLike {
-  ref: string
+  ref: string;
   /**
    * Legacy convenience field retained for backward compatibility with older
    * callers/tests that only checked the resolved name.
    */
-  name: string
-  kind: 'skill'
-  inputSchema: Record<string, unknown>
-  outputSchema?: Record<string, unknown>
+  name: string;
+  kind: "skill";
+  inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
   handle: {
-    kind: 'skill'
-    id: string
-    displayName: string
-    execute: (input: unknown, ctx: unknown) => Promise<unknown>
-    inputSchema: Record<string, unknown>
-    outputSchema?: Record<string, unknown>
-  }
+    kind: "skill";
+    id: string;
+    displayName: string;
+    execute: (input: unknown, ctx: unknown) => Promise<unknown>;
+    inputSchema: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
+  };
 }
 
 export interface ToolResolverLike {
-  resolve(ref: string): ResolvedToolLike | null
-  listAvailable(): string[]
+  resolve(ref: string): ResolvedToolLike | null;
+  listAvailable(): string[];
 }
 
 export interface BuiltinToolRegistryBundle {
-  registry: InMemoryDomainToolRegistry
-  executors: Map<string, ExecutableDomainTool>
+  registry: InMemoryDomainToolRegistry;
+  executors: Map<string, AnyExecutableDomainTool>;
   /** Read-only view of the in-memory record.append store, keyed by namespace. */
-  recordStore: ReadonlyMap<string, readonly string[]>
+  recordStore: ReadonlyMap<string, readonly string[]>;
   /** PM task store backing pm.* tools. */
-  pmStore: PmTaskStore
+  pmStore: PmTaskStore;
   /** Workflow definition catalog backing workflow.list. */
-  workflowDefinitions: ReadonlyMap<string, WorkflowDefinition>
+  workflowDefinitions: ReadonlyMap<string, WorkflowDefinition>;
   /** Workflow runner backing workflow.run / workflow.status. */
-  workflowRunner: WorkflowRunner
+  workflowRunner: WorkflowRunner;
   /** Topic catalog backing topics.* tools. */
-  topicCatalog: ReadonlyMap<string, TopicRecord>
+  topicCatalog: ReadonlyMap<string, TopicRecord>;
   /**
    * Returns a {@link ToolResolverLike} backed by this bundle's registry.
    * Structurally compatible with `ToolResolver` from `@dzupagent/flow-ast` —
    * pass directly to `CompileRouteConfig.toolResolver`.
    */
-  toToolResolver(): ToolResolverLike
+  toToolResolver(): ToolResolverLike;
 }
 
 export interface BuiltinToolOptions {
   /** Root directory for project_docs.* tools. Defaults to `process.cwd()`. */
-  rootDir?: string
+  rootDir?: string;
   /** Callback invoked when human.clarify is executed. */
-  onClarify?: (payload: ClarificationPayload) => void | Promise<void>
+  onClarify?: (payload: ClarificationPayload) => void | Promise<void>;
   /** Callback invoked when human.approve is executed. */
-  onApprove?: (payload: ApprovalPayload) => void | Promise<void>
+  onApprove?: (payload: ApprovalPayload) => void | Promise<void>;
   /** Inject a custom PM task store; defaults to {@link InMemoryPmTaskStore}. */
-  pmStore?: PmTaskStore
+  pmStore?: PmTaskStore;
   /** Id factory for new PM tasks; defaults to a monotonically increasing counter. */
-  pmIdFactory?: () => string
+  pmIdFactory?: () => string;
   /** Clock for pm.create_task timestamps; defaults to `new Date()`. */
-  now?: () => Date
+  now?: () => Date;
   /** Seed workflow definitions available via workflow.list / workflow.run. */
-  workflows?: Iterable<WorkflowDefinition>
+  workflows?: Iterable<WorkflowDefinition>;
   /** Inject a workflow runner; defaults to {@link InMemoryWorkflowRunner}. */
-  workflowRunner?: WorkflowRunner
+  workflowRunner?: WorkflowRunner;
   /** Seed topic catalog entries for topics.* tools. */
-  topics?: Iterable<TopicRecord>
+  topics?: Iterable<TopicRecord>;
   /**
    * Directory for durable record storage.
    * When provided, `record.append` writes each entry as a JSONL line to
    * `{recordsDir}/{namespace}.jsonl` in addition to the in-memory store.
    * Defaults to in-memory only.
    */
-  recordsDir?: string
+  recordsDir?: string;
   /**
    * Opt-in: register the AST-aware `rename_symbol` tool from
    * `@dzupagent/code-edit-kit`. When `true`, the tool is added to the registry
@@ -106,7 +111,7 @@ export interface BuiltinToolOptions {
    * implementation requires `ts-morph` as an optional peer dependency.
    * Defaults to `false`.
    */
-  renameSymbol?: boolean
+  renameSymbol?: boolean;
   /**
    * Optional MCP client to forward to the underlying `rename_symbol` tool.
    * When set alongside `renameSymbol: true`, the client is passed through to
@@ -114,7 +119,7 @@ export interface BuiltinToolOptions {
    * edits to an MCP-aware code-editing server. Has no effect when
    * `renameSymbol` is `false` or omitted.
    */
-  mcpClient?: McpClient
+  mcpClient?: McpClient;
 }
 
 /**
@@ -123,37 +128,37 @@ export interface BuiltinToolOptions {
  * optional peer is active at runtime.
  */
 const RENAME_SYMBOL_INPUT_SCHEMA: Record<string, unknown> = {
-  type: 'object',
+  type: "object",
   additionalProperties: false,
-  required: ['tsconfigPath', 'filePath', 'symbolName', 'newName'],
+  required: ["tsconfigPath", "filePath", "symbolName", "newName"],
   properties: {
-    tsconfigPath: { type: 'string' },
-    filePath: { type: 'string' },
-    symbolName: { type: 'string' },
-    newName: { type: 'string' },
+    tsconfigPath: { type: "string" },
+    filePath: { type: "string" },
+    symbolName: { type: "string" },
+    newName: { type: "string" },
   },
-}
+};
 
 const RENAME_SYMBOL_OUTPUT_SCHEMA: Record<string, unknown> = {
-  type: 'object',
-  required: ['renamedCount', 'affectedFiles'],
+  type: "object",
+  required: ["renamedCount", "affectedFiles"],
   properties: {
-    renamedCount: { type: 'number' },
-    affectedFiles: { type: 'array', items: { type: 'string' } },
+    renamedCount: { type: "number" },
+    affectedFiles: { type: "array", items: { type: "string" } },
   },
-}
+};
 
 interface RenameSymbolExecInput {
-  tsconfigPath: string
-  filePath: string
-  symbolName: string
-  newName: string
+  tsconfigPath: string;
+  filePath: string;
+  symbolName: string;
+  newName: string;
 }
 
 interface RenameSymbolExecOutput {
-  renamedCount: number
-  affectedFiles: string[]
-  raw: string
+  renamedCount: number;
+  affectedFiles: string[];
+  raw: string;
 }
 
 /**
@@ -164,48 +169,53 @@ interface RenameSymbolExecOutput {
  *
  * @param mcpClient - Optional MCP client forwarded to {@link createRenameSymbolTool}.
  */
-function buildRenameSymbolTool(mcpClient?: McpClient): ExecutableDomainTool<
-  RenameSymbolExecInput,
-  RenameSymbolExecOutput
-> {
-  const lcTool = createRenameSymbolTool(mcpClient)
+function buildRenameSymbolTool(
+  mcpClient?: McpClient,
+): ExecutableDomainTool<RenameSymbolExecInput, RenameSymbolExecOutput> {
+  const lcTool = createRenameSymbolTool(mcpClient);
   const definition: DomainToolDefinition = {
-    name: 'code_edit.rename_symbol',
+    name: "code_edit.rename_symbol",
     description:
-      'AST-aware rename of a TypeScript symbol (function, class, interface, type alias, ' +
-      'enum, or const) across a whole project. Propagates the rename to every cross-file ' +
-      'reference via ts-morph.',
+      "AST-aware rename of a TypeScript symbol (function, class, interface, type alias, " +
+      "enum, or const) across a whole project. Propagates the rename to every cross-file " +
+      "reference via ts-morph.",
     inputSchema: RENAME_SYMBOL_INPUT_SCHEMA,
     outputSchema: RENAME_SYMBOL_OUTPUT_SCHEMA,
-    permissionLevel: 'write',
+    permissionLevel: "write",
     sideEffects: [
       {
-        type: 'writes_file',
-        description: 'Rewrites every source file that references the renamed symbol.',
+        type: "writes_file",
+        description:
+          "Rewrites every source file that references the renamed symbol.",
       },
     ],
-    namespace: 'code_edit',
-  }
+    namespace: "code_edit",
+  };
 
   return {
     definition,
-    async execute(input: RenameSymbolExecInput): Promise<RenameSymbolExecOutput> {
-      const raw = (await lcTool.invoke(input)) as string
-      if (raw.startsWith('rename_symbol failed:')) {
-        throw new Error(raw)
+    async execute(
+      input: RenameSymbolExecInput,
+    ): Promise<RenameSymbolExecOutput> {
+      const raw = (await lcTool.invoke(input)) as string;
+      if (raw.startsWith("rename_symbol failed:")) {
+        throw new Error(raw);
       }
-      const parsed = JSON.parse(raw) as { renamedCount: number; affectedFiles: string[] }
-      return { ...parsed, raw }
+      const parsed = JSON.parse(raw) as {
+        renamedCount: number;
+        affectedFiles: string[];
+      };
+      return { ...parsed, raw };
     },
-  }
+  };
 }
 
 function buildDefaultIdFactory(): () => string {
-  let seq = 0
+  let seq = 0;
   return () => {
-    seq += 1
-    return `task_${seq}`
-  }
+    seq += 1;
+    return `task_${seq}`;
+  };
 }
 
 /**
@@ -228,50 +238,52 @@ function buildDefaultIdFactory(): () => string {
 export function createBuiltinToolRegistry(
   opts: BuiltinToolOptions = {},
 ): BuiltinToolRegistryBundle {
-  const rootDir = opts.rootDir ?? process.cwd()
-  const onClarify = opts.onClarify ?? (() => undefined)
-  const onApprove = opts.onApprove ?? (() => undefined)
-  const now = opts.now ?? (() => new Date())
-  const pmIdFactory = opts.pmIdFactory ?? buildDefaultIdFactory()
-  const pmStore = opts.pmStore ?? new InMemoryPmTaskStore()
+  const rootDir = opts.rootDir ?? process.cwd();
+  const onClarify = opts.onClarify ?? (() => undefined);
+  const onApprove = opts.onApprove ?? (() => undefined);
+  const now = opts.now ?? (() => new Date());
+  const pmIdFactory = opts.pmIdFactory ?? buildDefaultIdFactory();
+  const pmStore = opts.pmStore ?? new InMemoryPmTaskStore();
 
-  const workflowDefinitions = new Map<string, WorkflowDefinition>()
+  const workflowDefinitions = new Map<string, WorkflowDefinition>();
   if (opts.workflows) {
     for (const def of opts.workflows) {
-      workflowDefinitions.set(def.id, def)
+      workflowDefinitions.set(def.id, def);
     }
   }
   const workflowRunner =
-    opts.workflowRunner ?? new InMemoryWorkflowRunner(workflowDefinitions, now)
+    opts.workflowRunner ?? new InMemoryWorkflowRunner(workflowDefinitions, now);
 
-  const topicCatalog = new Map<string, TopicRecord>()
+  const topicCatalog = new Map<string, TopicRecord>();
   if (opts.topics) {
     for (const topic of opts.topics) {
-      topicCatalog.set(topic.id, topic)
+      topicCatalog.set(topic.id, topic);
     }
   }
 
-  const recordStore = new Map<string, string[]>()
-  const recordOpts: RecordToolOptions = opts.recordsDir ? { recordsDir: opts.recordsDir } : {}
+  const recordStore = new Map<string, string[]>();
+  const recordOpts: RecordToolOptions = opts.recordsDir
+    ? { recordsDir: opts.recordsDir }
+    : {};
 
-  const tools: ExecutableDomainTool[] = [
+  const tools: AnyExecutableDomainTool[] = [
     ...buildProjectDocsTools(rootDir),
     ...buildPmTools(pmStore, pmIdFactory, now),
     ...buildWorkflowTools(workflowDefinitions, workflowRunner),
     ...buildHumanTools(onClarify, onApprove),
     ...buildRecordTools(recordStore, recordOpts),
     ...buildTopicsTools(topicCatalog),
-  ]
+  ];
 
   if (opts.renameSymbol === true) {
-    tools.push(buildRenameSymbolTool(opts.mcpClient) as unknown as ExecutableDomainTool)
+    tools.push(buildRenameSymbolTool(opts.mcpClient));
   }
 
-  const registry = new InMemoryDomainToolRegistry()
-  const executors = new Map<string, ExecutableDomainTool>()
+  const registry = new InMemoryDomainToolRegistry();
+  const executors = new Map<string, AnyExecutableDomainTool>();
   for (const tool of tools) {
-    registry.register(tool.definition)
-    executors.set(tool.definition.name, tool)
+    registry.register(tool.definition);
+    executors.set(tool.definition.name, tool);
   }
 
   return {
@@ -285,29 +297,42 @@ export function createBuiltinToolRegistry(
     toToolResolver(): ToolResolverLike {
       return {
         resolve(ref: string) {
-          const def = registry.get(ref)
-          const executable = executors.get(ref)
-          if (!def || !executable) return null
+          const def = registry.get(ref);
+          const executable = executors.get(ref);
+          if (!def || !executable) return null;
+          // Existential-unpack boundary: `executors` stores heterogeneous tools
+          // as `AnyExecutableDomainTool` (`execute(input: never)`), so the
+          // concrete `TInput` is erased at storage. Dispatching an `unknown`
+          // runtime input requires recovering a callable signature. This is the
+          // SINGLE legitimate cast for the registry — it widens the stored
+          // tool's parameter to `Record<string, unknown>` (no `unknown`
+          // laundering), runtime-safe because each `ref` maps to exactly one
+          // concrete tool whose schema validates the input upstream.
+          const callable = executable as ExecutableDomainTool<
+            Record<string, unknown>,
+            unknown
+          >;
           return {
             ref: def.name,
             name: def.name,
-            kind: 'skill',
+            kind: "skill",
             inputSchema: def.inputSchema,
             ...(def.outputSchema ? { outputSchema: def.outputSchema } : {}),
             handle: {
-              kind: 'skill',
+              kind: "skill",
               id: def.name,
               displayName: def.name,
-              execute: async (input: unknown) => executable.execute(input as Record<string, unknown>),
+              execute: async (input: unknown) =>
+                callable.execute(input as Record<string, unknown>),
               inputSchema: def.inputSchema,
               ...(def.outputSchema ? { outputSchema: def.outputSchema } : {}),
             },
-          }
+          };
         },
         listAvailable() {
-          return registry.list().map((d) => d.name)
+          return registry.list().map((d) => d.name);
         },
-      }
+      };
     },
-  }
+  };
 }
