@@ -48,6 +48,7 @@ import { nodeIdempotencyKey } from "./pipeline-runtime/idempotency.js";
 import { type BudgetTrackerState } from "./pipeline-runtime/iteration-budget-tracker.js";
 import { handleFork as handleForkNode } from "./pipeline-runtime/fork-branch-executor.js";
 import { handleLoop as handleLoopNode } from "./pipeline-runtime/loop-node-handler.js";
+import type { LoopResumeOptions } from "./loop-executor.js";
 import { type RecoveryCounter } from "./pipeline-runtime/node-side-effects.js";
 import {
   dispatchStandardNode,
@@ -86,6 +87,8 @@ export interface ExecuteFromNodeInput {
   completedNodeIds: string[];
   /** Stable `nodeId` → idempotency key map for completed nodes (W5). */
   nodeIdempotencyKeys: Record<string, string>;
+  /** Per-loop-node iteration cursor for durable loop resume (W3). */
+  loopState: Record<string, { iteration: number }>;
   versionTracker: { version: number };
   startTime: number;
 }
@@ -119,6 +122,7 @@ export class PipelineExecutor {
       nodeResults,
       completedNodeIds,
       nodeIdempotencyKeys,
+      loopState,
       versionTracker,
       startTime,
     } = input;
@@ -161,6 +165,7 @@ export class PipelineExecutor {
           nodeResults,
           completedNodeIds,
           nodeIdempotencyKeys,
+          loopState,
           versionTracker,
           startTime
         );
@@ -187,6 +192,7 @@ export class PipelineExecutor {
             runState,
             completedNodeIds,
             nodeIdempotencyKeys,
+            loopState,
             versionTracker
           );
           currentNodeId = this.next(joinNode.id, runState);
@@ -205,6 +211,7 @@ export class PipelineExecutor {
           nodeResults,
           completedNodeIds,
           nodeIdempotencyKeys,
+          loopState,
           versionTracker,
           startTime
         );
@@ -221,6 +228,7 @@ export class PipelineExecutor {
         nodeResults,
         completedNodeIds,
         nodeIdempotencyKeys,
+        loopState,
         versionTracker,
         startTime
       );
@@ -247,6 +255,7 @@ export class PipelineExecutor {
     nodeResults: Map<string, NodeResult>,
     completedNodeIds: string[],
     nodeIdempotencyKeys: Record<string, string>,
+    loopState: Record<string, { iteration: number }>,
     versionTracker: { version: number },
     startTime: number
   ): Promise<StandardNodeOutcome> {
@@ -275,6 +284,7 @@ export class PipelineExecutor {
           runState,
           completedNodeIds,
           nodeIdempotencyKeys,
+          loopState,
           versionTracker
         ),
     });
@@ -287,12 +297,32 @@ export class PipelineExecutor {
     nodeResults: Map<string, NodeResult>,
     completedNodeIds: string[],
     nodeIdempotencyKeys: Record<string, string>,
+    loopState: Record<string, { iteration: number }>,
     versionTracker: { version: number },
     startTime: number
   ): Promise<
     | { kind: "continue"; nextNodeId: string | undefined }
     | { kind: "return"; value: PipelineRunResult }
   > {
+    // Durable loop resume (W3): start from the persisted cursor (if any) and
+    // checkpoint the cursor + accumulated state after every iteration so a
+    // crash resumes mid-loop instead of restarting at iteration 0.
+    const resumeFrom = loopState[loopNode.id]?.iteration ?? 0;
+    const loopResume: LoopResumeOptions = {
+      startIteration: resumeFrom,
+      onIterationComplete: async (completedIterations) => {
+        loopState[loopNode.id] = { iteration: completedIterations };
+        await this.saveCheckpoint(
+          runId,
+          runState,
+          completedNodeIds,
+          nodeIdempotencyKeys,
+          loopState,
+          versionTracker
+        );
+      },
+    };
+
     const loopResult = await handleLoopNode(
       {
         config: this.config,
@@ -301,7 +331,8 @@ export class PipelineExecutor {
       },
       loopNode,
       runState,
-      nodeResults
+      nodeResults,
+      loopResume
     );
 
     if (loopResult.error) {
@@ -323,6 +354,8 @@ export class PipelineExecutor {
         ),
       };
     }
+    // Loop finished — clear its cursor so resume does not treat it as mid-flight.
+    delete loopState[loopNode.id];
     nodeResults.set(loopNode.id, loopResult);
     completedNodeIds.push(loopNode.id);
     this.recordIdempotencyKey(nodeIdempotencyKeys, runId, loopNode.id);
@@ -331,6 +364,7 @@ export class PipelineExecutor {
       runState,
       completedNodeIds,
       nodeIdempotencyKeys,
+      loopState,
       versionTracker
     );
     return { kind: "continue", nextNodeId: this.next(loopNode.id, runState) };
@@ -347,6 +381,7 @@ export class PipelineExecutor {
     nodeResults: Map<string, NodeResult>,
     completedNodeIds: string[],
     nodeIdempotencyKeys: Record<string, string>,
+    loopState: Record<string, { iteration: number }>,
     versionTracker: { version: number },
     startTime: number
   ): Promise<PipelineRunResult> {
@@ -361,6 +396,7 @@ export class PipelineExecutor {
         version: versionTracker.version,
         completedNodeIds,
         nodeIdempotencyKeys,
+        loopState,
         state: runState,
         suspendedAtNodeId: nodeId,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
@@ -430,6 +466,7 @@ export class PipelineExecutor {
     runState: Record<string, unknown>,
     completedNodeIds: string[],
     nodeIdempotencyKeys: Record<string, string>,
+    loopState: Record<string, { iteration: number }>,
     versionTracker: { version: number }
   ): Promise<void> {
     const strategy = this.config.definition.checkpointStrategy;
@@ -450,6 +487,7 @@ export class PipelineExecutor {
         version: versionTracker.version,
         completedNodeIds,
         nodeIdempotencyKeys,
+        loopState,
         state: runState,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
       });

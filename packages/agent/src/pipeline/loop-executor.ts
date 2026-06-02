@@ -5,18 +5,38 @@
  * @module pipeline/loop-executor
  */
 
-import type { LoopNode, PipelineNode } from '@dzupagent/core/pipeline'
+import type { LoopNode, PipelineNode } from "@dzupagent/core/pipeline";
 import type {
   NodeExecutor,
   NodeExecutionContext,
   NodeResult,
   PipelineRuntimeEvent,
   LoopMetrics,
-} from './pipeline-runtime-types.js'
+} from "./pipeline-runtime-types.js";
 
 // ---------------------------------------------------------------------------
 // Loop executor
 // ---------------------------------------------------------------------------
+
+/**
+ * Optional durable-resume hooks for {@link executeLoop} (W3).
+ */
+export interface LoopResumeOptions {
+  /**
+   * Iteration index to resume from (number of already-completed iterations).
+   * Defaults to 0. Completed iterations are skipped; the loop body is not
+   * re-run for them. The continue predicate is still evaluated against the
+   * resumed `context.state`.
+   */
+  startIteration?: number;
+  /**
+   * Invoked after each fully-completed iteration with the running iteration
+   * count. Wired by the runtime to persist a checkpoint carrying the loop
+   * cursor (`loopState`) and the accumulated `context.state`, so a crash
+   * mid-loop resumes from the next iteration rather than from zero.
+   */
+  onIterationComplete?: (completedIterations: number) => Promise<void>;
+}
 
 /**
  * Execute a loop node: runs body nodes in sequence per iteration,
@@ -29,52 +49,70 @@ export async function executeLoop(
   context: NodeExecutionContext,
   predicates: Record<string, (state: Record<string, unknown>) => boolean>,
   onEvent?: (event: PipelineRuntimeEvent) => void,
+  resume?: LoopResumeOptions
 ): Promise<{ result: NodeResult; metrics: LoopMetrics }> {
-  const startTime = Date.now()
-  const iterationDurations: number[] = []
-  let iterationCount = 0
-  let terminationReason: LoopMetrics['terminationReason'] = 'max_iterations'
-  let lastBodyResult: NodeResult | undefined
+  const startTime = Date.now();
+  const iterationDurations: number[] = [];
+  // Resume cursor: iterations already completed before this call (W3).
+  const startIteration = Math.max(0, resume?.startIteration ?? 0);
+  let iterationCount = startIteration;
+  let terminationReason: LoopMetrics["terminationReason"] = "max_iterations";
+  let lastBodyResult: NodeResult | undefined;
 
-  const continuePredicate = predicates[loopNode.continuePredicateName]
+  const continuePredicate = predicates[loopNode.continuePredicateName];
   if (!continuePredicate) {
     throw new Error(
-      `Loop node "${loopNode.id}": predicate "${loopNode.continuePredicateName}" not found in predicates`,
-    )
+      `Loop node "${loopNode.id}": predicate "${loopNode.continuePredicateName}" not found in predicates`
+    );
   }
 
-  for (let i = 0; i < loopNode.maxIterations; i++) {
+  // For a resumed loop, decide up front whether any further iteration should
+  // run. If the cursor already reached maxIterations, or the continue predicate
+  // is already satisfied against the resumed state, skip straight to terminal
+  // handling without re-running the body.
+  if (startIteration > 0 && !continuePredicate(context.state)) {
+    terminationReason = "condition_met";
+  }
+  const alreadyTerminated =
+    startIteration >= loopNode.maxIterations ||
+    terminationReason === "condition_met";
+
+  for (
+    let i = startIteration;
+    !alreadyTerminated && i < loopNode.maxIterations;
+    i++
+  ) {
     // Check cancellation
     if (context.signal?.aborted) {
-      terminationReason = 'cancelled'
-      break
+      terminationReason = "cancelled";
+      break;
     }
 
-    const iterStart = Date.now()
-    iterationCount++
+    const iterStart = Date.now();
+    iterationCount++;
 
     onEvent?.({
-      type: 'pipeline:loop_iteration',
+      type: "pipeline:loop_iteration",
       nodeId: loopNode.id,
       iteration: iterationCount,
       maxIterations: loopNode.maxIterations,
-    })
+    });
 
     // Execute body nodes in sequence
     for (const bodyNode of bodyNodes) {
       if (context.signal?.aborted) {
-        terminationReason = 'cancelled'
-        break
+        terminationReason = "cancelled";
+        break;
       }
 
-      const bodyResult = await nodeExecutor(bodyNode.id, bodyNode, context)
-      context.previousResults.set(bodyNode.id, bodyResult)
-      lastBodyResult = bodyResult
+      const bodyResult = await nodeExecutor(bodyNode.id, bodyNode, context);
+      context.previousResults.set(bodyNode.id, bodyResult);
+      lastBodyResult = bodyResult;
 
       if (bodyResult.error) {
         // Body node failed — propagate as loop failure
-        const totalDuration = Date.now() - startTime
-        iterationDurations.push(Date.now() - iterStart)
+        const totalDuration = Date.now() - startTime;
+        iterationDurations.push(Date.now() - iterStart);
         return {
           result: {
             nodeId: loopNode.id,
@@ -86,30 +124,36 @@ export async function executeLoop(
             iterationCount,
             iterationDurations,
             converged: false,
-            terminationReason: 'condition_met',
+            terminationReason: "condition_met",
           },
-        }
+        };
       }
     }
 
-    iterationDurations.push(Date.now() - iterStart)
+    iterationDurations.push(Date.now() - iterStart);
+
+    // Durable-resume checkpoint hook (W3): persist the cursor + accumulated
+    // state after each completed iteration so a crash resumes from the next
+    // iteration. Runs before the continue-predicate break so the final
+    // iteration's progress is recorded too.
+    await resume?.onIterationComplete?.(iterationCount);
 
     if (context.signal?.aborted) {
-      terminationReason = 'cancelled'
-      break
+      terminationReason = "cancelled";
+      break;
     }
 
     // Evaluate continue predicate
-    const shouldContinue = continuePredicate(context.state)
+    const shouldContinue = continuePredicate(context.state);
     if (!shouldContinue) {
-      terminationReason = 'condition_met'
-      break
+      terminationReason = "condition_met";
+      break;
     }
   }
 
   // If we exhausted iterations and failOnMaxIterations is set
-  if (terminationReason === 'max_iterations' && loopNode.failOnMaxIterations) {
-    const totalDuration = Date.now() - startTime
+  if (terminationReason === "max_iterations" && loopNode.failOnMaxIterations) {
+    const totalDuration = Date.now() - startTime;
     return {
       result: {
         nodeId: loopNode.id,
@@ -121,12 +165,12 @@ export async function executeLoop(
         iterationCount,
         iterationDurations,
         converged: false,
-        terminationReason: 'max_iterations',
+        terminationReason: "max_iterations",
       },
-    }
+    };
   }
 
-  const totalDuration = Date.now() - startTime
+  const totalDuration = Date.now() - startTime;
   return {
     result: {
       nodeId: loopNode.id,
@@ -136,10 +180,10 @@ export async function executeLoop(
     metrics: {
       iterationCount,
       iterationDurations,
-      converged: terminationReason === 'condition_met',
+      converged: terminationReason === "condition_met",
       terminationReason,
     },
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -149,30 +193,37 @@ export async function executeLoop(
 /**
  * Creates a predicate that returns true when the given state field is truthy.
  */
-export function stateFieldTruthy(field: string): (state: Record<string, unknown>) => boolean {
-  return (state) => Boolean(state[field])
+export function stateFieldTruthy(
+  field: string
+): (state: Record<string, unknown>) => boolean {
+  return (state) => Boolean(state[field]);
 }
 
 /**
  * Creates a predicate that returns true when the given numeric state field
  * is below the threshold (i.e., quality not yet reached — keep looping).
  */
-export function qualityBelow(field: string, threshold: number): (state: Record<string, unknown>) => boolean {
+export function qualityBelow(
+  field: string,
+  threshold: number
+): (state: Record<string, unknown>) => boolean {
   return (state) => {
-    const value = state[field]
-    if (typeof value !== 'number') return true
-    return value < threshold
-  }
+    const value = state[field];
+    if (typeof value !== "number") return true;
+    return value < threshold;
+  };
 }
 
 /**
  * Creates a predicate that returns true when the given state field
  * is an array with at least one element (errors still present — keep looping).
  */
-export function hasErrors(field: string): (state: Record<string, unknown>) => boolean {
+export function hasErrors(
+  field: string
+): (state: Record<string, unknown>) => boolean {
   return (state) => {
-    const value = state[field]
-    if (!Array.isArray(value)) return false
-    return value.length > 0
-  }
+    const value = state[field];
+    if (!Array.isArray(value)) return false;
+    return value.length > 0;
+  };
 }

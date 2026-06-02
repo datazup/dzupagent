@@ -11,6 +11,8 @@ export function createPipelineCheckpoint(options: {
   recoveryAttemptsUsed?: number;
   /** Stable `nodeId` → idempotency key map for completed nodes (W5). */
   nodeIdempotencyKeys?: Record<string, string>;
+  /** Per-loop-node iteration cursor for durable loop resume (W3). */
+  loopState?: Record<string, { iteration: number }>;
 }): PipelineCheckpoint {
   return omitUndefined({
     pipelineRunId: options.pipelineRunId,
@@ -23,6 +25,10 @@ export function createPipelineCheckpoint(options: {
       options.nodeIdempotencyKeys &&
       Object.keys(options.nodeIdempotencyKeys).length > 0
         ? { ...options.nodeIdempotencyKeys }
+        : undefined,
+    loopState:
+      options.loopState && Object.keys(options.loopState).length > 0
+        ? structuredClone(options.loopState)
         : undefined,
     state: structuredClone(options.state),
     suspendedAtNodeId: options.suspendedAtNodeId,

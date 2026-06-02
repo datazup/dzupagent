@@ -141,6 +141,7 @@ export class PipelineRuntime {
     const nodeResults = new Map<string, NodeResult>();
     const completedNodeIds: string[] = [];
     const nodeIdempotencyKeys: Record<string, string> = {};
+    const loopState: Record<string, { iteration: number }> = {};
     const versionTracker = { version: 0 };
 
     this.state = "running";
@@ -157,6 +158,7 @@ export class PipelineRuntime {
       nodeResults,
       completedNodeIds,
       nodeIdempotencyKeys,
+      loopState,
       versionTracker,
       startTime,
     });
@@ -178,6 +180,11 @@ export class PipelineRuntime {
     const nodeIdempotencyKeys: Record<string, string> = {
       ...checkpoint.nodeIdempotencyKeys,
     };
+    // Restore the loop iteration cursor so a mid-loop crash resumes from the
+    // next iteration rather than restarting the loop (W3).
+    const loopState: Record<string, { iteration: number }> = {
+      ...checkpoint.loopState,
+    };
 
     // Mark completed nodes in results (with placeholder results)
     for (const nodeId of completedNodeIds) {
@@ -195,8 +202,31 @@ export class PipelineRuntime {
 
     const startTime = Date.now();
 
+    // Mid-loop crash (W3): no suspend point, but a loop cursor is in flight.
+    // Re-enter at that loop node; `dispatchLoop` reads the cursor and resumes
+    // from the next iteration. The loop node is not in `completedNodeIds`
+    // (only added when the loop finishes), so it will not be skipped.
+    const midFlightLoopId = this.findMidFlightLoopNodeId(
+      loopState,
+      completedNodeIds
+    );
+    if (!checkpoint.suspendedAtNodeId && midFlightLoopId) {
+      const versionTracker = { version: checkpoint.version };
+      return this.runFromNode({
+        startNodeId: midFlightLoopId,
+        runId,
+        runState,
+        nodeResults,
+        completedNodeIds,
+        nodeIdempotencyKeys,
+        loopState,
+        versionTracker,
+        startTime,
+      });
+    }
+
     if (!checkpoint.suspendedAtNodeId) {
-      // No suspension point — nothing to resume
+      // No suspension point and no mid-flight loop — nothing to resume
       this.state = "completed";
       this.emit(pipelineCompletedEvent(runId, 0));
       return {
@@ -248,9 +278,28 @@ export class PipelineRuntime {
       nodeResults,
       completedNodeIds,
       nodeIdempotencyKeys,
+      loopState,
       versionTracker,
       startTime,
     });
+  }
+
+  /**
+   * Find a loop node that was mid-flight when the checkpoint was written: it
+   * has a recorded iteration cursor but is not yet in `completedNodeIds`
+   * (the loop node is only marked complete when the whole loop finishes).
+   * Returns its node ID, or undefined when no loop is mid-flight.
+   */
+  private findMidFlightLoopNodeId(
+    loopState: Record<string, { iteration: number }>,
+    completedNodeIds: string[]
+  ): string | undefined {
+    const completed = new Set(completedNodeIds);
+    for (const nodeId of Object.keys(loopState)) {
+      const node = this.nodeMap.get(nodeId);
+      if (node?.type === "loop" && !completed.has(nodeId)) return nodeId;
+    }
+    return undefined;
   }
 
   /** Cancel execution. */
@@ -281,6 +330,7 @@ export class PipelineRuntime {
     nodeResults: Map<string, NodeResult>;
     completedNodeIds: string[];
     nodeIdempotencyKeys: Record<string, string>;
+    loopState: Record<string, { iteration: number }>;
     versionTracker: { version: number };
     startTime: number;
   }): Promise<PipelineRunResult> {

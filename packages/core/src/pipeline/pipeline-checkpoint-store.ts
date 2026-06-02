@@ -37,6 +37,16 @@ export interface PipelineCheckpoint {
    * field existed; absence is treated as "no recorded keys".
    */
   nodeIdempotencyKeys?: Record<string, string>;
+  /**
+   * Per-loop-node iteration cursor (W3 durable loop resume).
+   *
+   * Maps a loop node's ID to the number of fully-completed iterations. On
+   * resume the loop restarts at `iteration` (skipping completed iterations)
+   * rather than from zero, so a crash mid-loop does not re-run earlier
+   * iterations. An entry is removed once its loop completes. Optional for
+   * backward compatibility; absence means "no loop is mid-flight".
+   */
+  loopState?: Record<string, { iteration: number }>;
   /** Arbitrary state accumulated during execution */
   state: Record<string, unknown>;
   /** If the pipeline is currently suspended, the node it suspended at */

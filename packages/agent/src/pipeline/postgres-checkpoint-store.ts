@@ -42,6 +42,7 @@ interface CheckpointRow {
   schema_version: string;
   completed_node_ids: string[];
   node_idempotency_keys: Record<string, string> | null;
+  loop_state: Record<string, { iteration: number }> | null;
   state: Record<string, unknown>;
   suspended_at_node_id: string | null;
   budget_state: { tokensUsed: number; costCents: number } | null;
@@ -104,6 +105,7 @@ export class PostgresPipelineCheckpointStore
         schema_version TEXT NOT NULL,
         completed_node_ids JSONB NOT NULL,
         node_idempotency_keys JSONB,
+        loop_state JSONB,
         state JSONB NOT NULL,
         suspended_at_node_id TEXT,
         budget_state JSONB,
@@ -114,11 +116,13 @@ export class PostgresPipelineCheckpointStore
     `;
     const createRunIdx = `CREATE INDEX IF NOT EXISTS ${this.tableName}_run_idx ON ${this.tableName} (pipeline_run_id)`;
     const createExpiryIdx = `CREATE INDEX IF NOT EXISTS ${this.tableName}_expiry_idx ON ${this.tableName} (expires_at)`;
-    // Backward-compatible migration for tables created before W5.
+    // Backward-compatible migrations for tables created before W5 / W3.
     const addIdempotencyCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS node_idempotency_keys JSONB`;
+    const addLoopStateCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS loop_state JSONB`;
 
     await this.client.query(createTable);
     await this.client.query(addIdempotencyCol);
+    await this.client.query(addLoopStateCol);
     await this.client.query(createRunIdx);
     await this.client.query(createExpiryIdx);
   }
@@ -132,9 +136,9 @@ export class PostgresPipelineCheckpointStore
       INSERT INTO ${this.tableName} (
         pipeline_run_id, pipeline_id, version, schema_version,
         completed_node_ids, state, suspended_at_node_id, budget_state,
-        created_at, expires_at, node_idempotency_keys
+        created_at, expires_at, node_idempotency_keys, loop_state
       )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb)
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb)
       ON CONFLICT (pipeline_run_id, version) DO UPDATE SET
         pipeline_id = EXCLUDED.pipeline_id,
         schema_version = EXCLUDED.schema_version,
@@ -144,7 +148,8 @@ export class PostgresPipelineCheckpointStore
         budget_state = EXCLUDED.budget_state,
         created_at = EXCLUDED.created_at,
         expires_at = EXCLUDED.expires_at,
-        node_idempotency_keys = EXCLUDED.node_idempotency_keys
+        node_idempotency_keys = EXCLUDED.node_idempotency_keys,
+        loop_state = EXCLUDED.loop_state
     `;
 
     await this.client.query(sql, [
@@ -161,6 +166,7 @@ export class PostgresPipelineCheckpointStore
       checkpoint.nodeIdempotencyKeys
         ? JSON.stringify(checkpoint.nodeIdempotencyKeys)
         : null,
+      checkpoint.loopState ? JSON.stringify(checkpoint.loopState) : null,
     ]);
   }
 
@@ -271,6 +277,9 @@ function rowToCheckpoint(row: CheckpointRow): PipelineCheckpoint {
     typeof row.node_idempotency_keys === "object"
   ) {
     cp.nodeIdempotencyKeys = row.node_idempotency_keys;
+  }
+  if (row.loop_state && typeof row.loop_state === "object") {
+    cp.loopState = row.loop_state;
   }
   return cp;
 }

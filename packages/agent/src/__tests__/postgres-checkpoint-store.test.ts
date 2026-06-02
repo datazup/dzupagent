@@ -63,8 +63,9 @@ function makeCheckpoint(
 
 describe("PostgresPipelineCheckpointStore", () => {
   describe("setup()", () => {
-    it("issues CREATE TABLE, the idempotency-column migration, and index DDL using the configured table name", async () => {
+    it("issues CREATE TABLE, the idempotency + loop-state migrations, and index DDL using the configured table name", async () => {
       const { client, calls } = createMockClient([
+        () => ({ rows: [] }),
         () => ({ rows: [] }),
         () => ({ rows: [] }),
         () => ({ rows: [] }),
@@ -77,7 +78,7 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       await store.setup();
 
-      expect(calls).toHaveLength(4);
+      expect(calls).toHaveLength(5);
       expect(calls[0]!.text).toContain(
         "CREATE TABLE IF NOT EXISTS my_checkpoints"
       );
@@ -85,10 +86,14 @@ describe("PostgresPipelineCheckpointStore", () => {
       expect(calls[1]!.text).toContain(
         "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS node_idempotency_keys"
       );
+      // Backward-compatible migration (W3): adds loop_state to pre-existing tables.
       expect(calls[2]!.text).toContain(
-        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS loop_state"
       );
       expect(calls[3]!.text).toContain(
+        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+      );
+      expect(calls[4]!.text).toContain(
         "CREATE INDEX IF NOT EXISTS my_checkpoints_expiry_idx"
       );
     });
