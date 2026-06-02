@@ -8,32 +8,38 @@
 export {
   createBrowserConnector,
   type BrowserConnectorConfig,
-} from './browser-connector.js'
+} from "./browser-connector.js";
 export {
   normalizeBrowserTool,
   normalizeBrowserTools,
   type BrowserConnectorTool,
-} from './connector-contract.js'
+} from "./connector-contract.js";
 
 // Browser management
-export { BrowserManager } from './browser/browser-manager.js'
-export { AuthHandler } from './browser/auth-handler.js'
+export { BrowserManager } from "./browser/browser-manager.js";
+export { AuthHandler } from "./browser/auth-handler.js";
 export {
+  assertBrowserNavigationAllowed,
   installBrowserNavigationPolicy,
   safeBrowserGoto,
   validateBrowserNavigationUrl,
-} from './browser/navigation-policy.js'
+} from "./browser/navigation-policy.js";
 
 // Crawling
-export { PageCrawler } from './crawler/page-crawler.js'
-export { extractLinks } from './crawler/link-extractor.js'
-export { normalizeUrl, isSameOrigin, matchesPattern, isHashRoute } from './crawler/url-utils.js'
+export { PageCrawler } from "./crawler/page-crawler.js";
+export { extractLinks } from "./crawler/link-extractor.js";
+export {
+  normalizeUrl,
+  isSameOrigin,
+  matchesPattern,
+  isHashRoute,
+} from "./crawler/url-utils.js";
 
 // Data extraction
-export { extractAccessibilityTree } from './extraction/accessibility-tree.js'
-export { captureScreenshot } from './extraction/screenshot-capture.js'
-export { extractForms } from './extraction/form-extractor.js'
-export { extractInteractiveElements } from './extraction/element-extractor.js'
+export { extractAccessibilityTree } from "./extraction/accessibility-tree.js";
+export { captureScreenshot } from "./extraction/screenshot-capture.js";
+export { extractForms } from "./extraction/form-extractor.js";
+export { extractInteractiveElements } from "./extraction/element-extractor.js";
 
 // Types
 export type {
@@ -47,4 +53,5 @@ export type {
   ScreenshotResult,
   BrowserLaunchOptions,
   BrowserNavigationPolicy,
-} from './types.js'
+  NavigationResolvedAddress,
+} from "./types.js";
