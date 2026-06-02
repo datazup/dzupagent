@@ -536,7 +536,8 @@
         { "match": "exact", "pattern": "./types.js" },
         { "match": "exact", "pattern": "./parse.js" },
         { "match": "exact", "pattern": "./validate.js" },
-        { "match": "exact", "pattern": "./output-key-uniqueness.js" }
+        { "match": "exact", "pattern": "./output-key-uniqueness.js" },
+        { "match": "exact", "pattern": "./policy-numbers.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},
@@ -596,9 +597,7 @@
         { "match": "exact", "pattern": "./validation.js" },
         { "match": "exact", "pattern": "./types.js" }
       ],
-      "transitionalRoot": [
-        { "match": "prefix", "pattern": "./chunking/" }
-      ],
+      "transitionalRoot": [{ "match": "prefix", "pattern": "./chunking/" }],
       "subpaths": {},
       "migrationWindow": "Document connector root exports are stable ingestion primitives; chunking subpath is transitional pending API stabilisation."
     }
