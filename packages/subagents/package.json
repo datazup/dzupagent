@@ -1,0 +1,43 @@
+{
+  "name": "@dzupagent/subagents",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Governed async background subagents for DzupAgent — portable, policy-gated, checkpointer-backed background task execution",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dzupagent/adapter-types": "0.2.0",
+    "@dzupagent/core": "0.2.0",
+    "@dzupagent/hitl-kit": "0.2.0"
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=1.0.0"
+  },
+  "devDependencies": {
+    "@langchain/core": "^1.1.39",
+    "@types/node": "^20.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.8.3"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/datazup/dzupagent.git",
+    "directory": "packages/subagents"
+  }
+}
