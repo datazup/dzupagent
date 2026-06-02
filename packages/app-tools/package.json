@@ -34,10 +34,10 @@
     "@dzupagent/code-edit-kit": "0.2.0",
     "@dzupagent/core": "0.2.0",
     "@dzupagent/hitl-kit": "0.2.0",
-    "@types/node": "^20.11.0",
-    "tsup": "^8.5.1",
+    "@types/node": "^22.13.0",
+    "tsup": "*",
     "typescript": "^5.8.3",
-    "vitest": "^2.1.9"
+    "vitest": "^3.2.4"
   },
   "license": "MIT",
   "repository": {

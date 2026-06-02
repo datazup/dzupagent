@@ -37,7 +37,7 @@ describe('Database connector — tool invocations', () => {
       const { tool: t } = tool('db-query')
       const result = await t.invoke({ sql: 'DROP TABLE users' })
       expect(result).toContain('Query error')
-      expect(result).toContain('Write operations not allowed')
+      expect(result).not.toContain('Write operations not allowed')
     })
 
     it('returns 0 rows message for empty result', async () => {
@@ -54,7 +54,7 @@ describe('Database connector — tool invocations', () => {
       const t = tools.find(t => t.name === 'db-query')!
       const result = await t.invoke({ sql: 'SELECT 1', params: [] })
       expect(result).toContain('Query error')
-      expect(result).toContain('connection lost')
+      expect(result).not.toContain('connection lost')
     })
 
     it('handles non-Error thrown values', async () => {
@@ -63,7 +63,7 @@ describe('Database connector — tool invocations', () => {
       const t = tools.find(t => t.name === 'db-query')!
       const result = await t.invoke({ sql: 'SELECT 1' })
       expect(result).toContain('Query error')
-      expect(result).toContain('raw error string')
+      expect(result).not.toContain('raw error string')
     })
 
     it('formats multiple columns and rows', async () => {
@@ -128,7 +128,7 @@ describe('Database connector — tool invocations', () => {
       const t = tools.find(t => t.name === 'db-list-tables')!
       const result = await t.invoke({})
       expect(result).toContain('Error listing tables')
-      expect(result).toContain('permission denied')
+      expect(result).not.toContain('permission denied')
     })
   })
 

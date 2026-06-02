@@ -23,8 +23,8 @@
   },
   "peerDependencies": {
     "@opentelemetry/api": "^1.7.0",
-    "@opentelemetry/sdk-metrics": "^1.21.0",
-    "@opentelemetry/sdk-trace-base": "^1.21.0"
+    "@opentelemetry/sdk-metrics": "^1.21.0 || ^2.0.0",
+    "@opentelemetry/sdk-trace-base": "^1.21.0 || ^2.0.0"
   },
   "peerDependenciesMeta": {
     "@opentelemetry/api": {
@@ -40,8 +40,8 @@
   "devDependencies": {
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/sdk-metrics": "^2.6.0",
-    "@opentelemetry/sdk-trace-base": "^1.21.0",
-    "tsup": "^8.5.1",
+    "@opentelemetry/sdk-trace-base": "^2.6.0",
+    "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   },

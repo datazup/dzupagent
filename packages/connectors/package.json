@@ -39,8 +39,8 @@
   },
   "devDependencies": {
     "@langchain/core": "^1.1.39",
-    "@types/pg": "^8.11.0",
-    "tsup": "^8.5.1",
+    "@types/pg": "^8.18.0",
+    "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4",
     "zod": "^4.3.6"

@@ -7,8 +7,8 @@
  */
 
 // --- Agent ---
-export { DzupAgent } from './agent/dzip-agent.js'
-export { createAgentWithMemory } from './agent/agent-factory.js'
+export { DzupAgent } from "./agent/dzip-agent.js";
+export { createAgentWithMemory } from "./agent/agent-factory.js";
 export type {
   DzupAgentConfig,
   AgentMailboxConfig,
@@ -21,31 +21,42 @@ export type {
   PerToolTimeoutMap,
   ArgumentValidator,
   ToolTracer,
-} from './agent/agent-types.js'
-export { getMemoryProfilePreset, resolveArrowMemoryConfig } from './agent/memory-profiles.js'
-export type { MemoryProfile, MemoryProfilePreset } from './agent/memory-profiles.js'
+} from "./agent/agent-types.js";
+export {
+  getMemoryProfilePreset,
+  resolveArrowMemoryConfig,
+} from "./agent/memory-profiles.js";
+export type {
+  MemoryProfile,
+  MemoryProfilePreset,
+} from "./agent/memory-profiles.js";
 export {
   createAllowlistPermissionPolicy,
   createProductionToolGovernancePreset,
   withProductionToolGovernancePreset,
-} from './agent/production-tool-governance-preset.js'
+} from "./agent/production-tool-governance-preset.js";
 export type {
   ProductionToolGovernancePreset,
   ProductionToolGovernancePresetOptions,
   ProductionToolPermissionOptions,
-} from './agent/production-tool-governance-preset.js'
-export { runToolLoop } from './agent/tool-loop.js'
-export type { ToolLoopConfig, ToolLoopResult, ToolStat, StopReason } from './agent/tool-loop.js'
-export { ToolOutputValidator } from './agent/tool-loop/output-validator.js'
+} from "./agent/production-tool-governance-preset.js";
+export { runToolLoop } from "./agent/tool-loop.js";
+export type {
+  ToolLoopConfig,
+  ToolLoopResult,
+  ToolStat,
+  StopReason,
+} from "./agent/tool-loop.js";
+export { ToolOutputValidator } from "./agent/tool-loop/output-validator.js";
 export type {
   ToolOutputSchema,
   ToolOutputValidationResult,
-} from './agent/tool-loop/output-validator.js'
+} from "./agent/tool-loop/output-validator.js";
 export {
   TOOL_TIMEOUT_ERROR_CODE,
   ToolTimeoutError,
   isToolTimeoutError,
-} from './agent/tool-timeout-error.js'
+} from "./agent/tool-timeout-error.js";
 
 // --- RunHandle ---
 export type {
@@ -54,89 +65,120 @@ export type {
   LaunchOptions,
   Unsubscribe,
   CheckpointInfo,
-} from './agent/run-handle-types.js'
+} from "./agent/run-handle-types.js";
 export {
   InvalidRunStateError,
   CheckpointExpiredError,
   ForkLimitExceededError,
   RunNotFoundError,
-} from './agent/run-handle-types.js'
-export { ConcreteRunHandle } from './agent/run-handle.js'
+} from "./agent/run-handle-types.js";
+export { ConcreteRunHandle } from "./agent/run-handle.js";
 
 // --- Parallel Executor ---
-export { executeToolsParallel } from './agent/parallel-executor.js'
+export { executeToolsParallel } from "./agent/parallel-executor.js";
 export type {
   ParallelToolCall,
   ToolExecutionResult,
   ToolLookup,
   ParallelExecutorOptions,
-} from './agent/parallel-executor.js'
+} from "./agent/parallel-executor.js";
 
 // --- Tool Arg Validation ---
-export { validateAndRepairToolArgs, formatSchemaHint } from './agent/tool-arg-validator.js'
-export type { ValidationResult, ToolArgValidatorConfig } from './agent/tool-arg-validator.js'
+export {
+  validateAndRepairToolArgs,
+  formatSchemaHint,
+} from "./agent/tool-arg-validator.js";
+export type {
+  ValidationResult,
+  ToolArgValidatorConfig,
+} from "./agent/tool-arg-validator.js";
 
 // --- Guardrails ---
-export { IterationBudget } from './guardrails/iteration-budget.js'
-export { StuckDetector } from './guardrails/stuck-detector.js'
-export type { StuckDetectorConfig, StuckStatus } from './guardrails/stuck-detector.js'
-export { StuckError } from './agent/stuck-error.js'
-export type { EscalationLevel, RecoveryAction as StuckRecoveryAction } from './agent/stuck-error.js'
-export { CascadingTimeout } from './guardrails/cascading-timeout.js'
-export type { CascadingTimeoutConfig } from './guardrails/cascading-timeout.js'
+export { IterationBudget } from "./guardrails/iteration-budget.js";
+export { StuckDetector } from "./guardrails/stuck-detector.js";
+export type {
+  StuckDetectorConfig,
+  StuckStatus,
+} from "./guardrails/stuck-detector.js";
+export { StuckError } from "./agent/stuck-error.js";
+export type {
+  EscalationLevel,
+  RecoveryAction as StuckRecoveryAction,
+} from "./agent/stuck-error.js";
+export { ContextCompressionFailedError } from "./agent/context-compression-failed-error.js";
+export { CascadingTimeout } from "./guardrails/cascading-timeout.js";
+export type { CascadingTimeoutConfig } from "./guardrails/cascading-timeout.js";
 export type {
   GuardrailConfig,
   BudgetState,
   BudgetWarning,
   DistributedGuardrailConfig,
-} from './guardrails/guardrail-types.js'
+} from "./guardrails/guardrail-types.js";
 
 // --- Distributed Guardrails (MC-07) ---
-export { DistributedRateLimiter } from './guardrails/distributed-rate-limiter.js'
+export { DistributedRateLimiter } from "./guardrails/distributed-rate-limiter.js";
 export type {
   RateLimiterClient,
   LocalRateLimiter,
   DistributedRateLimiterConfig,
-} from './guardrails/distributed-rate-limiter.js'
-export { DistributedCostLedger } from './guardrails/distributed-budget.js'
+} from "./guardrails/distributed-rate-limiter.js";
+export { DistributedCostLedger } from "./guardrails/distributed-budget.js";
 export type {
   CostLedgerClient,
   DistributedCostLedgerConfig,
   CostLedgerRecordResult,
-} from './guardrails/distributed-budget.js'
+} from "./guardrails/distributed-budget.js";
 
 // --- Workflow ---
-export { WorkflowBuilder, CompiledWorkflow, createWorkflow } from './workflow/workflow-builder.js'
-export type { WorkflowConfig, WorkflowErrorHandler } from './workflow/workflow-builder.js'
+export {
+  WorkflowBuilder,
+  CompiledWorkflow,
+  createWorkflow,
+} from "./workflow/workflow-builder.js";
+export type {
+  WorkflowConfig,
+  WorkflowErrorHandler,
+} from "./workflow/workflow-builder.js";
 export type {
   WorkflowStep,
   WorkflowContext,
   WorkflowEvent,
   MergeStrategy,
-} from './workflow/workflow-types.js'
+} from "./workflow/workflow-types.js";
 
 // --- Orchestration ---
-export { AgentOrchestrator } from './orchestration/orchestrator.js'
-export type { MergeFn, SupervisorConfig, SupervisorResult } from './orchestration/orchestrator.js'
-export { OrchestrationError } from './orchestration/orchestration-error.js'
-export type { OrchestrationPattern } from './orchestration/orchestration-error.js'
-export { mapReduce, mapReduceMulti } from './orchestration/map-reduce.js'
-export type { MapReduceConfig, MapReduceResult, AgentOutput } from './orchestration/map-reduce.js'
+export { AgentOrchestrator } from "./orchestration/orchestrator.js";
+export type {
+  MergeFn,
+  SupervisorConfig,
+  SupervisorResult,
+} from "./orchestration/orchestrator.js";
+export { OrchestrationError } from "./orchestration/orchestration-error.js";
+export type { OrchestrationPattern } from "./orchestration/orchestration-error.js";
+export { mapReduce, mapReduceMulti } from "./orchestration/map-reduce.js";
+export type {
+  MapReduceConfig,
+  MapReduceResult,
+  AgentOutput,
+} from "./orchestration/map-reduce.js";
 export {
   concatMerge,
   voteMerge,
   numberedMerge,
   jsonArrayMerge,
   getMergeStrategy,
-} from './orchestration/merge-strategies.js'
-export type { MergeStrategyFn, MergeStrategyName } from './orchestration/merge-strategies.js'
-export { ContractNetManager } from './orchestration/contract-net/contract-net-manager.js'
+} from "./orchestration/merge-strategies.js";
+export type {
+  MergeStrategyFn,
+  MergeStrategyName,
+} from "./orchestration/merge-strategies.js";
+export { ContractNetManager } from "./orchestration/contract-net/contract-net-manager.js";
 export {
   lowestCostStrategy,
   fastestStrategy,
   highestQualityStrategy,
   createWeightedStrategy,
-} from './orchestration/contract-net/bid-strategies.js'
+} from "./orchestration/contract-net/bid-strategies.js";
 export type {
   ContractNetPhase,
   CallForProposals,
@@ -146,16 +188,22 @@ export type {
   ContractNetState,
   BidEvaluationStrategy,
   ContractNetConfig,
-} from './orchestration/contract-net/contract-net-types.js'
-export { DelegatingSupervisor } from './orchestration/delegating-supervisor.js'
+} from "./orchestration/contract-net/contract-net-types.js";
+export { DelegatingSupervisor } from "./orchestration/delegating-supervisor.js";
 export type {
   DelegatingSupervisorConfig,
   TaskAssignment,
   AggregatedDelegationResult,
   PlanAndDelegateOptions,
   DelegateTaskOptions,
-} from './orchestration/delegating-supervisor.js'
-export { PlanningAgent, buildExecutionLevels, validatePlanStructure, PlanNodeSchema, DecompositionSchema } from './orchestration/planning-agent.js'
+} from "./orchestration/delegating-supervisor.js";
+export {
+  PlanningAgent,
+  buildExecutionLevels,
+  validatePlanStructure,
+  PlanNodeSchema,
+  DecompositionSchema,
+} from "./orchestration/planning-agent.js";
 export type {
   PlanNode,
   ExecutionPlan,
@@ -166,8 +214,8 @@ export type {
   PlanningAgentConfig,
   DecompositionResult,
   DecomposeOptions,
-} from './orchestration/planning-agent.js'
-export { SimpleDelegationTracker } from './orchestration/delegation.js'
+} from "./orchestration/planning-agent.js";
+export { SimpleDelegationTracker } from "./orchestration/delegation.js";
 export type {
   DelegationRequest,
   DelegationResult,
@@ -178,17 +226,21 @@ export type {
   DelegationExecutor,
   ActiveDelegation,
   SimpleDelegationTrackerConfig,
-} from './orchestration/delegation.js'
-export { TopologyAnalyzer } from './orchestration/topology/topology-analyzer.js'
-export { TopologyExecutor } from './orchestration/topology/topology-executor.js'
-export type { MeshResult, RingResult, ExecuteResult } from './orchestration/topology/topology-executor.js'
+} from "./orchestration/delegation.js";
+export { TopologyAnalyzer } from "./orchestration/topology/topology-analyzer.js";
+export { TopologyExecutor } from "./orchestration/topology/topology-executor.js";
+export type {
+  MeshResult,
+  RingResult,
+  ExecuteResult,
+} from "./orchestration/topology/topology-executor.js";
 export type {
   TopologyType,
   TaskCharacteristics,
   TopologyRecommendation,
   TopologyMetrics,
   TopologyExecutorConfig,
-} from './orchestration/topology/topology-types.js'
+} from "./orchestration/topology/topology-types.js";
 
 // --- Routing Policy ---
 export type {
@@ -198,7 +250,7 @@ export type {
   RoutingPolicy,
   RuleBasedRoutingConfig,
   HashRoutingConfig,
-} from './orchestration/routing-policy-types.js'
+} from "./orchestration/routing-policy-types.js";
 
 // --- Orchestration Merge Strategy ---
 export type {
@@ -206,41 +258,47 @@ export type {
   MergedResult,
   OrchestrationMergeStrategy,
   BuiltInMergeStrategyName,
-} from './orchestration/orchestration-merge-strategy-types.js'
+} from "./orchestration/orchestration-merge-strategy-types.js";
 
 // --- Routing Policies ---
-export { RuleBasedRouting } from './orchestration/routing/rule-based-routing.js'
-export { HashRouting } from './orchestration/routing/hash-routing.js'
-export { LLMRouting } from './orchestration/routing/llm-routing.js'
-export { RoundRobinRouting } from './orchestration/routing/round-robin-routing.js'
+export { RuleBasedRouting } from "./orchestration/routing/rule-based-routing.js";
+export { HashRouting } from "./orchestration/routing/hash-routing.js";
+export { LLMRouting } from "./orchestration/routing/llm-routing.js";
+export { RoundRobinRouting } from "./orchestration/routing/round-robin-routing.js";
 
 // --- Orchestration Merge Strategies ---
-export { AllRequiredMergeStrategy } from './orchestration/merge/all-required.js'
-export { UsePartialMergeStrategy } from './orchestration/merge/use-partial.js'
-export { FirstWinsMergeStrategy } from './orchestration/merge/first-wins.js'
+export { AllRequiredMergeStrategy } from "./orchestration/merge/all-required.js";
+export { UsePartialMergeStrategy } from "./orchestration/merge/use-partial.js";
+export { FirstWinsMergeStrategy } from "./orchestration/merge/first-wins.js";
 
 // --- Circuit Breaker ---
-export { AgentCircuitBreaker } from './orchestration/circuit-breaker.js'
-export type { CircuitState, CircuitBreakerConfig } from './orchestration/circuit-breaker.js'
+export { AgentCircuitBreaker } from "./orchestration/circuit-breaker.js";
+export type {
+  CircuitState,
+  CircuitBreakerConfig,
+} from "./orchestration/circuit-breaker.js";
 
 // --- Provider Adapter Port ---
 export type {
   ProviderExecutionPort,
   ProviderExecutionResult,
-} from './orchestration/provider-adapter/index.js'
+} from "./orchestration/provider-adapter/index.js";
 
 // --- Context ---
-export { autoCompress, FrozenSnapshot } from './context/auto-compress.js'
-export type { AutoCompressConfig, CompressResult } from './context/auto-compress.js'
-export { withTokenLifecycle } from './context/token-lifecycle-integration.js'
+export { autoCompress, FrozenSnapshot } from "./context/auto-compress.js";
+export type {
+  AutoCompressConfig,
+  CompressResult,
+} from "./context/auto-compress.js";
+export { withTokenLifecycle } from "./context/token-lifecycle-integration.js";
 export type {
   TokenLifecycleHooks,
   TokenLifecyclePhase,
   TokenPressureListener,
-} from './context/token-lifecycle-integration.js'
+} from "./context/token-lifecycle-integration.js";
 
 // --- Approval ---
-export { ApprovalGate } from './approval/approval-gate.js'
+export { ApprovalGate } from "./approval/approval-gate.js";
 export {
   APPROVAL_PENDING_KEY,
   DEFAULT_APPROVAL_TIMEOUT_MS,
@@ -252,18 +310,25 @@ export {
   type ApprovalRequestInput,
   type ApprovalResult,
   type ApprovalWaitOptions,
-} from './approval/approval-types.js'
-export { ApprovalSuspendedError } from './approval/approval-errors.js'
+} from "./approval/approval-types.js";
+export { ApprovalSuspendedError } from "./approval/approval-errors.js";
 
 // --- Tool Registry ---
-export { DynamicToolRegistry } from './agent/tool-registry.js'
-export type { ToolRegistryEvent } from './agent/tool-registry.js'
+export { DynamicToolRegistry } from "./agent/tool-registry.js";
+export type { ToolRegistryEvent } from "./agent/tool-registry.js";
 
 // --- Tools ---
-export { createForgeTool } from './tools/create-tool.js'
-export type { ForgeToolConfig } from './tools/create-tool.js'
-export { createHumanContactTool, InMemoryPendingContactStore } from './tools/human-contact-tool.js'
-export type { HumanContactInput, HumanContactToolConfig, PendingContactStore } from './tools/human-contact-tool.js'
+export { createForgeTool } from "./tools/create-tool.js";
+export type { ForgeToolConfig } from "./tools/create-tool.js";
+export {
+  createHumanContactTool,
+  InMemoryPendingContactStore,
+} from "./tools/human-contact-tool.js";
+export type {
+  HumanContactInput,
+  HumanContactToolConfig,
+  PendingContactStore,
+} from "./tools/human-contact-tool.js";
 
 // --- Tool Permission Tier Registry (MC-AGT-05) ---
 export {
@@ -271,14 +336,14 @@ export {
   getToolTier,
   filterToolsByTier,
   DEFAULT_TOOL_TIER,
-} from './tools/tool-tier-registry.js'
+} from "./tools/tool-tier-registry.js";
 
 // --- State (legacy) ---
-export { serializeMessages, deserializeMessages } from './agent/agent-state.js'
+export { serializeMessages, deserializeMessages } from "./agent/agent-state.js";
 export type {
   AgentStateSnapshot as LegacyAgentStateSnapshot,
   SerializedMessage as LegacySerializedMessage,
-} from './agent/agent-state.js'
+} from "./agent/agent-state.js";
 
 // --- Enhanced Snapshot ---
 export {
@@ -286,27 +351,27 @@ export {
   verifySnapshot,
   compressSnapshot,
   decompressSnapshot,
-} from './snapshot/agent-snapshot.js'
+} from "./snapshot/agent-snapshot.js";
 export type {
   AgentStateSnapshot,
   CreateSnapshotParams,
-} from './snapshot/agent-snapshot.js'
+} from "./snapshot/agent-snapshot.js";
 
 // --- Enhanced Message Format ---
 export {
   serializeMessage,
   migrateMessages,
-} from './snapshot/serialized-message.js'
+} from "./snapshot/serialized-message.js";
 export type {
   SerializedMessage,
   MultimodalContent,
-} from './snapshot/serialized-message.js'
+} from "./snapshot/serialized-message.js";
 
 // --- Structured Output ---
 export {
   generateStructured as generateStructuredOutput,
   detectStrategy,
-} from './structured/index.js'
+} from "./structured/index.js";
 export type {
   StructuredOutputStrategy,
   StructuredOutputCapabilities,
@@ -314,22 +379,22 @@ export type {
   StructuredOutputResult,
   StructuredLLM,
   StructuredLLMWithMeta,
-} from './structured/index.js'
+} from "./structured/index.js";
 
 // --- Tool Schema Registry ---
-export { ToolSchemaRegistry } from './tools/tool-schema-registry.js'
+export { ToolSchemaRegistry } from "./tools/tool-schema-registry.js";
 export type {
   ToolSchemaEntry,
   CompatCheckResult,
-} from './tools/tool-schema-registry.js'
+} from "./tools/tool-schema-registry.js";
 
 // --- Streaming ---
-export { StreamActionParser } from './streaming/stream-action-parser.js'
+export { StreamActionParser } from "./streaming/stream-action-parser.js";
 export type {
   StreamedToolCall,
   StreamActionEvent,
   StreamActionParserConfig,
-} from './streaming/stream-action-parser.js'
+} from "./streaming/stream-action-parser.js";
 export type {
   StreamEvent,
   TextDeltaEvent,
@@ -337,22 +402,38 @@ export type {
   ToolCallEndEvent,
   DoneEvent,
   ErrorEvent,
-} from './streaming/streaming-types.js'
-export { TextDeltaBuffer } from './streaming/text-delta-buffer.js'
-export { StreamingRunHandle } from './streaming/streaming-run-handle.js'
-export type { StreamingStatus, StreamingRunHandleOptions } from './streaming/streaming-run-handle.js'
+} from "./streaming/streaming-types.js";
+export { TextDeltaBuffer } from "./streaming/text-delta-buffer.js";
+export { StreamingRunHandle } from "./streaming/streaming-run-handle.js";
+export type {
+  StreamingStatus,
+  StreamingRunHandleOptions,
+} from "./streaming/streaming-run-handle.js";
 
 // --- Templates ---
-export { AGENT_TEMPLATES, ALL_AGENT_TEMPLATES, getAgentTemplate, listAgentTemplates } from './templates/agent-templates.js'
-export type { AgentTemplate, AgentTemplateCategory } from './templates/agent-templates.js'
-export { composeTemplates } from './templates/template-composer.js'
-export { TemplateRegistry } from './templates/template-registry.js'
+export {
+  AGENT_TEMPLATES,
+  ALL_AGENT_TEMPLATES,
+  getAgentTemplate,
+  listAgentTemplates,
+} from "./templates/agent-templates.js";
+export type {
+  AgentTemplate,
+  AgentTemplateCategory,
+} from "./templates/agent-templates.js";
+export { composeTemplates } from "./templates/template-composer.js";
+export { TemplateRegistry } from "./templates/template-registry.js";
 
 // --- Pipeline ---
-export { validatePipeline } from './pipeline/pipeline-validator.js'
-export { InMemoryPipelineCheckpointStore } from './pipeline/in-memory-checkpoint-store.js'
-export { PipelineRuntime } from './pipeline/pipeline-runtime.js'
-export { executeLoop, stateFieldTruthy, qualityBelow, hasErrors } from './pipeline/loop-executor.js'
+export { validatePipeline } from "./pipeline/pipeline-validator.js";
+export { InMemoryPipelineCheckpointStore } from "./pipeline/in-memory-checkpoint-store.js";
+export { PipelineRuntime } from "./pipeline/pipeline-runtime.js";
+export {
+  executeLoop,
+  stateFieldTruthy,
+  qualityBelow,
+  hasErrors,
+} from "./pipeline/loop-executor.js";
 export type {
   PipelineState,
   NodeResult,
@@ -365,11 +446,17 @@ export type {
   RetryPolicy,
   OTelSpanLike,
   PipelineTracer,
-} from './pipeline/pipeline-runtime-types.js'
+} from "./pipeline/pipeline-runtime-types.js";
 
 // --- Step Type Registry ---
-export { StepTypeRegistry, defaultStepTypeRegistry } from './pipeline/step-type-registry.js'
-export type { StepContext, StepTypeDescriptor } from './pipeline/step-type-registry.js'
+export {
+  StepTypeRegistry,
+  defaultStepTypeRegistry,
+} from "./pipeline/step-type-registry.js";
+export type {
+  StepContext,
+  StepTypeDescriptor,
+} from "./pipeline/step-type-registry.js";
 
 // --- Pipeline Retry ---
 export {
@@ -377,7 +464,7 @@ export {
   calculateBackoff,
   isRetryable,
   resolveRetryPolicy,
-} from './pipeline/retry-policy.js'
+} from "./pipeline/retry-policy.js";
 
 // --- Pipeline Templates ---
 export {
@@ -385,34 +472,34 @@ export {
   createFeatureGenerationPipeline,
   createTestGenerationPipeline,
   createRefactoringPipeline,
-} from './pipeline/pipeline-templates.js'
+} from "./pipeline/pipeline-templates.js";
 export type {
   CodeReviewPipelineOptions,
   FeatureGenerationPipelineOptions,
   TestGenerationPipelineOptions,
   RefactoringPipelineOptions,
-} from './pipeline/pipeline-templates.js'
+} from "./pipeline/pipeline-templates.js";
 
 // --- Security ---
-export { AgentAuth } from './security/agent-auth.js'
+export { AgentAuth } from "./security/agent-auth.js";
 export type {
   AgentCredential,
   SignedAgentMessage,
   AgentAuthConfig,
-} from './security/agent-auth.js'
+} from "./security/agent-auth.js";
 
 // --- Pipeline Analytics ---
-export { PipelineAnalytics } from './pipeline/pipeline-analytics.js'
+export { PipelineAnalytics } from "./pipeline/pipeline-analytics.js";
 export type {
   NodeMetrics,
   BottleneckEntry,
   PipelineAnalyticsReport,
   AnalyticsNodeResult,
   AnalyticsRunInput,
-} from './pipeline/pipeline-analytics.js'
+} from "./pipeline/pipeline-analytics.js";
 
 // --- Shared Workspace (used by TeamRuntime) ---
-export { SharedWorkspace } from './orchestration/team/team-workspace.js'
+export { SharedWorkspace } from "./orchestration/team/team-workspace.js";
 
 // --- TeamRuntime (declarative team execution engine) ---
 export {
@@ -420,7 +507,7 @@ export {
   DEFAULT_ROUTER_MODEL,
   DEFAULT_PARTICIPANT_MODEL,
   DEFAULT_GOVERNANCE_MODEL,
-} from './orchestration/team/team-runtime.js'
+} from "./orchestration/team/team-runtime.js";
 export type {
   TeamRuntimeEvent,
   TeamRuntimeEventEmitter,
@@ -428,19 +515,19 @@ export type {
   ParticipantResolver,
   TeamRuntimeTracer,
   TeamOTelSpanLike,
-} from './orchestration/team/team-runtime.js'
+} from "./orchestration/team/team-runtime.js";
 export type {
   WorkspaceSubscriber,
   TeamAgentRole,
   TeamAgentStatus,
   TeamSpawnedAgent,
   TeamAgentRunResult,
-} from './orchestration/team/team-workspace.js'
+} from "./orchestration/team/team-workspace.js";
 export type {
   CoordinatorPattern as TeamCoordinatorPattern,
   ParticipantDefinition,
   TeamDefinition,
-} from './orchestration/team/team-definition.js'
+} from "./orchestration/team/team-definition.js";
 export type {
   ExecutionPolicy,
   GovernancePolicy,
@@ -449,44 +536,59 @@ export type {
   MailboxPolicy,
   EvaluationPolicy,
   TeamPolicies,
-} from './orchestration/team/team-policy.js'
-export type { TeamPhase, TeamPhaseModel } from './orchestration/team/team-phase.js'
-export type { TeamCheckpoint, ResumeContract } from './orchestration/team/team-checkpoint.js'
+} from "./orchestration/team/team-policy.js";
+export type {
+  TeamPhase,
+  TeamPhaseModel,
+} from "./orchestration/team/team-phase.js";
+export type {
+  TeamCheckpoint,
+  ResumeContract,
+} from "./orchestration/team/team-checkpoint.js";
 export type {
   SupervisionPolicy,
   AgentBreakerState,
-} from './orchestration/team/supervision-policy.js'
+} from "./orchestration/team/supervision-policy.js";
 
 // --- Reflection ---
-export { RunReflector } from './reflection/run-reflector.js'
+export { RunReflector } from "./reflection/run-reflector.js";
 export type {
   ReflectionScore,
   ReflectionDimensions,
   ReflectionInput,
   ReflectorConfig,
-} from './reflection/run-reflector.js'
-export { ReflectionAnalyzer } from './reflection/reflection-analyzer.js'
-export type { ReflectionAnalyzerConfig } from './reflection/reflection-analyzer.js'
-export { InMemoryReflectionStore } from './reflection/in-memory-reflection-store.js'
+} from "./reflection/run-reflector.js";
+export { ReflectionAnalyzer } from "./reflection/reflection-analyzer.js";
+export type { ReflectionAnalyzerConfig } from "./reflection/reflection-analyzer.js";
+export { InMemoryReflectionStore } from "./reflection/in-memory-reflection-store.js";
 export type {
   ReflectionPattern,
   ReflectionSummary,
   RunReflectionStore,
   ReflectionListOptions,
   ReflectionPatternOptions,
-} from './reflection/reflection-types.js'
-export { createReflectionLearningBridge, buildWorkflowEventsFromToolStats } from './reflection/learning-bridge.js'
-export type { ReflectionLearningBridgeConfig } from './reflection/learning-bridge.js'
+} from "./reflection/reflection-types.js";
+export {
+  createReflectionLearningBridge,
+  buildWorkflowEventsFromToolStats,
+} from "./reflection/learning-bridge.js";
+export type { ReflectionLearningBridgeConfig } from "./reflection/learning-bridge.js";
 
 // --- Recovery ---
-export { RecoveryCopilot } from './recovery/recovery-copilot.js'
-export type { StrategyGenerator } from './recovery/recovery-copilot.js'
-export { FailureAnalyzer } from './recovery/failure-analyzer.js'
-export type { FailureHistoryEntry, FailureAnalysis } from './recovery/failure-analyzer.js'
-export { StrategyRanker } from './recovery/strategy-ranker.js'
-export type { RankingWeights } from './recovery/strategy-ranker.js'
-export { RecoveryExecutor } from './recovery/recovery-executor.js'
-export type { ActionHandler, RecoveryExecutorConfig } from './recovery/recovery-executor.js'
+export { RecoveryCopilot } from "./recovery/recovery-copilot.js";
+export type { StrategyGenerator } from "./recovery/recovery-copilot.js";
+export { FailureAnalyzer } from "./recovery/failure-analyzer.js";
+export type {
+  FailureHistoryEntry,
+  FailureAnalysis,
+} from "./recovery/failure-analyzer.js";
+export { StrategyRanker } from "./recovery/strategy-ranker.js";
+export type { RankingWeights } from "./recovery/strategy-ranker.js";
+export { RecoveryExecutor } from "./recovery/recovery-executor.js";
+export type {
+  ActionHandler,
+  RecoveryExecutorConfig,
+} from "./recovery/recovery-executor.js";
 export type {
   FailureType,
   FailureContext,
@@ -498,15 +600,22 @@ export type {
   RecoveryPlan,
   RecoveryCopilotConfig,
   RecoveryResult,
-} from './recovery/recovery-types.js'
+} from "./recovery/recovery-types.js";
 
 // --- Instructions (AGENTS.md) ---
-export { parseAgentsMd, mergeAgentsMd, discoverAgentsMdHierarchy } from './instructions/agents-md-parser.js'
-export type { AgentsMdSection } from './instructions/agents-md-parser.js'
-export { mergeInstructions } from './instructions/instruction-merger.js'
-export type { MergedInstructions } from './instructions/instruction-merger.js'
-export { loadAgentsFiles } from './instructions/instruction-loader.js'
-export type { LoadedAgentsFile, LoadAgentsOptions } from './instructions/instruction-loader.js'
+export {
+  parseAgentsMd,
+  mergeAgentsMd,
+  discoverAgentsMdHierarchy,
+} from "./instructions/agents-md-parser.js";
+export type { AgentsMdSection } from "./instructions/agents-md-parser.js";
+export { mergeInstructions } from "./instructions/instruction-merger.js";
+export type { MergedInstructions } from "./instructions/instruction-merger.js";
+export { loadAgentsFiles } from "./instructions/instruction-loader.js";
+export type {
+  LoadedAgentsFile,
+  LoadAgentsOptions,
+} from "./instructions/instruction-loader.js";
 
 // --- Presets ---
 export {
@@ -521,12 +630,19 @@ export {
   SummarizerPreset,
   QAPreset,
   BUILT_IN_PRESETS,
-} from './presets/index.js'
+} from "./presets/index.js";
 
 // --- Skill Chain Executor ---
-export { executeTextualWorkflow, streamTextualWorkflow, createSkillChainWorkflow } from './skill-chain-executor/index.js'
-export type { TextualWorkflowOptions } from './skill-chain-executor/index.js'
-export { SharedAgentSkillResolver, SkillChainExecutor } from './skill-chain-executor/index.js'
+export {
+  executeTextualWorkflow,
+  streamTextualWorkflow,
+  createSkillChainWorkflow,
+} from "./skill-chain-executor/index.js";
+export type { TextualWorkflowOptions } from "./skill-chain-executor/index.js";
+export {
+  SharedAgentSkillResolver,
+  SkillChainExecutor,
+} from "./skill-chain-executor/index.js";
 export type {
   SkillStepResolver,
   SharedAgentSkillResolverConfig,
@@ -539,18 +655,18 @@ export type {
   ChainFinalState,
   StateTransformer,
   CandidateInterpretation,
-} from './skill-chain-executor/index.js'
+} from "./skill-chain-executor/index.js";
 export {
   SkillNotFoundError,
   ChainValidationError,
   StepExecutionError,
   WorkflowParseError,
-} from './skill-chain-executor/index.js'
+} from "./skill-chain-executor/index.js";
 
 // --- Cluster Workspaces ---
-export type { ClusterRole, AgentCluster } from './cluster/index.js'
-export { InMemoryAgentCluster } from './cluster/index.js'
-export type { InMemoryAgentClusterConfig } from './cluster/index.js'
+export type { ClusterRole, AgentCluster } from "./cluster/index.js";
+export { InMemoryAgentCluster } from "./cluster/index.js";
+export type { InMemoryAgentClusterConfig } from "./cluster/index.js";
 
 // --- Mailbox ---
 export type {
@@ -558,40 +674,40 @@ export type {
   MailboxQuery,
   MailboxStore,
   AgentMailbox,
-} from './mailbox/index.js'
+} from "./mailbox/index.js";
 
-export { InMemoryMailboxStore } from './mailbox/index.js'
-export { AgentMailboxImpl } from './mailbox/index.js'
-export type { AgentMailboxOptions } from './mailbox/index.js'
-export { createSendMailTool, createCheckMailTool } from './mailbox/index.js'
-export type { MailToolConfig } from './mailbox/index.js'
-export { InMemoryDeadLetterStore } from './mailbox/index.js'
+export { InMemoryMailboxStore } from "./mailbox/index.js";
+export { AgentMailboxImpl } from "./mailbox/index.js";
+export type { AgentMailboxOptions } from "./mailbox/index.js";
+export { createSendMailTool, createCheckMailTool } from "./mailbox/index.js";
+export type { MailToolConfig } from "./mailbox/index.js";
+export { InMemoryDeadLetterStore } from "./mailbox/index.js";
 export type {
   DeadLetter,
   DeadLetterMeta,
   DeadLetterStore,
-} from './mailbox/index.js'
+} from "./mailbox/index.js";
 export {
   RateLimiter,
   MailRateLimitedError,
   DEFAULT_RATE_LIMIT,
-} from './mailbox/index.js'
-export type { RateLimiterConfig } from './mailbox/index.js'
+} from "./mailbox/index.js";
+export type { RateLimiterConfig } from "./mailbox/index.js";
 
 // --- Token Lifecycle Wiring (default-loop plugin) ---
-export { createTokenLifecyclePlugin } from './token-lifecycle-wiring.js'
+export { createTokenLifecyclePlugin } from "./token-lifecycle-wiring.js";
 export type {
   AgentLoopPlugin,
   TokenLifecyclePluginOptions,
   CompressionHintListener,
-} from './token-lifecycle-wiring.js'
+} from "./token-lifecycle-wiring.js";
 
 // --- Run Metrics Observability ---
 export {
   RunMetricsAggregator,
   attachRunMetricsBridge,
   InMemoryAuditStore,
-} from './observability/index.js'
+} from "./observability/index.js";
 export type {
   RunSummaryMetrics,
   RunTokenUsage,
@@ -600,7 +716,7 @@ export type {
   EventBusBridgeOptions,
   LlmCallAuditEntry,
   LlmCallAuditSink,
-} from './observability/index.js'
+} from "./observability/index.js";
 
 // --- Version ---
-export const dzupagent_AGENT_VERSION = '0.2.0'
+export const dzupagent_AGENT_VERSION = "0.2.0";

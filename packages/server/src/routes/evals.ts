@@ -1,5 +1,9 @@
 import { Hono } from "hono";
-import { logRouteError, sanitizeError } from "./route-error.js";
+import {
+  logRouteError,
+  mapErrorToStatus,
+  sanitizeError,
+} from "./route-error.js";
 import type { AppEnv } from "../types.js";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type {
@@ -123,7 +127,10 @@ function mapEvalRouteError(error: unknown): EvalRouteErrorResponse {
     };
   }
 
-  if (error instanceof Error && error.message.includes("not found")) {
+  // ERR-M-04: derive not-found via the shared status mapper rather than an
+  // inline English substring match. A non-404 error returns the 500 fallback,
+  // which never equals 404, so it correctly falls through to the 500 branch.
+  if (error instanceof Error && mapErrorToStatus(error, 500) === 404) {
     return {
       status: 404,
       error: buildNotFoundError(error.message),

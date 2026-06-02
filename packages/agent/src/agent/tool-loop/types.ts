@@ -9,38 +9,44 @@
  * compatibility — existing callers continue to import from
  * `../tool-loop.js`.
  */
-import type { SystemMessage, BaseMessage } from '@langchain/core/messages'
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { DzupEventBus } from '@dzupagent/core/events'
-import type { TokenUsage } from '@dzupagent/core/llm'
-import type { SafetyMonitor } from '@dzupagent/core/security'
-import type { ToolGovernance } from '@dzupagent/core/tools'
-import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
-import type { CompressResult } from '@dzupagent/context'
-import type { IterationBudget } from '../../guardrails/iteration-budget.js'
-import type { StuckDetector } from '../../guardrails/stuck-detector.js'
-import type { StuckError } from '../stuck-error.js'
-import { type ToolArgValidatorConfig } from '../tool-arg-validator.js'
-import type { ToolOutputValidator } from './output-validator.js'
+import type { SystemMessage, BaseMessage } from "@langchain/core/messages";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { DzupEventBus } from "@dzupagent/core/events";
+import type { TokenUsage } from "@dzupagent/core/llm";
+import type { SafetyMonitor } from "@dzupagent/core/security";
+import type { ToolGovernance } from "@dzupagent/core/tools";
+import type { ToolPermissionPolicy } from "@dzupagent/agent-types";
+import type { CompressResult } from "@dzupagent/context";
+import type { IterationBudget } from "../../guardrails/iteration-budget.js";
+import type { StuckDetector } from "../../guardrails/stuck-detector.js";
+import type { StuckError } from "../stuck-error.js";
+import { type ToolArgValidatorConfig } from "../tool-arg-validator.js";
+import type { ToolOutputValidator } from "./output-validator.js";
 
 /** Per-tool execution statistics. */
 export interface ToolStat {
-  name: string
-  calls: number
-  errors: number
-  totalMs: number
-  avgMs: number
+  name: string;
+  calls: number;
+  errors: number;
+  totalMs: number;
+  avgMs: number;
 }
 
 /** Why the tool loop stopped. */
 export type StopReason =
-  | 'complete'
-  | 'iteration_limit'
-  | 'budget_exceeded'
-  | 'aborted'
-  | 'error'
-  | 'stuck'
-  | 'token_exhausted'
+  | "complete"
+  | "iteration_limit"
+  | "budget_exceeded"
+  | "aborted"
+  | "error"
+  | "stuck"
+  | "token_exhausted"
+  /**
+   * AGENT-112: the loop terminated because context compression failed on two
+   * consecutive turns. Continuing would only burn budget on LLM calls that
+   * cannot fit the (un-compressible) history, so the loop aborts cleanly.
+   */
+  | "compression_failed"
   /**
    * The loop halted because an approval-required tool was scheduled. The
    * tool was NOT executed; an `approval:requested` event was emitted to the
@@ -50,9 +56,9 @@ export type StopReason =
    * and re-driving the run via the resume path) — the loop itself does not
    * implement resumption.
    */
-  | 'approval_pending'
+  | "approval_pending";
 
-export type ToolResultScanFailureMode = 'fail-open' | 'fail-closed'
+export type ToolResultScanFailureMode = "fail-open" | "fail-closed";
 
 /**
  * Per-tool retry policy for transient tool execution failures (RF-09).
@@ -69,15 +75,15 @@ export interface ToolRetryConfig {
    * Maximum total attempts (including the first try). `1` disables retry.
    * Default: `3`.
    */
-  maxAttempts?: number
+  maxAttempts?: number;
   /** Initial backoff in ms for attempt 0. Default: `200`. */
-  initialBackoffMs?: number
+  initialBackoffMs?: number;
   /** Upper bound on backoff in ms. Default: `4000`. */
-  maxBackoffMs?: number
+  maxBackoffMs?: number;
   /** Exponential growth factor. Default: `2`. */
-  multiplier?: number
+  multiplier?: number;
   /** Apply equal-jitter (0.5×–1.0×). Default: `true`. */
-  jitter?: boolean
+  jitter?: boolean;
   /**
    * Custom predicate deciding whether a thrown error is retryable. When
    * omitted, the executor falls back to {@link isTransientError} from
@@ -87,18 +93,18 @@ export interface ToolRetryConfig {
    * filtered out BEFORE this predicate runs — `retryOn` is only consulted
    * for the residual "unknown error" bucket.
    */
-  retryOn?: (err: Error) => boolean
+  retryOn?: (err: Error) => boolean;
 }
 
 export interface ToolLoopConfig {
-  maxIterations: number
-  budget?: IterationBudget
-  onUsage?: (usage: TokenUsage) => void
-  onToolCall?: (name: string, args: Record<string, unknown>) => void
-  onToolResult?: (name: string, result: string) => void
-  onBudgetWarning?: (message: string) => void
+  maxIterations: number;
+  budget?: IterationBudget;
+  onUsage?: (usage: TokenUsage) => void;
+  onToolCall?: (name: string, args: Record<string, unknown>) => void;
+  onToolResult?: (name: string, result: string) => void;
+  onBudgetWarning?: (message: string) => void;
   /** Called after each tool invocation with its latency. */
-  onToolLatency?: (name: string, durationMs: number, error?: string) => void
+  onToolLatency?: (name: string, durationMs: number, error?: string) => void;
   /**
    * Called once per iteration with the loop snapshot. Fires after the LLM
    * turn has completed and tool results (if any) have been appended to the
@@ -109,34 +115,37 @@ export interface ToolLoopConfig {
    * writes must never abort an in-progress run.
    */
   onIteration?: (info: {
-    iteration: number
+    iteration: number;
+    messages: BaseMessage[];
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    llmCalls: number;
+  }) => void;
+  invokeModel?: (
+    model: BaseChatModel,
     messages: BaseMessage[]
-    totalInputTokens: number
-    totalOutputTokens: number
-    llmCalls: number
-  }) => void
-  invokeModel?: (model: BaseChatModel, messages: BaseMessage[]) => Promise<BaseMessage>
+  ) => Promise<BaseMessage>;
   transformToolResult?: (
     toolName: string,
     input: Record<string, unknown>,
-    result: string,
-  ) => Promise<string>
-  signal?: AbortSignal
+    result: string
+  ) => Promise<string>;
+  signal?: AbortSignal;
   /** Optional stuck detector for escalating recovery. */
-  stuckDetector?: StuckDetector
+  stuckDetector?: StuckDetector;
   /** Called when stuck is detected. */
-  onStuckDetected?: (reason: string, recovery: string) => void
+  onStuckDetected?: (reason: string, recovery: string) => void;
 
   /**
    * Execute independent tool calls in parallel via Promise.allSettled.
    * When disabled (default), tool calls run sequentially.
    */
-  parallelTools?: boolean
+  parallelTools?: boolean;
   /**
    * Maximum number of tool calls to execute concurrently when parallelTools
    * is enabled. Prevents runaway parallelism. Default: 10.
    */
-  maxParallelTools?: number
+  maxParallelTools?: number;
 
   /**
    * Validate tool arguments against the tool's schema before execution.
@@ -144,7 +153,7 @@ export interface ToolLoopConfig {
    * - `{ autoRepair: false }` validates without repair
    * - `false` or `undefined` disables validation (default)
    */
-  validateToolArgs?: boolean | ToolArgValidatorConfig
+  validateToolArgs?: boolean | ToolArgValidatorConfig;
 
   /**
    * Optional tool stats tracker for injecting preferred-tool hints
@@ -152,16 +161,18 @@ export interface ToolLoopConfig {
    * Uses structural typing to avoid importing ToolStatsTracker from core.
    * The hint is refreshed every iteration so rankings reflect the latest stats.
    */
-  toolStatsTracker?: { formatAsPromptHint: (limit?: number, intent?: string) => string }
+  toolStatsTracker?: {
+    formatAsPromptHint: (limit?: number, intent?: string) => string;
+  };
 
   /** Current intent for per-intent tool ranking in toolStatsTracker hints. */
-  intent?: string
+  intent?: string;
 
   /**
    * Called when stuck is detected with the tool name and escalation stage.
    * Stage 1 = tool blocked, Stage 2 = nudge message injected, Stage 3 = loop aborted.
    */
-  onStuck?: (toolName: string, stage: number) => void
+  onStuck?: (toolName: string, stage: number) => void;
 
   /**
    * Optional checkpoint-aware recovery hook (opt-in). When provided, the
@@ -189,25 +200,29 @@ export interface ToolLoopConfig {
    * 3-stage policy.
    */
   recoverFromCheckpoint?: (info: {
-    toolName: string
-    reason: string
-  }) => Promise<{
-    restored: boolean
-    /** Optional message to append to history when `restored === true`. */
-    nudge?: SystemMessage
-    /** Opaque id of the checkpoint that was used; surfaced via `onCheckpointRecovered`. */
-    checkpointId?: string
-  } | null | undefined>
+    toolName: string;
+    reason: string;
+  }) => Promise<
+    | {
+        restored: boolean;
+        /** Optional message to append to history when `restored === true`. */
+        nudge?: SystemMessage;
+        /** Opaque id of the checkpoint that was used; surfaced via `onCheckpointRecovered`. */
+        checkpointId?: string;
+      }
+    | null
+    | undefined
+  >;
 
   /**
    * Called when {@link recoverFromCheckpoint} restores the run successfully.
    * Useful for emitting a `run:checkpoint-recovered` telemetry event.
    */
   onCheckpointRecovered?: (info: {
-    toolName: string
-    reason: string
-    checkpointId?: string
-  }) => void
+    toolName: string;
+    reason: string;
+    checkpointId?: string;
+  }) => void;
 
   /**
    * Check after each LLM turn — halt if token budget exhausted.
@@ -216,7 +231,7 @@ export interface ToolLoopConfig {
    * lifecycle plugin. Called after usage has been recorded on the LLM
    * response and BEFORE any tool calls in that turn are executed.
    */
-  shouldHalt?: () => boolean
+  shouldHalt?: () => boolean;
 
   /**
    * Invoked when the loop halts due to token exhaustion.
@@ -225,7 +240,7 @@ export interface ToolLoopConfig {
    * from this callback. It fires exactly once, immediately before the loop
    * breaks with `stopReason === 'token_exhausted'`.
    */
-  onHalted?: (reason: 'token_exhausted') => void
+  onHalted?: (reason: "token_exhausted") => void;
 
   /**
    * Optional hook invoked after each LLM turn's `onUsage` call. When the
@@ -242,14 +257,18 @@ export interface ToolLoopConfig {
    * Errors thrown from this hook are swallowed (compression is best-effort
    * and must never abort an otherwise-healthy run).
    */
-  maybeCompress?: (messages: BaseMessage[]) => Promise<CompressResult>
+  maybeCompress?: (messages: BaseMessage[]) => Promise<CompressResult>;
 
   /**
    * Called when `maybeCompress` returned `compressed: true` and the loop
    * adopted the shrunken message history. Useful for emitting a
    * `context:compressed` telemetry event.
    */
-  onCompressed?: (info: { before: number; after: number; summary: string | null }) => void
+  onCompressed?: (info: {
+    before: number;
+    after: number;
+    summary: string | null;
+  }) => void;
 
   /**
    * Optional tool governance layer. When present, each tool call is checked
@@ -273,7 +292,7 @@ export interface ToolLoopConfig {
    * `ApprovalGate` listens for the approval event, captures the decision,
    * and re-drives the run via the run engine's resume path.
    */
-  toolGovernance?: ToolGovernance
+  toolGovernance?: ToolGovernance;
 
   /**
    * Optional safety monitor. When present, every tool result is scanned via
@@ -281,14 +300,14 @@ export interface ToolLoopConfig {
    * violations before being appended to message history. Critical or
    * blocking violations replace the tool output with a safe rejection.
    */
-  safetyMonitor?: SafetyMonitor
+  safetyMonitor?: SafetyMonitor;
 
   /**
    * Disable scanning tool results via {@link safetyMonitor}.
    * Defaults to `true` when a safetyMonitor is provided; set to `false`
    * to opt out of scanning (e.g., when upstream scanning already happened).
    */
-  scanToolResults?: boolean
+  scanToolResults?: boolean;
 
   /**
    * Controls what happens when {@link safetyMonitor.scanContent} itself
@@ -303,13 +322,13 @@ export interface ToolLoopConfig {
    *
    * Defaults to `fail-open` for backwards compatibility.
    */
-  scanFailureMode?: ToolResultScanFailureMode
+  scanFailureMode?: ToolResultScanFailureMode;
 
   /**
    * Optional event bus. When present, the tool loop emits lifecycle events
    * such as `approval:requested` (for governance-gated tools).
    */
-  eventBus?: DzupEventBus
+  eventBus?: DzupEventBus;
 
   /**
    * Per-tool retry policy for transient failures (RF-09).
@@ -340,7 +359,7 @@ export interface ToolLoopConfig {
    *
    * Example: `{ fetchUrl: { maxAttempts: 4 }, slowQuery: { maxAttempts: 3, initialBackoffMs: 500 } }`.
    */
-  toolRetry?: Record<string, ToolRetryConfig>
+  toolRetry?: Record<string, ToolRetryConfig>;
 
   /**
    * Per-tool execution timeouts in milliseconds.
@@ -362,7 +381,7 @@ export interface ToolLoopConfig {
    *
    * Example: `{ fetchUrl: 10_000, expensiveQuery: 60_000 }`.
    */
-  toolTimeouts?: Record<string, number>
+  toolTimeouts?: Record<string, number>;
 
   /**
    * Optional OTel tracer for emitting one span per tool invocation.
@@ -372,7 +391,7 @@ export interface ToolLoopConfig {
    * method and an `end()` method, `endSpanWithError(span, error)` closes
    * the span with an error status.
    */
-  tracer?: ToolLoopTracer
+  tracer?: ToolLoopTracer;
 
   /**
    * Identity of the agent that owns this tool loop invocation.
@@ -387,7 +406,7 @@ export interface ToolLoopConfig {
    * (`tool:called`, `tool:result`, `tool:error`) so consumers can
    * correlate provenance with the owning agent (RF-AGENT-05).
    */
-  agentId?: string
+  agentId?: string;
 
   /**
    * Durable run identifier for canonical tool lifecycle events
@@ -403,7 +422,7 @@ export interface ToolLoopConfig {
    * which works for in-process tests but is NOT durable across process
    * restarts — real workloads SHOULD set this.
    */
-  runId?: string
+  runId?: string;
 
   /**
    * Pluggable permission policy (MC-GA03). When omitted, no permission
@@ -413,7 +432,7 @@ export interface ToolLoopConfig {
    * and in the parallel pre-validation loop so denied calls never reach
    * `tool.invoke()` in either execution mode.
    */
-  toolPermissionPolicy?: ToolPermissionPolicy
+  toolPermissionPolicy?: ToolPermissionPolicy;
 
   /**
    * RF-08 — Optional tool-output schema validator.
@@ -425,7 +444,7 @@ export interface ToolLoopConfig {
    * execution continues with the original tool output. Tools without a
    * registered schema are passed through untouched.
    */
-  toolOutputValidator?: ToolOutputValidator
+  toolOutputValidator?: ToolOutputValidator;
 
   /**
    * Optional callback invoked when {@link toolOutputValidator} reports an
@@ -433,10 +452,10 @@ export interface ToolLoopConfig {
    * lightweight observers without subscribing to the event bus.
    */
   onToolOutputInvalid?: (info: {
-    toolName: string
-    toolCallId: string
-    error: string
-  }) => void
+    toolName: string;
+    toolCallId: string;
+    error: string;
+  }) => void;
 }
 
 /**
@@ -445,8 +464,8 @@ export interface ToolLoopConfig {
  * loop are declared.
  */
 export interface ToolLoopSpan {
-  setAttribute(key: string, value: string | number | boolean): unknown
-  end(): void
+  setAttribute(key: string, value: string | number | boolean): unknown;
+  end(): void;
 }
 
 /**
@@ -456,25 +475,25 @@ export interface ToolLoopSpan {
 export interface ToolLoopTracer {
   startToolSpan(
     toolName: string,
-    options?: { inputSize?: number },
-  ): ToolLoopSpan
-  endSpanWithError(span: ToolLoopSpan, error: unknown): void
+    options?: { inputSize?: number }
+  ): ToolLoopSpan;
+  endSpanWithError(span: ToolLoopSpan, error: unknown): void;
 }
 
 export interface ToolLoopResult {
-  messages: BaseMessage[]
-  totalInputTokens: number
-  totalOutputTokens: number
-  llmCalls: number
+  messages: BaseMessage[];
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  llmCalls: number;
   /** @deprecated Use `stopReason` instead. Kept for backward compatibility. */
-  hitIterationLimit: boolean
+  hitIterationLimit: boolean;
   /** Why the tool loop terminated. */
-  stopReason: StopReason
+  stopReason: StopReason;
   /** Per-tool execution statistics (latency, error counts). */
-  toolStats: ToolStat[]
+  toolStats: ToolStat[];
   /**
    * When `stopReason` is `'stuck'`, contains the structured StuckError
    * with reason, repeatedTool, and escalationLevel.
    */
-  stuckError?: StuckError
+  stuckError?: StuckError;
 }

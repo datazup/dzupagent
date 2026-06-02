@@ -5,14 +5,19 @@
  * appends tool results, and re-invokes until the LLM produces a
  * final text response (no tool calls) or limits are reached.
  */
-import { ToolMessage, type AIMessage, type BaseMessage } from '@langchain/core/messages'
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { StructuredToolInterface } from '@langchain/core/tools'
-import { StuckError } from './stuck-error.js'
-import type { ToolCall } from './tool-loop/contracts.js'
-import { executeModelTurn } from './tool-loop/model-turn-kernel.js'
-import { executePolicyEnabledToolCall } from './tool-loop/policy-enabled-tool-executor.js'
-import { scheduleToolCalls } from './tool-loop/tool-scheduler-kernel.js'
+import {
+  ToolMessage,
+  type AIMessage,
+  type BaseMessage,
+} from "@langchain/core/messages";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { StructuredToolInterface } from "@langchain/core/tools";
+import { StuckError } from "./stuck-error.js";
+import { ContextCompressionFailedError } from "./context-compression-failed-error.js";
+import type { ToolCall } from "./tool-loop/contracts.js";
+import { executeModelTurn } from "./tool-loop/model-turn-kernel.js";
+import { executePolicyEnabledToolCall } from "./tool-loop/policy-enabled-tool-executor.js";
+import { scheduleToolCalls } from "./tool-loop/tool-scheduler-kernel.js";
 import {
   appendBudgetExceededMessage,
   handleToolResults,
@@ -20,8 +25,8 @@ import {
   maybeCompressTurn,
   recordTurnUsage,
   type ToolLoopState,
-} from './tool-loop/loop-stages.js'
-import { omitUndefined } from '../utils/exact-optional.js'
+} from "./tool-loop/loop-stages.js";
+import { omitUndefined } from "../utils/exact-optional.js";
 // Note: parallel-executor.ts still exports the standalone semaphore
 // primitive (executeToolsParallel) for callers that want raw parallel
 // dispatch without the policy stack. The tool-loop's parallel path was
@@ -40,14 +45,13 @@ export type {
   ToolLoopSpan,
   ToolLoopTracer,
   ToolLoopResult,
-} from './tool-loop/types.js'
+} from "./tool-loop/types.js";
 import type {
   ToolLoopConfig,
   ToolLoopResult,
   StopReason,
   ToolStat,
-} from './tool-loop/types.js'
-
+} from "./tool-loop/types.js";
 
 /**
  * Run the ReAct tool-calling loop.
@@ -61,11 +65,11 @@ export async function runToolLoop(
   model: BaseChatModel,
   messages: BaseMessage[],
   tools: StructuredToolInterface[],
-  config: ToolLoopConfig,
+  config: ToolLoopConfig
 ): Promise<ToolLoopResult> {
-  const toolMap = new Map(tools.map(t => [t.name, t]))
-  let llmCalls = 0
-  let stopReason: StopReason = 'complete'
+  const toolMap = new Map(tools.map((t) => [t.name, t]));
+  let llmCalls = 0;
+  let stopReason: StopReason = "complete";
 
   // Mutable loop state threaded through the staged helpers in
   // `./tool-loop/loop-stages.ts`. Helpers mutate it in place so the
@@ -79,48 +83,52 @@ export async function runToolLoop(
     stuckStage: 0,
     lastStuckToolName: undefined,
     lastStuckReason: undefined,
-  }
+    consecutiveCompressionFailures: 0,
+  };
 
   // Mutable per-tool stat accumulators
-  const statMap = new Map<string, { calls: number; errors: number; totalMs: number }>()
+  const statMap = new Map<
+    string,
+    { calls: number; errors: number; totalMs: number }
+  >();
 
   function getOrCreateStat(name: string) {
-    let stat = statMap.get(name)
+    let stat = statMap.get(name);
     if (!stat) {
-      stat = { calls: 0, errors: 0, totalMs: 0 }
-      statMap.set(name, stat)
+      stat = { calls: 0, errors: 0, totalMs: 0 };
+      statMap.set(name, stat);
     }
-    return stat
+    return stat;
   }
 
   for (let iteration = 0; iteration < config.maxIterations; iteration++) {
     // Check abort signal
     if (config.signal?.aborted) {
-      stopReason = 'aborted'
-      break
+      stopReason = "aborted";
+      break;
     }
 
     // Check budget hard limits
     if (config.budget) {
-      const check = config.budget.isExceeded()
+      const check = config.budget.isExceeded();
       if (check.exceeded) {
-        stopReason = 'budget_exceeded'
-        appendBudgetExceededMessage(state, check.reason)
-        break
+        stopReason = "budget_exceeded";
+        appendBudgetExceededMessage(state, check.reason);
+        break;
       }
     }
 
     // Record iteration in budget
     if (config.budget) {
-      const warnings = config.budget.recordIteration()
+      const warnings = config.budget.recordIteration();
       for (const w of warnings) {
-        config.onBudgetWarning?.(w.message)
+        config.onBudgetWarning?.(w.message);
       }
     }
 
     // Refresh tool-stats hint before each LLM invocation so the LLM always
     // sees the latest per-intent ranking.
-    injectToolStatsHint(state.messages, config.toolStatsTracker, config.intent)
+    injectToolStatsHint(state.messages, config.toolStatsTracker, config.intent);
 
     // Kernel stage: invoke the model and extract usage. Policy stages around
     // it own budget, compression, halt checks, and telemetry.
@@ -128,16 +136,18 @@ export async function runToolLoop(
       model,
       messages: state.messages,
       config,
-    })
-    llmCalls++
+    });
+    llmCalls++;
 
     // Track usage and feed budget warnings.
     recordTurnUsage(state, usage, config.budget, {
       ...(config.onUsage ? { onUsage: config.onUsage } : {}),
-      ...(config.onBudgetWarning ? { onBudgetWarning: config.onBudgetWarning } : {}),
-    })
+      ...(config.onBudgetWarning
+        ? { onBudgetWarning: config.onBudgetWarning }
+        : {}),
+    });
 
-    state.messages.push(response)
+    state.messages.push(response);
 
     // Token lifecycle auto-compression — invoked AFTER usage has been
     // recorded on the current LLM response and BEFORE the halt check.
@@ -146,60 +156,78 @@ export async function runToolLoop(
     // every turn is safe and cheap. Errors are swallowed; a sanitized
     // `context:compress_failed` event is emitted to the configured event
     // bus when the hook itself throws (M-01 fix).
-    await maybeCompressTurn(state, config)
+    try {
+      await maybeCompressTurn(state, config);
+    } catch (err) {
+      // AGENT-112: two consecutive compression failures — terminate cleanly
+      // rather than burning budget on LLM calls that can no longer fit.
+      if (err instanceof ContextCompressionFailedError) {
+        stopReason = "compression_failed";
+        break;
+      }
+      throw err;
+    }
 
     // Token lifecycle halt check — evaluated AFTER usage is recorded on
     // the current LLM response but BEFORE any tool calls in this turn
     // execute. A `true` return ends the loop with `token_exhausted`.
     if (config.shouldHalt?.()) {
-      stopReason = 'token_exhausted'
-      config.onHalted?.('token_exhausted')
-      break
+      stopReason = "token_exhausted";
+      config.onHalted?.("token_exhausted");
+      break;
     }
 
     // Check for tool calls
-    const ai = response as AIMessage
-    const toolCalls = ai.tool_calls as ToolCall[] | undefined
+    const ai = response as AIMessage;
+    const toolCalls = ai.tool_calls as ToolCall[] | undefined;
 
     if (!toolCalls || toolCalls.length === 0) {
       // No tool calls — this is the final response
-      break
+      break;
     }
 
     // T-AP-002: in parallel mode, treat approval-required calls as a
     // batch-level gate. If ANY sibling in the turn requires approval,
     // suspend before executing any tool in that batch.
     if (config.parallelTools && toolCalls.length > 1 && config.toolGovernance) {
-      const governance = config.toolGovernance
+      const governance = config.toolGovernance;
       const approvalTarget = toolCalls.find((tc) => {
-        const access = governance.checkAccess(tc.name, tc.args)
-        return access.allowed && access.requiresApproval
-      })
+        const access = governance.checkAccess(tc.name, tc.args);
+        return access.allowed && access.requiresApproval;
+      });
 
       if (approvalTarget) {
-        const toolCallId = approvalTarget.id ?? `call_${Date.now()}`
-        const correlationId = config.runId ?? toolCallId
-        const access = governance.checkAccess(approvalTarget.name, approvalTarget.args)
-        const reason = access.reason ?? 'Approval required'
+        const toolCallId = approvalTarget.id ?? `call_${Date.now()}`;
+        const correlationId = config.runId ?? toolCallId;
+        const access = governance.checkAccess(
+          approvalTarget.name,
+          approvalTarget.args
+        );
+        const reason = access.reason ?? "Approval required";
 
         try {
           config.eventBus?.emit({
-            type: 'approval:requested',
+            type: "approval:requested",
             runId: correlationId,
             plan: { toolName: approvalTarget.name, args: approvalTarget.args },
-          })
+          });
         } catch {
           // Non-fatal: event emission must not abort the run.
         }
 
-        config.onToolResult?.(approvalTarget.name, `[approval_pending: ${reason}]`)
-        state.messages.push(new ToolMessage({
-          content: `[approval_pending] Tool "${approvalTarget.name}" requires human approval before execution. ${reason}`,
-          tool_call_id: toolCallId,
-          name: approvalTarget.name,
-        }))
-        stopReason = 'approval_pending'
-        break
+        config.onToolResult?.(
+          approvalTarget.name,
+          `[approval_pending: ${reason}]`
+        );
+        state.messages.push(
+          new ToolMessage({
+            content: `[approval_pending] Tool "${approvalTarget.name}" requires human approval before execution. ${reason}`,
+            tool_call_id: toolCallId,
+            name: approvalTarget.name,
+          })
+        );
+        stopReason = "approval_pending";
+        break;
       }
     }
 
@@ -222,45 +250,46 @@ export async function runToolLoop(
         // defense-in-depth for direct consumers of `scheduleToolCalls`.
         toolGovernance: config.toolGovernance,
       }),
-      (toolCall) => executePolicyEnabledToolCall(toolCall, {
-        toolMap,
-        config,
-        getOrCreateStat,
-      }),
-    )
+      (toolCall) =>
+        executePolicyEnabledToolCall(toolCall, {
+          toolMap,
+          config,
+          getOrCreateStat,
+        })
+    );
 
     // Drain results, applying approval-gating and 3-stage stuck-recovery
     // escalation. Returns a typed transition signaling whether the outer
     // loop should continue or halt with a specific stop reason.
-    const transition = await handleToolResults(results, state, config)
-    if (transition.kind === 'halt') {
-      stopReason = transition.stopReason
-      break
+    const transition = await handleToolResults(results, state, config);
+    if (transition.kind === "halt") {
+      stopReason = transition.stopReason;
+      break;
     }
 
     // --- Stuck detection: after all tool calls in iteration ---
     if (config.stuckDetector) {
-      const idleCheck = config.stuckDetector.recordIteration(toolCalls.length)
+      const idleCheck = config.stuckDetector.recordIteration(toolCalls.length);
       if (idleCheck.stuck) {
-        const reason = idleCheck.reason ?? 'No progress detected'
-        const recovery = 'Stopping due to idle iterations.'
-        config.onStuckDetected?.(reason, recovery)
-        state.lastStuckReason = reason
-        stopReason = 'stuck'
-        break
+        const reason = idleCheck.reason ?? "No progress detected";
+        const recovery = "Stopping due to idle iterations.";
+        config.onStuckDetected?.(reason, recovery);
+        state.lastStuckReason = reason;
+        stopReason = "stuck";
+        break;
       }
     }
 
     // Defensive check: if a stuck handler advanced the stage to 3 without
     // halting via the inner transition, end the loop here.
     if (state.stuckStage >= 3) {
-      stopReason = 'stuck'
-      break
+      stopReason = "stuck";
+      break;
     }
 
     // Check if this was the last allowed iteration
     if (iteration === config.maxIterations - 1) {
-      stopReason = 'iteration_limit'
+      stopReason = "iteration_limit";
     }
 
     // MC-AGT-04 Phase 1 — run-state snapshot boundary. Fires after the LLM
@@ -276,7 +305,7 @@ export async function runToolLoop(
           totalInputTokens: state.totalInputTokens,
           totalOutputTokens: state.totalOutputTokens,
           llmCalls,
-        })
+        });
       } catch {
         // Snapshot hooks must never disturb the run loop.
       }
@@ -284,7 +313,7 @@ export async function runToolLoop(
   }
 
   // Build toolStats array from accumulators
-  const toolStats: ToolStat[] = []
+  const toolStats: ToolStat[] = [];
   for (const [name, stat] of statMap) {
     toolStats.push({
       name,
@@ -292,28 +321,33 @@ export async function runToolLoop(
       errors: stat.errors,
       totalMs: stat.totalMs,
       avgMs: stat.calls > 0 ? Math.round(stat.totalMs / stat.calls) : 0,
-    })
+    });
   }
 
   // Build StuckError when loop terminated due to stuck detection
-  const stuckError = stopReason === 'stuck'
-    ? new StuckError({
-        reason: state.lastStuckReason ?? 'Agent stuck with no progress',
-        ...(state.lastStuckToolName !== undefined
-          ? { repeatedTool: state.lastStuckToolName }
-          : {}),
-        escalationLevel: (Math.max(1, Math.min(state.stuckStage, 3)) as 1 | 2 | 3),
-      })
-    : undefined
+  const stuckError =
+    stopReason === "stuck"
+      ? new StuckError({
+          reason: state.lastStuckReason ?? "Agent stuck with no progress",
+          ...(state.lastStuckToolName !== undefined
+            ? { repeatedTool: state.lastStuckToolName }
+            : {}),
+          escalationLevel: Math.max(1, Math.min(state.stuckStage, 3)) as
+            | 1
+            | 2
+            | 3,
+        })
+      : undefined;
 
   return omitUndefined({
     messages: state.messages,
     totalInputTokens: state.totalInputTokens,
     totalOutputTokens: state.totalOutputTokens,
     llmCalls,
-    hitIterationLimit: stopReason === 'iteration_limit' || stopReason === 'budget_exceeded',
+    hitIterationLimit:
+      stopReason === "iteration_limit" || stopReason === "budget_exceeded",
     stopReason,
     toolStats,
     stuckError,
-  })
+  });
 }

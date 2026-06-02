@@ -30,8 +30,8 @@
   "devDependencies": {
     "@langchain/core": "^1.1.39",
     "@types/express": "^5.0.6",
-    "express": "^4.22.1",
-    "tsup": "^8.5.1",
+    "express": "^5.0.0",
+    "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   },

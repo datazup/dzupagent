@@ -4,6 +4,7 @@ import {
   sanitizeError,
   parseIntBounded,
   logRouteError,
+  mapErrorToStatus,
 } from "../routes/route-error.js";
 
 function fakeContext(
@@ -183,5 +184,46 @@ describe("logRouteError", () => {
     expect(logged.statusCode).toBe(500);
     expect(logged.error.name).toBe("string");
     expect(logged.error.stack).toBeUndefined();
+  });
+});
+
+describe("mapErrorToStatus (ERR-M-04)", () => {
+  it("maps ForgeError-shaped codes by suffix", () => {
+    expect(mapErrorToStatus({ code: "REGISTRY_AGENT_NOT_FOUND" })).toBe(404);
+    expect(mapErrorToStatus({ code: "CAPABILITY_ALREADY_EXISTS" })).toBe(409);
+    expect(mapErrorToStatus({ code: "INPUT_VALIDATION" })).toBe(400);
+    expect(mapErrorToStatus({ code: "PROVIDER_UNAVAILABLE" })).toBe(503);
+  });
+
+  it("maps bare code keywords (NOT_FOUND / CONFLICT / BAD_REQUEST)", () => {
+    expect(mapErrorToStatus({ code: "NOT_FOUND" })).toBe(404);
+    expect(mapErrorToStatus({ code: "CONFLICT" })).toBe(409);
+    expect(mapErrorToStatus({ code: "BAD_REQUEST" })).toBe(400);
+  });
+
+  it("maps safe-prefixed error class names / messages", () => {
+    class NotFoundError extends Error {}
+    expect(mapErrorToStatus(new NotFoundError("x"))).toBe(404);
+    expect(mapErrorToStatus(new Error("Conflict: dup"))).toBe(409);
+    expect(mapErrorToStatus(new Error("Validation: bad"))).toBe(400);
+    expect(mapErrorToStatus(new Error("BadRequest: nope"))).toBe(400);
+  });
+
+  it("falls back to legacy substring for plain not-found / already-exists errors", () => {
+    expect(mapErrorToStatus(new Error("Agent xyz not found"))).toBe(404);
+    expect(mapErrorToStatus(new Error("resource already exists"))).toBe(409);
+  });
+
+  it("returns the supplied fallback for unclassified errors", () => {
+    expect(mapErrorToStatus(new Error("boom"))).toBe(500);
+    expect(mapErrorToStatus(new Error("boom"), 400)).toBe(400);
+    expect(mapErrorToStatus("not even an error", 502)).toBe(502);
+  });
+
+  it("prefers a typed code over an ambiguous message", () => {
+    // Code says conflict even though the message mentions "not found".
+    expect(
+      mapErrorToStatus({ code: "X_CONFLICT", message: "thing not found" })
+    ).toBe(409);
   });
 });

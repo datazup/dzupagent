@@ -97,7 +97,7 @@
     "@langchain/anthropic": "^1.3.23",
     "@langchain/core": "^1.1.39",
     "@langchain/langgraph": "^1.2.5",
-    "tsup": "^8.5.1",
+    "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4",
     "zod": "^4.3.6"

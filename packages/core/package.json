@@ -151,7 +151,7 @@
     "@dzupagent/agent-types": "0.2.0",
     "@dzupagent/runtime-contracts": "0.2.0",
     "@dzupagent/security": "0.2.0",
-    "undici": "^5.29.0"
+    "undici": "7.25.0"
   },
   "peerDependencies": {
     "@anthropic-ai/tokenizer": ">=0.0.4",
@@ -182,7 +182,7 @@
     "@langchain/langgraph": "^1.2.5",
     "@langchain/langgraph-checkpoint-postgres": "^1.0.1",
     "@langchain/openai": "^1.4.3",
-    "tsup": "^8.5.1",
+    "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4",
     "zod": "^4.3.6"

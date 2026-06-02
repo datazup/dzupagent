@@ -20,17 +20,17 @@
   "dependencies": {
     "@dzupagent/agent": "0.2.0",
     "@dzupagent/core": "0.2.0",
-    "@langchain/core": ">=1.0.0",
-    "express-rate-limit": "^8.3.1",
-    "zod": ">=4.0.0"
+    "@langchain/core": "^1.1.39",
+    "express-rate-limit": "^8.5.2",
+    "zod": "^4.3.6"
   },
   "peerDependencies": {
     "express": ">=4.22.1 <5"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
-    "express": "^4.22.1",
-    "tsup": "^8.5.1",
+    "express": "^5.0.0",
+    "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   },

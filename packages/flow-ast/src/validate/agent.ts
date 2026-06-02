@@ -18,12 +18,16 @@ import {
 } from "../validation-helpers.js";
 import { validateCommonNodeFields } from "./shared.js";
 import type { SchemaIssue } from "./shared.js";
-import { isPositiveFinitePolicyNumber } from "../policy-numbers.js";
+import {
+  isPositiveFinitePolicyNumber,
+  isNonNegativeNumber,
+  isPositiveFiniteNumber,
+} from "../policy-numbers.js";
 
 export function validateAgent(
   obj: Record<string, unknown>,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): FlowNode | null {
   const common = validateCommonNodeFields(obj, path, issues);
   let ok = true;
@@ -34,7 +38,7 @@ export function validateAgent(
       path: joinPath(path, "agentId"),
       code: "MISSING_REQUIRED_FIELD",
       message: `agent.agentId is required (non-empty string), received ${describeJsType(
-        agentId
+        agentId,
       )}`,
     });
     ok = false;
@@ -46,7 +50,7 @@ export function validateAgent(
   const templateRef = validateAgentTemplateRef(
     obj["template"],
     joinPath(path, "template"),
-    issues
+    issues,
   );
 
   const instructions = obj["instructions"];
@@ -62,7 +66,7 @@ export function validateAgent(
       path: joinPath(path, "instructions"),
       code: "MISSING_REQUIRED_FIELD",
       message: `agent.instructions is required (non-empty string) when template.ref is absent, received ${describeJsType(
-        instructions
+        instructions,
       )}`,
     });
     ok = false;
@@ -71,7 +75,7 @@ export function validateAgent(
       path: joinPath(path, "instructions"),
       code: "MISSING_REQUIRED_FIELD",
       message: `agent.instructions must be a string when present, received ${describeJsType(
-        instructions
+        instructions,
       )}`,
     });
     ok = false;
@@ -80,7 +84,7 @@ export function validateAgent(
   const output = validateAgentOutput(
     obj["output"],
     joinPath(path, "output"),
-    issues
+    issues,
   );
   if (output === null) ok = false;
 
@@ -128,28 +132,28 @@ export function validateAgent(
   const onInvalidOutput = validateOnInvalidOutput(
     obj["onInvalidOutput"],
     joinPath(path, "onInvalidOutput"),
-    issues
+    issues,
   );
   if (onInvalidOutput !== undefined) node.onInvalidOutput = onInvalidOutput;
 
   const retry = validateAgentRetry(
     obj["retry"],
     joinPath(path, "retry"),
-    issues
+    issues,
   );
   if (retry !== undefined) node.retry = retry;
 
   const validation = validateAgentValidation(
     obj["validation"],
     joinPath(path, "validation"),
-    issues
+    issues,
   );
   if (validation !== undefined) node.validation = validation;
 
   const policy = validateAgentPolicy(
     obj["policy"],
     joinPath(path, "policy"),
-    issues
+    issues,
   );
   if (policy !== undefined) node.policy = policy;
 
@@ -159,7 +163,7 @@ export function validateAgent(
 export function validateValidateNode(
   obj: Record<string, unknown>,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): FlowNode | null {
   const common = validateCommonNodeFields(obj, path, issues);
 
@@ -168,7 +172,7 @@ export function validateValidateNode(
     obj["commands"],
     joinPath(path, "commands"),
     issues,
-    /* required */ false
+    /* required */ false,
   );
 
   if (ref === undefined && (commands === undefined || commands.length === 0)) {
@@ -195,12 +199,12 @@ export function validateValidateNode(
         path: joinPath(path, "repair"),
         code: "MISSING_REQUIRED_FIELD",
         message: `validate.repair must be an object, received ${describeJsType(
-          repairRaw
+          repairRaw,
         )}`,
       });
     } else {
       const maxAttempts = repairRaw["maxAttempts"];
-      if (typeof maxAttempts !== "number" || maxAttempts < 0) {
+      if (!isNonNegativeNumber(maxAttempts)) {
         issues.push({
           path: joinPath(path, "repair.maxAttempts"),
           code: "MISSING_REQUIRED_FIELD",
@@ -234,14 +238,14 @@ export function validateValidateNode(
 function validateAgentOutput(
   raw: unknown,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): AgentOutput | null {
   if (!isPlainObject(raw)) {
     issues.push({
       path,
       code: "MISSING_REQUIRED_FIELD",
       message: `agent.output is required (object), received ${describeJsType(
-        raw
+        raw,
       )}`,
     });
     return null;
@@ -290,7 +294,7 @@ function validateAgentOutput(
 function validateAgentStop(
   raw: unknown,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): AgentStop | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -298,7 +302,7 @@ function validateAgentStop(
       path,
       code: "MISSING_REQUIRED_FIELD",
       message: `agent.stop must be an object when present, received ${describeJsType(
-        raw
+        raw,
       )}`,
     });
     return undefined;
@@ -343,7 +347,7 @@ function validateAgentStop(
 function validateOnInvalidOutput(
   raw: unknown,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): AgentOnInvalidOutput | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -351,13 +355,13 @@ function validateOnInvalidOutput(
       path,
       code: "MISSING_REQUIRED_FIELD",
       message: `agent.onInvalidOutput must be an object, received ${describeJsType(
-        raw
+        raw,
       )}`,
     });
     return undefined;
   }
   const retry = raw["retry"];
-  if (typeof retry !== "number" || retry < 0) {
+  if (!isNonNegativeNumber(retry)) {
     issues.push({
       path: joinPath(path, "retry"),
       code: "MISSING_REQUIRED_FIELD",
@@ -394,7 +398,7 @@ function validateOnInvalidOutput(
 function validateAgentRetry(
   raw: unknown,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): AgentRetry | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -409,7 +413,7 @@ function validateAgentRetry(
   const onInvalidOutput = raw["onInvalidOutput"];
   if (isPlainObject(onInvalidOutput)) {
     const attempts = onInvalidOutput["attempts"];
-    if (typeof attempts !== "number" || attempts < 0) {
+    if (!isNonNegativeNumber(attempts)) {
       issues.push({
         path: joinPath(path, "onInvalidOutput.attempts"),
         code: "MISSING_REQUIRED_FIELD",
@@ -433,7 +437,7 @@ function validateAgentRetry(
   const onToolError = raw["onToolError"];
   if (isPlainObject(onToolError)) {
     const attempts = onToolError["attempts"];
-    if (typeof attempts !== "number" || attempts < 0) {
+    if (!isNonNegativeNumber(attempts)) {
       issues.push({
         path: joinPath(path, "onToolError.attempts"),
         code: "MISSING_REQUIRED_FIELD",
@@ -452,7 +456,7 @@ function validateAgentRetry(
   const onValidationFailure = raw["onValidationFailure"];
   if (isPlainObject(onValidationFailure)) {
     const attempts = onValidationFailure["attempts"];
-    if (typeof attempts !== "number" || attempts < 0) {
+    if (!isNonNegativeNumber(attempts)) {
       issues.push({
         path: joinPath(path, "onValidationFailure.attempts"),
         code: "MISSING_REQUIRED_FIELD",
@@ -478,7 +482,7 @@ function validateAgentRetry(
   const onModelUnavailable = raw["onModelUnavailable"];
   if (isPlainObject(onModelUnavailable)) {
     const attempts = onModelUnavailable["attempts"];
-    if (typeof attempts !== "number" || attempts < 0) {
+    if (!isNonNegativeNumber(attempts)) {
       issues.push({
         path: joinPath(path, "onModelUnavailable.attempts"),
         code: "MISSING_REQUIRED_FIELD",
@@ -507,7 +511,7 @@ function validateAgentRetry(
 function validateAgentValidation(
   raw: unknown,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): AgentValidation | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -515,7 +519,7 @@ function validateAgentValidation(
       path,
       code: "MISSING_REQUIRED_FIELD",
       message: `agent.validation must be an object, received ${describeJsType(
-        raw
+        raw,
       )}`,
     });
     return undefined;
@@ -524,7 +528,7 @@ function validateAgentValidation(
     raw["required"],
     joinPath(path, "required"),
     issues,
-    /* required */ true
+    /* required */ true,
   );
   if (required === undefined) return undefined;
   const out: AgentValidation = { required };
@@ -537,7 +541,7 @@ function validateAgentValidation(
       });
     } else {
       const max = raw["repair"]["maxAttempts"];
-      if (typeof max !== "number" || max < 0) {
+      if (!isNonNegativeNumber(max)) {
         issues.push({
           path: joinPath(path, "repair.maxAttempts"),
           code: "MISSING_REQUIRED_FIELD",
@@ -556,7 +560,7 @@ function validateValidationCommands(
   raw: unknown,
   path: string,
   issues: SchemaIssue[],
-  required: boolean
+  required: boolean,
 ): AgentValidationCommand[] | undefined {
   if (raw === undefined) {
     if (required) {
@@ -616,7 +620,7 @@ function validateValidationCommands(
 function validateAgentPolicy(
   raw: unknown,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): AgentPolicy | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -624,18 +628,14 @@ function validateAgentPolicy(
       path,
       code: "MISSING_REQUIRED_FIELD",
       message: `agent.policy must be an object, received ${describeJsType(
-        raw
+        raw,
       )}`,
     });
     return undefined;
   }
   const policy: AgentPolicy = {};
   if (raw["timeoutMs"] !== undefined) {
-    if (
-      typeof raw["timeoutMs"] !== "number" ||
-      !Number.isFinite(raw["timeoutMs"]) ||
-      raw["timeoutMs"] <= 0
-    ) {
+    if (!isPositiveFiniteNumber(raw["timeoutMs"])) {
       issues.push({
         path: joinPath(path, "timeoutMs"),
         code: "MISSING_REQUIRED_FIELD",
@@ -728,7 +728,7 @@ function validateAgentPolicy(
 function validateAgentTemplateRef(
   raw: unknown,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): AgentTemplateRef | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -736,7 +736,7 @@ function validateAgentTemplateRef(
       path,
       code: "MISSING_REQUIRED_FIELD",
       message: `agent.template must be an object when present, received ${describeJsType(
-        raw
+        raw,
       )}`,
     });
     return undefined;
@@ -769,7 +769,7 @@ function optionalString(
   obj: Record<string, unknown>,
   key: string,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): string | undefined {
   if (!(key in obj) || obj[key] === undefined) return undefined;
   const v = obj[key];
@@ -788,7 +788,7 @@ function optionalStringArray(
   obj: Record<string, unknown>,
   key: string,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): string[] | undefined {
   if (!(key in obj) || obj[key] === undefined) return undefined;
   const v = obj[key];
@@ -806,7 +806,7 @@ function optionalObject(
   obj: Record<string, unknown>,
   key: string,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): Record<string, unknown> | undefined {
   if (!(key in obj) || obj[key] === undefined) return undefined;
   const v = obj[key];

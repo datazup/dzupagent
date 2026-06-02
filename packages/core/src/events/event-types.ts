@@ -16,13 +16,13 @@
  *   - event-types-domain.ts        — persona, scheduler, skill, workflow, …
  *   - event-types-adapter.ts       — adapter run lifecycle, session, UCL, …
  */
-import type { RunStatus } from '../persistence/store-interfaces.js'
-import type { AdapterDomainEvent } from './event-types-adapter.js'
-import type { AgentDomainEvent } from './event-types-agent.js'
-import type { DomainLifecycleEvent } from './event-types-domain.js'
-import type { LlmMemoryDomainEvent } from './event-types-llm-memory.js'
-import type { OrchestrationDomainEvent } from './event-types-orchestration.js'
-import type { PlatformDomainEvent } from './event-types-platform.js'
+import type { RunStatus } from "../persistence/store-interfaces.js";
+import type { AdapterDomainEvent } from "./event-types-adapter.js";
+import type { AgentDomainEvent } from "./event-types-agent.js";
+import type { DomainLifecycleEvent } from "./event-types-domain.js";
+import type { LlmMemoryDomainEvent } from "./event-types-llm-memory.js";
+import type { OrchestrationDomainEvent } from "./event-types-orchestration.js";
+import type { PlatformDomainEvent } from "./event-types-platform.js";
 
 export type {
   AdapterProgressDzupEvent,
@@ -30,15 +30,17 @@ export type {
   BudgetUsage,
   LlmInvocationRecord,
   MapReduceDzupEvent,
+  SubagentRuntimeDzupEvent,
+  SubagentGovernanceDzupEvent,
   ToolStatSummary,
-} from './event-types-shared.js'
+} from "./event-types-shared.js";
 
-export type { AdapterDomainEvent } from './event-types-adapter.js'
-export type { AgentDomainEvent } from './event-types-agent.js'
-export type { DomainLifecycleEvent } from './event-types-domain.js'
-export type { LlmMemoryDomainEvent } from './event-types-llm-memory.js'
-export type { OrchestrationDomainEvent } from './event-types-orchestration.js'
-export type { PlatformDomainEvent } from './event-types-platform.js'
+export type { AdapterDomainEvent } from "./event-types-adapter.js";
+export type { AgentDomainEvent } from "./event-types-agent.js";
+export type { DomainLifecycleEvent } from "./event-types-domain.js";
+export type { LlmMemoryDomainEvent } from "./event-types-llm-memory.js";
+export type { OrchestrationDomainEvent } from "./event-types-orchestration.js";
+export type { PlatformDomainEvent } from "./event-types-platform.js";
 
 /**
  * Discriminated union of all events emitted through DzupEventBus.
@@ -52,10 +54,13 @@ export type DzupEvent =
   | OrchestrationDomainEvent
   | PlatformDomainEvent
   | DomainLifecycleEvent
-  | AdapterDomainEvent
+  | AdapterDomainEvent;
 
 /** Extract a specific event by its type discriminator */
-export type DzupEventOf<T extends DzupEvent['type']> = Extract<DzupEvent, { type: T }>
+export type DzupEventOf<T extends DzupEvent["type"]> = Extract<
+  DzupEvent,
+  { type: T }
+>;
 
 /**
  * Adapter run lifecycle event union — one event per terminal/intermediate
@@ -63,4 +68,4 @@ export type DzupEventOf<T extends DzupEvent['type']> = Extract<DzupEvent, { type
  * dynamic `run.status` discriminator can bind the resulting object to a
  * concrete type before calling {@link typedEmit}.
  */
-export type RunLifecycleEvent = DzupEventOf<`adapter:run_${RunStatus}`>
+export type RunLifecycleEvent = DzupEventOf<`adapter:run_${RunStatus}`>;

@@ -39,7 +39,7 @@
     "@langchain/langgraph": "^1.2.5",
     "@langchain/langgraph-checkpoint-postgres": "^1.0.1",
     "@types/proper-lockfile": "^4.1.4",
-    "tsup": "^8.5.1",
+    "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4",
     "zod": "^4.3.6"

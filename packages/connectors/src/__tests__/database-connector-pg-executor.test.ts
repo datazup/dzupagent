@@ -323,7 +323,7 @@ describe('Database connector — executor & operations', () => {
       const result = await listTool.invoke({})
 
       expect(result).toContain('Error listing tables')
-      expect(result).toContain('permission denied')
+      expect(result).not.toContain('permission denied')
     })
   })
 

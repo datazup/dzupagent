@@ -8,23 +8,23 @@
  * internally whether to run the actual compression pipeline based on
  * pressure state.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi } from "vitest";
 import {
   AIMessage,
   HumanMessage,
   SystemMessage,
   type BaseMessage,
-} from '@langchain/core/messages'
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { StructuredToolInterface } from '@langchain/core/tools'
-import { runToolLoop } from '../agent/tool-loop.js'
-import type { CompressResult } from '@dzupagent/context'
-import type { DzupEvent, DzupEventBus } from '@dzupagent/core'
+} from "@langchain/core/messages";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { StructuredToolInterface } from "@langchain/core/tools";
+import { runToolLoop } from "../agent/tool-loop.js";
+import type { CompressResult } from "@dzupagent/context";
+import type { DzupEvent, DzupEventBus } from "@dzupagent/core";
 
 // ---------- Helpers ----------
 
-function mockTool(name: string, result = 'ok') {
-  const invokeFn = vi.fn(async (_args: Record<string, unknown>) => result)
+function mockTool(name: string, result = "ok") {
+  const invokeFn = vi.fn(async (_args: Record<string, unknown>) => result);
   return {
     tool: {
       name,
@@ -34,67 +34,66 @@ function mockTool(name: string, result = 'ok') {
       invoke: invokeFn,
     } as unknown as StructuredToolInterface,
     invokeFn,
-  }
+  };
 }
 
 function createMockModel(responses: AIMessage[]): BaseChatModel {
-  let callIdx = 0
+  let callIdx = 0;
   return {
     invoke: vi.fn(async (_msgs: BaseMessage[]) => {
-      const resp = responses[callIdx] ?? new AIMessage('done')
-      callIdx++
-      return resp
+      const resp = responses[callIdx] ?? new AIMessage("done");
+      callIdx++;
+      return resp;
     }),
-  } as unknown as BaseChatModel
+  } as unknown as BaseChatModel;
 }
 
 function aiWithToolCalls(
-  calls: Array<{ name: string; args: Record<string, unknown> }>,
+  calls: Array<{ name: string; args: Record<string, unknown> }>
 ) {
-  const msg = new AIMessage({ content: '' })
-  ;(msg as AIMessage & { tool_calls: unknown[] }).tool_calls = calls.map(
-    (c, i) => ({ id: `call_${i}`, name: c.name, args: c.args }),
-  )
-  return msg
+  const msg = new AIMessage({ content: "" });
+  (msg as AIMessage & { tool_calls: unknown[] }).tool_calls = calls.map(
+    (c, i) => ({ id: `call_${i}`, name: c.name, args: c.args })
+  );
+  return msg;
 }
 
 // ==========================================================================
 
-describe('Tool loop — maybeCompress wiring', () => {
-  it('invokes maybeCompress on every LLM turn after onUsage', async () => {
-    const { tool } = mockTool('echo', 'hi')
-    const onUsage = vi.fn()
+describe("Tool loop — maybeCompress wiring", () => {
+  it("invokes maybeCompress on every LLM turn after onUsage", async () => {
+    const { tool } = mockTool("echo", "hi");
+    const onUsage = vi.fn();
     const maybeCompress = vi.fn(
       async (messages: BaseMessage[]): Promise<CompressResult> => ({
         messages,
         summary: null,
         compressed: false,
-      }),
-    )
+      })
+    );
 
     const model = createMockModel([
-      aiWithToolCalls([{ name: 'echo', args: { x: 1 } }]),
-      new AIMessage('final'),
-    ])
+      aiWithToolCalls([{ name: "echo", args: { x: 1 } }]),
+      new AIMessage("final"),
+    ]);
 
-    await runToolLoop(
-      model,
-      [new HumanMessage('go')],
-      [tool],
-      { maxIterations: 5, onUsage, maybeCompress },
-    )
+    await runToolLoop(model, [new HumanMessage("go")], [tool], {
+      maxIterations: 5,
+      onUsage,
+      maybeCompress,
+    });
 
     // Two LLM turns → maybeCompress invoked twice
-    expect(maybeCompress).toHaveBeenCalledTimes(2)
+    expect(maybeCompress).toHaveBeenCalledTimes(2);
     // Called AFTER onUsage on each turn
-    const usageCalls = onUsage.mock.invocationCallOrder
-    const compressCalls = maybeCompress.mock.invocationCallOrder
-    expect(usageCalls[0]).toBeLessThan(compressCalls[0]!)
-    expect(usageCalls[1]).toBeLessThan(compressCalls[1]!)
-  })
+    const usageCalls = onUsage.mock.invocationCallOrder;
+    const compressCalls = maybeCompress.mock.invocationCallOrder;
+    expect(usageCalls[0]).toBeLessThan(compressCalls[0]!);
+    expect(usageCalls[1]).toBeLessThan(compressCalls[1]!);
+  });
 
-  it('does NOT apply changes when maybeCompress returns compressed=false (pressure<critical)', async () => {
-    const { tool } = mockTool('echo', 'hi')
+  it("does NOT apply changes when maybeCompress returns compressed=false (pressure<critical)", async () => {
+    const { tool } = mockTool("echo", "hi");
     // Simulate AgentLoopPlugin.maybeCompress short-circuit behavior:
     // when pressure is ok/warn it returns compressed: false unchanged.
     const maybeCompress = vi.fn(
@@ -102,156 +101,232 @@ describe('Tool loop — maybeCompress wiring', () => {
         messages,
         summary: null,
         compressed: false,
-      }),
-    )
-    const onCompressed = vi.fn()
+      })
+    );
+    const onCompressed = vi.fn();
 
     const model = createMockModel([
-      aiWithToolCalls([{ name: 'echo', args: {} }]),
-      new AIMessage('final'),
-    ])
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      new AIMessage("final"),
+    ]);
 
-    const result = await runToolLoop(
-      model,
-      [new HumanMessage('go')],
-      [tool],
-      { maxIterations: 5, maybeCompress, onCompressed },
-    )
+    const result = await runToolLoop(model, [new HumanMessage("go")], [tool], {
+      maxIterations: 5,
+      maybeCompress,
+      onCompressed,
+    });
 
-    expect(result.stopReason).toBe('complete')
+    expect(result.stopReason).toBe("complete");
     // onCompressed never fires when compressed: false
-    expect(onCompressed).not.toHaveBeenCalled()
+    expect(onCompressed).not.toHaveBeenCalled();
     // Messages grow normally: human + ai(tool_call) + tool + ai(final)
-    expect(result.messages.length).toBeGreaterThanOrEqual(4)
-  })
+    expect(result.messages.length).toBeGreaterThanOrEqual(4);
+  });
 
-  it('applies compressed messages to history when compressed=true (pressure=critical)', async () => {
-    const { tool } = mockTool('echo', 'hi')
+  it("applies compressed messages to history when compressed=true (pressure=critical)", async () => {
+    const { tool } = mockTool("echo", "hi");
 
     // Simulate a pressure-critical compression on the first LLM turn:
     // collapse the whole history to a single SystemMessage summary.
-    const summarySystem = new SystemMessage('Summary: conversation compacted.')
-    let invocations = 0
+    const summarySystem = new SystemMessage("Summary: conversation compacted.");
+    let invocations = 0;
     const maybeCompress = vi.fn(
       async (messages: BaseMessage[]): Promise<CompressResult> => {
-        invocations++
+        invocations++;
         if (invocations === 1) {
           // First turn — pressure transitioned to critical.
           return {
             messages: [summarySystem],
-            summary: 'conversation compacted',
+            summary: "conversation compacted",
             compressed: true,
-          }
+          };
         }
         // Subsequent turns — pressure back to ok, no-op.
-        return { messages, summary: 'conversation compacted', compressed: false }
-      },
-    )
-    const onCompressed = vi.fn()
+        return {
+          messages,
+          summary: "conversation compacted",
+          compressed: false,
+        };
+      }
+    );
+    const onCompressed = vi.fn();
 
     const model = createMockModel([
-      aiWithToolCalls([{ name: 'echo', args: {} }]),
-      new AIMessage('final'),
-    ])
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      new AIMessage("final"),
+    ]);
 
     const result = await runToolLoop(
       model,
-      [new HumanMessage('go'), new HumanMessage('earlier')],
+      [new HumanMessage("go"), new HumanMessage("earlier")],
       [tool],
-      { maxIterations: 5, maybeCompress, onCompressed },
-    )
+      { maxIterations: 5, maybeCompress, onCompressed }
+    );
 
     // The compressed history was adopted: first message is now the summary
     // SystemMessage, not the original HumanMessage('go').
-    expect(result.messages[0]).toBe(summarySystem)
+    expect(result.messages[0]).toBe(summarySystem);
 
     // onCompressed fired exactly once with accurate before/after counts
-    expect(onCompressed).toHaveBeenCalledTimes(1)
+    expect(onCompressed).toHaveBeenCalledTimes(1);
     const info = onCompressed.mock.calls[0]![0] as {
-      before: number
-      after: number
-      summary: string | null
-    }
+      before: number;
+      after: number;
+      summary: string | null;
+    };
     // Before compression the loop had pushed: 2 humans + ai(tool_call) = 3
-    expect(info.before).toBe(3)
+    expect(info.before).toBe(3);
     // After compression we replaced with [summarySystem] then continued the
     // loop — the tool result and the final AI message are appended AFTER
     // compression, so onCompressed sees exactly the post-swap count.
-    expect(info.after).toBe(1)
-    expect(info.summary).toBe('conversation compacted')
-  })
+    expect(info.after).toBe(1);
+    expect(info.summary).toBe("conversation compacted");
+  });
 
-  it('swallows errors thrown from maybeCompress (best-effort, non-fatal)', async () => {
-    const { tool } = mockTool('echo', 'hi')
-    const maybeCompress = vi.fn(async (): Promise<CompressResult> => {
-      throw new Error('boom — compression pipeline crashed')
-    })
+  it("swallows a SINGLE compression failure (best-effort, non-fatal)", async () => {
+    const { tool } = mockTool("echo", "hi");
+    // Fail only on the first turn; a single failure must not abort the run
+    // (AGENT-112: termination requires TWO consecutive failures).
+    let invocations = 0;
+    const maybeCompress = vi.fn(
+      async (messages: BaseMessage[]): Promise<CompressResult> => {
+        invocations++;
+        if (invocations === 1)
+          throw new Error("boom — compression pipeline crashed");
+        return { messages, summary: null, compressed: false };
+      }
+    );
 
     const model = createMockModel([
-      aiWithToolCalls([{ name: 'echo', args: {} }]),
-      new AIMessage('final'),
-    ])
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      new AIMessage("final"),
+    ]);
 
-    // Must not throw — the loop swallows compression failures.
-    const result = await runToolLoop(
-      model,
-      [new HumanMessage('go')],
-      [tool],
-      { maxIterations: 5, maybeCompress },
-    )
+    // Must not throw — a single compression failure is swallowed.
+    const result = await runToolLoop(model, [new HumanMessage("go")], [tool], {
+      maxIterations: 5,
+      maybeCompress,
+    });
 
-    expect(result.stopReason).toBe('complete')
+    expect(result.stopReason).toBe("complete");
     // Hook was still invoked despite throwing
-    expect(maybeCompress).toHaveBeenCalled()
-  })
+    expect(maybeCompress).toHaveBeenCalled();
+  });
 
-  it('emits context:compress_failed when maybeCompress throws', async () => {
-    const { tool } = mockTool('echo', 'hi')
-    const maybeCompress = vi.fn(async (): Promise<CompressResult> => {
-      throw new Error('boom - compression pipeline crashed')
-    })
-    const events: DzupEvent[] = []
+  it("emits context:compress_failed when maybeCompress throws (single failure)", async () => {
+    const { tool } = mockTool("echo", "hi");
+    let invocations = 0;
+    const maybeCompress = vi.fn(
+      async (messages: BaseMessage[]): Promise<CompressResult> => {
+        invocations++;
+        if (invocations === 1)
+          throw new Error("boom - compression pipeline crashed");
+        return { messages, summary: null, compressed: false };
+      }
+    );
+    const events: DzupEvent[] = [];
     const eventBus = {
       emit: vi.fn((event: DzupEvent) => events.push(event)),
       on: vi.fn(),
       once: vi.fn(),
       onAny: vi.fn(),
-    } as unknown as DzupEventBus
+    } as unknown as DzupEventBus;
 
     const model = createMockModel([
-      aiWithToolCalls([{ name: 'echo', args: {} }]),
-      new AIMessage('final'),
-    ])
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      new AIMessage("final"),
+    ]);
 
-    const result = await runToolLoop(
-      model,
-      [new HumanMessage('go')],
-      [tool],
-      { maxIterations: 5, maybeCompress, eventBus },
-    )
+    const result = await runToolLoop(model, [new HumanMessage("go")], [tool], {
+      maxIterations: 5,
+      maybeCompress,
+      eventBus,
+    });
 
-    expect(result.stopReason).toBe('complete')
+    expect(result.stopReason).toBe("complete");
     expect(events).toContainEqual({
-      type: 'context:compress_failed',
-      error: 'boom - compression pipeline crashed',
-      phase: 'tool-loop',
-    })
-  })
+      type: "context:compress_failed",
+      error: "boom - compression pipeline crashed",
+      phase: "tool-loop",
+    });
+  });
 
-  it('works with no maybeCompress provided (backward compat)', async () => {
-    const { tool } = mockTool('echo', 'hi')
+  it("AGENT-112: terminates with compression_failed after 2 consecutive failures", async () => {
+    const { tool } = mockTool("echo", "hi");
+    // Compression throws on every turn → two consecutive failures abort the run.
+    const maybeCompress = vi.fn(async (): Promise<CompressResult> => {
+      throw new Error("compression keeps failing");
+    });
+    const events: DzupEvent[] = [];
+    const eventBus = {
+      emit: vi.fn((event: DzupEvent) => events.push(event)),
+      on: vi.fn(),
+      once: vi.fn(),
+      onAny: vi.fn(),
+    } as unknown as DzupEventBus;
+
+    // Enough tool-call turns that the loop would otherwise keep going.
     const model = createMockModel([
-      aiWithToolCalls([{ name: 'echo', args: {} }]),
-      new AIMessage('final'),
-    ])
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      new AIMessage("final"),
+    ]);
 
-    const result = await runToolLoop(
-      model,
-      [new HumanMessage('go')],
-      [tool],
-      { maxIterations: 5 /* no maybeCompress */ },
-    )
+    const result = await runToolLoop(model, [new HumanMessage("go")], [tool], {
+      maxIterations: 10,
+      maybeCompress,
+      eventBus,
+    });
 
-    expect(result.stopReason).toBe('complete')
-  })
-})
+    // Aborted cleanly on the second consecutive failure (turn 2), NOT 'complete'.
+    expect(result.stopReason).toBe("compression_failed");
+    // Exactly two compression attempts before the abort.
+    expect(maybeCompress).toHaveBeenCalledTimes(2);
+    // Both failures emitted the observability event.
+    expect(
+      events.filter((e) => e.type === "context:compress_failed")
+    ).toHaveLength(2);
+  });
+
+  it("AGENT-112: a successful compression resets the consecutive-failure streak", async () => {
+    const { tool } = mockTool("echo", "hi");
+    // fail, succeed, fail → never two in a row → run completes normally.
+    let invocations = 0;
+    const maybeCompress = vi.fn(
+      async (messages: BaseMessage[]): Promise<CompressResult> => {
+        invocations++;
+        if (invocations === 2)
+          return { messages, summary: null, compressed: false }; // success resets
+        throw new Error("intermittent compression failure");
+      }
+    );
+
+    const model = createMockModel([
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      new AIMessage("final"),
+    ]);
+
+    const result = await runToolLoop(model, [new HumanMessage("go")], [tool], {
+      maxIterations: 10,
+      maybeCompress,
+    });
+
+    expect(result.stopReason).toBe("complete");
+  });
+
+  it("works with no maybeCompress provided (backward compat)", async () => {
+    const { tool } = mockTool("echo", "hi");
+    const model = createMockModel([
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      new AIMessage("final"),
+    ]);
+
+    const result = await runToolLoop(model, [new HumanMessage("go")], [tool], {
+      maxIterations: 5 /* no maybeCompress */,
+    });
+
+    expect(result.stopReason).toBe("complete");
+  });
+});

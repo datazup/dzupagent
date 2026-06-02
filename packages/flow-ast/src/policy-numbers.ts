@@ -31,9 +31,28 @@ export function isPositiveFinitePolicyNumber(value: unknown): value is number {
  * diagnostic in their native error shape.
  */
 export function normalizePositiveFinitePolicyNumber(
-  value: unknown
+  value: unknown,
 ): { ok: true; value: number } | { ok: false } {
   return isPositiveFinitePolicyNumber(value)
     ? { ok: true, value }
     : { ok: false };
+}
+
+/**
+ * True when `value` is a non-negative number (`>= 0`) — the rule for retry /
+ * attempt counters like `onInvalidOutput.retry`, `retry.*.attempts`, and
+ * `validation.repair.maxAttempts`. Shared so parse and validate cannot drift.
+ * (`0` is allowed: "no retries".)
+ */
+export function isNonNegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && value >= 0;
+}
+
+/**
+ * True when `value` is a strictly positive, finite number (`> 0`, not
+ * necessarily an integer) — the rule for `policy.timeoutMs` / `policy.budgetCents`
+ * style durations. Shared so parse and validate cannot drift.
+ */
+export function isPositiveFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }

@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@langchain/core": "^1.1.39",
-    "tsup": "^8.5.1",
+    "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   },

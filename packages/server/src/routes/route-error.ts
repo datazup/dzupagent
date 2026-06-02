@@ -7,6 +7,7 @@
  */
 
 import type { Context } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 
 const GENERIC = "Internal server error";
 
@@ -88,6 +89,72 @@ export function logRouteError(
   // Structured single-line JSON; stderr so it is captured by log shippers.
   console.error(JSON.stringify(entry));
   return sanitized;
+}
+
+// ── HTTP status mapping (ERR-M-04) ────────────────────────────────
+
+/**
+ * Map a thrown value to an HTTP status code WITHOUT relying on brittle English
+ * substring matching at each call site.
+ *
+ * Preference order:
+ *   1. A `ForgeError`-shaped error (has a string `code`): map by code suffix
+ *      (`*_NOT_FOUND` → 404, `*_CONFLICT`/`*_ALREADY_EXISTS` → 409,
+ *      `*_INVALID`/`*_VALIDATION` / `*_BAD_REQUEST` → 400, `*_UNAVAILABLE` → 503).
+ *   2. Error class-name / message safe prefixes (NotFound → 404, Conflict → 409,
+ *      Validation / BadRequest → 400).
+ *   3. Legacy fallback: scan the message for `not found` / `already exists`
+ *      (kept ONLY so pre-existing plain-`Error` throwers keep their status while
+ *      callers migrate to typed errors).
+ *   4. Otherwise the caller-supplied `fallback` (default 500).
+ *
+ * Centralising this means routes no longer inline `message.includes('not found')`.
+ */
+export function mapErrorToStatus(
+  err: unknown,
+  fallback: ContentfulStatusCode = 500
+): ContentfulStatusCode {
+  // 1. ForgeError-shaped: { code: string }
+  const code =
+    err &&
+    typeof err === "object" &&
+    typeof (err as { code?: unknown }).code === "string"
+      ? (err as { code: string }).code.toUpperCase()
+      : undefined;
+  if (code) {
+    if (code.endsWith("_NOT_FOUND") || code === "NOT_FOUND") return 404;
+    if (
+      code.endsWith("_CONFLICT") ||
+      code.endsWith("_ALREADY_EXISTS") ||
+      code === "CONFLICT"
+    )
+      return 409;
+    if (
+      code.endsWith("_INVALID") ||
+      code.endsWith("_VALIDATION") ||
+      code.endsWith("_BAD_REQUEST") ||
+      code === "VALIDATION" ||
+      code === "BAD_REQUEST"
+    )
+      return 400;
+    if (code.endsWith("_UNAVAILABLE") || code === "UNAVAILABLE") return 503;
+  }
+
+  if (err instanceof Error) {
+    const name = err.constructor.name;
+    const startsWith = (p: string) =>
+      name.startsWith(p) || err.message.startsWith(p);
+    if (startsWith("NotFound")) return 404;
+    if (startsWith("Conflict")) return 409;
+    if (startsWith("Validation") || startsWith("BadRequest")) return 400;
+
+    // 3. Legacy substring fallback (typed errors above are preferred).
+    const lower = err.message.toLowerCase();
+    if (lower.includes("not found")) return 404;
+    if (lower.includes("already exists")) return 409;
+  }
+
+  return fallback;
 }
 
 // ── Numeric query-param parsing ──────────────────────────────────

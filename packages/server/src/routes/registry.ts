@@ -14,7 +14,7 @@
  */
 
 import { Hono } from "hono";
-import { logRouteError } from "./route-error.js";
+import { logRouteError, mapErrorToStatus } from "./route-error.js";
 import type { AppEnv } from "../types.js";
 import type {
   AgentRegistry,
@@ -175,8 +175,8 @@ export function createRegistryRoutes(
       await registry.deregister(c.req.param("id"));
       return c.json({ data: { id: c.req.param("id"), deregistered: true } });
     } catch (err) {
-      const internalMessage = err instanceof Error ? err.message : String(err);
-      const status = internalMessage.includes("not found") ? 404 : 500;
+      // ERR-M-04: status via the shared mapper, not an inline substring check.
+      const status = mapErrorToStatus(err, 500);
       const { safe } = logRouteError(c, "registry.deregister", err, status);
       // 404 "not found" is a deterministic, client-safe outcome; only the
       // 500 path must be sanitized to avoid leaking internal error detail.

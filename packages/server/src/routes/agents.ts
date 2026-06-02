@@ -10,84 +10,82 @@
  *
  * Compatibility alias:
  * - `/api/agents/*`
+ *
+ * CRUD mechanics (tenant resolution, body validation, `{ data }` / NOT_FOUND
+ * envelopes) go through `./crud-helpers.js` (CODE-L-02). The response shapes
+ * are byte-for-byte identical to the previous hand-written handlers.
  */
-import { Hono } from 'hono'
-import type { AppEnv } from '../types.js'
-import type { ForgeServerConfig } from '../composition/types.js'
-import { AgentDefinitionService } from '../services/agent-definition-service.js'
+import { Hono } from "hono";
+import type { AppEnv } from "../types.js";
+import type { ForgeServerConfig } from "../composition/types.js";
+import { AgentDefinitionService } from "../services/agent-definition-service.js";
 import {
   AgentCreateSchema,
   AgentUpdateSchema,
   parseIntBounded,
-  validateBodyCompat,
-} from './schemas.js'
-import { getRequestingTenantId } from './tenant-scope.js'
+} from "./schemas.js";
+import { tenantOf, data, notFound, body } from "./crud-helpers.js";
 
-export function createAgentDefinitionRoutes(config: ForgeServerConfig): Hono<AppEnv> {
-  const app = new Hono<AppEnv>()
-  const service = new AgentDefinitionService({ agentStore: config.agentStore })
+export function createAgentDefinitionRoutes(
+  config: ForgeServerConfig
+): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
+  const service = new AgentDefinitionService({ agentStore: config.agentStore });
 
   // GET /api/agent-definitions — List agent definitions
-  app.get('/', async (c) => {
-    const active = c.req.query('active')
-    const limit = parseIntBounded(c.req.query('limit'), 100, 1, 500)
-    const tenantId = getRequestingTenantId(c)
+  app.get("/", async (c) => {
+    const active = c.req.query("active");
+    const limit = parseIntBounded(c.req.query("limit"), 100, 1, 500);
+    const tenantId = tenantOf(c);
 
     const agents = await service.list({
-      active: active !== undefined ? active === 'true' : undefined,
+      active: active !== undefined ? active === "true" : undefined,
       limit,
       tenantId,
-    })
+    });
 
-    return c.json({ data: agents, count: agents.length })
-  })
+    return c.json({ data: agents, count: agents.length });
+  });
 
   // POST /api/agent-definitions — Create agent definition
-  app.post('/', async (c) => {
-    const parsed = await validateBodyCompat(c, AgentCreateSchema)
-    if (parsed instanceof Response) return parsed
-    const body = parsed
-    const tenantId = getRequestingTenantId(c)
+  app.post("/", async (c) => {
+    const parsed = await body(c, AgentCreateSchema);
+    if (!parsed.ok) return parsed.response;
+    const tenantId = tenantOf(c);
 
-    const saved = await service.create({ ...body, tenantId })
-    return c.json({ data: saved }, 201)
-  })
+    const saved = await service.create({ ...parsed.value, tenantId });
+    return data(c, saved, 201);
+  });
 
   // GET /api/agent-definitions/:id — Get agent definition
-  app.get('/:id', async (c) => {
-    const agent = await service.get(c.req.param('id'), getRequestingTenantId(c))
-    if (!agent) {
-      return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
-    }
-    return c.json({ data: agent })
-  })
+  app.get("/:id", async (c) => {
+    const agent = await service.get(c.req.param("id"), tenantOf(c));
+    if (!agent) return notFound(c, "Agent not found");
+    return data(c, agent);
+  });
 
   // PATCH /api/agent-definitions/:id — Update agent definition
-  app.patch('/:id', async (c) => {
-    const id = c.req.param('id')
-    const tenantId = getRequestingTenantId(c)
-    const parsed = await validateBodyCompat(c, AgentUpdateSchema)
-    if (parsed instanceof Response) return parsed
+  app.patch("/:id", async (c) => {
+    const id = c.req.param("id");
+    const tenantId = tenantOf(c);
+    const parsed = await body(c, AgentUpdateSchema);
+    if (!parsed.ok) return parsed.response;
 
-    const updated = await service.update(id, parsed, tenantId)
-    if (!updated) {
-      return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
-    }
-    return c.json({ data: updated })
-  })
+    const updated = await service.update(id, parsed.value, tenantId);
+    if (!updated) return notFound(c, "Agent not found");
+    return data(c, updated);
+  });
 
   // DELETE /api/agent-definitions/:id — Soft-delete agent definition
-  app.delete('/:id', async (c) => {
-    const id = c.req.param('id')
-    const deleted = await service.delete(id, getRequestingTenantId(c))
-    if (!deleted) {
-      return c.json({ error: { code: 'NOT_FOUND', message: 'Agent not found' } }, 404)
-    }
-    return c.json({ data: { id, deleted: true } })
-  })
+  app.delete("/:id", async (c) => {
+    const id = c.req.param("id");
+    const deleted = await service.delete(id, tenantOf(c));
+    if (!deleted) return notFound(c, "Agent not found");
+    return data(c, { id, deleted: true });
+  });
 
-  return app
+  return app;
 }
 
 /** @deprecated Use `createAgentDefinitionRoutes`. */
-export const createAgentRoutes = createAgentDefinitionRoutes
+export const createAgentRoutes = createAgentDefinitionRoutes;

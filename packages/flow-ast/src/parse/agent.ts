@@ -23,12 +23,16 @@ import {
   joinPointer,
   parseCommonNodeFields,
 } from "./shared.js";
-import { isPositiveFinitePolicyNumber } from "../policy-numbers.js";
+import {
+  isPositiveFinitePolicyNumber,
+  isNonNegativeNumber,
+  isPositiveFiniteNumber,
+} from "../policy-numbers.js";
 
 export function parseAgent(
   obj: Record<string, unknown>,
   pointer: string,
-  ctx: ParseContext
+  ctx: ParseContext,
 ): AgentNode | null {
   let failed = false;
 
@@ -37,7 +41,7 @@ export function parseAgent(
     ctx.errors.push({
       code: "WRONG_FIELD_TYPE",
       message: `agent.agentId must be a non-empty string, received ${describeJsType(
-        agentIdRaw
+        agentIdRaw,
       )}`,
       pointer: joinPointer(pointer, "agentId"),
     });
@@ -49,7 +53,7 @@ export function parseAgent(
     ctx.errors.push({
       code: "WRONG_FIELD_TYPE",
       message: `agent.instructions must be a non-empty string, received ${describeJsType(
-        instructionsRaw
+        instructionsRaw,
       )}`,
       pointer: joinPointer(pointer, "instructions"),
     });
@@ -115,7 +119,7 @@ export function parseAgent(
   const onInvalidOutput = parseOnInvalidOutput(
     obj.onInvalidOutput,
     joinPointer(pointer, "onInvalidOutput"),
-    ctx
+    ctx,
   );
   if (onInvalidOutput !== undefined) node.onInvalidOutput = onInvalidOutput;
 
@@ -125,7 +129,7 @@ export function parseAgent(
   const validation = parseValidation(
     obj.validation,
     joinPointer(pointer, "validation"),
-    ctx
+    ctx,
   );
   if (validation !== undefined) node.validation = validation;
 
@@ -138,7 +142,7 @@ export function parseAgent(
 export function parseValidateNode(
   obj: Record<string, unknown>,
   pointer: string,
-  ctx: ParseContext
+  ctx: ParseContext,
 ): ValidateNode | null {
   let ref: string | undefined;
   if ("ref" in obj && obj.ref !== undefined) {
@@ -158,7 +162,7 @@ export function parseValidateNode(
     obj.commands,
     joinPointer(pointer, "commands"),
     ctx,
-    false
+    false,
   );
   if (ref === undefined && (commands === undefined || commands.length === 0)) {
     ctx.errors.push({
@@ -187,7 +191,7 @@ export function parseValidateNode(
       });
     } else {
       const maxAttempts = repair.maxAttempts;
-      if (typeof maxAttempts !== "number" || maxAttempts < 0) {
+      if (!isNonNegativeNumber(maxAttempts)) {
         ctx.errors.push({
           code: "WRONG_FIELD_TYPE",
           message:
@@ -224,7 +228,7 @@ function copyOptionalString(
   key: string,
   pointer: string,
   ctx: ParseContext,
-  assign: (value: string) => void
+  assign: (value: string) => void,
 ): void {
   if (!(key in obj) || obj[key] === undefined) return;
   const v = obj[key];
@@ -242,13 +246,13 @@ function copyOptionalString(
 function parseOutput(
   raw: unknown,
   pointer: string,
-  ctx: ParseContext
+  ctx: ParseContext,
 ): AgentOutput | null {
   if (!isPlainObject(raw)) {
     ctx.errors.push({
       code: "EXPECTED_OBJECT",
       message: `agent.output is required (object), received ${describeJsType(
-        raw
+        raw,
       )}`,
       pointer,
     });
@@ -298,7 +302,7 @@ function parseOutput(
 function parseStop(
   raw: unknown,
   pointer: string,
-  ctx: ParseContext
+  ctx: ParseContext,
 ): AgentStop | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -343,7 +347,7 @@ function parseStop(
 function parseOnInvalidOutput(
   raw: unknown,
   pointer: string,
-  ctx: ParseContext
+  ctx: ParseContext,
 ): AgentOnInvalidOutput | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -355,7 +359,7 @@ function parseOnInvalidOutput(
     return undefined;
   }
   const retry = raw.retry;
-  if (typeof retry !== "number" || retry < 0) {
+  if (!isNonNegativeNumber(retry)) {
     ctx.errors.push({
       code: "WRONG_FIELD_TYPE",
       message: "agent.onInvalidOutput.retry is required (non-negative number)",
@@ -374,7 +378,7 @@ function parseOnInvalidOutput(
 function parseRetry(
   raw: unknown,
   pointer: string,
-  ctx: ParseContext
+  ctx: ParseContext,
 ): AgentRetry | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -390,7 +394,7 @@ function parseRetry(
   const onInvalidOutput = parseAttemptsBranch(
     raw.onInvalidOutput,
     joinPointer(pointer, "onInvalidOutput"),
-    ctx
+    ctx,
   );
   if (onInvalidOutput !== undefined) {
     const branch: NonNullable<AgentRetry["onInvalidOutput"]> = {
@@ -408,7 +412,7 @@ function parseRetry(
   const onToolError = parseAttemptsBranch(
     raw.onToolError,
     joinPointer(pointer, "onToolError"),
-    ctx
+    ctx,
   );
   if (onToolError !== undefined)
     out.onToolError = { attempts: onToolError.attempts };
@@ -416,7 +420,7 @@ function parseRetry(
   const onValidationFailure = parseAttemptsBranch(
     raw.onValidationFailure,
     joinPointer(pointer, "onValidationFailure"),
-    ctx
+    ctx,
   );
   if (onValidationFailure !== undefined) {
     const branch: NonNullable<AgentRetry["onValidationFailure"]> = {
@@ -434,7 +438,7 @@ function parseRetry(
   const onModelUnavailable = parseAttemptsBranch(
     raw.onModelUnavailable,
     joinPointer(pointer, "onModelUnavailable"),
-    ctx
+    ctx,
   );
   if (onModelUnavailable !== undefined) {
     const branch: NonNullable<AgentRetry["onModelUnavailable"]> = {
@@ -455,7 +459,7 @@ function parseRetry(
 function parseAttemptsBranch(
   raw: unknown,
   pointer: string,
-  ctx: ParseContext
+  ctx: ParseContext,
 ): { attempts: number } | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -467,7 +471,7 @@ function parseAttemptsBranch(
     return undefined;
   }
   const attempts = raw.attempts;
-  if (typeof attempts !== "number" || attempts < 0) {
+  if (!isNonNegativeNumber(attempts)) {
     ctx.errors.push({
       code: "WRONG_FIELD_TYPE",
       message: `${pointer}/attempts is required (non-negative number)`,
@@ -481,7 +485,7 @@ function parseAttemptsBranch(
 function parseValidation(
   raw: unknown,
   pointer: string,
-  ctx: ParseContext
+  ctx: ParseContext,
 ): AgentValidation | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -496,7 +500,7 @@ function parseValidation(
     raw.required,
     joinPointer(pointer, "required"),
     ctx,
-    true
+    true,
   );
   if (required === undefined) return undefined;
   const out: AgentValidation = { required };
@@ -509,7 +513,7 @@ function parseValidation(
       });
     } else {
       const max = raw.repair.maxAttempts;
-      if (typeof max !== "number" || max < 0) {
+      if (!isNonNegativeNumber(max)) {
         ctx.errors.push({
           code: "WRONG_FIELD_TYPE",
           message:
@@ -528,7 +532,7 @@ function parseCommands(
   raw: unknown,
   pointer: string,
   ctx: ParseContext,
-  required: boolean
+  required: boolean,
 ): AgentValidationCommand[] | undefined {
   if (raw === undefined) {
     if (required) {
@@ -587,7 +591,7 @@ function parseCommands(
 function parsePolicy(
   raw: unknown,
   pointer: string,
-  ctx: ParseContext
+  ctx: ParseContext,
 ): AgentPolicy | undefined {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw)) {
@@ -600,11 +604,7 @@ function parsePolicy(
   }
   const policy: AgentPolicy = {};
   if (raw.timeoutMs !== undefined) {
-    if (
-      typeof raw.timeoutMs !== "number" ||
-      !Number.isFinite(raw.timeoutMs) ||
-      raw.timeoutMs <= 0
-    ) {
+    if (!isPositiveFiniteNumber(raw.timeoutMs)) {
       ctx.errors.push({
         code: "WRONG_FIELD_TYPE",
         message: "agent.policy.timeoutMs must be a positive number",
@@ -689,7 +689,7 @@ function numberField(
   key: string,
   pointer: string,
   ctx: ParseContext,
-  assign: (v: number) => void
+  assign: (v: number) => void,
 ): void {
   if (obj[key] === undefined) return;
   if (typeof obj[key] !== "number") {

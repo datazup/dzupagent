@@ -17,6 +17,7 @@ export default defineConfig({
     "src/skills.ts",
     "src/enrichment.ts",
     "src/fleet-executors/index.ts",
+    "src/subagents/index.ts",
   ],
   format: ["esm"],
   dts: false,

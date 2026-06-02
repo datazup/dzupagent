@@ -55,7 +55,7 @@
     "@langchain/core": "^1.1.39",
     "commander": "^12.1.0",
     "drizzle-orm": "^0.45.2",
-    "hono": "^4.12.9"
+    "hono": "^4.12.16"
   },
   "peerDependencies": {
     "bullmq": "^5.0.0",
@@ -74,10 +74,10 @@
   "devDependencies": {
     "@dzupagent/evals": "0.2.0",
     "@dzupagent/test-utils": "0.2.0",
-    "bullmq": "^5.71.0",
-    "drizzle-kit": "^0.30.0",
+    "bullmq": "^5.71.1",
+    "drizzle-kit": "^0.31.9",
     "testcontainers": "^10.0.0",
-    "tsup": "^8.5.1",
+    "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   },

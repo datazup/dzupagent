@@ -34,9 +34,9 @@
   "devDependencies": {
     "@dzupagent/codegen": "0.2.0",
     "@langchain/core": "^1.1.39",
-    "@types/node": "^20.0.0",
-    "ts-morph": "^23.0.0",
-    "tsup": "^8.5.1",
+    "@types/node": "^22.13.0",
+    "ts-morph": "^27.0.2",
+    "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4",
     "zod": "^4.3.6"

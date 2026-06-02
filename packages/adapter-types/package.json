@@ -21,7 +21,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "tsup": "^8.5.1",
+    "tsup": "*",
     "typescript": "^5.8.3"
   },
   "license": "MIT",

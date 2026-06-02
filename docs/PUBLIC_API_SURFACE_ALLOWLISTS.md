@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-05-22
+Date: 2026-06-01
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -738,7 +738,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./skills/compilers/cli-skill-compiler.js` | 2 | `prefix:./skills/` | `CliSkillCompiler`, `isCliProviderId` |
 | `deprecated-transitional` | `./policy/index.js` | 9 | `prefix:./policy/` | `compilePolicyForProvider`, `compilePolicyForAll`, `AdapterPolicy`, `CompiledPolicyOverrides` |
 | `deprecated-transitional` | `./utils/batched-event-emitter.js` | 2 | `prefix:./utils/` | `BatchedEventEmitter`, `BatchConfig` |
-| `deprecated-transitional` | `./dzupagent/index.js` | 39 | `prefix:./dzupagent/` | `WorkspaceResolver`, `loadDzupAgentConfig`, `getCodexMemoryStrategy`, `getMaxMemoryTokens` |
+| `deprecated-transitional` | `./dzupagent/index.js` | 40 | `prefix:./dzupagent/` | `WorkspaceResolver`, `loadDzupAgentConfig`, `loadConfig`, `getCodexMemoryStrategy` |
 | `deprecated-transitional` | `./interaction/interaction-resolver.js` | 3 | `prefix:./interaction/` | `InteractionResolver`, `InteractionRequest`, `InteractionResult` |
 | `deprecated-transitional` | `./interaction/interaction-detector.js` | 3 | `prefix:./interaction/` | `classifyInteractionText`, `detectCliInteraction`, `InteractionKind` |
 | `stable` | `./runs/run-event-store.js` | 1 | `prefix:./runs/` | `RunEventStore` |

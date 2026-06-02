@@ -893,7 +893,8 @@
           "otel",
           "scraper",
           "rag",
-          "flow-compiler"
+          "flow-compiler",
+          "subagents"
         ]
       },
       {

@@ -10,13 +10,13 @@
  * Budget usage snapshot — emitted with budget warnings.
  */
 export interface BudgetUsage {
-  tokensUsed: number
-  tokensLimit: number
-  costCents: number
-  costLimitCents: number
-  iterations: number
-  iterationsLimit: number
-  percent: number
+  tokensUsed: number;
+  tokensLimit: number;
+  costCents: number;
+  costLimitCents: number;
+  iterations: number;
+  iterationsLimit: number;
+  percent: number;
 }
 
 /**
@@ -30,49 +30,49 @@ export interface BudgetUsage {
  */
 export interface LlmInvocationRecord {
   /** Provider identifier — e.g. 'claude', 'openai', 'gemini'. */
-  providerId: string
+  providerId: string;
   /** Resolved model name — e.g. 'claude-haiku-4-5-20251001', 'gpt-4o-mini'. */
-  model: string
+  model: string;
   /** Optional — only present when the call ran inside a run context. */
-  runId?: string
+  runId?: string;
   /** Optional — only present when the call ran inside a tenant-scoped context. */
-  tenantId?: string
+  tenantId?: string;
   /** Size proxy when a tokenizer is unavailable. */
-  promptCharCount: number
+  promptCharCount: number;
   /** Size proxy for the system prompt, when one was supplied. */
-  systemPromptCharCount?: number
+  systemPromptCharCount?: number;
   /**
    * Outcome status. `'completed'` = the adapter produced a terminal completed
    * event; `'failed'` = the adapter or network layer reported a failure.
    */
-  status: 'completed' | 'failed'
+  status: "completed" | "failed";
   /** Populated when `status === 'failed'`. */
-  errorCode?: string
+  errorCode?: string;
   /** Adapter-reported duration when available, wall-clock otherwise. */
-  durationMs: number
+  durationMs: number;
   /** Token usage — present only when the adapter reports it. */
   usage?: {
-    promptTokens: number
-    completionTokens: number
-    totalTokens: number
-    cacheReadTokens?: number
-    cacheWriteTokens?: number
-  }
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
   /** Cost in cents — present only when computed by the adapter. */
-  costCents?: number
+  costCents?: number;
   /** ISO timestamp of when the call started. */
-  startedAt: string
+  startedAt: string;
 }
 
 /**
  * Per-tool execution statistics emitted with `agent:stop_reason`.
  */
 export interface ToolStatSummary {
-  name: string
-  calls: number
-  errors: number
-  totalMs: number
-  avgMs: number
+  name: string;
+  calls: number;
+  errors: number;
+  totalMs: number;
+  avgMs: number;
 }
 
 /**
@@ -83,40 +83,87 @@ export interface ToolStatSummary {
  * of subtasks before a single provider is selected.
  */
 export interface AdapterProgressDzupEvent {
-  type: 'adapter:progress'
-  providerId?: string
-  timestamp: number
-  phase: string
-  percentage?: number
-  message?: string
-  current?: number
-  total?: number
-  correlationId?: string
+  type: "adapter:progress";
+  providerId?: string;
+  timestamp: number;
+  phase: string;
+  percentage?: number;
+  message?: string;
+  current?: number;
+  total?: number;
+  correlationId?: string;
 }
 
 export type MapReduceDzupEvent =
-  | { type: 'mapreduce:started'; totalChunks: number; maxConcurrency: number }
+  | { type: "mapreduce:started"; totalChunks: number; maxConcurrency: number }
   | {
-      type: 'mapreduce:map_completed'
-      totalChunks: number
-      successfulChunks: number
-      failedChunks: number
+      type: "mapreduce:map_completed";
+      totalChunks: number;
+      successfulChunks: number;
+      failedChunks: number;
     }
   | {
-      type: 'mapreduce:completed'
-      totalChunks: number
-      successfulChunks: number
-      failedChunks: number
-      totalDurationMs: number
-      reduceDurationMs: number
+      type: "mapreduce:completed";
+      totalChunks: number;
+      successfulChunks: number;
+      failedChunks: number;
+      totalDurationMs: number;
+      reduceDurationMs: number;
     }
   | {
-      type: 'mapreduce:chunk_completed'
-      chunkIndex: number
-      providerId: string
-      durationMs: number
-      success: boolean
+      type: "mapreduce:chunk_completed";
+      chunkIndex: number;
+      providerId: string;
+      durationMs: number;
+      success: boolean;
     }
-  | { type: 'mapreduce:chunk_failed'; chunkIndex: number; error: string; durationMs: number }
+  | {
+      type: "mapreduce:chunk_failed";
+      chunkIndex: number;
+      error: string;
+      durationMs: number;
+    };
 
-export type AdapterRuntimeDzupEvent = AdapterProgressDzupEvent | MapReduceDzupEvent
+/**
+ * Background subagent lifecycle events emitted by `@dzupagent/subagents` and
+ * bridged onto the bus by `@dzupagent/agent-adapters`. Mirrors the
+ * adapter-types `SubagentRuntimeEvent` contract (kept in sync by intent).
+ */
+export type SubagentRuntimeDzupEvent =
+  | {
+      type: "subagent:spawned";
+      taskId: string;
+      parentRunId: string;
+      agentId: string;
+    }
+  | { type: "subagent:admitted"; taskId: string }
+  | { type: "subagent:progress"; taskId: string; note: string }
+  | { type: "subagent:completed"; taskId: string; durationMs: number }
+  | {
+      type: "subagent:failed";
+      taskId: string;
+      error: string;
+      durationMs: number;
+    }
+  | { type: "subagent:cancelled"; taskId: string }
+  | { type: "subagent:expired"; taskId: string };
+
+/**
+ * Governance decisions surfaced by the subagent spawn gate. A focused subset of
+ * the governance plane, emittable on the bus alongside runtime events.
+ */
+export type SubagentGovernanceDzupEvent = {
+  type:
+    | "governance:approval_requested"
+    | "governance:approval_resolved"
+    | "governance:rule_violation";
+  runId: string;
+  approvalId?: string;
+  detail?: string;
+};
+
+export type AdapterRuntimeDzupEvent =
+  | AdapterProgressDzupEvent
+  | MapReduceDzupEvent
+  | SubagentRuntimeDzupEvent
+  | SubagentGovernanceDzupEvent;

@@ -156,21 +156,14 @@
     "status": "supported",
     "architectureRole": "Layer-0 leaf runtime primitive: dependency-light cache contracts, middleware, and backend implementations with no @dzupagent runtime dependencies.",
     "roadmapDriver": true,
-    "owners": [
-      "apps/codev-app",
-      "apps/research-app",
-      "apps/testman-app"
-    ]
+    "owners": ["apps/codev-app", "apps/research-app", "apps/testman-app"]
   },
   "@dzupagent/adapter-types": {
     "tier": 1,
     "status": "supported",
     "architectureRole": "Layer-0 leaf runtime primitive: adapter type contracts with no @dzupagent runtime dependencies. Promoted from tier-2 to tier-1 to align tier ordering with actual dependency direction.",
     "roadmapDriver": false,
-    "owners": [
-      "apps/codev-app",
-      "shared-kit"
-    ]
+    "owners": ["apps/codev-app", "shared-kit"]
   },
   "@dzupagent/adapter-rules": {
     "tier": 1,
@@ -188,55 +181,39 @@
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": [
-      "apps/nl2sql",
-      "apps/testman-app"
-    ]
+    "owners": ["apps/nl2sql", "apps/testman-app"]
   },
   "@dzupagent/connectors-documents": {
     "tier": 1,
     "status": "supported-secondary",
     "architectureRole": "Layer-0 leaf runtime primitive: document parse/chunk/type contracts with no direct dependency on @dzupagent server composition. Promoted from tier-2 to tier-1 to govern root-barrel public API via explicit allowlist rules.",
     "roadmapDriver": false,
-    "owners": [
-      "apps/nl2sql",
-      "apps/testman-app"
-    ]
+    "owners": ["apps/nl2sql", "apps/testman-app"]
   },
   "@dzupagent/express": {
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": [
-      "apps/ai-saas-starter-kit",
-      "apps/nl2sql",
-      "apps/research-app"
-    ]
+    "owners": ["apps/ai-saas-starter-kit", "apps/nl2sql", "apps/research-app"]
   },
   "@dzupagent/flow-ast": {
     "tier": 1,
     "status": "supported",
     "architectureRole": "Layer-0 leaf runtime primitive: canonical flow AST contracts plus local parser and validator helpers with no @dzupagent runtime dependencies. Promoted from tier-2 to tier-1 to align tier ordering with actual dependency direction.",
     "roadmapDriver": false,
-    "owners": [
-      "apps/codev-app"
-    ]
+    "owners": ["apps/codev-app"]
   },
   "@dzupagent/flow-compiler": {
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": [
-      "apps/codev-app"
-    ]
+    "owners": ["apps/codev-app"]
   },
   "@dzupagent/flow-dsl": {
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": [
-      "apps/codev-app"
-    ]
+    "owners": ["apps/codev-app"]
   },
   "@dzupagent/memory-ipc": {
     "tier": 1,
@@ -254,19 +231,13 @@
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": [
-      "apps/codev-app",
-      "apps/research-app"
-    ]
+    "owners": ["apps/codev-app", "apps/research-app"]
   },
   "@dzupagent/server": {
     "tier": 2,
     "status": "supported-secondary",
     "roadmapDriver": false,
-    "owners": [
-      "apps/ai-saas-starter-kit",
-      "apps/research-app"
-    ]
+    "owners": ["apps/ai-saas-starter-kit", "apps/research-app"]
   },
   "@dzupagent/evals": {
     "tier": 2,
@@ -283,10 +254,7 @@
     "tier": 3,
     "status": "parked",
     "roadmapDriver": false,
-    "owners": [
-      "apps/ai-saas-starter-kit",
-      "apps/research-app"
-    ]
+    "owners": ["apps/ai-saas-starter-kit", "apps/research-app"]
   },
   "@dzupagent/test-utils": {
     "tier": 3,
@@ -319,10 +287,14 @@
     "status": "supported",
     "architectureRole": "Layer-0 leaf runtime primitive: HITL (human-in-the-loop) type contracts with no @dzupagent runtime dependencies. Promoted from tier-3 to tier-1 to align tier ordering with actual dependency direction; @dzupagent/server depends on this package.",
     "roadmapDriver": false,
-    "owners": [
-      "apps/ai-saas-starter-kit",
-      "apps/research-app"
-    ]
+    "owners": ["apps/ai-saas-starter-kit", "apps/research-app"]
+  },
+  "@dzupagent/subagents": {
+    "tier": 2,
+    "status": "supported",
+    "architectureRole": "Layer-2 domain capability: governed async background subagent runtime. Depends only on layer-0 contracts (adapter-types, hitl-kit) and layer-1 foundation (core). Concrete checkpointer and agent execution are injected via ports, wired by @dzupagent/agent-adapters, to preserve the DAG.",
+    "roadmapDriver": true,
+    "owners": ["apps/codev-app"]
   },
   "create-dzupagent": {
     "tier": 3,
