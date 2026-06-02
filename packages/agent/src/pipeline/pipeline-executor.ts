@@ -429,6 +429,7 @@ export class PipelineExecutor {
     runId: string,
     runState: Record<string, unknown>,
     completedNodeIds: string[],
+    nodeIdempotencyKeys: Record<string, string>,
     versionTracker: { version: number }
   ): Promise<void> {
     const strategy = this.config.definition.checkpointStrategy;
@@ -448,12 +449,25 @@ export class PipelineExecutor {
         pipelineId: this.config.definition.id,
         version: versionTracker.version,
         completedNodeIds,
+        nodeIdempotencyKeys,
         state: runState,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
       });
       await this.config.checkpointStore.save(checkpoint);
       this.emit(checkpointSavedEvent(runId, versionTracker.version));
     }
+  }
+
+  /**
+   * Record the stable idempotency key for a completed node. Idempotent itself:
+   * the key is deterministic for `(runId, nodeId)`, so re-recording is a no-op.
+   */
+  private recordIdempotencyKey(
+    keys: Record<string, string>,
+    runId: string,
+    nodeId: string
+  ): void {
+    keys[nodeId] = nodeIdempotencyKey(runId, nodeId);
   }
 
   private emit(event: PipelineRuntimeEvent): void {
