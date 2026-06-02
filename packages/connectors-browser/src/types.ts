@@ -1,89 +1,109 @@
 export interface CrawlOptions {
-  maxPages: number
-  maxDepth: number
-  includePatterns?: string[] | undefined
-  excludePatterns?: string[] | undefined
-  waitForIdle?: number | undefined
-  sameOrigin?: boolean | undefined
-  allowedOrigins?: string[] | undefined
-  allowCrossOrigin?: boolean | undefined
-  navigationPolicy?: BrowserNavigationPolicy | undefined
+  maxPages: number;
+  maxDepth: number;
+  includePatterns?: string[] | undefined;
+  excludePatterns?: string[] | undefined;
+  waitForIdle?: number | undefined;
+  sameOrigin?: boolean | undefined;
+  allowedOrigins?: string[] | undefined;
+  allowCrossOrigin?: boolean | undefined;
+  navigationPolicy?: BrowserNavigationPolicy | undefined;
 }
 
 export interface BrowserNavigationPolicy {
-  allowedProtocols?: string[] | undefined
-  allowedOrigins?: string[] | undefined
-  allowedHosts?: string[] | undefined
-  allowPrivateNetwork?: boolean | undefined
+  allowedProtocols?: string[] | undefined;
+  allowedOrigins?: string[] | undefined;
+  allowedHosts?: string[] | undefined;
+  allowPrivateNetwork?: boolean | undefined;
+  /**
+   * Disable the DNS-resolved-IP SSRF check. The policy then validates only the
+   * literal hostname/IP and any explicit allow/deny lists. Intended for tests or
+   * constrained runtimes with no DNS; leave unset (DNS checks on) in production.
+   */
+  resolveDns?: boolean | undefined;
+  /**
+   * DNS lookup override for deterministic tests. Receives the (bracket-stripped)
+   * hostname and must resolve to every address that hostname maps to, so the
+   * policy can block when ANY resolved address is private/reserved
+   * (DNS-rebinding defense).
+   */
+  lookup?:
+    | ((hostname: string) => Promise<ReadonlyArray<NavigationResolvedAddress>>)
+    | undefined;
+}
+
+export interface NavigationResolvedAddress {
+  address: string;
+  family?: number | undefined;
 }
 
 export interface CrawlResult {
-  url: string
-  title: string
-  depth: number
-  links: string[]
-  accessibilityTree: AccessibilityNode[]
-  screenshot: Buffer
-  screenshotMimeType: string
-  forms: FormInfo[]
-  interactiveElements: ElementInfo[]
-  loadTimeMs: number
+  url: string;
+  title: string;
+  depth: number;
+  links: string[];
+  accessibilityTree: AccessibilityNode[];
+  screenshot: Buffer;
+  screenshotMimeType: string;
+  forms: FormInfo[];
+  interactiveElements: ElementInfo[];
+  loadTimeMs: number;
 }
 
 export interface AccessibilityNode {
-  role: string
-  name: string
-  value?: string | undefined
-  description?: string | undefined
-  depth: number
-  disabled?: boolean | undefined
-  checked?: boolean | undefined
-  expanded?: boolean | undefined
-  selected?: boolean | undefined
-  required?: boolean | undefined
+  role: string;
+  name: string;
+  value?: string | undefined;
+  description?: string | undefined;
+  depth: number;
+  disabled?: boolean | undefined;
+  checked?: boolean | undefined;
+  expanded?: boolean | undefined;
+  selected?: boolean | undefined;
+  required?: boolean | undefined;
 }
 
 export interface FormInfo {
-  action: string
-  method: string
-  fields: FormField[]
+  action: string;
+  method: string;
+  fields: FormField[];
 }
 
 export interface FormField {
-  name: string
-  type: string
-  label: string | null
-  placeholder: string | null
-  required: boolean
-  options?: string[] | undefined
+  name: string;
+  type: string;
+  label: string | null;
+  placeholder: string | null;
+  required: boolean;
+  options?: string[] | undefined;
 }
 
 export interface ElementInfo {
-  role: string
-  label: string
-  enabled: boolean
-  visible: boolean
-  location: string
-  ariaAttributes: Record<string, string>
+  role: string;
+  label: string;
+  enabled: boolean;
+  visible: boolean;
+  location: string;
+  ariaAttributes: Record<string, string>;
 }
 
 export interface AuthCredentials {
-  loginUrl?: string | undefined
-  username: string
-  password: string
-  usernameSelector?: string | undefined
-  passwordSelector?: string | undefined
+  loginUrl?: string | undefined;
+  username: string;
+  password: string;
+  usernameSelector?: string | undefined;
+  passwordSelector?: string | undefined;
 }
 
 export interface ScreenshotResult {
-  buffer: Buffer
-  mimeType: string
-  width: number
-  height: number
+  buffer: Buffer;
+  mimeType: string;
+  width: number;
+  height: number;
 }
 
 export interface BrowserLaunchOptions {
-  headless?: boolean | undefined
-  viewport?: { width: number; height: number } | undefined
-  proxy?: { server: string } | undefined
+  headless?: boolean | undefined;
+  viewport?: { width: number; height: number } | undefined;
+  proxy?: { server: string } | undefined;
 }

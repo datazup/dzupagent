@@ -1,4 +1,5 @@
-import type { OutboundUrlSecurityPolicy } from '../security/outbound-url-policy.js'
+import type { OutboundUrlSecurityPolicy } from "../security/outbound-url-policy.js";
+import type { McpStdioArgPolicy } from "./mcp-security.js";
 
 /**
  * MCP (Model Context Protocol) type definitions.
@@ -8,78 +9,88 @@ import type { OutboundUrlSecurityPolicy } from '../security/outbound-url-policy.
  */
 
 /** Transport type for MCP connections */
-export type MCPTransport = 'sse' | 'http' | 'stdio'
+export type MCPTransport = "sse" | "http" | "stdio";
 
 /** Configuration for connecting to an MCP server */
 export interface MCPServerConfig {
   /** Unique identifier for this server connection */
-  id: string
+  id: string;
   /** Human-readable name */
-  name: string
+  name: string;
   /** Server URL (for sse/http) or command (for stdio) */
-  url: string
+  url: string;
   /** Transport mechanism */
-  transport: MCPTransport
+  transport: MCPTransport;
   /** Command arguments (for stdio transport) */
-  args?: string[]
+  args?: string[];
   /** Environment variables to pass (for stdio transport) */
-  env?: Record<string, string>
+  env?: Record<string, string>;
   /** Connection timeout in milliseconds (default 10_000) */
-  timeoutMs?: number
+  timeoutMs?: number;
   /** Headers to send with HTTP/SSE requests */
-  headers?: Record<string, string>
+  headers?: Record<string, string>;
   /** Outbound URL policy for HTTP/SSE requests. Defaults to public HTTPS only. */
-  urlPolicy?: OutboundUrlSecurityPolicy
+  urlPolicy?: OutboundUrlSecurityPolicy;
   /** Maximum number of tools to load eagerly (rest deferred) */
-  maxEagerTools?: number
+  maxEagerTools?: number;
+  /**
+   * Policy for validating stdio command arguments. Defaults to `'strict'`,
+   * which rejects interpreter inline-eval invocations (e.g. `node -e …`).
+   * Set to `'legacy'` only for fully trusted, pre-existing configs.
+   */
+  stdioArgPolicy?: McpStdioArgPolicy;
 }
 
 /** MCP tool parameter schema (JSON Schema subset) */
 export interface MCPToolParameter {
-  type: string
-  description?: string
-  required?: boolean
-  properties?: Record<string, MCPToolParameter>
-  items?: MCPToolParameter
-  enum?: unknown[]
-  default?: unknown
+  type: string;
+  description?: string;
+  required?: boolean;
+  properties?: Record<string, MCPToolParameter>;
+  items?: MCPToolParameter;
+  enum?: unknown[];
+  default?: unknown;
 }
 
 /** Tool descriptor returned by MCP server */
 export interface MCPToolDescriptor {
-  name: string
-  description: string
+  name: string;
+  description: string;
   inputSchema: {
-    type: 'object'
-    properties: Record<string, MCPToolParameter>
-    required?: string[]
-  }
+    type: "object";
+    properties: Record<string, MCPToolParameter>;
+    required?: string[];
+  };
   /** Which MCP server this tool came from */
-  serverId: string
+  serverId: string;
 }
 
 /** Result of invoking an MCP tool */
 export interface MCPToolResult {
   content: Array<{
-    type: 'text' | 'image' | 'resource'
-    text?: string
-    data?: string
-    mimeType?: string
-  }>
-  isError?: boolean
+    type: "text" | "image" | "resource";
+    text?: string;
+    data?: string;
+    mimeType?: string;
+  }>;
+  isError?: boolean;
 }
 
 /** Connection state for an MCP server */
-export type MCPConnectionState = 'disconnected' | 'connecting' | 'connected' | 'error'
+export type MCPConnectionState =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "error";
 
 /** Status of an MCP server connection */
 export interface MCPServerStatus {
-  id: string
-  name: string
-  state: MCPConnectionState
-  toolCount: number
+  id: string;
+  name: string;
+  state: MCPConnectionState;
+  toolCount: number;
   /** Number of tools loaded eagerly vs deferred */
-  eagerToolCount: number
-  deferredToolCount: number
-  lastError?: string
+  eagerToolCount: number;
+  deferredToolCount: number;
+  lastError?: string;
 }
