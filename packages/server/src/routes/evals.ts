@@ -13,6 +13,7 @@ import type {
   EvalSuite,
 } from "@dzupagent/eval-contracts";
 import { InMemoryEvalRunStore } from "../persistence/eval-run-store.js";
+import { getOptionalRequestingTenantId } from "./tenant-scope.js";
 import type {
   EvalOrchestratorFactory,
   EvalRouteConfig,
@@ -83,6 +84,29 @@ function buildValidationError(message: string) {
 
 function buildNotFoundError(message: string) {
   return { code: "NOT_FOUND", message };
+}
+
+/**
+ * SEC-M-06: returns true when a fetched run belongs to a *different* tenant than
+ * the requester and must therefore be hidden (treated as not-found, returning
+ * 404 rather than 403 to avoid run-id / tenant enumeration).
+ *
+ * - When the request carries no authenticated tenant (`requesterTenantId` is
+ *   undefined — e.g. `auth.mode="none"` legacy mode), there is no tenant
+ *   boundary to enforce, so nothing is treated as cross-tenant.
+ * - A run with no `tenantId` (legacy / untenanted) is NOT cross-tenant on a
+ *   direct-id fetch, preserving backward compatibility for pre-existing runs.
+ *
+ * Enumeration via `GET /runs` is independently scoped by the store-level tenant
+ * filter, which excludes untenanted runs when an authenticated tenant filter is
+ * active.
+ */
+function isCrossTenantRun(
+  run: { tenantId?: string | undefined },
+  requesterTenantId: string | undefined
+): boolean {
+  if (requesterTenantId === undefined) return false;
+  return run.tenantId !== undefined && run.tenantId !== requesterTenantId;
 }
 
 function buildExecutionUnavailableError(message: string) {
@@ -327,10 +351,19 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
       );
     }
 
+    // SEC-M-06: scope list results to the authenticated tenant (default-deny).
+    // When an apiKey is present, runs owned by other tenants — and legacy runs
+    // with no tenantId — are excluded. When the request is unauthenticated
+    // (`auth.mode="none"` legacy mode) the filter is omitted so existing
+    // un-scoped listing behaviour is preserved.
+    const requesterTenantId = getOptionalRequestingTenantId(c);
     const runs = await orchestrator.listRuns({
       suiteId,
       status: status ?? undefined,
       limit,
+      ...(requesterTenantId !== undefined
+        ? { tenantId: requesterTenantId }
+        : {}),
     });
     const meta: EvalRunListMeta = {
       service: serviceName,
@@ -353,7 +386,9 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
 
   app.get("/runs/:id", async (c) => {
     const run = await orchestrator.getRun(c.req.param("id"));
-    if (!run) {
+    // SEC-M-06: a missing run AND a cross-tenant run both return 404 (not 403)
+    // so callers cannot enumerate other tenants' run ids via status probing.
+    if (!run || isCrossTenantRun(run, getOptionalRequestingTenantId(c))) {
       return c.json(
         {
           success: false,
@@ -457,7 +492,10 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
   app.post("/runs/:id/cancel", async (c) => {
     const id = c.req.param("id");
     const run = await orchestrator.getRun(id);
-    if (!run) {
+    // SEC-M-06: deny + 404 for missing or cross-tenant runs BEFORE any state
+    // check or mutation, so another tenant's run stays untouched and its
+    // existence/state is not leaked via a 400/409 response.
+    if (!run || isCrossTenantRun(run, getOptionalRequestingTenantId(c))) {
       return c.json(
         {
           success: false,
@@ -502,7 +540,9 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
   app.post("/runs/:id/retry", async (c) => {
     const id = c.req.param("id");
     const run = await orchestrator.getRun(id);
-    if (!run) {
+    // SEC-M-06: deny + 404 for missing or cross-tenant runs BEFORE any state
+    // check or mutation, so another tenant's run stays untouched.
+    if (!run || isCrossTenantRun(run, getOptionalRequestingTenantId(c))) {
       return c.json(
         {
           success: false,
