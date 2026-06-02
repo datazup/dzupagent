@@ -1,17 +1,21 @@
 {
   "$comment": [
-    "Growth-halt budgets for large public root barrels (MC-7 / DZUPAGENT-CODE-L-05 + ARCH-LOW-01).",
+    "Growth-halt budgets for large public root barrels (MC-7 / DZUPAGENT-CODE-L-05 + ARCH-LOW-01)",
+    "and per-file LOC ceilings for god-module-prone packages (MC-5 / DZUPAGENT-CODE-L-04).",
     "Each budget is pinned at the CURRENT measured baseline so the gate is green today and",
-    "RED on any growth of the root barrel. New public API must land on a documented subpath",
-    "export (see config/public-api-allowlists.json subpaths) instead of widening the root barrel.",
+    "RED on any growth. New public API must land on a documented subpath export",
+    "(see config/public-api-allowlists.json subpaths) instead of widening the root barrel.",
     "Metrics:",
     "  maxRootBarrelExplicitExports - named re-exports counted across `export { ... } from` blocks in src/index.ts",
     "  maxRootBarrelStarExports     - `export * from` statements in src/index.ts",
     "  maxRootBarrelSourceCount     - distinct modules re-exported from src/index.ts",
     "  maxRootIndexLines            - line count of src/index.ts",
-    "  auxiliarySourceLineBudgets   - per-file line caps for non-index source modules re-exported by the barrel",
+    "  auxiliarySourceLineBudgets   - per-file line caps for specific non-index source modules re-exported by the barrel",
+    "  maxFileLines                 - per-file LOC ceiling applied to every src/**/*.ts (excl. tests/.d.ts) in the package",
+    "  fileLineAllowlist            - package-relative paths exempt from maxFileLines (pre-existing debt, pinned)",
     "Removing or renaming a root export is a published-consumer breakage and is NOT how you lower these numbers;",
-    "lower them only by relocating a cluster to a subpath while keeping a root re-export, which leaves counts flat."
+    "lower them only by relocating a cluster to a subpath while keeping a root re-export, which leaves counts flat.",
+    "Lower maxFileLines debt by extracting cohesive sub-modules, then shrinking the allowlist."
   ],
   "packages": {
     "@dzupagent/core": {
@@ -27,7 +31,16 @@
       "maxRootIndexLines": 5,
       "auxiliarySourceLineBudgets": {
         "src/types.ts": 828
-      }
+      },
+      "maxFileLines": 500,
+      "fileLineAllowlist": ["src/types.ts"]
+    },
+    "@dzupagent/flow-compiler": {
+      "maxFileLines": 500,
+      "fileLineAllowlist": [
+        "src/compile-orchestrator.ts",
+        "src/lower/lower-skill-chain.ts"
+      ]
     }
   }
 }
