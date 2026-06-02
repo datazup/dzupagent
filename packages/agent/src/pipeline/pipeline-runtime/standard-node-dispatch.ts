@@ -184,6 +184,7 @@ export async function dispatchStandardNode(
     );
 
     completedNodeIds.push(node.id);
+    onCompleted?.();
     await saveCheckpoint();
 
     const nextIds = getNextNodeIds(
