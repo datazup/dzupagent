@@ -1,0 +1,33 @@
+{
+  "$comment": [
+    "Growth-halt budgets for large public root barrels (MC-7 / DZUPAGENT-CODE-L-05 + ARCH-LOW-01).",
+    "Each budget is pinned at the CURRENT measured baseline so the gate is green today and",
+    "RED on any growth of the root barrel. New public API must land on a documented subpath",
+    "export (see config/public-api-allowlists.json subpaths) instead of widening the root barrel.",
+    "Metrics:",
+    "  maxRootBarrelExplicitExports - named re-exports counted across `export { ... } from` blocks in src/index.ts",
+    "  maxRootBarrelStarExports     - `export * from` statements in src/index.ts",
+    "  maxRootBarrelSourceCount     - distinct modules re-exported from src/index.ts",
+    "  maxRootIndexLines            - line count of src/index.ts",
+    "  auxiliarySourceLineBudgets   - per-file line caps for non-index source modules re-exported by the barrel",
+    "Removing or renaming a root export is a published-consumer breakage and is NOT how you lower these numbers;",
+    "lower them only by relocating a cluster to a subpath while keeping a root re-export, which leaves counts flat."
+  ],
+  "packages": {
+    "@dzupagent/core": {
+      "maxRootBarrelExplicitExports": 876,
+      "maxRootBarrelStarExports": 0,
+      "maxRootBarrelSourceCount": 136,
+      "maxRootIndexLines": 1238
+    },
+    "@dzupagent/flow-ast": {
+      "maxRootBarrelExplicitExports": 0,
+      "maxRootBarrelStarExports": 5,
+      "maxRootBarrelSourceCount": 5,
+      "maxRootIndexLines": 5,
+      "auxiliarySourceLineBudgets": {
+        "src/types.ts": 828
+      }
+    }
+  }
+}
