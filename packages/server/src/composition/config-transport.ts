@@ -1,0 +1,81 @@
+/**
+ * HTTP transport slice of {@link ForgeServerConfig}: authentication, RBAC,
+ * CORS, security response headers, rate limiting, and JSON body-size guards.
+ *
+ * Split out of `composition/types.ts` so composition helpers can ask for the
+ * narrow transport slice without importing the full aggregate. Re-exported
+ * from `composition/types.ts` to preserve every existing import path.
+ */
+import type { AuthConfig } from "../middleware/auth.js";
+import type { RBACConfig } from "../middleware/rbac.js";
+import type { RateLimiterConfig } from "../middleware/rate-limiter.js";
+import type { PostgresApiKeyStore } from "../persistence/api-key-store.js";
+
+/**
+ * HTTP transport / authentication / rate limiting concerns.
+ *
+ * @deprecated Internal composition building block for {@link ForgeServerConfig}
+ * and {@link ForgeHostRuntimeConfig}. The standalone re-export through
+ * `@dzupagent/server/app` is a legacy compatibility alias with zero workspace
+ * consumers and is not part of the package-root public surface. Prefer the
+ * aggregate `ForgeServerConfig` or `ForgeHostRuntimeConfig` types.
+ */
+export interface ForgeTransportConfig {
+  /**
+   * Framework `/api/*` authentication mode.
+   *
+   * Production hosts must configure this explicitly. Use `mode: 'api-key'`
+   * for production deployments. `mode: 'none'` is an intentional local
+   * development or legacy compatibility opt-out and emits a startup warning.
+   */
+  auth?: AuthConfig;
+  /** Optional RBAC config (MC-S02). Defaults to API-key role extraction; pass `false` to disable. */
+  rbac?: RBACConfig | false;
+  /** Optional Postgres API key store. When provided alongside auth.mode='api-key', validate is wired automatically. */
+  apiKeyStore?: PostgresApiKeyStore;
+  /**
+   * Explicit browser origins allowed by CORS. Omit to disable CORS headers.
+   * Wildcard (`'*'`) is allowed in development, but production requires
+   * `allowWildcardCors: true` for legacy compatibility.
+   */
+  corsOrigins?: string | string[];
+  /** Compatibility opt-in that enables wildcard CORS. Do not use for credentialed browser-token deployments. */
+  allowWildcardCors?: boolean;
+  /** Safe default HTTP response headers. Pass `false` to disable, or override individual headers. */
+  securityHeaders?: SecurityHeadersConfig | false;
+  rateLimit?: Partial<RateLimiterConfig>;
+  /**
+   * Shared JSON request body size protection. Defaults to a conservative
+   * framework-wide limit with route-specific allowances for known large
+   * payload surfaces. Pass `false` to disable in controlled compatibility
+   * hosts.
+   */
+  jsonBodyLimit?: JsonBodyLimitConfig | false;
+}
+
+export interface SecurityHeadersConfig {
+  /** Defaults to `nosniff`; pass `false` to disable. */
+  xContentTypeOptions?: string | false;
+  /** Defaults to `no-referrer`; pass `false` to disable. */
+  referrerPolicy?: string | false;
+  /** Defaults to `DENY` (clickjacking guard); pass `false` to disable. */
+  xFrameOptions?: string | false;
+  /**
+   * Defaults to `default-src 'self'; base-uri 'self'; frame-ancestors 'none'`
+   * (DZUPAGENT-SEC-I-03). Pass `false` to disable, or override with a custom
+   * policy when serving HTML that requires external assets.
+   */
+  contentSecurityPolicy?: string | false;
+  /** Additional explicit headers; pass `false` to suppress a header from this map. */
+  additionalHeaders?: Record<string, string | false | undefined>;
+}
+
+export interface JsonBodyLimitConfig {
+  /** Default max JSON body size in bytes. Defaults to 1 MiB. */
+  defaultMaxBytes?: number;
+  /**
+   * Route-specific max JSON body size in bytes. Keys are request paths.
+   * A key ending in `*` is treated as a prefix match.
+   */
+  routeMaxBytes?: Record<string, number>;
+}
