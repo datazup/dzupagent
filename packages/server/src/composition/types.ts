@@ -12,69 +12,77 @@
 import type {
   AgentRegistry,
   McpManager,
+  McpStdioArgPolicy,
   SkillRegistry,
   WorkflowRegistry,
-} from '@dzupagent/core/pipeline'
+} from "@dzupagent/core/pipeline";
 import type {
   AgentExecutionSpecStore,
   RunJournal,
   RunStore,
-} from '@dzupagent/core/persistence'
-import type { CostAwareRouter, ModelRegistry } from '@dzupagent/core/llm'
-import type { DzupEventBus } from '@dzupagent/core/events'
-import type { MetricsCollector } from '@dzupagent/core/utils'
-import type { SkillStepResolver } from '@dzupagent/agent/workflow'
-import type { AdapterSkillRegistry } from '@dzupagent/agent-adapters/skills'
-import type { ApprovalStateStore } from '@dzupagent/hitl-kit'
-import type { EvalOrchestratorLike, BenchmarkOrchestratorLike } from '@dzupagent/eval-contracts'
-import type { PresetRegistry } from '@dzupagent/agent/presets'
-import type { RunReflectionStore } from '@dzupagent/agent/reflection'
-import type { MailboxStore } from '@dzupagent/agent/mailbox'
-import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
+} from "@dzupagent/core/persistence";
+import type { CostAwareRouter, ModelRegistry } from "@dzupagent/core/llm";
+import type { DzupEventBus } from "@dzupagent/core/events";
+import type { MetricsCollector } from "@dzupagent/core/utils";
+import type { SkillStepResolver } from "@dzupagent/agent/workflow";
+import type { AdapterSkillRegistry } from "@dzupagent/agent-adapters/skills";
+import type { ApprovalStateStore } from "@dzupagent/hitl-kit";
+import type {
+  EvalOrchestratorLike,
+  BenchmarkOrchestratorLike,
+} from "@dzupagent/eval-contracts";
+import type { PresetRegistry } from "@dzupagent/agent/presets";
+import type { RunReflectionStore } from "@dzupagent/agent/reflection";
+import type { MailboxStore } from "@dzupagent/agent/mailbox";
+import type { MemoryServiceLike } from "@dzupagent/memory-ipc";
 
-import type { ResourceQuotaManager } from '../security/resource-quota.js'
-import type { InputGuardConfig } from '../security/input-guard.js'
-import type { AuthConfig } from '../middleware/auth.js'
-import type { RBACConfig } from '../middleware/rbac.js'
-import type { RateLimiterConfig } from '../middleware/rate-limiter.js'
-import type { RunQueue } from '../queue/run-queue.js'
-import type { GracefulShutdown } from '../lifecycle/graceful-shutdown.js'
-import type { EventGateway } from '../events/event-gateway.js'
-import type { RunExecutor, RunReflectorLike } from '../runtime/run-worker.js'
-import type { RetrievalFeedbackHookConfig } from '../runtime/retrieval-feedback-hook.js'
-import type { ConsolidationSchedulerConfig } from '../runtime/consolidation-scheduler.js'
-import type { SleepConsolidatorLike } from '../runtime/sleep-consolidation-task.js'
-import type { MemoryHealthRouteConfig } from '../routes/memory-health-types.js'
-import type { TokenLifecycleRegistry } from '../routes/run-context-types.js'
-import type { RunTraceStore } from '../persistence/run-trace-store.js'
-import type { DeployRouteConfig } from '../routes/deploy-types.js'
-import type { LearningRouteConfig } from '../routes/learning-types.js'
-import type { PromptFeedbackLoop } from '../services/prompt-feedback-loop.js'
-import type { LearningEventProcessor } from '../services/learning-event-processor.js'
-import type { ExecutableAgentResolver } from '../services/executable-agent-resolver.js'
-import type { BenchmarkRouteConfig } from '../routes/benchmarks-types.js'
-import type { EvalRouteConfig } from '../routes/evals-types.js'
-import type { ServerRoutePlugin } from '../route-plugin.js'
-import type { CompileRouteConfig } from '../routes/compile-types.js'
-import type { A2ARoutesConfig } from '../routes/a2a-types.js'
-import type { AgentCardConfig } from '../a2a/agent-card.js'
-import type { A2ATaskStore } from '../a2a/task-handler.js'
-import type { TriggerStore } from '../triggers/trigger-store.js'
-import type { ScheduleStore } from '../schedules/schedule-store.js'
-import type { ScheduleRouteConfig } from '../routes/schedules.js'
-import type { PersonaStore } from '../personas/persona-store.js'
-import type { PromptStore } from '../prompts/prompt-store.js'
-import type { CatalogStore } from '../marketplace/catalog-store.js'
-import type { ClusterStore } from '../persistence/drizzle-cluster-store.js'
-import type { OpenAIAuthConfig } from '../routes/openai-compat/auth-middleware.js'
-import type { Notifier } from '../notifications/notifier.js'
-import type { MailRateLimiterConfig } from '../notifications/mail-rate-limiter.js'
-import type { PostgresApiKeyStore } from '../persistence/api-key-store.js'
-import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js'
-import type { PlaygroundRouteConfig } from '../routes/playground.js'
-import type { ConnectorTokenProfile, GitWorkspaceProfile, HttpConnectorProfile } from '../runtime/tool-resolver.js'
-import type { MetricsAccessControl } from '../routes/metrics.js'
-import type { ComplianceAuditStore } from '@dzupagent/core/security'
+import type { ResourceQuotaManager } from "../security/resource-quota.js";
+import type { InputGuardConfig } from "../security/input-guard.js";
+import type { AuthConfig } from "../middleware/auth.js";
+import type { RBACConfig } from "../middleware/rbac.js";
+import type { RateLimiterConfig } from "../middleware/rate-limiter.js";
+import type { RunQueue } from "../queue/run-queue.js";
+import type { GracefulShutdown } from "../lifecycle/graceful-shutdown.js";
+import type { EventGateway } from "../events/event-gateway.js";
+import type { RunExecutor, RunReflectorLike } from "../runtime/run-worker.js";
+import type { RetrievalFeedbackHookConfig } from "../runtime/retrieval-feedback-hook.js";
+import type { ConsolidationSchedulerConfig } from "../runtime/consolidation-scheduler.js";
+import type { SleepConsolidatorLike } from "../runtime/sleep-consolidation-task.js";
+import type { MemoryHealthRouteConfig } from "../routes/memory-health-types.js";
+import type { TokenLifecycleRegistry } from "../routes/run-context-types.js";
+import type { RunTraceStore } from "../persistence/run-trace-store.js";
+import type { DeployRouteConfig } from "../routes/deploy-types.js";
+import type { LearningRouteConfig } from "../routes/learning-types.js";
+import type { PromptFeedbackLoop } from "../services/prompt-feedback-loop.js";
+import type { LearningEventProcessor } from "../services/learning-event-processor.js";
+import type { ExecutableAgentResolver } from "../services/executable-agent-resolver.js";
+import type { BenchmarkRouteConfig } from "../routes/benchmarks-types.js";
+import type { EvalRouteConfig } from "../routes/evals-types.js";
+import type { ServerRoutePlugin } from "../route-plugin.js";
+import type { CompileRouteConfig } from "../routes/compile-types.js";
+import type { A2ARoutesConfig } from "../routes/a2a-types.js";
+import type { AgentCardConfig } from "../a2a/agent-card.js";
+import type { A2ATaskStore } from "../a2a/task-handler.js";
+import type { TriggerStore } from "../triggers/trigger-store.js";
+import type { ScheduleStore } from "../schedules/schedule-store.js";
+import type { ScheduleRouteConfig } from "../routes/schedules.js";
+import type { PersonaStore } from "../personas/persona-store.js";
+import type { PromptStore } from "../prompts/prompt-store.js";
+import type { CatalogStore } from "../marketplace/catalog-store.js";
+import type { ClusterStore } from "../persistence/drizzle-cluster-store.js";
+import type { OpenAIAuthConfig } from "../routes/openai-compat/auth-middleware.js";
+import type { Notifier } from "../notifications/notifier.js";
+import type { MailRateLimiterConfig } from "../notifications/mail-rate-limiter.js";
+import type { PostgresApiKeyStore } from "../persistence/api-key-store.js";
+import type { DrizzleStoreDatabase } from "../persistence/drizzle-store-types.js";
+import type { PlaygroundRouteConfig } from "../routes/playground.js";
+import type {
+  ConnectorTokenProfile,
+  GitWorkspaceProfile,
+  HttpConnectorProfile,
+} from "../runtime/tool-resolver.js";
+import type { MetricsAccessControl } from "../routes/metrics.js";
+import type { ComplianceAuditStore } from "@dzupagent/core/security";
 
 /**
  * Optional mail delivery config. When provided, `createForgeApp` constructs a
@@ -85,20 +93,23 @@ import type { ComplianceAuditStore } from '@dzupagent/core/security'
  */
 export interface MailDeliveryConfig {
   /** Drizzle DB client used by the DLQ store and mailbox store. */
-  db: DrizzleStoreDatabase
+  db: DrizzleStoreDatabase;
   /** Token-bucket configuration. Defaults to 10 tokens / 10-per-minute refill. */
-  rateLimiter?: MailRateLimiterConfig
+  rateLimiter?: MailRateLimiterConfig;
   /** DLQ drain interval in milliseconds. Defaults to 10s. */
-  dlqWorkerIntervalMs?: number
+  dlqWorkerIntervalMs?: number;
   /** DLQ batch size per drain. Defaults to 50. */
-  dlqBatchSize?: number
+  dlqBatchSize?: number;
 }
 
 /**
  * Shared scheduling options for consolidation (everything except the task itself
  * and eventBus, which is injected by createForgeApp).
  */
-type ConsolidationSchedulingOpts = Omit<ConsolidationSchedulerConfig, 'eventBus' | 'task'>
+type ConsolidationSchedulingOpts = Omit<
+  ConsolidationSchedulerConfig,
+  "eventBus" | "task"
+>;
 
 /**
  * Consolidation config — supports two modes:
@@ -106,15 +117,17 @@ type ConsolidationSchedulingOpts = Omit<ConsolidationSchedulerConfig, 'eventBus'
  * 2. Provide `consolidator` + `store` + `namespaces` to auto-create the task.
  */
 export type ConsolidationConfig =
-  | (ConsolidationSchedulingOpts & { task: ConsolidationSchedulerConfig['task'] })
+  | (ConsolidationSchedulingOpts & {
+      task: ConsolidationSchedulerConfig["task"];
+    })
   | (ConsolidationSchedulingOpts & {
       /** A SleepConsolidator instance (from @dzupagent/memory) */
-      consolidator: SleepConsolidatorLike
+      consolidator: SleepConsolidatorLike;
       /** A BaseStore instance passed to the consolidator */
-      store: unknown
+      store: unknown;
       /** Namespaces to consolidate */
-      namespaces: string[][]
-    })
+      namespaces: string[][];
+    });
 
 /**
  * Structural type matching {@link PromptFeedbackLoop}'s lifecycle API.
@@ -127,8 +140,8 @@ export type ConsolidationConfig =
  * surface (`@dzupagent/server`).
  */
 export interface PromptFeedbackLoopLike {
-  start(): void
-  stop(): void
+  start(): void;
+  stop(): void;
 }
 
 /**
@@ -142,8 +155,8 @@ export interface PromptFeedbackLoopLike {
  * public surface (`@dzupagent/server`).
  */
 export interface LearningEventProcessorLike {
-  start(): void
-  stop(): void
+  start(): void;
+  stop(): void;
 }
 
 /**
@@ -156,14 +169,14 @@ export interface LearningEventProcessorLike {
  * aggregate `ForgeServerConfig` or `ForgeHostRuntimeConfig` types.
  */
 export interface ForgeCoreConfig {
-  runStore: RunStore
-  agentStore: AgentExecutionSpecStore
+  runStore: RunStore;
+  agentStore: AgentExecutionSpecStore;
   /** Optional registry control plane for registry-backed management and execution projection. */
-  registry?: AgentRegistry
+  registry?: AgentRegistry;
   /** Optional boundary that resolves a runnable execution spec for a run or compatibility API. */
-  executableAgentResolver?: ExecutableAgentResolver
-  eventBus: DzupEventBus
-  modelRegistry: ModelRegistry
+  executableAgentResolver?: ExecutableAgentResolver;
+  eventBus: DzupEventBus;
+  modelRegistry: ModelRegistry;
 }
 
 /**
@@ -183,56 +196,56 @@ export interface ForgeTransportConfig {
    * for production deployments. `mode: 'none'` is an intentional local
    * development or legacy compatibility opt-out and emits a startup warning.
    */
-  auth?: AuthConfig
+  auth?: AuthConfig;
   /** Optional RBAC config (MC-S02). Defaults to API-key role extraction; pass `false` to disable. */
-  rbac?: RBACConfig | false
+  rbac?: RBACConfig | false;
   /** Optional Postgres API key store. When provided alongside auth.mode='api-key', validate is wired automatically. */
-  apiKeyStore?: PostgresApiKeyStore
+  apiKeyStore?: PostgresApiKeyStore;
   /**
    * Explicit browser origins allowed by CORS. Omit to disable CORS headers.
    * Wildcard (`'*'`) is allowed in development, but production requires
    * `allowWildcardCors: true` for legacy compatibility.
    */
-  corsOrigins?: string | string[]
+  corsOrigins?: string | string[];
   /** Compatibility opt-in that enables wildcard CORS. Do not use for credentialed browser-token deployments. */
-  allowWildcardCors?: boolean
+  allowWildcardCors?: boolean;
   /** Safe default HTTP response headers. Pass `false` to disable, or override individual headers. */
-  securityHeaders?: SecurityHeadersConfig | false
-  rateLimit?: Partial<RateLimiterConfig>
+  securityHeaders?: SecurityHeadersConfig | false;
+  rateLimit?: Partial<RateLimiterConfig>;
   /**
    * Shared JSON request body size protection. Defaults to a conservative
    * framework-wide limit with route-specific allowances for known large
    * payload surfaces. Pass `false` to disable in controlled compatibility
    * hosts.
    */
-  jsonBodyLimit?: JsonBodyLimitConfig | false
+  jsonBodyLimit?: JsonBodyLimitConfig | false;
 }
 
 export interface SecurityHeadersConfig {
   /** Defaults to `nosniff`; pass `false` to disable. */
-  xContentTypeOptions?: string | false
+  xContentTypeOptions?: string | false;
   /** Defaults to `no-referrer`; pass `false` to disable. */
-  referrerPolicy?: string | false
+  referrerPolicy?: string | false;
   /** Defaults to `DENY` (clickjacking guard); pass `false` to disable. */
-  xFrameOptions?: string | false
+  xFrameOptions?: string | false;
   /**
    * Defaults to `default-src 'self'; base-uri 'self'; frame-ancestors 'none'`
    * (DZUPAGENT-SEC-I-03). Pass `false` to disable, or override with a custom
    * policy when serving HTML that requires external assets.
    */
-  contentSecurityPolicy?: string | false
+  contentSecurityPolicy?: string | false;
   /** Additional explicit headers; pass `false` to suppress a header from this map. */
-  additionalHeaders?: Record<string, string | false | undefined>
+  additionalHeaders?: Record<string, string | false | undefined>;
 }
 
 export interface JsonBodyLimitConfig {
   /** Default max JSON body size in bytes. Defaults to 1 MiB. */
-  defaultMaxBytes?: number
+  defaultMaxBytes?: number;
   /**
    * Route-specific max JSON body size in bytes. Keys are request paths.
    * A key ending in `*` is treated as a prefix match.
    */
-  routeMaxBytes?: Record<string, number>
+  routeMaxBytes?: Record<string, number>;
 }
 
 /**
@@ -245,38 +258,38 @@ export interface JsonBodyLimitConfig {
  * aggregate `ForgeServerConfig` or `ForgeHostRuntimeConfig` types.
  */
 export interface ForgeRuntimeConfig {
-  runQueue?: RunQueue
-  runExecutor?: RunExecutor
-  shutdown?: GracefulShutdown
-  metrics?: MetricsCollector
+  runQueue?: RunQueue;
+  runExecutor?: RunExecutor;
+  shutdown?: GracefulShutdown;
+  metrics?: MetricsCollector;
   /**
    * Prometheus `/metrics` endpoint exposure policy. The endpoint is not mounted
    * unless this is configured, so public scraping requires an explicit
    * `unsafe-public` opt-in.
    */
   prometheusMetrics?: {
-    access: MetricsAccessControl
-  }
-  eventGateway?: EventGateway
-  consolidation?: ConsolidationConfig
-  router?: CostAwareRouter
-  reflector?: RunReflectorLike
-  retrievalFeedback?: RetrievalFeedbackHookConfig
-  journal?: RunJournal
+    access: MetricsAccessControl;
+  };
+  eventGateway?: EventGateway;
+  consolidation?: ConsolidationConfig;
+  router?: CostAwareRouter;
+  reflector?: RunReflectorLike;
+  retrievalFeedback?: RetrievalFeedbackHookConfig;
+  journal?: RunJournal;
 }
 
 /** Memory and run-history route family config. */
 export interface ForgeMemoryRouteFamilyConfig {
-  memoryService?: MemoryServiceLike
-  memoryHealth?: MemoryHealthRouteConfig
-  traceStore?: RunTraceStore
-  tokenLifecycleRegistry?: TokenLifecycleRegistry
+  memoryService?: MemoryServiceLike;
+  memoryHealth?: MemoryHealthRouteConfig;
+  traceStore?: RunTraceStore;
+  tokenLifecycleRegistry?: TokenLifecycleRegistry;
 }
 
 /** Compatibility and deployment route family config. */
 export interface ForgeCompatibilityRouteFamilyConfig {
-  playground?: PlaygroundRouteConfig
-  deploy?: DeployRouteConfig
+  playground?: PlaygroundRouteConfig;
+  deploy?: DeployRouteConfig;
   /** OpenAI-compatible `/v1/*` HTTP compatibility surface. */
   openai?: {
     /**
@@ -285,72 +298,79 @@ export interface ForgeCompatibilityRouteFamilyConfig {
      * Defaults to false so createForgeApp hosts expose the compatibility API
      * only when they explicitly opt in.
      */
-    enabled?: boolean
-    auth?: OpenAIAuthConfig
-  }
+    enabled?: boolean;
+    auth?: OpenAIAuthConfig;
+  };
 }
 
 /** Learning, evaluation, and benchmark route family config. */
 export interface ForgeEvaluationRouteFamilyConfig {
-  learning?: LearningRouteConfig
-  benchmark?: BenchmarkRouteConfig
-  evals?: EvalRouteConfig
-  evalOrchestrator?: EvalOrchestratorLike
-  benchmarkOrchestrator?: BenchmarkOrchestratorLike
+  learning?: LearningRouteConfig;
+  benchmark?: BenchmarkRouteConfig;
+  evals?: EvalRouteConfig;
+  evalOrchestrator?: EvalOrchestratorLike;
+  benchmarkOrchestrator?: BenchmarkOrchestratorLike;
 }
 
 /** Adapter, MCP, skill, workflow, and compile route family config. */
 export interface ForgeAdapterRouteFamilyConfig {
-  mcpManager?: McpManager
+  mcpManager?: McpManager;
   /** Allowlist for stdio MCP server registration. */
-  mcpAllowedExecutables?: string[]
+  mcpAllowedExecutables?: string[];
+  /**
+   * Policy for validating stdio MCP command arguments. Defaults to `'strict'`,
+   * which rejects interpreter inline-eval invocations (e.g. `node -e …`) even
+   * when the executable is allowlisted. Set to `'legacy'` only for fully
+   * trusted, pre-existing configs.
+   */
+  mcpStdioArgPolicy?: McpStdioArgPolicy;
   /** Allowlist for private/loopback/link-local MCP HTTP/SSE hosts. */
-  mcpAllowedHttpHosts?: string[]
+  mcpAllowedHttpHosts?: string[];
   /** Server-owned HTTP connector profiles keyed by profile name. */
-  httpConnectorProfiles?: Record<string, HttpConnectorProfile>
+  httpConnectorProfiles?: Record<string, HttpConnectorProfile>;
   /** Default HTTP connector profile name used by built-in tool resolution. */
-  defaultHttpConnectorProfile?: string
+  defaultHttpConnectorProfile?: string;
   /** Server-owned GitHub connector token profiles keyed by profile name. */
-  githubConnectorProfiles?: Record<string, ConnectorTokenProfile>
+  githubConnectorProfiles?: Record<string, ConnectorTokenProfile>;
   /** Default GitHub connector profile name used by built-in tool resolution. */
-  defaultGithubConnectorProfile?: string
+  defaultGithubConnectorProfile?: string;
   /** Server-owned Slack connector token profiles keyed by profile name. */
-  slackConnectorProfiles?: Record<string, ConnectorTokenProfile>
+  slackConnectorProfiles?: Record<string, ConnectorTokenProfile>;
   /** Default Slack connector profile name used by built-in tool resolution. */
-  defaultSlackConnectorProfile?: string
+  defaultSlackConnectorProfile?: string;
   /** Server-owned Git workspace profiles keyed by profile name. */
-  gitWorkspaceProfiles?: Record<string, GitWorkspaceProfile>
+  gitWorkspaceProfiles?: Record<string, GitWorkspaceProfile>;
   /** Default Git workspace profile name used by built-in tool resolution. */
-  defaultGitWorkspaceProfile?: string
+  defaultGitWorkspaceProfile?: string;
   /**
    * Unsafe compatibility escape hatch for legacy run metadata HTTP connector
    * configuration. Keep disabled for untrusted run metadata.
    */
-  allowUnsafeMetadataHttpConnector?: boolean
+  allowUnsafeMetadataHttpConnector?: boolean;
   /**
    * Unsafe compatibility escape hatch for legacy metadata.cwd Git tool
    * selection. The cwd remains root-contained by the selected workspace.
    */
-  allowUnsafeMetadataGitCwd?: boolean
-  skillRegistry?: AdapterSkillRegistry
-  coreSkillRegistry?: SkillRegistry
-  workflowRegistry?: WorkflowRegistry
-  skillStepResolver?: SkillStepResolver
-  compile?: CompileRouteConfig
+  allowUnsafeMetadataGitCwd?: boolean;
+  skillRegistry?: AdapterSkillRegistry;
+  coreSkillRegistry?: SkillRegistry;
+  workflowRegistry?: WorkflowRegistry;
+  skillStepResolver?: SkillStepResolver;
+  compile?: CompileRouteConfig;
 }
 
 /** A2A, trigger, and schedule route family config. */
 export interface ForgeAutomationRouteFamilyConfig {
   a2a?: {
-    agentCardConfig: AgentCardConfig
-    taskStore?: A2ATaskStore
-    onTaskSubmitted?: A2ARoutesConfig['onTaskSubmitted']
-    onTaskContinued?: A2ARoutesConfig['onTaskContinued']
-    pushNotificationUrlPolicy?: A2ARoutesConfig['pushNotificationUrlPolicy']
-  }
-  triggerStore?: TriggerStore
-  scheduleStore?: ScheduleStore
-  onScheduleTrigger?: ScheduleRouteConfig['onManualTrigger']
+    agentCardConfig: AgentCardConfig;
+    taskStore?: A2ATaskStore;
+    onTaskSubmitted?: A2ARoutesConfig["onTaskSubmitted"];
+    onTaskContinued?: A2ARoutesConfig["onTaskContinued"];
+    pushNotificationUrlPolicy?: A2ARoutesConfig["pushNotificationUrlPolicy"];
+  };
+  triggerStore?: TriggerStore;
+  scheduleStore?: ScheduleStore;
+  onScheduleTrigger?: ScheduleRouteConfig["onManualTrigger"];
 }
 
 /**
@@ -366,29 +386,29 @@ export interface ForgeAutomationRouteFamilyConfig {
  */
 export interface ForgeControlPlaneRouteFamilyConfig {
   /** Compatibility-only prompt route store. New product prompt UX belongs in the consuming app. */
-  promptStore?: PromptStore
+  promptStore?: PromptStore;
   /** Compatibility-only persona route store. New product persona UX belongs in the consuming app. */
-  personaStore?: PersonaStore
+  personaStore?: PersonaStore;
   /** Compatibility-only notification integration for existing server routes. */
-  notifier?: Notifier
+  notifier?: Notifier;
   /** Compatibility-only preset route registry. New product preset UX belongs in the consuming app. */
-  presetRegistry?: PresetRegistry
+  presetRegistry?: PresetRegistry;
   /** Compatibility-only reflection route store. */
-  reflectionStore?: RunReflectionStore
+  reflectionStore?: RunReflectionStore;
   /** Compatibility-only mailbox route store. */
-  mailboxStore?: MailboxStore
+  mailboxStore?: MailboxStore;
   /** Compatibility-only mailbox delivery wiring. */
-  mailDelivery?: MailDeliveryConfig
+  mailDelivery?: MailDeliveryConfig;
   /** Compatibility-only cluster route store. */
-  clusterStore?: ClusterStore
+  clusterStore?: ClusterStore;
   /** Compatibility-only marketplace catalog route store. New product marketplace UX belongs in the consuming app. */
-  catalogStore?: CatalogStore
+  catalogStore?: CatalogStore;
   /** Compatibility-only closed-loop prompt processor lifecycle hook. */
-  promptFeedbackLoop?: PromptFeedbackLoop | PromptFeedbackLoopLike
+  promptFeedbackLoop?: PromptFeedbackLoop | PromptFeedbackLoopLike;
   /** Compatibility-only closed-loop learning processor lifecycle hook. */
-  learningEventProcessor?: LearningEventProcessor | LearningEventProcessorLike
+  learningEventProcessor?: LearningEventProcessor | LearningEventProcessorLike;
   /** Compatibility-only approval state route store. */
-  approvalStore?: ApprovalStateStore
+  approvalStore?: ApprovalStateStore;
 }
 
 /**
@@ -419,7 +439,7 @@ export interface ForgeIntegrationsConfig extends ForgeRouteFamiliesConfig {
    * app/product routes; new product-control-plane endpoints should be composed
    * by the consuming app instead of added as built-in packages/server routes.
    */
-  routePlugins?: ServerRoutePlugin<ForgeServerConfig>[]
+  routePlugins?: ServerRoutePlugin<ForgeServerConfig>[];
 }
 
 /**
@@ -441,7 +461,7 @@ export interface ForgeHostRuntimeConfig
    * New product-specific route families should use this seam instead of
    * adding fields to `ForgeServerConfig`.
    */
-  routePlugins?: ForgeIntegrationsConfig['routePlugins']
+  routePlugins?: ForgeIntegrationsConfig["routePlugins"];
 }
 
 /**
@@ -455,19 +475,19 @@ export interface ForgeHostRuntimeConfig
  */
 export interface ForgeSecurityConfig {
   /** Skip attaching the built-in runtime safety monitor (default false). */
-  disableSafetyMonitor?: boolean
+  disableSafetyMonitor?: boolean;
   /** Per-key resource quota manager (MC-S01). */
-  resourceQuota?: ResourceQuotaManager
+  resourceQuota?: ResourceQuotaManager;
   /** MC-S03 input guard configuration. Pass `false` to opt out. */
   security?: {
-    inputGuard?: InputGuardConfig | false
-  }
+    inputGuard?: InputGuardConfig | false;
+  };
   /**
    * RF-36: Compliance audit store. When provided, a ComplianceAuditLogger is
    * attached to the event bus and all security-relevant events are recorded.
    * Use PostgresAuditStore for durable audit trails in production.
    */
-  auditStore?: ComplianceAuditStore
+  auditStore?: ComplianceAuditStore;
 }
 
 /**
