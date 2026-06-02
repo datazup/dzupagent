@@ -313,14 +313,19 @@ export interface ToolLoopConfig {
    * Controls what happens when {@link safetyMonitor.scanContent} itself
    * throws while scanning a tool result.
    *
-   * - `fail-open` preserves the legacy behavior: emit a sanitized
-   *   `safety:violation` event when possible, then continue with the tool
-   *   result.
    * - `fail-closed` withholds the tool result, emits a terminal
    *   `tool:error`, and returns a safe scanner-failure marker to the
    *   conversation.
+   * - `fail-open` emits a sanitized `safety:violation` event when possible,
+   *   then continues with the (potentially unscanned) tool result.
    *
-   * Defaults to `fail-open` for backwards compatibility.
+   * Defaults to `fail-closed` (RF-11 / DZUPAGENT-AGENT-M-01): a bare
+   * DzupAgent must not silently leak tool output when the safety scanner
+   * itself crashes.
+   *
+   * @deprecated Setting `fail-open` is legacy, opt-in behavior retained only
+   * for backwards compatibility / recorded fixtures. Prefer the secure
+   * `fail-closed` default; do not use `fail-open` in production.
    */
   scanFailureMode?: ToolResultScanFailureMode;
 

@@ -1,6 +1,6 @@
 import { lookup as defaultLookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { isPublicIpAddress } from "@dzupagent/core";
+import { isPublicIpAddress } from "@dzupagent/core/security";
 import type { Page, Response } from "playwright";
 import type {
   BrowserNavigationPolicy,

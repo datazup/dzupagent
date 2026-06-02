@@ -91,11 +91,15 @@ export interface ToolExecutionConfig {
   /**
    * Controls scanner-exception behavior for tool result scanning.
    *
-   * Defaults to `fail-open` for backwards compatibility. Set to
-   * `fail-closed` for production or untrusted presets that must withhold
-   * tool output when the safety scanner itself fails.
+   * Defaults to `fail-closed` (RF-11 / DZUPAGENT-AGENT-M-01): a bare agent
+   * withholds tool output when the safety scanner itself crashes, rather
+   * than silently leaking unscanned output.
    *
    * Forwarded to {@link ToolLoopConfig.scanFailureMode}.
+   *
+   * @deprecated Setting `fail-open` is legacy, opt-in behavior retained only
+   * for backwards compatibility / local development. Do not use `fail-open`
+   * in production.
    */
   scanFailureMode?: ToolResultScanFailureMode
 
