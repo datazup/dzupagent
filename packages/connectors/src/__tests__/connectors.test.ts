@@ -1,171 +1,185 @@
-import { describe, it, expect, vi } from 'vitest'
-import { createHTTPConnector } from '../http/http-connector.js'
-import { createDatabaseConnector } from '../database/db-connector.js'
-import { filterTools } from '../connector-types.js'
-import { createGitHubConnector } from '../github/github-connector.js'
-import { createSlackConnector } from '../slack/slack-connector.js'
+import { describe, it, expect, vi } from "vitest";
+import { createHTTPConnector } from "../http/http-connector.js";
+import { createDatabaseConnector } from "../database/db-connector.js";
+import { filterTools } from "../connector-types.js";
+import { createGitHubConnector } from "../github/github-connector.js";
+import { createSlackConnector } from "../slack/slack-connector.js";
 
-describe('filterTools', () => {
-  it('returns all tools when no filter', () => {
-    const tools = createHTTPConnector({ baseUrl: 'http://test' })
-    expect(filterTools(tools)).toHaveLength(tools.length)
-  })
+describe("filterTools", () => {
+  it("returns all tools when no filter", () => {
+    const tools = createHTTPConnector({ baseUrl: "http://test" });
+    expect(filterTools(tools)).toHaveLength(tools.length);
+  });
 
-  it('filters by tool name', () => {
-    const tools = createHTTPConnector({ baseUrl: 'http://test' })
-    const filtered = filterTools(tools, ['http_request'])
-    expect(filtered).toHaveLength(1)
-    expect(filtered[0]!.name).toBe('http_request')
-  })
+  it("filters by tool name", () => {
+    const tools = createHTTPConnector({ baseUrl: "http://test" });
+    const filtered = filterTools(tools, ["http_request"]);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]!.name).toBe("http_request");
+  });
 
-  it('returns empty for non-matching filter', () => {
-    const tools = createHTTPConnector({ baseUrl: 'http://test' })
-    expect(filterTools(tools, ['nonexistent'])).toHaveLength(0)
-  })
-})
+  it("returns empty for non-matching filter", () => {
+    const tools = createHTTPConnector({ baseUrl: "http://test" });
+    expect(filterTools(tools, ["nonexistent"])).toHaveLength(0);
+  });
+});
 
-describe('GitHub connector', () => {
-  it('creates 22 tools by default', () => {
-    const tools = createGitHubConnector({ token: 'fake-token' })
-    expect(tools.length).toBe(22)
-    const names = tools.map(t => t.name)
-    expect(names).toContain('github_get_file')
-    expect(names).toContain('github_list_issues')
-    expect(names).toContain('github_get_issue')
-    expect(names).toContain('github_create_issue')
-    expect(names).toContain('github_update_issue')
-    expect(names).toContain('github_add_comment')
-    expect(names).toContain('github_list_prs')
-    expect(names).toContain('github_get_pr')
-    expect(names).toContain('github_create_pr')
-    expect(names).toContain('github_merge_pr')
-    expect(names).toContain('github_list_pr_reviews')
-    expect(names).toContain('github_create_pr_review')
-    expect(names).toContain('github_get_repo')
-    expect(names).toContain('github_list_branches')
-    expect(names).toContain('github_get_commit')
-    expect(names).toContain('github_compare_commits')
-    expect(names).toContain('github_search_code')
+describe("GitHub connector", () => {
+  it("creates 22 tools by default", () => {
+    const tools = createGitHubConnector({ token: "fake-token" });
+    expect(tools.length).toBe(22);
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("github_get_file");
+    expect(names).toContain("github_list_issues");
+    expect(names).toContain("github_get_issue");
+    expect(names).toContain("github_create_issue");
+    expect(names).toContain("github_update_issue");
+    expect(names).toContain("github_add_comment");
+    expect(names).toContain("github_list_prs");
+    expect(names).toContain("github_get_pr");
+    expect(names).toContain("github_create_pr");
+    expect(names).toContain("github_merge_pr");
+    expect(names).toContain("github_list_pr_reviews");
+    expect(names).toContain("github_create_pr_review");
+    expect(names).toContain("github_get_repo");
+    expect(names).toContain("github_list_branches");
+    expect(names).toContain("github_get_commit");
+    expect(names).toContain("github_compare_commits");
+    expect(names).toContain("github_search_code");
     // Wave 19 additions
-    expect(names).toContain('github_get_pr_checks')
-    expect(names).toContain('github_add_labels')
-    expect(names).toContain('github_remove_label')
-    expect(names).toContain('github_create_review_comment')
-    expect(names).toContain('github_get_workflow_runs')
-  })
+    expect(names).toContain("github_get_pr_checks");
+    expect(names).toContain("github_add_labels");
+    expect(names).toContain("github_remove_label");
+    expect(names).toContain("github_create_review_comment");
+    expect(names).toContain("github_get_workflow_runs");
+  });
 
-  it('filters tools by enabledTools', () => {
-    const tools = createGitHubConnector({ token: 'fake', enabledTools: ['github_get_file'] })
-    expect(tools).toHaveLength(1)
-    expect(tools[0]!.name).toBe('github_get_file')
-  })
-})
+  it("filters tools by enabledTools", () => {
+    const tools = createGitHubConnector({
+      token: "fake",
+      enabledTools: ["github_get_file"],
+    });
+    expect(tools).toHaveLength(1);
+    expect(tools[0]!.name).toBe("github_get_file");
+  });
+});
 
-describe('HTTP connector', () => {
-  it('creates a single http_request tool', () => {
-    const tools = createHTTPConnector({ baseUrl: 'http://api.example.com' })
-    expect(tools).toHaveLength(1)
-    expect(tools[0]!.name).toBe('http_request')
-  })
+describe("HTTP connector", () => {
+  it("creates a single http_request tool", () => {
+    const tools = createHTTPConnector({ baseUrl: "http://api.example.com" });
+    expect(tools).toHaveLength(1);
+    expect(tools[0]!.name).toBe("http_request");
+  });
 
-  it('includes base URL in description', () => {
-    const tools = createHTTPConnector({ baseUrl: 'http://api.example.com' })
-    expect(tools[0]!.description).toContain('api.example.com')
-  })
+  it("includes base URL in description", () => {
+    const tools = createHTTPConnector({ baseUrl: "http://api.example.com" });
+    expect(tools[0]!.description).toContain("api.example.com");
+  });
 
-  it('makes a GET request', async () => {
+  it("makes a GET request", async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      statusText: 'OK',
+      statusText: "OK",
       text: async () => '{"result": "ok"}',
-    })
-    vi.stubGlobal('fetch', mockFetch)
+    });
+    vi.stubGlobal("fetch", mockFetch);
 
-    const tools = createHTTPConnector({ baseUrl: 'http://api.test' })
-    const result = await tools[0]!.invoke({ method: 'GET', path: '/health' })
+    const tools = createHTTPConnector({ baseUrl: "http://api.test" });
+    const result = await tools[0]!.invoke({ method: "GET", path: "/health" });
 
-    expect(result).toContain('200 OK')
+    expect(result).toContain("200 OK");
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('http://api.test/health'),
-      expect.objectContaining({ method: 'GET' }),
-    )
+      expect.stringContaining("http://api.test/health"),
+      expect.objectContaining({ method: "GET" })
+    );
 
-    vi.unstubAllGlobals()
-  })
+    vi.unstubAllGlobals();
+  });
 
-  it('rejects disallowed methods', async () => {
+  it("rejects disallowed methods", async () => {
     const tools = createHTTPConnector({
-      baseUrl: 'http://api.test',
-      allowedMethods: ['GET'],
-    })
-    const result = await tools[0]!.invoke({ method: 'DELETE', path: '/dangerous' })
-    expect(result).toContain('not allowed')
-  })
-})
+      baseUrl: "http://api.test",
+      allowedMethods: ["GET"],
+    });
+    const result = await tools[0]!.invoke({
+      method: "DELETE",
+      path: "/dangerous",
+    });
+    expect(result).toContain("not allowed");
+  });
+});
 
-describe('Slack connector', () => {
-  it('creates 3 tools', () => {
-    const tools = createSlackConnector({ token: 'fake' })
-    expect(tools).toHaveLength(3)
-    const names = tools.map(t => t.name)
-    expect(names).toContain('slack_send_message')
-    expect(names).toContain('slack_list_channels')
-    expect(names).toContain('slack_search_messages')
-  })
+describe("Slack connector", () => {
+  it("creates 3 tools", () => {
+    const tools = createSlackConnector({ token: "fake" });
+    expect(tools).toHaveLength(3);
+    const names = tools.map((t) => t.name);
+    expect(names).toContain("slack_send_message");
+    expect(names).toContain("slack_list_channels");
+    expect(names).toContain("slack_search_messages");
+  });
 
-  it('filters tools', () => {
-    const tools = createSlackConnector({ token: 'fake', enabledTools: ['slack_send_message'] })
-    expect(tools).toHaveLength(1)
-  })
-})
+  it("filters tools", () => {
+    const tools = createSlackConnector({
+      token: "fake",
+      enabledTools: ["slack_send_message"],
+    });
+    expect(tools).toHaveLength(1);
+  });
+});
 
-describe('Database connector', () => {
-  it('creates 3 tools (query + list-tables + describe-table)', () => {
+describe("Database connector", () => {
+  it("creates 3 tools (query + list-tables + describe-table)", () => {
     const tools = createDatabaseConnector({
       query: async () => ({ rows: [], rowCount: 0 }),
-    })
-    expect(tools).toHaveLength(3)
-    expect(tools[0]!.name).toBe('db-query')
-    expect(tools[1]!.name).toBe('db-list-tables')
-    expect(tools[2]!.name).toBe('db-describe-table')
-  })
+    });
+    expect(tools).toHaveLength(3);
+    expect(tools[0]!.name).toBe("db-query");
+    expect(tools[1]!.name).toBe("db-list-tables");
+    expect(tools[2]!.name).toBe("db-describe-table");
+  });
 
-  it('blocks write queries in read-only mode', async () => {
+  it("blocks write queries in read-only mode", async () => {
     const tools = createDatabaseConnector({
       query: async () => ({ rows: [], rowCount: 0 }),
       readOnly: true,
-    })
-    const result = await tools[0]!.invoke({ sql: 'DELETE FROM users' })
-    expect(result).toContain('not allowed')
-  })
+    });
+    const result = await tools[0]!.invoke({ sql: "DELETE FROM users" });
+    // RF-4 error containment: the raw read-only guard message
+    // ("Write operations not allowed …") is sanitized before it reaches tool
+    // output. Assert the write was blocked via the sanitized permission_denied
+    // contract, not the raw internal text.
+    expect(result).toContain("Query error");
+    expect(result).toContain("not permitted for this connection");
+  });
 
-  it('allows SELECT in read-only mode', async () => {
+  it("allows SELECT in read-only mode", async () => {
     const tools = createDatabaseConnector({
       query: async () => ({
-        rows: [{ id: 1, name: 'test' }],
+        rows: [{ id: 1, name: "test" }],
         rowCount: 1,
       }),
       readOnly: true,
-    })
-    const result = await tools[0]!.invoke({ sql: 'SELECT * FROM users' })
-    expect(result).toContain('id')
-    expect(result).toContain('1 rows')
-  })
+    });
+    const result = await tools[0]!.invoke({ sql: "SELECT * FROM users" });
+    expect(result).toContain("id");
+    expect(result).toContain("1 rows");
+  });
 
-  it('formats results as a table', async () => {
+  it("formats results as a table", async () => {
     const tools = createDatabaseConnector({
       query: async () => ({
         rows: [
-          { id: 1, name: 'Alice' },
-          { id: 2, name: 'Bob' },
+          { id: 1, name: "Alice" },
+          { id: 2, name: "Bob" },
         ],
         rowCount: 2,
       }),
-    })
-    const result = await tools[0]!.invoke({ sql: 'SELECT * FROM users' })
-    expect(result).toContain('Alice')
-    expect(result).toContain('Bob')
-    expect(result).toContain('2 rows')
-  })
-})
+    });
+    const result = await tools[0]!.invoke({ sql: "SELECT * FROM users" });
+    expect(result).toContain("Alice");
+    expect(result).toContain("Bob");
+    expect(result).toContain("2 rows");
+  });
+});
