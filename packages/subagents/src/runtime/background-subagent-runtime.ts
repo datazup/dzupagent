@@ -42,6 +42,18 @@ export interface SpawnOptions {
   ttlMs?: number;
 }
 
+/**
+ * Ownership scope for pull/cancel operations (SEC-M-04). When supplied, the
+ * runtime only acts on a task whose `parentRunId` matches `scope.parentRunId`;
+ * a mismatch is treated as not-found (returns `null`) so a caller cannot probe
+ * for, read, or cancel another run's tasks by guessing a `taskId`. Omit the
+ * scope only for trusted in-process callers (e.g. the runtime's own
+ * cancel→await self-call) that have already established ownership.
+ */
+export interface TaskScope {
+  parentRunId: string;
+}
+
 export interface BackgroundSubagentRuntimeDeps {
   store: TaskStore;
   runner: TaskRunner;
@@ -86,7 +98,7 @@ export class BackgroundSubagentRuntime {
       this.policy,
       this.clock,
       this.events,
-      (taskId) => this.abortController(taskId)
+      (taskId) => this.abortController(taskId),
     );
   }
 
@@ -106,7 +118,7 @@ export class BackgroundSubagentRuntime {
   async spawn(
     spec: SubagentSpec,
     parentRunId: string,
-    options: SpawnOptions = {}
+    options: SpawnOptions = {},
   ): Promise<SpawnOutcome> {
     const queued = await this.store.list({ parentRunId, status: "queued" });
     if (queued.length + 1 > this.policy.maxQueuedTasks) {
@@ -160,7 +172,7 @@ export class BackgroundSubagentRuntime {
   private async resolveApprovalThenAdmit(
     id: TaskId,
     parentRunId: string,
-    approvalId: string
+    approvalId: string,
   ): Promise<void> {
     const outcome = await this.gate.awaitApproval(parentRunId, approvalId);
     this.governance.emitGovernance({
@@ -230,9 +242,29 @@ export class BackgroundSubagentRuntime {
     }
   }
 
-  /** Pull: current task state. */
-  async check(taskId: TaskId): Promise<BackgroundTask | null> {
-    return this.store.get(taskId);
+  /**
+   * Resolve a task by id, enforcing ownership when a {@link TaskScope} is given.
+   * Returns `null` for a missing task OR a `parentRunId` mismatch — the two are
+   * deliberately indistinguishable to callers (SEC-M-04: no existence oracle).
+   */
+  private async resolveOwned(
+    taskId: TaskId,
+    scope?: TaskScope,
+  ): Promise<BackgroundTask | null> {
+    const task = await this.store.get(taskId);
+    if (!task) return null;
+    if (scope !== undefined && task.parentRunId !== scope.parentRunId) {
+      return null;
+    }
+    return task;
+  }
+
+  /** Pull: current task state (ownership-scoped when `scope` is supplied). */
+  async check(
+    taskId: TaskId,
+    scope?: TaskScope,
+  ): Promise<BackgroundTask | null> {
+    return this.resolveOwned(taskId, scope);
   }
 
   /**
@@ -242,7 +274,8 @@ export class BackgroundSubagentRuntime {
    */
   async await(
     taskId: TaskId,
-    options: { timeoutMs?: number; pollIntervalMs?: number } = {}
+    options: { timeoutMs?: number; pollIntervalMs?: number } = {},
+    scope?: TaskScope,
   ): Promise<BackgroundTask | null> {
     const pollIntervalMs = options.pollIntervalMs ?? 25;
     const deadline =
@@ -251,7 +284,7 @@ export class BackgroundSubagentRuntime {
         : undefined;
 
     for (;;) {
-      const task = await this.store.get(taskId);
+      const task = await this.resolveOwned(taskId, scope);
       if (!task) {
         return null;
       }
@@ -266,8 +299,11 @@ export class BackgroundSubagentRuntime {
   }
 
   /** Cancel a task: abort its run (if running) or mark cancelled (if pending). */
-  async cancel(taskId: TaskId): Promise<BackgroundTask | null> {
-    const task = await this.store.get(taskId);
+  async cancel(
+    taskId: TaskId,
+    scope?: TaskScope,
+  ): Promise<BackgroundTask | null> {
+    const task = await this.resolveOwned(taskId, scope);
     if (!task || isTerminalStatus(task.status)) {
       return task;
     }
@@ -276,6 +312,7 @@ export class BackgroundSubagentRuntime {
       controller.abort();
       // The runner observes the signal and persists the terminal state + emits
       // asynchronously; wait for it to settle so callers see the final status.
+      // Ownership is already verified above, so the self-await is unscoped.
       return this.await(taskId, { timeoutMs: 5000 });
     }
     await this.store.patch(taskId, {

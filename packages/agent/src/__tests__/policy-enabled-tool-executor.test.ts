@@ -698,6 +698,53 @@ describe('executePolicyEnabledToolCall', () => {
       expect(violationEvent).toBeDefined()
       expect(violationEvent!['severity']).toBe('warning')
     })
+
+    // RF-11 / DZUPAGENT-AGENT-M-01 — the resolved DEFAULT (scanFailureMode
+    // omitted) must be fail-closed for a bare agent: a crashing scanner
+    // withholds the tool output rather than leaking it.
+    it('withholds the result by DEFAULT (scanFailureMode omitted) when scanner throws', async () => {
+      const tool = makeTool('queryTool', async () => 'some data that must not leak')
+      const monitor: SafetyMonitor = {
+        scanContent: vi.fn(() => { throw new Error('scanner exploded') }),
+        attach: vi.fn(),
+        detach: vi.fn(),
+        getViolations: vi.fn(() => []),
+        dispose: vi.fn(),
+      }
+
+      // No scanFailureMode override — exercises the bare/default config.
+      const params = makeParams([tool], { safetyMonitor: monitor })
+
+      const result = await executePolicyEnabledToolCall(
+        makeToolCall('queryTool'),
+        params,
+      )
+
+      expect(result.message.content).toContain('[blocked: tool result safety scanner failed]')
+      expect(result.message.content).not.toContain('some data that must not leak')
+    })
+
+    it('emits safety:violation with severity=critical by DEFAULT (scanFailureMode omitted)', async () => {
+      const tool = makeTool('queryTool', async () => 'data')
+      const { bus, events } = makeEventBus()
+      const monitor: SafetyMonitor = {
+        scanContent: vi.fn(() => { throw new Error('scanner crash') }),
+        attach: vi.fn(),
+        detach: vi.fn(),
+        getViolations: vi.fn(() => []),
+        dispose: vi.fn(),
+      }
+
+      // No scanFailureMode override — the resolved default is fail-closed.
+      const params = makeParams([tool], { eventBus: bus, safetyMonitor: monitor })
+
+      await executePolicyEnabledToolCall(makeToolCall('queryTool'), params)
+
+      const violationEvent = events.find((e) => e['type'] === 'safety:violation')
+      expect(violationEvent).toBeDefined()
+      expect(violationEvent!['severity']).toBe('critical')
+      expect(violationEvent!['category']).toBe('tool_result_scanner_failure')
+    })
   })
 
   // -------------------------------------------------------------------------

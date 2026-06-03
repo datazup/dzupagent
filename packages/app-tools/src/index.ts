@@ -3,27 +3,28 @@ export type {
   SideEffect,
   DomainToolDefinition,
   DomainToolRegistry,
-} from './types.js'
+} from "./types.js";
 
-export { InMemoryDomainToolRegistry } from './registry.js'
+export { InMemoryDomainToolRegistry } from "./registry.js";
 
 export {
   createBuiltinToolRegistry,
+  type AnyExecutableDomainTool,
   type BuiltinToolOptions,
   type BuiltinToolRegistryBundle,
   type ExecutableDomainTool,
   type ResolvedToolLike,
   type ToolResolverLike,
-} from './tools/builtin.js'
+} from "./tools/builtin.js";
 
-export type { RecordToolOptions } from './tools/record.js'
+export type { RecordToolOptions } from "./tools/record.js";
 
 export {
   InMemoryPmTaskStore,
   type PmTask,
   type PmTaskStatus,
   type PmTaskStore,
-} from './tools/pm.js'
+} from "./tools/pm.js";
 
 export {
   InMemoryWorkflowRunner,
@@ -31,20 +32,20 @@ export {
   type WorkflowRunRecord,
   type WorkflowRunStatus,
   type WorkflowRunner,
-} from './tools/workflow.js'
+} from "./tools/workflow.js";
 
-export type { TopicRecord, TopicSearchResult } from './tools/topics.js'
+export type { TopicRecord, TopicSearchResult } from "./tools/topics.js";
 
 export {
   websiteTools,
   websiteToolBundle,
   type WebsiteToolRegistryBundle,
-} from './tools/website.js'
+} from "./tools/website.js";
 
 export {
   createBuiltinToolRegistryFromIndex,
   loadTopicsFromKnowledgeIndex,
-} from './loaders/knowledge-index-loader.js'
+} from "./loaders/knowledge-index-loader.js";
 
 export {
   buildWebsiteBuilderSystemPrompt,
@@ -53,4 +54,4 @@ export {
   WEBSITE_BUILDER_TOOL_NAMES,
   WEBSITE_BUILDER_WRITE_TOOLS,
   type WebsiteBuilderPersonaConfig,
-} from './personas/website-builder.js'
+} from "./personas/website-builder.js";

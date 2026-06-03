@@ -34,9 +34,9 @@
  * structurally compatible with this contract.
  */
 export interface CancellationSignal {
-  readonly aborted: boolean
-  addEventListener?(type: 'abort', listener: () => void): void
-  removeEventListener?(type: 'abort', listener: () => void): void
+  readonly aborted: boolean;
+  addEventListener?(type: "abort", listener: () => void): void;
+  removeEventListener?(type: "abort", listener: () => void): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -49,12 +49,12 @@ export interface CancellationSignal {
  * and is the canonical source consumed by `@dzupagent/agent`'s runtime.
  */
 export type PipelineState =
-  | 'idle'
-  | 'running'
-  | 'suspended'
-  | 'completed'
-  | 'failed'
-  | 'cancelled'
+  | "idle"
+  | "running"
+  | "suspended"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 // ---------------------------------------------------------------------------
 // Node-level execution shapes
@@ -65,10 +65,10 @@ export type PipelineState =
  * to the runtime; downstream nodes interpret it via their own contracts.
  */
 export interface NodeResult {
-  nodeId: string
-  output: unknown
-  durationMs: number
-  error?: string
+  nodeId: string;
+  output: unknown;
+  durationMs: number;
+  error?: string;
 }
 
 /**
@@ -83,20 +83,28 @@ export interface NodeResult {
  */
 export interface NodeExecutionContext {
   /** Shared mutable pipeline state. */
-  state: Record<string, unknown>
+  state: Record<string, unknown>;
   /** Results of previously completed nodes, keyed by `nodeId`. */
-  previousResults: Map<string, NodeResult>
+  previousResults: Map<string, NodeResult>;
   /**
    * Cancellation signal forwarded from `PipelineRuntimeConfig.signal`.
    * Typed as the structural `CancellationSignal` so this package does not
    * depend on `@types/node` or `lib.dom`; real `AbortSignal` instances are
    * structurally compatible.
    */
-  signal?: CancellationSignal
+  signal?: CancellationSignal;
   /** Remaining budget hint from the iteration-budget controller. */
-  budget?: { tokensRemaining: number; costRemainingCents: number }
+  budget?: { tokensRemaining: number; costRemainingCents: number };
   /** Hint from the stuck detector suggesting an alternate strategy. */
-  stuckHint?: string
+  stuckHint?: string;
+  /**
+   * Stable idempotency key for this node execution, deterministic for a given
+   * `(runId, nodeId)`. Node implementations that perform external side effects
+   * should pass this to downstream stores so a re-execution after a crash
+   * (node ran, but its completion checkpoint did not persist) can be
+   * deduplicated. Optional: omitted when the runtime does not supply one.
+   */
+  idempotencyKey?: string;
 }
 
 /**
@@ -110,8 +118,8 @@ export interface NodeExecutionContext {
 export type NodeExecutor<TNode = unknown> = (
   nodeId: string,
   node: TNode,
-  context: NodeExecutionContext,
-) => Promise<NodeResult>
+  context: NodeExecutionContext
+) => Promise<NodeResult>;
 
 // ---------------------------------------------------------------------------
 // Aggregate run result
@@ -125,12 +133,12 @@ export type NodeExecutor<TNode = unknown> = (
  * canonical runtime and the workflow builders.
  */
 export interface PipelineRunResult {
-  pipelineId: string
-  runId: string
-  state: PipelineState
-  nodeResults: Map<string, NodeResult>
-  totalDurationMs: number
-  budgetUsed?: { tokens: number; costCents: number }
+  pipelineId: string;
+  runId: string;
+  state: PipelineState;
+  nodeResults: Map<string, NodeResult>;
+  totalDurationMs: number;
+  budgetUsed?: { tokens: number; costCents: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -145,36 +153,73 @@ export interface PipelineRunResult {
  * version, so unknown shapes should be ignored rather than rejected.
  */
 export type PipelineRuntimeEvent =
-  | { type: 'pipeline:started'; pipelineId: string; runId: string }
-  | { type: 'pipeline:node_started'; nodeId: string; nodeType: string }
-  | { type: 'pipeline:node_completed'; nodeId: string; durationMs: number }
-  | { type: 'pipeline:node_failed'; nodeId: string; error: string }
-  | { type: 'pipeline:suspended'; nodeId: string }
-  | { type: 'pipeline:completed'; runId: string; totalDurationMs: number }
-  | { type: 'pipeline:failed'; runId: string; error: string }
-  | { type: 'pipeline:checkpoint_saved'; runId: string; version: number }
-  | { type: 'pipeline:loop_iteration'; nodeId: string; iteration: number; maxIterations: number }
-  | { type: 'pipeline:node_retry'; nodeId: string; attempt: number; maxAttempts: number; error: string; backoffMs: number }
-  | { type: 'pipeline:recovery_attempted'; nodeId: string; attempt: number; maxAttempts: number; error: string }
-  | { type: 'pipeline:recovery_succeeded'; nodeId: string; attempt: number; summary: string }
-  | { type: 'pipeline:recovery_failed'; nodeId: string; attempt: number; error: string }
-  | { type: 'pipeline:stuck_detected'; nodeId: string; reason: string; suggestedAction: string }
-  | { type: 'pipeline:node_output_recorded'; nodeId: string; outputHash: string }
+  | { type: "pipeline:started"; pipelineId: string; runId: string }
+  | { type: "pipeline:node_started"; nodeId: string; nodeType: string }
+  | { type: "pipeline:node_completed"; nodeId: string; durationMs: number }
+  | { type: "pipeline:node_failed"; nodeId: string; error: string }
+  | { type: "pipeline:suspended"; nodeId: string }
+  | { type: "pipeline:completed"; runId: string; totalDurationMs: number }
+  | { type: "pipeline:failed"; runId: string; error: string }
+  | { type: "pipeline:checkpoint_saved"; runId: string; version: number }
   | {
-      type: 'pipeline:calibration_suboptimal'
-      nodeId: string
-      baseline: number
-      currentScore: number
-      deviation: number
-      suggestion: string
+      type: "pipeline:loop_iteration";
+      nodeId: string;
+      iteration: number;
+      maxIterations: number;
     }
   | {
-      type: 'pipeline:iteration_budget_warning'
-      level: 'warn_70' | 'warn_90'
-      totalCost: number
-      budgetCents: number
-      iteration: number
+      type: "pipeline:node_retry";
+      nodeId: string;
+      attempt: number;
+      maxAttempts: number;
+      error: string;
+      backoffMs: number;
     }
+  | {
+      type: "pipeline:recovery_attempted";
+      nodeId: string;
+      attempt: number;
+      maxAttempts: number;
+      error: string;
+    }
+  | {
+      type: "pipeline:recovery_succeeded";
+      nodeId: string;
+      attempt: number;
+      summary: string;
+    }
+  | {
+      type: "pipeline:recovery_failed";
+      nodeId: string;
+      attempt: number;
+      error: string;
+    }
+  | {
+      type: "pipeline:stuck_detected";
+      nodeId: string;
+      reason: string;
+      suggestedAction: string;
+    }
+  | {
+      type: "pipeline:node_output_recorded";
+      nodeId: string;
+      outputHash: string;
+    }
+  | {
+      type: "pipeline:calibration_suboptimal";
+      nodeId: string;
+      baseline: number;
+      currentScore: number;
+      deviation: number;
+      suggestion: string;
+    }
+  | {
+      type: "pipeline:iteration_budget_warning";
+      level: "warn_70" | "warn_90";
+      totalCost: number;
+      budgetCents: number;
+      iteration: number;
+    };
 
 // ---------------------------------------------------------------------------
 // Loop metrics
@@ -185,12 +230,12 @@ export type PipelineRuntimeEvent =
  * via node-result outputs for observability and self-correction hooks.
  */
 export interface LoopMetrics {
-  iterationCount: number
-  iterationDurations: number[]
-  converged: boolean
+  iterationCount: number;
+  iterationDurations: number[];
+  converged: boolean;
   terminationReason:
-    | 'condition_met'
-    | 'max_iterations'
-    | 'budget_exceeded'
-    | 'cancelled'
+    | "condition_met"
+    | "max_iterations"
+    | "budget_exceeded"
+    | "cancelled";
 }

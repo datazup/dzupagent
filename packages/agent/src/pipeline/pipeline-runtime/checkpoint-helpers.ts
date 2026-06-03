@@ -1,24 +1,55 @@
-import type { PipelineCheckpoint } from '@dzupagent/core/pipeline'
-import { omitUndefined } from '../../utils/exact-optional.js'
+import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import { omitUndefined } from "../../utils/exact-optional.js";
 
 export function createPipelineCheckpoint(options: {
-  pipelineRunId: string
-  pipelineId: string
-  version: number
-  completedNodeIds: string[]
-  state: Record<string, unknown>
-  suspendedAtNodeId?: string
-  recoveryAttemptsUsed?: number
+  pipelineRunId: string;
+  pipelineId: string;
+  version: number;
+  completedNodeIds: string[];
+  state: Record<string, unknown>;
+  suspendedAtNodeId?: string;
+  recoveryAttemptsUsed?: number;
+  /** Stable `nodeId` → idempotency key map for completed nodes (W5). */
+  nodeIdempotencyKeys?: Record<string, string>;
+  /** Per-loop-node iteration cursor for durable loop resume (W3). */
+  loopState?: Record<string, { iteration: number }>;
+  /** Per-fork branch progress for durable fork/branch resume (W4). */
+  forkState?: Record<
+    string,
+    {
+      branches: Record<
+        string,
+        {
+          stateDelta: Record<string, unknown>;
+          nodeResults: Record<string, unknown>;
+        }
+      >;
+    }
+  >;
 }): PipelineCheckpoint {
   return omitUndefined({
     pipelineRunId: options.pipelineRunId,
     pipelineId: options.pipelineId,
     version: options.version,
-    schemaVersion: '1.0.0',
+    schemaVersion: "1.0.0",
     completedNodeIds: [...options.completedNodeIds],
+    // Snapshot the map so later mutations don't leak into a saved checkpoint.
+    nodeIdempotencyKeys:
+      options.nodeIdempotencyKeys &&
+      Object.keys(options.nodeIdempotencyKeys).length > 0
+        ? { ...options.nodeIdempotencyKeys }
+        : undefined,
+    loopState:
+      options.loopState && Object.keys(options.loopState).length > 0
+        ? structuredClone(options.loopState)
+        : undefined,
+    forkState:
+      options.forkState && Object.keys(options.forkState).length > 0
+        ? structuredClone(options.forkState)
+        : undefined,
     state: structuredClone(options.state),
     suspendedAtNodeId: options.suspendedAtNodeId,
     recoveryAttemptsUsed: options.recoveryAttemptsUsed,
     createdAt: new Date().toISOString(),
-  })
+  });
 }

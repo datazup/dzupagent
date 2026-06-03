@@ -21,8 +21,24 @@ import type { ProviderAdapterRegistry } from "../registry/adapter-registry.js";
  * straight to the adapter via `AgentInput.signal`, and progress events from the
  * adapter stream are forwarded to the runtime's `onProgress`.
  */
+/**
+ * Per-run ceilings enforced by the executor while consuming an adapter stream.
+ * These bound a single subagent run so a runaway child cannot consume unbounded
+ * wall-clock (AGENT-L-11) or tokens (AGENT-M-05). All fields are optional; an
+ * unset field means "no ceiling for that dimension".
+ */
+export interface SubagentExecutorLimits {
+  /** Abort the run if it has not completed within this many milliseconds. */
+  timeoutMs?: number;
+  /** Abort the run once reported cumulative output tokens exceed this ceiling. */
+  maxOutputTokens?: number;
+}
+
 export class RegistrySubagentExecutor implements SubagentExecutorPort {
-  constructor(private readonly registry: ProviderAdapterRegistry) {}
+  constructor(
+    private readonly registry: ProviderAdapterRegistry,
+    private readonly limits: SubagentExecutorLimits = {},
+  ) {}
 
   async run(
     spec: SubagentSpec,
@@ -49,12 +65,16 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
       });
     }
 
+    // AGENT-L-11: derive a run-scoped signal that aborts on the caller's signal
+    // OR a per-run timeout, so a stalled adapter stream cannot run forever.
+    const { signal, dispose } = withTimeout(ctx.signal, this.limits.timeoutMs);
+
     const input: AgentInput = {
       prompt:
         typeof spec.input === "string"
           ? spec.input
           : JSON.stringify(spec.input),
-      signal: ctx.signal,
+      signal,
       ...(spec.instructions !== undefined
         ? { systemPrompt: spec.instructions }
         : {}),
@@ -63,11 +83,12 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
     let resultText = "";
     let usage: SubagentResult["usage"];
     let failureError: string | undefined;
+    let streamedOutputTokens = 0;
 
     try {
       for await (const event of adapter.execute(input)) {
-        if (ctx.signal.aborted) {
-          throw new Error("aborted");
+        if (signal.aborted) {
+          throw abortReason(ctx.signal, this.limits.timeoutMs);
         }
         switch (event.type) {
           case "adapter:message":
@@ -84,6 +105,10 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
                   outputTokens: event.usage.outputTokens,
                 }
               : undefined;
+            // AGENT-M-05: enforce the output-token ceiling on reported usage.
+            if (typeof event.usage?.outputTokens === "number") {
+              streamedOutputTokens = event.usage.outputTokens;
+            }
             break;
           case "adapter:failed":
             if (!resultText) {
@@ -93,6 +118,19 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
           default:
             break;
         }
+
+        if (
+          this.limits.maxOutputTokens !== undefined &&
+          streamedOutputTokens > this.limits.maxOutputTokens
+        ) {
+          throw new ForgeError({
+            code: "TOKEN_LIMIT_EXCEEDED",
+            message: `Subagent exceeded its output-token budget (${streamedOutputTokens} > ${this.limits.maxOutputTokens})`,
+            recoverable: false,
+            suggestion:
+              "Raise maxOutputTokens for this executor or constrain the subagent task.",
+          });
+        }
       }
     } catch (error) {
       this.registry.recordFailure(
@@ -100,11 +138,18 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
         error instanceof Error ? error : new Error(String(error)),
       );
       throw error;
+    } finally {
+      dispose();
     }
 
     if (failureError !== undefined && !resultText) {
-      this.registry.recordFailure(providerId, new Error(failureError));
-      throw new Error(failureError);
+      const err = new ForgeError({
+        code: "ADAPTER_EXECUTION_FAILED",
+        message: failureError,
+        recoverable: true,
+      });
+      this.registry.recordFailure(providerId, err);
+      throw err;
     }
 
     this.registry.recordSuccess(providerId);
@@ -112,6 +157,62 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
       ? { output: resultText, usage }
       : { output: resultText };
   }
+}
+
+/**
+ * Combine the caller's abort signal with an optional per-run timeout into a
+ * single signal. Returns a `dispose` that clears the timer and detaches the
+ * listener so neither holds the event loop open.
+ */
+function withTimeout(
+  parent: AbortSignal,
+  timeoutMs: number | undefined,
+): { signal: AbortSignal; dispose: () => void } {
+  if (timeoutMs === undefined) {
+    return { signal: parent, dispose: () => {} };
+  }
+  const controller = new AbortController();
+  const onParentAbort = () => controller.abort();
+  if (parent.aborted) {
+    controller.abort();
+  } else {
+    parent.addEventListener("abort", onParentAbort, { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // Never let the timeout timer keep the process alive.
+  (timer as { unref?: () => void }).unref?.();
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      clearTimeout(timer);
+      parent.removeEventListener("abort", onParentAbort);
+    },
+  };
+}
+
+/**
+ * Build the typed error thrown when the run signal aborts, distinguishing a
+ * caller-initiated cancellation from a per-run timeout (AGENT-L-11).
+ */
+function abortReason(
+  callerSignal: AbortSignal,
+  timeoutMs: number | undefined,
+): ForgeError {
+  if (callerSignal.aborted) {
+    return new ForgeError({
+      code: "AGENT_ABORTED",
+      message: "Subagent run was aborted",
+      recoverable: false,
+    });
+  }
+  return new ForgeError({
+    code: "ADAPTER_TIMEOUT",
+    message:
+      timeoutMs !== undefined
+        ? `Subagent run exceeded its ${timeoutMs}ms timeout`
+        : "Subagent run timed out",
+    recoverable: false,
+  });
 }
 
 function resolveRegisteredProviderId(

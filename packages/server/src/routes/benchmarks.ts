@@ -82,7 +82,7 @@ function parseArtifact(raw: unknown): {
   if (
     !requiredKeys.every(
       (key) =>
-        typeof artifact[key] === "string" && artifact[key].trim().length > 0
+        typeof artifact[key] === "string" && artifact[key].trim().length > 0,
     )
   ) {
     return { artifact: undefined, invalid: true };
@@ -105,7 +105,7 @@ function parseCursor(raw: string | undefined): {
 
   try {
     const parsed = JSON.parse(
-      Buffer.from(raw, "base64url").toString("utf8")
+      Buffer.from(raw, "base64url").toString("utf8"),
     ) as unknown;
     if (!isPlainObject(parsed)) {
       return { cursor: undefined, invalid: true };
@@ -175,7 +175,7 @@ class ReadOnlyBenchmarkOrchestrator implements BenchmarkOrchestratorLike {
 }
 
 export function createBenchmarkRoutes(
-  config: BenchmarkRouteConfig
+  config: BenchmarkRouteConfig,
 ): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
   const store = config.store ?? new InMemoryBenchmarkRunStore();
@@ -199,7 +199,7 @@ export function createBenchmarkRoutes(
   }
 
   function scopedOrchestrator(
-    c: Context<AppEnv>
+    c: Context<AppEnv>,
   ): TenantScopedBenchmarkOrchestrator {
     return new TenantScopedBenchmarkOrchestrator({
       orchestrator,
@@ -223,10 +223,10 @@ export function createBenchmarkRoutes(
           error: buildValidationError(
             invalid
               ? "limit must be a positive integer"
-              : "cursor must be a valid pagination cursor"
+              : "cursor must be a valid pagination cursor",
           ),
         },
-        400
+        400,
       );
     }
 
@@ -269,7 +269,7 @@ export function createBenchmarkRoutes(
               message: "suiteId and targetId are required",
             },
           },
-          400
+          400,
         );
       }
 
@@ -283,7 +283,7 @@ export function createBenchmarkRoutes(
                 "artifact must include suiteVersion, datasetHash, promptConfigVersion, buildSha, and modelProfile",
             },
           },
-          400
+          400,
         );
       }
 
@@ -296,7 +296,7 @@ export function createBenchmarkRoutes(
               message: "strict must be a boolean when provided",
             },
           },
-          400
+          400,
         );
       }
 
@@ -313,13 +313,16 @@ export function createBenchmarkRoutes(
     } catch (error) {
       const status = mapErrorToStatus(error, 400);
       const logged = logRouteError(c, "benchmarks", error, status);
-      // Client errors (4xx) carry deliberate, actionable, non-sensitive detail
-      // (not found / validation / config guidance), so they pass through. Only
-      // 5xx server errors are sanitized to avoid leaking internal detail.
-      const message = status < 500 ? logged.internal : logged.safe;
+      // ERR-M-02: always forward the sanitized message, never raw internal text.
+      // `sanitizeError` already preserves messages from typed safe errors
+      // (Validation/NotFound/Conflict/BadRequest classes + safe-prefixed
+      // messages), so actionable 4xx detail still passes through; an unclassified
+      // error that `mapErrorToStatus` defaulted to 4xx no longer leaks DB/system
+      // internals.
+      const message = logged.safe;
       return c.json(
         { error: { code: "BENCHMARK_RUN_FAILED", message } },
-        status
+        status,
       );
     }
   });
@@ -330,7 +333,7 @@ export function createBenchmarkRoutes(
     if (!run) {
       return c.json(
         { error: { code: "NOT_FOUND", message: "Benchmark run not found" } },
-        404
+        404,
       );
     }
     return c.json({ data: run });
@@ -350,7 +353,7 @@ export function createBenchmarkRoutes(
               message: "currentRunId is required",
             },
           },
-          400
+          400,
         );
       }
 
@@ -359,7 +362,7 @@ export function createBenchmarkRoutes(
       if (body.previousRunId) {
         const compared = await scoped.compareRuns(
           body.currentRunId,
-          body.previousRunId
+          body.previousRunId,
         );
         return c.json({ data: compared });
       }
@@ -368,12 +371,12 @@ export function createBenchmarkRoutes(
       if (!currentRun) {
         return c.json(
           { error: { code: "NOT_FOUND", message: "Current run not found" } },
-          404
+          404,
         );
       }
       const baseline = await scoped.getBaseline(
         currentRun.suiteId,
-        currentRun.targetId
+        currentRun.targetId,
       );
       if (!baseline) {
         return c.json(
@@ -383,7 +386,7 @@ export function createBenchmarkRoutes(
               message: "No baseline found for suite/target",
             },
           },
-          404
+          404,
         );
       }
       const compared = await scoped.compareRuns(currentRun.id, baseline.runId);
@@ -391,13 +394,16 @@ export function createBenchmarkRoutes(
     } catch (error) {
       const status = mapErrorToStatus(error, 400);
       const logged = logRouteError(c, "benchmarks", error, status);
-      // Client errors (4xx) carry deliberate, actionable, non-sensitive detail
-      // (not found / validation / config guidance), so they pass through. Only
-      // 5xx server errors are sanitized to avoid leaking internal detail.
-      const message = status < 500 ? logged.internal : logged.safe;
+      // ERR-M-02: always forward the sanitized message, never raw internal text.
+      // `sanitizeError` already preserves messages from typed safe errors
+      // (Validation/NotFound/Conflict/BadRequest classes + safe-prefixed
+      // messages), so actionable 4xx detail still passes through; an unclassified
+      // error that `mapErrorToStatus` defaulted to 4xx no longer leaks DB/system
+      // internals.
+      const message = logged.safe;
       return c.json(
         { error: { code: "BENCHMARK_COMPARE_FAILED", message } },
-        status
+        status,
       );
     }
   });
@@ -425,7 +431,7 @@ export function createBenchmarkRoutes(
               message: "suiteId, targetId and runId are required",
             },
           },
-          400
+          400,
         );
       }
       const scoped = scopedOrchestrator(c);
@@ -438,13 +444,16 @@ export function createBenchmarkRoutes(
     } catch (error) {
       const status = mapErrorToStatus(error, 400);
       const logged = logRouteError(c, "benchmarks", error, status);
-      // Client errors (4xx) carry deliberate, actionable, non-sensitive detail
-      // (not found / validation / config guidance), so they pass through. Only
-      // 5xx server errors are sanitized to avoid leaking internal detail.
-      const message = status < 500 ? logged.internal : logged.safe;
+      // ERR-M-02: always forward the sanitized message, never raw internal text.
+      // `sanitizeError` already preserves messages from typed safe errors
+      // (Validation/NotFound/Conflict/BadRequest classes + safe-prefixed
+      // messages), so actionable 4xx detail still passes through; an unclassified
+      // error that `mapErrorToStatus` defaulted to 4xx no longer leaks DB/system
+      // internals.
+      const message = logged.safe;
       return c.json(
         { error: { code: "BASELINE_UPDATE_FAILED", message } },
-        status
+        status,
       );
     }
   });

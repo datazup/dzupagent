@@ -24,6 +24,18 @@ function setup() {
   return { runtime, executor, tools, byName };
 }
 
+/** Build a second tool-set bound to a different parent run over the same runtime. */
+function toolsForRun(
+  runtime: ReturnType<typeof createInProcessSubagentRuntime>,
+  parentRunId: string,
+) {
+  const tools = createSubagentTools({
+    runtime,
+    resolveParentRunId: () => parentRunId,
+  });
+  return Object.fromEntries(tools.map((t) => [t.name, t]));
+}
+
 describe("subagent tools", () => {
   it("exposes the four expected tools", () => {
     const { tools } = setup();
@@ -81,5 +93,53 @@ describe("subagent tools", () => {
       taskId: spawned.taskId,
     })) as { status: string };
     expect(cancelled.status).toBe("cancelled");
+  });
+
+  // ── SEC-M-04: cross-run task IDOR ──────────────────────────────────
+  describe("ownership isolation (SEC-M-04)", () => {
+    it("a foreign run cannot check, await, or cancel another run's task", async () => {
+      const { runtime, executor, byName } = setup(); // owner = run-1
+      const foreign = toolsForRun(runtime, "run-2");
+
+      const spawned = (await byName.spawn_subagent!.invoke({
+        agentId: "x",
+        input: "go",
+      })) as { ok: boolean; taskId: string };
+      expect(spawned.ok).toBe(true);
+      await flush();
+
+      // run-2 must not be able to read run-1's task.
+      expect(
+        await foreign.check_subagent!.invoke({ taskId: spawned.taskId }),
+      ).toEqual({ found: false });
+
+      // run-2 must not be able to await it (resolves as not-found immediately).
+      expect(
+        await foreign.await_subagent!.invoke({
+          taskId: spawned.taskId,
+          timeoutMs: 50,
+        }),
+      ).toEqual({ found: false });
+
+      // run-2's cancel must be a no-op — the task keeps running.
+      expect(
+        await foreign.cancel_subagent!.invoke({ taskId: spawned.taskId }),
+      ).toEqual({ status: "not_found" });
+      const stillOwned = (await byName.check_subagent!.invoke({
+        taskId: spawned.taskId,
+      })) as { found: boolean; status: string };
+      expect(stillOwned).toMatchObject({ found: true, status: "running" });
+
+      // The legitimate owner still has full access.
+      executor.complete(spawned.taskId, { output: "done" });
+      const awaited = (await byName.await_subagent!.invoke({
+        taskId: spawned.taskId,
+        timeoutMs: 1000,
+      })) as { status: string; result: unknown };
+      expect(awaited).toMatchObject({
+        status: "succeeded",
+        result: { output: "done" },
+      });
+    });
   });
 });

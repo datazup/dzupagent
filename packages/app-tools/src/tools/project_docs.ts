@@ -1,8 +1,11 @@
-import { promises as fs } from 'node:fs'
-import type { Dirent } from 'node:fs'
-import * as path from 'node:path'
-import type { DomainToolDefinition } from '../types.js'
-import type { ExecutableDomainTool } from './shared.js'
+import { promises as fs } from "node:fs";
+import type { Dirent } from "node:fs";
+import * as path from "node:path";
+import type { DomainToolDefinition } from "../types.js";
+import type {
+  AnyExecutableDomainTool,
+  ExecutableDomainTool,
+} from "./shared.js";
 
 /**
  * project_docs.* — read-oriented filesystem tools scoped to a root directory.
@@ -14,49 +17,49 @@ import type { ExecutableDomainTool } from './shared.js'
 
 /** Tiny glob-to-RegExp converter. Supports `*`, `**`, and `?`. */
 export function globToRegExp(pattern: string): RegExp {
-  let re = ''
+  let re = "";
   for (let i = 0; i < pattern.length; i++) {
-    const c = pattern[i]
-    if (c === '*') {
-      if (pattern[i + 1] === '*') {
-        re += '.*'
-        i++
-        if (pattern[i + 1] === '/') {
-          i++
+    const c = pattern[i];
+    if (c === "*") {
+      if (pattern[i + 1] === "*") {
+        re += ".*";
+        i++;
+        if (pattern[i + 1] === "/") {
+          i++;
         }
       } else {
-        re += '[^/]*'
+        re += "[^/]*";
       }
-    } else if (c === '?') {
-      re += '[^/]'
+    } else if (c === "?") {
+      re += "[^/]";
     } else if (c !== undefined && /[.+^${}()|[\]\\]/.test(c)) {
-      re += `\\${c}`
+      re += `\\${c}`;
     } else if (c !== undefined) {
-      re += c
+      re += c;
     }
   }
-  return new RegExp(`^${re}$`)
+  return new RegExp(`^${re}$`);
 }
 
 async function walk(dir: string, rootDir: string): Promise<string[]> {
-  let entries: Dirent[]
+  let entries: Dirent[];
   try {
-    entries = await fs.readdir(dir, { withFileTypes: true })
+    entries = await fs.readdir(dir, { withFileTypes: true });
   } catch {
-    return []
+    return [];
   }
 
-  const results: string[] = []
+  const results: string[] = [];
   for (const entry of entries) {
-    const full = path.join(dir, entry.name)
+    const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === 'node_modules' || entry.name === '.git') continue
-      results.push(...(await walk(full, rootDir)))
+      if (entry.name === "node_modules" || entry.name === ".git") continue;
+      results.push(...(await walk(full, rootDir)));
     } else if (entry.isFile()) {
-      results.push(path.relative(rootDir, full).split(path.sep).join('/'))
+      results.push(path.relative(rootDir, full).split(path.sep).join("/"));
     }
   }
-  return results
+  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,46 +67,48 @@ async function walk(dir: string, rootDir: string): Promise<string[]> {
 // ---------------------------------------------------------------------------
 
 interface ListInput {
-  pattern: string
+  pattern: string;
 }
 
 interface ListOutput {
-  files: string[]
+  files: string[];
 }
 
-function buildProjectDocsList(rootDir: string): ExecutableDomainTool<ListInput, ListOutput> {
+function buildProjectDocsList(
+  rootDir: string,
+): ExecutableDomainTool<ListInput, ListOutput> {
   const definition: DomainToolDefinition = {
-    name: 'project_docs.list',
-    description: 'List project documentation files matching a glob pattern.',
+    name: "project_docs.list",
+    description: "List project documentation files matching a glob pattern.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       additionalProperties: false,
-      required: ['pattern'],
+      required: ["pattern"],
       properties: {
-        pattern: { type: 'string', description: 'Glob pattern, e.g. **/*.md' },
+        pattern: { type: "string", description: "Glob pattern, e.g. **/*.md" },
       },
     },
     outputSchema: {
-      type: 'object',
-      required: ['files'],
+      type: "object",
+      required: ["files"],
       properties: {
-        files: { type: 'array', items: { type: 'string' } },
+        files: { type: "array", items: { type: "string" } },
       },
     },
-    permissionLevel: 'read',
+    permissionLevel: "read",
     sideEffects: [],
-    namespace: 'project_docs',
-  }
+    namespace: "project_docs",
+  };
 
   return {
     definition,
     async execute(input: ListInput): Promise<ListOutput> {
-      const re = globToRegExp(input.pattern)
-      const all = await walk(rootDir, rootDir)
-      const files = all.filter((f) => re.test(f)).sort()
-      return { files }
+      const re = globToRegExp(input.pattern);
+      const all = await walk(rootDir, rootDir);
+      const files = all.filter((f) => re.test(f)).sort();
+      return { files };
     },
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -111,58 +116,61 @@ function buildProjectDocsList(rootDir: string): ExecutableDomainTool<ListInput, 
 // ---------------------------------------------------------------------------
 
 interface ReadInput {
-  path: string
+  path: string;
 }
 
 interface ReadOutput {
-  content: string
+  content: string;
 }
 
-function buildProjectDocsRead(rootDir: string): ExecutableDomainTool<ReadInput, ReadOutput> {
+function buildProjectDocsRead(
+  rootDir: string,
+): ExecutableDomainTool<ReadInput, ReadOutput> {
   const definition: DomainToolDefinition = {
-    name: 'project_docs.read',
-    description: 'Read the contents of a project documentation file.',
+    name: "project_docs.read",
+    description: "Read the contents of a project documentation file.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       additionalProperties: false,
-      required: ['path'],
+      required: ["path"],
       properties: {
-        path: { type: 'string', description: 'Path relative to rootDir' },
+        path: { type: "string", description: "Path relative to rootDir" },
       },
     },
     outputSchema: {
-      type: 'object',
-      required: ['content'],
+      type: "object",
+      required: ["content"],
       properties: {
-        content: { type: 'string' },
+        content: { type: "string" },
       },
     },
-    permissionLevel: 'read',
+    permissionLevel: "read",
     sideEffects: [],
-    namespace: 'project_docs',
-  }
+    namespace: "project_docs",
+  };
 
   return {
     definition,
     async execute(input: ReadInput): Promise<ReadOutput> {
-      const rel = input.path
+      const rel = input.path;
       if (path.isAbsolute(rel)) {
-        throw new Error('project_docs.read requires a path relative to rootDir')
+        throw new Error(
+          "project_docs.read requires a path relative to rootDir",
+        );
       }
-      const resolved = path.resolve(rootDir, rel)
-      const relCheck = path.relative(rootDir, resolved)
-      if (relCheck.startsWith('..') || path.isAbsolute(relCheck)) {
-        throw new Error('project_docs.read refused to read outside rootDir')
+      const resolved = path.resolve(rootDir, rel);
+      const relCheck = path.relative(rootDir, resolved);
+      if (relCheck.startsWith("..") || path.isAbsolute(relCheck)) {
+        throw new Error("project_docs.read refused to read outside rootDir");
       }
-      const content = await fs.readFile(resolved, 'utf-8')
-      return { content }
+      const content = await fs.readFile(resolved, "utf-8");
+      return { content };
     },
-  }
+  };
 }
 
-export function buildProjectDocsTools(rootDir: string): ExecutableDomainTool[] {
-  return [
-    buildProjectDocsList(rootDir) as unknown as ExecutableDomainTool,
-    buildProjectDocsRead(rootDir) as unknown as ExecutableDomainTool,
-  ]
+export function buildProjectDocsTools(
+  rootDir: string,
+): AnyExecutableDomainTool[] {
+  return [buildProjectDocsList(rootDir), buildProjectDocsRead(rootDir)];
 }

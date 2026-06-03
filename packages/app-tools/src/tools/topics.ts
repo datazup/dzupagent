@@ -1,5 +1,8 @@
-import type { DomainToolDefinition } from '../types.js'
-import type { ExecutableDomainTool } from './shared.js'
+import type { DomainToolDefinition } from "../types.js";
+import type {
+  AnyExecutableDomainTool,
+  ExecutableDomainTool,
+} from "./shared.js";
 
 /**
  * topics.* — knowledge topic catalog tools.
@@ -11,17 +14,17 @@ import type { ExecutableDomainTool } from './shared.js'
  */
 
 export interface TopicRecord {
-  id: string
-  title: string
-  summary?: string
-  tags?: string[]
+  id: string;
+  title: string;
+  summary?: string;
+  tags?: string[];
 }
 
 export interface TopicSearchResult {
-  id: string
-  title: string
-  score: number
-  summary?: string
+  id: string;
+  title: string;
+  score: number;
+  summary?: string;
 }
 
 /**
@@ -29,19 +32,20 @@ export interface TopicSearchResult {
  * Returns 0 when nothing matches. Exact title matches are boosted.
  */
 function scoreTopic(topic: TopicRecord, query: string): number {
-  if (query.trim() === '') return 0
-  const haystack = [topic.title, topic.summary ?? '', ...(topic.tags ?? [])]
-    .join(' ')
-    .toLowerCase()
-  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
-  if (tokens.length === 0) return 0
-  let matches = 0
+  if (query.trim() === "") return 0;
+  const haystack = [topic.title, topic.summary ?? "", ...(topic.tags ?? [])]
+    .join(" ")
+    .toLowerCase();
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return 0;
+  let matches = 0;
   for (const t of tokens) {
-    if (haystack.includes(t)) matches += 1
+    if (haystack.includes(t)) matches += 1;
   }
-  const base = matches / tokens.length
-  const titleBoost = topic.title.toLowerCase() === query.toLowerCase() ? 0.5 : 0
-  return Math.min(1, base + titleBoost)
+  const base = matches / tokens.length;
+  const titleBoost =
+    topic.title.toLowerCase() === query.toLowerCase() ? 0.5 : 0;
+  return Math.min(1, base + titleBoost);
 }
 
 // ---------------------------------------------------------------------------
@@ -49,49 +53,51 @@ function scoreTopic(topic: TopicRecord, query: string): number {
 // ---------------------------------------------------------------------------
 
 interface ListInput {
-  tag?: string
+  tag?: string;
 }
 
 interface ListOutput {
-  topics: TopicRecord[]
+  topics: TopicRecord[];
 }
 
 function buildTopicsList(
   catalog: ReadonlyMap<string, TopicRecord>,
 ): ExecutableDomainTool<ListInput, ListOutput> {
   const definition: DomainToolDefinition = {
-    name: 'topics.list',
-    description: 'List known topics, optionally filtered by tag.',
+    name: "topics.list",
+    description: "List known topics, optionally filtered by tag.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       additionalProperties: false,
       properties: {
-        tag: { type: 'string' },
+        tag: { type: "string" },
       },
     },
     outputSchema: {
-      type: 'object',
-      required: ['topics'],
+      type: "object",
+      required: ["topics"],
       properties: {
-        topics: { type: 'array' },
+        topics: { type: "array" },
       },
     },
-    permissionLevel: 'read',
+    permissionLevel: "read",
     sideEffects: [],
-    namespace: 'topics',
-  }
+    namespace: "topics",
+  };
 
   return {
     definition,
     async execute(input: ListInput): Promise<ListOutput> {
-      const all = Array.from(catalog.values())
+      const all = Array.from(catalog.values());
       const filtered =
         input.tag !== undefined
           ? all.filter((t) => (t.tags ?? []).includes(input.tag as string))
-          : all
-      return { topics: filtered.sort((a, b) => a.title.localeCompare(b.title)) }
+          : all;
+      return {
+        topics: filtered.sort((a, b) => a.title.localeCompare(b.title)),
+      };
     },
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -99,72 +105,76 @@ function buildTopicsList(
 // ---------------------------------------------------------------------------
 
 interface SearchInput {
-  query: string
-  limit?: number
+  query: string;
+  limit?: number;
 }
 
 interface SearchOutput {
-  results: TopicSearchResult[]
-  query: string
+  results: TopicSearchResult[];
+  query: string;
 }
 
 function buildTopicsSearch(
   catalog: ReadonlyMap<string, TopicRecord>,
 ): ExecutableDomainTool<SearchInput, SearchOutput> {
   const definition: DomainToolDefinition = {
-    name: 'topics.search',
-    description: 'Search topics by query using token-overlap scoring.',
+    name: "topics.search",
+    description: "Search topics by query using token-overlap scoring.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       additionalProperties: false,
-      required: ['query'],
+      required: ["query"],
       properties: {
-        query: { type: 'string' },
-        limit: { type: 'integer', minimum: 1 },
+        query: { type: "string" },
+        limit: { type: "integer", minimum: 1 },
       },
     },
     outputSchema: {
-      type: 'object',
-      required: ['results', 'query'],
+      type: "object",
+      required: ["results", "query"],
       properties: {
         results: {
-          type: 'array',
+          type: "array",
           items: {
-            type: 'object',
-            required: ['id', 'title', 'score'],
+            type: "object",
+            required: ["id", "title", "score"],
             properties: {
-              id: { type: 'string' },
-              title: { type: 'string' },
-              score: { type: 'number' },
-              summary: { type: 'string' },
+              id: { type: "string" },
+              title: { type: "string" },
+              score: { type: "number" },
+              summary: { type: "string" },
             },
           },
         },
-        query: { type: 'string' },
+        query: { type: "string" },
       },
     },
-    permissionLevel: 'read',
+    permissionLevel: "read",
     sideEffects: [],
-    namespace: 'topics',
-  }
+    namespace: "topics",
+  };
 
   return {
     definition,
     async execute(input: SearchInput): Promise<SearchOutput> {
-      const limit = input.limit ?? 10
-      const scored: TopicSearchResult[] = []
+      const limit = input.limit ?? 10;
+      const scored: TopicSearchResult[] = [];
       for (const topic of catalog.values()) {
-        const score = scoreTopic(topic, input.query)
+        const score = scoreTopic(topic, input.query);
         if (score > 0) {
-          const result: TopicSearchResult = { id: topic.id, title: topic.title, score }
-          if (topic.summary !== undefined) result.summary = topic.summary
-          scored.push(result)
+          const result: TopicSearchResult = {
+            id: topic.id,
+            title: topic.title,
+            score,
+          };
+          if (topic.summary !== undefined) result.summary = topic.summary;
+          scored.push(result);
         }
       }
-      scored.sort((a, b) => b.score - a.score)
-      return { results: scored.slice(0, limit), query: input.query }
+      scored.sort((a, b) => b.score - a.score);
+      return { results: scored.slice(0, limit), query: input.query };
     },
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -172,53 +182,53 @@ function buildTopicsSearch(
 // ---------------------------------------------------------------------------
 
 interface GetInput {
-  id: string
+  id: string;
 }
 
 interface GetOutput {
-  topic: TopicRecord | null
+  topic: TopicRecord | null;
 }
 
 function buildTopicsGet(
   catalog: ReadonlyMap<string, TopicRecord>,
 ): ExecutableDomainTool<GetInput, GetOutput> {
   const definition: DomainToolDefinition = {
-    name: 'topics.get',
-    description: 'Fetch a single topic by id.',
+    name: "topics.get",
+    description: "Fetch a single topic by id.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       additionalProperties: false,
-      required: ['id'],
+      required: ["id"],
       properties: {
-        id: { type: 'string', minLength: 1 },
+        id: { type: "string", minLength: 1 },
       },
     },
     outputSchema: {
-      type: 'object',
-      required: ['topic'],
+      type: "object",
+      required: ["topic"],
       properties: {
         topic: {},
       },
     },
-    permissionLevel: 'read',
+    permissionLevel: "read",
     sideEffects: [],
-    namespace: 'topics',
-  }
+    namespace: "topics",
+  };
 
   return {
     definition,
     async execute(input: GetInput): Promise<GetOutput> {
-      return { topic: catalog.get(input.id) ?? null }
+      return { topic: catalog.get(input.id) ?? null };
     },
-  }
+  };
 }
 
 export function buildTopicsTools(
   catalog: ReadonlyMap<string, TopicRecord>,
-): ExecutableDomainTool[] {
+): AnyExecutableDomainTool[] {
   return [
-    buildTopicsList(catalog) as unknown as ExecutableDomainTool,
-    buildTopicsSearch(catalog) as unknown as ExecutableDomainTool,
-    buildTopicsGet(catalog) as unknown as ExecutableDomainTool,
-  ]
+    buildTopicsList(catalog),
+    buildTopicsSearch(catalog),
+    buildTopicsGet(catalog),
+  ];
 }

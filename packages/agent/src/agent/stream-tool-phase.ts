@@ -215,15 +215,20 @@ export async function runToolStreamingPhase(args: {
         }
       }
     } catch {
+      // RF-11 / DZUPAGENT-AGENT-M-01 — resolve the effective failure mode once.
+      // A bare DzupAgent (no explicit `scanFailureMode`) is fail-closed: a
+      // crashing scanner must NOT silently leak tool output. `fail-open`
+      // remains available only as an explicit, opt-in legacy override.
+      const effectiveMode = policy.scanFailureMode ?? 'fail-closed'
       policy.eventBus?.emit({
         type: 'safety:violation',
         category: 'tool_result_scanner_failure',
-        severity: policy.scanFailureMode === 'fail-closed' ? 'critical' : 'warning',
+        severity: effectiveMode === 'fail-closed' ? 'critical' : 'warning',
         ...(policy.agentId !== undefined ? { agentId: policy.agentId } : {}),
         message: 'Tool result safety scanner failed',
       })
 
-      if (policy.scanFailureMode === 'fail-closed') {
+      if (effectiveMode === 'fail-closed') {
         const blockedContent = '[blocked: tool result safety scanner failed]'
         const durationMs = recordToolLatencyOutcome(omitUndefined({
           statTracker,

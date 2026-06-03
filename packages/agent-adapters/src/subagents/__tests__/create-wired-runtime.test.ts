@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createEventBus } from "@dzupagent/core/events";
 import type { DzupEvent } from "@dzupagent/core/events";
 import type { AgentInput } from "@dzupagent/adapter-types";
+import { allowAllSpawnPolicy } from "@dzupagent/subagents";
 import { createWiredSubagentRuntime } from "../create-wired-runtime.js";
 import type { ProviderAdapterRegistry } from "../../registry/adapter-registry.js";
 
@@ -17,6 +18,7 @@ function registryWith(
     },
   };
   return {
+    listAdapters: () => ["claude"],
     getHealthy: () => adapter,
     get: () => adapter,
     recordSuccess: () => {},
@@ -50,6 +52,7 @@ describe("createWiredSubagentRuntime (end-to-end)", () => {
         },
       ]),
       eventBus: bus,
+      policy: allowAllSpawnPolicy,
     });
 
     const out = await runtime.spawn(
@@ -79,11 +82,24 @@ describe("createWiredSubagentRuntime (end-to-end)", () => {
     const runtime = createWiredSubagentRuntime({
       registry: registryWith([{ type: "adapter:completed", result: "ok" }]),
       checkpointStore: store,
+      policy: allowAllSpawnPolicy,
     });
     const out = await runtime.spawn({ agentId: "claude", input: "x" }, "r");
     if (!out.ok) throw new Error("spawn failed");
     const final = await runtime.await(out.taskId, { timeoutMs: 2000 });
     expect(final?.status).toBe("succeeded");
+  });
+
+  it("denies spawns by default when no policy is supplied (AGENT-L-10)", async () => {
+    const runtime = createWiredSubagentRuntime({
+      registry: registryWith([{ type: "adapter:completed", result: "ok" }]),
+    });
+    const out = await runtime.spawn({ agentId: "claude", input: "x" }, "r");
+    expect(out).toEqual({
+      ok: false,
+      reason: "denied",
+      detail: "spawn_denied_by_default_policy",
+    });
   });
 
   it("surfaces a denial through the governance policy", async () => {

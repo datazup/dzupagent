@@ -10,7 +10,7 @@ import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { basename, join, relative } from 'node:path'
 
-import { parseJsonl } from '@dzupagent/core'
+import { parseJsonl } from '@dzupagent/core/utils'
 
 import { runLogRoot } from './run-log-root.js'
 

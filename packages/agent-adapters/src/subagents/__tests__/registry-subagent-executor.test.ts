@@ -28,6 +28,7 @@ function fakeRegistry(adapter: unknown): {
   const recordSuccess = vi.fn();
   const recordFailure = vi.fn();
   const registry = {
+    listAdapters: () => ["claude"],
     getHealthy: () => adapter,
     get: () => adapter,
     recordSuccess,
@@ -125,6 +126,7 @@ describe("RegistrySubagentExecutor", () => {
 
   it("throws when the provider is not registered", async () => {
     const registry = {
+      listAdapters: () => ["claude"],
       getHealthy: () => undefined,
       get: () => undefined,
       recordSuccess: vi.fn(),
@@ -134,5 +136,66 @@ describe("RegistrySubagentExecutor", () => {
     await expect(
       exec.run({ agentId: "ghost", input: "x" }, ctx()),
     ).rejects.toThrow(/not registered/);
+  });
+
+  // ── AGENT-M-05: output-token budget ceiling ────────────────────────
+  it("aborts and records failure when output tokens exceed maxOutputTokens", async () => {
+    const adapter = fakeAdapter([
+      {
+        type: "adapter:completed",
+        result: "way too long",
+        usage: { inputTokens: 1, outputTokens: 5000 },
+      },
+    ]);
+    const { registry, recordFailure } = fakeRegistry(adapter);
+    const exec = new RegistrySubagentExecutor(registry, {
+      maxOutputTokens: 100,
+    });
+
+    await expect(
+      exec.run({ agentId: "claude", input: "x" }, ctx()),
+    ).rejects.toMatchObject({ code: "TOKEN_LIMIT_EXCEEDED" });
+    expect(recordFailure).toHaveBeenCalled();
+  });
+
+  it("allows a run whose output tokens stay within the budget", async () => {
+    const adapter = fakeAdapter([
+      {
+        type: "adapter:completed",
+        result: "ok",
+        usage: { inputTokens: 1, outputTokens: 50 },
+      },
+    ]);
+    const { registry } = fakeRegistry(adapter);
+    const exec = new RegistrySubagentExecutor(registry, {
+      maxOutputTokens: 100,
+    });
+    const result = await exec.run({ agentId: "claude", input: "x" }, ctx());
+    expect(result.output).toBe("ok");
+  });
+
+  // ── AGENT-L-11: per-run timeout ────────────────────────────────────
+  it("aborts a run that exceeds its per-run timeout", async () => {
+    // An adapter whose stream stalls (never yields) until the run signal aborts.
+    const stalling = {
+      providerId: "claude",
+      async *execute(input: AgentInput) {
+        await new Promise<void>((resolve) => {
+          if (input.signal?.aborted) return resolve();
+          input.signal?.addEventListener("abort", () => resolve(), {
+            once: true,
+          });
+        });
+        // After the timeout fires the loop body re-checks the signal and throws.
+        yield { type: "adapter:progress", message: "late" } as never;
+      },
+    };
+    const { registry, recordFailure } = fakeRegistry(stalling);
+    const exec = new RegistrySubagentExecutor(registry, { timeoutMs: 20 });
+
+    await expect(
+      exec.run({ agentId: "claude", input: "x" }, ctx()),
+    ).rejects.toMatchObject({ code: "ADAPTER_TIMEOUT" });
+    expect(recordFailure).toHaveBeenCalled();
   });
 });

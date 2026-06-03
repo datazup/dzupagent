@@ -10,7 +10,11 @@
  * @module pipeline/postgres-checkpoint-store
  */
 
-import type { PipelineCheckpoint, PipelineCheckpointStore, PipelineCheckpointSummary } from '@dzupagent/core/pipeline'
+import type {
+  PipelineCheckpoint,
+  PipelineCheckpointStore,
+  PipelineCheckpointSummary,
+} from "@dzupagent/core/pipeline";
 
 // ---------------------------------------------------------------------------
 // Adapter interface
@@ -24,10 +28,7 @@ import type { PipelineCheckpoint, PipelineCheckpointStore, PipelineCheckpointSum
  * placeholders (standard PostgreSQL protocol).
  */
 export interface PostgresClientLike {
-  query<T = unknown>(
-    text: string,
-    params?: unknown[],
-  ): Promise<{ rows: T[] }>
+  query<T = unknown>(text: string, params?: unknown[]): Promise<{ rows: T[] }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -35,16 +36,30 @@ export interface PostgresClientLike {
 // ---------------------------------------------------------------------------
 
 interface CheckpointRow {
-  pipeline_run_id: string
-  pipeline_id: string
-  version: number
-  schema_version: string
-  completed_node_ids: string[]
-  state: Record<string, unknown>
-  suspended_at_node_id: string | null
-  budget_state: { tokensUsed: number; costCents: number } | null
-  created_at: Date | string
-  expires_at: Date | string | null
+  pipeline_run_id: string;
+  pipeline_id: string;
+  version: number;
+  schema_version: string;
+  completed_node_ids: string[];
+  node_idempotency_keys: Record<string, string> | null;
+  loop_state: Record<string, { iteration: number }> | null;
+  fork_state: Record<
+    string,
+    {
+      branches: Record<
+        string,
+        {
+          stateDelta: Record<string, unknown>;
+          nodeResults: Record<string, unknown>;
+        }
+      >;
+    }
+  > | null;
+  state: Record<string, unknown>;
+  suspended_at_node_id: string | null;
+  budget_state: { tokensUsed: number; costCents: number } | null;
+  created_at: Date | string;
+  expires_at: Date | string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,14 +68,14 @@ interface CheckpointRow {
 
 export interface PostgresPipelineCheckpointStoreOptions {
   /** Pre-connected client. */
-  client: PostgresClientLike
+  client: PostgresClientLike;
   /** Override the table name (default: `pipeline_checkpoints`). */
-  tableName?: string
+  tableName?: string;
   /**
    * Default TTL (in milliseconds) applied to `expires_at` on each save.
    * Leave unset for non-expiring checkpoints — `prune()` will still work.
    */
-  defaultTtlMs?: number
+  defaultTtlMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,20 +83,22 @@ export interface PostgresPipelineCheckpointStoreOptions {
 // ---------------------------------------------------------------------------
 
 export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore {
-  private readonly client: PostgresClientLike
-  private readonly tableName: string
-  private readonly defaultTtlMs: number | undefined
+  private readonly client: PostgresClientLike;
+  private readonly tableName: string;
+  private readonly defaultTtlMs: number | undefined;
 
   constructor(options: PostgresPipelineCheckpointStoreOptions) {
-    this.client = options.client
+    this.client = options.client;
     // Validate the table name to guard against injection (identifier is
     // interpolated directly because Postgres does not bind identifiers).
-    const name = options.tableName ?? 'pipeline_checkpoints'
+    const name = options.tableName ?? "pipeline_checkpoints";
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-      throw new Error(`Invalid tableName "${name}" — must match /^[A-Za-z_][A-Za-z0-9_]*$/`)
+      throw new Error(
+        `Invalid tableName "${name}" — must match /^[A-Za-z_][A-Za-z0-9_]*$/`,
+      );
     }
-    this.tableName = name
-    this.defaultTtlMs = options.defaultTtlMs
+    this.tableName = name;
+    this.defaultTtlMs = options.defaultTtlMs;
   }
 
   /**
@@ -97,6 +114,9 @@ export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore 
         version INTEGER NOT NULL,
         schema_version TEXT NOT NULL,
         completed_node_ids JSONB NOT NULL,
+        node_idempotency_keys JSONB,
+        loop_state JSONB,
+        fork_state JSONB,
         state JSONB NOT NULL,
         suspended_at_node_id TEXT,
         budget_state JSONB,
@@ -104,27 +124,34 @@ export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore 
         expires_at TIMESTAMPTZ,
         UNIQUE (pipeline_run_id, version)
       )
-    `
-    const createRunIdx = `CREATE INDEX IF NOT EXISTS ${this.tableName}_run_idx ON ${this.tableName} (pipeline_run_id)`
-    const createExpiryIdx = `CREATE INDEX IF NOT EXISTS ${this.tableName}_expiry_idx ON ${this.tableName} (expires_at)`
+    `;
+    const createRunIdx = `CREATE INDEX IF NOT EXISTS ${this.tableName}_run_idx ON ${this.tableName} (pipeline_run_id)`;
+    const createExpiryIdx = `CREATE INDEX IF NOT EXISTS ${this.tableName}_expiry_idx ON ${this.tableName} (expires_at)`;
+    // Backward-compatible migrations for tables created before W5 / W3.
+    const addIdempotencyCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS node_idempotency_keys JSONB`;
+    const addLoopStateCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS loop_state JSONB`;
+    const addForkStateCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS fork_state JSONB`;
 
-    await this.client.query(createTable)
-    await this.client.query(createRunIdx)
-    await this.client.query(createExpiryIdx)
+    await this.client.query(createTable);
+    await this.client.query(addIdempotencyCol);
+    await this.client.query(addLoopStateCol);
+    await this.client.query(addForkStateCol);
+    await this.client.query(createRunIdx);
+    await this.client.query(createExpiryIdx);
   }
 
   async save(checkpoint: PipelineCheckpoint): Promise<void> {
     const expiresAt = this.defaultTtlMs
       ? new Date(Date.now() + this.defaultTtlMs).toISOString()
-      : null
+      : null;
 
     const sql = `
       INSERT INTO ${this.tableName} (
         pipeline_run_id, pipeline_id, version, schema_version,
         completed_node_ids, state, suspended_at_node_id, budget_state,
-        created_at, expires_at
+        created_at, expires_at, node_idempotency_keys, loop_state, fork_state
       )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10)
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb)
       ON CONFLICT (pipeline_run_id, version) DO UPDATE SET
         pipeline_id = EXCLUDED.pipeline_id,
         schema_version = EXCLUDED.schema_version,
@@ -133,8 +160,11 @@ export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore 
         suspended_at_node_id = EXCLUDED.suspended_at_node_id,
         budget_state = EXCLUDED.budget_state,
         created_at = EXCLUDED.created_at,
-        expires_at = EXCLUDED.expires_at
-    `
+        expires_at = EXCLUDED.expires_at,
+        node_idempotency_keys = EXCLUDED.node_idempotency_keys,
+        loop_state = EXCLUDED.loop_state,
+        fork_state = EXCLUDED.fork_state
+    `;
 
     await this.client.query(sql, [
       checkpoint.pipelineRunId,
@@ -147,7 +177,12 @@ export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore 
       checkpoint.budgetState ? JSON.stringify(checkpoint.budgetState) : null,
       checkpoint.createdAt,
       expiresAt,
-    ])
+      checkpoint.nodeIdempotencyKeys
+        ? JSON.stringify(checkpoint.nodeIdempotencyKeys)
+        : null,
+      checkpoint.loopState ? JSON.stringify(checkpoint.loopState) : null,
+      checkpoint.forkState ? JSON.stringify(checkpoint.forkState) : null,
+    ]);
   }
 
   async load(pipelineRunId: string): Promise<PipelineCheckpoint | undefined> {
@@ -157,10 +192,10 @@ export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore 
         AND (expires_at IS NULL OR expires_at > NOW())
       ORDER BY version DESC
       LIMIT 1
-    `
-    const result = await this.client.query<CheckpointRow>(sql, [pipelineRunId])
-    const row = result.rows[0]
-    return row ? rowToCheckpoint(row) : undefined
+    `;
+    const result = await this.client.query<CheckpointRow>(sql, [pipelineRunId]);
+    const row = result.rows[0];
+    return row ? rowToCheckpoint(row) : undefined;
   }
 
   async loadVersion(
@@ -173,58 +208,64 @@ export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore 
         AND version = $2
         AND (expires_at IS NULL OR expires_at > NOW())
       LIMIT 1
-    `
-    const result = await this.client.query<CheckpointRow>(sql, [pipelineRunId, version])
-    const row = result.rows[0]
-    return row ? rowToCheckpoint(row) : undefined
+    `;
+    const result = await this.client.query<CheckpointRow>(sql, [
+      pipelineRunId,
+      version,
+    ]);
+    const row = result.rows[0];
+    return row ? rowToCheckpoint(row) : undefined;
   }
 
-  async listVersions(pipelineRunId: string): Promise<PipelineCheckpointSummary[]> {
+  async listVersions(
+    pipelineRunId: string,
+  ): Promise<PipelineCheckpointSummary[]> {
     const sql = `
       SELECT pipeline_run_id, version, created_at, completed_node_ids
       FROM ${this.tableName}
       WHERE pipeline_run_id = $1
         AND (expires_at IS NULL OR expires_at > NOW())
       ORDER BY version ASC
-    `
+    `;
     const result = await this.client.query<{
-      pipeline_run_id: string
-      version: number
-      created_at: Date | string
-      completed_node_ids: string[]
-    }>(sql, [pipelineRunId])
+      pipeline_run_id: string;
+      version: number;
+      created_at: Date | string;
+      completed_node_ids: string[];
+    }>(sql, [pipelineRunId]);
 
-    return result.rows.map(row => ({
+    return result.rows.map((row) => ({
       pipelineRunId: row.pipeline_run_id,
       version: row.version,
       createdAt: toIsoString(row.created_at),
       completedNodeCount: Array.isArray(row.completed_node_ids)
         ? row.completed_node_ids.length
         : 0,
-    }))
+    }));
   }
 
   async delete(pipelineRunId: string): Promise<void> {
-    const sql = `DELETE FROM ${this.tableName} WHERE pipeline_run_id = $1`
-    await this.client.query(sql, [pipelineRunId])
+    const sql = `DELETE FROM ${this.tableName} WHERE pipeline_run_id = $1`;
+    await this.client.query(sql, [pipelineRunId]);
   }
 
   async prune(maxAgeMs: number): Promise<number> {
-    const cutoff = new Date(Date.now() - maxAgeMs).toISOString()
+    const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
     // Prune both explicit-TTL expirations and rows older than the cutoff.
     const sql = `
       DELETE FROM ${this.tableName}
       WHERE created_at < $1
          OR (expires_at IS NOT NULL AND expires_at < NOW())
-    `
-    const result: { rows: unknown[]; rowCount?: number } = await this.client.query<{ count?: number }>(sql, [cutoff])
+    `;
+    const result: { rows: unknown[]; rowCount?: number } =
+      await this.client.query<{ count?: number }>(sql, [cutoff]);
     // pg.Pool / postgres-js return different shapes for DELETE; most expose
     // a `rowCount` on the result envelope. We mirror rows length as a
     // fallback for adapters that surface rows or use RETURNING. Typing the
     // local `result` with the optional `rowCount` field keeps the access
     // safe without a wide cast.
-    if (typeof result.rowCount === 'number') return result.rowCount
-    return result.rows.length
+    if (typeof result.rowCount === "number") return result.rowCount;
+    return result.rows.length;
   }
 }
 
@@ -237,21 +278,35 @@ function rowToCheckpoint(row: CheckpointRow): PipelineCheckpoint {
     pipelineRunId: row.pipeline_run_id,
     pipelineId: row.pipeline_id,
     version: row.version,
-    schemaVersion: row.schema_version as '1.0.0',
-    completedNodeIds: Array.isArray(row.completed_node_ids) ? row.completed_node_ids : [],
+    schemaVersion: row.schema_version as "1.0.0",
+    completedNodeIds: Array.isArray(row.completed_node_ids)
+      ? row.completed_node_ids
+      : [],
     state: (row.state ?? {}) as Record<string, unknown>,
     createdAt: toIsoString(row.created_at),
+  };
+  if (row.suspended_at_node_id) cp.suspendedAtNodeId = row.suspended_at_node_id;
+  if (row.budget_state) cp.budgetState = row.budget_state;
+  if (
+    row.node_idempotency_keys &&
+    typeof row.node_idempotency_keys === "object"
+  ) {
+    cp.nodeIdempotencyKeys = row.node_idempotency_keys;
   }
-  if (row.suspended_at_node_id) cp.suspendedAtNodeId = row.suspended_at_node_id
-  if (row.budget_state) cp.budgetState = row.budget_state
-  return cp
+  if (row.loop_state && typeof row.loop_state === "object") {
+    cp.loopState = row.loop_state;
+  }
+  if (row.fork_state && typeof row.fork_state === "object") {
+    cp.forkState = row.fork_state;
+  }
+  return cp;
 }
 
 function toIsoString(value: Date | string): string {
-  if (value instanceof Date) return value.toISOString()
-  if (typeof value === 'string') {
-    const d = new Date(value)
-    return Number.isNaN(d.getTime()) ? value : d.toISOString()
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? value : d.toISOString();
   }
-  return new Date().toISOString()
+  return new Date().toISOString();
 }

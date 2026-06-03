@@ -68,6 +68,7 @@ export {
 export {
   SpawnGate,
   allowAllSpawnPolicy,
+  denyAllSpawnPolicy,
   type SpawnPolicy,
   type SpawnPolicyDecision,
   type SpawnApprovalGate,

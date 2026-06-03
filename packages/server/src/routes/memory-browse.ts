@@ -4,85 +4,99 @@
  * GET /api/memory-browse/:namespace — List entries with optional search
  * Query params: limit, offset, search, scope (JSON-encoded)
  */
-import { Hono } from 'hono'
-import type { AppEnv } from '../types.js'
-import type { MemoryServiceLike } from '@dzupagent/memory-ipc'
+import { Hono } from "hono";
+import type { AppEnv } from "../types.js";
+import type { MemoryServiceLike } from "@dzupagent/memory-ipc";
 import {
   applyAuthoritativeScope,
   type MemoryTenantScopeConfig,
-} from './memory-tenant-scope.js'
+} from "./memory-tenant-scope.js";
+import { logRouteError, mapErrorToStatus } from "./route-error.js";
 
 export interface MemoryBrowseRouteConfig {
-  memoryService: MemoryServiceLike
+  memoryService: MemoryServiceLike;
   /** Tenant scoping config (MJ-SEC-04). Defaults to auth-middleware-based resolution. */
-  tenantScope?: MemoryTenantScopeConfig
+  tenantScope?: MemoryTenantScopeConfig;
 }
 
-export function createMemoryBrowseRoutes(config: MemoryBrowseRouteConfig): Hono<AppEnv> {
-  const app = new Hono<AppEnv>()
-  const { memoryService, tenantScope } = config
+export function createMemoryBrowseRoutes(
+  config: MemoryBrowseRouteConfig
+): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
+  const { memoryService, tenantScope } = config;
 
   // GET /:namespace — List or search entries in a namespace
-  app.get('/:namespace', async (c) => {
-    const namespace = c.req.param('namespace')
-    const limitStr = c.req.query('limit')
-    const offsetStr = c.req.query('offset')
-    const search = c.req.query('search')
-    const scopeStr = c.req.query('scope')
+  app.get("/:namespace", async (c) => {
+    const namespace = c.req.param("namespace");
+    const limitStr = c.req.query("limit");
+    const offsetStr = c.req.query("offset");
+    const search = c.req.query("search");
+    const scopeStr = c.req.query("scope");
 
-    const limit = limitStr ? Math.min(parseInt(limitStr, 10), 100) : 20
-    const offset = offsetStr ? parseInt(offsetStr, 10) : 0
+    const limit = limitStr ? Math.min(parseInt(limitStr, 10), 100) : 20;
+    const offset = offsetStr ? parseInt(offsetStr, 10) : 0;
 
     // Parse scope from query param (JSON-encoded)
-    let clientScope: Record<string, string> = {}
+    let clientScope: Record<string, string> = {};
     if (scopeStr) {
       try {
-        const parsed: unknown = JSON.parse(scopeStr)
-        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          clientScope = parsed as Record<string, string>
+        const parsed: unknown = JSON.parse(scopeStr);
+        if (
+          typeof parsed === "object" &&
+          parsed !== null &&
+          !Array.isArray(parsed)
+        ) {
+          clientScope = parsed as Record<string, string>;
         }
       } catch {
         return c.json(
-          { error: { code: 'VALIDATION_ERROR', message: 'Invalid scope JSON' } },
-          400,
-        )
+          {
+            error: { code: "VALIDATION_ERROR", message: "Invalid scope JSON" },
+          },
+          400
+        );
       }
     }
 
     // MJ-SEC-04: override client-supplied scope with authenticated tenant identity.
-    const scope = applyAuthoritativeScope(c, clientScope, tenantScope)
+    const scope = applyAuthoritativeScope(c, clientScope, tenantScope);
 
     try {
-      let records: Record<string, unknown>[]
+      let records: Record<string, unknown>[];
 
       if (search) {
-        records = await memoryService.search(namespace, scope, search, limit + offset)
+        records = await memoryService.search(
+          namespace,
+          scope,
+          search,
+          limit + offset
+        );
       } else {
-        records = await memoryService.get(namespace, scope)
+        records = await memoryService.get(namespace, scope);
       }
 
       // Apply offset and limit
-      const paged = records.slice(offset, offset + limit)
+      const paged = records.slice(offset, offset + limit);
 
       const entries = paged.map((record) => ({
-        key: typeof record['key'] === 'string' ? record['key'] : undefined,
+        key: typeof record["key"] === "string" ? record["key"] : undefined,
         value: record,
-      }))
+      }));
 
       return c.json({
         data: entries,
         total: records.length,
         limit,
         offset,
-      })
+      });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const { safe } = logRouteError(c, "memory.browse", err);
       return c.json(
-        { error: { code: 'MEMORY_ERROR', message } },
-        500,
-      )
+        { error: { code: "MEMORY_ERROR", message: safe } },
+        mapErrorToStatus(err)
+      );
     }
-  })
+  });
 
-  return app
+  return app;
 }

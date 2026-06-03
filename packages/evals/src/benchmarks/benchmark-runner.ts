@@ -2,12 +2,16 @@
  * ECO-179: Benchmark Runner — executes benchmark suites and compares results.
  */
 
-import type { BenchmarkSuite, BenchmarkResult, BenchmarkComparison } from './benchmark-types.js';
-import type { EvalInput } from '../types.js';
-import type { JudgeCriterion } from '../scorers/criteria.js';
-import { createLLMJudge } from '../scorers/llm-judge-enhanced.js';
-import { LlmJudgeScorer } from '../scorers/llm-judge-scorer.js';
-import { STANDARD_CRITERIA } from '../scorers/criteria.js';
+import type {
+  BenchmarkSuite,
+  BenchmarkResult,
+  BenchmarkComparison,
+} from "./benchmark-types.js";
+import type { EvalInput } from "../types.js";
+import type { JudgeCriterion } from "../scorers/criteria.js";
+import { createLLMJudge } from "../scorers/llm-judge-enhanced.js";
+import { LlmJudgeScorer } from "../scorers/llm-judge-scorer.js";
+import { STANDARD_CRITERIA } from "../scorers/criteria.js";
 
 /**
  * Configuration for benchmark execution.
@@ -26,9 +30,10 @@ export interface BenchmarkConfig {
  *
  * Usage: createBenchmarkWithJudge({ llm: myLlmFn })
  */
-export function createBenchmarkWithJudge(
-  base: { llm: (prompt: string) => Promise<string>; criteria?: JudgeCriterion[] },
-): BenchmarkConfig {
+export function createBenchmarkWithJudge(base: {
+  llm: (prompt: string) => Promise<string>;
+  criteria?: JudgeCriterion[];
+}): BenchmarkConfig {
   return {
     llm: base.llm,
     judgeCriteria: base.criteria ?? STANDARD_CRITERIA,
@@ -51,7 +56,10 @@ export async function runBenchmark(
   target: (input: string) => Promise<string>,
   config?: BenchmarkConfig,
 ): Promise<BenchmarkResult> {
-  const scorerAccumulators = new Map<string, { total: number; count: number }>();
+  const scorerAccumulators = new Map<
+    string,
+    { total: number; count: number }
+  >();
 
   // Initialize accumulators for each scorer
   for (const scorer of suite.scorers) {
@@ -157,11 +165,14 @@ async function computeScore(
   config?: BenchmarkConfig,
 ): Promise<number> {
   switch (type) {
-    case 'deterministic': {
+    case "deterministic": {
       if (!reference) return output.length > 0 ? 1.0 : 0.0;
       // Keyword overlap scoring
       const refWords = new Set(
-        reference.toLowerCase().split(/\s+/).filter((w) => w.length > 2),
+        reference
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((w) => w.length > 2),
       );
       if (refWords.size === 0) return output.length > 0 ? 1.0 : 0.0;
       const outLower = output.toLowerCase();
@@ -171,16 +182,18 @@ async function computeScore(
       }
       return matches / refWords.size;
     }
-    case 'llm-judge': {
+    case "llm-judge": {
       if (!config?.llm) {
         if (config?.strict) {
+          // Safe-prefixed (BadRequest → 400): deliberate config-validation
+          // guidance that the route-error sanitizer may forward to the client.
           throw new Error(
-            'benchmark-runner: strict mode requires BenchmarkConfig.llm for llm-judge scorer',
+            "BadRequest: benchmark-runner: strict mode requires BenchmarkConfig.llm for llm-judge scorer",
           );
         }
         console.warn(
-          'benchmark-runner: llm-judge scorer used without providing an llm function in BenchmarkConfig. ' +
-          'Falling back to non-empty heuristic. Pass { llm: yourLlmFn } to runBenchmark() for real scoring.',
+          "benchmark-runner: llm-judge scorer used without providing an llm function in BenchmarkConfig. " +
+            "Falling back to non-empty heuristic. Pass { llm: yourLlmFn } to runBenchmark() for real scoring.",
         );
         return output.trim().length > 0 ? 0.5 : 0.0;
       }
@@ -189,7 +202,7 @@ async function computeScore(
       if (config.judgeCriteria) {
         // Custom criteria provided: use enhanced multi-criteria judge
         const judge = createLLMJudge({
-          id: 'benchmark-llm-judge',
+          id: "benchmark-llm-judge",
           criteria: config.judgeCriteria,
           llm: config.llm,
           maxRetries: 1,
@@ -222,12 +235,18 @@ async function computeScore(
         return 0.0;
       }
     }
-    case 'composite': {
-      const deterministicScore = await computeScore('deterministic', output, input, reference, config);
+    case "composite": {
+      const deterministicScore = await computeScore(
+        "deterministic",
+        output,
+        input,
+        reference,
+        config,
+      );
       const existenceScore = output.trim().length > 0 ? 1.0 : 0.0;
       return (deterministicScore + existenceScore) / 2;
     }
-    case 'custom':
+    case "custom":
       return output.trim().length > 0 ? 1.0 : 0.0;
     default:
       return output.trim().length > 0 ? 1.0 : 0.0;

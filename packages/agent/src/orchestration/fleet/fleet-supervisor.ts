@@ -1,4 +1,5 @@
 import { ulid } from "ulidx";
+import { ForgeError } from "@dzupagent/core/events";
 import type {
   FleetRunResult,
   FleetRunSpec,
@@ -34,7 +35,13 @@ interface RepoAgentSlot {
  * FleetSupervisor drives a FleetRunSpec to completion. For fan-out scenarios
  * every repo runs the task in parallel; otherwise the injected FleetPolicy
  * assigns each task to a single worker. Assignment decisions are mirrored into
- * the shared KnowledgeStore. Pause/cancel/reassign are Phase-1b no-ops.
+ * the shared KnowledgeStore.
+ *
+ * Mid-run control (pause/cancel/reassign) is **not implemented** in Phase 1a.
+ * These methods throw a {@link ForgeError} (`CAPABILITY_NOT_FOUND`,
+ * non-recoverable) rather than silently no-op'ing, so a policy that depends on
+ * them fails loudly instead of believing the fleet can be drained or rebalanced.
+ * Real implementations land in Phase 1b.
  */
 export class FleetSupervisor implements FleetSupervisorApi {
   constructor(private readonly deps: FleetSupervisorDeps) {}
@@ -122,14 +129,34 @@ export class FleetSupervisor implements FleetSupervisorApi {
     };
   }
 
-  async pauseTask(_taskId: string, _reason: string): Promise<void> {
-    /* Phase 1b */
+  async pauseTask(taskId: string, reason: string): Promise<void> {
+    throw this.unimplementedControl("pauseTask", taskId, { reason });
   }
-  async cancelTask(_taskId: string, _reason: string): Promise<void> {
-    /* Phase 1b */
+  async cancelTask(taskId: string, reason: string): Promise<void> {
+    throw this.unimplementedControl("cancelTask", taskId, { reason });
   }
-  async reassign(_taskId: string): Promise<void> {
-    /* Phase 1b */
+  async reassign(taskId: string): Promise<void> {
+    throw this.unimplementedControl("reassign", taskId);
+  }
+
+  /**
+   * Build a non-recoverable error for the Phase-1b fleet control surface so
+   * callers fail loudly instead of relying on a silent no-op.
+   */
+  private unimplementedControl(
+    operation: "pauseTask" | "cancelTask" | "reassign",
+    taskId: string,
+    extra: Record<string, unknown> = {}
+  ): ForgeError {
+    return new ForgeError({
+      code: "CAPABILITY_NOT_FOUND",
+      message: `FleetSupervisor.${operation} is not implemented (Phase 1b).`,
+      recoverable: false,
+      suggestion:
+        "Mid-run fleet control (pause/cancel/reassign) is not available in Phase 1a. " +
+        "Do not depend on it from a FleetPolicy yet.",
+      context: { operation, taskId, ...extra },
+    });
   }
 
   private async seed(spec: FleetRunSpec): Promise<void> {
