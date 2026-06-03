@@ -5,7 +5,7 @@ import type {
   RoutingDecision,
   RoutingDiagnostics,
   RoutingPolicy,
-} from '../routing-policy-types.js'
+} from "../routing-policy-types.js";
 
 /**
  * LLMRouting -- provider-neutral adapter for model-selected routing.
@@ -18,112 +18,155 @@ import type {
 export class LLMRouting implements RoutingPolicy {
   constructor(private readonly config: LLMRoutingConfig) {
     if (!config) {
-      throw new Error('LLMRouting requires explicit fallback semantics')
+      throw new Error("LLMRouting requires explicit fallback semantics");
     }
   }
 
   select(task: AgentTask, candidates: AgentSpec[]): RoutingDecision {
-    const candidateIds = candidates.map((candidate) => candidate.id)
+    const candidateIds = candidates.map((candidate) => candidate.id);
 
     if (this.config.selector) {
-      const selection = this.config.selector(task, candidates)
-      const decision = this.toDecision(selection, candidates)
+      const selection = this.config.selector(task, candidates);
+      const decision = this.toDecision(selection, candidates);
       if (decision && decision.selected.length > 0) {
-        return this.withDiagnostics(decision, candidates)
+        return this.withDiagnostics(decision, candidates, task.taskId);
       }
 
       return this.createFallbackDecision(
         candidates,
-        'LLM routing fallback: selector returned no valid candidates',
-      )
+        task.taskId,
+        "LLM routing fallback: selector returned no valid candidates"
+      );
     }
 
     return this.createFallbackDecision(
       candidates,
-      `LLM routing fallback: no selector configured; using explicit '${this.config.fallback}' fallback over candidates [${candidateIds.join(', ')}]`,
-    )
+      task.taskId,
+      `LLM routing fallback: no selector configured; using explicit '${
+        this.config.fallback
+      }' fallback over candidates [${candidateIds.join(", ")}]`
+    );
   }
 
   /**
    * Create a decision from an LLM-selected agent ID.
    * Called by the supervisor after its LLM makes a selection.
    */
-  createDecision(agentId: string, candidates: AgentSpec[], llmReason?: string): RoutingDecision {
-    const agent = candidates.find((a) => a.id === agentId)
+  createDecision(
+    agentId: string,
+    candidates: AgentSpec[],
+    llmReason?: string
+  ): RoutingDecision {
+    const agent = candidates.find((a) => a.id === agentId);
     if (agent) {
-      return this.withDiagnostics({
-        selected: [agent],
-        reason: llmReason ?? `LLM selected agent '${agentId}'`,
-        strategy: 'llm',
-      }, candidates)
+      return this.withDiagnostics(
+        {
+          selected: [agent],
+          reason: llmReason ?? `LLM selected agent '${agentId}'`,
+          strategy: "llm",
+        },
+        candidates,
+        agentId
+      );
     }
 
     return this.createFallbackDecision(
       candidates,
+      agentId,
       `LLM routing fallback: selected agent '${agentId}' is not in the candidate set`,
-      llmReason,
-    )
+      llmReason
+    );
   }
 
   private toDecision(
-    selection: ReturnType<NonNullable<LLMRoutingConfig['selector']>>,
-    candidates: AgentSpec[],
+    selection: ReturnType<NonNullable<LLMRoutingConfig["selector"]>>,
+    candidates: AgentSpec[]
   ): RoutingDecision | undefined {
-    if (!selection) return undefined
+    if (!selection) return undefined;
 
-    if (typeof selection === 'object' && 'selected' in selection) {
-      const selectedIds = new Set(selection.selected.map((candidate) => candidate.id))
-      const selected = candidates.filter((candidate) => selectedIds.has(candidate.id))
-      if (selected.length === 0) return undefined
+    if (typeof selection === "object" && "selected" in selection) {
+      const selectedIds = new Set(
+        selection.selected.map((candidate) => candidate.id)
+      );
+      const selected = candidates.filter((candidate) =>
+        selectedIds.has(candidate.id)
+      );
+      if (selected.length === 0) return undefined;
       return {
         ...selection,
         selected,
-      }
+      };
     }
 
-    const selections = Array.isArray(selection) ? selection : [selection]
-    const selectedIds = new Set(selections.map((item) =>
-      typeof item === 'string' ? item : item.id,
-    ))
-    const selected = candidates.filter((candidate) => selectedIds.has(candidate.id))
-    if (selected.length === 0) return undefined
+    const selections = Array.isArray(selection) ? selection : [selection];
+    const selectedIds = new Set(
+      selections.map((item) => (typeof item === "string" ? item : item.id))
+    );
+    const selected = candidates.filter((candidate) =>
+      selectedIds.has(candidate.id)
+    );
+    if (selected.length === 0) return undefined;
 
     return {
       selected,
-      reason: `LLM selected candidate(s): ${selected.map((candidate) => candidate.id).join(', ')}`,
-      strategy: 'llm',
-    }
+      reason: `LLM selected candidate(s): ${selected
+        .map((candidate) => candidate.id)
+        .join(", ")}`,
+      strategy: "llm",
+    };
   }
 
   private createFallbackDecision(
     candidates: AgentSpec[],
+    taskId: string,
     fallbackReason: string,
-    llmReason?: string,
+    llmReason?: string
   ): RoutingDecision {
-    const selected = this.config.fallback === 'pass-through'
-      ? candidates
-      : candidates.slice(0, 1)
+    const selected =
+      this.config.fallback === "pass-through"
+        ? candidates
+        : candidates.slice(0, 1);
 
-    return this.withDiagnostics({
-      selected,
-      reason: llmReason ?? fallbackReason,
-      strategy: 'llm',
-      fallbackReason,
-    }, candidates)
+    return this.withDiagnostics(
+      {
+        selected,
+        reason: llmReason ?? fallbackReason,
+        strategy: "llm",
+        fallbackReason,
+      },
+      candidates,
+      taskId
+    );
   }
 
-  private withDiagnostics(decision: RoutingDecision, candidates: AgentSpec[]): RoutingDecision {
-    const fallbackReason = decision.fallbackReason
+  private withDiagnostics(
+    decision: RoutingDecision,
+    candidates: AgentSpec[],
+    taskId: string
+  ): RoutingDecision {
+    const fallbackReason = decision.fallbackReason;
+    const selectedIds = decision.selected.map((candidate) => candidate.id);
+    const selectedSet = new Set(selectedIds);
+    const rejectionReasons: Record<string, string> = {};
+    for (const c of candidates) {
+      if (!selectedSet.has(c.id)) {
+        rejectionReasons[c.id] = fallbackReason
+          ? `llm fallback selected other candidate(s): ${fallbackReason}`
+          : `llm selected ${selectedIds.join(", ")}`;
+      }
+    }
     const diagnostics: RoutingDiagnostics = {
       candidateIds: candidates.map((candidate) => candidate.id),
-      selectedIds: decision.selected.map((candidate) => candidate.id),
+      selectedIds,
       ...(fallbackReason ? { fallbackReason } : {}),
-    }
+      ...(Object.keys(rejectionReasons).length > 0 ? { rejectionReasons } : {}),
+    };
 
     return {
       ...decision,
       ...(fallbackReason ? { fallbackReason } : {}),
+      routingDecisionId: `llm-${taskId}-${Date.now()}`,
       diagnostics,
-    }
+    };
   }
 }
