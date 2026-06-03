@@ -39,6 +39,16 @@ export interface MCPServerConfig {
    * Set to `'legacy'` only for fully trusted, pre-existing configs.
    */
   stdioArgPolicy?: McpStdioArgPolicy;
+  /**
+   * Optional filesystem jail root for this server's tools.
+   *
+   * When set, any string argument whose key is in `PATH_ARG_KEYS`
+   * (`path`, `filePath`, `file`, `dir`, `root`, `directory`) is validated
+   * against this root before the tool is invoked. Paths that resolve outside
+   * the root are rejected with `MCP_PATH_ESCAPE`. Leave unset to skip
+   * the guard (default, backwards compatible).
+   */
+  filesystemRoot?: string;
 }
 
 /** MCP tool parameter schema (JSON Schema subset) */

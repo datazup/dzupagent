@@ -31,6 +31,7 @@ export type ForgeErrorCode =
   | "MCP_TOOL_NOT_FOUND"
   | "MCP_INVOCATION_FAILED"
   | "MCP_COMMAND_FORBIDDEN"
+  | "MCP_PATH_ESCAPE"
   // --- Memory errors ---
   | "MEMORY_WRITE_FAILED"
   | "MEMORY_SEARCH_FAILED"
