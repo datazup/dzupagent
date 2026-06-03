@@ -41,6 +41,14 @@ export interface CircuitBreakerConfig {
    */
   cooldownMs?: number;
   /**
+   * Absolute ceiling (ms) for the exponential re-open backoff
+   * (default: 8 × resetTimeoutMs). Each consecutive HALF_OPEN→OPEN re-open
+   * doubles the effective cooldown; this caps the growth so a persistently
+   * unhealthy provider is not probed unboundedly often. Always clamped to be
+   * ≥ resetTimeoutMs. Jitter (if any) applies to the capped value.
+   */
+  maxResetTimeoutMs?: number;
+  /**
    * Optional transition hook. Invoked synchronously on every state change with
    * the kind of transition. Use this to bridge breaker transitions onto an
    * application event bus (e.g. emit `circuit:open|half_open|close`). Defaults
@@ -85,6 +93,8 @@ export class CircuitBreaker {
   private lastFailureAt = 0;
   /** Effective (possibly jittered) cooldown for the current OPEN window. */
   private currentCooldownMs = 0;
+  /** Consecutive HALF_OPEN→OPEN re-opens; drives exponential cooldown (W9). */
+  private consecutiveReopens = 0;
   private readonly config: CircuitBreakerConfig;
 
   constructor(config?: Partial<CircuitBreakerConfig>) {
@@ -100,20 +110,31 @@ export class CircuitBreaker {
     }
     // Clamp jitter into [0, 1].
     merged.jitterFactor = Math.min(Math.max(merged.jitterFactor ?? 0, 0), 1);
+    // Derive ceiling after alias resolution so it tracks the effective base.
+    merged.maxResetTimeoutMs = Math.max(
+      merged.maxResetTimeoutMs ?? merged.resetTimeoutMs * 8,
+      merged.resetTimeoutMs
+    );
     this.config = merged;
     this.currentCooldownMs = merged.resetTimeoutMs;
   }
 
   /**
-   * Compute the effective cooldown for a freshly opened circuit. Jitter only
-   * shortens the wait (by up to `jitterFactor` of `resetTimeoutMs`), so it is
-   * always within `[resetTimeoutMs * (1 - jitterFactor), resetTimeoutMs]`.
+   * Compute the effective cooldown for a freshly opened circuit.
+   * Exponential backoff (W9) doubles the base per consecutive re-open, capped
+   * by maxResetTimeoutMs. Jitter shortens the capped value by up to
+   * jitterFactor, staying within [backed*(1-jitterFactor), backed].
    */
   private computeCooldownMs(): number {
-    const { resetTimeoutMs, jitterFactor = 0 } = this.config;
-    if (jitterFactor <= 0) return resetTimeoutMs;
-    const reduction = resetTimeoutMs * jitterFactor * Math.random();
-    return Math.max(0, resetTimeoutMs - reduction);
+    const { resetTimeoutMs, jitterFactor = 0, maxResetTimeoutMs } = this.config;
+    const ceiling = maxResetTimeoutMs ?? resetTimeoutMs;
+    const backed = Math.min(
+      resetTimeoutMs * 2 ** this.consecutiveReopens,
+      ceiling
+    );
+    if (jitterFactor <= 0) return backed;
+    const reduction = backed * jitterFactor * Math.random();
+    return Math.max(0, backed - reduction);
   }
 
   /** Centralised state change: applies the transition, notifies, and logs. */
@@ -178,16 +199,23 @@ export class CircuitBreaker {
   recordSuccess(): void {
     this.failureCount = 0;
     this.halfOpenAttempts = 0;
+    this.consecutiveReopens = 0;
     this.transitionTo("closed");
   }
 
   /** Record a failed call. May open the circuit if threshold is reached. */
   recordFailure(): void {
+    if (this.state === "open") {
+      // Already open — don't reset the cooldown window or bump lastFailureAt.
+      return;
+    }
+
     this.failureCount++;
     this.lastFailureAt = Date.now();
 
     if (this.state === "half-open") {
-      // Failure during probe — re-open
+      // Failed probe — escalate the next OPEN cooldown (W9), then re-open.
+      this.consecutiveReopens++;
       this.transitionTo("open");
       return;
     }
@@ -217,6 +245,7 @@ export class CircuitBreaker {
     this.halfOpenAttempts = 0;
     this.lastFailureAt = 0;
     this.currentCooldownMs = this.config.resetTimeoutMs;
+    this.consecutiveReopens = 0;
   }
 }
 
