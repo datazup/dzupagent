@@ -275,7 +275,10 @@ describe('POST /ingest — learning pattern ingestion', () => {
     expect(res.status).toBe(500)
     const body = (await res.json()) as Record<string, unknown>
     expect(body['success']).toBe(false)
-    expect(String(body['error'])).toMatch(/simulated-put-failure/)
+    // The route sanitizes per-item store failures so internal/DB error text
+    // (here the thrown 'simulated-put-failure') is never leaked to the client.
+    expect(body['error']).toBeTruthy()
+    expect(String(body['error'])).not.toMatch(/simulated-put-failure/)
   })
 
   it('returns the stored keys for downstream correlation', async () => {
