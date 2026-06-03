@@ -162,8 +162,15 @@ export class PipelineExecutor {
       if (!node)
         throw new Error(`Node "${currentNodeId}" not found in pipeline`);
 
-      // Skip already-completed nodes (for resume)
-      if (completedNodeIds.includes(currentNodeId)) {
+      // Skip already-completed nodes (for resume) — EXCEPT a fork node that is
+      // still mid-flight (its forkState entry survives). Such a fork was pushed
+      // to completedNodeIds when it first started, but on resume it must re-enter
+      // dispatchFork to restore completed branches and re-run unfinished ones.
+      // dispatchFork clears forkState[forkId] once the fork+join complete, so
+      // later passes over the fork node skip normally.
+      const isMidFlightFork =
+        node.type === "fork" && forkState[node.forkId] !== undefined;
+      if (completedNodeIds.includes(currentNodeId) && !isMidFlightFork) {
         currentNodeId = this.next(currentNodeId, runState);
         continue;
       }

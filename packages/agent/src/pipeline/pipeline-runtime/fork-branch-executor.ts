@@ -77,7 +77,8 @@ export async function handleFork(
   const { config, outgoingEdges, emit, findJoinNode } = deps;
 
   emit(nodeStartedEvent(forkNode.id, "fork"));
-  completedNodeIds.push(forkNode.id);
+  if (!completedNodeIds.includes(forkNode.id))
+    completedNodeIds.push(forkNode.id);
 
   // Get all outgoing targets from fork node
   const outgoing = outgoingEdges.get(forkNode.id) ?? [];
