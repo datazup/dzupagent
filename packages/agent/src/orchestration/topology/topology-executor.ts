@@ -4,32 +4,32 @@
  * Supports mesh (all-to-all), ring (circular pass), and delegates to
  * AgentOrchestrator for hierarchical/pipeline/star patterns.
  */
-import { HumanMessage } from '@langchain/core/messages'
-import { AgentOrchestrator } from '../orchestrator.js'
-import type { SupervisorResult } from '../orchestrator.js'
-import { OrchestrationError } from '../orchestration-error.js'
-import { TopologyAnalyzer } from './topology-analyzer.js'
+import { HumanMessage } from "@langchain/core/messages";
+import { AgentOrchestrator } from "../orchestrator.js";
+import type { SupervisorResult } from "../orchestrator.js";
+import { OrchestrationError } from "../orchestration-error.js";
+import { TopologyAnalyzer } from "./topology-analyzer.js";
 import type {
   TopologyType,
   TopologyMetrics,
   TopologyExecutorConfig,
   TaskCharacteristics,
-} from './topology-types.js'
-import { omitUndefined } from '../../utils/exact-optional.js'
+} from "./topology-types.js";
+import { omitUndefined } from "../../utils/exact-optional.js";
 
 export interface MeshResult {
-  results: string[]
-  metrics: TopologyMetrics
+  results: string[];
+  metrics: TopologyMetrics;
 }
 
 export interface RingResult {
-  result: string
-  metrics: TopologyMetrics
+  result: string;
+  metrics: TopologyMetrics;
 }
 
 export interface ExecuteResult {
-  result: string | string[]
-  metrics: TopologyMetrics
+  result: string | string[];
+  metrics: TopologyMetrics;
 }
 
 export class TopologyExecutor {
@@ -39,50 +39,61 @@ export class TopologyExecutor {
    * Each agent gets the task + all other agents' previous outputs.
    * Runs one round, collects all results.
    */
-  static async executeMesh(config: TopologyExecutorConfig): Promise<MeshResult> {
-    const { agents, task, signal } = config
-    const startTime = Date.now()
-    let messageCount = 0
-    let errorCount = 0
+  static async executeMesh(
+    config: TopologyExecutorConfig
+  ): Promise<MeshResult> {
+    const { agents, task, signal } = config;
+    const startTime = Date.now();
+    let messageCount = 0;
+    let errorCount = 0;
 
     if (agents.length === 0) {
       throw new OrchestrationError(
-        'executeMesh() requires at least one agent',
-        'topology-mesh',
-      )
+        "executeMesh() requires at least one agent",
+        "topology-mesh"
+      );
     }
 
-    TopologyExecutor.checkAborted(signal, 'topology-mesh')
+    TopologyExecutor.checkAborted(signal, "topology-mesh");
 
     // Run all agents in parallel with the task
     const settled = await Promise.allSettled(
       agents.map(async (agent) => {
-        messageCount++
-        const result = await agent.generate([new HumanMessage(task)], omitUndefined({ signal }))
-        return result.content
-      }),
-    )
+        messageCount++;
+        const result = await agent.generate(
+          [new HumanMessage(task)],
+          omitUndefined({ signal })
+        );
+        return result.content;
+      })
+    );
 
-    const results: string[] = []
+    const results: string[] = [];
     for (const outcome of settled) {
-      if (outcome.status === 'fulfilled') {
-        results.push(outcome.value)
+      if (outcome.status === "fulfilled") {
+        results.push(outcome.value);
       } else {
-        errorCount++
-        results.push(`[error: ${outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason)}]`)
+        errorCount++;
+        results.push(
+          `[error: ${
+            outcome.reason instanceof Error
+              ? outcome.reason.message
+              : String(outcome.reason)
+          }]`
+        );
       }
     }
 
     return {
       results,
       metrics: {
-        topology: 'mesh',
+        topology: "mesh",
         totalDurationMs: Date.now() - startTime,
         agentCount: agents.length,
         messageCount,
         errorCount,
       },
-    }
+    };
   }
 
   /**
@@ -92,45 +103,47 @@ export class TopologyExecutor {
    * Then loops back (up to maxRounds). Each agent receives the original
    * task plus the previous agent's output.
    */
-  static async executeRing(config: TopologyExecutorConfig): Promise<RingResult> {
-    const { agents, task, signal } = config
-    const maxRounds = config.maxRounds ?? 3
-    const startTime = Date.now()
-    let messageCount = 0
-    let errorCount = 0
+  static async executeRing(
+    config: TopologyExecutorConfig
+  ): Promise<RingResult> {
+    const { agents, task, signal } = config;
+    const maxRounds = config.maxRounds ?? 3;
+    const startTime = Date.now();
+    let messageCount = 0;
+    let errorCount = 0;
 
     if (agents.length === 0) {
       throw new OrchestrationError(
-        'executeRing() requires at least one agent',
-        'topology-ring',
-      )
+        "executeRing() requires at least one agent",
+        "topology-ring"
+      );
     }
 
-    TopologyExecutor.checkAborted(signal, 'topology-ring')
+    TopologyExecutor.checkAborted(signal, "topology-ring");
 
-    let currentOutput = ''
+    let currentOutput = "";
 
     for (let round = 0; round < maxRounds; round++) {
       for (const agent of agents) {
-        TopologyExecutor.checkAborted(signal, 'topology-ring')
+        TopologyExecutor.checkAborted(signal, "topology-ring");
 
         const input = currentOutput
           ? `${task}\n\nPrevious output:\n${currentOutput}`
-          : task
+          : task;
 
-        messageCount++
+        messageCount++;
 
         try {
           const result = await agent.generate(
             [new HumanMessage(input)],
-            omitUndefined({ signal }),
-          )
-          currentOutput = result.content
+            omitUndefined({ signal })
+          );
+          currentOutput = result.content;
         } catch (err: unknown) {
-          errorCount++
+          errorCount++;
           // On error, keep the previous output and continue
-          const errMsg = err instanceof Error ? err.message : String(err)
-          currentOutput = currentOutput || `[error: ${errMsg}]`
+          const errMsg = err instanceof Error ? err.message : String(err);
+          currentOutput = currentOutput || `[error: ${errMsg}]`;
         }
       }
     }
@@ -138,13 +151,13 @@ export class TopologyExecutor {
     return {
       result: currentOutput,
       metrics: {
-        topology: 'ring',
+        topology: "ring",
         totalDurationMs: Date.now() - startTime,
         agentCount: agents.length,
         messageCount,
         errorCount,
       },
-    }
+    };
   }
 
   /**
@@ -157,23 +170,27 @@ export class TopologyExecutor {
    * re-analyzes and switches topology mid-execution.
    */
   static async execute(
-    config: TopologyExecutorConfig & { topology: TopologyType },
+    config: TopologyExecutorConfig & { topology: TopologyType }
   ): Promise<ExecuteResult> {
-    const { topology, autoSwitch = false, errorThreshold = 0.5 } = config
+    const { topology, autoSwitch = false, errorThreshold = 0.5 } = config;
 
-    TopologyExecutor.checkAborted(config.signal, `topology-${topology}`)
+    TopologyExecutor.checkAborted(config.signal, `topology-${topology}`);
 
-    let result: ExecuteResult
-    let initialError: unknown
+    let result: ExecuteResult;
+    let initialError: unknown;
 
     try {
-      result = await TopologyExecutor.executeTopology(config, topology)
+      result = await TopologyExecutor.executeTopology(config, topology);
     } catch (err: unknown) {
       if (!autoSwitch) {
-        throw err
+        throw err;
       }
-      initialError = err
-      result = TopologyExecutor.createThrownFailureResult(config, topology, err)
+      initialError = err;
+      result = TopologyExecutor.createThrownFailureResult(
+        config,
+        topology,
+        err
+      );
     }
 
     // Auto-switch: if error rate is high, re-analyze and try a different topology
@@ -182,39 +199,42 @@ export class TopologyExecutor {
       result.metrics.agentCount > 0 &&
       result.metrics.errorCount / result.metrics.agentCount > errorThreshold
     ) {
-      const analyzer = new TopologyAnalyzer()
-      const characteristics = TopologyExecutor.inferCharacteristics(config, topology)
-      const recommendation = analyzer.analyze(characteristics)
+      const analyzer = new TopologyAnalyzer();
+      const characteristics = TopologyExecutor.inferCharacteristics(
+        config,
+        topology
+      );
+      const recommendation = analyzer.analyze(characteristics);
       const retryTopology = TopologyExecutor.selectRetryTopology(
         topology,
-        recommendation,
-      )
+        recommendation
+      );
 
       if (retryTopology) {
         try {
           const retryResult = await TopologyExecutor.executeTopology(
             config,
-            retryTopology,
-          )
+            retryTopology
+          );
 
-          retryResult.metrics.switchedFrom = topology
-          return retryResult
+          retryResult.metrics.switchedFrom = topology;
+          return retryResult;
         } catch {
           if (initialError) {
-            throw initialError
+            throw initialError;
           }
           // Retry topology also failed — return original result with switch annotation
-          result.metrics.switchedFrom = topology
-          return result
+          result.metrics.switchedFrom = topology;
+          return result;
         }
       }
     }
 
     if (initialError) {
-      throw initialError
+      throw initialError;
     }
 
-    return result
+    return result;
   }
 
   // ---------------------------------------------------------------------------
@@ -223,105 +243,118 @@ export class TopologyExecutor {
 
   private static async executeTopology(
     config: TopologyExecutorConfig & { topology: TopologyType },
-    topology: TopologyType,
+    topology: TopologyType
   ): Promise<ExecuteResult> {
     switch (topology) {
-      case 'mesh': {
-        const meshResult = await TopologyExecutor.executeMesh(config)
-        return { result: meshResult.results, metrics: meshResult.metrics }
+      case "mesh": {
+        const meshResult = await TopologyExecutor.executeMesh(config);
+        return { result: meshResult.results, metrics: meshResult.metrics };
       }
 
-      case 'ring': {
-        const ringResult = await TopologyExecutor.executeRing(config)
-        return { result: ringResult.result, metrics: ringResult.metrics }
+      case "ring": {
+        const ringResult = await TopologyExecutor.executeRing(config);
+        return { result: ringResult.result, metrics: ringResult.metrics };
       }
 
-      case 'pipeline': {
-        const startTime = Date.now()
-        let pipelineErrorCount = 0
-        let pipelineResult: string
+      case "pipeline": {
+        const startTime = Date.now();
+        let pipelineErrorCount = 0;
+        let pipelineResult: string;
         try {
-          pipelineResult = await AgentOrchestrator.sequential(config.agents, config.task)
+          pipelineResult = await AgentOrchestrator.sequential(
+            config.agents,
+            config.task
+          );
         } catch (err) {
-          pipelineErrorCount = 1
-          throw err
+          pipelineErrorCount = 1;
+          throw err;
         }
         return {
           result: pipelineResult,
           metrics: {
-            topology: 'pipeline',
+            topology: "pipeline",
             totalDurationMs: Date.now() - startTime,
             agentCount: config.agents.length,
             messageCount: config.agents.length,
             errorCount: pipelineErrorCount,
           },
-        }
+        };
       }
 
-      case 'star': {
-        const startTime = Date.now()
-        let starErrorCount = 0
-        let starResult: string
+      case "star": {
+        const startTime = Date.now();
+        let starErrorCount = 0;
+        let starResult: string;
         try {
-          starResult = await AgentOrchestrator.parallel(config.agents, config.task)
+          starResult = await AgentOrchestrator.parallel(
+            config.agents,
+            config.task
+          );
         } catch (err) {
-          starErrorCount = 1
-          throw err
+          starErrorCount = 1;
+          throw err;
         }
         return {
           result: starResult,
           metrics: {
-            topology: 'star',
+            topology: "star",
             totalDurationMs: Date.now() - startTime,
             agentCount: config.agents.length,
             messageCount: config.agents.length,
             errorCount: starErrorCount,
           },
-        }
+        };
       }
 
-      case 'hierarchical': {
+      case "hierarchical": {
         // Hierarchical uses the first agent as coordinator, rest as workers
         if (config.agents.length < 2) {
           throw new OrchestrationError(
-            'Hierarchical topology requires at least 2 agents (1 coordinator + 1 worker)',
-            'topology-hierarchical',
-          )
+            "Hierarchical topology requires at least 2 agents (1 coordinator + 1 worker)",
+            "topology-hierarchical"
+          );
         }
-        const startTime = Date.now()
-        const [coordinator, ...workers] = config.agents
-        let hierarchicalErrorCount = 0
-        let supervisorResult: SupervisorResult
+        const startTime = Date.now();
+        const [coordinator, ...workers] = config.agents;
+        let hierarchicalErrorCount = 0;
+        let supervisorResult: SupervisorResult;
         try {
-          supervisorResult = await AgentOrchestrator.supervisor(omitUndefined({
-            manager: coordinator!,
-            specialists: workers,
-            task: config.task,
-            signal: config.signal,
-          }))
+          supervisorResult = await AgentOrchestrator.supervisor(
+            omitUndefined({
+              manager: coordinator!,
+              specialists: workers,
+              task: config.task,
+              signal: config.signal,
+            })
+          );
         } catch (err) {
-          hierarchicalErrorCount = 1
-          throw err
+          hierarchicalErrorCount = 1;
+          throw err;
         }
         return {
           result: supervisorResult.content,
           metrics: {
-            topology: 'hierarchical',
+            topology: "hierarchical",
             totalDurationMs: Date.now() - startTime,
             agentCount: config.agents.length,
             messageCount: workers.length + 1,
             errorCount: hierarchicalErrorCount,
+            // Forward the supervisor's routing decision for observability/audit
+            // (W7). Omitted when no routing/circuit-breaker step ran.
+            ...(supervisorResult.routingDecisionId !== undefined
+              ? { routingDecisionId: supervisorResult.routingDecisionId }
+              : {}),
           },
-        }
+        };
       }
 
       default: {
         // Exhaustive check
-        const _exhaustive: never = topology
+        const _exhaustive: never = topology;
         throw new OrchestrationError(
           `Unknown topology: ${_exhaustive as string}`,
-          'topology-mesh',
-        )
+          "topology-mesh"
+        );
       }
     }
   }
@@ -329,9 +362,9 @@ export class TopologyExecutor {
   private static createThrownFailureResult(
     config: TopologyExecutorConfig,
     topology: TopologyType,
-    err: unknown,
+    err: unknown
   ): ExecuteResult {
-    const errMsg = err instanceof Error ? err.message : String(err)
+    const errMsg = err instanceof Error ? err.message : String(err);
 
     return {
       result: `[error: ${errMsg}]`,
@@ -342,36 +375,36 @@ export class TopologyExecutor {
         messageCount: TopologyExecutor.estimatedMessageCount(config, topology),
         errorCount: config.agents.length,
       },
-    }
+    };
   }
 
   private static estimatedMessageCount(
     config: TopologyExecutorConfig,
-    topology: TopologyType,
+    topology: TopologyType
   ): number {
     switch (topology) {
-      case 'hierarchical':
-        return config.agents.length > 0 ? config.agents.length : 0
-      case 'pipeline':
-      case 'star':
-      case 'mesh':
-        return config.agents.length
-      case 'ring':
-        return config.agents.length * (config.maxRounds ?? 3)
+      case "hierarchical":
+        return config.agents.length > 0 ? config.agents.length : 0;
+      case "pipeline":
+      case "star":
+      case "mesh":
+        return config.agents.length;
+      case "ring":
+        return config.agents.length * (config.maxRounds ?? 3);
     }
   }
 
   private static selectRetryTopology(
     failedTopology: TopologyType,
-    recommendation: ReturnType<TopologyAnalyzer['analyze']>,
+    recommendation: ReturnType<TopologyAnalyzer["analyze"]>
   ): TopologyType | undefined {
     if (recommendation.recommended !== failedTopology) {
-      return recommendation.recommended
+      return recommendation.recommended;
     }
 
     return recommendation.alternatives.find(
-      (alternative) => alternative.topology !== failedTopology,
-    )?.topology
+      (alternative) => alternative.topology !== failedTopology
+    )?.topology;
   }
 
   /**
@@ -380,7 +413,7 @@ export class TopologyExecutor {
    */
   private static inferCharacteristics(
     config: TopologyExecutorConfig,
-    _failedTopology: TopologyType,
+    _failedTopology: TopologyType
   ): TaskCharacteristics {
     // Build characteristics that steer away from the failed topology
     // by inverting the traits that would have selected it
@@ -391,15 +424,18 @@ export class TopologyExecutor {
       coordinationComplexity: 0.3,
       speedPriority: 0.7,
       sequentialNature: 0.3,
-    }
+    };
   }
 
-  private static checkAborted(signal: AbortSignal | undefined, pattern: TopologyType | string): void {
+  private static checkAborted(
+    signal: AbortSignal | undefined,
+    pattern: TopologyType | string
+  ): void {
     if (signal?.aborted) {
       throw new OrchestrationError(
         `Execution aborted`,
-        pattern as 'topology-mesh',
-      )
+        pattern as "topology-mesh"
+      );
     }
   }
 }

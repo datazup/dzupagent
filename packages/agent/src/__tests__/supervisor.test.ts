@@ -341,6 +341,70 @@ describe("AgentOrchestrator.supervisor", () => {
     expect(breaker.getState("flaky")).toBe("open");
   });
 
+  it("captures a circuit-breaker routingDecisionId when the breaker filters a specialist", async () => {
+    const managerModel = createMockModel([{ content: "Breaker-routed." }]);
+    const manager = createAgent("manager", "Orchestrates work", managerModel);
+    const healthy = createAgent(
+      "healthy",
+      "Healthy specialist",
+      createMockModel([{ content: "ok" }])
+    );
+    const tripped = createAgent(
+      "tripped",
+      "Tripped specialist",
+      createMockModel([{ content: "never reached" }])
+    );
+    const breaker = new AgentCircuitBreaker({ failureThreshold: 1 });
+    breaker.recordFailure("tripped");
+    expect(breaker.getState("tripped")).toBe("open");
+
+    const result = await AgentOrchestrator.supervisor({
+      manager,
+      specialists: [healthy, tripped],
+      task: "Use available specialists",
+      circuitBreaker: breaker,
+    });
+
+    expect(result.content).toBe("Breaker-routed.");
+    expect(result.routingDecisionId).toMatch(/^circuit-breaker-manager-\d+$/);
+  });
+
+  it("prefers the routing-policy routingDecisionId over the circuit-breaker one when both apply", async () => {
+    const managerModel = createMockModel([{ content: "Both applied." }]);
+    const manager = createAgent("manager", "Orchestrates work", managerModel);
+    const healthy = createAgent(
+      "healthy",
+      "Healthy specialist",
+      createMockModel([{ content: "ok" }])
+    );
+    const tripped = createAgent(
+      "tripped",
+      "Tripped specialist",
+      createMockModel([{ content: "never reached" }])
+    );
+    const breaker = new AgentCircuitBreaker({ failureThreshold: 1 });
+    breaker.recordFailure("tripped");
+
+    const mockRoutingPolicy: RoutingPolicy = {
+      select: vi.fn((_task, candidates) => ({
+        selected: candidates,
+        reason: "policy wins",
+        strategy: "rule",
+        routingDecisionId: "rule-wins-123",
+      })),
+    };
+
+    const result = await AgentOrchestrator.supervisor({
+      manager,
+      specialists: [healthy, tripped],
+      task: "Use available specialists",
+      circuitBreaker: breaker,
+      routingPolicy: mockRoutingPolicy,
+    });
+
+    expect(result.routingDecisionId).toBe("rule-wins-123");
+  });
+
   it("returns routingDecisionId on the result when a routing policy is applied", async () => {
     const managerModel = createMockModel([{ content: "Routed result." }]);
     const specModel = createMockModel([{ content: "spec output" }]);

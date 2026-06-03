@@ -108,6 +108,12 @@ export async function runSupervisor(
     );
   }
 
+  // Capture the routingDecisionId of whichever selection step ran so it can be
+  // persisted on the SupervisorResult for replay/audit (W7 routing-decision
+  // tracing). The circuit-breaker step sets it first; a routing policy (more
+  // specific) overwrites it below when both apply.
+  let capturedRoutingDecisionId: string | undefined;
+
   // Filter specialists through circuit breaker if configured
   if (circuitBreaker) {
     const candidateSpecialists = specialists.map((s) => s.id);
@@ -121,6 +127,8 @@ export async function runSupervisor(
       for (const id of removedIds) {
         cbRejectionReasons[id] = "circuit open";
       }
+      const cbRoutingDecisionId = `circuit-breaker-${manager.id}-${Date.now()}`;
+      capturedRoutingDecisionId = cbRoutingDecisionId;
       eventBus?.emit({
         type: "supervisor:routing_decision",
         managerId: manager.id,
@@ -131,7 +139,7 @@ export async function runSupervisor(
         filteredSpecialists: removedIds,
         candidateSpecialists,
         source: "direct-supervisor",
-        routingDecisionId: `circuit-breaker-${manager.id}-${Date.now()}`,
+        routingDecisionId: cbRoutingDecisionId,
         rejectionReasons: cbRejectionReasons,
       });
       // Log filtered agents for observability when no event bus is wired.
@@ -151,10 +159,6 @@ export async function runSupervisor(
       );
     }
   }
-
-  // Capture routingDecisionId when a routing policy is applied so it can be
-  // persisted in the SupervisorResult for replay/audit (W7 routing-decision tracing).
-  let capturedRoutingDecisionId: string | undefined;
 
   // Apply routing policy if configured to narrow specialist selection
   if (routingPolicy) {
