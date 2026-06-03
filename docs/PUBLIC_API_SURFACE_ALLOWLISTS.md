@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-05-22
+Date: 2026-06-03
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -146,7 +146,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./mcp/mcp-reliability.js` | 3 | `prefix:./mcp/` | `McpReliabilityManager`, `McpServerHealth`, `McpReliabilityConfig` |
 | `deprecated-transitional` | `./mcp/mcp-manager.js` | 3 | `prefix:./mcp/` | `InMemoryMcpManager`, `McpManager`, `InMemoryMcpManagerOptions` |
 | `deprecated-transitional` | `./mcp/mcp-registry-types.js` | 7 | `prefix:./mcp/` | `McpServerDefinitionSchema`, `McpProfileSchema`, `McpServerDefinition`, `McpProfile` |
-| `deprecated-transitional` | `./mcp/mcp-security.js` | 2 | `prefix:./mcp/` | `validateMcpExecutablePath`, `sanitizeMcpEnv` |
+| `deprecated-transitional` | `./mcp/mcp-security.js` | 4 | `prefix:./mcp/` | `validateMcpExecutablePath`, `sanitizeMcpEnv`, `assertMcpCommandAllowed`, `McpStdioArgPolicy` |
 | `stable` | `./security/outbound-url-policy.js` | 8 | `prefix:./security/` | `fetchWithOutboundUrlPolicy`, `isPublicIpAddress`, `validateOutboundUrl`, `validateOutboundUrlSyntax` |
 | `deprecated-transitional` | `./mcp/mcp-resources.js` | 2 | `prefix:./mcp/` | `MCPResourceClient`, `MCPResourceClientConfig` |
 | `deprecated-transitional` | `./mcp/mcp-resource-types.js` | 5 | `prefix:./mcp/` | `MCPResource`, `MCPResourceTemplate`, `MCPResourceContent`, `ResourceSubscription` |
@@ -738,7 +738,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./skills/compilers/cli-skill-compiler.js` | 2 | `prefix:./skills/` | `CliSkillCompiler`, `isCliProviderId` |
 | `deprecated-transitional` | `./policy/index.js` | 9 | `prefix:./policy/` | `compilePolicyForProvider`, `compilePolicyForAll`, `AdapterPolicy`, `CompiledPolicyOverrides` |
 | `deprecated-transitional` | `./utils/batched-event-emitter.js` | 2 | `prefix:./utils/` | `BatchedEventEmitter`, `BatchConfig` |
-| `deprecated-transitional` | `./dzupagent/index.js` | 39 | `prefix:./dzupagent/` | `WorkspaceResolver`, `loadDzupAgentConfig`, `getCodexMemoryStrategy`, `getMaxMemoryTokens` |
+| `deprecated-transitional` | `./dzupagent/index.js` | 40 | `prefix:./dzupagent/` | `WorkspaceResolver`, `loadDzupAgentConfig`, `loadConfig`, `getCodexMemoryStrategy` |
 | `deprecated-transitional` | `./interaction/interaction-resolver.js` | 3 | `prefix:./interaction/` | `InteractionResolver`, `InteractionRequest`, `InteractionResult` |
 | `deprecated-transitional` | `./interaction/interaction-detector.js` | 3 | `prefix:./interaction/` | `classifyInteractionText`, `detectCliInteraction`, `InteractionKind` |
 | `stable` | `./runs/run-event-store.js` | 1 | `prefix:./runs/` | `RunEventStore` |

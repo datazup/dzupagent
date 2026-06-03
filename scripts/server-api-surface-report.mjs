@@ -24,7 +24,10 @@ function parseExportNames(spec) {
 
 function parseServerIndex(indexText) {
   const entries = []
-  const exportBlockRe = /export(?:\s+type)?\s*\{([\s\S]*?)\}\s*from\s*'([^']+)'/g
+  // Module specifier may be single- or double-quoted (the repo's prettier
+  // config quotes with double quotes); match either so reformatting a barrel
+  // does not silently drop its exports from the surface inventory.
+  const exportBlockRe = /export(?:\s+type)?\s*\{([\s\S]*?)\}\s*from\s*['"]([^'"]+)['"]/g
 
   let match
   while ((match = exportBlockRe.exec(indexText)) !== null) {
