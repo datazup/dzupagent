@@ -39,8 +39,8 @@ No stable subpaths configured.
 
 Root index: `packages/core/src/index.ts`
 
-- Stable root sources: `1`
-- Deprecated transitional root sources: `0`
+- Stable root sources: `49`
+- Deprecated transitional root sources: `88`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
 
@@ -59,14 +59,152 @@ Root index: `packages/core/src/index.ts`
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
+| `stable` | `./config/container.js` | 2 | `prefix:./config/` | `ForgeContainer`, `createContainer` |
+| `stable` | `./errors/forge-error.js` | 2 | `prefix:./errors/` | `ForgeError`, `ForgeErrorOptions` |
+| `stable` | `./errors/error-codes.js` | 1 | `prefix:./errors/` | `ForgeErrorCode` |
+| `stable` | `./events/event-bus.js` | 3 | `prefix:./events/` | `createEventBus`, `typedEmit`, `DzupEventBus` |
+| `stable` | `./events/event-types.js` | 9 | `prefix:./events/` | `AdapterProgressDzupEvent`, `AdapterRuntimeDzupEvent`, `DzupEvent`, `DzupEventOf` |
+| `stable` | `./events/llm-audit-bridge.js` | 2 | `prefix:./events/` | `attachLlmAuditEventBridge`, `LlmAuditSink` |
+| `stable` | `./events/degraded-operation.js` | 1 | `prefix:./events/` | `emitDegradedOperation` |
+| `stable` | `./events/tool-event-correlation.js` | 3 | `prefix:./events/` | `requireTerminalToolExecutionRunId`, `TerminalToolExecutionRunIdOptions`, `TerminalToolEventType` |
+| `stable` | `./events/agent-bus.js` | 3 | `prefix:./events/` | `AgentBus`, `AgentMessage`, `AgentMessageHandler` |
+| `stable` | `./hooks/hook-types.js` | 2 | `prefix:./hooks/` | `AgentHooks`, `HookContext` |
+| `stable` | `./hooks/hook-runner.js` | 3 | `prefix:./hooks/` | `runHooks`, `runModifierHook`, `mergeHooks` |
+| `stable` | `./plugin/plugin-types.js` | 2 | `prefix:./plugin/` | `DzupPlugin`, `PluginContext` |
+| `stable` | `./plugin/plugin-registry.js` | 1 | `prefix:./plugin/` | `PluginRegistry` |
+| `stable` | `./plugin/plugin-discovery.js` | 6 | `prefix:./plugin/` | `discoverPlugins`, `validateManifest`, `resolvePluginOrder`, `PluginManifest` |
+| `stable` | `./plugin/plugin-manifest.js` | 2 | `prefix:./plugin/` | `createManifest`, `serializeManifest` |
+| `stable` | `./llm/model-registry.js` | 2 | `prefix:./llm/` | `ModelRegistry`, `ModelFallbackCandidate` |
+| `stable` | `./llm/harness-profile.js` | 7 | `prefix:./llm/` | `HarnessProfileRegistry`, `HarnessProfile`, `ResolvedHarnessOverrides`, `SystemPromptOverride` |
+| `stable` | `./llm/model-config.js` | 9 | `prefix:./llm/` | `KnownLLMProvider`, `LLMProviderConfig`, `LLMProviderName`, `ModelTier` |
+| `stable` | `./llm/circuit-breaker.js` | 4 | `prefix:./llm/` | `CircuitBreaker`, `KeyedCircuitBreaker`, `CircuitBreakerConfig`, `CircuitState` |
+| `deprecated-transitional` | `./rate-limit/token-bucket.js` | 2 | `exact:./rate-limit/token-bucket.js` | `TokenBucket`, `TokenBucketConfig` |
+| `stable` | `./llm/invoke.js` | 5 | `prefix:./llm/` | `invokeWithTimeout`, `extractTokenUsage`, `estimateTokens`, `TokenUsage` |
+| `stable` | `./llm/resilient-invoker.js` | 2 | `prefix:./llm/` | `ResilientModelInvoker`, `ResilientInvokerOptions` |
+| `stable` | `./llm/tokenizer.js` | 5 | `prefix:./llm/` | `HeuristicTokenizer`, `AnthropicTokenizer`, `TiktokenTokenizer`, `Tokenizer` |
+| `stable` | `./llm/tokenizer-registry.js` | 2 | `prefix:./llm/` | `TokenizerRegistry`, `defaultTokenizerRegistry` |
+| `stable` | `./llm/retry.js` | 4 | `prefix:./llm/` | `isTransientError`, `isContextLengthError`, `DEFAULT_RETRY_CONFIG`, `RetryConfig` |
+| `stable` | `./llm/registry-middleware.js` | 4 | `prefix:./llm/` | `RegistryMiddleware`, `MiddlewareContext`, `MiddlewareResult`, `MiddlewareTokenUsage` |
+| `stable` | `./llm/embedding-registry.js` | 4 | `prefix:./llm/` | `EmbeddingRegistry`, `createDefaultEmbeddingRegistry`, `COMMON_EMBEDDING_MODELS`, `EmbeddingModelEntry` |
+| `stable` | `./llm/structured-output-capabilities.js` | 5 | `prefix:./llm/` | `attachStructuredOutputCapabilities`, `getProviderStructuredOutputDefaults`, `getStructuredOutputDefaultsForProviderName`, `isKnownLLMProvider` |
+| `stable` | `./prompt/prompt-fragments.js` | 11 | `prefix:./prompt/` | `FRAGMENT_CORE_PRINCIPLES`, `FRAGMENT_SECURITY_CHECKLIST`, `FRAGMENT_SIMPLICITY`, `FRAGMENT_READ_DISCIPLINE` |
+| `stable` | `./prompt/fragment-composer.js` | 4 | `prefix:./prompt/` | `composeAdvancedFragments`, `validateFragments`, `ComposableFragment`, `ComposeResult` |
+| `stable` | `./prompt/template-engine.js` | 4 | `prefix:./prompt/` | `resolveTemplate`, `extractVariables`, `validateTemplate`, `flattenContext` |
+| `stable` | `./prompt/template-resolver.js` | 3 | `prefix:./prompt/` | `PromptResolver`, `PromptStore`, `ResolutionLevel` |
+| `stable` | `./prompt/template-cache.js` | 1 | `prefix:./prompt/` | `PromptCache` |
+| `stable` | `./prompt/template-types.js` | 6 | `prefix:./prompt/` | `TemplateVariable`, `TemplateContext`, `ResolvedPrompt`, `StoredTemplate` |
+| `deprecated-transitional` | `./context/run-context-transfer.js` | 4 | `prefix:./context/` | `RunContextTransfer`, `INTENT_CONTEXT_CHAINS`, `RunContextTransferConfig`, `PersistedIntentContext` |
+| `deprecated-transitional` | `./middleware/types.js` | 1 | `prefix:./middleware/` | `AgentMiddleware` |
+| `deprecated-transitional` | `./middleware/cost-tracking.js` | 3 | `prefix:./middleware/` | `calculateCostCents`, `getModelCosts`, `CostTracker` |
+| `deprecated-transitional` | `./middleware/langfuse.js` | 3 | `prefix:./middleware/` | `createLangfuseHandler`, `LangfuseConfig`, `LangfuseHandlerOptions` |
+| `deprecated-transitional` | `./middleware/cost-attribution.js` | 5 | `prefix:./middleware/` | `CostAttributionCollector`, `CostAttribution`, `CostReport`, `CostBucket` |
+| `deprecated-transitional` | `./persistence/checkpointer.js` | 2 | `prefix:./persistence/` | `createCheckpointer`, `CheckpointerConfig` |
+| `deprecated-transitional` | `./persistence/session.js` | 1 | `prefix:./persistence/` | `SessionManager` |
+| `deprecated-transitional` | `./persistence/working-memory.js` | 2 | `prefix:./persistence/` | `WorkingMemory`, `createWorkingMemory` |
+| `deprecated-transitional` | `./persistence/working-memory-types.js` | 2 | `prefix:./persistence/` | `WorkingMemoryConfig`, `WorkingMemorySnapshot` |
+| `deprecated-transitional` | `./persistence/in-memory-store.js` | 2 | `prefix:./persistence/` | `InMemoryRunStore`, `InMemoryAgentStore` |
+| `deprecated-transitional` | `./persistence/store-interfaces.js` | 9 | `prefix:./persistence/` | `RunStore`, `Run`, `CreateRunInput`, `RunFilter` |
+| `deprecated-transitional` | `./persistence/event-log.js` | 4 | `prefix:./persistence/` | `InMemoryEventLog`, `EventLogSink`, `RunEvent`, `EventLogStore` |
+| `deprecated-transitional` | `./persistence/in-memory-run-journal.js` | 1 | `prefix:./persistence/` | `InMemoryRunJournal` |
+| `deprecated-transitional` | `./persistence/run-journal-bridge.js` | 1 | `prefix:./persistence/` | `RunJournalBridgeRunStore` |
+| `deprecated-transitional` | `./persistence/run-journal.js` | 3 | `prefix:./persistence/` | `createEntryBase`, `isTerminalEntry`, `deserializeEntry` |
+| `deprecated-transitional` | `./persistence/run-journal-types.js` | 20 | `prefix:./persistence/` | `RunJournalEntryType`, `RunJournalEntryBase`, `RunJournalEntry`, `RunStartedEntry` |
+| `deprecated-transitional` | `./persistence/in-memory-run-state-store.js` | 1 | `prefix:./persistence/` | `InMemoryRunStateStore` |
+| `deprecated-transitional` | `./persistence/run-state-store.js` | 4 | `prefix:./persistence/` | `DzupRunState`, `DzupRunStateStore`, `BudgetSnapshot`, `StuckDetectorSnapshot` |
+| `deprecated-transitional` | `./persistence/delta-run-state-store.js` | 2 | `prefix:./persistence/` | `DeltaRunStateStore`, `DeltaRunStateStoreOptions` |
+| `deprecated-transitional` | `./persistence/versioned-context-backend.js` | 7 | `prefix:./persistence/` | `InMemoryVersionedContextBackend`, `VersionedContextBackend`, `ContextArtifact`, `ContextArtifactQuery` |
+| `deprecated-transitional` | `./persistence/in-memory-run-store.js` | 1 | `prefix:./persistence/` | `InMemoryRunRecordStore` |
+| `deprecated-transitional` | `./persistence/run-store.js` | 5 | `prefix:./persistence/` | `RunRecordStore`, `RunRecord`, `StoredRunEvent`, `RunFilters` |
+| `deprecated-transitional` | `./router/intent-router.js` | 3 | `prefix:./router/` | `IntentRouter`, `IntentRouterConfig`, `ClassificationResult` |
+| `deprecated-transitional` | `./router/keyword-matcher.js` | 1 | `prefix:./router/` | `KeywordMatcher` |
+| `deprecated-transitional` | `./router/llm-classifier.js` | 1 | `prefix:./router/` | `LLMClassifier` |
+| `deprecated-transitional` | `./router/cost-aware-router.js` | 6 | `prefix:./router/` | `CostAwareRouter`, `isSimpleTurn`, `scoreComplexity`, `CostAwareResult` |
+| `deprecated-transitional` | `./router/escalation-policy.js` | 3 | `prefix:./router/` | `ModelTierEscalationPolicy`, `EscalationPolicyConfig`, `EscalationResult` |
+| `deprecated-transitional` | `./streaming/sse-transformer.js` | 1 | `prefix:./streaming/` | `SSETransformer` |
+| `deprecated-transitional` | `./streaming/event-types.js` | 5 | `prefix:./streaming/` | `StandardSSEEvent`, `StandardEventType`, `FileStreamStartPayload`, `FileStreamChunkPayload` |
+| `deprecated-transitional` | `./subagent/subagent-spawner.js` | 1 | `prefix:./subagent/` | `SubAgentSpawner` |
+| `deprecated-transitional` | `./subagent/subagent-types.js` | 4 | `prefix:./subagent/` | `REACT_DEFAULTS`, `SubAgentConfig`, `SubAgentResult`, `SubAgentUsage` |
+| `deprecated-transitional` | `./subagent/file-merge.js` | 2 | `prefix:./subagent/` | `mergeFileChanges`, `fileDataReducer` |
+| `deprecated-transitional` | `./skills/skill-loader.js` | 1 | `prefix:./skills/` | `SkillLoader` |
+| `deprecated-transitional` | `./skills/skill-injector.js` | 1 | `prefix:./skills/` | `injectSkills` |
+| `deprecated-transitional` | `./skills/skill-types.js` | 4 | `prefix:./skills/` | `SkillDefinition`, `SkillRegistryEntry`, `LoadedSkill`, `SkillMatch` |
+| `deprecated-transitional` | `./skills/skill-registry.js` | 1 | `prefix:./skills/` | `SkillRegistry` |
+| `deprecated-transitional` | `./skills/skill-directory-loader.js` | 4 | `prefix:./skills/` | `SkillDirectoryLoader`, `parseMarkdownSkill`, `parseJsonSkill`, `SkillDirectoryLoaderOptions` |
+| `deprecated-transitional` | `./skills/skill-manager.js` | 5 | `prefix:./skills/` | `SkillManager`, `SkillManagerConfig`, `CreateSkillInput`, `PatchSkillInput` |
+| `deprecated-transitional` | `./skills/skill-learner.js` | 4 | `prefix:./skills/` | `SkillLearner`, `SkillMetrics`, `SkillExecutionResult`, `SkillLearnerConfig` |
+| `deprecated-transitional` | `./skills/skill-model-v2.js` | 13 | `prefix:./skills/` | `SkillResolutionContext`, `FeatureBrief`, `WorkItem`, `PersonaProfile` |
+| `deprecated-transitional` | `./skills/skill-chain.js` | 7 | `prefix:./skills/` | `createSkillChain`, `validateChain`, `SkillChainBuilder`, `SkillChainStep` |
+| `deprecated-transitional` | `./skills/agents-md-parser.js` | 3 | `prefix:./skills/` | `parseAgentsMd`, `mergeAgentsMdConfigs`, `AgentsMdConfig` |
+| `deprecated-transitional` | `./skills/hierarchical-walker.js` | 2 | `prefix:./skills/` | `discoverAgentConfigs`, `HierarchyLevel` |
+| `deprecated-transitional` | `./skills/workflow-command-parser.js` | 11 | `prefix:./skills/` | `WorkflowCommandParser`, `WorkflowCommandParserConfig`, `WorkflowCommandParseResult`, `WorkflowCommandParseSuccess` |
+| `deprecated-transitional` | `./skills/workflow-registry.js` | 7 | `prefix:./skills/` | `WorkflowRegistry`, `WorkflowRegistryEntry`, `WorkflowRegistrySnapshot`, `WorkflowRegistrationOptions` |
+| `deprecated-transitional` | `./mcp/mcp-client.js` | 1 | `prefix:./mcp/` | `MCPClient` |
+| `deprecated-transitional` | `./mcp/mcp-tool-bridge.js` | 3 | `prefix:./mcp/` | `mcpToolToLangChain`, `mcpToolsToLangChain`, `langChainToolToMcp` |
+| `deprecated-transitional` | `./mcp/deferred-loader.js` | 2 | `prefix:./mcp/` | `DeferredToolLoader`, `DeferredLoaderConfig` |
+| `deprecated-transitional` | `./mcp/mcp-server.js` | 12 | `prefix:./mcp/` | `DzupAgentMCPServer`, `isMCPRequest`, `MCPServerOptions`, `MCPExposedTool` |
+| `deprecated-transitional` | `./mcp/mcp-types.js` | 7 | `prefix:./mcp/` | `MCPTransport`, `MCPServerConfig`, `MCPToolDescriptor`, `MCPToolParameter` |
+| `deprecated-transitional` | `./mcp/mcp-reliability.js` | 3 | `prefix:./mcp/` | `McpReliabilityManager`, `McpServerHealth`, `McpReliabilityConfig` |
+| `deprecated-transitional` | `./mcp/mcp-manager.js` | 3 | `prefix:./mcp/` | `InMemoryMcpManager`, `McpManager`, `InMemoryMcpManagerOptions` |
+| `deprecated-transitional` | `./mcp/mcp-registry-types.js` | 7 | `prefix:./mcp/` | `McpServerDefinitionSchema`, `McpProfileSchema`, `McpServerDefinition`, `McpProfile` |
+| `deprecated-transitional` | `./mcp/mcp-security.js` | 4 | `prefix:./mcp/` | `validateMcpExecutablePath`, `sanitizeMcpEnv`, `assertMcpCommandAllowed`, `McpStdioArgPolicy` |
+| `stable` | `./security/outbound-url-policy.js` | 8 | `prefix:./security/` | `fetchWithOutboundUrlPolicy`, `isPublicIpAddress`, `validateOutboundUrl`, `validateOutboundUrlSyntax` |
+| `deprecated-transitional` | `./mcp/mcp-resources.js` | 2 | `prefix:./mcp/` | `MCPResourceClient`, `MCPResourceClientConfig` |
+| `deprecated-transitional` | `./mcp/mcp-resource-types.js` | 5 | `prefix:./mcp/` | `MCPResource`, `MCPResourceTemplate`, `MCPResourceContent`, `ResourceSubscription` |
+| `deprecated-transitional` | `./mcp/mcp-prompt-types.js` | 9 | `prefix:./mcp/` | `MCPPromptArgument`, `MCPPromptDescriptor`, `MCPPromptGetResult`, `MCPPromptHandler` |
+| `deprecated-transitional` | `./mcp/mcp-sampling.js` | 8 | `prefix:./mcp/` | `createSamplingHandler`, `registerSamplingHandler`, `MCPSamplingConfig`, `LLMInvokeMessage` |
+| `deprecated-transitional` | `./mcp/mcp-sampling-types.js` | 6 | `prefix:./mcp/` | `MCPSamplingRequest`, `MCPSamplingResponse`, `MCPSamplingContent`, `MCPSamplingMessage` |
+| `stable` | `./security/risk-classifier.js` | 5 | `prefix:./security/` | `createRiskClassifier`, `RiskTier`, `RiskClassification`, `RiskClassifierConfig` |
+| `stable` | `./security/tool-permission-tiers.js` | 3 | `prefix:./security/` | `DEFAULT_AUTO_APPROVE_TOOLS`, `DEFAULT_LOG_TOOLS`, `DEFAULT_REQUIRE_APPROVAL_TOOLS` |
+| `stable` | `./security/secrets-scanner.js` | 4 | `prefix:./security/` | `scanForSecrets`, `redactSecrets`, `SecretMatch`, `ScanResult` |
+| `stable` | `./logging/secure-logger.js` | 5 | `exact:./logging/secure-logger.js` | `createSecureLogger`, `logger`, `SecureLogger`, `SecureLogEntry` |
+| `stable` | `./security/pii-detector.js` | 5 | `prefix:./security/` | `detectPII`, `redactPII`, `PIIType`, `PIIMatch` |
+| `stable` | `./security/output-pipeline.js` | 5 | `prefix:./security/` | `OutputPipeline`, `createDefaultPipeline`, `SanitizationStage`, `OutputPipelineConfig` |
+| `stable` | `./security/audit/index.js` | 11 | `prefix:./security/` | `InMemoryAuditStore`, `ComplianceAuditLogger`, `AuditActorType`, `AuditActor` |
+| `stable` | `./security/policy/index.js` | 15 | `prefix:./security/` | `InMemoryPolicyStore`, `PolicyEvaluator`, `PolicyTranslator`, `PolicyEffect` |
+| `stable` | `./security/monitor/index.js` | 11 | `prefix:./security/` | `createSafetyMonitor`, `getBuiltInRules`, `SafetyMonitor`, `SafetyMonitorConfig` |
+| `stable` | `@dzupagent/security` | 1 | `exact:@dzupagent/security` | `SecurityPolicyConfig` |
+| `stable` | `./security/memory/index.js` | 7 | `prefix:./security/` | `createMemoryDefense`, `MemoryDefense`, `MemoryDefenseConfig`, `MemoryDefenseResult` |
+| `stable` | `./security/output/index.js` | 3 | `prefix:./security/` | `createHarmfulContentFilter`, `createClassificationAwareRedactor`, `HarmfulContentCategory` |
+| `stable` | `./security/classification/index.js` | 6 | `prefix:./security/` | `DataClassifier`, `DEFAULT_CLASSIFICATION_PATTERNS`, `ClassificationLevel`, `DataClassificationTag` |
+| `deprecated-transitional` | `./observability/metrics-collector.js` | 3 | `prefix:./observability/` | `MetricsCollector`, `globalMetrics`, `MetricType` |
+| `deprecated-transitional` | `./observability/health-aggregator.js` | 5 | `prefix:./observability/` | `HealthAggregator`, `HealthStatus`, `HealthCheck`, `HealthReport` |
+| `deprecated-transitional` | `./concurrency/semaphore.js` | 1 | `prefix:./concurrency/` | `Semaphore` |
+| `deprecated-transitional` | `./concurrency/pool.js` | 3 | `prefix:./concurrency/` | `ConcurrencyPool`, `PoolConfig`, `PoolStats` |
+| `deprecated-transitional` | `./output/format-adapter.js` | 6 | `prefix:./output/` | `OutputFormat`, `FormatAdapter`, `FormatValidationResult`, `FORMAT_ADAPTERS` |
+| `deprecated-transitional` | `./i18n/locale-manager.js` | 5 | `prefix:./i18n/` | `Locale`, `LocaleConfig`, `LocaleStrings`, `EN_STRINGS` |
+| `stable` | `./config/index.js` | 11 | `prefix:./config/` | `DEFAULT_CONFIG`, `loadEnvConfig`, `loadFileConfig`, `mergeConfigs` |
+| `deprecated-transitional` | `./identity/index.js` | 58 | `prefix:./identity/` | `toIdentityRef`, `ForgeIdentity`, `ForgeCredential`, `ForgeCapability` |
+| `deprecated-transitional` | `./protocol/index.js` | 62 | `prefix:./protocol/` | `ForgeMessageUriSchema`, `ForgeMessageMetadataSchema`, `ForgePayloadSchema`, `ForgeMessageSchema` |
+| `deprecated-transitional` | `./registry/index.js` | 31 | `prefix:./registry/` | `InMemoryRegistry`, `CapabilityMatcher`, `compareSemver`, `STANDARD_CAPABILITIES` |
+| `deprecated-transitional` | `./flow/index.js` | 10 | `prefix:./flow/` | `SkillHandle`, `McpToolHandle`, `WorkflowHandle`, `ResolvedAgentHandle` |
+| `deprecated-transitional` | `./pipeline/index.js` | 44 | `prefix:./pipeline/` | `NodeRetryPolicy`, `PipelineNodeBase`, `AgentNode`, `ToolNode` |
+| `deprecated-transitional` | `./formats/index.js` | 62 | `prefix:./formats/` | `// Agent Card V2
+  AgentCardV2Schema`, `validateAgentCard`, `// Tool Format Adapters
+  zodToJsonSchema`, `jsonSchemaToZod` |
+| `deprecated-transitional` | `./structured/index.js` | 7 | `prefix:./structured/` | `JsonOutputSchema`, `RegexOutputSchema`, `extractJsonFromMarkdown`, `toSchemaRef` |
+| `deprecated-transitional` | `./vectordb/index.js` | 45 | `prefix:./vectordb/` | `DistanceMetric`, `CollectionConfig`, `VectorEntry`, `VectorQuery` |
+| `deprecated-transitional` | `./tools/connector-contract.js` | 5 | `prefix:./tools/` | `BaseConnectorTool`, `BaseConnectorToolLike`, `isBaseConnectorTool`, `normalizeBaseConnectorTool` |
+| `deprecated-transitional` | `./tools/create-tool.js` | 2 | `prefix:./tools/` | `createForgeTool`, `ForgeToolConfig` |
+| `deprecated-transitional` | `./tools/permission-tier.js` | 2 | `prefix:./tools/` | `tierSatisfies`, `PermissionTier` |
+| `deprecated-transitional` | `./tools/tool-stats-tracker.js` | 5 | `prefix:./tools/` | `ToolStatsTracker`, `ToolCallRecord`, `ToolStats`, `ToolRanking` |
+| `deprecated-transitional` | `./tools/tool-governance.js` | 9 | `prefix:./tools/` | `ToolGovernance`, `ToolGovernanceConfig`, `ToolValidationResult`, `ToolAuditHandler` |
+| `deprecated-transitional` | `./tools/human-contact-types.js` | 17 | `prefix:./tools/` | `ContactType`, `ContactChannel`, `ApprovalRequest`, `ClarificationRequest` |
+| `deprecated-transitional` | `./telemetry/trace-propagation.js` | 5 | `prefix:./telemetry/` | `injectTraceContext`, `extractTraceContext`, `formatTraceparent`, `parseTraceparent` |
+| `deprecated-transitional` | `./utils/logger.js` | 3 | `prefix:./utils/` | `defaultLogger`, `noopLogger`, `FrameworkLogger` |
+| `deprecated-transitional` | `./utils/backoff.js` | 2 | `prefix:./utils/` | `calculateBackoff`, `BackoffConfig` |
+| `deprecated-transitional` | `./utils/hash.js` | 1 | `prefix:./utils/` | `hashToolInput` |
+| `deprecated-transitional` | `./utils/exact-optional.js` | 2 | `prefix:./utils/` | `omitUndefined`, `OmitUndefined` |
+| `deprecated-transitional` | `./utils/event-record.js` | 4 | `prefix:./utils/` | `getString`, `getNumber`, `getObject`, `toJsonString` |
+| `deprecated-transitional` | `./utils/parse-jsonl.js` | 3 | `prefix:./utils/` | `parseJsonl`, `ParseJsonlOptions`, `ParseJsonlSkipReason` |
+| `deprecated-transitional` | `./guardrails/stuck-detector.js` | 3 | `prefix:./guardrails/` | `StuckDetector`, `StuckStatus`, `StuckDetectorConfig` |
 | `stable` | `<local>:dzupagent_CORE_VERSION` | 1 | `exact:<local>:dzupagent_CORE_VERSION` | `dzupagent_CORE_VERSION` |
 
 ## @dzupagent/agent
 
 Root index: `packages/agent/src/index.ts`
 
-- Stable root sources: `1`
-- Deprecated transitional root sources: `0`
+- Stable root sources: `13`
+- Deprecated transitional root sources: `90`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction.
 
@@ -88,6 +226,108 @@ Root index: `packages/agent/src/index.ts`
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
+| `stable` | `./agent/dzip-agent.js` | 1 | `exact:./agent/dzip-agent.js` | `DzupAgent` |
+| `stable` | `./agent/agent-factory.js` | 1 | `exact:./agent/agent-factory.js` | `createAgentWithMemory` |
+| `stable` | `./agent/agent-types.js` | 11 | `exact:./agent/agent-types.js` | `DzupAgentConfig`, `AgentMailboxConfig`, `ArrowMemoryConfig`, `GenerateOptions` |
+| `deprecated-transitional` | `./agent/memory-profiles.js` | 4 | `prefix:./agent/` | `getMemoryProfilePreset`, `resolveArrowMemoryConfig`, `MemoryProfile`, `MemoryProfilePreset` |
+| `deprecated-transitional` | `./agent/production-tool-governance-preset.js` | 6 | `prefix:./agent/` | `createAllowlistPermissionPolicy`, `createProductionToolGovernancePreset`, `withProductionToolGovernancePreset`, `ProductionToolGovernancePreset` |
+| `deprecated-transitional` | `./agent/tool-loop.js` | 5 | `prefix:./agent/` | `runToolLoop`, `ToolLoopConfig`, `ToolLoopResult`, `ToolStat` |
+| `deprecated-transitional` | `./agent/tool-loop/output-validator.js` | 3 | `prefix:./agent/` | `ToolOutputValidator`, `ToolOutputSchema`, `ToolOutputValidationResult` |
+| `deprecated-transitional` | `./agent/tool-timeout-error.js` | 3 | `prefix:./agent/` | `TOOL_TIMEOUT_ERROR_CODE`, `ToolTimeoutError`, `isToolTimeoutError` |
+| `stable` | `./agent/run-handle-types.js` | 9 | `exact:./agent/run-handle-types.js` | `RunHandle`, `RunResult`, `LaunchOptions`, `Unsubscribe` |
+| `deprecated-transitional` | `./agent/run-handle.js` | 1 | `prefix:./agent/` | `ConcreteRunHandle` |
+| `deprecated-transitional` | `./agent/parallel-executor.js` | 5 | `prefix:./agent/` | `executeToolsParallel`, `ParallelToolCall`, `ToolExecutionResult`, `ToolLookup` |
+| `deprecated-transitional` | `./agent/tool-arg-validator.js` | 4 | `prefix:./agent/` | `validateAndRepairToolArgs`, `formatSchemaHint`, `ValidationResult`, `ToolArgValidatorConfig` |
+| `stable` | `./guardrails/iteration-budget.js` | 1 | `exact:./guardrails/iteration-budget.js` | `IterationBudget` |
+| `deprecated-transitional` | `./guardrails/stuck-detector.js` | 3 | `prefix:./guardrails/` | `StuckDetector`, `StuckDetectorConfig`, `StuckStatus` |
+| `deprecated-transitional` | `./agent/stuck-error.js` | 3 | `prefix:./agent/` | `StuckError`, `EscalationLevel`, `RecoveryAction` |
+| `deprecated-transitional` | `./guardrails/cascading-timeout.js` | 2 | `prefix:./guardrails/` | `CascadingTimeout`, `CascadingTimeoutConfig` |
+| `stable` | `./guardrails/guardrail-types.js` | 4 | `exact:./guardrails/guardrail-types.js` | `GuardrailConfig`, `BudgetState`, `BudgetWarning`, `DistributedGuardrailConfig` |
+| `deprecated-transitional` | `./guardrails/distributed-rate-limiter.js` | 4 | `prefix:./guardrails/` | `DistributedRateLimiter`, `RateLimiterClient`, `LocalRateLimiter`, `DistributedRateLimiterConfig` |
+| `deprecated-transitional` | `./guardrails/distributed-budget.js` | 4 | `prefix:./guardrails/` | `DistributedCostLedger`, `CostLedgerClient`, `DistributedCostLedgerConfig`, `CostLedgerRecordResult` |
+| `stable` | `./workflow/workflow-builder.js` | 5 | `prefix:./workflow/` | `WorkflowBuilder`, `CompiledWorkflow`, `createWorkflow`, `WorkflowConfig` |
+| `stable` | `./workflow/workflow-types.js` | 4 | `prefix:./workflow/` | `WorkflowStep`, `WorkflowContext`, `WorkflowEvent`, `MergeStrategy` |
+| `deprecated-transitional` | `./orchestration/orchestrator.js` | 4 | `prefix:./orchestration/` | `AgentOrchestrator`, `MergeFn`, `SupervisorConfig`, `SupervisorResult` |
+| `deprecated-transitional` | `./orchestration/orchestration-error.js` | 2 | `prefix:./orchestration/` | `OrchestrationError`, `OrchestrationPattern` |
+| `deprecated-transitional` | `./orchestration/map-reduce.js` | 5 | `prefix:./orchestration/` | `mapReduce`, `mapReduceMulti`, `MapReduceConfig`, `MapReduceResult` |
+| `deprecated-transitional` | `./orchestration/merge-strategies.js` | 7 | `prefix:./orchestration/` | `concatMerge`, `voteMerge`, `numberedMerge`, `jsonArrayMerge` |
+| `deprecated-transitional` | `./orchestration/contract-net/contract-net-manager.js` | 1 | `prefix:./orchestration/` | `ContractNetManager` |
+| `deprecated-transitional` | `./orchestration/contract-net/bid-strategies.js` | 4 | `prefix:./orchestration/` | `lowestCostStrategy`, `fastestStrategy`, `highestQualityStrategy`, `createWeightedStrategy` |
+| `deprecated-transitional` | `./orchestration/contract-net/contract-net-types.js` | 8 | `prefix:./orchestration/` | `ContractNetPhase`, `CallForProposals`, `ContractBid`, `ContractAward` |
+| `deprecated-transitional` | `./orchestration/delegating-supervisor.js` | 6 | `prefix:./orchestration/` | `DelegatingSupervisor`, `DelegatingSupervisorConfig`, `TaskAssignment`, `AggregatedDelegationResult` |
+| `deprecated-transitional` | `./orchestration/planning-agent.js` | 14 | `prefix:./orchestration/` | `PlanningAgent`, `buildExecutionLevels`, `validatePlanStructure`, `PlanNodeSchema` |
+| `deprecated-transitional` | `./orchestration/delegation.js` | 10 | `prefix:./orchestration/` | `SimpleDelegationTracker`, `DelegationRequest`, `DelegationResult`, `DelegationContext` |
+| `deprecated-transitional` | `./orchestration/topology/topology-analyzer.js` | 1 | `prefix:./orchestration/` | `TopologyAnalyzer` |
+| `deprecated-transitional` | `./orchestration/topology/topology-executor.js` | 4 | `prefix:./orchestration/` | `TopologyExecutor`, `MeshResult`, `RingResult`, `ExecuteResult` |
+| `deprecated-transitional` | `./orchestration/topology/topology-types.js` | 5 | `prefix:./orchestration/` | `TopologyType`, `TaskCharacteristics`, `TopologyRecommendation`, `TopologyMetrics` |
+| `deprecated-transitional` | `./orchestration/routing-policy-types.js` | 6 | `prefix:./orchestration/` | `AgentSpec`, `AgentTask`, `RoutingDecision`, `RoutingPolicy` |
+| `deprecated-transitional` | `./orchestration/orchestration-merge-strategy-types.js` | 4 | `prefix:./orchestration/` | `AgentResult`, `MergedResult`, `OrchestrationMergeStrategy`, `BuiltInMergeStrategyName` |
+| `deprecated-transitional` | `./orchestration/routing/rule-based-routing.js` | 1 | `prefix:./orchestration/` | `RuleBasedRouting` |
+| `deprecated-transitional` | `./orchestration/routing/hash-routing.js` | 1 | `prefix:./orchestration/` | `HashRouting` |
+| `deprecated-transitional` | `./orchestration/routing/llm-routing.js` | 1 | `prefix:./orchestration/` | `LLMRouting` |
+| `deprecated-transitional` | `./orchestration/routing/round-robin-routing.js` | 1 | `prefix:./orchestration/` | `RoundRobinRouting` |
+| `deprecated-transitional` | `./orchestration/merge/all-required.js` | 1 | `prefix:./orchestration/` | `AllRequiredMergeStrategy` |
+| `deprecated-transitional` | `./orchestration/merge/use-partial.js` | 1 | `prefix:./orchestration/` | `UsePartialMergeStrategy` |
+| `deprecated-transitional` | `./orchestration/merge/first-wins.js` | 1 | `prefix:./orchestration/` | `FirstWinsMergeStrategy` |
+| `deprecated-transitional` | `./orchestration/circuit-breaker.js` | 3 | `prefix:./orchestration/` | `AgentCircuitBreaker`, `CircuitState`, `CircuitBreakerConfig` |
+| `deprecated-transitional` | `./orchestration/provider-adapter/index.js` | 2 | `prefix:./orchestration/` | `ProviderExecutionPort`, `ProviderExecutionResult` |
+| `deprecated-transitional` | `./context/auto-compress.js` | 4 | `prefix:./context/` | `autoCompress`, `FrozenSnapshot`, `AutoCompressConfig`, `CompressResult` |
+| `deprecated-transitional` | `./context/token-lifecycle-integration.js` | 4 | `prefix:./context/` | `withTokenLifecycle`, `TokenLifecycleHooks`, `TokenLifecyclePhase`, `TokenPressureListener` |
+| `stable` | `./approval/approval-gate.js` | 1 | `prefix:./approval/` | `ApprovalGate` |
+| `stable` | `./approval/approval-types.js` | 10 | `prefix:./approval/` | `APPROVAL_PENDING_KEY`, `DEFAULT_APPROVAL_TIMEOUT_MS`, `ApprovalCheckpointStore`, `ApprovalConfig` |
+| `stable` | `./approval/approval-errors.js` | 1 | `prefix:./approval/` | `ApprovalSuspendedError` |
+| `deprecated-transitional` | `./agent/tool-registry.js` | 2 | `prefix:./agent/` | `DynamicToolRegistry`, `ToolRegistryEvent` |
+| `stable` | `./tools/create-tool.js` | 2 | `exact:./tools/create-tool.js` | `createForgeTool`, `ForgeToolConfig` |
+| `deprecated-transitional` | `./tools/human-contact-tool.js` | 5 | `prefix:./tools/` | `createHumanContactTool`, `InMemoryPendingContactStore`, `HumanContactInput`, `HumanContactToolConfig` |
+| `deprecated-transitional` | `./tools/tool-tier-registry.js` | 4 | `prefix:./tools/` | `setToolTier`, `getToolTier`, `filterToolsByTier`, `DEFAULT_TOOL_TIER` |
+| `deprecated-transitional` | `./agent/agent-state.js` | 4 | `prefix:./agent/` | `serializeMessages`, `deserializeMessages`, `AgentStateSnapshot`, `SerializedMessage` |
+| `deprecated-transitional` | `./snapshot/agent-snapshot.js` | 6 | `prefix:./snapshot/` | `createSnapshot`, `verifySnapshot`, `compressSnapshot`, `decompressSnapshot` |
+| `deprecated-transitional` | `./snapshot/serialized-message.js` | 4 | `prefix:./snapshot/` | `serializeMessage`, `migrateMessages`, `SerializedMessage`, `MultimodalContent` |
+| `deprecated-transitional` | `./structured/index.js` | 8 | `prefix:./structured/` | `generateStructured`, `detectStrategy`, `StructuredOutputStrategy`, `StructuredOutputCapabilities` |
+| `deprecated-transitional` | `./tools/tool-schema-registry.js` | 3 | `prefix:./tools/` | `ToolSchemaRegistry`, `ToolSchemaEntry`, `CompatCheckResult` |
+| `deprecated-transitional` | `./streaming/stream-action-parser.js` | 4 | `prefix:./streaming/` | `StreamActionParser`, `StreamedToolCall`, `StreamActionEvent`, `StreamActionParserConfig` |
+| `deprecated-transitional` | `./streaming/streaming-types.js` | 6 | `prefix:./streaming/` | `StreamEvent`, `TextDeltaEvent`, `ToolCallStartEvent`, `ToolCallEndEvent` |
+| `deprecated-transitional` | `./streaming/text-delta-buffer.js` | 1 | `prefix:./streaming/` | `TextDeltaBuffer` |
+| `deprecated-transitional` | `./streaming/streaming-run-handle.js` | 3 | `prefix:./streaming/` | `StreamingRunHandle`, `StreamingStatus`, `StreamingRunHandleOptions` |
+| `deprecated-transitional` | `./templates/agent-templates.js` | 6 | `prefix:./templates/` | `AGENT_TEMPLATES`, `ALL_AGENT_TEMPLATES`, `getAgentTemplate`, `listAgentTemplates` |
+| `deprecated-transitional` | `./templates/template-composer.js` | 1 | `prefix:./templates/` | `composeTemplates` |
+| `deprecated-transitional` | `./templates/template-registry.js` | 1 | `prefix:./templates/` | `TemplateRegistry` |
+| `deprecated-transitional` | `./pipeline/pipeline-validator.js` | 1 | `prefix:./pipeline/` | `validatePipeline` |
+| `deprecated-transitional` | `./pipeline/in-memory-checkpoint-store.js` | 1 | `prefix:./pipeline/` | `InMemoryPipelineCheckpointStore` |
+| `deprecated-transitional` | `./pipeline/pipeline-runtime.js` | 1 | `prefix:./pipeline/` | `PipelineRuntime` |
+| `deprecated-transitional` | `./pipeline/loop-executor.js` | 4 | `prefix:./pipeline/` | `executeLoop`, `stateFieldTruthy`, `qualityBelow`, `hasErrors` |
+| `deprecated-transitional` | `./pipeline/pipeline-runtime-types.js` | 11 | `prefix:./pipeline/` | `PipelineState`, `NodeResult`, `PipelineRunResult`, `NodeExecutor` |
+| `deprecated-transitional` | `./pipeline/step-type-registry.js` | 4 | `prefix:./pipeline/` | `StepTypeRegistry`, `defaultStepTypeRegistry`, `StepContext`, `StepTypeDescriptor` |
+| `deprecated-transitional` | `./pipeline/retry-policy.js` | 4 | `prefix:./pipeline/` | `DEFAULT_RETRY_POLICY`, `calculateBackoff`, `isRetryable`, `resolveRetryPolicy` |
+| `deprecated-transitional` | `./pipeline/pipeline-templates.js` | 8 | `prefix:./pipeline/` | `createCodeReviewPipeline`, `createFeatureGenerationPipeline`, `createTestGenerationPipeline`, `createRefactoringPipeline` |
+| `deprecated-transitional` | `./security/agent-auth.js` | 4 | `prefix:./security/` | `AgentAuth`, `AgentCredential`, `SignedAgentMessage`, `AgentAuthConfig` |
+| `deprecated-transitional` | `./pipeline/pipeline-analytics.js` | 6 | `prefix:./pipeline/` | `PipelineAnalytics`, `NodeMetrics`, `BottleneckEntry`, `PipelineAnalyticsReport` |
+| `deprecated-transitional` | `./orchestration/team/team-workspace.js` | 6 | `prefix:./orchestration/` | `SharedWorkspace`, `WorkspaceSubscriber`, `TeamAgentRole`, `TeamAgentStatus` |
+| `deprecated-transitional` | `./orchestration/team/team-runtime.js` | 10 | `prefix:./orchestration/` | `TeamRuntime`, `DEFAULT_ROUTER_MODEL`, `DEFAULT_PARTICIPANT_MODEL`, `DEFAULT_GOVERNANCE_MODEL` |
+| `deprecated-transitional` | `./orchestration/team/team-definition.js` | 3 | `prefix:./orchestration/` | `CoordinatorPattern`, `ParticipantDefinition`, `TeamDefinition` |
+| `deprecated-transitional` | `./orchestration/team/team-policy.js` | 7 | `prefix:./orchestration/` | `ExecutionPolicy`, `GovernancePolicy`, `MemoryPolicy`, `IsolationPolicy` |
+| `deprecated-transitional` | `./orchestration/team/team-phase.js` | 2 | `prefix:./orchestration/` | `TeamPhase`, `TeamPhaseModel` |
+| `deprecated-transitional` | `./orchestration/team/team-checkpoint.js` | 2 | `prefix:./orchestration/` | `TeamCheckpoint`, `ResumeContract` |
+| `deprecated-transitional` | `./orchestration/team/supervision-policy.js` | 2 | `prefix:./orchestration/` | `SupervisionPolicy`, `AgentBreakerState` |
+| `deprecated-transitional` | `./reflection/run-reflector.js` | 5 | `prefix:./reflection/` | `RunReflector`, `ReflectionScore`, `ReflectionDimensions`, `ReflectionInput` |
+| `deprecated-transitional` | `./reflection/reflection-analyzer.js` | 2 | `prefix:./reflection/` | `ReflectionAnalyzer`, `ReflectionAnalyzerConfig` |
+| `deprecated-transitional` | `./reflection/in-memory-reflection-store.js` | 1 | `prefix:./reflection/` | `InMemoryReflectionStore` |
+| `deprecated-transitional` | `./reflection/reflection-types.js` | 5 | `prefix:./reflection/` | `ReflectionPattern`, `ReflectionSummary`, `RunReflectionStore`, `ReflectionListOptions` |
+| `deprecated-transitional` | `./reflection/learning-bridge.js` | 3 | `prefix:./reflection/` | `createReflectionLearningBridge`, `buildWorkflowEventsFromToolStats`, `ReflectionLearningBridgeConfig` |
+| `deprecated-transitional` | `./recovery/recovery-copilot.js` | 2 | `prefix:./recovery/` | `RecoveryCopilot`, `StrategyGenerator` |
+| `deprecated-transitional` | `./recovery/failure-analyzer.js` | 3 | `prefix:./recovery/` | `FailureAnalyzer`, `FailureHistoryEntry`, `FailureAnalysis` |
+| `deprecated-transitional` | `./recovery/strategy-ranker.js` | 2 | `prefix:./recovery/` | `StrategyRanker`, `RankingWeights` |
+| `deprecated-transitional` | `./recovery/recovery-executor.js` | 3 | `prefix:./recovery/` | `RecoveryExecutor`, `ActionHandler`, `RecoveryExecutorConfig` |
+| `deprecated-transitional` | `./recovery/recovery-types.js` | 10 | `prefix:./recovery/` | `FailureType`, `FailureContext`, `RecoveryActionType`, `RecoveryAction` |
+| `deprecated-transitional` | `./instructions/agents-md-parser.js` | 4 | `prefix:./instructions/` | `parseAgentsMd`, `mergeAgentsMd`, `discoverAgentsMdHierarchy`, `AgentsMdSection` |
+| `deprecated-transitional` | `./instructions/instruction-merger.js` | 2 | `prefix:./instructions/` | `mergeInstructions`, `MergedInstructions` |
+| `deprecated-transitional` | `./instructions/instruction-loader.js` | 3 | `prefix:./instructions/` | `loadAgentsFiles`, `LoadedAgentsFile`, `LoadAgentsOptions` |
+| `deprecated-transitional` | `./presets/index.js` | 11 | `prefix:./presets/` | `AgentPreset`, `PresetRuntimeDeps`, `PresetConfig`, `buildConfigFromPreset` |
+| `deprecated-transitional` | `./skill-chain-executor/index.js` | 21 | `prefix:./skill-chain-executor/` | `executeTextualWorkflow`, `streamTextualWorkflow`, `createSkillChainWorkflow`, `TextualWorkflowOptions` |
+| `deprecated-transitional` | `./cluster/index.js` | 4 | `prefix:./cluster/` | `ClusterRole`, `AgentCluster`, `InMemoryAgentCluster`, `InMemoryAgentClusterConfig` |
+| `deprecated-transitional` | `./mailbox/index.js` | 18 | `prefix:./mailbox/` | `MailMessage`, `MailboxQuery`, `MailboxStore`, `AgentMailbox` |
+| `deprecated-transitional` | `./token-lifecycle-wiring.js` | 4 | `exact:./token-lifecycle-wiring.js` | `createTokenLifecyclePlugin`, `AgentLoopPlugin`, `TokenLifecyclePluginOptions`, `CompressionHintListener` |
+| `deprecated-transitional` | `./observability/index.js` | 10 | `prefix:./observability/` | `RunMetricsAggregator`, `attachRunMetricsBridge`, `InMemoryAuditStore`, `RunSummaryMetrics` |
 | `stable` | `<local>:dzupagent_AGENT_VERSION` | 1 | `exact:<local>:dzupagent_AGENT_VERSION` | `dzupagent_AGENT_VERSION` |
 
 ## @dzupagent/codegen

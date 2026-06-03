@@ -829,7 +829,8 @@
           "coreSkillRegistry",
           "workflowRegistry",
           "skillStepResolver",
-          "compile"
+          "compile",
+          "mcpStdioArgPolicy"
         ],
         "ForgeAutomationRouteFamilyConfig": [
           "a2a",

@@ -29,7 +29,17 @@ generateCapabilityMatrix(ROOT)
 
 const fresh = readFileSync(MATRIX_PATH, 'utf8')
 
-if (committed === fresh) {
+// The header embeds the generation date, which changes daily and would make
+// this gate fail on any day after the file was last committed even when the
+// matrix content is unchanged. Normalize the date stamp out of both sides so
+// the comparison reflects real capability drift only.
+const normalizeDate = (text) =>
+  text.replace(
+    /^Auto-generated on \d{4}-\d{2}-\d{2}\./m,
+    'Auto-generated on <date>.',
+  )
+
+if (normalizeDate(committed) === normalizeDate(fresh)) {
   console.log('CAPABILITY_MATRIX.md is up to date.')
   process.exit(0)
 } else {
