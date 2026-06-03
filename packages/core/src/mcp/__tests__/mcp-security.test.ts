@@ -303,4 +303,15 @@ describe("assertPathWithinRoot", () => {
     expect(caught).toBeInstanceOf(ForgeError);
     expect((caught as ForgeError).code).toBe("MCP_PATH_ESCAPE");
   });
+
+  it("rejects a sibling path that shares the root prefix", () => {
+    // Naive startsWith(root) would allow this; resolve+relative correctly rejects it.
+    expect(() => assertPathWithinRoot(`${ROOT}-evil/secret`, ROOT)).toThrow(
+      ForgeError
+    );
+  });
+
+  it("allows an empty-string path (resolves to root itself)", () => {
+    expect(() => assertPathWithinRoot("", ROOT)).not.toThrow();
+  });
 });
