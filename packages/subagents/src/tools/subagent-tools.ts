@@ -9,7 +9,7 @@ import type { BackgroundSubagentRuntime } from "../runtime/background-subagent-r
  */
 export interface SubagentToolDescriptor<
   TArgs = Record<string, unknown>,
-  TResult = unknown
+  TResult = unknown,
 > {
   name: string;
   description: string;
@@ -32,7 +32,7 @@ export interface SubagentToolsConfig {
  * returns plain serialisable results so the model can reason about them.
  */
 export function createSubagentTools(
-  config: SubagentToolsConfig
+  config: SubagentToolsConfig,
 ): SubagentToolDescriptor[] {
   const { runtime, resolveParentRunId } = config;
 
@@ -72,7 +72,7 @@ export function createSubagentTools(
       const outcome = await runtime.spawn(
         spec,
         resolveParentRunId(),
-        args.ttlMs !== undefined ? { ttlMs: args.ttlMs } : {}
+        args.ttlMs !== undefined ? { ttlMs: args.ttlMs } : {},
       );
       return outcome;
     },
@@ -88,7 +88,11 @@ export function createSubagentTools(
       required: ["taskId"],
     },
     invoke: async ({ taskId }) => {
-      const task = await runtime.check(taskId);
+      // SEC-M-04: scope the lookup to the caller's run so one run cannot read
+      // another run's task by supplying its taskId.
+      const task = await runtime.check(taskId, {
+        parentRunId: resolveParentRunId(),
+      });
       if (!task) {
         return { found: false };
       }
@@ -118,9 +122,11 @@ export function createSubagentTools(
         required: ["taskId"],
       },
       invoke: async ({ taskId, timeoutMs }) => {
+        // SEC-M-04: ownership-scoped await; a foreign taskId resolves to null.
         const task = await runtime.await(
           taskId,
-          timeoutMs !== undefined ? { timeoutMs } : {}
+          timeoutMs !== undefined ? { timeoutMs } : {},
+          { parentRunId: resolveParentRunId() },
         );
         if (!task) {
           return { found: false };
@@ -143,7 +149,10 @@ export function createSubagentTools(
       required: ["taskId"],
     },
     invoke: async ({ taskId }) => {
-      const task = await runtime.cancel(taskId);
+      // SEC-M-04: ownership-scoped cancel; a foreign taskId is a no-op (not_found).
+      const task = await runtime.cancel(taskId, {
+        parentRunId: resolveParentRunId(),
+      });
       return { status: task?.status ?? "not_found" };
     },
   };
