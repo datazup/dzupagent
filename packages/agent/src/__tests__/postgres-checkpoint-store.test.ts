@@ -43,7 +43,7 @@ function createMockClient(responders: Array<(call: RecordedCall) => unknown>) {
 // ---------------------------------------------------------------------------
 
 function makeCheckpoint(
-  overrides: Partial<PipelineCheckpoint> = {},
+  overrides: Partial<PipelineCheckpoint> = {}
 ): PipelineCheckpoint {
   return {
     pipelineRunId: "run-1",
@@ -63,8 +63,9 @@ function makeCheckpoint(
 
 describe("PostgresPipelineCheckpointStore", () => {
   describe("setup()", () => {
-    it("issues CREATE TABLE, the idempotency + loop-state + fork-state migrations, and index DDL using the configured table name", async () => {
+    it("issues CREATE TABLE, the idempotency + loop-state + fork-state + recovery-attempts migrations, and index DDL using the configured table name", async () => {
       const { client, calls } = createMockClient([
+        () => ({ rows: [] }),
         () => ({ rows: [] }),
         () => ({ rows: [] }),
         () => ({ rows: [] }),
@@ -79,27 +80,31 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       await store.setup();
 
-      expect(calls).toHaveLength(6);
+      expect(calls).toHaveLength(7);
       expect(calls[0]!.text).toContain(
-        "CREATE TABLE IF NOT EXISTS my_checkpoints",
+        "CREATE TABLE IF NOT EXISTS my_checkpoints"
       );
       // Backward-compatible migration (W5): adds node_idempotency_keys.
       expect(calls[1]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS node_idempotency_keys",
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS node_idempotency_keys"
       );
       // Backward-compatible migration (W3): adds loop_state.
       expect(calls[2]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS loop_state",
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS loop_state"
       );
       // Backward-compatible migration (W4): adds fork_state.
       expect(calls[3]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS fork_state",
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS fork_state"
       );
+      // Backward-compatible migration (W5-gap): adds recovery_attempts_used.
       expect(calls[4]!.text).toContain(
-        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx",
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS recovery_attempts_used"
       );
       expect(calls[5]!.text).toContain(
-        "CREATE INDEX IF NOT EXISTS my_checkpoints_expiry_idx",
+        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+      );
+      expect(calls[6]!.text).toContain(
+        "CREATE INDEX IF NOT EXISTS my_checkpoints_expiry_idx"
       );
     });
 
@@ -110,7 +115,7 @@ describe("PostgresPipelineCheckpointStore", () => {
           new PostgresPipelineCheckpointStore({
             client,
             tableName: 'evil"; DROP',
-          }),
+          })
       ).toThrow(/Invalid tableName/);
     });
   });
@@ -133,7 +138,7 @@ describe("PostgresPipelineCheckpointStore", () => {
       expect(calls).toHaveLength(1);
       expect(calls[0]!.text).toContain("INSERT INTO pipeline_checkpoints");
       expect(calls[0]!.text).toContain(
-        "ON CONFLICT (pipeline_run_id, version)",
+        "ON CONFLICT (pipeline_run_id, version)"
       );
       expect(calls[0]!.params[0]).toBe("run-1");
       expect(calls[0]!.params[4]).toBe(JSON.stringify(["start"]));
@@ -158,6 +163,21 @@ describe("PostgresPipelineCheckpointStore", () => {
       const expiresAtMs = new Date(expiresAtStr).getTime();
       expect(expiresAtMs).toBeGreaterThanOrEqual(before + 60_000 - 10);
       expect(expiresAtMs).toBeLessThanOrEqual(after + 60_000 + 10);
+    });
+
+    it("includes recoveryAttemptsUsed as param $14 (W5-gap)", async () => {
+      const mock = createMockClient([() => ({ rows: [] })]);
+      const s = new PostgresPipelineCheckpointStore({ client: mock.client });
+      await s.save({ ...makeCheckpoint(), recoveryAttemptsUsed: 3 });
+      // $14 is the last positional param — recovery_attempts_used
+      expect(mock.calls[0]!.params[13]).toBe(3);
+    });
+
+    it("sends 0 for recoveryAttemptsUsed when not set", async () => {
+      const mock = createMockClient([() => ({ rows: [] })]);
+      const s = new PostgresPipelineCheckpointStore({ client: mock.client });
+      await s.save(makeCheckpoint()); // no recoveryAttemptsUsed field
+      expect(mock.calls[0]!.params[13]).toBe(0);
     });
   });
 
@@ -189,7 +209,7 @@ describe("PostgresPipelineCheckpointStore", () => {
       expect(result!.completedNodeIds).toEqual(["a", "b", "c"]);
       expect(calls[0]!.text).toContain("ORDER BY version DESC");
       expect(calls[0]!.text).toContain(
-        "expires_at IS NULL OR expires_at > NOW()",
+        "expires_at IS NULL OR expires_at > NOW()"
       );
     });
 
@@ -225,6 +245,56 @@ describe("PostgresPipelineCheckpointStore", () => {
       expect(result!.budgetState).toEqual({ tokensUsed: 42, costCents: 3 });
       // Date objects are normalised to ISO strings.
       expect(result!.createdAt).toBe("2026-04-24T00:00:00.000Z");
+    });
+
+    it("restores recoveryAttemptsUsed from the row (W5-gap)", async () => {
+      const { client } = createMockClient([
+        () => ({
+          rows: [
+            {
+              pipeline_run_id: "run-1",
+              pipeline_id: "pipeline-1",
+              version: 1,
+              schema_version: "1.0.0",
+              completed_node_ids: ["start"],
+              state: {},
+              suspended_at_node_id: null,
+              budget_state: null,
+              created_at: "2026-04-24T00:00:00.000Z",
+              expires_at: null,
+              recovery_attempts_used: 2,
+            },
+          ],
+        }),
+      ]);
+      const store = new PostgresPipelineCheckpointStore({ client });
+      const result = await store.load("run-1");
+      expect(result!.recoveryAttemptsUsed).toBe(2);
+    });
+
+    it("omits recoveryAttemptsUsed when the column is 0 or null (W5-gap)", async () => {
+      const { client } = createMockClient([
+        () => ({
+          rows: [
+            {
+              pipeline_run_id: "run-1",
+              pipeline_id: "pipeline-1",
+              version: 1,
+              schema_version: "1.0.0",
+              completed_node_ids: [],
+              state: {},
+              suspended_at_node_id: null,
+              budget_state: null,
+              created_at: "2026-04-24T00:00:00.000Z",
+              expires_at: null,
+              recovery_attempts_used: 0,
+            },
+          ],
+        }),
+      ]);
+      const store = new PostgresPipelineCheckpointStore({ client });
+      const result = await store.load("run-1");
+      expect(result!.recoveryAttemptsUsed).toBeUndefined();
     });
   });
 

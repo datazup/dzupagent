@@ -60,6 +60,7 @@ interface CheckpointRow {
   budget_state: { tokensUsed: number; costCents: number } | null;
   created_at: Date | string;
   expires_at: Date | string | null;
+  recovery_attempts_used: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +120,7 @@ export class PostgresPipelineCheckpointStore
         node_idempotency_keys JSONB,
         loop_state JSONB,
         fork_state JSONB,
+        recovery_attempts_used INTEGER DEFAULT 0,
         state JSONB NOT NULL,
         suspended_at_node_id TEXT,
         budget_state JSONB,
@@ -133,11 +135,15 @@ export class PostgresPipelineCheckpointStore
     const addIdempotencyCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS node_idempotency_keys JSONB`;
     const addLoopStateCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS loop_state JSONB`;
     const addForkStateCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS fork_state JSONB`;
+    // W5-gap: persist recovery attempt counter so maxRecoveryAttempts is
+    // enforced across process restarts, not just within a single run.
+    const addRecoveryAttemptsCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS recovery_attempts_used INTEGER DEFAULT 0`;
 
     await this.client.query(createTable);
     await this.client.query(addIdempotencyCol);
     await this.client.query(addLoopStateCol);
     await this.client.query(addForkStateCol);
+    await this.client.query(addRecoveryAttemptsCol);
     await this.client.query(createRunIdx);
     await this.client.query(createExpiryIdx);
   }
@@ -151,9 +157,10 @@ export class PostgresPipelineCheckpointStore
       INSERT INTO ${this.tableName} (
         pipeline_run_id, pipeline_id, version, schema_version,
         completed_node_ids, state, suspended_at_node_id, budget_state,
-        created_at, expires_at, node_idempotency_keys, loop_state, fork_state
+        created_at, expires_at, node_idempotency_keys, loop_state, fork_state,
+        recovery_attempts_used
       )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb)
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14)
       ON CONFLICT (pipeline_run_id, version) DO UPDATE SET
         pipeline_id = EXCLUDED.pipeline_id,
         schema_version = EXCLUDED.schema_version,
@@ -165,16 +172,10 @@ export class PostgresPipelineCheckpointStore
         expires_at = EXCLUDED.expires_at,
         node_idempotency_keys = EXCLUDED.node_idempotency_keys,
         loop_state = EXCLUDED.loop_state,
-        fork_state = EXCLUDED.fork_state
+        fork_state = EXCLUDED.fork_state,
+        recovery_attempts_used = EXCLUDED.recovery_attempts_used
     `;
 
-    // TODO(W5-gap): recoveryAttemptsUsed is tracked in PipelineCheckpoint and
-    // restored by pipeline-runtime.ts:227, but this postgres store does not
-    // persist it — the column is missing from the schema and INSERT. Add:
-    //   ALTER TABLE pipeline_checkpoints ADD COLUMN IF NOT EXISTS recovery_attempts_used INTEGER DEFAULT 0;
-    // Include recovery_attempts_used in the INSERT/UPDATE and rowToCheckpoint().
-    // Until then, a crash mid-recovery resets the counter, allowing more
-    // recovery attempts than maxRecoveryAttempts intended.
     await this.client.query(sql, [
       checkpoint.pipelineRunId,
       checkpoint.pipelineId,
@@ -191,6 +192,7 @@ export class PostgresPipelineCheckpointStore
         : null,
       checkpoint.loopState ? JSON.stringify(checkpoint.loopState) : null,
       checkpoint.forkState ? JSON.stringify(checkpoint.forkState) : null,
+      checkpoint.recoveryAttemptsUsed ?? 0,
     ]);
   }
 
@@ -307,6 +309,12 @@ function rowToCheckpoint(row: CheckpointRow): PipelineCheckpoint {
   }
   if (row.fork_state && typeof row.fork_state === "object") {
     cp.forkState = row.fork_state;
+  }
+  if (
+    typeof row.recovery_attempts_used === "number" &&
+    row.recovery_attempts_used > 0
+  ) {
+    cp.recoveryAttemptsUsed = row.recovery_attempts_used;
   }
   return cp;
 }
