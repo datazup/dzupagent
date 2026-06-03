@@ -183,6 +183,223 @@ describe("CircuitBreaker", () => {
     });
   });
 
+  describe("exponential backoff on re-opens (W9)", () => {
+    it("first open uses base cooldown (reopen #0)", () => {
+      vi.useFakeTimers();
+      try {
+        const b = new CircuitBreaker({
+          failureThreshold: 1,
+          resetTimeoutMs: 1000,
+          halfOpenMaxAttempts: 1,
+          jitterFactor: 0,
+        });
+        b.recordFailure(); // closed → open
+        vi.advanceTimersByTime(999);
+        expect(b.getState()).toBe("open");
+        vi.advanceTimersByTime(1);
+        expect(b.getState()).toBe("half-open");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("one failed probe doubles the cooldown", () => {
+      vi.useFakeTimers();
+      try {
+        const b = new CircuitBreaker({
+          failureThreshold: 1,
+          resetTimeoutMs: 1000,
+          halfOpenMaxAttempts: 1,
+          jitterFactor: 0,
+        });
+        b.recordFailure(); // closed → open (reopen #0, cooldown=1000)
+        vi.advanceTimersByTime(1000);
+        expect(b.getState()).toBe("half-open"); // transition triggered by getState()
+        b.recordFailure(); // probe fails → open (reopen #1, cooldown=2000)
+        vi.advanceTimersByTime(1001);
+        expect(b.getState()).toBe("open"); // still open at 1001ms
+        vi.advanceTimersByTime(999);
+        expect(b.getState()).toBe("half-open"); // 2000ms elapsed
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("second failed probe yields 4× base cooldown", () => {
+      vi.useFakeTimers();
+      try {
+        const b = new CircuitBreaker({
+          failureThreshold: 1,
+          resetTimeoutMs: 1000,
+          halfOpenMaxAttempts: 1,
+          jitterFactor: 0,
+        });
+        b.recordFailure();
+        vi.advanceTimersByTime(1000);
+        expect(b.getState()).toBe("half-open");
+        b.recordFailure(); // reopen #1, cooldown=2000
+        vi.advanceTimersByTime(2000);
+        expect(b.getState()).toBe("half-open");
+        b.recordFailure(); // reopen #2, cooldown=4000
+        vi.advanceTimersByTime(3999);
+        expect(b.getState()).toBe("open");
+        vi.advanceTimersByTime(1);
+        expect(b.getState()).toBe("half-open");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("ceiling holds at maxResetTimeoutMs (base*3 is a real discriminator)", () => {
+      vi.useFakeTimers();
+      try {
+        const b = new CircuitBreaker({
+          failureThreshold: 1,
+          resetTimeoutMs: 1000,
+          maxResetTimeoutMs: 3000,
+          halfOpenMaxAttempts: 1,
+          jitterFactor: 0,
+        });
+        b.recordFailure();
+        vi.advanceTimersByTime(1000);
+        expect(b.getState()).toBe("half-open"); // reopen #0 = 1000ms, below cap
+        b.recordFailure(); // reopen #1, uncapped=2000 < 3000 → 2000
+        vi.advanceTimersByTime(2000);
+        expect(b.getState()).toBe("half-open");
+        b.recordFailure(); // reopen #2, uncapped=4000 > 3000 → capped at 3000
+        vi.advanceTimersByTime(2999);
+        expect(b.getState()).toBe("open"); // not yet
+        vi.advanceTimersByTime(1);
+        expect(b.getState()).toBe("half-open"); // exactly 3000ms
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("recordSuccess resets backoff to base", () => {
+      vi.useFakeTimers();
+      try {
+        const b = new CircuitBreaker({
+          failureThreshold: 1,
+          resetTimeoutMs: 1000,
+          halfOpenMaxAttempts: 1,
+          jitterFactor: 0,
+        });
+        // Escalate to reopen #2 (cooldown=4000)
+        b.recordFailure();
+        vi.advanceTimersByTime(1000);
+        expect(b.getState()).toBe("half-open");
+        b.recordFailure();
+        vi.advanceTimersByTime(2000);
+        expect(b.getState()).toBe("half-open");
+        b.recordFailure();
+        vi.advanceTimersByTime(4000);
+        expect(b.getState()).toBe("half-open");
+        b.recordSuccess(); // → closed, resets consecutiveReopens
+        // Re-open fresh — cooldown must be back to base 1000ms
+        b.recordFailure();
+        vi.advanceTimersByTime(999);
+        expect(b.getState()).toBe("open");
+        vi.advanceTimersByTime(1);
+        expect(b.getState()).toBe("half-open");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("default ceiling is 8× base; explicit maxResetTimeoutMs is clamped to ≥ resetTimeoutMs", () => {
+      vi.useFakeTimers();
+      try {
+        // Default ceiling: 8 × 1000 = 8000ms
+        const b = new CircuitBreaker({
+          failureThreshold: 1,
+          resetTimeoutMs: 1000,
+          halfOpenMaxAttempts: 1,
+          jitterFactor: 0,
+        });
+        // Drive to reopen #3: cooldown should be min(8×, 8000) = 8000ms
+        b.recordFailure();
+        vi.advanceTimersByTime(1000);
+        expect(b.getState()).toBe("half-open");
+        b.recordFailure(); // reopen #1 (2000ms)
+        vi.advanceTimersByTime(2000);
+        expect(b.getState()).toBe("half-open");
+        b.recordFailure(); // reopen #2 (4000ms)
+        vi.advanceTimersByTime(4000);
+        expect(b.getState()).toBe("half-open");
+        b.recordFailure(); // reopen #3 (8000ms = ceiling)
+        vi.advanceTimersByTime(7999);
+        expect(b.getState()).toBe("open");
+        vi.advanceTimersByTime(1);
+        expect(b.getState()).toBe("half-open");
+
+        // maxResetTimeoutMs below base is clamped to base
+        const b2 = new CircuitBreaker({
+          failureThreshold: 1,
+          resetTimeoutMs: 1000,
+          maxResetTimeoutMs: 100, // below base → clamped to 1000
+          halfOpenMaxAttempts: 1,
+          jitterFactor: 0,
+        });
+        b2.recordFailure();
+        vi.advanceTimersByTime(999);
+        expect(b2.getState()).toBe("open");
+        vi.advanceTimersByTime(1);
+        expect(b2.getState()).toBe("half-open");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("jitter applies to the escalated/capped value, not the raw base", () => {
+      vi.useFakeTimers();
+      const randSpy = vi.spyOn(Math, "random").mockReturnValue(1.0);
+      try {
+        const b = new CircuitBreaker({
+          failureThreshold: 1,
+          resetTimeoutMs: 1000,
+          halfOpenMaxAttempts: 1,
+          jitterFactor: 0.2,
+        });
+        // reopen #0: backed=1000, jittered = 1000*(1-0.2*1.0) = 800ms
+        b.recordFailure(); // → open
+        vi.advanceTimersByTime(800);
+        expect(b.getState()).toBe("half-open"); // 800ms cooldown elapsed
+        // reopen #1: backed=2000, jittered = 2000*(1-0.2*1.0) = 1600ms
+        b.recordFailure();
+        vi.advanceTimersByTime(1599);
+        expect(b.getState()).toBe("open");
+        vi.advanceTimersByTime(1);
+        expect(b.getState()).toBe("half-open"); // at exactly 1600ms
+      } finally {
+        randSpy.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("OPEN-state failures do not reset the cooldown window", () => {
+      vi.useFakeTimers();
+      try {
+        const b = new CircuitBreaker({
+          failureThreshold: 1,
+          resetTimeoutMs: 1000,
+          halfOpenMaxAttempts: 1,
+          jitterFactor: 0,
+        });
+        b.recordFailure(); // → open, lastFailureAt = t0
+        // Extra failure while already open — must not bump lastFailureAt
+        vi.advanceTimersByTime(500);
+        b.recordFailure(); // state=open → early return, no lastFailureAt bump
+        vi.advanceTimersByTime(499); // total 999ms from t0
+        expect(b.getState()).toBe("open");
+        vi.advanceTimersByTime(1); // total 1000ms from t0
+        expect(b.getState()).toBe("half-open");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe("cooldown jitter (AGENT-L-05)", () => {
     it("jitterFactor 0 yields exactly resetTimeoutMs cooldown", () => {
       vi.useFakeTimers();
