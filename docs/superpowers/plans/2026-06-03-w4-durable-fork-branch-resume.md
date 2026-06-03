@@ -891,6 +891,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 This is the core verification. It uses a 2-branch fork where one branch crashes, then resumes and asserts the completed branch is **not** re-run.
 
+> ⚠️ **Two verified facts (learned implementing Tasks 3-5) the test MUST respect:**
+>
+> 1. **Edge schema is `{ type: "sequential", sourceNodeId, targetNodeId }`** — NOT `{ from, to }`. Using the wrong shape silently produces an unconnected graph.
+> 2. **A thrown branch does NOT crash the fork.** `handleFork` uses `Promise.allSettled`, so a failed branch only emits `node_failed`; the fork still finalizes, advances past the join, and **clears `forkState`**. Therefore the run does NOT end mid-fork on a branch throw — `store.load()` returns the _final_ (cleared) checkpoint. To model a real **process crash** mid-fork, recover the **intermediate checkpoint version** (via `listVersions()` / `loadVersion()`) where `forkState.fk1.branches.a1` is defined but `b1` is not — that is exactly the on-disk state a crash between the two branch checkpoints would leave. Resume from THAT version.
+
 - [ ] **Step 1: Write the failing test file**
 
 Create `packages/agent/src/__tests__/pipeline-fork-resume.test.ts`:
@@ -899,14 +904,16 @@ Create `packages/agent/src/__tests__/pipeline-fork-resume.test.ts`:
 /**
  * W4 — durable fork/branch resume.
  *
- * Verifies that completed fork branches are checkpointed and, on resume after
- * a mid-fork crash, are NOT re-run — only unfinished branches re-execute — and
- * that branch node contexts carry a stable idempotency key (W5 fork gap).
+ * Verifies that completed fork branches are checkpointed and, on resume from a
+ * mid-fork checkpoint (the on-disk state a process crash would leave between
+ * two branch checkpoints), completed branches are NOT re-run — only unfinished
+ * branches re-execute — and that branch node contexts carry a stable
+ * idempotency key (W5 fork gap).
  */
 import { describe, it, expect } from "vitest";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
-import type { PipelineDefinition } from "@dzupagent/core";
+import type { PipelineDefinition, PipelineCheckpoint } from "@dzupagent/core";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
 
 /**
@@ -914,6 +921,8 @@ import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
  *   branch A: a1  -> J (join)
  *   branch B: b1  -> J (join)
  * then `J` -> `done`. Each branch node writes a marker into state.
+ *
+ * NOTE the edge shape: { type: "sequential", sourceNodeId, targetNodeId }.
  */
 function forkPipeline(): PipelineDefinition {
   return {
@@ -931,13 +940,33 @@ function forkPipeline(): PipelineDefinition {
       { id: "done", type: "agent", agentId: "d", timeoutMs: 5000 },
     ],
     edges: [
-      { from: "F", to: "a1" },
-      { from: "F", to: "b1" },
-      { from: "a1", to: "J" },
-      { from: "b1", to: "J" },
-      { from: "J", to: "done" },
+      { type: "sequential", sourceNodeId: "F", targetNodeId: "a1" },
+      { type: "sequential", sourceNodeId: "F", targetNodeId: "b1" },
+      { type: "sequential", sourceNodeId: "a1", targetNodeId: "J" },
+      { type: "sequential", sourceNodeId: "b1", targetNodeId: "J" },
+      { type: "sequential", sourceNodeId: "J", targetNodeId: "done" },
     ],
   } as PipelineDefinition;
+}
+
+/**
+ * Find the first checkpoint version that recorded branch `a1` as a completed
+ * fork branch but NOT `b1` — the exact on-disk state a process crash between
+ * the two branch checkpoints would leave behind.
+ */
+async function midForkCheckpoint(
+  store: InMemoryPipelineCheckpointStore,
+  runId: string,
+): Promise<PipelineCheckpoint> {
+  const versions = await store.listVersions(runId);
+  for (const summary of versions) {
+    const cp = await store.loadVersion(runId, summary.version);
+    const branches = cp?.forkState?.["fk1"]?.branches;
+    if (branches?.["a1"] && !branches?.["b1"]) return cp!;
+  }
+  throw new Error(
+    "no mid-fork checkpoint with a1 done and b1 pending was recorded",
+  );
 }
 
 describe("durable fork/branch resume (W4)", () => {
@@ -966,75 +995,67 @@ describe("durable fork/branch resume (W4)", () => {
     // forkState cleared once the fork+join completed.
     const finalCheckpoint = await store.load(result.runId);
     expect(finalCheckpoint?.forkState?.["fk1"]).toBeUndefined();
+
+    // But an intermediate version recorded one branch before the other.
+    const mid = await midForkCheckpoint(store, result.runId);
+    expect(mid.forkState?.["fk1"]?.branches?.["a1"]).toBeDefined();
+    expect(mid.forkState?.["fk1"]?.branches?.["b1"]).toBeUndefined();
   });
 
-  it("resumes a mid-fork crash without re-running the completed branch", async () => {
+  it("resumes a mid-fork checkpoint without re-running the completed branch", async () => {
     const store = new InMemoryPipelineCheckpointStore();
-    const firstRuns: string[] = [];
 
-    // Branch a1 completes; branch b1 crashes. Force a deterministic order by
-    // making b1 throw. (Both branches start from the cloned base state.)
-    const crashingExecutor: NodeExecutor = async (nodeId, _node, ctx) => {
-      firstRuns.push(nodeId);
-      if (nodeId === "b1") throw new Error("simulated crash in branch b1");
+    // Healthy first run — produces per-branch checkpoints we can rewind into.
+    const firstExecutor: NodeExecutor = async (nodeId, _node, ctx) => {
       ctx.state[`ran_${nodeId}`] = true;
       return { nodeId, output: nodeId, durationMs: 1 };
     };
-
     const first = new PipelineRuntime({
       definition: forkPipeline(),
-      nodeExecutor: crashingExecutor,
+      nodeExecutor: firstExecutor,
       checkpointStore: store,
     });
-
     const firstResult = await first.execute();
-    // The fork itself does not throw (branches settle independently); but the
-    // join->done path never runs because b1 failed and was not merged. The run
-    // completes with a1 merged and b1 absent from forkState.
-    const checkpoint = await store.load(firstResult.runId);
-    expect(firstRuns).toContain("a1");
-    expect(firstRuns).toContain("b1");
-    // a1 was recorded as a completed branch; b1 (failed) was not.
-    expect(checkpoint?.forkState?.["fk1"]?.branches?.["a1"]).toBeDefined();
-    expect(checkpoint?.forkState?.["fk1"]?.branches?.["b1"]).toBeUndefined();
+    expect(firstResult.state).toBe("completed");
 
-    // Resume with a healthy executor; a1 must NOT re-run, b1 must.
+    // Recover the mid-fork checkpoint: a1 recorded, b1 not yet — the state a
+    // crash between the two branch checkpoints would have persisted.
+    const checkpoint = await midForkCheckpoint(store, firstResult.runId);
+
+    // Resume from that checkpoint with a tracking executor; a1 must NOT re-run.
     const resumeRuns: string[] = [];
     const healthyExecutor: NodeExecutor = async (nodeId, _node, ctx) => {
       resumeRuns.push(nodeId);
       ctx.state[`ran_${nodeId}`] = true;
       return { nodeId, output: nodeId, durationMs: 1 };
     };
-
     const second = new PipelineRuntime({
       definition: forkPipeline(),
       nodeExecutor: healthyExecutor,
       checkpointStore: store,
     });
 
-    const resumed = await second.resume(checkpoint!);
+    const resumed = await second.resume(checkpoint);
     expect(resumed.state).toBe("completed");
 
-    // a1 restored (not re-run); b1 re-ran; merged state has both branches.
+    // a1 restored (not re-run); b1 re-ran; the run finished past the join.
     expect(resumeRuns).not.toContain("a1");
     expect(resumeRuns).toContain("b1");
-    expect(resumed.nodeResults.has("a1")).toBe(true);
   });
 });
 ```
 
-- [ ] **Step 2: Run the test — expect it to pass (wiring already in place from Tasks 1-6)**
+- [ ] **Step 2: Run the test — expect it to pass (wiring already in place from Tasks 1-7 + the mid-fork-resume fix)**
 
-Run:
+Run (from `packages/agent`, since there is no `.bin/turbo` and the `yarn workspace` test wrapper may lack a symlink):
 
 ```bash
-yarn workspace @dzupagent/agent test pipeline-fork-resume
+../../node_modules/.bin/vitest run src/__tests__/pipeline-fork-resume.test.ts
 ```
 
-(Fallback: `node_modules/.bin/vitest run packages/agent/src/__tests__/pipeline-fork-resume.test.ts`.)
-Expected: PASS.
+Expected: PASS (both tests).
 
-> **If the second test's assumptions about fork-failure flow don't hold** (e.g. a failed branch causes the whole `dispatchFork` to advance differently, or `firstResult.state` is `completed` because the join still fired): treat this as a real finding, not a test bug. Use `superpowers:systematic-debugging`: add a temporary `console.log` of `checkpoint?.forkState` and the run state after `first.execute()`, confirm the actual fork-on-partial-failure semantics in `fork-branch-executor.ts:90-106`, and adjust the test's _expectations_ to match verified behavior (the design guarantee is only: completed branches are not re-run, failed branches re-run). Do not weaken the core assertion `resumeRuns.not.toContain("a1")`.
+> **If a test fails:** treat it as a real finding, not a test bug. Use `superpowers:systematic-debugging`: log `await store.listVersions(runId)` and each version's `forkState`, confirm the actual per-branch checkpoint cadence, and adjust the test's _setup_ to match verified behavior. **Do not weaken** the core assertions `resumeRuns.not.toContain("a1")` and `resumeRuns.toContain("b1")` — those are the design guarantee. If the design guarantee itself appears violated, STOP and report BLOCKED.
 
 - [ ] **Step 3: Commit**
 
