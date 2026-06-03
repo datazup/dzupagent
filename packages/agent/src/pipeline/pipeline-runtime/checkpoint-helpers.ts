@@ -13,6 +13,19 @@ export function createPipelineCheckpoint(options: {
   nodeIdempotencyKeys?: Record<string, string>;
   /** Per-loop-node iteration cursor for durable loop resume (W3). */
   loopState?: Record<string, { iteration: number }>;
+  /** Per-fork branch progress for durable fork/branch resume (W4). */
+  forkState?: Record<
+    string,
+    {
+      branches: Record<
+        string,
+        {
+          stateDelta: Record<string, unknown>;
+          nodeResults: Record<string, unknown>;
+        }
+      >;
+    }
+  >;
 }): PipelineCheckpoint {
   return omitUndefined({
     pipelineRunId: options.pipelineRunId,
@@ -29,6 +42,10 @@ export function createPipelineCheckpoint(options: {
     loopState:
       options.loopState && Object.keys(options.loopState).length > 0
         ? structuredClone(options.loopState)
+        : undefined,
+    forkState:
+      options.forkState && Object.keys(options.forkState).length > 0
+        ? structuredClone(options.forkState)
         : undefined,
     state: structuredClone(options.state),
     suspendedAtNodeId: options.suspendedAtNodeId,
