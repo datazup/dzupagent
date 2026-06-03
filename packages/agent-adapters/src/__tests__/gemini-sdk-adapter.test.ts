@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ForgeError } from "@dzupagent/core";
 import { z } from "zod";
 import { collectEvents } from "./test-helpers.js";
@@ -643,51 +643,55 @@ describe("GeminiSDKAdapter", () => {
   );
 
   describe("credential guard", () => {
+    let savedGoogleApiKey: string | undefined;
+
+    beforeEach(() => {
+      savedGoogleApiKey = process.env["GOOGLE_API_KEY"];
+      delete process.env["GOOGLE_API_KEY"];
+    });
+
+    afterEach(() => {
+      if (savedGoogleApiKey !== undefined) {
+        process.env["GOOGLE_API_KEY"] = savedGoogleApiKey;
+      } else {
+        delete process.env["GOOGLE_API_KEY"];
+      }
+    });
+
     it("throws ADAPTER_EXECUTION_FAILED when no API key is set", async () => {
       const adapter = new GeminiSDKAdapter({}); // no googleApiKey, no apiKey
-      const savedEnv = process.env["GOOGLE_API_KEY"];
-      delete process.env["GOOGLE_API_KEY"];
-      try {
-        await expect(
-          collectEvents(adapter.execute({ prompt: "hi", sessionId: "s1" }))
-        ).rejects.toMatchObject({
-          code: "ADAPTER_EXECUTION_FAILED",
-          message: expect.stringContaining("GOOGLE_API_KEY"),
-        });
-      } finally {
-        if (savedEnv !== undefined) process.env["GOOGLE_API_KEY"] = savedEnv;
-      }
+      await expect(
+        collectEvents(adapter.execute({ prompt: "hi", sessionId: "s1" }))
+      ).rejects.toMatchObject({
+        code: "ADAPTER_EXECUTION_FAILED",
+        message: expect.stringContaining("GOOGLE_API_KEY"),
+      });
     });
 
     it("throws ADAPTER_EXECUTION_FAILED when apiKey is an empty string", async () => {
       const adapter = new GeminiSDKAdapter({ apiKey: "" });
-      const savedEnv = process.env["GOOGLE_API_KEY"];
-      delete process.env["GOOGLE_API_KEY"];
-      try {
-        await expect(
-          collectEvents(adapter.execute({ prompt: "hi", sessionId: "s1" }))
-        ).rejects.toMatchObject({
-          code: "ADAPTER_EXECUTION_FAILED",
-          message: expect.stringContaining("GOOGLE_API_KEY"),
-        });
-      } finally {
-        if (savedEnv !== undefined) process.env["GOOGLE_API_KEY"] = savedEnv;
-      }
+      await expect(
+        collectEvents(adapter.execute({ prompt: "hi", sessionId: "s1" }))
+      ).rejects.toMatchObject({
+        code: "ADAPTER_EXECUTION_FAILED",
+        message: expect.stringContaining("GOOGLE_API_KEY"),
+      });
     });
 
     it("does NOT throw a missing-key error when GOOGLE_API_KEY env var is set", async () => {
       const adapter = new GeminiSDKAdapter({}); // no explicit key
       process.env["GOOGLE_API_KEY"] = "env-test-key";
-      mockGenerateContentStream.mockRejectedValueOnce(
-        new Error("mock-model-error")
-      );
       try {
-        const result = await collectEvents(
-          adapter.execute({ prompt: "hi", sessionId: "s1" })
-        ).catch((e: unknown) => e);
-        if (result instanceof Error) {
-          expect(result.message).not.toContain("GOOGLE_API_KEY");
+        async function* singleChunk() {
+          yield { text: () => "hello", functionCalls: () => undefined };
         }
+        mockGenerateContentStream.mockResolvedValueOnce({
+          stream: singleChunk(),
+          response: Promise.resolve({}),
+        });
+        const events = await collectEvents(adapter.execute({ prompt: "hi" }));
+        // If the key guard fired, loadSDK() would have thrown before started was emitted.
+        expect(events.some((e) => e.type === "adapter:started")).toBe(true);
       } finally {
         delete process.env["GOOGLE_API_KEY"];
       }
