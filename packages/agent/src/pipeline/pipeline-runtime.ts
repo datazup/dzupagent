@@ -121,13 +121,13 @@ export class PipelineRuntime {
       this.nodeMap,
       this.outgoingEdges,
       this.errorEdges,
-      coordinator
+      coordinator,
     );
   }
 
   /** Execute the pipeline from the entry node. */
   async execute(
-    initialState?: Record<string, unknown>
+    initialState?: Record<string, unknown>,
   ): Promise<PipelineRunResult> {
     // Validate first
     const validation = validatePipeline(this.config.definition);
@@ -142,6 +142,18 @@ export class PipelineRuntime {
     const completedNodeIds: string[] = [];
     const nodeIdempotencyKeys: Record<string, string> = {};
     const loopState: Record<string, { iteration: number }> = {};
+    const forkState: Record<
+      string,
+      {
+        branches: Record<
+          string,
+          {
+            stateDelta: Record<string, unknown>;
+            nodeResults: Record<string, unknown>;
+          }
+        >;
+      }
+    > = {};
     const versionTracker = { version: 0 };
 
     this.state = "running";
@@ -159,6 +171,7 @@ export class PipelineRuntime {
       completedNodeIds,
       nodeIdempotencyKeys,
       loopState,
+      forkState,
       versionTracker,
       startTime,
     });
@@ -167,7 +180,7 @@ export class PipelineRuntime {
   /** Resume execution from a checkpoint. */
   async resume(
     checkpoint: PipelineCheckpoint,
-    additionalState?: Record<string, unknown>
+    additionalState?: Record<string, unknown>,
   ): Promise<PipelineRunResult> {
     const runId = checkpoint.pipelineRunId;
     const runState: Record<string, unknown> = {
@@ -185,6 +198,20 @@ export class PipelineRuntime {
     const loopState: Record<string, { iteration: number }> = {
       ...checkpoint.loopState,
     };
+    // Restore per-fork branch progress so a mid-fork crash re-runs only
+    // unfinished branches rather than the whole fork (W4).
+    const forkState: Record<
+      string,
+      {
+        branches: Record<
+          string,
+          {
+            stateDelta: Record<string, unknown>;
+            nodeResults: Record<string, unknown>;
+          }
+        >;
+      }
+    > = structuredClone(checkpoint.forkState ?? {});
 
     // Mark completed nodes in results (with placeholder results)
     for (const nodeId of completedNodeIds) {
@@ -208,7 +235,7 @@ export class PipelineRuntime {
     // (only added when the loop finishes), so it will not be skipped.
     const midFlightLoopId = this.findMidFlightLoopNodeId(
       loopState,
-      completedNodeIds
+      completedNodeIds,
     );
     if (!checkpoint.suspendedAtNodeId && midFlightLoopId) {
       const versionTracker = { version: checkpoint.version };
@@ -220,6 +247,28 @@ export class PipelineRuntime {
         completedNodeIds,
         nodeIdempotencyKeys,
         loopState,
+        forkState,
+        versionTracker,
+        startTime,
+      });
+    }
+
+    // Mid-fork crash (W4): no suspend point, but a fork has surviving branch
+    // progress. Re-enter at that fork node; dispatchFork restores completed
+    // branches and re-runs only the unfinished ones. The fork node is not in
+    // completedNodeIds until the join completes, so it is not skipped.
+    const midFlightForkId = this.findMidFlightForkNodeId(forkState);
+    if (!checkpoint.suspendedAtNodeId && !midFlightLoopId && midFlightForkId) {
+      const versionTracker = { version: checkpoint.version };
+      return this.runFromNode({
+        startNodeId: midFlightForkId,
+        runId,
+        runState,
+        nodeResults,
+        completedNodeIds,
+        nodeIdempotencyKeys,
+        loopState,
+        forkState,
         versionTracker,
         startTime,
       });
@@ -242,14 +291,14 @@ export class PipelineRuntime {
     const suspendedNode = this.nodeMap.get(checkpoint.suspendedAtNodeId);
     if (!suspendedNode) {
       throw new Error(
-        `Suspended node "${checkpoint.suspendedAtNodeId}" not found`
+        `Suspended node "${checkpoint.suspendedAtNodeId}" not found`,
       );
     }
 
     // Get next node(s) after the suspended node
     const nextNodeIds = this.getNextNodeIdsForResume(
       checkpoint.suspendedAtNodeId,
-      runState
+      runState,
     );
 
     if (nextNodeIds.length === 0) {
@@ -279,6 +328,7 @@ export class PipelineRuntime {
       completedNodeIds,
       nodeIdempotencyKeys,
       loopState,
+      forkState,
       versionTracker,
       startTime,
     });
@@ -292,12 +342,28 @@ export class PipelineRuntime {
    */
   private findMidFlightLoopNodeId(
     loopState: Record<string, { iteration: number }>,
-    completedNodeIds: string[]
+    completedNodeIds: string[],
   ): string | undefined {
     const completed = new Set(completedNodeIds);
     for (const nodeId of Object.keys(loopState)) {
       const node = this.nodeMap.get(nodeId);
       if (node?.type === "loop" && !completed.has(nodeId)) return nodeId;
+    }
+    return undefined;
+  }
+
+  /**
+   * Find a fork node that was mid-flight when the checkpoint was written: its
+   * `forkState` entry survived (the fork clears it only after the join
+   * completes). Returns the fork node's ID, or undefined when no fork is
+   * mid-flight. Mirrors `findMidFlightLoopNodeId` (W3).
+   */
+  private findMidFlightForkNodeId(
+    forkState: Record<string, { branches: Record<string, unknown> }>,
+  ): string | undefined {
+    for (const node of this.config.definition.nodes) {
+      if (node.type !== "fork") continue;
+      if (forkState[node.forkId]) return node.id;
     }
     return undefined;
   }
@@ -331,6 +397,18 @@ export class PipelineRuntime {
     completedNodeIds: string[];
     nodeIdempotencyKeys: Record<string, string>;
     loopState: Record<string, { iteration: number }>;
+    forkState: Record<
+      string,
+      {
+        branches: Record<
+          string,
+          {
+            stateDelta: Record<string, unknown>;
+            nodeResults: Record<string, unknown>;
+          }
+        >;
+      }
+    >;
     versionTracker: { version: number };
     startTime: number;
   }): Promise<PipelineRunResult> {
@@ -359,13 +437,13 @@ export class PipelineRuntime {
    */
   private getNextNodeIdsForResume(
     nodeId: string,
-    runState: Record<string, unknown>
+    runState: Record<string, unknown>,
   ): string[] {
     return getNextNodeIds(
       nodeId,
       this.outgoingEdges,
       this.config.predicates,
-      runState
+      runState,
     );
   }
 
