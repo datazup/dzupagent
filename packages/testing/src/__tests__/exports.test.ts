@@ -84,6 +84,7 @@ describe('Package exports — @dzupagent/testing', () => {
       'createDemoEvalSuite',
       'runEvalSuite',
       'runSecuritySuite',
+      'waitForCondition',
       'withRecordedRegistry',
     ]);
   });
