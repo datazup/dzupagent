@@ -27,25 +27,31 @@ import type {
   WorkflowStep,
   WorkflowNode,
   MergeStrategy,
-} from './workflow-types.js'
-import type { WorkflowConfig, WorkflowErrorHandler } from './workflow-builder-types.js'
-import { CompiledWorkflow } from './compiled-workflow.js'
+} from "./workflow-types.js";
+import type {
+  WorkflowConfig,
+  WorkflowErrorHandler,
+} from "./workflow-builder-types.js";
+import { CompiledWorkflow } from "./compiled-workflow.js";
 
 // Re-export public config types so existing consumers of this module keep working.
-export type { WorkflowConfig, WorkflowErrorHandler } from './workflow-builder-types.js'
+export type {
+  WorkflowConfig,
+  WorkflowErrorHandler,
+} from "./workflow-builder-types.js";
 // Re-export the compiled workflow class to preserve the original public surface.
-export { CompiledWorkflow } from './compiled-workflow.js'
+export { CompiledWorkflow } from "./compiled-workflow.js";
 
 export class WorkflowBuilder {
-  private nodes: WorkflowNode[] = []
-  private readonly errorHandlers: WorkflowErrorHandler[] = []
+  private nodes: WorkflowNode[] = [];
+  private readonly errorHandlers: WorkflowErrorHandler[] = [];
 
   constructor(private config: WorkflowConfig) {}
 
   /** Add a sequential step */
   then(step: WorkflowStep): this {
-    this.nodes.push({ type: 'step', step })
-    return this
+    this.nodes.push({ type: "step", step });
+    return this;
   }
 
   /**
@@ -55,43 +61,56 @@ export class WorkflowBuilder {
    * no handler matches the original error is re-thrown and the workflow
    * fails. Handlers apply to all step and parallel nodes in the workflow.
    */
-  onError(predicate: (err: Error) => boolean, recoverySteps: WorkflowStep[]): this {
-    this.errorHandlers.push({ predicate, recoverySteps })
-    return this
+  onError(
+    predicate: (err: Error) => boolean,
+    recoverySteps: WorkflowStep[]
+  ): this {
+    this.errorHandlers.push({ predicate, recoverySteps });
+    return this;
   }
 
   /** Run multiple steps in parallel and merge results */
   parallel(steps: WorkflowStep[], mergeStrategy?: MergeStrategy): this {
     this.nodes.push({
-      type: 'parallel',
+      type: "parallel",
       steps,
-      mergeStrategy: mergeStrategy ?? 'merge-objects',
-    })
-    return this
+      mergeStrategy: mergeStrategy ?? "merge-objects",
+    });
+    return this;
   }
 
   /** Conditional branching based on current state */
   branch(
     condition: (state: Record<string, unknown>) => string,
-    branches: Record<string, WorkflowStep[]>,
+    branches: Record<string, WorkflowStep[]>
   ): this {
-    this.nodes.push({ type: 'branch', condition, branches })
-    return this
+    this.nodes.push({ type: "branch", condition, branches });
+    return this;
   }
 
   /** Suspend execution until external resume (human-in-the-loop) */
   suspend(reason: string): this {
-    this.nodes.push({ type: 'suspend', reason })
-    return this
+    this.nodes.push({ type: "suspend", reason });
+    return this;
   }
+
+  // TODO(W8-follow-up): WorkflowBuilder is intentionally minimal (4-surface
+  // layering — see roadmap §2.1 + §3 W8 decision). For loops, sub-workflows,
+  // dynamic fan-out, and per-step timeoutMs, use flow-dsl directly:
+  //   import { loop, subflow, for_each } from '@dzupagent/agent/flow-dsl'
+  // WorkflowBuilder will not gain .loop()/.invoke()/.forEach() methods.
 
   /** Build the workflow into an executable CompiledWorkflow */
   build(): CompiledWorkflow {
-    return new CompiledWorkflow(this.config, [...this.nodes], [...this.errorHandlers])
+    return new CompiledWorkflow(
+      this.config,
+      [...this.nodes],
+      [...this.errorHandlers]
+    );
   }
 }
 
 /** Factory function for creating workflows */
 export function createWorkflow(config: WorkflowConfig): WorkflowBuilder {
-  return new WorkflowBuilder(config)
+  return new WorkflowBuilder(config);
 }

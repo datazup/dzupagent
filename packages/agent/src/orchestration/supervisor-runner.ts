@@ -198,6 +198,14 @@ export async function runSupervisor(
         fallbackReason: decision.fallbackReason,
       });
     }
+    // TODO(W7-persist): routingDecisionId is generated and emitted on the event
+    // bus but is NOT written to the run record. To make LLM-routed supervisors
+    // replayable/auditable, persist decision.routingDecisionId alongside the
+    // supervisor result — e.g. in SupervisorResult and the calling
+    // PipelineExecutor node output so it survives a checkpoint. Requires:
+    //   1. Add routingDecisionId?: string to SupervisorResult
+    //   2. Return it from runSupervisor() alongside content
+    //   3. Store it in the node's PipelineCheckpoint output (nodeResults)
   }
 
   // Optional health check: filter out unresponsive specialists

@@ -82,7 +82,9 @@ export interface PostgresPipelineCheckpointStoreOptions {
 // Store
 // ---------------------------------------------------------------------------
 
-export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore {
+export class PostgresPipelineCheckpointStore
+  implements PipelineCheckpointStore
+{
   private readonly client: PostgresClientLike;
   private readonly tableName: string;
   private readonly defaultTtlMs: number | undefined;
@@ -94,7 +96,7 @@ export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore 
     const name = options.tableName ?? "pipeline_checkpoints";
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
       throw new Error(
-        `Invalid tableName "${name}" — must match /^[A-Za-z_][A-Za-z0-9_]*$/`,
+        `Invalid tableName "${name}" — must match /^[A-Za-z_][A-Za-z0-9_]*$/`
       );
     }
     this.tableName = name;
@@ -166,6 +168,13 @@ export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore 
         fork_state = EXCLUDED.fork_state
     `;
 
+    // TODO(W5-gap): recoveryAttemptsUsed is tracked in PipelineCheckpoint and
+    // restored by pipeline-runtime.ts:227, but this postgres store does not
+    // persist it — the column is missing from the schema and INSERT. Add:
+    //   ALTER TABLE pipeline_checkpoints ADD COLUMN IF NOT EXISTS recovery_attempts_used INTEGER DEFAULT 0;
+    // Include recovery_attempts_used in the INSERT/UPDATE and rowToCheckpoint().
+    // Until then, a crash mid-recovery resets the counter, allowing more
+    // recovery attempts than maxRecoveryAttempts intended.
     await this.client.query(sql, [
       checkpoint.pipelineRunId,
       checkpoint.pipelineId,
@@ -200,7 +209,7 @@ export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore 
 
   async loadVersion(
     pipelineRunId: string,
-    version: number,
+    version: number
   ): Promise<PipelineCheckpoint | undefined> {
     const sql = `
       SELECT * FROM ${this.tableName}
@@ -218,7 +227,7 @@ export class PostgresPipelineCheckpointStore implements PipelineCheckpointStore 
   }
 
   async listVersions(
-    pipelineRunId: string,
+    pipelineRunId: string
   ): Promise<PipelineCheckpointSummary[]> {
     const sql = `
       SELECT pipeline_run_id, version, created_at, completed_node_ids
