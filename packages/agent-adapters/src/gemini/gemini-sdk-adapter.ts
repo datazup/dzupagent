@@ -312,12 +312,13 @@ export class GeminiSDKAdapter
         context: { providerId: "gemini-sdk", reason: "missing_api_key" },
       });
     }
+    let mod: { GoogleGenerativeAI: new (apiKey: string) => GeminiSDK };
     try {
-      const mod = await import(
+      mod = (await import(
         /* webpackIgnore: true */ "@google/generative-ai"
-      );
-      this.sdk = new mod.GoogleGenerativeAI(apiKey) as unknown as GeminiSDK;
-      return this.sdk;
+      )) as {
+        GoogleGenerativeAI: new (apiKey: string) => GeminiSDK;
+      };
     } catch (cause: unknown) {
       if (cause instanceof ForgeError) throw cause;
       throw new ForgeError({
@@ -330,6 +331,18 @@ export class GeminiSDKAdapter
           providerId: "gemini-sdk",
           sdkPackage: "@google/generative-ai",
         },
+      });
+    }
+    try {
+      this.sdk = new mod.GoogleGenerativeAI(apiKey) as unknown as GeminiSDK;
+      return this.sdk;
+    } catch (cause: unknown) {
+      if (cause instanceof ForgeError) throw cause;
+      throw new ForgeError({
+        code: "ADAPTER_EXECUTION_FAILED",
+        message: "Failed to initialize @google/generative-ai client.",
+        recoverable: false,
+        context: { providerId: "gemini-sdk", reason: "constructor_failed" },
       });
     }
   }
