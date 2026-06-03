@@ -489,13 +489,18 @@ function main() {
   const publicContent = buildPublicAllowlistMarkdown({ packages: publicPackages, generatedOn })
 
   if (process.argv.includes('--check')) {
+    // Both docs embed a `Date:` line that changes daily; normalize it out of
+    // the comparison so the gate reflects real surface drift only and does not
+    // go stale every day after the file was last committed.
+    const normalizeDate = (text) =>
+      text.replace(/^Date: \d{4}-\d{2}-\d{2}$/m, 'Date: <date>')
     const committed = existsSync(outputPath) ? readFileSync(outputPath, 'utf8') : ''
-    if (committed !== content) {
+    if (normalizeDate(committed) !== normalizeDate(content)) {
       console.error('SERVER_API_SURFACE_INDEX.md is stale. Run: yarn docs:server-api-surface')
       process.exit(1)
     }
     const publicCommitted = existsSync(publicOutputPath) ? readFileSync(publicOutputPath, 'utf8') : ''
-    if (publicCommitted !== publicContent) {
+    if (normalizeDate(publicCommitted) !== normalizeDate(publicContent)) {
       console.error('PUBLIC_API_SURFACE_ALLOWLISTS.md is stale. Run: yarn docs:server-api-surface')
       process.exit(1)
     }
