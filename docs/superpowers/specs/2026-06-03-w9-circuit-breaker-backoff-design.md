@@ -61,7 +61,7 @@ ceiling tracks the effective base:
 ```ts
 merged.maxResetTimeoutMs = Math.max(
   merged.maxResetTimeoutMs ?? merged.resetTimeoutMs * 8,
-  merged.resetTimeoutMs,
+  merged.resetTimeoutMs
 );
 ```
 
@@ -105,7 +105,7 @@ clamps to the ceiling). The existing jitter contract (downward-only, within
 
 ### 3.4 Counter transitions
 
-Three touch points, all in existing methods:
+Four touch points, all in existing methods:
 
 1. **Failed probe → escalate** (`recordFailure`, the `state === "half-open"`
    branch at `:189-192`): increment **before** `transitionTo("open")` so the
@@ -126,6 +126,28 @@ Three touch points, all in existing methods:
 
 3. **Recovery resets** (`recordSuccess` at `:178-182` and `reset()` at
    `:214-220`): set `this.consecutiveReopens = 0` in both.
+
+4. **Guard OPEN-state failures** (`recordFailure`, at the top of the method,
+   before any other branch): when the circuit is already OPEN, return early
+   without bumping `lastFailureAt` or `failureCount`. This prevents
+   post-open failures (e.g. MCP heartbeat on an unconditional `setInterval`,
+   or in-flight concurrent calls) from perpetually resetting the cooldown
+   clock and starving the half-open probe — which would freeze
+   `consecutiveReopens` at its current value and defeat W9's escalation.
+
+   ```ts
+   if (this.state === "open") {
+     return; // already open — don't reset the cooldown window
+   }
+   ```
+
+   Add this guard as the **first branch** in `recordFailure`, before the
+   `half-open` and threshold branches. This is a pre-existing design gap that
+   W9 is the first feature to depend on (escalation can only happen in the
+   half-open branch, so if the half-open transition is starved, the multiplier
+   never increments). Option A (early return) is preferred over tracking a
+   separate open-transition timestamp because it also stops `failureCount`
+   from accumulating meaninglessly while OPEN.
 
 ### 3.5 Semantics
 
@@ -160,9 +182,13 @@ tests and `jitterFactor: 0` determinism. New cases:
    `open`; advance to `2 × base` → `half-open`.
 3. **Second failed probe → 4× base** — repeat the probe-fail once more; assert
    the window is `4 × base`.
-4. **Ceiling holds** — with a small `maxResetTimeoutMs` (e.g. `base * 2`),
-   after ≥2 re-opens the cooldown never exceeds the ceiling (advance to the
-   ceiling → half-open; assert it did not require more).
+4. **Ceiling holds** — with `maxResetTimeoutMs = base * 3`, after ≥2 re-opens
+   the cooldown is capped at `3 × base` (not `4 × base`). Use `base * 3` not
+   `base * 2`: after one re-open, `2^1 × base = 2 × base`, which equals the
+   `base * 2` ceiling by coincidence — a broken `Math.min` would still pass.
+   With `base * 3`: reopen#1 = `min(2×, 3×) = 2×` (below cap; verifies
+   uncapped path); reopen#2 = `min(4×, 3×) = 3×` (cap kicks in; advance to
+   `3 × base` → half-open; advance to `base + ε` → still open).
 5. **recordSuccess resets backoff** — escalate via a couple of re-opens, then
    drive `closed` via a successful probe (`canExecute()` in half-open →
    `recordSuccess()`), re-open fresh, and assert the cooldown is back to
@@ -170,6 +196,18 @@ tests and `jitterFactor: 0` determinism. New cases:
 6. **Default ceiling = 8× base when unset**; an explicit `maxResetTimeoutMs`
    is honored and clamped to ≥ `resetTimeoutMs` (passing a value below base
    yields an effective ceiling of base).
+7. **Jitter applies to the escalated/capped value** — configure
+   `jitterFactor: 0.2` and mock `Math.random` to return `1.0` (maximum
+   reduction). After one failed probe (`consecutiveReopens = 1`, effective
+   base = `2 × resetTimeoutMs`), assert the effective cooldown equals
+   `2 × resetTimeoutMs × (1 − 0.2) = 1.6 × resetTimeoutMs`. This catches a
+   regression where jitter is applied to the raw `resetTimeoutMs` before
+   the backoff multiplier instead of to the capped value.
+8. **OPEN-state failures don't reset the cooldown window** — open the breaker,
+   immediately call `recordFailure()` once more while state is OPEN, then
+   advance time by `base − 1 ms` and assert state is still `open` (the extra
+   failure must not have bumped `lastFailureAt`). Then advance to `base` and
+   assert state is `half-open`.
 
 ## 5. Quality gates
 
@@ -191,5 +229,10 @@ All must pass with no regressions in the existing breaker tests.
 - **Does not deliver:** persistence of backoff state across restarts; any
   change to threshold/jitter/half-open/event semantics.
 - **Files touched:** `circuit-breaker.ts` (config field + 1 state field +
-  `computeCooldownMs` + 3 one-line counter touch points) and its test file. No
-  public-API break — the new field is optional and defaulted.
+  `computeCooldownMs` + 4 touch points: the 3 counter transitions above plus
+  the new OPEN-state early-return guard in `recordFailure`) and its test file.
+  No public-API break — the new field is optional and defaulted.
+- **Pre-existing gap addressed:** `recordFailure` previously bumped
+  `lastFailureAt` unconditionally even while OPEN, which would have starved the
+  half-open probe and frozen W9's escalation counter. The Option A guard (§3.4
+  touch point 4) closes this. Test case 8 verifies it.
