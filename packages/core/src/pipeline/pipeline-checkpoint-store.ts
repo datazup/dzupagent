@@ -47,6 +47,32 @@ export interface PipelineCheckpoint {
    * backward compatibility; absence means "no loop is mid-flight".
    */
   loopState?: Record<string, { iteration: number }>;
+  /**
+   * Per-fork branch progress for durable fork/branch resume (W4).
+   *
+   * Maps a fork node's `forkId` to the branches that have fully completed,
+   * each with the state delta and node results it produced. On resume,
+   * completed branches are restored from here (not re-run) and only
+   * unfinished branches re-execute; the final merge combines restored +
+   * freshly-run results in deterministic outgoing-edge order. An entry is
+   * removed once the fork's join completes. Optional for backward
+   * compatibility; absence means "no fork is mid-flight". `nodeResults` is
+   * the JSON-serialized form of a `NodeResult` map (`nodeId` -> result);
+   * this module intentionally avoids importing `NodeResult` to keep the
+   * checkpoint store free of runtime-contracts coupling.
+   */
+  forkState?: Record<
+    string,
+    {
+      branches: Record<
+        string,
+        {
+          stateDelta: Record<string, unknown>;
+          nodeResults: Record<string, unknown>;
+        }
+      >;
+    }
+  >;
   /** Arbitrary state accumulated during execution */
   state: Record<string, unknown>;
   /** If the pipeline is currently suspended, the node it suspended at */
@@ -96,7 +122,7 @@ export interface PipelineCheckpointStore {
   /** Load a specific version of a checkpoint */
   loadVersion(
     pipelineRunId: string,
-    version: number
+    version: number,
   ): Promise<PipelineCheckpoint | undefined>;
 
   /** List all checkpoint versions for a run, ordered by version ascending */
