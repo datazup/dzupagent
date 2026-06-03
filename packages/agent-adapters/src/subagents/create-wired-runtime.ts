@@ -4,7 +4,7 @@ import {
   BackgroundSubagentRuntime,
   InMemoryTaskStore,
   SpawnGate,
-  allowAllSpawnPolicy,
+  denyAllSpawnPolicy,
   type CheckpointerPort,
   type GovernanceEventSink,
   type LifecyclePolicy,
@@ -18,7 +18,10 @@ import type { ProviderAdapterRegistry } from "../registry/adapter-registry.js";
 import type { CheckpointStore } from "../session/workflow-checkpointer.js";
 import { CheckpointStorePort } from "./checkpoint-store-port.js";
 import { InProcessRunner } from "@dzupagent/subagents";
-import { RegistrySubagentExecutor } from "./registry-subagent-executor.js";
+import {
+  RegistrySubagentExecutor,
+  type SubagentExecutorLimits,
+} from "./registry-subagent-executor.js";
 
 export interface CreateWiredSubagentRuntimeOptions {
   registry: ProviderAdapterRegistry;
@@ -31,6 +34,8 @@ export interface CreateWiredSubagentRuntimeOptions {
   policy?: SpawnPolicy;
   approvalGate?: SpawnApprovalGate;
   lifecyclePolicy?: Partial<LifecyclePolicy>;
+  /** Per-run executor ceilings (AGENT-M-05 token budget, AGENT-L-11 timeout). */
+  executorLimits?: SubagentExecutorLimits;
   generateId?: () => string;
 }
 
@@ -45,10 +50,13 @@ export interface CreateWiredSubagentRuntimeOptions {
  * checkpointer, bus) the package cannot import itself.
  */
 export function createWiredSubagentRuntime(
-  options: CreateWiredSubagentRuntimeOptions
+  options: CreateWiredSubagentRuntimeOptions,
 ): BackgroundSubagentRuntime {
   const store = options.taskStore ?? new InMemoryTaskStore();
-  const executor = new RegistrySubagentExecutor(options.registry);
+  const executor = new RegistrySubagentExecutor(
+    options.registry,
+    options.executorLimits ?? {},
+  );
 
   const events: SubagentEventSink = {
     emit: (event) => {
@@ -78,9 +86,11 @@ export function createWiredSubagentRuntime(
     ...(checkpointer ? { checkpointer } : {}),
   });
 
+  // AGENT-L-10: deny-by-default. A host must pass an explicit `policy` to permit
+  // spawns; the wired (production) runtime never ships an allow-all surface.
   const gate = new SpawnGate(
-    options.policy ?? allowAllSpawnPolicy,
-    options.approvalGate
+    options.policy ?? denyAllSpawnPolicy,
+    options.approvalGate,
   );
 
   return new BackgroundSubagentRuntime({

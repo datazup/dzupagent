@@ -15,13 +15,30 @@ export type SpawnPolicyDecision =
 export interface SpawnPolicy {
   check(
     spec: SubagentSpec,
-    parentRunId: string
+    parentRunId: string,
   ): Promise<SpawnPolicyDecision> | SpawnPolicyDecision;
 }
 
-/** Default policy: allow everything, never require approval. Hosts override. */
+/**
+ * Permissive policy: allow everything, never require approval. Opt-in only —
+ * suitable for trusted in-process orchestration and tests. Production wiring
+ * should default to {@link denyAllSpawnPolicy} and grant explicitly (AGENT-L-10).
+ */
 export const allowAllSpawnPolicy: SpawnPolicy = {
   check: () => ({ allow: true, requiresApproval: false }),
+};
+
+/**
+ * Deny-by-default policy (AGENT-L-10). The safe default for any host-facing
+ * wiring: a spawn is rejected unless the host supplies a policy that explicitly
+ * permits it. Prevents the subagent runtime from shipping an allow-all spawn
+ * surface that an LLM tool loop could exploit to fan out unbounded work.
+ */
+export const denyAllSpawnPolicy: SpawnPolicy = {
+  check: () => ({
+    allow: false,
+    reason: "spawn_denied_by_default_policy",
+  }),
 };
 
 /**
@@ -46,13 +63,13 @@ export type ApprovalOutcome =
 export class SpawnGate {
   constructor(
     private readonly policy: SpawnPolicy,
-    private readonly approvalGate?: SpawnApprovalGate
+    private readonly approvalGate?: SpawnApprovalGate,
   ) {}
 
   async evaluate(
     spec: SubagentSpec,
     parentRunId: string,
-    approvalId: string
+    approvalId: string,
   ): Promise<
     | { outcome: "allowed" }
     | { outcome: "needs_approval" }
@@ -71,7 +88,7 @@ export class SpawnGate {
   /** Block on the HITL gate. Returns the resolved outcome. */
   async awaitApproval(
     parentRunId: string,
-    approvalId: string
+    approvalId: string,
   ): Promise<ApprovalOutcome> {
     if (!this.approvalGate) {
       // No gate wired but policy demanded approval — fail closed.
