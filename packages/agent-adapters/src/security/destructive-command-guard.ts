@@ -26,6 +26,10 @@ export const DESTRUCTIVE_COMMAND_PATTERNS: ReadonlyArray<{
     label: "root filesystem wipe (rm -rf /)",
   },
   {
+    pattern: /\brm\s+(?:-[a-zA-Z]+\s+)+-[a-zA-Z]*f[a-zA-Z]*\s+\/\*?(\s|$)/i,
+    label: "root filesystem wipe (rm -r -f /)",
+  },
+  {
     pattern: /\bcurl\b[^|]*\|\s*(sh|bash)\b/i,
     label: "remote code execution via curl pipe",
   },
@@ -38,11 +42,12 @@ export const DESTRUCTIVE_COMMAND_PATTERNS: ReadonlyArray<{
     label: "fork bomb",
   },
   {
-    pattern: /\bdd\b[^;]*\bof\s*=\s*\/dev\/(sd[a-z]|hd[a-z]|nvme\d)\b/i,
+    pattern:
+      /\bdd\b[^;]*\bof\s*=\s*\/dev\/(sd[a-z]|hd[a-z]|nvme\d+(?:n\d+(?:p\d+)?)?)\b/i,
     label: "disk destruction via dd",
   },
   {
-    pattern: /\bmkfs\b[^;]*\/dev\/(sd[a-z]|hd[a-z]|nvme\d)/i,
+    pattern: /\bmkfs\b[^;]*\/dev\/(sd[a-z]|hd[a-z]|nvme\d+(?:n\d+(?:p\d+)?)?)/i,
     label: "filesystem destruction via mkfs",
   },
 ];
@@ -71,7 +76,6 @@ export function assertCommandNotDestructive(
     const value = input[key];
     if (typeof value !== "string") continue;
     for (const { pattern, label } of DESTRUCTIVE_COMMAND_PATTERNS) {
-      pattern.lastIndex = 0;
       if (pattern.test(value)) {
         throw new ForgeError({
           code: "DESTRUCTIVE_COMMAND_BLOCKED",
@@ -81,7 +85,5 @@ export function assertCommandNotDestructive(
         });
       }
     }
-    // Only inspect the first recognized key that has a string value.
-    break;
   }
 }

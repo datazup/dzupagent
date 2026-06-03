@@ -93,6 +93,30 @@ describe("assertCommandNotDestructive", () => {
       ).toThrow(ForgeError);
     });
 
+    it("blocks dd destroying nvme namespace device", () => {
+      expect(() =>
+        assertCommandNotDestructive("bash", {
+          command: "dd if=/dev/zero of=/dev/nvme0n1",
+        })
+      ).toThrow(ForgeError);
+    });
+
+    it("blocks rm -r -f / (split flags)", () => {
+      expect(() =>
+        assertCommandNotDestructive("bash", { command: "rm -r -f /" })
+      ).toThrow(ForgeError);
+    });
+
+    it("checks all recognized keys, not just the first", () => {
+      // Safe first key, destructive second key — must still be blocked
+      expect(() =>
+        assertCommandNotDestructive("bash", {
+          command: "echo ok",
+          cmd: "rm -rf /",
+        })
+      ).toThrow(ForgeError);
+    });
+
     it("allows safe commands", () => {
       expect(() =>
         assertCommandNotDestructive("bash", { command: "ls -la /tmp" })
@@ -150,6 +174,8 @@ describe("assertCommandNotDestructive", () => {
       expect(SHELL_TOOL_NAMES.has("bash")).toBe(true);
       expect(SHELL_TOOL_NAMES.has("execute_command")).toBe(true);
       expect(SHELL_TOOL_NAMES.has("run_shell")).toBe(true);
+      expect(SHELL_TOOL_NAMES.has("run_command")).toBe(true);
+      expect(SHELL_TOOL_NAMES.has("shell")).toBe(true);
     });
   });
 });
