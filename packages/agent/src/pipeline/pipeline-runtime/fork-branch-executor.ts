@@ -116,7 +116,12 @@ export async function handleFork(
         branchBaseResults,
       );
       if (branchSpan) config.tracer?.endSpanOk(branchSpan);
-      if (resume) await resume.onBranchComplete(startId, result);
+      // Persist only successful branches (W4 design §4): a branch whose node
+      // returned an error is NOT recorded in forkState, so it re-runs on resume
+      // rather than being restored.
+      if (resume && result.state === "completed") {
+        await resume.onBranchComplete(startId, result);
+      }
       return result;
     } catch (err) {
       if (branchSpan) config.tracer?.endSpanWithError(branchSpan, err);
@@ -163,6 +168,7 @@ async function executeBranch(
   const nodeResults = new Map(baseNodeResults);
   const branchNodeResults = new Map<string, NodeResult>();
   const completedNodeIds: string[] = [];
+  let errored = false;
 
   while (currentId && currentId !== joinNodeId) {
     const node = nodeMap.get(currentId);
@@ -184,6 +190,7 @@ async function executeBranch(
 
     if (result.error) {
       emit(nodeFailedEvent(node.id, result.error));
+      errored = true;
       break;
     }
 
@@ -201,7 +208,7 @@ async function executeBranch(
   const stateDelta = collectStateDelta(baselineState, runState);
 
   return {
-    state: "completed",
+    state: errored ? "failed" : "completed",
     stateDelta,
     nodeResults: branchNodeResults,
     completedNodeIds,

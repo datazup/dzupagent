@@ -139,4 +139,68 @@ describe("durable fork/branch resume (W4)", () => {
     expect(resumeRuns).not.toContain("a1");
     expect(resumeRuns).toContain("b1");
   });
+
+  it("does NOT persist a branch whose node returned an error (failed branch re-runs on resume)", async () => {
+    // A node that returns `{ error }` (rather than throwing) breaks its branch
+    // early. Spec §4: such a failed branch must NOT be recorded in forkState,
+    // so on resume it re-runs rather than being restored.
+    const store = new InMemoryPipelineCheckpointStore();
+    const executor: NodeExecutor = async (nodeId, _node, ctx) => {
+      if (nodeId === "b1") {
+        // Errored result (not a throw) — branch breaks but settles fulfilled.
+        return { nodeId, output: null, durationMs: 1, error: "b1 failed" };
+      }
+      ctx.state[`ran_${nodeId}`] = true;
+      return { nodeId, output: nodeId, durationMs: 1 };
+    };
+    const runtime = new PipelineRuntime({
+      definition: forkPipeline(),
+      nodeExecutor: executor,
+      checkpointStore: store,
+    });
+
+    const result = await runtime.execute();
+
+    // No checkpoint version ever records the errored branch b1 in forkState;
+    // the successful branch a1 IS recorded. This is the exact guarantee that a
+    // failed branch is re-run (not restored) on resume.
+    const versions = await store.listVersions(result.runId);
+    let sawA1 = false;
+    for (const summary of versions) {
+      const cp = await store.loadVersion(result.runId, summary.version);
+      const branches = cp?.forkState?.["fk1"]?.branches;
+      if (branches?.["a1"]) sawA1 = true;
+      expect(branches?.["b1"]).toBeUndefined();
+    }
+    expect(sawA1).toBe(true);
+  });
+
+  it("round-trips a recorded branch's nodeResults + stateDelta through the checkpoint store", async () => {
+    // The mid-fork checkpoint must survive a save -> load cycle losslessly so
+    // resume can restore the completed branch's output and state delta.
+    const store = new InMemoryPipelineCheckpointStore();
+    const executor: NodeExecutor = async (nodeId, _node, ctx) => {
+      ctx.state[`ran_${nodeId}`] = true;
+      return { nodeId, output: `out_${nodeId}`, durationMs: 1 };
+    };
+    const runtime = new PipelineRuntime({
+      definition: forkPipeline(),
+      nodeExecutor: executor,
+      checkpointStore: store,
+    });
+    const result = await runtime.execute();
+
+    const mid = await midForkCheckpoint(store, result.runId);
+    const a1 = mid.forkState?.["fk1"]?.branches?.["a1"];
+    expect(a1).toBeDefined();
+    // The recorded branch carries its node's serialized result + state delta.
+    expect(
+      (a1!.nodeResults as Record<string, { output?: unknown }>)["a1"]?.output,
+    ).toBe("out_a1");
+    expect(a1!.stateDelta).toMatchObject({ ran_a1: true });
+
+    // Re-load the same version: the forkState entry is identical (lossless).
+    const reloaded = await store.loadVersion(result.runId, mid.version);
+    expect(reloaded?.forkState?.["fk1"]?.branches?.["a1"]).toEqual(a1);
+  });
 });
