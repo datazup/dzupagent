@@ -68,6 +68,7 @@ Published package subpaths (`package.json` `exports`):
 - `./skills`
 - `./enrichment`
 - `./fleet-executors`
+- `./subagents`
 
 ## Runtime and Control Flow
 

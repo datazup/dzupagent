@@ -80,7 +80,7 @@
     "typedoc-plugin-markdown": "^4.11.0"
   },
   "resolutions": {
-    "@anthropic-ai/sdk": "^0.91.1",
+    "@anthropic-ai/sdk": "^0.93.0",
     "@hono/node-server": "^1.19.13",
     "@xmldom/xmldom": ">=0.8.13",
     "axios": "^1.15.2",

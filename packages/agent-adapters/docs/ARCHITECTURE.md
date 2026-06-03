@@ -21,6 +21,7 @@ This document supplements the root `ARCHITECTURE.md` with package-specific detai
 | `./skills`          | Skill loading, indexing, registry, and prompt assembly helpers                  |
 | `./enrichment`      | Task enrichment planning, context enrichment, and execution helpers             |
 | `./fleet-executors` | Fleet executor implementations and registry for multi-repo orchestration runs   |
+| `./subagents`       | Subagent runtime helpers and integration surface                                |
 
 All subpaths are defined in `package.json` `exports`. New consumers should prefer subpath imports over the root `.` barrel.
 
