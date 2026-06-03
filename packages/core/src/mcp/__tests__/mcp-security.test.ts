@@ -3,6 +3,7 @@ import {
   assertMcpCommandAllowed,
   validateMcpExecutablePath,
   sanitizeMcpEnv,
+  assertPathWithinRoot,
 } from "../mcp-security.js";
 import { ForgeError } from "../../errors/forge-error.js";
 
@@ -236,5 +237,70 @@ describe("mcp-security — existing helpers unaffected", () => {
     );
     expect(result.LD_PRELOAD).toBeUndefined();
     expect(result.FOO).toBe("bar");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assertPathWithinRoot
+// ---------------------------------------------------------------------------
+
+describe("assertPathWithinRoot", () => {
+  const ROOT = "/workspace/tenant-a";
+
+  it("allows a path directly within the root", () => {
+    expect(() => assertPathWithinRoot("src/main.ts", ROOT)).not.toThrow();
+  });
+
+  it("allows a deeply nested path within the root", () => {
+    expect(() => assertPathWithinRoot("a/b/c/file.txt", ROOT)).not.toThrow();
+  });
+
+  it("allows the root itself (dot)", () => {
+    expect(() => assertPathWithinRoot(".", ROOT)).not.toThrow();
+  });
+
+  it("rejects a relative traversal that escapes the root", () => {
+    let caught: unknown;
+    try {
+      assertPathWithinRoot("../../etc/passwd", ROOT);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ForgeError);
+    expect((caught as ForgeError).code).toBe("MCP_PATH_ESCAPE");
+  });
+
+  it("rejects an absolute path outside the root", () => {
+    let caught: unknown;
+    try {
+      assertPathWithinRoot("/etc/shadow", ROOT);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ForgeError);
+    expect((caught as ForgeError).code).toBe("MCP_PATH_ESCAPE");
+  });
+
+  it("rejects an absolute path for a different tenant root", () => {
+    expect(() =>
+      assertPathWithinRoot("/workspace/tenant-b/secret.key", ROOT)
+    ).toThrow(ForgeError);
+  });
+
+  it("allows an absolute path that IS within the root", () => {
+    expect(() =>
+      assertPathWithinRoot(`${ROOT}/src/index.ts`, ROOT)
+    ).not.toThrow();
+  });
+
+  it("rejects a path that resolves to the parent of root", () => {
+    let caught: unknown;
+    try {
+      assertPathWithinRoot("..", ROOT);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(ForgeError);
+    expect((caught as ForgeError).code).toBe("MCP_PATH_ESCAPE");
   });
 });

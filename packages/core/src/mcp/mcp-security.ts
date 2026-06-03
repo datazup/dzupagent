@@ -1,4 +1,5 @@
 import { ForgeError } from "../errors/forge-error.js";
+import { resolve, relative, isAbsolute } from "node:path";
 
 /** Environment variables that must never be overridden by MCP server config */
 const BLOCKED_ENV_VARS = new Set([
@@ -226,4 +227,42 @@ export function sanitizeMcpEnv(
   }
 
   return result;
+}
+
+/**
+ * Path-like argument key names used by filesystem MCP tools.
+ * `MCPClient.invokeTool()` validates any arg whose key is in this set
+ * when `MCPServerConfig.filesystemRoot` is configured.
+ */
+export const PATH_ARG_KEYS: ReadonlySet<string> = new Set([
+  "path",
+  "filePath",
+  "file",
+  "dir",
+  "root",
+  "directory",
+]);
+
+/**
+ * Assert that `userPath` resolves within `rootDir`.
+ *
+ * Accepts relative paths (resolved against `rootDir`) and absolute paths
+ * that start with `rootDir`. Rejects traversal sequences and any path that
+ * resolves outside the root.
+ *
+ * @throws ForgeError with code `MCP_PATH_ESCAPE` when the path escapes.
+ */
+export function assertPathWithinRoot(userPath: string, rootDir: string): void {
+  const abs = isAbsolute(userPath) ? userPath : resolve(rootDir, userPath);
+  const rel = relative(rootDir, abs);
+  // rel starts with '..' when abs is outside rootDir.
+  // isAbsolute(rel) catches cross-drive escapes on Windows.
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    throw new ForgeError({
+      code: "MCP_PATH_ESCAPE",
+      message: `MCP tool path argument escapes the filesystem root: "${userPath}"`,
+      recoverable: false,
+      context: { attemptedPath: userPath, filesystemRoot: rootDir },
+    });
+  }
 }
