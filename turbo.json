@@ -6,6 +6,14 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
+    "@dzupagent/connectors-documents#build": {
+      "dependsOn": ["^build", "@dzupagent/core#build"],
+      "outputs": ["dist/**"]
+    },
+    "@dzupagent/test-utils#build": {
+      "dependsOn": ["^build", "@dzupagent/testing#build"],
+      "outputs": ["dist/**"]
+    },
     "@dzupagent/memory#build": {
       "dependsOn": ["@dzupagent/memory-ipc#build"]
     },
