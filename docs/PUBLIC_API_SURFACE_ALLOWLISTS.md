@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-06-02
+Date: 2026-06-03
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
