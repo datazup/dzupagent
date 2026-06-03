@@ -43,7 +43,7 @@ function createMockClient(responders: Array<(call: RecordedCall) => unknown>) {
 // ---------------------------------------------------------------------------
 
 function makeCheckpoint(
-  overrides: Partial<PipelineCheckpoint> = {}
+  overrides: Partial<PipelineCheckpoint> = {},
 ): PipelineCheckpoint {
   return {
     pipelineRunId: "run-1",
@@ -63,8 +63,9 @@ function makeCheckpoint(
 
 describe("PostgresPipelineCheckpointStore", () => {
   describe("setup()", () => {
-    it("issues CREATE TABLE, the idempotency + loop-state migrations, and index DDL using the configured table name", async () => {
+    it("issues CREATE TABLE, the idempotency + loop-state + fork-state migrations, and index DDL using the configured table name", async () => {
       const { client, calls } = createMockClient([
+        () => ({ rows: [] }),
         () => ({ rows: [] }),
         () => ({ rows: [] }),
         () => ({ rows: [] }),
@@ -78,23 +79,27 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       await store.setup();
 
-      expect(calls).toHaveLength(5);
+      expect(calls).toHaveLength(6);
       expect(calls[0]!.text).toContain(
-        "CREATE TABLE IF NOT EXISTS my_checkpoints"
+        "CREATE TABLE IF NOT EXISTS my_checkpoints",
       );
-      // Backward-compatible migration (W5): adds node_idempotency_keys to pre-existing tables.
+      // Backward-compatible migration (W5): adds node_idempotency_keys.
       expect(calls[1]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS node_idempotency_keys"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS node_idempotency_keys",
       );
-      // Backward-compatible migration (W3): adds loop_state to pre-existing tables.
+      // Backward-compatible migration (W3): adds loop_state.
       expect(calls[2]!.text).toContain(
-        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS loop_state"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS loop_state",
       );
+      // Backward-compatible migration (W4): adds fork_state.
       expect(calls[3]!.text).toContain(
-        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS fork_state",
       );
       expect(calls[4]!.text).toContain(
-        "CREATE INDEX IF NOT EXISTS my_checkpoints_expiry_idx"
+        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx",
+      );
+      expect(calls[5]!.text).toContain(
+        "CREATE INDEX IF NOT EXISTS my_checkpoints_expiry_idx",
       );
     });
 
@@ -105,7 +110,7 @@ describe("PostgresPipelineCheckpointStore", () => {
           new PostgresPipelineCheckpointStore({
             client,
             tableName: 'evil"; DROP',
-          })
+          }),
       ).toThrow(/Invalid tableName/);
     });
   });
@@ -128,7 +133,7 @@ describe("PostgresPipelineCheckpointStore", () => {
       expect(calls).toHaveLength(1);
       expect(calls[0]!.text).toContain("INSERT INTO pipeline_checkpoints");
       expect(calls[0]!.text).toContain(
-        "ON CONFLICT (pipeline_run_id, version)"
+        "ON CONFLICT (pipeline_run_id, version)",
       );
       expect(calls[0]!.params[0]).toBe("run-1");
       expect(calls[0]!.params[4]).toBe(JSON.stringify(["start"]));
@@ -184,7 +189,7 @@ describe("PostgresPipelineCheckpointStore", () => {
       expect(result!.completedNodeIds).toEqual(["a", "b", "c"]);
       expect(calls[0]!.text).toContain("ORDER BY version DESC");
       expect(calls[0]!.text).toContain(
-        "expires_at IS NULL OR expires_at > NOW()"
+        "expires_at IS NULL OR expires_at > NOW()",
       );
     });
 
