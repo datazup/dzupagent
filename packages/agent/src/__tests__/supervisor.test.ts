@@ -4,303 +4,396 @@
  * Uses a mock chat model that simulates LLM function calling
  * so we can verify the full tool-wiring flow without a real LLM.
  */
-import { describe, it, expect, vi } from 'vitest'
-import { AIMessage } from '@langchain/core/messages'
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { BaseMessage } from '@langchain/core/messages'
-import { DzupAgent } from '../agent/dzip-agent.js'
-import { AgentOrchestrator } from '../orchestration/orchestrator.js'
-import { OrchestrationError } from '../orchestration/orchestration-error.js'
-import { AgentCircuitBreaker } from '../orchestration/circuit-breaker.js'
+import { describe, it, expect, vi } from "vitest";
+import { AIMessage } from "@langchain/core/messages";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { BaseMessage } from "@langchain/core/messages";
+import { DzupAgent } from "../agent/dzip-agent.js";
+import { AgentOrchestrator } from "../orchestration/orchestrator.js";
+import { OrchestrationError } from "../orchestration/orchestration-error.js";
+import { AgentCircuitBreaker } from "../orchestration/circuit-breaker.js";
+import type { RoutingPolicy } from "../orchestration/routing-policy-types.js";
 
 /**
  * Create a mock BaseChatModel that returns a sequence of AIMessage responses.
  * Each response can optionally include tool_calls to simulate function calling.
  */
 function createMockModel(
-  responses: Array<{ content: string; tool_calls?: Array<{ id: string; name: string; args: Record<string, unknown> }> }>,
+  responses: Array<{
+    content: string;
+    tool_calls?: Array<{
+      id: string;
+      name: string;
+      args: Record<string, unknown>;
+    }>;
+  }>
 ): BaseChatModel {
-  let callIndex = 0
+  let callIndex = 0;
   const invoke = vi.fn(async (_messages: BaseMessage[]) => {
-    const resp = responses[callIndex] ?? responses[responses.length - 1]!
-    callIndex++
+    const resp = responses[callIndex] ?? responses[responses.length - 1]!;
+    callIndex++;
     const msg = new AIMessage({
       content: resp.content,
-      tool_calls: resp.tool_calls?.map(tc => ({
+      tool_calls: resp.tool_calls?.map((tc) => ({
         id: tc.id,
         name: tc.name,
         args: tc.args,
-        type: 'tool_call' as const,
+        type: "tool_call" as const,
       })),
       response_metadata: {},
-    })
-    return msg
-  })
+    });
+    return msg;
+  });
 
   // Minimal mock shape that satisfies what DzupAgent needs
   return {
     invoke,
     bindTools: vi.fn(function (this: BaseChatModel, _tools: unknown[]) {
       // Return self -- tools are tracked but the mock controls responses
-      return this
+      return this;
     }),
     // Required by BaseChatModel duck-typing in our code
-    _modelType: () => 'base_chat_model',
-    _llmType: () => 'mock',
-  } as unknown as BaseChatModel
+    _modelType: () => "base_chat_model",
+    _llmType: () => "mock",
+  } as unknown as BaseChatModel;
 }
 
-function createAgent(id: string, description: string, model: BaseChatModel): DzupAgent {
+function createAgent(
+  id: string,
+  description: string,
+  model: BaseChatModel
+): DzupAgent {
   return new DzupAgent({
     id,
     description,
     instructions: `You are ${id}.`,
     model,
-  })
+  });
 }
 
 function createThrowingModel(message: string): BaseChatModel {
   return {
     invoke: vi.fn(async () => {
-      throw new Error(message)
+      throw new Error(message);
     }),
     bindTools: vi.fn(function (this: BaseChatModel, _tools: unknown[]) {
-      return this
+      return this;
     }),
-    _modelType: () => 'base_chat_model',
-    _llmType: () => 'mock',
-  } as unknown as BaseChatModel
+    _modelType: () => "base_chat_model",
+    _llmType: () => "mock",
+  } as unknown as BaseChatModel;
 }
 
-describe('AgentOrchestrator.supervisor', () => {
-  it('delegates to specialists via tool calling and returns synthesized result', async () => {
+describe("AgentOrchestrator.supervisor", () => {
+  it("delegates to specialists via tool calling and returns synthesized result", async () => {
     // Manager model: first call invokes specialist tool, second call returns final answer
     const managerModel = createMockModel([
       {
-        content: '',
-        tool_calls: [{ id: 'call_1', name: 'agent-db-specialist', args: { task: 'Design the schema' } }],
+        content: "",
+        tool_calls: [
+          {
+            id: "call_1",
+            name: "agent-db-specialist",
+            args: { task: "Design the schema" },
+          },
+        ],
       },
       {
-        content: 'Final answer: the schema is designed with users and posts tables.',
+        content:
+          "Final answer: the schema is designed with users and posts tables.",
       },
-    ])
+    ]);
 
     // Specialist model: returns a result when invoked
     const dbModel = createMockModel([
-      { content: 'Schema: users(id, name), posts(id, user_id, content)' },
-    ])
+      { content: "Schema: users(id, name), posts(id, user_id, content)" },
+    ]);
 
-    const manager = createAgent('manager', 'Orchestrates work', managerModel)
-    const dbSpecialist = createAgent('db-specialist', 'Database schema expert', dbModel)
+    const manager = createAgent("manager", "Orchestrates work", managerModel);
+    const dbSpecialist = createAgent(
+      "db-specialist",
+      "Database schema expert",
+      dbModel
+    );
 
     const result = await AgentOrchestrator.supervisor({
       manager,
       specialists: [dbSpecialist],
-      task: 'Build a blog platform',
-    })
+      task: "Build a blog platform",
+    });
 
-    expect(result.content).toContain('schema is designed')
-    expect(result.availableSpecialists).toEqual(['db-specialist'])
-    expect(result.filteredSpecialists).toEqual([])
+    expect(result.content).toContain("schema is designed");
+    expect(result.availableSpecialists).toEqual(["db-specialist"]);
+    expect(result.filteredSpecialists).toEqual([]);
 
     // Verify the manager model had bindTools called with the specialist tool
-    expect(managerModel.bindTools).toHaveBeenCalled()
-    const boundTools = (managerModel.bindTools as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Array<{ name: string }>
-    const toolNames = boundTools.map(t => t.name)
-    expect(toolNames).toContain('agent-db-specialist')
-  })
+    expect(managerModel.bindTools).toHaveBeenCalled();
+    const boundTools = (managerModel.bindTools as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0] as Array<{ name: string }>;
+    const toolNames = boundTools.map((t) => t.name);
+    expect(toolNames).toContain("agent-db-specialist");
+  });
 
-  it('supports multiple specialists', async () => {
+  it("supports multiple specialists", async () => {
     const managerModel = createMockModel([
       {
-        content: '',
+        content: "",
         tool_calls: [
-          { id: 'call_1', name: 'agent-frontend', args: { task: 'Build UI' } },
+          { id: "call_1", name: "agent-frontend", args: { task: "Build UI" } },
         ],
       },
       {
-        content: '',
+        content: "",
         tool_calls: [
-          { id: 'call_2', name: 'agent-backend', args: { task: 'Build API' } },
+          { id: "call_2", name: "agent-backend", args: { task: "Build API" } },
         ],
       },
       {
-        content: 'Complete: UI and API built.',
+        content: "Complete: UI and API built.",
       },
-    ])
+    ]);
 
-    const feModel = createMockModel([{ content: 'React components ready' }])
-    const beModel = createMockModel([{ content: 'Express routes ready' }])
+    const feModel = createMockModel([{ content: "React components ready" }]);
+    const beModel = createMockModel([{ content: "Express routes ready" }]);
 
-    const manager = createAgent('supervisor', 'Manages team', managerModel)
-    const frontend = createAgent('frontend', 'Frontend developer', feModel)
-    const backend = createAgent('backend', 'Backend developer', beModel)
+    const manager = createAgent("supervisor", "Manages team", managerModel);
+    const frontend = createAgent("frontend", "Frontend developer", feModel);
+    const backend = createAgent("backend", "Backend developer", beModel);
 
     const result = await AgentOrchestrator.supervisor({
       manager,
       specialists: [frontend, backend],
-      task: 'Build a dashboard',
-    })
+      task: "Build a dashboard",
+    });
 
-    expect(result.content).toContain('UI and API built')
-    expect(result.availableSpecialists).toEqual(['frontend', 'backend'])
-  })
+    expect(result.content).toContain("UI and API built");
+    expect(result.availableSpecialists).toEqual(["frontend", "backend"]);
+  });
 
-  it('throws OrchestrationError on empty specialists array', async () => {
-    const model = createMockModel([{ content: 'hello' }])
-    const manager = createAgent('mgr', 'Manager', model)
+  it("throws OrchestrationError on empty specialists array", async () => {
+    const model = createMockModel([{ content: "hello" }]);
+    const manager = createAgent("mgr", "Manager", model);
 
     await expect(
       AgentOrchestrator.supervisor({
         manager,
         specialists: [],
-        task: 'Do something',
-      }),
-    ).rejects.toThrow(OrchestrationError)
+        task: "Do something",
+      })
+    ).rejects.toThrow(OrchestrationError);
 
     try {
       await AgentOrchestrator.supervisor({
         manager,
         specialists: [],
-        task: 'Do something',
-      })
+        task: "Do something",
+      });
     } catch (err) {
-      expect(err).toBeInstanceOf(OrchestrationError)
-      expect((err as OrchestrationError).pattern).toBe('supervisor')
+      expect(err).toBeInstanceOf(OrchestrationError);
+      expect((err as OrchestrationError).pattern).toBe("supervisor");
     }
-  })
+  });
 
-  it('respects abort signal', async () => {
-    const model = createMockModel([{ content: 'hello' }])
-    const manager = createAgent('mgr', 'Manager', model)
-    const specialist = createAgent('spec', 'Specialist', model)
+  it("respects abort signal", async () => {
+    const model = createMockModel([{ content: "hello" }]);
+    const manager = createAgent("mgr", "Manager", model);
+    const specialist = createAgent("spec", "Specialist", model);
 
-    const controller = new AbortController()
-    controller.abort()
+    const controller = new AbortController();
+    controller.abort();
 
     await expect(
       AgentOrchestrator.supervisor({
         manager,
         specialists: [specialist],
-        task: 'Do something',
+        task: "Do something",
         signal: controller.signal,
-      }),
-    ).rejects.toThrow(OrchestrationError)
-  })
+      })
+    ).rejects.toThrow(OrchestrationError);
+  });
 
-  it('filters unresponsive specialists with healthCheck enabled', async () => {
+  it("filters unresponsive specialists with healthCheck enabled", async () => {
     const managerModel = createMockModel([
-      { content: 'Done with healthy specialist only.' },
-    ])
-    const healthyModel = createMockModel([{ content: 'I am healthy' }])
+      { content: "Done with healthy specialist only." },
+    ]);
+    const healthyModel = createMockModel([{ content: "I am healthy" }]);
 
-    const manager = createAgent('mgr', 'Manager', managerModel)
-    const healthy = createAgent('healthy-agent', 'Healthy specialist', healthyModel)
+    const manager = createAgent("mgr", "Manager", managerModel);
+    const healthy = createAgent(
+      "healthy-agent",
+      "Healthy specialist",
+      healthyModel
+    );
 
     // Create a broken agent whose asTool() will throw
-    const brokenAgent = createAgent('broken-agent', 'Broken specialist', healthyModel)
+    const brokenAgent = createAgent(
+      "broken-agent",
+      "Broken specialist",
+      healthyModel
+    );
     // Override asTool to simulate failure
-    vi.spyOn(brokenAgent, 'asTool').mockRejectedValue(new Error('agent unhealthy'))
+    vi.spyOn(brokenAgent, "asTool").mockRejectedValue(
+      new Error("agent unhealthy")
+    );
 
     const result = await AgentOrchestrator.supervisor({
       manager,
       specialists: [healthy, brokenAgent],
-      task: 'Do something',
+      task: "Do something",
       healthCheck: true,
-    })
+    });
 
-    expect(result.availableSpecialists).toEqual(['healthy-agent'])
-    expect(result.filteredSpecialists).toEqual(['broken-agent'])
-  })
+    expect(result.availableSpecialists).toEqual(["healthy-agent"]);
+    expect(result.filteredSpecialists).toEqual(["broken-agent"]);
+  });
 
-  it('throws when all specialists fail health check', async () => {
-    const managerModel = createMockModel([{ content: 'hello' }])
-    const manager = createAgent('mgr', 'Manager', managerModel)
+  it("throws when all specialists fail health check", async () => {
+    const managerModel = createMockModel([{ content: "hello" }]);
+    const manager = createAgent("mgr", "Manager", managerModel);
 
-    const brokenModel = createMockModel([{ content: 'ok' }])
-    const broken = createAgent('broken', 'Broken specialist', brokenModel)
-    vi.spyOn(broken, 'asTool').mockRejectedValue(new Error('unhealthy'))
+    const brokenModel = createMockModel([{ content: "ok" }]);
+    const broken = createAgent("broken", "Broken specialist", brokenModel);
+    vi.spyOn(broken, "asTool").mockRejectedValue(new Error("unhealthy"));
 
     await expect(
       AgentOrchestrator.supervisor({
         manager,
         specialists: [broken],
-        task: 'Do something',
+        task: "Do something",
         healthCheck: true,
-      }),
-    ).rejects.toThrow('All specialists failed health check')
-  })
+      })
+    ).rejects.toThrow("All specialists failed health check");
+  });
 
-  it('supports legacy positional arguments (backward compat)', async () => {
-    const managerModel = createMockModel([
-      { content: 'Legacy result' },
-    ])
-    const specModel = createMockModel([{ content: 'spec output' }])
+  it("supports legacy positional arguments (backward compat)", async () => {
+    const managerModel = createMockModel([{ content: "Legacy result" }]);
+    const specModel = createMockModel([{ content: "spec output" }]);
 
-    const manager = createAgent('mgr', 'Manager', managerModel)
-    const specialist = createAgent('spec', 'Specialist', specModel)
+    const manager = createAgent("mgr", "Manager", managerModel);
+    const specialist = createAgent("spec", "Specialist", specModel);
 
     // Legacy signature: supervisor(manager, specialists, task) => string
-    const result = await AgentOrchestrator.supervisor(manager, [specialist], 'Do stuff')
-    expect(typeof result).toBe('string')
-    expect(result).toBe('Legacy result')
-  })
+    const result = await AgentOrchestrator.supervisor(
+      manager,
+      [specialist],
+      "Do stuff"
+    );
+    expect(typeof result).toBe("string");
+    expect(result).toBe("Legacy result");
+  });
 
-  it('does not record specialist success when manager finishes without invoking that specialist', async () => {
-    const managerModel = createMockModel([{ content: 'No delegation needed.' }])
-    const specModel = createMockModel([{ content: 'unused' }])
-    const manager = createAgent('manager', 'Orchestrates work', managerModel)
-    const specialist = createAgent('unused', 'Unused specialist', specModel)
-    const breaker = new AgentCircuitBreaker({ failureThreshold: 2 })
-    breaker.recordFailure('unused')
+  it("does not record specialist success when manager finishes without invoking that specialist", async () => {
+    const managerModel = createMockModel([
+      { content: "No delegation needed." },
+    ]);
+    const specModel = createMockModel([{ content: "unused" }]);
+    const manager = createAgent("manager", "Orchestrates work", managerModel);
+    const specialist = createAgent("unused", "Unused specialist", specModel);
+    const breaker = new AgentCircuitBreaker({ failureThreshold: 2 });
+    breaker.recordFailure("unused");
 
     const result = await AgentOrchestrator.supervisor({
       manager,
       specialists: [specialist],
-      task: 'Answer directly',
+      task: "Answer directly",
       circuitBreaker: breaker,
-    })
+    });
 
-    expect(result.content).toBe('No delegation needed.')
-    expect(specModel.invoke).not.toHaveBeenCalled()
+    expect(result.content).toBe("No delegation needed.");
+    expect(specModel.invoke).not.toHaveBeenCalled();
 
-    breaker.recordFailure('unused')
-    expect(breaker.getState('unused')).toBe('open')
-  })
+    breaker.recordFailure("unused");
+    expect(breaker.getState("unused")).toBe("open");
+  });
 
-  it('records non-timeout specialist rejection through the generic failure path', async () => {
+  it("records non-timeout specialist rejection through the generic failure path", async () => {
     const managerModel = createMockModel([
       {
-        content: '',
-        tool_calls: [{ id: 'call_1', name: 'agent-flaky', args: { task: 'Do specialist work' } }],
+        content: "",
+        tool_calls: [
+          {
+            id: "call_1",
+            name: "agent-flaky",
+            args: { task: "Do specialist work" },
+          },
+        ],
       },
       {
-        content: 'Recovered after specialist failure.',
+        content: "Recovered after specialist failure.",
       },
-    ])
-    const manager = createAgent('manager', 'Orchestrates work', managerModel)
-    const specialist = createAgent('flaky', 'Flaky specialist', createThrowingModel('plain rejection'))
-    const breaker = new AgentCircuitBreaker({ failureThreshold: 1 })
+    ]);
+    const manager = createAgent("manager", "Orchestrates work", managerModel);
+    const specialist = createAgent(
+      "flaky",
+      "Flaky specialist",
+      createThrowingModel("plain rejection")
+    );
+    const breaker = new AgentCircuitBreaker({ failureThreshold: 1 });
 
     const result = await AgentOrchestrator.supervisor({
       manager,
       specialists: [specialist],
-      task: 'Use flaky specialist',
+      task: "Use flaky specialist",
       circuitBreaker: breaker,
-    })
+    });
 
-    expect(result.content).toBe('Recovered after specialist failure.')
-    expect(breaker.getState('flaky')).toBe('open')
-  })
-})
+    expect(result.content).toBe("Recovered after specialist failure.");
+    expect(breaker.getState("flaky")).toBe("open");
+  });
 
-describe('OrchestrationError', () => {
-  it('captures pattern and context', () => {
-    const err = new OrchestrationError('test error', 'supervisor', { foo: 'bar' })
-    expect(err.name).toBe('OrchestrationError')
-    expect(err.message).toBe('test error')
-    expect(err.pattern).toBe('supervisor')
-    expect(err.context).toEqual({ foo: 'bar' })
-    expect(err).toBeInstanceOf(Error)
-  })
-})
+  it("returns routingDecisionId on the result when a routing policy is applied", async () => {
+    const managerModel = createMockModel([{ content: "Routed result." }]);
+    const specModel = createMockModel([{ content: "spec output" }]);
+    const manager = createAgent("manager", "Orchestrates work", managerModel);
+    const specialist = createAgent("spec-a", "Specialist A", specModel);
+
+    const mockRoutingPolicy: RoutingPolicy = {
+      select: vi.fn((_task, candidates) => ({
+        selected: candidates,
+        reason: "test routing",
+        strategy: "rule",
+        routingDecisionId: "rule-task-123-1700000000000",
+      })),
+    };
+
+    const result = await AgentOrchestrator.supervisor({
+      manager,
+      specialists: [specialist],
+      task: "Do routed work",
+      routingPolicy: mockRoutingPolicy,
+    });
+
+    expect(result.routingDecisionId).toBe("rule-task-123-1700000000000");
+    expect(result.content).toBe("Routed result.");
+    expect(mockRoutingPolicy.select).toHaveBeenCalledOnce();
+  });
+
+  it("returns undefined routingDecisionId when no routing policy is configured", async () => {
+    const managerModel = createMockModel([{ content: "Direct result." }]);
+    const specModel = createMockModel([{ content: "spec output" }]);
+    const manager = createAgent("manager", "Orchestrates work", managerModel);
+    const specialist = createAgent("spec-b", "Specialist B", specModel);
+
+    const result = await AgentOrchestrator.supervisor({
+      manager,
+      specialists: [specialist],
+      task: "Do direct work",
+    });
+
+    expect(result.routingDecisionId).toBeUndefined();
+    expect(result.content).toBe("Direct result.");
+  });
+});
+
+describe("OrchestrationError", () => {
+  it("captures pattern and context", () => {
+    const err = new OrchestrationError("test error", "supervisor", {
+      foo: "bar",
+    });
+    expect(err.name).toBe("OrchestrationError");
+    expect(err.message).toBe("test error");
+    expect(err.pattern).toBe("supervisor");
+    expect(err.context).toEqual({ foo: "bar" });
+    expect(err).toBeInstanceOf(Error);
+  });
+});

@@ -152,6 +152,10 @@ export async function runSupervisor(
     }
   }
 
+  // Capture routingDecisionId when a routing policy is applied so it can be
+  // persisted in the SupervisorResult for replay/audit (W7 routing-decision tracing).
+  let capturedRoutingDecisionId: string | undefined;
+
   // Apply routing policy if configured to narrow specialist selection
   if (routingPolicy) {
     const candidates: AgentSpec[] = specialists.map((s) => ({
@@ -165,6 +169,7 @@ export async function runSupervisor(
       content: task,
     };
     const decision = routingPolicy.select(agentTask, candidates);
+    capturedRoutingDecisionId = decision.routingDecisionId;
     const selectedIds = new Set(decision.selected.map((a) => a.id));
     specialists = specialists.filter((s) => selectedIds.has(s.id));
     const selectedSpecialists = specialists.map((s) => s.id);
@@ -198,14 +203,6 @@ export async function runSupervisor(
         fallbackReason: decision.fallbackReason,
       });
     }
-    // TODO(W7-persist): routingDecisionId is generated and emitted on the event
-    // bus but is NOT written to the run record. To make LLM-routed supervisors
-    // replayable/auditable, persist decision.routingDecisionId alongside the
-    // supervisor result — e.g. in SupervisorResult and the calling
-    // PipelineExecutor node output so it survives a checkpoint. Requires:
-    //   1. Add routingDecisionId?: string to SupervisorResult
-    //   2. Return it from runSupervisor() alongside content
-    //   3. Store it in the node's PipelineCheckpoint output (nodeResults)
   }
 
   // Optional health check: filter out unresponsive specialists
@@ -311,5 +308,8 @@ export async function runSupervisor(
     content: result.content,
     availableSpecialists,
     filteredSpecialists,
+    ...(capturedRoutingDecisionId !== undefined
+      ? { routingDecisionId: capturedRoutingDecisionId }
+      : {}),
   };
 }
