@@ -35,6 +35,42 @@ import {
 } from "./codex-streamed-thread-types.js";
 
 /**
+ * Extract a human-readable failure message from a Codex stream event.
+ *
+ * Codex reports failures through several shapes: `event.error` (object or
+ * string), `event.message`, or an embedded `error` item (`event.item.message`).
+ * Returns the first non-empty message found, or null when none is present.
+ */
+export function extractStreamErrorMessage(
+  event: CodexStreamEvent,
+): string | null {
+  const fromError =
+    typeof event.error === "object" && event.error !== null
+      ? event.error.message
+      : typeof event.error === "string"
+        ? event.error
+        : undefined;
+  if (fromError && fromError.trim()) return fromError.trim();
+
+  if (typeof event.message === "string" && event.message.trim()) {
+    return event.message.trim();
+  }
+
+  const item = event.item;
+  if (
+    item &&
+    typeof item === "object" &&
+    "message" in item &&
+    typeof (item as { message?: unknown }).message === "string"
+  ) {
+    const itemMessage = (item as { message: string }).message;
+    if (itemMessage.trim()) return itemMessage.trim();
+  }
+
+  return null;
+}
+
+/**
  * Run a streamed Codex thread and yield unified AgentStreamEvent items.
  *
  * Tracks timing for durationMs and maps every SDK event to the
@@ -66,6 +102,12 @@ export async function* runStreamedThread(
   let lastEventType = "none";
   let rawEventOrdinal = 0;
   let threadProviderEventId: string | null = null;
+  // Last failure message extracted from a turn.failed / error stream event.
+  // The Codex CLI reports real failures (e.g. an API 400 "model is not
+  // supported") as a stream event on stdout BEFORE the SDK throws with a
+  // generic stderr-only message. Capturing it here lets us surface the true
+  // cause instead of the opaque "Reading prompt from stdin..." stderr line.
+  let lastStreamErrorMessage: string | null = null;
 
   // Auto-abort after timeout so we never hang
   let didTimeout = false;
@@ -245,6 +287,51 @@ export async function* runStreamedThread(
           );
           return;
         }
+        // Non-approval turn.failed: this is a real failure (e.g. an API 400
+        // "model is not supported"). Surface it as adapter:failed instead of
+        // letting the loop fall through to a misleading empty completion.
+        const failureMessage =
+          extractStreamErrorMessage(event) || "Codex turn failed";
+        lastStreamErrorMessage = failureMessage;
+        clearTimeout(timeoutHandle);
+        defaultLogger.error("[codex-streamed-thread:run] turn.failed", {
+          sessionId,
+          error: failureMessage,
+        });
+        yield withCorrelationId(
+          makeFailedEvent({
+            providerId: ctx.providerId,
+            sessionId,
+            error: failureMessage,
+            code: "ADAPTER_EXECUTION_FAILED",
+            timestamp: now(),
+          }),
+          input.correlationId,
+        );
+        return;
+      }
+
+      // Standalone error event (CodexErrorItem-style) — capture and surface.
+      if (event.type === "error") {
+        const failureMessage =
+          extractStreamErrorMessage(event) || "Codex stream error";
+        lastStreamErrorMessage = failureMessage;
+        clearTimeout(timeoutHandle);
+        defaultLogger.error("[codex-streamed-thread:run] error event", {
+          sessionId,
+          error: failureMessage,
+        });
+        yield withCorrelationId(
+          makeFailedEvent({
+            providerId: ctx.providerId,
+            sessionId,
+            error: failureMessage,
+            code: "ADAPTER_EXECUTION_FAILED",
+            timestamp: now(),
+          }),
+          input.correlationId,
+        );
+        return;
       }
 
       for (const rawAgentEvent of mapped) {
@@ -308,10 +395,18 @@ export async function* runStreamedThread(
       return;
     }
 
-    const errMsg = err instanceof Error ? err.message : String(err);
+    const thrownMsg = err instanceof Error ? err.message : String(err);
+    // Prefer a previously-captured stream error (the real cause, e.g. an API
+    // 400) over the SDK's generic stderr-only throw (e.g. "Codex Exec exited
+    // with code 1: Reading prompt from stdin..."), which hides the true reason.
+    const errMsg =
+      lastStreamErrorMessage && !thrownMsg.includes(lastStreamErrorMessage)
+        ? `${lastStreamErrorMessage} (codex exit: ${thrownMsg})`
+        : (lastStreamErrorMessage ?? thrownMsg);
     defaultLogger.error("[codex-streamed-thread:run] event loop threw", {
       sessionId,
       error: errMsg,
+      thrown: thrownMsg,
     });
     yield withCorrelationId(
       makeFailedEvent({
