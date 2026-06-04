@@ -1,0 +1,10 @@
+{
+  "provider": "codex",
+  "model": "gpt-5.3-codex",
+  "promptHash": "333cee75ac0b299d91e1f8e69b2dde6d4a4bc0f39dd2d83fed5f285c93cf14ca",
+  "timestamp": "2026-06-04T13:38:10.795Z",
+  "durationMs": 17738,
+  "inputTokens": null,
+  "outputTokens": null,
+  "usageSource": null
+}
