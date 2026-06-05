@@ -12,11 +12,15 @@ import type {
   AgentStartedEvent,
   ProviderRawStreamEvent,
   RawAgentEvent,
-} from '../types.js'
-import type { CodexStreamEvent } from './codex-types.js'
-import { annotateProviderIdentity, buildProviderEventId, now } from './codex-helpers.js'
-import { makeStartedEvent } from '../events/event-factories.js'
-import type { RunStreamedThreadContext } from './codex-streamed-thread-types.js'
+} from "../types.js";
+import type { CodexStreamEvent } from "./codex-types.js";
+import {
+  annotateProviderIdentity,
+  buildProviderEventId,
+  now,
+} from "./codex-helpers.js";
+import { makeStartedEvent } from "../events/event-factories.js";
+import type { RunStreamedThreadContext } from "./codex-streamed-thread-types.js";
 
 /**
  * Wrap a raw {@link CodexStreamEvent} in a {@link ProviderRawStreamEvent}
@@ -30,25 +34,30 @@ export function wrapRawProviderEvent(
   ordinal: number,
   threadProviderEventId: string | null,
 ): ProviderRawStreamEvent {
-  const providerEventId = buildProviderEventId(providerId, event, sessionId, ordinal)
+  const providerEventId = buildProviderEventId(
+    providerId,
+    event,
+    sessionId,
+    ordinal,
+  );
   const rawEvent: RawAgentEvent = {
     providerId,
     runId: sessionId,
     sessionId,
     providerEventId,
-    ...(event.type === 'thread.started'
+    ...(event.type === "thread.started"
       ? {}
       : { parentProviderEventId: threadProviderEventId ?? undefined }),
     timestamp: now(),
-    source: 'sdk',
+    source: "sdk",
     payload: event,
     ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-  }
+  };
 
   return {
-    type: 'adapter:provider_raw',
+    type: "adapter:provider_raw",
     rawEvent,
-  }
+  };
 }
 
 /**
@@ -59,25 +68,25 @@ export function combineSignals(
   external: AbortSignal | undefined,
   internal: AbortSignal,
 ): AbortSignal {
-  if (!external) return internal
+  if (!external) return internal;
 
-  const combined = new AbortController()
+  const combined = new AbortController();
 
   if (external.aborted || internal.aborted) {
-    combined.abort()
-    return combined.signal
+    combined.abort();
+    return combined.signal;
   }
 
   const onAbort = () => {
-    combined.abort()
-    external.removeEventListener('abort', onAbort)
-    internal.removeEventListener('abort', onAbort)
-  }
+    combined.abort();
+    external.removeEventListener("abort", onAbort);
+    internal.removeEventListener("abort", onAbort);
+  };
 
-  external.addEventListener('abort', onAbort, { once: true })
-  internal.addEventListener('abort', onAbort, { once: true })
+  external.addEventListener("abort", onAbort, { once: true });
+  internal.addEventListener("abort", onAbort, { once: true });
 
-  return combined.signal
+  return combined.signal;
 }
 
 /**
@@ -95,18 +104,20 @@ export function buildAdapterStartedEvent(
   providerEventId: string | null,
   parentProviderEventId: string | null,
 ): AgentEvent[] {
-  const ts = now()
-  const wd = ctx.currentInput?.workingDirectory ?? ctx.config.workingDirectory
+  const ts = now();
+  const wd = ctx.currentInput?.workingDirectory ?? ctx.config.workingDirectory;
   const started: AgentStartedEvent = makeStartedEvent({
     providerId: ctx.providerId,
     sessionId: event.thread_id ?? sessionId,
     timestamp: ts,
     prompt: ctx.currentInput?.prompt,
     systemPrompt: ctx.currentInput?.systemPrompt,
-    model: ctx.config.model ?? 'gpt-5.4',
+    model: ctx.config.model ?? "gpt-5.5",
     workingDirectory: wd,
     isResume: ctx.isResume,
-  })
+  });
 
-  return [annotateProviderIdentity(started, providerEventId, parentProviderEventId)]
+  return [
+    annotateProviderIdentity(started, providerEventId, parentProviderEventId),
+  ];
 }
