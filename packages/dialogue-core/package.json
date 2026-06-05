@@ -1,0 +1,36 @@
+{
+  "name": "@dzupagent/dialogue-core",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Provider-neutral dialogue orchestration contracts for DzupAgent",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup && tsc --emitDeclarationOnly --declarationMap false",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "tsup": "*",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "files": [
+    "dist"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/datazup/dzupagent.git",
+    "directory": "packages/dialogue-core"
+  }
+}
