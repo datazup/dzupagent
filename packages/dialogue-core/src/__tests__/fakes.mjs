@@ -1,0 +1,475 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdir, readdir, rm, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL, fileURLToPath } from "node:url";
+
+import ts from "typescript";
+
+const secretPattern = /SECRET-[A-Z0-9_-]+/g;
+const testDirectory = path.dirname(fileURLToPath(import.meta.url));
+const packageRoot = path.resolve(testDirectory, "../..");
+const sourceRoot = path.join(packageRoot, "src");
+
+let compileCounter = 0;
+
+export async function loadDialogueCore() {
+  const outputRoot = await compileDialogueCoreSource();
+  const entryUrl = pathToFileURL(path.join(outputRoot, "index.js")).href;
+
+  return import(`${entryUrl}?cache=${compileCounter}`);
+}
+
+export function createPorts(options = {}) {
+  const liveCallSensor = {
+    agent: 0,
+    workspace: 0,
+    validator: 0,
+    trace: 0,
+  };
+  const agentPort = createFakeAgentPort(options.agent ?? {}, liveCallSensor);
+  const workspacePort = createFakeWorkspacePort(
+    options.workspace ?? {},
+    liveCallSensor,
+  );
+  const validatorPort = createFakeValidatorPort(
+    options.validator ?? {},
+    liveCallSensor,
+  );
+  const tracePort = createFakeTracePort(liveCallSensor);
+  const redactionPolicy = createFakeRedactionPolicy(options.redaction ?? {});
+
+  return {
+    agentPort,
+    workspacePort,
+    validatorPort,
+    tracePort,
+    redactionPolicy,
+    liveCallSensor,
+  };
+}
+
+export function assertAllFakesOnly(ports) {
+  assert.deepEqual(ports.liveCallSensor, {
+    agent: 0,
+    workspace: 0,
+    validator: 0,
+    trace: 0,
+  });
+}
+
+export function assertTraceHasNoSecret(tracePort, secret) {
+  for (const event of tracePort.events) {
+    assert.equal(JSON.stringify(event).includes(secret), false);
+    assert.notEqual(event.visibility, "raw");
+  }
+}
+
+export function baseRunSpec(overrides = {}) {
+  return {
+    mode: "build",
+    participants: [
+      {
+        id: "planner",
+        provider: "fake-agent",
+        model: "planner-v1",
+        role: "planner",
+      },
+      {
+        id: "builder",
+        provider: "fake-agent",
+        model: "builder-v1",
+        role: "builder",
+      },
+      {
+        id: "critic",
+        provider: "fake-agent",
+        model: "critic-v1",
+        role: "critic",
+      },
+    ],
+    turns: [],
+    ...overrides,
+  };
+}
+
+export function fixedClock() {
+  let tick = 0;
+
+  return {
+    now() {
+      tick += 1;
+
+      return new Date(Date.UTC(2026, 5, 5, 10, 0, tick));
+    },
+  };
+}
+
+export function validationSpec(commandId = "fake-validate") {
+  return {
+    commandId,
+    args: ["--fake"],
+    cwdRoot: "repo",
+    sandboxPolicy: "none",
+  };
+}
+
+function createFakeAgentPort(options, liveCallSensor) {
+  const calls = [];
+  const responses = [...(options.responses ?? [])];
+  const defaultResponse = options.defaultResponse ?? {
+    raw: "fake-agent-response",
+    usage: {
+      inputTokens: 1,
+      outputTokens: 1,
+      totalTokens: 2,
+    },
+  };
+
+  return {
+    calls,
+    resetCalls() {
+      calls.length = 0;
+    },
+    async run(request) {
+      if (isLiveProvider(request.provider)) {
+        liveCallSensor.agent += 1;
+        throw new Error("live provider calls are forbidden in all-fakes tests");
+      }
+
+      calls.push(clone(request));
+      const next = responses.length > 0 ? responses.shift() : defaultResponse;
+
+      if (next instanceof Error) {
+        throw next;
+      }
+
+      return clone(next);
+    },
+  };
+}
+
+function createFakeWorkspacePort(options, liveCallSensor) {
+  const snapshotCalls = [];
+  const captureEffectCalls = [];
+  const snapshots = [...(options.snapshots ?? [])];
+  const effects = [...(options.effects ?? [])];
+
+  return {
+    snapshotCalls,
+    captureEffectCalls,
+    resetCalls() {
+      snapshotCalls.length = 0;
+      captureEffectCalls.length = 0;
+    },
+    async snapshot() {
+      if (options.live === true) {
+        liveCallSensor.workspace += 1;
+        throw new Error("live workspace calls are forbidden in all-fakes tests");
+      }
+
+      const snapshot = snapshots.shift() ?? {
+        baseRevision: `rev-${snapshotCalls.length}`,
+        treeHash: `tree-${snapshotCalls.length}`,
+      };
+      snapshotCalls.push(clone(snapshot));
+
+      return clone(snapshot);
+    },
+    async captureEffect(beforeSnapshot) {
+      if (options.live === true) {
+        liveCallSensor.workspace += 1;
+        throw new Error("live workspace calls are forbidden in all-fakes tests");
+      }
+
+      captureEffectCalls.push(clone(beforeSnapshot));
+      const index = captureEffectCalls.length;
+      const effect = effects.shift() ?? {
+        diff: `diff-${index}`,
+        changedFiles: [`file-${index}.ts`],
+        postRevision: `post-${index}`,
+        treeHash: `post-tree-${index}`,
+        applyStatus: "clean",
+      };
+
+      return clone(effect);
+    },
+  };
+}
+
+function createFakeValidatorPort(options, liveCallSensor) {
+  const calls = [];
+  const results = [...(options.results ?? [])];
+
+  return {
+    calls,
+    resetCalls() {
+      calls.length = 0;
+    },
+    async validate(spec) {
+      if (options.live === true || spec.commandId.startsWith("live:")) {
+        liveCallSensor.validator += 1;
+        throw new Error("live validation calls are forbidden in all-fakes tests");
+      }
+
+      calls.push(clone(spec));
+
+      return clone(
+        results.shift() ?? {
+          ok: true,
+          exitCode: 0,
+          output: "fake validation passed",
+          durationMs: 7,
+        },
+      );
+    },
+  };
+}
+
+function createFakeTracePort(liveCallSensor) {
+  const events = [];
+
+  return {
+    events,
+    async emit(event) {
+      if (event.visibility === "raw") {
+        liveCallSensor.trace += 1;
+        throw new Error("raw events must not reach TracePort");
+      }
+
+      events.push(clone(event));
+    },
+    byVisibility(visibility) {
+      return events.filter((event) => event.visibility === visibility);
+    },
+    turnEvents(turnType) {
+      return events.filter((event) => event.turnType === turnType);
+    },
+    reset() {
+      events.length = 0;
+    },
+  };
+}
+
+function createFakeRedactionPolicy(options) {
+  const calls = [];
+  const replacement = options.replacement ?? "[REDACTED]";
+
+  return {
+    calls,
+    redact(event) {
+      calls.push(clone(event));
+
+      return {
+        persisted: toPersistedEvent(event, replacement),
+        stream: toStreamEvent(event, replacement),
+      };
+    },
+  };
+}
+
+function toPersistedEvent(event, replacement) {
+  return stripUndefined({
+    ...baseEvent(event),
+    visibility: "persisted",
+    input:
+      event.input === undefined
+        ? undefined
+        : stripUndefined({
+            role: event.input.role,
+            scopeFiles: scrubValue(event.input.scopeFiles, replacement),
+            promptRedacted: redactText(event.input.prompt, replacement),
+          }),
+    output:
+      event.output === undefined
+        ? undefined
+        : stripUndefined({
+            rawRedacted: redactText(event.output.raw, replacement),
+            usage: clone(event.output.usage),
+          }),
+    workspace:
+      event.workspace === undefined
+        ? undefined
+        : stripUndefined({
+            ...event.workspace,
+            diff: undefined,
+            diffRedacted: redactText(event.workspace.diff, replacement),
+          }),
+    validation:
+      event.validation === undefined
+        ? undefined
+        : stripUndefined({
+            ...event.validation,
+            output: undefined,
+            outputRedacted: redactText(event.validation.output, replacement),
+          }),
+  });
+}
+
+function toStreamEvent(event, replacement) {
+  return stripUndefined({
+    ...baseEvent(event),
+    visibility: "stream",
+    input:
+      event.input === undefined
+        ? undefined
+        : stripUndefined({
+            role: event.input.role,
+            promptPreview: preview(redactText(event.input.prompt, replacement)),
+          }),
+    output:
+      event.output === undefined
+        ? undefined
+        : stripUndefined({
+            rawPreview: preview(redactText(event.output.raw, replacement)),
+            usage: clone(event.output.usage),
+          }),
+    workspace:
+      event.workspace === undefined
+        ? undefined
+        : stripUndefined({
+            ...event.workspace,
+            diff: undefined,
+            diffPreview: preview(redactText(event.workspace.diff, replacement)),
+          }),
+    validation:
+      event.validation === undefined
+        ? undefined
+        : stripUndefined({
+            ...event.validation,
+            output: undefined,
+            outputPreview: preview(redactText(event.validation.output, replacement)),
+          }),
+  });
+}
+
+function baseEvent(event) {
+  return stripUndefined({
+    runId: event.runId,
+    runSpecHash: event.runSpecHash,
+    turnIndex: event.turnIndex,
+    turnType: event.turnType,
+    participantId: event.participantId,
+    provider: event.provider,
+    model: event.model,
+    mode: event.mode,
+    decision: scrubValue(event.decision, "[REDACTED]"),
+    cost: scrubValue(event.cost, "[REDACTED]"),
+    timing: clone(event.timing),
+    escape: event.escape,
+    status: event.status,
+    skipReason: event.skipReason,
+  });
+}
+
+function isLiveProvider(provider) {
+  return (
+    typeof provider === "string" &&
+    /claude|codex|gemini|openai|openrouter|live/i.test(provider)
+  );
+}
+
+function redactText(value, replacement) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  return value.replace(secretPattern, replacement);
+}
+
+function scrubValue(value, replacement) {
+  if (typeof value === "string") {
+    return redactText(value, replacement);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => scrubValue(item, replacement));
+  }
+
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        scrubValue(item, replacement),
+      ]),
+    );
+  }
+
+  return value;
+}
+
+function preview(value) {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  return value.slice(0, 80);
+}
+
+function stripUndefined(value) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, item]) => item !== undefined),
+  );
+}
+
+function clone(value) {
+  return value === undefined ? undefined : structuredClone(value);
+}
+
+async function compileDialogueCoreSource() {
+  compileCounter += 1;
+  const hash = createHash("sha256").update(packageRoot).digest("hex").slice(0, 8);
+  const outputRoot = path.join(
+    os.tmpdir(),
+    `dzupagent-dialogue-core-${hash}-${process.pid}-${compileCounter}`,
+  );
+
+  await rm(outputRoot, { force: true, recursive: true });
+  await mkdir(outputRoot, { recursive: true });
+
+  for (const sourcePath of await listTypeScriptFiles(sourceRoot)) {
+    const relativePath = path.relative(sourceRoot, sourcePath);
+
+    if (relativePath.startsWith(`__tests__${path.sep}`)) {
+      continue;
+    }
+
+    const outputPath = path.join(
+      outputRoot,
+      relativePath.replace(/\.ts$/, ".js"),
+    );
+    const source = await readFile(sourcePath, "utf8");
+    const transpiled = ts.transpileModule(source, {
+      compilerOptions: {
+        module: ts.ModuleKind.ES2022,
+        moduleResolution: ts.ModuleResolutionKind.NodeNext,
+        target: ts.ScriptTarget.ES2022,
+        verbatimModuleSyntax: true,
+      },
+      fileName: sourcePath,
+    });
+
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, transpiled.outputText, "utf8");
+  }
+
+  return outputRoot;
+}
+
+async function listTypeScriptFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = path.join(directory, entry.name);
+
+      if (entry.isDirectory()) {
+        return listTypeScriptFiles(entryPath);
+      }
+
+      return entry.name.endsWith(".ts") ? [entryPath] : [];
+    }),
+  );
+
+  return files.flat();
+}

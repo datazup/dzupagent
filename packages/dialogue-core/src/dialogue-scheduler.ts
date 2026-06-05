@@ -26,6 +26,7 @@ import type {
   ParticipantSpec,
   RunLoopSpec,
   RunSpec,
+  RunSpecHash,
   RunTurnSpec,
 } from "./types/run-spec.js";
 import type {
@@ -67,9 +68,7 @@ export interface DialogueSchedulerTelemetry {
 
 export interface DialogueSchedulerResult {
   runId: string;
-  runSpecHash: RunSpec["allowEscape"] extends boolean
-    ? ReturnType<typeof hashRunSpec>
-    : ReturnType<typeof hashRunSpec>;
+  runSpecHash: RunSpecHash;
   activeParticipantId?: string | undefined;
   stopReason?: string | undefined;
   turnsCompleted: number;
@@ -82,7 +81,7 @@ export interface DialogueSchedulerResult {
 interface RunContext {
   runId: string;
   runSpec: RunSpec;
-  runSpecHash: ReturnType<typeof hashRunSpec>;
+  runSpecHash: RunSpecHash;
   participantsById: Map<string, ParticipantSpec>;
   activeParticipantId?: string | undefined;
   turnIndex: number;
@@ -98,6 +97,11 @@ interface BudgetUsage {
 interface ExecutedTurn {
   rawEvent: RawTurnEvent;
   decision?: DecisionBlock | undefined;
+}
+
+interface SchedulePlan {
+  items: DialogueScheduleItem[];
+  stopReason?: string | undefined;
 }
 
 const SYSTEM_PARTICIPANT: ParticipantSpec = {
@@ -132,9 +136,12 @@ export class DialogueScheduler {
     assertValidRunSpec(input.runSpec);
 
     const context = this.createRunContext(input);
-    const schedule = input.schedule ?? expandRunSpecSchedule(input.runSpec);
+    const schedulePlan =
+      input.schedule === undefined
+        ? expandRunSpecSchedule(input.runSpec)
+        : { items: input.schedule };
 
-    for (const item of schedule) {
+    for (const item of schedulePlan.items) {
       const turnBoundaryStop = getTurnBoundaryStopReason(context);
 
       if (turnBoundaryStop !== undefined) {
@@ -157,6 +164,7 @@ export class DialogueScheduler {
       }
     }
 
+    context.result.stopReason ??= schedulePlan.stopReason;
     context.result.activeParticipantId = context.activeParticipantId;
 
     return context.result;
@@ -385,6 +393,7 @@ export class DialogueScheduler {
       this.recordAgentUsage(context, output);
       const effect = await this.workspacePort.captureEffect(snapshot);
       workspace = toTurnEventWorkspace(snapshot, effect);
+      status = effect.applyStatus === "failed" ? "failed" : "completed";
     } catch (error) {
       status = "failed";
       output = output ?? errorToAgentResult(error);
@@ -432,7 +441,7 @@ export class DialogueScheduler {
       const rawEvent = await this.emitRawEvent(context, {
         turn,
         participant,
-        status: "completed",
+        status: result.ok ? "completed" : "failed",
         validation: {
           commandId: turn.validation.commandId,
           ok: result.ok,
@@ -706,7 +715,7 @@ export class DialogueScheduler {
   }
 }
 
-function expandRunSpecSchedule(runSpec: RunSpec): RunTurnSpec[] {
+function expandRunSpecSchedule(runSpec: RunSpec): SchedulePlan {
   const turnsById = new Map<string, RunTurnSpec>(
     runSpec.turns.map((turn) => [turn.id, turn]),
   );
@@ -724,6 +733,7 @@ function expandRunSpecSchedule(runSpec: RunSpec): RunTurnSpec[] {
 
   const expandedTurns: RunTurnSpec[] = [];
   const consumedLoopIds = new Set<string>();
+  let stopReason: string | undefined;
 
   for (const turn of runSpec.turns) {
     if (branchPathTurnIds.has(turn.id)) {
@@ -734,7 +744,7 @@ function expandRunSpecSchedule(runSpec: RunSpec): RunTurnSpec[] {
 
     if (loop !== undefined && !consumedLoopIds.has(loop.id)) {
       consumedLoopIds.add(loop.id);
-      expandLoop(loop, turnsById, expandedTurns);
+      stopReason ??= expandLoop(loop, turnsById, expandedTurns);
       continue;
     }
 
@@ -745,17 +755,21 @@ function expandRunSpecSchedule(runSpec: RunSpec): RunTurnSpec[] {
     appendTurnWithBranch(turn, turnsById, expandedTurns, new Set<string>());
   }
 
-  return expandedTurns;
+  return {
+    items: expandedTurns,
+    stopReason,
+  };
 }
 
 function expandLoop(
   loop: RunLoopSpec,
   turnsById: Map<string, RunTurnSpec>,
   expandedTurns: RunTurnSpec[],
-): void {
+): string | undefined {
   let loopState = createLoopState(loop.id, loop.maxIterations);
+  let advanceDecision = evaluateLoopAdvance(loopState, loop.condition);
 
-  while (evaluateLoopAdvance(loopState, loop.condition).shouldEnter) {
+  while (advanceDecision.shouldEnter) {
     for (const turnId of loop.turnIds) {
       const turn = turnsById.get(turnId);
 
@@ -765,7 +779,12 @@ function expandLoop(
     }
 
     loopState = advanceLoopState(loopState);
+    advanceDecision = evaluateLoopAdvance(loopState, loop.condition);
   }
+
+  return advanceDecision.stopReason === "loop=maxIterations"
+    ? advanceDecision.stopReason
+    : undefined;
 }
 
 function appendTurnWithBranch(
