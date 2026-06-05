@@ -14,7 +14,8 @@
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/"
+    "lint": "eslint src/",
+    "test": "node --test test/replay-dialogue.test.mjs"
   },
   "dependencies": {
     "@dzupagent/dialogue-core": "0.2.0"

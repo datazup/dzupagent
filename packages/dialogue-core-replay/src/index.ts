@@ -9,3 +9,14 @@ export type {
   RecordedWorkspaceEffectCapture,
   RecordedWorkspacePortOptions,
 } from "./recorded-workspace-port.js";
+export {
+  GoldenTraceValidationError,
+  loadGoldenTrace,
+  validateGoldenTrace,
+} from "./golden-trace.js";
+export type { GoldenTrace, GoldenTraceTurn } from "./golden-trace.js";
+export { ReplayAssertionError, replayDialogue } from "./replay-dialogue.js";
+export type {
+  ReplayDialogueResult,
+  SchedulerFactory,
+} from "./replay-dialogue.js";

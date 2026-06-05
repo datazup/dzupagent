@@ -1,0 +1,34 @@
+{
+  "runId": "golden-done-001",
+  "runSpecHash": "sha256:dd422fa0316b34057863647a1cfbc426a14e4f45a50ad8766863603e0a78eef9",
+  "verbSequence": ["deliberate"],
+  "runSpec": {
+    "mode": "deliberate",
+    "participants": [{ "id": "p1", "provider": "test", "model": "test-model" }],
+    "turns": [
+      {
+        "id": "t1",
+        "verb": "deliberate",
+        "participantId": "p1",
+        "prompt": "Summarise the task."
+      }
+    ]
+  },
+  "turns": [
+    {
+      "turnId": "t1",
+      "verb": "deliberate",
+      "agentCalls": [
+        {
+          "result": {
+            "raw": "The task is complete.",
+            "usage": { "inputTokens": 10, "outputTokens": 5, "totalTokens": 15 }
+          }
+        }
+      ],
+      "validatorCalls": [],
+      "workspaceSnapshots": [],
+      "workspaceEffects": []
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "runId": "golden-escalate-001",
+  "runSpecHash": "sha256:4245366b1f57cb012e878df15823d35db6376d4f15d83b68ee7160e8f958c9ea",
+  "verbSequence": ["deliberate", "review"],
+  "runSpec": {
+    "mode": "deliberate",
+    "participants": [{ "id": "p1", "provider": "test", "model": "test-model" }],
+    "turns": [
+      {
+        "id": "t1",
+        "verb": "deliberate",
+        "participantId": "p1",
+        "prompt": "Evaluate the task."
+      },
+      {
+        "id": "t2",
+        "verb": "review",
+        "participantId": "p1",
+        "prompt": "Should we escalate?"
+      }
+    ]
+  },
+  "turns": [
+    {
+      "turnId": "t1",
+      "verb": "deliberate",
+      "agentCalls": [
+        {
+          "result": {
+            "raw": "This task requires a review before proceeding.",
+            "usage": { "inputTokens": 12, "outputTokens": 8, "totalTokens": 20 }
+          }
+        }
+      ],
+      "validatorCalls": [],
+      "workspaceSnapshots": [],
+      "workspaceEffects": []
+    },
+    {
+      "turnId": "t2",
+      "verb": "review",
+      "agentCalls": [
+        {
+          "result": {
+            "raw": "{\"verdict\":\"continue\",\"criteria\":[{\"name\":\"scope-clear\",\"met\":true}],\"rationale\":\"Scope is well defined.\"}",
+            "usage": { "inputTokens": 8, "outputTokens": 6, "totalTokens": 14 }
+          }
+        }
+      ],
+      "validatorCalls": [],
+      "workspaceSnapshots": [],
+      "workspaceEffects": []
+    }
+  ]
+}

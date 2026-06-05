@@ -1,0 +1,80 @@
+{
+  "runId": "golden-branch-001",
+  "runSpecHash": "sha256:6b52abdec278b0883c1b0cadb31e97a816c817cdbd13e63fd0e750566959663e",
+  "verbSequence": ["deliberate", "review", "deliberate"],
+  "runSpec": {
+    "mode": "build",
+    "participants": [{ "id": "p1", "provider": "test", "model": "test-model" }],
+    "turns": [
+      {
+        "id": "t1",
+        "verb": "deliberate",
+        "participantId": "p1",
+        "prompt": "Plan the work."
+      },
+      {
+        "id": "t2",
+        "verb": "review",
+        "participantId": "p1",
+        "prompt": "Review the plan."
+      },
+      {
+        "id": "t3",
+        "verb": "deliberate",
+        "participantId": "p1",
+        "prompt": "Conclude."
+      }
+    ]
+  },
+  "turns": [
+    {
+      "turnId": "t1",
+      "verb": "deliberate",
+      "agentCalls": [
+        {
+          "result": {
+            "raw": "Plan: step A, step B, step C.",
+            "usage": {
+              "inputTokens": 10,
+              "outputTokens": 12,
+              "totalTokens": 22
+            }
+          }
+        }
+      ],
+      "validatorCalls": [],
+      "workspaceSnapshots": [],
+      "workspaceEffects": []
+    },
+    {
+      "turnId": "t2",
+      "verb": "review",
+      "agentCalls": [
+        {
+          "result": {
+            "raw": "{\"verdict\":\"continue\",\"criteria\":[{\"name\":\"plan-sound\",\"met\":true}],\"rationale\":\"Plan is viable.\"}",
+            "usage": { "inputTokens": 14, "outputTokens": 4, "totalTokens": 18 }
+          }
+        }
+      ],
+      "validatorCalls": [],
+      "workspaceSnapshots": [],
+      "workspaceEffects": []
+    },
+    {
+      "turnId": "t3",
+      "verb": "deliberate",
+      "agentCalls": [
+        {
+          "result": {
+            "raw": "Work concluded successfully.",
+            "usage": { "inputTokens": 8, "outputTokens": 5, "totalTokens": 13 }
+          }
+        }
+      ],
+      "validatorCalls": [],
+      "workspaceSnapshots": [],
+      "workspaceEffects": []
+    }
+  ]
+}
