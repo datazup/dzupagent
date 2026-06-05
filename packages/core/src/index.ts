@@ -61,6 +61,12 @@ export { createManifest, serializeManifest } from "./plugin/plugin-manifest.js";
 // --- LLM ---
 export { ModelRegistry } from "./llm/model-registry.js";
 export type { ModelFallbackCandidate } from "./llm/model-registry.js";
+// Re-export the LangChain model type that ModelRegistry.getModel() returns, so
+// consumers source the SAME type symbol as the registry produces (instead of
+// importing a second copy from @langchain/core and casting across the package
+// boundary). If a future @langchain/core major changes BaseChatModel's shape,
+// consumers fail at compile time here rather than silently at runtime.
+export type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 export { HarnessProfileRegistry } from "./llm/harness-profile.js";
 export type {
   HarnessProfile,
