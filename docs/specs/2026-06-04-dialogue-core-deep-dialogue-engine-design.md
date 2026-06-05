@@ -218,7 +218,7 @@ filesystem; it does not re-apply diffs to a real repo. See replay layer below.)
   "turnType": "implement",
   "participantId": "codex-1",
   "provider": "codex",
-  "model": "gpt-5.3-codex",
+  "model": "gpt-5.5",
   "mode": "build", // deliberate | build (for skip-audit)
   "input": { "prompt": "...", "scopeFiles": [], "role": "persona-worker" },
   "output": { "raw": "...", "usage": { "inputTokens": 0, "outputTokens": 0 } },
