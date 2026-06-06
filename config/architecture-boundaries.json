@@ -873,6 +873,7 @@
           "memory-ipc",
           "hitl-kit",
           "flow-ast",
+          "dialogue-core",
           "security"
         ]
       },
@@ -880,7 +881,14 @@
         "id": 1,
         "name": "foundation",
         "description": "Core foundation built on contracts. May depend only on layer 0.",
-        "packages": ["core", "adapter-rules", "flow-dsl", "memory", "context"]
+        "packages": [
+          "core",
+          "adapter-rules",
+          "flow-dsl",
+          "memory",
+          "context",
+          "dialogue-core-replay"
+        ]
       },
       {
         "id": 2,

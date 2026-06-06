@@ -151,6 +151,20 @@
       "apps/testman-app"
     ]
   },
+  "@dzupagent/dialogue-core": {
+    "tier": 1,
+    "status": "supported",
+    "architectureRole": "Layer-0 leaf runtime primitive: provider-neutral dialogue orchestration contracts with no @dzupagent runtime dependencies.",
+    "roadmapDriver": true,
+    "owners": ["apps/codev-app"]
+  },
+  "@dzupagent/dialogue-core-replay": {
+    "tier": 1,
+    "status": "supported-secondary",
+    "architectureRole": "Layer-1 replay harness for dialogue-core ports. Depends only on the dialogue-core contract package and stays outside host/runtime composition.",
+    "roadmapDriver": false,
+    "owners": ["apps/codev-app"]
+  },
   "@dzupagent/cache": {
     "tier": 1,
     "status": "supported",
