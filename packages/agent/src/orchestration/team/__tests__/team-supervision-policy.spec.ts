@@ -130,6 +130,7 @@ describe('TeamRuntime — SupervisionPolicy', () => {
 
   it('resets the breaker after resetAfterMs has elapsed', async () => {
     const def = buildTeam('team-reset', ['flaky'])
+    const resetAfterMs = 250
     // First model fails to open the breaker; we then swap the agent for a
     // healthy one to confirm the participant runs again after reset.
     const { agent: flaky } = createAgent('flaky', true)
@@ -146,7 +147,7 @@ describe('TeamRuntime — SupervisionPolicy', () => {
       }),
       supervisionPolicy: {
         maxFailuresBeforeCircuitBreak: 1,
-        resetAfterMs: 10,
+        resetAfterMs,
       },
     })
 
@@ -156,7 +157,7 @@ describe('TeamRuntime — SupervisionPolicy', () => {
     expect(skipped.agentResults).toHaveLength(0)
 
     // Wait past resetAfterMs, then swap to the healthy agent and re-run.
-    await new Promise((r) => setTimeout(r, 25))
+    await new Promise((r) => setTimeout(r, resetAfterMs + 50))
     useHealthy = true
     const recovered = await runtime.execute('task 3')
     expect(recovered.agentResults).toHaveLength(1)

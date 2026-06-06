@@ -89,9 +89,14 @@ function createFailModel(errorMsg: string): BaseChatModel {
   } as unknown as BaseChatModel
 }
 
-function createDelayedModel(content: string, delayMs: number): BaseChatModel {
+function createDelayedModel(
+  content: string,
+  delayMs: number,
+  onInvokeStart?: () => void,
+): BaseChatModel {
   return {
     invoke: vi.fn(async () => {
+      onInvokeStart?.()
       await new Promise((r) => setTimeout(r, delayMs))
       return new AIMessage({ content, response_metadata: {} })
     }),
@@ -215,17 +220,18 @@ describe('AgentOrchestrator.sequential — deep branches', () => {
 
 describe('AgentOrchestrator.parallel — deep branches', () => {
   it('actually runs agents concurrently (timing test)', async () => {
-    // Each agent sleeps ~50ms; sequential would take 150+ms, parallel ~50ms
-    const a1 = createAgentWithModel('p1', createDelayedModel('r1', 50))
-    const a2 = createAgentWithModel('p2', createDelayedModel('r2', 50))
-    const a3 = createAgentWithModel('p3', createDelayedModel('r3', 50))
+    const delayMs = 50
+    const starts: number[] = []
+    const recordStart = () => starts.push(Date.now())
 
-    const start = Date.now()
+    const a1 = createAgentWithModel('p1', createDelayedModel('r1', delayMs, recordStart))
+    const a2 = createAgentWithModel('p2', createDelayedModel('r2', delayMs, recordStart))
+    const a3 = createAgentWithModel('p3', createDelayedModel('r3', delayMs, recordStart))
+
     await AgentOrchestrator.parallel([a1, a2, a3], 'input')
-    const elapsed = Date.now() - start
 
-    // With slack for test overhead; parallel should be under ~130ms
-    expect(elapsed).toBeLessThan(130)
+    expect(starts).toHaveLength(3)
+    expect(Math.max(...starts) - Math.min(...starts)).toBeLessThan(delayMs)
   })
 
   it('results preserved in agent array order regardless of completion order', async () => {

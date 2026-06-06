@@ -89,25 +89,19 @@ describe('Parallel Tool Execution', () => {
       new AIMessage('All done'),
     ])
 
-    const startTime = Date.now()
     const result = await runToolLoop(
       model,
       [new HumanMessage('go')],
       [tool1, tool2, tool3],
       { maxIterations: 10, parallelTools: true },
     )
-    const elapsed = Date.now() - startTime
 
     // All 3 tools should have been called
     expect(inv1).toHaveLength(1)
     expect(inv2).toHaveLength(1)
     expect(inv3).toHaveLength(1)
 
-    // Parallel: total time should be roughly 1x delay, not 3x
-    // Allow generous margin but ensure it's less than 3x sequential
-    expect(elapsed).toBeLessThan(delay * 3)
-
-    // All start times should be close together (within ~10ms)
+    // The start-time spread is the stable proof that tools began concurrently.
     const starts = [inv1[0]!.time, inv2[0]!.time, inv3[0]!.time]
     const spread = Math.max(...starts) - Math.min(...starts)
     expect(spread).toBeLessThan(delay) // started before any could finish
