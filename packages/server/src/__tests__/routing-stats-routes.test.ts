@@ -153,8 +153,8 @@ describe('Routing stats route — GET /api/runs/routing-stats', () => {
       auth: {
         mode: 'api-key',
         validateKey: async (token: string) => {
-          if (token === 'key-a') return { id: 'key-a', tenantId: 'tenant-a' }
-          if (token === 'key-b') return { id: 'key-b', tenantId: 'tenant-b' }
+          if (token === 'key-a') return { id: 'key-a', tenantId: 'tenant-a', role: 'operator' }
+          if (token === 'key-b') return { id: 'key-b', tenantId: 'tenant-b', role: 'operator' }
           return null
         },
       },

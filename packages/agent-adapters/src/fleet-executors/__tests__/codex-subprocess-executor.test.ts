@@ -5,12 +5,14 @@ import * as path from "node:path";
 import { CodexSubprocessExecutor } from "../codex-subprocess-executor.js";
 
 const fakeBin = `
+import { writeSync } from "node:fs";
+
 const events = [
   JSON.stringify({ type: 'turn_started', turn_id: 's1' }),
   JSON.stringify({ type: 'message', role: 'assistant', text: 'hi' }),
   JSON.stringify({ type: 'exit', code: 0 }),
 ]
-for (const e of events) console.log(e)
+for (const e of events) writeSync(1, e + "\\n")
 process.exit(0)
 `;
 

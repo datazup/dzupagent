@@ -39,7 +39,7 @@ class InMemoryApiKeyStore {
     ownerId: string,
     name: string,
     tier: string = 'standard',
-    role: string = 'operator',
+    options: { role?: string; expiresAt?: Date | null; expiresIn?: number } = {},
   ): Promise<CreateApiKeyResult> {
     const id = `key-${Math.random().toString(36).slice(2)}`
     const rawKey = `raw-${Math.random().toString(36).slice(2)}`
@@ -47,10 +47,10 @@ class InMemoryApiKeyStore {
       id,
       ownerId,
       name,
-      role,
+      role: options.role ?? 'operator',
       rateLimitTier: tier,
       createdAt: new Date(),
-      expiresAt: null,
+      expiresAt: options.expiresAt ?? (options.expiresIn ? new Date(Date.now() + options.expiresIn * 1000) : null),
       revokedAt: null,
       lastUsedAt: null,
       metadata: {},
@@ -95,7 +95,7 @@ class InMemoryApiKeyStore {
 
   /** Test helper: seed a key directly so the first HTTP request can authenticate. */
   async seed(ownerId: string, name: string, role: string = 'operator'): Promise<string> {
-    const { key } = await this.create(ownerId, name, 'standard', role)
+    const { key } = await this.create(ownerId, name, 'standard', { role })
     return key
   }
 }

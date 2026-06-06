@@ -142,8 +142,8 @@ describe('Memory browse — tenant isolation (MJ-SEC-04)', () => {
     const app = createForgeApp(
       createAuthedConfig(memoryService, {
         keys: {
-          'token-a': { id: 'k-a', tenantId: 'tenant-a' },
-          'token-b': { id: 'k-b', tenantId: 'tenant-b' },
+          'token-a': { id: 'k-a', tenantId: 'tenant-a', role: 'operator' },
+          'token-b': { id: 'k-b', tenantId: 'tenant-b', role: 'operator' },
         },
       }),
     )
@@ -173,7 +173,7 @@ describe('Memory browse — tenant isolation (MJ-SEC-04)', () => {
     const app = createForgeApp(
       createAuthedConfig(memoryService, {
         keys: {
-          'token-a': { id: 'k-a', tenantId: 'tenant-a' },
+          'token-a': { id: 'k-a', tenantId: 'tenant-a', role: 'operator' },
         },
       }),
     )
@@ -193,7 +193,7 @@ describe('Memory browse — tenant isolation (MJ-SEC-04)', () => {
     const app = createForgeApp(
       createAuthedConfig(memoryService, {
         keys: {
-          'token-owner': { id: 'k', ownerId: 'owner-x' },
+          'token-owner': { id: 'k', ownerId: 'owner-x', role: 'operator' },
         },
       }),
     )
@@ -236,7 +236,7 @@ describe('Memory export — tenant isolation (MJ-SEC-04)', () => {
   it('overrides spoofed scope with authenticated tenantId', async () => {
     const app = createForgeApp(
       createAuthedConfig(memoryService, {
-        keys: { 'token-a': { id: 'k-a', tenantId: 'tenant-a' } },
+        keys: { 'token-a': { id: 'k-a', tenantId: 'tenant-a', role: 'operator' } },
       }),
     )
 
@@ -297,7 +297,7 @@ describe('Memory import — tenant isolation (MJ-SEC-04)', () => {
   it('rewrites import scope with authenticated tenantId (no cross-tenant write)', async () => {
     const appA = createForgeApp(
       createAuthedConfig(memoryService, {
-        keys: { 'token-a': { id: 'k-a', tenantId: 'tenant-a' } },
+        keys: { 'token-a': { id: 'k-a', tenantId: 'tenant-a', role: 'operator' } },
       }),
     )
 
@@ -315,7 +315,7 @@ describe('Memory import — tenant isolation (MJ-SEC-04)', () => {
     // scope. The server must rewrite the scope to tenant-b.
     const appB = createForgeApp(
       createAuthedConfig(memoryService, {
-        keys: { 'token-b': { id: 'k-b', tenantId: 'tenant-b' } },
+        keys: { 'token-b': { id: 'k-b', tenantId: 'tenant-b', role: 'operator' } },
       }),
     )
 
@@ -376,7 +376,7 @@ describe('Memory analytics — tenant isolation (MJ-SEC-04)', () => {
     const app = createForgeApp(
       createAuthedConfig(memoryService, {
         keys: {
-          'token-a': { id: 'k-a', tenantId: 'tenant-a', ownerId: 'owner-a' },
+          'token-a': { id: 'k-a', tenantId: 'tenant-a', ownerId: 'owner-a', role: 'operator' },
         },
       }),
     )
