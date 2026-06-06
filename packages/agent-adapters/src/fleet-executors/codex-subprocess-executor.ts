@@ -76,7 +76,17 @@ export class CodexSubprocessExecutor implements Executor {
     };
 
     const exitPromise = new Promise<WorkerOutcome>((resolve) => {
-      child.on("exit", (code, signal) => {
+      let pendingOutcome: WorkerOutcome | null = null;
+      const finalize = () => {
+        if (closed) return;
+        if (!pendingOutcome) return;
+        close();
+        resolve(pendingOutcome);
+      };
+
+      reader.on("close", finalize);
+
+      child.on("close", (code, signal) => {
         if (closed) return;
         if (!buffer.some((e) => e.kind === "exit")) {
           push({
@@ -86,22 +96,22 @@ export class CodexSubprocessExecutor implements Executor {
             at: new Date().toISOString(),
           });
         }
-        close();
         if (cancelled)
-          resolve({ state: "cancelled", exitCode: code, reason: "cancelled" });
-        else if (code === 0) resolve({ state: "completed", exitCode: 0 });
+          pendingOutcome = { state: "cancelled", exitCode: code, reason: "cancelled" };
+        else if (code === 0) pendingOutcome = { state: "completed", exitCode: 0 };
         else if (code === null)
-          resolve({
+          pendingOutcome = {
             state: "crashed",
             exitCode: null,
             reason: signal ?? "unknown",
-          });
+          };
         else
-          resolve({
+          pendingOutcome = {
             state: "failed",
             exitCode: code,
             reason: stderrChunks.join("").slice(0, 500),
-          });
+          };
+        finalize();
       });
       child.on("error", (err) => {
         if (closed) return;

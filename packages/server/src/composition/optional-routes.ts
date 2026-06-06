@@ -346,7 +346,7 @@ function mountOpenAICompatRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalR
 
   // Apply OpenAI auth middleware to all /v1/* routes (separate from /api/* auth).
   app.use('/v1/*', openaiAuthMiddleware(runtimeConfig.openai?.auth))
-  if (runtimeConfig.rbac !== false) {
+  if (runtimeConfig.rbac !== false && runtimeConfig.openai?.auth?.enabled !== false) {
     app.use('/v1/*', rbacMiddleware(createDefaultRbacConfig(runtimeConfig)))
   }
 

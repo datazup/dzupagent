@@ -28,6 +28,10 @@ const SECRET_KEY_PATTERNS = [
   "bearer",
 ];
 
+const NON_SECRET_KEY_ALLOWLIST = new Set([
+  "maxTokens",
+]);
+
 /** `key=value` credential patterns embedded in free-form strings (e.g. env vars). */
 const SECRET_VALUE_REGEX =
   /\b(password|secret|token|apikey|api_key|credential)\s*=/i;
@@ -35,6 +39,7 @@ const SECRET_VALUE_REGEX =
 function isSecretKey(key: string): boolean {
   // Explicit named secret keys are redacted at any depth, as are keys whose
   // name contains a known credential fragment.
+  if (NON_SECRET_KEY_ALLOWLIST.has(key)) return false;
   if (TOP_LEVEL_SECRET_METADATA_KEYS.has(key)) return true;
   const lower = key.toLowerCase();
   return SECRET_KEY_PATTERNS.some((p) => lower.includes(p));
