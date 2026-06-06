@@ -194,6 +194,11 @@ function buildBodyParser(config: AgentRouterConfig): RequestHandler {
   const limit = config.bodyLimit ?? DEFAULT_BODY_LIMIT
   const parser = express.json({ limit })
   return (req, res, next): void => {
+    if (req.body !== undefined) {
+      next()
+      return
+    }
+
     parser(req, res, (err?: unknown) => {
       if (!err) {
         next()
