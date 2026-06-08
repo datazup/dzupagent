@@ -42,7 +42,9 @@ vi.mock("@openai/codex-sdk", () => ({
 }));
 
 // Must import after mocking
-const { CodexAdapter } = await import("../codex/codex-adapter.js");
+const { CodexAdapter, applyDynamicWorkflowCodexDefaults } = await import(
+  "../codex/codex-adapter.js"
+);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -109,6 +111,45 @@ describe("CodexAdapter", () => {
       const gen = adapter.execute(makeInput());
       // Just verify no throw; model propagation checked in dedicated test
       expect(gen).toBeDefined();
+    });
+  });
+
+  describe("dynamic workflow defaults", () => {
+    it("defaults generated dynamic workflow network access to disabled", () => {
+      const config = applyDynamicWorkflowCodexDefaults({});
+
+      expect(config.networkAccessEnabled).toBe(false);
+      expect(config.sandboxMode).toBe("workspace-write");
+      expect(config.approvalPolicy).toBe("on-request");
+    });
+
+    it("preserves explicit generated dynamic workflow network access", () => {
+      const config = applyDynamicWorkflowCodexDefaults({
+        networkAccessEnabled: true,
+      });
+
+      expect(config.networkAccessEnabled).toBe(true);
+    });
+
+    it("applies generated dynamic workflow defaults to Codex thread options", async () => {
+      const customAdapter = new CodexAdapter(
+        applyDynamicWorkflowCodexDefaults({}),
+      );
+      const thread = createMockThread([
+        threadStartedEvent(),
+        turnCompletedEvent(),
+      ]);
+      mockStartThread.mockReturnValue(thread);
+
+      await collectEvents(customAdapter.execute(makeInput()));
+
+      expect(mockStartThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          approvalPolicy: "on-request",
+          networkAccessEnabled: false,
+          sandboxMode: "workspace-write",
+        }),
+      );
     });
   });
 

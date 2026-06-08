@@ -17,6 +17,45 @@ process.exit(0)
 `;
 
 describe("CodexSubprocessExecutor", () => {
+  function makeWorkerSpec(tmp: string, config: Record<string, unknown> = {}) {
+    return {
+      workerId: "w1",
+      repo: { name: "r", path: tmp },
+      repoPath: tmp,
+      taskBundle: { id: "t", description: "", payload: {}, dependsOn: [] },
+      knowledgeHandle: { store: {} as never, scope: "run:x", repo: "r" },
+      mailboxAddress: "m",
+      config,
+    };
+  }
+
+  it("refuses dynamic workflow mode without an explicit capability probe", async () => {
+    const exec = new CodexSubprocessExecutor();
+
+    await expect(exec.assertSupportsDynamicWorkflowMode()).rejects.toThrow(
+      /Codex dynamic workflow subprocess mode is unavailable/,
+    );
+  });
+
+  it("allows dynamic workflow mode when explicitly capability-gated", async () => {
+    const exec = new CodexSubprocessExecutor({
+      enableDynamicWorkflowSubprocessMode: true,
+    });
+
+    await expect(
+      exec.assertSupportsDynamicWorkflowMode(),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses dynamic workflow spawns without an explicit capability probe", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "codex-fake-"));
+    const exec = new CodexSubprocessExecutor();
+
+    await expect(
+      exec.spawn(makeWorkerSpec(tmp, { dynamicWorkflowMode: true })),
+    ).rejects.toThrow(/Codex dynamic workflow subprocess mode is unavailable/);
+  });
+
   it("parses output of a fake binary into WorkerEvents and exits successfully", async () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "codex-fake-"));
     const script = path.join(tmp, "fake.js");
@@ -25,15 +64,7 @@ describe("CodexSubprocessExecutor", () => {
       command: process.execPath,
       args: [script],
     });
-    const handle = await exec.spawn({
-      workerId: "w1",
-      repo: { name: "r", path: tmp },
-      repoPath: tmp,
-      taskBundle: { id: "t", description: "", payload: {}, dependsOn: [] },
-      knowledgeHandle: { store: {} as never, scope: "run:x", repo: "r" },
-      mailboxAddress: "m",
-      config: {},
-    });
+    const handle = await exec.spawn(makeWorkerSpec(tmp));
     const kinds: string[] = [];
     for await (const e of handle.events) kinds.push(e.kind);
     const outcome = await handle.wait();
@@ -52,15 +83,7 @@ describe("CodexSubprocessExecutor", () => {
       command: process.execPath,
       args: [script],
     });
-    const handle = await exec.spawn({
-      workerId: "w1",
-      repo: { name: "r", path: tmp },
-      repoPath: tmp,
-      taskBundle: { id: "t", description: "", payload: {}, dependsOn: [] },
-      knowledgeHandle: { store: {} as never, scope: "run:x", repo: "r" },
-      mailboxAddress: "m",
-      config: {},
-    });
+    const handle = await exec.spawn(makeWorkerSpec(tmp));
     // contract-update is a valid WorkerInbound variant — must not be silently dropped
     await expect(
       handle.send({ kind: "contract-update", surface: "test-surface" })
