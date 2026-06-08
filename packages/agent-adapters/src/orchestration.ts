@@ -47,6 +47,16 @@ export type {
   BidStrategy,
   BidSelectionCriteria,
 } from './orchestration/contract-net.js'
+export {
+  getDynamicWorkflowRoleRoutes,
+  resolveDynamicWorkflowProvider,
+} from './orchestration/dynamic-workflow-router.js'
+export type {
+  DynamicWorkflowProvider,
+  DynamicWorkflowProviderDecision,
+  DynamicWorkflowRole,
+  DynamicWorkflowRoleRoutes,
+} from './orchestration/dynamic-workflow-router.js'
 
 // --- Session & State Management ---
 export { SessionRegistry } from './session/session-registry.js'

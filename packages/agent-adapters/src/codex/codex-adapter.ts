@@ -39,6 +39,22 @@ import {
 } from "./codex-streamed-thread.js";
 import type { CodexApprovalContext } from "./codex-approval.js";
 
+export interface CodexAdapterConfig extends AdapterConfig {
+  networkAccessEnabled?: boolean | undefined;
+  approvalPolicy?: string | undefined;
+}
+
+export function applyDynamicWorkflowCodexDefaults(
+  config: CodexAdapterConfig,
+): CodexAdapterConfig {
+  return {
+    ...config,
+    networkAccessEnabled: config.networkAccessEnabled ?? false,
+    sandboxMode: config.sandboxMode ?? "workspace-write",
+    approvalPolicy: config.approvalPolicy ?? "on-request",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // CodexAdapter
 // ---------------------------------------------------------------------------
@@ -246,7 +262,8 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       model: this.config.model ?? "gpt-5.5",
       sandboxMode: toCodexSandboxMode(this.config.sandboxMode),
       approvalPolicy: this.resolveCodexApprovalPolicy(input),
-      networkAccessEnabled: true,
+      networkAccessEnabled:
+        (this.config as CodexAdapterConfig).networkAccessEnabled ?? true,
     };
 
     const workDir = input.workingDirectory ?? this.config.workingDirectory;
@@ -299,6 +316,11 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     // Explicit per-call override takes priority (checked again in buildThreadOptions)
     if (typeof input.options?.["approvalPolicy"] === "string") {
       return input.options["approvalPolicy"];
+    }
+    const configApprovalPolicy = (this.config as CodexAdapterConfig)
+      .approvalPolicy;
+    if (typeof configApprovalPolicy === "string") {
+      return configApprovalPolicy;
     }
     const policy = this.resolveInteractionPolicy(input);
     return policy.mode === "auto-approve" ? "never" : "on-failure";

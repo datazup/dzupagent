@@ -15,13 +15,26 @@ export interface CodexSubprocessOptions {
   command?: string;
   args?: string[];
   env?: NodeJS.ProcessEnv;
+  enableDynamicWorkflowSubprocessMode?: boolean;
 }
 
 export class CodexSubprocessExecutor implements Executor {
   readonly id = "codex-subprocess";
   constructor(private readonly options: CodexSubprocessOptions = {}) {}
 
+  async assertSupportsDynamicWorkflowMode(): Promise<void> {
+    if (!this.options.enableDynamicWorkflowSubprocessMode) {
+      throw new Error(
+        "Codex dynamic workflow subprocess mode is unavailable without an explicit capability probe",
+      );
+    }
+  }
+
   async spawn(spec: WorkerSpec): Promise<WorkerHandle> {
+    if (spec.config["dynamicWorkflowMode"] === true) {
+      await this.assertSupportsDynamicWorkflowMode();
+    }
+
     const command = this.options.command ?? "codex";
     const args = this.options.args ?? [
       "exec",

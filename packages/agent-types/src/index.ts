@@ -30,3 +30,23 @@ export type {
   WriteContext,
   CancellationSignal,
 } from './memory-client.js'
+export { DYNAMIC_WORKFLOW_SCHEMA_VERSION } from './orchestration/dynamic-workflow/index.js'
+export type {
+  DynamicWorkflowApprovalPolicy,
+  DynamicWorkflowArtifactKind,
+  DynamicWorkflowArtifactRequirement,
+  DynamicWorkflowCheckpointMode,
+  DynamicWorkflowCheckpointPolicy,
+  DynamicWorkflowEvent,
+  DynamicWorkflowEventType,
+  DynamicWorkflowGraph,
+  DynamicWorkflowNetworkAccess,
+  DynamicWorkflowPolicy,
+  DynamicWorkflowProvider,
+  DynamicWorkflowProviderRoute,
+  DynamicWorkflowRole,
+  DynamicWorkflowRunIntent,
+  DynamicWorkflowSandboxMode,
+  DynamicWorkflowSpec,
+  DynamicWorkflowWorker,
+} from './orchestration/dynamic-workflow/index.js'
