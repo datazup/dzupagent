@@ -38,6 +38,10 @@
     "dist"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/datazup/dzupagent.git",
