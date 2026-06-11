@@ -1,18 +1,23 @@
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 
 /** Model capability tier */
-export type ModelTier = 'chat' | 'reasoning' | 'codegen' | 'embedding'
+export type ModelTier =
+  | "chat"
+  | "reasoning"
+  | "codegen"
+  | "embedding"
+  | "vision";
 
 /** Built-in provider identifiers with first-class runtime support. */
 export type KnownLLMProvider =
-  | 'anthropic'
-  | 'openai'
-  | 'openrouter'
-  | 'google'
-  | 'qwen'
-  | 'azure'
-  | 'bedrock'
-  | 'custom'
+  | "anthropic"
+  | "openai"
+  | "openrouter"
+  | "google"
+  | "qwen"
+  | "azure"
+  | "bedrock"
+  | "custom";
 
 /**
  * Provider identifier used across runtime/bootstrap surfaces.
@@ -22,54 +27,54 @@ export type KnownLLMProvider =
  * not have to coerce themselves into `'custom'` just to preserve provider
  * identity and explicit structured-output defaults.
  */
-export type LLMProviderName = KnownLLMProvider | (string & {})
+export type LLMProviderName = KnownLLMProvider | (string & {});
 
 /** Structured-output execution strategy identifiers. */
 export type StructuredOutputStrategy =
-  | 'anthropic-tool-use'
-  | 'openai-json-schema'
-  | 'generic-parse'
-  | 'fallback-prompt'
+  | "anthropic-tool-use"
+  | "openai-json-schema"
+  | "generic-parse"
+  | "fallback-prompt";
 
 /** Explicit structured-output execution capabilities for a model spec. */
 export interface StructuredOutputModelCapabilities {
   /** Preferred first strategy for this provider/model surface. */
-  preferredStrategy: StructuredOutputStrategy
+  preferredStrategy: StructuredOutputStrategy;
   /** Provider-oriented schema normalization target. */
-  schemaProvider?: 'generic' | 'openai'
+  schemaProvider?: "generic" | "openai";
   /** Optional fallback order after the preferred strategy. */
-  fallbackStrategies?: StructuredOutputStrategy[]
+  fallbackStrategies?: StructuredOutputStrategy[];
 }
 
 /** Model spec for a given tier */
 export interface ModelSpec {
-  name: string
-  maxTokens: number
-  temperature?: number
-  streaming?: boolean
+  name: string;
+  maxTokens: number;
+  temperature?: number;
+  streaming?: boolean;
   /** Optional structured-output capability metadata for this model. */
-  structuredOutput?: StructuredOutputModelCapabilities
+  structuredOutput?: StructuredOutputModelCapabilities;
 }
 
 /** Provider configuration registered with ModelRegistry */
 export interface LLMProviderConfig {
-  provider: LLMProviderName
-  apiKey: string
-  baseUrl?: string
+  provider: LLMProviderName;
+  apiKey: string;
+  baseUrl?: string;
   /** Optional provider-level default for structured-output behavior. */
-  structuredOutputDefaults?: StructuredOutputModelCapabilities
-  models: Partial<Record<ModelTier, ModelSpec>>
+  structuredOutputDefaults?: StructuredOutputModelCapabilities;
+  models: Partial<Record<ModelTier, ModelSpec>>;
   /** Lower number = higher priority */
-  priority: number
+  priority: number;
 }
 
 /** Override options when requesting a model */
 export interface ModelOverrides {
-  model?: string
-  temperature?: number
-  maxTokens?: number
-  streaming?: boolean
-  reasoningEffort?: 'low' | 'medium' | 'high'
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  streaming?: boolean;
+  reasoningEffort?: "low" | "medium" | "high";
 }
 
 /** Factory function type for creating model instances */
@@ -77,4 +82,4 @@ export type ModelFactory = (
   provider: LLMProviderConfig,
   spec: ModelSpec,
   overrides?: ModelOverrides,
-) => BaseChatModel
+) => BaseChatModel;
