@@ -4,8 +4,8 @@
  * Centralizes all context variable types so middleware can use
  * typed `c.set()` / `c.get()` without `as never` casts.
  */
-import type { ForgeIdentity, ForgeCapability } from '@dzupagent/core/identity'
-import type { ForgeRole } from './middleware/rbac-types.js'
+import type { ForgeIdentity, ForgeCapability } from "@dzupagent/core/identity";
+import type { ForgeRole } from "./middleware/rbac-types.js";
 
 /**
  * Shape of the API-key context variable populated by `authMiddleware`.
@@ -17,15 +17,19 @@ import type { ForgeRole } from './middleware/rbac-types.js'
  * widening cast at the call site.
  */
 export type ApiKeyContext = {
-  id?: string
-  ownerId?: string
-  role?: string
-  tenantId?: string
-  rateLimitTier?: string
-  maxTokensPerRun?: number
-  maxRunsPerHour?: number
-  [key: string]: unknown
-}
+  id?: string;
+  ownerId?: string;
+  role?: string;
+  tenantId?: string;
+  rateLimitTier?: string;
+  maxTokensPerRun?: number;
+  maxRunsPerHour?: number;
+  /** Global user id from @datazup/identity-bridge (undefined in LOCAL state or unauthenticated). */
+  globalUserId?: string;
+  /** Global account id from @datazup/identity-bridge (undefined in LOCAL state or unauthenticated). */
+  globalAccountId?: string;
+  [key: string]: unknown;
+};
 
 /**
  * Legacy identity context shape (pre-`forgeIdentity`).
@@ -35,18 +39,18 @@ export type ApiKeyContext = {
  * should populate `forgeIdentity` via `identityMiddleware` instead.
  */
 export type LegacyIdentityContext = {
-  id?: string
-  [key: string]: unknown
-}
+  id?: string;
+  [key: string]: unknown;
+};
 
 export type AppVariables = {
-  apiKey: ApiKeyContext
-  forgeIdentity: ForgeIdentity
-  forgeCapabilities: ForgeCapability[]
-  forgeRole: ForgeRole
-  forgeTenantId: string
+  apiKey: ApiKeyContext;
+  forgeIdentity: ForgeIdentity;
+  forgeCapabilities: ForgeCapability[];
+  forgeRole: ForgeRole;
+  forgeTenantId: string;
   /** Legacy identity slot; see {@link LegacyIdentityContext}. */
-  identity: LegacyIdentityContext
-}
+  identity: LegacyIdentityContext;
+};
 
-export type AppEnv = { Variables: AppVariables }
+export type AppEnv = { Variables: AppVariables };
