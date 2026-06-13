@@ -114,6 +114,7 @@ export type FlowNode =
   | ReturnToNode
   | AgentNode
   | ValidateNode
+  | WorkerDispatchNode
   | FleetDispatchNode
   | FleetGatherNode
   | FleetContractNetNode
@@ -530,6 +531,29 @@ export type ValidateNode = FlowNodeBase & {
   };
 };
 
+export type WorkerDispatchNode = FlowNodeBase & {
+  type: "worker.dispatch";
+  /** Logical id for traces/journal. */
+  dispatchId: string;
+  /** CLI provider to run on the worker. */
+  provider: "claude" | "codex" | "gemini" | "qwen" | "goose" | "crush";
+  model?: string;
+  /** System prompt projected into prompt assembly. */
+  systemPrompt?: string;
+  /** Operator instructions; template-resolved at runtime. */
+  instructions: string;
+  /** State-bound input merged into the prompt. */
+  input?: Record<string, unknown>;
+  /** Command governance. Default surface = "none" (read-only). */
+  commandSurface?: "none" | "code";
+  commandAllowlist?: string[];
+  validationCommand?: string;
+  /** Where the worker result lands in flow state. */
+  outputKey: string;
+  /** Result parse contract. */
+  resultFormat?: "text" | "json";
+};
+
 export type FleetDispatchMode =
   | "supervisor"
   | "contract-net"
@@ -609,6 +633,7 @@ export const FLOW_NODE_KIND_REGISTRY = {
   return_to: true,
   agent: true,
   validate: true,
+  "worker.dispatch": true,
   "fleet.dispatch": true,
   "fleet.gather": true,
   "fleet.contract-net": true,

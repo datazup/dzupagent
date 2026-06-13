@@ -35,6 +35,7 @@ export const FLOW_NODE_VALIDATOR_DESCRIPTORS: ReadonlyArray<{
   { type: "return_to", hasChildren: false },
   { type: "agent", hasChildren: false },
   { type: "validate", hasChildren: false },
+  { type: "worker.dispatch", hasChildren: false },
   { type: "fleet.dispatch", hasChildren: false },
   { type: "fleet.gather", hasChildren: false },
   { type: "fleet.contract-net", hasChildren: false },

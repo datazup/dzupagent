@@ -39,6 +39,7 @@ import { parseSubflow } from "./subflow.js";
 import { parsePrompt } from "./prompt.js";
 import { parseReturnTo } from "./return-to.js";
 import { parseAgent, parseValidateNode } from "./agent.js";
+import { parseWorkerDispatch } from "./worker-dispatch.js";
 import {
   parseFleetDispatch,
   parseFleetGather,
@@ -143,6 +144,8 @@ export function parseNode(
       return parseAgent(value, pointer, ctx);
     case "validate":
       return parseValidateNode(value, pointer, ctx);
+    case "worker.dispatch":
+      return parseWorkerDispatch(value, pointer, ctx);
     case "fleet.dispatch":
       return parseFleetDispatch(value, pointer, ctx);
     case "fleet.gather":

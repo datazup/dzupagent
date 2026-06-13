@@ -39,6 +39,7 @@ import { validateSubflow } from "./subflow.js";
 import { validatePrompt } from "./prompt.js";
 import { validateReturnTo } from "./return-to.js";
 import { validateAgent, validateValidateNode } from "./agent.js";
+import { validateWorkerDispatch } from "./worker-dispatch.js";
 import {
   validateFleetDispatch,
   validateFleetGather,
@@ -134,6 +135,8 @@ export function validateFlowNode(
       return validateAgent(value, path, issues);
     case "validate":
       return validateValidateNode(value, path, issues);
+    case "worker.dispatch":
+      return validateWorkerDispatch(value, path, issues);
     case "fleet.dispatch":
       return validateFleetDispatch(value, path, issues);
     case "fleet.gather":

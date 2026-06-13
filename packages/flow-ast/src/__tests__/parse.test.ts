@@ -98,6 +98,13 @@ const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode["type"], FlowNode> = {
     type: "validate",
     commands: [{ command: "yarn typecheck" }],
   },
+  "worker.dispatch": {
+    type: "worker.dispatch",
+    dispatchId: "build-dashboard",
+    provider: "claude",
+    instructions: "Build the dashboard feature",
+    outputKey: "workerResult",
+  },
   "fleet.dispatch": {
     type: "fleet.dispatch",
     mode: "fan-out",
