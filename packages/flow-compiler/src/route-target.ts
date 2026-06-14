@@ -123,7 +123,8 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "fleet.gather":
       case "fleet.contract-net":
       case "knowledge.write":
-      case "knowledge.query": {
+      case "knowledge.query":
+      case "worker.dispatch": {
         // Runtime-executed leaf nodes — contribute no feature bits.
         return;
       }
@@ -232,7 +233,8 @@ export function hasOnError(ast: FlowNode): boolean {
       case "fleet.gather":
       case "fleet.contract-net":
       case "knowledge.write":
-      case "knowledge.query": {
+      case "knowledge.query":
+      case "worker.dispatch": {
         return;
       }
       case "try_catch": {
@@ -384,6 +386,7 @@ export function collectUnsupportedRuntimeNodes(
       case "fleet.contract-net":
       case "knowledge.write":
       case "knowledge.query":
+      case "worker.dispatch":
         return;
       default: {
         const _exhaustive: never = node;

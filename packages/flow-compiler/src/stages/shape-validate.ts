@@ -290,6 +290,18 @@ function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
       }
       return
     }
+    case 'worker.dispatch': {
+      if (!isNonEmptyString(node.dispatchId)) {
+        errors.push(missing(node.type, path, 'worker.dispatch.dispatchId is required (non-empty string)'))
+      }
+      if (!isNonEmptyString(node.instructions)) {
+        errors.push(missing(node.type, path, 'worker.dispatch.instructions is required (non-empty string)'))
+      }
+      if (!isNonEmptyString(node.outputKey)) {
+        errors.push(missing(node.type, path, 'worker.dispatch.outputKey is required (non-empty string)'))
+      }
+      return
+    }
     case 'prompt': {
       if (!isNonEmptyString(node.userPrompt)) {
         errors.push(missing(node.type, path, 'prompt.userPrompt is required (non-empty string)'))
@@ -407,7 +419,8 @@ function walkOnError(node: FlowNode, path: string, errors: ValidationError[]): v
     case 'fleet.gather':
     case 'fleet.contract-net':
     case 'knowledge.write':
-    case 'knowledge.query': {
+    case 'knowledge.query':
+    case 'worker.dispatch': {
       return
     }
     case 'try_catch': {

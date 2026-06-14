@@ -179,7 +179,8 @@ function walkNode(
     case 'fleet.gather':
     case 'fleet.contract-net':
     case 'knowledge.write':
-    case 'knowledge.query': {
+    case 'knowledge.query':
+    case 'worker.dispatch': {
       // Runtime-executed nodes — no skill-chain step emitted; silently pass through.
       return
     }

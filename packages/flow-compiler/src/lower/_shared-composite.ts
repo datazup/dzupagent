@@ -102,6 +102,7 @@ export function lowerNodeToPipeline(
     case 'fleet.contract-net':
     case 'knowledge.write':
     case 'knowledge.query':
+    case 'worker.dispatch':
       // Runtime-executed nodes: present in AST but not emitted as graph edges.
       return { nodes: [], edges: [], warnings: [] }
 

@@ -181,6 +181,7 @@ export async function visit(node: FlowNode, path: string, ctx: WalkContext): Pro
     case 'return_to':
     case 'validate':
     case 'set':
+    case 'worker.dispatch':
       return
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails
