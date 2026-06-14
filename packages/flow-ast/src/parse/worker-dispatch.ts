@@ -18,13 +18,13 @@ const COMMAND_SURFACES = new Set<
   NonNullable<WorkerDispatchNode["commandSurface"]>
 >(["none", "code"]);
 const RESULT_FORMATS = new Set<NonNullable<WorkerDispatchNode["resultFormat"]>>(
-  ["text", "json"]
+  ["text", "json"],
 );
 
 export function parseWorkerDispatch(
   obj: Record<string, unknown>,
   pointer: string,
-  ctx: ParseContext
+  ctx: ParseContext,
 ): WorkerDispatchNode | null {
   const common = parseCommonNodeFields(obj, pointer, ctx);
 
@@ -33,7 +33,7 @@ export function parseWorkerDispatch(
     ctx.errors.push({
       code: "WRONG_FIELD_TYPE",
       message: `worker.dispatch.dispatchId must be a non-empty string, received ${describeJsType(
-        dispatchId
+        dispatchId,
       )}`,
       pointer: joinPointer(pointer, "dispatchId"),
     });
@@ -60,7 +60,7 @@ export function parseWorkerDispatch(
     ctx.errors.push({
       code: "WRONG_FIELD_TYPE",
       message: `worker.dispatch.instructions must be a non-empty string, received ${describeJsType(
-        instructions
+        instructions,
       )}`,
       pointer: joinPointer(pointer, "instructions"),
     });
@@ -72,7 +72,7 @@ export function parseWorkerDispatch(
     ctx.errors.push({
       code: "WRONG_FIELD_TYPE",
       message: `worker.dispatch.outputKey must be a non-empty string, received ${describeJsType(
-        outputKey
+        outputKey,
       )}`,
       pointer: joinPointer(pointer, "outputKey"),
     });
@@ -102,7 +102,7 @@ export function parseWorkerDispatch(
       ctx.errors.push({
         code: "EXPECTED_OBJECT",
         message: `worker.dispatch.input must be an object when present, received ${describeJsType(
-          obj.input
+          obj.input,
         )}`,
         pointer: joinPointer(pointer, "input"),
       });
@@ -113,7 +113,7 @@ export function parseWorkerDispatch(
     if (
       typeof obj.commandSurface === "string" &&
       COMMAND_SURFACES.has(
-        obj.commandSurface as NonNullable<WorkerDispatchNode["commandSurface"]>
+        obj.commandSurface as NonNullable<WorkerDispatchNode["commandSurface"]>,
       )
     ) {
       node.commandSurface = obj.commandSurface as NonNullable<
@@ -146,11 +146,14 @@ export function parseWorkerDispatch(
   if (typeof obj.validationCommand === "string") {
     node.validationCommand = obj.validationCommand;
   }
+  if (typeof obj.resultSchema === "string") {
+    node.resultSchema = obj.resultSchema;
+  }
   if (obj.resultFormat !== undefined) {
     if (
       typeof obj.resultFormat === "string" &&
       RESULT_FORMATS.has(
-        obj.resultFormat as NonNullable<WorkerDispatchNode["resultFormat"]>
+        obj.resultFormat as NonNullable<WorkerDispatchNode["resultFormat"]>,
       )
     ) {
       node.resultFormat = obj.resultFormat as NonNullable<

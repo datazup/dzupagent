@@ -15,13 +15,13 @@ const COMMAND_SURFACES = new Set<
   NonNullable<WorkerDispatchNode["commandSurface"]>
 >(["none", "code"]);
 const RESULT_FORMATS = new Set<NonNullable<WorkerDispatchNode["resultFormat"]>>(
-  ["text", "json"]
+  ["text", "json"],
 );
 
 export function validateWorkerDispatch(
   obj: Record<string, unknown>,
   path: string,
-  issues: SchemaIssue[]
+  issues: SchemaIssue[],
 ): FlowNode | null {
   const common = validateCommonNodeFields(obj, path, issues);
 
@@ -31,7 +31,7 @@ export function validateWorkerDispatch(
       path: joinPath(path, "dispatchId"),
       code: "MISSING_REQUIRED_FIELD",
       message: `worker.dispatch.dispatchId is required (non-empty string), received ${describeJsType(
-        dispatchId
+        dispatchId,
       )}`,
     });
     return null;
@@ -58,7 +58,7 @@ export function validateWorkerDispatch(
       path: joinPath(path, "instructions"),
       code: "MISSING_REQUIRED_FIELD",
       message: `worker.dispatch.instructions is required (non-empty string), received ${describeJsType(
-        instructions
+        instructions,
       )}`,
     });
     return null;
@@ -70,7 +70,7 @@ export function validateWorkerDispatch(
       path: joinPath(path, "outputKey"),
       code: "MISSING_REQUIRED_FIELD",
       message: `worker.dispatch.outputKey is required (non-empty string), received ${describeJsType(
-        outputKey
+        outputKey,
       )}`,
     });
     return null;
@@ -101,7 +101,7 @@ export function validateWorkerDispatch(
         path: joinPath(path, "input"),
         code: "MISSING_REQUIRED_FIELD",
         message: `worker.dispatch.input must be an object when present, received ${describeJsType(
-          obj["input"]
+          obj["input"],
         )}`,
       });
       return null;
@@ -113,7 +113,7 @@ export function validateWorkerDispatch(
       COMMAND_SURFACES.has(
         obj["commandSurface"] as NonNullable<
           WorkerDispatchNode["commandSurface"]
-        >
+        >,
       )
     ) {
       node.commandSurface = obj["commandSurface"] as NonNullable<
@@ -146,11 +146,14 @@ export function validateWorkerDispatch(
   if (typeof obj["validationCommand"] === "string") {
     node.validationCommand = obj["validationCommand"];
   }
+  if (typeof obj["resultSchema"] === "string") {
+    node.resultSchema = obj["resultSchema"];
+  }
   if (obj["resultFormat"] !== undefined) {
     if (
       typeof obj["resultFormat"] === "string" &&
       RESULT_FORMATS.has(
-        obj["resultFormat"] as NonNullable<WorkerDispatchNode["resultFormat"]>
+        obj["resultFormat"] as NonNullable<WorkerDispatchNode["resultFormat"]>,
       )
     ) {
       node.resultFormat = obj["resultFormat"] as NonNullable<

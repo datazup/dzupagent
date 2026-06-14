@@ -11,7 +11,7 @@ import type { FlowDocumentV1, WorkerDispatchNode } from "@dzupagent/flow-ast";
 
 function makeRaw(
   steps: unknown[],
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
     dsl: "dzupflow/v1alpha-agent",
@@ -42,6 +42,7 @@ describe("normalizeDslDocument — worker.dispatch wrapper", () => {
         validationCommand: "yarn typecheck",
         outputKey: "workerResult",
         resultFormat: "json",
+        resultSchema: "dashboard-plan",
       }),
     ]);
     const { document, diagnostics } = normalizeDslDocument(raw);
@@ -59,6 +60,43 @@ describe("normalizeDslDocument — worker.dispatch wrapper", () => {
     expect(node?.validationCommand).toBe("yarn typecheck");
     expect(node?.outputKey).toBe("workerResult");
     expect(node?.resultFormat).toBe("json");
+    expect(node?.resultSchema).toBe("dashboard-plan");
+  });
+
+  it("omits resultSchema when absent and reports INVALID_NODE_SHAPE for a non-string", () => {
+    const ok = makeRaw([
+      workerStep({
+        id: "d1",
+        dispatchId: "x",
+        provider: "claude",
+        instructions: "Run",
+        outputKey: "result",
+      }),
+    ]);
+    const okResult = normalizeDslDocument(ok);
+    expect(okResult.diagnostics).toEqual([]);
+    const okNode = okResult.document?.root.nodes[0] as
+      | WorkerDispatchNode
+      | undefined;
+    expect(okNode?.resultSchema).toBeUndefined();
+
+    const bad = makeRaw([
+      workerStep({
+        id: "d1",
+        dispatchId: "x",
+        provider: "claude",
+        instructions: "Run",
+        outputKey: "result",
+        resultSchema: 42,
+      }),
+    ]);
+    const { diagnostics } = normalizeDslDocument(bad);
+    expect(
+      diagnostics.some(
+        (d) =>
+          d.code === "INVALID_NODE_SHAPE" && d.path?.endsWith(".resultSchema"),
+      ),
+    ).toBe(true);
   });
 
   it("applies defaults: commandSurface=none, resultFormat=text", () => {
@@ -116,8 +154,9 @@ describe("normalizeDslDocument — worker.dispatch wrapper", () => {
     expect(
       diagnostics.some(
         (d) =>
-          d.code === "MISSING_REQUIRED_FIELD" && d.path?.endsWith(".dispatchId")
-      )
+          d.code === "MISSING_REQUIRED_FIELD" &&
+          d.path?.endsWith(".dispatchId"),
+      ),
     ).toBe(true);
   });
 
@@ -135,8 +174,8 @@ describe("normalizeDslDocument — worker.dispatch wrapper", () => {
       diagnostics.some(
         (d) =>
           d.code === "MISSING_REQUIRED_FIELD" &&
-          d.path?.endsWith(".instructions")
-      )
+          d.path?.endsWith(".instructions"),
+      ),
     ).toBe(true);
   });
 
@@ -153,8 +192,8 @@ describe("normalizeDslDocument — worker.dispatch wrapper", () => {
     expect(
       diagnostics.some(
         (d) =>
-          d.code === "MISSING_REQUIRED_FIELD" && d.path?.endsWith(".outputKey")
-      )
+          d.code === "MISSING_REQUIRED_FIELD" && d.path?.endsWith(".outputKey"),
+      ),
     ).toBe(true);
   });
 
@@ -171,8 +210,8 @@ describe("normalizeDslDocument — worker.dispatch wrapper", () => {
     expect(
       diagnostics.some(
         (d) =>
-          d.code === "MISSING_REQUIRED_FIELD" && d.path?.endsWith(".provider")
-      )
+          d.code === "MISSING_REQUIRED_FIELD" && d.path?.endsWith(".provider"),
+      ),
     ).toBe(true);
   });
 
@@ -189,8 +228,8 @@ describe("normalizeDslDocument — worker.dispatch wrapper", () => {
     const { diagnostics } = normalizeDslDocument(raw);
     expect(
       diagnostics.some(
-        (d) => d.code === "INVALID_ENUM_VALUE" && d.path?.endsWith(".provider")
-      )
+        (d) => d.code === "INVALID_ENUM_VALUE" && d.path?.endsWith(".provider"),
+      ),
     ).toBe(true);
   });
 
@@ -209,8 +248,9 @@ describe("normalizeDslDocument — worker.dispatch wrapper", () => {
     expect(
       diagnostics.some(
         (d) =>
-          d.code === "INVALID_ENUM_VALUE" && d.path?.endsWith(".commandSurface")
-      )
+          d.code === "INVALID_ENUM_VALUE" &&
+          d.path?.endsWith(".commandSurface"),
+      ),
     ).toBe(true);
   });
 
@@ -229,8 +269,8 @@ describe("normalizeDslDocument — worker.dispatch wrapper", () => {
     expect(
       diagnostics.some(
         (d) =>
-          d.code === "INVALID_ENUM_VALUE" && d.path?.endsWith(".resultFormat")
-      )
+          d.code === "INVALID_ENUM_VALUE" && d.path?.endsWith(".resultFormat"),
+      ),
     ).toBe(true);
   });
 
@@ -248,8 +288,8 @@ describe("normalizeDslDocument — worker.dispatch wrapper", () => {
     const { diagnostics } = normalizeDslDocument(raw);
     expect(
       diagnostics.some(
-        (d) => d.code === "UNSUPPORTED_FIELD" && d.path?.endsWith(".nonsense")
-      )
+        (d) => d.code === "UNSUPPORTED_FIELD" && d.path?.endsWith(".nonsense"),
+      ),
     ).toBe(true);
   });
 });
@@ -275,6 +315,7 @@ describe("worker.dispatch — YAML round-trip", () => {
       validationCommand: "yarn typecheck",
       outputKey: "workerResult",
       resultFormat: "json",
+      resultSchema: "dashboard-plan",
     };
     const document: FlowDocumentV1 = {
       dsl: "dzupflow/v1alpha-agent",

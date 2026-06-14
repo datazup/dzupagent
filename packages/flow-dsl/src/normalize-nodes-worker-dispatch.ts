@@ -32,6 +32,7 @@ const WORKER_DISPATCH_KEYS = new Set<string>([
   "validationCommand",
   "outputKey",
   "resultFormat",
+  "resultSchema",
 ]);
 
 const VALID_PROVIDERS = new Set<WorkerDispatchNode["provider"]>([
@@ -52,7 +53,7 @@ const VALID_RESULT_FORMATS = new Set<
 >(["text", "json"]);
 
 function isWorkerProvider(
-  value: unknown
+  value: unknown,
 ): value is WorkerDispatchNode["provider"] {
   return (
     typeof value === "string" &&
@@ -63,7 +64,7 @@ function isWorkerProvider(
 export function normalizeWorkerDispatch(
   raw: Record<string, unknown>,
   path: string,
-  diagnostics: DslDiagnostic[]
+  diagnostics: DslDiagnostic[],
 ): WorkerDispatchNode {
   reportUnsupportedFields(raw, WORKER_DISPATCH_KEYS, path, diagnostics);
   const base = normalizeCommonNodeFields(raw, path, diagnostics);
@@ -127,7 +128,7 @@ export function normalizeWorkerDispatch(
     if (
       typeof raw.commandSurface === "string" &&
       VALID_COMMAND_SURFACES.has(
-        raw.commandSurface as NonNullable<WorkerDispatchNode["commandSurface"]>
+        raw.commandSurface as NonNullable<WorkerDispatchNode["commandSurface"]>,
       )
     ) {
       commandSurface = raw.commandSurface as NonNullable<
@@ -148,7 +149,7 @@ export function normalizeWorkerDispatch(
     if (
       typeof raw.resultFormat === "string" &&
       VALID_RESULT_FORMATS.has(
-        raw.resultFormat as NonNullable<WorkerDispatchNode["resultFormat"]>
+        raw.resultFormat as NonNullable<WorkerDispatchNode["resultFormat"]>,
       )
     ) {
       resultFormat = raw.resultFormat as NonNullable<
@@ -208,6 +209,17 @@ export function normalizeWorkerDispatch(
       code: DSL_ERROR.INVALID_NODE_SHAPE,
       message: "worker.dispatch.validationCommand must be a string",
       path: `${path}.validationCommand`,
+    });
+  }
+
+  if (typeof raw.resultSchema === "string") {
+    node.resultSchema = raw.resultSchema;
+  } else if (raw.resultSchema !== undefined) {
+    diagnostics.push({
+      phase: "normalize",
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: "worker.dispatch.resultSchema must be a string",
+      path: `${path}.resultSchema`,
     });
   }
 

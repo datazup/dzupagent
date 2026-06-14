@@ -552,6 +552,15 @@ export type WorkerDispatchNode = FlowNodeBase & {
   outputKey: string;
   /** Result parse contract. */
   resultFormat?: "text" | "json";
+  /**
+   * OPT-IN named-schema key for shape validation of a `resultFormat: "json"`
+   * payload. When set, the resume path looks this key up in the consumer's
+   * schema registry and `safeParse`s the parsed payload; a shape mismatch
+   * FAILS the run rather than resuming with a malformed value. Absent ⇒ no
+   * shape validation (generic JSON passes through). Opaque to flow-ast: the
+   * registry lives in the consuming app (e.g. codev-app).
+   */
+  resultSchema?: string;
 };
 
 export type FleetDispatchMode =
@@ -642,7 +651,7 @@ export const FLOW_NODE_KIND_REGISTRY = {
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(
-  FLOW_NODE_KIND_REGISTRY
+  FLOW_NODE_KIND_REGISTRY,
 ) as FlowNodeKind[];
 
 export function isFlowNodeKind(value: string): value is FlowNodeKind {
