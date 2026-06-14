@@ -365,60 +365,42 @@ function formatNode(
         lines.push(`${childIndent}resultSchema: ${quote(node.resultSchema)}`);
       return;
     case "fleet.dispatch":
-      lines.push(`${indent}- type: fleet.dispatch`);
-      pushCommon(lines, node, indentLevel + 1);
-      lines.push(`${"  ".repeat(indentLevel + 1)}mode: ${node.mode}`);
-      lines.push(
-        `${"  ".repeat(indentLevel + 1)}repos: ${formatScalar(node.repos)}`,
-      );
-      lines.push(
-        `${"  ".repeat(indentLevel + 1)}task: ${formatScalar(node.task)}`,
-      );
+      lines.push(`${indent}- fleet.dispatch:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}mode: ${node.mode}`);
+      lines.push(`${childIndent}repos: ${formatScalar(node.repos)}`);
+      lines.push(`${childIndent}task: ${formatScalar(node.task)}`);
       if (node.on_contract_change)
         lines.push(
-          `${"  ".repeat(indentLevel + 1)}on_contract_change: ${
-            node.on_contract_change
-          }`,
+          `${childIndent}on_contract_change: ${node.on_contract_change}`,
         );
-      if (node.output)
-        lines.push(`${"  ".repeat(indentLevel + 1)}output: ${node.output}`);
+      if (node.output) lines.push(`${childIndent}output: ${node.output}`);
       return;
     case "fleet.gather":
-      lines.push(`${indent}- type: fleet.gather`);
-      pushCommon(lines, node, indentLevel + 1);
-      lines.push(`${"  ".repeat(indentLevel + 1)}source: ${node.source}`);
-      if (node.strategy)
-        lines.push(`${"  ".repeat(indentLevel + 1)}strategy: ${node.strategy}`);
-      if (node.output)
-        lines.push(`${"  ".repeat(indentLevel + 1)}output: ${node.output}`);
+      lines.push(`${indent}- fleet.gather:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}source: ${node.source}`);
+      if (node.strategy) lines.push(`${childIndent}strategy: ${node.strategy}`);
+      if (node.output) lines.push(`${childIndent}output: ${node.output}`);
       return;
     case "fleet.contract-net":
-      lines.push(`${indent}- type: fleet.contract-net`);
-      pushCommon(lines, node, indentLevel + 1);
-      lines.push(
-        `${"  ".repeat(indentLevel + 1)}repos: ${formatScalar(node.repos)}`,
-      );
-      lines.push(
-        `${"  ".repeat(indentLevel + 1)}task: ${formatScalar(node.task)}`,
-      );
-      if (node.output)
-        lines.push(`${"  ".repeat(indentLevel + 1)}output: ${node.output}`);
+      lines.push(`${indent}- fleet.contract-net:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}repos: ${formatScalar(node.repos)}`);
+      lines.push(`${childIndent}task: ${formatScalar(node.task)}`);
+      if (node.output) lines.push(`${childIndent}output: ${node.output}`);
       return;
     case "knowledge.write":
-      lines.push(`${indent}- type: knowledge.write`);
-      pushCommon(lines, node, indentLevel + 1);
-      lines.push(`${"  ".repeat(indentLevel + 1)}scope: ${node.scope}`);
-      lines.push(
-        `${"  ".repeat(indentLevel + 1)}entry: ${formatScalar(node.entry)}`,
-      );
+      lines.push(`${indent}- knowledge.write:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}scope: ${node.scope}`);
+      lines.push(`${childIndent}entry: ${formatScalar(node.entry)}`);
       return;
     case "knowledge.query":
-      lines.push(`${indent}- type: knowledge.query`);
-      pushCommon(lines, node, indentLevel + 1);
-      lines.push(
-        `${"  ".repeat(indentLevel + 1)}filter: ${formatScalar(node.filter)}`,
-      );
-      lines.push(`${"  ".repeat(indentLevel + 1)}output: ${node.output}`);
+      lines.push(`${indent}- knowledge.query:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}filter: ${formatScalar(node.filter)}`);
+      lines.push(`${childIndent}output: ${node.output}`);
       return;
     default: {
       const _exhaustive: never = node;

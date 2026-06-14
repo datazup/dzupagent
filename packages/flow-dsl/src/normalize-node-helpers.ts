@@ -34,13 +34,20 @@ import {
 import { normalizeSet } from "./normalize-nodes-set.js";
 import { normalizeAgent, normalizeValidate } from "./normalize-nodes-agent.js";
 import { normalizeWorkerDispatch } from "./normalize-nodes-worker-dispatch.js";
+import {
+  normalizeFleetContractNet,
+  normalizeFleetDispatch,
+  normalizeFleetGather,
+  normalizeKnowledgeQuery,
+  normalizeKnowledgeWrite,
+} from "./normalize-nodes-fleet.js";
 import { isPlainObject } from "./normalize-value-helpers.js";
 import type { DslDiagnostic } from "./types.js";
 
 export function normalizeSteps(
   raw: unknown,
   path: string,
-  diagnostics: DslDiagnostic[]
+  diagnostics: DslDiagnostic[],
 ): FlowNode[] {
   if (!Array.isArray(raw)) {
     diagnostics.push({
@@ -62,7 +69,7 @@ export function normalizeSteps(
 export function normalizeNodeWrapper(
   raw: unknown,
   path: string,
-  diagnostics: DslDiagnostic[]
+  diagnostics: DslDiagnostic[],
 ): FlowNode | null {
   if (!isPlainObject(raw)) {
     diagnostics.push({
@@ -150,6 +157,16 @@ export function normalizeNodeWrapper(
       return normalizeValidate(value, path, diagnostics);
     case "worker.dispatch":
       return normalizeWorkerDispatch(value, path, diagnostics);
+    case "fleet.dispatch":
+      return normalizeFleetDispatch(value, path, diagnostics);
+    case "fleet.gather":
+      return normalizeFleetGather(value, path, diagnostics);
+    case "fleet.contract-net":
+      return normalizeFleetContractNet(value, path, diagnostics);
+    case "knowledge.write":
+      return normalizeKnowledgeWrite(value, path, diagnostics);
+    case "knowledge.query":
+      return normalizeKnowledgeQuery(value, path, diagnostics);
     default:
       diagnostics.push({
         phase: "normalize",
