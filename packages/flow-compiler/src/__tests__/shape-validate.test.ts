@@ -10,6 +10,7 @@ import type {
   PersonaNode,
   RouteNode,
   SequenceNode,
+  WorkerDispatchNode,
 } from '@dzupagent/flow-ast'
 import { describe, expect, it } from 'vitest'
 
@@ -78,6 +79,15 @@ const classify = (defaultChoice?: string): ClassifyNode => ({
   choices: ['frontend', 'backend', 'infra'],
   outputKey: 'intent',
   ...(defaultChoice !== undefined ? { defaultChoice } : {}),
+})
+
+const workerDispatch = (overrides: Partial<WorkerDispatchNode> = {}): WorkerDispatchNode => ({
+  type: 'worker.dispatch',
+  dispatchId: 'review-change',
+  provider: 'codex',
+  instructions: 'Review the current diff.',
+  outputKey: 'workerReview',
+  ...overrides,
 })
 
 // ---------------------------------------------------------------------------
@@ -149,6 +159,30 @@ describe('validateShape — R1 EMPTY_BODY', () => {
 
   it('accepts a non-empty sequence', () => {
     expect(validateShape(sequence(action('a')))).toEqual([])
+  })
+})
+
+describe('validateShape — worker dispatch runtime leaf', () => {
+  it('accepts a valid worker dispatch node', () => {
+    expect(validateShape(workerDispatch())).toEqual([])
+  })
+
+  it('rejects worker dispatch missing required string fields', () => {
+    const errors = validateShape(
+      workerDispatch({
+        dispatchId: '',
+        instructions: '',
+        outputKey: '',
+      }),
+    )
+
+    expect(errors.map((error) => error.message)).toEqual(
+      expect.arrayContaining([
+        'worker.dispatch.dispatchId is required (non-empty string)',
+        'worker.dispatch.instructions is required (non-empty string)',
+        'worker.dispatch.outputKey is required (non-empty string)',
+      ]),
+    )
   })
 })
 

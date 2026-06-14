@@ -118,6 +118,31 @@ describe('runtime-only compiler diagnostics', () => {
     expect(result.warnings).toEqual([])
   })
 
+  it('allows worker dispatch runtime leaves alongside lowerable skill-chain work', async () => {
+    const compiler = createFlowCompiler({ toolResolver: makeResolver(['tasks.run']) })
+
+    const ast: FlowNode = {
+      type: 'sequence',
+      nodes: [
+        {
+          type: 'worker.dispatch',
+          dispatchId: 'review-change',
+          provider: 'codex',
+          instructions: 'Review the current diff.',
+          outputKey: 'workerReview',
+        },
+        { type: 'action', toolRef: 'tasks.run', input: {} },
+      ],
+    }
+    const result = await compiler.compile(ast)
+
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.target).toBe('skill-chain')
+    expect(result.artifact.steps).toHaveLength(1)
+    expect(collectUnsupportedRuntimeNodes(ast, 'skill-chain')).toEqual([])
+  })
+
   it('exposes unsupported runtime nodes for route-level audits', () => {
     const nodes = collectUnsupportedRuntimeNodes({
       type: 'sequence',
