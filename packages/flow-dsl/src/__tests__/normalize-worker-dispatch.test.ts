@@ -5,7 +5,9 @@
 import { describe, expect, it } from "vitest";
 
 import { normalizeDslDocument } from "../normalize.js";
-import type { WorkerDispatchNode } from "@dzupagent/flow-ast";
+import { formatDocumentToDsl } from "../format-dsl.js";
+import { canonicalizeDsl } from "../canonicalize-dsl.js";
+import type { FlowDocumentV1, WorkerDispatchNode } from "@dzupagent/flow-ast";
 
 function makeRaw(
   steps: unknown[],
@@ -249,5 +251,71 @@ describe("normalizeDslDocument — worker.dispatch wrapper", () => {
         (d) => d.code === "UNSUPPORTED_FIELD" && d.path?.endsWith(".nonsense")
       )
     ).toBe(true);
+  });
+});
+
+describe("worker.dispatch — YAML round-trip", () => {
+  // Regression: the formatter used to emit a single dotted wrapper KEY
+  // (`- worker.dispatch:`) that the mini-yaml subset parser rejected because
+  // `.` was not allowed in mapping keys, so a DSL-authored worker.dispatch flow
+  // could not be parsed back (INVALID_YAML_SUBSET). This proves format -> parse
+  // is lossless for a fully-populated worker.dispatch node.
+  it("format -> parse preserves a full worker.dispatch node", () => {
+    const original: WorkerDispatchNode = {
+      type: "worker.dispatch",
+      id: "dispatch-build",
+      dispatchId: "build-dashboard",
+      provider: "claude",
+      model: "claude-sonnet-4-6",
+      systemPrompt: "You are a worker",
+      instructions: "Build the dashboard feature",
+      input: { feature: "flags" },
+      commandSurface: "code",
+      commandAllowlist: ["yarn build", "yarn test"],
+      validationCommand: "yarn typecheck",
+      outputKey: "workerResult",
+      resultFormat: "json",
+    };
+    const document: FlowDocumentV1 = {
+      dsl: "dzupflow/v1alpha-agent",
+      id: "worker-flow",
+      version: 1,
+      root: { type: "sequence", id: "root", nodes: [original] },
+    };
+
+    const yaml = formatDocumentToDsl(document);
+    const result = canonicalizeDsl(yaml);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.ok).toBe(true);
+    const roundTripped = result.document?.root.nodes[0] as
+      | WorkerDispatchNode
+      | undefined;
+    expect(roundTripped).toEqual(original);
+  });
+
+  it("format -> parse preserves a minimal worker.dispatch node with defaults", () => {
+    const original: WorkerDispatchNode = {
+      type: "worker.dispatch",
+      id: "d1",
+      dispatchId: "minimal",
+      provider: "codex",
+      instructions: "Do the thing",
+      outputKey: "result",
+      commandSurface: "none",
+      resultFormat: "text",
+    };
+    const document: FlowDocumentV1 = {
+      dsl: "dzupflow/v1alpha-agent",
+      id: "worker-flow",
+      version: 1,
+      root: { type: "sequence", id: "root", nodes: [original] },
+    };
+
+    const result = canonicalizeDsl(formatDocumentToDsl(document));
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect(result.document?.root.nodes[0]).toEqual(original);
   });
 });
