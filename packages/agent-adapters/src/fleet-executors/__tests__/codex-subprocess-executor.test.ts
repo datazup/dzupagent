@@ -119,6 +119,12 @@ for (const event of [
     expect(argv).toEqual([
       "exec",
       "--json",
+      "--model",
+      "gpt-5.4-mini",
+      "--config",
+      'approval_policy="never"',
+      "--config",
+      'model_reasoning_effort="medium"',
       "--cd",
       tmp,
       "--skip-git-repo-check",
@@ -134,6 +140,65 @@ for (const event of [
       "exit",
     ]);
     expect(outcome.state).toBe("completed");
+  });
+
+  it("passes configured Codex model and runtime options", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "codex-fake-"));
+    const script = path.join(tmp, "fake-codex.js");
+    const argvFile = path.join(tmp, "argv.json");
+    await fs.writeFile(
+      script,
+      `
+import { readFileSync, writeFileSync, writeSync } from "node:fs";
+
+readFileSync(0, "utf8");
+writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));
+writeSync(1, JSON.stringify({ type: "exit", code: 0 }) + "\\n");
+`,
+    );
+    const exec = new CodexSubprocessExecutor({
+      command: process.execPath,
+      codexArgsPrefix: [script],
+      model: "gpt-5.4-mini",
+      reasoning: "low",
+      sandboxMode: "danger-full-access",
+      approvalPolicy: "never",
+      networkAccessEnabled: true,
+      codexConfig: {
+        web_search: "disabled",
+        custom_flag: true,
+      },
+    });
+
+    const handle = await exec.spawn(makeWorkerSpec(tmp));
+    for await (const _event of handle.events) {
+      // drain
+    }
+    await handle.wait();
+
+    const argv = JSON.parse(await fs.readFile(argvFile, "utf8"));
+    expect(argv).toEqual([
+      "exec",
+      "--json",
+      "--model",
+      "gpt-5.4-mini",
+      "--sandbox",
+      "danger-full-access",
+      "--config",
+      'approval_policy="never"',
+      "--config",
+      'custom_flag=true',
+      "--config",
+      'model_reasoning_effort="low"',
+      "--config",
+      'sandbox_workspace_write.network_access=true',
+      "--config",
+      'web_search="disabled"',
+      "--cd",
+      tmp,
+      "--skip-git-repo-check",
+      "-",
+    ]);
   });
 
   it("parses dotted Codex JSONL event names", () => {
@@ -165,6 +230,24 @@ for (const event of [
     await expect(
       handle.send({ kind: "contract-update", surface: "test-surface" })
     ).rejects.toThrow(/contract-update/);
+    await handle.cancel("cleanup");
+    await handle.wait();
+  });
+
+  it("rejects live message sends after the initial prompt is submitted", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "codex-fake-"));
+    const script = path.join(tmp, "hang.js");
+    await fs.writeFile(script, "setTimeout(() => {}, 10000)");
+    const exec = new CodexSubprocessExecutor({
+      command: process.execPath,
+      args: [script],
+    });
+
+    const handle = await exec.spawn(makeWorkerSpec(tmp));
+
+    await expect(handle.send({ kind: "message", text: "continue" })).rejects.toThrow(
+      /does not support live message sends/,
+    );
     await handle.cancel("cleanup");
     await handle.wait();
   });
