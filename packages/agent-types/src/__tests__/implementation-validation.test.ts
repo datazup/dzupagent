@@ -75,6 +75,31 @@ describe("implementation plan validation", () => {
     });
   });
 
+  it("rejects duplicate task ids", () => {
+    const plan = validPlan();
+    plan.tasks.push({
+      ...plan.tasks[0]!,
+      title: "Duplicate plan validation task",
+    });
+
+    expect(validateImplementationPlan(plan).issues).toContainEqual({
+      path: "tasks[1].id",
+      code: "duplicate-task-id",
+      message: "Task id 'task-1' is already used.",
+    });
+  });
+
+  it("rejects tasks for unknown repos", () => {
+    const plan = validPlan();
+    plan.tasks[0]!.repoId = "missing-repo";
+
+    expect(validateImplementationPlan(plan).issues).toContainEqual({
+      path: "tasks[0].repoId",
+      code: "unknown-task-repo",
+      message: "Task 'task-1' references unknown repo 'missing-repo'.",
+    });
+  });
+
   it("rejects unknown task dependencies", () => {
     const plan = validPlan();
     plan.tasks[0]!.dependsOn = ["missing-task"];

@@ -46,7 +46,7 @@ export function validateImplementationPlan(
     if (!repoIds.has(task.repoId)) {
       issues.push({
         path: `tasks[${index}].repoId`,
-        code: "unknown-repo",
+        code: "unknown-task-repo",
         message: `Task '${task.id}' references unknown repo '${task.repoId}'.`,
       });
     }
