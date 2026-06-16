@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { CodexSubprocessExecutor } from "../codex-subprocess-executor.js";
+import { parseCodexLine } from "../worker-event-parser.js";
 
 const fakeBin = `
 import { writeSync } from "node:fs";
@@ -72,6 +73,82 @@ describe("CodexSubprocessExecutor", () => {
     expect(kinds).toContain("message");
     expect(kinds).toContain("exit");
     expect(outcome.state).toBe("completed");
+  });
+
+  it("uses codex exec JSONL stdin protocol by default", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "codex-fake-"));
+    const script = path.join(tmp, "fake-codex.js");
+    const argvFile = path.join(tmp, "argv.json");
+    const stdinFile = path.join(tmp, "stdin.txt");
+    await fs.writeFile(
+      script,
+      `
+import { readFileSync, writeFileSync, writeSync } from "node:fs";
+
+const stdin = readFileSync(0, "utf8");
+writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));
+writeFileSync(${JSON.stringify(stdinFile)}, stdin);
+for (const event of [
+  { type: "turn.started", turn_id: "turn-1" },
+  { type: "message", role: "assistant", text: "done" },
+  { type: "turn.completed", turn_id: "turn-1" },
+]) {
+  writeSync(1, JSON.stringify(event) + "\\n");
+}
+`,
+    );
+    const spec = makeWorkerSpec(tmp);
+    spec.taskBundle = {
+      id: "audit",
+      description: "Audit this repo for fleet readiness",
+      payload: { severity: "high" },
+      dependsOn: [],
+    };
+    const exec = new CodexSubprocessExecutor({
+      command: process.execPath,
+      codexArgsPrefix: [script],
+    });
+
+    const handle = await exec.spawn(spec);
+    const events = [];
+    for await (const event of handle.events) events.push(event);
+    const outcome = await handle.wait();
+
+    const argv = JSON.parse(await fs.readFile(argvFile, "utf8"));
+    const stdin = await fs.readFile(stdinFile, "utf8");
+    expect(argv).toEqual([
+      "exec",
+      "--json",
+      "--cd",
+      tmp,
+      "--skip-git-repo-check",
+      "-",
+    ]);
+    expect(stdin).toContain("Task ID: audit");
+    expect(stdin).toContain("Audit this repo for fleet readiness");
+    expect(stdin).toContain('"severity": "high"');
+    expect(events.map((event) => event.kind)).toEqual([
+      "step_start",
+      "message",
+      "step_done",
+      "exit",
+    ]);
+    expect(outcome.state).toBe("completed");
+  });
+
+  it("parses dotted Codex JSONL event names", () => {
+    expect(parseCodexLine(JSON.stringify({ type: "turn.started", turn_id: "t1" }))).toMatchObject({
+      kind: "step_start",
+      stepId: "t1",
+    });
+    expect(parseCodexLine(JSON.stringify({ type: "turn.completed", turn_id: "t1" }))).toMatchObject({
+      kind: "step_done",
+      stepId: "t1",
+    });
+    expect(parseCodexLine(JSON.stringify({ type: "item.completed", item: { type: "web_search", query: "codex" } }))).toMatchObject({
+      kind: "tool_call",
+      toolName: "web_search",
+    });
   });
 
   it("throws when send() receives an unhandled WorkerInbound kind", async () => {
