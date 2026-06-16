@@ -33,7 +33,7 @@ describe("implementation orchestration contracts", () => {
         {
           id: "dzupagent",
           path: ".",
-          instructions: "Follow dzupagent AGENTS.md.",
+          instructions: ["Follow dzupagent AGENTS.md."],
         },
       ],
       batches: [

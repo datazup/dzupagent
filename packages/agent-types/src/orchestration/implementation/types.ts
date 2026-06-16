@@ -16,7 +16,7 @@ export type ImplementationRunStatus =
 export interface ImplementationRepoRef {
   id: string;
   path: string;
-  instructions?: string;
+  instructions?: string[];
 }
 
 export interface ImplementationTask {

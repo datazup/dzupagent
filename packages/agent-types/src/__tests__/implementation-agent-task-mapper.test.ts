@@ -7,7 +7,7 @@ describe("implementation agent task mapper", () => {
     const repo = {
       id: "dzupagent",
       path: "/workspaces/dzupagent",
-      instructions: "Follow dzupagent package boundaries.",
+      instructions: ["Follow dzupagent package boundaries."],
     } satisfies ImplementationRepoRef;
 
     const task = {
@@ -60,6 +60,33 @@ describe("implementation agent task mapper", () => {
           repoPath: repo.path,
           instructions: repo.instructions ?? [],
         },
+      },
+    });
+  });
+
+  it("maps missing repo instructions to an empty array", () => {
+    const repo = {
+      id: "dzupagent",
+      path: "/workspaces/dzupagent",
+    } satisfies ImplementationRepoRef;
+
+    const task = {
+      id: "task-5",
+      repoId: repo.id,
+      title: "Map missing repo instructions",
+      prompt: "Keep implementation payload instructions stable.",
+      scopeFiles: [
+        "packages/agent-types/src/orchestration/implementation/agent-task-mapper.ts",
+      ],
+      acceptanceCriteria: ["Missing repo instructions map to an empty array."],
+      validationCommands: [],
+    } satisfies ImplementationTask;
+
+    expect(mapImplementationTaskToAgentTask({ task, repo }).payload).toEqual({
+      implementation: {
+        repoId: task.repoId,
+        repoPath: repo.path,
+        instructions: [],
       },
     });
   });
