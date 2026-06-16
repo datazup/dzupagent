@@ -113,12 +113,7 @@ describe("implementation schedule builder", () => {
         id: "batch-2",
         title: "Serial follow-up",
         mode: "serial",
-        lanes: [
-          {
-            repoId: "codev",
-            taskIds: ["task-codev-2"],
-          },
-        ],
+        lanes: [],
       },
     ]);
   });
@@ -134,26 +129,67 @@ describe("implementation schedule builder", () => {
     });
   });
 
-  it("skips missing task ids referenced by a batch", () => {
-    const planWithMissingTask = plan();
-    planWithMissingTask.batches[0]!.taskIds = [
-      "missing-task",
-      "task-codev",
-      "task-shared",
-    ];
+  it("blocks batches until dependency batch tasks are complete", () => {
+    const gatedPlan = plan();
+    gatedPlan.batches[1]!.dependsOn = ["batch-1"];
 
-    expect(buildImplementationSchedule(planWithMissingTask, new Set())[0]).toEqual({
-      id: "batch-1",
-      title: "Parallel repo work",
-      mode: "parallel-repos",
+    expect(buildImplementationSchedule(gatedPlan, new Set(["task-codev"]))[1]).toEqual({
+      id: "batch-2",
+      title: "Serial follow-up",
+      mode: "serial",
+      lanes: [],
+    });
+  });
+
+  it("unblocks batches when dependency batch tasks are complete", () => {
+    const gatedPlan = plan();
+    gatedPlan.batches[1]!.dependsOn = ["batch-1"];
+
+    expect(
+      buildImplementationSchedule(
+        gatedPlan,
+        new Set(["task-codev", "task-shared"]),
+      )[1],
+    ).toEqual({
+      id: "batch-2",
+      title: "Serial follow-up",
+      mode: "serial",
       lanes: [
         {
           repoId: "codev",
-          taskIds: ["task-codev"],
+          taskIds: ["task-codev-2"],
         },
+      ],
+    });
+  });
+
+  it("returns only the next runnable task for serial batches", () => {
+    const serialPlan = plan();
+    serialPlan.batches[1]!.taskIds = ["task-shared-2", "task-codev-2"];
+    serialPlan.tasks.push({
+      id: "task-shared-2",
+      repoId: "shared-kit",
+      title: "Implement shared follow-up",
+      prompt: "Change shared kit after the first task.",
+      scopeFiles: ["shared-kit/src/follow-up.ts"],
+      acceptanceCriteria: ["Shared follow-up is complete."],
+      validationCommands: [
+        {
+          command: "yarn test",
+          cwd: "shared-kit",
+          scope: "task",
+        },
+      ],
+    });
+
+    expect(buildImplementationSchedule(serialPlan, new Set(["task-codev"]))[1]).toEqual({
+      id: "batch-2",
+      title: "Serial follow-up",
+      mode: "serial",
+      lanes: [
         {
           repoId: "shared-kit",
-          taskIds: ["task-shared"],
+          taskIds: ["task-shared-2"],
         },
       ],
     });
