@@ -8,8 +8,10 @@
  *   - Codex: system-level instructions go in `config.instructions` (user-facing
  *     role/context) and optionally `config.developer_instructions` (meta-level
  *     agent reasoning behaviour).
- *   - All other providers (Gemini, Qwen, Crush, Goose, OpenRouter): plain
- *     string system prompts passed directly to the underlying model.
+ *   - Qwen: plain string, optionally with a `/think` or `/no_think` reasoning
+ *     soft switch appended (see `qwenReasoning`).
+ *   - All other providers (Gemini, Crush, Goose, OpenRouter): plain string
+ *     system prompts passed directly to the underlying model.
  *
  * Usage:
  *   const builder = new SystemPromptBuilder('You are a TypeScript expert.')
@@ -73,6 +75,16 @@ export interface SystemPromptBuilderOptions {
    * behaviour, separate from user-facing `instructions`).
    */
   codexDeveloperInstructions?: string
+
+  /**
+   * For Qwen: reasoning soft switch appended to the system prompt.
+   * - `'on'` appends `/think` (enable chain-of-thought).
+   * - `'off'` appends `/no_think` (disable thinking; e.g. qwen-code / latency).
+   * - unset (default): no switch appended; the model's own default applies.
+   * The most recent switch wins in multi-turn conversations, so placing it on
+   * the system prompt sets the baseline mode for the run.
+   */
+  qwenReasoning?: 'on' | 'off'
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +165,9 @@ export function resolvePersonaTemplate(
 
 export class SystemPromptBuilder {
   private readonly text: string
-  private readonly opts: Required<SystemPromptBuilderOptions>
+  private readonly opts: Required<Omit<SystemPromptBuilderOptions, 'qwenReasoning'>> & {
+    qwenReasoning: 'on' | 'off' | null
+  }
 
   constructor(systemPrompt: string, opts: SystemPromptBuilderOptions = {}) {
     if (!systemPrompt.trim()) {
@@ -163,6 +177,7 @@ export class SystemPromptBuilder {
     this.opts = {
       claudeMode: opts.claudeMode ?? 'append',
       codexDeveloperInstructions: opts.codexDeveloperInstructions ?? '',
+      qwenReasoning: opts.qwenReasoning ?? null,
     }
   }
 
@@ -179,6 +194,8 @@ export class SystemPromptBuilder {
         return this.buildForClaude()
       case 'codex':
         return this.buildForCodex()
+      case 'qwen':
+        return this.buildForQwen()
       default:
         return this.text
     }
@@ -210,6 +227,17 @@ export class SystemPromptBuilder {
       payload.developer_instructions = this.opts.codexDeveloperInstructions
     }
     return payload
+  }
+
+  /**
+   * Build the Qwen-specific system prompt.
+   * Appends the `/think` or `/no_think` soft switch when `qwenReasoning` is set;
+   * otherwise returns the raw prompt unchanged.
+   */
+  buildForQwen(): StringPromptPayload {
+    if (this.opts.qwenReasoning === 'off') return `${this.text}\n\n/no_think`
+    if (this.opts.qwenReasoning === 'on') return `${this.text}\n\n/think`
+    return this.text
   }
 
   /** The raw system prompt text (useful for logging / serialization). */
