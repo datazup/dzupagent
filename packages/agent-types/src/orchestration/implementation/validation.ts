@@ -68,6 +68,64 @@ export function validateImplementationPlan(
     }
   });
 
+  const batchIds = new Set(plan.batches.map((batch) => batch.id));
+  const seenBatchIds = new Set<string>();
+  const assignedTaskIds = new Set<string>();
+
+  plan.batches.forEach((batch, batchIndex) => {
+    if (seenBatchIds.has(batch.id)) {
+      issues.push({
+        path: `batches[${batchIndex}].id`,
+        code: "duplicate-batch-id",
+        message: `Batch id '${batch.id}' is already used.`,
+      });
+    } else {
+      seenBatchIds.add(batch.id);
+    }
+
+    batch.taskIds.forEach((taskId, taskIndex) => {
+      if (!taskIds.has(taskId)) {
+        issues.push({
+          path: `batches[${batchIndex}].taskIds[${taskIndex}]`,
+          code: "unknown-batch-task",
+          message: `Batch '${batch.id}' references unknown task '${taskId}'.`,
+        });
+        return;
+      }
+
+      if (assignedTaskIds.has(taskId)) {
+        issues.push({
+          path: `batches[${batchIndex}].taskIds[${taskIndex}]`,
+          code: "duplicate-batch-task",
+          message: `Task '${taskId}' is already assigned to a batch.`,
+        });
+        return;
+      }
+
+      assignedTaskIds.add(taskId);
+    });
+
+    batch.dependsOn?.forEach((dependencyId, dependencyIndex) => {
+      if (!batchIds.has(dependencyId)) {
+        issues.push({
+          path: `batches[${batchIndex}].dependsOn[${dependencyIndex}]`,
+          code: "unknown-batch-dependency",
+          message: `Batch '${batch.id}' depends on unknown batch '${dependencyId}'.`,
+        });
+      }
+    });
+  });
+
+  plan.tasks.forEach((task, taskIndex) => {
+    if (!assignedTaskIds.has(task.id)) {
+      issues.push({
+        path: `tasks[${taskIndex}].id`,
+        code: "unbatched-task",
+        message: `Task '${task.id}' is not assigned to any batch.`,
+      });
+    }
+  });
+
   plan.tasks.forEach((task, taskIndex) => {
     task.dependsOn?.forEach((dependencyId, dependencyIndex) => {
       if (!taskIds.has(dependencyId)) {
