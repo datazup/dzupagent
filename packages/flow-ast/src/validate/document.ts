@@ -29,11 +29,11 @@ export function validateFlowDocument(
   }
 
   const dsl = value['dsl']
-  if (dsl !== 'dzupflow/v1') {
+  if (dsl !== 'dzupflow/v1' && dsl !== 'dzupflow/v1alpha-agent') {
     issues.push({
       path: joinPath(path, 'dsl'),
       code: 'MISSING_REQUIRED_FIELD',
-      message: `document.dsl must equal "dzupflow/v1", received ${describeJsType(dsl) === 'string' ? JSON.stringify(dsl) : describeJsType(dsl)}`,
+      message: `document.dsl must equal "dzupflow/v1" or "dzupflow/v1alpha-agent", received ${describeJsType(dsl) === 'string' ? JSON.stringify(dsl) : describeJsType(dsl)}`,
     })
   }
 
@@ -77,7 +77,7 @@ export function validateFlowDocument(
   validateCanonicalNodeIds(rootNode, joinPath(path, 'root'), issues, new Map<string, string>())
 
   const doc: FlowDocumentV1 = {
-    dsl: 'dzupflow/v1',
+    dsl: dsl === 'dzupflow/v1alpha-agent' ? 'dzupflow/v1alpha-agent' : 'dzupflow/v1',
     id: typeof id === 'string' ? id : '',
     version: Number.isInteger(version) ? (version as number) : 0,
     root: rootNode,
