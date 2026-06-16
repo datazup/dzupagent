@@ -50,3 +50,4 @@ export type {
   DynamicWorkflowSpec,
   DynamicWorkflowWorker,
 } from './orchestration/dynamic-workflow/index.js'
+export { IMPLEMENTATION_ORCHESTRATION_SCHEMA_VERSION } from './orchestration/implementation/index.js'
