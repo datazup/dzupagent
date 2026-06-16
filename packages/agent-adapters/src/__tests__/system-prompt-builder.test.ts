@@ -100,6 +100,28 @@ describe('SystemPromptBuilder', () => {
     }
   })
 
+  describe('buildFor("qwen") — reasoning soft switch', () => {
+    it('appends /no_think when qwenReasoning is "off"', () => {
+      const payload = makeBuilder('Be concise.', { qwenReasoning: 'off' }).buildFor('qwen')
+      expect(payload).toBe('Be concise.\n\n/no_think')
+    })
+
+    it('appends /think when qwenReasoning is "on"', () => {
+      const payload = makeBuilder('Be concise.', { qwenReasoning: 'on' }).buildFor('qwen')
+      expect(payload).toBe('Be concise.\n\n/think')
+    })
+
+    it('leaves the prompt unchanged when qwenReasoning is unset', () => {
+      const payload = makeBuilder('Be concise.').buildFor('qwen')
+      expect(payload).toBe('Be concise.')
+    })
+
+    it('does not apply the soft switch to non-qwen providers', () => {
+      const payload = makeBuilder('Be concise.', { qwenReasoning: 'off' }).buildFor('gemini')
+      expect(payload).toBe('Be concise.')
+    })
+  })
+
   describe('rawText', () => {
     it('returns the original system prompt text', () => {
       expect(makeBuilder('Original text.').rawText).toBe('Original text.')
