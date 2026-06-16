@@ -1,5 +1,4 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
-import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type {
   Executor,
@@ -14,6 +13,7 @@ import { parseCodexLine } from "./worker-event-parser.js";
 export interface CodexSubprocessOptions {
   command?: string;
   args?: string[];
+  codexArgsPrefix?: string[];
   env?: NodeJS.ProcessEnv;
   enableDynamicWorkflowSubprocessMode?: boolean;
 }
@@ -36,13 +36,8 @@ export class CodexSubprocessExecutor implements Executor {
     }
 
     const command = this.options.command ?? "codex";
-    const args = this.options.args ?? [
-      "exec",
-      "--task-id",
-      spec.taskBundle.id,
-      "--cd",
-      spec.repoPath,
-    ];
+    const args = this.options.args ?? this.buildCodexExecArgs(spec);
+    const prompt = this.buildPrompt(spec);
     const child: ChildProcessByStdio<Writable, Readable, Readable> = spawn(
       command,
       args,
@@ -52,6 +47,11 @@ export class CodexSubprocessExecutor implements Executor {
         stdio: ["pipe", "pipe", "pipe"],
       }
     );
+    child.stdin.on("error", () => {
+      // Child may exit before stdin is flushed; outcome is handled by close/error.
+    });
+    child.stdin.write(prompt);
+    child.stdin.end();
 
     const buffer: WorkerEvent[] = [];
     const waiters: Array<() => void> = [];
@@ -67,10 +67,15 @@ export class CodexSubprocessExecutor implements Executor {
       waiters.splice(0).forEach((fn) => fn());
     }
 
-    const reader = createInterface({ input: child.stdout });
-    reader.on("line", (line) => {
-      const ev = parseCodexLine(line);
-      if (ev) push(ev);
+    let stdoutRemainder = "";
+    child.stdout.on("data", (chunk) => {
+      stdoutRemainder += String(chunk);
+      const lines = stdoutRemainder.split(/\r?\n/);
+      stdoutRemainder = lines.pop() ?? "";
+      for (const line of lines) {
+        const ev = parseCodexLine(line);
+        if (ev) push(ev);
+      }
     });
 
     const stderrChunks: string[] = [];
@@ -90,14 +95,23 @@ export class CodexSubprocessExecutor implements Executor {
 
     const exitPromise = new Promise<WorkerOutcome>((resolve) => {
       let pendingOutcome: WorkerOutcome | null = null;
+      let stdoutClosed = false;
       const finalize = () => {
         if (closed) return;
         if (!pendingOutcome) return;
+        if (!stdoutClosed) return;
         close();
         resolve(pendingOutcome);
       };
 
-      reader.on("close", finalize);
+      child.stdout.on("close", () => {
+        if (stdoutRemainder.trim()) {
+          const ev = parseCodexLine(stdoutRemainder);
+          if (ev) push(ev);
+        }
+        stdoutClosed = true;
+        finalize();
+      });
 
       child.on("close", (code, signal) => {
         if (closed) return;
@@ -174,5 +188,39 @@ export class CodexSubprocessExecutor implements Executor {
         return exitPromise;
       },
     };
+  }
+
+  private buildCodexExecArgs(spec: WorkerSpec): string[] {
+    return [
+      ...(this.options.codexArgsPrefix ?? []),
+      "exec",
+      "--json",
+      "--cd",
+      spec.repoPath,
+      "--skip-git-repo-check",
+      "-",
+    ];
+  }
+
+  private buildPrompt(spec: WorkerSpec): string {
+    const payload =
+      spec.taskBundle.payload === undefined
+        ? ""
+        : JSON.stringify(spec.taskBundle.payload, null, 2);
+    return [
+      "You are a Codex worker managed by DzupAgent fleet orchestration.",
+      `Worker ID: ${spec.workerId}`,
+      `Repo: ${spec.repo.name}`,
+      `Repo path: ${spec.repoPath}`,
+      `Task ID: ${spec.taskBundle.id}`,
+      "",
+      "Task:",
+      spec.taskBundle.description || spec.taskBundle.id,
+      "",
+      "Payload:",
+      payload || "{}",
+      "",
+      "Report progress through normal Codex JSONL events and finish with a concise final answer.",
+    ].join("\n");
   }
 }
