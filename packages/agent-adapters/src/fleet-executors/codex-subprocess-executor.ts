@@ -14,9 +14,19 @@ export interface CodexSubprocessOptions {
   command?: string;
   args?: string[];
   codexArgsPrefix?: string[];
+  model?: string;
+  reasoning?: string;
+  sandboxMode?: "read-only" | "workspace-write" | "danger-full-access" | string;
+  approvalPolicy?: string;
+  networkAccessEnabled?: boolean;
+  codexConfig?: Record<string, unknown>;
   env?: NodeJS.ProcessEnv;
   enableDynamicWorkflowSubprocessMode?: boolean;
 }
+
+const DEFAULT_CODEX_MODEL = "gpt-5.4-mini";
+const DEFAULT_CODEX_REASONING = "medium";
+const DEFAULT_CODEX_APPROVAL_POLICY = "never";
 
 export class CodexSubprocessExecutor implements Executor {
   readonly id = "codex-subprocess";
@@ -56,8 +66,10 @@ export class CodexSubprocessExecutor implements Executor {
     const buffer: WorkerEvent[] = [];
     const waiters: Array<() => void> = [];
     let closed = false;
+    let sawExitEvent = false;
     function push(e: WorkerEvent) {
       if (closed) return;
+      if (e.kind === "exit") sawExitEvent = true;
       buffer.push(e);
       waiters.splice(0).forEach((fn) => fn());
     }
@@ -115,7 +127,7 @@ export class CodexSubprocessExecutor implements Executor {
 
       child.on("close", (code, signal) => {
         if (closed) return;
-        if (!buffer.some((e) => e.kind === "exit")) {
+        if (!sawExitEvent) {
           push({
             kind: "exit",
             code,
@@ -174,10 +186,9 @@ export class CodexSubprocessExecutor implements Executor {
       async send(msg: WorkerInbound) {
         if (msg.kind === "cancel") return cancelFn(msg.reason);
         if (msg.kind === "message") {
-          child.stdin.write(
-            JSON.stringify({ type: "inbound", text: msg.text }) + "\n"
+          throw new Error(
+            "CodexSubprocessExecutor does not support live message sends after the initial prompt is submitted"
           );
-          return;
         }
         throw new Error(
           `CodexSubprocessExecutor: unhandled WorkerInbound kind "${msg.kind}"`
@@ -191,10 +202,21 @@ export class CodexSubprocessExecutor implements Executor {
   }
 
   private buildCodexExecArgs(spec: WorkerSpec): string[] {
+    const config = this.buildCodexConfig();
+    const configArgs = Object.keys(config)
+      .sort()
+      .flatMap((key) => ["--config", `${key}=${formatCodexConfigValue(config[key])}`]);
+    const sandboxArgs = this.options.sandboxMode
+      ? ["--sandbox", this.options.sandboxMode]
+      : [];
     return [
       ...(this.options.codexArgsPrefix ?? []),
       "exec",
       "--json",
+      "--model",
+      this.options.model || DEFAULT_CODEX_MODEL,
+      ...sandboxArgs,
+      ...configArgs,
       "--cd",
       spec.repoPath,
       "--skip-git-repo-check",
@@ -223,4 +245,24 @@ export class CodexSubprocessExecutor implements Executor {
       "Report progress through normal Codex JSONL events and finish with a concise final answer.",
     ].join("\n");
   }
+
+  private buildCodexConfig(): Record<string, unknown> {
+    return {
+      ...(this.options.codexConfig ?? {}),
+      model_reasoning_effort: this.options.reasoning || DEFAULT_CODEX_REASONING,
+      approval_policy: this.options.approvalPolicy || DEFAULT_CODEX_APPROVAL_POLICY,
+      ...(this.options.networkAccessEnabled === undefined
+        ? {}
+        : {
+            "sandbox_workspace_write.network_access":
+              this.options.networkAccessEnabled,
+          }),
+    };
+  }
+}
+
+function formatCodexConfigValue(value: unknown): string {
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return JSON.stringify(String(value));
 }
