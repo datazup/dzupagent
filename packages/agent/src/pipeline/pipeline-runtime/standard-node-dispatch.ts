@@ -36,6 +36,13 @@ import {
   type RecoveryCounter,
 } from "./node-side-effects.js";
 import type { BudgetTrackerState } from "./iteration-budget-tracker.js";
+import {
+  beginNodeUnderLedger,
+  completeNodeUnderLedger,
+  failNodeUnderLedger,
+  type BeginNodeOutcome,
+} from "./node-ledger-integration.js";
+import type { NodeLeaseLike } from "../pipeline-runtime-types.js";
 
 export type StandardNodeOutcome =
   | { kind: "continue"; nextNodeId: string | undefined }
@@ -65,7 +72,7 @@ export interface StandardNodeDispatchInput {
 }
 
 export async function dispatchStandardNode(
-  input: StandardNodeDispatchInput
+  input: StandardNodeDispatchInput,
 ): Promise<StandardNodeOutcome> {
   const {
     config,
@@ -118,10 +125,72 @@ export async function dispatchStandardNode(
     };
   };
 
+  // P2 (opt-in): lease this node under the durable ledger. When no ledger is
+  // configured, `ledgerLease` stays undefined and the path below is identical
+  // to pre-P2 behavior.
+  let ledgerLease: NodeLeaseLike | undefined;
+  if (config.nodeLedger !== undefined && idempotencyKey !== undefined) {
+    let begin: BeginNodeOutcome;
+    try {
+      begin = await beginNodeUnderLedger(
+        config.nodeLedger,
+        runId,
+        node.id,
+        idempotencyKey,
+        runId,
+        Date.now(),
+      );
+    } catch {
+      // Ledger unavailability is non-fatal: fall through to normal execution.
+      begin = { kind: "lease", lease: { owner: runId, fenceToken: 0 } };
+    }
+    if (begin.kind === "replay") {
+      // A completed node replays its prior result instead of re-executing.
+      const replayResult: NodeResult = {
+        nodeId: node.id,
+        output: begin.output,
+        durationMs: 0,
+      };
+      if (span) config.tracer?.endSpanOk(span);
+      emit(nodeCompletedEvent(node.id, 0));
+      nodeResults.set(node.id, replayResult);
+      completedNodeIds.push(node.id);
+      onCompleted?.();
+      await saveCheckpoint();
+      const nextIds = getNextNodeIds(
+        node.id,
+        outgoingEdges,
+        config.predicates,
+        runState,
+      );
+      return { kind: "continue", nextNodeId: nextIds[0] };
+    }
+    if (begin.kind === "busy") {
+      // Held by a fresh lease elsewhere — abort this node's execution.
+      return fail(`node "${node.id}" is leased by another worker`);
+    }
+    ledgerLease = begin.lease;
+  }
+
   try {
     const finalResult = await runNodeWithRetry(config, emit, node, context);
 
     if (finalResult.error) {
+      if (
+        config.nodeLedger !== undefined &&
+        ledgerLease !== undefined &&
+        idempotencyKey !== undefined
+      ) {
+        await failNodeUnderLedger(
+          config.nodeLedger,
+          runId,
+          node.id,
+          idempotencyKey,
+          ledgerLease,
+          finalResult.error,
+          true,
+        );
+      }
       if (span) config.tracer?.endSpanWithError(span, finalResult.error);
       emit(nodeFailedEvent(node.id, finalResult.error));
       nodeResults.set(node.id, finalResult);
@@ -131,14 +200,14 @@ export async function dispatchStandardNode(
         emit,
         node.id,
         finalResult.error,
-        context
+        context,
       );
       if (stuckAbort) return fail(stuckAbort);
 
       const errorNext = getErrorTarget(
         node.id,
         errorEdges,
-        extractErrorCode(finalResult.error)
+        extractErrorCode(finalResult.error),
       );
       if (errorNext) return { kind: "continue", nextNodeId: errorNext };
 
@@ -149,7 +218,7 @@ export async function dispatchStandardNode(
         node.id,
         node.type,
         finalResult.error,
-        runId
+        runId,
       );
       if (recovered) {
         nodeResults.delete(node.id);
@@ -161,6 +230,29 @@ export async function dispatchStandardNode(
 
     if (span) config.tracer?.endSpanOk(span);
 
+    // P2 (opt-in): record the completion fence-gated. A fenced-out write means
+    // a newer lease superseded us mid-execution → abort without marking done.
+    if (
+      config.nodeLedger !== undefined &&
+      ledgerLease !== undefined &&
+      idempotencyKey !== undefined
+    ) {
+      const committed = await completeNodeUnderLedger(
+        config.nodeLedger,
+        runId,
+        node.id,
+        idempotencyKey,
+        ledgerLease,
+        finalResult.output,
+        finalResult.durationMs,
+      );
+      if (!committed) {
+        return fail(
+          `node "${node.id}" lease lost during execution (fenced out)`,
+        );
+      }
+    }
+
     emit(nodeCompletedEvent(node.id, finalResult.durationMs));
     nodeResults.set(node.id, finalResult);
 
@@ -169,7 +261,7 @@ export async function dispatchStandardNode(
       emit,
       node.id,
       finalResult,
-      context
+      context,
     );
     if (stuckAbort) return fail(stuckAbort);
 
@@ -180,7 +272,7 @@ export async function dispatchStandardNode(
       budgetTracker,
       node.id,
       finalResult,
-      completedNodeIds.length
+      completedNodeIds.length,
     );
 
     completedNodeIds.push(node.id);
@@ -191,7 +283,7 @@ export async function dispatchStandardNode(
       node.id,
       outgoingEdges,
       config.predicates,
-      runState
+      runState,
     );
     return { kind: "continue", nextNodeId: nextIds[0] };
   } catch (err) {
@@ -209,7 +301,7 @@ export async function dispatchStandardNode(
     const errorNext = getErrorTarget(
       node.id,
       errorEdges,
-      extractErrorCode(err)
+      extractErrorCode(err),
     );
     if (errorNext) return { kind: "continue", nextNodeId: errorNext };
 
@@ -220,7 +312,7 @@ export async function dispatchStandardNode(
       node.id,
       node.type,
       errorMessage,
-      runId
+      runId,
     );
     if (recovered) {
       nodeResults.delete(node.id);

@@ -249,6 +249,18 @@ export type { RunEvent, EventLogStore } from "./persistence/event-log.js";
 export { InMemoryRunJournal } from "./persistence/in-memory-run-journal.js";
 export { RunJournalBridgeRunStore } from "./persistence/run-journal-bridge.js";
 export {
+  InMemoryDurableNodeLedger,
+  FencedOutError,
+} from "./persistence/durable-node-ledger.js";
+export type {
+  DurableNodeLedger,
+  DurableNodeLease,
+  DurableNodeCompletion,
+  DurableNodeFailure,
+  DurableNodeStatus,
+  LedgerIdempotencyMode,
+} from "./persistence/durable-node-ledger.js";
+export {
   createEntryBase,
   isTerminalEntry,
   deserializeEntry,
