@@ -42,4 +42,5 @@ export const FLOW_NODE_VALIDATOR_DESCRIPTORS: ReadonlyArray<{
   { type: "knowledge.write", hasChildren: false },
   { type: "knowledge.query", hasChildren: false },
   { type: "adapter.run", hasChildren: false },
+  { type: "adapter.race", hasChildren: false },
 ];

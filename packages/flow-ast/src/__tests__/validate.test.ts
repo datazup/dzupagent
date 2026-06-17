@@ -575,3 +575,46 @@ describe("flowNodeSchema.safeParse — AdapterRunNode", () => {
     }
   });
 });
+
+describe("flowNodeSchema.safeParse — AdapterRaceNode", () => {
+  it("accepts an adapter.race node with two providers", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "adapter.race",
+      id: "race",
+      providers: ["claude", "codex"],
+      instructions: "Implement it",
+      output: "best",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.type).toBe("adapter.race");
+  });
+
+  it("rejects adapter.race with fewer than 2 providers", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "adapter.race",
+      id: "race",
+      providers: ["claude"],
+      instructions: "Implement it",
+      output: "best",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.path)).toContain(
+        "root.providers"
+      );
+    }
+  });
+
+  it("rejects adapter.race missing required `output`", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "adapter.race",
+      id: "race",
+      providers: ["claude", "codex"],
+      instructions: "Implement it",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.path)).toContain("root.output");
+    }
+  });
+});

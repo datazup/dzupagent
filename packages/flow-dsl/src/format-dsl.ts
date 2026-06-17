@@ -434,6 +434,37 @@ function formatNode(
         lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
       lines.push(`${childIndent}output: ${node.output}`);
       return;
+    case "adapter.race":
+      lines.push(`${indent}- adapter.race:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(
+        `${childIndent}providers: [${node.providers.map(quote).join(", ")}]`
+      );
+      if (node.model) lines.push(`${childIndent}model: ${node.model}`);
+      if (node.systemPrompt)
+        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
+      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
+      if (node.input)
+        lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
+      if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
+      if (node.reasoning)
+        lines.push(`${childIndent}reasoning: ${node.reasoning}`);
+      if (node.outputSchema !== undefined)
+        lines.push(
+          `${childIndent}outputSchema: ${
+            typeof node.outputSchema === "string"
+              ? node.outputSchema
+              : formatScalar(node.outputSchema)
+          }`
+        );
+      if (node.promptPrep)
+        lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
+      if (node.idempotency)
+        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
+      if (node.policy)
+        lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
+      lines.push(`${childIndent}output: ${node.output}`);
+      return;
     default: {
       const _exhaustive: never = node;
       void _exhaustive;

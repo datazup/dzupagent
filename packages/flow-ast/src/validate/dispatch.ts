@@ -47,6 +47,7 @@ import {
 } from "./fleet.js";
 import { validateKnowledgeWrite, validateKnowledgeQuery } from "./knowledge.js";
 import { validateAdapterRun } from "./adapter-run.js";
+import { validateAdapterRace } from "./adapter-race.js";
 
 export function validateFlowNode(
   value: unknown,
@@ -150,6 +151,8 @@ export function validateFlowNode(
       return validateKnowledgeQuery(value, path, issues);
     case "adapter.run":
       return validateAdapterRun(value, path, issues);
+    case "adapter.race":
+      return validateAdapterRace(value, path, issues);
     default:
       issues.push({
         path,

@@ -120,7 +120,8 @@ export type FlowNode =
   | FleetContractNetNode
   | KnowledgeWriteNode
   | KnowledgeQueryNode
-  | AdapterRunNode;
+  | AdapterRunNode
+  | AdapterRaceNode;
 
 export type SequenceNode = FlowNodeBase & {
   type: "sequence";
@@ -646,6 +647,41 @@ export type AdapterRunNode = FlowNodeBase & {
   output: string;
 };
 
+/**
+ * `adapter.race` — race the same prompt across ≥2 providers; the first
+ * successful result wins (Taleb provider hedge). Lowers to
+ * `OrchestratorFacade.race(prompt, providers)` at runtime; the journal records
+ * the winner and that the others were cancelled (spec §5.1). Additive under
+ * `dzupflow/v1`. Shares the common `adapter.*` field block (§3) sans the
+ * single-call routing fields — selection is the explicit `providers` list.
+ */
+export type AdapterRaceNode = FlowNodeBase & {
+  type: "adapter.race";
+  /** ≥2 providers raced on the same prompt. */
+  providers: Array<"claude" | "codex" | "gemini" | "qwen" | "goose" | "crush">;
+  model?: string;
+  /** Operator instructions; template-resolved at runtime. */
+  instructions: string;
+  /** Base persona layer; template-resolved. */
+  systemPrompt?: string;
+  /** State-bound bindings merged into the prompt. */
+  input?: Record<string, unknown>;
+  /** Persona ref applied to this node's prompt layers. */
+  persona?: string;
+  /** Normalized reasoning intent, mapped per provider at runtime. */
+  reasoning?: "low" | "medium" | "high";
+  /** Schema ref or inline JSON Schema for structured output. */
+  outputSchema?: string | Record<string, unknown>;
+  /** `auto` (default) applies model-aware prep; `raw` = passthrough. */
+  promptPrep?: "auto" | "raw";
+  /** Replay governance; REQUIRED for side-effecting nodes (validator-warned). */
+  idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+  /** Per-node budget/timeout/guardrail override. */
+  policy?: Record<string, unknown>;
+  /** State key for the winning provider's result. */
+  output: string;
+};
+
 export type FlowNodeKind = FlowNode["type"];
 
 /**
@@ -689,6 +725,7 @@ export const FLOW_NODE_KIND_REGISTRY = {
   "knowledge.write": true,
   "knowledge.query": true,
   "adapter.run": true,
+  "adapter.race": true,
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(

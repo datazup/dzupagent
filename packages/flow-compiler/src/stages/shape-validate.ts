@@ -619,6 +619,36 @@ function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
       }
       return;
     }
+    case "adapter.race": {
+      if (!Array.isArray(node.providers) || node.providers.length < 2) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "adapter.race.providers requires at least 2 providers"
+          )
+        );
+      }
+      if (!isNonEmptyString(node.instructions)) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "adapter.race.instructions is required (non-empty string)"
+          )
+        );
+      }
+      if (!isNonEmptyString(node.output)) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "adapter.race.output is required (non-empty string)"
+          )
+        );
+      }
+      return;
+    }
     case "prompt": {
       if (!isNonEmptyString(node.userPrompt)) {
         errors.push(
@@ -807,7 +837,8 @@ function walkOnError(
     case "knowledge.write":
     case "knowledge.query":
     case "worker.dispatch":
-    case "adapter.run": {
+    case "adapter.run":
+    case "adapter.race": {
       return;
     }
     case "try_catch": {

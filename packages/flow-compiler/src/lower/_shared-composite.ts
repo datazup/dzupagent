@@ -102,6 +102,7 @@ export function lowerNodeToPipeline(
     case "knowledge.query":
     case "worker.dispatch":
     case "adapter.run":
+    case "adapter.race":
       // Runtime-executed nodes: present in AST but not emitted as graph edges.
       return { nodes: [], edges: [], warnings: [] };
 

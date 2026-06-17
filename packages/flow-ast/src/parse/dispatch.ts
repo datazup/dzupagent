@@ -47,6 +47,7 @@ import {
 } from "./fleet.js";
 import { parseKnowledgeWrite, parseKnowledgeQuery } from "./knowledge.js";
 import { parseAdapterRun } from "./adapter-run.js";
+import { parseAdapterRace } from "./adapter-race.js";
 
 export function parseNode(
   value: unknown,
@@ -159,6 +160,8 @@ export function parseNode(
       return parseKnowledgeQuery(value, pointer, ctx);
     case "adapter.run":
       return parseAdapterRun(value, pointer, ctx);
+    case "adapter.race":
+      return parseAdapterRace(value, pointer, ctx);
     default:
       // Defensive — KNOWN_NODE_TYPES is the source of truth above.
       ctx.errors.push({

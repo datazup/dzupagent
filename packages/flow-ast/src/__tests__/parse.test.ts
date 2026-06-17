@@ -136,6 +136,12 @@ const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode["type"], FlowNode> = {
     instructions: "Summarize the verification output: {{ state.verifyOutput }}",
     output: "summary",
   },
+  "adapter.race": {
+    type: "adapter.race",
+    providers: ["claude", "codex"],
+    instructions: "Implement: {{ input.featureSpec }}",
+    output: "bestImpl",
+  },
 };
 
 describe("parseFlow — public node contract", () => {
@@ -703,5 +709,86 @@ describe("parseFlow — adapter.run node", () => {
       code: "WRONG_FIELD_TYPE",
       pointer: "/reasoning",
     });
+  });
+});
+
+describe("parseFlow — adapter.race node", () => {
+  it("parses an adapter.race node, preserving optional fields", () => {
+    const node = {
+      type: "adapter.race",
+      id: "race-impl",
+      providers: ["claude", "codex"],
+      instructions: "Implement: {{ input.featureSpec }}",
+      reasoning: "high",
+      output: "bestImpl",
+      idempotency: "idempotent",
+    };
+    const result = parseFlow(node);
+    expect(result.errors).toEqual([]);
+    expect(result.ast).toEqual(node);
+  });
+
+  it("rejects adapter.race with fewer than 2 providers", () => {
+    const result = parseFlow({
+      type: "adapter.race",
+      providers: ["claude"],
+      instructions: "do it",
+      output: "out",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ pointer: "/providers" });
+  });
+
+  it("rejects adapter.race with a non-string in providers", () => {
+    const result = parseFlow({
+      type: "adapter.race",
+      providers: ["claude", 7],
+      instructions: "do it",
+      output: "out",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({
+      code: "WRONG_FIELD_TYPE",
+      pointer: "/providers",
+    });
+  });
+
+  it("rejects adapter.race with an unknown provider value", () => {
+    const result = parseFlow({
+      type: "adapter.race",
+      providers: ["claude", "not-a-provider"],
+      instructions: "do it",
+      output: "out",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({
+      code: "WRONG_FIELD_TYPE",
+      pointer: "/providers",
+    });
+  });
+
+  it("rejects adapter.race missing required `instructions`", () => {
+    const result = parseFlow({
+      type: "adapter.race",
+      providers: ["claude", "codex"],
+      output: "out",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ pointer: "/instructions" });
+  });
+
+  it("rejects adapter.race missing required `output`", () => {
+    const result = parseFlow({
+      type: "adapter.race",
+      providers: ["claude", "codex"],
+      instructions: "do it",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ pointer: "/output" });
   });
 });
