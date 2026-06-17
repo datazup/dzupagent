@@ -3,17 +3,18 @@ import type {
   AsyncToolsetResolver,
   FlowDiagnosticCategory,
   FlowDocumentPolicy,
+  FlowDurabilityPolicy,
   ToolResolver,
   ToolsetResolver,
-} from '@dzupagent/flow-ast'
-import type { ParseInput } from '@dzupagent/flow-ast'
-import type { DzupEventBus } from '@dzupagent/core/events'
+} from "@dzupagent/flow-ast";
+import type { ParseInput } from "@dzupagent/flow-ast";
+import type { DzupEventBus } from "@dzupagent/core/events";
 
-import type { ProfileRegistry } from './profile-registry.js'
+import type { ProfileRegistry } from "./profile-registry.js";
 
 export interface CompilerOptions {
-  toolResolver: ToolResolver | AsyncToolResolver
-  personaResolver?: PersonaResolver | AsyncPersonaResolver
+  toolResolver: ToolResolver | AsyncToolResolver;
+  personaResolver?: PersonaResolver | AsyncPersonaResolver;
   /**
    * Resolves `toolset: <name>` references on AgentNodes into expanded
    * `tools[]` arrays. When absent, agent nodes that declare `toolset` emit
@@ -24,7 +25,7 @@ export interface CompilerOptions {
    * the expanded list happens in the consuming runtime (codev-app's
    * `flow-node-executor-agent`).
    */
-  toolsetResolver?: ToolsetResolver | AsyncToolsetResolver
+  toolsetResolver?: ToolsetResolver | AsyncToolsetResolver;
   /**
    * Resolves `profile: <name>` references on AgentNodes into flattened
    * model/provider/instructions/toolset/policy fields at compile time
@@ -43,7 +44,7 @@ export interface CompilerOptions {
    * back-compat, but new flows should ship through a compile-time
    * registry.
    */
-  profileRegistry?: ProfileRegistry
+  profileRegistry?: ProfileRegistry;
   /**
    * When `true`, the compiler forwards inner lifecycle events
    * (`flow:compile_started`, `flow:compile_parsed`,
@@ -60,12 +61,12 @@ export interface CompilerOptions {
    * compiler), and no fan-out coordination needed when multiple
    * subsystems want to observe compilation. See Wave 11 ADR §4.
    */
-  forwardInnerEvents?: boolean
+  forwardInnerEvents?: boolean;
   /**
    * Shared bus for lifecycle event forwarding. Only consulted when
    * `forwardInnerEvents === true`. See Wave 11 ADR §4.
    */
-  eventBus?: DzupEventBus
+  eventBus?: DzupEventBus;
   /**
    * Compilation target hint. When set to `'codev-runtime'`, any tool
    * reference starting with `codev.` is treated as externally resolved
@@ -77,11 +78,11 @@ export interface CompilerOptions {
    * to compile cleanly without needing those tools registered in the
    * local resolver.
    */
-  target?: 'codev-runtime'
+  target?: "codev-runtime";
 }
 
 export interface PersonaResolver {
-  resolve(ref: string): boolean  // true if persona exists
+  resolve(ref: string): boolean; // true if persona exists
 }
 
 /**
@@ -89,105 +90,125 @@ export interface PersonaResolver {
  * — stage 3 awaits the result when `resolve()` returns a Promise.
  */
 export interface AsyncPersonaResolver {
-  resolve(ref: string): Promise<boolean>
+  resolve(ref: string): Promise<boolean>;
 }
 
-export type CompilationTarget = 'skill-chain' | 'workflow-builder' | 'pipeline'
+export type CompilationTarget = "skill-chain" | "workflow-builder" | "pipeline";
 
-export type CompilationStage = 1 | 2 | 3 | 4
+export type CompilationStage = 1 | 2 | 3 | 4;
 
-export type FlowCompileSourceKind = 'flow-object' | 'flow-json-string' | 'flow-document' | 'dzupflow-dsl'
+export type FlowCompileSourceKind =
+  | "flow-object"
+  | "flow-json-string"
+  | "flow-document"
+  | "dzupflow-dsl";
 
 export interface FlowCompileCorrelation {
-  runId?: string
-  eventCorrelationId?: string
+  runId?: string;
+  eventCorrelationId?: string;
 }
 
 export interface CompileInvocationOptions {
-  sourceKind?: FlowCompileSourceKind
-  source?: unknown
-  correlation?: FlowCompileCorrelation
+  sourceKind?: FlowCompileSourceKind;
+  source?: unknown;
+  correlation?: FlowCompileCorrelation;
 }
 
 export interface CompilationDiagnostic {
-  stage: CompilationStage
-  code: string
-  message: string
-  nodePath?: string
-  suggestion?: string
-  category?: FlowDiagnosticCategory
+  stage: CompilationStage;
+  code: string;
+  message: string;
+  nodePath?: string;
+  suggestion?: string;
+  category?: FlowDiagnosticCategory;
 }
 
 export interface CompilationWarning {
-  stage: 4
-  code: string
-  message: string
-  nodePath?: string
-  category?: FlowDiagnosticCategory
+  stage: 4;
+  code: string;
+  message: string;
+  nodePath?: string;
+  category?: FlowDiagnosticCategory;
 }
 
 export interface CompilationTargetReason {
-  code: 'SEQUENTIAL_ONLY' | 'BRANCH_PRESENT' | 'PARALLEL_PRESENT' | 'SUSPEND_PRESENT' | 'FOR_EACH_PRESENT'
-  message: string
+  code:
+    | "SEQUENTIAL_ONLY"
+    | "BRANCH_PRESENT"
+    | "PARALLEL_PRESENT"
+    | "SUSPEND_PRESENT"
+    | "FOR_EACH_PRESENT";
+  message: string;
 }
 
 export interface CompilationResult {
-  target: CompilationTarget
+  target: CompilationTarget;
   // The compiled artifact — typed as unknown here; each consumer casts to the right type
-  artifact: unknown
-  warnings: CompilationWarning[]
-  reasons: CompilationTargetReason[]
+  artifact: unknown;
+  warnings: CompilationWarning[];
+  reasons: CompilationTargetReason[];
 }
 
-export type CompilationError = CompilationDiagnostic
+export type CompilationError = CompilationDiagnostic;
 
 export interface CompileSuccess {
-  compileId: string
-  target: CompilationTarget
-  artifact: unknown
-  warnings: CompilationWarning[]
-  reasons: CompilationTargetReason[]
-  evidence: FlowCompileEvidence
-  diagnosticCountsByCategory?: Record<string, number>
+  compileId: string;
+  target: CompilationTarget;
+  artifact: unknown;
+  warnings: CompilationWarning[];
+  reasons: CompilationTargetReason[];
+  evidence: FlowCompileEvidence;
+  diagnosticCountsByCategory?: Record<string, number>;
   /**
    * Document-level policy extracted from `FlowDocumentV1.policy`, propagated
    * from `compileDocument()`. Absent when the source had no top-level policy
    * block or when the compile entry point was `compile()` / `compileDsl()`.
    * Stage 3 (policy threading) — runtime wires this into `ExecutionContext`.
    */
-  documentPolicy?: FlowDocumentPolicy
+  documentPolicy?: FlowDocumentPolicy;
+  /**
+   * Document-level durability profile extracted from `FlowDocumentV1.durability`
+   * (P0 durability contract). Absent when the source declared no durability
+   * block or when the entry point was `compile()` / `compileDsl()`. The runtime
+   * (Stage 2+) reads this to decide checkpoint/resume behavior; here it is
+   * surfaced as compile evidence only — no runtime behavior change.
+   */
+  documentDurability?: FlowDurabilityPolicy;
 }
 
 export interface CompileFailure {
-  compileId: string
-  errors: CompilationDiagnostic[]
-  diagnosticCountsByCategory?: Record<string, number>
+  compileId: string;
+  errors: CompilationDiagnostic[];
+  diagnosticCountsByCategory?: Record<string, number>;
 }
 
-export type CompileResult = CompileSuccess | CompileFailure
+export type CompileResult = CompileSuccess | CompileFailure;
 
 export interface FlowCompiler {
-  compile(input: ParseInput, options?: CompileInvocationOptions): Promise<CompileSuccess | CompileFailure>
-  compileDocument(document: unknown): Promise<CompileSuccess | CompileFailure>
-  compileDsl(source: unknown): Promise<CompileSuccess | CompileFailure>
+  compile(
+    input: ParseInput,
+    options?: CompileInvocationOptions,
+  ): Promise<CompileSuccess | CompileFailure>;
+  compileDocument(document: unknown): Promise<CompileSuccess | CompileFailure>;
+  compileDsl(source: unknown): Promise<CompileSuccess | CompileFailure>;
 }
 
 export interface FlowCompileEvidenceNode {
-  type: string
-  id?: string
+  type: string;
+  id?: string;
 }
 
 export interface FlowCompileEvidence {
-  schema: 'dzupagent.flowCompileEvidence/v1'
-  sourceKind: FlowCompileSourceKind
-  sourceHash: string
-  compileId: string
-  canonicalNodeIds: string[]
-  canonicalNodePaths: Record<string, FlowCompileEvidenceNode>
-  loweredTarget: CompilationTarget
+  schema: "dzupagent.flowCompileEvidence/v1";
+  sourceKind: FlowCompileSourceKind;
+  sourceHash: string;
+  compileId: string;
+  canonicalNodeIds: string[];
+  canonicalNodePaths: Record<string, FlowCompileEvidenceNode>;
+  loweredTarget: CompilationTarget;
   correlationIds: {
-    compileId: string
-    eventCorrelationId: string
-    runId?: string
-  }
+    compileId: string;
+    eventCorrelationId: string;
+    runId?: string;
+  };
 }

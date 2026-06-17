@@ -36,11 +36,134 @@ export interface FlowResumeMetadata {
   mode?: "manual" | "event" | "condition";
   condition?: string;
   checkpointRef?: string;
+  /**
+   * P0 durability contract: marks this node as a safe resume frontier — the
+   * runtime may restart the flow from here without replaying prior nodes.
+   * Defaults to false (the node is not a guaranteed resume point).
+   */
+  safeToReplayFrom?: boolean;
+  /** State keys to restore when resuming from this point. */
+  restoreStateKeys?: string[];
 }
 
 export interface FlowMutationMetadata {
   policy?: "read-only" | "idempotent" | "mutating";
   idempotencyKey?: string;
+}
+
+/**
+ * P0 durability contract — replay governance shared across side-effecting
+ * nodes. Promoted from the per-node string literal that `adapter.*` nodes
+ * already declared, so all nodes use one type (see the 2026-06-17
+ * durability-contract reconciliation decision).
+ */
+export type NodeIdempotencyMode =
+  | "idempotent"
+  | "at-least-once"
+  | "exactly-once-required";
+
+/** Runtime-stable list of {@link NodeIdempotencyMode} values. */
+export const NODE_IDEMPOTENCY_MODES: readonly NodeIdempotencyMode[] = [
+  "idempotent",
+  "at-least-once",
+  "exactly-once-required",
+] as const;
+
+/**
+ * P0 durability contract — fine-grained side-effect classification (spec §5.5).
+ * Refines the coarse {@link FlowMutationMetadata} `policy`; drives compiler
+ * diagnostic D1 (mutating effect without idempotency).
+ */
+export type EffectClass =
+  | "read"
+  | "compute"
+  | "llm"
+  | "file_write"
+  | "code_change"
+  | "network_write"
+  | "db_write"
+  | "human_decision"
+  | "queue_publish";
+
+/** Runtime-stable list of {@link EffectClass} values. */
+export const EFFECT_CLASSES: readonly EffectClass[] = [
+  "read",
+  "compute",
+  "llm",
+  "file_write",
+  "code_change",
+  "network_write",
+  "db_write",
+  "human_decision",
+  "queue_publish",
+] as const;
+
+/** Effect classes that mutate external state and therefore require an
+ * idempotency declaration (compiler diagnostic D1). */
+export const MUTATING_EFFECT_CLASSES: readonly EffectClass[] = [
+  "file_write",
+  "code_change",
+  "network_write",
+  "db_write",
+  "queue_publish",
+] as const;
+
+/**
+ * Map the coarse {@link FlowMutationMetadata} `policy` onto an
+ * {@link EffectClass}. `read-only → read`, `idempotent → compute`,
+ * `mutating → db_write` (the generic write class). Returns `undefined` when
+ * no policy is declared.
+ */
+export function effectClassFromMutationPolicy(
+  policy: FlowMutationMetadata["policy"] | undefined,
+): EffectClass | undefined {
+  switch (policy) {
+    case "read-only":
+      return "read";
+    case "idempotent":
+      return "compute";
+    case "mutating":
+      return "db_write";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * P0 durability contract — top-level crash-safety profile for a flow run
+ * (spec §5.1). Entirely additive: absent ⇒ `volatile`. The DSL declares
+ * recoverable *intent*; the runtime supplies stores/queues/leases.
+ */
+export interface FlowDurabilityPolicy {
+  /** `volatile` (default) | `checkpointed` | `durable`. */
+  mode?: "volatile" | "checkpointed" | "durable";
+  checkpoint?: {
+    strategy?:
+      | "explicit"
+      | "after_each_node"
+      | "after_each_effect"
+      | "after_each_branch";
+    /** Reference to a configured checkpoint store (resolved at runtime). */
+    storeRef?: string;
+    includeEvents?: boolean;
+    includeProviderSessionRefs?: boolean;
+    retention?: {
+      ttlMs?: number;
+      maxVersions?: number;
+    };
+  };
+  resume?: {
+    onProcessRestart?:
+      | "fail_running"
+      | "resume_from_checkpoint"
+      | "redeliver_running";
+    requireResumePoint?: boolean;
+    maxReplayNodes?: number;
+  };
+  executionLog?: {
+    storeRef?: string;
+    eventHistory?: "none" | "compact" | "full";
+  };
 }
 
 export type FlowNodeMetadata = Record<string, unknown> & {
@@ -642,7 +765,7 @@ export type AdapterRunNode = FlowNodeBase & {
   /** `auto` (default) applies model-aware prep; `raw` = passthrough. */
   promptPrep?: "auto" | "raw";
   /** Replay governance; REQUIRED for side-effecting nodes (validator-warned). */
-  idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+  idempotency?: NodeIdempotencyMode;
   /** Per-node budget/timeout/guardrail override. */
   policy?: Record<string, unknown>;
   /** State key for the result. */
@@ -677,7 +800,7 @@ export type AdapterRaceNode = FlowNodeBase & {
   /** `auto` (default) applies model-aware prep; `raw` = passthrough. */
   promptPrep?: "auto" | "raw";
   /** Replay governance; REQUIRED for side-effecting nodes (validator-warned). */
-  idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+  idempotency?: NodeIdempotencyMode;
   /** Per-node budget/timeout/guardrail override. */
   policy?: Record<string, unknown>;
   /** State key for the winning provider's result. */
@@ -720,7 +843,7 @@ export type AdapterParallelNode = FlowNodeBase & {
   /** `auto` (default) applies model-aware prep; `raw` = passthrough. */
   promptPrep?: "auto" | "raw";
   /** Replay governance; REQUIRED for side-effecting nodes (validator-warned). */
-  idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+  idempotency?: NodeIdempotencyMode;
   /** Per-node budget/timeout/guardrail override. */
   policy?: Record<string, unknown>;
   /** State key for the merged result (shape depends on `merge`). */
@@ -763,7 +886,7 @@ export type AdapterSupervisorNode = FlowNodeBase & {
   /** `auto` (default) applies model-aware prep; `raw` = passthrough. */
   promptPrep?: "auto" | "raw";
   /** Replay governance; REQUIRED for side-effecting nodes (validator-warned). */
-  idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+  idempotency?: NodeIdempotencyMode;
   /** Per-node budget/timeout/guardrail override. */
   policy?: Record<string, unknown>;
   /** State key for the aggregated result. */
@@ -819,7 +942,7 @@ export const FLOW_NODE_KIND_REGISTRY = {
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(
-  FLOW_NODE_KIND_REGISTRY
+  FLOW_NODE_KIND_REGISTRY,
 ) as FlowNodeKind[];
 
 export function isFlowNodeKind(value: string): value is FlowNodeKind {
@@ -863,6 +986,8 @@ export interface FlowDocumentV1 {
   meta?: FlowNodeMetadata;
   /** Top-level policy constraints for the entire flow run (Stage 3). */
   policy?: FlowDocumentPolicy;
+  /** Top-level crash-safety profile (P0 durability contract). Absent ⇒ volatile. */
+  durability?: FlowDurabilityPolicy;
   root: SequenceNode;
 }
 

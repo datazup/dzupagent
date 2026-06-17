@@ -28,6 +28,7 @@ import { createHash } from "node:crypto";
 import { parseFlow } from "@dzupagent/flow-ast";
 import type {
   FlowDocumentPolicy,
+  FlowDurabilityPolicy,
   FlowNode,
   ParseInput,
 } from "@dzupagent/flow-ast";
@@ -35,6 +36,7 @@ import type { DzupEvent } from "@dzupagent/core";
 
 import { validateShape } from "./stages/shape-validate.js";
 import { semanticResolve } from "./stages/semantic.js";
+import { computeDurabilityDiagnostics } from "./stages/durability-diagnostics.js";
 import { collectUnsupportedRuntimeNodes, routeTarget } from "./route-target.js";
 import { lowerSkillChain } from "./lower/lower-skill-chain.js";
 import { lowerPipelineFlat } from "./lower/lower-pipeline-flat.js";
@@ -107,7 +109,7 @@ export interface CompileOrchestratorDeps {
 export async function runCompile(
   deps: CompileOrchestratorDeps,
   input: ParseInput,
-  invocationOptions: CompileInvocationOptions = {}
+  invocationOptions: CompileInvocationOptions = {},
 ): Promise<CompileSuccess | CompileFailure> {
   const { opts, emit } = deps;
   const compileId = crypto.randomUUID();
@@ -268,7 +270,7 @@ export async function runCompile(
           "reviewed executable target contract before emitting artifacts.",
         nodePath: node.path,
         category: "lowering",
-      })
+      }),
     );
     emit({
       type: "flow:compile_failed",
@@ -378,7 +380,7 @@ export async function runCompile(
       correlation: invocationOptions.correlation,
     }),
     diagnosticCountsByCategory: countDiagnosticsByCategory(
-      toCompilationWarnings(warnings)
+      toCompilationWarnings(warnings),
     ),
   };
 }
@@ -390,7 +392,7 @@ export async function runCompile(
  */
 export async function runCompileDocument(
   deps: CompileOrchestratorDeps,
-  document: unknown
+  document: unknown,
 ): Promise<CompileSuccess | CompileFailure> {
   const prepared = prepareFlowInputFromDocument(document);
   if (!prepared.ok) {
@@ -405,6 +407,10 @@ export async function runCompileDocument(
   // The policy is validated by validateFlowDocumentShape (inside prepareFlowInputFromDocument)
   // so by the time we reach here the fields are guaranteed to be well-typed.
   const documentPolicy = extractDocumentPolicy(document);
+  // P0 durability contract: extract the top-level durability profile and compute
+  // advisory diagnostics (D4/D5). Additive — no runtime behavior change.
+  const documentDurability = extractDocumentDurability(document);
+  const durabilityWarnings = computeDurabilityDiagnostics(document);
 
   const result = await runCompile(deps, prepared.flowInput, {
     sourceKind: "flow-document",
@@ -413,9 +419,22 @@ export async function runCompileDocument(
 
   if ("errors" in result) return result;
 
+  const mergedWarnings =
+    durabilityWarnings.length > 0
+      ? [...result.warnings, ...durabilityWarnings]
+      : result.warnings;
+
   return {
     ...result,
+    warnings: mergedWarnings,
     ...(documentPolicy !== undefined ? { documentPolicy } : {}),
+    ...(documentDurability !== undefined ? { documentDurability } : {}),
+    ...(durabilityWarnings.length > 0
+      ? {
+          diagnosticCountsByCategory:
+            countDiagnosticsByCategory(mergedWarnings),
+        }
+      : {}),
   };
 }
 
@@ -425,7 +444,7 @@ export async function runCompileDocument(
  */
 export async function runCompileDsl(
   deps: CompileOrchestratorDeps,
-  source: unknown
+  source: unknown,
 ): Promise<CompileSuccess | CompileFailure> {
   const prepared = prepareFlowInputFromDsl(source);
   if (!prepared.ok) {
@@ -471,7 +490,7 @@ function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
   const entries = Object.keys(record)
     .sort()
     .map(
-      (key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`
+      (key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`,
     );
   return `{${entries.join(",")}}`;
 }
@@ -518,7 +537,7 @@ function buildCompileEvidence(args: {
 }
 
 function countDiagnosticsByCategory(
-  diagnostics: Array<{ category?: string }>
+  diagnostics: Array<{ category?: string }>,
 ): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const diagnostic of diagnostics) {
@@ -534,7 +553,7 @@ function countDiagnosticsByCategory(
  */
 function countArtifact(
   target: "skill-chain" | "workflow-builder" | "pipeline",
-  artifact: unknown
+  artifact: unknown,
 ): { nodeCount: number; edgeCount: number } {
   if (artifact === null || typeof artifact !== "object") {
     return { nodeCount: 0, edgeCount: 0 };
@@ -589,7 +608,7 @@ function toCompilationWarnings(warnings: string[]): CompilationWarning[] {
 
 function targetReasons(
   target: CompilationTarget,
-  bitmask: number
+  bitmask: number,
 ): CompilationTargetReason[] {
   const reasons: CompilationTargetReason[] = [];
 
@@ -637,7 +656,7 @@ function targetReasons(
  * cast is safe. Returns `undefined` when the field is absent.
  */
 function extractDocumentPolicy(
-  document: unknown
+  document: unknown,
 ): FlowDocumentPolicy | undefined {
   if (typeof document !== "object" || document === null) return undefined;
   const raw = (document as Record<string, unknown>)["policy"];
@@ -651,4 +670,20 @@ function extractDocumentPolicy(
   if (typeof p["workingDirectory"] === "string")
     policy.workingDirectory = p["workingDirectory"] as string;
   return Object.keys(policy).length > 0 ? policy : undefined;
+}
+
+/**
+ * Extract the top-level `durability` block (P0). The document has already
+ * passed `validateFlowDocumentShape` by the time we reach here, so the block —
+ * when present and an object — is well-typed; we pass it through verbatim.
+ */
+function extractDocumentDurability(
+  document: unknown,
+): FlowDurabilityPolicy | undefined {
+  if (typeof document !== "object" || document === null) return undefined;
+  const raw = (document as Record<string, unknown>)["durability"];
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  return raw as FlowDurabilityPolicy;
 }
