@@ -34,6 +34,7 @@ import {
 import { normalizeSet } from "./normalize-nodes-set.js";
 import { normalizeAgent, normalizeValidate } from "./normalize-nodes-agent.js";
 import { normalizeWorkerDispatch } from "./normalize-nodes-worker-dispatch.js";
+import { normalizeAdapterRun } from "./normalize-nodes-adapter-run.js";
 import {
   normalizeFleetContractNet,
   normalizeFleetDispatch,
@@ -47,7 +48,7 @@ import type { DslDiagnostic } from "./types.js";
 export function normalizeSteps(
   raw: unknown,
   path: string,
-  diagnostics: DslDiagnostic[],
+  diagnostics: DslDiagnostic[]
 ): FlowNode[] {
   if (!Array.isArray(raw)) {
     diagnostics.push({
@@ -69,7 +70,7 @@ export function normalizeSteps(
 export function normalizeNodeWrapper(
   raw: unknown,
   path: string,
-  diagnostics: DslDiagnostic[],
+  diagnostics: DslDiagnostic[]
 ): FlowNode | null {
   if (!isPlainObject(raw)) {
     diagnostics.push({
@@ -167,6 +168,8 @@ export function normalizeNodeWrapper(
       return normalizeKnowledgeWrite(value, path, diagnostics);
     case "knowledge.query":
       return normalizeKnowledgeQuery(value, path, diagnostics);
+    case "adapter.run":
+      return normalizeAdapterRun(value, path, diagnostics);
     default:
       diagnostics.push({
         phase: "normalize",
