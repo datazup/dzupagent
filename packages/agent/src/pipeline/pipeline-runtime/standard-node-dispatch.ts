@@ -40,7 +40,9 @@ import {
   beginNodeUnderLedger,
   completeNodeUnderLedger,
   failNodeUnderLedger,
+  startNodeHeartbeat,
   type BeginNodeOutcome,
+  type HeartbeatHandle,
 } from "./node-ledger-integration.js";
 import type { NodeLeaseLike } from "../pipeline-runtime-types.js";
 
@@ -103,12 +105,7 @@ export async function dispatchStandardNode(
     },
   });
 
-  const context: NodeExecutionContext = omitUndefined({
-    state: runState,
-    previousResults: nodeResults,
-    signal: config.signal,
-    idempotencyKey,
-  });
+  let nodeSignal = config.signal;
 
   const fail = (error: string): StandardNodeOutcome => {
     setState("failed");
@@ -171,6 +168,32 @@ export async function dispatchStandardNode(
     }
     ledgerLease = begin.lease;
   }
+
+  // P2 (opt-in): renew the lease while the node runs. The composite signal
+  // aborts the node on lease loss (fenced out) or run cancellation.
+  let heartbeat: HeartbeatHandle | undefined;
+  if (
+    config.nodeLedger !== undefined &&
+    ledgerLease !== undefined &&
+    idempotencyKey !== undefined
+  ) {
+    heartbeat = startNodeHeartbeat(
+      config.nodeLedger,
+      runId,
+      node.id,
+      ledgerLease.owner,
+      ledgerLease.fenceToken,
+      config.signal,
+    );
+    nodeSignal = heartbeat.signal;
+  }
+
+  const context: NodeExecutionContext = omitUndefined({
+    state: runState,
+    previousResults: nodeResults,
+    signal: nodeSignal,
+    idempotencyKey,
+  });
 
   try {
     const finalResult = await runNodeWithRetry(config, emit, node, context);
@@ -320,5 +343,8 @@ export async function dispatchStandardNode(
     }
 
     return { kind: "rethrow", error: err };
+  } finally {
+    // P2: always stop the lease-renewal interval, on every exit path.
+    heartbeat?.stop();
   }
 }

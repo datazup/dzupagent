@@ -21,10 +21,86 @@ import type {
 /** Default lease ttl + heartbeat budget (ms). Conservative; tune at the seam. */
 export const DEFAULT_LEASE_TTL_MS = 60_000;
 
+/** Default heartbeat interval — renew at ttl/3 so two missed beats don't expire. */
+export const DEFAULT_HEARTBEAT_MS = 20_000;
+
 export type BeginNodeOutcome =
   | { kind: "replay"; output: unknown }
   | { kind: "lease"; lease: NodeLeaseLike }
   | { kind: "busy" };
+
+/** Handle for a running heartbeat loop. */
+export interface HeartbeatHandle {
+  /**
+   * Composite signal: aborts when the run is cancelled (parent signal) OR the
+   * lease is lost (a heartbeat returned `false` → fenced out). Pass this to
+   * the node executor so a long-running node stops promptly on lease loss.
+   */
+  signal: AbortSignal;
+  /** True once a heartbeat reported the lease lost (fenced out). */
+  lost: () => boolean;
+  /** Stop the interval. Safe to call multiple times. */
+  stop: () => void;
+}
+
+/**
+ * Start renewing a node's lease on an interval while it executes. Returns a
+ * {@link HeartbeatHandle} whose `signal` composes the parent run signal with a
+ * lease-loss abort. On a heartbeat that returns `false` (fenced out), the
+ * signal aborts and `lost()` becomes true; the caller should treat the node as
+ * not-completed-by-us. A throwing heartbeat (ledger blip) is treated as
+ * transient and does NOT abort — the next beat retries.
+ *
+ * `onRenewed`/`onLost` are optional event hooks (e.g. emit node:lease_renewed).
+ */
+export function startNodeHeartbeat(
+  ledger: NodeLedgerLike,
+  runId: string,
+  nodeId: string,
+  owner: string,
+  fenceToken: number,
+  parentSignal: AbortSignal | undefined,
+  ttlMs: number = DEFAULT_LEASE_TTL_MS,
+  intervalMs: number = DEFAULT_HEARTBEAT_MS,
+  hooks?: { onRenewed?: () => void; onLost?: () => void }
+): HeartbeatHandle {
+  const controller = new AbortController();
+  let lost = false;
+
+  // Propagate parent cancellation into the composite signal.
+  const onParentAbort = () => controller.abort();
+  if (parentSignal !== undefined) {
+    if (parentSignal.aborted) controller.abort();
+    else parentSignal.addEventListener("abort", onParentAbort, { once: true });
+  }
+
+  const timer = setInterval(() => {
+    void ledger
+      .heartbeat(runId, nodeId, owner, fenceToken, ttlMs, Date.now())
+      .then((ok) => {
+        if (ok) {
+          hooks?.onRenewed?.();
+        } else {
+          lost = true;
+          hooks?.onLost?.();
+          controller.abort();
+        }
+      })
+      .catch(() => {
+        // Transient ledger error — do not abort; the next beat retries.
+      });
+  }, intervalMs);
+  if (typeof timer.unref === "function") timer.unref();
+
+  const stop = () => {
+    clearInterval(timer);
+    if (parentSignal !== undefined) {
+      parentSignal.removeEventListener("abort", onParentAbort);
+    }
+  };
+
+  return { signal: controller.signal, lost: () => lost, stop };
+}
 
 /**
  * Attempt to begin a node under the ledger: replay a prior completion, acquire
@@ -37,7 +113,7 @@ export async function beginNodeUnderLedger(
   idempotencyKey: string,
   owner: string,
   now: number,
-  ttlMs: number = DEFAULT_LEASE_TTL_MS,
+  ttlMs: number = DEFAULT_LEASE_TTL_MS
 ): Promise<BeginNodeOutcome> {
   const prior = await ledger.getByIdempotencyKey(idempotencyKey);
   if (prior !== undefined) {
@@ -49,7 +125,7 @@ export async function beginNodeUnderLedger(
     idempotencyKey,
     owner,
     ttlMs,
-    now,
+    now
   )) as NodeLeaseLike | null;
   if (lease === null) return { kind: "busy" };
   return { kind: "lease", lease };
@@ -67,7 +143,7 @@ export async function completeNodeUnderLedger(
   idempotencyKey: string,
   lease: NodeLeaseLike,
   output: unknown,
-  durationMs: number,
+  durationMs: number
 ): Promise<boolean> {
   try {
     await ledger.complete({
@@ -97,7 +173,7 @@ export async function failNodeUnderLedger(
   idempotencyKey: string,
   lease: NodeLeaseLike,
   error: string,
-  retryable: boolean,
+  retryable: boolean
 ): Promise<void> {
   try {
     await ledger.fail({
