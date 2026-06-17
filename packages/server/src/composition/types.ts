@@ -57,6 +57,8 @@ import type { LearningRouteConfig } from "../routes/learning-types.js";
 import type { PromptFeedbackLoop } from "../services/prompt-feedback-loop.js";
 import type { LearningEventProcessor } from "../services/learning-event-processor.js";
 import type { ExecutableAgentResolver } from "../services/executable-agent-resolver.js";
+import type { WorkerNodeStore } from "../runtime/worker-registry.js";
+import type { DrizzleWorkerNodeDatabase } from "../persistence/drizzle-store-types.js";
 import type { BenchmarkRouteConfig } from "../routes/benchmarks-types.js";
 import type { EvalRouteConfig } from "../routes/evals-types.js";
 import type { ServerRoutePlugin } from "../route-plugin.js";
@@ -290,6 +292,40 @@ export interface ForgeRuntimeConfig {
   reflector?: RunReflectorLike;
   retrievalFeedback?: RetrievalFeedbackHookConfig;
   journal?: RunJournal;
+  /**
+   * P1 worker fleet registry config. When omitted (and no `db`), the run
+   * worker runs in single-node mode with no fleet registration. When present
+   * — or when a Drizzle `db` is configured — the worker registers a node,
+   * heartbeats, reaps dead peers, and the `/metrics` endpoint exposes fleet
+   * gauges fed from the resolved store.
+   *
+   * Store resolution: explicit `workerRegistry.store` → {@link
+   * DrizzleWorkerNodeStore} when `db` is set → {@link InMemoryWorkerNodeStore}.
+   */
+  workerRegistry?: {
+    /** Explicit fleet store. Defaults per `db` (Drizzle) then in-memory. */
+    store?: WorkerNodeStore;
+    /** Stable id for this worker process. Defaults to a random per-process id. */
+    workerId?: string;
+    /** Max concurrent runs this node advertises. Default: 5. */
+    capacity?: number;
+    /** `'shared'` or a tenant id. Default: `'shared'`. */
+    tenantScope?: string;
+    /** Heartbeat interval ms. Default: 5000. */
+    heartbeatMs?: number;
+    /** Reaper interval ms. Default: 30000. */
+    reaperMs?: number;
+    /** Dead-node ttl ms. Default: 30000. */
+    ttlMs?: number;
+    /** Free-form node metadata (version, host, region). */
+    meta?: Record<string, unknown>;
+  };
+  /**
+   * Optional Drizzle client. When provided and `workerRegistry.store` is
+   * unset, a {@link DrizzleWorkerNodeStore} is wired as the default fleet
+   * store so multiple worker processes share one queryable fleet.
+   */
+  db?: DrizzleWorkerNodeDatabase;
 }
 
 /** Memory and run-history route family config. */

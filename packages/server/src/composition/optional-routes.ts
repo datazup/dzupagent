@@ -14,229 +14,318 @@
  * sequence, since some hosts depend on the registration order
  * (Hono routes are first-match per method).
  */
-import { Hono } from 'hono'
-import type { AppEnv } from '../types.js'
+import { Hono } from "hono";
+import type { AppEnv } from "../types.js";
 
-import type { ForgeServerConfig } from './types.js'
-import type { EventGateway } from '../events/event-gateway.js'
-import type { AuthConfig } from '../middleware/auth.js'
-import type { MailboxStore } from '@dzupagent/agent/mailbox'
-import type { ServerRoutePlugin } from '../route-plugin.js'
-import { mountRoutePlugins } from './route-plugins.js'
+import type { ForgeServerConfig } from "./types.js";
+import type { EventGateway } from "../events/event-gateway.js";
+import type { AuthConfig } from "../middleware/auth.js";
+import type { MailboxStore } from "@dzupagent/agent/mailbox";
+import type { ServerRoutePlugin } from "../route-plugin.js";
+import { mountRoutePlugins } from "./route-plugins.js";
 
-import { createMemoryRoutes } from '../routes/memory.js'
-import { createMemoryBrowseRoutes } from '../routes/memory-browse.js'
-import { createMemoryHealthRoutes } from '../routes/memory-health.js'
-import { createEventRoutes } from '../routes/events.js'
-import { createDeployRoutes } from '../routes/deploy.js'
-import { createLearningRoutes } from '../routes/learning.js'
-import { createBenchmarkRoutes, type BenchmarkRouteConfig } from '../routes/benchmarks.js'
-import { createEvalRoutes, type EvalRouteConfig } from '../routes/evals.js'
-import { createPlaygroundRoutes } from '../routes/playground.js'
-import { createA2ARoutes } from '../routes/a2a.js'
-import { buildAgentCard } from '../a2a/agent-card.js'
-import { InMemoryA2ATaskStore } from '../a2a/task-handler.js'
-import type { A2ATaskStore } from '../a2a/task-handler.js'
-import { createTriggerRoutes } from '../routes/triggers.js'
-import { createScheduleRoutes } from '../routes/schedules.js'
-import { createPromptRoutes } from '../routes/prompts.js'
-import { createPersonaRoutes } from '../routes/personas.js'
-import { createPresetRoutes } from '../routes/presets.js'
-import { createMarketplaceRoutes } from '../routes/marketplace.js'
-import { createReflectionRoutes } from '../routes/reflections.js'
-import { createMailboxRoutes } from '../routes/mailbox.js'
-import { createClusterRoutes } from '../routes/clusters.js'
-import { authMiddleware } from '../middleware/auth.js'
-import { rbacMiddleware } from '../middleware/rbac.js'
-import { InMemoryMailboxStore } from '@dzupagent/agent/mailbox'
+import { createMemoryRoutes } from "../routes/memory.js";
+import { createMemoryBrowseRoutes } from "../routes/memory-browse.js";
+import { createMemoryHealthRoutes } from "../routes/memory-health.js";
+import { createEventRoutes } from "../routes/events.js";
+import { createDeployRoutes } from "../routes/deploy.js";
+import { createLearningRoutes } from "../routes/learning.js";
+import {
+  createBenchmarkRoutes,
+  type BenchmarkRouteConfig,
+} from "../routes/benchmarks.js";
+import { createEvalRoutes, type EvalRouteConfig } from "../routes/evals.js";
+import { createPlaygroundRoutes } from "../routes/playground.js";
+import { createA2ARoutes } from "../routes/a2a.js";
+import { buildAgentCard } from "../a2a/agent-card.js";
+import { InMemoryA2ATaskStore } from "../a2a/task-handler.js";
+import type { A2ATaskStore } from "../a2a/task-handler.js";
+import { createTriggerRoutes } from "../routes/triggers.js";
+import { createScheduleRoutes } from "../routes/schedules.js";
+import { createPromptRoutes } from "../routes/prompts.js";
+import { createPersonaRoutes } from "../routes/personas.js";
+import { createPresetRoutes } from "../routes/presets.js";
+import { createMarketplaceRoutes } from "../routes/marketplace.js";
+import { createReflectionRoutes } from "../routes/reflections.js";
+import { createMailboxRoutes } from "../routes/mailbox.js";
+import { createClusterRoutes } from "../routes/clusters.js";
+import { authMiddleware } from "../middleware/auth.js";
+import { rbacMiddleware } from "../middleware/rbac.js";
+import { InMemoryMailboxStore } from "@dzupagent/agent/mailbox";
 import {
   MailRateLimiter,
   type MailRateLimiterConfig,
-} from '../notifications/mail-rate-limiter.js'
+} from "../notifications/mail-rate-limiter.js";
 import {
   MailDlqWorker,
   DEFAULT_DLQ_WORKER_INTERVAL_MS,
   DEFAULT_DLQ_WORKER_BATCH_SIZE,
-} from '../notifications/mail-dlq-worker.js'
-import { DrizzleDlqStore } from '../persistence/drizzle-dlq-store.js'
-import { DrizzleMailboxStore } from '../persistence/drizzle-mailbox-store.js'
-import { openaiAuthMiddleware } from '../routes/openai-compat/auth-middleware.js'
-import { createOpenAICompatCompletionsRoute } from '../routes/openai-compat/completions.js'
-import { createModelsRoute } from '../routes/openai-compat/models-route.js'
-import { PrometheusMetricsCollector } from '../metrics/prometheus-collector.js'
-import { createMetricsRoute } from '../routes/metrics.js'
-import { createDefaultRbacConfig } from './middleware.js'
-import { registerShutdownDrainHook } from './utils.js'
+} from "../notifications/mail-dlq-worker.js";
+import { DrizzleDlqStore } from "../persistence/drizzle-dlq-store.js";
+import { DrizzleMailboxStore } from "../persistence/drizzle-mailbox-store.js";
+import { openaiAuthMiddleware } from "../routes/openai-compat/auth-middleware.js";
+import { createOpenAICompatCompletionsRoute } from "../routes/openai-compat/completions.js";
+import { createModelsRoute } from "../routes/openai-compat/models-route.js";
+import { PrometheusMetricsCollector } from "../metrics/prometheus-collector.js";
+import { createMetricsRoute } from "../routes/metrics.js";
+import { resolveWorkerNodeStore } from "./workers.js";
+import { createDefaultRbacConfig } from "./middleware.js";
+import { registerShutdownDrainHook } from "./utils.js";
 
 export interface OptionalRoutesContext {
-  runtimeConfig: ForgeServerConfig
-  effectiveAuth: AuthConfig | undefined
-  eventGateway: EventGateway
+  runtimeConfig: ForgeServerConfig;
+  effectiveAuth: AuthConfig | undefined;
+  eventGateway: EventGateway;
 }
 
-export function mountOptionalRoutes(app: Hono<AppEnv>, ctx: OptionalRoutesContext): void {
-  mountRoutePlugins(app, buildOptionalRoutePlugins(ctx), ctx.runtimeConfig)
+export function mountOptionalRoutes(
+  app: Hono<AppEnv>,
+  ctx: OptionalRoutesContext
+): void {
+  mountRoutePlugins(app, buildOptionalRoutePlugins(ctx), ctx.runtimeConfig);
 }
 
-export function buildOptionalRoutePlugins(ctx: OptionalRoutesContext): ServerRoutePlugin<ForgeServerConfig>[] {
-  const plugins: ServerRoutePlugin<ForgeServerConfig>[] = []
+export function buildOptionalRoutePlugins(
+  ctx: OptionalRoutesContext
+): ServerRoutePlugin<ForgeServerConfig>[] {
+  const plugins: ServerRoutePlugin<ForgeServerConfig>[] = [];
 
   if (ctx.runtimeConfig.memoryService || ctx.runtimeConfig.memoryHealth) {
-    plugins.push(createOptionalRouteFamilyPlugin('memory', (app) => mountMemoryRoutes(app, ctx)))
+    plugins.push(
+      createOptionalRouteFamilyPlugin("memory", (app) =>
+        mountMemoryRoutes(app, ctx)
+      )
+    );
   }
 
-  plugins.push(createOptionalRouteFamilyPlugin('events', (app) => mountEventRoutes(app, ctx)))
+  plugins.push(
+    createOptionalRouteFamilyPlugin("events", (app) =>
+      mountEventRoutes(app, ctx)
+    )
+  );
 
   if (ctx.runtimeConfig.deploy) {
-    plugins.push(createOptionalRouteFamilyPlugin('deploy', (app) => mountDeployRoutes(app, ctx)))
+    plugins.push(
+      createOptionalRouteFamilyPlugin("deploy", (app) =>
+        mountDeployRoutes(app, ctx)
+      )
+    );
   }
   if (ctx.runtimeConfig.learning) {
-    plugins.push(createOptionalRouteFamilyPlugin('learning', (app) => mountLearningRoutes(app, ctx)))
+    plugins.push(
+      createOptionalRouteFamilyPlugin("learning", (app) =>
+        mountLearningRoutes(app, ctx)
+      )
+    );
   }
   if (ctx.runtimeConfig.benchmark) {
-    plugins.push(createOptionalRouteFamilyPlugin('benchmarks', (app) => mountBenchmarkRoutes(app, ctx)))
+    plugins.push(
+      createOptionalRouteFamilyPlugin("benchmarks", (app) =>
+        mountBenchmarkRoutes(app, ctx)
+      )
+    );
   }
   if (ctx.runtimeConfig.evals) {
-    plugins.push(createOptionalRouteFamilyPlugin('evals', (app) => mountEvalRoutes(app, ctx)))
+    plugins.push(
+      createOptionalRouteFamilyPlugin("evals", (app) =>
+        mountEvalRoutes(app, ctx)
+      )
+    );
   }
   if (ctx.runtimeConfig.playground) {
-    plugins.push(createOptionalRouteFamilyPlugin('playground', (app) => mountPlaygroundRoute(app, ctx)))
+    plugins.push(
+      createOptionalRouteFamilyPlugin("playground", (app) =>
+        mountPlaygroundRoute(app, ctx)
+      )
+    );
   }
   if (ctx.runtimeConfig.a2a) {
-    plugins.push(createOptionalRouteFamilyPlugin('a2a', (app) => mountA2ARoutes(app, ctx)))
+    plugins.push(
+      createOptionalRouteFamilyPlugin("a2a", (app) => mountA2ARoutes(app, ctx))
+    );
   }
   if (ctx.runtimeConfig.triggerStore || ctx.runtimeConfig.scheduleStore) {
-    plugins.push(createOptionalRouteFamilyPlugin('automation', (app) => mountTriggerScheduleRoutes(app, ctx)))
+    plugins.push(
+      createOptionalRouteFamilyPlugin("automation", (app) =>
+        mountTriggerScheduleRoutes(app, ctx)
+      )
+    );
   }
   if (
-    ctx.runtimeConfig.promptStore
-    || ctx.runtimeConfig.personaStore
-    || ctx.runtimeConfig.presetRegistry
-    || ctx.runtimeConfig.catalogStore
+    ctx.runtimeConfig.promptStore ||
+    ctx.runtimeConfig.personaStore ||
+    ctx.runtimeConfig.presetRegistry ||
+    ctx.runtimeConfig.catalogStore
   ) {
-    plugins.push(createOptionalRouteFamilyPlugin('config-stores', (app) => mountConfigStoreRoutes(app, ctx)))
+    plugins.push(
+      createOptionalRouteFamilyPlugin("config-stores", (app) =>
+        mountConfigStoreRoutes(app, ctx)
+      )
+    );
   }
   if (ctx.runtimeConfig.reflectionStore) {
-    plugins.push(createOptionalRouteFamilyPlugin('reflections', (app) => mountReflectionRoutes(app, ctx)))
+    plugins.push(
+      createOptionalRouteFamilyPlugin("reflections", (app) =>
+        mountReflectionRoutes(app, ctx)
+      )
+    );
   }
 
-  plugins.push(createOptionalRouteFamilyPlugin('mailbox-clusters', (app) => mountMailboxAndClusterRoutes(app, ctx)))
+  plugins.push(
+    createOptionalRouteFamilyPlugin("mailbox-clusters", (app) =>
+      mountMailboxAndClusterRoutes(app, ctx)
+    )
+  );
 
   if (ctx.runtimeConfig.openai?.enabled === true) {
-    plugins.push(createOptionalRouteFamilyPlugin('openai-compat', (app) => mountOpenAICompatRoutes(app, ctx)))
+    plugins.push(
+      createOptionalRouteFamilyPlugin("openai-compat", (app) =>
+        mountOpenAICompatRoutes(app, ctx)
+      )
+    );
   }
 
-  return plugins
+  return plugins;
 }
 
 function createOptionalRouteFamilyPlugin(
   name: string,
-  mount: (app: Hono<AppEnv>) => void,
+  mount: (app: Hono<AppEnv>) => void
 ): ServerRoutePlugin<ForgeServerConfig> {
   return {
     family: name,
-    prefix: '',
+    prefix: "",
     createRoutes: () => {
-      const familyApp = new Hono<AppEnv>()
-      mount(familyApp)
-      return familyApp
+      const familyApp = new Hono<AppEnv>();
+      mount(familyApp);
+      return familyApp;
     },
-  }
+  };
 }
 
-function mountMemoryRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
+function mountMemoryRoutes(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
   if (runtimeConfig.memoryService) {
-    app.route('/api/memory', createMemoryRoutes({ memoryService: runtimeConfig.memoryService }))
-    app.route('/api/memory-browse', createMemoryBrowseRoutes({ memoryService: runtimeConfig.memoryService }))
+    app.route(
+      "/api/memory",
+      createMemoryRoutes({ memoryService: runtimeConfig.memoryService })
+    );
+    app.route(
+      "/api/memory-browse",
+      createMemoryBrowseRoutes({ memoryService: runtimeConfig.memoryService })
+    );
   }
   if (runtimeConfig.memoryHealth) {
-    app.route('/api/memory', createMemoryHealthRoutes(runtimeConfig.memoryHealth))
+    app.route(
+      "/api/memory",
+      createMemoryHealthRoutes(runtimeConfig.memoryHealth)
+    );
   }
 }
 
-function mountEventRoutes(app: Hono<AppEnv>, { eventGateway }: OptionalRoutesContext): void {
-  app.route('/api/events', createEventRoutes({ eventGateway }))
+function mountEventRoutes(
+  app: Hono<AppEnv>,
+  { eventGateway }: OptionalRoutesContext
+): void {
+  app.route("/api/events", createEventRoutes({ eventGateway }));
 }
 
-function mountDeployRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
+function mountDeployRoutes(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
   if (runtimeConfig.deploy) {
-    app.route('/api/deploy', createDeployRoutes(runtimeConfig.deploy))
+    app.route("/api/deploy", createDeployRoutes(runtimeConfig.deploy));
   }
 }
 
-function mountLearningRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
+function mountLearningRoutes(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
   if (runtimeConfig.learning) {
-    app.route('/api/learning', createLearningRoutes(runtimeConfig.learning))
+    app.route("/api/learning", createLearningRoutes(runtimeConfig.learning));
   }
 }
 
-function mountBenchmarkRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
+function mountBenchmarkRoutes(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
   if (!runtimeConfig.benchmark) {
-    return
+    return;
   }
-  const benchmarkConfig: BenchmarkRouteConfig = { ...runtimeConfig.benchmark }
+  const benchmarkConfig: BenchmarkRouteConfig = { ...runtimeConfig.benchmark };
   if (runtimeConfig.benchmarkOrchestrator && !benchmarkConfig.orchestrator) {
-    benchmarkConfig.orchestrator = runtimeConfig.benchmarkOrchestrator
+    benchmarkConfig.orchestrator = runtimeConfig.benchmarkOrchestrator;
   }
-  app.route('/api/benchmarks', createBenchmarkRoutes(benchmarkConfig))
+  app.route("/api/benchmarks", createBenchmarkRoutes(benchmarkConfig));
 }
 
-function mountEvalRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
+function mountEvalRoutes(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
   if (!runtimeConfig.evals) {
-    return
+    return;
   }
   const evalsConfig: EvalRouteConfig = {
     ...runtimeConfig.evals,
     metrics: runtimeConfig.evals.metrics ?? runtimeConfig.metrics,
-  }
+  };
   if (runtimeConfig.evalOrchestrator && !evalsConfig.orchestrator) {
-    evalsConfig.orchestrator = runtimeConfig.evalOrchestrator
+    evalsConfig.orchestrator = runtimeConfig.evalOrchestrator;
   }
-  app.route('/api/evals', createEvalRoutes(evalsConfig))
+  app.route("/api/evals", createEvalRoutes(evalsConfig));
 }
 
-function mountPlaygroundRoute(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
+function mountPlaygroundRoute(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
   if (runtimeConfig.playground) {
-    app.route('/playground', createPlaygroundRoutes(runtimeConfig.playground))
+    app.route("/playground", createPlaygroundRoutes(runtimeConfig.playground));
   }
 }
 
 function mountA2ARoutes(app: Hono<AppEnv>, ctx: OptionalRoutesContext): void {
-  const { runtimeConfig, effectiveAuth } = ctx
+  const { runtimeConfig, effectiveAuth } = ctx;
   if (!runtimeConfig.a2a) {
-    return
+    return;
   }
-  const a2aConfig = runtimeConfig.a2a
-  const agentCard = buildAgentCard(a2aConfig.agentCardConfig)
+  const a2aConfig = runtimeConfig.a2a;
+  const agentCard = buildAgentCard(a2aConfig.agentCardConfig);
 
   // Protect A2A routes (except /.well-known/agent.json which must remain
   // public per the A2A spec). The well-known path is mounted at the app
   // root below, so gating `/a2a/*` and `/a2a` leaves discovery
   // unauthenticated while requiring credentials for tasks and JSON-RPC.
   if (effectiveAuth) {
-    app.use('/a2a', authMiddleware(effectiveAuth))
-    app.use('/a2a/*', authMiddleware(effectiveAuth))
+    app.use("/a2a", authMiddleware(effectiveAuth));
+    app.use("/a2a/*", authMiddleware(effectiveAuth));
   }
   if (effectiveAuth && runtimeConfig.rbac !== false) {
-    const rbacConfig = createDefaultRbacConfig(runtimeConfig)
-    app.use('/a2a', rbacMiddleware(rbacConfig))
-    app.use('/a2a/*', rbacMiddleware(rbacConfig))
+    const rbacConfig = createDefaultRbacConfig(runtimeConfig);
+    app.use("/a2a", rbacMiddleware(rbacConfig));
+    app.use("/a2a/*", rbacMiddleware(rbacConfig));
   }
 
   // Select task store: Drizzle if env flag set, otherwise provided or in-memory
-  let taskStore: A2ATaskStore
+  let taskStore: A2ATaskStore;
   if (a2aConfig.taskStore) {
-    taskStore = a2aConfig.taskStore
-  } else if (process.env['USE_DRIZZLE_A2A'] === 'true') {
+    taskStore = a2aConfig.taskStore;
+  } else if (process.env["USE_DRIZZLE_A2A"] === "true") {
     // DrizzleA2ATaskStore requires a db instance passed via taskStore config
     // Fall back to in-memory if no store was explicitly provided
     taskStore = new InMemoryA2ATaskStore({
       pushNotificationUrlPolicy: a2aConfig.pushNotificationUrlPolicy,
-    })
+    });
   } else {
     taskStore = new InMemoryA2ATaskStore({
       pushNotificationUrlPolicy: a2aConfig.pushNotificationUrlPolicy,
-    })
+    });
   }
 
   const a2aRoutes = createA2ARoutes({
@@ -245,48 +334,75 @@ function mountA2ARoutes(app: Hono<AppEnv>, ctx: OptionalRoutesContext): void {
     onTaskSubmitted: a2aConfig.onTaskSubmitted,
     onTaskContinued: a2aConfig.onTaskContinued,
     pushNotificationUrlPolicy: a2aConfig.pushNotificationUrlPolicy,
-  })
-  app.route('', a2aRoutes)
+  });
+  app.route("", a2aRoutes);
 }
 
-function mountTriggerScheduleRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
+function mountTriggerScheduleRoutes(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
   if (runtimeConfig.triggerStore) {
-    app.route('/api/triggers', createTriggerRoutes({ triggerStore: runtimeConfig.triggerStore }))
+    app.route(
+      "/api/triggers",
+      createTriggerRoutes({ triggerStore: runtimeConfig.triggerStore })
+    );
   }
   if (runtimeConfig.scheduleStore) {
-    app.route('/api/schedules', createScheduleRoutes({
-      scheduleStore: runtimeConfig.scheduleStore,
-      onManualTrigger: runtimeConfig.onScheduleTrigger,
-    }))
+    app.route(
+      "/api/schedules",
+      createScheduleRoutes({
+        scheduleStore: runtimeConfig.scheduleStore,
+        onManualTrigger: runtimeConfig.onScheduleTrigger,
+      })
+    );
   }
 }
 
-function mountConfigStoreRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
+function mountConfigStoreRoutes(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
   if (runtimeConfig.promptStore) {
-    app.route('/api/prompts', createPromptRoutes({ promptStore: runtimeConfig.promptStore }))
+    app.route(
+      "/api/prompts",
+      createPromptRoutes({ promptStore: runtimeConfig.promptStore })
+    );
   }
   if (runtimeConfig.personaStore) {
-    app.route('/api/personas', createPersonaRoutes({ personaStore: runtimeConfig.personaStore }))
+    app.route(
+      "/api/personas",
+      createPersonaRoutes({ personaStore: runtimeConfig.personaStore })
+    );
   }
   if (runtimeConfig.presetRegistry) {
-    app.route('/api/presets', createPresetRoutes({ presetRegistry: runtimeConfig.presetRegistry }))
+    app.route(
+      "/api/presets",
+      createPresetRoutes({ presetRegistry: runtimeConfig.presetRegistry })
+    );
   }
   if (runtimeConfig.catalogStore) {
-    app.route('/api/marketplace', createMarketplaceRoutes({ catalogStore: runtimeConfig.catalogStore }))
+    app.route(
+      "/api/marketplace",
+      createMarketplaceRoutes({ catalogStore: runtimeConfig.catalogStore })
+    );
   }
 }
 
-function mountReflectionRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
+function mountReflectionRoutes(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
   if (runtimeConfig.reflectionStore) {
     app.route(
-      '/api/reflections',
+      "/api/reflections",
       createReflectionRoutes({
         reflectionStore: runtimeConfig.reflectionStore,
         // SEC-M-03 sibling sweep: pass the runStore so the list/pattern
         // endpoints can scope reflections to the requesting tenant/owner.
         runStore: runtimeConfig.runStore,
-      }),
-    )
+      })
+    );
   }
 }
 
@@ -299,19 +415,22 @@ function mountReflectionRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRou
  * rate limiter, DLQ store, mailbox store, and starts a {@link MailDlqWorker}
  * — registering its `stop()` on the graceful-shutdown drain hook.
  */
-function mountMailboxAndClusterRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
-  let mailboxStore: MailboxStore
-  let dlqStore: DrizzleDlqStore | undefined
+function mountMailboxAndClusterRoutes(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
+  let mailboxStore: MailboxStore;
+  let dlqStore: DrizzleDlqStore | undefined;
 
   if (runtimeConfig.mailDelivery) {
-    const mailCfg = runtimeConfig.mailDelivery
-    const rateLimiterCfg: MailRateLimiterConfig = mailCfg.rateLimiter ?? {}
-    const rateLimiter = new MailRateLimiter(rateLimiterCfg)
-    dlqStore = new DrizzleDlqStore(mailCfg.db)
+    const mailCfg = runtimeConfig.mailDelivery;
+    const rateLimiterCfg: MailRateLimiterConfig = mailCfg.rateLimiter ?? {};
+    const rateLimiter = new MailRateLimiter(rateLimiterCfg);
+    dlqStore = new DrizzleDlqStore(mailCfg.db);
     mailboxStore = new DrizzleMailboxStore(mailCfg.db, {
       rateLimiter,
       dlq: dlqStore,
-    })
+    });
 
     // Start the DLQ drain worker and register shutdown cleanup.
     const worker = new MailDlqWorker({
@@ -319,46 +438,61 @@ function mountMailboxAndClusterRoutes(app: Hono<AppEnv>, { runtimeConfig }: Opti
       mailbox: mailboxStore,
       intervalMs: mailCfg.dlqWorkerIntervalMs ?? DEFAULT_DLQ_WORKER_INTERVAL_MS,
       batchSize: mailCfg.dlqBatchSize ?? DEFAULT_DLQ_WORKER_BATCH_SIZE,
-    })
-    worker.start()
+    });
+    worker.start();
 
     if (runtimeConfig.shutdown) {
-      registerShutdownDrainHook(runtimeConfig.shutdown, () => worker.stop())
+      registerShutdownDrainHook(runtimeConfig.shutdown, () => worker.stop());
     }
   } else {
-    mailboxStore = runtimeConfig.mailboxStore ?? new InMemoryMailboxStore()
+    mailboxStore = runtimeConfig.mailboxStore ?? new InMemoryMailboxStore();
   }
 
-  app.route('/api/mailbox', createMailboxRoutes({ mailboxStore, dlqStore }))
+  app.route("/api/mailbox", createMailboxRoutes({ mailboxStore, dlqStore }));
 
   if (runtimeConfig.clusterStore) {
-    app.route('/api/clusters', createClusterRoutes({
-      clusterStore: runtimeConfig.clusterStore,
-      mailboxStore,
-    }))
+    app.route(
+      "/api/clusters",
+      createClusterRoutes({
+        clusterStore: runtimeConfig.clusterStore,
+        mailboxStore,
+      })
+    );
   }
 }
 
-function mountOpenAICompatRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalRoutesContext): void {
+function mountOpenAICompatRoutes(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
   if (runtimeConfig.openai?.enabled !== true) {
-    return
+    return;
   }
 
   // Apply OpenAI auth middleware to all /v1/* routes (separate from /api/* auth).
-  app.use('/v1/*', openaiAuthMiddleware(runtimeConfig.openai?.auth))
-  if (runtimeConfig.rbac !== false && runtimeConfig.openai?.auth?.enabled !== false) {
-    app.use('/v1/*', rbacMiddleware(createDefaultRbacConfig(runtimeConfig)))
+  app.use("/v1/*", openaiAuthMiddleware(runtimeConfig.openai?.auth));
+  if (
+    runtimeConfig.rbac !== false &&
+    runtimeConfig.openai?.auth?.enabled !== false
+  ) {
+    app.use("/v1/*", rbacMiddleware(createDefaultRbacConfig(runtimeConfig)));
   }
 
-  app.route('/v1/chat/completions', createOpenAICompatCompletionsRoute({
-    agentStore: runtimeConfig.agentStore,
-    modelRegistry: runtimeConfig.modelRegistry,
-    eventBus: runtimeConfig.eventBus,
-  }))
+  app.route(
+    "/v1/chat/completions",
+    createOpenAICompatCompletionsRoute({
+      agentStore: runtimeConfig.agentStore,
+      modelRegistry: runtimeConfig.modelRegistry,
+      eventBus: runtimeConfig.eventBus,
+    })
+  );
 
-  app.route('/v1/models', createModelsRoute({
-    agentStore: runtimeConfig.agentStore,
-  }))
+  app.route(
+    "/v1/models",
+    createModelsRoute({
+      agentStore: runtimeConfig.agentStore,
+    })
+  );
 }
 
 /**
@@ -366,18 +500,29 @@ function mountOpenAICompatRoutes(app: Hono<AppEnv>, { runtimeConfig }: OptionalR
  * {@link PrometheusMetricsCollector} and a framework-level access policy is
  * configured. Other collectors (e.g. NoopMetricsCollector) skip this route.
  */
-export function mountPrometheusMetricsRoute(app: Hono<AppEnv>, runtimeConfig: ForgeServerConfig): void {
+export function mountPrometheusMetricsRoute(
+  app: Hono<AppEnv>,
+  runtimeConfig: ForgeServerConfig
+): void {
   if (!(runtimeConfig.metrics instanceof PrometheusMetricsCollector)) {
-    return
+    return;
   }
 
-  const access = runtimeConfig.prometheusMetrics?.access
-  if (!access || access.mode === 'disabled') {
-    return
+  const access = runtimeConfig.prometheusMetrics?.access;
+  if (!access || access.mode === "disabled") {
+    return;
   }
 
-  app.route('/metrics', createMetricsRoute({
-    collector: runtimeConfig.metrics,
-    access,
-  }))
+  // P1: feed fleet gauges from the same store the run worker registers into,
+  // so `/metrics` reports total/active/idle/dead workers refreshed per scrape.
+  const workerStore = resolveWorkerNodeStore(runtimeConfig);
+
+  app.route(
+    "/metrics",
+    createMetricsRoute({
+      collector: runtimeConfig.metrics,
+      access,
+      ...(workerStore ? { workerStore } : {}),
+    })
+  );
 }
