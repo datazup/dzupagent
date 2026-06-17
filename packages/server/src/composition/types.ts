@@ -18,6 +18,7 @@ import type {
 } from "@dzupagent/core/pipeline";
 import type {
   AgentExecutionSpecStore,
+  DurableNodeLedger,
   RunJournal,
   RunStore,
 } from "@dzupagent/core/persistence";
@@ -259,6 +260,19 @@ export interface JsonBodyLimitConfig {
  */
 export interface ForgeRuntimeConfig {
   runQueue?: RunQueue;
+  /**
+   * P2 durable node ledger. When present (with a `runQueue`), the server
+   * starts the {@link NodeLedgerReclaimer}, which re-enqueues runs whose
+   * nodes have a stale (expired) lease so a live worker resumes them.
+   */
+  nodeLedger?: DurableNodeLedger;
+  /** Tuning for the P2 node-ledger reclaimer (see `nodeLedger`). */
+  reclaimer?: {
+    /** Sweep interval in ms. Defaults to the reclaimer's own default (15s). */
+    intervalMs?: number;
+    /** Max stale nodes processed per sweep. Defaults to 50. */
+    batchSize?: number;
+  };
   runExecutor?: RunExecutor;
   shutdown?: GracefulShutdown;
   metrics?: MetricsCollector;

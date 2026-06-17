@@ -48,6 +48,7 @@ import {
 import { mountAllRoutePlugins } from './composition/route-plugins.js'
 import {
   maybeStartRunWorker,
+  maybeStartNodeLedgerReclaimer,
   startConsolidationScheduler,
   startClosedLoopSubscribers,
 } from './composition/workers.js'
@@ -144,6 +145,9 @@ export function createForgeApp(config: ForgeServerConfig): Hono<AppEnv> {
   // Start the queue worker (no-op when no `runQueue` is supplied or the
   // worker has already been started for this queue instance).
   maybeStartRunWorker(runtimeConfig, effectiveRunExecutor)
+  // Start the P2 node-ledger reclaimer (no-op unless both a durable
+  // node ledger and a run queue are configured).
+  maybeStartNodeLedgerReclaimer(runtimeConfig)
 
   // Middleware: CORS, auth, RBAC, rate limit, shutdown guard, metrics, error.
   const { effectiveAuth } = applyMiddleware(app, runtimeConfig)

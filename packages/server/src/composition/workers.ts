@@ -18,9 +18,13 @@ import {
 } from '../runtime/consolidation-scheduler.js'
 import { createSleepConsolidationTask } from '../runtime/sleep-consolidation-task.js'
 import type { RunQueue } from '../queue/run-queue.js'
+import type { DurableNodeLedger } from '@dzupagent/core/persistence'
+import { NodeLedgerReclaimer } from '../runtime/node-ledger-reclaimer.js'
+import { buildRunReEnqueuer } from '../runtime/run-reenqueuer.js'
 import { registerShutdownDrainHook } from './utils.js'
 
 const startedRunQueues = new WeakSet<RunQueue>()
+const startedNodeLedgers = new WeakSet<DurableNodeLedger>()
 
 export function maybeStartRunWorker(
   runtimeConfig: ForgeServerConfig,
@@ -47,6 +51,52 @@ export function maybeStartRunWorker(
     inputGuardConfig: runtimeConfig.security?.inputGuard,
   })
   startedRunQueues.add(runtimeConfig.runQueue)
+}
+
+/**
+ * Start the P2 node-ledger reclaimer when both a durable node ledger and a run
+ * queue are configured. The reclaimer periodically scans the ledger for stale
+ * (lease-expired) nodes and re-enqueues their owning runs via
+ * {@link buildRunReEnqueuer} so a live worker resumes them. With no ledger or no
+ * queue there is nothing to reclaim into, so this is a no-op.
+ *
+ * Mirrors {@link maybeStartRunWorker}: a `WeakSet` keyed on the ledger instance
+ * guarantees the reclaimer is started at most once per ledger, even when
+ * `createForgeApp` is called repeatedly with the same ledger (e.g. in tests).
+ */
+export function maybeStartNodeLedgerReclaimer(
+  runtimeConfig: ForgeServerConfig,
+): void {
+  const ledger = runtimeConfig.nodeLedger
+  const runQueue = runtimeConfig.runQueue
+  if (!ledger || !runQueue || startedNodeLedgers.has(ledger)) {
+    return
+  }
+
+  const reEnqueueRun = buildRunReEnqueuer({
+    runStore: runtimeConfig.runStore,
+    runQueue,
+  })
+
+  const reclaimer = new NodeLedgerReclaimer({
+    ledger,
+    reEnqueueRun,
+    eventBus: runtimeConfig.eventBus,
+    intervalMs: runtimeConfig.reclaimer?.intervalMs,
+    batchSize: runtimeConfig.reclaimer?.batchSize,
+    onError: (error) => {
+      console.warn(
+        '[ForgeServer] node-ledger reclaimer re-enqueue failed',
+        error,
+      )
+    },
+  })
+  reclaimer.start()
+  startedNodeLedgers.add(ledger)
+
+  if (runtimeConfig.shutdown) {
+    registerShutdownDrainHook(runtimeConfig.shutdown, () => reclaimer.stop())
+  }
 }
 
 /**
