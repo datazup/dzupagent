@@ -664,3 +664,39 @@ describe("flowNodeSchema.safeParse — AdapterParallelNode", () => {
     }
   });
 });
+
+describe("flowNodeSchema.safeParse — AdapterSupervisorNode", () => {
+  it("accepts an adapter.supervisor node with specialists", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "adapter.supervisor",
+      id: "ship",
+      goal: "Ship the feature",
+      specialists: ["claude", "codex"],
+      output: "result",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.type).toBe("adapter.supervisor");
+  });
+
+  it("accepts an adapter.supervisor node without specialists", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "adapter.supervisor",
+      id: "ship",
+      goal: "Ship the feature",
+      output: "result",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects adapter.supervisor missing required `goal`", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "adapter.supervisor",
+      id: "ship",
+      output: "result",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.path)).toContain("root.goal");
+    }
+  });
+});
