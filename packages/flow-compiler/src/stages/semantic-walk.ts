@@ -208,6 +208,7 @@ export async function visit(
     case "worker.dispatch":
     case "adapter.run":
     case "adapter.race":
+    case "adapter.parallel":
       return;
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails

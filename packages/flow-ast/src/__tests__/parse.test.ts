@@ -142,6 +142,12 @@ const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode["type"], FlowNode> = {
     instructions: "Implement: {{ input.featureSpec }}",
     output: "bestImpl",
   },
+  "adapter.parallel": {
+    type: "adapter.parallel",
+    providers: ["claude", "codex"],
+    instructions: "Draft: {{ input.brief }}",
+    output: "drafts",
+  },
 };
 
 describe("parseFlow — public node contract", () => {
@@ -784,6 +790,74 @@ describe("parseFlow — adapter.race node", () => {
   it("rejects adapter.race missing required `output`", () => {
     const result = parseFlow({
       type: "adapter.race",
+      providers: ["claude", "codex"],
+      instructions: "do it",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ pointer: "/output" });
+  });
+});
+
+describe("parseFlow — adapter.parallel node", () => {
+  it("parses an adapter.parallel node with an explicit merge mode", () => {
+    const node = {
+      type: "adapter.parallel",
+      id: "fanout",
+      providers: ["claude", "codex", "gemini"],
+      merge: "all",
+      instructions: "Draft: {{ input.brief }}",
+      output: "drafts",
+    };
+    const result = parseFlow(node);
+    expect(result.errors).toEqual([]);
+    expect(result.ast).toEqual(node);
+  });
+
+  it("accepts each valid merge mode", () => {
+    for (const merge of ["first-wins", "all", "best-of-n"]) {
+      const result = parseFlow({
+        type: "adapter.parallel",
+        providers: ["claude", "codex"],
+        merge,
+        instructions: "do it",
+        output: "out",
+      });
+      expect(result.errors).toEqual([]);
+    }
+  });
+
+  it("rejects adapter.parallel with fewer than 2 providers", () => {
+    const result = parseFlow({
+      type: "adapter.parallel",
+      providers: ["claude"],
+      instructions: "do it",
+      output: "out",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ pointer: "/providers" });
+  });
+
+  it("rejects adapter.parallel with an invalid merge mode", () => {
+    const result = parseFlow({
+      type: "adapter.parallel",
+      providers: ["claude", "codex"],
+      merge: "zip",
+      instructions: "do it",
+      output: "out",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({
+      code: "WRONG_FIELD_TYPE",
+      pointer: "/merge",
+    });
+  });
+
+  it("rejects adapter.parallel missing required `output`", () => {
+    const result = parseFlow({
+      type: "adapter.parallel",
       providers: ["claude", "codex"],
       instructions: "do it",
     });

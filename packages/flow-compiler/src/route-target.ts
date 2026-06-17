@@ -126,7 +126,8 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "knowledge.query":
       case "worker.dispatch":
       case "adapter.run":
-      case "adapter.race": {
+      case "adapter.race":
+      case "adapter.parallel": {
         // Runtime-executed leaf nodes — contribute no feature bits.
         return;
       }
@@ -238,7 +239,8 @@ export function hasOnError(ast: FlowNode): boolean {
       case "knowledge.query":
       case "worker.dispatch":
       case "adapter.run":
-      case "adapter.race": {
+      case "adapter.race":
+      case "adapter.parallel": {
         return;
       }
       case "try_catch": {
@@ -393,6 +395,7 @@ export function collectUnsupportedRuntimeNodes(
       case "worker.dispatch":
       case "adapter.run":
       case "adapter.race":
+      case "adapter.parallel":
         return;
       default: {
         const _exhaustive: never = node;

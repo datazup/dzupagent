@@ -162,6 +162,7 @@ function projectNode(node: FlowNode, state: ProjectionState): ProjectionResult {
     case "knowledge.query":
     case "adapter.run":
     case "adapter.race":
+    case "adapter.parallel":
       return { entryIds: [id], exitIds: [id] };
     default: {
       const _exhaustive: never = node;
@@ -263,6 +264,8 @@ function labelForNode(node: FlowNode): string {
       return `adapter.run:${node.provider ?? (node.tags ?? []).join(",")}`;
     case "adapter.race":
       return `adapter.race:${node.providers.join(",")}`;
+    case "adapter.parallel":
+      return `adapter.parallel:${node.merge ?? "all"}`;
     default: {
       const _exhaustive: never = node;
       void _exhaustive;
