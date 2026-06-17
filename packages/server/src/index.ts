@@ -176,3 +176,14 @@ export type {
 
 // --- Persistence Factories ---
 export { createPostgresNodeLedger } from "./persistence/create-node-ledger.js";
+export { InMemoryFlowArtifactStore } from "./persistence/flow-artifact-store.js";
+export type {
+  FlowArtifact,
+  FlowArtifactStore,
+} from "./persistence/flow-artifact-store.js";
+export { InMemoryFlowApprovalStore } from "./persistence/flow-approval-store.js";
+export type {
+  FlowApproval,
+  FlowApprovalStatus,
+  FlowApprovalStore,
+} from "./persistence/flow-approval-store.js";

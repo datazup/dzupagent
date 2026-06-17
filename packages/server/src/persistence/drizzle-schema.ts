@@ -620,3 +620,50 @@ export const auditLog = pgTable(
     index("dzupagent_audit_log_ts_idx").on(table.ts),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Flow Artifacts
+// ---------------------------------------------------------------------------
+
+/**
+ * Content-addressed artifact store for durable node outputs (spec §11).
+ * Large outputs reference external storage via storage_uri; small outputs
+ * are stored inline (content_type + schema_ref for validation).
+ */
+export const flowArtifacts = pgTable(
+  "flow_artifacts",
+  {
+    artifactRef: text("artifact_ref").primaryKey(),
+    contentDigest: text("content_digest").notNull(),
+    contentType: text("content_type").notNull(),
+    storageUri: text("storage_uri"),
+    schemaRef: text("schema_ref"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("flow_artifacts_content_digest_idx").on(table.contentDigest),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// Flow Approvals
+// ---------------------------------------------------------------------------
+
+/**
+ * Durable approval / clarification records (spec §11 + §6.6).
+ * Idempotent by (run_id, approval_id). Status: pending → approved | rejected.
+ */
+export const flowApprovals = pgTable(
+  "flow_approvals",
+  {
+    runId: text("run_id").notNull(),
+    approvalId: text("approval_id").primaryKey(),
+    status: text("status").notNull().default("pending"),
+    requestPayload: jsonb("request_payload")
+      .$type<Record<string, unknown>>()
+      .default({}),
+    responsePayload: jsonb("response_payload").$type<Record<string, unknown>>(),
+    resolvedAt: timestamp("resolved_at"),
+  },
+  (table) => [index("flow_approvals_run_id_idx").on(table.runId)],
+);
