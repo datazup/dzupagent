@@ -104,6 +104,7 @@ export function lowerNodeToPipeline(
     case "adapter.run":
     case "adapter.race":
     case "adapter.parallel":
+    case "adapter.supervisor":
       // Runtime-executed nodes: present in AST but not emitted as graph edges.
       return { nodes: [], edges: [], warnings: [] };
 
