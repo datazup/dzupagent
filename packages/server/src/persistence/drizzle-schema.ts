@@ -17,80 +17,86 @@ import {
   jsonb,
   index,
   uniqueIndex,
-} from 'drizzle-orm/pg-core'
-import { vectorColumn } from './vector-column.js'
-import type { ReflectionPattern } from '@dzupagent/agent/reflection'
+} from "drizzle-orm/pg-core";
+import { vectorColumn } from "./vector-column.js";
+import type { ReflectionPattern } from "@dzupagent/agent/reflection";
 
 // ---------------------------------------------------------------------------
 // Agent Definitions
 // ---------------------------------------------------------------------------
 
-export const dzipAgents = pgTable('dzip_agents', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
-  description: text('description'),
-  instructions: text('instructions').notNull(),
-  modelTier: varchar('model_tier', { length: 50 }).notNull(),
-  tools: jsonb('tools').$type<string[]>().default([]),
-  guardrails: jsonb('guardrails').$type<Record<string, unknown>>(),
-  approval: varchar('approval', { length: 20 }).default('auto').notNull(),
-  version: integer('version').default(1).notNull(),
-  active: boolean('active').default(true).notNull(),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+export const dzipAgents = pgTable("dzip_agents", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  instructions: text("instructions").notNull(),
+  modelTier: varchar("model_tier", { length: 50 }).notNull(),
+  tools: jsonb("tools").$type<string[]>().default([]),
+  guardrails: jsonb("guardrails").$type<Record<string, unknown>>(),
+  approval: varchar("approval", { length: 20 }).default("auto").notNull(),
+  version: integer("version").default(1).notNull(),
+  active: boolean("active").default(true).notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
   /** Optional pgvector embedding of agent instructions for semantic search. */
-  instructionEmbedding: vectorColumn('instruction_embedding', { dimensions: 1536 }),
+  instructionEmbedding: vectorColumn("instruction_embedding", {
+    dimensions: 1536,
+  }),
   /** MC-S02: Tenant scope. Defaults to 'default'. */
-  tenantId: text('tenant_id').notNull().default('default'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-})
+  tenantId: text("tenant_id").notNull().default("default"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
 // ---------------------------------------------------------------------------
 // Runs
 // ---------------------------------------------------------------------------
 
-export const forgeRuns = pgTable('forge_runs', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  agentId: uuid('agent_id').references(() => dzipAgents.id).notNull(),
-  status: varchar('status', { length: 30 }).notNull().default('queued'),
-  input: jsonb('input'),
-  output: jsonb('output'),
-  plan: jsonb('plan'),
-  tokenUsageInput: integer('token_usage_input').default(0),
-  tokenUsageOutput: integer('token_usage_output').default(0),
-  costCents: real('cost_cents').default(0),
-  error: text('error'),
+export const forgeRuns = pgTable("forge_runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  agentId: uuid("agent_id")
+    .references(() => dzipAgents.id)
+    .notNull(),
+  status: varchar("status", { length: 30 }).notNull().default("queued"),
+  input: jsonb("input"),
+  output: jsonb("output"),
+  plan: jsonb("plan"),
+  tokenUsageInput: integer("token_usage_input").default(0),
+  tokenUsageOutput: integer("token_usage_output").default(0),
+  costCents: real("cost_cents").default(0),
+  error: text("error"),
   /**
    * API key identifier that created this run. Populated from the
    * authenticated `apiKey` context variable; nullable for backward
    * compatibility with rows created before tenant scoping was enforced.
    * Consumed by server routes to reject cross-key reads/writes with 404.
    */
-  ownerId: text('owner_id'),
+  ownerId: text("owner_id"),
   /** MC-S02: Tenant scope. Defaults to 'default'. */
-  tenantId: text('tenant_id').notNull().default('default'),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+  tenantId: text("tenant_id").notNull().default("default"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
   /** Optional pgvector embedding of run input for semantic search. */
-  inputEmbedding: vectorColumn('input_embedding', { dimensions: 1536 }),
+  inputEmbedding: vectorColumn("input_embedding", { dimensions: 1536 }),
   /** Optional pgvector embedding of run output for semantic search. */
-  outputEmbedding: vectorColumn('output_embedding', { dimensions: 1536 }),
-  startedAt: timestamp('started_at').defaultNow().notNull(),
-  completedAt: timestamp('completed_at'),
-})
+  outputEmbedding: vectorColumn("output_embedding", { dimensions: 1536 }),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
 
 // ---------------------------------------------------------------------------
 // Run Logs
 // ---------------------------------------------------------------------------
 
-export const forgeRunLogs = pgTable('forge_run_logs', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  runId: uuid('run_id').references(() => forgeRuns.id, { onDelete: 'cascade' }).notNull(),
-  level: varchar('level', { length: 10 }).notNull(),
-  phase: varchar('phase', { length: 50 }),
-  message: text('message').notNull(),
-  data: jsonb('data'),
-  timestamp: timestamp('timestamp').defaultNow().notNull(),
-})
+export const forgeRunLogs = pgTable("forge_run_logs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id")
+    .references(() => forgeRuns.id, { onDelete: "cascade" })
+    .notNull(),
+  level: varchar("level", { length: 10 }).notNull(),
+  phase: varchar("phase", { length: 50 }),
+  message: text("message").notNull(),
+  data: jsonb("data"),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+});
 
 // ---------------------------------------------------------------------------
 // Run Artifacts
@@ -102,49 +108,50 @@ export const forgeRunLogs = pgTable('forge_run_logs', {
  * run is removed.
  */
 export const runArtifacts = pgTable(
-  'run_artifacts',
+  "run_artifacts",
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    runId: uuid('run_id').references(() => forgeRuns.id, { onDelete: 'cascade' }).notNull(),
-    name: varchar('name', { length: 255 }).notNull(),
-    mimeType: varchar('mime_type', { length: 255 }),
-    size: integer('size'),
-    url: text('url'),
-    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
+    id: uuid("id").defaultRandom().primaryKey(),
+    runId: uuid("run_id")
+      .references(() => forgeRuns.id, { onDelete: "cascade" })
+      .notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    mimeType: varchar("mime_type", { length: 255 }),
+    size: integer("size"),
+    url: text("url"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [
-    index('run_artifacts_run_id_idx').on(table.runId),
-  ],
-)
+  (table) => [index("run_artifacts_run_id_idx").on(table.runId)],
+);
 
 // ---------------------------------------------------------------------------
 // Deployment History
 // ---------------------------------------------------------------------------
 
 export const deploymentHistory = pgTable(
-  'deployment_history',
+  "deployment_history",
   {
-    id: text('id').primaryKey(),
-    confidenceScore: real('confidence_score').notNull(),
-    gateDecision: text('gate_decision').notNull(),
-    signalsSnapshot: jsonb('signals_snapshot').$type<Record<string, unknown>[]>(),
-    deployedAt: timestamp('deployed_at').defaultNow().notNull(),
-    deployedBy: text('deployed_by'),
-    environment: text('environment').notNull(),
-    rollbackAvailable: boolean('rollback_available').default(false).notNull(),
-    outcome: text('outcome'),
-    completedAt: timestamp('completed_at'),
-    notes: text('notes'),
+    id: text("id").primaryKey(),
+    confidenceScore: real("confidence_score").notNull(),
+    gateDecision: text("gate_decision").notNull(),
+    signalsSnapshot:
+      jsonb("signals_snapshot").$type<Record<string, unknown>[]>(),
+    deployedAt: timestamp("deployed_at").defaultNow().notNull(),
+    deployedBy: text("deployed_by"),
+    environment: text("environment").notNull(),
+    rollbackAvailable: boolean("rollback_available").default(false).notNull(),
+    outcome: text("outcome"),
+    completedAt: timestamp("completed_at"),
+    notes: text("notes"),
     /** SEC-M-06: Tenant that owns this deployment record. */
-    tenantId: text('tenant_id').default('default'),
+    tenantId: text("tenant_id").default("default"),
   },
   (table) => [
-    index('deployment_history_environment_idx').on(table.environment),
-    index('deployment_history_deployed_at_idx').on(table.deployedAt),
-    index('deployment_history_tenant_id_idx').on(table.tenantId),
+    index("deployment_history_environment_idx").on(table.environment),
+    index("deployment_history_deployed_at_idx").on(table.deployedAt),
+    index("deployment_history_tenant_id_idx").on(table.tenantId),
   ],
-)
+);
 
 // ---------------------------------------------------------------------------
 // General-Purpose Vector Storage
@@ -165,226 +172,260 @@ export const deploymentHistory = pgTable(
 // A2A Tasks
 // ---------------------------------------------------------------------------
 
-export const a2aTasks = pgTable('a2a_tasks', {
-  id: text('id').primaryKey(),
-  agentName: varchar('agent_name', { length: 255 }).notNull(),
-  state: varchar('state', { length: 30 }).notNull().default('submitted'),
-  input: jsonb('input'),
-  output: jsonb('output'),
-  error: text('error'),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
-  pushNotificationConfig: jsonb('push_notification_config').$type<{
-    url: string
-    token?: string
-    events?: string[]
+export const a2aTasks = pgTable("a2a_tasks", {
+  id: text("id").primaryKey(),
+  agentName: varchar("agent_name", { length: 255 }).notNull(),
+  state: varchar("state", { length: 30 }).notNull().default("submitted"),
+  input: jsonb("input"),
+  output: jsonb("output"),
+  error: text("error"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  pushNotificationConfig: jsonb("push_notification_config").$type<{
+    url: string;
+    token?: string;
+    events?: string[];
   }>(),
-  artifacts: jsonb('artifacts').$type<Array<{ parts: Array<{ type: string; text?: string; data?: Record<string, unknown> }>; name?: string; index?: number }>>().default([]),
+  artifacts: jsonb("artifacts")
+    .$type<
+      Array<{
+        parts: Array<{
+          type: string;
+          text?: string;
+          data?: Record<string, unknown>;
+        }>;
+        name?: string;
+        index?: number;
+      }>
+    >()
+    .default([]),
   // RF-SEC-05: owner + tenant scope so the API key that submitted a task is
   // the only caller that can read, list, or cancel it (cross-owner reads
   // surface as 404 to prevent enumeration).
-  ownerId: text('owner_id'),
-  tenantId: text('tenant_id').notNull().default('default'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-})
+  ownerId: text("owner_id"),
+  tenantId: text("tenant_id").notNull().default("default"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
 // ---------------------------------------------------------------------------
 // A2A Task Messages
 // ---------------------------------------------------------------------------
 
 export const a2aTaskMessages = pgTable(
-  'a2a_task_messages',
+  "a2a_task_messages",
   {
-    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
-    taskId: text('task_id').references(() => a2aTasks.id, { onDelete: 'cascade' }).notNull(),
-    role: varchar('role', { length: 20 }).notNull(),
-    parts: jsonb('parts').$type<Array<{ type: string; text?: string; data?: Record<string, unknown> }>>().notNull(),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
+    id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+    taskId: text("task_id")
+      .references(() => a2aTasks.id, { onDelete: "cascade" })
+      .notNull(),
+    role: varchar("role", { length: 20 }).notNull(),
+    parts: jsonb("parts")
+      .$type<
+        Array<{ type: string; text?: string; data?: Record<string, unknown> }>
+      >()
+      .notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [
-    index('a2a_task_messages_task_id_idx').on(table.taskId),
-  ],
-)
+  (table) => [index("a2a_task_messages_task_id_idx").on(table.taskId)],
+);
 
 // ---------------------------------------------------------------------------
 // Trigger Configs
 // ---------------------------------------------------------------------------
 
-export const triggerConfigs = pgTable('trigger_configs', {
-  id: text('id').primaryKey(),
-  type: varchar('type', { length: 20 }).notNull(),
-  agentId: text('agent_id').notNull(),
-  schedule: text('schedule'),
-  webhookSecret: text('webhook_secret'),
-  afterAgentId: text('after_agent_id'),
-  enabled: boolean('enabled').default(true).notNull(),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+export const triggerConfigs = pgTable("trigger_configs", {
+  id: text("id").primaryKey(),
+  type: varchar("type", { length: 20 }).notNull(),
+  agentId: text("agent_id").notNull(),
+  schedule: text("schedule"),
+  webhookSecret: text("webhook_secret"),
+  afterAgentId: text("after_agent_id"),
+  enabled: boolean("enabled").default(true).notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   /** MC-S02: Tenant scope. Defaults to 'default'. */
-  tenantId: text('tenant_id').notNull().default('default'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-})
+  tenantId: text("tenant_id").notNull().default("default"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
 // ---------------------------------------------------------------------------
 // Schedule Configs
 // ---------------------------------------------------------------------------
 
-export const scheduleConfigs = pgTable('schedule_configs', {
-  id: text('id').primaryKey(),
-  name: varchar('name', { length: 255 }).notNull(),
-  cronExpression: text('cron_expression').notNull(),
-  workflowText: text('workflow_text').notNull(),
-  enabled: boolean('enabled').default(true).notNull(),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>(),
+export const scheduleConfigs = pgTable("schedule_configs", {
+  id: text("id").primaryKey(),
+  name: varchar("name", { length: 255 }).notNull(),
+  cronExpression: text("cron_expression").notNull(),
+  workflowText: text("workflow_text").notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   /** MC-S02: Tenant scope. Defaults to 'default'. */
-  tenantId: text('tenant_id').notNull().default('default'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-})
+  tenantId: text("tenant_id").notNull().default("default"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
 // ---------------------------------------------------------------------------
 // Run Reflections
 // ---------------------------------------------------------------------------
 
 export const runReflections = pgTable(
-  'run_reflections',
+  "run_reflections",
   {
-    runId: varchar('run_id', { length: 255 }).primaryKey(),
-    completedAt: timestamp('completed_at').notNull(),
-    durationMs: integer('duration_ms').notNull(),
-    totalSteps: integer('total_steps').notNull(),
-    toolCallCount: integer('tool_call_count').notNull(),
-    errorCount: integer('error_count').notNull(),
-    patterns: jsonb('patterns').$type<ReflectionPattern[]>().notNull().default([]),
-    qualityScore: real('quality_score').notNull(),
+    runId: varchar("run_id", { length: 255 }).primaryKey(),
+    completedAt: timestamp("completed_at").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    totalSteps: integer("total_steps").notNull(),
+    toolCallCount: integer("tool_call_count").notNull(),
+    errorCount: integer("error_count").notNull(),
+    patterns: jsonb("patterns")
+      .$type<ReflectionPattern[]>()
+      .notNull()
+      .default([]),
+    qualityScore: real("quality_score").notNull(),
     /**
      * RUN-REFLECTION-STORE-WIDEN: API key id that owns the originating run.
      * Nullable so legacy ownerless reflections remain visible under
      * `includeLegacyOwnerless` semantics at the route layer.
      */
-    ownerId: text('owner_id'),
+    ownerId: text("owner_id"),
     /**
      * RUN-REFLECTION-STORE-WIDEN: Tenant scope stamped at save time. Defaults
      * to 'default' so pre-migration rows are filterable by single-tenant
      * deployments.
      */
-    tenantId: text('tenant_id').notNull().default('default'),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
+    tenantId: text("tenant_id").notNull().default("default"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    index('run_reflections_tenant_id_idx').on(table.tenantId),
-    index('run_reflections_owner_id_idx').on(table.ownerId),
+    index("run_reflections_tenant_id_idx").on(table.tenantId),
+    index("run_reflections_owner_id_idx").on(table.ownerId),
   ],
-)
+);
 
 // ---------------------------------------------------------------------------
 // General-Purpose Vector Storage
 // ---------------------------------------------------------------------------
 
 export const forgeVectors = pgTable(
-  'forge_vectors',
+  "forge_vectors",
   {
-    id: uuid('id').defaultRandom().primaryKey(),
+    id: uuid("id").defaultRandom().primaryKey(),
     /** Logical grouping (e.g. "agent-instructions", "run-outputs"). */
-    collection: varchar('collection', { length: 255 }).notNull(),
+    collection: varchar("collection", { length: 255 }).notNull(),
     /** Application-defined key, unique within a collection. */
-    key: varchar('key', { length: 512 }).notNull(),
+    key: varchar("key", { length: 512 }).notNull(),
     /** pgvector embedding (1536 dimensions, matching OpenAI ada-002/text-embedding-3-small). */
-    embedding: vectorColumn('embedding', { dimensions: 1536 }),
+    embedding: vectorColumn("embedding", { dimensions: 1536 }),
     /** Arbitrary JSON metadata for filtering. */
-    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
     /** Original text that was embedded (for retrieval display). */
-    text: text('text'),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    text: text("text"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('forge_vectors_collection_key_idx').on(table.collection, table.key),
-    index('forge_vectors_collection_idx').on(table.collection),
+    uniqueIndex("forge_vectors_collection_key_idx").on(
+      table.collection,
+      table.key,
+    ),
+    index("forge_vectors_collection_idx").on(table.collection),
   ],
-)
+);
 
 // ---------------------------------------------------------------------------
 // Agent Catalog (Marketplace)
 // ---------------------------------------------------------------------------
 
 export const agentCatalog = pgTable(
-  'agent_catalog',
+  "agent_catalog",
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    slug: text('slug').notNull(),
-    name: text('name').notNull(),
-    description: text('description'),
-    version: text('version').notNull(),
-    tags: text('tags').array().default([]).notNull(),
-    author: text('author'),
-    readme: text('readme'),
-    publishedAt: timestamp('published_at'),
-    isPublic: boolean('is_public').default(true).notNull(),
-    tenantId: text('tenant_id').notNull().default('default'),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    id: uuid("id").defaultRandom().primaryKey(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    version: text("version").notNull(),
+    tags: text("tags").array().default([]).notNull(),
+    author: text("author"),
+    readme: text("readme"),
+    publishedAt: timestamp("published_at"),
+    isPublic: boolean("is_public").default(true).notNull(),
+    tenantId: text("tenant_id").notNull().default("default"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('agent_catalog_tenant_slug_idx').on(table.tenantId, table.slug),
-    index('agent_catalog_author_idx').on(table.author),
-    index('agent_catalog_tenant_id_idx').on(table.tenantId),
+    uniqueIndex("agent_catalog_tenant_slug_idx").on(table.tenantId, table.slug),
+    index("agent_catalog_author_idx").on(table.author),
+    index("agent_catalog_tenant_id_idx").on(table.tenantId),
   ],
-)
+);
 
 // ---------------------------------------------------------------------------
 // Agent Clusters
 // ---------------------------------------------------------------------------
 
-export const agentClusters = pgTable('agent_clusters', {
-  id: text('id').primaryKey(),
-  workspaceType: varchar('workspace_type', { length: 50 }).notNull().default('local'),
-  workspaceOptions: jsonb('workspace_options').$type<Record<string, unknown>>().default({}),
-  metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
-  tenantId: text('tenant_id').notNull().default('default'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-})
+export const agentClusters = pgTable("agent_clusters", {
+  id: text("id").primaryKey(),
+  workspaceType: varchar("workspace_type", { length: 50 })
+    .notNull()
+    .default("local"),
+  workspaceOptions: jsonb("workspace_options")
+    .$type<Record<string, unknown>>()
+    .default({}),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+  tenantId: text("tenant_id").notNull().default("default"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
 export const clusterRoles = pgTable(
-  'cluster_roles',
+  "cluster_roles",
   {
-    id: integer('id').generatedAlwaysAsIdentity().primaryKey(),
-    clusterId: text('cluster_id').references(() => agentClusters.id, { onDelete: 'cascade' }).notNull(),
-    roleId: varchar('role_id', { length: 255 }).notNull(),
-    agentId: text('agent_id').notNull(),
-    capabilities: jsonb('capabilities').$type<string[]>().default([]),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
+    id: integer("id").generatedAlwaysAsIdentity().primaryKey(),
+    clusterId: text("cluster_id")
+      .references(() => agentClusters.id, { onDelete: "cascade" })
+      .notNull(),
+    roleId: varchar("role_id", { length: 255 }).notNull(),
+    agentId: text("agent_id").notNull(),
+    capabilities: jsonb("capabilities").$type<string[]>().default([]),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex('cluster_roles_cluster_role_idx').on(table.clusterId, table.roleId),
-    index('cluster_roles_cluster_id_idx').on(table.clusterId),
+    uniqueIndex("cluster_roles_cluster_role_idx").on(
+      table.clusterId,
+      table.roleId,
+    ),
+    index("cluster_roles_cluster_id_idx").on(table.clusterId),
   ],
-)
+);
 
 // ---------------------------------------------------------------------------
 // Agent Mailbox
 // ---------------------------------------------------------------------------
 
 export const agentMailbox = pgTable(
-  'agent_mailbox',
+  "agent_mailbox",
   {
-    id: text('id').primaryKey(),
-    fromAgent: text('from_agent').notNull(),
-    toAgent: text('to_agent').notNull(),
-    subject: text('subject').notNull(),
-    body: jsonb('body').$type<Record<string, unknown>>().notNull(),
-    createdAt: integer('created_at').notNull(),
-    readAt: integer('read_at'),
-    ttlSeconds: integer('ttl_seconds'),
+    id: text("id").primaryKey(),
+    fromAgent: text("from_agent").notNull(),
+    toAgent: text("to_agent").notNull(),
+    subject: text("subject").notNull(),
+    body: jsonb("body").$type<Record<string, unknown>>().notNull(),
+    createdAt: integer("created_at").notNull(),
+    readAt: integer("read_at"),
+    ttlSeconds: integer("ttl_seconds"),
     /** MC-S02: Tenant scope. Defaults to 'default'. */
-    tenantId: text('tenant_id').notNull().default('default'),
+    tenantId: text("tenant_id").notNull().default("default"),
   },
   (table) => [
-    index('agent_mailbox_to_agent_created_at_idx').on(table.toAgent, table.createdAt),
-    index('agent_mailbox_tenant_id_idx').on(table.tenantId),
+    index("agent_mailbox_to_agent_created_at_idx").on(
+      table.toAgent,
+      table.createdAt,
+    ),
+    index("agent_mailbox_tenant_id_idx").on(table.tenantId),
   ],
-)
+);
 
 // ---------------------------------------------------------------------------
 // Agent Mail Dead-Letter Queue
@@ -402,55 +443,91 @@ export const agentMailbox = pgTable(
  * {@link agentMailbox}.
  */
 export const agentMailDlq = pgTable(
-  'agent_mail_dlq',
+  "agent_mail_dlq",
   {
-    id: text('id').primaryKey(),
-    originalMessageId: text('original_message_id').notNull(),
-    fromAgent: text('from_agent').notNull(),
-    toAgent: text('to_agent').notNull(),
-    subject: text('subject').notNull(),
-    body: jsonb('body').$type<Record<string, unknown>>().notNull(),
-    failReason: text('fail_reason').notNull(),
-    attempts: integer('attempts').notNull().default(0),
-    nextRetryAt: integer('next_retry_at').notNull(),
-    createdAt: integer('created_at').notNull(),
-    deadAt: integer('dead_at'),
+    id: text("id").primaryKey(),
+    originalMessageId: text("original_message_id").notNull(),
+    fromAgent: text("from_agent").notNull(),
+    toAgent: text("to_agent").notNull(),
+    subject: text("subject").notNull(),
+    body: jsonb("body").$type<Record<string, unknown>>().notNull(),
+    failReason: text("fail_reason").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    nextRetryAt: integer("next_retry_at").notNull(),
+    createdAt: integer("created_at").notNull(),
+    deadAt: integer("dead_at"),
   },
   (table) => [
-    index('agent_mail_dlq_next_retry_at_idx').on(table.nextRetryAt),
-    index('agent_mail_dlq_to_agent_idx').on(table.toAgent),
+    index("agent_mail_dlq_next_retry_at_idx").on(table.nextRetryAt),
+    index("agent_mail_dlq_to_agent_idx").on(table.toAgent),
   ],
-)
+);
+
+// ---------------------------------------------------------------------------
+// Durable Node Ledger (P2 — crash-safe per-node leasing + fencing)
+// ---------------------------------------------------------------------------
+
+export const forgeNodeLedger = pgTable(
+  "forge_node_ledger",
+  {
+    /** Unique per node attempt-chain — the spec's idempotency key. */
+    idempotencyKey: text("idempotency_key").primaryKey(),
+    runId: text("run_id").notNull(),
+    nodeId: text("node_id").notNull(),
+    tenantId: text("tenant_id"),
+    attempt: integer("attempt").notNull().default(1),
+    /** Monotonic fence token — bumped on every (re)acquire. */
+    fenceToken: integer("fence_token").notNull().default(1),
+    owner: text("owner").notNull(),
+    status: text("status").notNull(),
+    leaseExpiresAt: bigint("lease_expires_at", { mode: "number" }).notNull(),
+    startedAt: bigint("started_at", { mode: "number" }).notNull(),
+    completedAt: bigint("completed_at", { mode: "number" }),
+    outputRef: text("output_ref"),
+    output: jsonb("output").$type<unknown>(),
+    durationMs: integer("duration_ms"),
+    error: text("error"),
+  },
+  (table) => [
+    index("forge_node_ledger_run_id_idx").on(table.runId),
+    index("forge_node_ledger_status_lease_idx").on(
+      table.status,
+      table.leaseExpiresAt,
+    ),
+  ],
+);
 
 // ---------------------------------------------------------------------------
 // Run Traces
 // ---------------------------------------------------------------------------
 
-export const runTraces = pgTable('run_traces', {
-  runId: varchar('run_id', { length: 255 }).primaryKey(),
-  agentId: varchar('agent_id', { length: 255 }).notNull(),
-  startedAt: integer('started_at').notNull(),        // epoch ms
-  completedAt: integer('completed_at'),               // epoch ms, nullable
-  totalSteps: integer('total_steps').notNull().default(0),
-})
+export const runTraces = pgTable("run_traces", {
+  runId: varchar("run_id", { length: 255 }).primaryKey(),
+  agentId: varchar("agent_id", { length: 255 }).notNull(),
+  startedAt: integer("started_at").notNull(), // epoch ms
+  completedAt: integer("completed_at"), // epoch ms, nullable
+  totalSteps: integer("total_steps").notNull().default(0),
+});
 
 export const traceSteps = pgTable(
-  'trace_steps',
+  "trace_steps",
   {
-    id: uuid('id').defaultRandom().primaryKey(),
-    runId: varchar('run_id', { length: 255 }).notNull().references(() => runTraces.runId, { onDelete: 'cascade' }),
-    stepIndex: integer('step_index').notNull(),
-    timestamp: integer('timestamp').notNull(),         // epoch ms
-    type: varchar('type', { length: 30 }).notNull(),  // 'user_input'|'llm_request'|etc.
-    content: jsonb('content').notNull(),
-    metadata: jsonb('metadata'),
-    durationMs: integer('duration_ms'),
+    id: uuid("id").defaultRandom().primaryKey(),
+    runId: varchar("run_id", { length: 255 })
+      .notNull()
+      .references(() => runTraces.runId, { onDelete: "cascade" }),
+    stepIndex: integer("step_index").notNull(),
+    timestamp: integer("timestamp").notNull(), // epoch ms
+    type: varchar("type", { length: 30 }).notNull(), // 'user_input'|'llm_request'|etc.
+    content: jsonb("content").notNull(),
+    metadata: jsonb("metadata"),
+    durationMs: integer("duration_ms"),
   },
   (table) => [
-    index('trace_steps_run_id_idx').on(table.runId),
-    index('trace_steps_run_step_idx').on(table.runId, table.stepIndex),
+    index("trace_steps_run_id_idx").on(table.runId),
+    index("trace_steps_run_step_idx").on(table.runId, table.stepIndex),
   ],
-)
+);
 
 // ---------------------------------------------------------------------------
 // API Keys
@@ -465,66 +542,71 @@ export const traceSteps = pgTable(
  * and revoked by setting `revokedAt`.
  */
 export const apiKeys = pgTable(
-  'api_keys',
+  "api_keys",
   {
-    id: uuid('id').defaultRandom().primaryKey(),
+    id: uuid("id").defaultRandom().primaryKey(),
     /** SHA-256 hex digest of the raw key (64 chars). */
-    keyHash: varchar('key_hash', { length: 64 }).notNull().unique(),
+    keyHash: varchar("key_hash", { length: 64 }).notNull().unique(),
     /** The user/agent id that owns this key. */
-    ownerId: varchar('owner_id', { length: 255 }).notNull(),
+    ownerId: varchar("owner_id", { length: 255 }).notNull(),
     /** Human-readable label for the key. */
-    name: varchar('name', { length: 255 }),
+    name: varchar("name", { length: 255 }),
     /** Rate-limit tier, consumed by the rate-limiter middleware. */
-    rateLimitTier: varchar('rate_limit_tier', { length: 50 }).default('standard').notNull(),
+    rateLimitTier: varchar("rate_limit_tier", { length: 50 })
+      .default("standard")
+      .notNull(),
     /**
      * MC-S02: RBAC role. Defaults to 'user'. Admin-only endpoints (MCP
      * registration, cluster management) require 'admin'.
      */
-    role: text('role').notNull().default('user'),
+    role: text("role").notNull().default("user"),
     /**
      * MC-S02: Tenant scope carried by this key. Downstream records stamped
      * with this key inherit the value; list queries filter by tenantId so
      * keys from different tenants cannot observe each other's data.
      */
-    tenantId: text('tenant_id').notNull().default('default'),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    expiresAt: timestamp('expires_at'),
-    revokedAt: timestamp('revoked_at'),
-    lastUsedAt: timestamp('last_used_at'),
-    metadata: jsonb('metadata').$type<Record<string, unknown>>().default({}),
+    tenantId: text("tenant_id").notNull().default("default"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    expiresAt: timestamp("expires_at"),
+    revokedAt: timestamp("revoked_at"),
+    lastUsedAt: timestamp("last_used_at"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
   },
   (table) => [
-    index('api_keys_owner_id_idx').on(table.ownerId),
-    index('api_keys_key_hash_idx').on(table.keyHash),
-    index('api_keys_tenant_id_idx').on(table.tenantId),
+    index("api_keys_owner_id_idx").on(table.ownerId),
+    index("api_keys_key_hash_idx").on(table.keyHash),
+    index("api_keys_tenant_id_idx").on(table.tenantId),
   ],
-)
+);
 
 // ---------------------------------------------------------------------------
 // Compliance Audit Log
 // ---------------------------------------------------------------------------
 
 export const auditLog = pgTable(
-  'dzupagent_audit_log',
+  "dzupagent_audit_log",
   {
-    id: text('id').primaryKey(),
-    seq: bigint('seq', { mode: 'number' }).notNull(),
-    ts: timestamp('ts', { withTimezone: true }).defaultNow().notNull(),
-    actorId: text('actor_id').notNull(),
-    actorType: text('actor_type').notNull(),
-    actorName: text('actor_name'),
-    action: text('action').notNull(),
-    resource: text('resource'),
-    result: text('result').notNull(),
-    details: jsonb('details').$type<Record<string, unknown>>().notNull().default({}),
-    previousHash: text('previous_hash').notNull().default(''),
-    hash: text('hash').notNull().default(''),
-    traceId: text('trace_id'),
-    spanId: text('span_id'),
+    id: text("id").primaryKey(),
+    seq: bigint("seq", { mode: "number" }).notNull(),
+    ts: timestamp("ts", { withTimezone: true }).defaultNow().notNull(),
+    actorId: text("actor_id").notNull(),
+    actorType: text("actor_type").notNull(),
+    actorName: text("actor_name"),
+    action: text("action").notNull(),
+    resource: text("resource"),
+    result: text("result").notNull(),
+    details: jsonb("details")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    previousHash: text("previous_hash").notNull().default(""),
+    hash: text("hash").notNull().default(""),
+    traceId: text("trace_id"),
+    spanId: text("span_id"),
   },
   (table) => [
-    index('dzupagent_audit_log_action_idx').on(table.action),
-    index('dzupagent_audit_log_actor_id_idx').on(table.actorId),
-    index('dzupagent_audit_log_ts_idx').on(table.ts),
+    index("dzupagent_audit_log_action_idx").on(table.action),
+    index("dzupagent_audit_log_actor_id_idx").on(table.actorId),
+    index("dzupagent_audit_log_ts_idx").on(table.ts),
   ],
-)
+);
