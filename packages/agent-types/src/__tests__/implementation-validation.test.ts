@@ -133,6 +133,17 @@ describe("implementation plan validation", () => {
     });
   });
 
+  it("rejects validation command cwd values that escape the repo", () => {
+    const plan = validPlan();
+    plan.tasks[0]!.validationCommands[0]!.cwd = "..";
+
+    expect(validateImplementationPlan(plan).issues).toContainEqual({
+      path: "tasks[0].validationCommands[0].cwd",
+      code: "validation-cwd-escapes-repo",
+      message: "Validation command cwd must stay within the task repo.",
+    });
+  });
+
   it("rejects duplicate batch ids", () => {
     const plan = validPlan();
     plan.batches.push({

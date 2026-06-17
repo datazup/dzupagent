@@ -66,6 +66,16 @@ export function validateImplementationPlan(
         message: `Task '${task.id}' must define at least one validation command.`,
       });
     }
+
+    task.validationCommands.forEach((command, commandIndex) => {
+      if (command.cwd !== undefined && !isRepoRelativePath(command.cwd)) {
+        issues.push({
+          path: `tasks[${index}].validationCommands[${commandIndex}].cwd`,
+          code: "validation-cwd-escapes-repo",
+          message: "Validation command cwd must stay within the task repo.",
+        });
+      }
+    });
   });
 
   const batchIds = new Set(plan.batches.map((batch) => batch.id));
@@ -142,4 +152,33 @@ export function validateImplementationPlan(
     ok: issues.length === 0,
     issues,
   };
+}
+
+function isRepoRelativePath(value: string): boolean {
+  if (value.startsWith("/") || value.startsWith("\\")) {
+    return false;
+  }
+
+  if (/^[A-Za-z]:[\\/]/.test(value)) {
+    return false;
+  }
+
+  let depth = 0;
+  for (const segment of value.split(/[\\/]+/)) {
+    if (segment === "" || segment === ".") {
+      continue;
+    }
+
+    if (segment === "..") {
+      if (depth === 0) {
+        return false;
+      }
+      depth -= 1;
+      continue;
+    }
+
+    depth += 1;
+  }
+
+  return true;
 }
