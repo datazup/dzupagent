@@ -67,7 +67,10 @@ import type { A2ARoutesConfig } from "../routes/a2a-types.js";
 import type { AgentCardConfig } from "../a2a/agent-card.js";
 import type { A2ATaskStore } from "../a2a/task-handler.js";
 import type { TriggerStore } from "../triggers/trigger-store.js";
-import type { ScheduleStore } from "../schedules/schedule-store.js";
+import type {
+  ScheduleStore,
+  ClaimedSchedule,
+} from "../schedules/schedule-store.js";
 import type { ScheduleRouteConfig } from "../routes/schedules.js";
 import type { PersonaStore } from "../personas/persona-store.js";
 import type { PromptStore } from "../prompts/prompt-store.js";
@@ -86,6 +89,7 @@ import type {
 } from "../runtime/tool-resolver.js";
 import type { MetricsAccessControl } from "../routes/metrics.js";
 import type { ComplianceAuditStore } from "@dzupagent/core/security";
+import type { CostLedgerClient } from "@dzupagent/agent";
 
 /**
  * Optional mail delivery config. When provided, `createForgeApp` constructs a
@@ -279,6 +283,16 @@ export interface ForgeRuntimeConfig {
   shutdown?: GracefulShutdown;
   metrics?: MetricsCollector;
   /**
+   * P3 distributed guardrail backend. When provided, this Redis-backed
+   * {@link CostLedgerClient} (e.g. from
+   * {@link createRedisGuardrailClientFromConnection}) is attached to every
+   * run's agent spec as the fleet-wide rate-limiter + cost-ledger client and
+   * receives the final run cost at completion, so a fleet of worker processes
+   * shares one rate-limit window and one spend ceiling. Absent means local-only
+   * enforcement, unchanged.
+   */
+  guardrailClient?: CostLedgerClient;
+  /**
    * Prometheus `/metrics` endpoint exposure policy. The endpoint is not mounted
    * unless this is configured, so public scraping requires an explicit
    * `unsafe-public` opt-in.
@@ -434,9 +448,7 @@ export interface ForgeAutomationRouteFamilyConfig {
      * Fire a claimed schedule occurrence. Returns the run id created.
      * Wire this to your run-start logic.
      */
-    onFire: (
-      claimed: import("../schedules/schedule-store.js").ClaimedSchedule
-    ) => Promise<string>;
+    onFire: (claimed: ClaimedSchedule) => Promise<string>;
     /** Tick interval in ms. Defaults to ScheduleTickWorker default (10s). */
     intervalMs?: number;
     /** Max occurrences claimed per tick. Defaults to 50. */

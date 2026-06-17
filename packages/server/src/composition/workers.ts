@@ -128,6 +128,9 @@ export function maybeStartRunWorker(
     reflectionStore: runtimeConfig.reflectionStore,
     resourceQuota: runtimeConfig.resourceQuota,
     inputGuardConfig: runtimeConfig.security?.inputGuard,
+    ...(runtimeConfig.guardrailClient
+      ? { guardrailClient: runtimeConfig.guardrailClient }
+      : {}),
     ...(workerRegistry ? { workerRegistry } : {}),
   });
   startedRunQueues.add(runtimeConfig.runQueue);

@@ -174,6 +174,13 @@ export type {
   InputGuardResult,
 } from "./security/input-guard.js";
 
+// --- Distributed Guardrails (P3) ---
+export {
+  RedisGuardrailClient,
+  createRedisGuardrailClientFromConnection,
+} from "./guardrails/redis-guardrail-client.js";
+export type { RedisLikeConnection } from "./guardrails/redis-guardrail-client.js";
+
 // --- Persistence Factories ---
 export { createPostgresNodeLedger } from "./persistence/create-node-ledger.js";
 export {
