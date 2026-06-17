@@ -28,31 +28,35 @@
  * sole entry point and {@link ForgeServerConfig} remains the aggregate
  * config type.
  */
-import { Hono } from 'hono'
+import { Hono } from "hono";
 
-import { ComplianceAuditLogger } from '@dzupagent/core/security'
-import type { AppEnv } from './types.js'
-import type { ForgeServerConfig } from './composition/types.js'
+import { ComplianceAuditLogger } from "@dzupagent/core/security";
+import type { AppEnv } from "./types.js";
+import type { ForgeServerConfig } from "./composition/types.js";
 import {
   registerShutdownDrainHook,
   warnIfUnboundedInMemoryRetention,
-} from './composition/utils.js'
-import { attachSafetyMonitor } from './composition/safety.js'
-import { buildRuntimeBootstrap } from './composition/runtime-config.js'
-import { applyMiddleware, assertExplicitFrameworkApiAuth } from './composition/middleware.js'
-import { mountCoreRoutes } from './composition/core-routes.js'
+} from "./composition/utils.js";
+import { attachSafetyMonitor } from "./composition/safety.js";
+import { buildRuntimeBootstrap } from "./composition/runtime-config.js";
+import {
+  applyMiddleware,
+  assertExplicitFrameworkApiAuth,
+} from "./composition/middleware.js";
+import { mountCoreRoutes } from "./composition/core-routes.js";
 import {
   mountOptionalRoutes,
   mountPrometheusMetricsRoute,
-} from './composition/optional-routes.js'
-import { mountAllRoutePlugins } from './composition/route-plugins.js'
+} from "./composition/optional-routes.js";
+import { mountAllRoutePlugins } from "./composition/route-plugins.js";
 import {
   maybeStartRunWorker,
   maybeStartNodeLedgerReclaimer,
+  maybeStartScheduleTickWorker,
   startConsolidationScheduler,
   startClosedLoopSubscribers,
-} from './composition/workers.js'
-import { registerEnvNotificationChannels } from './composition/notifications.js'
+} from "./composition/workers.js";
+import { registerEnvNotificationChannels } from "./composition/notifications.js";
 
 // Re-export the public composition types so legacy `import { ... } from
 // '@dzupagent/server/app'` paths continue to resolve. The aggregate type
@@ -78,7 +82,7 @@ export type {
   ForgeControlPlaneRouteFamilyConfig,
   ConsolidationConfig,
   MailDeliveryConfig,
-} from './composition/types.js'
+} from "./composition/types.js";
 // Legacy `@dzupagent/server/app` compatibility aliases — see notice above.
 // These are internal composition building blocks; prefer `ForgeServerConfig`
 // or `ForgeHostRuntimeConfig` for new code.
@@ -97,27 +101,27 @@ export type {
   PromptFeedbackLoopLike,
   /** @deprecated Inline the `{ start(): void; stop(): void }` shape, or import `LearningEventProcessor` directly. Re-exported only for the `@dzupagent/server/app` legacy path. */
   LearningEventProcessorLike,
-} from './composition/types.js'
-export type { HttpConnectorProfile } from './runtime/tool-resolver.js'
+} from "./composition/types.js";
+export type { HttpConnectorProfile } from "./runtime/tool-resolver.js";
 
 export function createForgeApp(config: ForgeServerConfig): Hono<AppEnv> {
-  assertExplicitFrameworkApiAuth(config)
-  warnIfUnboundedInMemoryRetention(config)
+  assertExplicitFrameworkApiAuth(config);
+  warnIfUnboundedInMemoryRetention(config);
 
-  const app = new Hono<AppEnv>()
+  const app = new Hono<AppEnv>();
 
   // --- Runtime SafetyMonitor ---
   // Attach the built-in safety monitor to the shared event bus so that
   // tool errors and memory writes are scanned for prompt-injection and
   // other policy violations. Hosts can opt out via `disableSafetyMonitor`.
-  attachSafetyMonitor(config)
+  attachSafetyMonitor(config);
 
   // --- Compliance Audit Logger (RF-36) ---
   // When an auditStore is provided, attach a ComplianceAuditLogger to the
   // event bus so security-relevant events are durably recorded.
   if (config.auditStore) {
-    const auditLogger = new ComplianceAuditLogger({ store: config.auditStore })
-    auditLogger.attach(config.eventBus)
+    const auditLogger = new ComplianceAuditLogger({ store: config.auditStore });
+    auditLogger.attach(config.eventBus);
 
     // Drain pending fire-and-forget audit writes before process exit so
     // SIGTERM/SIGINT do not lose in-flight compliance records. Sink errors
@@ -127,55 +131,62 @@ export function createForgeApp(config: ForgeServerConfig): Hono<AppEnv> {
     if (config.shutdown) {
       registerShutdownDrainHook(config.shutdown, async () => {
         try {
-          await auditLogger.flush()
+          await auditLogger.flush();
         } catch (err) {
           // Best-effort: surface but do not block shutdown.
           // eslint-disable-next-line no-console
-          console.warn('[ForgeServer] audit logger flush surfaced error during shutdown', err)
+          console.warn(
+            "[ForgeServer] audit logger flush surfaced error during shutdown",
+            err
+          );
         } finally {
-          auditLogger.dispose()
+          auditLogger.dispose();
         }
-      })
+      });
     }
   }
 
   // Resolve runtime defaults: executor, executable agent resolver, gateway.
-  const { runtimeConfig, effectiveRunExecutor, eventGateway } = buildRuntimeBootstrap(config)
+  const { runtimeConfig, effectiveRunExecutor, eventGateway } =
+    buildRuntimeBootstrap(config);
 
   // Start the queue worker (no-op when no `runQueue` is supplied or the
   // worker has already been started for this queue instance).
-  maybeStartRunWorker(runtimeConfig, effectiveRunExecutor)
+  maybeStartRunWorker(runtimeConfig, effectiveRunExecutor);
   // Start the P2 node-ledger reclaimer (no-op unless both a durable
   // node ledger and a run queue are configured).
-  maybeStartNodeLedgerReclaimer(runtimeConfig)
+  maybeStartNodeLedgerReclaimer(runtimeConfig);
+  // Start the P4 HA schedule-tick worker (no-op unless both scheduleStore
+  // and scheduleTickWorker config are present).
+  maybeStartScheduleTickWorker(runtimeConfig);
 
   // Middleware: CORS, auth, RBAC, rate limit, shutdown guard, metrics, error.
-  const { effectiveAuth } = applyMiddleware(app, runtimeConfig)
+  const { effectiveAuth } = applyMiddleware(app, runtimeConfig);
 
   // Always-mounted routes are generic framework primitives or compatibility
   // aliases. New product-control-plane routes should be owned by consuming apps
   // and mounted through `routePlugins` or app-level Hono composition.
-  mountCoreRoutes(app, runtimeConfig)
+  mountCoreRoutes(app, runtimeConfig);
 
   // Conditional routes are existing compatibility/maintenance surfaces or
   // generic framework primitives gated on injected capability config.
-  mountOptionalRoutes(app, { runtimeConfig, effectiveAuth, eventGateway })
+  mountOptionalRoutes(app, { runtimeConfig, effectiveAuth, eventGateway });
 
   // --- Auto-register notification channels from env vars ---
-  registerEnvNotificationChannels(runtimeConfig)
+  registerEnvNotificationChannels(runtimeConfig);
 
   // Built-in route plugin seams plus host-supplied plugins. This is the
   // forward-path extension point for app-owned product routes.
-  mountAllRoutePlugins(app, runtimeConfig, eventGateway)
+  mountAllRoutePlugins(app, runtimeConfig, eventGateway);
 
   // Prometheus `/metrics` endpoint (only when collector is Prometheus).
-  mountPrometheusMetricsRoute(app, runtimeConfig)
+  mountPrometheusMetricsRoute(app, runtimeConfig);
 
   // Background scheduler (memory consolidation).
-  startConsolidationScheduler(app, runtimeConfig)
+  startConsolidationScheduler(app, runtimeConfig);
 
   // Closed-loop self-improvement: prompt feedback loop + learning processor.
-  startClosedLoopSubscribers(runtimeConfig)
+  startClosedLoopSubscribers(runtimeConfig);
 
-  return app
+  return app;
 }

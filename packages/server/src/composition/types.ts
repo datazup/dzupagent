@@ -385,6 +385,29 @@ export interface ForgeAutomationRouteFamilyConfig {
   triggerStore?: TriggerStore;
   scheduleStore?: ScheduleStore;
   onScheduleTrigger?: ScheduleRouteConfig["onManualTrigger"];
+  /**
+   * P4 HA schedule-tick worker config. When provided alongside `scheduleStore`,
+   * `createForgeApp` starts a {@link ScheduleTickWorker} that atomically claims
+   * due schedule occurrences from the shared store and fires them via `onFire`.
+   * Two nodes sharing the same store fire each occurrence exactly once.
+   */
+  scheduleTickWorker?: {
+    /** Identifies this node in claim records. Required for HA. */
+    claimerId: string;
+    /**
+     * Fire a claimed schedule occurrence. Returns the run id created.
+     * Wire this to your run-start logic.
+     */
+    onFire: (
+      claimed: import("../schedules/schedule-store.js").ClaimedSchedule
+    ) => Promise<string>;
+    /** Tick interval in ms. Defaults to ScheduleTickWorker default (10s). */
+    intervalMs?: number;
+    /** Max occurrences claimed per tick. Defaults to 50. */
+    limit?: number;
+    /** Opt-in catch-up: max missed occurrences to replay. Default = skip-and-realign. */
+    maxCatchUp?: number;
+  };
 }
 
 /**
