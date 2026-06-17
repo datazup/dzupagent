@@ -10,12 +10,14 @@ import { describe, it, expect, vi } from "vitest";
 import { DrizzleWorkerNodeStore } from "./drizzle-worker-node-store.js";
 import type { DrizzleWorkerNodeDatabase } from "../persistence/drizzle-store-types.js";
 
+type Args = Record<string, unknown>;
+
 /** Build a mock insert→onConflictDoUpdate→returning chain. */
 function mockInsert(returnRows: unknown[]) {
   const returning = vi.fn(async () => returnRows);
-  const onConflictDoUpdate = vi.fn(() => ({ returning }));
-  const values = vi.fn(() => ({ onConflictDoUpdate, returning }));
-  const insert = vi.fn(() => ({ values }));
+  const onConflictDoUpdate = vi.fn((_config: unknown) => ({ returning }));
+  const values = vi.fn((_values: Args) => ({ onConflictDoUpdate, returning }));
+  const insert = vi.fn((_table: unknown) => ({ values }));
   return { insert, values, onConflictDoUpdate, returning };
 }
 
@@ -23,36 +25,22 @@ function mockInsert(returnRows: unknown[]) {
 function mockUpdate(returnRows: unknown[] = []) {
   const returning = vi.fn(async () => returnRows);
   // `where` is awaitable AND chains to `.returning()`.
-  const where = vi.fn(() => {
+  const where = vi.fn((_cond: unknown) => {
     const p = Promise.resolve(undefined) as Promise<undefined> & {
       returning: typeof returning;
     };
     p.returning = returning;
     return p;
   });
-  const set = vi.fn(() => ({ where }));
-  const update = vi.fn(() => ({ set }));
+  const set = vi.fn((_patch: Args) => ({ where }));
+  const update = vi.fn((_table: unknown) => ({ set }));
   return { update, set, where, returning };
-}
-
-/** Build a mock select→from→where chain. */
-function mockSelect(returnRows: unknown[]) {
-  const where = vi.fn(async () => returnRows);
-  const from = vi.fn(() => {
-    const p = Promise.resolve(returnRows) as Promise<unknown[]> & {
-      where: typeof where;
-    };
-    p.where = where;
-    return p;
-  });
-  const select = vi.fn(() => ({ from }));
-  return { select, from, where };
 }
 
 /** Build a mock delete→where chain. */
 function mockDelete() {
-  const where = vi.fn(async () => undefined);
-  const del = vi.fn(() => ({ where }));
+  const where = vi.fn(async (_cond: unknown) => undefined);
+  const del = vi.fn((_table: unknown) => ({ where }));
   return { delete: del, where };
 }
 
@@ -86,7 +74,7 @@ describe("DrizzleWorkerNodeStore", () => {
 
     expect(ins.values).toHaveBeenCalledTimes(1);
     // Inserted row is registered as active with the heartbeat stamped to `now`.
-    const values = ins.values.mock.calls[0]![0] as Record<string, unknown>;
+    const values = ins.values.mock.calls[0]![0];
     expect(values.status).toBe("active");
     expect(values.lastHeartbeatAt).toBe(1000);
     // Upsert path used so a restart resumes onto the same id.
@@ -111,7 +99,7 @@ describe("DrizzleWorkerNodeStore", () => {
     await store.heartbeat("w1", 3, 2000);
 
     expect(upd.set).toHaveBeenCalledTimes(1);
-    const patch = upd.set.mock.calls[0]![0] as Record<string, unknown>;
+    const patch = upd.set.mock.calls[0]![0];
     expect(patch.inFlight).toBe(3);
     expect(patch.lastHeartbeatAt).toBe(2000);
     // A `status` CASE expression is set so a dead node resurrects to active.
