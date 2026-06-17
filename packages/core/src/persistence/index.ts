@@ -1,11 +1,30 @@
-export { createCheckpointer } from './checkpointer.js'
-export type { CheckpointerConfig } from './checkpointer.js'
-export { SessionManager } from './session.js'
-export { WorkingMemory, createWorkingMemory } from './working-memory.js'
-export type { WorkingMemoryConfig, WorkingMemorySnapshot } from './working-memory-types.js'
-export { InMemoryRunJournal } from './in-memory-run-journal.js'
-export { RunJournalBridgeRunStore } from './run-journal-bridge.js'
-export { createEntryBase, isTerminalEntry, deserializeEntry } from './run-journal.js'
+export { createCheckpointer } from "./checkpointer.js";
+export type { CheckpointerConfig } from "./checkpointer.js";
+export { SessionManager } from "./session.js";
+export { WorkingMemory, createWorkingMemory } from "./working-memory.js";
+export type {
+  WorkingMemoryConfig,
+  WorkingMemorySnapshot,
+} from "./working-memory-types.js";
+export { InMemoryRunJournal } from "./in-memory-run-journal.js";
+export { RunJournalBridgeRunStore } from "./run-journal-bridge.js";
+export {
+  InMemoryDurableNodeLedger,
+  FencedOutError,
+} from "./durable-node-ledger.js";
+export type {
+  DurableNodeLedger,
+  DurableNodeLease,
+  DurableNodeCompletion,
+  DurableNodeFailure,
+  DurableNodeStatus,
+  LedgerIdempotencyMode,
+} from "./durable-node-ledger.js";
+export {
+  createEntryBase,
+  isTerminalEntry,
+  deserializeEntry,
+} from "./run-journal.js";
 export type {
   RunJournalEntryType,
   RunJournalEntryBase,
@@ -27,4 +46,4 @@ export type {
   RunJournalPage,
   RunJournal,
   RunJournalConfig,
-} from './run-journal-types.js'
+} from "./run-journal-types.js";
