@@ -618,3 +618,49 @@ describe("flowNodeSchema.safeParse — AdapterRaceNode", () => {
     }
   });
 });
+
+describe("flowNodeSchema.safeParse — AdapterParallelNode", () => {
+  it("accepts an adapter.parallel node with a merge mode", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "adapter.parallel",
+      id: "fanout",
+      providers: ["claude", "codex"],
+      merge: "all",
+      instructions: "Draft it",
+      output: "drafts",
+    });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.type).toBe("adapter.parallel");
+  });
+
+  it("rejects adapter.parallel with an invalid merge mode", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "adapter.parallel",
+      id: "fanout",
+      providers: ["claude", "codex"],
+      merge: "zip",
+      instructions: "Draft it",
+      output: "drafts",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.path)).toContain("root.merge");
+    }
+  });
+
+  it("rejects adapter.parallel with fewer than 2 providers", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "adapter.parallel",
+      id: "fanout",
+      providers: ["claude"],
+      instructions: "Draft it",
+      output: "drafts",
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.path)).toContain(
+        "root.providers"
+      );
+    }
+  });
+});

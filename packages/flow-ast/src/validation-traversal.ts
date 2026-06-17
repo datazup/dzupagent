@@ -165,6 +165,7 @@ export function validateCanonicalNodeIds(
     case "knowledge.query":
     case "adapter.run":
     case "adapter.race":
+    case "adapter.parallel":
       return;
     default: {
       const _exhaustive: never = node;

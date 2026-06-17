@@ -121,7 +121,8 @@ export type FlowNode =
   | KnowledgeWriteNode
   | KnowledgeQueryNode
   | AdapterRunNode
-  | AdapterRaceNode;
+  | AdapterRaceNode
+  | AdapterParallelNode;
 
 export type SequenceNode = FlowNodeBase & {
   type: "sequence";
@@ -682,6 +683,49 @@ export type AdapterRaceNode = FlowNodeBase & {
   output: string;
 };
 
+/**
+ * `adapter.parallel` — fan the same prompt out to ≥2 providers concurrently and
+ * merge per `merge` (spec §5.2). Concurrency is REAL via the facade (distinct
+ * from the codev `parallel` node's sequential-in-runtime behavior). Lowers to
+ * `OrchestratorFacade.parallel(prompt, {merge})` at runtime.
+ *
+ * Output-shape contract (provisional, resolving spec §13 CRITICAL #1 — the
+ * authoring layer governs only the `merge` enum; the runtime produces):
+ *   - `first-wins` → scalar (the first successful result)
+ *   - `all` (default) → a record keyed by provider name
+ *   - `best-of-n` → a scored object `{ winner, candidates }` (the scoring
+ *     mechanism is a runtime concern, still to be specified; accepted at the
+ *     authoring layer because the spec lists it as a valid merge value).
+ */
+export type AdapterParallelNode = FlowNodeBase & {
+  type: "adapter.parallel";
+  /** ≥2 providers run concurrently on the same prompt. */
+  providers: Array<"claude" | "codex" | "gemini" | "qwen" | "goose" | "crush">;
+  /** Merge strategy; default `all`. Maps to the runtime `MergeStrategy`. */
+  merge?: "first-wins" | "all" | "best-of-n";
+  model?: string;
+  /** Operator instructions; template-resolved at runtime. */
+  instructions: string;
+  /** Base persona layer; template-resolved. */
+  systemPrompt?: string;
+  /** State-bound bindings merged into the prompt. */
+  input?: Record<string, unknown>;
+  /** Persona ref applied to this node's prompt layers. */
+  persona?: string;
+  /** Normalized reasoning intent, mapped per provider at runtime. */
+  reasoning?: "low" | "medium" | "high";
+  /** Schema ref or inline JSON Schema for structured output. */
+  outputSchema?: string | Record<string, unknown>;
+  /** `auto` (default) applies model-aware prep; `raw` = passthrough. */
+  promptPrep?: "auto" | "raw";
+  /** Replay governance; REQUIRED for side-effecting nodes (validator-warned). */
+  idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+  /** Per-node budget/timeout/guardrail override. */
+  policy?: Record<string, unknown>;
+  /** State key for the merged result (shape depends on `merge`). */
+  output: string;
+};
+
 export type FlowNodeKind = FlowNode["type"];
 
 /**
@@ -726,6 +770,7 @@ export const FLOW_NODE_KIND_REGISTRY = {
   "knowledge.query": true,
   "adapter.run": true,
   "adapter.race": true,
+  "adapter.parallel": true,
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(
