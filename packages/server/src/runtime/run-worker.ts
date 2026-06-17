@@ -6,6 +6,7 @@ import {
   persistCancellation,
   persistFailure,
   persistTerminalSuccess,
+  recordDistributedCost,
   recordTelemetryStage,
   runAdmissionStage,
   runPostRunLearningStage,
@@ -70,7 +71,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
           startedAt: Date.now(),
           ...(fleet.meta !== undefined ? { meta: fleet.meta } : {}),
         },
-        Date.now(),
+        Date.now()
       )
       .then(() => {
         options.eventBus.emit({
@@ -134,7 +135,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         ? (job.metadata["tenantId"] as string)
         : undefined;
     const withTenant = <T extends object>(
-      event: T,
+      event: T
     ): T & { tenantId?: string } =>
       tenantId !== undefined ? { ...event, tenantId } : event;
 
@@ -142,7 +143,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
     let forgeTraceContext: ForgeTraceContext | undefined;
     try {
       const traceCtx = extractTraceContext(
-        job.metadata as Record<string, unknown> | undefined,
+        job.metadata as Record<string, unknown> | undefined
       );
       traceId = traceCtx?.traceId;
       if (traceCtx) {
@@ -172,6 +173,9 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         eventBus: options.eventBus,
         traceStore: options.traceStore,
         resolveAgent: (agentId) => executableAgentResolver.resolve(agentId),
+        ...(options.guardrailClient
+          ? { guardrailClient: options.guardrailClient }
+          : {}),
       });
       if (admission.rejected) return;
 
@@ -199,7 +203,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
           type: "agent:started",
           agentId: job.agentId,
           runId: job.runId,
-        }),
+        })
       );
 
       const approved = await waitForRunApproval({
@@ -234,6 +238,16 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         traceId,
       });
 
+      // P3 — record the final spend against the fleet-wide cost ledger so a
+      // multi-replica deployment shares one running total. No-op when no
+      // guardrail client is configured or the run produced no cost.
+      await recordDistributedCost({
+        guardrailClient: options.guardrailClient,
+        runStore: options.runStore,
+        job,
+        costCents: execution.costCents,
+      });
+
       await runPostRunLearningStage({
         workerOptions: options,
         job,
@@ -252,7 +266,7 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
           agentId: job.agentId,
           runId: job.runId,
           durationMs: terminal.durationMs,
-        }),
+        })
       );
 
       await recordTelemetryStage({

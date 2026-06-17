@@ -1,9 +1,48 @@
-import type { DzupEventBus } from '@dzupagent/core/events'
-import type { AgentExecutionSpec, RunStore } from '@dzupagent/core/persistence'
-import type { RunTraceStore } from '../persistence/run-trace-store.js'
-import type { RunJob } from '../queue/run-queue.js'
-import type { InputGuard } from '../security/input-guard.js'
-import { closeTraceWithTerminalStep } from './run-stages-utils.js'
+import type { DzupEventBus } from "@dzupagent/core/events";
+import type { AgentExecutionSpec, RunStore } from "@dzupagent/core/persistence";
+import type { CostLedgerClient } from "@dzupagent/agent";
+import type { RunTraceStore } from "../persistence/run-trace-store.js";
+import type { RunJob } from "../queue/run-queue.js";
+import type { InputGuard } from "../security/input-guard.js";
+import { closeTraceWithTerminalStep } from "./run-stages-utils.js";
+
+/**
+ * P3 — return a derived agent spec with the distributed guardrail client
+ * attached as both the fleet-wide rate-limiter and cost-ledger backend.
+ *
+ * The incoming spec is NEVER mutated: a shallow copy is layered so callers
+ * (and the cached registry/store object) keep their original guardrails.
+ * When no client is supplied the original spec is returned unchanged so the
+ * single-node path is byte-for-byte identical to its prior behaviour.
+ */
+function withDistributedGuardrails(
+  agent: AgentExecutionSpec,
+  guardrailClient: CostLedgerClient | undefined
+): AgentExecutionSpec {
+  if (!guardrailClient) return agent;
+  const guardrails = (agent.guardrails ?? {}) as Record<string, unknown>;
+  const distributed = (guardrails["distributed"] ?? {}) as Record<
+    string,
+    unknown
+  >;
+  return {
+    ...agent,
+    guardrails: {
+      ...guardrails,
+      distributed: {
+        ...distributed,
+        rateLimiter: {
+          ...((distributed["rateLimiter"] as Record<string, unknown>) ?? {}),
+          client: guardrailClient,
+        },
+        costLedger: {
+          ...((distributed["costLedger"] as Record<string, unknown>) ?? {}),
+          client: guardrailClient,
+        },
+      },
+    },
+  };
+}
 
 /**
  * SEC-M-01-EXTENDED — stamp an event envelope with the job's owning tenant
@@ -12,59 +51,77 @@ import { closeTraceWithTerminalStep } from './run-stages-utils.js'
  * has no `metadata.tenantId`, preserving the gateway's legacy
  * `DEFAULT_TENANT_ID` fallback for single-tenant deployments.
  */
-function stampTenant<T extends object>(event: T, job: RunJob): T & { tenantId?: string } {
+function stampTenant<T extends object>(
+  event: T,
+  job: RunJob
+): T & { tenantId?: string } {
   const tenantId =
-    typeof job.metadata?.['tenantId'] === 'string'
-      ? (job.metadata['tenantId'] as string)
-      : undefined
-  return tenantId !== undefined ? { ...event, tenantId } : event
+    typeof job.metadata?.["tenantId"] === "string"
+      ? (job.metadata["tenantId"] as string)
+      : undefined;
+  return tenantId !== undefined ? { ...event, tenantId } : event;
 }
 
 export type AdmissionStageResult =
   | { agent: AgentExecutionSpec; input: unknown; rejected: false }
-  | { agent?: AgentExecutionSpec; input: unknown; rejected: true }
+  | { agent?: AgentExecutionSpec; input: unknown; rejected: true };
 
 export async function runAdmissionStage(options: {
-  job: RunJob
-  inputGuard: InputGuard | null
-  runStore: RunStore
-  eventBus: DzupEventBus
-  traceStore?: RunTraceStore
-  resolveAgent(agentId: string): Promise<AgentExecutionSpec | null>
+  job: RunJob;
+  inputGuard: InputGuard | null;
+  runStore: RunStore;
+  eventBus: DzupEventBus;
+  traceStore?: RunTraceStore;
+  resolveAgent(agentId: string): Promise<AgentExecutionSpec | null>;
+  /**
+   * P3 — optional fleet-wide guardrail backend. When present, the resolved
+   * agent spec is returned with `guardrails.distributed.{rateLimiter,costLedger}.client`
+   * set to this client (without mutating the original spec) so the executor
+   * shares one rate-limit window and one cost ceiling across replicas.
+   */
+  guardrailClient?: CostLedgerClient;
 }): Promise<AdmissionStageResult> {
-  const agent = await options.resolveAgent(options.job.agentId)
+  const resolvedAgent = await options.resolveAgent(options.job.agentId);
+  const agent = resolvedAgent
+    ? withDistributedGuardrails(resolvedAgent, options.guardrailClient)
+    : resolvedAgent;
   if (!agent) {
     await options.runStore.update(options.job.runId, {
-      status: 'failed',
+      status: "failed",
       error: `Agent "${options.job.agentId}" not found`,
       completedAt: new Date(),
-    })
-    options.eventBus.emit(stampTenant({
-      type: 'agent:failed',
-      agentId: options.job.agentId,
-      runId: options.job.runId,
-      errorCode: 'REGISTRY_AGENT_NOT_FOUND',
-      message: `Agent "${options.job.agentId}" not found`,
-    }, options.job))
-    return { input: options.job.input, rejected: true }
+    });
+    options.eventBus.emit(
+      stampTenant(
+        {
+          type: "agent:failed",
+          agentId: options.job.agentId,
+          runId: options.job.runId,
+          errorCode: "REGISTRY_AGENT_NOT_FOUND",
+          message: `Agent "${options.job.agentId}" not found`,
+        },
+        options.job
+      )
+    );
+    return { input: options.job.input, rejected: true };
   }
 
-  let input: unknown = options.job.input
+  let input: unknown = options.job.input;
   if (!options.inputGuard) {
-    return { agent, input, rejected: false }
+    return { agent, input, rejected: false };
   }
 
-  const guardResult = await options.inputGuard.scan(options.job.input)
+  const guardResult = await options.inputGuard.scan(options.job.input);
   if (!guardResult.allowed) {
-    const reason = guardResult.reason ?? 'Rejected by input guard'
+    const reason = guardResult.reason ?? "Rejected by input guard";
     await options.runStore.update(options.job.runId, {
-      status: 'rejected',
+      status: "rejected",
       error: reason,
       completedAt: new Date(),
-    })
+    });
     await options.runStore.addLog(options.job.runId, {
-      level: 'warn',
-      phase: 'security',
+      level: "warn",
+      phase: "security",
       message: `Input guard rejected run: ${reason}`,
       data: {
         violations: guardResult.violations?.map((v) => ({
@@ -73,127 +130,156 @@ export async function runAdmissionStage(options: {
           action: v.action,
         })),
       },
-    })
-    options.eventBus.emit(stampTenant({
-      type: 'agent:failed',
-      agentId: options.job.agentId,
-      runId: options.job.runId,
-      errorCode: 'POLICY_DENIED',
-      message: reason,
-    }, options.job))
+    });
+    options.eventBus.emit(
+      stampTenant(
+        {
+          type: "agent:failed",
+          agentId: options.job.agentId,
+          runId: options.job.runId,
+          errorCode: "POLICY_DENIED",
+          message: reason,
+        },
+        options.job
+      )
+    );
     await closeTraceWithTerminalStep(
       options.traceStore,
       options.job.runId,
-      'rejected',
-      { reason, guardedBy: 'input-guard' },
-    )
-    return { agent, input, rejected: true }
+      "rejected",
+      { reason, guardedBy: "input-guard" }
+    );
+    return { agent, input, rejected: true };
   }
 
   if (guardResult.redactedInput !== undefined) {
-    input = guardResult.redactedInput
-    await options.runStore.update(options.job.runId, { input })
+    input = guardResult.redactedInput;
+    await options.runStore.update(options.job.runId, { input });
     await options.runStore.addLog(options.job.runId, {
-      level: 'info',
-      phase: 'security',
-      message: 'Input guard redacted PII in run input',
-    })
+      level: "info",
+      phase: "security",
+      message: "Input guard redacted PII in run input",
+    });
   }
 
-  return { agent, input, rejected: false }
+  return { agent, input, rejected: false };
 }
 
 export async function waitForRunApproval(options: {
-  agent: AgentExecutionSpec
-  job: RunJob
-  input: unknown
-  runStore: RunStore
-  eventBus: DzupEventBus
-  traceStore?: RunTraceStore
+  agent: AgentExecutionSpec;
+  job: RunJob;
+  input: unknown;
+  runStore: RunStore;
+  eventBus: DzupEventBus;
+  traceStore?: RunTraceStore;
 }): Promise<boolean> {
-  if (options.agent.approval !== 'required') {
-    return true
+  if (options.agent.approval !== "required") {
+    return true;
   }
 
-  const timeoutMs = typeof options.job.metadata?.['approvalTimeoutMs'] === 'number'
-    ? Number(options.job.metadata['approvalTimeoutMs'])
-    : 60_000
+  const timeoutMs =
+    typeof options.job.metadata?.["approvalTimeoutMs"] === "number"
+      ? Number(options.job.metadata["approvalTimeoutMs"])
+      : 60_000;
 
   await options.runStore.update(options.job.runId, {
-    status: 'awaiting_approval',
+    status: "awaiting_approval",
     plan: { input: options.input, metadata: options.job.metadata },
-  })
+  });
   await options.runStore.addLog(options.job.runId, {
-    level: 'info',
-    phase: 'approval',
-    message: 'Awaiting approval before execution',
+    level: "info",
+    phase: "approval",
+    message: "Awaiting approval before execution",
     data: { timeoutMs },
-  })
-  options.eventBus.emit(stampTenant({ type: 'approval:requested', runId: options.job.runId, plan: { input: options.input } }, options.job))
+  });
+  options.eventBus.emit(
+    stampTenant(
+      {
+        type: "approval:requested",
+        runId: options.job.runId,
+        plan: { input: options.input },
+      },
+      options.job
+    )
+  );
 
-  const decision = await waitForApprovalDecision(options.eventBus, options.job.runId, timeoutMs)
+  const decision = await waitForApprovalDecision(
+    options.eventBus,
+    options.job.runId,
+    timeoutMs
+  );
   if (!decision.approved) {
     await options.runStore.update(options.job.runId, {
-      status: 'rejected',
-      error: decision.reason ?? 'Rejected by policy',
+      status: "rejected",
+      error: decision.reason ?? "Rejected by policy",
       completedAt: new Date(),
-    })
+    });
     await options.runStore.addLog(options.job.runId, {
-      level: 'warn',
-      phase: 'approval',
-      message: `Run rejected before execution: ${decision.reason ?? 'no reason provided'}`,
-    })
-    options.eventBus.emit(stampTenant({
-      type: 'agent:failed',
-      agentId: options.job.agentId,
-      runId: options.job.runId,
-      errorCode: 'APPROVAL_REJECTED',
-      message: decision.reason ?? 'Run rejected by approval policy',
-    }, options.job))
+      level: "warn",
+      phase: "approval",
+      message: `Run rejected before execution: ${
+        decision.reason ?? "no reason provided"
+      }`,
+    });
+    options.eventBus.emit(
+      stampTenant(
+        {
+          type: "agent:failed",
+          agentId: options.job.agentId,
+          runId: options.job.runId,
+          errorCode: "APPROVAL_REJECTED",
+          message: decision.reason ?? "Run rejected by approval policy",
+        },
+        options.job
+      )
+    );
     await closeTraceWithTerminalStep(
       options.traceStore,
       options.job.runId,
-      'rejected',
-      { reason: decision.reason ?? 'Run rejected by approval policy' },
-    )
-    return false
+      "rejected",
+      { reason: decision.reason ?? "Run rejected by approval policy" }
+    );
+    return false;
   }
 
-  await options.runStore.update(options.job.runId, { status: 'running' })
+  await options.runStore.update(options.job.runId, { status: "running" });
   await options.runStore.addLog(options.job.runId, {
-    level: 'info',
-    phase: 'approval',
-    message: 'Approval granted, proceeding with execution',
-  })
-  return true
+    level: "info",
+    phase: "approval",
+    message: "Approval granted, proceeding with execution",
+  });
+  return true;
 }
 
 async function waitForApprovalDecision(
   eventBus: DzupEventBus,
   runId: string,
-  timeoutMs: number,
+  timeoutMs: number
 ): Promise<{ approved: boolean; reason?: string }> {
   return new Promise((resolve) => {
-    const unsubGrant = eventBus.on('approval:granted', (event) => {
-      if (event.runId !== runId) return
-      unsubGrant()
-      unsubReject()
-      clearTimeout(timer)
-      resolve({ approved: true })
-    })
+    const unsubGrant = eventBus.on("approval:granted", (event) => {
+      if (event.runId !== runId) return;
+      unsubGrant();
+      unsubReject();
+      clearTimeout(timer);
+      resolve({ approved: true });
+    });
 
-    const unsubReject = eventBus.on('approval:rejected', (event) => {
-      if (event.runId !== runId) return
-      unsubGrant()
-      unsubReject()
-      clearTimeout(timer)
-      resolve({ approved: false, reason: event.reason })
-    })
+    const unsubReject = eventBus.on("approval:rejected", (event) => {
+      if (event.runId !== runId) return;
+      unsubGrant();
+      unsubReject();
+      clearTimeout(timer);
+      resolve({ approved: false, reason: event.reason });
+    });
 
     const timer = setTimeout(() => {
-      unsubGrant()
-      unsubReject()
-      resolve({ approved: false, reason: `Approval timed out after ${timeoutMs}ms` })
-    }, timeoutMs)
-  })
+      unsubGrant();
+      unsubReject();
+      resolve({
+        approved: false,
+        reason: `Approval timed out after ${timeoutMs}ms`,
+      });
+    }, timeoutMs);
+  });
 }

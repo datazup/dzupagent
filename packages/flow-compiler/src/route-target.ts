@@ -285,12 +285,15 @@ const ALWAYS_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
 ]);
 
 // Node types that are only unsupported in the skill-chain target.
-// 'agent' and 'validate' are runtime-executed in pipeline/workflow-builder
-// contexts where the runtime itself handles them; they are not lowerable
-// by the skill-chain lowerer.
+// These are runtime-executed in richer contexts where the runtime itself
+// handles them; they are not lowerable by the skill-chain lowerer.
 const SKILL_CHAIN_ONLY_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
   "agent",
   "validate",
+  "adapter.run",
+  "adapter.race",
+  "adapter.parallel",
+  "adapter.supervisor",
 ]);
 
 function isUnsupportedForTarget(

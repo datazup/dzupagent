@@ -15,6 +15,7 @@ import type { AgentExecutionSpec, RunStore } from "@dzupagent/core/persistence";
 import type { MetricsCollector } from "@dzupagent/core/utils";
 import type { CompressionLogEntry } from "@dzupagent/agent/runtime";
 import type { RunReflectionStore } from "@dzupagent/agent/reflection";
+import type { CostLedgerClient } from "@dzupagent/agent";
 import type { RunQueue } from "../queue/run-queue.js";
 import type { GracefulShutdown } from "../lifecycle/graceful-shutdown.js";
 import type { RunTraceStore } from "../persistence/run-trace-store.js";
@@ -60,7 +61,7 @@ export interface RunExecutorResult {
 }
 
 export type RunExecutor = (
-  context: RunExecutionContext,
+  context: RunExecutionContext
 ) => Promise<unknown | RunExecutorResult>;
 
 // ---------------------------------------------------------------------------
@@ -113,7 +114,7 @@ export interface EscalationPolicyLike {
   recordScore(
     key: string,
     score: number,
-    currentTier: string,
+    currentTier: string
   ): EscalationResultLike;
 }
 
@@ -126,7 +127,7 @@ export interface RunOutcomeAnalyzerLike {
       input?: string;
       output?: string;
       reference?: string;
-    },
+    }
   ): Promise<unknown>;
 }
 
@@ -189,6 +190,16 @@ export interface StartRunWorkerOptions {
    * attributes consumption after completion.
    */
   resourceQuota?: ResourceQuotaManager;
+  /**
+   * P3: Optional fleet-wide distributed guardrail backend (a Redis-backed
+   * {@link CostLedgerClient}). When provided, it is attached to every run's
+   * agent spec as the distributed rate-limiter + cost-ledger client during
+   * admission, and the final run cost is recorded against the shared ledger at
+   * completion so a fleet of workers shares one rate-limit window and one cost
+   * ceiling instead of each replica enforcing locally. Absent ⇒ local-only
+   * enforcement, unchanged.
+   */
+  guardrailClient?: CostLedgerClient;
   /**
    * P1: Optional worker fleet registry. When provided, the worker registers a
    * node on start, heartbeats its in-flight count on an interval, runs a

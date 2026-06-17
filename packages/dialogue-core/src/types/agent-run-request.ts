@@ -9,6 +9,7 @@ export interface AgentRunScopeFile {
 export interface AgentRunInput {
   prompt: string;
   role?: string;
+  systemPrompt?: string;
   scopeFiles?: AgentRunScopeFile[];
 }
 

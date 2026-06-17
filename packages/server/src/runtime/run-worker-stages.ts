@@ -10,22 +10,26 @@
 // Existing callers (run-worker.ts, tests) continue to import from this
 // barrel for backward compatibility.
 
-export type { AdmissionStageResult } from './run-stages-admission.js'
-export { runAdmissionStage, waitForRunApproval } from './run-stages-admission.js'
+export type { AdmissionStageResult } from "./run-stages-admission.js";
+export {
+  runAdmissionStage,
+  waitForRunApproval,
+} from "./run-stages-admission.js";
 
-export type { ExecutionStageResult } from './run-stages-execution.js'
-export { dispatchExecutionStage } from './run-stages-execution.js'
+export type { ExecutionStageResult } from "./run-stages-execution.js";
+export { dispatchExecutionStage } from "./run-stages-execution.js";
 
-export type { TerminalPersistenceResult } from './run-stages-persistence.js'
+export type { TerminalPersistenceResult } from "./run-stages-persistence.js";
 export {
   persistCancellation,
   persistFailure,
   persistTerminalSuccess,
+  recordDistributedCost,
   recordTelemetryStage,
   runPostRunLearningStage,
-} from './run-stages-persistence.js'
+} from "./run-stages-persistence.js";
 
 export {
   closeTraceWithTerminalStep,
   throwIfAborted,
-} from './run-stages-utils.js'
+} from "./run-stages-utils.js";

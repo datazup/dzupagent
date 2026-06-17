@@ -13,6 +13,8 @@ export interface ParticipantSpec {
   provider: string;
   model: string;
   role?: string;
+  /** Participant-level system/persona prompt sent with each agent turn. */
+  systemPrompt?: string;
 }
 
 export interface BudgetSpec {

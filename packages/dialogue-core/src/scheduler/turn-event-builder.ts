@@ -56,6 +56,9 @@ export function buildAgentRunRequest(
     ...(input.participant.role !== undefined
       ? { role: input.participant.role }
       : {}),
+    ...(input.participant.systemPrompt !== undefined
+      ? { systemPrompt: input.participant.systemPrompt }
+      : {}),
   };
 
   return {
@@ -158,6 +161,7 @@ function assertNoRawSinkFields(
   const candidate = event as unknown as Record<string, unknown>;
 
   assertMissingNestedKey(candidate, "input", "prompt");
+  assertMissingNestedKey(candidate, "input", "systemPrompt");
   assertMissingNestedKey(candidate, "output", "raw");
   assertMissingNestedKey(candidate, "workspace", "diff");
   assertMissingNestedKey(candidate, "validation", "output");

@@ -16,6 +16,7 @@ import {
   timestamp,
   jsonb,
   index,
+  primaryKey,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { vectorColumn } from "./vector-column.js";
@@ -660,19 +661,22 @@ export const auditLog = pgTable(
 /**
  * Content-addressed artifact store for durable node outputs (spec §11).
  * Large outputs reference external storage via storage_uri; small outputs
- * are stored inline (content_type + schema_ref for validation).
+ * are stored inline in content (content_type + schema_ref for validation).
  */
 export const flowArtifacts = pgTable(
   "flow_artifacts",
   {
     artifactRef: text("artifact_ref").primaryKey(),
+    tenantId: text("tenant_id").notNull().default("default"),
     contentDigest: text("content_digest").notNull(),
     contentType: text("content_type").notNull(),
+    content: jsonb("content").$type<unknown>(),
     storageUri: text("storage_uri"),
     schemaRef: text("schema_ref"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
+    index("flow_artifacts_tenant_id_idx").on(table.tenantId),
     index("flow_artifacts_content_digest_idx").on(table.contentDigest),
   ]
 );
@@ -688,14 +692,20 @@ export const flowArtifacts = pgTable(
 export const flowApprovals = pgTable(
   "flow_approvals",
   {
+    tenantId: text("tenant_id").notNull().default("default"),
     runId: text("run_id").notNull(),
-    approvalId: text("approval_id").primaryKey(),
+    approvalId: text("approval_id").notNull(),
     status: text("status").notNull().default("pending"),
     requestPayload: jsonb("request_payload")
       .$type<Record<string, unknown>>()
+      .notNull()
       .default({}),
     responsePayload: jsonb("response_payload").$type<Record<string, unknown>>(),
     resolvedAt: timestamp("resolved_at"),
   },
-  (table) => [index("flow_approvals_run_id_idx").on(table.runId)]
+  (table) => [
+    primaryKey({ columns: [table.runId, table.approvalId] }),
+    index("flow_approvals_tenant_id_idx").on(table.tenantId),
+    index("flow_approvals_run_id_idx").on(table.runId),
+  ]
 );

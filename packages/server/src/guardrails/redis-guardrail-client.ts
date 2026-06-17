@@ -66,3 +66,19 @@ export class RedisGuardrailClient {
     return toNumber(await this.redis.incrbyfloat(key, increment));
   }
 }
+
+/**
+ * Factory: wrap an already-constructed Redis-shaped connection as a
+ * {@link RedisGuardrailClient}.
+ *
+ * `ioredis` is intentionally NOT a dependency of `@dzupagent/server` (Redis
+ * stays optional — see the module header). Hosts that want fleet-wide
+ * guardrails construct their own `ioredis`/`node-redis` client (or any
+ * structurally compatible store) and pass it here, then inject the result via
+ * `ForgeServerConfig.guardrailClient`.
+ */
+export function createRedisGuardrailClientFromConnection(
+  connection: RedisLikeConnection
+): RedisGuardrailClient {
+  return new RedisGuardrailClient(connection);
+}
