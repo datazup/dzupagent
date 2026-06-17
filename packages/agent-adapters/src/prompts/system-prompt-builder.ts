@@ -25,7 +25,7 @@
  *   // → 'You are a TypeScript expert.'
  */
 
-import type { AdapterProviderId } from '../types.js'
+import type { AdapterProviderId } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -33,28 +33,28 @@ import type { AdapterProviderId } from '../types.js'
 
 /** Claude SDK preset-append form (keeps built-in claude_code system + adds user text). */
 export interface ClaudeAppendPayload {
-  type: 'preset'
-  preset: 'claude_code'
-  append: string
+  type: "preset";
+  preset: "claude_code";
+  append: string;
 }
 
 /** Claude plain-string form (replaces the entire system prompt). */
-export type ClaudeReplacePayload = string
+export type ClaudeReplacePayload = string;
 
 /** Codex config-key form (maps to --config instructions / developer_instructions). */
 export interface CodexPromptPayload {
-  instructions: string
-  developer_instructions?: string
+  instructions: string;
+  developer_instructions?: string;
 }
 
 /** Generic string payload used by all other providers. */
-export type StringPromptPayload = string
+export type StringPromptPayload = string;
 
 export type SystemPromptPayload =
   | ClaudeAppendPayload
   | ClaudeReplacePayload
   | CodexPromptPayload
-  | StringPromptPayload
+  | StringPromptPayload;
 
 // ---------------------------------------------------------------------------
 // Options
@@ -68,13 +68,13 @@ export interface SystemPromptBuilderOptions {
    * - `'replace'`: replaces the entire system prompt; use only when you need
    *   full control of the system context.
    */
-  claudeMode?: 'append' | 'replace'
+  claudeMode?: "append" | "replace";
 
   /**
    * For Codex: optional `developer_instructions` string (meta-level agent
    * behaviour, separate from user-facing `instructions`).
    */
-  codexDeveloperInstructions?: string
+  codexDeveloperInstructions?: string;
 
   /**
    * For Qwen: reasoning soft switch appended to the system prompt.
@@ -83,9 +83,27 @@ export interface SystemPromptBuilderOptions {
    * - unset (default): no switch appended; the model's own default applies.
    * The most recent switch wins in multi-turn conversations, so placing it on
    * the system prompt sets the baseline mode for the run.
+   *
+   * Takes precedence over the normalized {@link reasoning} mapping for Qwen
+   * (author override, FR-4.2).
    */
-  qwenReasoning?: 'on' | 'off'
+  qwenReasoning?: "on" | "off";
+
+  /**
+   * Normalized reasoning intent (FR-4 / REQ-PREP-2), mapped per provider:
+   * - Claude: `output_config.effort` (via {@link SystemPromptBuilder.reasoningEffort}).
+   * - OpenAI / Codex: reasoning effort (via `reasoningEffort`).
+   * - Gemini: thinking level (via `reasoningEffort`); `'low'` also appends a
+   *   lean "think silently" directive to the system prompt for latency.
+   * - Qwen: `/think` (medium/high) vs `/no_think` (low) soft switch in the
+   *   system prompt — Qwen has no separate effort knob.
+   * Unset (default): no reasoning shaping is applied.
+   */
+  reasoning?: "low" | "medium" | "high";
 }
+
+/** Provider effort value produced by {@link SystemPromptBuilder.reasoningEffort}. */
+export type ReasoningEffort = "low" | "medium" | "high";
 
 // ---------------------------------------------------------------------------
 // Persona template context & resolution
@@ -97,23 +115,23 @@ export interface SystemPromptBuilderOptions {
  */
 export interface PersonaTemplateContext {
   persona?: {
-    id?: string
-    name?: string
-    role?: string
-  }
+    id?: string;
+    name?: string;
+    role?: string;
+  };
   task?: {
-    description?: string
-  }
+    description?: string;
+  };
   run?: {
-    depth?: number
-    branchId?: string
-    rootRunId?: string
-  }
+    depth?: number;
+    branchId?: string;
+    rootRunId?: string;
+  };
   parent?: {
-    output?: string
-  }
+    output?: string;
+  };
   /** Arbitrary extra variables merged at resolution time. */
-  extra?: Record<string, string>
+  extra?: Record<string, string>;
 }
 
 /**
@@ -125,38 +143,42 @@ export interface PersonaTemplateContext {
  */
 export function resolvePersonaTemplate(
   template: string,
-  ctx: PersonaTemplateContext,
+  ctx: PersonaTemplateContext
 ): string {
-  const flat: Record<string, string> = {}
+  const flat: Record<string, string> = {};
 
   if (ctx.persona) {
-    if (ctx.persona.id != null) flat['persona.id'] = ctx.persona.id
-    if (ctx.persona.name != null) flat['persona.name'] = ctx.persona.name
-    if (ctx.persona.role != null) flat['persona.role'] = ctx.persona.role
+    if (ctx.persona.id != null) flat["persona.id"] = ctx.persona.id;
+    if (ctx.persona.name != null) flat["persona.name"] = ctx.persona.name;
+    if (ctx.persona.role != null) flat["persona.role"] = ctx.persona.role;
   }
   if (ctx.task) {
-    if (ctx.task.description != null) flat['task.description'] = ctx.task.description
+    if (ctx.task.description != null)
+      flat["task.description"] = ctx.task.description;
   }
   if (ctx.run) {
-    if (ctx.run.depth != null) flat['run.depth'] = String(ctx.run.depth)
-    if (ctx.run.branchId != null) flat['run.branchId'] = ctx.run.branchId
-    if (ctx.run.rootRunId != null) flat['run.rootRunId'] = ctx.run.rootRunId
+    if (ctx.run.depth != null) flat["run.depth"] = String(ctx.run.depth);
+    if (ctx.run.branchId != null) flat["run.branchId"] = ctx.run.branchId;
+    if (ctx.run.rootRunId != null) flat["run.rootRunId"] = ctx.run.rootRunId;
   }
   if (ctx.parent) {
-    if (ctx.parent.output != null) flat['parent.output'] = ctx.parent.output
+    if (ctx.parent.output != null) flat["parent.output"] = ctx.parent.output;
   }
   if (ctx.extra) {
     for (const [k, v] of Object.entries(ctx.extra)) {
-      flat[k] = v
+      flat[k] = v;
     }
   }
 
-  return template.replace(/\{\{([^}]+)\}\}/g, (match: string, key: string): string => {
-    const trimmed = key.trim()
-    if (trimmed in flat) return flat[trimmed]!
-    // Leave unresolved placeholder as-is (don't break the prompt silently)
-    return match
-  })
+  return template.replace(
+    /\{\{([^}]+)\}\}/g,
+    (match: string, key: string): string => {
+      const trimmed = key.trim();
+      if (trimmed in flat) return flat[trimmed]!;
+      // Leave unresolved placeholder as-is (don't break the prompt silently)
+      return match;
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -164,21 +186,27 @@ export function resolvePersonaTemplate(
 // ---------------------------------------------------------------------------
 
 export class SystemPromptBuilder {
-  private readonly text: string
-  private readonly opts: Required<Omit<SystemPromptBuilderOptions, 'qwenReasoning'>> & {
-    qwenReasoning: 'on' | 'off' | null
-  }
+  private readonly text: string;
+  private readonly opts: Required<
+    Omit<SystemPromptBuilderOptions, "qwenReasoning" | "reasoning">
+  > & {
+    qwenReasoning: "on" | "off" | null;
+    reasoning: "low" | "medium" | "high" | null;
+  };
 
   constructor(systemPrompt: string, opts: SystemPromptBuilderOptions = {}) {
     if (!systemPrompt.trim()) {
-      throw new Error('SystemPromptBuilder: systemPrompt must be a non-empty string')
+      throw new Error(
+        "SystemPromptBuilder: systemPrompt must be a non-empty string"
+      );
     }
-    this.text = systemPrompt
+    this.text = systemPrompt;
     this.opts = {
-      claudeMode: opts.claudeMode ?? 'append',
-      codexDeveloperInstructions: opts.codexDeveloperInstructions ?? '',
+      claudeMode: opts.claudeMode ?? "append",
+      codexDeveloperInstructions: opts.codexDeveloperInstructions ?? "",
       qwenReasoning: opts.qwenReasoning ?? null,
-    }
+      reasoning: opts.reasoning ?? null,
+    };
   }
 
   /**
@@ -190,14 +218,17 @@ export class SystemPromptBuilder {
    */
   buildFor(providerId: AdapterProviderId): SystemPromptPayload {
     switch (providerId) {
-      case 'claude':
-        return this.buildForClaude()
-      case 'codex':
-        return this.buildForCodex()
-      case 'qwen':
-        return this.buildForQwen()
+      case "claude":
+        return this.buildForClaude();
+      case "codex":
+        return this.buildForCodex();
+      case "qwen":
+        return this.buildForQwen();
+      case "gemini":
+      case "gemini-sdk":
+        return this.buildForGemini();
       default:
-        return this.text
+        return this.text;
     }
   }
 
@@ -206,14 +237,14 @@ export class SystemPromptBuilder {
    * Returns an append-preset object by default; plain string in replace mode.
    */
   buildForClaude(): ClaudeAppendPayload | ClaudeReplacePayload {
-    if (this.opts.claudeMode === 'replace') {
-      return this.text
+    if (this.opts.claudeMode === "replace") {
+      return this.text;
     }
     return {
-      type: 'preset',
-      preset: 'claude_code',
+      type: "preset",
+      preset: "claude_code",
       append: this.text,
-    }
+    };
   }
 
   /**
@@ -222,27 +253,80 @@ export class SystemPromptBuilder {
    * `--config developer_instructions=...`.
    */
   buildForCodex(): CodexPromptPayload {
-    const payload: CodexPromptPayload = { instructions: this.text }
+    const payload: CodexPromptPayload = { instructions: this.text };
     if (this.opts.codexDeveloperInstructions) {
-      payload.developer_instructions = this.opts.codexDeveloperInstructions
+      payload.developer_instructions = this.opts.codexDeveloperInstructions;
     }
-    return payload
+    return payload;
   }
 
   /**
    * Build the Qwen-specific system prompt.
-   * Appends the `/think` or `/no_think` soft switch when `qwenReasoning` is set;
-   * otherwise returns the raw prompt unchanged.
+   *
+   * Resolution order (FR-4.2 author override):
+   *   1. explicit `qwenReasoning` (`'on'`→`/think`, `'off'`→`/no_think`), else
+   *   2. normalized `reasoning` (`'low'`→`/no_think`, `'medium'|'high'`→`/think`), else
+   *   3. raw prompt unchanged.
+   * The most recent switch wins in multi-turn, so this sets the run baseline.
    */
   buildForQwen(): StringPromptPayload {
-    if (this.opts.qwenReasoning === 'off') return `${this.text}\n\n/no_think`
-    if (this.opts.qwenReasoning === 'on') return `${this.text}\n\n/think`
-    return this.text
+    const sw = this.qwenSwitch();
+    return sw ? `${this.text}\n\n${sw}` : this.text;
+  }
+
+  private qwenSwitch(): "/think" | "/no_think" | null {
+    if (this.opts.qwenReasoning === "off") return "/no_think";
+    if (this.opts.qwenReasoning === "on") return "/think";
+    if (this.opts.reasoning === "low") return "/no_think";
+    if (this.opts.reasoning === "medium" || this.opts.reasoning === "high") {
+      return "/think";
+    }
+    return null;
+  }
+
+  /**
+   * Build the Gemini-specific system prompt. Gemini favors directness and is
+   * terse by default (§3.3), so no verbose scaffolding is added. On
+   * `reasoning: 'low'` a lean "think silently" directive is appended for
+   * latency; on medium/high the prompt is left unpadded so the model's own
+   * thinking does the work.
+   */
+  buildForGemini(): StringPromptPayload {
+    if (this.opts.reasoning === "low") {
+      return `${this.text}\n\nThink silently; keep reasoning brief.`;
+    }
+    return this.text;
+  }
+
+  /**
+   * Map the normalized `reasoning` intent onto a provider's API-level effort
+   * knob (REQ-PREP-2), for the adapter to apply outside the system prompt:
+   *   - Claude → `output_config.effort`
+   *   - OpenAI / Codex → reasoning effort
+   *   - Gemini → thinking level
+   *   - Qwen → `undefined` (carried in the system-prompt soft switch instead)
+   * Returns `undefined` when no reasoning intent is set, or for providers that
+   * have no separate effort knob.
+   */
+  reasoningEffort(providerId: AdapterProviderId): ReasoningEffort | undefined {
+    if (this.opts.reasoning === null) return undefined;
+    switch (providerId) {
+      case "claude":
+      case "codex":
+      case "openai":
+      case "openrouter":
+      case "gemini":
+      case "gemini-sdk":
+        return this.opts.reasoning;
+      default:
+        // qwen (system-prompt switch), crush/goose (CLI passthrough): no knob.
+        return undefined;
+    }
   }
 
   /** The raw system prompt text (useful for logging / serialization). */
   get rawText(): string {
-    return this.text
+    return this.text;
   }
 
   /**
@@ -255,9 +339,9 @@ export class SystemPromptBuilder {
   static fromPersonaTemplate(
     template: string,
     ctx: PersonaTemplateContext,
-    opts?: SystemPromptBuilderOptions,
+    opts?: SystemPromptBuilderOptions
   ): SystemPromptBuilder {
-    const resolved = resolvePersonaTemplate(template, ctx)
-    return new SystemPromptBuilder(resolved, opts)
+    const resolved = resolvePersonaTemplate(template, ctx);
+    return new SystemPromptBuilder(resolved, opts);
   }
 }
