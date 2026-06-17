@@ -32,7 +32,8 @@
  *   }
  */
 
-import type { AgentEvent } from '../types.js'
+import type { AgentEvent } from "../types.js";
+import { stripThinkingBlocks } from "../prompts/thinking-history.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,11 +42,11 @@ import type { AgentEvent } from '../types.js'
 /** A single turn in the conversation (all events from one execute() call). */
 export interface ConversationTurn {
   /** The user's original prompt for this turn. */
-  prompt: string
+  prompt: string;
   /** Assistant response text (concatenated from adapter:message events). */
-  response: string
+  response: string;
   /** Tool interactions summary for this turn. */
-  toolSummary: string[]
+  toolSummary: string[];
 }
 
 export interface ConversationCompressorOptions {
@@ -54,26 +55,35 @@ export interface ConversationCompressorOptions {
    * Uses a 4-chars-per-token approximation.
    * Defaults to 4000 (≈ 16 KB).
    */
-  tokenBudget?: number
+  tokenBudget?: number;
 
   /**
    * Approximate chars per token used for budget calculation.
    * Defaults to 4.
    */
-  charsPerToken?: number
+  charsPerToken?: number;
 
   /**
    * Header placed at the top of the history block.
    * Defaults to `## Conversation history\n`.
    */
-  header?: string
+  header?: string;
 
   /**
    * Optional custom compressor function that receives the full list of turns
    * and the token budget, and returns the trimmed text.
    * Overrides the built-in character-budget trimmer.
    */
-  compress?: (turns: ConversationTurn[], tokenBudget: number) => string
+  compress?: (turns: ConversationTurn[], tokenBudget: number) => string;
+
+  /**
+   * Strip `<think>…</think>` blocks from assistant responses as turns are
+   * recorded (REQ-PREP-3). Enable for providers whose history must carry only
+   * the final output (e.g. Qwen3 thinking mode). Defaults to `false` so existing
+   * callers — and providers that require thinking echoed back, like Claude —
+   * are unaffected.
+   */
+  stripThinking?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,21 +91,25 @@ export interface ConversationCompressorOptions {
 // ---------------------------------------------------------------------------
 
 export class ConversationCompressor {
-  private readonly turns: ConversationTurn[] = []
-  private currentTurnPrompt: string | null = null
-  private currentResponseParts: string[] = []
-  private currentToolSummary: string[] = []
+  private readonly turns: ConversationTurn[] = [];
+  private currentTurnPrompt: string | null = null;
+  private currentResponseParts: string[] = [];
+  private currentToolSummary: string[] = [];
 
-  private readonly tokenBudget: number
-  private readonly charsPerToken: number
-  private readonly header: string
-  private readonly customCompress: ((turns: ConversationTurn[], budget: number) => string) | undefined
+  private readonly tokenBudget: number;
+  private readonly charsPerToken: number;
+  private readonly header: string;
+  private readonly customCompress:
+    | ((turns: ConversationTurn[], budget: number) => string)
+    | undefined;
+  private readonly stripThinking: boolean;
 
   constructor(opts: ConversationCompressorOptions = {}) {
-    this.tokenBudget = opts.tokenBudget ?? 4000
-    this.charsPerToken = opts.charsPerToken ?? 4
-    this.header = opts.header ?? '## Conversation history\n'
-    this.customCompress = opts.compress
+    this.tokenBudget = opts.tokenBudget ?? 4000;
+    this.charsPerToken = opts.charsPerToken ?? 4;
+    this.header = opts.header ?? "## Conversation history\n";
+    this.customCompress = opts.compress;
+    this.stripThinking = opts.stripThinking ?? false;
   }
 
   // ---------------------------------------------------------------------------
@@ -109,43 +123,43 @@ export class ConversationCompressor {
    */
   recordEvent(event: AgentEvent): void {
     switch (event.type) {
-      case 'adapter:started':
+      case "adapter:started":
         // Begin a new turn
-        this.flushCurrentTurn()
-        this.currentTurnPrompt = event.prompt ?? null
-        this.currentResponseParts = []
-        this.currentToolSummary = []
-        break
+        this.flushCurrentTurn();
+        this.currentTurnPrompt = event.prompt ?? null;
+        this.currentResponseParts = [];
+        this.currentToolSummary = [];
+        break;
 
-      case 'adapter:message':
+      case "adapter:message":
         if (event.content.trim()) {
-          this.currentResponseParts.push(event.content)
+          this.currentResponseParts.push(event.content);
         }
-        break
+        break;
 
-      case 'adapter:tool_call':
-        this.currentToolSummary.push(`call:${event.toolName}`)
-        break
+      case "adapter:tool_call":
+        this.currentToolSummary.push(`call:${event.toolName}`);
+        break;
 
-      case 'adapter:tool_result':
-        this.currentToolSummary.push(`result:${event.toolName}`)
-        break
+      case "adapter:tool_result":
+        this.currentToolSummary.push(`result:${event.toolName}`);
+        break;
 
-      case 'adapter:completed':
-      case 'adapter:failed':
+      case "adapter:completed":
+      case "adapter:failed":
         // End of turn — commit to history
-        this.flushCurrentTurn()
-        break
+        this.flushCurrentTurn();
+        break;
 
       default:
         // adapter:stream_delta — skip, content arrives via adapter:message
-        break
+        break;
     }
   }
 
   /** Record multiple events at once (e.g. replaying a captured stream). */
   recordEvents(events: AgentEvent[]): void {
-    for (const evt of events) this.recordEvent(evt)
+    for (const evt of events) this.recordEvent(evt);
   }
 
   // ---------------------------------------------------------------------------
@@ -154,7 +168,7 @@ export class ConversationCompressor {
 
   /** Returns true if at least one complete turn has been captured. */
   get hasTurns(): boolean {
-    return this.turns.length > 0
+    return this.turns.length > 0;
   }
 
   /**
@@ -162,13 +176,13 @@ export class ConversationCompressor {
    * budget.  Returns `null` if no turns have been captured yet.
    */
   buildHistory(): string | null {
-    if (this.turns.length === 0) return null
+    if (this.turns.length === 0) return null;
 
     const text = this.customCompress
       ? this.customCompress(this.turns, this.tokenBudget)
-      : this.defaultCompress(this.turns, this.tokenBudget)
+      : this.defaultCompress(this.turns, this.tokenBudget);
 
-    return text || null
+    return text || null;
   }
 
   /**
@@ -176,7 +190,7 @@ export class ConversationCompressor {
    * Returns a defensive copy.
    */
   getTurns(): ConversationTurn[] {
-    return [...this.turns]
+    return [...this.turns];
   }
 
   /**
@@ -184,16 +198,16 @@ export class ConversationCompressor {
    * Useful when starting a new conversation session with the same instance.
    */
   reset(): void {
-    this.turns.length = 0
-    this.currentTurnPrompt = null
-    this.currentResponseParts = []
-    this.currentToolSummary = []
+    this.turns.length = 0;
+    this.currentTurnPrompt = null;
+    this.currentResponseParts = [];
+    this.currentToolSummary = [];
   }
 
   /** Estimated token count of the current history (not including header). */
   estimateTokens(): number {
-    const text = this.serializeTurns(this.turns)
-    return Math.ceil(text.length / this.charsPerToken)
+    const text = this.serializeTurns(this.turns);
+    return Math.ceil(text.length / this.charsPerToken);
   }
 
   // ---------------------------------------------------------------------------
@@ -201,35 +215,39 @@ export class ConversationCompressor {
   // ---------------------------------------------------------------------------
 
   private flushCurrentTurn(): void {
-    if (this.currentTurnPrompt === null) return
+    if (this.currentTurnPrompt === null) return;
+    const response = this.currentResponseParts.join("\n");
     this.turns.push({
       prompt: this.currentTurnPrompt,
-      response: this.currentResponseParts.join('\n'),
+      response: this.stripThinking ? stripThinkingBlocks(response) : response,
       toolSummary: [...this.currentToolSummary],
-    })
-    this.currentTurnPrompt = null
-    this.currentResponseParts = []
-    this.currentToolSummary = []
+    });
+    this.currentTurnPrompt = null;
+    this.currentResponseParts = [];
+    this.currentToolSummary = [];
   }
 
-  private defaultCompress(turns: ConversationTurn[], tokenBudget: number): string {
-    const budgetChars = tokenBudget * this.charsPerToken
+  private defaultCompress(
+    turns: ConversationTurn[],
+    tokenBudget: number
+  ): string {
+    const budgetChars = tokenBudget * this.charsPerToken;
     // Try progressively fewer turns from the end until we fit the budget
     for (let start = 0; start < turns.length; start++) {
-      const slice = turns.slice(start)
-      const serialised = this.serializeTurns(slice)
+      const slice = turns.slice(start);
+      const serialised = this.serializeTurns(slice);
       if (this.header.length + serialised.length <= budgetChars) {
-        return `${this.header}${serialised}`
+        return `${this.header}${serialised}`;
       }
     }
     // Even one turn doesn't fit — take the last turn and truncate
-    const lastTurn = turns[turns.length - 1]!
-    const truncated = `${this.header}${formatTurn(lastTurn)}`
-    return truncated.slice(0, budgetChars)
+    const lastTurn = turns[turns.length - 1]!;
+    const truncated = `${this.header}${formatTurn(lastTurn)}`;
+    return truncated.slice(0, budgetChars);
   }
 
   private serializeTurns(turns: ConversationTurn[]): string {
-    return turns.map((t) => formatTurn(t)).join('\n')
+    return turns.map((t) => formatTurn(t)).join("\n");
   }
 }
 
@@ -238,13 +256,13 @@ export class ConversationCompressor {
 // ---------------------------------------------------------------------------
 
 function formatTurn(turn: ConversationTurn): string {
-  const parts: string[] = []
-  parts.push(`[user]: ${turn.prompt}`)
+  const parts: string[] = [];
+  parts.push(`[user]: ${turn.prompt}`);
   if (turn.response) {
-    parts.push(`[assistant]: ${turn.response}`)
+    parts.push(`[assistant]: ${turn.response}`);
   }
   if (turn.toolSummary.length > 0) {
-    parts.push(`[tools]: ${turn.toolSummary.join(', ')}`)
+    parts.push(`[tools]: ${turn.toolSummary.join(", ")}`);
   }
-  return parts.join('\n')
+  return parts.join("\n");
 }
