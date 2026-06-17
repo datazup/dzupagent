@@ -100,10 +100,40 @@ export interface SystemPromptBuilderOptions {
    * Unset (default): no reasoning shaping is applied.
    */
   reasoning?: "low" | "medium" | "high";
+
+  /**
+   * Normalized structured-output intent (FR-4 / REQ-PREP-2 dim 2): a JSON Schema
+   * mapped to each provider's NATIVE structured-output request mechanism via
+   * {@link SystemPromptBuilder.structuredOutputConfig} — never to prompt wording
+   * where a native mechanism exists. Unset (default): no structured-output config.
+   */
+  outputSchema?: Record<string, unknown>;
+
+  /**
+   * Name attached to the structured-output schema where the provider's
+   * mechanism takes one (OpenAI json_schema name, Qwen tool name). Default
+   * `'structured_output'`.
+   */
+  outputSchemaName?: string;
+
+  /**
+   * Raw passthrough (REQ-PREP-4): when `true`, every prep adornment is
+   * bypassed — `buildFor` returns the verbatim system prompt for all providers,
+   * and `reasoningEffort` / `structuredOutputConfig` return `undefined`. For
+   * advanced authors who want full control of the provider request.
+   */
+  raw?: boolean;
 }
 
 /** Provider effort value produced by {@link SystemPromptBuilder.reasoningEffort}. */
 export type ReasoningEffort = "low" | "medium" | "high";
+
+/**
+ * Provider-native structured-output request config produced by
+ * {@link SystemPromptBuilder.structuredOutputConfig}. The shape is the
+ * provider's own — the adapter spreads it into its request payload.
+ */
+export type StructuredOutputRequestConfig = Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
 // Persona template context & resolution
@@ -187,11 +217,14 @@ export function resolvePersonaTemplate(
 
 export class SystemPromptBuilder {
   private readonly text: string;
-  private readonly opts: Required<
-    Omit<SystemPromptBuilderOptions, "qwenReasoning" | "reasoning">
-  > & {
+  private readonly opts: {
+    claudeMode: "append" | "replace";
+    codexDeveloperInstructions: string;
     qwenReasoning: "on" | "off" | null;
     reasoning: "low" | "medium" | "high" | null;
+    outputSchema: Record<string, unknown> | null;
+    outputSchemaName: string;
+    raw: boolean;
   };
 
   constructor(systemPrompt: string, opts: SystemPromptBuilderOptions = {}) {
@@ -206,6 +239,9 @@ export class SystemPromptBuilder {
       codexDeveloperInstructions: opts.codexDeveloperInstructions ?? "",
       qwenReasoning: opts.qwenReasoning ?? null,
       reasoning: opts.reasoning ?? null,
+      outputSchema: opts.outputSchema ?? null,
+      outputSchemaName: opts.outputSchemaName ?? "structured_output",
+      raw: opts.raw ?? false,
     };
   }
 
@@ -215,8 +251,12 @@ export class SystemPromptBuilder {
    * Returns the value that should be assigned to the provider-specific option
    * field (e.g. `options.systemPrompt` for Claude, `config.instructions` for
    * Codex, or the `systemPrompt` query param for others).
+   *
+   * When `raw` is set, returns the verbatim system prompt for every provider
+   * (no adornment).
    */
   buildFor(providerId: AdapterProviderId): SystemPromptPayload {
+    if (this.opts.raw) return this.text;
     switch (providerId) {
       case "claude":
         return this.buildForClaude();
@@ -309,7 +349,7 @@ export class SystemPromptBuilder {
    * have no separate effort knob.
    */
   reasoningEffort(providerId: AdapterProviderId): ReasoningEffort | undefined {
-    if (this.opts.reasoning === null) return undefined;
+    if (this.opts.raw || this.opts.reasoning === null) return undefined;
     switch (providerId) {
       case "claude":
       case "codex":
@@ -320,6 +360,63 @@ export class SystemPromptBuilder {
         return this.opts.reasoning;
       default:
         // qwen (system-prompt switch), crush/goose (CLI passthrough): no knob.
+        return undefined;
+    }
+  }
+
+  /**
+   * Map the normalized `outputSchema` (a JSON Schema) onto a provider's NATIVE
+   * structured-output request mechanism (REQ-PREP-2 dim 2). The returned object
+   * is the provider's own request shape, which the adapter spreads into its
+   * request payload:
+   *   - Claude → `{ output_config: { format: { type: 'json_schema', schema } } }`
+   *   - OpenAI / Codex / OpenRouter → `{ response_format: { type: 'json_schema',
+   *     json_schema: { name, strict: true, schema } } }`
+   *   - Gemini → `{ responseMimeType: 'application/json', responseSchema }`
+   *   - Qwen → a forced `structured_output` tool-call envelope
+   * Returns `undefined` when no `outputSchema` is set, in `raw` mode, or for
+   * CLI-passthrough providers (crush, goose) that expose no native mechanism.
+   */
+  structuredOutputConfig(
+    providerId: AdapterProviderId
+  ): StructuredOutputRequestConfig | undefined {
+    if (this.opts.raw || this.opts.outputSchema === null) return undefined;
+    const schema = this.opts.outputSchema;
+    const name = this.opts.outputSchemaName;
+    switch (providerId) {
+      case "claude":
+        return { output_config: { format: { type: "json_schema", schema } } };
+      case "codex":
+      case "openai":
+      case "openrouter":
+        return {
+          response_format: {
+            type: "json_schema",
+            json_schema: { name, strict: true, schema },
+          },
+        };
+      case "gemini":
+      case "gemini-sdk":
+        return {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+        };
+      case "qwen":
+        return {
+          tools: [
+            {
+              type: "function",
+              function: {
+                name,
+                description: "Return the result as structured JSON.",
+                parameters: schema,
+              },
+            },
+          ],
+          tool_choice: { type: "function", function: { name } },
+        };
+      default:
+        // crush / goose: CLI passthrough, no native structured-output knob.
         return undefined;
     }
   }

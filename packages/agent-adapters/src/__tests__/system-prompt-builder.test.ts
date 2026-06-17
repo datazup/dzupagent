@@ -274,4 +274,133 @@ describe("SystemPromptBuilder", () => {
       ).toBeUndefined();
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 5.2b — structured-output dimension (REQ-PREP-2 dim 2)
+  // -------------------------------------------------------------------------
+
+  describe("structuredOutputConfig(providerId)", () => {
+    const SCHEMA = {
+      type: "object",
+      properties: { answer: { type: "string" } },
+      required: ["answer"],
+    } as const;
+
+    function b(opts?: ConstructorParameters<typeof SystemPromptBuilder>[1]) {
+      return new SystemPromptBuilder("Answer.", opts);
+    }
+
+    it("returns undefined when no outputSchema is set", () => {
+      expect(b().structuredOutputConfig("claude")).toBeUndefined();
+    });
+
+    it("maps to Claude output_config.format json_schema", () => {
+      const cfg = b({ outputSchema: SCHEMA }).structuredOutputConfig("claude");
+      expect(cfg).toEqual({
+        output_config: { format: { type: "json_schema", schema: SCHEMA } },
+      });
+    });
+
+    it("maps to OpenAI/Codex response_format json_schema (strict)", () => {
+      const expected = {
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "structured_output",
+            strict: true,
+            schema: SCHEMA,
+          },
+        },
+      };
+      expect(
+        b({ outputSchema: SCHEMA }).structuredOutputConfig("openai")
+      ).toEqual(expected);
+      expect(
+        b({ outputSchema: SCHEMA }).structuredOutputConfig("codex")
+      ).toEqual(expected);
+    });
+
+    it("maps to Gemini responseSchema + responseMimeType", () => {
+      const cfg = b({ outputSchema: SCHEMA }).structuredOutputConfig("gemini");
+      expect(cfg).toEqual({
+        responseMimeType: "application/json",
+        responseSchema: SCHEMA,
+      });
+    });
+
+    it("maps to a Qwen tool-call envelope", () => {
+      const cfg = b({ outputSchema: SCHEMA }).structuredOutputConfig("qwen");
+      expect(cfg).toEqual({
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "structured_output",
+              description: "Return the result as structured JSON.",
+              parameters: SCHEMA,
+            },
+          },
+        ],
+        tool_choice: {
+          type: "function",
+          function: { name: "structured_output" },
+        },
+      });
+    });
+
+    it("returns undefined for CLI passthrough providers (crush, goose)", () => {
+      expect(
+        b({ outputSchema: SCHEMA }).structuredOutputConfig("crush")
+      ).toBeUndefined();
+      expect(
+        b({ outputSchema: SCHEMA }).structuredOutputConfig("goose")
+      ).toBeUndefined();
+    });
+
+    it("uses a custom schema name when provided", () => {
+      const cfg = b({
+        outputSchema: SCHEMA,
+        outputSchemaName: "weather",
+      }).structuredOutputConfig("openai") as {
+        response_format: { json_schema: { name: string } };
+      };
+      expect(cfg.response_format.json_schema.name).toBe("weather");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 5.2b — raw passthrough (REQ-PREP-4)
+  // -------------------------------------------------------------------------
+
+  describe("promptPrep raw passthrough", () => {
+    const SCHEMA = { type: "object" } as const;
+
+    it("buildFor returns the raw text for every provider when raw=true", () => {
+      const builder = new SystemPromptBuilder("Verbatim.", {
+        raw: true,
+        reasoning: "low",
+        qwenReasoning: "off",
+      });
+      expect(builder.buildFor("claude")).toBe("Verbatim.");
+      expect(builder.buildFor("codex")).toBe("Verbatim.");
+      expect(builder.buildFor("qwen")).toBe("Verbatim.");
+      expect(builder.buildFor("gemini")).toBe("Verbatim.");
+    });
+
+    it("reasoningEffort is suppressed when raw=true", () => {
+      const builder = new SystemPromptBuilder("x", {
+        raw: true,
+        reasoning: "high",
+      });
+      expect(builder.reasoningEffort("claude")).toBeUndefined();
+    });
+
+    it("structuredOutputConfig is suppressed when raw=true", () => {
+      const builder = new SystemPromptBuilder("x", {
+        raw: true,
+        outputSchema: SCHEMA,
+      });
+      expect(builder.structuredOutputConfig("claude")).toBeUndefined();
+    });
+  });
 });
