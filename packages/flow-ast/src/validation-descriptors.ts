@@ -44,4 +44,5 @@ export const FLOW_NODE_VALIDATOR_DESCRIPTORS: ReadonlyArray<{
   { type: "adapter.run", hasChildren: false },
   { type: "adapter.race", hasChildren: false },
   { type: "adapter.parallel", hasChildren: false },
+  { type: "adapter.supervisor", hasChildren: false },
 ];

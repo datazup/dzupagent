@@ -49,6 +49,7 @@ import { validateKnowledgeWrite, validateKnowledgeQuery } from "./knowledge.js";
 import { validateAdapterRun } from "./adapter-run.js";
 import { validateAdapterRace } from "./adapter-race.js";
 import { validateAdapterParallel } from "./adapter-parallel.js";
+import { validateAdapterSupervisor } from "./adapter-supervisor.js";
 
 export function validateFlowNode(
   value: unknown,
@@ -156,6 +157,8 @@ export function validateFlowNode(
       return validateAdapterRace(value, path, issues);
     case "adapter.parallel":
       return validateAdapterParallel(value, path, issues);
+    case "adapter.supervisor":
+      return validateAdapterSupervisor(value, path, issues);
     default:
       issues.push({
         path,

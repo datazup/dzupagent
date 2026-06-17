@@ -49,6 +49,7 @@ import { parseKnowledgeWrite, parseKnowledgeQuery } from "./knowledge.js";
 import { parseAdapterRun } from "./adapter-run.js";
 import { parseAdapterRace } from "./adapter-race.js";
 import { parseAdapterParallel } from "./adapter-parallel.js";
+import { parseAdapterSupervisor } from "./adapter-supervisor.js";
 
 export function parseNode(
   value: unknown,
@@ -165,6 +166,8 @@ export function parseNode(
       return parseAdapterRace(value, pointer, ctx);
     case "adapter.parallel":
       return parseAdapterParallel(value, pointer, ctx);
+    case "adapter.supervisor":
+      return parseAdapterSupervisor(value, pointer, ctx);
     default:
       // Defensive — KNOWN_NODE_TYPES is the source of truth above.
       ctx.errors.push({
