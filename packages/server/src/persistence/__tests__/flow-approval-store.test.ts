@@ -16,11 +16,49 @@ describe("InMemoryFlowApprovalStore", () => {
     });
 
     expect(result.runId).toBe("run-1");
+    expect(result.tenantId).toBe("default");
     expect(result.approvalId).toBe("appr-1");
     expect(result.status).toBe("pending");
     expect(result.requestPayload).toEqual({ message: "Please approve" });
     expect(result.responsePayload).toBeNull();
     expect(result.resolvedAt).toBeNull();
+  });
+
+  it("create is idempotent for an existing approval id in the same run", async () => {
+    const first = await store.create({
+      tenantId: "tenant-a",
+      runId: "run-idem",
+      approvalId: "appr-idem",
+      requestPayload: { message: "first" },
+    });
+
+    const second = await store.create({
+      tenantId: "tenant-a",
+      runId: "run-idem",
+      approvalId: "appr-idem",
+      requestPayload: { message: "second" },
+    });
+
+    expect(second).toBe(first);
+    expect(second.requestPayload).toEqual({ message: "first" });
+  });
+
+  it("create allows reuse of an approval id for a different run", async () => {
+    await store.create({
+      runId: "run-original",
+      approvalId: "appr-conflict",
+      requestPayload: {},
+    });
+
+    const result = await store.create({
+      runId: "run-other",
+      approvalId: "appr-conflict",
+      requestPayload: { run: "other" },
+    });
+
+    expect(result.runId).toBe("run-other");
+    expect(result.approvalId).toBe("appr-conflict");
+    expect(result.requestPayload).toEqual({ run: "other" });
   });
 
   it("resolve transitions to 'approved' with responsePayload and resolvedAt", async () => {
@@ -31,7 +69,7 @@ describe("InMemoryFlowApprovalStore", () => {
     });
 
     const before = new Date();
-    const result = await store.resolve("appr-2", "approved", {
+    const result = await store.resolve("run-2", "appr-2", "approved", {
       comment: "LGTM",
     });
     const after = new Date();
@@ -47,9 +85,35 @@ describe("InMemoryFlowApprovalStore", () => {
   });
 
   it("resolve throws on missing approvalId", async () => {
-    await expect(store.resolve("nonexistent", "rejected", {})).rejects.toThrow(
-      "FlowApproval not found: nonexistent",
+    await expect(
+      store.resolve("run-missing", "nonexistent", "rejected", {}),
+    ).rejects.toThrow(
+      "FlowApproval not found: run-missing/nonexistent",
     );
+  });
+
+  it("resolve is idempotent after an approval is already resolved", async () => {
+    await store.create({
+      runId: "run-resolve-idem",
+      approvalId: "appr-resolve-idem",
+      requestPayload: {},
+    });
+
+    const first = await store.resolve(
+      "run-resolve-idem",
+      "appr-resolve-idem",
+      "approved",
+      { comment: "ok" },
+    );
+    const second = await store.resolve(
+      "run-resolve-idem",
+      "appr-resolve-idem",
+      "approved",
+      { comment: "ignored" },
+    );
+
+    expect(second).toEqual(first);
+    expect(second.responsePayload).toEqual({ comment: "ok" });
   });
 
   it("get retrieves approval by approvalId", async () => {
@@ -58,7 +122,7 @@ describe("InMemoryFlowApprovalStore", () => {
       approvalId: "appr-3",
       requestPayload: {},
     });
-    const result = await store.get("appr-3");
+    const result = await store.get("run-3", "appr-3");
     expect(result).toBeDefined();
     expect(result?.approvalId).toBe("appr-3");
   });

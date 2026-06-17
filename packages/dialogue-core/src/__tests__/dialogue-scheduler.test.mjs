@@ -85,6 +85,49 @@ test("deliberate mode skips implement and validate after prior build port calls"
   assertAllFakesOnly(ports);
 });
 
+test("agent turns pass participant systemPrompt through the agent request and redacted trace", async () => {
+  const { DialogueScheduler } = await loadDialogueCore();
+  const ports = createPorts();
+  const scheduler = new DialogueScheduler(ports, { clock: fixedClock() });
+
+  await scheduler.run({
+    runId: "participant-system-prompt",
+    runSpec: baseRunSpec({
+      mode: "build",
+      participants: [
+        {
+          id: "architect",
+          provider: "fake-agent",
+          model: "architect-v1",
+          role: "architect",
+          systemPrompt: "You are Ada. SECRET-PERSONA",
+        },
+      ],
+      turns: [
+        {
+          id: "speak",
+          verb: "deliberate",
+          participantId: "architect",
+          prompt: "Draft a proposal.",
+        },
+      ],
+    }),
+  });
+
+  assert.equal(ports.agentPort.calls.length, 1);
+  assert.equal(
+    ports.agentPort.calls[0].input.systemPrompt,
+    "You are Ada. SECRET-PERSONA",
+  );
+
+  const [persisted] = ports.tracePort.byVisibility("persisted");
+  assert.equal(
+    persisted.input.systemPromptRedacted,
+    "You are Ada. [REDACTED]",
+  );
+  assert.equal(JSON.stringify(persisted).includes("SECRET-PERSONA"), false);
+});
+
 test("build mode records implement applyStatus and validation outcomes", async () => {
   const { DialogueScheduler } = await loadDialogueCore();
   const ports = createPorts({

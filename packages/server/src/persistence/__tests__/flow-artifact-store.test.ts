@@ -15,6 +15,7 @@ describe("InMemoryFlowArtifactStore", () => {
       artifactRef: "ref-1",
       contentDigest: "sha256:abc",
       contentType: "application/json",
+      content: { ok: true },
       storageUri: null,
       schemaRef: null,
     });
@@ -23,9 +24,47 @@ describe("InMemoryFlowArtifactStore", () => {
     expect(result.artifactRef).toBe("ref-1");
     expect(result.contentDigest).toBe("sha256:abc");
     expect(result.contentType).toBe("application/json");
+    expect(result.content).toEqual({ ok: true });
     expect(result.createdAt).toBeInstanceOf(Date);
     expect(result.createdAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
     expect(result.createdAt.getTime()).toBeLessThanOrEqual(after.getTime());
+  });
+
+  it("put is idempotent for the same artifact ref and digest", async () => {
+    const first = await store.put({
+      artifactRef: "ref-idem",
+      tenantId: "tenant-a",
+      contentDigest: "sha256:same",
+      contentType: "application/json",
+      content: { value: 1 },
+    });
+
+    const second = await store.put({
+      artifactRef: "ref-idem",
+      tenantId: "tenant-a",
+      contentDigest: "sha256:same",
+      contentType: "application/json",
+      content: { value: 2 },
+    });
+
+    expect(second).toBe(first);
+    expect(second.content).toEqual({ value: 1 });
+  });
+
+  it("put rejects digest drift for an existing artifact ref", async () => {
+    await store.put({
+      artifactRef: "ref-drift",
+      contentDigest: "sha256:old",
+      contentType: "application/json",
+    });
+
+    await expect(
+      store.put({
+        artifactRef: "ref-drift",
+        contentDigest: "sha256:new",
+        contentType: "application/json",
+      }),
+    ).rejects.toThrow("FlowArtifact digest mismatch for ref: ref-drift");
   });
 
   it("get retrieves artifact by artifactRef", async () => {

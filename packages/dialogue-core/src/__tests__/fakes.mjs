@@ -75,18 +75,21 @@ export function baseRunSpec(overrides = {}) {
         provider: "fake-agent",
         model: "planner-v1",
         role: "planner",
+        systemPrompt: "You are a careful planner.",
       },
       {
         id: "builder",
         provider: "fake-agent",
         model: "builder-v1",
         role: "builder",
+        systemPrompt: "You are a precise builder.",
       },
       {
         id: "critic",
         provider: "fake-agent",
         model: "critic-v1",
         role: "critic",
+        systemPrompt: "You are a skeptical critic.",
       },
     ],
     turns: [],
@@ -278,6 +281,7 @@ function toPersistedEvent(event, replacement) {
         ? undefined
         : stripUndefined({
             role: event.input.role,
+            systemPromptRedacted: redactText(event.input.systemPrompt, replacement),
             scopeFiles: scrubValue(event.input.scopeFiles, replacement),
             promptRedacted: redactText(event.input.prompt, replacement),
           }),
@@ -316,6 +320,7 @@ function toStreamEvent(event, replacement) {
         ? undefined
         : stripUndefined({
             role: event.input.role,
+            systemPromptPreview: preview(redactText(event.input.systemPrompt, replacement)),
             promptPreview: preview(redactText(event.input.prompt, replacement)),
           }),
     output:

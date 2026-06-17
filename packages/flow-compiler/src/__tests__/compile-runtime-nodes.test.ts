@@ -1,5 +1,6 @@
 import type { FlowNode, ResolvedTool, ToolResolver } from '@dzupagent/flow-ast'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
+import type { SkillChain } from '@dzupagent/core/pipeline'
 import { describe, expect, it } from 'vitest'
 
 import { collectUnsupportedRuntimeNodes, createFlowCompiler } from '../index.js'
@@ -83,6 +84,27 @@ describe('runtime-only compiler diagnostics', () => {
     expect(result.errors[0]?.message).toContain('Node type "validate"')
   })
 
+  it('fails adapter runtime-only flows without silently emitting empty artifacts', async () => {
+    const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
+
+    const result = await compiler.compile({
+      type: 'adapter.run',
+      provider: 'codex',
+      instructions: 'Discuss the architecture.',
+      output: 'adapterResult',
+    })
+
+    expect('errors' in result).toBe(true)
+    if (!('errors' in result)) throw new Error('expected compile failure')
+    expect(result.errors[0]).toMatchObject({
+      stage: 4,
+      code: 'UNSUPPORTED_RUNTIME_NODE_FOR_TARGET',
+      nodePath: 'root',
+      category: 'lowering',
+    })
+    expect(result.errors[0]?.message).toContain('Node type "adapter.run"')
+  })
+
   it('names prompt and return_to nodes in deterministic AST order', async () => {
     const compiler = createFlowCompiler({ toolResolver: makeResolver(['tasks.run']) })
 
@@ -139,19 +161,29 @@ describe('runtime-only compiler diagnostics', () => {
     expect('errors' in result).toBe(false)
     if ('errors' in result) throw new Error('expected compile success')
     expect(result.target).toBe('skill-chain')
-    expect(result.artifact.steps).toHaveLength(1)
+    expect((result.artifact as SkillChain).steps).toHaveLength(1)
     expect(collectUnsupportedRuntimeNodes(ast, 'skill-chain')).toEqual([])
   })
 
   it('exposes unsupported runtime nodes for route-level audits', () => {
     const nodes = collectUnsupportedRuntimeNodes({
       type: 'sequence',
-      nodes: [agentNode, { type: 'validate', ref: 'schema.review' }],
+      nodes: [
+        agentNode,
+        { type: 'validate', ref: 'schema.review' },
+        {
+          type: 'adapter.parallel',
+          providers: ['claude', 'codex'],
+          instructions: 'Compare approaches.',
+          output: 'comparison',
+        },
+      ],
     }, 'skill-chain')
 
     expect(nodes).toEqual([
       { type: 'agent', path: 'root.nodes[0]' },
       { type: 'validate', path: 'root.nodes[1]' },
+      { type: 'adapter.parallel', path: 'root.nodes[2]' },
     ])
   })
 })
