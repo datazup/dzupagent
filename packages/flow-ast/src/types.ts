@@ -122,7 +122,8 @@ export type FlowNode =
   | KnowledgeQueryNode
   | AdapterRunNode
   | AdapterRaceNode
-  | AdapterParallelNode;
+  | AdapterParallelNode
+  | AdapterSupervisorNode;
 
 export type SequenceNode = FlowNodeBase & {
   type: "sequence";
@@ -726,6 +727,49 @@ export type AdapterParallelNode = FlowNodeBase & {
   output: string;
 };
 
+/**
+ * `adapter.supervisor` — decompose a `goal` into subtasks and delegate each to a
+ * specialist provider, then aggregate (spec §5.3). Lowers to
+ * `OrchestratorFacade.supervisor(goal, {...})` at runtime; each delegated subtask
+ * + chosen provider is journaled as a sub-run (REQ-SUP-1).
+ *
+ * Decomposition source (resolving OQ-1): **LLM-driven** — the supervisor splits
+ * the goal into subtasks at runtime (no author-provided subtask list). The
+ * authoring surface is therefore just the `goal`, an optional `specialists` pool,
+ * and the aggregated `output`. Note this node carries `goal` (not the common
+ * `instructions`); the rest of the common adapter block applies.
+ */
+export type AdapterSupervisorNode = FlowNodeBase & {
+  type: "adapter.supervisor";
+  /** Template-resolved goal the supervisor decomposes at runtime. */
+  goal: string;
+  /**
+   * Optional provider/tag pool for subtasks. Omitted ⇒ the registry routes each
+   * subtask. (Strings, not the strict provider enum — entries may be capability
+   * tags resolved by the `ProviderAdapterRegistry`.)
+   */
+  specialists?: string[];
+  model?: string;
+  /** Base persona layer; template-resolved. */
+  systemPrompt?: string;
+  /** State-bound bindings merged into the prompt. */
+  input?: Record<string, unknown>;
+  /** Persona ref applied to this node's prompt layers. */
+  persona?: string;
+  /** Normalized reasoning intent, mapped per provider at runtime. */
+  reasoning?: "low" | "medium" | "high";
+  /** Schema ref or inline JSON Schema for structured output. */
+  outputSchema?: string | Record<string, unknown>;
+  /** `auto` (default) applies model-aware prep; `raw` = passthrough. */
+  promptPrep?: "auto" | "raw";
+  /** Replay governance; REQUIRED for side-effecting nodes (validator-warned). */
+  idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+  /** Per-node budget/timeout/guardrail override. */
+  policy?: Record<string, unknown>;
+  /** State key for the aggregated result. */
+  output: string;
+};
+
 export type FlowNodeKind = FlowNode["type"];
 
 /**
@@ -771,6 +815,7 @@ export const FLOW_NODE_KIND_REGISTRY = {
   "adapter.run": true,
   "adapter.race": true,
   "adapter.parallel": true,
+  "adapter.supervisor": true,
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(
