@@ -185,7 +185,8 @@ function walkNode(
     case "knowledge.write":
     case "knowledge.query":
     case "worker.dispatch":
-    case "adapter.run": {
+    case "adapter.run":
+    case "adapter.race": {
       // Runtime-executed nodes — no skill-chain step emitted; silently pass through.
       return;
     }
