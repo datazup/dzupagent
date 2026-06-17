@@ -119,7 +119,8 @@ export type FlowNode =
   | FleetGatherNode
   | FleetContractNetNode
   | KnowledgeWriteNode
-  | KnowledgeQueryNode;
+  | KnowledgeQueryNode
+  | AdapterRunNode;
 
 export type SequenceNode = FlowNodeBase & {
   type: "sequence";
@@ -606,6 +607,45 @@ export type KnowledgeQueryNode = FlowNodeBase & {
   output: string;
 };
 
+/**
+ * `adapter.run` — a single routed, in-process agent-adapter call with registry
+ * fallback. Executes by delegating to the `OrchestratorFacade` at runtime (ADR
+ * 0001); additive under `dzupflow/v1`. One of `provider` / `tags` is required:
+ * an explicit `provider` pins the adapter, `tags` route via the
+ * `ProviderAdapterRegistry`. Field grammar mirrors `worker.dispatch`/`agent`
+ * conventions (study `04-SPECIFICATION.md` §3–§4). flow-ast only models shape;
+ * lowering/execution live in flow-dsl + the runtime.
+ */
+export type AdapterRunNode = FlowNodeBase & {
+  type: "adapter.run";
+  /** Explicit provider; required unless `tags` routing is used. */
+  provider?: "claude" | "codex" | "gemini" | "qwen" | "goose" | "crush";
+  /** Capability tags for registry routing; one of `provider`/`tags` required. */
+  tags?: string[];
+  /** Provider model hint. */
+  model?: string;
+  /** Operator instructions; template-resolved at runtime. */
+  instructions: string;
+  /** Base persona layer; template-resolved. */
+  systemPrompt?: string;
+  /** State-bound bindings merged into the prompt. */
+  input?: Record<string, unknown>;
+  /** Persona ref applied to this node's prompt layers. */
+  persona?: string;
+  /** Normalized reasoning intent, mapped per provider at runtime. */
+  reasoning?: "low" | "medium" | "high";
+  /** Schema ref or inline JSON Schema for structured output. */
+  outputSchema?: string | Record<string, unknown>;
+  /** `auto` (default) applies model-aware prep; `raw` = passthrough. */
+  promptPrep?: "auto" | "raw";
+  /** Replay governance; REQUIRED for side-effecting nodes (validator-warned). */
+  idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+  /** Per-node budget/timeout/guardrail override. */
+  policy?: Record<string, unknown>;
+  /** State key for the result. */
+  output: string;
+};
+
 export type FlowNodeKind = FlowNode["type"];
 
 /**
@@ -648,10 +688,11 @@ export const FLOW_NODE_KIND_REGISTRY = {
   "fleet.contract-net": true,
   "knowledge.write": true,
   "knowledge.query": true,
+  "adapter.run": true,
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(
-  FLOW_NODE_KIND_REGISTRY,
+  FLOW_NODE_KIND_REGISTRY
 ) as FlowNodeKind[];
 
 export function isFlowNodeKind(value: string): value is FlowNodeKind {

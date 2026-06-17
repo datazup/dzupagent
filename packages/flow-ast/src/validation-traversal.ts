@@ -163,6 +163,7 @@ export function validateCanonicalNodeIds(
     case "fleet.contract-net":
     case "knowledge.write":
     case "knowledge.query":
+    case "adapter.run":
       return;
     default: {
       const _exhaustive: never = node;

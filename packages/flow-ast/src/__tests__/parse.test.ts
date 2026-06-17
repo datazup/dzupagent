@@ -130,6 +130,12 @@ const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode["type"], FlowNode> = {
     filter: { scope: "project" },
     output: "knowledgeResults",
   },
+  "adapter.run": {
+    type: "adapter.run",
+    provider: "claude",
+    instructions: "Summarize the verification output: {{ state.verifyOutput }}",
+    output: "summary",
+  },
 };
 
 describe("parseFlow — public node contract", () => {
@@ -602,6 +608,100 @@ describe("parseFlow — SetNode", () => {
     expect(result.errors[0]).toMatchObject({
       code: "EXPECTED_OBJECT",
       pointer: "/nodes/0/assign",
+    });
+  });
+});
+
+describe("parseFlow — adapter.run node", () => {
+  it("parses an explicit-provider adapter.run node, preserving optional fields", () => {
+    const node = {
+      type: "adapter.run",
+      id: "summarize",
+      provider: "claude",
+      model: "claude-opus-4-8",
+      instructions: "Summarize: {{ state.verifyOutput }}",
+      reasoning: "high",
+      output: "summary",
+      idempotency: "idempotent",
+    };
+    const result = parseFlow(node);
+    expect(result.errors).toEqual([]);
+    expect(result.ast).toEqual(node);
+  });
+
+  it("parses a tags-routed adapter.run node without an explicit provider", () => {
+    const node = {
+      type: "adapter.run",
+      tags: ["reasoning", "long-context"],
+      instructions: "Plan the work",
+      output: "plan",
+    };
+    const result = parseFlow(node);
+    expect(result.errors).toEqual([]);
+    expect(result.ast).toEqual(node);
+  });
+
+  it("rejects adapter.run with neither provider nor tags", () => {
+    const result = parseFlow({
+      type: "adapter.run",
+      instructions: "do it",
+      output: "out",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ pointer: "/provider" });
+  });
+
+  it("rejects adapter.run with an unknown provider", () => {
+    const result = parseFlow({
+      type: "adapter.run",
+      provider: "not-a-provider",
+      instructions: "do it",
+      output: "out",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({
+      code: "WRONG_FIELD_TYPE",
+      pointer: "/provider",
+    });
+  });
+
+  it("rejects adapter.run missing required `instructions`", () => {
+    const result = parseFlow({
+      type: "adapter.run",
+      provider: "claude",
+      output: "out",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ pointer: "/instructions" });
+  });
+
+  it("rejects adapter.run missing required `output`", () => {
+    const result = parseFlow({
+      type: "adapter.run",
+      provider: "claude",
+      instructions: "do it",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ pointer: "/output" });
+  });
+
+  it("rejects adapter.run with an out-of-range `reasoning` value", () => {
+    const result = parseFlow({
+      type: "adapter.run",
+      provider: "claude",
+      instructions: "do it",
+      output: "out",
+      reasoning: "extreme",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({
+      code: "WRONG_FIELD_TYPE",
+      pointer: "/reasoning",
     });
   });
 });

@@ -41,4 +41,5 @@ export const FLOW_NODE_VALIDATOR_DESCRIPTORS: ReadonlyArray<{
   { type: "fleet.contract-net", hasChildren: false },
   { type: "knowledge.write", hasChildren: false },
   { type: "knowledge.query", hasChildren: false },
+  { type: "adapter.run", hasChildren: false },
 ];

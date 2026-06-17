@@ -46,6 +46,7 @@ import {
   parseFleetContractNet,
 } from "./fleet.js";
 import { parseKnowledgeWrite, parseKnowledgeQuery } from "./knowledge.js";
+import { parseAdapterRun } from "./adapter-run.js";
 
 export function parseNode(
   value: unknown,
@@ -156,6 +157,8 @@ export function parseNode(
       return parseKnowledgeWrite(value, pointer, ctx);
     case "knowledge.query":
       return parseKnowledgeQuery(value, pointer, ctx);
+    case "adapter.run":
+      return parseAdapterRun(value, pointer, ctx);
     default:
       // Defensive — KNOWN_NODE_TYPES is the source of truth above.
       ctx.errors.push({
