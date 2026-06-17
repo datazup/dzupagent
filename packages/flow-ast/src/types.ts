@@ -115,7 +115,7 @@ export const MUTATING_EFFECT_CLASSES: readonly EffectClass[] = [
  * no policy is declared.
  */
 export function effectClassFromMutationPolicy(
-  policy: FlowMutationMetadata["policy"] | undefined,
+  policy: FlowMutationMetadata["policy"] | undefined
 ): EffectClass | undefined {
   switch (policy) {
     case "read-only":
@@ -192,6 +192,19 @@ export interface FlowNodeBase {
   name?: string;
   description?: string;
   meta?: FlowNodeMetadata;
+  /**
+   * P0 durability contract (node-field follow-up): fine-grained side-effect
+   * classification, driving compiler diagnostic D1. Optional and additive —
+   * absent ⇒ unclassified (no D1). Refines the coarse `meta.mutation.policy`;
+   * map via `effectClassFromMutationPolicy`.
+   */
+  effectClass?: EffectClass;
+  /**
+   * P0 durability contract (node-field follow-up): replay governance for a
+   * side-effecting node. Shared with `adapter.*` nodes. Absent ⇒ runtime
+   * default (`at-least-once`). Drives diagnostics D1/D2.
+   */
+  idempotency?: NodeIdempotencyMode;
 }
 
 export interface FlowInputSpec {
@@ -942,7 +955,7 @@ export const FLOW_NODE_KIND_REGISTRY = {
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(
-  FLOW_NODE_KIND_REGISTRY,
+  FLOW_NODE_KIND_REGISTRY
 ) as FlowNodeKind[];
 
 export function isFlowNodeKind(value: string): value is FlowNodeKind {

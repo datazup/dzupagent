@@ -20,6 +20,7 @@ import {
   effectClassFromMutationPolicy,
   type EffectClass,
   type FlowDurabilityPolicy,
+  type FlowNodeBase,
   type NodeIdempotencyMode,
 } from "../index.js";
 
@@ -35,6 +36,42 @@ const baseDocument = {
   version: 1,
   root: validRoot,
 };
+
+// ── FlowNodeBase node-level durability fields (P0 follow-up) ─────────────────
+
+describe("FlowNodeBase durability fields", () => {
+  it("carries optional effectClass + idempotency", () => {
+    const node: FlowNodeBase = {
+      id: "n1",
+      effectClass: "db_write",
+      idempotency: "exactly-once-required",
+    };
+    expect(node.effectClass).toBe<EffectClass>("db_write");
+    expect(node.idempotency).toBe<NodeIdempotencyMode>("exactly-once-required");
+  });
+
+  it("validateDocument accepts a node declaring effectClass + idempotency", () => {
+    const r = flowDocumentSchema.safeParse({
+      ...baseDocument,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "action",
+            id: "s1",
+            toolRef: "tool.run",
+            input: {},
+            effectClass: "file_write",
+            idempotency: "idempotent",
+          },
+          { type: "complete", id: "done" },
+        ],
+      },
+    });
+    expect(r.success).toBe(true);
+  });
+});
 
 // ── Shared idempotency mode ──────────────────────────────────────────────────
 

@@ -55,7 +55,9 @@ function baseDoc(extra: Record<string, unknown> = {}): Record<string, unknown> {
 
 describe("durability diagnostics — D6 evidence", () => {
   it("surfaces documentDurability on a successful compile", async () => {
-    const compiler = createFlowCompiler({ toolResolver: makeResolver(['tool.run']) });
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
     const result = await compiler.compileDocument(
       baseDoc({
         durability: {
@@ -71,7 +73,9 @@ describe("durability diagnostics — D6 evidence", () => {
   });
 
   it("omits documentDurability when not declared", async () => {
-    const compiler = createFlowCompiler({ toolResolver: makeResolver(['tool.run']) });
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
     const result = await compiler.compileDocument(baseDoc());
     expect("errors" in result).toBe(false);
     if ("errors" in result) throw new Error("expected success");
@@ -81,7 +85,9 @@ describe("durability diagnostics — D6 evidence", () => {
 
 describe("durability diagnostics — D5 durable without store", () => {
   it("warns (does not error) when durable mode lacks a checkpoint storeRef", async () => {
-    const compiler = createFlowCompiler({ toolResolver: makeResolver(['tool.run']) });
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
     const result = await compiler.compileDocument(
       baseDoc({ durability: { mode: "durable" } }),
     );
@@ -93,7 +99,9 @@ describe("durability diagnostics — D5 durable without store", () => {
   });
 
   it("does not warn when durable mode has a storeRef", async () => {
-    const compiler = createFlowCompiler({ toolResolver: makeResolver(['tool.run']) });
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
     const result = await compiler.compileDocument(
       baseDoc({
         durability: { mode: "durable", checkpoint: { storeRef: "pg://ck" } },
@@ -107,7 +115,9 @@ describe("durability diagnostics — D5 durable without store", () => {
   });
 
   it("does not warn for checkpointed (non-durable) mode", async () => {
-    const compiler = createFlowCompiler({ toolResolver: makeResolver(['tool.run']) });
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
     const result = await compiler.compileDocument(
       baseDoc({ durability: { mode: "checkpointed" } }),
     );
@@ -121,7 +131,9 @@ describe("durability diagnostics — D5 durable without store", () => {
 
 describe("durability diagnostics — backward compatibility", () => {
   it("a document with no durability block compiles with no durability warnings", async () => {
-    const compiler = createFlowCompiler({ toolResolver: makeResolver(['tool.run']) });
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
     const result = await compiler.compileDocument(baseDoc());
     expect("errors" in result).toBe(false);
     if ("errors" in result) throw new Error("expected success");
@@ -131,6 +143,135 @@ describe("durability diagnostics — backward compatibility", () => {
           w.code === "DURABILITY_NO_STORE" ||
           w.code === "IDEMPOTENCY_MODE_CONFLICT",
       ),
+    ).toBe(false);
+  });
+});
+
+// A document whose single action node carries the given extra fields.
+function docWithActionNode(
+  nodeExtra: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    dsl: "dzupflow/v1",
+    id: "node-effect-test",
+    version: 1,
+    root: {
+      type: "sequence",
+      id: "root",
+      nodes: [
+        {
+          type: "action",
+          id: "s1",
+          toolRef: "tool.run",
+          input: {},
+          ...nodeExtra,
+        },
+        { type: "complete", id: "done" },
+      ],
+    },
+  };
+}
+
+describe("durability diagnostics — D1 mutating effect without idempotency", () => {
+  it("warns when a node has a mutating effectClass and no idempotency", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithActionNode({ effectClass: "db_write" }),
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY"),
+    ).toBe(true);
+  });
+
+  it("does not warn when the mutating node declares idempotency", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithActionNode({
+        effectClass: "db_write",
+        idempotency: "exactly-once-required",
+      }),
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY"),
+    ).toBe(false);
+  });
+
+  it("does not warn when allowDuplicateEffects is set", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithActionNode({
+        effectClass: "file_write",
+        allowDuplicateEffects: true,
+      }),
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY"),
+    ).toBe(false);
+  });
+
+  it("does not warn for a non-mutating effectClass (read/compute)", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithActionNode({ effectClass: "read" }),
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY"),
+    ).toBe(false);
+  });
+});
+
+describe("durability diagnostics — D2 idempotent without output schema", () => {
+  it("warns when idempotency='idempotent' but no output schema", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithActionNode({ idempotency: "idempotent" }),
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      result.warnings.some((w) => w.code === "IDEMPOTENT_NO_OUTPUT_SCHEMA"),
+    ).toBe(true);
+  });
+
+  it("does not warn when an output schema is present", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithActionNode({
+        idempotency: "idempotent",
+        outputSchema: "schema.v1",
+      }),
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      result.warnings.some((w) => w.code === "IDEMPOTENT_NO_OUTPUT_SCHEMA"),
+    ).toBe(false);
+  });
+
+  it("does not warn for at-least-once idempotency (no prior-result replay)", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithActionNode({ idempotency: "at-least-once" }),
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      result.warnings.some((w) => w.code === "IDEMPOTENT_NO_OUTPUT_SCHEMA"),
     ).toBe(false);
   });
 });

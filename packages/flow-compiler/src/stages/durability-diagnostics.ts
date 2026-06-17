@@ -7,16 +7,19 @@
  * evidence. See
  * workspace-docs/repos/dzupagent/docs/architecture/plans/P0-dsl-durability-contract.md
  *
- * Implemented here (operate purely on the document, no node-field traversal):
+ * Implemented here:
+ *  - D1 — a node with a mutating `effectClass` (file_write / code_change /
+ *         network_write / db_write / queue_publish) and no `idempotency`
+ *         declaration and no `allowDuplicateEffects: true`.
+ *  - D2 — a node declaring `idempotency: 'idempotent'` (return-prior-result
+ *         semantics) without an output schema (`outputSchema` / `resultSchema`).
  *  - D4 — an adapter node's `idempotency` enum conflicts with a richer
  *         `meta.idempotency` shape on the same node.
  *  - D5 — `durability.mode: durable` while no checkpoint `storeRef` is
  *         configured (OQ-1: compile-warn, runtime-admission-fail).
  *
- * D1 (mutating effect without idempotency), D2 (return-prior without output
- * schema) and D3 (requireResumePoint unmet) require node-level EffectClass /
- * output-schema / resume traversal and land with the node-field wiring
- * follow-up; they are intentionally not implemented in this pass.
+ * D3 (requireResumePoint unmet) requires resume-point reachability graph
+ * analysis and lands as its own focused change; not implemented here.
  */
 import type { CompilationWarning } from "../types.js";
 
@@ -27,8 +30,32 @@ const ADAPTER_NODE_KEYS = [
   "adapter.supervisor",
 ] as const;
 
+/** Mirrors `MUTATING_EFFECT_CLASSES` in @dzupagent/flow-ast (kept local to
+ *  avoid a value import into the compiler's diagnostics pass). */
+const MUTATING_EFFECT_CLASSES = new Set([
+  "file_write",
+  "code_change",
+  "network_write",
+  "db_write",
+  "queue_publish",
+]);
+
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** True when the node declares any output contract (D2 prerequisite). */
+function hasOutputSchema(node: Record<string, unknown>): boolean {
+  if (node["outputSchema"] !== undefined) return true;
+  if (node["resultSchema"] !== undefined) return true;
+  const output = node["output"];
+  if (
+    isObject(output) &&
+    (output["schema"] !== undefined || output["schemaRef"] !== undefined)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -86,6 +113,10 @@ function walkSteps(
     checkAdapterIdempotency(node, path, warnings);
   }
 
+  // D1/D2 apply to any node carrying the FlowNodeBase effectClass/idempotency
+  // fields — check this node directly.
+  checkNodeEffectIdempotency(node, path, warnings);
+
   // Recurse into common child-bearing fields.
   for (const childKey of [
     "nodes",
@@ -127,6 +158,51 @@ function checkAdapterIdempotency(
       message:
         `node declares idempotency '${enumMode}' but meta.idempotency.mode is ` +
         `'${String(metaIdem["mode"])}'; the node-level enum takes precedence.`,
+      nodePath: path,
+      category: "mutation",
+    });
+  }
+}
+
+function checkNodeEffectIdempotency(
+  node: Record<string, unknown>,
+  path: string,
+  warnings: CompilationWarning[],
+): void {
+  const effectClass = node["effectClass"];
+  const idempotency = node["idempotency"];
+  const allowDuplicate = node["allowDuplicateEffects"] === true;
+
+  // ── D1: mutating effect without an idempotency declaration ────────────────
+  if (
+    typeof effectClass === "string" &&
+    MUTATING_EFFECT_CLASSES.has(effectClass) &&
+    idempotency === undefined &&
+    !allowDuplicate
+  ) {
+    warnings.push({
+      stage: 4,
+      code: "MUTATING_EFFECT_NO_IDEMPOTENCY",
+      message:
+        `node has mutating effectClass '${effectClass}' but no idempotency ` +
+        "declaration; declare `idempotency` or set `allowDuplicateEffects: true` " +
+        "to acknowledge the duplicate-effect risk under retry/redelivery (D1).",
+      nodePath: path,
+      category: "mutation",
+    });
+  }
+
+  // ── D2: return-prior-result semantics without an output schema ────────────
+  // `idempotency: 'idempotent'` implies a duplicate invocation returns the
+  // prior result; that result must be schema-validated to be safe to replay.
+  if (idempotency === "idempotent" && !hasOutputSchema(node)) {
+    warnings.push({
+      stage: 4,
+      code: "IDEMPOTENT_NO_OUTPUT_SCHEMA",
+      message:
+        "node declares idempotency 'idempotent' (prior result is replayed on " +
+        "duplicate) but has no output schema; add `outputSchema`/`resultSchema` " +
+        "so the replayed result is validated (D2).",
       nodePath: path,
       category: "mutation",
     });
