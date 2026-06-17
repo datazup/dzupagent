@@ -37,6 +37,7 @@ import { normalizeWorkerDispatch } from "./normalize-nodes-worker-dispatch.js";
 import { normalizeAdapterRun } from "./normalize-nodes-adapter-run.js";
 import { normalizeAdapterRace } from "./normalize-nodes-adapter-race.js";
 import { normalizeAdapterParallel } from "./normalize-nodes-adapter-parallel.js";
+import { normalizeAdapterSupervisor } from "./normalize-nodes-adapter-supervisor.js";
 import {
   normalizeFleetContractNet,
   normalizeFleetDispatch,
@@ -176,6 +177,8 @@ export function normalizeNodeWrapper(
       return normalizeAdapterRace(value, path, diagnostics);
     case "adapter.parallel":
       return normalizeAdapterParallel(value, path, diagnostics);
+    case "adapter.supervisor":
+      return normalizeAdapterSupervisor(value, path, diagnostics);
     default:
       diagnostics.push({
         phase: "normalize",

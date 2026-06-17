@@ -148,6 +148,11 @@ const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode["type"], FlowNode> = {
     instructions: "Draft: {{ input.brief }}",
     output: "drafts",
   },
+  "adapter.supervisor": {
+    type: "adapter.supervisor",
+    goal: "Ship the feature end to end",
+    output: "result",
+  },
 };
 
 describe("parseFlow — public node contract", () => {
@@ -864,5 +869,67 @@ describe("parseFlow — adapter.parallel node", () => {
     expect(result.ast).toBeNull();
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toMatchObject({ pointer: "/output" });
+  });
+});
+
+describe("parseFlow — adapter.supervisor node", () => {
+  it("parses an adapter.supervisor node with specialists", () => {
+    const node = {
+      type: "adapter.supervisor",
+      id: "ship",
+      goal: "Ship: {{ input.spec }}",
+      specialists: ["claude", "codex"],
+      output: "result",
+      idempotency: "idempotent",
+    };
+    const result = parseFlow(node);
+    expect(result.errors).toEqual([]);
+    expect(result.ast).toEqual(node);
+  });
+
+  it("parses an adapter.supervisor node without specialists (registry routing)", () => {
+    const node = {
+      type: "adapter.supervisor",
+      goal: "Decompose and ship",
+      output: "result",
+    };
+    const result = parseFlow(node);
+    expect(result.errors).toEqual([]);
+    expect(result.ast).toEqual(node);
+  });
+
+  it("rejects adapter.supervisor missing required `goal`", () => {
+    const result = parseFlow({
+      type: "adapter.supervisor",
+      output: "result",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ pointer: "/goal" });
+  });
+
+  it("rejects adapter.supervisor missing required `output`", () => {
+    const result = parseFlow({
+      type: "adapter.supervisor",
+      goal: "do it",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({ pointer: "/output" });
+  });
+
+  it("rejects adapter.supervisor with a non-string in specialists", () => {
+    const result = parseFlow({
+      type: "adapter.supervisor",
+      goal: "do it",
+      specialists: ["claude", 9],
+      output: "result",
+    });
+    expect(result.ast).toBeNull();
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({
+      code: "WRONG_FIELD_TYPE",
+      pointer: "/specialists",
+    });
   });
 });

@@ -679,6 +679,27 @@ function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
       }
       return;
     }
+    case "adapter.supervisor": {
+      if (!isNonEmptyString(node.goal)) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "adapter.supervisor.goal is required (non-empty string)"
+          )
+        );
+      }
+      if (!isNonEmptyString(node.output)) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "adapter.supervisor.output is required (non-empty string)"
+          )
+        );
+      }
+      return;
+    }
     case "prompt": {
       if (!isNonEmptyString(node.userPrompt)) {
         errors.push(
@@ -869,7 +890,8 @@ function walkOnError(
     case "worker.dispatch":
     case "adapter.run":
     case "adapter.race":
-    case "adapter.parallel": {
+    case "adapter.parallel":
+    case "adapter.supervisor": {
       return;
     }
     case "try_catch": {
