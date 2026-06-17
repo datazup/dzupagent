@@ -22,8 +22,52 @@ import { buildRunReEnqueuer } from "../runtime/run-reenqueuer.js";
 import { registerShutdownDrainHook } from "./utils.js";
 import { ScheduleTickWorker } from "../schedules/schedule-tick-worker.js";
 import type { ScheduleStore } from "../schedules/schedule-store.js";
+import { randomUUID } from "node:crypto";
+import {
+  InMemoryWorkerNodeStore,
+  type WorkerNodeStore,
+} from "../runtime/worker-registry.js";
+import { DrizzleWorkerNodeStore } from "../runtime/drizzle-worker-node-store.js";
 
 const startedRunQueues = new WeakSet<RunQueue>();
+
+/**
+ * Resolve the worker fleet store for a config: an explicit
+ * `workerRegistry.store`, else a {@link DrizzleWorkerNodeStore} when a Drizzle
+ * `db` is configured, else an {@link InMemoryWorkerNodeStore}.
+ *
+ * Memoized per-config so the run worker and the `/metrics` fleet gauges observe
+ * the same store instance. Returns `undefined` only when neither a
+ * `workerRegistry` block nor a `db` is configured (single-node mode).
+ */
+const resolvedWorkerStores = new WeakMap<ForgeServerConfig, WorkerNodeStore>();
+export function resolveWorkerNodeStore(
+  runtimeConfig: ForgeServerConfig
+): WorkerNodeStore | undefined {
+  const cached = resolvedWorkerStores.get(runtimeConfig);
+  if (cached) return cached;
+
+  const explicit = runtimeConfig.workerRegistry?.store;
+  if (explicit) {
+    resolvedWorkerStores.set(runtimeConfig, explicit);
+    return explicit;
+  }
+
+  // Only auto-provision a default when fleet observability was opted into via a
+  // `workerRegistry` block or a Drizzle `db` is available to back it.
+  if (
+    runtimeConfig.workerRegistry === undefined &&
+    runtimeConfig.db === undefined
+  ) {
+    return undefined;
+  }
+
+  const store: WorkerNodeStore = runtimeConfig.db
+    ? new DrizzleWorkerNodeStore(runtimeConfig.db)
+    : new InMemoryWorkerNodeStore();
+  resolvedWorkerStores.set(runtimeConfig, store);
+  return store;
+}
 const startedNodeLedgers = new WeakSet<DurableNodeLedger>();
 const startedScheduleStores = new WeakSet<ScheduleStore>();
 
@@ -34,6 +78,40 @@ export function maybeStartRunWorker(
   if (!runtimeConfig.runQueue || startedRunQueues.has(runtimeConfig.runQueue)) {
     return;
   }
+
+  // P1: resolve the fleet store (explicit → Drizzle → in-memory). When present,
+  // register this worker node into the shared fleet via `startRunWorker`'s
+  // `workerRegistry` option. The `shutdown` hook deregisters on drain.
+  const fleetStore = resolveWorkerNodeStore(runtimeConfig);
+  const fleetCfg = runtimeConfig.workerRegistry;
+  const workerRegistry =
+    fleetStore !== undefined
+      ? {
+          store: fleetStore,
+          workerId: fleetCfg?.workerId ?? `worker-${randomUUID()}`,
+          ...(fleetCfg?.capacity !== undefined
+            ? { capacity: fleetCfg.capacity }
+            : {}),
+          ...(fleetCfg?.tenantScope !== undefined
+            ? { tenantScope: fleetCfg.tenantScope }
+            : {}),
+          ...(fleetCfg?.heartbeatMs !== undefined
+            ? { heartbeatMs: fleetCfg.heartbeatMs }
+            : {}),
+          ...(fleetCfg?.reaperMs !== undefined
+            ? { reaperMs: fleetCfg.reaperMs }
+            : {}),
+          ...(fleetCfg?.ttlMs !== undefined ? { ttlMs: fleetCfg.ttlMs } : {}),
+          ...(fleetCfg?.meta !== undefined ? { meta: fleetCfg.meta } : {}),
+          ...(runtimeConfig.shutdown
+            ? {
+                onStop: (stop: () => Promise<void>) =>
+                  registerShutdownDrainHook(runtimeConfig.shutdown!, stop),
+              }
+            : {}),
+        }
+      : undefined;
+
   startRunWorker({
     runQueue: runtimeConfig.runQueue,
     runStore: runtimeConfig.runStore,
@@ -50,6 +128,7 @@ export function maybeStartRunWorker(
     reflectionStore: runtimeConfig.reflectionStore,
     resourceQuota: runtimeConfig.resourceQuota,
     inputGuardConfig: runtimeConfig.security?.inputGuard,
+    ...(workerRegistry ? { workerRegistry } : {}),
   });
   startedRunQueues.add(runtimeConfig.runQueue);
 }

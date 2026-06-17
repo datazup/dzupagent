@@ -51,6 +51,8 @@ import type {
 } from "../runtime/tool-resolver.js";
 import type { MetricsAccessControl } from "../routes/metrics.js";
 import type { ExecutableAgentResolver } from "../services/executable-agent-resolver.js";
+import type { WorkerNodeStore } from "../runtime/worker-registry.js";
+import type { DrizzleWorkerNodeDatabase } from "../persistence/drizzle-store-types.js";
 
 /**
  * Shared scheduling options for consolidation (everything except the task itself
@@ -127,6 +129,40 @@ export interface ForgeRuntimeConfig {
   reflector?: RunReflectorLike;
   retrievalFeedback?: RetrievalFeedbackHookConfig;
   journal?: RunJournal;
+  /**
+   * P1 worker fleet registry config. When omitted, the run worker runs in
+   * single-node mode (no fleet registration). When present, the worker
+   * registers a node, heartbeats, reaps dead peers, and the `/metrics`
+   * endpoint exposes fleet gauges fed from `workerRegistry.store`.
+   *
+   * If `store` is omitted but a Drizzle `db` is configured, a
+   * {@link DrizzleWorkerNodeStore} is used; otherwise an
+   * {@link InMemoryWorkerNodeStore} backs the fleet.
+   */
+  workerRegistry?: {
+    /** Explicit fleet store. Defaults per `db` (Drizzle) then in-memory. */
+    store?: WorkerNodeStore;
+    /** Stable id for this worker process. Defaults to a random per-process id. */
+    workerId?: string;
+    /** Max concurrent runs this node advertises. Default: 5. */
+    capacity?: number;
+    /** `'shared'` or a tenant id. Default: `'shared'`. */
+    tenantScope?: string;
+    /** Heartbeat interval ms. Default: 5000. */
+    heartbeatMs?: number;
+    /** Reaper interval ms. Default: 30000. */
+    reaperMs?: number;
+    /** Dead-node ttl ms. Default: 30000. */
+    ttlMs?: number;
+    /** Free-form node metadata (version, host, region). */
+    meta?: Record<string, unknown>;
+  };
+  /**
+   * Optional Drizzle client. When provided and `workerRegistry.store` is
+   * unset, a {@link DrizzleWorkerNodeStore} is wired as the default fleet
+   * store so multiple worker processes share one queryable fleet.
+   */
+  db?: DrizzleWorkerNodeDatabase;
 }
 
 /** Memory and run-history route family config. */
