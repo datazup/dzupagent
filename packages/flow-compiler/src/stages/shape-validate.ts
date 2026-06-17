@@ -1,6 +1,6 @@
-import type { FlowNode, ValidationError } from '@dzupagent/flow-ast'
+import type { FlowNode, ValidationError } from "@dzupagent/flow-ast";
 
-import { routeTarget } from '../route-target.js'
+import { routeTarget } from "../route-target.js";
 
 /**
  * Stage 2 — Structural validation.
@@ -14,16 +14,16 @@ import { routeTarget } from '../route-target.js'
  * from `../route-target.ts` so STAGE 2 and STAGE 4 stay in lockstep.
  */
 export function validateShape(ast: FlowNode): ValidationError[] {
-  const errors: ValidationError[] = []
-  visit(ast, 'root', errors)
+  const errors: ValidationError[] = [];
+  visit(ast, "root", errors);
 
   // OI-4: skill-chain-routed flows reject on_error anywhere.
-  const { target } = routeTarget(ast)
-  if (target === 'skill-chain') {
-    walkOnError(ast, 'root', errors)
+  const { target } = routeTarget(ast);
+  if (target === "skill-chain") {
+    walkOnError(ast, "root", errors);
   }
 
-  return errors
+  return errors;
 }
 
 // ---------------------------------------------------------------------------
@@ -33,322 +33,688 @@ export function validateShape(ast: FlowNode): ValidationError[] {
 
 function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
   switch (node.type) {
-    case 'sequence': {
+    case "sequence": {
       if (node.nodes.length === 0) {
-        errors.push(emptyBody(node.type, path, 'sequence.nodes must contain at least one node'))
+        errors.push(
+          emptyBody(
+            node.type,
+            path,
+            "sequence.nodes must contain at least one node"
+          )
+        );
       }
-      node.nodes.forEach((child, idx) => visit(child, `${path}.nodes[${idx}]`, errors))
-      return
+      node.nodes.forEach((child, idx) =>
+        visit(child, `${path}.nodes[${idx}]`, errors)
+      );
+      return;
     }
-    case 'action': {
+    case "action": {
       if (!isNonEmptyString(node.toolRef)) {
-        errors.push(missing(node.type, path, 'action.toolRef is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "action.toolRef is required (non-empty string)"
+          )
+        );
       }
       if (!isPlainObject(node.input)) {
-        errors.push(missing(node.type, path, 'action.input is required (object, may be empty)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "action.input is required (object, may be empty)"
+          )
+        );
       }
-      return
+      return;
     }
-    case 'for_each': {
+    case "for_each": {
       if (!isNonEmptyString(node.source)) {
-        errors.push(missing(node.type, path, 'for_each.source is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "for_each.source is required (non-empty string)"
+          )
+        );
       }
       if (!isNonEmptyString(node.as)) {
-        errors.push(missing(node.type, path, 'for_each.as is required (non-empty string)'))
+        errors.push(
+          missing(node.type, path, "for_each.as is required (non-empty string)")
+        );
       }
       if (node.body.length === 0) {
-        errors.push(emptyBody(node.type, path, 'for_each.body must contain at least one node'))
+        errors.push(
+          emptyBody(
+            node.type,
+            path,
+            "for_each.body must contain at least one node"
+          )
+        );
       }
-      node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`, errors))
-      return
+      node.body.forEach((child, idx) =>
+        visit(child, `${path}.body[${idx}]`, errors)
+      );
+      return;
     }
-    case 'branch': {
+    case "branch": {
       if (!isNonEmptyString(node.condition)) {
-        errors.push(missing(node.type, path, 'branch.condition is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "branch.condition is required (non-empty string)"
+          )
+        );
       }
       if (node.then.length === 0) {
-        errors.push(emptyBody(node.type, path, 'branch.then must contain at least one node'))
+        errors.push(
+          emptyBody(
+            node.type,
+            path,
+            "branch.then must contain at least one node"
+          )
+        );
       }
-      node.then.forEach((child, idx) => visit(child, `${path}.then[${idx}]`, errors))
+      node.then.forEach((child, idx) =>
+        visit(child, `${path}.then[${idx}]`, errors)
+      );
       if (node.else !== undefined) {
         if (node.else.length === 0) {
-          errors.push(emptyBody(node.type, path, 'branch.else, when present, must contain at least one node'))
+          errors.push(
+            emptyBody(
+              node.type,
+              path,
+              "branch.else, when present, must contain at least one node"
+            )
+          );
         }
-        node.else.forEach((child, idx) => visit(child, `${path}.else[${idx}]`, errors))
+        node.else.forEach((child, idx) =>
+          visit(child, `${path}.else[${idx}]`, errors)
+        );
       }
-      return
+      return;
     }
-    case 'parallel': {
+    case "parallel": {
       if (node.branches.length === 0) {
-        errors.push(emptyBody(node.type, path, 'parallel.branches must contain at least one branch'))
+        errors.push(
+          emptyBody(
+            node.type,
+            path,
+            "parallel.branches must contain at least one branch"
+          )
+        );
       }
       node.branches.forEach((branch, bIdx) => {
         if (branch.length === 0) {
           errors.push(
-            emptyBody(node.type, `${path}.branches[${bIdx}]`, 'parallel.branches[*] must contain at least one node'),
-          )
+            emptyBody(
+              node.type,
+              `${path}.branches[${bIdx}]`,
+              "parallel.branches[*] must contain at least one node"
+            )
+          );
         }
-        branch.forEach((child, idx) => visit(child, `${path}.branches[${bIdx}][${idx}]`, errors))
-      })
-      return
+        branch.forEach((child, idx) =>
+          visit(child, `${path}.branches[${bIdx}][${idx}]`, errors)
+        );
+      });
+      return;
     }
-    case 'approval': {
+    case "approval": {
       if (!isNonEmptyString(node.question)) {
-        errors.push(missing(node.type, path, 'approval.question is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "approval.question is required (non-empty string)"
+          )
+        );
       }
       if (node.onApprove.length === 0) {
-        errors.push(emptyBody(node.type, path, 'approval.onApprove must contain at least one node'))
+        errors.push(
+          emptyBody(
+            node.type,
+            path,
+            "approval.onApprove must contain at least one node"
+          )
+        );
       }
-      node.onApprove.forEach((child, idx) => visit(child, `${path}.onApprove[${idx}]`, errors))
+      node.onApprove.forEach((child, idx) =>
+        visit(child, `${path}.onApprove[${idx}]`, errors)
+      );
       if (node.onReject !== undefined) {
         if (node.onReject.length === 0) {
           errors.push(
-            emptyBody(node.type, path, 'approval.onReject, when present, must contain at least one node'),
-          )
+            emptyBody(
+              node.type,
+              path,
+              "approval.onReject, when present, must contain at least one node"
+            )
+          );
         }
-        node.onReject.forEach((child, idx) => visit(child, `${path}.onReject[${idx}]`, errors))
+        node.onReject.forEach((child, idx) =>
+          visit(child, `${path}.onReject[${idx}]`, errors)
+        );
       }
-      return
+      return;
     }
-    case 'clarification': {
+    case "clarification": {
       if (!isNonEmptyString(node.question)) {
-        errors.push(missing(node.type, path, 'clarification.question is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "clarification.question is required (non-empty string)"
+          )
+        );
       }
-      if (node.expected === 'choice') {
+      if (node.expected === "choice") {
         if (!Array.isArray(node.choices) || node.choices.length === 0) {
           errors.push(
-            missing(node.type, path, "clarification.choices is required (non-empty array) when expected='choice'"),
-          )
+            missing(
+              node.type,
+              path,
+              "clarification.choices is required (non-empty array) when expected='choice'"
+            )
+          );
         }
       }
-      return
+      return;
     }
-    case 'persona': {
+    case "persona": {
       if (!isNonEmptyString(node.personaId)) {
-        errors.push(missing(node.type, path, 'persona.personaId is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "persona.personaId is required (non-empty string)"
+          )
+        );
       }
       if (node.body.length === 0) {
-        errors.push(emptyBody(node.type, path, 'persona.body must contain at least one node'))
+        errors.push(
+          emptyBody(
+            node.type,
+            path,
+            "persona.body must contain at least one node"
+          )
+        );
       }
-      node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`, errors))
-      return
+      node.body.forEach((child, idx) =>
+        visit(child, `${path}.body[${idx}]`, errors)
+      );
+      return;
     }
-    case 'route': {
-      if (node.strategy === 'fixed-provider') {
+    case "route": {
+      if (node.strategy === "fixed-provider") {
         if (!isNonEmptyString(node.provider)) {
           errors.push(
-            missing(node.type, path, "route.provider is required (non-empty string) when strategy='fixed-provider'"),
-          )
+            missing(
+              node.type,
+              path,
+              "route.provider is required (non-empty string) when strategy='fixed-provider'"
+            )
+          );
         }
-      } else if (node.strategy === 'capability') {
+      } else if (node.strategy === "capability") {
         if (!Array.isArray(node.tags) || node.tags.length === 0) {
           errors.push(
-            missing(node.type, path, "route.tags is required (non-empty array) when strategy='capability'"),
-          )
+            missing(
+              node.type,
+              path,
+              "route.tags is required (non-empty array) when strategy='capability'"
+            )
+          );
         }
       }
       if (node.body.length === 0) {
-        errors.push(emptyBody(node.type, path, 'route.body must contain at least one node'))
+        errors.push(
+          emptyBody(
+            node.type,
+            path,
+            "route.body must contain at least one node"
+          )
+        );
       }
-      node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`, errors))
-      return
+      node.body.forEach((child, idx) =>
+        visit(child, `${path}.body[${idx}]`, errors)
+      );
+      return;
     }
-    case 'complete': {
+    case "complete": {
       // Leaf — no required fields beyond `type`.
-      return
+      return;
     }
-    case 'spawn': {
+    case "spawn": {
       if (!isNonEmptyString(node.templateRef)) {
-        errors.push(missing(node.type, path, 'spawn.templateRef is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "spawn.templateRef is required (non-empty string)"
+          )
+        );
       }
-      return
+      return;
     }
-    case 'classify': {
+    case "classify": {
       if (!isNonEmptyString(node.prompt)) {
-        errors.push(missing(node.type, path, 'classify.prompt is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "classify.prompt is required (non-empty string)"
+          )
+        );
       }
       if (!Array.isArray(node.choices) || node.choices.length === 0) {
-        errors.push(missing(node.type, path, 'classify.choices is required (non-empty array)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "classify.choices is required (non-empty array)"
+          )
+        );
       }
       if (!isNonEmptyString(node.outputKey)) {
-        errors.push(missing(node.type, path, 'classify.outputKey is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "classify.outputKey is required (non-empty string)"
+          )
+        );
       }
       if (node.defaultChoice !== undefined) {
         if (!isNonEmptyString(node.defaultChoice)) {
-          errors.push(missing(node.type, path, 'classify.defaultChoice must be a non-empty string when present'))
-        } else if (!Array.isArray(node.choices) || !node.choices.includes(node.defaultChoice)) {
-          errors.push(missing(node.type, path, 'classify.defaultChoice must match one of classify.choices'))
+          errors.push(
+            missing(
+              node.type,
+              path,
+              "classify.defaultChoice must be a non-empty string when present"
+            )
+          );
+        } else if (
+          !Array.isArray(node.choices) ||
+          !node.choices.includes(node.defaultChoice)
+        ) {
+          errors.push(
+            missing(
+              node.type,
+              path,
+              "classify.defaultChoice must match one of classify.choices"
+            )
+          );
         }
       }
-      return
+      return;
     }
-    case 'emit': {
+    case "emit": {
       if (!isNonEmptyString(node.event)) {
-        errors.push(missing(node.type, path, 'emit.event is required (non-empty string)'))
+        errors.push(
+          missing(node.type, path, "emit.event is required (non-empty string)")
+        );
       }
-      return
+      return;
     }
-    case 'memory': {
-      return
+    case "memory": {
+      return;
     }
-    case 'set': {
+    case "set": {
       if (!isPlainObject(node.assign)) {
-        errors.push(missing(node.type, path, 'set.assign is required (object)'))
+        errors.push(
+          missing(node.type, path, "set.assign is required (object)")
+        );
       }
-      return
+      return;
     }
-    case 'checkpoint': {
+    case "checkpoint": {
       if (!isNonEmptyString(node.captureOutputOf)) {
-        errors.push(missing(node.type, path, 'checkpoint.captureOutputOf is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "checkpoint.captureOutputOf is required (non-empty string)"
+          )
+        );
       }
-      return
+      return;
     }
-    case 'restore': {
+    case "restore": {
       if (!isNonEmptyString(node.checkpointLabel)) {
-        errors.push(missing(node.type, path, 'restore.checkpointLabel is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "restore.checkpointLabel is required (non-empty string)"
+          )
+        );
       }
-      return
+      return;
     }
-    case 'try_catch': {
+    case "try_catch": {
       if (node.body.length === 0) {
-        errors.push(emptyBody(node.type, path, 'try_catch.body must contain at least one node'))
+        errors.push(
+          emptyBody(
+            node.type,
+            path,
+            "try_catch.body must contain at least one node"
+          )
+        );
       }
-      node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`, errors))
-      node.catch.forEach((child, idx) => visit(child, `${path}.catch[${idx}]`, errors))
-      return
+      node.body.forEach((child, idx) =>
+        visit(child, `${path}.body[${idx}]`, errors)
+      );
+      node.catch.forEach((child, idx) =>
+        visit(child, `${path}.catch[${idx}]`, errors)
+      );
+      return;
     }
-    case 'loop': {
+    case "loop": {
       if (!isNonEmptyString(node.condition)) {
-        errors.push(missing(node.type, path, 'loop.condition is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "loop.condition is required (non-empty string)"
+          )
+        );
       }
       if (node.body.length === 0) {
-        errors.push(emptyBody(node.type, path, 'loop.body must contain at least one node'))
+        errors.push(
+          emptyBody(node.type, path, "loop.body must contain at least one node")
+        );
       }
-      node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`, errors))
-      return
+      node.body.forEach((child, idx) =>
+        visit(child, `${path}.body[${idx}]`, errors)
+      );
+      return;
     }
-    case 'http': {
+    case "http": {
       if (!isNonEmptyString(node.url)) {
-        errors.push(missing(node.type, path, 'http.url is required (non-empty string)'))
+        errors.push(
+          missing(node.type, path, "http.url is required (non-empty string)")
+        );
       }
-      return
+      return;
     }
-    case 'wait': {
-      if (typeof node.durationMs !== 'number' || node.durationMs < 0) {
-        errors.push(missing(node.type, path, 'wait.durationMs is required (non-negative number)'))
+    case "wait": {
+      if (typeof node.durationMs !== "number" || node.durationMs < 0) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "wait.durationMs is required (non-negative number)"
+          )
+        );
       }
-      return
+      return;
     }
-    case 'subflow': {
+    case "subflow": {
       if (!isNonEmptyString(node.flowRef)) {
-        errors.push(missing(node.type, path, 'subflow.flowRef is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "subflow.flowRef is required (non-empty string)"
+          )
+        );
       }
-      return
+      return;
     }
-    case 'fleet.dispatch': {
+    case "fleet.dispatch": {
       if (!isNonEmptyString(node.mode)) {
-        errors.push(missing(node.type, path, 'fleet.dispatch.mode is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "fleet.dispatch.mode is required (non-empty string)"
+          )
+        );
       }
       if (!isNonEmptyString(node.repos) && !Array.isArray(node.repos)) {
-        errors.push(missing(node.type, path, 'fleet.dispatch.repos is required (string or array)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "fleet.dispatch.repos is required (string or array)"
+          )
+        );
       }
       if (node.task === undefined) {
-        errors.push(missing(node.type, path, 'fleet.dispatch.task is required'))
+        errors.push(
+          missing(node.type, path, "fleet.dispatch.task is required")
+        );
       }
-      return
+      return;
     }
-    case 'fleet.gather': {
+    case "fleet.gather": {
       if (!isNonEmptyString(node.source)) {
-        errors.push(missing(node.type, path, 'fleet.gather.source is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "fleet.gather.source is required (non-empty string)"
+          )
+        );
       }
-      return
+      return;
     }
-    case 'fleet.contract-net': {
+    case "fleet.contract-net": {
       if (!isNonEmptyString(node.repos) && !Array.isArray(node.repos)) {
-        errors.push(missing(node.type, path, 'fleet.contract-net.repos is required (string or array)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "fleet.contract-net.repos is required (string or array)"
+          )
+        );
       }
       if (node.task === undefined) {
-        errors.push(missing(node.type, path, 'fleet.contract-net.task is required'))
+        errors.push(
+          missing(node.type, path, "fleet.contract-net.task is required")
+        );
       }
-      return
+      return;
     }
-    case 'knowledge.write': {
+    case "knowledge.write": {
       if (!isNonEmptyString(node.scope)) {
-        errors.push(missing(node.type, path, 'knowledge.write.scope is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "knowledge.write.scope is required (non-empty string)"
+          )
+        );
       }
       if (node.entry === undefined) {
-        errors.push(missing(node.type, path, 'knowledge.write.entry is required'))
+        errors.push(
+          missing(node.type, path, "knowledge.write.entry is required")
+        );
       }
-      return
+      return;
     }
-    case 'knowledge.query': {
+    case "knowledge.query": {
       if (!isPlainObject(node.filter)) {
-        errors.push(missing(node.type, path, 'knowledge.query.filter is required (object)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "knowledge.query.filter is required (object)"
+          )
+        );
       }
       if (!isNonEmptyString(node.output)) {
-        errors.push(missing(node.type, path, 'knowledge.query.output is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "knowledge.query.output is required (non-empty string)"
+          )
+        );
       }
-      return
+      return;
     }
-    case 'worker.dispatch': {
+    case "worker.dispatch": {
       if (!isNonEmptyString(node.dispatchId)) {
-        errors.push(missing(node.type, path, 'worker.dispatch.dispatchId is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "worker.dispatch.dispatchId is required (non-empty string)"
+          )
+        );
       }
       if (!isNonEmptyString(node.instructions)) {
-        errors.push(missing(node.type, path, 'worker.dispatch.instructions is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "worker.dispatch.instructions is required (non-empty string)"
+          )
+        );
       }
       if (!isNonEmptyString(node.outputKey)) {
-        errors.push(missing(node.type, path, 'worker.dispatch.outputKey is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "worker.dispatch.outputKey is required (non-empty string)"
+          )
+        );
       }
-      return
+      return;
     }
-    case 'prompt': {
-      if (!isNonEmptyString(node.userPrompt)) {
-        errors.push(missing(node.type, path, 'prompt.userPrompt is required (non-empty string)'))
-      }
-      return
-    }
-    case 'return_to': {
-      if (!isNonEmptyString(node.targetId)) {
-        errors.push(missing(node.type, path, 'return_to.targetId is required (non-empty string)'))
-      }
-      if (!isNonEmptyString(node.condition)) {
-        errors.push(missing(node.type, path, 'return_to.condition is required (non-empty string)'))
-      }
-      return
-    }
-    case 'agent': {
-      if (!isNonEmptyString(node.agentId)) {
-        errors.push(missing(node.type, path, 'agent.agentId is required (non-empty string)'))
+    case "adapter.run": {
+      const hasProvider = isNonEmptyString(node.provider);
+      const hasTags = Array.isArray(node.tags) && node.tags.length > 0;
+      if (!hasProvider && !hasTags) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "adapter.run requires one of provider or tags"
+          )
+        );
       }
       if (!isNonEmptyString(node.instructions)) {
-        errors.push(missing(node.type, path, 'agent.instructions is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "adapter.run.instructions is required (non-empty string)"
+          )
+        );
+      }
+      if (!isNonEmptyString(node.output)) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "adapter.run.output is required (non-empty string)"
+          )
+        );
+      }
+      return;
+    }
+    case "prompt": {
+      if (!isNonEmptyString(node.userPrompt)) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "prompt.userPrompt is required (non-empty string)"
+          )
+        );
+      }
+      return;
+    }
+    case "return_to": {
+      if (!isNonEmptyString(node.targetId)) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "return_to.targetId is required (non-empty string)"
+          )
+        );
+      }
+      if (!isNonEmptyString(node.condition)) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "return_to.condition is required (non-empty string)"
+          )
+        );
+      }
+      return;
+    }
+    case "agent": {
+      if (!isNonEmptyString(node.agentId)) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "agent.agentId is required (non-empty string)"
+          )
+        );
+      }
+      if (!isNonEmptyString(node.instructions)) {
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "agent.instructions is required (non-empty string)"
+          )
+        );
       }
       if (!isPlainObject(node.output) || !isNonEmptyString(node.output.key)) {
-        errors.push(missing(node.type, path, 'agent.output.key is required (non-empty string)'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "agent.output.key is required (non-empty string)"
+          )
+        );
       }
       if (
-        isPlainObject(node.output)
-        && node.output.schemaRef === undefined
-        && node.output.schema === undefined
+        isPlainObject(node.output) &&
+        node.output.schemaRef === undefined &&
+        node.output.schema === undefined
       ) {
-        errors.push(missing(node.type, path, 'agent.output requires either schemaRef or inline schema'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "agent.output requires either schemaRef or inline schema"
+          )
+        );
       }
-      return
+      return;
     }
-    case 'validate': {
-      const hasRef = isNonEmptyString(node.ref)
-      const hasCommands = Array.isArray(node.commands) && node.commands.length > 0
+    case "validate": {
+      const hasRef = isNonEmptyString(node.ref);
+      const hasCommands =
+        Array.isArray(node.commands) && node.commands.length > 0;
       if (!hasRef && !hasCommands) {
-        errors.push(missing(node.type, path, 'validate node requires either ref or non-empty commands'))
+        errors.push(
+          missing(
+            node.type,
+            path,
+            "validate node requires either ref or non-empty commands"
+          )
+        );
       }
-      return
+      return;
     }
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails compilation here.
-      const _exhaustive: never = node
-      void _exhaustive
-      return
+      const _exhaustive: never = node;
+      void _exhaustive;
+      return;
     }
   }
 }
@@ -359,88 +725,115 @@ function visit(node: FlowNode, path: string, errors: ValidationError[]): void {
 // the FlowNode union does not yet declare `on_error` on any variant.
 // ---------------------------------------------------------------------------
 
-function walkOnError(node: FlowNode, path: string, errors: ValidationError[]): void {
+function walkOnError(
+  node: FlowNode,
+  path: string,
+  errors: ValidationError[]
+): void {
   if ((node as unknown as Record<string, unknown>).on_error !== undefined) {
     errors.push({
       nodeType: node.type,
       nodePath: path,
-      code: 'MISSING_REQUIRED_FIELD',
-      message: 'on_error is only legal in pipeline-targeted flows',
-    })
+      code: "MISSING_REQUIRED_FIELD",
+      message: "on_error is only legal in pipeline-targeted flows",
+    });
   }
   switch (node.type) {
-    case 'sequence': {
-      node.nodes.forEach((child, idx) => walkOnError(child, `${path}.nodes[${idx}]`, errors))
-      return
+    case "sequence": {
+      node.nodes.forEach((child, idx) =>
+        walkOnError(child, `${path}.nodes[${idx}]`, errors)
+      );
+      return;
     }
-    case 'branch': {
-      node.then.forEach((child, idx) => walkOnError(child, `${path}.then[${idx}]`, errors))
+    case "branch": {
+      node.then.forEach((child, idx) =>
+        walkOnError(child, `${path}.then[${idx}]`, errors)
+      );
       if (node.else) {
-        node.else.forEach((child, idx) => walkOnError(child, `${path}.else[${idx}]`, errors))
+        node.else.forEach((child, idx) =>
+          walkOnError(child, `${path}.else[${idx}]`, errors)
+        );
       }
-      return
+      return;
     }
-    case 'parallel': {
+    case "parallel": {
       node.branches.forEach((branch, bIdx) => {
-        branch.forEach((child, idx) => walkOnError(child, `${path}.branches[${bIdx}][${idx}]`, errors))
-      })
-      return
+        branch.forEach((child, idx) =>
+          walkOnError(child, `${path}.branches[${bIdx}][${idx}]`, errors)
+        );
+      });
+      return;
     }
-    case 'for_each': {
-      node.body.forEach((child, idx) => walkOnError(child, `${path}.body[${idx}]`, errors))
-      return
+    case "for_each": {
+      node.body.forEach((child, idx) =>
+        walkOnError(child, `${path}.body[${idx}]`, errors)
+      );
+      return;
     }
-    case 'approval': {
-      node.onApprove.forEach((child, idx) => walkOnError(child, `${path}.onApprove[${idx}]`, errors))
+    case "approval": {
+      node.onApprove.forEach((child, idx) =>
+        walkOnError(child, `${path}.onApprove[${idx}]`, errors)
+      );
       if (node.onReject) {
-        node.onReject.forEach((child, idx) => walkOnError(child, `${path}.onReject[${idx}]`, errors))
+        node.onReject.forEach((child, idx) =>
+          walkOnError(child, `${path}.onReject[${idx}]`, errors)
+        );
       }
-      return
+      return;
     }
-    case 'persona':
-    case 'route': {
-      node.body.forEach((child, idx) => walkOnError(child, `${path}.body[${idx}]`, errors))
-      return
+    case "persona":
+    case "route": {
+      node.body.forEach((child, idx) =>
+        walkOnError(child, `${path}.body[${idx}]`, errors)
+      );
+      return;
     }
-    case 'action':
-    case 'clarification':
-    case 'complete':
-    case 'spawn':
-    case 'classify':
-    case 'emit':
-    case 'memory':
-    case 'set':
-    case 'checkpoint':
-    case 'restore':
-    case 'http':
-    case 'wait':
-    case 'subflow':
-    case 'fleet.dispatch':
-    case 'fleet.gather':
-    case 'fleet.contract-net':
-    case 'knowledge.write':
-    case 'knowledge.query':
-    case 'worker.dispatch': {
-      return
+    case "action":
+    case "clarification":
+    case "complete":
+    case "spawn":
+    case "classify":
+    case "emit":
+    case "memory":
+    case "set":
+    case "checkpoint":
+    case "restore":
+    case "http":
+    case "wait":
+    case "subflow":
+    case "fleet.dispatch":
+    case "fleet.gather":
+    case "fleet.contract-net":
+    case "knowledge.write":
+    case "knowledge.query":
+    case "worker.dispatch":
+    case "adapter.run": {
+      return;
     }
-    case 'try_catch': {
-      node.body.forEach((child, idx) => walkOnError(child, `${path}.body[${idx}]`, errors))
-      node.catch.forEach((child, idx) => walkOnError(child, `${path}.catch[${idx}]`, errors))
-      return
+    case "try_catch": {
+      node.body.forEach((child, idx) =>
+        walkOnError(child, `${path}.body[${idx}]`, errors)
+      );
+      node.catch.forEach((child, idx) =>
+        walkOnError(child, `${path}.catch[${idx}]`, errors)
+      );
+      return;
     }
-    case 'loop': {
-      node.body.forEach((child, idx) => walkOnError(child, `${path}.body[${idx}]`, errors))
-      return
+    case "loop": {
+      node.body.forEach((child, idx) =>
+        walkOnError(child, `${path}.body[${idx}]`, errors)
+      );
+      return;
     }
-    case 'prompt':
-    case 'return_to':
-    case 'agent':
-    case 'validate':
-      return
+    case "prompt":
+    case "return_to":
+    case "agent":
+    case "validate":
+      return;
     default: {
-      const _exhaustive: never = node
-      void _exhaustive
-      return
+      const _exhaustive: never = node;
+      void _exhaustive;
+      return;
     }
   }
 }
@@ -449,18 +842,26 @@ function walkOnError(node: FlowNode, path: string, errors: ValidationError[]): v
 // Helpers
 // ---------------------------------------------------------------------------
 
-function emptyBody(nodeType: FlowNode['type'], nodePath: string, message: string): ValidationError {
-  return { nodeType, nodePath, code: 'EMPTY_BODY', message }
+function emptyBody(
+  nodeType: FlowNode["type"],
+  nodePath: string,
+  message: string
+): ValidationError {
+  return { nodeType, nodePath, code: "EMPTY_BODY", message };
 }
 
-function missing(nodeType: FlowNode['type'], nodePath: string, message: string): ValidationError {
-  return { nodeType, nodePath, code: 'MISSING_REQUIRED_FIELD', message }
+function missing(
+  nodeType: FlowNode["type"],
+  nodePath: string,
+  message: string
+): ValidationError {
+  return { nodeType, nodePath, code: "MISSING_REQUIRED_FIELD", message };
 }
 
 function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0
+  return typeof value === "string" && value.length > 0;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

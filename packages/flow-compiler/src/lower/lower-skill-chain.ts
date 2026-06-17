@@ -27,57 +27,61 @@ import type {
   PersonaNode,
   ResolvedTool,
   RouteNode,
-} from '@dzupagent/flow-ast'
-import type { SkillChain, SkillChainStep, SkillHandle } from '@dzupagent/core/pipeline'
-import type { LoweringMode } from './_shared.js'
-import { collectFlowArtifactMetadata } from '../flow-artifact-metadata.js'
-import type { FlowArtifactMetadata } from '../flow-artifact-metadata.js'
+} from "@dzupagent/flow-ast";
+import type {
+  SkillChain,
+  SkillChainStep,
+  SkillHandle,
+} from "@dzupagent/core/pipeline";
+import type { LoweringMode } from "./_shared.js";
+import { collectFlowArtifactMetadata } from "../flow-artifact-metadata.js";
+import type { FlowArtifactMetadata } from "../flow-artifact-metadata.js";
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 export interface LowerSkillChainInput {
-  ast: FlowNode
-  resolved: Map<string, ResolvedTool>
+  ast: FlowNode;
+  resolved: Map<string, ResolvedTool>;
   /**
    * Defaults to executable lowering. Diagnostic lowering may use unresolved
    * action refs as best-effort SkillChain step names with warnings.
    */
-  mode?: LoweringMode
+  mode?: LoweringMode;
   /**
    * Human-readable name for the emitted chain.
    * Defaults to `"flow"` when not provided.
    */
-  name?: string
+  name?: string;
 }
 
 export function lowerSkillChain(input: LowerSkillChainInput): {
-  artifact: SkillChain & { metadata?: FlowArtifactMetadata }
-  warnings: string[]
+  artifact: SkillChain & { metadata?: FlowArtifactMetadata };
+  warnings: string[];
 } {
-  const warnings: string[] = []
-  const steps: SkillChainStep[] = []
+  const warnings: string[] = [];
+  const steps: SkillChainStep[] = [];
 
   walkNode(
     input.ast,
-    'root',
+    "root",
     input.resolved,
-    input.mode ?? 'executable',
+    input.mode ?? "executable",
     steps,
-    warnings,
-  )
+    warnings
+  );
 
   if (steps.length === 0) {
     throw new Error(
-      'lowerSkillChain: no action nodes found in AST — cannot emit an empty SkillChain',
-    )
+      "lowerSkillChain: no action nodes found in AST — cannot emit an empty SkillChain"
+    );
   }
 
   const artifact: SkillChain = {
-    name: input.name ?? 'flow',
+    name: input.name ?? "flow",
     steps,
-  }
+  };
 
   return {
     artifact: {
@@ -85,7 +89,7 @@ export function lowerSkillChain(input: LowerSkillChainInput): {
       metadata: collectFlowArtifactMetadata(input.ast),
     },
     warnings,
-  }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -98,132 +102,159 @@ function walkNode(
   resolved: Map<string, ResolvedTool>,
   mode: LoweringMode,
   steps: SkillChainStep[],
-  warnings: string[],
+  warnings: string[]
 ): void {
   switch (node.type) {
-    case 'sequence': {
+    case "sequence": {
       if (node.nodes.length === 1) {
         warnings.push(
-          `Redundant single-child sequence wrapper at "${path}" — consider inlining the child node.`,
-        )
+          `Redundant single-child sequence wrapper at "${path}" — consider inlining the child node.`
+        );
       }
       for (let i = 0; i < node.nodes.length; i++) {
-        const child = node.nodes[i]
+        const child = node.nodes[i];
         // noUncheckedIndexedAccess: child may be undefined (index out of bounds).
         // In practice this cannot happen because i < node.nodes.length, but we
         // must satisfy the compiler.
-        if (child === undefined) continue
-        walkNode(child, `${path}.nodes[${i}]`, resolved, mode, steps, warnings)
+        if (child === undefined) continue;
+        walkNode(child, `${path}.nodes[${i}]`, resolved, mode, steps, warnings);
       }
-      return
+      return;
     }
 
-    case 'action': {
-      const step = lowerAction(node, path, resolved, mode, warnings)
-      steps.push(step)
-      return
+    case "action": {
+      const step = lowerAction(node, path, resolved, mode, warnings);
+      steps.push(step);
+      return;
     }
 
-    case 'branch': {
-      walkBranch(node, path, resolved, mode, steps, warnings)
-      return
+    case "branch": {
+      walkBranch(node, path, resolved, mode, steps, warnings);
+      return;
     }
 
-    case 'parallel': {
-      walkParallel(node, path, resolved, mode, steps, warnings)
-      return
+    case "parallel": {
+      walkParallel(node, path, resolved, mode, steps, warnings);
+      return;
     }
 
-    case 'approval': {
-      walkApproval(node, path, resolved, mode, steps, warnings)
-      return
+    case "approval": {
+      walkApproval(node, path, resolved, mode, steps, warnings);
+      return;
     }
 
-    case 'clarification': {
-      walkClarification(node, path, steps, warnings)
-      return
+    case "clarification": {
+      walkClarification(node, path, steps, warnings);
+      return;
     }
 
-    case 'persona': {
-      walkPersona(node, path, resolved, mode, steps, warnings)
-      return
+    case "persona": {
+      walkPersona(node, path, resolved, mode, steps, warnings);
+      return;
     }
 
-    case 'route': {
-      walkRoute(node, path, resolved, mode, steps, warnings)
-      return
+    case "route": {
+      walkRoute(node, path, resolved, mode, steps, warnings);
+      return;
     }
 
-    case 'complete': {
-      walkComplete(node, path, warnings)
-      return
+    case "complete": {
+      walkComplete(node, path, warnings);
+      return;
     }
 
-    case 'for_each': {
+    case "for_each": {
       // Router contract violated — for_each is pipeline-only per ADR.
       throw new Error(
         `lowerSkillChain: for_each node encountered at "${path}". ` +
-          `for_each is a pipeline-only variant; the router must dispatch such ASTs to the pipeline-loop target.`,
-      )
+          `for_each is a pipeline-only variant; the router must dispatch such ASTs to the pipeline-loop target.`
+      );
     }
 
-    case 'spawn':
-    case 'classify':
-    case 'emit':
-    case 'checkpoint':
-    case 'restore':
-    case 'http':
-    case 'wait':
-    case 'subflow':
-    case 'fleet.dispatch':
-    case 'fleet.gather':
-    case 'fleet.contract-net':
-    case 'knowledge.write':
-    case 'knowledge.query':
-    case 'worker.dispatch': {
+    case "spawn":
+    case "classify":
+    case "emit":
+    case "checkpoint":
+    case "restore":
+    case "http":
+    case "wait":
+    case "subflow":
+    case "fleet.dispatch":
+    case "fleet.gather":
+    case "fleet.contract-net":
+    case "knowledge.write":
+    case "knowledge.query":
+    case "worker.dispatch":
+    case "adapter.run": {
       // Runtime-executed nodes — no skill-chain step emitted; silently pass through.
-      return
+      return;
     }
 
-    case 'memory': {
-      walkMemory(node, path, steps)
-      return
+    case "memory": {
+      walkMemory(node, path, steps);
+      return;
     }
 
-    case 'try_catch': {
+    case "try_catch": {
       for (let i = 0; i < node.body.length; i++) {
-        const child = node.body[i]
-        if (child !== undefined) walkNode(child, `${path}.body[${i}]`, resolved, mode, steps, warnings)
+        const child = node.body[i];
+        if (child !== undefined)
+          walkNode(
+            child,
+            `${path}.body[${i}]`,
+            resolved,
+            mode,
+            steps,
+            warnings
+          );
       }
       for (let i = 0; i < node.catch.length; i++) {
-        const child = node.catch[i]
-        if (child !== undefined) walkNode(child, `${path}.catch[${i}]`, resolved, mode, steps, warnings)
+        const child = node.catch[i];
+        if (child !== undefined)
+          walkNode(
+            child,
+            `${path}.catch[${i}]`,
+            resolved,
+            mode,
+            steps,
+            warnings
+          );
       }
-      return
+      return;
     }
 
-    case 'loop': {
+    case "loop": {
       for (let i = 0; i < node.body.length; i++) {
-        const child = node.body[i]
-        if (child !== undefined) walkNode(child, `${path}.body[${i}]`, resolved, mode, steps, warnings)
+        const child = node.body[i];
+        if (child !== undefined)
+          walkNode(
+            child,
+            `${path}.body[${i}]`,
+            resolved,
+            mode,
+            steps,
+            warnings
+          );
       }
-      return
+      return;
     }
 
-    case 'prompt':
-    case 'return_to':
-    case 'agent':
-    case 'validate':
-    case 'set':
-      return
+    case "prompt":
+    case "return_to":
+    case "agent":
+    case "validate":
+    case "set":
+      return;
 
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails here.
-      const _exhaustive: never = node
-      void _exhaustive
+      const _exhaustive: never = node;
+      void _exhaustive;
       throw new Error(
-        `lowerSkillChain: unexpected node type "${(node as FlowNode).type}" at "${path}".`,
-      )
+        `lowerSkillChain: unexpected node type "${
+          (node as FlowNode).type
+        }" at "${path}".`
+      );
     }
   }
 }
@@ -237,9 +268,9 @@ function walkNode(
  * Returns `null` when the resolved tool is not a skill.
  */
 function asSkillHandle(rt: ResolvedTool): SkillHandle | null {
-  if (rt.kind !== 'skill') return null
+  if (rt.kind !== "skill") return null;
   // Safe cast — `kind` discriminant verified above; no `any` used.
-  return rt.handle as SkillHandle
+  return rt.handle as SkillHandle;
 }
 
 function lowerAction(
@@ -247,36 +278,34 @@ function lowerAction(
   path: string,
   resolved: Map<string, ResolvedTool>,
   mode: LoweringMode,
-  warnings: string[],
+  warnings: string[]
 ): SkillChainStep {
-  const rt = resolved.get(path)
+  const rt = resolved.get(path);
 
   if (rt === undefined) {
-    const message = `Action at "${path}" has no resolved tool entry for "${node.toolRef}"`
-    if (mode === 'executable') {
+    const message = `Action at "${path}" has no resolved tool entry for "${node.toolRef}"`;
+    if (mode === "executable") {
       throw new Error(
-        `${message}; executable lowering rejects unresolved semantic references.`,
-      )
+        `${message}; executable lowering rejects unresolved semantic references.`
+      );
     }
 
-    warnings.push(
-      `${message} — using toolRef as diagnostic skillName.`,
-    )
-    return { skillName: node.toolRef }
+    warnings.push(`${message} — using toolRef as diagnostic skillName.`);
+    return { skillName: node.toolRef };
   }
 
-  const handle = asSkillHandle(rt)
+  const handle = asSkillHandle(rt);
   if (handle === null) {
     warnings.push(
-      `Action at "${path}" resolved to kind "${rt.kind}" — expected "skill". Using ref "${rt.ref}" as skillName.`,
-    )
-    return { skillName: rt.ref }
+      `Action at "${path}" resolved to kind "${rt.kind}" — expected "skill". Using ref "${rt.ref}" as skillName.`
+    );
+    return { skillName: rt.ref };
   }
 
   // `handle` is now narrowed; `skillName` comes from the stable ref string.
-  void handle // acknowledged — runtime use is by the executor, not this lowerer
+  void handle; // acknowledged — runtime use is by the executor, not this lowerer
 
-  return { skillName: rt.ref }
+  return { skillName: rt.ref };
 }
 
 // ---------------------------------------------------------------------------
@@ -297,24 +326,24 @@ function walkBranch(
   resolved: Map<string, ResolvedTool>,
   mode: LoweringMode,
   steps: SkillChainStep[],
-  warnings: string[],
+  warnings: string[]
 ): void {
   warnings.push(
     `Branch at "${path}" (condition="${node.condition}") lowered as sequential then+else — ` +
-      `skill-chain has no native conditional dispatch; predicate is dropped.`,
-  )
+      `skill-chain has no native conditional dispatch; predicate is dropped.`
+  );
 
   for (let i = 0; i < node.then.length; i++) {
-    const child = node.then[i]
-    if (child === undefined) continue
-    walkNode(child, `${path}.then[${i}]`, resolved, mode, steps, warnings)
+    const child = node.then[i];
+    if (child === undefined) continue;
+    walkNode(child, `${path}.then[${i}]`, resolved, mode, steps, warnings);
   }
 
   if (node.else !== undefined) {
     for (let i = 0; i < node.else.length; i++) {
-      const child = node.else[i]
-      if (child === undefined) continue
-      walkNode(child, `${path}.else[${i}]`, resolved, mode, steps, warnings)
+      const child = node.else[i];
+      if (child === undefined) continue;
+      walkNode(child, `${path}.else[${i}]`, resolved, mode, steps, warnings);
     }
   }
 }
@@ -330,27 +359,27 @@ function walkParallel(
   resolved: Map<string, ResolvedTool>,
   mode: LoweringMode,
   steps: SkillChainStep[],
-  warnings: string[],
+  warnings: string[]
 ): void {
   warnings.push(
     `Parallel at "${path}" with ${node.branches.length} branches lowered as sequential — ` +
-      `skill-chain has no fork/join; branches will run in order.`,
-  )
+      `skill-chain has no fork/join; branches will run in order.`
+  );
 
   for (let bIdx = 0; bIdx < node.branches.length; bIdx++) {
-    const branch = node.branches[bIdx]
-    if (branch === undefined) continue
+    const branch = node.branches[bIdx];
+    if (branch === undefined) continue;
     for (let i = 0; i < branch.length; i++) {
-      const child = branch[i]
-      if (child === undefined) continue
+      const child = branch[i];
+      if (child === undefined) continue;
       walkNode(
         child,
         `${path}.branches[${bIdx}][${i}]`,
         resolved,
         mode,
         steps,
-        warnings,
-      )
+        warnings
+      );
     }
   }
 }
@@ -367,33 +396,33 @@ function walkApproval(
   resolved: Map<string, ResolvedTool>,
   mode: LoweringMode,
   steps: SkillChainStep[],
-  warnings: string[],
+  warnings: string[]
 ): void {
-  const before = steps.length
+  const before = steps.length;
 
   for (let i = 0; i < node.onApprove.length; i++) {
-    const child = node.onApprove[i]
-    if (child === undefined) continue
-    walkNode(child, `${path}.onApprove[${i}]`, resolved, mode, steps, warnings)
+    const child = node.onApprove[i];
+    if (child === undefined) continue;
+    walkNode(child, `${path}.onApprove[${i}]`, resolved, mode, steps, warnings);
   }
 
   // Mark the first newly-appended approval step for HITL suspension.
   if (steps.length > before) {
-    const first = steps[before]
+    const first = steps[before];
     if (first !== undefined) {
-      steps[before] = { ...first, suspendBefore: true }
+      steps[before] = { ...first, suspendBefore: true };
     }
   } else {
     warnings.push(
-      `Approval at "${path}" (question="${node.question}") produced no onApprove steps — suspend hint skipped.`,
-    )
+      `Approval at "${path}" (question="${node.question}") produced no onApprove steps — suspend hint skipped.`
+    );
   }
 
   if (node.onReject !== undefined && node.onReject.length > 0) {
     warnings.push(
       `Approval at "${path}" onReject body dropped — skill-chain cannot express branch-on-rejection; ` +
-        `${node.onReject.length} reject step(s) lost.`,
-    )
+        `${node.onReject.length} reject step(s) lost.`
+    );
   }
 }
 
@@ -407,18 +436,18 @@ function walkClarification(
   node: ClarificationNode,
   path: string,
   steps: SkillChainStep[],
-  warnings: string[],
+  warnings: string[]
 ): void {
   warnings.push(
     `Clarification at "${path}" (question="${node.question}") lowered as synthetic suspend step — ` +
-      `skill-chain has no native clarification primitive.`,
-  )
+      `skill-chain has no native clarification primitive.`
+  );
 
-  const slug = slugify(node.question)
+  const slug = slugify(node.question);
   steps.push({
     skillName: `__clarification__${slug}`,
     suspendBefore: true,
-  })
+  });
 }
 
 /**
@@ -430,17 +459,17 @@ function walkPersona(
   resolved: Map<string, ResolvedTool>,
   mode: LoweringMode,
   steps: SkillChainStep[],
-  warnings: string[],
+  warnings: string[]
 ): void {
   warnings.push(
     `Persona "${node.personaId}" at "${path}" lowered as inline body — ` +
-      `skill-chain cannot carry persona binding metadata.`,
-  )
+      `skill-chain cannot carry persona binding metadata.`
+  );
 
   for (let i = 0; i < node.body.length; i++) {
-    const child = node.body[i]
-    if (child === undefined) continue
-    walkNode(child, `${path}.body[${i}]`, resolved, mode, steps, warnings)
+    const child = node.body[i];
+    if (child === undefined) continue;
+    walkNode(child, `${path}.body[${i}]`, resolved, mode, steps, warnings);
   }
 }
 
@@ -453,18 +482,18 @@ function walkRoute(
   resolved: Map<string, ResolvedTool>,
   mode: LoweringMode,
   steps: SkillChainStep[],
-  warnings: string[],
+  warnings: string[]
 ): void {
-  const meta = node.provider ?? node.tags?.join(',') ?? node.strategy
+  const meta = node.provider ?? node.tags?.join(",") ?? node.strategy;
   warnings.push(
     `Route (strategy="${node.strategy}", meta="${meta}") at "${path}" lowered as inline body — ` +
-      `skill-chain cannot carry routing metadata.`,
-  )
+      `skill-chain cannot carry routing metadata.`
+  );
 
   for (let i = 0; i < node.body.length; i++) {
-    const child = node.body[i]
-    if (child === undefined) continue
-    walkNode(child, `${path}.body[${i}]`, resolved, mode, steps, warnings)
+    const child = node.body[i];
+    if (child === undefined) continue;
+    walkNode(child, `${path}.body[${i}]`, resolved, mode, steps, warnings);
   }
 }
 
@@ -474,12 +503,12 @@ function walkRoute(
 function walkComplete(
   node: CompleteNode,
   path: string,
-  warnings: string[],
+  warnings: string[]
 ): void {
   if (node.result !== undefined && node.result.length > 0) {
     warnings.push(
-      `Complete at "${path}" (result="${node.result}") dropped — skill-chain has no terminal result field.`,
-    )
+      `Complete at "${path}" (result="${node.result}") dropped — skill-chain has no terminal result field.`
+    );
   }
 }
 
@@ -493,9 +522,9 @@ function walkComplete(
 function walkMemory(
   node: MemoryNode,
   path: string,
-  steps: SkillChainStep[],
+  steps: SkillChainStep[]
 ): void {
-  const keySuffix = node.key ? `_${slugify(node.key)}` : ''
+  const keySuffix = node.key ? `_${slugify(node.key)}` : "";
   steps.push({
     skillName: `__memory__${node.operation}_${node.tier}${keySuffix}`,
     stateTransformer: (state: Record<string, unknown>) => ({
@@ -503,7 +532,7 @@ function walkMemory(
       __memoryOp: { operation: node.operation, tier: node.tier, key: node.key },
       __memoryPath: path,
     }),
-  })
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -517,7 +546,7 @@ function walkMemory(
 function slugify(s: string): string {
   const cleaned = s
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-  return cleaned.length > 0 ? cleaned.slice(0, 48) : 'unspecified'
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return cleaned.length > 0 ? cleaned.slice(0, 48) : "unspecified";
 }

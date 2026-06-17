@@ -10,7 +10,7 @@ export function formatDocumentToDsl(document: FlowDocumentV1): string {
       lines,
       0,
       "description",
-      document.description.includes("\n") ? "|" : document.description,
+      document.description.includes("\n") ? "|" : document.description
     );
   if (document.description?.includes("\n")) {
     for (const line of document.description.split("\n")) {
@@ -71,7 +71,7 @@ export function formatDocumentToDsl(document: FlowDocumentV1): string {
 function formatNode(
   lines: string[],
   node: FlowNode,
-  indentLevel: number,
+  indentLevel: number
 ): void {
   const indent = "  ".repeat(indentLevel);
   const childIndent = "  ".repeat(indentLevel + 2);
@@ -105,7 +105,7 @@ function formatNode(
       lines.push(`${childIndent}branches:`);
       const branchNames = Array.isArray(node.meta?.["branchNames"])
         ? node.meta!["branchNames"].filter(
-            (value): value is string => typeof value === "string",
+            (value): value is string => typeof value === "string"
           )
         : [];
       node.branches.forEach((branch, index) => {
@@ -129,7 +129,7 @@ function formatNode(
       lines.push(`${childIndent}question: ${quote(node.question)}`);
       if (node.options && node.options.length > 0) {
         lines.push(
-          `${childIndent}options: [${node.options.map(quote).join(", ")}]`,
+          `${childIndent}options: [${node.options.map(quote).join(", ")}]`
         );
       }
       lines.push(`${childIndent}on_approve:`);
@@ -148,7 +148,7 @@ function formatNode(
       if (node.expected) lines.push(`${childIndent}expected: ${node.expected}`);
       if (node.choices && node.choices.length > 0) {
         lines.push(
-          `${childIndent}choices: [${node.choices.map(quote).join(", ")}]`,
+          `${childIndent}choices: [${node.choices.map(quote).join(", ")}]`
         );
       }
       return;
@@ -191,7 +191,7 @@ function formatNode(
       pushCommon(lines, node, indentLevel + 2);
       lines.push(`${childIndent}prompt: ${quote(node.prompt)}`);
       lines.push(
-        `${childIndent}choices: [${node.choices.map(quote).join(", ")}]`,
+        `${childIndent}choices: [${node.choices.map(quote).join(", ")}]`
       );
       lines.push(`${childIndent}output: ${node.outputKey}`);
       if (node.defaultChoice)
@@ -232,7 +232,7 @@ function formatNode(
       lines.push(`${indent}- checkpoint:`);
       pushCommon(lines, node, indentLevel + 2);
       lines.push(
-        `${childIndent}captureOutputOf: ${quote(node.captureOutputOf)}`,
+        `${childIndent}captureOutputOf: ${quote(node.captureOutputOf)}`
       );
       if (node.label !== undefined)
         lines.push(`${childIndent}label: ${quote(node.label)}`);
@@ -241,7 +241,7 @@ function formatNode(
       lines.push(`${indent}- restore:`);
       pushCommon(lines, node, indentLevel + 2);
       lines.push(
-        `${childIndent}checkpointLabel: ${quote(node.checkpointLabel)}`,
+        `${childIndent}checkpointLabel: ${quote(node.checkpointLabel)}`
       );
       if (node.onNotFound !== undefined)
         lines.push(`${childIndent}onNotFound: ${node.onNotFound}`);
@@ -351,12 +351,12 @@ function formatNode(
         lines.push(
           `${childIndent}commandAllowlist: [${node.commandAllowlist
             .map(quote)
-            .join(", ")}]`,
+            .join(", ")}]`
         );
       }
       if (node.validationCommand)
         lines.push(
-          `${childIndent}validationCommand: ${quote(node.validationCommand)}`,
+          `${childIndent}validationCommand: ${quote(node.validationCommand)}`
         );
       lines.push(`${childIndent}outputKey: ${node.outputKey}`);
       if (node.resultFormat)
@@ -372,7 +372,7 @@ function formatNode(
       lines.push(`${childIndent}task: ${formatScalar(node.task)}`);
       if (node.on_contract_change)
         lines.push(
-          `${childIndent}on_contract_change: ${node.on_contract_change}`,
+          `${childIndent}on_contract_change: ${node.on_contract_change}`
         );
       if (node.output) lines.push(`${childIndent}output: ${node.output}`);
       return;
@@ -402,6 +402,38 @@ function formatNode(
       lines.push(`${childIndent}filter: ${formatScalar(node.filter)}`);
       lines.push(`${childIndent}output: ${node.output}`);
       return;
+    case "adapter.run":
+      lines.push(`${indent}- adapter.run:`);
+      pushCommon(lines, node, indentLevel + 2);
+      if (node.provider) lines.push(`${childIndent}provider: ${node.provider}`);
+      if (node.tags && node.tags.length > 0) {
+        lines.push(`${childIndent}tags: [${node.tags.map(quote).join(", ")}]`);
+      }
+      if (node.model) lines.push(`${childIndent}model: ${node.model}`);
+      if (node.systemPrompt)
+        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
+      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
+      if (node.input)
+        lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
+      if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
+      if (node.reasoning)
+        lines.push(`${childIndent}reasoning: ${node.reasoning}`);
+      if (node.outputSchema !== undefined)
+        lines.push(
+          `${childIndent}outputSchema: ${
+            typeof node.outputSchema === "string"
+              ? node.outputSchema
+              : formatScalar(node.outputSchema)
+          }`
+        );
+      if (node.promptPrep)
+        lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
+      if (node.idempotency)
+        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
+      if (node.policy)
+        lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
+      lines.push(`${childIndent}output: ${node.output}`);
+      return;
     default: {
       const _exhaustive: never = node;
       void _exhaustive;
@@ -412,7 +444,7 @@ function formatNode(
 function pushCommon(
   lines: string[],
   node: FlowNode,
-  indentLevel: number,
+  indentLevel: number
 ): void {
   const indent = "  ".repeat(indentLevel);
   if (node.id) lines.push(`${indent}id: ${node.id}`);
@@ -435,11 +467,11 @@ function pushField(
   lines: string[],
   indentLevel: number,
   key: string,
-  value: string | number,
+  value: string | number
 ): void {
   const indent = "  ".repeat(indentLevel);
   lines.push(
-    `${indent}${key}: ${typeof value === "string" ? quote(value) : value}`,
+    `${indent}${key}: ${typeof value === "string" ? quote(value) : value}`
   );
 }
 

@@ -160,6 +160,7 @@ function projectNode(node: FlowNode, state: ProjectionState): ProjectionResult {
     case "fleet.contract-net":
     case "knowledge.write":
     case "knowledge.query":
+    case "adapter.run":
       return { entryIds: [id], exitIds: [id] };
     default: {
       const _exhaustive: never = node;
@@ -257,6 +258,8 @@ function labelForNode(node: FlowNode): string {
       return `knowledge.write:${node.scope}`;
     case "knowledge.query":
       return `knowledge.query:${node.output}`;
+    case "adapter.run":
+      return `adapter.run:${node.provider ?? (node.tags ?? []).join(",")}`;
     default: {
       const _exhaustive: never = node;
       void _exhaustive;
