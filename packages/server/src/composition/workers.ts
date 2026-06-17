@@ -8,30 +8,31 @@
  * the factory) are no-ops. The shared `WeakSet` is module-scoped and
  * deliberately does not leak through the public API.
  */
-import type { Hono } from 'hono'
-import type { AppEnv } from '../types.js'
+import type { Hono } from "hono";
+import type { AppEnv } from "../types.js";
 
-import type { ForgeServerConfig } from './types.js'
-import { startRunWorker, type RunExecutor } from '../runtime/run-worker.js'
-import {
-  ConsolidationScheduler,
-} from '../runtime/consolidation-scheduler.js'
-import { createSleepConsolidationTask } from '../runtime/sleep-consolidation-task.js'
-import type { RunQueue } from '../queue/run-queue.js'
-import type { DurableNodeLedger } from '@dzupagent/core/persistence'
-import { NodeLedgerReclaimer } from '../runtime/node-ledger-reclaimer.js'
-import { buildRunReEnqueuer } from '../runtime/run-reenqueuer.js'
-import { registerShutdownDrainHook } from './utils.js'
+import type { ForgeServerConfig } from "./types.js";
+import { startRunWorker, type RunExecutor } from "../runtime/run-worker.js";
+import { ConsolidationScheduler } from "../runtime/consolidation-scheduler.js";
+import { createSleepConsolidationTask } from "../runtime/sleep-consolidation-task.js";
+import type { RunQueue } from "../queue/run-queue.js";
+import type { DurableNodeLedger } from "@dzupagent/core/persistence";
+import { NodeLedgerReclaimer } from "../runtime/node-ledger-reclaimer.js";
+import { buildRunReEnqueuer } from "../runtime/run-reenqueuer.js";
+import { registerShutdownDrainHook } from "./utils.js";
+import { ScheduleTickWorker } from "../schedules/schedule-tick-worker.js";
+import type { ScheduleStore } from "../schedules/schedule-store.js";
 
-const startedRunQueues = new WeakSet<RunQueue>()
-const startedNodeLedgers = new WeakSet<DurableNodeLedger>()
+const startedRunQueues = new WeakSet<RunQueue>();
+const startedNodeLedgers = new WeakSet<DurableNodeLedger>();
+const startedScheduleStores = new WeakSet<ScheduleStore>();
 
 export function maybeStartRunWorker(
   runtimeConfig: ForgeServerConfig,
-  effectiveRunExecutor: RunExecutor,
+  effectiveRunExecutor: RunExecutor
 ): void {
   if (!runtimeConfig.runQueue || startedRunQueues.has(runtimeConfig.runQueue)) {
-    return
+    return;
   }
   startRunWorker({
     runQueue: runtimeConfig.runQueue,
@@ -49,8 +50,8 @@ export function maybeStartRunWorker(
     reflectionStore: runtimeConfig.reflectionStore,
     resourceQuota: runtimeConfig.resourceQuota,
     inputGuardConfig: runtimeConfig.security?.inputGuard,
-  })
-  startedRunQueues.add(runtimeConfig.runQueue)
+  });
+  startedRunQueues.add(runtimeConfig.runQueue);
 }
 
 /**
@@ -65,18 +66,18 @@ export function maybeStartRunWorker(
  * `createForgeApp` is called repeatedly with the same ledger (e.g. in tests).
  */
 export function maybeStartNodeLedgerReclaimer(
-  runtimeConfig: ForgeServerConfig,
+  runtimeConfig: ForgeServerConfig
 ): void {
-  const ledger = runtimeConfig.nodeLedger
-  const runQueue = runtimeConfig.runQueue
+  const ledger = runtimeConfig.nodeLedger;
+  const runQueue = runtimeConfig.runQueue;
   if (!ledger || !runQueue || startedNodeLedgers.has(ledger)) {
-    return
+    return;
   }
 
   const reEnqueueRun = buildRunReEnqueuer({
     runStore: runtimeConfig.runStore,
     runQueue,
-  })
+  });
 
   const reclaimer = new NodeLedgerReclaimer({
     ledger,
@@ -86,16 +87,65 @@ export function maybeStartNodeLedgerReclaimer(
     batchSize: runtimeConfig.reclaimer?.batchSize,
     onError: (error) => {
       console.warn(
-        '[ForgeServer] node-ledger reclaimer re-enqueue failed',
-        error,
-      )
+        "[ForgeServer] node-ledger reclaimer re-enqueue failed",
+        error
+      );
     },
-  })
-  reclaimer.start()
-  startedNodeLedgers.add(ledger)
+  });
+  reclaimer.start();
+  startedNodeLedgers.add(ledger);
 
   if (runtimeConfig.shutdown) {
-    registerShutdownDrainHook(runtimeConfig.shutdown, () => reclaimer.stop())
+    registerShutdownDrainHook(runtimeConfig.shutdown, () => reclaimer.stop());
+  }
+}
+
+/**
+ * Start the P4 HA schedule-tick worker when both `scheduleStore` and
+ * `scheduleTickWorker` are configured. The worker atomically claims due
+ * schedule occurrences from the shared store and fires them via the injected
+ * `onFire` callback, so two nodes sharing one store fire each occurrence
+ * exactly once.
+ *
+ * Mirrors {@link maybeStartNodeLedgerReclaimer}: a `WeakSet` keyed on the
+ * `scheduleStore` instance guarantees the worker is started at most once per
+ * store, even when `createForgeApp` is called repeatedly with the same store
+ * (e.g. in tests).
+ */
+export function maybeStartScheduleTickWorker(
+  runtimeConfig: ForgeServerConfig
+): void {
+  const store = runtimeConfig.scheduleStore;
+  const tickCfg = runtimeConfig.scheduleTickWorker;
+  if (!store || !tickCfg || startedScheduleStores.has(store)) {
+    return;
+  }
+
+  const worker = new ScheduleTickWorker({
+    store,
+    claimerId: tickCfg.claimerId,
+    onFire: tickCfg.onFire,
+    ...(tickCfg.intervalMs !== undefined
+      ? { intervalMs: tickCfg.intervalMs }
+      : {}),
+    ...(tickCfg.limit !== undefined ? { limit: tickCfg.limit } : {}),
+    ...(tickCfg.maxCatchUp !== undefined
+      ? { maxCatchUp: tickCfg.maxCatchUp }
+      : {}),
+    emit: (event) => runtimeConfig.eventBus?.emit(event),
+    onError: (claimed, error) => {
+      console.warn(
+        "[ForgeServer] schedule-tick-worker fire failed",
+        claimed.id,
+        error
+      );
+    },
+  });
+  worker.start();
+  startedScheduleStores.add(store);
+
+  if (runtimeConfig.shutdown) {
+    registerShutdownDrainHook(runtimeConfig.shutdown, () => worker.stop());
   }
 }
 
@@ -105,20 +155,24 @@ export function maybeStartNodeLedgerReclaimer(
  * provided (matching legacy behaviour where the status route was only added
  * alongside shutdown wiring).
  */
-export function startConsolidationScheduler(app: Hono<AppEnv>, runtimeConfig: ForgeServerConfig): void {
+export function startConsolidationScheduler(
+  app: Hono<AppEnv>,
+  runtimeConfig: ForgeServerConfig
+): void {
   if (!runtimeConfig.consolidation) {
-    return
+    return;
   }
-  const consolidationCfg = runtimeConfig.consolidation
+  const consolidationCfg = runtimeConfig.consolidation;
 
   // Resolve the consolidation task: explicit `task` or auto-created from consolidator config
-  const task = 'task' in consolidationCfg
-    ? consolidationCfg.task
-    : createSleepConsolidationTask({
-        consolidator: consolidationCfg.consolidator,
-        store: consolidationCfg.store,
-        namespaces: consolidationCfg.namespaces,
-      })
+  const task =
+    "task" in consolidationCfg
+      ? consolidationCfg.task
+      : createSleepConsolidationTask({
+          consolidator: consolidationCfg.consolidator,
+          store: consolidationCfg.store,
+          namespaces: consolidationCfg.namespaces,
+        });
 
   const scheduler = new ConsolidationScheduler({
     task,
@@ -127,15 +181,18 @@ export function startConsolidationScheduler(app: Hono<AppEnv>, runtimeConfig: Fo
     maxConcurrent: consolidationCfg.maxConcurrent,
     eventBus: runtimeConfig.eventBus,
     activeRunCount:
-      consolidationCfg.activeRunCount ?? (() => runtimeConfig.runQueue?.stats().active ?? 0),
-  })
-  scheduler.start()
+      consolidationCfg.activeRunCount ??
+      (() => runtimeConfig.runQueue?.stats().active ?? 0),
+  });
+  scheduler.start();
 
   if (runtimeConfig.shutdown) {
-    registerShutdownDrainHook(runtimeConfig.shutdown, () => scheduler.stop())
+    registerShutdownDrainHook(runtimeConfig.shutdown, () => scheduler.stop());
 
     // Expose scheduler status via health route
-    app.get('/api/health/consolidation', (c) => c.json({ data: scheduler.status() }))
+    app.get("/api/health/consolidation", (c) =>
+      c.json({ data: scheduler.status() })
+    );
   }
 }
 
@@ -146,24 +203,26 @@ export function startConsolidationScheduler(app: Hono<AppEnv>, runtimeConfig: Fo
  * — one rewrites failing prompts, the other persists learned patterns — and
  * require no direct coupling beyond sharing the bus.
  */
-export function startClosedLoopSubscribers(runtimeConfig: ForgeServerConfig): void {
+export function startClosedLoopSubscribers(
+  runtimeConfig: ForgeServerConfig
+): void {
   if (runtimeConfig.promptFeedbackLoop) {
-    const loop = runtimeConfig.promptFeedbackLoop
-    loop.start()
+    const loop = runtimeConfig.promptFeedbackLoop;
+    loop.start();
     if (runtimeConfig.shutdown) {
       registerShutdownDrainHook(runtimeConfig.shutdown, async () => {
-        loop.stop()
-      })
+        loop.stop();
+      });
     }
   }
 
   if (runtimeConfig.learningEventProcessor) {
-    const processor = runtimeConfig.learningEventProcessor
-    processor.start()
+    const processor = runtimeConfig.learningEventProcessor;
+    processor.start();
     if (runtimeConfig.shutdown) {
       registerShutdownDrainHook(runtimeConfig.shutdown, async () => {
-        processor.stop()
-      })
+        processor.stop();
+      });
     }
   }
 }
