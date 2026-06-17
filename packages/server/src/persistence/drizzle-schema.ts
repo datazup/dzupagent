@@ -121,7 +121,7 @@ export const runArtifacts = pgTable(
     metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [index("run_artifacts_run_id_idx").on(table.runId)],
+  (table) => [index("run_artifacts_run_id_idx").on(table.runId)]
 );
 
 // ---------------------------------------------------------------------------
@@ -150,7 +150,7 @@ export const deploymentHistory = pgTable(
     index("deployment_history_environment_idx").on(table.environment),
     index("deployment_history_deployed_at_idx").on(table.deployedAt),
     index("deployment_history_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -226,7 +226,7 @@ export const a2aTaskMessages = pgTable(
       .notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [index("a2a_task_messages_task_id_idx").on(table.taskId)],
+  (table) => [index("a2a_task_messages_task_id_idx").on(table.taskId)]
 );
 
 // ---------------------------------------------------------------------------
@@ -310,7 +310,7 @@ export const runReflections = pgTable(
   (table) => [
     index("run_reflections_tenant_id_idx").on(table.tenantId),
     index("run_reflections_owner_id_idx").on(table.ownerId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -337,10 +337,10 @@ export const forgeVectors = pgTable(
   (table) => [
     uniqueIndex("forge_vectors_collection_key_idx").on(
       table.collection,
-      table.key,
+      table.key
     ),
     index("forge_vectors_collection_idx").on(table.collection),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -368,7 +368,7 @@ export const agentCatalog = pgTable(
     uniqueIndex("agent_catalog_tenant_slug_idx").on(table.tenantId, table.slug),
     index("agent_catalog_author_idx").on(table.author),
     index("agent_catalog_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -404,10 +404,10 @@ export const clusterRoles = pgTable(
   (table) => [
     uniqueIndex("cluster_roles_cluster_role_idx").on(
       table.clusterId,
-      table.roleId,
+      table.roleId
     ),
     index("cluster_roles_cluster_id_idx").on(table.clusterId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -431,10 +431,10 @@ export const agentMailbox = pgTable(
   (table) => [
     index("agent_mailbox_to_agent_created_at_idx").on(
       table.toAgent,
-      table.createdAt,
+      table.createdAt
     ),
     index("agent_mailbox_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -470,7 +470,7 @@ export const agentMailDlq = pgTable(
   (table) => [
     index("agent_mail_dlq_next_retry_at_idx").on(table.nextRetryAt),
     index("agent_mail_dlq_to_agent_idx").on(table.toAgent),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -502,9 +502,41 @@ export const forgeNodeLedger = pgTable(
     index("forge_node_ledger_run_id_idx").on(table.runId),
     index("forge_node_ledger_status_lease_idx").on(
       table.status,
-      table.leaseExpiresAt,
+      table.leaseExpiresAt
     ),
-  ],
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Worker Fleet Registry (P1 — stable node identity + heartbeat + fleet view)
+// ---------------------------------------------------------------------------
+
+/**
+ * Registered worker nodes in the fleet (spec P1). Each run worker registers a
+ * stable per-process id, heartbeats its in-flight count, and is reaped when its
+ * heartbeat goes stale. Timestamps are epoch milliseconds (bigint) so reaping
+ * is deterministic under the injected-clock contract of {@link WorkerNodeStore}.
+ *
+ * `id` is caller-supplied (a stable per-process id, not a UUID sequence), so a
+ * worker restart upserts onto the same row. No foreign keys — the fleet view is
+ * standalone observability state.
+ */
+export const workerNodes = pgTable(
+  "worker_nodes",
+  {
+    id: text("id").primaryKey(),
+    tenantScope: text("tenant_scope").notNull().default("shared"),
+    status: text("status").notNull().default("starting"),
+    capacity: integer("capacity").notNull().default(1),
+    inFlight: integer("in_flight").notNull().default(0),
+    startedAt: bigint("started_at", { mode: "number" }).notNull(),
+    lastHeartbeatAt: bigint("last_heartbeat_at", { mode: "number" }).notNull(),
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
+  },
+  (table) => [
+    index("worker_nodes_status_idx").on(table.status),
+    index("worker_nodes_tenant_scope_idx").on(table.tenantScope),
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -536,7 +568,7 @@ export const traceSteps = pgTable(
   (table) => [
     index("trace_steps_run_id_idx").on(table.runId),
     index("trace_steps_run_step_idx").on(table.runId, table.stepIndex),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -586,7 +618,7 @@ export const apiKeys = pgTable(
     index("api_keys_owner_id_idx").on(table.ownerId),
     index("api_keys_key_hash_idx").on(table.keyHash),
     index("api_keys_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -618,7 +650,7 @@ export const auditLog = pgTable(
     index("dzupagent_audit_log_action_idx").on(table.action),
     index("dzupagent_audit_log_actor_id_idx").on(table.actorId),
     index("dzupagent_audit_log_ts_idx").on(table.ts),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -642,7 +674,7 @@ export const flowArtifacts = pgTable(
   },
   (table) => [
     index("flow_artifacts_content_digest_idx").on(table.contentDigest),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -665,5 +697,5 @@ export const flowApprovals = pgTable(
     responsePayload: jsonb("response_payload").$type<Record<string, unknown>>(),
     resolvedAt: timestamp("resolved_at"),
   },
-  (table) => [index("flow_approvals_run_id_idx").on(table.runId)],
+  (table) => [index("flow_approvals_run_id_idx").on(table.runId)]
 );
