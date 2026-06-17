@@ -261,6 +261,16 @@ export const scheduleConfigs = pgTable("schedule_configs", {
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
   /** MC-S02: Tenant scope. Defaults to 'default'. */
   tenantId: text("tenant_id").notNull().default("default"),
+  /** P4 HA: next occurrence due to fire (claim-tick driver). */
+  nextRunAt: timestamp("next_run_at"),
+  /** P4 HA: true while a fired run is still in flight (skip-if-running). */
+  running: boolean("running").default(false).notNull(),
+  /** P4 HA: node id that won the most recent claim. */
+  claimedBy: text("claimed_by"),
+  /** P4 HA: timestamp of the most recent successful claim. */
+  lastClaimedAt: timestamp("last_claimed_at"),
+  /** P4 HA: timestamp of the most recent fired occurrence. */
+  lastFiredAt: timestamp("last_fired_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

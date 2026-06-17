@@ -64,12 +64,29 @@ function cronToIntervalMs(schedule: string): number {
   return 60_000
 }
 
+/** Construction options for {@link TriggerManager}. */
+export interface TriggerManagerOptions {
+  /**
+   * P4 HA: when true, suppress the per-process per-cron setInterval timers. A
+   * durable store-backed claim-tick (ScheduleTickWorker) is the single source
+   * of truth for time-based firing across nodes, so this manager only handles
+   * webhook + chain triggers. Defaults to false (legacy per-process cron).
+   */
+  externalCronSource?: boolean
+}
+
 export class TriggerManager {
   private triggers: Map<string, AnyTrigger> = new Map()
   private cronTimers: Map<string, ReturnType<typeof setInterval>> = new Map()
   private started = false
+  private readonly externalCronSource: boolean
 
-  constructor(private readonly onTrigger: (trigger: TriggerConfig) => Promise<void>) {}
+  constructor(
+    private readonly onTrigger: (trigger: TriggerConfig) => Promise<void>,
+    options: TriggerManagerOptions = {},
+  ) {
+    this.externalCronSource = options.externalCronSource ?? false
+  }
 
   register(trigger: AnyTrigger): void {
     this.triggers.set(trigger.id, trigger)
@@ -144,6 +161,9 @@ export class TriggerManager {
 
   private startCronTimer(trigger: AnyTrigger): void {
     if (trigger.type !== 'cron') return
+    // P4 HA: a durable store-backed claim-tick is authoritative for time-based
+    // firing across nodes; never spin a per-process cron timer here.
+    if (this.externalCronSource) return
     this.stopCronTimer(trigger.id)
     const intervalMs = cronToIntervalMs(trigger.schedule)
     const timer = setInterval(() => {

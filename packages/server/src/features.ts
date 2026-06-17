@@ -134,8 +134,19 @@ export { createTriggerRoutes } from './routes/triggers.js'
 export type { TriggerRouteConfig } from './routes/triggers.js'
 export { createScheduleRoutes } from './routes/schedules.js'
 export type { ScheduleRouteConfig } from './routes/schedules.js'
-export { InMemoryScheduleStore, DrizzleScheduleStore } from './schedules/schedule-store.js'
-export type { ScheduleStore, ScheduleRecord } from './schedules/schedule-store.js'
+export { InMemoryScheduleStore, DrizzleScheduleStore, computeNextRunAt } from './schedules/schedule-store.js'
+export type {
+  ScheduleStore,
+  ScheduleRecord,
+  ClaimedSchedule,
+  ClaimDueOptions,
+} from './schedules/schedule-store.js'
+export {
+  ScheduleTickWorker,
+  DEFAULT_SCHEDULE_TICK_INTERVAL_MS,
+  DEFAULT_SCHEDULE_TICK_LIMIT,
+} from './schedules/schedule-tick-worker.js'
+export type { ScheduleTickWorkerConfig } from './schedules/schedule-tick-worker.js'
 
 // --- Personas / Prompts / Presets / Reflections ---
 export { createPersonaRoutes } from './routes/personas.js'

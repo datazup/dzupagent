@@ -8,6 +8,7 @@ export type {
   CronTriggerConfig,
   WebhookTriggerConfig,
   ChainTriggerConfig,
+  TriggerManagerOptions,
 } from './trigger-manager.js'
 
 export { InMemoryTriggerStore, DrizzleTriggerStore, hashWebhookSecret, verifyWebhookSecret } from './trigger-store.js'
