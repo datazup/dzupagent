@@ -9,43 +9,44 @@
  * with existing consumers (composition/, runtime.ts, executors).
  */
 
-import type { DzupEventBus } from '@dzupagent/core/events'
-import type { ModelRegistry, RunContextTransfer } from '@dzupagent/core/llm'
-import type { AgentExecutionSpec, RunStore } from '@dzupagent/core/persistence'
-import type { MetricsCollector } from '@dzupagent/core/utils'
-import type { CompressionLogEntry } from '@dzupagent/agent/runtime'
-import type { RunReflectionStore } from '@dzupagent/agent/reflection'
-import type { RunQueue } from '../queue/run-queue.js'
-import type { GracefulShutdown } from '../lifecycle/graceful-shutdown.js'
-import type { RunTraceStore } from '../persistence/run-trace-store.js'
-import type { ExecutableAgentResolver } from '../services/executable-agent-resolver.js'
-import type { ResourceQuotaManager } from '../security/resource-quota.js'
-import type { InputGuardConfig } from '../security/input-guard.js'
-import type { RetrievalFeedbackHookConfig } from './retrieval-feedback-hook.js'
+import type { DzupEventBus } from "@dzupagent/core/events";
+import type { ModelRegistry, RunContextTransfer } from "@dzupagent/core/llm";
+import type { AgentExecutionSpec, RunStore } from "@dzupagent/core/persistence";
+import type { MetricsCollector } from "@dzupagent/core/utils";
+import type { CompressionLogEntry } from "@dzupagent/agent/runtime";
+import type { RunReflectionStore } from "@dzupagent/agent/reflection";
+import type { RunQueue } from "../queue/run-queue.js";
+import type { GracefulShutdown } from "../lifecycle/graceful-shutdown.js";
+import type { RunTraceStore } from "../persistence/run-trace-store.js";
+import type { ExecutableAgentResolver } from "../services/executable-agent-resolver.js";
+import type { ResourceQuotaManager } from "../security/resource-quota.js";
+import type { WorkerNodeStore } from "./worker-registry.js";
+import type { InputGuardConfig } from "../security/input-guard.js";
+import type { RetrievalFeedbackHookConfig } from "./retrieval-feedback-hook.js";
 
 export interface RunExecutionContext {
-  runId: string
-  agentId: string
-  input: unknown
-  metadata?: Record<string, unknown>
-  agent: AgentExecutionSpec
-  runStore: RunStore
-  eventBus: DzupEventBus
-  modelRegistry: ModelRegistry
-  signal: AbortSignal
+  runId: string;
+  agentId: string;
+  input: unknown;
+  metadata?: Record<string, unknown>;
+  agent: AgentExecutionSpec;
+  runStore: RunStore;
+  eventBus: DzupEventBus;
+  modelRegistry: ModelRegistry;
+  signal: AbortSignal;
 }
 
 export interface RunExecutorResult {
-  output: unknown
-  tokenUsage?: { input: number; output: number }
-  costCents?: number
-  metadata?: Record<string, unknown>
+  output: unknown;
+  tokenUsage?: { input: number; output: number };
+  costCents?: number;
+  metadata?: Record<string, unknown>;
   logs?: Array<{
-    level: 'info' | 'warn' | 'error' | 'debug'
-    phase?: string
-    message: string
-    data?: unknown
-  }>
+    level: "info" | "warn" | "error" | "debug";
+    phase?: string;
+    message: string;
+    data?: unknown;
+  }>;
   /**
    * Session Y: compression events observed during the run.
    *
@@ -55,10 +56,12 @@ export interface RunExecutorResult {
    * inspect when (and by how much) the conversation was compacted without
    * reading intermediate agent state.
    */
-  compressionLog?: CompressionLogEntry[]
+  compressionLog?: CompressionLogEntry[];
 }
 
-export type RunExecutor = (context: RunExecutionContext) => Promise<unknown | RunExecutorResult>
+export type RunExecutor = (
+  context: RunExecutionContext,
+) => Promise<unknown | RunExecutorResult>;
 
 // ---------------------------------------------------------------------------
 // Structural types for RunReflector (avoids hard dependency on @dzupagent/agent)
@@ -66,94 +69,103 @@ export type RunExecutor = (context: RunExecutionContext) => Promise<unknown | Ru
 
 /** Individual dimension scores, each in the range [0, 1]. */
 export interface ReflectionDimensions {
-  completeness: number
-  coherence: number
-  toolSuccess: number
-  conciseness: number
-  reliability: number
+  completeness: number;
+  coherence: number;
+  toolSuccess: number;
+  conciseness: number;
+  reliability: number;
 }
 
 /** Full reflection score returned by a reflector's `score()` method. */
 export interface ReflectionScore {
-  overall: number
-  dimensions: ReflectionDimensions
-  flags: string[]
+  overall: number;
+  dimensions: ReflectionDimensions;
+  flags: string[];
 }
 
 /** Input data required for scoring a run. */
 export interface ReflectionInput {
-  input: unknown
-  output: unknown
-  toolCalls?: Array<{ name: string; success: boolean; durationMs?: number }>
-  tokenUsage?: { input: number; output: number }
-  durationMs: number
-  errorCount?: number
-  retryCount?: number
+  input: unknown;
+  output: unknown;
+  toolCalls?: Array<{ name: string; success: boolean; durationMs?: number }>;
+  tokenUsage?: { input: number; output: number };
+  durationMs: number;
+  errorCount?: number;
+  retryCount?: number;
 }
 
 /** Structural type matching RunReflector.score() without importing the class. */
 export interface RunReflectorLike {
-  score(input: ReflectionInput): ReflectionScore
+  score(input: ReflectionInput): ReflectionScore;
 }
 
 /** Structural type for the escalation policy result (avoids importing @dzupagent/core). */
 export interface EscalationResultLike {
-  shouldEscalate: boolean
-  fromTier: string
-  toTier: string
-  reason: string
-  consecutiveLowScores: number
+  shouldEscalate: boolean;
+  fromTier: string;
+  toTier: string;
+  reason: string;
+  consecutiveLowScores: number;
 }
 
 /** Structural type for a model tier escalation policy. */
 export interface EscalationPolicyLike {
-  recordScore(key: string, score: number, currentTier: string): EscalationResultLike
+  recordScore(
+    key: string,
+    score: number,
+    currentTier: string,
+  ): EscalationResultLike;
 }
 
 /** Structural type for RunOutcomeAnalyzer — avoids a hard dep on the service module. */
 export interface RunOutcomeAnalyzerLike {
   analyze(
     runId: string,
-    options?: { agentId?: string; input?: string; output?: string; reference?: string },
-  ): Promise<unknown>
+    options?: {
+      agentId?: string;
+      input?: string;
+      output?: string;
+      reference?: string;
+    },
+  ): Promise<unknown>;
 }
 
 export interface StartRunWorkerOptions {
-  runQueue: RunQueue
-  runStore: RunStore
-  executableAgentResolver?: ExecutableAgentResolver
+  runQueue: RunQueue;
+  runStore: RunStore;
+  executableAgentResolver?: ExecutableAgentResolver;
   agentStore: {
-    get(id: string): Promise<AgentExecutionSpec | null>
-    save?(agent: AgentExecutionSpec): Promise<void>
-  }
-  eventBus: DzupEventBus
-  modelRegistry: ModelRegistry
-  runExecutor: RunExecutor
-  shutdown?: GracefulShutdown
+    get(id: string): Promise<AgentExecutionSpec | null>;
+    save?(agent: AgentExecutionSpec): Promise<void>;
+  };
+  eventBus: DzupEventBus;
+  modelRegistry: ModelRegistry;
+  runExecutor: RunExecutor;
+  shutdown?: GracefulShutdown;
   /** Optional cross-intent context transfer. When provided, context is
    *  loaded before each run and saved after successful completion. */
-  contextTransfer?: RunContextTransfer
+  contextTransfer?: RunContextTransfer;
   /** Optional metrics collector for run-level observability */
-  metrics?: MetricsCollector
+  metrics?: MetricsCollector;
   /** Optional run reflector — scores every completed run for quality tracking.
    *  Uses structural typing to avoid a hard dependency on @dzupagent/agent. */
-  reflector?: RunReflectorLike
+  reflector?: RunReflectorLike;
   /** Optional retrieval feedback config. When provided alongside a reflector,
    *  maps reflection scores to AdaptiveRetriever feedback for weight learning. */
-  retrievalFeedback?: RetrievalFeedbackHookConfig
+  retrievalFeedback?: RetrievalFeedbackHookConfig;
   /** Optional trace store for step-by-step run replay and debugging.
    *  When provided, bookend steps (user_input, output) are recorded automatically. */
-  traceStore?: RunTraceStore
+  traceStore?: RunTraceStore;
   /** Optional model tier escalation policy. When provided alongside a reflector,
    *  auto-escalates the agent's model tier after consecutive low reflection scores. */
-  escalationPolicy?: EscalationPolicyLike
+  escalationPolicy?: EscalationPolicyLike;
   /** Optional reflection store — persists a ReflectionSummary after each completed run
    *  when a reflector is configured. Failure to save is non-fatal. */
-  reflectionStore?: RunReflectionStore
+  reflectionStore?: RunReflectionStore;
   /** Optional run outcome analyzer — scores persisted run events via eval
    *  scorers and emits `run:scored`. Any failure is swallowed and surfaced
    *  via the analyzer's `onError` hook. */
-  runOutcomeAnalyzer?: RunOutcomeAnalyzerLike
+  runOutcomeAnalyzer?: RunOutcomeAnalyzerLike;
   /**
    * MC-S03: Optional {@link InputGuard} configuration.
    * - `undefined` (default): a standard guard with built-in rules is created.
@@ -166,7 +178,7 @@ export interface StartRunWorkerOptions {
    * the redacted value replaces the raw input for dispatch and is persisted
    * on the run record so downstream readers see the sanitized payload.
    */
-  inputGuardConfig?: InputGuardConfig | false
+  inputGuardConfig?: InputGuardConfig | false;
   /**
    * MC-S01: Optional per-key {@link ResourceQuotaManager}. When provided,
    * actual token usage from each completed run is fed back via
@@ -176,5 +188,30 @@ export interface StartRunWorkerOptions {
    * enforcement itself lives at the HTTP boundary — the worker only
    * attributes consumption after completion.
    */
-  resourceQuota?: ResourceQuotaManager
+  resourceQuota?: ResourceQuotaManager;
+  /**
+   * P1: Optional worker fleet registry. When provided, the worker registers a
+   * node on start, heartbeats its in-flight count on an interval, runs a
+   * periodic reaper for dead nodes, and deregisters on shutdown. Absent ⇒
+   * single-node behavior, unchanged.
+   */
+  workerRegistry?: {
+    store: WorkerNodeStore;
+    /** Stable id for this worker process. */
+    workerId: string;
+    /** Max concurrent runs this node advertises. Default: 5. */
+    capacity?: number;
+    /** `'shared'` or a tenant id. Default: `'shared'`. */
+    tenantScope?: string;
+    /** Heartbeat interval ms. Default: 5000. */
+    heartbeatMs?: number;
+    /** Reaper interval ms. Default: 30000. */
+    reaperMs?: number;
+    /** Dead-node ttl ms. Default: 30000. */
+    ttlMs?: number;
+    /** Free-form node metadata. */
+    meta?: Record<string, unknown>;
+    /** Receives a stop fn to clear intervals + deregister this node. */
+    onStop?: (stop: () => Promise<void>) => void;
+  };
 }
