@@ -12,7 +12,7 @@
  */
 
 // --- App ---
-export { createForgeApp } from './app.js'
+export { createForgeApp } from "./app.js";
 export type {
   ForgeServerConfig,
   ForgeHostRuntimeConfig,
@@ -25,29 +25,39 @@ export type {
   ForgeControlPlaneRouteFamilyConfig,
   ConsolidationConfig,
   MailDeliveryConfig,
-} from './app.js'
+} from "./app.js";
 
 // Route plugins are the public server extension seam for app-owned product routes.
-export type { ServerRoutePlugin, ServerRoutePluginContext } from './route-plugin.js'
+export type {
+  ServerRoutePlugin,
+  ServerRoutePluginContext,
+} from "./route-plugin.js";
 
 // --- Core Routes ---
-export { createRunRoutes } from './routes/runs.js'
-export { createAgentDefinitionRoutes } from './routes/agents.js'
+export { createRunRoutes } from "./routes/runs.js";
+export { createAgentDefinitionRoutes } from "./routes/agents.js";
 /** @deprecated Use `createAgentDefinitionRoutes`. */
-export { createAgentRoutes } from './routes/agents.js'
-export { createApprovalRoutes } from './routes/approval.js'
-export { createHealthRoutes } from './routes/health.js'
-export { createEventRoutes } from './routes/events.js'
-export type { EventRouteConfig } from './routes/events.js'
+export { createAgentRoutes } from "./routes/agents.js";
+export { createApprovalRoutes } from "./routes/approval.js";
+export { createHealthRoutes } from "./routes/health.js";
+export { createEventRoutes } from "./routes/events.js";
+export type { EventRouteConfig } from "./routes/events.js";
 
 // --- Middleware ---
-export { authMiddleware } from './middleware/auth.js'
-export type { AuthConfig } from './middleware/auth.js'
-export { rateLimiterMiddleware, TokenBucketLimiter } from './middleware/rate-limiter.js'
-export type { RateLimiterConfig } from './middleware/rate-limiter.js'
-export { identityMiddleware, getForgeIdentity, getForgeCapabilities } from './middleware/identity.js'
-export type { IdentityMiddlewareConfig } from './middleware/identity.js'
-export { capabilityGuard } from './middleware/capability-guard.js'
+export { authMiddleware } from "./middleware/auth.js";
+export type { AuthConfig } from "./middleware/auth.js";
+export {
+  rateLimiterMiddleware,
+  TokenBucketLimiter,
+} from "./middleware/rate-limiter.js";
+export type { RateLimiterConfig } from "./middleware/rate-limiter.js";
+export {
+  identityMiddleware,
+  getForgeIdentity,
+  getForgeCapabilities,
+} from "./middleware/identity.js";
+export type { IdentityMiddlewareConfig } from "./middleware/identity.js";
+export { capabilityGuard } from "./middleware/capability-guard.js";
 export {
   rbacMiddleware,
   rbacGuard,
@@ -56,7 +66,7 @@ export {
   DEFAULT_ADMIN_ONLY_PATHS,
   DEFAULT_ROUTE_PERMISSIONS,
   DEFAULT_ROLE_PERMISSIONS,
-} from './middleware/rbac.js'
+} from "./middleware/rbac.js";
 export type {
   ForgeRole,
   ForgePermission,
@@ -65,48 +75,74 @@ export type {
   RBACConfig,
   ResolvedRoutePermission,
   RoutePermissionPolicy,
-} from './middleware/rbac.js'
-export { tenantScopeMiddleware, getTenantId } from './middleware/tenant-scope.js'
-export type { TenantScopeConfig } from './middleware/tenant-scope.js'
+} from "./middleware/rbac.js";
+export {
+  tenantScopeMiddleware,
+  getTenantId,
+} from "./middleware/tenant-scope.js";
+export type { TenantScopeConfig } from "./middleware/tenant-scope.js";
 
 // --- Queue ---
-export { InMemoryRunQueue } from './queue/run-queue.js'
-export { BullMQRunQueue } from './queue/bullmq-run-queue.js'
-export type { BullMQRunQueueConfig } from './queue/bullmq-run-queue.js'
-export type { RunQueue, RunJob, RunQueueConfig, QueueStats, JobProcessor, DeadLetterEntry } from './queue/run-queue.js'
+export { InMemoryRunQueue } from "./queue/run-queue.js";
+export { BullMQRunQueue } from "./queue/bullmq-run-queue.js";
+export type { BullMQRunQueueConfig } from "./queue/bullmq-run-queue.js";
+export type {
+  RunQueue,
+  RunJob,
+  RunQueueConfig,
+  QueueStats,
+  JobProcessor,
+  DeadLetterEntry,
+} from "./queue/run-queue.js";
 
 // --- Lifecycle ---
-export { GracefulShutdown } from './lifecycle/graceful-shutdown.js'
-export type { ShutdownConfig, ShutdownState } from './lifecycle/graceful-shutdown.js'
+export { GracefulShutdown } from "./lifecycle/graceful-shutdown.js";
+export type {
+  ShutdownConfig,
+  ShutdownState,
+} from "./lifecycle/graceful-shutdown.js";
 
 // --- WebSocket ---
-export { EventBridge } from './ws/event-bridge.js'
-export type { WSClient, ClientFilter, EventBridgeConfig } from './ws/event-bridge.js'
-export { createWsControlHandler } from './ws/control-protocol.js'
-export { createScopedAuthorizeFilter } from './ws/authorization.js'
-export { WSClientScopeRegistry } from './ws/scope-registry.js'
-export { createScopedWsControlHandler } from './ws/scoped-control-handler.js'
-export { WSSessionManager } from './ws/session-manager.js'
-export { attachNodeWsSession } from './ws/node-adapter.js'
-export { createNodeWsUpgradeHandler, createPathUpgradeGuard } from './ws/node-upgrade-handler.js'
+export { EventBridge } from "./ws/event-bridge.js";
+export type {
+  WSClient,
+  ClientFilter,
+  EventBridgeConfig,
+} from "./ws/event-bridge.js";
+export { createWsControlHandler } from "./ws/control-protocol.js";
+export { createScopedAuthorizeFilter } from "./ws/authorization.js";
+export { WSClientScopeRegistry } from "./ws/scope-registry.js";
+export { createScopedWsControlHandler } from "./ws/scoped-control-handler.js";
+export { WSSessionManager } from "./ws/session-manager.js";
+export { attachNodeWsSession } from "./ws/node-adapter.js";
+export {
+  createNodeWsUpgradeHandler,
+  createPathUpgradeGuard,
+} from "./ws/node-upgrade-handler.js";
 export type {
   WSControlClientMessage,
   WSControlServerMessage,
   WSControlHandlerOptions,
   WSControlAuthorizeFilter,
   WSControlAuthorizeContext,
-} from './ws/control-protocol.js'
+} from "./ws/control-protocol.js";
 export type {
   WSClientScope,
   ScopedAuthorizeFilterOptions,
-} from './ws/authorization.js'
-export type { ScopedWsControlHandlerOptions } from './ws/scoped-control-handler.js'
-export type { WSSessionManagerOptions } from './ws/session-manager.js'
-export type { NodeWSLike, AttachNodeWsSessionOptions } from './ws/node-adapter.js'
-export type { NodeWebSocketServerLike, NodeWsUpgradeHandlerOptions } from './ws/node-upgrade-handler.js'
+} from "./ws/authorization.js";
+export type { ScopedWsControlHandlerOptions } from "./ws/scoped-control-handler.js";
+export type { WSSessionManagerOptions } from "./ws/session-manager.js";
+export type {
+  NodeWSLike,
+  AttachNodeWsSessionOptions,
+} from "./ws/node-adapter.js";
+export type {
+  NodeWebSocketServerLike,
+  NodeWsUpgradeHandlerOptions,
+} from "./ws/node-upgrade-handler.js";
 
 // --- Events / Streaming ---
-export { InMemoryEventGateway } from './events/event-gateway.js'
+export { InMemoryEventGateway } from "./events/event-gateway.js";
 export type {
   EventGateway,
   EventEnvelope,
@@ -115,15 +151,28 @@ export type {
   OverflowStrategy,
   EventSink,
   InMemoryEventGatewayConfig,
-} from './events/event-gateway.js'
-export { streamRunHandleToSSE } from './streaming/sse-streaming-adapter.js'
-export type { SSEStreamLike, StreamRunHandleToSSEOptions } from './streaming/sse-streaming-adapter.js'
+} from "./events/event-gateway.js";
+export { streamRunHandleToSSE } from "./streaming/sse-streaming-adapter.js";
+export type {
+  SSEStreamLike,
+  StreamRunHandleToSSEOptions,
+} from "./streaming/sse-streaming-adapter.js";
 
 // --- Platform Adapters ---
-export { toLambdaHandler } from './platforms/lambda.js'
-export { toVercelHandler } from './platforms/vercel.js'
-export { toCloudflareHandler } from './platforms/cloudflare.js'
+export { toLambdaHandler } from "./platforms/lambda.js";
+export { toVercelHandler } from "./platforms/vercel.js";
+export { toCloudflareHandler } from "./platforms/cloudflare.js";
 
 // --- Security / Input Guard ---
-export { createInputGuard, DEFAULT_MAX_INPUT_LENGTH } from './security/input-guard.js'
-export type { InputGuard, InputGuardConfig, InputGuardResult } from './security/input-guard.js'
+export {
+  createInputGuard,
+  DEFAULT_MAX_INPUT_LENGTH,
+} from "./security/input-guard.js";
+export type {
+  InputGuard,
+  InputGuardConfig,
+  InputGuardResult,
+} from "./security/input-guard.js";
+
+// --- Persistence Factories ---
+export { createPostgresNodeLedger } from "./persistence/create-node-ledger.js";
