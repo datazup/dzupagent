@@ -240,3 +240,17 @@ export type {
   AdapterMeta,
   AdapterMetaStore,
 } from "./runtime/adapter-meta-store.js";
+
+// --- Event-History Replay Runtime (Stage 5) ---
+export {
+  InMemoryEventStore,
+  DrizzleEventStore,
+} from "./runtime/event-store.js";
+export type {
+  EventStore,
+  FlowEvent,
+  EventType,
+  AppendableFlowEvent,
+} from "./runtime/event-store.js";
+export { EventCursor } from "./runtime/event-cursor.js";
+export { EventHistoryRuntime } from "./runtime/event-history-runtime.js";
