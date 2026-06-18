@@ -1,1 +1,125 @@
-{"version":"7","dialect":"postgresql","entries":[]}
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 0,
+      "tag": "0001_agent_mail_dlq",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 0,
+      "tag": "0002_run_status_halted",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 0,
+      "tag": "0003_run_artifacts_api_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 0,
+      "tag": "0004_run_owner_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 0,
+      "tag": "0005_api_key_quotas",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 0,
+      "tag": "0005_rbac_tenant",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 0,
+      "tag": "0006_a2a_owner_tenant",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 0,
+      "tag": "0007_catalog_cluster_tenant",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 0,
+      "tag": "0008_run_reflections_owner_tenant",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 0,
+      "tag": "0009_p4_schedule_ha",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 0,
+      "tag": "0010_p2_flow_artifacts_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 0,
+      "tag": "0011_p1_worker_nodes",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 0,
+      "tag": "0012_p2_flow_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 0,
+      "tag": "0014_s4_tenant_id_sweep",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 0,
+      "tag": "0015_s4h_worker_providers",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 0,
+      "tag": "0016_oq3_node_adapter_meta",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 0,
+      "tag": "0017_stage5_flow_events",
+      "breakpoints": true
+    }
+  ]
+}
