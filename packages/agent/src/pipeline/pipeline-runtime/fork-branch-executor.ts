@@ -32,7 +32,7 @@ import {
   mergeBranchExecutionResult,
   type BranchExecutionResult,
 } from "./branch-merge.js";
-import { nodeIdempotencyKey } from "./idempotency.js";
+import { nodeIdempotencyKey, nodeIdempotencyContext } from "./idempotency.js";
 import {
   beginNodeUnderLedger,
   completeNodeUnderLedger,
@@ -65,7 +65,7 @@ export interface ForkResumeOptions {
    */
   onBranchComplete: (
     branchStartId: string,
-    result: BranchExecutionResult,
+    result: BranchExecutionResult
   ) => Promise<void>;
 }
 
@@ -80,7 +80,7 @@ export async function handleFork(
   runState: Record<string, unknown>,
   nodeResults: Map<string, NodeResult>,
   completedNodeIds: string[],
-  resume?: ForkResumeOptions,
+  resume?: ForkResumeOptions
 ): Promise<void> {
   const { config, outgoingEdges, emit, findJoinNode } = deps;
 
@@ -121,7 +121,7 @@ export async function handleFork(
         startId,
         joinNode?.id,
         branchBaseState,
-        branchBaseResults,
+        branchBaseResults
       );
       if (branchSpan) config.tracer?.endSpanOk(branchSpan);
       // Persist only successful branches (W4 design §4): a branch whose node
@@ -167,7 +167,7 @@ async function executeBranch(
   startNodeId: string,
   joinNodeId: string | undefined,
   baseRunState: Record<string, unknown>,
-  baseNodeResults: Map<string, NodeResult>,
+  baseNodeResults: Map<string, NodeResult>
 ): Promise<BranchExecutionResult> {
   const { config, nodeMap, outgoingEdges, emit, runId } = deps;
   let currentId: string | undefined = startNodeId;
@@ -184,7 +184,13 @@ async function executeBranch(
 
     emit(nodeStartedEvent(node.id, node.type));
 
-    const idempotencyKey = nodeIdempotencyKey(runId, node.id);
+    // N3b: thread the real flow fingerprint + node attempt policy + node input
+    // so branch-node keys are collision-proof across flow versions and inputs,
+    // matching the sequential dispatch path.
+    const idempotencyKey = nodeIdempotencyKey(runId, node.id, {
+      flowDefinition: config.definition,
+      ...nodeIdempotencyContext(node),
+    });
     const context: NodeExecutionContext = omitUndefined({
       state: runState,
       previousResults: nodeResults,
@@ -221,7 +227,7 @@ async function executeBranch(
         node.id,
         outgoingEdges,
         config.predicates,
-        runState,
+        runState
       );
       currentId = nextIds[0];
       continue;
@@ -261,7 +267,7 @@ async function executeBranch(
       node.id,
       outgoingEdges,
       config.predicates,
-      runState,
+      runState
     );
     currentId = nextIds[0];
   }

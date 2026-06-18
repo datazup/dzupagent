@@ -13,7 +13,10 @@ import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryDurableNodeLedger } from "@dzupagent/core";
 import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
-import { nodeIdempotencyKey } from "../pipeline/pipeline-runtime/idempotency.js";
+import {
+  nodeIdempotencyKey,
+  nodeIdempotencyContext,
+} from "../pipeline/pipeline-runtime/idempotency.js";
 
 function singleNode(node: PipelineNode): PipelineDefinition {
   return {
@@ -25,6 +28,19 @@ function singleNode(node: PipelineNode): PipelineDefinition {
     nodes: [node],
     edges: [],
   };
+}
+
+/** The canonical key the runtime produces for `nodeId` in `def` (N3b). */
+function runtimeKey(
+  def: PipelineDefinition,
+  runId: string,
+  nodeId: string
+): string {
+  const node = def.nodes.find((n) => n.id === nodeId)!;
+  return nodeIdempotencyKey(runId, nodeId, {
+    flowDefinition: def,
+    ...nodeIdempotencyContext(node),
+  });
 }
 
 const NODE: PipelineNode = {
@@ -55,18 +71,19 @@ describe("PipelineRuntime × DurableNodeLedger (opt-in)", () => {
       output: { value: 7 },
       durationMs: 1,
     });
+    const def = singleNode(NODE);
     const runtime = new PipelineRuntime({
-      definition: singleNode(NODE),
+      definition: def,
       nodeExecutor: executor,
       nodeLedger: ledger,
     });
     const result = await runtime.execute();
     expect(result.state).toBe("completed");
     expect(executor).toHaveBeenCalledTimes(1);
-    // The completion is queryable for replay.
+    // The completion is queryable for replay under the runtime's canonical key.
     const runId = result.runId;
     const completion = await ledger.getByIdempotencyKey(
-      nodeIdempotencyKey(runId, "n1"),
+      runtimeKey(def, runId, "n1")
     );
     expect(completion?.output).toEqual({ value: 7 });
   });

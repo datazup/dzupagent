@@ -44,7 +44,10 @@ import {
 } from "./pipeline-runtime/edge-resolution.js";
 import { extractErrorCode } from "./pipeline-runtime/error-classification.js";
 import { createPipelineCheckpoint } from "./pipeline-runtime/checkpoint-helpers.js";
-import { nodeIdempotencyKey } from "./pipeline-runtime/idempotency.js";
+import {
+  nodeIdempotencyKey,
+  nodeIdempotencyContext,
+} from "./pipeline-runtime/idempotency.js";
 import { type BudgetTrackerState } from "./pipeline-runtime/iteration-budget-tracker.js";
 import { handleFork as handleForkNode } from "./pipeline-runtime/fork-branch-executor.js";
 import type { BranchExecutionResult } from "./pipeline-runtime/branch-merge.js";
@@ -115,7 +118,7 @@ export class PipelineExecutor {
     private readonly nodeMap: Map<string, PipelineNode>,
     private readonly outgoingEdges: Map<string, PipelineEdge[]>,
     private readonly errorEdges: Map<string, PipelineEdge[]>,
-    private readonly coordinator: PipelineExecutorCoordinator,
+    private readonly coordinator: PipelineExecutorCoordinator
   ) {
     this.recoveryCounter = {
       get: () => this.coordinator.getRecoveryAttemptsUsed(),
@@ -128,7 +131,7 @@ export class PipelineExecutor {
   // ---------------------------------------------------------------------------
 
   async executeFromNode(
-    input: ExecuteFromNodeInput,
+    input: ExecuteFromNodeInput
   ): Promise<PipelineRunResult> {
     const {
       runId,
@@ -154,7 +157,7 @@ export class PipelineExecutor {
           runId,
           "cancelled",
           nodeResults,
-          Date.now() - startTime,
+          Date.now() - startTime
         );
       }
 
@@ -190,7 +193,7 @@ export class PipelineExecutor {
           loopState,
           forkState,
           versionTracker,
-          startTime,
+          startTime
         );
       }
 
@@ -205,7 +208,7 @@ export class PipelineExecutor {
           nodeIdempotencyKeys,
           loopState,
           forkState,
-          versionTracker,
+          versionTracker
         );
         currentNodeId = forkOutcome.nextNodeId;
         continue;
@@ -223,7 +226,7 @@ export class PipelineExecutor {
           loopState,
           forkState,
           versionTracker,
-          startTime,
+          startTime
         );
         if (loopOutcome.kind === "return") return loopOutcome.value;
         currentNodeId = loopOutcome.nextNodeId;
@@ -241,7 +244,7 @@ export class PipelineExecutor {
         loopState,
         forkState,
         versionTracker,
-        startTime,
+        startTime
       );
       if (outcome.kind === "return") return outcome.value;
       if (outcome.kind === "rethrow") throw outcome.error;
@@ -280,8 +283,13 @@ export class PipelineExecutor {
       }
     >,
     versionTracker: { version: number },
-    startTime: number,
+    startTime: number
   ): Promise<StandardNodeOutcome> {
+    // Compute the canonical key ONCE per dispatch (N3b): the same value is
+    // exposed to the node via context and recorded on completion. Recomputing
+    // at record time would risk drift if the node mutated state, so the
+    // precomputed key is threaded into `onCompleted`.
+    const idempotencyKey = this.keyFor(runId, node);
     return dispatchStandardNode({
       config: this.config,
       outgoingEdges: this.outgoingEdges,
@@ -297,9 +305,10 @@ export class PipelineExecutor {
       nodeResults,
       completedNodeIds,
       // Stable idempotency key exposed to the node + recorded on completion.
-      idempotencyKey: nodeIdempotencyKey(runId, node.id),
-      onCompleted: () =>
-        this.recordIdempotencyKey(nodeIdempotencyKeys, runId, node.id),
+      idempotencyKey,
+      onCompleted: () => {
+        nodeIdempotencyKeys[node.id] = idempotencyKey;
+      },
       startTime,
       saveCheckpoint: () =>
         this.saveCheckpoint(
@@ -309,7 +318,7 @@ export class PipelineExecutor {
           nodeIdempotencyKeys,
           loopState,
           forkState,
-          versionTracker,
+          versionTracker
         ),
     });
   }
@@ -334,7 +343,7 @@ export class PipelineExecutor {
         >;
       }
     >,
-    versionTracker: { version: number },
+    versionTracker: { version: number }
   ): Promise<{ nextNodeId: string | undefined }> {
     const forkId = forkNode.forkId;
 
@@ -347,7 +356,7 @@ export class PipelineExecutor {
         state: "completed",
         stateDelta: entry.stateDelta,
         nodeResults: new Map(
-          Object.entries(entry.nodeResults) as [string, NodeResult][],
+          Object.entries(entry.nodeResults) as [string, NodeResult][]
         ),
         completedNodeIds: [],
       };
@@ -374,17 +383,17 @@ export class PipelineExecutor {
             nodeIdempotencyKeys,
             loopState,
             forkState,
-            versionTracker,
+            versionTracker
           );
         },
-      },
+      }
     );
 
     delete forkState[forkId];
     const joinNode = findJoinNode(forkId, this.config.definition.nodes);
     if (joinNode) {
       completedNodeIds.push(joinNode.id);
-      this.recordIdempotencyKey(nodeIdempotencyKeys, runId, joinNode.id);
+      this.recordIdempotencyKey(nodeIdempotencyKeys, runId, joinNode);
       await this.saveCheckpoint(
         runId,
         runState,
@@ -392,7 +401,7 @@ export class PipelineExecutor {
         nodeIdempotencyKeys,
         loopState,
         forkState,
-        versionTracker,
+        versionTracker
       );
       return { nextNodeId: this.next(joinNode.id, runState) };
     }
@@ -420,7 +429,7 @@ export class PipelineExecutor {
       }
     >,
     versionTracker: { version: number },
-    startTime: number,
+    startTime: number
   ): Promise<
     | { kind: "continue"; nextNodeId: string | undefined }
     | { kind: "return"; value: PipelineRunResult }
@@ -440,7 +449,7 @@ export class PipelineExecutor {
           nodeIdempotencyKeys,
           loopState,
           forkState,
-          versionTracker,
+          versionTracker
         );
       },
     };
@@ -454,7 +463,7 @@ export class PipelineExecutor {
       loopNode,
       runState,
       nodeResults,
-      loopResume,
+      loopResume
     );
 
     if (loopResult.error) {
@@ -472,7 +481,7 @@ export class PipelineExecutor {
           runId,
           "failed",
           nodeResults,
-          Date.now() - startTime,
+          Date.now() - startTime
         ),
       };
     }
@@ -480,7 +489,7 @@ export class PipelineExecutor {
     delete loopState[loopNode.id];
     nodeResults.set(loopNode.id, loopResult);
     completedNodeIds.push(loopNode.id);
-    this.recordIdempotencyKey(nodeIdempotencyKeys, runId, loopNode.id);
+    this.recordIdempotencyKey(nodeIdempotencyKeys, runId, loopNode);
     await this.saveCheckpoint(
       runId,
       runState,
@@ -488,7 +497,7 @@ export class PipelineExecutor {
       nodeIdempotencyKeys,
       loopState,
       forkState,
-      versionTracker,
+      versionTracker
     );
     return { kind: "continue", nextNodeId: this.next(loopNode.id, runState) };
   }
@@ -518,7 +527,7 @@ export class PipelineExecutor {
       }
     >,
     versionTracker: { version: number },
-    startTime: number,
+    startTime: number
   ): Promise<PipelineRunResult> {
     this.coordinator.setState("suspended");
     this.emit(pipelineSuspendedEvent(nodeId));
@@ -545,7 +554,7 @@ export class PipelineExecutor {
       runId,
       "suspended",
       nodeResults,
-      Date.now() - startTime,
+      Date.now() - startTime
     );
   }
 
@@ -569,13 +578,13 @@ export class PipelineExecutor {
   /** First next-node id for `nodeId`, evaluated against current state. */
   private next(
     nodeId: string,
-    runState: Record<string, unknown>,
+    runState: Record<string, unknown>
   ): string | undefined {
     return getNextNodeIds(
       nodeId,
       this.outgoingEdges,
       this.config.predicates,
-      runState,
+      runState
     )[0];
   }
 
@@ -587,7 +596,7 @@ export class PipelineExecutor {
     runId: string,
     state: PipelineState,
     nodeResults: Map<string, NodeResult>,
-    totalDurationMs: number,
+    totalDurationMs: number
   ): PipelineRunResult {
     return {
       pipelineId: this.config.definition.id,
@@ -616,7 +625,7 @@ export class PipelineExecutor {
         >;
       }
     >,
-    versionTracker: { version: number },
+    versionTracker: { version: number }
   ): Promise<void> {
     const strategy = this.config.definition.checkpointStrategy;
     if (
@@ -648,14 +657,29 @@ export class PipelineExecutor {
 
   /**
    * Record the stable idempotency key for a completed node. Idempotent itself:
-   * the key is deterministic for `(runId, nodeId)`, so re-recording is a no-op.
+   * the key is deterministic for `(runId, node)`, so re-recording is a no-op.
    */
   private recordIdempotencyKey(
     keys: Record<string, string>,
     runId: string,
-    nodeId: string,
+    node: PipelineNode
   ): void {
-    keys[nodeId] = nodeIdempotencyKey(runId, nodeId);
+    keys[node.id] = this.keyFor(runId, node);
+  }
+
+  /**
+   * Build the canonical idempotency key for a node in this run (N3b). Threads
+   * the real flow fingerprint (`sourceHash` = canonical digest of the compiled
+   * flow definition), the node's attempt policy, and the node's static input so
+   * keys change across flow versions and distinct node inputs — not just per
+   * `(runId, nodeId)`. Deterministic, so it is safe to call at both dispatch
+   * and record time for the same node.
+   */
+  private keyFor(runId: string, node: PipelineNode): string {
+    return nodeIdempotencyKey(runId, node.id, {
+      flowDefinition: this.config.definition,
+      ...nodeIdempotencyContext(node),
+    });
   }
 
   private emit(event: PipelineRuntimeEvent): void {

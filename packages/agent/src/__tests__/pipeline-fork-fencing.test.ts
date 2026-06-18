@@ -25,7 +25,23 @@ import type {
   NodeLedgerLike,
   NodeLeaseLike,
 } from "../pipeline/pipeline-runtime-types.js";
-import { nodeIdempotencyKey } from "../pipeline/pipeline-runtime/idempotency.js";
+import {
+  nodeIdempotencyKey,
+  nodeIdempotencyContext,
+} from "../pipeline/pipeline-runtime/idempotency.js";
+
+/** The canonical key the runtime produces for `nodeId` in `def` (N3b). */
+function runtimeKey(
+  def: PipelineDefinition,
+  runId: string,
+  nodeId: string
+): string {
+  const node = def.nodes.find((n) => n.id === nodeId)!;
+  return nodeIdempotencyKey(runId, nodeId, {
+    flowDefinition: def,
+    ...nodeIdempotencyContext(node),
+  });
+}
 
 function forkPipeline(): PipelineDefinition {
   return {
@@ -60,8 +76,9 @@ describe("fork branch-node fencing (P2)", () => {
       return { nodeId, output: `out_${nodeId}`, durationMs: 1 };
     };
 
+    const def = forkPipeline();
     const runtime = new PipelineRuntime({
-      definition: forkPipeline(),
+      definition: def,
       nodeExecutor: executor,
       nodeLedger: ledger,
     });
@@ -71,10 +88,10 @@ describe("fork branch-node fencing (P2)", () => {
 
     // Each branch node has a completed ledger entry queryable for replay.
     const a1 = await ledger.getByIdempotencyKey(
-      nodeIdempotencyKey(result.runId, "a1")
+      runtimeKey(def, result.runId, "a1")
     );
     const b1 = await ledger.getByIdempotencyKey(
-      nodeIdempotencyKey(result.runId, "b1")
+      runtimeKey(def, result.runId, "b1")
     );
     expect(a1?.output).toBe("out_a1");
     expect(b1?.output).toBe("out_b1");
@@ -158,8 +175,9 @@ describe("fork branch-node fencing (P2)", () => {
     };
 
     const events: Array<{ type: string; nodeId?: string }> = [];
+    const def = forkPipeline();
     const runtime = new PipelineRuntime({
-      definition: forkPipeline(),
+      definition: def,
       nodeExecutor: executor,
       nodeLedger: ledger,
       onEvent: (e) =>
@@ -171,13 +189,13 @@ describe("fork branch-node fencing (P2)", () => {
     // a1 was fenced out → its completion is NOT recorded in the real ledger
     // (the branch is treated as failed and re-runs on resume).
     const a1Recorded = await base.getByIdempotencyKey(
-      nodeIdempotencyKey(result.runId, "a1")
+      runtimeKey(def, result.runId, "a1")
     );
     expect(a1Recorded).toBeUndefined();
 
     // The sibling branch b1 still completes and is recorded.
     const b1Recorded = await base.getByIdempotencyKey(
-      nodeIdempotencyKey(result.runId, "b1")
+      runtimeKey(def, result.runId, "b1")
     );
     expect(b1Recorded?.output).toBe("out_b1");
 

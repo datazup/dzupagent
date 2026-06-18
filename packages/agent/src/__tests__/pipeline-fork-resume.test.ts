@@ -12,7 +12,23 @@ import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import type { PipelineDefinition, PipelineCheckpoint } from "@dzupagent/core";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
-import { nodeIdempotencyKey } from "../pipeline/pipeline-runtime/idempotency.js";
+import {
+  nodeIdempotencyKey,
+  nodeIdempotencyContext,
+} from "../pipeline/pipeline-runtime/idempotency.js";
+
+/** The canonical key the runtime produces for `nodeId` in `def` (N3b). */
+function runtimeKey(
+  def: PipelineDefinition,
+  runId: string,
+  nodeId: string
+): string {
+  const node = def.nodes.find((n) => n.id === nodeId)!;
+  return nodeIdempotencyKey(runId, nodeId, {
+    flowDefinition: def,
+    ...nodeIdempotencyContext(node),
+  });
+}
 
 /**
  * Pipeline: entry `F` (fork) fans out to two branches:
@@ -77,8 +93,9 @@ describe("durable fork/branch resume (W4)", () => {
       return { nodeId, output: nodeId, durationMs: 1 };
     };
 
+    const def = forkPipeline();
     const runtime = new PipelineRuntime({
-      definition: forkPipeline(),
+      definition: def,
       nodeExecutor: executor,
       checkpointStore: store,
     });
@@ -86,10 +103,10 @@ describe("durable fork/branch resume (W4)", () => {
     const result = await runtime.execute();
     expect(result.state).toBe("completed");
 
-    // Branch nodes received the canonical stable key for their (runId, nodeId)
-    // (W5 fork gap closed).
-    expect(keysSeen["a1"]).toBe(nodeIdempotencyKey(result.runId, "a1"));
-    expect(keysSeen["b1"]).toBe(nodeIdempotencyKey(result.runId, "b1"));
+    // Branch nodes received the canonical stable key for their (runId, node)
+    // (W5 fork gap closed; N3b: now flow-fingerprint + policy + input aware).
+    expect(keysSeen["a1"]).toBe(runtimeKey(def, result.runId, "a1"));
+    expect(keysSeen["b1"]).toBe(runtimeKey(def, result.runId, "b1"));
 
     // forkState cleared once the fork+join completed.
     const finalCheckpoint = await store.load(result.runId);
