@@ -24,7 +24,7 @@ export const GENERIC_METADATA_KEYS = [
   'conditions',
 ] as const
 
-export const COMMON_NODE_KEYS = ['id', 'name', 'description', 'meta', ...GENERIC_METADATA_KEYS] as const
+export const COMMON_NODE_KEYS = ['id', 'name', 'description', 'meta', 'resumePoint', ...GENERIC_METADATA_KEYS] as const
 
 export function normalizeCommonNodeFields(
   raw: Record<string, unknown>,
@@ -43,6 +43,15 @@ export function normalizeCommonNodeFields(
   }
   if (typeof raw.name === 'string') base.name = raw.name
   if (typeof raw.description === 'string') base.description = raw.description
+  if (typeof raw.resumePoint === 'boolean') base.resumePoint = raw.resumePoint
+  else if ('resumePoint' in raw && raw.resumePoint !== undefined) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'node resumePoint must be a boolean',
+      path: `${path}.resumePoint`,
+    })
+  }
   if (raw.meta !== undefined) {
     const meta = normalizeObject(raw.meta, `${path}.meta`, diagnostics)
     if (meta !== undefined) base.meta = meta

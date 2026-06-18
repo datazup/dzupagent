@@ -6,7 +6,7 @@
  * primitives that all per-kind files consume.
  */
 
-import type { FlowNode, SequenceNode } from "../types.js";
+import type { FlowNode, FlowNodeBase } from "../types.js";
 import { FLOW_NODE_KINDS } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -66,8 +66,14 @@ export function parseCommonNodeFields(
   obj: Record<string, unknown>,
   pointer: string,
   ctx: ParseContext
-): Pick<SequenceNode, "id" | "name" | "description" | "meta"> {
-  const fields: Pick<SequenceNode, "id" | "name" | "description" | "meta"> = {};
+): Pick<
+  FlowNodeBase,
+  "id" | "name" | "description" | "meta" | "resumePoint"
+> {
+  const fields: Pick<
+    FlowNodeBase,
+    "id" | "name" | "description" | "meta" | "resumePoint"
+  > = {};
 
   parseOptionalStringField(obj, "id", pointer, ctx, (value) => {
     fields.id = value;
@@ -95,6 +101,9 @@ export function parseCommonNodeFields(
       }
     }
   }
+  parseOptionalBooleanField(obj, "resumePoint", pointer, ctx, (value) => {
+    fields.resumePoint = value;
+  });
 
   return fields;
 }
@@ -116,6 +125,29 @@ export function parseOptionalStringField(
   ctx.errors.push({
     code: "WRONG_FIELD_TYPE",
     message: `Field "${key}" must be a string when present, received ${describeJsType(
+      raw
+    )}`,
+    pointer: joinPointer(pointer, key),
+  });
+}
+
+export function parseOptionalBooleanField(
+  obj: Record<string, unknown>,
+  key: "resumePoint",
+  pointer: string,
+  ctx: ParseContext,
+  assign: (value: boolean) => void
+): void {
+  if (!(key in obj)) return;
+  const raw = obj[key];
+  if (raw === undefined) return;
+  if (typeof raw === "boolean") {
+    assign(raw);
+    return;
+  }
+  ctx.errors.push({
+    code: "WRONG_FIELD_TYPE",
+    message: `Field "${key}" must be a boolean when present, received ${describeJsType(
       raw
     )}`,
     pointer: joinPointer(pointer, key),

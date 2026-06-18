@@ -205,6 +205,12 @@ export interface FlowNodeBase {
    * default (`at-least-once`). Drives diagnostics D1/D2.
    */
   idempotency?: NodeIdempotencyMode;
+  /**
+   * P0 durability contract: declares this node as a safe resume frontier for
+   * flows that require explicit resume points. Checkpoint nodes are treated as
+   * resume points even when this field is absent.
+   */
+  resumePoint?: boolean;
 }
 
 export interface FlowInputSpec {

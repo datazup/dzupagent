@@ -95,6 +95,7 @@ export interface CommonNodeFields {
   name?: string
   description?: string
   meta?: Record<string, unknown>
+  resumePoint?: boolean
 }
 
 export function validateCommonNodeFields(
@@ -115,6 +116,9 @@ export function validateCommonNodeFields(
 
   const meta = validateOptionalObjectField(obj, path, 'meta', issues)
   if (meta !== undefined) fields.meta = meta
+
+  const resumePoint = validateOptionalBooleanField(obj, path, 'resumePoint', issues)
+  if (resumePoint !== undefined) fields.resumePoint = resumePoint
 
   return fields
 }
@@ -170,6 +174,23 @@ export function validateOptionalObjectField(
     path: joinPath(path, key),
     code: 'MISSING_REQUIRED_FIELD',
     message: `${key} must be an object when present, received ${describeJsType(value)}`,
+  })
+  return undefined
+}
+
+export function validateOptionalBooleanField(
+  obj: Record<string, unknown>,
+  path: string,
+  key: string,
+  issues: SchemaIssue[],
+): boolean | undefined {
+  if (!(key in obj) || obj[key] === undefined) return undefined
+  const value = obj[key]
+  if (typeof value === 'boolean') return value
+  issues.push({
+    path: joinPath(path, key),
+    code: 'MISSING_REQUIRED_FIELD',
+    message: `${key} must be a boolean when present, received ${describeJsType(value)}`,
   })
   return undefined
 }

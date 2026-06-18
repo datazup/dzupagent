@@ -22,6 +22,7 @@ import type {
 import type { CostAwareRouter, ModelRegistry } from "@dzupagent/core/llm";
 import type { DzupEventBus } from "@dzupagent/core/events";
 import type { MetricsCollector } from "@dzupagent/core/utils";
+import type { CostLedgerClient } from "@dzupagent/agent";
 import type { SkillStepResolver } from "@dzupagent/agent/workflow";
 import type { AdapterSkillRegistry } from "@dzupagent/agent-adapters/skills";
 import type {
@@ -113,6 +114,13 @@ export interface ForgeRuntimeConfig {
   runExecutor?: RunExecutor;
   shutdown?: GracefulShutdown;
   metrics?: MetricsCollector;
+  /**
+   * P3 distributed guardrail backend. When provided, this Redis-backed
+   * {@link CostLedgerClient} is attached to each run's agent spec as the
+   * fleet-wide rate-limiter + cost-ledger client and receives final run cost.
+   * Absent => local-only enforcement.
+   */
+  guardrailClient?: CostLedgerClient;
   /**
    * Prometheus `/metrics` endpoint exposure policy. The endpoint is not mounted
    * unless this is configured, so public scraping requires an explicit

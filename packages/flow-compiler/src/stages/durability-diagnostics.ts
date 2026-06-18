@@ -13,13 +13,12 @@
  *         declaration and no `allowDuplicateEffects: true`.
  *  - D2 — a node declaring `idempotency: 'idempotent'` (return-prior-result
  *         semantics) without an output schema (`outputSchema` / `resultSchema`).
+ *  - D3 — `durability.resume.requireResumePoint: true` while no reachable
+ *         checkpoint/resume point exists in the flow graph.
  *  - D4 — an adapter node's `idempotency` enum conflicts with a richer
  *         `meta.idempotency` shape on the same node.
  *  - D5 — `durability.mode: durable` while no checkpoint `storeRef` is
  *         configured (OQ-1: compile-warn, runtime-admission-fail).
- *
- * D3 (requireResumePoint unmet) requires resume-point reachability graph
- * analysis and lands as its own focused change; not implemented here.
  */
 import type { CompilationWarning } from "../types.js";
 
@@ -86,10 +85,76 @@ export function computeDurabilityDiagnostics(
     }
   }
 
+  // -- D3: requireResumePoint without a reachable resume point ---------------
+  const resume = isObject(durability) ? durability["resume"] : undefined;
+  if (
+    isObject(resume) &&
+    resume["requireResumePoint"] === true &&
+    !containsReachableResumePoint(document["root"])
+  ) {
+    warnings.push({
+      stage: 4,
+      code: "RESUME_POINT_REQUIRED",
+      message:
+        "durability.resume.requireResumePoint is true but the flow has no reachable " +
+        "resume point; add a checkpoint node, set `resumePoint: true`, or mark " +
+        "`meta.resume.safeToReplayFrom: true` on a reachable node (D3).",
+      nodePath: "root.durability.resume",
+      category: "resume",
+    });
+  }
+
   // ── D4: adapter idempotency enum vs richer meta.idempotency conflict ──────
   walkSteps(document["root"], "root", warnings);
 
   return warnings;
+}
+
+function containsReachableResumePoint(node: unknown): boolean {
+  if (!isObject(node)) return false;
+  if (isResumePoint(node)) return true;
+
+  for (const childKey of [
+    "nodes",
+    "steps",
+    "body",
+    "then",
+    "else",
+    "onApprove",
+    "onReject",
+    "catch",
+  ]) {
+    const child = node[childKey];
+    if (Array.isArray(child)) {
+      if (child.some((entry) => containsReachableResumePoint(entry))) {
+        return true;
+      }
+    } else if (isObject(child) && containsReachableResumePoint(child)) {
+      return true;
+    }
+  }
+
+  const branches = node["branches"];
+  if (Array.isArray(branches)) {
+    for (const branch of branches) {
+      if (
+        Array.isArray(branch) &&
+        branch.some((entry) => containsReachableResumePoint(entry))
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function isResumePoint(node: Record<string, unknown>): boolean {
+  if (node["type"] === "checkpoint") return true;
+  if (node["resumePoint"] === true) return true;
+  const meta = node["meta"];
+  const resume = isObject(meta) ? meta["resume"] : undefined;
+  return isObject(resume) && resume["safeToReplayFrom"] === true;
 }
 
 function walkSteps(
