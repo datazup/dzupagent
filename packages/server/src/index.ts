@@ -42,6 +42,17 @@ export { createApprovalRoutes } from "./routes/approval.js";
 export { createHealthRoutes } from "./routes/health.js";
 export { createEventRoutes } from "./routes/events.js";
 export type { EventRouteConfig } from "./routes/events.js";
+export { createCostAttributorRoutes } from "./routes/cost-attributor.routes.js";
+export type { CostAttributorRouteConfig } from "./routes/cost-attributor.routes.js";
+
+// --- Cost Showback (S4-E) ---
+export { DrizzleCostAttributor } from "./services/cost-attributor.js";
+export type {
+  CostAttributor,
+  CostAttributorQuery,
+  CostAttributorDatabase,
+  TenantCostSummary,
+} from "./services/cost-attributor.js";
 
 // --- Middleware ---
 export { authMiddleware } from "./middleware/auth.js";
@@ -99,6 +110,12 @@ export type {
   JobProcessor,
   DeadLetterEntry,
 } from "./queue/run-queue.js";
+
+// --- Metrics (S4-F) ---
+export {
+  registerQueueGauges,
+  updateQueueGauges,
+} from "./metrics/queue-gauge.js";
 
 // --- Lifecycle ---
 export { GracefulShutdown } from "./lifecycle/graceful-shutdown.js";
@@ -178,6 +195,16 @@ export type {
   InputGuardConfig,
   InputGuardResult,
 } from "./security/input-guard.js";
+
+// --- Security / Per-Tenant Concurrent-Run Quota (S4-D) ---
+export {
+  InMemoryTenantRunQuota,
+  DrizzleTenantRunQuota,
+} from "./security/tenant-run-quota.js";
+export type {
+  TenantRunQuota,
+  TenantRunQuotaResult,
+} from "./security/tenant-run-quota.js";
 
 // --- Distributed Guardrails (P3) ---
 export {

@@ -127,6 +127,9 @@ export function maybeStartRunWorker(
     traceStore: runtimeConfig.traceStore,
     reflectionStore: runtimeConfig.reflectionStore,
     resourceQuota: runtimeConfig.resourceQuota,
+    ...(runtimeConfig.tenantRunQuota
+      ? { tenantRunQuota: runtimeConfig.tenantRunQuota }
+      : {}),
     inputGuardConfig: runtimeConfig.security?.inputGuard,
     ...(runtimeConfig.guardrailClient
       ? { guardrailClient: runtimeConfig.guardrailClient }

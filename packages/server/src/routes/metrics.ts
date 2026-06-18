@@ -10,10 +10,15 @@ import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../types.js";
 import type { PrometheusMetricsCollector } from "../metrics/prometheus-collector.js";
 import type { WorkerNodeStore } from "../runtime/worker-registry.js";
+import type { RunQueue } from "../queue/run-queue.js";
 import {
   registerFleetGauges,
   updateFleetGauges,
 } from "../metrics/fleet-gauge.js";
+import {
+  registerQueueGauges,
+  updateQueueGauges,
+} from "../metrics/queue-gauge.js";
 
 export type MetricsAccessControl =
   | {
@@ -52,6 +57,12 @@ export interface MetricsRouteConfig {
    * `store.list()` snapshot on every scrape, just before `render()`.
    */
   workerStore?: WorkerNodeStore;
+  /**
+   * S4-F: optional run queue. When provided, the three queue-depth gauges
+   * (`forge_queue_jobs_pending/active/dead_letter`) are refreshed from a fresh
+   * queue snapshot on every scrape, just before `render()`.
+   */
+  runQueue?: RunQueue;
 }
 
 /**
@@ -71,6 +82,9 @@ export function createMetricsRoute(config: MetricsRouteConfig): Hono<AppEnv> {
   if (config.workerStore) {
     registerFleetGauges(config.collector);
   }
+  if (config.runQueue) {
+    registerQueueGauges(config.collector);
+  }
 
   const guard = createMetricsAccessGuard(config.access);
   if (guard) {
@@ -81,6 +95,9 @@ export function createMetricsRoute(config: MetricsRouteConfig): Hono<AppEnv> {
     // Pull a fresh fleet snapshot so gauge values are current at scrape time.
     if (config.workerStore) {
       await updateFleetGauges(config.workerStore, config.collector);
+    }
+    if (config.runQueue) {
+      await updateQueueGauges(config.runQueue, config.collector);
     }
     const body = config.collector.render();
     return c.text(body, 200, {

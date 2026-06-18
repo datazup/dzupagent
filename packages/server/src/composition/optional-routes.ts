@@ -68,6 +68,7 @@ import { createOpenAICompatCompletionsRoute } from "../routes/openai-compat/comp
 import { createModelsRoute } from "../routes/openai-compat/models-route.js";
 import { PrometheusMetricsCollector } from "../metrics/prometheus-collector.js";
 import { createMetricsRoute } from "../routes/metrics.js";
+import { createScaleTargetRoute } from "../routes/scale-target.js";
 import { resolveWorkerNodeStore } from "./workers.js";
 import { createDefaultRbacConfig } from "./middleware.js";
 import { registerShutdownDrainHook } from "./utils.js";
@@ -181,6 +182,14 @@ export function buildOptionalRoutePlugins(
     plugins.push(
       createOptionalRouteFamilyPlugin("openai-compat", (app) =>
         mountOpenAICompatRoutes(app, ctx)
+      )
+    );
+  }
+
+  if (ctx.runtimeConfig.runQueue) {
+    plugins.push(
+      createOptionalRouteFamilyPlugin("scale-target", (app) =>
+        mountScaleTargetRoute(app, ctx)
       )
     );
   }
@@ -496,6 +505,29 @@ function mountOpenAICompatRoutes(
 }
 
 /**
+ * S4-F: mount the `GET /scale-target` autoscaling signal. Aggregate queue depth
+ * vs. worker capacity — no auth guard since it exposes no sensitive data.
+ */
+function mountScaleTargetRoute(
+  app: Hono<AppEnv>,
+  { runtimeConfig }: OptionalRoutesContext
+): void {
+  if (!runtimeConfig.runQueue) {
+    return;
+  }
+
+  const workerStore = resolveWorkerNodeStore(runtimeConfig);
+
+  app.route(
+    "/scale-target",
+    createScaleTargetRoute({
+      queue: runtimeConfig.runQueue,
+      ...(workerStore ? { workerStore } : {}),
+    })
+  );
+}
+
+/**
  * Mount the Prometheus `/metrics` endpoint when the configured collector is a
  * {@link PrometheusMetricsCollector} and a framework-level access policy is
  * configured. Other collectors (e.g. NoopMetricsCollector) skip this route.
@@ -523,6 +555,8 @@ export function mountPrometheusMetricsRoute(
       collector: runtimeConfig.metrics,
       access,
       ...(workerStore ? { workerStore } : {}),
+      // S4-F: refresh queue-depth gauges per scrape when a run queue is present.
+      ...(runtimeConfig.runQueue ? { runQueue: runtimeConfig.runQueue } : {}),
     })
   );
 }

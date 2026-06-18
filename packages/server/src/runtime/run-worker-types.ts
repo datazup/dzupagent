@@ -21,6 +21,7 @@ import type { GracefulShutdown } from "../lifecycle/graceful-shutdown.js";
 import type { RunTraceStore } from "../persistence/run-trace-store.js";
 import type { ExecutableAgentResolver } from "../services/executable-agent-resolver.js";
 import type { ResourceQuotaManager } from "../security/resource-quota.js";
+import type { TenantRunQuota } from "../security/tenant-run-quota.js";
 import type { WorkerNodeStore } from "./worker-registry.js";
 import type { InputGuardConfig } from "../security/input-guard.js";
 import type { RetrievalFeedbackHookConfig } from "./retrieval-feedback-hook.js";
@@ -190,6 +191,15 @@ export interface StartRunWorkerOptions {
    * attributes consumption after completion.
    */
   resourceQuota?: ResourceQuotaManager;
+  /**
+   * Stage 4-D: Optional per-tenant concurrent-run cap. When provided, the
+   * admission stage checks the tenant's active count before admitting a run
+   * (rejecting with `TENANT_QUOTA_EXCEEDED`) and increments it on admission;
+   * the worker decrements it at any terminal state (completed, failed,
+   * cancelled). The tenant id is read from `job.metadata.tenantId`. Absent ⇒
+   * no per-tenant concurrency cap, unchanged.
+   */
+  tenantRunQuota?: TenantRunQuota;
   /**
    * P3: Optional fleet-wide distributed guardrail backend (a Redis-backed
    * {@link CostLedgerClient}). When provided, it is attached to every run's
