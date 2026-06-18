@@ -3,7 +3,7 @@
  *
  * Verifies that the pipeline runtime:
  *  - exposes a stable `idempotencyKey` to each node via `NodeExecutionContext`,
- *  - the key is deterministic (`<runId>:<nodeId>`),
+ *  - the key is deterministic for a given `(runId, nodeId)` pair,
  *  - records the keys for completed nodes into the checkpoint, and
  *  - round-trips the keys through a suspend/resume cycle.
  */
@@ -58,7 +58,7 @@ describe("pipeline idempotency keys (W5)", () => {
     const result = await runtime.execute();
     expect(result.state).toBe("completed");
 
-    // Every node received a key, and it is `<runId>:<nodeId>`.
+    // Every node received the canonical key for its (runId, nodeId).
     expect(seenKeys["A"]).toBe(nodeIdempotencyKey(result.runId, "A"));
     expect(seenKeys["B"]).toBe(nodeIdempotencyKey(result.runId, "B"));
 
@@ -117,5 +117,28 @@ describe("pipeline idempotency keys (W5)", () => {
     const resumed = await runtime.resume(checkpoint!);
     expect(resumed.state).toBe("completed");
     expect(seenKeys["B"]).toBe(nodeIdempotencyKey(first.runId, "B"));
+  });
+});
+
+describe("nodeIdempotencyKey — canonical key format (N3)", () => {
+  it("produces a canonical `dzup:v1:` prefixed key", () => {
+    const key = nodeIdempotencyKey("run-123", "node-A");
+    expect(key.startsWith("dzup:v1:")).toBe(true);
+    // Template: dzup:v1:{sourceHash}:{runId}:{nodeId}:{attemptPolicy}:{digest}
+    expect(key).toContain(":run-123:");
+    expect(key).toContain(":node-A:");
+    expect(key).toContain(":at-least-once:");
+  });
+
+  it("is stable: identical inputs produce identical keys", () => {
+    expect(nodeIdempotencyKey("run-1", "n1")).toBe(
+      nodeIdempotencyKey("run-1", "n1")
+    );
+  });
+
+  it("varies by runId and by nodeId", () => {
+    const base = nodeIdempotencyKey("run-1", "n1");
+    expect(nodeIdempotencyKey("run-2", "n1")).not.toBe(base);
+    expect(nodeIdempotencyKey("run-1", "n2")).not.toBe(base);
   });
 });
