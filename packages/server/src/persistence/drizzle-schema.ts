@@ -87,17 +87,23 @@ export const forgeRuns = pgTable("forge_runs", {
 // Run Logs
 // ---------------------------------------------------------------------------
 
-export const forgeRunLogs = pgTable("forge_run_logs", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  runId: uuid("run_id")
-    .references(() => forgeRuns.id, { onDelete: "cascade" })
-    .notNull(),
-  level: varchar("level", { length: 10 }).notNull(),
-  phase: varchar("phase", { length: 50 }),
-  message: text("message").notNull(),
-  data: jsonb("data"),
-  timestamp: timestamp("timestamp").defaultNow().notNull(),
-});
+export const forgeRunLogs = pgTable(
+  "forge_run_logs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    runId: uuid("run_id")
+      .references(() => forgeRuns.id, { onDelete: "cascade" })
+      .notNull(),
+    level: varchar("level", { length: 10 }).notNull(),
+    phase: varchar("phase", { length: 50 }),
+    message: text("message").notNull(),
+    data: jsonb("data"),
+    /** S4: Tenant scope. Defaults to 'default'. */
+    tenantId: text("tenant_id").notNull().default("default"),
+    timestamp: timestamp("timestamp").defaultNow().notNull(),
+  },
+  (table) => [index("forge_run_logs_tenant_id_idx").on(table.tenantId)],
+);
 
 // ---------------------------------------------------------------------------
 // Run Artifacts
@@ -120,9 +126,14 @@ export const runArtifacts = pgTable(
     size: integer("size"),
     url: text("url"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
+    /** S4: Tenant scope. Defaults to 'default'. */
+    tenantId: text("tenant_id").notNull().default("default"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [index("run_artifacts_run_id_idx").on(table.runId)],
+  (table) => [
+    index("run_artifacts_run_id_idx").on(table.runId),
+    index("run_artifacts_tenant_id_idx").on(table.tenantId),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -144,8 +155,8 @@ export const deploymentHistory = pgTable(
     outcome: text("outcome"),
     completedAt: timestamp("completed_at"),
     notes: text("notes"),
-    /** SEC-M-06: Tenant that owns this deployment record. */
-    tenantId: text("tenant_id").default("default"),
+    /** SEC-M-06: Tenant that owns this deployment record. S4: now NOT NULL. */
+    tenantId: text("tenant_id").notNull().default("default"),
   },
   (table) => [
     index("deployment_history_environment_idx").on(table.environment),
@@ -225,9 +236,14 @@ export const a2aTaskMessages = pgTable(
         Array<{ type: string; text?: string; data?: Record<string, unknown> }>
       >()
       .notNull(),
+    /** S4: Tenant scope. Defaults to 'default'. */
+    tenantId: text("tenant_id").notNull().default("default"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (table) => [index("a2a_task_messages_task_id_idx").on(table.taskId)],
+  (table) => [
+    index("a2a_task_messages_task_id_idx").on(table.taskId),
+    index("a2a_task_messages_tenant_id_idx").on(table.tenantId),
+  ],
 );
 
 // ---------------------------------------------------------------------------
@@ -400,6 +416,8 @@ export const clusterRoles = pgTable(
     roleId: varchar("role_id", { length: 255 }).notNull(),
     agentId: text("agent_id").notNull(),
     capabilities: jsonb("capabilities").$type<string[]>().default([]),
+    /** S4: Tenant scope. Defaults to 'default'. */
+    tenantId: text("tenant_id").notNull().default("default"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [
@@ -485,7 +503,8 @@ export const forgeNodeLedger = pgTable(
     idempotencyKey: text("idempotency_key").primaryKey(),
     runId: text("run_id").notNull(),
     nodeId: text("node_id").notNull(),
-    tenantId: text("tenant_id"),
+    /** S4: now NOT NULL. Defaults to 'default'. */
+    tenantId: text("tenant_id").notNull().default("default"),
     attempt: integer("attempt").notNull().default(1),
     /** Monotonic fence token — bumped on every (re)acquire. */
     fenceToken: integer("fence_token").notNull().default(1),
@@ -533,10 +552,13 @@ export const workerNodes = pgTable(
     startedAt: bigint("started_at", { mode: "number" }).notNull(),
     lastHeartbeatAt: bigint("last_heartbeat_at", { mode: "number" }).notNull(),
     meta: jsonb("meta").$type<Record<string, unknown>>(),
+    /** S4: Tenant scope. Defaults to 'default'. */
+    tenantId: text("tenant_id").notNull().default("default"),
   },
   (table) => [
     index("worker_nodes_status_idx").on(table.status),
     index("worker_nodes_tenant_scope_idx").on(table.tenantScope),
+    index("worker_nodes_tenant_id_idx").on(table.tenantId),
   ],
 );
 
@@ -544,13 +566,19 @@ export const workerNodes = pgTable(
 // Run Traces
 // ---------------------------------------------------------------------------
 
-export const runTraces = pgTable("run_traces", {
-  runId: varchar("run_id", { length: 255 }).primaryKey(),
-  agentId: varchar("agent_id", { length: 255 }).notNull(),
-  startedAt: integer("started_at").notNull(), // epoch ms
-  completedAt: integer("completed_at"), // epoch ms, nullable
-  totalSteps: integer("total_steps").notNull().default(0),
-});
+export const runTraces = pgTable(
+  "run_traces",
+  {
+    runId: varchar("run_id", { length: 255 }).primaryKey(),
+    agentId: varchar("agent_id", { length: 255 }).notNull(),
+    startedAt: integer("started_at").notNull(), // epoch ms
+    completedAt: integer("completed_at"), // epoch ms, nullable
+    totalSteps: integer("total_steps").notNull().default(0),
+    /** S4: Tenant scope. Defaults to 'default'. */
+    tenantId: text("tenant_id").notNull().default("default"),
+  },
+  (table) => [index("run_traces_tenant_id_idx").on(table.tenantId)],
+);
 
 export const traceSteps = pgTable(
   "trace_steps",
@@ -565,6 +593,8 @@ export const traceSteps = pgTable(
     content: jsonb("content").notNull(),
     metadata: jsonb("metadata"),
     durationMs: integer("duration_ms"),
+    /** S4: Tenant scope. Defaults to 'default'. */
+    tenantId: text("tenant_id").notNull().default("default"),
   },
   (table) => [
     index("trace_steps_run_id_idx").on(table.runId),
@@ -646,11 +676,14 @@ export const auditLog = pgTable(
     hash: text("hash").notNull().default(""),
     traceId: text("trace_id"),
     spanId: text("span_id"),
+    /** S4: Tenant scope. Defaults to 'default'. */
+    tenantId: text("tenant_id").notNull().default("default"),
   },
   (table) => [
     index("dzupagent_audit_log_action_idx").on(table.action),
     index("dzupagent_audit_log_actor_id_idx").on(table.actorId),
     index("dzupagent_audit_log_ts_idx").on(table.ts),
+    index("dzupagent_audit_log_tenant_id_idx").on(table.tenantId),
   ],
 );
 
@@ -710,6 +743,8 @@ export const flowJobs = pgTable(
     claimedAt: timestamp("claimed_at"),
     claimedBy: text("claimed_by"),
     error: text("error"),
+    /** S4: Tenant scope. Defaults to 'default'. */
+    tenantId: text("tenant_id").notNull().default("default"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -720,6 +755,7 @@ export const flowJobs = pgTable(
       table.createdAt,
     ),
     index("flow_jobs_run_id_idx").on(table.runId),
+    index("flow_jobs_tenant_id_idx").on(table.tenantId),
   ],
 );
 

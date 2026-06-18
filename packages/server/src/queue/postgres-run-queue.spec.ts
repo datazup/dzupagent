@@ -49,6 +49,29 @@ function jobRow(overrides: Partial<Row> = {}): Row {
   };
 }
 
+/**
+ * Flatten a Drizzle `SQL` object (and any nested `sql` fragments) into the
+ * static query text, so a test can assert on substrings like `tenant_id =`.
+ * Bound parameters are appended as their JS values, which is enough for the
+ * structural assertions here.
+ */
+function sqlText(query: unknown): string {
+  const chunks = (query as { queryChunks?: unknown[] })?.queryChunks;
+  if (!Array.isArray(chunks)) return String(query);
+  return chunks
+    .map((chunk) => {
+      if (typeof chunk === "string") return chunk;
+      if (chunk && Array.isArray((chunk as { value?: unknown }).value)) {
+        return (chunk as { value: unknown[] }).value.join("");
+      }
+      if (chunk && (chunk as { queryChunks?: unknown }).queryChunks) {
+        return sqlText(chunk);
+      }
+      return "";
+    })
+    .join("");
+}
+
 describe("PostgresRunQueue", () => {
   it("enqueue inserts a pending job row and returns the RunJob", async () => {
     // execute #1 = INSERT ... RETURNING the new row
@@ -233,5 +256,61 @@ describe("PostgresRunQueue", () => {
 
     // After stop, polling no longer claims work.
     await queue._poll();
+  });
+
+  it("enqueue stores tenantId in the row", async () => {
+    const { db, execute } = mockDb([
+      [
+        jobRow({
+          id: "job_t",
+          run_id: "run_t",
+          agent_id: "agent_t",
+          status: "pending",
+          attempts: 0,
+          tenant_id: "tenant-xyz",
+        }),
+      ],
+    ]);
+    const queue = new PostgresRunQueue({ db, concurrency: 1 });
+
+    const job = await queue.enqueue({
+      runId: "run_t",
+      agentId: "agent_t",
+      input: { foo: "bar" },
+      priority: 0,
+      tenantId: "tenant-xyz",
+    });
+
+    // The INSERT statement names the tenant_id column and binds the value.
+    const insertText = sqlText(execute.mock.calls[0]![0]);
+    expect(insertText).toContain("tenant_id");
+    expect(insertText).toContain("tenant-xyz");
+    expect(job.tenantId).toBe("tenant-xyz");
+
+    await queue.stop(false);
+  });
+
+  it("_poll filters by tenantId when config.tenantId is set", async () => {
+    const { db, execute } = mockDb([
+      [jobRow({ id: "job_a", run_id: "run_a", tenant_id: "tenant-xyz" })],
+      [],
+      [],
+    ]);
+    const queue = new PostgresRunQueue({
+      db,
+      concurrency: 1,
+      jobTimeoutMs: 1000,
+      tenantId: "tenant-xyz",
+    });
+
+    queue.start(async () => {});
+    await queue._poll();
+    await new Promise((r) => setTimeout(r, 0));
+    await queue.stop(false);
+
+    // The claim UPDATE's inner SELECT scopes to the configured tenant.
+    const claimText = sqlText(execute.mock.calls[0]![0]);
+    expect(claimText).toContain("tenant_id =");
+    expect(claimText).toContain("tenant-xyz");
   });
 });
