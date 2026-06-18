@@ -794,6 +794,41 @@ export const flowJobs = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Flow Events (Stage 5 — append-only event log for event-history replay)
+// ---------------------------------------------------------------------------
+
+/**
+ * Append-only event log backing the event-history replay runtime (Stage 5).
+ * Each orchestrator decision is recorded as a discrete, typed, sequenced event
+ * before it takes effect. On process restart the orchestrator re-runs from the
+ * top in replay mode: a recorded `node_completed` event short-circuits node
+ * execution by returning the stored output.
+ *
+ * `sequence` is monotonic per run (1-based). `UNIQUE (run_id, sequence)` gives
+ * idempotent appends and a stable replay order. Timestamps are epoch
+ * milliseconds (bigint) for parity with the other crash-safe tables.
+ */
+export const flowEvents = pgTable(
+  "flow_events",
+  {
+    eventId: text("event_id").primaryKey(),
+    runId: text("run_id").notNull(),
+    sequence: bigint("sequence", { mode: "number" }).notNull(),
+    eventType: text("event_type").notNull(),
+    nodeId: text("node_id"),
+    payload: jsonb("payload").$type<Record<string, unknown>>(),
+    /** Stage 5: Tenant scope. Defaults to 'default'. */
+    tenantId: text("tenant_id").notNull().default("default"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("flow_events_run_seq_unique").on(table.runId, table.sequence),
+    index("idx_flow_events_run_seq").on(table.runId, table.sequence),
+    index("idx_flow_events_tenant_id").on(table.tenantId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Flow Approvals
 // ---------------------------------------------------------------------------
 
