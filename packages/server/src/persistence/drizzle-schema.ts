@@ -528,6 +528,38 @@ export const forgeNodeLedger = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Node Adapter Meta (OQ-3 — provider-specific resume tokens, side table)
+// ---------------------------------------------------------------------------
+
+/**
+ * Adapter-owned execution metadata, kept out of the framework-clean
+ * {@link forgeNodeLedger}. Holds provider-specific resume state (Claude session
+ * ids, Codex thread refs, etc.) keyed by `(run_id, node_id, adapter_id)`.
+ *
+ * Framework-internal side table shared between adapter and ledger.
+ * Deliberately NO `tenant_id`: `run_id` already scopes to a tenant via
+ * `forge_runs.tenant_id`, so a redundant column would only invite drift.
+ * Timestamps are epoch milliseconds (bigint), matching the ledger.
+ */
+export const flowNodeAdapterMeta = pgTable(
+  "flow_node_adapter_meta",
+  {
+    runId: text("run_id").notNull(),
+    nodeId: text("node_id").notNull(),
+    adapterId: text("adapter_id").notNull(),
+    sessionRef: text("session_ref"),
+    resumeToken: text("resume_token"),
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.nodeId, table.adapterId] }),
+    index("idx_node_adapter_meta_run").on(table.runId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Worker Fleet Registry (P1 — stable node identity + heartbeat + fleet view)
 // ---------------------------------------------------------------------------
 

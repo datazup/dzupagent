@@ -11,6 +11,7 @@ const TENANT_EXEMPT = new Set([
   "clusterRoles", // child of agentClusters (inherits tenant via cluster_id FK)
   "traceSteps", // child of runTraces (inherits tenant via run_id FK)
   "a2aTaskMessages", // child of a2aTasks (inherits tenant via task_id FK)
+  "flowNodeAdapterMeta", // run_id scopes to tenant via forge_runs.tenant_id; no redundant column
 ]);
 
 describe("schema tenant conformance", () => {

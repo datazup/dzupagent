@@ -232,3 +232,11 @@ export type {
   FlowApprovalStatus,
   FlowApprovalStore,
 } from "./persistence/flow-approval-store.js";
+export {
+  InMemoryAdapterMetaStore,
+  DrizzleAdapterMetaStore,
+} from "./runtime/adapter-meta-store.js";
+export type {
+  AdapterMeta,
+  AdapterMetaStore,
+} from "./runtime/adapter-meta-store.js";
