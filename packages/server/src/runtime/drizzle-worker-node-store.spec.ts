@@ -7,8 +7,13 @@
  * arguments rather than executing real SQL, so the suite is DB-free.
  */
 import { describe, it, expect, vi } from "vitest";
+import { Hono } from "hono";
 import { DrizzleWorkerNodeStore } from "./drizzle-worker-node-store.js";
 import type { DrizzleWorkerNodeDatabase } from "../persistence/drizzle-store-types.js";
+import { createScaleTargetRoute } from "../routes/scale-target.js";
+import type { ProviderCapacity } from "../routes/scale-target.js";
+import type { WorkerNode, WorkerNodeStore } from "./worker-registry.js";
+import type { QueueStats, RunQueue } from "../queue/run-queue.js";
 
 type Args = Record<string, unknown>;
 
@@ -139,5 +144,116 @@ describe("DrizzleWorkerNodeStore", () => {
 
     expect(del.delete).toHaveBeenCalledTimes(1);
     expect(del.where).toHaveBeenCalledTimes(1);
+  });
+
+  // S4-H: provider-awareness.
+  it("register stores the providers field in the INSERT", async () => {
+    const ins = mockInsert([]);
+    const db = { insert: ins.insert } as unknown as DrizzleWorkerNodeDatabase;
+    const store = new DrizzleWorkerNodeStore(db);
+
+    await store.register(
+      {
+        id: "w1",
+        tenantScope: "shared",
+        capacity: 5,
+        inFlight: 0,
+        startedAt: 1000,
+        providers: ["claude"],
+      },
+      1000
+    );
+
+    const values = ins.values.mock.calls[0]![0];
+    expect(values.providers).toEqual(["claude"]);
+  });
+
+  it("list maps providers from the row back to the WorkerNode", async () => {
+    const stored = {
+      id: "w1",
+      tenantScope: "shared",
+      status: "active",
+      capacity: 5,
+      inFlight: 0,
+      startedAt: 1000,
+      lastHeartbeatAt: 1000,
+      meta: null,
+      providers: ["claude", "openai"],
+    };
+    const rows = [stored];
+    const db = {
+      select: vi.fn(() => ({ from: vi.fn(async () => rows) })),
+    } as unknown as DrizzleWorkerNodeDatabase;
+    const store = new DrizzleWorkerNodeStore(db);
+
+    const nodes = await store.list();
+
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0]!.providers).toEqual(["claude", "openai"]);
+  });
+});
+
+describe("scale-target byProvider breakdown (S4-H)", () => {
+  const emptyStats: QueueStats = {
+    pending: 0,
+    active: 0,
+    completed: 0,
+    failed: 0,
+    deadLetter: 0,
+  };
+  const queue: RunQueue = { stats: () => emptyStats } as unknown as RunQueue;
+
+  function workerStoreOf(nodes: WorkerNode[]): WorkerNodeStore {
+    return { list: async () => nodes } as unknown as WorkerNodeStore;
+  }
+
+  async function callScaleTarget(nodes: WorkerNode[]): Promise<{
+    byProvider?: ProviderCapacity[];
+  }> {
+    const app = new Hono();
+    app.route(
+      "/",
+      createScaleTargetRoute({ queue, workerStore: workerStoreOf(nodes) })
+    );
+    const res = await app.request("/");
+    return (await res.json()) as { byProvider?: ProviderCapacity[] };
+  }
+
+  it("includes a byProvider breakdown grouped by declared provider", async () => {
+    const base = {
+      tenantScope: "shared",
+      status: "active" as const,
+      capacity: 5,
+      startedAt: 1000,
+      lastHeartbeatAt: 1000,
+    };
+    const nodes: WorkerNode[] = [
+      { ...base, id: "w1", inFlight: 0, providers: ["claude", "openai"] },
+      { ...base, id: "w2", inFlight: 2, providers: ["claude"] },
+      { ...base, id: "w3", inFlight: 0 }, // no providers -> wildcard
+    ];
+
+    const body = await callScaleTarget(nodes);
+    const byProvider = body.byProvider ?? [];
+    const lookup = new Map(byProvider.map((p) => [p.provider, p]));
+
+    // claude: w1 (idle) + w2 (busy) => 2 active, 1 idle.
+    expect(lookup.get("claude")).toEqual({
+      provider: "claude",
+      activeWorkers: 2,
+      idleWorkers: 1,
+    });
+    // openai: w1 only => 1 active, 1 idle.
+    expect(lookup.get("openai")).toEqual({
+      provider: "openai",
+      activeWorkers: 1,
+      idleWorkers: 1,
+    });
+    // wildcard: w3 only => 1 active, 1 idle.
+    expect(lookup.get("*")).toEqual({
+      provider: "*",
+      activeWorkers: 1,
+      idleWorkers: 1,
+    });
   });
 });

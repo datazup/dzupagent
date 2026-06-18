@@ -313,4 +313,94 @@ describe("PostgresRunQueue", () => {
     expect(claimText).toContain("tenant_id =");
     expect(claimText).toContain("tenant-xyz");
   });
+
+  it("_poll uses two queries (tenant-select then claim) when fairScheduling is on", async () => {
+    // execute #1 = least-loaded tenant SELECT -> { tenant_id, pending_count }
+    // execute #2 = claim UPDATE ... RETURNING the claimed row
+    // execute #3 = mark-completed; #4 = next tenant-select returns empty
+    const { db, execute } = mockDb([
+      [{ tenant_id: "tenant-quiet", pending_count: "1" }],
+      [jobRow({ id: "job_a", run_id: "run_a", tenant_id: "tenant-quiet" })],
+      [],
+      [],
+    ]);
+    const queue = new PostgresRunQueue({
+      db,
+      concurrency: 1,
+      jobTimeoutMs: 1000,
+      // fairScheduling defaults true when no tenantId is set; set explicitly.
+      fairScheduling: true,
+    });
+
+    const processed: string[] = [];
+    queue.start(async (job) => {
+      processed.push(job.runId);
+    });
+    await queue._poll();
+    await new Promise((r) => setTimeout(r, 0));
+    await queue.stop(false);
+
+    expect(processed).toEqual(["run_a"]);
+    // First query is the tenant-select step; second is the scoped claim.
+    const tenantSelectText = sqlText(execute.mock.calls[0]![0]);
+    expect(tenantSelectText).toContain("GROUP BY tenant_id");
+    expect(tenantSelectText).toContain("pending_count");
+    const claimText = sqlText(execute.mock.calls[1]![0]);
+    expect(claimText).toContain("UPDATE flow_jobs");
+    expect(claimText).toContain("tenant_id =");
+    expect(claimText).toContain("tenant-quiet");
+  });
+
+  it("_poll uses a single query when fairScheduling is off (shared worker)", async () => {
+    // execute #1 = single-step claim UPDATE ... RETURNING the claimed row
+    const { db, execute } = mockDb([
+      [jobRow({ id: "job_a", run_id: "run_a" })],
+      [],
+      [],
+    ]);
+    const queue = new PostgresRunQueue({
+      db,
+      concurrency: 1,
+      jobTimeoutMs: 1000,
+      fairScheduling: false,
+    });
+
+    queue.start(async () => {});
+    await queue._poll();
+    await new Promise((r) => setTimeout(r, 0));
+    await queue.stop(false);
+
+    // No tenant-select step: the very first query is the claim UPDATE.
+    const firstText = sqlText(execute.mock.calls[0]![0]);
+    expect(firstText).toContain("UPDATE flow_jobs");
+    expect(firstText).not.toContain("GROUP BY tenant_id");
+    expect(firstText).toContain("ORDER BY priority ASC, created_at ASC");
+  });
+
+  it("_poll uses single-step when config.tenantId is set regardless of fairScheduling", async () => {
+    const { db, execute } = mockDb([
+      [jobRow({ id: "job_a", run_id: "run_a", tenant_id: "tenant-xyz" })],
+      [],
+      [],
+    ]);
+    const queue = new PostgresRunQueue({
+      db,
+      concurrency: 1,
+      jobTimeoutMs: 1000,
+      tenantId: "tenant-xyz",
+      fairScheduling: true, // ignored because the worker is tenant-scoped
+    });
+
+    queue.start(async () => {});
+    await queue._poll();
+    await new Promise((r) => setTimeout(r, 0));
+    await queue.stop(false);
+
+    // First (and only claim) query is the scoped single-step UPDATE, no GROUP BY.
+    const firstText = sqlText(execute.mock.calls[0]![0]);
+    expect(firstText).toContain("UPDATE flow_jobs");
+    expect(firstText).not.toContain("GROUP BY tenant_id");
+    expect(firstText).toContain("tenant_id =");
+    expect(firstText).toContain("tenant-xyz");
+  });
 });
