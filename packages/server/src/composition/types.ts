@@ -38,6 +38,7 @@ import type { MailboxStore } from "@dzupagent/agent/mailbox";
 import type { MemoryServiceLike } from "@dzupagent/memory-ipc";
 
 import type { ResourceQuotaManager } from "../security/resource-quota.js";
+import type { TenantRunQuota } from "../security/tenant-run-quota.js";
 import type { InputGuardConfig } from "../security/input-guard.js";
 import type { AuthConfig } from "../middleware/auth.js";
 import type { RBACConfig } from "../middleware/rbac.js";
@@ -90,6 +91,7 @@ import type {
 import type { MetricsAccessControl } from "../routes/metrics.js";
 import type { ComplianceAuditStore } from "@dzupagent/core/security";
 import type { CostLedgerClient } from "@dzupagent/agent";
+import type { CostAttributor } from "../services/cost-attributor.js";
 
 /**
  * Optional mail delivery config. When provided, `createForgeApp` constructs a
@@ -282,6 +284,13 @@ export interface ForgeRuntimeConfig {
   runExecutor?: RunExecutor;
   shutdown?: GracefulShutdown;
   metrics?: MetricsCollector;
+  /**
+   * S4-E: Per-tenant cost showback. When provided, `createForgeApp` mounts
+   * `GET /admin/tenants/:tenantId/cost` and `GET /admin/tenants/cost`, which
+   * aggregate `cost_cents` from `forge_runs` grouped by tenant. Use
+   * {@link DrizzleCostAttributor} for the Postgres-backed implementation.
+   */
+  costAttributor?: CostAttributor;
   /**
    * P3 distributed guardrail backend. When provided, this Redis-backed
    * {@link CostLedgerClient} (e.g. from
@@ -563,6 +572,8 @@ export interface ForgeSecurityConfig {
   disableSafetyMonitor?: boolean;
   /** Per-key resource quota manager (MC-S01). */
   resourceQuota?: ResourceQuotaManager;
+  /** Per-tenant concurrent-run cap. When set, each run-creation request checks the tenant's active count. */
+  tenantRunQuota?: TenantRunQuota;
   /** MC-S03 input guard configuration. Pass `false` to opt out. */
   security?: {
     inputGuard?: InputGuardConfig | false;

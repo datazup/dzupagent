@@ -139,6 +139,11 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
     ): T & { tenantId?: string } =>
       tenantId !== undefined ? { ...event, tenantId } : event;
 
+    // Stage 4-D — release the tenant's concurrent-run slot at any terminal
+    // state. Only set once the admission stage has reserved a slot
+    // (incremented) so rejected runs (which never incremented) don't underflow.
+    let admittedTenantId: string | undefined;
+
     let traceId: string | undefined;
     let forgeTraceContext: ForgeTraceContext | undefined;
     try {
@@ -176,8 +181,17 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
         ...(options.guardrailClient
           ? { guardrailClient: options.guardrailClient }
           : {}),
+        ...(options.tenantRunQuota
+          ? { tenantRunQuota: options.tenantRunQuota }
+          : {}),
       });
       if (admission.rejected) return;
+
+      // Run admitted: the admission stage has reserved this tenant's slot.
+      // Record the tenant so the `finally` block releases it on completion.
+      if (options.tenantRunQuota && tenantId !== undefined) {
+        admittedTenantId = tenantId;
+      }
 
       const { agent, input: jobInput } = admission;
       await options.runStore.update(job.runId, { status: "running" });
@@ -298,6 +312,12 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
       options.shutdown?.untrackRun(job.runId);
       if (fleet !== undefined && inFlight > 0) {
         inFlight -= 1;
+      }
+      // Stage 4-D — release the tenant's concurrent-run slot on any terminal
+      // state (completed, failed, cancelled). Only fires when admission
+      // reserved one; never underflows (decrement floors at 0).
+      if (admittedTenantId !== undefined) {
+        options.tenantRunQuota?.decrement(admittedTenantId);
       }
     }
   });

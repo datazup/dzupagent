@@ -4,7 +4,11 @@ import type { CostLedgerClient } from "@dzupagent/agent";
 import type { RunTraceStore } from "../persistence/run-trace-store.js";
 import type { RunJob } from "../queue/run-queue.js";
 import type { InputGuard } from "../security/input-guard.js";
+import type { TenantRunQuota } from "../security/tenant-run-quota.js";
 import { closeTraceWithTerminalStep } from "./run-stages-utils.js";
+
+/** Default per-tenant concurrent-run cap when none is supplied on the job. */
+const DEFAULT_TENANT_RUN_LIMIT = 20;
 
 /**
  * P3 — return a derived agent spec with the distributed guardrail client
@@ -80,6 +84,15 @@ export async function runAdmissionStage(options: {
    * shares one rate-limit window and one cost ceiling across replicas.
    */
   guardrailClient?: CostLedgerClient;
+  /**
+   * Stage 4-D — optional per-tenant concurrent-run cap. When present and the
+   * job carries a `metadata.tenantId`, the tenant's active count is checked
+   * against `metadata.tenantRunLimit` (default {@link DEFAULT_TENANT_RUN_LIMIT})
+   * before the run is admitted. Over-limit runs are rejected with
+   * `TENANT_QUOTA_EXCEEDED`. On admission the active count is incremented; the
+   * run-worker decrements it at any terminal state.
+   */
+  tenantRunQuota?: TenantRunQuota;
 }): Promise<AdmissionStageResult> {
   const resolvedAgent = await options.resolveAgent(options.job.agentId);
   const agent = resolvedAgent
@@ -106,8 +119,67 @@ export async function runAdmissionStage(options: {
     return { input: options.job.input, rejected: true };
   }
 
+  // Stage 4-D — per-tenant concurrent-run cap. Only enforced when a quota is
+  // wired in AND the job carries a tenant id; single-tenant deployments and
+  // jobs without a tenant fall through unchanged.
+  const tenantId =
+    typeof options.job.metadata?.["tenantId"] === "string"
+      ? (options.job.metadata["tenantId"] as string)
+      : undefined;
+  if (options.tenantRunQuota && tenantId !== undefined) {
+    const limit =
+      typeof options.job.metadata?.["tenantRunLimit"] === "number"
+        ? (options.job.metadata["tenantRunLimit"] as number)
+        : DEFAULT_TENANT_RUN_LIMIT;
+    const verdict = options.tenantRunQuota.check(tenantId, limit);
+    if (!verdict.allowed) {
+      const reason =
+        verdict.reason ??
+        `Tenant "${tenantId}" concurrent-run limit reached (${verdict.active}/${verdict.limit}).`;
+      await options.runStore.update(options.job.runId, {
+        status: "rejected",
+        error: reason,
+        completedAt: new Date(),
+      });
+      await options.runStore.addLog(options.job.runId, {
+        level: "warn",
+        phase: "security",
+        message: `Run rejected by tenant quota: ${reason}`,
+        data: { active: verdict.active, limit: verdict.limit },
+      });
+      options.eventBus.emit(
+        stampTenant(
+          {
+            type: "agent:failed",
+            agentId: options.job.agentId,
+            runId: options.job.runId,
+            errorCode: "TENANT_QUOTA_EXCEEDED",
+            message: reason,
+          },
+          options.job
+        )
+      );
+      await closeTraceWithTerminalStep(
+        options.traceStore,
+        options.job.runId,
+        "rejected",
+        { reason, guardedBy: "tenant-run-quota" }
+      );
+      return { agent, input: options.job.input, rejected: true };
+    }
+  }
+
+  // Admit the run: reserve a slot in the tenant's concurrent-run budget. The
+  // run-worker releases it (decrement) at any terminal state.
+  const admitRun = (): void => {
+    if (options.tenantRunQuota && tenantId !== undefined) {
+      options.tenantRunQuota.increment(tenantId);
+    }
+  };
+
   let input: unknown = options.job.input;
   if (!options.inputGuard) {
+    admitRun();
     return { agent, input, rejected: false };
   }
 
@@ -162,6 +234,7 @@ export async function runAdmissionStage(options: {
     });
   }
 
+  admitRun();
   return { agent, input, rejected: false };
 }
 
