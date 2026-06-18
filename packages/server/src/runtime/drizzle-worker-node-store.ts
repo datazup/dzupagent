@@ -27,6 +27,7 @@ interface WorkerNodeRow {
   startedAt: number;
   lastHeartbeatAt: number;
   meta: Record<string, unknown> | null;
+  providers: string[] | null;
 }
 
 function rowToNode(row: WorkerNodeRow): WorkerNode {
@@ -40,6 +41,8 @@ function rowToNode(row: WorkerNodeRow): WorkerNode {
     lastHeartbeatAt: row.lastHeartbeatAt,
   };
   if (row.meta !== null && row.meta !== undefined) node.meta = row.meta;
+  if (row.providers !== null && row.providers !== undefined)
+    node.providers = row.providers;
   return node;
 }
 
@@ -69,6 +72,7 @@ export class DrizzleWorkerNodeStore implements WorkerNodeStore {
       startedAt: node.startedAt,
       lastHeartbeatAt: now,
       meta: node.meta ?? null,
+      providers: node.providers ?? null,
     };
     const rows = (await this.db
       .insert(workerNodes)

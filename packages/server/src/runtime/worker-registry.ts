@@ -29,12 +29,14 @@ export interface WorkerNode {
   startedAt: number;
   /** Free-form node metadata (version, host, region). */
   meta?: Record<string, unknown>;
+  /** Provider IDs this worker can serve (e.g. ['claude', 'openai']). Empty/undefined = all providers. */
+  providers?: string[];
 }
 
 export interface WorkerNodeStore {
   register(
     node: Omit<WorkerNode, "lastHeartbeatAt" | "status">,
-    now: number,
+    now: number
   ): Promise<WorkerNode>;
   heartbeat(id: string, inFlight: number, now: number): Promise<void>;
   setStatus(id: string, status: WorkerNode["status"]): Promise<void>;
@@ -53,7 +55,7 @@ export class InMemoryWorkerNodeStore implements WorkerNodeStore {
 
   async register(
     node: Omit<WorkerNode, "lastHeartbeatAt" | "status">,
-    now: number,
+    now: number
   ): Promise<WorkerNode> {
     const record: WorkerNode = {
       ...node,

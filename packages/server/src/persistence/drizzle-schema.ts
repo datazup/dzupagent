@@ -102,7 +102,7 @@ export const forgeRunLogs = pgTable(
     tenantId: text("tenant_id").notNull().default("default"),
     timestamp: timestamp("timestamp").defaultNow().notNull(),
   },
-  (table) => [index("forge_run_logs_tenant_id_idx").on(table.tenantId)],
+  (table) => [index("forge_run_logs_tenant_id_idx").on(table.tenantId)]
 );
 
 // ---------------------------------------------------------------------------
@@ -133,7 +133,7 @@ export const runArtifacts = pgTable(
   (table) => [
     index("run_artifacts_run_id_idx").on(table.runId),
     index("run_artifacts_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -162,7 +162,7 @@ export const deploymentHistory = pgTable(
     index("deployment_history_environment_idx").on(table.environment),
     index("deployment_history_deployed_at_idx").on(table.deployedAt),
     index("deployment_history_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -243,7 +243,7 @@ export const a2aTaskMessages = pgTable(
   (table) => [
     index("a2a_task_messages_task_id_idx").on(table.taskId),
     index("a2a_task_messages_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -327,7 +327,7 @@ export const runReflections = pgTable(
   (table) => [
     index("run_reflections_tenant_id_idx").on(table.tenantId),
     index("run_reflections_owner_id_idx").on(table.ownerId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -354,10 +354,10 @@ export const forgeVectors = pgTable(
   (table) => [
     uniqueIndex("forge_vectors_collection_key_idx").on(
       table.collection,
-      table.key,
+      table.key
     ),
     index("forge_vectors_collection_idx").on(table.collection),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -385,7 +385,7 @@ export const agentCatalog = pgTable(
     uniqueIndex("agent_catalog_tenant_slug_idx").on(table.tenantId, table.slug),
     index("agent_catalog_author_idx").on(table.author),
     index("agent_catalog_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -423,10 +423,10 @@ export const clusterRoles = pgTable(
   (table) => [
     uniqueIndex("cluster_roles_cluster_role_idx").on(
       table.clusterId,
-      table.roleId,
+      table.roleId
     ),
     index("cluster_roles_cluster_id_idx").on(table.clusterId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -450,10 +450,10 @@ export const agentMailbox = pgTable(
   (table) => [
     index("agent_mailbox_to_agent_created_at_idx").on(
       table.toAgent,
-      table.createdAt,
+      table.createdAt
     ),
     index("agent_mailbox_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -489,7 +489,7 @@ export const agentMailDlq = pgTable(
   (table) => [
     index("agent_mail_dlq_next_retry_at_idx").on(table.nextRetryAt),
     index("agent_mail_dlq_to_agent_idx").on(table.toAgent),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -522,9 +522,9 @@ export const forgeNodeLedger = pgTable(
     index("forge_node_ledger_run_id_idx").on(table.runId),
     index("forge_node_ledger_status_lease_idx").on(
       table.status,
-      table.leaseExpiresAt,
+      table.leaseExpiresAt
     ),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -552,6 +552,8 @@ export const workerNodes = pgTable(
     startedAt: bigint("started_at", { mode: "number" }).notNull(),
     lastHeartbeatAt: bigint("last_heartbeat_at", { mode: "number" }).notNull(),
     meta: jsonb("meta").$type<Record<string, unknown>>(),
+    /** S4-H: Provider IDs this worker serves (null/absent = all providers). */
+    providers: jsonb("providers").$type<string[]>(),
     /** S4: Tenant scope. Defaults to 'default'. */
     tenantId: text("tenant_id").notNull().default("default"),
   },
@@ -559,7 +561,7 @@ export const workerNodes = pgTable(
     index("worker_nodes_status_idx").on(table.status),
     index("worker_nodes_tenant_scope_idx").on(table.tenantScope),
     index("worker_nodes_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -577,7 +579,7 @@ export const runTraces = pgTable(
     /** S4: Tenant scope. Defaults to 'default'. */
     tenantId: text("tenant_id").notNull().default("default"),
   },
-  (table) => [index("run_traces_tenant_id_idx").on(table.tenantId)],
+  (table) => [index("run_traces_tenant_id_idx").on(table.tenantId)]
 );
 
 export const traceSteps = pgTable(
@@ -599,7 +601,7 @@ export const traceSteps = pgTable(
   (table) => [
     index("trace_steps_run_id_idx").on(table.runId),
     index("trace_steps_run_step_idx").on(table.runId, table.stepIndex),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -649,7 +651,7 @@ export const apiKeys = pgTable(
     index("api_keys_owner_id_idx").on(table.ownerId),
     index("api_keys_key_hash_idx").on(table.keyHash),
     index("api_keys_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -684,7 +686,7 @@ export const auditLog = pgTable(
     index("dzupagent_audit_log_actor_id_idx").on(table.actorId),
     index("dzupagent_audit_log_ts_idx").on(table.ts),
     index("dzupagent_audit_log_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -711,7 +713,7 @@ export const flowArtifacts = pgTable(
   (table) => [
     index("flow_artifacts_tenant_id_idx").on(table.tenantId),
     index("flow_artifacts_content_digest_idx").on(table.contentDigest),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -752,11 +754,11 @@ export const flowJobs = pgTable(
     index("flow_jobs_status_priority_created_at_idx").on(
       table.status,
       table.priority,
-      table.createdAt,
+      table.createdAt
     ),
     index("flow_jobs_run_id_idx").on(table.runId),
     index("flow_jobs_tenant_id_idx").on(table.tenantId),
-  ],
+  ]
 );
 
 // ---------------------------------------------------------------------------
@@ -785,5 +787,5 @@ export const flowApprovals = pgTable(
     primaryKey({ columns: [table.runId, table.approvalId] }),
     index("flow_approvals_tenant_id_idx").on(table.tenantId),
     index("flow_approvals_run_id_idx").on(table.runId),
-  ],
+  ]
 );

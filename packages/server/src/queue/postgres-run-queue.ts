@@ -68,6 +68,17 @@ export interface PostgresRunQueueConfig extends Partial<RunQueueConfig> {
    * worker is scoped to a single tenant. Unset = tenant-agnostic (any job).
    */
   tenantId?: string;
+  /**
+   * Anti-starvation fair scheduling for shared (tenant-agnostic) workers. When
+   * enabled, the claim runs in two steps: first pick the least-loaded pending
+   * tenant (lowest pending count, oldest tiebreak), then claim one job from
+   * that tenant — so a flood from one tenant cannot starve the others.
+   *
+   * Defaults to `true` when {@link tenantId} is unset and `false` when it is
+   * set (a tenant-scoped worker is already fair). Set explicitly to `false`
+   * on a shared worker to restore the plain priority/created_at ordering.
+   */
+  fairScheduling?: boolean;
 }
 
 /** Raw `flow_jobs` row as returned by the driver (snake_case columns). */
@@ -125,6 +136,7 @@ export class PostgresRunQueue implements RunQueue {
   private readonly pollIntervalMs: number;
   private readonly claimTimeoutMs: number;
   private readonly tenantId: string | undefined;
+  private readonly fairScheduling: boolean;
   private readonly config: Required<RunQueueConfig>;
 
   private processor: JobProcessor | null = null;
@@ -142,6 +154,10 @@ export class PostgresRunQueue implements RunQueue {
     this.pollIntervalMs = config.pollIntervalMs ?? 500;
     this.claimTimeoutMs = config.claimTimeoutMs ?? 60_000;
     this.tenantId = config.tenantId;
+    // Fair scheduling only applies to shared (tenant-agnostic) workers; a
+    // tenant-scoped worker is already fair. Default on for shared workers.
+    this.fairScheduling =
+      config.tenantId !== undefined ? false : config.fairScheduling ?? true;
     this.config = {
       concurrency: config.concurrency ?? 5,
       jobTimeoutMs: config.jobTimeoutMs ?? 300_000,
@@ -316,11 +332,55 @@ export class PostgresRunQueue implements RunQueue {
 
   private async claimNext(): Promise<RunJob | null> {
     const staleBefore = new Date(Date.now() - this.claimTimeoutMs);
-    // When scoped to a tenant, only claim that tenant's pending/stale jobs.
+    // Shared worker with fair scheduling: pick the least-loaded pending tenant
+    // first, then claim from it — so one tenant's flood can't starve others.
+    if (this.fairScheduling) {
+      const fairTenant = await this.selectFairTenant(staleBefore);
+      if (fairTenant === null) return null;
+      return this.claimScoped(staleBefore, fairTenant);
+    }
+    // Tenant-scoped worker (single-step, filtered) or shared worker with fair
+    // scheduling disabled (single-step, unfiltered): plain priority ordering.
     const tenantFilter =
       this.tenantId !== undefined
         ? sql`AND tenant_id = ${this.tenantId}`
         : sql``;
+    return this.claimWith(staleBefore, tenantFilter);
+  }
+
+  /**
+   * Step 1 of fair scheduling: return the `tenant_id` with the fewest pending
+   * (or stale-claimed) jobs, oldest-arrival tiebreak. Returns null when there
+   * is no claimable work at all.
+   */
+  private async selectFairTenant(staleBefore: Date): Promise<string | null> {
+    const result = await this.db.execute(sql`
+      SELECT tenant_id, COUNT(*) AS pending_count
+      FROM flow_jobs
+      WHERE (status = 'pending'
+         OR (status = 'claimed' AND claimed_at < ${staleBefore}))
+      GROUP BY tenant_id
+      ORDER BY pending_count ASC, MIN(created_at) ASC
+      LIMIT 1
+    `);
+    const row = toRows(result)[0] as { tenant_id: string | null } | undefined;
+    if (!row) return null;
+    return row.tenant_id ?? "default";
+  }
+
+  /** Step 2 of fair scheduling: claim one job scoped to the chosen tenant. */
+  private claimScoped(
+    staleBefore: Date,
+    fairTenant: string
+  ): Promise<RunJob | null> {
+    return this.claimWith(staleBefore, sql`AND tenant_id = ${fairTenant}`);
+  }
+
+  /** Atomic claim of a single pending/stale row with an optional tenant filter. */
+  private async claimWith(
+    staleBefore: Date,
+    tenantFilter: SQL
+  ): Promise<RunJob | null> {
     const result = await this.db.execute(sql`
       UPDATE flow_jobs
       SET status = 'claimed', claimed_at = now(), claimed_by = ${this.workerId}, attempts = attempts + 1, updated_at = now()

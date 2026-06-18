@@ -26,6 +26,12 @@ export interface ScaleTargetRouteOptions {
   targetUtilization?: number;
 }
 
+export interface ProviderCapacity {
+  provider: string;
+  activeWorkers: number;
+  idleWorkers: number;
+}
+
 export interface ScaleTargetResponse {
   pendingJobs: number;
   activeJobs: number;
@@ -33,6 +39,12 @@ export interface ScaleTargetResponse {
   idleWorkers: number;
   pressure: number;
   scaleUp: boolean;
+  /**
+   * Per-provider capacity breakdown (S4-H). A worker counts toward every
+   * provider it declares; workers with no `providers` field count under the
+   * `'*'` wildcard. Present only when a worker store is wired.
+   */
+  byProvider?: ProviderCapacity[];
 }
 
 async function readQueueStats(queue: RunQueue): Promise<QueueStats> {
@@ -57,14 +69,43 @@ export function createScaleTargetRoute(
 
     let activeWorkers = 0;
     let idleWorkers = 0;
+    let byProvider: ProviderCapacity[] | undefined;
     if (options.workerStore) {
       const nodes = await options.workerStore.list();
+      // Provider key -> [active, idle] counts. A worker contributes to each
+      // provider it declares; an empty/absent `providers` field maps to '*'.
+      const providerCounts = new Map<
+        string,
+        { activeWorkers: number; idleWorkers: number }
+      >();
+      const bump = (provider: string, isIdle: boolean): void => {
+        const entry = providerCounts.get(provider) ?? {
+          activeWorkers: 0,
+          idleWorkers: 0,
+        };
+        entry.activeWorkers += 1;
+        if (isIdle) entry.idleWorkers += 1;
+        providerCounts.set(provider, entry);
+      };
+
       for (const node of nodes) {
         if (node.status === "active") {
           activeWorkers += 1;
-          if (node.inFlight === 0) idleWorkers += 1;
+          const isIdle = node.inFlight === 0;
+          if (isIdle) idleWorkers += 1;
+          const providers =
+            node.providers && node.providers.length > 0
+              ? node.providers
+              : ["*"];
+          for (const provider of providers) bump(provider, isIdle);
         }
       }
+
+      byProvider = [...providerCounts.entries()].map(([provider, counts]) => ({
+        provider,
+        activeWorkers: counts.activeWorkers,
+        idleWorkers: counts.idleWorkers,
+      }));
     }
 
     const capacity = Math.max(1, activeWorkers * targetUtilization * 10);
@@ -77,6 +118,7 @@ export function createScaleTargetRoute(
       idleWorkers,
       pressure,
       scaleUp: pressure > 1.0,
+      ...(byProvider !== undefined ? { byProvider } : {}),
     };
 
     return c.json(response, 200);
