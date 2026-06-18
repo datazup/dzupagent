@@ -275,3 +275,102 @@ describe("durability diagnostics — D2 idempotent without output schema", () =>
     ).toBe(false);
   });
 });
+
+// A document with the given durability block and the given root nodes.
+function docWithDurability(
+  durability: Record<string, unknown> | undefined,
+  nodes: Record<string, unknown>[],
+): Record<string, unknown> {
+  return {
+    dsl: "dzupflow/v1",
+    id: "resume-reachability-test",
+    version: 1,
+    ...(durability ? { durability } : {}),
+    root: {
+      type: "sequence",
+      id: "root",
+      nodes: [...nodes, { type: "complete", id: "done" }],
+    },
+  };
+}
+
+describe("durability diagnostics — D3 resume reachability", () => {
+  it("warns when a durable flow has a mutating node but no resume_point", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithDurability(
+        { mode: "durable", checkpoint: { storeRef: "pg://ck" } },
+        [
+          {
+            type: "action",
+            id: "s1",
+            toolRef: "tool.run",
+            input: {},
+            effectClass: "db_write",
+            idempotency: "exactly-once-required",
+          },
+        ],
+      ),
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      result.warnings.some(
+        (w) => w.code === "DURABLE_MUTATION_NO_RESUME_POINT",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn when a durable mutating flow has a resume_point node", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithDurability(
+        { mode: "durable", checkpoint: { storeRef: "pg://ck" } },
+        [
+          {
+            type: "action",
+            id: "s1",
+            toolRef: "tool.run",
+            input: {},
+            effectClass: "db_write",
+            idempotency: "exactly-once-required",
+            resumePoint: true,
+          },
+        ],
+      ),
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      result.warnings.some(
+        (w) => w.code === "DURABLE_MUTATION_NO_RESUME_POINT",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not warn for a non-durable flow with mutating nodes", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithDurability(undefined, [
+        {
+          type: "action",
+          id: "s1",
+          toolRef: "tool.run",
+          input: {},
+          effectClass: "db_write",
+          idempotency: "exactly-once-required",
+        },
+      ]),
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      result.warnings.some(
+        (w) => w.code === "DURABLE_MUTATION_NO_RESUME_POINT",
+      ),
+    ).toBe(false);
+  });
+});

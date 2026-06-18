@@ -13,8 +13,12 @@
  *         declaration and no `allowDuplicateEffects: true`.
  *  - D2 — a node declaring `idempotency: 'idempotent'` (return-prior-result
  *         semantics) without an output schema (`outputSchema` / `resultSchema`).
- *  - D3 — `durability.resume.requireResumePoint: true` while no reachable
- *         checkpoint/resume point exists in the flow graph.
+ *  - D3 — resume reachability. Two forms:
+ *         (a) `durability.resume.requireResumePoint: true` while no reachable
+ *             checkpoint/resume point exists (RESUME_POINT_REQUIRED).
+ *         (b) `durability.mode: durable` with at least one mutating-effect node
+ *             but no reachable resume point — recovery would re-execute all
+ *             mutating work from the beginning (DURABLE_MUTATION_NO_RESUME_POINT).
  *  - D4 — an adapter node's `idempotency` enum conflicts with a richer
  *         `meta.idempotency` shape on the same node.
  *  - D5 — `durability.mode: durable` while no checkpoint `storeRef` is
@@ -104,10 +108,75 @@ export function computeDurabilityDiagnostics(
     });
   }
 
+  // -- D3 (broad): durable flow with mutating effects but no resume point -----
+  // Distinct from RESUME_POINT_REQUIRED (which is gated on an explicit
+  // `requireResumePoint: true`). This heuristic fires for any durable flow that
+  // performs mutating work yet has no reachable resume point — recovery would
+  // re-execute every mutating node from the beginning. Advisory only.
+  if (
+    isObject(durability) &&
+    durability["mode"] === "durable" &&
+    containsMutatingNode(document["root"]) &&
+    !containsReachableResumePoint(document["root"])
+  ) {
+    warnings.push({
+      stage: 4,
+      code: "DURABLE_MUTATION_NO_RESUME_POINT",
+      message:
+        "Durable flow has mutating effects but no resume_point node; recovery " +
+        "will re-execute all mutating nodes from the beginning (D3).",
+      nodePath: "root.durability",
+      category: "resume",
+    });
+  }
+
   // ── D4: adapter idempotency enum vs richer meta.idempotency conflict ──────
   walkSteps(document["root"], "root", warnings);
 
   return warnings;
+}
+
+/** True when any reachable node carries a mutating `effectClass`. */
+function containsMutatingNode(node: unknown): boolean {
+  if (!isObject(node)) return false;
+  const effectClass = node["effectClass"];
+  if (
+    typeof effectClass === "string" &&
+    MUTATING_EFFECT_CLASSES.has(effectClass)
+  ) {
+    return true;
+  }
+
+  for (const childKey of [
+    "nodes",
+    "steps",
+    "body",
+    "then",
+    "else",
+    "onApprove",
+    "onReject",
+    "catch",
+  ]) {
+    const child = node[childKey];
+    if (Array.isArray(child)) {
+      if (child.some((entry) => containsMutatingNode(entry))) return true;
+    } else if (isObject(child) && containsMutatingNode(child)) {
+      return true;
+    }
+  }
+
+  const branches = node["branches"];
+  if (Array.isArray(branches)) {
+    for (const branch of branches) {
+      if (Array.isArray(branch)) {
+        if (branch.some((entry) => containsMutatingNode(entry))) return true;
+      } else if (isObject(branch) && containsMutatingNode(branch)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 function containsReachableResumePoint(node: unknown): boolean {
