@@ -63,6 +63,11 @@ export interface PostgresRunQueueConfig extends Partial<RunQueueConfig> {
   pollIntervalMs?: number;
   /** Reclaim `claimed` rows older than this many ms (default 60_000). */
   claimTimeoutMs?: number;
+  /**
+   * When set, the queue only claims jobs whose `tenant_id` matches, so a
+   * worker is scoped to a single tenant. Unset = tenant-agnostic (any job).
+   */
+  tenantId?: string;
 }
 
 /** Raw `flow_jobs` row as returned by the driver (snake_case columns). */
@@ -72,6 +77,7 @@ interface FlowJobRow {
   agent_id: string;
   input: unknown;
   metadata: Record<string, unknown> | null;
+  tenant_id: string | null;
   priority: number | string;
   attempts: number | string;
   status: string;
@@ -109,6 +115,7 @@ function rowToJob(row: FlowJobRow): RunJob {
     createdAt: toDate(row.created_at),
   };
   if (row.metadata) job.metadata = row.metadata;
+  if (row.tenant_id) job.tenantId = row.tenant_id;
   return job;
 }
 
@@ -117,6 +124,7 @@ export class PostgresRunQueue implements RunQueue {
   private readonly workerId: string;
   private readonly pollIntervalMs: number;
   private readonly claimTimeoutMs: number;
+  private readonly tenantId: string | undefined;
   private readonly config: Required<RunQueueConfig>;
 
   private processor: JobProcessor | null = null;
@@ -133,6 +141,7 @@ export class PostgresRunQueue implements RunQueue {
     this.workerId = config.workerId ?? `pg-worker-${randomUUID()}`;
     this.pollIntervalMs = config.pollIntervalMs ?? 500;
     this.claimTimeoutMs = config.claimTimeoutMs ?? 60_000;
+    this.tenantId = config.tenantId;
     this.config = {
       concurrency: config.concurrency ?? 5,
       jobTimeoutMs: config.jobTimeoutMs ?? 300_000,
@@ -142,18 +151,19 @@ export class PostgresRunQueue implements RunQueue {
   }
 
   async enqueue(
-    input: Omit<RunJob, "id" | "createdAt" | "attempts">,
+    input: Omit<RunJob, "id" | "createdAt" | "attempts">
   ): Promise<RunJob> {
     const id = randomUUID();
     const metadata = input.metadata ?? null;
     const result = await this.db.execute(sql`
-      INSERT INTO flow_jobs (id, run_id, agent_id, input, metadata, priority, status, attempts)
+      INSERT INTO flow_jobs (id, run_id, agent_id, input, metadata, tenant_id, priority, status, attempts)
       VALUES (
         ${id},
         ${input.runId},
         ${input.agentId},
         ${JSON.stringify(input.input ?? {})}::jsonb,
         ${metadata === null ? null : JSON.stringify(metadata)}::jsonb,
+        ${input.tenantId ?? "default"},
         ${input.priority},
         'pending',
         0
@@ -174,6 +184,7 @@ export class PostgresRunQueue implements RunQueue {
       createdAt: new Date(),
     };
     if (input.metadata) job.metadata = input.metadata;
+    if (input.tenantId) job.tenantId = input.tenantId;
     return job;
   }
 
@@ -305,13 +316,19 @@ export class PostgresRunQueue implements RunQueue {
 
   private async claimNext(): Promise<RunJob | null> {
     const staleBefore = new Date(Date.now() - this.claimTimeoutMs);
+    // When scoped to a tenant, only claim that tenant's pending/stale jobs.
+    const tenantFilter =
+      this.tenantId !== undefined
+        ? sql`AND tenant_id = ${this.tenantId}`
+        : sql``;
     const result = await this.db.execute(sql`
       UPDATE flow_jobs
       SET status = 'claimed', claimed_at = now(), claimed_by = ${this.workerId}, attempts = attempts + 1, updated_at = now()
       WHERE id = (
         SELECT id FROM flow_jobs
-        WHERE status = 'pending'
-           OR (status = 'claimed' AND claimed_at < ${staleBefore})
+        WHERE (status = 'pending'
+           OR (status = 'claimed' AND claimed_at < ${staleBefore}))
+          ${tenantFilter}
         ORDER BY priority ASC, created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
