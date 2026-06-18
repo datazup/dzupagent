@@ -93,6 +93,9 @@ export {
 } from "./middleware/tenant-scope.js";
 export type { TenantScopeConfig } from "./middleware/tenant-scope.js";
 
+// --- Persistence ---
+export { PostgresRunStore } from "./persistence/postgres-stores.js";
+
 // --- Queue ---
 export { InMemoryRunQueue } from "./queue/run-queue.js";
 export { BullMQRunQueue } from "./queue/bullmq-run-queue.js";
