@@ -12,6 +12,7 @@ import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import type { PipelineDefinition, PipelineCheckpoint } from "@dzupagent/core";
 import type { NodeExecutor } from "../pipeline/pipeline-runtime-types.js";
+import { nodeIdempotencyKey } from "../pipeline/pipeline-runtime/idempotency.js";
 
 /**
  * Pipeline: entry `F` (fork) fans out to two branches:
@@ -53,7 +54,7 @@ function forkPipeline(): PipelineDefinition {
  */
 async function midForkCheckpoint(
   store: InMemoryPipelineCheckpointStore,
-  runId: string,
+  runId: string
 ): Promise<PipelineCheckpoint> {
   const versions = await store.listVersions(runId);
   for (const summary of versions) {
@@ -62,7 +63,7 @@ async function midForkCheckpoint(
     if (branches?.["a1"] && !branches?.["b1"]) return cp!;
   }
   throw new Error(
-    "no mid-fork checkpoint with a1 done and b1 pending was recorded",
+    "no mid-fork checkpoint with a1 done and b1 pending was recorded"
   );
 }
 
@@ -85,9 +86,10 @@ describe("durable fork/branch resume (W4)", () => {
     const result = await runtime.execute();
     expect(result.state).toBe("completed");
 
-    // Branch nodes received a stable `<runId>:<nodeId>` key (W5 fork gap closed).
-    expect(keysSeen["a1"]).toBe(`${result.runId}:a1`);
-    expect(keysSeen["b1"]).toBe(`${result.runId}:b1`);
+    // Branch nodes received the canonical stable key for their (runId, nodeId)
+    // (W5 fork gap closed).
+    expect(keysSeen["a1"]).toBe(nodeIdempotencyKey(result.runId, "a1"));
+    expect(keysSeen["b1"]).toBe(nodeIdempotencyKey(result.runId, "b1"));
 
     // forkState cleared once the fork+join completed.
     const finalCheckpoint = await store.load(result.runId);
@@ -195,7 +197,7 @@ describe("durable fork/branch resume (W4)", () => {
     expect(a1).toBeDefined();
     // The recorded branch carries its node's serialized result + state delta.
     expect(
-      (a1!.nodeResults as Record<string, { output?: unknown }>)["a1"]?.output,
+      (a1!.nodeResults as Record<string, { output?: unknown }>)["a1"]?.output
     ).toBe("out_a1");
     expect(a1!.stateDelta).toMatchObject({ ran_a1: true });
 

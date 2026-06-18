@@ -84,15 +84,17 @@ describe("fork branch-node fencing (P2)", () => {
     const base = new InMemoryDurableNodeLedger();
 
     // The runtime generates its own runId, so we cannot pre-seed a fixed key.
-    // Instead, wrap the ledger so any `:a1` key reports a prior completion —
-    // exactly what the runtime sees when a1 already ran in an earlier attempt.
+    // Instead, wrap the ledger so any key whose nodeId segment is `a1` reports a
+    // prior completion — exactly what the runtime sees when a1 already ran in an
+    // earlier attempt. The canonical key embeds nodeId as a delimited
+    // `:{nodeId}:` segment, so match that rather than a suffix.
     const ledger: NodeLedgerLike = {
       acquire: (...args) => base.acquire(...args),
       heartbeat: (...args) => base.heartbeat(...args),
       fail: (record) => base.fail(record),
       complete: (record) => base.complete(record),
       getByIdempotencyKey: async (k) => {
-        if (k.endsWith(":a1")) return { output: "preseeded_a1" };
+        if (k.includes(":a1:")) return { output: "preseeded_a1" };
         return base.getByIdempotencyKey(k);
       },
     };
