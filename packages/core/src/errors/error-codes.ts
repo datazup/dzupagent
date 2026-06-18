@@ -77,6 +77,8 @@ export type ForgeErrorCode =
   // --- Policy errors ---
   | "POLICY_DENIED"
   | "POLICY_INVALID"
+  // --- Quota errors ---
+  | "TENANT_QUOTA_EXCEEDED"
   // --- VectorStore errors ---
   | "VECTOR_COLLECTION_NOT_FOUND"
   | "VECTOR_COLLECTION_EXISTS"
