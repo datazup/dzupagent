@@ -83,7 +83,8 @@
         { "match": "prefix", "pattern": "./security/" },
         { "match": "prefix", "pattern": "./facades/" },
         { "match": "exact", "pattern": "<local>:dzupagent_CORE_VERSION" },
-        { "match": "exact", "pattern": "@dzupagent/security" }
+        { "match": "exact", "pattern": "@dzupagent/security" },
+        { "match": "exact", "pattern": "@langchain/core/language_models/chat_models" }
       ],
       "transitionalRoot": [
         { "match": "exact", "pattern": "./rate-limit/token-bucket.js" },
@@ -463,7 +464,8 @@
         { "match": "exact", "pattern": "./retry.js" },
         { "match": "exact", "pattern": "./tool-permission.js" },
         { "match": "exact", "pattern": "./orchestration-contracts.js" },
-        { "match": "exact", "pattern": "./memory-client.js" }
+        { "match": "exact", "pattern": "./memory-client.js" },
+        { "match": "exact", "pattern": "./orchestration/dynamic-workflow/index.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},

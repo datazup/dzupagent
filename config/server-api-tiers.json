@@ -210,6 +210,30 @@
     },
     {
       "match": "exact",
+      "pattern": "./persistence/create-node-ledger.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Node-ledger factory is durable workflow infrastructure, useful for HA hosts but more specific than the minimal root server contract."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/flow-artifact-store.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Flow artifact stores are durable workflow infrastructure, useful for production hosts but separable from the minimal app factory surface."
+    },
+    {
+      "match": "exact",
+      "pattern": "./persistence/flow-approval-store.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Flow approval stores are durable HITL workflow infrastructure, useful for production hosts but separable from the minimal app factory surface."
+    },
+    {
+      "match": "exact",
       "pattern": "./persistence/drizzle-run-trace-store.js",
       "tier": "secondary",
       "area": "persistence",
@@ -599,6 +623,14 @@
       "area": "security",
       "recommendedRootExposure": "keep-root",
       "reason": "Input guard primitives (length cap and control-char rejection) are baseline hardening that every hosting consumer should apply at the root."
+    },
+    {
+      "match": "exact",
+      "pattern": "./guardrails/redis-guardrail-client.js",
+      "tier": "secondary",
+      "area": "security",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Optional Redis-backed distributed guardrail adapter used by hosts that configure ForgeServerConfig.guardrailClient for fleet-wide rate and spend enforcement."
     },
     {
       "match": "exact",
