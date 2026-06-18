@@ -25,6 +25,13 @@
  * RETURNING *
  * ```
  *
+ * Anti-starvation: on a shared (tenant-agnostic) worker, `fairScheduling`
+ * (default on) splits the claim into two steps — first pick the least-loaded
+ * pending tenant (lowest pending count, oldest-arrival tiebreak), then claim
+ * one job scoped to that tenant — so a flood from one tenant cannot starve the
+ * rest. A tenant-scoped worker (`config.tenantId` set) or `fairScheduling:
+ * false` keeps the single-step claim above.
+ *
  * @example
  * ```ts
  * import { PostgresRunQueue } from '@dzupagent/server'
