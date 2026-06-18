@@ -126,6 +126,9 @@ describe("PostgresRunQueue", () => {
       db,
       concurrency: 1,
       jobTimeoutMs: 1000,
+      // Single-step claim: this test mocks one claim query, not the
+      // two-step fair-scheduling tenant-select + claim pair.
+      fairScheduling: false,
     });
 
     const processed: string[] = [];
@@ -227,6 +230,8 @@ describe("PostgresRunQueue", () => {
       db,
       concurrency: 1,
       jobTimeoutMs: 5000,
+      // Single-step claim: this test mocks one claim query.
+      fairScheduling: false,
     });
 
     let resolveProcessor: (() => void) | undefined;
