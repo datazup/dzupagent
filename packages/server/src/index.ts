@@ -86,6 +86,11 @@ export type { TenantScopeConfig } from "./middleware/tenant-scope.js";
 export { InMemoryRunQueue } from "./queue/run-queue.js";
 export { BullMQRunQueue } from "./queue/bullmq-run-queue.js";
 export type { BullMQRunQueueConfig } from "./queue/bullmq-run-queue.js";
+export { PostgresRunQueue } from "./queue/postgres-run-queue.js";
+export type {
+  PostgresRunQueueConfig,
+  PostgresRunQueueDatabase,
+} from "./queue/postgres-run-queue.js";
 export type {
   RunQueue,
   RunJob,
