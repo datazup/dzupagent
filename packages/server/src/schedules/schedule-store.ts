@@ -12,7 +12,7 @@
  * (UPDATE ... WHERE still-due RETURNING → disjoint winners).
  */
 import { eq, and, lte } from 'drizzle-orm'
-import { parseExpression } from 'cron-parser'
+import cronParser from 'cron-parser'
 import { scheduleConfigs } from '../persistence/drizzle-schema.js'
 import type { DrizzleStoreDatabase } from '../persistence/drizzle-store-types.js'
 
@@ -74,7 +74,7 @@ export interface ClaimDueOptions {
  */
 export function computeNextRunAt(cronExpression: string, after: Date): Date | null {
   try {
-    const it = parseExpression(cronExpression, { currentDate: after })
+    const it = cronParser.parseExpression(cronExpression, { currentDate: after })
     return it.next().toDate()
   } catch {
     return null
