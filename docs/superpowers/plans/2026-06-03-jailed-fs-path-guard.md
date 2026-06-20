@@ -8,6 +8,21 @@
 
 **Tech Stack:** TypeScript, `node:path` (resolve, relative, isAbsolute), Vitest, `ForgeError`
 
+## Current Status — 2026-06-20
+
+Status: implemented and validated against the current `dzupagent` codebase.
+
+- `assertPathWithinRoot()` and `PATH_ARG_KEYS` are implemented in `packages/core/src/mcp/mcp-security.ts`.
+- `MCPServerConfig.filesystemRoot` is implemented in `packages/core/src/mcp/mcp-types.ts`.
+- `MCPClient.invokeTool()` validates configured filesystem-root path arguments before dispatching tool calls.
+- Tests include both the pure path guard and `MCPClient` integration coverage, including root-prefix escape cases.
+- Push steps were not run in this validation pass.
+
+Validation:
+
+- `dzupagent/packages/core`: `node ../../node_modules/vitest/vitest.mjs run src/mcp/__tests__/mcp-security.test.ts src/mcp/__tests__/mcp-client-path-guard.test.ts` passed (51 tests).
+- `dzupagent/packages/core`: `node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json` passed.
+
 ---
 
 ## Files

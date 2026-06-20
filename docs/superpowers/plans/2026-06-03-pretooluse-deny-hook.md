@@ -8,6 +8,21 @@
 
 **Tech Stack:** TypeScript, Vitest, `AdapterGuardrails` (agent-adapters)
 
+## Current Status — 2026-06-20
+
+Status: implemented and validated against the current `dzupagent` codebase.
+
+- `packages/agent-adapters/src/security/destructive-command-guard.ts` implements shell tool detection and destructive command pattern blocking.
+- `DESTRUCTIVE_COMMAND_BLOCKED` is present in `packages/core/src/errors/error-codes.ts`.
+- `guardrails-event-handlers.ts` calls the guard before existing blocked-tool checks and aborts destructive shell tool calls.
+- Unit and AdapterGuardrails integration tests cover blocked and safe commands.
+- Push steps were not run in this validation pass.
+
+Validation:
+
+- `dzupagent/packages/agent-adapters`: `node ../../node_modules/vitest/vitest.mjs run src/security/__tests__/destructive-command-guard.test.ts src/__tests__/adapter-guardrails.test.ts` passed (46 tests).
+- `dzupagent/packages/agent-adapters`: `node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json` passed.
+
 ---
 
 ## Files
