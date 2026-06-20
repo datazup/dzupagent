@@ -1,59 +1,67 @@
-import { describe, expect, it, vi } from 'vitest'
-import { DzupAgentMCPServer, isMCPRequest } from '../mcp-server.js'
+import { describe, expect, it, vi } from "vitest";
+import { DzupAgentMCPServer, isMCPRequest } from "../mcp-server.js";
 
-describe('DzupAgentMCPServer', () => {
-  it('advertises initialize capabilities for tools, resources, prompts, and sampling', async () => {
+describe("DzupAgentMCPServer", () => {
+  it("advertises initialize capabilities for tools, resources, prompts, and sampling", async () => {
     const server = new DzupAgentMCPServer({
-      name: 'tooling-server',
-      version: '1.2.3',
-      tools: [{
-        name: 'echo',
-        description: 'Echo input',
-        inputSchema: {
-          type: 'object',
-          properties: { text: { type: 'string' } },
-          required: ['text'],
+      name: "tooling-server",
+      version: "1.2.3",
+      tools: [
+        {
+          name: "echo",
+          description: "Echo input",
+          inputSchema: {
+            type: "object",
+            properties: { text: { type: "string" } },
+            required: ["text"],
+          },
+          handler: async (args) => String(args["text"] ?? ""),
         },
-        handler: async (args) => String(args['text'] ?? ''),
-      }],
-      resources: [{
-        uri: 'memory://overview',
-        name: 'Overview',
-        mimeType: 'text/plain',
-        read: async () => 'Framework overview',
-      }],
-      prompts: [{
-        name: 'review',
-        description: 'Review a change',
-        arguments: [{ name: 'diff', required: true }],
-        get: async (args) => ({
-          messages: [{
-            role: 'user',
-            content: { type: 'text', text: String(args['diff'] ?? '') },
-          }],
-        }),
-      }],
+      ],
+      resources: [
+        {
+          uri: "memory://overview",
+          name: "Overview",
+          mimeType: "text/plain",
+          read: async () => "Framework overview",
+        },
+      ],
+      prompts: [
+        {
+          name: "review",
+          description: "Review a change",
+          arguments: [{ name: "diff", required: true }],
+          get: async (args) => ({
+            messages: [
+              {
+                role: "user",
+                content: { type: "text", text: String(args["diff"] ?? "") },
+              },
+            ],
+          }),
+        },
+      ],
       samplingHandler: async () => ({
-        role: 'assistant',
-        content: { type: 'text', text: 'sampled' },
-        model: 'gpt-test',
+        role: "assistant",
+        content: { type: "text", text: "sampled" },
+        model: "gpt-test",
       }),
-    })
+    });
 
     const response = await server.handleRequest({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 1,
-      method: 'initialize',
-    })
+      method: "initialize",
+    });
 
     expect(response).toEqual({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 1,
       result: {
-        protocolVersion: '2024-11-05',
+        protocolVersion: "2024-11-05",
         serverInfo: {
-          name: 'tooling-server',
-          version: '1.2.3',
+          name: "tooling-server",
+          version: "1.2.3",
         },
         capabilities: {
           tools: {},
@@ -62,365 +70,427 @@ describe('DzupAgentMCPServer', () => {
           sampling: {},
         },
       },
-    })
-  })
+    });
+  });
 
-  it('supports registering, listing, retrieving, and unregistering prompts', async () => {
+  it("supports registering, listing, retrieving, and unregistering prompts", async () => {
     const server = new DzupAgentMCPServer({
-      name: 'prompt-server',
-      version: '1.0.0',
-    })
+      name: "prompt-server",
+      version: "1.0.0",
+    });
 
     server.registerPrompt({
-      name: 'commit-message',
-      description: 'Draft a commit message',
+      name: "commit-message",
+      description: "Draft a commit message",
       arguments: [
-        { name: 'summary', description: 'Change summary', required: true },
-        { name: 'scope', description: 'Optional package scope' },
+        { name: "summary", description: "Change summary", required: true },
+        { name: "scope", description: "Optional package scope" },
       ],
       get: async (args) => ({
-        description: 'Commit message prompt',
+        description: "Commit message prompt",
         messages: [
           {
-            role: 'user',
+            role: "user",
             content: {
-              type: 'text',
-              text: `Write a commit message for ${String(args['summary'])}`,
+              type: "text",
+              text: `Write a commit message for ${String(args["summary"])}`,
             },
           },
         ],
       }),
-    })
+    });
 
     const listed = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 'prompts',
-      method: 'prompts/list',
-    })
+      jsonrpc: "2.0",
+      id: "prompts",
+      method: "prompts/list",
+    });
     expect(listed).toEqual({
-      jsonrpc: '2.0',
-      id: 'prompts',
+      jsonrpc: "2.0",
+      id: "prompts",
       result: {
-        prompts: [{
-          name: 'commit-message',
-          description: 'Draft a commit message',
-          arguments: [
-            { name: 'summary', description: 'Change summary', required: true },
-            { name: 'scope', description: 'Optional package scope' },
-          ],
-        }],
+        prompts: [
+          {
+            name: "commit-message",
+            description: "Draft a commit message",
+            arguments: [
+              {
+                name: "summary",
+                description: "Change summary",
+                required: true,
+              },
+              { name: "scope", description: "Optional package scope" },
+            ],
+          },
+        ],
       },
-    })
+    });
 
     const retrieved = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 'get-prompt',
-      method: 'prompts/get',
+      jsonrpc: "2.0",
+      id: "get-prompt",
+      method: "prompts/get",
       params: {
-        name: 'commit-message',
-        arguments: { summary: 'MCP prompts support' },
+        name: "commit-message",
+        arguments: { summary: "MCP prompts support" },
       },
-    })
+    });
     expect(retrieved).toEqual({
-      jsonrpc: '2.0',
-      id: 'get-prompt',
+      jsonrpc: "2.0",
+      id: "get-prompt",
       result: {
-        description: 'Commit message prompt',
-        messages: [{
-          role: 'user',
-          content: {
-            type: 'text',
-            text: 'Write a commit message for MCP prompts support',
+        description: "Commit message prompt",
+        messages: [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: "Write a commit message for MCP prompts support",
+            },
           },
-        }],
+        ],
       },
-    })
+    });
 
-    server.unregisterPrompt('commit-message')
-    expect(server.listPrompts()).toEqual([])
-  })
+    server.unregisterPrompt("commit-message");
+    expect(server.listPrompts()).toEqual([]);
+  });
 
-  it('supports resources/list, resources/templates/list, and resources/read', async () => {
+  it("supports resources/list, resources/templates/list, and resources/read", async () => {
     const server = new DzupAgentMCPServer({
-      name: 'resources-server',
-      version: '1.0.0',
-      resources: [{
-        uri: 'memory://overview',
-        name: 'Overview',
-        mimeType: 'text/plain',
-        read: async () => ({ uri: 'memory://overview', text: 'overview text' }),
-      }],
-      resourceTemplates: [{
-        uriTemplate: 'project://{projectId}/report',
-        name: 'Project report',
-        mimeType: 'application/json',
-        read: async (uri) => ({
-          uri,
-          mimeType: 'application/json',
-          text: '{"ok":true}',
-        }),
-      }],
-    })
+      name: "resources-server",
+      version: "1.0.0",
+      resources: [
+        {
+          uri: "memory://overview",
+          name: "Overview",
+          mimeType: "text/plain",
+          read: async () => ({
+            uri: "memory://overview",
+            text: "overview text",
+          }),
+        },
+      ],
+      resourceTemplates: [
+        {
+          uriTemplate: "project://{projectId}/report",
+          name: "Project report",
+          mimeType: "application/json",
+          read: async (uri) => ({
+            uri,
+            mimeType: "application/json",
+            text: '{"ok":true}',
+          }),
+        },
+      ],
+    });
 
     const listed = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 'resources',
-      method: 'resources/list',
-    })
+      jsonrpc: "2.0",
+      id: "resources",
+      method: "resources/list",
+    });
     expect(listed).toEqual({
-      jsonrpc: '2.0',
-      id: 'resources',
+      jsonrpc: "2.0",
+      id: "resources",
       result: {
-        resources: [{
-          uri: 'memory://overview',
-          name: 'Overview',
-          mimeType: 'text/plain',
-        }],
+        resources: [
+          {
+            uri: "memory://overview",
+            name: "Overview",
+            mimeType: "text/plain",
+          },
+        ],
       },
-    })
+    });
 
     const templates = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 'templates',
-      method: 'resources/templates/list',
-    })
+      jsonrpc: "2.0",
+      id: "templates",
+      method: "resources/templates/list",
+    });
     expect(templates).toEqual({
-      jsonrpc: '2.0',
-      id: 'templates',
+      jsonrpc: "2.0",
+      id: "templates",
       result: {
-        resourceTemplates: [{
-          uriTemplate: 'project://{projectId}/report',
-          name: 'Project report',
-          mimeType: 'application/json',
-        }],
+        resourceTemplates: [
+          {
+            uriTemplate: "project://{projectId}/report",
+            name: "Project report",
+            mimeType: "application/json",
+          },
+        ],
       },
-    })
+    });
 
     const readDirect = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 'read-direct',
-      method: 'resources/read',
-      params: { uri: 'memory://overview' },
-    })
+      jsonrpc: "2.0",
+      id: "read-direct",
+      method: "resources/read",
+      params: { uri: "memory://overview" },
+    });
     expect(readDirect).toEqual({
-      jsonrpc: '2.0',
-      id: 'read-direct',
+      jsonrpc: "2.0",
+      id: "read-direct",
       result: {
-        contents: [{
-          uri: 'memory://overview',
-          text: 'overview text',
-        }],
+        contents: [
+          {
+            uri: "memory://overview",
+            text: "overview text",
+          },
+        ],
       },
-    })
+    });
 
     const readFromTemplate = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: 'read-template',
-      method: 'resources/read',
-      params: { uri: 'project://abc/report' },
-    })
+      jsonrpc: "2.0",
+      id: "read-template",
+      method: "resources/read",
+      params: { uri: "project://abc/report" },
+    });
     expect(readFromTemplate).toEqual({
-      jsonrpc: '2.0',
-      id: 'read-template',
+      jsonrpc: "2.0",
+      id: "read-template",
       result: {
-        contents: [{
-          uri: 'project://abc/report',
-          mimeType: 'application/json',
-          text: '{"ok":true}',
-        }],
+        contents: [
+          {
+            uri: "project://abc/report",
+            mimeType: "application/json",
+            text: '{"ok":true}',
+          },
+        ],
       },
-    })
-  })
+    });
+  });
 
-  it('delegates sampling/createMessage when a sampling handler is configured', async () => {
+  it("delegates sampling/createMessage when a sampling handler is configured", async () => {
     const samplingHandler = vi.fn(async () => ({
-      role: 'assistant' as const,
-      content: { type: 'text' as const, text: 'sample reply' },
-      model: 'gpt-test',
-      stopReason: 'endTurn' as const,
-    }))
+      role: "assistant" as const,
+      content: { type: "text" as const, text: "sample reply" },
+      model: "gpt-test",
+      stopReason: "endTurn" as const,
+    }));
 
     const server = new DzupAgentMCPServer({
-      name: 'sampling-server',
-      version: '1.0.0',
+      name: "sampling-server",
+      version: "1.0.0",
       samplingHandler,
-    })
+    });
 
     const response = await server.handleRequest({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 2,
-      method: 'sampling/createMessage',
+      method: "sampling/createMessage",
       params: {
-        messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+        messages: [{ role: "user", content: { type: "text", text: "hello" } }],
         maxTokens: 64,
       },
-    })
+    });
 
     expect(samplingHandler).toHaveBeenCalledWith({
-      messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+      messages: [{ role: "user", content: { type: "text", text: "hello" } }],
       maxTokens: 64,
-    })
+    });
     expect(response).toEqual({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 2,
       result: {
-        role: 'assistant',
-        content: { type: 'text', text: 'sample reply' },
-        model: 'gpt-test',
-        stopReason: 'endTurn',
+        role: "assistant",
+        content: { type: "text", text: "sample reply" },
+        model: "gpt-test",
+        stopReason: "endTurn",
       },
-    })
-  })
+    });
+  });
 
-  it('returns null for notifications that omit an id while still executing the handler', async () => {
-    const handler = vi.fn(async () => 'ok')
+  it("responds to ping with an empty result (MCP utility)", async () => {
     const server = new DzupAgentMCPServer({
-      name: 'notify-server',
-      version: '1.0.0',
-      tools: [{
-        name: 'echo',
-        description: 'Echo input',
-        inputSchema: { type: 'object', properties: {} },
-        handler,
-      }],
-    })
+      name: "ping-server",
+      version: "1.0.0",
+    });
 
     const response = await server.handleRequest({
-      jsonrpc: '2.0',
-      method: 'tools/call',
-      params: { name: 'echo', arguments: { text: 'hi' } },
-    })
-
-    expect(response).toBeNull()
-    expect(handler).toHaveBeenCalledWith({ text: 'hi' })
-  })
-
-  it('supports structured tool results and id:null requests', async () => {
-    const server = new DzupAgentMCPServer({
-      name: 'structured-server',
-      version: '1.0.0',
-      tools: [{
-        name: 'inspect',
-        description: 'Return structured content',
-        inputSchema: { type: 'object', properties: {} },
-        handler: async () => ({
-          content: [{ type: 'resource', data: 'memory://overview', mimeType: 'text/uri-list' }],
-        }),
-      }],
-    })
-
-    const response = await server.handleRequest({
-      jsonrpc: '2.0',
-      id: null,
-      method: 'tools/call',
-      params: { name: 'inspect', arguments: {} },
-    })
+      jsonrpc: "2.0",
+      id: 7,
+      method: "ping",
+    });
 
     expect(response).toEqual({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
+      id: 7,
+      result: {},
+    });
+  });
+
+  it("returns null for notifications that omit an id while still executing the handler", async () => {
+    const handler = vi.fn(async () => "ok");
+    const server = new DzupAgentMCPServer({
+      name: "notify-server",
+      version: "1.0.0",
+      tools: [
+        {
+          name: "echo",
+          description: "Echo input",
+          inputSchema: { type: "object", properties: {} },
+          handler,
+        },
+      ],
+    });
+
+    const response = await server.handleRequest({
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: { name: "echo", arguments: { text: "hi" } },
+    });
+
+    expect(response).toBeNull();
+    expect(handler).toHaveBeenCalledWith({ text: "hi" });
+  });
+
+  it("supports structured tool results and id:null requests", async () => {
+    const server = new DzupAgentMCPServer({
+      name: "structured-server",
+      version: "1.0.0",
+      tools: [
+        {
+          name: "inspect",
+          description: "Return structured content",
+          inputSchema: { type: "object", properties: {} },
+          handler: async () => ({
+            content: [
+              {
+                type: "resource",
+                data: "memory://overview",
+                mimeType: "text/uri-list",
+              },
+            ],
+          }),
+        },
+      ],
+    });
+
+    const response = await server.handleRequest({
+      jsonrpc: "2.0",
+      id: null,
+      method: "tools/call",
+      params: { name: "inspect", arguments: {} },
+    });
+
+    expect(response).toEqual({
+      jsonrpc: "2.0",
       id: null,
       result: {
-        content: [{ type: 'resource', data: 'memory://overview', mimeType: 'text/uri-list' }],
+        content: [
+          {
+            type: "resource",
+            data: "memory://overview",
+            mimeType: "text/uri-list",
+          },
+        ],
         isError: false,
       },
-    })
-  })
+    });
+  });
 
-  it('returns protocol errors for invalid requests and missing params', async () => {
+  it("returns protocol errors for invalid requests and missing params", async () => {
     const server = new DzupAgentMCPServer({
-      name: 'errors-server',
-      version: '1.0.0',
-    })
+      name: "errors-server",
+      version: "1.0.0",
+    });
 
-    expect(isMCPRequest({ jsonrpc: '2.0', method: 'tools/list' })).toBe(true)
-    expect(isMCPRequest({ jsonrpc: '1.0', method: 'tools/list' })).toBe(false)
-    expect(isMCPRequest({ jsonrpc: '2.0', id: true, method: 'tools/list' })).toBe(false)
-    expect(isMCPRequest({ jsonrpc: '2.0', method: 'tools/list', params: 'bad' })).toBe(false)
+    expect(isMCPRequest({ jsonrpc: "2.0", method: "tools/list" })).toBe(true);
+    expect(isMCPRequest({ jsonrpc: "1.0", method: "tools/list" })).toBe(false);
+    expect(
+      isMCPRequest({ jsonrpc: "2.0", id: true, method: "tools/list" })
+    ).toBe(false);
+    expect(
+      isMCPRequest({ jsonrpc: "2.0", method: "tools/list", params: "bad" })
+    ).toBe(false);
 
     const invalidRequest = await server.handleRequest({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 10,
-      method: '' as string,
-    })
+      method: "" as string,
+    });
     expect(invalidRequest).toEqual({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 10,
       error: {
         code: -32601,
-        message: 'Unknown method: ',
+        message: "Unknown method: ",
         data: undefined,
       },
-    })
+    });
 
     const missingUri = await server.handleRequest({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 11,
-      method: 'resources/read',
+      method: "resources/read",
       params: {},
-    })
+    });
     expect(missingUri).toEqual({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 11,
       error: {
         code: -32602,
-        message: 'Missing required param: uri',
+        message: "Missing required param: uri",
         data: undefined,
       },
-    })
+    });
 
     const unknownPrompt = await server.handleRequest({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 12,
-      method: 'prompts/get',
-      params: { name: 'missing' },
-    })
+      method: "prompts/get",
+      params: { name: "missing" },
+    });
     expect(unknownPrompt).toEqual({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 12,
       error: {
         code: -32601,
-        message: 'Prompt not found: missing',
+        message: "Prompt not found: missing",
         data: { availablePrompts: [] },
       },
-    })
+    });
 
     const missingPromptName = await server.handleRequest({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 13,
-      method: 'prompts/get',
+      method: "prompts/get",
       params: {},
-    })
+    });
     expect(missingPromptName).toEqual({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 13,
       error: {
         code: -32602,
-        message: 'Missing required param: name',
+        message: "Missing required param: name",
         data: undefined,
       },
-    })
+    });
 
     server.registerPrompt({
-      name: 'existing',
+      name: "existing",
       get: async () => ({
-        messages: [{ role: 'user', content: { type: 'text', text: 'ok' } }],
+        messages: [{ role: "user", content: { type: "text", text: "ok" } }],
       }),
-    })
+    });
 
     const invalidPromptArguments = await server.handleRequest({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 14,
-      method: 'prompts/get',
-      params: { name: 'existing', arguments: 'bad' },
-    })
+      method: "prompts/get",
+      params: { name: "existing", arguments: "bad" },
+    });
     expect(invalidPromptArguments).toEqual({
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 14,
       error: {
         code: -32602,
-        message: 'Invalid param: arguments',
+        message: "Invalid param: arguments",
         data: undefined,
       },
-    })
-  })
-})
+    });
+  });
+});
