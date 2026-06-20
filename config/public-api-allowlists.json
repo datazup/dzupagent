@@ -465,10 +465,13 @@
         { "match": "exact", "pattern": "./tool-permission.js" },
         { "match": "exact", "pattern": "./orchestration-contracts.js" },
         { "match": "exact", "pattern": "./memory-client.js" },
-        { "match": "exact", "pattern": "./orchestration/dynamic-workflow/index.js" }
+        { "match": "exact", "pattern": "./orchestration/dynamic-workflow/index.js" },
+        { "match": "exact", "pattern": "./orchestration/implementation/index.js" }
       ],
       "transitionalRoot": [],
-      "subpaths": {},
+      "subpaths": {
+        "./implementation": "implementation orchestration plan contracts and pure helpers"
+      },
       "migrationWindow": "Agent type root exports are stable Layer 0 contracts; add allowlist rules before exposing new type modules."
     },
     {

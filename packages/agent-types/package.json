@@ -13,6 +13,10 @@
     "./fleet": {
       "import": "./dist/fleet.js",
       "types": "./dist/fleet.d.ts"
+    },
+    "./implementation": {
+      "import": "./dist/implementation.js",
+      "types": "./dist/implementation.d.ts"
     }
   },
   "files": [
