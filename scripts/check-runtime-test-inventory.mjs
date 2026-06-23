@@ -347,7 +347,14 @@ export function runRuntimeTestInventory({
   })
 
   const summary = runtimePackages.map((name) => {
-    const testCount = countPackageTestFiles(name, ['*test.ts', '*test.tsx'], context)
+    // TEST-H-07: include node:test `.mjs`/`.mts` suites (e.g. dialogue-core,
+    // dialogue-core-replay run `node --test src/__tests__/*.test.mjs`). Globbing
+    // only .ts/.tsx counted those tested packages as zero-test and false-failed.
+    const testCount = countPackageTestFiles(
+      name,
+      ['*test.ts', '*test.tsx', '*test.mjs', '*test.mts'],
+      context,
+    )
     const integrationStyleTestCount = countPackageTestFiles(name, integrationStyleTestPatterns, context)
     return {
       name,

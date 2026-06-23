@@ -15,9 +15,7 @@
   ],
   "largeSourceFileRisk": {
     "minLines": 900,
-    "excludedPackages": [
-      "server"
-    ]
+    "excludedPackages": ["server"]
   },
   "criticalSourceFiles": [
     {
@@ -95,30 +93,22 @@
     {
       "package": "agent-adapters",
       "path": "src/recovery/adapter-recovery.ts",
-      "coveredBy": [
-        "src/__tests__/adapter-recovery.test.ts"
-      ]
+      "coveredBy": ["src/__tests__/adapter-recovery.test.ts"]
     },
     {
       "package": "agent-adapters",
       "path": "src/workflow/adapter-workflow.ts",
-      "coveredBy": [
-        "src/__tests__/adapter-workflow.test.ts"
-      ]
+      "coveredBy": ["src/__tests__/adapter-workflow.test.ts"]
     },
     {
       "package": "agent-adapters",
       "path": "src/facade/orchestrator-facade.ts",
-      "coveredBy": [
-        "src/__tests__/orchestrator-facade.test.ts"
-      ]
+      "coveredBy": ["src/__tests__/orchestrator-facade.test.ts"]
     },
     {
       "package": "agent-adapters",
       "path": "src/http/adapter-http-handler.ts",
-      "coveredBy": [
-        "src/__tests__/adapter-http-handler.test.ts"
-      ]
+      "coveredBy": ["src/__tests__/adapter-http-handler.test.ts"]
     },
     {
       "package": "core",
@@ -139,9 +129,7 @@
     {
       "package": "memory",
       "path": "src/sharing/memory-space-manager.ts",
-      "coveredBy": [
-        "src/sharing/__tests__/shared-spaces.test.ts"
-      ]
+      "coveredBy": ["src/sharing/__tests__/shared-spaces.test.ts"]
     },
     {
       "package": "connectors-browser",
@@ -162,16 +150,12 @@
     {
       "package": "flow-ast",
       "path": "src/validate.ts",
-      "coveredBy": [
-        "src/__tests__/validate.test.ts"
-      ]
+      "coveredBy": ["src/__tests__/validate.test.ts"]
     },
     {
       "package": "flow-ast",
       "path": "src/parse.ts",
-      "coveredBy": [
-        "src/__tests__/parse.test.ts"
-      ]
+      "coveredBy": ["src/__tests__/parse.test.ts"]
     },
     {
       "package": "flow-compiler",
@@ -184,31 +168,22 @@
     {
       "package": "flow-dsl",
       "path": "src/normalize.ts",
-      "coveredBy": [
-        "test/normalize.test.ts",
-        "src/__tests__/normalize.test.ts"
-      ]
+      "coveredBy": ["src/__tests__/normalize.test.ts"]
     },
     {
       "package": "app-tools",
       "path": "src/tools/website.ts",
-      "coveredBy": [
-        "src/tools/website.test.ts"
-      ]
+      "coveredBy": ["src/tools/website.test.ts"]
     },
     {
       "package": "server",
       "path": "src/runtime/tool-resolver.ts",
-      "coveredBy": [
-        "src/__tests__/tool-resolver.test.ts"
-      ]
+      "coveredBy": ["src/__tests__/tool-resolver.test.ts"]
     },
     {
       "package": "server",
       "path": "src/runtime/run-worker-stages.ts",
-      "coveredBy": [
-        "src/runtime/__tests__/run-worker-stages.test.ts"
-      ]
+      "coveredBy": ["src/runtime/__tests__/run-worker-stages.test.ts"]
     },
     {
       "package": "scraper",

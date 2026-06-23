@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createSubagentTools } from "../tools/subagent-tools.js";
 import { createInProcessSubagentRuntime } from "../runtime/create-runtime.js";
+import { allowAllSpawnPolicy } from "../governance/spawn-gate.js";
 import {
   ControllableExecutor,
   RecordingEventSink,
@@ -15,6 +16,9 @@ function setup() {
     executor,
     events,
     generateId: sequentialIds(),
+    // Base runtime now denies spawns by default (AGENT-H-03); this suite exercises
+    // tool mechanics, not governance, so opt into the test-only allow-all policy.
+    policy: allowAllSpawnPolicy,
   });
   const tools = createSubagentTools({
     runtime,
