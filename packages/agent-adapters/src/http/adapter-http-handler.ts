@@ -16,26 +16,32 @@
  *   GET  /cost         — cost report
  */
 
-import type { DzupEventBus } from '@dzupagent/core/events'
-import type { z } from 'zod'
+import { ForgeError } from "@dzupagent/core/events";
+import type { DzupEventBus } from "@dzupagent/core/events";
+import { defaultLogger } from "@dzupagent/core/utils";
+import type { z } from "zod";
 
-import type { OrchestratorFacade } from '../facade/orchestrator-facade.js'
-import { SlidingWindowRateLimiter } from './rate-limiter.js'
-import type { AgentInput } from '../types.js'
+import type { OrchestratorFacade } from "../facade/orchestrator-facade.js";
+import { SlidingWindowRateLimiter } from "./rate-limiter.js";
+import type { AgentInput } from "../types.js";
 import {
   RunRequestSchema,
   SupervisorRequestSchema,
   ParallelRequestSchema,
   BidRequestSchema,
   ApproveRequestSchema,
-} from './request-schemas.js'
+} from "./request-schemas.js";
 import {
   errorResponse,
   extractCorrelationId,
   jsonResponse,
   matchPathParam,
-} from './http-helpers.js'
-import { streamParallel, streamRun, streamSupervisor } from './http-streaming.js'
+} from "./http-helpers.js";
+import {
+  streamParallel,
+  streamRun,
+  streamSupervisor,
+} from "./http-streaming.js";
 import type {
   AdapterApprovalGate,
   AdapterHttpConfig,
@@ -49,7 +55,7 @@ import type {
   ParallelRequestBody,
   RunRequestBody,
   SupervisorRequestBody,
-} from './http-types.js'
+} from "./http-types.js";
 
 // ---------------------------------------------------------------------------
 // Re-exports for backward-compatible public API
@@ -69,32 +75,32 @@ export type {
   RunRequestBody,
   SupervisorRequestBody,
   TokenValidationResult,
-} from './http-types.js'
-export { isStreamResponse } from './http-types.js'
-export { resolveRuntimeFallbackProviderId } from './http-helpers.js'
+} from "./http-types.js";
+export { isStreamResponse } from "./http-types.js";
+export { resolveRuntimeFallbackProviderId } from "./http-helpers.js";
 
 // ---------------------------------------------------------------------------
 // AdapterHttpHandler
 // ---------------------------------------------------------------------------
 
 export class AdapterHttpHandler {
-  private readonly orchestrator: OrchestratorFacade
-  private readonly approvalGate: AdapterApprovalGate | undefined
-  private readonly eventBus: DzupEventBus | undefined
-  private readonly config: AdapterHttpConfig
+  private readonly orchestrator: OrchestratorFacade;
+  private readonly approvalGate: AdapterApprovalGate | undefined;
+  private readonly eventBus: DzupEventBus | undefined;
+  private readonly config: AdapterHttpConfig;
   private readonly validateApiKey:
     | ((key: string) => boolean | Promise<boolean>)
-    | undefined
-  private readonly rateLimiter?: SlidingWindowRateLimiter
+    | undefined;
+  private readonly rateLimiter?: SlidingWindowRateLimiter;
 
   constructor(config: AdapterHttpConfig) {
-    this.orchestrator = config.orchestrator
-    this.approvalGate = config.approvalGate
-    this.eventBus = config.eventBus
-    this.config = config
-    this.validateApiKey = config.validateApiKey
+    this.orchestrator = config.orchestrator;
+    this.approvalGate = config.approvalGate;
+    this.eventBus = config.eventBus;
+    this.config = config;
+    this.validateApiKey = config.validateApiKey;
     if (config.rateLimit) {
-      this.rateLimiter = new SlidingWindowRateLimiter(config.rateLimit)
+      this.rateLimiter = new SlidingWindowRateLimiter(config.rateLimit);
     }
   }
 
@@ -108,73 +114,84 @@ export class AdapterHttpHandler {
    */
   async handle(request: HttpRequest): Promise<HttpResult> {
     // --- Auth check ---
-    const authResult = await this.checkAuth(request)
-    if (authResult) return authResult
+    const authResult = await this.checkAuth(request);
+    if (authResult) return authResult;
 
     // --- Rate limit check ---
     if (this.rateLimiter) {
-      const clientKey = request.headers?.['x-api-key']
-        ?? request.headers?.['authorization']
-        ?? request.headers?.['x-forwarded-for']
-        ?? '*'
+      const clientKey =
+        request.headers?.["x-api-key"] ??
+        request.headers?.["authorization"] ??
+        request.headers?.["x-forwarded-for"] ??
+        "*";
       if (!this.rateLimiter.check(clientKey)) {
-        return jsonResponse(429, { error: 'Too many requests' })
+        return jsonResponse(429, { error: "Too many requests" });
       }
     }
 
     // --- Extract correlation ID from request headers ---
-    const correlationId = extractCorrelationId(request.headers)
+    const correlationId = extractCorrelationId(request.headers);
 
-    const method = request.method.toUpperCase()
-    const path = request.path
+    const method = request.method.toUpperCase();
+    const path = request.path;
 
     // --- Route matching ---
-    if (method === 'POST' && path === '/run') {
-      const validation = this.validateBody(request.body, RunRequestSchema)
-      if ('error' in validation) return validation.error
-      return this.handleRun(validation.body, correlationId)
+    if (method === "POST" && path === "/run") {
+      const validation = this.validateBody(request.body, RunRequestSchema);
+      if ("error" in validation) return validation.error;
+      return this.handleRun(validation.body, correlationId);
     }
 
-    if (method === 'POST' && path === '/supervisor') {
-      const validation = this.validateBody(request.body, SupervisorRequestSchema)
-      if ('error' in validation) return validation.error
-      return this.handleSupervisor(validation.body, correlationId)
+    if (method === "POST" && path === "/supervisor") {
+      const validation = this.validateBody(
+        request.body,
+        SupervisorRequestSchema,
+      );
+      if ("error" in validation) return validation.error;
+      return this.handleSupervisor(validation.body, correlationId);
     }
 
-    if (method === 'POST' && path === '/parallel') {
-      const validation = this.validateBody(request.body, ParallelRequestSchema)
-      if ('error' in validation) return validation.error
-      return this.handleParallel(validation.body, correlationId)
+    if (method === "POST" && path === "/parallel") {
+      const validation = this.validateBody(request.body, ParallelRequestSchema);
+      if ("error" in validation) return validation.error;
+      return this.handleParallel(validation.body, correlationId);
     }
 
-    if (method === 'POST' && path === '/bid') {
-      const validation = this.validateBody(request.body, BidRequestSchema)
-      if ('error' in validation) return validation.error
-      return this.handleBid(validation.body, correlationId)
+    if (method === "POST" && path === "/bid") {
+      const validation = this.validateBody(request.body, BidRequestSchema);
+      if ("error" in validation) return validation.error;
+      return this.handleBid(validation.body, correlationId);
     }
 
-    if (method === 'POST') {
-      const requestId = matchPathParam(path, '/approve')
+    if (method === "POST") {
+      const requestId = matchPathParam(path, "/approve");
       if (requestId !== undefined) {
-        const validation = this.validateBody(request.body, ApproveRequestSchema)
-        if ('error' in validation) return validation.error
-        return this.handleApproval(requestId, validation.body)
+        const validation = this.validateBody(
+          request.body,
+          ApproveRequestSchema,
+        );
+        if ("error" in validation) return validation.error;
+        return this.handleApproval(requestId, validation.body);
       }
     }
 
-    if (method === 'GET' && path === '/health') {
-      return this.handleHealth()
+    if (method === "GET" && path === "/health") {
+      return this.handleHealth();
     }
 
-    if (method === 'GET' && path === '/health/detailed') {
-      return this.handleDetailedHealth()
+    if (method === "GET" && path === "/health/detailed") {
+      return this.handleDetailedHealth();
     }
 
-    if (method === 'GET' && path === '/cost') {
-      return this.handleCostReport()
+    if (method === "GET" && path === "/cost") {
+      return this.handleCostReport();
     }
 
-    return errorResponse(404, `Route not found: ${method} ${path}`, 'NOT_FOUND')
+    return errorResponse(
+      404,
+      `Route not found: ${method} ${path}`,
+      "NOT_FOUND",
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -182,17 +199,20 @@ export class AdapterHttpHandler {
   // -------------------------------------------------------------------------
 
   /** POST /run -- execute with auto-routing */
-  async handleRun(body: RunRequestBody, correlationId?: string): Promise<HttpResult> {
+  async handleRun(
+    body: RunRequestBody,
+    correlationId?: string,
+  ): Promise<HttpResult> {
     const input: AgentInput = {
       prompt: body.prompt,
       workingDirectory: body.workingDirectory,
       systemPrompt: body.systemPrompt,
       maxTurns: body.maxTurns,
       correlationId,
-    }
+    };
 
     if (body.stream) {
-      return this.streamRun(input, body)
+      return this.streamRun(input, body);
     }
 
     try {
@@ -203,58 +223,67 @@ export class AdapterHttpHandler {
         systemPrompt: body.systemPrompt,
         maxTurns: body.maxTurns,
         policyConformanceMode: body.policyConformanceMode,
-      })
+      });
 
-      return jsonResponse(200, result)
+      return jsonResponse(200, result);
     } catch (err) {
-      return this.handleError(err, 'run')
+      return this.handleError(err, "run");
     }
   }
 
   /** POST /supervisor -- supervisor pattern */
-  async handleSupervisor(body: SupervisorRequestBody, _correlationId?: string): Promise<HttpResult> {
+  async handleSupervisor(
+    body: SupervisorRequestBody,
+    _correlationId?: string,
+  ): Promise<HttpResult> {
     if (body.stream) {
-      return this.streamSupervisor(body)
+      return this.streamSupervisor(body);
     }
 
     try {
       const result = await this.orchestrator.supervisor(body.goal, {
         maxConcurrentDelegations: body.maxConcurrentDelegations,
-      })
+      });
 
-      return jsonResponse(200, result)
+      return jsonResponse(200, result);
     } catch (err) {
-      return this.handleError(err, 'supervisor')
+      return this.handleError(err, "supervisor");
     }
   }
 
   /** POST /parallel -- parallel execution */
-  async handleParallel(body: ParallelRequestBody, _correlationId?: string): Promise<HttpResult> {
+  async handleParallel(
+    body: ParallelRequestBody,
+    _correlationId?: string,
+  ): Promise<HttpResult> {
     if (body.stream) {
-      return this.streamParallel(body)
+      return this.streamParallel(body);
     }
 
     try {
-      const mergeStrategy = body.strategy ?? 'all'
+      const mergeStrategy = body.strategy ?? "all";
 
       const result = await this.orchestrator.parallel(body.prompt, {
         providers: body.providers,
         mergeStrategy,
-      })
+      });
 
-      return jsonResponse(200, result)
+      return jsonResponse(200, result);
     } catch (err) {
-      return this.handleError(err, 'parallel')
+      return this.handleError(err, "parallel");
     }
   }
 
   /** POST /bid -- contract-net bidding */
-  async handleBid(body: BidRequestBody, _correlationId?: string): Promise<HttpResult> {
+  async handleBid(
+    body: BidRequestBody,
+    _correlationId?: string,
+  ): Promise<HttpResult> {
     try {
-      const result = await this.orchestrator.bid(body.prompt)
-      return jsonResponse(200, result)
+      const result = await this.orchestrator.bid(body.prompt);
+      return jsonResponse(200, result);
     } catch (err) {
-      return this.handleError(err, 'bid')
+      return this.handleError(err, "bid");
     }
   }
 
@@ -264,97 +293,111 @@ export class AdapterHttpHandler {
     body: ApprovalRequestBody,
   ): Promise<HttpResponse> {
     if (!this.approvalGate) {
-      return errorResponse(501, 'Approval gate not configured', 'NO_APPROVAL_GATE')
+      return errorResponse(
+        501,
+        "Approval gate not configured",
+        "NO_APPROVAL_GATE",
+      );
     }
 
     try {
-      let found: boolean
+      let found: boolean;
       if (body.approved) {
-        found = await this.approvalGate.grant(requestId, body.approvedBy, body.reason)
+        found = await this.approvalGate.grant(
+          requestId,
+          body.approvedBy,
+          body.reason,
+        );
       } else {
-        found = await this.approvalGate.reject(requestId, body.reason)
+        found = await this.approvalGate.reject(requestId, body.reason);
       }
 
       if (!found) {
         return errorResponse(
           404,
           `Pending request not found: ${requestId}`,
-          'REQUEST_NOT_FOUND',
-        )
+          "REQUEST_NOT_FOUND",
+        );
       }
 
       return jsonResponse(200, {
         requestId,
-        status: body.approved ? 'approved' : 'rejected',
-      })
+        status: body.approved ? "approved" : "rejected",
+      });
     } catch (err) {
-      return this.handleError(err, 'approval') as HttpResponse
+      return this.handleError(err, "approval") as HttpResponse;
     }
   }
 
   /** GET /health -- adapter health status */
   async handleHealth(): Promise<HttpResponse> {
     try {
-      const healthStatuses = await this.orchestrator.registry.getHealthStatus()
-      const costReport = this.orchestrator.getCostReport()
+      const healthStatuses = await this.orchestrator.registry.getHealthStatus();
+      const costReport = this.orchestrator.getCostReport();
 
-      const adapters: HealthResponse['adapters'] = {}
-      let allHealthy = true
-      let anyHealthy = false
+      const adapters: HealthResponse["adapters"] = {};
+      let allHealthy = true;
+      let anyHealthy = false;
 
       for (const [id, hs] of Object.entries(healthStatuses)) {
-        adapters[id] = { healthy: hs.healthy }
+        adapters[id] = { healthy: hs.healthy };
         if (hs.healthy) {
-          anyHealthy = true
+          anyHealthy = true;
         } else {
-          allHealthy = false
+          allHealthy = false;
         }
       }
 
-      const adapterCount = Object.keys(adapters).length
-      let overallStatus: HealthResponse['status']
+      const adapterCount = Object.keys(adapters).length;
+      let overallStatus: HealthResponse["status"];
       if (adapterCount === 0 || !anyHealthy) {
-        overallStatus = 'down'
+        overallStatus = "down";
       } else if (allHealthy) {
-        overallStatus = 'ok'
+        overallStatus = "ok";
       } else {
-        overallStatus = 'degraded'
+        overallStatus = "degraded";
       }
 
       const response: HealthResponse = {
         status: overallStatus,
         adapters,
         costReport,
-      }
+      };
 
-      return jsonResponse(200, response)
+      return jsonResponse(200, response);
     } catch (err) {
-      return this.handleError(err, 'health') as HttpResponse
+      return this.handleError(err, "health") as HttpResponse;
     }
   }
 
   /** GET /health/detailed -- detailed adapter health with circuit breaker state */
   async handleDetailedHealth(): Promise<HttpResponse> {
-    const registry = this.orchestrator.registry
-    if ('getDetailedHealth' in registry) {
+    const registry = this.orchestrator.registry;
+    if ("getDetailedHealth" in registry) {
       try {
-        const health = await (registry as { getDetailedHealth(): Promise<unknown> }).getDetailedHealth()
-        return jsonResponse(200, health)
+        const health = await (
+          registry as { getDetailedHealth(): Promise<unknown> }
+        ).getDetailedHealth();
+        return jsonResponse(200, health);
       } catch (err) {
-        return this.handleError(err, 'health/detailed') as HttpResponse
+        return this.handleError(err, "health/detailed") as HttpResponse;
       }
     }
     // Fallback to basic health
-    return this.handleHealth()
+    return this.handleHealth();
   }
 
   /** GET /cost -- cost report */
   handleCostReport(): HttpResponse {
-    const report = this.orchestrator.getCostReport()
+    const report = this.orchestrator.getCostReport();
     if (!report) {
-      return errorResponse(404, 'Cost tracking not enabled', 'COST_TRACKING_DISABLED')
+      return errorResponse(
+        404,
+        "Cost tracking not enabled",
+        "COST_TRACKING_DISABLED",
+      );
     }
-    return jsonResponse(200, report)
+    return jsonResponse(200, report);
   }
 
   // -------------------------------------------------------------------------
@@ -369,72 +412,91 @@ export class AdapterHttpHandler {
       { orchestrator: this.orchestrator, eventBus: this.eventBus },
       input,
       body,
-    )
+    );
   }
 
   private streamSupervisor(body: SupervisorRequestBody): HttpStreamResponse {
     return streamSupervisor(
       { orchestrator: this.orchestrator, eventBus: this.eventBus },
       body,
-    )
+    );
   }
 
   private streamParallel(body: ParallelRequestBody): HttpStreamResponse {
     return streamParallel(
       { orchestrator: this.orchestrator, eventBus: this.eventBus },
       body,
-    )
+    );
   }
 
   // -------------------------------------------------------------------------
   // Auth
   // -------------------------------------------------------------------------
 
-  private async checkAuth(request: HttpRequest): Promise<HttpResponse | undefined> {
+  private async checkAuth(
+    request: HttpRequest,
+  ): Promise<HttpResponse | undefined> {
     // Check if this is a public endpoint
     if (this.config.publicEndpoints?.includes(request.path)) {
-      return undefined
+      return undefined;
     }
 
     // If no auth configured, pass through
     if (!this.validateApiKey && !this.config.tokenValidator) {
-      return undefined
+      return undefined;
     }
 
-    const authHeader = request.headers['authorization'] ?? request.headers['Authorization']
+    const authHeader =
+      request.headers["authorization"] ?? request.headers["Authorization"];
     if (!authHeader) {
-      return errorResponse(401, 'Missing Authorization header', 'AUTH_REQUIRED')
+      return errorResponse(
+        401,
+        "Missing Authorization header",
+        "AUTH_REQUIRED",
+      );
     }
 
-    const match = /^Bearer\s+(.+)$/i.exec(authHeader)
+    const match = /^Bearer\s+(.+)$/i.exec(authHeader);
     if (!match?.[1]) {
-      return errorResponse(401, 'Invalid Authorization format. Expected: Bearer <token>', 'AUTH_INVALID_FORMAT')
+      return errorResponse(
+        401,
+        "Invalid Authorization format. Expected: Bearer <token>",
+        "AUTH_INVALID_FORMAT",
+      );
     }
 
-    const token = match[1]
+    const token = match[1];
 
     // Custom token validator takes precedence
     if (this.config.tokenValidator) {
       try {
-        const result = await this.config.tokenValidator(token)
+        const result = await this.config.tokenValidator(token);
         if (!result.valid) {
-          return errorResponse(401, 'Token validation failed', 'AUTH_TOKEN_INVALID')
+          return errorResponse(
+            401,
+            "Token validation failed",
+            "AUTH_TOKEN_INVALID",
+          );
         }
-        return undefined
+        return undefined;
       } catch {
-        return errorResponse(500, 'Token validation error', 'AUTH_VALIDATION_ERROR')
+        return errorResponse(
+          500,
+          "Token validation error",
+          "AUTH_VALIDATION_ERROR",
+        );
       }
     }
 
     // Legacy simple API key check
     if (this.validateApiKey) {
-      const isValid = await this.validateApiKey(token)
+      const isValid = await this.validateApiKey(token);
       if (!isValid) {
-        return errorResponse(401, 'Invalid API key', 'AUTH_INVALID_KEY')
+        return errorResponse(401, "Invalid API key", "AUTH_INVALID_KEY");
       }
     }
 
-    return undefined
+    return undefined;
   }
 
   // -------------------------------------------------------------------------
@@ -445,19 +507,19 @@ export class AdapterHttpHandler {
     body: unknown,
     schema: z.ZodType<T>,
   ): { body: T } | { error: HttpResponse } {
-    const result = schema.safeParse(body)
+    const result = schema.safeParse(body);
     if (!result.success) {
       return {
         error: jsonResponse(400, {
-          error: 'Validation failed',
+          error: "Validation failed",
           details: result.error.issues.map((i) => ({
-            path: i.path.join('.'),
+            path: i.path.join("."),
             message: i.message,
           })),
         }),
-      }
+      };
     }
-    return { body: result.data }
+    return { body: result.data };
   }
 
   // -------------------------------------------------------------------------
@@ -465,21 +527,36 @@ export class AdapterHttpHandler {
   // -------------------------------------------------------------------------
 
   private handleError(err: unknown, operation: string): HttpResponse {
-    const message = err instanceof Error ? err.message : String(err)
+    // ERR-C-02: never forward raw err.message to the client or the event bus.
+    // Log full detail (type + stack) server-side; return a stable code + a
+    // client-safe message. A ForgeError exposes its curated code/suggestion only.
+    const internalMessage = err instanceof Error ? err.message : String(err);
+    defaultLogger.error("[AdapterHttpHandler] operation failed", {
+      operation,
+      error: internalMessage,
+      name: err instanceof Error ? err.constructor.name : typeof err,
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+
+    const code = err instanceof ForgeError ? err.code : "INTERNAL_ERROR";
+    const clientMessage =
+      err instanceof ForgeError && err.suggestion
+        ? err.suggestion
+        : `Operation "${operation}" failed`;
 
     if (this.eventBus) {
       try {
         this.eventBus.emit({
-          type: 'agent:stream_delta',
-          agentId: 'http-handler',
+          type: "agent:stream_delta",
+          agentId: "http-handler",
           runId: operation,
-          content: `[error] ${message}`,
-        })
+          content: `[error] ${code}`,
+        });
       } catch {
         // Event bus failure is non-fatal
       }
     }
 
-    return errorResponse(500, `Operation "${operation}" failed: ${message}`, 'INTERNAL_ERROR')
+    return errorResponse(500, clientMessage, code);
   }
 }

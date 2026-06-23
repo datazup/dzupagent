@@ -6,7 +6,7 @@ import type { SubagentEventSink } from "../contracts/events.js";
 import type { SubagentExecutorPort } from "../contracts/subagent-executor-port.js";
 import type { TaskRunner } from "../contracts/task-runner.js";
 import type { TaskStore } from "../contracts/task-store.js";
-import { SpawnGate, allowAllSpawnPolicy } from "../governance/spawn-gate.js";
+import { SpawnGate, denyAllSpawnPolicy } from "../governance/spawn-gate.js";
 import type {
   SpawnApprovalGate,
   SpawnPolicy,
@@ -54,13 +54,16 @@ export interface CreateInProcessRuntimeOptions {
  * a `DurableQueueRunner`, or construct the runtime manually.
  */
 export function createInProcessSubagentRuntime(
-  options: CreateInProcessRuntimeOptions
+  options: CreateInProcessRuntimeOptions,
 ): BackgroundSubagentRuntime {
   const store = options.store ?? new InMemoryTaskStore();
   const clock = options.clock ?? systemClock;
+  // AGENT-H-03 / SEC-M-05: fail closed. A caller that wants unbounded spawning
+  // must pass an explicit policy (allowAllSpawnPolicy is test-only). Defaulting to
+  // allow-all let any consumer of this base runtime spawn with no tenant scope.
   const gate = new SpawnGate(
-    options.policy ?? allowAllSpawnPolicy,
-    options.approvalGate
+    options.policy ?? denyAllSpawnPolicy,
+    options.approvalGate,
   );
 
   const runnerDeps: RunnerFactoryDeps = {
