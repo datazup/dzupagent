@@ -6,8 +6,8 @@
  * continue to re-export these APIs during the migration window.
  */
 
-export { DzupAgent } from './agent/dzip-agent.js'
-export { createAgentWithMemory } from './agent/agent-factory.js'
+export { DzupAgent } from "./agent/dzip-agent.js";
+export { createAgentWithMemory } from "./agent/agent-factory.js";
 export type {
   DzupAgentConfig,
   AgentMailboxConfig,
@@ -20,50 +20,78 @@ export type {
   PerToolTimeoutMap,
   ArgumentValidator,
   ToolTracer,
-} from './agent/agent-types.js'
-export type { AuditRedactionPolicy } from './agent/agent-types-observability.js'
-export type { ProviderFailoverPolicy } from './agent/agent-types-failover.js'
-export type { GuardrailConfig } from './guardrails/guardrail-types.js'
-export { getMemoryProfilePreset, resolveArrowMemoryConfig } from './agent/memory-profiles.js'
-export type { MemoryProfile, MemoryProfilePreset } from './agent/memory-profiles.js'
-export { runToolLoop } from './agent/tool-loop.js'
-export type { ToolLoopConfig, ToolLoopResult, ToolStat, StopReason } from './agent/tool-loop.js'
+} from "./agent/agent-types.js";
+export type { AuditRedactionPolicy } from "./agent/agent-types-observability.js";
+export type { ProviderFailoverPolicy } from "./agent/agent-types-failover.js";
+export type { GuardrailConfig } from "./guardrails/guardrail-types.js";
+// Distributed cost-ledger guardrail primitive — hosts (e.g. @dzupagent/server run
+// persistence + cost showback) embed this to enforce shared run budgets. Exposed on
+// the runtime subpath so consumers don't import the broad @dzupagent/agent root.
+export { DistributedCostLedger } from "./guardrails/distributed-budget.js";
+export type {
+  CostLedgerClient,
+  DistributedCostLedgerConfig,
+  CostLedgerRecordResult,
+} from "./guardrails/distributed-budget.js";
+export {
+  getMemoryProfilePreset,
+  resolveArrowMemoryConfig,
+} from "./agent/memory-profiles.js";
+export type {
+  MemoryProfile,
+  MemoryProfilePreset,
+} from "./agent/memory-profiles.js";
+export { runToolLoop } from "./agent/tool-loop.js";
+export type {
+  ToolLoopConfig,
+  ToolLoopResult,
+  ToolStat,
+  StopReason,
+} from "./agent/tool-loop.js";
 export {
   TOOL_TIMEOUT_ERROR_CODE,
   ToolTimeoutError,
   isToolTimeoutError,
-} from './agent/tool-timeout-error.js'
+} from "./agent/tool-timeout-error.js";
 export {
   InvalidRunStateError,
   CheckpointExpiredError,
   ForkLimitExceededError,
   RunNotFoundError,
-} from './agent/run-handle-types.js'
+} from "./agent/run-handle-types.js";
 export type {
   RunHandle,
   RunResult,
   LaunchOptions,
   Unsubscribe,
   CheckpointInfo,
-} from './agent/run-handle-types.js'
-export { ConcreteRunHandle } from './agent/run-handle.js'
-export { executeToolsParallel } from './agent/parallel-executor.js'
+} from "./agent/run-handle-types.js";
+export { ConcreteRunHandle } from "./agent/run-handle.js";
+export { executeToolsParallel } from "./agent/parallel-executor.js";
 export type {
   ParallelToolCall,
   ToolExecutionResult,
   ToolLookup,
   ParallelExecutorOptions,
-} from './agent/parallel-executor.js'
-export { validateAndRepairToolArgs, formatSchemaHint } from './agent/tool-arg-validator.js'
-export type { ValidationResult, ToolArgValidatorConfig } from './agent/tool-arg-validator.js'
-export { autoCompress, FrozenSnapshot } from './context/auto-compress.js'
-export type { AutoCompressConfig, CompressResult } from './context/auto-compress.js'
-export { withTokenLifecycle } from './context/token-lifecycle-integration.js'
+} from "./agent/parallel-executor.js";
+export {
+  validateAndRepairToolArgs,
+  formatSchemaHint,
+} from "./agent/tool-arg-validator.js";
+export type {
+  ValidationResult,
+  ToolArgValidatorConfig,
+} from "./agent/tool-arg-validator.js";
+export { autoCompress, FrozenSnapshot } from "./context/auto-compress.js";
+export type {
+  AutoCompressConfig,
+  CompressResult,
+} from "./context/auto-compress.js";
+export { withTokenLifecycle } from "./context/token-lifecycle-integration.js";
 export type {
   TokenLifecycleHooks,
   TokenLifecyclePhase,
   TokenPressureListener,
-} from './context/token-lifecycle-integration.js'
-export * from './pipeline/index.js'
-export * from './observability/index.js'
-
+} from "./context/token-lifecycle-integration.js";
+export * from "./pipeline/index.js";
+export * from "./observability/index.js";

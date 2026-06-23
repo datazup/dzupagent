@@ -84,7 +84,10 @@
         { "match": "prefix", "pattern": "./facades/" },
         { "match": "exact", "pattern": "<local>:dzupagent_CORE_VERSION" },
         { "match": "exact", "pattern": "@dzupagent/security" },
-        { "match": "exact", "pattern": "@langchain/core/language_models/chat_models" }
+        {
+          "match": "exact",
+          "pattern": "@langchain/core/language_models/chat_models"
+        }
       ],
       "transitionalRoot": [
         { "match": "exact", "pattern": "./rate-limit/token-bucket.js" },
@@ -449,11 +452,43 @@
         { "match": "exact", "pattern": "./ledger.js" },
         { "match": "exact", "pattern": "./schedule.js" },
         { "match": "exact", "pattern": "./script-runs.js" },
-        { "match": "exact", "pattern": "./pipeline.js" }
+        { "match": "exact", "pattern": "./pipeline.js" },
+        { "match": "exact", "pattern": "./idempotency.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},
       "migrationWindow": "Runtime contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules."
+    },
+    {
+      "packageName": "@dzupagent/dialogue-core",
+      "packageDir": "packages/dialogue-core",
+      "rootIndex": "packages/dialogue-core/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./dialogue-scheduler.js" },
+        { "match": "exact", "pattern": "./run-spec-hash.js" },
+        { "match": "prefix", "pattern": "./ports/" },
+        { "match": "prefix", "pattern": "./scheduler/" },
+        { "match": "prefix", "pattern": "./types/" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "DialogueScheduler is contract-frozen (CONTRACT_FREEZE.md v0.2.0); root exports are stable. Add allowlist rules before exposing new root modules."
+    },
+    {
+      "packageName": "@dzupagent/dialogue-core-replay",
+      "packageDir": "packages/dialogue-core-replay",
+      "rootIndex": "packages/dialogue-core-replay/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./errors.js" },
+        { "match": "exact", "pattern": "./golden-trace.js" },
+        { "match": "exact", "pattern": "./recorded-agent-port.js" },
+        { "match": "exact", "pattern": "./recorded-validator-port.js" },
+        { "match": "exact", "pattern": "./recorded-workspace-port.js" },
+        { "match": "exact", "pattern": "./replay-dialogue.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Replay harness root exports are the contracted test-support surface; add allowlist rules before exposing new root modules."
     },
     {
       "packageName": "@dzupagent/agent-types",
@@ -465,8 +500,14 @@
         { "match": "exact", "pattern": "./tool-permission.js" },
         { "match": "exact", "pattern": "./orchestration-contracts.js" },
         { "match": "exact", "pattern": "./memory-client.js" },
-        { "match": "exact", "pattern": "./orchestration/dynamic-workflow/index.js" },
-        { "match": "exact", "pattern": "./orchestration/implementation/index.js" }
+        {
+          "match": "exact",
+          "pattern": "./orchestration/dynamic-workflow/index.js"
+        },
+        {
+          "match": "exact",
+          "pattern": "./orchestration/implementation/index.js"
+        }
       ],
       "transitionalRoot": [],
       "subpaths": {

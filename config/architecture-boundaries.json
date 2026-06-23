@@ -85,6 +85,7 @@
           "packages/server/src/routes/approval.ts",
           "packages/server/src/routes/approvals.ts",
           "packages/server/src/routes/capabilities.ts",
+          "packages/server/src/routes/cost-attributor.routes.ts",
           "packages/server/src/routes/enrichment-metrics.ts",
           "packages/server/src/routes/events.ts",
           "packages/server/src/routes/health.ts",
@@ -105,6 +106,7 @@
           "packages/server/src/routes/runs/list-handler.ts",
           "packages/server/src/routes/runs/stream-handler.ts",
           "packages/server/src/routes/runs.ts",
+          "packages/server/src/routes/scale-target.ts",
           "packages/server/src/routes/schemas.ts"
         ]
       },
@@ -343,6 +345,15 @@
             "GET /api/deploy/history",
             "PATCH /api/deploy/:id/outcome",
             "POST /api/deploy/record"
+          ]
+        },
+        "packages/server/src/routes/cost-attributor.routes.ts": {
+          "category": "framework-primitive",
+          "mounts": ["/admin/tenants"],
+          "endpoints": ["GET /cost", "GET /:tenantId/cost"],
+          "mountedEndpoints": [
+            "GET /admin/tenants/cost",
+            "GET /admin/tenants/:tenantId/cost"
           ]
         },
         "packages/server/src/routes/enrichment-metrics.ts": {
@@ -715,6 +726,12 @@
             "POST /api/runs/:id/resume"
           ]
         },
+        "packages/server/src/routes/scale-target.ts": {
+          "category": "framework-primitive",
+          "mounts": ["/scale-target"],
+          "endpoints": ["GET /"],
+          "mountedEndpoints": ["GET /scale-target"]
+        },
         "packages/server/src/routes/schedules.ts": {
           "category": "compatibility-maintenance",
           "mounts": ["/api/schedules"],
@@ -836,7 +853,8 @@
           "a2a",
           "triggerStore",
           "scheduleStore",
-          "onScheduleTrigger"
+          "onScheduleTrigger",
+          "scheduleTickWorker"
         ],
         "ForgeControlPlaneRouteFamilyConfig": [
           "promptStore",

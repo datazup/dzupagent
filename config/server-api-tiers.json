@@ -791,6 +791,54 @@
       "area": "versioning",
       "recommendedRootExposure": "remove-root",
       "reason": "Hardcoded version export is a root-surface drift risk and should not be a public contract."
+    },
+    {
+      "match": "exact",
+      "pattern": "./routes/cost-attributor.routes.js",
+      "tier": "secondary",
+      "area": "routes-core",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Per-tenant cost showback routes (Stage 4-E). Shipped on root with the Stage-4 operational suite; keep-root reviewed as current contract. CONTRACTION CANDIDATE: a future ./ops or ./runtime subpath could narrow the default hosting surface (audit full-dzupagent-2026-06-23 ARCH-H-01)."
+    },
+    {
+      "match": "exact",
+      "pattern": "./services/cost-attributor.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "keep-root",
+      "reason": "CostAttributor showback service + Drizzle implementation (Stage 4-E). Root-shipped operational primitive; contraction candidate to ./ops."
+    },
+    {
+      "match": "exact",
+      "pattern": "./metrics/queue-gauge.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Run-queue depth gauges (S4-F) feeding autoscaling/observability. Root-shipped operational primitive; contraction candidate to ./ops."
+    },
+    {
+      "match": "exact",
+      "pattern": "./security/tenant-run-quota.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Per-tenant concurrent-run quota enforcement (Stage 4-D). Root-shipped operational guardrail; contraction candidate to ./ops."
+    },
+    {
+      "match": "exact",
+      "pattern": "./runtime/adapter-meta-store.js",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Adapter-owned resume metadata store (OQ-3). Root-shipped runtime persistence primitive; contraction candidate to ./runtime subpath."
+    },
+    {
+      "match": "prefix",
+      "pattern": "./runtime/event-",
+      "tier": "secondary",
+      "area": "runtime",
+      "recommendedRootExposure": "keep-root",
+      "reason": "Event-history replay runtime (Stage 5): append-only event store, cursor, and replay runtime. Root-shipped opt-in primitives; contraction candidate to ./runtime subpath."
     }
   ]
 }
