@@ -15,7 +15,7 @@ import type { AgentExecutionSpec, RunStore } from "@dzupagent/core/persistence";
 import type { MetricsCollector } from "@dzupagent/core/utils";
 import type { CompressionLogEntry } from "@dzupagent/agent/runtime";
 import type { RunReflectionStore } from "@dzupagent/agent/reflection";
-import type { CostLedgerClient } from "@dzupagent/agent";
+import type { CostLedgerClient } from "@dzupagent/agent/runtime";
 import type { RunQueue } from "../queue/run-queue.js";
 import type { GracefulShutdown } from "../lifecycle/graceful-shutdown.js";
 import type { RunTraceStore } from "../persistence/run-trace-store.js";
@@ -62,7 +62,7 @@ export interface RunExecutorResult {
 }
 
 export type RunExecutor = (
-  context: RunExecutionContext
+  context: RunExecutionContext,
 ) => Promise<unknown | RunExecutorResult>;
 
 // ---------------------------------------------------------------------------
@@ -115,7 +115,7 @@ export interface EscalationPolicyLike {
   recordScore(
     key: string,
     score: number,
-    currentTier: string
+    currentTier: string,
   ): EscalationResultLike;
 }
 
@@ -128,7 +128,7 @@ export interface RunOutcomeAnalyzerLike {
       input?: string;
       output?: string;
       reference?: string;
-    }
+    },
   ): Promise<unknown>;
 }
 
