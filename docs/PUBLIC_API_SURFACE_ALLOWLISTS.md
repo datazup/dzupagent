@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-06-17
+Date: 2026-06-23
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -788,7 +788,7 @@ No stable subpaths configured.
 
 Root index: `packages/runtime-contracts/src/index.ts`
 
-- Stable root sources: `0`
+- Stable root sources: `1`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Runtime contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules.
@@ -801,19 +801,82 @@ No stable subpaths configured.
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
+| `stable` | `./idempotency.js` | 2 | `exact:./idempotency.js` | `canonicalInputDigest`, `materializeIdempotencyKey` |
+
+## @dzupagent/dialogue-core
+
+Root index: `packages/dialogue-core/src/index.ts`
+
+- Stable root sources: `18`
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: DialogueScheduler is contract-frozen (CONTRACT_FREEZE.md v0.2.0); root exports are stable. Add allowlist rules before exposing new root modules.
+
+### Stable Subpaths
+
+No stable subpaths configured.
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
+| `stable` | `./ports/agent-port.js` | 3 | `prefix:./ports/` | `AgentPort`, `AgentResult`, `AgentUsage` |
+| `stable` | `./ports/workspace-port.js` | 4 | `prefix:./ports/` | `DirtyPolicy`, `WorkspaceEffect`, `WorkspacePort`, `WorkspaceSnapshot` |
+| `stable` | `./ports/validator-port.js` | 2 | `prefix:./ports/` | `ValidationResult`, `ValidatorPort` |
+| `stable` | `./ports/trace-port.js` | 1 | `prefix:./ports/` | `TracePort` |
+| `stable` | `./types/agent-run-request.js` | 3 | `prefix:./types/` | `AgentRunInput`, `AgentRunRequest`, `AgentRunScopeFile` |
+| `stable` | `./types/dialogue-branch.js` | 3 | `prefix:./types/` | `BranchCondition`, `DialogueBranch`, `DialogueBranchPath` |
+| `stable` | `./types/handoff-descriptor.js` | 1 | `prefix:./types/` | `HandoffDescriptor` |
+| `stable` | `./types/redaction-policy.js` | 2 | `prefix:./types/` | `RedactedEvents`, `RedactionPolicy` |
+| `stable` | `./types/run-spec.js` | 8 | `prefix:./types/` | `BudgetSpec`, `DecidePolicy`, `DialogueMode`, `ParticipantSpec` |
+| `stable` | `./types/turn-event.js` | 10 | `prefix:./types/` | `DecisionBlock`, `DecisionCriterion`, `PersistedTurnEvent`, `RawTurnEvent` |
+| `stable` | `./types/turn-verb.js` | 2 | `prefix:./types/` | `TURN_VERBS`, `TurnVerb` |
+| `stable` | `./types/validation-spec.js` | 2 | `prefix:./types/` | `SandboxPolicy`, `ValidationSpec` |
+| `stable` | `./run-spec-hash.js` | 4 | `exact:./run-spec-hash.js` | `assertValidRunSpec`, `canonicalizeRunSpec`, `hashRunSpec`, `normalizeRunSpecForHash` |
+| `stable` | `./dialogue-scheduler.js` | 8 | `exact:./dialogue-scheduler.js` | `DialogueScheduler`, `DialogueScheduleItem`, `DialogueSchedulerClock`, `DialogueSchedulerOptions` |
+| `stable` | `./scheduler/branch-state.js` | 2 | `prefix:./scheduler/` | `selectBranchPath`, `BranchSelection` |
+| `stable` | `./scheduler/loop-state.js` | 6 | `prefix:./scheduler/` | `advanceLoopState`, `createLoopState`, `evaluateConditionExpression`, `evaluateLoopAdvance` |
+| `stable` | `./scheduler/mode-gate.js` | 3 | `prefix:./scheduler/` | `DELIBERATE_MODE_SKIP_REASON`, `evaluateModeGate`, `ModeGateDecision` |
+| `stable` | `./scheduler/turn-event-builder.js` | 5 | `prefix:./scheduler/` | `buildAgentRunRequest`, `buildRawTurnEvent`, `redactAndEmitTurnEvent`, `BuildAgentRunRequestInput` |
+
+## @dzupagent/dialogue-core-replay
+
+Root index: `packages/dialogue-core-replay/src/index.ts`
+
+- Stable root sources: `6`
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: Replay harness root exports are the contracted test-support surface; add allowlist rules before exposing new root modules.
+
+### Stable Subpaths
+
+No stable subpaths configured.
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
+| `stable` | `./errors.js` | 2 | `exact:./errors.js` | `ReplayExhaustedError`, `RecordedPortName` |
+| `stable` | `./recorded-agent-port.js` | 2 | `exact:./recorded-agent-port.js` | `RecordedAgentPort`, `RecordedAgentCall` |
+| `stable` | `./recorded-validator-port.js` | 2 | `exact:./recorded-validator-port.js` | `RecordedValidatorPort`, `RecordedValidatorCall` |
+| `stable` | `./recorded-workspace-port.js` | 3 | `exact:./recorded-workspace-port.js` | `RecordedWorkspacePort`, `RecordedWorkspaceEffectCapture`, `RecordedWorkspacePortOptions` |
+| `stable` | `./golden-trace.js` | 5 | `exact:./golden-trace.js` | `GoldenTraceValidationError`, `loadGoldenTrace`, `validateGoldenTrace`, `GoldenTrace` |
+| `stable` | `./replay-dialogue.js` | 4 | `exact:./replay-dialogue.js` | `ReplayAssertionError`, `replayDialogue`, `ReplayDialogueResult`, `SchedulerFactory` |
 
 ## @dzupagent/agent-types
 
 Root index: `packages/agent-types/src/index.ts`
 
-- Stable root sources: `6`
+- Stable root sources: `7`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Agent type root exports are stable Layer 0 contracts; add allowlist rules before exposing new type modules.
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/agent-types/implementation` | implementation orchestration plan contracts and pure helpers |
 
 ### Root Allowlist
 
@@ -825,6 +888,7 @@ No stable subpaths configured.
 | `stable` | `./orchestration-contracts.js` | 4 | `exact:./orchestration-contracts.js` | `BaseSupervisorContract`, `BaseMapReduceContract`, `BaseContractNetContract`, `BaseTeamCoordinationContract` |
 | `stable` | `./memory-client.js` | 9 | `exact:./memory-client.js` | `MemoryClient`, `MemoryScope`, `MemoryQuery`, `MemoryRecord` |
 | `stable` | `./orchestration/dynamic-workflow/index.js` | 18 | `exact:./orchestration/dynamic-workflow/index.js` | `DYNAMIC_WORKFLOW_SCHEMA_VERSION`, `DynamicWorkflowApprovalPolicy`, `DynamicWorkflowArtifactKind`, `DynamicWorkflowArtifactRequirement` |
+| `stable` | `./orchestration/implementation/index.js` | 1 | `exact:./orchestration/implementation/index.js` | `IMPLEMENTATION_ORCHESTRATION_SCHEMA_VERSION` |
 
 ## @dzupagent/eval-contracts
 
@@ -1010,7 +1074,7 @@ No stable subpaths configured.
 
 Root index: `packages/server/src/index.ts`
 
-- Stable root sources: `34`
+- Stable root sources: `43`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: The server root is contracted to keep-root sources; advanced and feature-specific imports must use ops/runtime/compat/features subpaths.
@@ -1035,6 +1099,8 @@ Root index: `packages/server/src/index.ts`
 | `stable` | `./routes/approval.js` | 1 | `stable/routes-core/keep-root` | `createApprovalRoutes` |
 | `stable` | `./routes/health.js` | 1 | `stable/routes-core/keep-root` | `createHealthRoutes` |
 | `stable` | `./routes/events.js` | 2 | `stable/realtime/keep-root` | `createEventRoutes`, `EventRouteConfig` |
+| `stable` | `./routes/cost-attributor.routes.js` | 2 | `secondary/routes-core/keep-root` | `createCostAttributorRoutes`, `CostAttributorRouteConfig` |
+| `stable` | `./services/cost-attributor.js` | 5 | `secondary/runtime/keep-root` | `DrizzleCostAttributor`, `CostAttributor`, `CostAttributorQuery`, `CostAttributorDatabase` |
 | `stable` | `./middleware/auth.js` | 2 | `stable/middleware/keep-root` | `authMiddleware`, `AuthConfig` |
 | `stable` | `./middleware/rate-limiter.js` | 3 | `stable/middleware/keep-root` | `rateLimiterMiddleware`, `TokenBucketLimiter`, `RateLimiterConfig` |
 | `stable` | `./middleware/identity.js` | 4 | `stable/middleware/keep-root` | `identityMiddleware`, `getForgeIdentity`, `getForgeCapabilities`, `IdentityMiddlewareConfig` |
@@ -1043,6 +1109,8 @@ Root index: `packages/server/src/index.ts`
 | `stable` | `./middleware/tenant-scope.js` | 3 | `stable/middleware/keep-root` | `tenantScopeMiddleware`, `getTenantId`, `TenantScopeConfig` |
 | `stable` | `./queue/run-queue.js` | 7 | `stable/queue/keep-root` | `InMemoryRunQueue`, `RunQueue`, `RunJob`, `RunQueueConfig` |
 | `stable` | `./queue/bullmq-run-queue.js` | 2 | `stable/queue/keep-root` | `BullMQRunQueue`, `BullMQRunQueueConfig` |
+| `stable` | `./queue/postgres-run-queue.js` | 3 | `stable/queue/keep-root` | `PostgresRunQueue`, `PostgresRunQueueConfig`, `PostgresRunQueueDatabase` |
+| `stable` | `./metrics/queue-gauge.js` | 2 | `secondary/runtime/keep-root` | `registerQueueGauges`, `updateQueueGauges` |
 | `stable` | `./lifecycle/graceful-shutdown.js` | 3 | `stable/lifecycle/keep-root` | `GracefulShutdown`, `ShutdownConfig`, `ShutdownState` |
 | `stable` | `./ws/event-bridge.js` | 4 | `stable/realtime/keep-root` | `EventBridge`, `WSClient`, `ClientFilter`, `EventBridgeConfig` |
 | `stable` | `./ws/control-protocol.js` | 6 | `stable/realtime/keep-root` | `createWsControlHandler`, `WSControlClientMessage`, `WSControlServerMessage`, `WSControlHandlerOptions` |
@@ -1058,8 +1126,13 @@ Root index: `packages/server/src/index.ts`
 | `stable` | `./platforms/vercel.js` | 1 | `stable/platforms/keep-root` | `toVercelHandler` |
 | `stable` | `./platforms/cloudflare.js` | 1 | `stable/platforms/keep-root` | `toCloudflareHandler` |
 | `stable` | `./security/input-guard.js` | 5 | `stable/security/keep-root` | `createInputGuard`, `DEFAULT_MAX_INPUT_LENGTH`, `InputGuard`, `InputGuardConfig` |
+| `stable` | `./security/tenant-run-quota.js` | 4 | `secondary/runtime/keep-root` | `InMemoryTenantRunQuota`, `DrizzleTenantRunQuota`, `TenantRunQuota`, `TenantRunQuotaResult` |
 | `stable` | `./guardrails/redis-guardrail-client.js` | 3 | `secondary/security/keep-root` | `RedisGuardrailClient`, `createRedisGuardrailClientFromConnection`, `RedisLikeConnection` |
 | `stable` | `./persistence/create-node-ledger.js` | 1 | `secondary/persistence/keep-root` | `createPostgresNodeLedger` |
 | `stable` | `./persistence/flow-artifact-store.js` | 4 | `secondary/persistence/keep-root` | `InMemoryFlowArtifactStore`, `PostgresFlowArtifactStore`, `FlowArtifact`, `FlowArtifactStore` |
 | `stable` | `./persistence/flow-approval-store.js` | 5 | `secondary/persistence/keep-root` | `InMemoryFlowApprovalStore`, `PostgresFlowApprovalStore`, `FlowApproval`, `FlowApprovalStatus` |
+| `stable` | `./runtime/adapter-meta-store.js` | 4 | `secondary/runtime/keep-root` | `InMemoryAdapterMetaStore`, `DrizzleAdapterMetaStore`, `AdapterMeta`, `AdapterMetaStore` |
+| `stable` | `./runtime/event-store.js` | 6 | `secondary/runtime/keep-root` | `InMemoryEventStore`, `DrizzleEventStore`, `EventStore`, `FlowEvent` |
+| `stable` | `./runtime/event-cursor.js` | 1 | `secondary/runtime/keep-root` | `EventCursor` |
+| `stable` | `./runtime/event-history-runtime.js` | 1 | `secondary/runtime/keep-root` | `EventHistoryRuntime` |
 

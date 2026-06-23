@@ -94,10 +94,11 @@ export {
 export type { TenantScopeConfig } from "./middleware/tenant-scope.js";
 
 // --- Persistence ---
-export {
-  PostgresRunStore,
-  PostgresAgentStore,
-} from "./persistence/postgres-stores.js";
+// NOTE: PostgresRunStore / PostgresAgentStore are intentionally NOT re-exported
+// from the root barrel. Per config/server-api-tiers.json they are
+// `secondary/candidate-subpath` (too implementation-specific for the default
+// root surface) and are exposed via the `@dzupagent/server/ops` subpath. The
+// server-api-surface gate enforces this contraction.
 
 // --- Queue ---
 export { InMemoryRunQueue } from "./queue/run-queue.js";

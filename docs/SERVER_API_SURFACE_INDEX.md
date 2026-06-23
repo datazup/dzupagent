@@ -1,14 +1,14 @@
 # Server API Surface Index
 
-Date: 2026-06-17
+Date: 2026-06-23
 
 Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`.
 
 ## Summary
 
-- Unique export sources in root index: `34`
-- Tier counts: stable=`30`, secondary=`4`, experimental=`0`, internal=`0`
-- Recommended root exposure: keep-root=`34`, candidate-subpath=`0`, remove-root=`0`
+- Unique export sources in root index: `43`
+- Tier counts: stable=`31`, secondary=`12`, experimental=`0`, internal=`0`
+- Recommended root exposure: keep-root=`43`, candidate-subpath=`0`, remove-root=`0`
 
 ## Current Direct Root Imports
 
@@ -25,6 +25,8 @@ No direct `@dzupagent/server` root imports found in scanned workspace code.
 | `./routes/approval.js` | `stable` | `routes-core` | `keep-root` | 1 | `createApprovalRoutes` |
 | `./routes/health.js` | `stable` | `routes-core` | `keep-root` | 1 | `createHealthRoutes` |
 | `./routes/events.js` | `stable` | `realtime` | `keep-root` | 2 | `createEventRoutes`, `EventRouteConfig` |
+| `./routes/cost-attributor.routes.js` | `secondary` | `routes-core` | `keep-root` | 2 | `createCostAttributorRoutes`, `CostAttributorRouteConfig` |
+| `./services/cost-attributor.js` | `secondary` | `runtime` | `keep-root` | 5 | `DrizzleCostAttributor`, `CostAttributor`, `CostAttributorQuery`, `CostAttributorDatabase` |
 | `./middleware/auth.js` | `stable` | `middleware` | `keep-root` | 2 | `authMiddleware`, `AuthConfig` |
 | `./middleware/rate-limiter.js` | `stable` | `middleware` | `keep-root` | 3 | `rateLimiterMiddleware`, `TokenBucketLimiter`, `RateLimiterConfig` |
 | `./middleware/identity.js` | `stable` | `middleware` | `keep-root` | 4 | `identityMiddleware`, `getForgeIdentity`, `getForgeCapabilities`, `IdentityMiddlewareConfig` |
@@ -33,6 +35,8 @@ No direct `@dzupagent/server` root imports found in scanned workspace code.
 | `./middleware/tenant-scope.js` | `stable` | `middleware` | `keep-root` | 3 | `tenantScopeMiddleware`, `getTenantId`, `TenantScopeConfig` |
 | `./queue/run-queue.js` | `stable` | `queue` | `keep-root` | 7 | `InMemoryRunQueue`, `RunQueue`, `RunJob`, `RunQueueConfig` |
 | `./queue/bullmq-run-queue.js` | `stable` | `queue` | `keep-root` | 2 | `BullMQRunQueue`, `BullMQRunQueueConfig` |
+| `./queue/postgres-run-queue.js` | `stable` | `queue` | `keep-root` | 3 | `PostgresRunQueue`, `PostgresRunQueueConfig`, `PostgresRunQueueDatabase` |
+| `./metrics/queue-gauge.js` | `secondary` | `runtime` | `keep-root` | 2 | `registerQueueGauges`, `updateQueueGauges` |
 | `./lifecycle/graceful-shutdown.js` | `stable` | `lifecycle` | `keep-root` | 3 | `GracefulShutdown`, `ShutdownConfig`, `ShutdownState` |
 | `./ws/event-bridge.js` | `stable` | `realtime` | `keep-root` | 4 | `EventBridge`, `WSClient`, `ClientFilter`, `EventBridgeConfig` |
 | `./ws/control-protocol.js` | `stable` | `realtime` | `keep-root` | 6 | `createWsControlHandler`, `WSControlClientMessage`, `WSControlServerMessage`, `WSControlHandlerOptions` |
@@ -48,10 +52,15 @@ No direct `@dzupagent/server` root imports found in scanned workspace code.
 | `./platforms/vercel.js` | `stable` | `platforms` | `keep-root` | 1 | `toVercelHandler` |
 | `./platforms/cloudflare.js` | `stable` | `platforms` | `keep-root` | 1 | `toCloudflareHandler` |
 | `./security/input-guard.js` | `stable` | `security` | `keep-root` | 5 | `createInputGuard`, `DEFAULT_MAX_INPUT_LENGTH`, `InputGuard`, `InputGuardConfig` |
+| `./security/tenant-run-quota.js` | `secondary` | `runtime` | `keep-root` | 4 | `InMemoryTenantRunQuota`, `DrizzleTenantRunQuota`, `TenantRunQuota`, `TenantRunQuotaResult` |
 | `./guardrails/redis-guardrail-client.js` | `secondary` | `security` | `keep-root` | 3 | `RedisGuardrailClient`, `createRedisGuardrailClientFromConnection`, `RedisLikeConnection` |
 | `./persistence/create-node-ledger.js` | `secondary` | `persistence` | `keep-root` | 1 | `createPostgresNodeLedger` |
 | `./persistence/flow-artifact-store.js` | `secondary` | `persistence` | `keep-root` | 4 | `InMemoryFlowArtifactStore`, `PostgresFlowArtifactStore`, `FlowArtifact`, `FlowArtifactStore` |
 | `./persistence/flow-approval-store.js` | `secondary` | `persistence` | `keep-root` | 5 | `InMemoryFlowApprovalStore`, `PostgresFlowApprovalStore`, `FlowApproval`, `FlowApprovalStatus` |
+| `./runtime/adapter-meta-store.js` | `secondary` | `runtime` | `keep-root` | 4 | `InMemoryAdapterMetaStore`, `DrizzleAdapterMetaStore`, `AdapterMeta`, `AdapterMetaStore` |
+| `./runtime/event-store.js` | `secondary` | `runtime` | `keep-root` | 6 | `InMemoryEventStore`, `DrizzleEventStore`, `EventStore`, `FlowEvent` |
+| `./runtime/event-cursor.js` | `secondary` | `runtime` | `keep-root` | 1 | `EventCursor` |
+| `./runtime/event-history-runtime.js` | `secondary` | `runtime` | `keep-root` | 1 | `EventHistoryRuntime` |
 
 ## Notes
 
