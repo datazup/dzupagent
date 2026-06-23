@@ -15,14 +15,20 @@
     "  fileLineAllowlist            - package-relative paths exempt from maxFileLines (pre-existing debt, pinned)",
     "Removing or renaming a root export is a published-consumer breakage and is NOT how you lower these numbers;",
     "lower them only by relocating a cluster to a subpath while keeping a root re-export, which leaves counts flat.",
-    "Lower maxFileLines debt by extracting cohesive sub-modules, then shrinking the allowlist."
+    "Lower maxFileLines debt by extracting cohesive sub-modules, then shrinking the allowlist.",
+    "2026-06-23 Phase-0 re-pin (audit full-dzupagent-2026-06-23/run-001): @dzupagent/core budgets ratcheted",
+    "876->885/136->138/1238->1256 for intentional shipped root exports (BaseChatModel re-export 5620e656,",
+    "MCP stdio hardening, runtime primitives); relocating them now would break consumers per the rule above.",
+    "flow-ast/types.ts aux budget 828->1174 and the two new fileLineAllowlist entries (flow-ast",
+    "validate/document.ts, flow-compiler stages/shape-validate.ts) are DEBT-PINNED pending the RF-9 / MC-5",
+    "sub-module extraction (DZUPAGENT-CODE-M-08 / ARCH-M-06) — shrink the allowlist + budget when that lands."
   ],
   "packages": {
     "@dzupagent/core": {
-      "maxRootBarrelExplicitExports": 876,
+      "maxRootBarrelExplicitExports": 885,
       "maxRootBarrelStarExports": 0,
-      "maxRootBarrelSourceCount": 136,
-      "maxRootIndexLines": 1238
+      "maxRootBarrelSourceCount": 138,
+      "maxRootIndexLines": 1256
     },
     "@dzupagent/flow-ast": {
       "maxRootBarrelExplicitExports": 0,
@@ -30,16 +36,17 @@
       "maxRootBarrelSourceCount": 5,
       "maxRootIndexLines": 5,
       "auxiliarySourceLineBudgets": {
-        "src/types.ts": 828
+        "src/types.ts": 1174
       },
       "maxFileLines": 500,
-      "fileLineAllowlist": ["src/types.ts"]
+      "fileLineAllowlist": ["src/types.ts", "src/validate/document.ts"]
     },
     "@dzupagent/flow-compiler": {
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/compile-orchestrator.ts",
-        "src/lower/lower-skill-chain.ts"
+        "src/lower/lower-skill-chain.ts",
+        "src/stages/shape-validate.ts"
       ]
     }
   }
