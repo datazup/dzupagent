@@ -4,6 +4,7 @@
  */
 
 import type { EmbeddingProvider } from '../embedding-types.js'
+import { vectorHttpErrorToForgeError } from '../http-error.js'
 
 export interface OllamaEmbeddingConfig {
   /** Ollama model name (required, e.g. 'nomic-embed-text') */
@@ -44,7 +45,7 @@ export function createOllamaEmbedding(config: OllamaEmbeddingConfig): EmbeddingP
 
     if (!response.ok) {
       const body = await response.text().catch(() => 'unknown error')
-      throw new Error(`Ollama embedding request failed (${response.status}): ${body}`)
+      throw vectorHttpErrorToForgeError(response.status, body, 'ollama-embedding')
     }
 
     const json = (await response.json()) as OllamaEmbedResponse

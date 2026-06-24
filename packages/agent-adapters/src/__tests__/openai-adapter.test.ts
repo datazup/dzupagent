@@ -190,7 +190,7 @@ describe('OpenAIAdapter', () => {
     expect(url).toBe('http://127.0.0.1:11434/v1/chat/completions')
   })
 
-  it('yields adapter:failed for non-200 responses with status + body in error', async () => {
+  it('yields adapter:failed for non-200 responses with a normalized error code (body not leaked)', async () => {
     const errorBody = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.close()
@@ -211,8 +211,9 @@ describe('OpenAIAdapter', () => {
     const failed = events[1]
     if (failed?.type === 'adapter:failed') {
       expect(failed.error).toContain('429')
-      expect(failed.error).toContain('Rate limit exceeded')
-      expect(failed.code).toBe('ADAPTER_EXECUTION_FAILED')
+      // Raw upstream body must NOT leak into the surfaced error message.
+      expect(failed.error).not.toContain('Rate limit exceeded')
+      expect(failed.code).toBe('PROVIDER_RATE_LIMITED')
     }
   })
 

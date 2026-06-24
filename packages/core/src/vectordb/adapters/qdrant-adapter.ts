@@ -14,6 +14,7 @@ import type {
   MetadataFilter,
   DistanceMetric,
 } from '../types.js'
+import { vectorHttpErrorToForgeError } from '../http-error.js'
 
 /** Configuration for the Qdrant adapter */
 export interface QdrantAdapterConfig {
@@ -141,11 +142,7 @@ export class QdrantAdapter implements VectorStore {
     const data = (await res.json()) as T
 
     if (!res.ok) {
-      const message =
-        typeof data === 'object' && data !== null && 'status' in data
-          ? String((data as Record<string, unknown>)['status'])
-          : `Qdrant request failed: ${res.status}`
-      throw new Error(message)
+      throw vectorHttpErrorToForgeError(res.status, data, 'qdrant')
     }
 
     return { status: res.status, data }

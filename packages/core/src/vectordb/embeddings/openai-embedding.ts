@@ -4,6 +4,7 @@
  */
 
 import type { EmbeddingProvider } from '../embedding-types.js'
+import { vectorHttpErrorToForgeError } from '../http-error.js'
 
 export interface OpenAIEmbeddingConfig {
   apiKey: string
@@ -53,7 +54,7 @@ export function createOpenAIEmbedding(config: OpenAIEmbeddingConfig): EmbeddingP
 
     if (!response.ok) {
       const body = await response.text().catch(() => 'unknown error')
-      throw new Error(`OpenAI embedding request failed (${response.status}): ${body}`)
+      throw vectorHttpErrorToForgeError(response.status, body, 'openai-embedding')
     }
 
     const json = (await response.json()) as OpenAIEmbeddingResponse

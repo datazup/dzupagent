@@ -40,6 +40,9 @@ export type {
 // --- Filter utilities ---
 export { cosineSimilarity, evaluateFilter } from './filter-utils.js'
 
+// --- HTTP error normalization ---
+export { vectorHttpErrorToForgeError } from './http-error.js'
+
 // --- In-memory vector store ---
 export { InMemoryVectorStore } from './in-memory-vector-store.js'
 

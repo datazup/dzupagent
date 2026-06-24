@@ -3,6 +3,7 @@
  */
 
 import type { EmbeddingProvider } from '../embedding-types.js'
+import { vectorHttpErrorToForgeError } from '../http-error.js'
 
 export interface CohereEmbeddingConfig {
   apiKey: string
@@ -55,7 +56,7 @@ export function createCohereEmbedding(config: CohereEmbeddingConfig): EmbeddingP
 
     if (!response.ok) {
       const body = await response.text().catch(() => 'unknown error')
-      throw new Error(`Cohere embedding request failed (${response.status}): ${body}`)
+      throw vectorHttpErrorToForgeError(response.status, body, 'cohere-embedding')
     }
 
     const json = (await response.json()) as CohereEmbeddingResponse
@@ -86,7 +87,7 @@ export function createCohereEmbedding(config: CohereEmbeddingConfig): EmbeddingP
 
     if (!response.ok) {
       const body = await response.text().catch(() => 'unknown error')
-      throw new Error(`Cohere embedding query failed (${response.status}): ${body}`)
+      throw vectorHttpErrorToForgeError(response.status, body, 'cohere-embedding')
     }
 
     const json = (await response.json()) as CohereEmbeddingResponse

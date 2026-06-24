@@ -3,6 +3,7 @@
  */
 
 import type { EmbeddingProvider } from '../embedding-types.js'
+import { vectorHttpErrorToForgeError } from '../http-error.js'
 
 export interface VoyageEmbeddingConfig {
   apiKey: string
@@ -57,7 +58,7 @@ export function createVoyageEmbedding(config: VoyageEmbeddingConfig): EmbeddingP
 
     if (!response.ok) {
       const body = await response.text().catch(() => 'unknown error')
-      throw new Error(`Voyage embedding request failed (${response.status}): ${body}`)
+      throw vectorHttpErrorToForgeError(response.status, body, 'voyage-embedding')
     }
 
     const json = (await response.json()) as VoyageEmbeddingResponse

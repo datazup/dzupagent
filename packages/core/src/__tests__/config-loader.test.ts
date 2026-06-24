@@ -193,7 +193,7 @@ describe('Config Loader', () => {
       mockedReadFile.mockResolvedValue(fileContent)
 
       const config = await loadFileConfig('/path/to/config.json')
-      expect(mockedReadFile).toHaveBeenCalledWith('/path/to/config.json', 'utf-8')
+      expect(mockedReadFile).toHaveBeenCalledWith('/path/to/config.json', 'utf8')
       expect(config).toEqual({
         plugins: ['./my-plugin.js'],
         providers: [{
@@ -231,10 +231,17 @@ describe('Config Loader', () => {
       }])
     })
 
-    it('returns empty object for missing file', async () => {
-      mockedReadFile.mockRejectedValue(new Error('ENOENT'))
+    it('returns empty object for missing file (ENOENT)', async () => {
+      const enoent = Object.assign(new Error('no such file'), { code: 'ENOENT' })
+      mockedReadFile.mockRejectedValue(enoent)
       const config = await loadFileConfig('/does/not/exist.json')
       expect(config).toEqual({})
+    })
+
+    it('rethrows non-ENOENT IO errors instead of masking them', async () => {
+      const eacces = Object.assign(new Error('permission denied'), { code: 'EACCES' })
+      mockedReadFile.mockRejectedValue(eacces)
+      await expect(loadFileConfig('/protected.json')).rejects.toMatchObject({ code: 'EACCES' })
     })
 
     it('returns empty object for invalid JSON', async () => {

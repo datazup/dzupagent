@@ -73,6 +73,8 @@ export type { OmitUndefined } from './utils/exact-optional.js'
 export { getString, getNumber, getObject, toJsonString } from './utils/event-record.js'
 export { parseJsonl } from './utils/parse-jsonl.js'
 export type { ParseJsonlOptions, ParseJsonlSkipReason } from './utils/parse-jsonl.js'
+export { readJsonFileOrDefault, readTextFileOrDefault } from './utils/file-utils.js'
+export type { MinimalLogger, ReadFileOrDefaultOptions } from './utils/file-utils.js'
 
 // ---------------------------------------------------------------------------
 // Guardrails

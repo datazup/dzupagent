@@ -16,6 +16,7 @@ import type {
   MetadataFilter,
   DistanceMetric,
 } from '../types.js'
+import { vectorHttpErrorToForgeError } from '../http-error.js'
 
 /** Configuration for the ChromaDB adapter */
 export interface ChromaDBAdapterConfig {
@@ -135,7 +136,7 @@ export class ChromaDBAdapter implements VectorStore {
 
     if (!response.ok) {
       const text = await response.text().catch(() => 'unknown error')
-      throw new Error(`ChromaDB request failed: ${response.status} ${response.statusText} - ${text}`)
+      throw vectorHttpErrorToForgeError(response.status, text, 'chroma')
     }
 
     return response.json() as Promise<T>

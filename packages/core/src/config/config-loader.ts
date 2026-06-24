@@ -5,7 +5,7 @@
  *   runtime overrides > environment variables > config file > defaults
  */
 
-import { readFile } from 'node:fs/promises';
+import { readTextFileOrDefault } from '../utils/file-utils.js';
 import { validateConfig } from './config-schema.js';
 import type { ConfigLayer, ForgeConfig, ProviderConfig } from './config-types.js';
 import {
@@ -169,8 +169,13 @@ export function loadEnvConfig(): Partial<ForgeConfig> {
  * Load configuration from a JSON file. Returns empty partial on missing file.
  */
 export async function loadFileConfig(filePath: string): Promise<Partial<ForgeConfig>> {
+  // ENOENT -> {} (missing config is fine); other IO errors are rethrown.
+  const raw = await readTextFileOrDefault<null>(filePath, null);
+  if (raw === null) return {};
+
+  // Malformed JSON / failed validation is tolerated (returns {}) — only the
+  // underlying filesystem read distinguishes "missing" from "broken".
   try {
-    const raw = await readFile(filePath, 'utf-8');
     const parsed: unknown = JSON.parse(raw);
     if (!isPlainObject(parsed)) return {};
     const result = validateConfig(parsed);

@@ -238,7 +238,9 @@ export class AdapterStreamRunner<TRaw> {
         providerId: source.providerId,
         ...(context.sessionId ? { sessionId: context.sessionId } : {}),
         error: forgeErr.message,
-        code: 'ADAPTER_EXECUTION_FAILED',
+        // Surface the underlying ForgeError code (e.g. PROVIDER_RATE_LIMITED)
+        // so circuit-breaker / fallback logic can act on it.
+        code: forgeErr.code,
         timestamp: Date.now(),
         ...(input.correlationId ? { correlationId: input.correlationId } : {}),
       }
