@@ -15,11 +15,19 @@ function createRepo({
   serverRouteBoundaries,
   serverRouteFiles = [],
   serverRouteFileContents = {},
+  internalBroadRootImportPolicy,
 } = {}) {
   const repoRoot = mkdtempSync(join(tmpdir(), 'domain-boundaries-'))
   mkdirSync(join(repoRoot, 'config'), { recursive: true })
   mkdirSync(join(repoRoot, 'packages', 'alpha', 'src'), { recursive: true })
   mkdirSync(join(repoRoot, 'packages', 'beta', 'src'), { recursive: true })
+
+  if (internalBroadRootImportPolicy) {
+    writeFileSync(
+      join(repoRoot, 'config', 'public-api-allowlists.json'),
+      JSON.stringify({ internalBroadRootImportPolicy, packages: [] }, null, 2),
+    )
+  }
 
   writeFileSync(
     join(repoRoot, 'config', 'package-tiers.json'),
@@ -148,6 +156,71 @@ test('ignores scaffold template strings that contain generated imports', () => {
 
   try {
     assert.doesNotThrow(() => runDomainBoundaryCheck(repoRoot))
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test('deny-by-default: a new unlisted file importing a broad package root fails the check', () => {
+  const repoRoot = createRepo({
+    alphaPackageJson: { dependencies: { '@dzupagent/beta': '0.2.0' } },
+    alphaSource: "import { thing } from '@dzupagent/beta'\nvoid thing\n",
+    internalBroadRootImportPolicy: {
+      targetSpecifiers: ['@dzupagent/beta'],
+      exemptFiles: [],
+    },
+  })
+
+  try {
+    const result = runDomainBoundaryCheckResult(repoRoot)
+    assert.ifError(result.error)
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /INTERNAL BROAD ROOT IMPORT VIOLATIONS/)
+    assert.match(result.stderr, /packages\/alpha\/src\/index\.ts/)
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test('deny-by-default: a broad-root import passes only when on the exemptFiles allowlist', () => {
+  const repoRoot = createRepo({
+    alphaPackageJson: { dependencies: { '@dzupagent/beta': '0.2.0' } },
+    alphaSource: "import { thing } from '@dzupagent/beta'\nvoid thing\n",
+    internalBroadRootImportPolicy: {
+      targetSpecifiers: ['@dzupagent/beta'],
+      exemptFiles: [
+        {
+          file: 'packages/alpha/src/index.ts',
+          specifier: '@dzupagent/beta',
+          owner: 'test-owner',
+          expiryVersion: '0.x',
+        },
+      ],
+    },
+  })
+
+  try {
+    assert.doesNotThrow(() => runDomainBoundaryCheck(repoRoot))
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test('deny-by-default: an exemptFiles entry missing owner or expiryVersion fails the check', () => {
+  const repoRoot = createRepo({
+    alphaPackageJson: { dependencies: { '@dzupagent/beta': '0.2.0' } },
+    alphaSource: "import { thing } from '@dzupagent/beta'\nvoid thing\n",
+    internalBroadRootImportPolicy: {
+      targetSpecifiers: ['@dzupagent/beta'],
+      exemptFiles: [{ file: 'packages/alpha/src/index.ts', specifier: '@dzupagent/beta' }],
+    },
+  })
+
+  try {
+    const result = runDomainBoundaryCheckResult(repoRoot)
+    assert.ifError(result.error)
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /MALFORMED EXEMPTION/)
   } finally {
     rmSync(repoRoot, { recursive: true, force: true })
   }

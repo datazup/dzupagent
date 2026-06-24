@@ -88,8 +88,8 @@ export function mountOptionalRoutes(
 
 export function buildOptionalRoutePlugins(
   ctx: OptionalRoutesContext
-): ServerRoutePlugin<ForgeServerConfig>[] {
-  const plugins: ServerRoutePlugin<ForgeServerConfig>[] = [];
+): ServerRoutePlugin[] {
+  const plugins: ServerRoutePlugin[] = [];
 
   if (ctx.runtimeConfig.memoryService || ctx.runtimeConfig.memoryHealth) {
     plugins.push(
@@ -200,7 +200,7 @@ export function buildOptionalRoutePlugins(
 function createOptionalRouteFamilyPlugin(
   name: string,
   mount: (app: Hono<AppEnv>) => void
-): ServerRoutePlugin<ForgeServerConfig> {
+): ServerRoutePlugin {
   return {
     family: name,
     prefix: "",

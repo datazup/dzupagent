@@ -511,8 +511,7 @@ export interface ForgeControlPlaneRouteFamilyConfig {
  * Hono composition instead of adding fields here.
  */
 export interface ForgeRouteFamiliesConfig
-  extends
-    ForgeMemoryRouteFamilyConfig,
+  extends ForgeMemoryRouteFamilyConfig,
     ForgeCompatibilityRouteFamilyConfig,
     ForgeEvaluationRouteFamilyConfig,
     ForgeAdapterRouteFamilyConfig,
@@ -534,7 +533,7 @@ export interface ForgeIntegrationsConfig extends ForgeRouteFamiliesConfig {
    * app/product routes; new product-control-plane endpoints should be composed
    * by the consuming app instead of added as built-in packages/server routes.
    */
-  routePlugins?: ServerRoutePlugin<ForgeServerConfig>[];
+  routePlugins?: ServerRoutePlugin[];
 }
 
 /**
@@ -547,8 +546,7 @@ export interface ForgeIntegrationsConfig extends ForgeRouteFamiliesConfig {
  * `routePlugins` or app-level Hono composition.
  */
 export interface ForgeHostRuntimeConfig
-  extends
-    ForgeCoreConfig,
+  extends ForgeCoreConfig,
     ForgeTransportConfig,
     ForgeRuntimeConfig,
     ForgeSecurityConfig {
@@ -593,8 +591,7 @@ export interface ForgeSecurityConfig {
  * sub-interfaces so individual composition helpers can ask for narrow slices.
  */
 export interface ForgeServerConfig
-  extends
-    ForgeCoreConfig,
+  extends ForgeCoreConfig,
     ForgeTransportConfig,
     ForgeRuntimeConfig,
     ForgeIntegrationsConfig,

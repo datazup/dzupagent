@@ -23,8 +23,8 @@ import {
 export function buildBuiltInRoutePlugins(
   config: ForgeServerConfig,
   eventGateway: EventGateway
-): ServerRoutePlugin<ForgeServerConfig>[] {
-  const plugins: ServerRoutePlugin<ForgeServerConfig>[] = [];
+): ServerRoutePlugin[] {
+  const plugins: ServerRoutePlugin[] = [];
   const effectiveCompileConfig: CompileRouteConfig | undefined =
     config.compile?.personaResolver || !config.personaStore
       ? {
@@ -89,12 +89,34 @@ export function buildBuiltInRoutePlugins(
   return plugins;
 }
 
+/**
+ * Build the NARROW route-plugin context (RF-8 / ARCH-M-05). Exposes only the
+ * event bus, auth, metrics, and a declared-services capability map — never the
+ * full `ForgeServerConfig`.
+ */
+export function buildRoutePluginContext(
+  serverConfig: ForgeServerConfig
+): ServerRoutePluginContext {
+  return {
+    eventBus: serverConfig.eventBus,
+    ...(serverConfig.auth !== undefined ? { auth: serverConfig.auth } : {}),
+    ...(serverConfig.metrics !== undefined
+      ? { metrics: serverConfig.metrics }
+      : {}),
+    declaredServices: {
+      auth: serverConfig.auth !== undefined,
+      metrics: serverConfig.metrics !== undefined,
+    },
+  };
+}
+
 export function mountRoutePlugins(
   app: Hono<AppEnv>,
-  plugins: readonly ServerRoutePlugin<ForgeServerConfig>[],
+  plugins: readonly ServerRoutePlugin[],
   serverConfig: ForgeServerConfig
 ): void {
-  const context: ServerRoutePluginContext<ForgeServerConfig> = { serverConfig };
+  const context: ServerRoutePluginContext =
+    buildRoutePluginContext(serverConfig);
   for (const plugin of plugins) {
     if (plugin.prefix !== "" && !plugin.prefix.startsWith("/")) {
       console.warn(
@@ -107,6 +129,8 @@ export function mountRoutePlugins(
       typeof app.route
     >[1];
     app.route(plugin.prefix, subApp);
+    // onMount gets the mounted host config (lifecycle escape hatch) plus the
+    // narrow context. createRoutes only ever sees the narrow context.
     plugin.onMount?.(serverConfig, context);
   }
 }

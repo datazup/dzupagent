@@ -19,9 +19,24 @@
     "2026-06-23 Phase-0 re-pin (audit full-dzupagent-2026-06-23/run-001): @dzupagent/core budgets ratcheted",
     "876->885/136->138/1238->1256 for intentional shipped root exports (BaseChatModel re-export 5620e656,",
     "MCP stdio hardening, runtime primitives); relocating them now would break consumers per the rule above.",
-    "flow-ast/types.ts aux budget 828->1174 and the two new fileLineAllowlist entries (flow-ast",
-    "validate/document.ts, flow-compiler stages/shape-validate.ts) are DEBT-PINNED pending the RF-9 / MC-5",
-    "sub-module extraction (DZUPAGENT-CODE-M-08 / ARCH-M-06) — shrink the allowlist + budget when that lands."
+    "flow-ast/types.ts aux budget 828->1174 and the flow-ast validate/document.ts fileLineAllowlist entry are",
+    "DEBT-PINNED pending the MC-5 sub-module extraction (DZUPAGENT-CODE-M-08) — shrink them when that lands.",
+    "flow-compiler stages/shape-validate.ts was DEBT-PINNED until the RF-9 refactor (see below) removed it.",
+    "2026-06-24 RF-7 (ARCH-H-02): extended barrel governance to every uncovered Tier-1/2 package.",
+    "Each newly-added package gets maxRootIndexLines pinned at its current src/index.ts line count and a",
+    "maxFileLines:500 per-file ceiling, with current >500-LOC files captured in fileLineAllowlist as pinned",
+    "debt (gate green today, RED on any NEW oversized file or root-index growth). Lower each maxRootIndexLines",
+    "or shrink each fileLineAllowlist only by extracting cohesive sub-modules — never by removing a published",
+    "root export. NOTE: stableRoot/transitionalRoot allowlist entries are Tier-1-only by gate design",
+    "(check-package-tiers.mjs FAILS a Tier-2 package that carries root-barrel allowlist rules and REQUIRES every",
+    "Tier-1 package to have them); all Tier-1 packages are already governed, so RF-7 adds no new allowlist",
+    "entries — barrel-budgets is the correct governance surface for the remaining Tier-2 packages.",
+    "2026-06-24 RF-9 (CODE-M-08 / ARCH-M-06): flow-compiler stages/shape-validate.ts refactored to a",
+    "data-driven per-node-kind validator table; when the file drops below 500 LOC its fileLineAllowlist entry",
+    "is removed (gate then enforces the 500-LOC ceiling on it directly).",
+    "2026-06-24 RF-8 (ARCH-M-05): @dzupagent/server maxRootIndexLines 263->266 for the reviewed",
+    "ServerRouteMountable + ServerDeclaredServices + MountedServerConfig root exports added by the",
+    "narrowed route-plugin seam."
   ],
   "packages": {
     "@dzupagent/core": {
@@ -29,6 +44,122 @@
       "maxRootBarrelStarExports": 0,
       "maxRootBarrelSourceCount": 138,
       "maxRootIndexLines": 1256
+    },
+    "@dzupagent/security": {
+      "maxRootIndexLines": 55,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/agent": {
+      "maxRootIndexLines": 722,
+      "maxFileLines": 500,
+      "fileLineAllowlist": [
+        "src/index.ts",
+        "src/agent/run-engine.ts",
+        "src/agent/tool-loop/types.ts",
+        "src/pipeline/pipeline-executor.ts",
+        "src/reflection/run-reflector.ts",
+        "src/security/agent-auth.ts",
+        "src/self-correction/post-run-analyzer.ts",
+        "src/self-correction/recovery-feedback.ts"
+      ]
+    },
+    "@dzupagent/memory": {
+      "maxRootIndexLines": 434,
+      "maxFileLines": 500,
+      "fileLineAllowlist": [
+        "src/http-client.ts",
+        "src/provenance/reference-tracker.ts"
+      ]
+    },
+    "@dzupagent/context": {
+      "maxRootIndexLines": 97,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/rag": {
+      "maxRootIndexLines": 75,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/connectors": {
+      "maxRootIndexLines": 95,
+      "maxFileLines": 500,
+      "fileLineAllowlist": ["src/github/github-client.ts"]
+    },
+    "@dzupagent/agent-adapters": {
+      "maxRootIndexLines": 768,
+      "maxFileLines": 500,
+      "fileLineAllowlist": [
+        "src/index.ts",
+        "src/http/adapter-http-handler.ts",
+        "src/registry/registry-router.ts"
+      ]
+    },
+    "@dzupagent/otel": {
+      "maxRootIndexLines": 83,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/codegen": {
+      "maxRootIndexLines": 455,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/runtime-contracts": {
+      "maxRootIndexLines": 15,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/agent-types": {
+      "maxRootIndexLines": 53,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/eval-contracts": {
+      "maxRootIndexLines": 13,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/dialogue-core": {
+      "maxRootIndexLines": 106,
+      "maxFileLines": 500,
+      "fileLineAllowlist": ["src/dialogue-scheduler.ts"]
+    },
+    "@dzupagent/dialogue-core-replay": {
+      "maxRootIndexLines": 22,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/cache": {
+      "maxRootIndexLines": 12,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/adapter-types": {
+      "maxRootIndexLines": 20,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/adapter-rules": {
+      "maxRootIndexLines": 30,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/connectors-browser": {
+      "maxRootIndexLines": 57,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/connectors-documents": {
+      "maxRootIndexLines": 33,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/express": {
+      "maxRootIndexLines": 34,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
     },
     "@dzupagent/flow-ast": {
       "maxRootBarrelExplicitExports": 0,
@@ -45,9 +176,66 @@
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/compile-orchestrator.ts",
-        "src/lower/lower-skill-chain.ts",
-        "src/stages/shape-validate.ts"
+        "src/lower/lower-skill-chain.ts"
       ]
+    },
+    "@dzupagent/flow-dsl": {
+      "maxRootIndexLines": 9,
+      "maxFileLines": 500,
+      "fileLineAllowlist": [
+        "src/format-dsl.ts",
+        "src/normalize-nodes-agent.ts",
+        "src/normalize-nodes-spawn-emit-memory.ts"
+      ]
+    },
+    "@dzupagent/memory-ipc": {
+      "maxRootIndexLines": 197,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/scraper": {
+      "maxRootIndexLines": 10,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/server": {
+      "maxRootIndexLines": 266,
+      "maxFileLines": 500,
+      "fileLineAllowlist": [
+        "src/composition/optional-routes.ts",
+        "src/composition/types.ts",
+        "src/persistence/drizzle-schema.ts",
+        "src/routes/evals.ts",
+        "src/routes/mcp.ts",
+        "src/runtime/dzip-agent-run-executor.ts",
+        "src/runtime/run-stages-persistence.ts",
+        "src/schedules/schedule-store.ts"
+      ]
+    },
+    "@dzupagent/evals": {
+      "maxRootIndexLines": 227,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/app-tools": {
+      "maxRootIndexLines": 57,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/code-edit-kit": {
+      "maxRootIndexLines": 29,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/hitl-kit": {
+      "maxRootIndexLines": 4,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
+    },
+    "@dzupagent/subagents": {
+      "maxRootIndexLines": 103,
+      "maxFileLines": 500,
+      "fileLineAllowlist": []
     }
   }
 }
