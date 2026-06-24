@@ -3,6 +3,12 @@ import { isTerminalStatus } from "../contracts/background-task.js";
 import type { Clock } from "../contracts/clock.js";
 import type { SubagentEventSink } from "../contracts/events.js";
 import type { CheckpointerPort } from "../contracts/checkpointer-port.js";
+import {
+  SubagentErrorCode,
+  isRecoverableError,
+} from "../contracts/error-codes.js";
+import type { SubagentLogger } from "../contracts/logger.js";
+import { defaultSubagentLogger } from "../contracts/logger.js";
 import type { SubagentExecutorPort } from "../contracts/subagent-executor-port.js";
 import type {
   TaskRunner,
@@ -16,6 +22,8 @@ export interface InProcessRunnerDeps {
   events: SubagentEventSink;
   clock: Clock;
   checkpointer?: CheckpointerPort;
+  /** Structured logger seam; defaults to a JSON-to-stderr logger when absent. */
+  logger?: SubagentLogger;
 }
 
 /**
@@ -31,6 +39,10 @@ export class InProcessRunner implements TaskRunner {
 
   capabilities(): RunnerCapabilities {
     return { durable: false, horizontal: false };
+  }
+
+  private get logger(): SubagentLogger {
+    return this.deps.logger ?? defaultSubagentLogger;
   }
 
   async start(taskId: TaskId, signal: AbortSignal): Promise<void> {
@@ -74,10 +86,17 @@ export class InProcessRunner implements TaskRunner {
       }
       const endedAt = clock.now();
       const message = error instanceof Error ? error.message : String(error);
+      const recoverable = isRecoverableError(error);
       if (await this.alreadyTerminal(taskId)) {
         return;
       }
       await store.patch(taskId, { status: "failed", error: message, endedAt });
+      this.logger.error({
+        taskId,
+        code: SubagentErrorCode.TASK_EXECUTION_FAILED,
+        message,
+        recoverable,
+      });
       events.emit({
         type: "subagent:failed",
         taskId,

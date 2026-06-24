@@ -1,7 +1,10 @@
 import type { BackgroundTask, TaskId } from "../contracts/background-task.js";
 import { isTerminalStatus } from "../contracts/background-task.js";
 import type { Clock } from "../contracts/clock.js";
+import { SubagentErrorCode } from "../contracts/error-codes.js";
 import type { SubagentEventSink } from "../contracts/events.js";
+import type { SubagentLogger } from "../contracts/logger.js";
+import { defaultSubagentLogger } from "../contracts/logger.js";
 import type { TaskStore } from "../contracts/task-store.js";
 import type { LifecyclePolicy } from "../runtime/runtime-config.js";
 
@@ -26,7 +29,9 @@ export class LifecycleController {
     private readonly clock: Clock,
     private readonly events: SubagentEventSink,
     /** Called when a sweep expires a task, so the runtime can free its slot/abort it. */
-    private readonly onExpire: (taskId: TaskId) => void
+    private readonly onExpire: (taskId: TaskId) => void,
+    /** Structured logger seam; defaults to a JSON-to-stderr logger when absent. */
+    private readonly logger: SubagentLogger = defaultSubagentLogger
   ) {}
 
   /** Current number of admitted, non-terminal tasks. */
@@ -106,6 +111,13 @@ export class LifecycleController {
     // the single slot-release point, so we do NOT release here (avoids a
     // double-release). Queued/awaiting_approval tasks hold no slot.
     this.onExpire(task.id);
+    this.logger.warn({
+      taskId: task.id,
+      code: SubagentErrorCode.TTL_EXPIRED,
+      reason: "ttl_expired",
+      ttlMs: task.ttlMs,
+      ageMs: now - task.createdAt,
+    });
     this.events.emit({ type: "subagent:expired", taskId: task.id });
   }
 

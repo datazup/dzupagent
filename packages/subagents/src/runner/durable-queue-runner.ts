@@ -1,4 +1,7 @@
 import type { TaskId } from "../contracts/background-task.js";
+import { SubagentErrorCode } from "../contracts/error-codes.js";
+import type { SubagentLogger } from "../contracts/logger.js";
+import { defaultSubagentLogger } from "../contracts/logger.js";
 import type {
   TaskRunner,
   RunnerCapabilities,
@@ -24,6 +27,11 @@ export class InMemoryTaskQueue implements TaskQueue {
   private readonly pending: TaskId[] = [];
   private handler: ((taskId: TaskId) => Promise<void>) | undefined;
   private draining = false;
+  private readonly logger: SubagentLogger;
+
+  constructor(logger: SubagentLogger = defaultSubagentLogger) {
+    this.logger = logger;
+  }
 
   async enqueue(taskId: TaskId): Promise<void> {
     this.pending.push(taskId);
@@ -49,7 +57,21 @@ export class InMemoryTaskQueue implements TaskQueue {
         if (next === undefined) {
           break;
         }
-        await this.handler(next);
+        // Survive a poisoned handler: a throw here must not reject the void
+        // drain loop, or every subsequent queued task would silently stall.
+        // Log and continue to the next task.
+        try {
+          await this.handler(next);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.logger.error({
+            taskId: next,
+            code: SubagentErrorCode.TASK_EXECUTION_FAILED,
+            message,
+            detail: "queue_handler_threw",
+          });
+        }
       }
     } finally {
       this.draining = false;
@@ -79,6 +101,7 @@ export class DurableQueueRunner implements TaskRunner {
   private readonly queue: TaskQueue;
   private readonly durable: boolean;
   private readonly horizontal: boolean;
+  private readonly logger: SubagentLogger;
   private readonly signals = new Map<TaskId, AbortController>();
   private stopConsumer: (() => void) | undefined;
 
@@ -87,6 +110,7 @@ export class DurableQueueRunner implements TaskRunner {
     this.queue = deps.queue;
     this.durable = deps.durable ?? false;
     this.horizontal = deps.horizontal ?? false;
+    this.logger = deps.logger ?? defaultSubagentLogger;
     this.stopConsumer = this.queue.consume((taskId) => this.execute(taskId));
   }
 
@@ -112,6 +136,18 @@ export class DurableQueueRunner implements TaskRunner {
     const controller = this.signals.get(taskId) ?? new AbortController();
     try {
       await this.inner.start(taskId, controller.signal);
+    } catch (error) {
+      // Defense-in-depth: `inner.start` already settles + logs executor throws,
+      // but a custom queue that does NOT guard its drain loop would have this
+      // promise reject and stall the loop. Swallow + log so the consumer
+      // survives a poisoned task regardless of the queue implementation.
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error({
+        taskId,
+        code: SubagentErrorCode.TASK_EXECUTION_FAILED,
+        message,
+        detail: "queue_execute_threw",
+      });
     } finally {
       this.signals.delete(taskId);
     }

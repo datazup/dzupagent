@@ -11,7 +11,29 @@ import type {
   SubagentResult,
   SubagentSpec,
 } from "../contracts/background-task.js";
+import type { SubagentLogger, SubagentLogFields } from "../contracts/logger.js";
 import type { GovernanceEventSink } from "../runtime/background-subagent-runtime.js";
+
+/** Collects structured log calls for assertions. */
+export class RecordingLogger implements SubagentLogger {
+  readonly calls: Array<{ level: string; fields: SubagentLogFields }> = [];
+  error(fields: SubagentLogFields): void {
+    this.calls.push({ level: "error", fields });
+  }
+  warn(fields: SubagentLogFields): void {
+    this.calls.push({ level: "warn", fields });
+  }
+  info(fields: SubagentLogFields): void {
+    this.calls.push({ level: "info", fields });
+  }
+  debug(fields: SubagentLogFields): void {
+    this.calls.push({ level: "debug", fields });
+  }
+  /** All calls at a given level. */
+  at(level: string): SubagentLogFields[] {
+    return this.calls.filter((c) => c.level === level).map((c) => c.fields);
+  }
+}
 
 /** A clock whose value is advanced manually — deterministic time for tests. */
 export class ManualClock implements Clock {
