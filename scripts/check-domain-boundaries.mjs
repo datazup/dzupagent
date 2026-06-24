@@ -726,14 +726,51 @@ function collectInternalBroadRootImportViolations(packages) {
   if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return []
 
   const targetSpecifiers = new Set(policy.targetSpecifiers ?? [])
-  const enforcedFiles = new Set(policy.enforcedFiles ?? [])
-  const migrationAllowlist = new Set(
-    (policy.migrationAllowlist ?? []).map((entry) => `${entry.file}|${entry.specifier}`),
-  )
+  if (targetSpecifiers.size === 0) return []
 
-  if (targetSpecifiers.size === 0 || enforcedFiles.size === 0) return []
+  // DENY-BY-DEFAULT (ARCH-M-04): every production source file that imports a
+  // broad package root listed in `targetSpecifiers` is a violation UNLESS the
+  // exact file|specifier pair is on the time-boxed migration `exemptFiles`
+  // allowlist. This inverts the prior `enforcedFiles` opt-in model (where only
+  // listed files were checked) so a NEW file importing a broad root fails the
+  // gate by default and must be either migrated to a stable subpath or added to
+  // exemptFiles with an explicit owner + expiryVersion.
+  const exemptEntries = Array.isArray(policy.exemptFiles) ? policy.exemptFiles : []
+  const exemptKeys = new Set()
+  const malformedExemptions = []
+  for (const entry of exemptEntries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      malformedExemptions.push({ reason: 'not-an-object', entry })
+      continue
+    }
+    const { file, specifier, owner, expiryVersion } = entry
+    if (typeof file !== 'string' || typeof specifier !== 'string') {
+      malformedExemptions.push({ reason: 'missing-file-or-specifier', entry })
+      continue
+    }
+    if (typeof owner !== 'string' || owner.trim().length === 0) {
+      malformedExemptions.push({ reason: 'missing-owner', file, specifier })
+      continue
+    }
+    if (typeof expiryVersion !== 'string' || expiryVersion.trim().length === 0) {
+      malformedExemptions.push({ reason: 'missing-expiryVersion', file, specifier })
+      continue
+    }
+    exemptKeys.add(`${file}|${specifier}`)
+  }
 
   const violations = []
+
+  for (const malformed of malformedExemptions) {
+    violations.push({
+      kind: 'malformed-exemption',
+      importer: 'config/public-api-allowlists.json',
+      specifier: malformed.specifier ?? '(unknown)',
+      file: malformed.file ?? 'internalBroadRootImportPolicy.exemptFiles',
+      line: 0,
+      reason: malformed.reason,
+    })
+  }
 
   for (const pkg of packages) {
     if (!pkg.name) continue
@@ -741,16 +778,15 @@ function collectInternalBroadRootImportViolations(packages) {
 
     for (const file of sourceFiles) {
       const relativeFile = file.replace(repoRoot + '/', '')
-      if (!enforcedFiles.has(relativeFile)) continue
-
       const source = readFileSync(file, 'utf8')
       for (const sourceImport of collectDzupSourceImports(source)) {
         if (!targetSpecifiers.has(sourceImport.specifier)) continue
 
         const allowlistKey = `${relativeFile}|${sourceImport.specifier}`
-        if (migrationAllowlist.has(allowlistKey)) continue
+        if (exemptKeys.has(allowlistKey)) continue
 
         violations.push({
+          kind: 'broad-root-import',
           importer: pkg.name,
           specifier: sourceImport.specifier,
           file: relativeFile,
@@ -1436,10 +1472,20 @@ if (internalBroadRootImportViolations.length > 0) {
   failed = true
   console.error('INTERNAL BROAD ROOT IMPORT VIOLATIONS')
   console.error('=====================================')
-  console.error('Selected internal source files must not import broad package roots')
-  console.error('without an explicit migration allowlist entry in config/public-api-allowlists.json.\n')
+  console.error('Broad package-root imports are DENIED BY DEFAULT: no internal source file may import a')
+  console.error('targetSpecifier package root unless it is on the time-boxed exemptFiles migration allowlist')
+  console.error('in config/public-api-allowlists.json (each entry needs an owner + expiryVersion).\n')
 
-  for (const v of internalBroadRootImportViolations) {
+  const malformed = internalBroadRootImportViolations.filter((v) => v.kind === 'malformed-exemption')
+  const broadImports = internalBroadRootImportViolations.filter((v) => v.kind !== 'malformed-exemption')
+
+  for (const v of malformed) {
+    console.error(`  MALFORMED EXEMPTION (${v.reason}): ${v.file}${v.specifier ? ` | ${v.specifier}` : ''}`)
+    console.error('  Each exemptFiles entry must be { file, specifier, owner, expiryVersion }.')
+    console.error()
+  }
+
+  for (const v of broadImports) {
     console.error(`  FORBIDDEN: ${v.importer} imports ${v.specifier}`)
     console.error(`  FILE:      ${v.file}:${v.line}`)
     console.error()
@@ -1447,7 +1493,8 @@ if (internalBroadRootImportViolations.length > 0) {
 
   console.error('How to fix:')
   console.error('  - Prefer an existing stable subpath import such as /runtime, /orchestration, or /quick-start.')
-  console.error('  - If no safe subpath exists in this slice, add a specific migrationAllowlist entry.')
+  console.error('  - If no safe subpath exists in this slice, add a specific exemptFiles entry')
+  console.error('    ({ file, specifier, owner, expiryVersion }) to internalBroadRootImportPolicy.')
   console.error()
 }
 

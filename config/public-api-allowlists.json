@@ -1,55 +1,82 @@
 {
   "internalBroadRootImportPolicy": {
+    "$comment": [
+      "RF-8 (ARCH-M-04): DENY-BY-DEFAULT broad-root import ban. Any internal production source file that",
+      "imports one of `targetSpecifiers` (a broad package ROOT, not a stable subpath) FAILS",
+      "check:domain-boundaries unless its exact { file, specifier } pair is on the `exemptFiles` migration",
+      "allowlist below. This inverts the prior `enforcedFiles` opt-in model — new code now fails closed and",
+      "must import a stable subpath (e.g. @dzupagent/core/runtime) or earn a time-boxed exemption.",
+      "Every exemption MUST carry an `owner` (team/codeowner) and an `expiryVersion` (the release by which the",
+      "import is migrated off the broad root). Shrink this list; do not grow it."
+    ],
     "targetSpecifiers": [
       "@dzupagent/core",
       "@dzupagent/agent",
       "@dzupagent/agent-adapters",
       "@dzupagent/codegen"
     ],
-    "enforcedFiles": [
-      "packages/flow-compiler/src/lower/_shared.ts",
-      "packages/server/src/runtime/dzip-agent-run-executor.ts",
-      "packages/agent-adapters/src/registry/adapter-registry.ts",
-      "packages/rag/src/qdrant-factory.ts",
-      "packages/server/src/composition/optional-routes.ts",
-      "packages/server/src/composition/types.ts",
-      "packages/server/src/notifications/mail-dlq-worker.ts",
-      "packages/server/src/persistence/drizzle-mailbox-store.ts",
-      "packages/server/src/persistence/drizzle-cluster-store.ts",
-      "packages/server/src/persistence/drizzle-dlq-store.ts",
-      "packages/server/src/persistence/drizzle-reflection-store.ts",
-      "packages/server/src/persistence/drizzle-schema.ts",
-      "packages/server/src/routes/presets.ts",
-      "packages/server/src/routes/reflections.ts",
-      "packages/server/src/routes/clusters.ts",
-      "packages/server/src/routes/workflows-handlers.ts",
-      "packages/server/src/routes/run-context.ts",
-      "packages/server/src/routes/workflows-types.ts",
-      "packages/server/src/routes/workflows-streaming.ts",
-      "packages/server/src/routes/mailbox.ts",
-      "packages/server/src/routes/openai-compat/completions.ts",
-      "packages/server/src/routes/runs/list-handler.ts",
-      "packages/server/src/routes/runs/stream-handler.ts",
-      "packages/server/src/routes/runs/control-handler.ts",
-      "packages/server/src/runtime/run-stages-persistence.ts",
-      "packages/server/src/runtime/run-worker-types.ts",
-      "packages/server/src/streaming/sse-streaming-adapter.ts",
-      "packages/server/src/routes/capabilities.ts",
-      "packages/server/src/routes/skills.ts",
-      "packages/server/src/routes/enrichment-metrics.ts",
-      "packages/server/src/routes/compile/shared.ts",
-      "packages/server/src/services/run-outcome-analyzer.ts",
-      "packages/server/src/services/prompt-feedback-loop-scoring.ts",
-      "packages/server/src/services/prompt-feedback-loop-publisher.ts",
-      "packages/code-edit-kit/src/atomic-multi-edit.tool.ts",
-      "packages/code-edit-kit/src/rollback/file-rollback-store.ts",
-      "packages/code-edit-kit/src/tools/apply-patch.tool.ts",
-      "packages/agent/src/agent/run-engine-generate-audit.ts",
-      "packages/agent-adapters/src/runs/script-run-event-store.ts",
-      "packages/codegen/src/sandbox/ptc/ptc-tool.ts",
-      "packages/connectors-browser/src/browser/navigation-policy.ts"
-    ],
-    "migrationAllowlist": []
+    "exemptFiles": [
+      {
+        "file": "packages/agent-adapters/src/security/destructive-command-guard.ts",
+        "specifier": "@dzupagent/core",
+        "owner": "dzupagent-connectors-dev",
+        "expiryVersion": "0.x"
+      },
+      {
+        "file": "packages/codegen/src/sandbox/ptc/ptc-governance-adapter.ts",
+        "specifier": "@dzupagent/core",
+        "owner": "dzupagent-codegen-dev",
+        "expiryVersion": "0.x"
+      },
+      {
+        "file": "packages/flow-compiler/src/compile-orchestrator.ts",
+        "specifier": "@dzupagent/core",
+        "owner": "dzupagent-core-dev",
+        "expiryVersion": "0.x"
+      },
+      {
+        "file": "packages/flow-compiler/src/index.ts",
+        "specifier": "@dzupagent/core",
+        "owner": "dzupagent-core-dev",
+        "expiryVersion": "0.x"
+      },
+      {
+        "file": "packages/server/src/composition/config-runtime.ts",
+        "specifier": "@dzupagent/agent",
+        "owner": "dzupagent-server-dev",
+        "expiryVersion": "0.x"
+      },
+      {
+        "file": "packages/server/src/composition/runtime-types.ts",
+        "specifier": "@dzupagent/agent",
+        "owner": "dzupagent-server-dev",
+        "expiryVersion": "0.x"
+      },
+      {
+        "file": "packages/server/src/persistence/create-node-ledger.ts",
+        "specifier": "@dzupagent/core",
+        "owner": "dzupagent-server-dev",
+        "expiryVersion": "0.x"
+      },
+      {
+        "file": "packages/server/src/persistence/postgres-durable-node-ledger.ts",
+        "specifier": "@dzupagent/core",
+        "owner": "dzupagent-server-dev",
+        "expiryVersion": "0.x"
+      },
+      {
+        "file": "packages/server/src/runtime/run-stages-admission.ts",
+        "specifier": "@dzupagent/agent",
+        "owner": "dzupagent-server-dev",
+        "expiryVersion": "0.x"
+      },
+      {
+        "file": "packages/server/src/schedules/schedule-tick-worker.ts",
+        "specifier": "@dzupagent/core",
+        "owner": "dzupagent-server-dev",
+        "expiryVersion": "0.x"
+      }
+    ]
   },
   "packages": [
     {

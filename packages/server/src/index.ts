@@ -31,6 +31,9 @@ export type {
 export type {
   ServerRoutePlugin,
   ServerRoutePluginContext,
+  ServerRouteMountable,
+  ServerDeclaredServices,
+  MountedServerConfig,
 } from "./route-plugin.js";
 
 // --- Core Routes ---
