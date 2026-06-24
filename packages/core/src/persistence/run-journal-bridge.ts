@@ -16,8 +16,9 @@ import type {
   RunFilter,
   LogEntry,
   RunStatus,
-} from './store-interfaces.js'
-import type { RunJournal, RunJournalEntryType } from './run-journal-types.js'
+} from "./store-interfaces.js";
+import type { RunJournal, RunJournalEntryType } from "./run-journal-types.js";
+import { defaultLogger } from "../utils/logger.js";
 
 export class RunJournalBridgeRunStore implements RunStore {
   constructor(
@@ -27,75 +28,90 @@ export class RunJournalBridgeRunStore implements RunStore {
   ) {}
 
   async create(input: CreateRunInput): Promise<Run> {
-    const run = await this.store.create(input)
+    const run = await this.store.create(input);
     if (this.enabled) {
       try {
         await this.journal.append(run.id, {
-          type: 'run_started',
+          type: "run_started",
           data: { input: input.input ?? null, agentId: input.agentId },
-        })
-      } catch {
-        // Journal write is non-fatal -- run creation already succeeded
+        });
+      } catch (err) {
+        // ERR-H-06: journal write is non-fatal but must be observable
+        defaultLogger.warn(
+          "[run-journal-bridge] create() journal append failed",
+          {
+            runId: run.id,
+            err: err instanceof Error ? err.message : String(err),
+          },
+        );
       }
     }
-    return run
+    return run;
   }
 
   async update(id: string, patch: Partial<Run>): Promise<void> {
-    await this.store.update(id, patch)
+    await this.store.update(id, patch);
     if (this.enabled && patch.status) {
-      const entryType = statusToJournalEntryType(patch.status)
+      const entryType = statusToJournalEntryType(patch.status);
       if (entryType) {
         try {
           await this.journal.append(id, {
             type: entryType,
             data: buildJournalData(entryType, patch),
-          })
-        } catch {
-          // Journal write is non-fatal -- store update already succeeded
+          });
+        } catch (err) {
+          // ERR-H-06: journal write is non-fatal but must be observable
+          defaultLogger.warn(
+            "[run-journal-bridge] update() journal append failed",
+            {
+              runId: id,
+              entryType,
+              err: err instanceof Error ? err.message : String(err),
+            },
+          );
         }
       }
     }
   }
 
   async get(id: string): Promise<Run | null> {
-    return this.store.get(id)
+    return this.store.get(id);
   }
 
   async list(filter?: RunFilter): Promise<Run[]> {
-    return this.store.list(filter)
+    return this.store.list(filter);
   }
 
   async count(filter?: RunFilter): Promise<number> {
     // Delegate to the wrapped store when it exposes count(); otherwise fall
     // back to the (more expensive) list(...).length derivation so callers that
     // rely on this method on a bridged store still get a correct value.
-    if (typeof this.store.count === 'function') {
-      return this.store.count(filter)
+    if (typeof this.store.count === "function") {
+      return this.store.count(filter);
     }
     // Fallback: re-list with a large limit and no offset so we approximate the
     // true total. This is only used for third-party RunStore implementations
     // that predate the optional count() method.
-    const { limit: _limit, offset: _offset, ...baseFilter } = filter ?? {}
+    const { limit: _limit, offset: _offset, ...baseFilter } = filter ?? {};
     const rows = await this.store.list({
       ...baseFilter,
       limit: Number.MAX_SAFE_INTEGER,
       offset: 0,
-    })
-    return rows.length
+    });
+    return rows.length;
   }
 
   async addLog(runId: string, entry: LogEntry): Promise<void> {
-    await this.store.addLog(runId, entry)
+    await this.store.addLog(runId, entry);
     // Logs are not journaled individually (too noisy)
   }
 
   async addLogs(runId: string, entries: LogEntry[]): Promise<void> {
-    await this.store.addLogs(runId, entries)
+    await this.store.addLogs(runId, entries);
   }
 
   async getLogs(runId: string): Promise<LogEntry[]> {
-    return this.store.getLogs(runId)
+    return this.store.getLogs(runId);
   }
 }
 
@@ -104,18 +120,18 @@ export class RunJournalBridgeRunStore implements RunStore {
 // ---------------------------------------------------------------------------
 
 const STATUS_TO_ENTRY_TYPE: Partial<Record<RunStatus, RunJournalEntryType>> = {
-  completed: 'run_completed',
-  failed: 'run_failed',
-  cancelled: 'run_cancelled',
-  paused: 'run_paused',
-  suspended: 'run_suspended',
-  running: 'run_resumed',
-}
+  completed: "run_completed",
+  failed: "run_failed",
+  cancelled: "run_cancelled",
+  paused: "run_paused",
+  suspended: "run_suspended",
+  running: "run_resumed",
+};
 
 function statusToJournalEntryType(
   status: RunStatus,
 ): RunJournalEntryType | null {
-  return STATUS_TO_ENTRY_TYPE[status] ?? null
+  return STATUS_TO_ENTRY_TYPE[status] ?? null;
 }
 
 /**
@@ -128,44 +144,41 @@ function buildJournalData(
   patch: Partial<Run>,
 ): Record<string, unknown> {
   switch (entryType) {
-    case 'run_completed':
+    case "run_completed":
       return {
         output: patch.output ?? null,
         ...(patch.tokenUsage
           ? {
-              totalTokens:
-                patch.tokenUsage.input + patch.tokenUsage.output,
+              totalTokens: patch.tokenUsage.input + patch.tokenUsage.output,
             }
           : {}),
         ...(patch.costCents !== undefined
           ? { totalCostCents: patch.costCents }
           : {}),
-      }
-    case 'run_failed':
+      };
+    case "run_failed":
       return {
-        error: patch.error ?? 'unknown error',
-      }
-    case 'run_cancelled':
+        error: patch.error ?? "unknown error",
+      };
+    case "run_cancelled":
       return {
-        reason: (patch.metadata?.['cancelReason'] as string) ?? undefined,
-      }
-    case 'run_paused':
+        reason: (patch.metadata?.["cancelReason"] as string) ?? undefined,
+      };
+    case "run_paused":
       return {
-        reason:
-          (patch.metadata?.['pauseReason'] as string) ?? 'cooperative',
-      }
-    case 'run_suspended':
+        reason: (patch.metadata?.["pauseReason"] as string) ?? "cooperative",
+      };
+    case "run_suspended":
       return {
-        stepId: (patch.metadata?.['stepId'] as string) ?? 'unknown',
-        reason: (patch.metadata?.['suspendReason'] as string) ?? undefined,
-      }
-    case 'run_resumed':
+        stepId: (patch.metadata?.["stepId"] as string) ?? "unknown",
+        reason: (patch.metadata?.["suspendReason"] as string) ?? undefined,
+      };
+    case "run_resumed":
       return {
-        resumeToken:
-          (patch.metadata?.['resumeToken'] as string) ?? '',
+        resumeToken: (patch.metadata?.["resumeToken"] as string) ?? "",
         input: patch.input ?? undefined,
-      }
+      };
     default:
-      return { status: patch.status }
+      return { status: patch.status };
   }
 }

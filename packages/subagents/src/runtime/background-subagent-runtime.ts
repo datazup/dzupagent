@@ -120,8 +120,16 @@ export class BackgroundSubagentRuntime {
     parentRunId: string,
     options: SpawnOptions = {},
   ): Promise<SpawnOutcome> {
-    const queued = await this.store.list({ parentRunId, status: "queued" });
-    if (queued.length + 1 > this.policy.maxQueuedTasks) {
+    // CODE-M-01: count both queued and awaiting_approval (non-terminal pending
+    // work) against the cap so approval-gated tasks don't bypass the limit.
+    const [queued, pendingApproval] = await Promise.all([
+      this.store.list({ parentRunId, status: "queued" }),
+      this.store.list({ parentRunId, status: "awaiting_approval" }),
+    ]);
+    if (
+      queued.length + pendingApproval.length + 1 >
+      this.policy.maxQueuedTasks
+    ) {
       return { ok: false, reason: "queue_full" };
     }
 

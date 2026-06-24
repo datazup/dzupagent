@@ -12,16 +12,16 @@ import type {
   ChatCompletionResponse,
   ChatCompletionChunk,
   ChatCompletionChunkWithTools,
-} from './types.js'
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Options passed through to agent execution
 // ---------------------------------------------------------------------------
 
 export interface GenerateOptions {
-  temperature?: number
-  maxTokens?: number
-  stop?: string | string[]
+  temperature?: number;
+  maxTokens?: number;
+  stop?: string | string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -29,24 +29,19 @@ export interface GenerateOptions {
 // ---------------------------------------------------------------------------
 
 export interface MappedRequest {
-  agentId: string
-  prompt: string
-  options: GenerateOptions
+  agentId: string;
+  prompt: string;
+  options: GenerateOptions;
 }
 
 // ---------------------------------------------------------------------------
 // ID generation helpers
 // ---------------------------------------------------------------------------
 
-const ID_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-const ID_LENGTH = 24
-
-function randomId(length: number = ID_LENGTH): string {
-  let result = ''
-  for (let i = 0; i < length; i++) {
-    result += ID_CHARS[Math.floor(Math.random() * ID_CHARS.length)]
-  }
-  return result
+// SEC-L-02: use crypto.randomUUID for cryptographically random IDs;
+// slice to 24 chars to match the original ID length contract.
+function randomId(): string {
+  return crypto.randomUUID().replace(/-/g, "").slice(0, 24);
 }
 
 // ---------------------------------------------------------------------------
@@ -59,7 +54,7 @@ function randomId(length: number = ID_LENGTH): string {
  * specific tokenizer which we avoid depending on here.
  */
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4)
+  return Math.ceil(text.length / 4);
 }
 
 // ---------------------------------------------------------------------------
@@ -76,21 +71,21 @@ export class OpenAICompletionMapper {
    * agent (which may or may not support structured messages) can consume it.
    */
   mapRequest(req: ChatCompletionRequest): MappedRequest {
-    const agentId = req.model
-    const prompt = this.messagesToPrompt(req.messages)
+    const agentId = req.model;
+    const prompt = this.messagesToPrompt(req.messages);
 
-    const options: GenerateOptions = {}
+    const options: GenerateOptions = {};
     if (req.temperature !== undefined) {
-      options.temperature = req.temperature
+      options.temperature = req.temperature;
     }
     if (req.max_tokens !== undefined) {
-      options.maxTokens = req.max_tokens
+      options.maxTokens = req.max_tokens;
     }
     if (req.stop !== undefined) {
-      options.stop = req.stop
+      options.stop = req.stop;
     }
 
-    return { agentId, prompt, options }
+    return { agentId, prompt, options };
   }
 
   /**
@@ -102,19 +97,19 @@ export class OpenAICompletionMapper {
     model: string,
     requestId: string,
   ): ChatCompletionResponse {
-    const promptTokens = estimateTokens(agentId) // rough stand-in; caller can refine
-    const completionTokens = estimateTokens(output)
+    const promptTokens = estimateTokens(agentId); // rough stand-in; caller can refine
+    const completionTokens = estimateTokens(output);
 
     return {
       id: requestId,
-      object: 'chat.completion',
+      object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
       model,
       choices: [
         {
           index: 0,
-          message: { role: 'assistant', content: output },
-          finish_reason: 'stop',
+          message: { role: "assistant", content: output },
+          finish_reason: "stop",
         },
       ],
       usage: {
@@ -122,7 +117,7 @@ export class OpenAICompletionMapper {
         completion_tokens: completionTokens,
         total_tokens: promptTokens + completionTokens,
       },
-    }
+    };
   }
 
   /**
@@ -143,24 +138,24 @@ export class OpenAICompletionMapper {
   ): ChatCompletionChunk {
     return {
       id: completionId,
-      object: 'chat.completion.chunk',
+      object: "chat.completion.chunk",
       created: Math.floor(Date.now() / 1000),
       model,
       choices: [
         {
           index,
-          delta: isLast ? {} : { role: 'assistant', content: delta },
-          finish_reason: isLast ? 'stop' : null,
+          delta: isLast ? {} : { role: "assistant", content: delta },
+          finish_reason: isLast ? "stop" : null,
         },
       ],
-    }
+    };
   }
 
   /**
    * Generate a unique completion ID in OpenAI's `chatcmpl-*` format.
    */
   generateId(): string {
-    return `chatcmpl-${randomId()}`
+    return `chatcmpl-${randomId()}`;
   }
 
   /**
@@ -176,7 +171,7 @@ export class OpenAICompletionMapper {
   ): ChatCompletionChunkWithTools {
     return {
       id: completionId,
-      object: 'chat.completion.chunk',
+      object: "chat.completion.chunk",
       created: Math.floor(Date.now() / 1000),
       model,
       choices: [
@@ -187,15 +182,15 @@ export class OpenAICompletionMapper {
               {
                 index: toolIndex,
                 id: toolCallId,
-                type: 'function',
-                function: { name: toolName, arguments: '' },
+                type: "function",
+                function: { name: toolName, arguments: "" },
               },
             ],
           },
           finish_reason: null,
         },
       ],
-    }
+    };
   }
 
   /**
@@ -209,7 +204,7 @@ export class OpenAICompletionMapper {
   ): ChatCompletionChunkWithTools {
     return {
       id: completionId,
-      object: 'chat.completion.chunk',
+      object: "chat.completion.chunk",
       created: Math.floor(Date.now() / 1000),
       model,
       choices: [
@@ -226,7 +221,7 @@ export class OpenAICompletionMapper {
           finish_reason: null,
         },
       ],
-    }
+    };
   }
 
   /**
@@ -238,17 +233,17 @@ export class OpenAICompletionMapper {
   ): ChatCompletionChunkWithTools {
     return {
       id: completionId,
-      object: 'chat.completion.chunk',
+      object: "chat.completion.chunk",
       created: Math.floor(Date.now() / 1000),
       model,
       choices: [
         {
           index: 0,
           delta: {},
-          finish_reason: 'tool_calls',
+          finish_reason: "tool_calls",
         },
       ],
-    }
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -263,16 +258,16 @@ export class OpenAICompletionMapper {
    * continue from the assistant perspective.
    */
   private messagesToPrompt(
-    messages: ChatCompletionRequest['messages'],
+    messages: ChatCompletionRequest["messages"],
   ): string {
-    const lines: string[] = []
+    const lines: string[] = [];
 
     for (const msg of messages) {
-      const role = msg.role.charAt(0).toUpperCase() + msg.role.slice(1)
-      const content = msg.content ?? ''
-      lines.push(`${role}: ${content}`)
+      const role = msg.role.charAt(0).toUpperCase() + msg.role.slice(1);
+      const content = msg.content ?? "";
+      lines.push(`${role}: ${content}`);
     }
 
-    return lines.join('\n\n')
+    return lines.join("\n\n");
   }
 }

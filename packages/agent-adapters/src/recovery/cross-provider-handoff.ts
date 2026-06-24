@@ -27,7 +27,7 @@
  *   const fallbackInput = CrossProviderHandoff.enrichInput(originalInput, partialEvents)
  */
 
-import type { AgentEvent, AgentInput } from '../types.js'
+import type { AgentEvent, AgentInput } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,10 +35,10 @@ import type { AgentEvent, AgentInput } from '../types.js'
 
 /** A single captured item extracted from a partial event sequence. */
 export interface HandoffItem {
-  kind: 'message' | 'tool_call' | 'tool_result'
-  content: string
+  kind: "message" | "tool_call" | "tool_result";
+  content: string;
   /** Tool name, present for tool_call and tool_result items. */
-  toolName?: string
+  toolName?: string;
 }
 
 export interface CrossProviderHandoffOptions {
@@ -46,19 +46,19 @@ export interface CrossProviderHandoffOptions {
    * Header placed at the top of the handoff context block.
    * Defaults to `## Partial progress from previous provider\n`.
    */
-  header?: string
+  header?: string;
 
   /**
    * Footer / instruction appended after the captured items.
    * Defaults to a one-liner asking the model to continue.
    */
-  footer?: string
+  footer?: string;
 
   /**
    * Maximum number of items to include (newest last, oldest truncated).
    * Defaults to 20.
    */
-  maxItems?: number
+  maxItems?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,15 +66,17 @@ export interface CrossProviderHandoffOptions {
 // ---------------------------------------------------------------------------
 
 export class CrossProviderHandoff {
-  private readonly items: HandoffItem[] = []
-  private readonly opts: Required<CrossProviderHandoffOptions>
+  private readonly items: HandoffItem[] = [];
+  private readonly opts: Required<CrossProviderHandoffOptions>;
 
   constructor(opts: CrossProviderHandoffOptions = {}) {
     this.opts = {
-      header: opts.header ?? '## Partial progress from previous provider\n',
-      footer: opts.footer ?? '\nContinue the task from where the previous provider left off.\n',
+      header: opts.header ?? "## Partial progress from previous provider\n",
+      footer:
+        opts.footer ??
+        "\nContinue the task from where the previous provider left off.\n",
       maxItems: opts.maxItems ?? 20,
-    }
+    };
   }
 
   /**
@@ -83,45 +85,51 @@ export class CrossProviderHandoff {
    */
   recordEvent(event: AgentEvent): void {
     switch (event.type) {
-      case 'adapter:message': {
-        const content = String(event.content ?? '')
+      case "adapter:message": {
+        const content = String(event.content ?? "");
         if (content.trim()) {
-          this.items.push({ kind: 'message', content })
+          this.items.push({ kind: "message", content });
         }
-        break
+        break;
       }
-      case 'adapter:tool_call': {
-        const inputStr = event.input ? safeJson(event.input) : ''
-        const content = inputStr ? `${event.toolName}(${inputStr})` : event.toolName
-        this.items.push({ kind: 'tool_call', content, toolName: event.toolName })
-        break
+      case "adapter:tool_call": {
+        const inputStr = event.input ? safeJson(event.input) : "";
+        const content = inputStr
+          ? `${event.toolName}(${inputStr})`
+          : event.toolName;
+        this.items.push({
+          kind: "tool_call",
+          content,
+          toolName: event.toolName,
+        });
+        break;
       }
-      case 'adapter:tool_result': {
-        const outputStr = String(event.output ?? '')
-        const label = event.toolName ?? 'tool'
+      case "adapter:tool_result": {
+        const outputStr = String(event.output ?? "");
+        const label = event.toolName ?? "tool";
         if (outputStr.trim()) {
           this.items.push({
-            kind: 'tool_result',
+            kind: "tool_result",
             content: outputStr,
             toolName: event.toolName ?? label,
-          })
+          });
         }
-        break
+        break;
       }
       default:
         // adapter:started, adapter:stream_delta, adapter:completed, adapter:failed — skip
-        break
+        break;
     }
   }
 
   /** Record multiple events at once (convenience for batch processing). */
   recordEvents(events: AgentEvent[]): void {
-    for (const event of events) this.recordEvent(event)
+    for (const event of events) this.recordEvent(event);
   }
 
   /** Returns true if any meaningful partial content was captured. */
   get hasContent(): boolean {
-    return this.items.length > 0
+    return this.items.length > 0;
   }
 
   /**
@@ -129,16 +137,20 @@ export class CrossProviderHandoff {
    * system prompt.  Returns `null` if nothing was captured.
    */
   buildHandoffContext(): string | null {
-    if (this.items.length === 0) return null
+    if (this.items.length === 0) return null;
 
-    const visible = this.items.slice(-this.opts.maxItems)
-    const lines = visible.map((item) => formatItem(item))
-    return `${this.opts.header}${lines.join('\n')}\n${this.opts.footer}`
+    const visible = this.items.slice(-this.opts.maxItems);
+    const lines = visible.map((item) => formatItem(item));
+    // SEC-M-06: wrap in delimited block so the receiving provider treats this
+    // content as untrusted prior context and resists prompt-injection attempts
+    // embedded in tool results or assistant turns from the previous provider.
+    const inner = `${this.opts.header}${lines.join("\n")}\n${this.opts.footer}`;
+    return `<untrusted_previous_context>\n${inner}\n</untrusted_previous_context>`;
   }
 
   /** Reset all captured items (useful when reusing the instance). */
   reset(): void {
-    this.items.length = 0
+    this.items.length = 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -155,17 +167,17 @@ export class CrossProviderHandoff {
     events: AgentEvent[],
     opts?: CrossProviderHandoffOptions,
   ): AgentInput {
-    const handoff = new CrossProviderHandoff(opts)
-    handoff.recordEvents(events)
-    const context = handoff.buildHandoffContext()
-    if (!context) return originalInput
+    const handoff = new CrossProviderHandoff(opts);
+    handoff.recordEvents(events);
+    const context = handoff.buildHandoffContext();
+    if (!context) return originalInput;
 
-    const existingSystemPrompt = originalInput.systemPrompt ?? ''
+    const existingSystemPrompt = originalInput.systemPrompt ?? "";
     const combinedSystemPrompt = existingSystemPrompt
       ? `${context}\n${existingSystemPrompt}`
-      : context
+      : context;
 
-    return { ...originalInput, systemPrompt: combinedSystemPrompt }
+    return { ...originalInput, systemPrompt: combinedSystemPrompt };
   }
 }
 
@@ -175,19 +187,19 @@ export class CrossProviderHandoff {
 
 function formatItem(item: HandoffItem): string {
   switch (item.kind) {
-    case 'message':
-      return `[assistant]: ${item.content}`
-    case 'tool_call':
-      return `[tool_call]: ${item.content}`
-    case 'tool_result':
-      return `[tool_result:${item.toolName ?? 'tool'}]: ${item.content}`
+    case "message":
+      return `[assistant]: ${item.content}`;
+    case "tool_call":
+      return `[tool_call]: ${item.content}`;
+    case "tool_result":
+      return `[tool_result:${item.toolName ?? "tool"}]: ${item.content}`;
   }
 }
 
 function safeJson(value: unknown): string {
   try {
-    return JSON.stringify(value)
+    return JSON.stringify(value);
   } catch {
-    return String(value)
+    return String(value);
   }
 }

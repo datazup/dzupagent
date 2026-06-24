@@ -6,11 +6,12 @@
  * are embedded on registration and queried by vector similarity on discover().
  */
 
-import type { SemanticSearchProvider } from './semantic-search.js'
-import type { RegisteredAgent } from './types.js'
-import type { SemanticStore } from '../vectordb/semantic-store.js'
+import type { SemanticSearchProvider } from "./semantic-search.js";
+import type { RegisteredAgent } from "./types.js";
+import type { SemanticStore } from "../vectordb/semantic-store.js";
+import { defaultLogger } from "../utils/logger.js";
 
-const REGISTRY_COLLECTION = 'agent_registry'
+const REGISTRY_COLLECTION = "agent_registry";
 
 /**
  * SemanticSearchProvider backed by a VectorStore + EmbeddingProvider.
@@ -32,7 +33,7 @@ export class VectorStoreSemanticSearch implements SemanticSearchProvider {
   constructor(private readonly semanticStore: SemanticStore) {}
 
   async embedQuery(text: string): Promise<number[]> {
-    return this.semanticStore.embedding.embedQuery(text)
+    return this.semanticStore.embedding.embedQuery(text);
   }
 
   async search(
@@ -43,34 +44,46 @@ export class VectorStoreSemanticSearch implements SemanticSearchProvider {
       vector: embedding,
       limit,
       includeMetadata: true,
-    })
-    return results.map(r => ({ agentId: r.id, score: r.score }))
+    });
+    return results.map((r) => ({ agentId: r.id, score: r.score }));
   }
 
   indexAgent(agent: RegisteredAgent): void {
     const text = [
       agent.name,
       agent.description,
-      ...agent.capabilities.map(c =>
-        `${c.name}: ${c.description ?? ''}`,
-      ),
-    ].join(' ')
+      ...agent.capabilities.map((c) => `${c.name}: ${c.description ?? ""}`),
+    ].join(" ");
 
     // Fire and forget — don't block registration
     this.semanticStore
       .upsert(REGISTRY_COLLECTION, [
         { id: agent.id, text, metadata: { name: agent.name } },
       ])
-      .catch(() => {
-        // Non-fatal: vector indexing failures should not break registration
-      })
+      .catch((err: unknown) => {
+        // ERR-H-06: non-fatal but must be observable
+        defaultLogger.warn(
+          "[vector-semantic-search] indexAgent() upsert failed",
+          {
+            agentId: agent.id,
+            err: err instanceof Error ? err.message : String(err),
+          },
+        );
+      });
   }
 
   removeAgent(agentId: string): void {
     this.semanticStore
       .delete(REGISTRY_COLLECTION, { ids: [agentId] })
-      .catch(() => {
-        // Non-fatal: vector deletion failures should not break deregistration
-      })
+      .catch((err: unknown) => {
+        // ERR-H-06: non-fatal but must be observable
+        defaultLogger.warn(
+          "[vector-semantic-search] removeAgent() delete failed",
+          {
+            agentId,
+            err: err instanceof Error ? err.message : String(err),
+          },
+        );
+      });
   }
 }

@@ -26,6 +26,7 @@ import {
   listMcpTransportCapabilities,
   MCPUnsupportedTransportError,
 } from "./mcp-transport-capabilities.js";
+import { defaultLogger } from "../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // Connection
@@ -93,6 +94,11 @@ export class MCPClient {
     } catch (err) {
       conn.state = "error";
       conn.lastError = err instanceof Error ? err.message : String(err);
+      // ERR-H-06: connection failures are non-fatal but must be observable
+      defaultLogger.warn("[mcp-client] connect() failed", {
+        serverId,
+        err: conn.lastError,
+      });
       return false;
     }
   }
@@ -129,7 +135,7 @@ export class MCPClient {
    */
   async disconnectAll(): Promise<void> {
     await Promise.all(
-      Array.from(this.connections.keys()).map((id) => this.disconnect(id))
+      Array.from(this.connections.keys()).map((id) => this.disconnect(id)),
     );
   }
 
@@ -203,7 +209,7 @@ export class MCPClient {
    */
   async invokeTool(
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
   ): Promise<MCPToolResult> {
     const descriptor = this.findTool(toolName);
     if (!descriptor) {
@@ -317,7 +323,7 @@ export class MCPClient {
    * Discover tools from an MCP server via its transport.
    */
   private async discoverTools(
-    conn: ServerConnection
+    conn: ServerConnection,
   ): Promise<MCPToolDescriptor[]> {
     const { config } = conn;
     const timeout = config.timeoutMs ?? 10_000;
@@ -327,20 +333,20 @@ export class MCPClient {
         return this.discoverViaHttp(config, timeout);
       case "sse":
         throw new MCPUnsupportedTransportError(
-          getMcpTransportCapability("sse")
+          getMcpTransportCapability("sse"),
         );
       case "stdio":
         return this.discoverViaStdio(config, timeout);
       default:
         throw new Error(
-          `Unsupported MCP transport: ${config.transport as string}`
+          `Unsupported MCP transport: ${config.transport as string}`,
         );
     }
   }
 
   private async discoverViaHttp(
     config: MCPServerConfig,
-    timeout: number
+    timeout: number,
   ): Promise<MCPToolDescriptor[]> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
@@ -359,7 +365,7 @@ export class MCPClient {
         },
         {
           policy: config.urlPolicy,
-        }
+        },
       );
 
       if (!response.ok) {
@@ -389,7 +395,7 @@ export class MCPClient {
 
   private async discoverViaStdio(
     config: MCPServerConfig,
-    timeout: number
+    timeout: number,
   ): Promise<MCPToolDescriptor[]> {
     const request =
       JSON.stringify({
@@ -437,7 +443,7 @@ export class MCPClient {
   private async executeToolCall(
     conn: ServerConnection,
     toolName: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
   ): Promise<MCPToolResult> {
     const { config } = conn;
     const timeout = config.timeoutMs ?? 10_000;
@@ -468,7 +474,7 @@ export class MCPClient {
             },
             {
               policy: config.urlPolicy,
-            }
+            },
           );
 
           if (!response.ok) {
@@ -486,7 +492,7 @@ export class MCPClient {
 
       case "sse":
         throw new MCPUnsupportedTransportError(
-          getMcpTransportCapability("sse")
+          getMcpTransportCapability("sse"),
         );
 
       case "stdio": {
@@ -519,7 +525,7 @@ export class MCPClient {
   private spawnWithStdin(
     config: MCPServerConfig,
     input: string,
-    timeout: number
+    timeout: number,
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       import("node:child_process")
@@ -531,11 +537,11 @@ export class MCPClient {
           assertMcpCommandAllowed(
             config.url,
             config.args,
-            config.stdioArgPolicy ?? "strict"
+            config.stdioArgPolicy ?? "strict",
           );
           const env = sanitizeMcpEnv(
             process.env as Record<string, string | undefined>,
-            config.env
+            config.env,
           );
           const proc = spawn(config.url, config.args ?? [], {
             env: env as NodeJS.ProcessEnv,
@@ -571,8 +577,8 @@ export class MCPClient {
                   : "";
               reject(
                 new Error(
-                  `MCP stdio process exited with code ${codeStr}: ${stderrSummary}${stdoutSummary}`
-                )
+                  `MCP stdio process exited with code ${codeStr}: ${stderrSummary}${stdoutSummary}`,
+                ),
               );
             }
           });

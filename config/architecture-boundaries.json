@@ -37,10 +37,6 @@
       "packageName": "ai-saas-starter-kit"
     },
     {
-      "dirName": "blood-pressure",
-      "packageName": "blood-pressure"
-    },
-    {
       "dirName": "codeindex-app",
       "packageName": "codeindex-app"
     },
@@ -67,10 +63,6 @@
     {
       "dirName": "testman-app",
       "packageName": "testman-app"
-    },
-    {
-      "dirName": "textflow-rag",
-      "packageName": "textflow-rag"
     }
   ],
   "serverRouteBoundaries": {

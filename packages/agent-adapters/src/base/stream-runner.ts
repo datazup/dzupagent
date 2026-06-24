@@ -13,17 +13,26 @@
  * SDK-specific event mapping.
  */
 
-import { ForgeError, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core/events'
-import { defaultLogger } from '@dzupagent/core/utils'
-import type { AdapterProviderId, AgentEvent, AgentInput, TokenUsage } from '../types.js'
+import {
+  ForgeError,
+  type LlmAuditSink,
+  type LlmInvocationRecord,
+} from "@dzupagent/core/events";
+import { defaultLogger } from "@dzupagent/core/utils";
+import type {
+  AdapterProviderId,
+  AgentEvent,
+  AgentInput,
+  TokenUsage,
+} from "../types.js";
 
-const DEFAULT_HEARTBEAT_GAP_MS = 15_000
+const DEFAULT_HEARTBEAT_GAP_MS = 15_000;
 
 export interface ThreadStartResult {
-  threadId: string
-  sessionId?: string
+  threadId: string;
+  sessionId?: string;
   /** Extra fields merged into the adapter:started event (e.g. model, workingDirectory). */
-  extra?: Record<string, unknown>
+  extra?: Record<string, unknown>;
 }
 
 /**
@@ -31,43 +40,46 @@ export interface ThreadStartResult {
  * and the mapping logic from raw events to AgentEvents.
  */
 export interface AdapterStreamSource<TRaw> {
-  readonly providerId: AdapterProviderId
+  readonly providerId: AdapterProviderId;
   /** Open the SDK stream. The runner owns the AbortController. */
-  open(input: AgentInput, signal: AbortSignal): AsyncIterable<TRaw>
+  open(input: AgentInput, signal: AbortSignal): AsyncIterable<TRaw>;
   /**
    * Map a raw SDK event to one or more AgentEvents, or null to skip it.
    * Return an array to emit multiple events from a single raw event (e.g. adapter:completed + adapter:cache_stats).
    */
-  mapRawEvent(raw: TRaw, context: StreamContext): AgentEvent | AgentEvent[] | null
+  mapRawEvent(
+    raw: TRaw,
+    context: StreamContext,
+  ): AgentEvent | AgentEvent[] | null;
   /** Extract token usage from a raw event, if any. */
-  extractUsage?(raw: TRaw): TokenUsage | undefined
+  extractUsage?(raw: TRaw): TokenUsage | undefined;
   /** Detect thread/session start from a raw event. */
-  detectThreadStart?(raw: TRaw): ThreadStartResult | null
+  detectThreadStart?(raw: TRaw): ThreadStartResult | null;
   /** Return true if this raw event counts as a heartbeat (resets gap timer). */
-  detectHeartbeat?(raw: TRaw): boolean
+  detectHeartbeat?(raw: TRaw): boolean;
 }
 
 export interface StreamContext {
   /** Current session ID (populated after thread start). */
-  sessionId: string
+  sessionId: string;
   /** The original agent input. */
-  input: AgentInput
+  input: AgentInput;
   /** Timestamp when the stream was opened. */
-  startedAt: number
+  startedAt: number;
   /** Whether the stream was aborted via the external signal. */
-  aborted: boolean
+  aborted: boolean;
 }
 
 export interface AdapterStreamRunnerConfig {
   /** How long without events before logging a slow-stream warning (ms). Default: 15_000. */
-  heartbeatGapMs?: number
+  heartbeatGapMs?: number;
   /** If true, emit adapter:started immediately without waiting for detectThreadStart. */
-  emitStartedImmediately?: boolean
+  emitStartedImmediately?: boolean;
   /**
    * Called synchronously with the runner's internal AbortController before the stream opens.
    * Adapters that expose an interrupt() method store this reference so they can abort the runner.
    */
-  onAbortController?: (ctrl: AbortController) => void
+  onAbortController?: (ctrl: AbortController) => void;
   /**
    * If true, the runner emits a synthetic `adapter:failed` event when the stream
    * terminates because the abort signal fired (rather than returning silently).
@@ -77,28 +89,28 @@ export interface AdapterStreamRunnerConfig {
    * Stream-based adapters (OpenAI/OpenRouter) consider aborts as failures
    * since callers expect a terminal event in every execution.
    */
-  emitFailedOnAbort?: boolean
+  emitFailedOnAbort?: boolean;
   /**
    * Error message used when {@link emitFailedOnAbort} fires.
    * Default: 'Aborted'.
    */
-  abortErrorMessage?: string
+  abortErrorMessage?: string;
   /**
    * Error code used when {@link emitFailedOnAbort} fires.
    * Default: 'AGENT_ABORTED'.
    */
-  abortErrorCode?: string
+  abortErrorCode?: string;
   /**
    * Pre-populate the session ID before the stream starts. Used by adapters that
    * generate their own session identifier (e.g. fetch-based providers without
    * SDK thread metadata) so it appears in `adapter:started`/`adapter:failed`.
    */
-  initialSessionId?: string
+  initialSessionId?: string;
   /**
    * Extra fields merged into the adapter:started event when emitted via
    * {@link emitStartedImmediately}.
    */
-  startedExtra?: Record<string, unknown>
+  startedExtra?: Record<string, unknown>;
   /**
    * Optional best-effort audit sink invoked once per terminal LLM call
    * (`adapter:completed` or `adapter:failed`). Sink errors are swallowed —
@@ -106,24 +118,24 @@ export interface AdapterStreamRunnerConfig {
    * `attachLlmAuditEventBridge` from `@dzupagent/core` to forward records onto
    * a `DzupEventBus`, or pass a `vi.fn()` from tests.
    */
-  auditSink?: LlmAuditSink
+  auditSink?: LlmAuditSink;
   /**
    * Resolved model name for the audit record. Adapters inject this from the
    * config they used to build the request so the sink does not have to sniff
    * the `adapter:started`/`detectThreadStart` extras.
    */
-  auditModel?: string
+  auditModel?: string;
   /** Optional run id for the audit record. */
-  auditRunId?: string
+  auditRunId?: string;
   /** Optional tenant id for the audit record. */
-  auditTenantId?: string
+  auditTenantId?: string;
 }
 
 export class AdapterStreamRunner<TRaw> {
-  private readonly heartbeatGapMs: number
+  private readonly heartbeatGapMs: number;
 
   constructor(private readonly config: AdapterStreamRunnerConfig = {}) {
-    this.heartbeatGapMs = config.heartbeatGapMs ?? DEFAULT_HEARTBEAT_GAP_MS
+    this.heartbeatGapMs = config.heartbeatGapMs ?? DEFAULT_HEARTBEAT_GAP_MS;
   }
 
   async *run(
@@ -131,126 +143,146 @@ export class AdapterStreamRunner<TRaw> {
     input: AgentInput,
     externalSignal?: AbortSignal,
   ): AsyncGenerator<AgentEvent, void, undefined> {
-    const abortController = new AbortController()
-    this.config.onAbortController?.(abortController)
-    let externalAbortListener: (() => void) | null = null
+    const abortController = new AbortController();
+    this.config.onAbortController?.(abortController);
+    let externalAbortListener: (() => void) | null = null;
     if (externalSignal) {
       if (externalSignal.aborted) {
-        abortController.abort()
+        abortController.abort();
       } else {
-        externalAbortListener = () => abortController.abort()
-        externalSignal.addEventListener('abort', externalAbortListener, { once: true })
+        externalAbortListener = () => abortController.abort();
+        externalSignal.addEventListener("abort", externalAbortListener, {
+          once: true,
+        });
       }
     }
 
     const context: StreamContext = {
-      sessionId: this.config.initialSessionId ?? '',
+      sessionId: this.config.initialSessionId ?? "",
       input,
       startedAt: Date.now(),
       aborted: false,
-    }
+    };
 
-    let startedEmitted = false
-    let auditEmitted = false
-    const auditStartedAt = new Date(context.startedAt).toISOString()
-    let lastEventAt = Date.now()
+    let startedEmitted = false;
+    let auditEmitted = false;
+    const auditStartedAt = new Date(context.startedAt).toISOString();
+    let lastEventAt = Date.now();
 
     try {
-      const stream = source.open(input, abortController.signal)
+      const stream = source.open(input, abortController.signal);
 
       if (this.config.emitStartedImmediately) {
-        startedEmitted = true
-        yield this.buildStartedEvent(source.providerId, context, this.config.startedExtra)
+        startedEmitted = true;
+        yield this.buildStartedEvent(
+          source.providerId,
+          context,
+          this.config.startedExtra,
+        );
       }
 
       for await (const raw of stream) {
-        if (abortController.signal.aborted) break
+        if (abortController.signal.aborted) break;
 
-        const now = Date.now()
-        const gapMs = now - lastEventAt
+        const now = Date.now();
+        const gapMs = now - lastEventAt;
         if (gapMs > this.heartbeatGapMs) {
-          const isHeartbeat = source.detectHeartbeat?.(raw) ?? true
+          const isHeartbeat = source.detectHeartbeat?.(raw) ?? true;
           if (!isHeartbeat) {
-            defaultLogger.debug('[AdapterStreamRunner] slow stream gap observed', {
-              providerId: source.providerId,
-              gapMs,
-              heartbeatGapMs: this.heartbeatGapMs,
-            })
+            defaultLogger.debug(
+              "[AdapterStreamRunner] slow stream gap observed",
+              {
+                providerId: source.providerId,
+                gapMs,
+                heartbeatGapMs: this.heartbeatGapMs,
+              },
+            );
           }
         }
-        lastEventAt = now
+        lastEventAt = now;
 
         // Detect thread start → emit adapter:started
         if (!startedEmitted && source.detectThreadStart) {
-          const threadStart = source.detectThreadStart(raw)
+          const threadStart = source.detectThreadStart(raw);
           if (threadStart) {
-            context.sessionId = threadStart.threadId
-            startedEmitted = true
-            yield this.buildStartedEvent(source.providerId, context, threadStart.extra)
+            context.sessionId = threadStart.threadId;
+            startedEmitted = true;
+            yield this.buildStartedEvent(
+              source.providerId,
+              context,
+              threadStart.extra,
+            );
           }
         }
 
         // Map the raw event
-        const mapped = source.mapRawEvent(raw, context)
+        const mapped = source.mapRawEvent(raw, context);
         if (mapped !== null) {
-          const events = Array.isArray(mapped) ? mapped : [mapped]
+          const events = Array.isArray(mapped) ? mapped : [mapped];
           for (const ev of events) {
             // Track session from completed/started events if source didn't use detectThreadStart
-            if (!startedEmitted && ev.type === 'adapter:started') {
-              startedEmitted = true
+            if (!startedEmitted && ev.type === "adapter:started") {
+              startedEmitted = true;
             }
-            if (!auditEmitted && (ev.type === 'adapter:completed' || ev.type === 'adapter:failed')) {
-              auditEmitted = true
-              this.emitAudit(source.providerId, context, ev, auditStartedAt)
+            if (
+              !auditEmitted &&
+              (ev.type === "adapter:completed" || ev.type === "adapter:failed")
+            ) {
+              auditEmitted = true;
+              this.emitAudit(source.providerId, context, ev, auditStartedAt);
             }
-            yield ev
+            yield ev;
           }
         }
 
         // Extract and store usage for downstream access
         if (source.extractUsage) {
-          source.extractUsage(raw) // side-effect: source may store it internally
+          source.extractUsage(raw); // side-effect: source may store it internally
         }
       }
     } catch (err: unknown) {
       if (abortController.signal.aborted) {
-        context.aborted = true
+        context.aborted = true;
         if (this.config.emitFailedOnAbort) {
-          const abortEv = this.buildAbortFailedEvent(source.providerId, context)
+          const abortEv = this.buildAbortFailedEvent(
+            source.providerId,
+            context,
+          );
           if (!auditEmitted) {
-            auditEmitted = true
-            this.emitAudit(source.providerId, context, abortEv, auditStartedAt)
+            auditEmitted = true;
+            this.emitAudit(source.providerId, context, abortEv, auditStartedAt);
           }
-          yield abortEv
+          yield abortEv;
         }
-        return
+        return;
       }
       const forgeErr = ForgeError.wrap(err, {
-        code: 'ADAPTER_EXECUTION_FAILED',
+        code: "ADAPTER_EXECUTION_FAILED",
         context: {
           providerId: source.providerId,
           sessionId: context.sessionId || undefined,
           promptLength: input.prompt.length,
         },
-      })
+      });
       const failedEv: AgentEvent = {
-        type: 'adapter:failed',
+        type: "adapter:failed",
         providerId: source.providerId,
         ...(context.sessionId ? { sessionId: context.sessionId } : {}),
         error: forgeErr.message,
-        code: 'ADAPTER_EXECUTION_FAILED',
+        // ERR-L-03: preserve the ForgeError code rather than hardcoding the wrapper code
+        code: forgeErr.code,
         timestamp: Date.now(),
         ...(input.correlationId ? { correlationId: input.correlationId } : {}),
-      }
+      };
       if (!auditEmitted) {
-        auditEmitted = true
-        this.emitAudit(source.providerId, context, failedEv, auditStartedAt)
+        auditEmitted = true;
+        this.emitAudit(source.providerId, context, failedEv, auditStartedAt);
       }
-      yield failedEv
-      return
+      yield failedEv;
+      return;
     } finally {
       if (externalAbortListener && externalSignal) {
-        externalSignal.removeEventListener('abort', externalAbortListener)
+        externalSignal.removeEventListener("abort", externalAbortListener);
       }
     }
 
@@ -258,13 +290,13 @@ export class AdapterStreamRunner<TRaw> {
     // raised by the source (e.g. the source caught the abort itself and
     // returned), still emit a terminal failed event when configured.
     if (abortController.signal.aborted && this.config.emitFailedOnAbort) {
-      context.aborted = true
-      const abortEv = this.buildAbortFailedEvent(source.providerId, context)
+      context.aborted = true;
+      const abortEv = this.buildAbortFailedEvent(source.providerId, context);
       if (!auditEmitted) {
-        auditEmitted = true
-        this.emitAudit(source.providerId, context, abortEv, auditStartedAt)
+        auditEmitted = true;
+        this.emitAudit(source.providerId, context, abortEv, auditStartedAt);
       }
-      yield abortEv
+      yield abortEv;
     }
   }
 
@@ -283,66 +315,82 @@ export class AdapterStreamRunner<TRaw> {
     terminal: AgentEvent,
     startedAt: string,
   ): void {
-    const sink = this.config.auditSink
-    if (!sink) return
-    if (terminal.type !== 'adapter:completed' && terminal.type !== 'adapter:failed') return
+    const sink = this.config.auditSink;
+    if (!sink) return;
+    if (
+      terminal.type !== "adapter:completed" &&
+      terminal.type !== "adapter:failed"
+    )
+      return;
     try {
       const durationMs =
-        terminal.type === 'adapter:completed'
+        terminal.type === "adapter:completed"
           ? terminal.durationMs
-          : Math.max(0, Date.now() - context.startedAt)
+          : Math.max(0, Date.now() - context.startedAt);
       const usage =
-        terminal.type === 'adapter:completed' && terminal.usage
+        terminal.type === "adapter:completed" && terminal.usage
           ? this.toAuditUsage(terminal.usage)
-          : undefined
+          : undefined;
       const costCents =
-        terminal.type === 'adapter:completed' && terminal.usage?.costCents !== undefined
+        terminal.type === "adapter:completed" &&
+        terminal.usage?.costCents !== undefined
           ? terminal.usage.costCents
-          : undefined
+          : undefined;
       const errorCode =
-        terminal.type === 'adapter:failed' ? terminal.code ?? 'ADAPTER_EXECUTION_FAILED' : undefined
+        terminal.type === "adapter:failed"
+          ? (terminal.code ?? "ADAPTER_EXECUTION_FAILED")
+          : undefined;
 
       const record: LlmInvocationRecord = {
         providerId,
-        model: this.config.auditModel ?? this.resolveModelFromExtras() ?? 'unknown',
+        model:
+          this.config.auditModel ?? this.resolveModelFromExtras() ?? "unknown",
         promptCharCount: context.input.prompt.length,
         ...(context.input.systemPrompt !== undefined
           ? { systemPromptCharCount: context.input.systemPrompt.length }
           : {}),
-        status: terminal.type === 'adapter:completed' ? 'completed' : 'failed',
+        status: terminal.type === "adapter:completed" ? "completed" : "failed",
         ...(errorCode !== undefined ? { errorCode } : {}),
         durationMs,
         ...(usage !== undefined ? { usage } : {}),
         ...(costCents !== undefined ? { costCents } : {}),
         startedAt,
-        ...(this.config.auditRunId !== undefined ? { runId: this.config.auditRunId } : {}),
-        ...(this.config.auditTenantId !== undefined ? { tenantId: this.config.auditTenantId } : {}),
-      }
-      sink(record)
+        ...(this.config.auditRunId !== undefined
+          ? { runId: this.config.auditRunId }
+          : {}),
+        ...(this.config.auditTenantId !== undefined
+          ? { tenantId: this.config.auditTenantId }
+          : {}),
+      };
+      sink(record);
     } catch (err: unknown) {
       // Best-effort: never break the LLM call because of audit emission.
-      const msg = err instanceof Error ? err.message : String(err)
-      defaultLogger.warn('[AdapterStreamRunner] audit sink failed:', msg)
+      const msg = err instanceof Error ? err.message : String(err);
+      defaultLogger.warn("[AdapterStreamRunner] audit sink failed:", msg);
     }
   }
 
-  private toAuditUsage(usage: TokenUsage): LlmInvocationRecord['usage'] {
-    const promptTokens = usage.inputTokens
-    const completionTokens = usage.outputTokens
-    const out: NonNullable<LlmInvocationRecord['usage']> = {
+  private toAuditUsage(usage: TokenUsage): LlmInvocationRecord["usage"] {
+    const promptTokens = usage.inputTokens;
+    const completionTokens = usage.outputTokens;
+    const out: NonNullable<LlmInvocationRecord["usage"]> = {
       promptTokens,
       completionTokens,
       totalTokens: promptTokens + completionTokens,
-      ...(usage.cachedInputTokens !== undefined ? { cacheReadTokens: usage.cachedInputTokens } : {}),
-      ...(usage.cacheWriteTokens !== undefined ? { cacheWriteTokens: usage.cacheWriteTokens } : {}),
-    }
-    return out
+      ...(usage.cachedInputTokens !== undefined
+        ? { cacheReadTokens: usage.cachedInputTokens }
+        : {}),
+      ...(usage.cacheWriteTokens !== undefined
+        ? { cacheWriteTokens: usage.cacheWriteTokens }
+        : {}),
+    };
+    return out;
   }
 
   private resolveModelFromExtras(): string | undefined {
-    const extra = this.config.startedExtra
-    if (extra && typeof extra['model'] === 'string') return extra['model']
-    return undefined
+    const extra = this.config.startedExtra;
+    if (extra && typeof extra["model"] === "string") return extra["model"];
+    return undefined;
   }
 
   private buildAbortFailedEvent(
@@ -350,14 +398,16 @@ export class AdapterStreamRunner<TRaw> {
     context: StreamContext,
   ): AgentEvent {
     return {
-      type: 'adapter:failed',
+      type: "adapter:failed",
       providerId,
       ...(context.sessionId ? { sessionId: context.sessionId } : {}),
-      error: this.config.abortErrorMessage ?? 'Aborted',
-      code: this.config.abortErrorCode ?? 'AGENT_ABORTED',
+      error: this.config.abortErrorMessage ?? "Aborted",
+      code: this.config.abortErrorCode ?? "AGENT_ABORTED",
       timestamp: Date.now(),
-      ...(context.input.correlationId ? { correlationId: context.input.correlationId } : {}),
-    }
+      ...(context.input.correlationId
+        ? { correlationId: context.input.correlationId }
+        : {}),
+    };
   }
 
   private buildStartedEvent(
@@ -365,18 +415,22 @@ export class AdapterStreamRunner<TRaw> {
     context: StreamContext,
     extra?: Record<string, unknown>,
   ): AgentEvent {
-    const { input, sessionId } = context
+    const { input, sessionId } = context;
     return {
-      type: 'adapter:started',
+      type: "adapter:started",
       providerId,
       sessionId,
       timestamp: Date.now(),
       prompt: input.prompt,
-      ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
-      ...(input.workingDirectory !== undefined ? { workingDirectory: input.workingDirectory } : {}),
+      ...(input.systemPrompt !== undefined
+        ? { systemPrompt: input.systemPrompt }
+        : {}),
+      ...(input.workingDirectory !== undefined
+        ? { workingDirectory: input.workingDirectory }
+        : {}),
       isResume: !!input.resumeSessionId,
       ...(input.correlationId ? { correlationId: input.correlationId } : {}),
       ...extra,
-    }
+    };
   }
 }

@@ -10,26 +10,30 @@ import {
   HumanMessage,
   SystemMessage,
   ToolMessage,
-} from '@langchain/core/messages'
-import type { BaseMessage } from '@langchain/core/messages'
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { ModelRegistry } from '../llm/model-registry.js'
-import type { SkillLoader } from '../skills/skill-loader.js'
-import { extractTokenUsage } from '../llm/invoke.js'
-import { attachStructuredOutputCapabilities } from '../llm/structured-output-capabilities.js'
-import { mergeFileChanges } from './file-merge.js'
-import { REACT_DEFAULTS } from './subagent-types.js'
-import type { SubAgentConfig, SubAgentResult, SubAgentUsage } from './subagent-types.js'
+} from "@langchain/core/messages";
+import type { BaseMessage } from "@langchain/core/messages";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { StructuredToolInterface } from "@langchain/core/tools";
+import type { ModelRegistry } from "../llm/model-registry.js";
+import type { SkillLoader } from "../skills/skill-loader.js";
+import { extractTokenUsage } from "../llm/invoke.js";
+import { attachStructuredOutputCapabilities } from "../llm/structured-output-capabilities.js";
+import { mergeFileChanges } from "./file-merge.js";
+import { REACT_DEFAULTS } from "./subagent-types.js";
+import type {
+  SubAgentConfig,
+  SubAgentResult,
+  SubAgentUsage,
+} from "./subagent-types.js";
 
 interface ToolCall {
-  id?: string
-  name: string
-  args: Record<string, unknown>
+  id?: string;
+  name: string;
+  args: Record<string, unknown>;
 }
 
 /** File-writing tool names whose results may contain file paths */
-const FILE_TOOL_NAMES = new Set(['write_file', 'edit_file', 'create_file'])
+const FILE_TOOL_NAMES = new Set(["write_file", "edit_file", "create_file"]);
 
 export class SubAgentSpawner {
   constructor(
@@ -51,37 +55,43 @@ export class SubAgentSpawner {
     parentFiles?: Record<string, string>,
   ): Promise<SubAgentResult> {
     // 1. Resolve model
-    const model = this.resolveModel(config)
+    const model = this.resolveModel(config);
 
     // 2. Build system prompt with skills
-    const systemPrompt = await this.buildSystemPrompt(config)
+    const systemPrompt = await this.buildSystemPrompt(config);
 
     // 3. Build context from parent files
-    const contextBlock = this.buildContextBlock(config, parentFiles)
+    const contextBlock = this.buildContextBlock(config, parentFiles);
 
     // 4. Invoke the model directly (simple single-turn)
     const messages: BaseMessage[] = [
       new SystemMessage(systemPrompt),
       new HumanMessage(task + contextBlock),
-    ]
+    ];
 
-    const effectiveModel = config.tools && config.tools.length > 0 && 'bindTools' in model
-      ? (model as BaseChatModel & { bindTools: (tools: StructuredToolInterface[]) => BaseChatModel }).bindTools(config.tools) as BaseChatModel
-      : model
+    const effectiveModel =
+      config.tools && config.tools.length > 0 && "bindTools" in model
+        ? ((
+            model as BaseChatModel & {
+              bindTools: (tools: StructuredToolInterface[]) => BaseChatModel;
+            }
+          ).bindTools(config.tools) as BaseChatModel)
+        : model;
 
-    const response = await effectiveModel.invoke(messages)
+    const response = await effectiveModel.invoke(messages);
 
     // 5. Extract files from response (if any tool calls produced files)
-    const files: Record<string, string> = {}
+    const files: Record<string, string> = {};
 
     return {
       messages: [response],
       files,
       metadata: {
         agentName: config.name,
-        modelUsed: (model as BaseChatModel & { model?: string }).model ?? 'unknown',
+        modelUsed:
+          (model as BaseChatModel & { model?: string }).model ?? "unknown",
       },
-    }
+    };
   }
 
   /**
@@ -99,119 +109,147 @@ export class SubAgentSpawner {
     task: string,
     parentFiles?: Record<string, string>,
   ): Promise<SubAgentResult> {
-    const maxDepth = this.options?.maxDepth ?? REACT_DEFAULTS.maxDepth
-    const currentDepth = config._depth ?? 0
+    const maxDepth = this.options?.maxDepth ?? REACT_DEFAULTS.maxDepth;
+    const currentDepth = config._depth ?? 0;
 
     if (currentDepth >= maxDepth) {
       return {
-        messages: [new AIMessage(`[Sub-agent "${config.name}" stopped: max recursion depth ${maxDepth} reached]`)],
+        messages: [
+          new AIMessage(
+            `[Sub-agent "${config.name}" stopped: max recursion depth ${maxDepth} reached]`,
+          ),
+        ],
         files: {},
-        metadata: { agentName: config.name, stoppedReason: 'max_depth' },
+        metadata: { agentName: config.name, stoppedReason: "max_depth" },
         hitIterationLimit: false,
-      }
+      };
     }
 
-    const maxIterations = config.maxIterations ?? REACT_DEFAULTS.maxIterations
-    const timeoutMs = config.timeoutMs ?? REACT_DEFAULTS.timeoutMs
+    const maxIterations = config.maxIterations ?? REACT_DEFAULTS.maxIterations;
+    const timeoutMs = config.timeoutMs ?? REACT_DEFAULTS.timeoutMs;
 
     // 1. Resolve model and bind tools
-    const baseModel = this.resolveModel(config)
-    const tools = config.tools ?? []
-    const toolMap = new Map(tools.map(t => [t.name, t]))
+    const baseModel = this.resolveModel(config);
+    const tools = config.tools ?? [];
+    const toolMap = new Map(tools.map((t) => [t.name, t]));
 
-    const model = tools.length > 0 && 'bindTools' in baseModel
-      ? (baseModel as BaseChatModel & { bindTools: (tools: StructuredToolInterface[]) => BaseChatModel }).bindTools(tools) as BaseChatModel
-      : baseModel
+    const model =
+      tools.length > 0 && "bindTools" in baseModel
+        ? ((
+            baseModel as BaseChatModel & {
+              bindTools: (tools: StructuredToolInterface[]) => BaseChatModel;
+            }
+          ).bindTools(tools) as BaseChatModel)
+        : baseModel;
 
     // 2. Build initial messages
-    const systemPrompt = await this.buildSystemPrompt(config)
-    const contextBlock = this.buildContextBlock(config, parentFiles)
+    const systemPrompt = await this.buildSystemPrompt(config);
+    const contextBlock = this.buildContextBlock(config, parentFiles);
     const allMessages: BaseMessage[] = [
       new SystemMessage(systemPrompt),
       new HumanMessage(task + contextBlock),
-    ]
+    ];
 
     // 3. Setup timeout via AbortController
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     // 4. Run ReAct loop
-    const usage: SubAgentUsage = { inputTokens: 0, outputTokens: 0, llmCalls: 0 }
-    const files: Record<string, string> = {}
-    let hitIterationLimit = false
-    const modelName = (baseModel as BaseChatModel & { model?: string }).model ?? 'unknown'
+    const usage: SubAgentUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      llmCalls: 0,
+    };
+    const files: Record<string, string> = {};
+    let hitIterationLimit = false;
+    const modelName =
+      (baseModel as BaseChatModel & { model?: string }).model ?? "unknown";
 
     try {
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         if (controller.signal.aborted) {
-          allMessages.push(new AIMessage(`[Sub-agent "${config.name}" stopped: timeout after ${timeoutMs}ms]`))
-          break
+          allMessages.push(
+            new AIMessage(
+              `[Sub-agent "${config.name}" stopped: timeout after ${timeoutMs}ms]`,
+            ),
+          );
+          break;
         }
 
         // Invoke LLM
-        const response = await model.invoke(allMessages)
-        usage.llmCalls++
+        const response = await model.invoke(allMessages);
+        usage.llmCalls++;
 
         // Track token usage
-        const iterUsage = extractTokenUsage(response, modelName)
-        usage.inputTokens += iterUsage.inputTokens
-        usage.outputTokens += iterUsage.outputTokens
+        const iterUsage = extractTokenUsage(response, modelName);
+        usage.inputTokens += iterUsage.inputTokens;
+        usage.outputTokens += iterUsage.outputTokens;
 
-        allMessages.push(response)
+        allMessages.push(response);
 
         // Check for tool calls
-        const ai = response as AIMessage
-        const toolCalls = ai.tool_calls as ToolCall[] | undefined
+        const ai = response as AIMessage;
+        const toolCalls = ai.tool_calls as ToolCall[] | undefined;
 
         if (!toolCalls || toolCalls.length === 0) {
           // No tool calls — final response
-          break
+          break;
         }
 
         // Execute each tool call
         for (const tc of toolCalls) {
-          const toolCallId = tc.id ?? `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-          const tool = toolMap.get(tc.name)
+          // SEC-L-02: crypto.randomUUID for unpredictable fallback IDs
+          const toolCallId =
+            tc.id ??
+            `call_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+          const tool = toolMap.get(tc.name);
 
           if (!tool) {
-            allMessages.push(new ToolMessage({
-              content: `Error: Tool "${tc.name}" not found. Available tools: ${[...toolMap.keys()].join(', ')}`,
-              tool_call_id: toolCallId,
-              name: tc.name,
-            }))
-            continue
+            allMessages.push(
+              new ToolMessage({
+                content: `Error: Tool "${tc.name}" not found. Available tools: ${[...toolMap.keys()].join(", ")}`,
+                tool_call_id: toolCallId,
+                name: tc.name,
+              }),
+            );
+            continue;
           }
 
           try {
-            const result = await tool.invoke(tc.args)
-            const resultStr = typeof result === 'string' ? result : JSON.stringify(result)
+            const result = await tool.invoke(tc.args);
+            const resultStr =
+              typeof result === "string" ? result : JSON.stringify(result);
 
-            allMessages.push(new ToolMessage({
-              content: resultStr,
-              tool_call_id: toolCallId,
-              name: tc.name,
-            }))
+            allMessages.push(
+              new ToolMessage({
+                content: resultStr,
+                tool_call_id: toolCallId,
+                name: tc.name,
+              }),
+            );
 
             // Extract file data from write_file / edit_file / create_file tool calls
-            this.extractFilesFromToolCall(tc.name, tc.args, resultStr, files)
+            this.extractFilesFromToolCall(tc.name, tc.args, resultStr, files);
           } catch (err: unknown) {
             // Non-fatal: return error as ToolMessage so the LLM can recover
-            const errMsg = err instanceof Error ? err.message : String(err)
-            allMessages.push(new ToolMessage({
-              content: `Error executing tool "${tc.name}": ${errMsg}`,
-              tool_call_id: toolCallId,
-              name: tc.name,
-            }))
+            const errMsg = err instanceof Error ? err.message : String(err);
+            allMessages.push(
+              new ToolMessage({
+                content: `Error executing tool "${tc.name}": ${errMsg}`,
+                tool_call_id: toolCallId,
+                name: tc.name,
+              }),
+            );
           }
         }
 
         // Check if this was the last allowed iteration
         if (iteration === maxIterations - 1) {
-          hitIterationLimit = true
+          hitIterationLimit = true;
         }
       }
     } finally {
-      clearTimeout(timer)
+      clearTimeout(timer);
     }
 
     return {
@@ -224,7 +262,7 @@ export class SubAgentSpawner {
       },
       usage,
       hitIterationLimit,
-    }
+    };
   }
 
   /**
@@ -238,11 +276,12 @@ export class SubAgentSpawner {
     task: string,
     parentFiles: Record<string, string>,
   ): Promise<{ result: SubAgentResult; mergedFiles: Record<string, string> }> {
-    const result = config.tools && config.tools.length > 0
-      ? await this.spawnReAct(config, task, parentFiles)
-      : await this.spawn(config, task, parentFiles)
-    const mergedFiles = mergeFileChanges(parentFiles, result.files)
-    return { result, mergedFiles }
+    const result =
+      config.tools && config.tools.length > 0
+        ? await this.spawnReAct(config, task, parentFiles)
+        : await this.spawn(config, task, parentFiles);
+    const mergedFiles = mergeFileChanges(parentFiles, result.files);
+    return { result, mergedFiles };
   }
 
   // ---------------------------------------------------------------------------
@@ -251,34 +290,45 @@ export class SubAgentSpawner {
 
   private resolveModel(config: SubAgentConfig): BaseChatModel {
     const attachCapabilities = (model: BaseChatModel): BaseChatModel =>
-      attachStructuredOutputCapabilities(model, config.structuredOutputCapabilities)
+      attachStructuredOutputCapabilities(
+        model,
+        config.structuredOutputCapabilities,
+      );
 
     if (!config.model) {
-      return attachCapabilities(this.registry.getModel('codegen'))
+      return attachCapabilities(this.registry.getModel("codegen"));
     }
-    if (typeof config.model === 'string') {
-      return attachCapabilities(this.registry.getModel(config.model))
+    if (typeof config.model === "string") {
+      return attachCapabilities(this.registry.getModel(config.model));
     }
-    return attachCapabilities(config.model)
+    return attachCapabilities(config.model);
   }
 
   /**
    * Build system prompt, appending loaded skill content.
    */
   private async buildSystemPrompt(config: SubAgentConfig): Promise<string> {
-    let systemPrompt = config.systemPrompt
-    if (config.skills && config.skills.length > 0 && this.options?.skillLoader) {
-      const allSkills = await this.options.skillLoader.discoverSkills()
-      const configSkills = config.skills
-      const relevantSkills = allSkills.filter(s => configSkills.includes(s.name))
+    let systemPrompt = config.systemPrompt;
+    if (
+      config.skills &&
+      config.skills.length > 0 &&
+      this.options?.skillLoader
+    ) {
+      const allSkills = await this.options.skillLoader.discoverSkills();
+      const configSkills = config.skills;
+      const relevantSkills = allSkills.filter((s) =>
+        configSkills.includes(s.name),
+      );
       for (const skill of relevantSkills) {
-        const content = await this.options.skillLoader.loadSkillContent(skill.name)
+        const content = await this.options.skillLoader.loadSkillContent(
+          skill.name,
+        );
         if (content) {
-          systemPrompt += `\n\n## Skill: ${skill.name}\n\n${content}`
+          systemPrompt += `\n\n## Skill: ${skill.name}\n\n${content}`;
         }
       }
     }
-    return systemPrompt
+    return systemPrompt;
   }
 
   /**
@@ -289,21 +339,23 @@ export class SubAgentSpawner {
     parentFiles?: Record<string, string>,
   ): string {
     if (!parentFiles || Object.keys(parentFiles).length === 0) {
-      return ''
+      return "";
     }
 
     const filtered = config.contextFilter
       ? config.contextFilter({ files: parentFiles })
-      : { files: parentFiles }
-    const files = (filtered as Record<string, unknown>).files as Record<string, string> | undefined
+      : { files: parentFiles };
+    const files = (filtered as Record<string, unknown>).files as
+      | Record<string, string>
+      | undefined;
     if (!files || Object.keys(files).length === 0) {
-      return ''
+      return "";
     }
 
     const fileList = Object.entries(files)
       .map(([path, content]) => `### ${path}\n\`\`\`\n${content}\n\`\`\``)
-      .join('\n\n')
-    return `\n\n## Existing Files\n\n${fileList}`
+      .join("\n\n");
+    return `\n\n## Existing Files\n\n${fileList}`;
   }
 
   /**
@@ -317,13 +369,14 @@ export class SubAgentSpawner {
     _resultStr: string,
     files: Record<string, string>,
   ): void {
-    if (!FILE_TOOL_NAMES.has(toolName)) return
+    if (!FILE_TOOL_NAMES.has(toolName)) return;
 
-    const filePath = args['path'] ?? args['file_path'] ?? args['filePath']
-    const content = args['content'] ?? args['new_content'] ?? args['newContent']
+    const filePath = args["path"] ?? args["file_path"] ?? args["filePath"];
+    const content =
+      args["content"] ?? args["new_content"] ?? args["newContent"];
 
-    if (typeof filePath === 'string' && typeof content === 'string') {
-      files[filePath] = content
+    if (typeof filePath === "string" && typeof content === "string") {
+      files[filePath] = content;
     }
   }
 }
