@@ -11,22 +11,7 @@ import type { RunTraceStore } from "../persistence/run-trace-store.js";
 import type { RunJob } from "../queue/run-queue.js";
 import { reportRetrievalFeedback } from "./retrieval-feedback-hook.js";
 
-/**
- * SEC-M-01-EXTENDED — stamp an event envelope with the job's owning tenant
- * when present. Returns the event unchanged when the job has no
- * `metadata.tenantId`, preserving the gateway's legacy `DEFAULT_TENANT_ID`
- * fallback for single-tenant deployments.
- */
-function stampTenant<T extends object>(
-  event: T,
-  job: RunJob,
-): T & { tenantId?: string } {
-  const tenantId =
-    typeof job.metadata?.["tenantId"] === "string"
-      ? (job.metadata["tenantId"] as string)
-      : undefined;
-  return tenantId !== undefined ? { ...event, tenantId } : event;
-}
+import { stampTenant } from "./tenant-event-stamp.js";
 import type { ExecutionStageResult } from "./run-stages-execution.js";
 import {
   closeTraceWithTerminalStep,

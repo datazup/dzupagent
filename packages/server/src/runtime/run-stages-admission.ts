@@ -21,7 +21,7 @@ const DEFAULT_TENANT_RUN_LIMIT = 20;
  */
 function withDistributedGuardrails(
   agent: AgentExecutionSpec,
-  guardrailClient: CostLedgerClient | undefined
+  guardrailClient: CostLedgerClient | undefined,
 ): AgentExecutionSpec {
   if (!guardrailClient) return agent;
   const guardrails = (agent.guardrails ?? {}) as Record<string, unknown>;
@@ -48,23 +48,7 @@ function withDistributedGuardrails(
   };
 }
 
-/**
- * SEC-M-01-EXTENDED — stamp an event envelope with the job's owning tenant
- * when present. Mirrors the closure helper in `run-worker.ts` and
- * `dzip-agent-run-executor.ts`. Returns the event unchanged when the job
- * has no `metadata.tenantId`, preserving the gateway's legacy
- * `DEFAULT_TENANT_ID` fallback for single-tenant deployments.
- */
-function stampTenant<T extends object>(
-  event: T,
-  job: RunJob
-): T & { tenantId?: string } {
-  const tenantId =
-    typeof job.metadata?.["tenantId"] === "string"
-      ? (job.metadata["tenantId"] as string)
-      : undefined;
-  return tenantId !== undefined ? { ...event, tenantId } : event;
-}
+import { stampTenant } from "./tenant-event-stamp.js";
 
 export type AdmissionStageResult =
   | { agent: AgentExecutionSpec; input: unknown; rejected: false }
@@ -113,8 +97,8 @@ export async function runAdmissionStage(options: {
           errorCode: "REGISTRY_AGENT_NOT_FOUND",
           message: `Agent "${options.job.agentId}" not found`,
         },
-        options.job
-      )
+        options.job,
+      ),
     );
     return { input: options.job.input, rejected: true };
   }
@@ -156,14 +140,14 @@ export async function runAdmissionStage(options: {
             errorCode: "TENANT_QUOTA_EXCEEDED",
             message: reason,
           },
-          options.job
-        )
+          options.job,
+        ),
       );
       await closeTraceWithTerminalStep(
         options.traceStore,
         options.job.runId,
         "rejected",
-        { reason, guardedBy: "tenant-run-quota" }
+        { reason, guardedBy: "tenant-run-quota" },
       );
       return { agent, input: options.job.input, rejected: true };
     }
@@ -212,14 +196,14 @@ export async function runAdmissionStage(options: {
           errorCode: "POLICY_DENIED",
           message: reason,
         },
-        options.job
-      )
+        options.job,
+      ),
     );
     await closeTraceWithTerminalStep(
       options.traceStore,
       options.job.runId,
       "rejected",
-      { reason, guardedBy: "input-guard" }
+      { reason, guardedBy: "input-guard" },
     );
     return { agent, input, rejected: true };
   }
@@ -272,14 +256,14 @@ export async function waitForRunApproval(options: {
         runId: options.job.runId,
         plan: { input: options.input },
       },
-      options.job
-    )
+      options.job,
+    ),
   );
 
   const decision = await waitForApprovalDecision(
     options.eventBus,
     options.job.runId,
-    timeoutMs
+    timeoutMs,
   );
   if (!decision.approved) {
     await options.runStore.update(options.job.runId, {
@@ -303,14 +287,14 @@ export async function waitForRunApproval(options: {
           errorCode: "APPROVAL_REJECTED",
           message: decision.reason ?? "Run rejected by approval policy",
         },
-        options.job
-      )
+        options.job,
+      ),
     );
     await closeTraceWithTerminalStep(
       options.traceStore,
       options.job.runId,
       "rejected",
-      { reason: decision.reason ?? "Run rejected by approval policy" }
+      { reason: decision.reason ?? "Run rejected by approval policy" },
     );
     return false;
   }
@@ -327,7 +311,7 @@ export async function waitForRunApproval(options: {
 async function waitForApprovalDecision(
   eventBus: DzupEventBus,
   runId: string,
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<{ approved: boolean; reason?: string }> {
   return new Promise((resolve) => {
     const unsubGrant = eventBus.on("approval:granted", (event) => {
