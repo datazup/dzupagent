@@ -1,6 +1,6 @@
 # DzupAgent Capability Matrix
 
-Auto-generated on 2026-06-23. Do not edit manually — run `yarn docs:capability-matrix`.
+Auto-generated on 2026-06-24. Do not edit manually — run `yarn docs:capability-matrix`.
 
 ## Package Overview
 

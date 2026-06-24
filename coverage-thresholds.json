@@ -453,6 +453,63 @@
         ]
       }
     },
+    "dialogue-core": {
+      "baseline": {
+        "reason": "Uses the node:test runner; its test:coverage script still points at vitest (which cannot parse node:test suites), so no coverage summary is published yet. Fix the runner or wire node --test --experimental-test-coverage before the review date.",
+        "since": "2026-06-24",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
+      }
+    },
+    "dialogue-core-replay": {
+      "baseline": {
+        "reason": "node:test replay harness with tests but no published test:coverage script yet.",
+        "since": "2026-06-24",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
+      }
+    },
+    "subagents": {
+      "baseline": {
+        "reason": "Package has vitest tests but no published test:coverage script yet.",
+        "since": "2026-06-24",
+        "reviewBy": "2026-07-31",
+        "targets": [
+          {
+            "by": "2026-07-31",
+            "requireCoverageScript": true,
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
+      }
+    },
     "eval-contracts": {
       "baseline": {
         "reason": "Package has tests but no published test:coverage script yet.",
