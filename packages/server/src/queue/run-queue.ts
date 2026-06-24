@@ -93,6 +93,13 @@ export class InMemoryRunQueue implements RunQueue {
     string,
     { job: RunJob; abort: AbortController }
   >();
+  // CODE-M-03: jobs that have been signalled to abort (via `cancel()` or
+  // `stop()`) but whose processor promise has not yet settled. We keep them
+  // here — and in `activeJobs` — until the `.finally` of `processNext` runs, so
+  // a second `cancel()` for the same run can still locate and re-abort it
+  // instead of silently returning `false`. The job is removed from BOTH maps
+  // only once its promise settles.
+  private aborting = new Map<string, { job: RunJob; abort: AbortController }>();
   private processor: JobProcessor | null = null;
   private running = false;
   private completedCount = 0;
@@ -158,10 +165,17 @@ export class InMemoryRunQueue implements RunQueue {
       });
     }
 
-    for (const { abort } of this.activeJobs.values()) {
-      abort.abort();
+    // CODE-M-03: signal every still-active job to abort and MOVE it out of
+    // `activeJobs` into the `aborting` map (rather than clearing `activeJobs`
+    // synchronously, which would lose track of jobs that are mid-abort). Each
+    // job's own `.finally` removes it from whichever map holds it once its
+    // promise settles, so a concurrent `cancel()` can still locate it in the
+    // meantime.
+    for (const [id, entry] of this.activeJobs) {
+      entry.abort.abort();
+      this.aborting.set(id, entry);
+      this.activeJobs.delete(id);
     }
-    this.activeJobs.clear();
   }
 
   cancel(runId: string): boolean {
@@ -171,7 +185,22 @@ export class InMemoryRunQueue implements RunQueue {
       return true;
     }
 
-    for (const [, entry] of this.activeJobs) {
+    // CODE-M-03: an actively-running job — abort it and move it into the
+    // `aborting` map until its promise settles, so a follow-up `cancel()` still
+    // finds it even though it has left `activeJobs`.
+    for (const [id, entry] of this.activeJobs) {
+      if (entry.job.runId === runId) {
+        entry.abort.abort();
+        this.aborting.set(id, entry);
+        this.activeJobs.delete(id);
+        return true;
+      }
+    }
+
+    // CODE-M-03: a job that was already signalled to abort but whose promise has
+    // not settled yet. Re-aborting is a no-op on the AbortController, but we
+    // still report success so callers see the run as cancelled.
+    for (const [, entry] of this.aborting) {
       if (entry.job.runId === runId) {
         entry.abort.abort();
         return true;
@@ -182,6 +211,10 @@ export class InMemoryRunQueue implements RunQueue {
   }
 
   stats(): QueueStats {
+    // CODE-M-03: jobs that have been signalled to abort are no longer counted as
+    // "active" — they have been moved into the `aborting` map and are draining.
+    // They are tracked there only so `cancel()` can re-locate them until their
+    // promise settles, at which point the `aborting` entry is dropped.
     return {
       pending: this.pending.length,
       active: this.activeJobs.size,
@@ -246,7 +279,11 @@ export class InMemoryRunQueue implements RunQueue {
       })
       .finally(() => {
         clearTimeout(timeout);
+        // CODE-M-03: settle removes the job from BOTH maps. Until this runs, a
+        // job that was signalled to abort stays in `aborting` so a concurrent
+        // `cancel()` can still find it.
         this.activeJobs.delete(job.id);
+        this.aborting.delete(job.id);
         this.processNext();
       });
 

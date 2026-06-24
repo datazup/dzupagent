@@ -8,59 +8,86 @@
  * Returns the populated config plus any singletons that other helpers
  * need direct access to (notably the EventGateway for SSE/WS routes).
  */
-import type { ForgeServerConfig } from './types.js'
-import { InMemoryEventGateway, type EventGateway } from '../events/event-gateway.js'
-import { createDefaultRunExecutor } from '../runtime/default-run-executor.js'
-import { createDzupAgentRunExecutor } from '../runtime/dzip-agent-run-executor.js'
-import { AgentControlPlaneService } from '../services/agent-control-plane-service.js'
+import type { ForgeServerConfig } from "./types.js";
 import {
-  ControlPlaneExecutableAgentResolver,
-} from '../services/executable-agent-resolver.js'
-import type { RunExecutor } from '../runtime/run-worker.js'
+  InMemoryEventGateway,
+  type EventGateway,
+} from "../events/event-gateway.js";
+import { createDefaultRunExecutor } from "../runtime/default-run-executor.js";
+import { createDzupAgentRunExecutor } from "../runtime/dzip-agent-run-executor.js";
+import { AgentControlPlaneService } from "../services/agent-control-plane-service.js";
+import { ControlPlaneExecutableAgentResolver } from "../services/executable-agent-resolver.js";
+import type { RunExecutor } from "../runtime/run-worker.js";
 
 export interface RuntimeBootstrap {
   /** Config with defaults populated for executor, resolver. */
-  runtimeConfig: ForgeServerConfig
+  runtimeConfig: ForgeServerConfig;
   /** Effective run executor (defaulted when caller did not provide one). */
-  effectiveRunExecutor: RunExecutor
+  effectiveRunExecutor: RunExecutor;
   /** Event gateway used by SSE/WS routes (defaulted to in-memory bridge). */
-  eventGateway: EventGateway
+  eventGateway: EventGateway;
 }
 
-export function buildRuntimeBootstrap(config: ForgeServerConfig): RuntimeBootstrap {
-  const eventGateway = config.eventGateway ?? new InMemoryEventGateway(config.eventBus)
+export function buildRuntimeBootstrap(
+  config: ForgeServerConfig
+): RuntimeBootstrap {
+  const eventGateway =
+    config.eventGateway ?? new InMemoryEventGateway(config.eventBus);
 
-  const fallbackRunExecutor = createDefaultRunExecutor(config.modelRegistry)
+  const fallbackRunExecutor = createDefaultRunExecutor(config.modelRegistry);
   const effectiveRunExecutor =
-    config.runExecutor ?? createDzupAgentRunExecutor({
+    config.runExecutor ??
+    createDzupAgentRunExecutor({
       fallback: fallbackRunExecutor,
-      ...(config.httpConnectorProfiles ? { httpConnectorProfiles: config.httpConnectorProfiles } : {}),
-      ...(config.defaultHttpConnectorProfile ? { defaultHttpConnectorProfile: config.defaultHttpConnectorProfile } : {}),
-      ...(config.githubConnectorProfiles ? { githubConnectorProfiles: config.githubConnectorProfiles } : {}),
-      ...(config.defaultGithubConnectorProfile ? { defaultGithubConnectorProfile: config.defaultGithubConnectorProfile } : {}),
-      ...(config.slackConnectorProfiles ? { slackConnectorProfiles: config.slackConnectorProfiles } : {}),
-      ...(config.defaultSlackConnectorProfile ? { defaultSlackConnectorProfile: config.defaultSlackConnectorProfile } : {}),
-      ...(config.allowUnsafeMetadataHttpConnector !== undefined
-        ? { allowUnsafeMetadataHttpConnector: config.allowUnsafeMetadataHttpConnector }
+      ...(config.httpConnectorProfiles
+        ? { httpConnectorProfiles: config.httpConnectorProfiles }
         : {}),
-      ...(config.gitWorkspaceProfiles ? { gitWorkspaceProfiles: config.gitWorkspaceProfiles } : {}),
-      ...(config.defaultGitWorkspaceProfile ? { defaultGitWorkspaceProfile: config.defaultGitWorkspaceProfile } : {}),
+      ...(config.defaultHttpConnectorProfile
+        ? { defaultHttpConnectorProfile: config.defaultHttpConnectorProfile }
+        : {}),
+      ...(config.githubConnectorProfiles
+        ? { githubConnectorProfiles: config.githubConnectorProfiles }
+        : {}),
+      ...(config.defaultGithubConnectorProfile
+        ? {
+            defaultGithubConnectorProfile: config.defaultGithubConnectorProfile,
+          }
+        : {}),
+      ...(config.slackConnectorProfiles
+        ? { slackConnectorProfiles: config.slackConnectorProfiles }
+        : {}),
+      ...(config.defaultSlackConnectorProfile
+        ? { defaultSlackConnectorProfile: config.defaultSlackConnectorProfile }
+        : {}),
+      ...(config.allowUnsafeMetadataHttpConnector !== undefined
+        ? {
+            allowUnsafeMetadataHttpConnector:
+              config.allowUnsafeMetadataHttpConnector,
+          }
+        : {}),
+      ...(config.gitWorkspaceProfiles
+        ? { gitWorkspaceProfiles: config.gitWorkspaceProfiles }
+        : {}),
+      ...(config.defaultGitWorkspaceProfile
+        ? { defaultGitWorkspaceProfile: config.defaultGitWorkspaceProfile }
+        : {}),
       ...(config.allowUnsafeMetadataGitCwd !== undefined
         ? { allowUnsafeMetadataGitCwd: config.allowUnsafeMetadataGitCwd }
         : {}),
-    })
+    });
 
   const controlPlaneService = new AgentControlPlaneService({
     agentStore: config.agentStore,
     registry: config.registry,
-  })
+  });
 
   const runtimeConfig: ForgeServerConfig = {
     ...config,
     executableAgentResolver:
-      config.executableAgentResolver ?? new ControlPlaneExecutableAgentResolver(controlPlaneService),
+      config.executableAgentResolver ??
+      new ControlPlaneExecutableAgentResolver(controlPlaneService),
     runExecutor: effectiveRunExecutor,
-  }
+  };
 
-  return { runtimeConfig, effectiveRunExecutor, eventGateway }
+  return { runtimeConfig, effectiveRunExecutor, eventGateway };
 }

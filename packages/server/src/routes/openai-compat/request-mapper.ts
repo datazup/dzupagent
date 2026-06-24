@@ -23,6 +23,8 @@
  *   This module provides `extractToolCallsFromMessages()` and an enhanced
  *   `mapResponseWithTools()` builder.
  */
+import { z } from "zod";
+import { defaultLogger } from "@dzupagent/core/utils";
 import type { BaseMessage } from "@langchain/core/messages";
 import type {
   ChatCompletionRequest,
@@ -124,7 +126,7 @@ export function mapRequest(req: ChatCompletionRequest): EnhancedMappedRequest {
 export function mapFinalStreamChunk(
   model: string,
   completionId: string,
-  doneEventData: Record<string, unknown>,
+  doneEventData: Record<string, unknown>
 ): ChatCompletionChunk {
   const hitLimit =
     doneEventData["hitIterationLimit"] === true ||
@@ -173,7 +175,7 @@ export interface ResponseToolCall {
  * This function walks the messages and collects them.
  */
 export function extractToolCallsFromMessages(
-  messages: BaseMessage[],
+  messages: BaseMessage[]
 ): ResponseToolCall[] {
   const results: ResponseToolCall[] = [];
 
@@ -193,8 +195,8 @@ export function extractToolCallsFromMessages(
         typeof call["args"] === "object" && call["args"] !== null
           ? JSON.stringify(call["args"])
           : typeof call["args"] === "string"
-            ? call["args"]
-            : "{}";
+          ? call["args"]
+          : "{}";
 
       results.push({
         id,
@@ -217,7 +219,7 @@ export function mapResponseWithTools(
   completionId: string,
   usage: { totalInputTokens: number; totalOutputTokens: number },
   messages: BaseMessage[],
-  hitIterationLimit: boolean,
+  hitIterationLimit: boolean
 ): ChatCompletionResponse & {
   choices: Array<{
     index: number;
@@ -273,20 +275,20 @@ function openAIError(
   message: string,
   type: string,
   param: string | null,
-  code: string | null,
+  code: string | null
 ): OpenAIErrorResponse {
   return { error: { message, type, param, code } };
 }
 
 export function badRequest(
   message: string,
-  param: string | null = null,
+  param: string | null = null
 ): OpenAIErrorResponse {
   return openAIError(
     message,
     "invalid_request_error",
     param,
-    "invalid_request_error",
+    "invalid_request_error"
   );
 }
 
@@ -295,7 +297,7 @@ export function notFoundError(model: string): OpenAIErrorResponse {
     `The model '${model}' does not exist or you do not have access to it.`,
     "invalid_request_error",
     null,
-    "model_not_found",
+    "model_not_found"
   );
 }
 
@@ -303,8 +305,119 @@ export function serverError(message: string): OpenAIErrorResponse {
   return openAIError(message, "server_error", null, "internal_error");
 }
 
+// ---------------------------------------------------------------------------
+// RF-4 (CODE-H-01/H-02, SEC-L-01): Zod schema for the OpenAI Chat Completions
+// request. Replaces the hand-rolled validator with a single declarative parse
+// that covers content (string|null), tool_calls structure, and the sampling
+// option bounds (temperature 0-2, max_tokens > 0, stop bounds).
+//
+// Sampling-options decision (SEC-L-01): `temperature`, `max_tokens`, and `stop`
+// are accepted and bounds-validated, but they are NOT yet threaded into the
+// agent's GenerateOptions (that is RF-2a scope). To avoid silently breaking
+// OpenAI clients that always send these fields, we take the SIMPLER PATH and
+// STRIP them with a one-line warning log rather than rejecting with a 400.
+// `mapRequest` still surfaces them on `options` for forward-compatibility, but
+// the completions route does not act on them today.
+// ---------------------------------------------------------------------------
+
+const toolCallSchema = z.object({
+  id: z.string(),
+  type: z.literal("function"),
+  function: z.object({
+    name: z.string(),
+    arguments: z.string(),
+  }),
+});
+
+const messageSchema = z.object({
+  role: z.enum(["system", "user", "assistant", "tool"]),
+  // OpenAI allows null content (e.g. an assistant turn that only emits
+  // tool_calls). Accept string | null; reject other types (numbers, objects).
+  content: z.union([z.string(), z.null()]).optional(),
+  name: z.string().optional(),
+  tool_calls: z.array(toolCallSchema).optional(),
+  tool_call_id: z.string().optional(),
+});
+
+const chatCompletionRequestSchema = z.object({
+  model: z.string().min(1),
+  messages: z.array(messageSchema).min(1),
+  temperature: z.number().min(0).max(2).optional(),
+  max_tokens: z.number().int().positive().optional(),
+  stream: z.boolean().optional(),
+  // OpenAI caps `stop` at 4 sequences; each must be a non-empty-ish string.
+  stop: z.union([z.string(), z.array(z.string()).min(1).max(4)]).optional(),
+});
+
+const SAMPLING_OPTION_KEYS = ["temperature", "max_tokens", "stop"] as const;
+
+/** Sampling fields are validated then stripped with a warning. See decision above. */
+function warnIfSamplingOptionsPresent(req: ChatCompletionRequest): void {
+  const present = SAMPLING_OPTION_KEYS.filter((k) => req[k] !== undefined);
+  if (present.length > 0) {
+    defaultLogger.warn(
+      `[ForgeServer] OpenAI-compat: sampling option(s) ${present.join(
+        ", "
+      )} are accepted and validated but not yet applied to generation (stripped); see RF-2a.`
+    );
+  }
+}
+
+/**
+ * Map a single Zod issue to the OpenAI `param` path string.
+ */
+function zodIssueToParam(issue: z.core.$ZodIssue): string | null {
+  const path = issue.path;
+  if (path.length === 0) {
+    return null;
+  }
+  const [head, ...rest] = path;
+  if (head === "messages") {
+    if (rest.length === 0) {
+      return "messages";
+    }
+    const [index, field] = rest;
+    if (typeof index === "number" && typeof field === "string") {
+      return `messages[${index}].${field}`;
+    }
+    if (typeof index === "number") {
+      return `messages[${index}]`;
+    }
+    return "messages";
+  }
+  return String(head);
+}
+
+function zodIssueToMessage(issue: z.core.$ZodIssue): string {
+  const param = zodIssueToParam(issue);
+  if (param === "model") {
+    return "You must provide a model parameter.";
+  }
+  if (param === "messages") {
+    return "'messages' is a required property. It must be a non-empty array.";
+  }
+  if (param && param.endsWith(".role")) {
+    return `Invalid value for 'role' at ${param.slice(
+      0,
+      -".role".length
+    )}. Expected one of 'system', 'user', 'assistant', 'tool'.`;
+  }
+  if (param === "temperature") {
+    return "'temperature' must be a number between 0 and 2.";
+  }
+  if (param === "max_tokens") {
+    return "'max_tokens' must be a positive integer.";
+  }
+  if (param === "stop") {
+    return "'stop' must be a string or an array of up to 4 strings.";
+  }
+  return param
+    ? `Invalid value for '${param}': ${issue.message}`
+    : issue.message;
+}
+
 export function validateCompletionRequest(
-  body: unknown,
+  body: unknown
 ):
   | { ok: true; request: ChatCompletionRequest }
   | { ok: false; error: OpenAIErrorResponse } {
@@ -315,47 +428,18 @@ export function validateCompletionRequest(
     };
   }
 
-  const req = body as Record<string, unknown>;
-
-  if (typeof req["model"] !== "string" || !req["model"]) {
+  const parsed = chatCompletionRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]!;
     return {
       ok: false,
-      error: badRequest("You must provide a model parameter.", "model"),
+      error: badRequest(zodIssueToMessage(issue), zodIssueToParam(issue)),
     };
   }
 
-  if (!Array.isArray(req["messages"]) || req["messages"].length === 0) {
-    return {
-      ok: false,
-      error: badRequest(
-        "'messages' is a required property. It must be a non-empty array.",
-        "messages",
-      ),
-    };
-  }
+  const request = parsed.data as ChatCompletionRequest;
+  // SEC-L-01: validated above; not applied to generation yet — warn + strip.
+  warnIfSamplingOptionsPresent(request);
 
-  for (let i = 0; i < req["messages"].length; i++) {
-    const msg = req["messages"][i] as Record<string, unknown> | null;
-    if (!msg || typeof msg !== "object") {
-      return {
-        ok: false,
-        error: badRequest(`Invalid message at index ${i}.`, `messages[${i}]`),
-      };
-    }
-    const role = msg["role"];
-    if (
-      typeof role !== "string" ||
-      !["system", "user", "assistant", "tool"].includes(role)
-    ) {
-      return {
-        ok: false,
-        error: badRequest(
-          `Invalid value for 'role' at messages[${i}]. Expected one of 'system', 'user', 'assistant', 'tool'.`,
-          `messages[${i}].role`,
-        ),
-      };
-    }
-  }
-
-  return { ok: true, request: req as unknown as ChatCompletionRequest };
+  return { ok: true, request };
 }
