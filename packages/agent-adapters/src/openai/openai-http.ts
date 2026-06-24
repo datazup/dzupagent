@@ -8,6 +8,7 @@
 import { ForgeError, type LlmAuditSink, type LlmInvocationRecord } from '@dzupagent/core/events'
 import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
 import { defaultLogger } from '@dzupagent/core/utils'
+import { httpErrorToForgeError } from '../utils/http-error.js'
 import type { AdapterProviderId } from '../types.js'
 import { parseSSEStream } from '../utils/sse-parser.js'
 import {
@@ -88,12 +89,7 @@ export async function postChatCompletions(args: PostChatCompletionsArgs): Promis
   })
   if (!response.ok) {
     const errorText = await response.text().catch(() => response.statusText)
-    throw new ForgeError({
-      code: 'ADAPTER_EXECUTION_FAILED',
-      message: `OpenAI API error: ${response.status} ${errorText}`,
-      recoverable: false,
-      context: { providerId: 'openai', status: response.status },
-    })
+    throw httpErrorToForgeError(response.status, errorText, 'openai')
   }
   return response
 }

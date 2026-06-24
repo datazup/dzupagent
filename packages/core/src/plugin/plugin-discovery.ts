@@ -1,6 +1,7 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
+import { readTextFileOrDefault } from '../utils/file-utils.js'
 
 /**
  * Describes a plugin's capabilities, metadata, and entry point.
@@ -209,8 +210,11 @@ export async function discoverPlugins(config?: PluginDiscoveryConfig): Promise<D
 
     for (const entry of entries) {
       const manifestPath = join(dir, entry, MANIFEST_FILENAME)
+      // Missing manifest (ENOENT) is the common case for non-plugin dir
+      // entries — skip it. Other IO errors (permission denied) propagate.
+      const raw = await readTextFileOrDefault<null>(manifestPath, null)
+      if (raw === null) continue
       try {
-        const raw = await readFile(manifestPath, 'utf-8')
         const parsed: unknown = JSON.parse(raw)
         const validation = validateManifest(parsed)
         if (validation.valid) {
@@ -221,7 +225,7 @@ export async function discoverPlugins(config?: PluginDiscoveryConfig): Promise<D
           })
         }
       } catch {
-        // No manifest or invalid JSON — skip this entry
+        // Invalid JSON — skip this entry
         continue
       }
     }

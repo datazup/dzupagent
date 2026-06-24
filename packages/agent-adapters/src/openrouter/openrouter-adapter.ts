@@ -24,6 +24,7 @@ import type {
   StreamContext,
 } from '../base/stream-runner.js'
 import { parseSSEStream } from '../utils/sse-parser.js'
+import { httpErrorToForgeError } from '../utils/http-error.js'
 
 /** SSE chunk shape returned by the OpenRouter streaming API. */
 interface SSEChunkChoice {
@@ -146,12 +147,7 @@ export class OpenRouterAdapter implements AgentCLIAdapter, AdapterStreamSource<O
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => response.statusText)
-      throw new ForgeError({
-        code: 'ADAPTER_EXECUTION_FAILED',
-        message: `OpenRouter API error: ${response.status} ${errorText}`,
-        recoverable: false,
-        context: { providerId: 'openrouter', status: response.status },
-      })
+      throw httpErrorToForgeError(response.status, errorText, 'openrouter')
     }
 
     let usage: { inputTokens: number; outputTokens: number } | undefined

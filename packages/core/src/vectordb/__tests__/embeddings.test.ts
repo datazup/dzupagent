@@ -106,11 +106,14 @@ describe('Embedding Providers', () => {
       expect(provider.dimensions).toBe(3072)
     })
 
-    it('throws on HTTP error', async () => {
+    it('throws a recoverable ForgeError on HTTP 429', async () => {
       mockFetch({ error: 'rate limited' }, 429)
 
       const provider = createOpenAIEmbedding({ apiKey: 'sk-test' })
-      await expect(provider.embed(['test'])).rejects.toThrow('OpenAI embedding request failed (429)')
+      await expect(provider.embed(['test'])).rejects.toMatchObject({
+        code: 'VECTOR_STORE_RATE_LIMITED',
+        recoverable: true,
+      })
     })
 
     it('returns empty array for empty input', async () => {
@@ -163,11 +166,14 @@ describe('Embedding Providers', () => {
       expect(provider.dimensions).toBe(1024)
     })
 
-    it('throws on HTTP error', async () => {
+    it('throws a non-recoverable ForgeError on HTTP 401', async () => {
       mockFetch({ error: 'unauthorized' }, 401)
 
       const provider = createVoyageEmbedding({ apiKey: 'bad-key' })
-      await expect(provider.embed(['test'])).rejects.toThrow('Voyage embedding request failed (401)')
+      await expect(provider.embed(['test'])).rejects.toMatchObject({
+        code: 'VECTOR_STORE_AUTH_FAILED',
+        recoverable: false,
+      })
     })
   })
 

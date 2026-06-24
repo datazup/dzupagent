@@ -421,7 +421,7 @@ describe('TurbopufferAdapter', () => {
       expect(calls).toHaveLength(2)
     })
 
-    it('throws after exhausting retries', async () => {
+    it('throws a recoverable rate-limited ForgeError after exhausting retries', async () => {
       const { fetchFn } = mockFetch([
         { status: 429, body: {}, headers: { 'retry-after': '0' } },
         { status: 429, body: {}, headers: { 'retry-after': '0' } },
@@ -429,25 +429,37 @@ describe('TurbopufferAdapter', () => {
       ])
       adapter = createAdapter(fetchFn)
 
-      await expect(adapter.count('test')).rejects.toThrow('Turbopuffer request failed')
+      await expect(adapter.count('test')).rejects.toMatchObject({
+        code: 'VECTOR_STORE_RATE_LIMITED',
+        recoverable: true,
+      })
     })
   })
 
   // --- Error handling ---
 
   describe('error handling', () => {
-    it('throws with error message from response', async () => {
+    it('throws a non-recoverable rejected-request ForgeError on 4xx, with the raw body in context (not message)', async () => {
       const { fetchFn } = mockFetch([
         { status: 400, body: { error: 'Invalid vector dimensions' } },
       ])
       adapter = createAdapter(fetchFn)
 
-      await expect(
-        adapter.upsert('test', sampleEntries),
-      ).rejects.toThrow('Invalid vector dimensions')
+      const err = (await adapter
+        .upsert('test', sampleEntries)
+        .catch((e: unknown) => e)) as {
+        code: string
+        recoverable: boolean
+        message: string
+        context?: Record<string, unknown>
+      }
+      expect(err.code).toBe('VECTOR_STORE_REJECTED_REQUEST')
+      expect(err.recoverable).toBe(false)
+      expect(err.message).not.toContain('Invalid vector dimensions')
+      expect(err.context?.['body']).toMatchObject({ error: 'Invalid vector dimensions' })
     })
 
-    it('throws generic message when no error field', async () => {
+    it('throws a recoverable unavailable ForgeError on 5xx', async () => {
       const { fetchFn } = mockFetch([
         { status: 500, body: { detail: 'something' } },
       ])
@@ -455,7 +467,10 @@ describe('TurbopufferAdapter', () => {
 
       await expect(
         adapter.upsert('test', sampleEntries),
-      ).rejects.toThrow('Turbopuffer request failed: 500')
+      ).rejects.toMatchObject({
+        code: 'VECTOR_STORE_UNAVAILABLE',
+        recoverable: true,
+      })
     })
   })
 

@@ -586,6 +586,7 @@ export {
   requireFallbackProviderId,
 } from "./utils/provider-helpers.js";
 export type { UrlValidationOptions } from "./utils/url-validator.js";
+export { httpErrorToForgeError } from "./utils/http-error.js";
 
 // --- Skill Projection ---
 export { SkillProjector } from "./skills/skill-projector.js";

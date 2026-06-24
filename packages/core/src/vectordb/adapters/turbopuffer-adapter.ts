@@ -17,6 +17,7 @@ import type {
   MetadataFilter,
   DistanceMetric,
 } from '../types.js'
+import { vectorHttpErrorToForgeError } from '../http-error.js'
 
 /** Configuration for the Turbopuffer adapter */
 export interface TurbopufferAdapterConfig {
@@ -155,7 +156,7 @@ export class TurbopufferAdapter implements VectorStore {
     body?: unknown,
   ): Promise<{ status: number; data: T }> {
     const url = `${this.baseUrl}${path}`
-    let lastError: Error | undefined
+    let lastError: unknown
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       const res = await this.fetchFn(url, {
@@ -169,7 +170,11 @@ export class TurbopufferAdapter implements VectorStore {
         const retryAfter = res.headers.get('retry-after')
         const delayMs = retryAfter ? Number(retryAfter) * 1000 : 1000 * (attempt + 1)
         await this.sleep(delayMs)
-        lastError = new Error(`Turbopuffer rate limited (429), attempt ${attempt + 1}`)
+        lastError = vectorHttpErrorToForgeError(
+          res.status,
+          `rate limited, attempt ${attempt + 1}`,
+          'turbopuffer',
+        )
         continue
       }
 
@@ -186,17 +191,13 @@ export class TurbopufferAdapter implements VectorStore {
       const data = text.length > 0 ? (JSON.parse(text) as T) : (undefined as T)
 
       if (!res.ok) {
-        const message =
-          typeof data === 'object' && data !== null && 'error' in data
-            ? String((data as Record<string, unknown>)['error'])
-            : `Turbopuffer request failed: ${res.status}`
-        throw new Error(message)
+        throw vectorHttpErrorToForgeError(res.status, data, 'turbopuffer')
       }
 
       return { status: res.status, data }
     }
 
-    throw lastError ?? new Error('Turbopuffer request failed after retries')
+    throw lastError ?? vectorHttpErrorToForgeError(429, 'request failed after retries', 'turbopuffer')
   }
 
   private sleep(ms: number): Promise<void> {

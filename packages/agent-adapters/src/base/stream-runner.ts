@@ -49,7 +49,7 @@ export interface AdapterStreamSource<TRaw> {
    */
   mapRawEvent(
     raw: TRaw,
-    context: StreamContext,
+    context: StreamContext
   ): AgentEvent | AgentEvent[] | null;
   /** Extract token usage from a raw event, if any. */
   extractUsage?(raw: TRaw): TokenUsage | undefined;
@@ -141,7 +141,7 @@ export class AdapterStreamRunner<TRaw> {
   async *run(
     source: AdapterStreamSource<TRaw>,
     input: AgentInput,
-    externalSignal?: AbortSignal,
+    externalSignal?: AbortSignal
   ): AsyncGenerator<AgentEvent, void, undefined> {
     const abortController = new AbortController();
     this.config.onAbortController?.(abortController);
@@ -177,7 +177,7 @@ export class AdapterStreamRunner<TRaw> {
         yield this.buildStartedEvent(
           source.providerId,
           context,
-          this.config.startedExtra,
+          this.config.startedExtra
         );
       }
 
@@ -195,7 +195,7 @@ export class AdapterStreamRunner<TRaw> {
                 providerId: source.providerId,
                 gapMs,
                 heartbeatGapMs: this.heartbeatGapMs,
-              },
+              }
             );
           }
         }
@@ -210,7 +210,7 @@ export class AdapterStreamRunner<TRaw> {
             yield this.buildStartedEvent(
               source.providerId,
               context,
-              threadStart.extra,
+              threadStart.extra
             );
           }
         }
@@ -246,7 +246,7 @@ export class AdapterStreamRunner<TRaw> {
         if (this.config.emitFailedOnAbort) {
           const abortEv = this.buildAbortFailedEvent(
             source.providerId,
-            context,
+            context
           );
           if (!auditEmitted) {
             auditEmitted = true;
@@ -313,7 +313,7 @@ export class AdapterStreamRunner<TRaw> {
     providerId: AdapterProviderId,
     context: StreamContext,
     terminal: AgentEvent,
-    startedAt: string,
+    startedAt: string
   ): void {
     const sink = this.config.auditSink;
     if (!sink) return;
@@ -338,7 +338,7 @@ export class AdapterStreamRunner<TRaw> {
           : undefined;
       const errorCode =
         terminal.type === "adapter:failed"
-          ? (terminal.code ?? "ADAPTER_EXECUTION_FAILED")
+          ? terminal.code ?? "ADAPTER_EXECUTION_FAILED"
           : undefined;
 
       const record: LlmInvocationRecord = {
@@ -395,7 +395,7 @@ export class AdapterStreamRunner<TRaw> {
 
   private buildAbortFailedEvent(
     providerId: AdapterProviderId,
-    context: StreamContext,
+    context: StreamContext
   ): AgentEvent {
     return {
       type: "adapter:failed",
@@ -413,7 +413,7 @@ export class AdapterStreamRunner<TRaw> {
   private buildStartedEvent(
     providerId: AdapterProviderId,
     context: StreamContext,
-    extra?: Record<string, unknown>,
+    extra?: Record<string, unknown>
   ): AgentEvent {
     const { input, sessionId } = context;
     return {

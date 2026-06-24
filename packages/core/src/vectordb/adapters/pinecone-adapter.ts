@@ -14,6 +14,7 @@ import type {
   MetadataFilter,
   DistanceMetric,
 } from '../types.js'
+import { vectorHttpErrorToForgeError } from '../http-error.js'
 
 /** Configuration for the Pinecone adapter */
 export interface PineconeAdapterConfig {
@@ -138,11 +139,7 @@ export class PineconeAdapter implements VectorStore {
     const data = (await res.json()) as T
 
     if (!res.ok) {
-      const message =
-        typeof data === 'object' && data !== null && 'message' in data
-          ? String((data as Record<string, unknown>)['message'])
-          : `Pinecone request failed: ${res.status}`
-      throw new Error(message)
+      throw vectorHttpErrorToForgeError(res.status, data, 'pinecone')
     }
 
     return { status: res.status, data }
@@ -191,11 +188,7 @@ export class PineconeAdapter implements VectorStore {
     const data = (await res.json()) as T
 
     if (!res.ok) {
-      const message =
-        typeof data === 'object' && data !== null && 'message' in data
-          ? String((data as Record<string, unknown>)['message'])
-          : `Pinecone data request failed: ${res.status}`
-      throw new Error(message)
+      throw vectorHttpErrorToForgeError(res.status, data, 'pinecone')
     }
 
     return { status: res.status, data }

@@ -231,8 +231,9 @@ describe('OpenRouterAdapter', () => {
     const failed = events[1]
     if (failed?.type === 'adapter:failed') {
       expect(failed.error).toContain('429')
-      expect(failed.error).toContain('Rate limit exceeded')
-      expect(failed.code).toBe('ADAPTER_EXECUTION_FAILED')
+      // Raw upstream body must NOT leak into the surfaced error message.
+      expect(failed.error).not.toContain('Rate limit exceeded')
+      expect(failed.code).toBe('PROVIDER_RATE_LIMITED')
     }
   })
 
