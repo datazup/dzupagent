@@ -240,8 +240,50 @@ export function maybeStartScheduleTickWorker(
  * provided (matching legacy behaviour where the status route was only added
  * alongside shutdown wiring).
  */
-export function startConsolidationScheduler(
+// Holds the live ConsolidationScheduler per config so the status route (mounted
+// during the pure build phase) and the scheduler (created during the runtime
+// start phase) can be wired without mounting routes after Hono's router is
+// frozen. ARCH-M-01/M-02: route mounting is a build-time concern; the route
+// reads a deferred reference set when the scheduler actually starts.
+const consolidationSchedulers = new WeakMap<
+  ForgeServerConfig,
+  ConsolidationScheduler
+>();
+
+/**
+ * Build-phase: mount the consolidation status route. Mounted only when both a
+ * consolidation config and a shutdown handler are present (matching legacy
+ * behaviour). Safe to call before {@link startConsolidationScheduler}; the route
+ * reports `running: false` until the scheduler is started.
+ *
+ * Must be called during {@link buildForgeApp} (before the first request) because
+ * Hono freezes its router after the first match.
+ */
+export function mountConsolidationHealthRoute(
   app: Hono<AppEnv>,
+  runtimeConfig: ForgeServerConfig
+): void {
+  if (!runtimeConfig.consolidation || !runtimeConfig.shutdown) {
+    return;
+  }
+
+  app.get("/api/health/consolidation", (c) => {
+    const scheduler = consolidationSchedulers.get(runtimeConfig);
+    if (!scheduler) {
+      return c.json({ data: { running: false } });
+    }
+    return c.json({ data: scheduler.status() });
+  });
+}
+
+/**
+ * Runtime-phase: create and start the consolidation scheduler. Records the
+ * scheduler so the build-time status route (see
+ * {@link mountConsolidationHealthRoute}) can report live status, and registers a
+ * shutdown drain hook to stop it.
+ */
+export function startConsolidationScheduler(
+  _app: Hono<AppEnv>,
   runtimeConfig: ForgeServerConfig
 ): void {
   if (!runtimeConfig.consolidation) {
@@ -270,14 +312,10 @@ export function startConsolidationScheduler(
       (() => runtimeConfig.runQueue?.stats().active ?? 0),
   });
   scheduler.start();
+  consolidationSchedulers.set(runtimeConfig, scheduler);
 
   if (runtimeConfig.shutdown) {
     registerShutdownDrainHook(runtimeConfig.shutdown, () => scheduler.stop());
-
-    // Expose scheduler status via health route
-    app.get("/api/health/consolidation", (c) =>
-      c.json({ data: scheduler.status() })
-    );
   }
 }
 

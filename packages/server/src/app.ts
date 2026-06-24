@@ -32,13 +32,19 @@ import { Hono } from "hono";
 
 import { ComplianceAuditLogger } from "@dzupagent/core/security";
 import type { AppEnv } from "./types.js";
-import type { ForgeServerConfig } from "./composition/types.js";
+import type {
+  ForgeServerConfig,
+  ForgeHostRuntimeConfig,
+} from "./composition/types.js";
 import {
   registerShutdownDrainHook,
   warnIfUnboundedInMemoryRetention,
 } from "./composition/utils.js";
 import { attachSafetyMonitor } from "./composition/safety.js";
-import { buildRuntimeBootstrap } from "./composition/runtime-config.js";
+import {
+  buildRuntimeBootstrap,
+  type RuntimeBootstrap,
+} from "./composition/runtime-config.js";
 import {
   applyMiddleware,
   assertExplicitFrameworkApiAuth,
@@ -53,6 +59,7 @@ import {
   maybeStartRunWorker,
   maybeStartNodeLedgerReclaimer,
   maybeStartScheduleTickWorker,
+  mountConsolidationHealthRoute,
   startConsolidationScheduler,
   startClosedLoopSubscribers,
 } from "./composition/workers.js";
@@ -104,11 +111,108 @@ export type {
 } from "./composition/types.js";
 export type { HttpConnectorProfile } from "./runtime/tool-resolver.js";
 
-export function createForgeApp(config: ForgeServerConfig): Hono<AppEnv> {
+/**
+ * Handle returned by {@link startForgeRuntime}. Owns the lifecycle of all
+ * background work (run worker, reclaimers, schedulers, event-bus subscribers).
+ *
+ * `stop()` is idempotent: calling it more than once is safe and resolves
+ * without error. Hosts that wire a {@link GracefulShutdown} handler get the same
+ * drains registered automatically; `stop()` is the explicit lever for hosts
+ * that manage lifecycle directly (e.g. tests, embedding the app in another
+ * process).
+ */
+export interface RuntimeHandle {
+  /** Idempotently tear down all background work started by `startForgeRuntime`. */
+  stop(): Promise<void>;
+}
+
+// Associates the runtime bootstrap (defaulted executor/resolver/gateway) with
+// the app `buildForgeApp` produced, so a following `startForgeRuntime(config,
+// app)` reuses the SAME bootstrap instead of allocating a second event gateway
+// (which would double-subscribe to the event bus) or a second run executor.
+// Keyed on the app instance — not the config — so a fresh `buildForgeApp` call
+// (even with a mutated, reused config object) always gets a fresh bootstrap.
+const appBootstraps = new WeakMap<Hono<AppEnv>, RuntimeBootstrap>();
+
+/**
+ * ARCH-M-01/M-02 — pure app construction.
+ *
+ * Builds the configured Hono app (middleware + routes) WITHOUT starting any
+ * background work: no run worker, no reclaimers, no schedulers, and no
+ * event-bus subscribers (safety monitor, audit logger, closed-loop loops) are
+ * started here. The returned app is fully routed and has zero side effects on
+ * timers or the event bus.
+ *
+ * Call {@link startForgeRuntime} with the same `config` and the returned `app`
+ * to start the background runtime. For a single call that does both (legacy
+ * behaviour), use {@link createForgeApp}.
+ */
+export function buildForgeApp(config: ForgeHostRuntimeConfig): Hono<AppEnv> {
   assertExplicitFrameworkApiAuth(config);
   warnIfUnboundedInMemoryRetention(config);
 
   const app = new Hono<AppEnv>();
+
+  // Resolve runtime defaults: executor, executable agent resolver, gateway.
+  // Stashed on the app so a subsequent `startForgeRuntime(config, app)` reuses
+  // the same singletons (one event gateway, one executor) rather than
+  // re-bootstrapping.
+  const bootstrap = buildRuntimeBootstrap(config);
+  appBootstraps.set(app, bootstrap);
+  const { runtimeConfig, eventGateway } = bootstrap;
+
+  // Middleware: CORS, auth, RBAC, rate limit, shutdown guard, metrics, error.
+  const { effectiveAuth } = applyMiddleware(app, runtimeConfig);
+
+  // Always-mounted routes are generic framework primitives or compatibility
+  // aliases. New product-control-plane routes should be owned by consuming apps
+  // and mounted through `routePlugins` or app-level Hono composition.
+  mountCoreRoutes(app, runtimeConfig);
+
+  // Conditional routes are existing compatibility/maintenance surfaces or
+  // generic framework primitives gated on injected capability config.
+  mountOptionalRoutes(app, { runtimeConfig, effectiveAuth, eventGateway });
+
+  // Built-in route plugin seams plus host-supplied plugins. This is the
+  // forward-path extension point for app-owned product routes.
+  mountAllRoutePlugins(app, runtimeConfig, eventGateway);
+
+  // Prometheus `/metrics` endpoint (only when collector is Prometheus).
+  mountPrometheusMetricsRoute(app, runtimeConfig);
+
+  // Consolidation status route must be mounted during construction (Hono freezes
+  // its router after the first request). The route reports live status once
+  // `startForgeRuntime` starts the scheduler.
+  mountConsolidationHealthRoute(app, runtimeConfig);
+
+  return app;
+}
+
+/**
+ * ARCH-M-01/M-02 — background runtime lifecycle.
+ *
+ * Starts every piece of background work for an app produced by
+ * {@link buildForgeApp}: event-bus subscribers (safety monitor, compliance
+ * audit logger, closed-loop self-improvement loops), the run-queue worker, the
+ * node-ledger reclaimer, the schedule-tick worker, env-driven notification
+ * channels, and the memory consolidation scheduler (which mounts its status
+ * route onto the supplied app).
+ *
+ * Returns a {@link RuntimeHandle} whose `stop()` is idempotent — safe to call
+ * multiple times. When a {@link GracefulShutdown} handler is configured the same
+ * drains are also registered with it; `stop()` is the explicit alternative for
+ * hosts that own the lifecycle directly.
+ *
+ * Each `maybeStart*` worker is internally guarded against double-start per
+ * underlying queue/ledger/store instance, so invoking `startForgeRuntime` twice
+ * with the same config does not start duplicate workers.
+ */
+export function startForgeRuntime(
+  config: ForgeHostRuntimeConfig,
+  app: Hono<AppEnv>
+): RuntimeHandle {
+  const disposers: Array<() => Promise<void> | void> = [];
+  let stopped = false;
 
   // --- Runtime SafetyMonitor ---
   // Attach the built-in safety monitor to the shared event bus so that
@@ -123,32 +227,37 @@ export function createForgeApp(config: ForgeServerConfig): Hono<AppEnv> {
     const auditLogger = new ComplianceAuditLogger({ store: config.auditStore });
     auditLogger.attach(config.eventBus);
 
-    // Drain pending fire-and-forget audit writes before process exit so
-    // SIGTERM/SIGINT do not lose in-flight compliance records. Sink errors
-    // surfaced by `flush()` are intentionally swallowed here because the
-    // shutdown path itself is best-effort — but the logger's `onError` (if
-    // configured) and console fallback below ensure visibility.
+    // Drain pending fire-and-forget audit writes before teardown so a
+    // SIGTERM/SIGINT (or explicit stop) does not lose in-flight compliance
+    // records. Sink errors surfaced by `flush()` are intentionally swallowed
+    // here because the shutdown path itself is best-effort.
+    const drainAuditLogger = async (): Promise<void> => {
+      try {
+        await auditLogger.flush();
+      } catch (err) {
+        // Best-effort: surface but do not block shutdown.
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[ForgeServer] audit logger flush surfaced error during shutdown",
+          err
+        );
+      } finally {
+        auditLogger.dispose();
+      }
+    };
+    disposers.push(drainAuditLogger);
+
     if (config.shutdown) {
-      registerShutdownDrainHook(config.shutdown, async () => {
-        try {
-          await auditLogger.flush();
-        } catch (err) {
-          // Best-effort: surface but do not block shutdown.
-          // eslint-disable-next-line no-console
-          console.warn(
-            "[ForgeServer] audit logger flush surfaced error during shutdown",
-            err
-          );
-        } finally {
-          auditLogger.dispose();
-        }
-      });
+      registerShutdownDrainHook(config.shutdown, drainAuditLogger);
     }
   }
 
-  // Resolve runtime defaults: executor, executable agent resolver, gateway.
-  const { runtimeConfig, effectiveRunExecutor, eventGateway } =
-    buildRuntimeBootstrap(config);
+  // Reuse the bootstrap `buildForgeApp` produced for this app (so the worker
+  // and the mounted routes share one runtimeConfig/executor/gateway). Fall back
+  // to a fresh bootstrap only if this app was not produced by `buildForgeApp`
+  // (e.g. an external caller passing a hand-built Hono instance).
+  const { runtimeConfig, effectiveRunExecutor } =
+    appBootstraps.get(app) ?? buildRuntimeBootstrap(config);
 
   // Start the queue worker (no-op when no `runQueue` is supplied or the
   // worker has already been started for this queue instance).
@@ -160,33 +269,49 @@ export function createForgeApp(config: ForgeServerConfig): Hono<AppEnv> {
   // and scheduleTickWorker config are present).
   maybeStartScheduleTickWorker(runtimeConfig);
 
-  // Middleware: CORS, auth, RBAC, rate limit, shutdown guard, metrics, error.
-  const { effectiveAuth } = applyMiddleware(app, runtimeConfig);
-
-  // Always-mounted routes are generic framework primitives or compatibility
-  // aliases. New product-control-plane routes should be owned by consuming apps
-  // and mounted through `routePlugins` or app-level Hono composition.
-  mountCoreRoutes(app, runtimeConfig);
-
-  // Conditional routes are existing compatibility/maintenance surfaces or
-  // generic framework primitives gated on injected capability config.
-  mountOptionalRoutes(app, { runtimeConfig, effectiveAuth, eventGateway });
-
   // --- Auto-register notification channels from env vars ---
   registerEnvNotificationChannels(runtimeConfig);
 
-  // Built-in route plugin seams plus host-supplied plugins. This is the
-  // forward-path extension point for app-owned product routes.
-  mountAllRoutePlugins(app, runtimeConfig, eventGateway);
-
-  // Prometheus `/metrics` endpoint (only when collector is Prometheus).
-  mountPrometheusMetricsRoute(app, runtimeConfig);
-
-  // Background scheduler (memory consolidation).
+  // Background scheduler (memory consolidation). Mounts its status route onto
+  // the supplied app when a shutdown handler is configured.
   startConsolidationScheduler(app, runtimeConfig);
 
   // Closed-loop self-improvement: prompt feedback loop + learning processor.
   startClosedLoopSubscribers(runtimeConfig);
 
+  return {
+    async stop(): Promise<void> {
+      if (stopped) {
+        return;
+      }
+      stopped = true;
+      // Drain in reverse registration order; swallow per-disposer errors so a
+      // single failing drain cannot abort the rest of teardown.
+      for (const dispose of disposers.reverse()) {
+        try {
+          await dispose();
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.warn("[ForgeServer] runtime stop disposer failed", err);
+        }
+      }
+    },
+  };
+}
+
+/**
+ * Thin backwards-compatible wrapper: builds the app AND starts the background
+ * runtime in one call (the historical behaviour). New code that needs to
+ * construct the app without side effects, or to control the background runtime
+ * lifecycle explicitly, should prefer {@link buildForgeApp} +
+ * {@link startForgeRuntime}.
+ *
+ * {@link ForgeServerConfig} is retained as the parameter type for source
+ * compatibility; it is structurally a superset-compatible alias of
+ * {@link ForgeHostRuntimeConfig} for the purposes of this factory.
+ */
+export function createForgeApp(config: ForgeServerConfig): Hono<AppEnv> {
+  const app = buildForgeApp(config);
+  startForgeRuntime(config, app);
   return app;
 }

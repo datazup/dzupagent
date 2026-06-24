@@ -12,7 +12,8 @@
  */
 
 // --- App ---
-export { createForgeApp } from "./app.js";
+export { createForgeApp, buildForgeApp, startForgeRuntime } from "./app.js";
+export type { RuntimeHandle } from "./app.js";
 export type {
   ForgeServerConfig,
   ForgeHostRuntimeConfig,

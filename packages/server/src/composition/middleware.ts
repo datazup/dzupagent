@@ -32,7 +32,10 @@ import {
   type ForgeRole,
   type RBACConfig,
 } from "../middleware/rbac.js";
-import { rateLimiterMiddleware } from "../middleware/rate-limiter.js";
+import {
+  rateLimiterMiddleware,
+  type RateLimiterConfig,
+} from "../middleware/rate-limiter.js";
 
 export interface ComposedMiddleware {
   /** Auth config with apiKeyStore validate function wired in (when applicable). */
@@ -221,6 +224,15 @@ function applyAuthAndRbac(
   }
 
   if (config.auth.mode === "none") {
+    // SEC-M-02: refuse an explicit `auth.mode: 'none'` in production unless the
+    // host has opted in via `allowUnsafeNoAuthInProduction`. An unauthenticated
+    // production deployment is a misconfiguration by default, not a choice.
+    if (
+      process.env.NODE_ENV === "production" &&
+      !config.allowUnsafeNoAuthInProduction
+    ) {
+      throw new Error(PRODUCTION_FRAMEWORK_API_AUTH_ERROR);
+    }
     console.warn(FRAMEWORK_API_AUTH_WARNING);
   }
 
@@ -253,13 +265,29 @@ function applyAuthAndRbac(
   return effectiveAuth;
 }
 
+// SEC-M-03: conservative default rate limit applied when auth is enabled but no
+// explicit `rateLimit` config was provided. 100 requests / minute per key (or
+// per IP, depending on the limiter's key extractor) is a safe floor that keeps
+// an authenticated-but-unconfigured deployment from being trivially abused.
+export const DEFAULT_RATE_LIMIT: Partial<RateLimiterConfig> = {
+  maxRequests: 100,
+  windowMs: 60_000,
+};
+
 function applyRateLimit(app: Hono<AppEnv>, config: ForgeServerConfig): void {
-  if (!config.rateLimit) {
+  // Explicit config wins. Otherwise, when auth is enabled (SEC-M-03), fall back
+  // to a conservative default limiter so authenticated APIs are never left
+  // entirely unthrottled. With no auth and no explicit rateLimit, preserve the
+  // prior behaviour (no limiter) — those are local/dev/compat hosts that have
+  // already accepted the unauthenticated warning.
+  const effectiveRateLimit =
+    config.rateLimit ?? (config.auth ? DEFAULT_RATE_LIMIT : undefined);
+  if (!effectiveRateLimit) {
     return;
   }
 
   for (const path of getRateLimitedRoutePatterns(config)) {
-    app.use(path, rateLimiterMiddleware(config.rateLimit));
+    app.use(path, rateLimiterMiddleware(effectiveRateLimit));
   }
 }
 
@@ -303,8 +331,13 @@ function applyJsonBodySizeLimit(
     }
 
     if (contentLength === undefined) {
-      const actualBytes = await getRequestBodyByteLength(c.req.raw);
-      if (actualBytes > maxBytes) {
+      // SEC-M-04: stream the body and abort as soon as we have read more than
+      // `maxBytes` (i.e. at `maxBytes + 1`). An oversize attacker payload is
+      // never buffered in full — we stop reading the moment the limit is
+      // crossed. For within-limit bodies we collect the (bounded) chunks and
+      // rebuild the request so downstream handlers can still parse it.
+      const result = await measureAndRebuildBody(c.req.raw, maxBytes);
+      if (result.exceeded) {
         return c.json(
           {
             error: {
@@ -314,6 +347,10 @@ function applyJsonBodySizeLimit(
           },
           413
         );
+      }
+      if (result.rebuilt) {
+        // Replace the consumed body with a fresh, replayable Request.
+        c.req.raw = result.rebuilt;
       }
     }
 
@@ -387,12 +424,87 @@ function parseContentLength(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-async function getRequestBodyByteLength(request: Request): Promise<number> {
-  try {
-    return (await request.clone().arrayBuffer()).byteLength;
-  } catch {
-    return 0;
+interface BodyMeasureResult {
+  /** True when the body exceeded `maxBytes` (read aborted at `maxBytes + 1`). */
+  exceeded: boolean;
+  /**
+   * A replayable Request rebuilt from the (within-limit) collected body, or
+   * `undefined` when no rebuild is needed (no body, or the size check could not
+   * run). The original body stream is consumed by the measurement, so callers
+   * must swap to this rebuilt Request for downstream parsing.
+   */
+  rebuilt?: Request;
+}
+
+/**
+ * SEC-M-04: stream the request body and abort the moment the cumulative byte
+ * count exceeds `maxBytes` (i.e. at `maxBytes + 1`). An oversize payload is
+ * never buffered in full — reading stops as soon as the limit is crossed, so an
+ * attacker cannot force the process to allocate the whole body just to have its
+ * size checked.
+ *
+ * Reading the body consumes the underlying stream, so for within-limit bodies we
+ * collect the (bounded ≤ `maxBytes`) chunks and rebuild a fresh, replayable
+ * Request that downstream handlers can parse.
+ *
+ * Returns `{ exceeded: false }` with no rebuild when the body cannot be streamed
+ * (no body, or the runtime does not expose a readable stream), matching the
+ * prior best-effort behaviour where an unreadable body was treated as size 0.
+ */
+async function measureAndRebuildBody(
+  request: Request,
+  maxBytes: number
+): Promise<BodyMeasureResult> {
+  const stream = request.body;
+  if (!stream) {
+    return { exceeded: false };
   }
+
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (value) {
+        total += value.byteLength;
+        if (total > maxBytes) {
+          // Abort: the remaining chunks are never read or buffered.
+          return { exceeded: true };
+        }
+        chunks.push(value);
+      }
+    }
+  } catch {
+    // Treat an unreadable/aborted body as within-limit; the downstream JSON
+    // parser will surface any genuine malformed-body error. Rebuild from what
+    // we managed to collect so the downstream consumer still has a body.
+    /* fall through to rebuild */
+  } finally {
+    reader.releaseLock();
+  }
+
+  // Reassemble the collected (bounded) chunks into a single buffer and rebuild a
+  // replayable Request, since reading consumed the original stream.
+  const buffer = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buffer.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  const rebuilt = new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: total > 0 ? buffer : undefined,
+    // Required by undici when a body stream/buffer is supplied.
+    duplex: "half",
+  } as RequestInit & { duplex: "half" });
+
+  return { exceeded: false, rebuilt };
 }
 
 function resolveJsonBodyMaxBytes(
