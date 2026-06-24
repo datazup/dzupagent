@@ -7,10 +7,13 @@ import type {
 import { isTerminalStatus } from "../contracts/background-task.js";
 import type { Clock } from "../contracts/clock.js";
 import { systemClock } from "../contracts/clock.js";
+import { SubagentErrorCode } from "../contracts/error-codes.js";
 import type {
   SubagentEventSink,
   SubagentRuntimeEvent,
 } from "../contracts/events.js";
+import type { SubagentLogger } from "../contracts/logger.js";
+import { defaultSubagentLogger } from "../contracts/logger.js";
 import type { TaskRunner } from "../contracts/task-runner.js";
 import type { TaskStore } from "../contracts/task-store.js";
 import { LifecycleController } from "../lifecycle/lifecycle-controller.js";
@@ -62,6 +65,8 @@ export interface BackgroundSubagentRuntimeDeps {
   governance?: GovernanceEventSink;
   policy?: Partial<LifecyclePolicy>;
   clock?: Clock;
+  /** Structured logger seam; defaults to a JSON-to-stderr logger when absent. */
+  logger?: SubagentLogger;
   /** Deterministic id generator (no Math.random in core paths). */
   generateId: () => string;
 }
@@ -80,6 +85,7 @@ export class BackgroundSubagentRuntime {
   private readonly governance: GovernanceEventSink;
   private readonly clock: Clock;
   private readonly policy: LifecyclePolicy;
+  private readonly logger: SubagentLogger;
   private readonly generateId: () => string;
   private readonly lifecycle: LifecycleController;
   private readonly controllers = new Map<TaskId, AbortController>();
@@ -92,6 +98,7 @@ export class BackgroundSubagentRuntime {
     this.governance = deps.governance ?? noopGovernanceSink;
     this.clock = deps.clock ?? systemClock;
     this.policy = { ...DEFAULT_LIFECYCLE_POLICY, ...deps.policy };
+    this.logger = deps.logger ?? defaultSubagentLogger;
     this.generateId = deps.generateId;
     this.lifecycle = new LifecycleController(
       this.store,
@@ -99,6 +106,7 @@ export class BackgroundSubagentRuntime {
       this.clock,
       this.events,
       (taskId) => this.abortController(taskId),
+      this.logger
     );
   }
 
@@ -118,7 +126,7 @@ export class BackgroundSubagentRuntime {
   async spawn(
     spec: SubagentSpec,
     parentRunId: string,
-    options: SpawnOptions = {},
+    options: SpawnOptions = {}
   ): Promise<SpawnOutcome> {
     const queued = await this.store.list({ parentRunId, status: "queued" });
     if (queued.length + 1 > this.policy.maxQueuedTasks) {
@@ -144,6 +152,12 @@ export class BackgroundSubagentRuntime {
         status: "failed",
         error: `policy_denied: ${decision.reason}`,
         endedAt: this.clock.now(),
+      });
+      this.logger.warn({
+        taskId: id,
+        code: SubagentErrorCode.POLICY_DENIED,
+        reason: decision.reason,
+        parentRunId,
       });
       this.governance.emitGovernance({
         type: "governance:rule_violation",
@@ -172,7 +186,7 @@ export class BackgroundSubagentRuntime {
   private async resolveApprovalThenAdmit(
     id: TaskId,
     parentRunId: string,
-    approvalId: string,
+    approvalId: string
   ): Promise<void> {
     const outcome = await this.gate.awaitApproval(parentRunId, approvalId);
     this.governance.emitGovernance({
@@ -186,6 +200,13 @@ export class BackgroundSubagentRuntime {
         status: "cancelled",
         error: `approval_rejected: ${outcome.reason}`,
         endedAt: this.clock.now(),
+      });
+      this.logger.warn({
+        taskId: id,
+        code: SubagentErrorCode.APPROVAL_REJECTED,
+        reason: outcome.reason,
+        parentRunId,
+        approvalId,
       });
       this.events.emit({ type: "subagent:cancelled", taskId: id });
       return;
@@ -249,7 +270,7 @@ export class BackgroundSubagentRuntime {
    */
   private async resolveOwned(
     taskId: TaskId,
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     const task = await this.store.get(taskId);
     if (!task) return null;
@@ -262,7 +283,7 @@ export class BackgroundSubagentRuntime {
   /** Pull: current task state (ownership-scoped when `scope` is supplied). */
   async check(
     taskId: TaskId,
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     return this.resolveOwned(taskId, scope);
   }
@@ -275,7 +296,7 @@ export class BackgroundSubagentRuntime {
   async await(
     taskId: TaskId,
     options: { timeoutMs?: number; pollIntervalMs?: number } = {},
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     const pollIntervalMs = options.pollIntervalMs ?? 25;
     const deadline =
@@ -301,7 +322,7 @@ export class BackgroundSubagentRuntime {
   /** Cancel a task: abort its run (if running) or mark cancelled (if pending). */
   async cancel(
     taskId: TaskId,
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     const task = await this.resolveOwned(taskId, scope);
     if (!task || isTerminalStatus(task.status)) {
@@ -346,6 +367,12 @@ export class BackgroundSubagentRuntime {
         status: "failed",
         error: "orphaned_by_process_restart",
         endedAt: this.clock.now(),
+      });
+      this.logger.warn({
+        taskId: task.id,
+        code: SubagentErrorCode.ORPHANED_BY_PROCESS_RESTART,
+        reason: "orphaned_by_process_restart",
+        parentRunId: task.parentRunId,
       });
       this.events.emit({
         type: "subagent:failed",

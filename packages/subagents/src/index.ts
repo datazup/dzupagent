@@ -39,6 +39,15 @@ export type {
 } from "./contracts/events.js";
 export type { Clock } from "./contracts/clock.js";
 export { systemClock } from "./contracts/clock.js";
+export type { SubagentLogger, SubagentLogFields } from "./contracts/logger.js";
+export {
+  defaultSubagentLogger,
+  noopSubagentLogger,
+} from "./contracts/logger.js";
+export {
+  SubagentErrorCode,
+  isRecoverableError,
+} from "./contracts/error-codes.js";
 
 // Runtime
 export {
