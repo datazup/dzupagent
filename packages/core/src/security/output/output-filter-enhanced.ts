@@ -5,6 +5,11 @@
  * ERR-H-02: a redaction filter that throws must NOT return the original content
  * (that would leak the exact PII/harmful text it exists to remove). Failures are
  * logged AND fail closed to a masked placeholder.
+ *
+ * SEC-L-03: both factory functions accept a `failClosed` option.  When
+ * `failClosed: true` a throwing redactor returns `[REDACTED: output filter
+ * error]` instead of the original content, preventing inadvertent PII
+ * pass-through on internal errors.
  */
 
 import type { SanitizationStage } from "../output-pipeline.js";
@@ -47,16 +52,28 @@ const DEFAULT_HARMFUL_CATEGORIES: HarmfulContentCategory[] = [
   },
 ];
 
+export interface HarmfulContentFilterOptions {
+  /**
+   * When `true` a throwing redactor returns a masked placeholder instead of
+   * the original content, preventing PII pass-through on internal errors
+   * (SEC-L-03).  Defaults to `true` to fail closed (ERR-H-02).
+   */
+  failClosed?: boolean;
+}
+
 /**
  * Creates a SanitizationStage that filters harmful content based on
  * configurable categories and their regex patterns.
  *
- * Non-fatal: if the filter itself throws, it returns the original content.
+ * Pass `{ failClosed: true }` for high-sensitivity pipelines where a
+ * throwing filter must NOT return the original content (SEC-L-03/ERR-H-02).
  */
 export function createHarmfulContentFilter(
   categories?: HarmfulContentCategory[],
+  options: HarmfulContentFilterOptions = {}
 ): SanitizationStage {
   const cats = categories ?? DEFAULT_HARMFUL_CATEGORIES;
+  const failClosed = options.failClosed !== false; // default true
 
   return {
     name: "harmful-content-filter",
@@ -71,11 +88,11 @@ export function createHarmfulContentFilter(
         }
         return result;
       } catch (err) {
-        // ERR-H-02: fail closed — never return the unredacted original.
+        // ERR-H-02 / SEC-L-03: always log; fail closed unless explicitly opted out.
         defaultLogger.error("[output-filter] harmful-content-filter failed", {
           error: err instanceof Error ? err.message : String(err),
         });
-        return REDACTION_FAILURE_PLACEHOLDER;
+        return failClosed ? REDACTION_FAILURE_PLACEHOLDER : content;
       }
     },
   };
@@ -145,20 +162,31 @@ const ENHANCED_REDACTION_PATTERNS: ReadonlyArray<{
   },
 ];
 
+export interface ClassificationAwareRedactorOptions {
+  /**
+   * When `true` a throwing redactor returns a masked placeholder instead of
+   * the original content (SEC-L-03/ERR-H-02).  Defaults to `true`.
+   */
+  failClosed?: boolean;
+}
+
 /**
  * Creates a SanitizationStage that applies progressively stricter
  * redaction based on the data classification level.
  *
- * Non-fatal: if the filter itself throws, it returns the original content.
+ * Pass `{ failClosed: true }` for high-sensitivity pipelines where a
+ * throwing filter must NOT return the original content (SEC-L-03/ERR-H-02).
  *
  * @param classificationLevel - One of: public, internal, confidential, restricted, top_secret
  */
 export function createClassificationAwareRedactor(
   classificationLevel?: string,
+  options: ClassificationAwareRedactorOptions = {}
 ): SanitizationStage {
   const level = classificationLevel ?? "public";
   const levelIndex = CLASSIFICATION_LEVELS.indexOf(level);
   const effectiveLevel = levelIndex >= 0 ? levelIndex : 0;
+  const failClosed = options.failClosed !== false; // default true
 
   return {
     name: "classification-aware-redactor",
@@ -177,12 +205,12 @@ export function createClassificationAwareRedactor(
 
         return result;
       } catch (err) {
-        // ERR-H-02: fail closed — never return the unredacted original.
+        // ERR-H-02 / SEC-L-03: always log; fail closed unless explicitly opted out.
         defaultLogger.error(
           "[output-filter] classification-aware-redactor failed",
-          { error: err instanceof Error ? err.message : String(err) },
+          { error: err instanceof Error ? err.message : String(err) }
         );
-        return REDACTION_FAILURE_PLACEHOLDER;
+        return failClosed ? REDACTION_FAILURE_PLACEHOLDER : content;
       }
     },
   };

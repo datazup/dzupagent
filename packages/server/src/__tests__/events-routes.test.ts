@@ -27,8 +27,20 @@ import { InMemoryEventGateway } from "../events/event-gateway.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Yield control to the microtask queue so that `InMemoryEventGateway.drain()`
+ * (which uses `queueMicrotask`) has a chance to flush queued events before the
+ * test reads the SSE stream.  Avoids arbitrary `setTimeout` sleeps (TEST-M-06).
+ */
+async function waitForDispatch(): Promise<void> {
+  // Two microtask flushes: first lets queueMicrotask callbacks run, second
+  // lets any follow-on microtasks (e.g. promise continuations) complete.
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 function createTestConfig(
-  overrides?: Partial<ForgeServerConfig>,
+  overrides?: Partial<ForgeServerConfig>
 ): ForgeServerConfig {
   return {
     runStore: new InMemoryRunStore(),
@@ -48,7 +60,7 @@ function createTestConfig(
 async function readSSERaw(
   response: Response,
   timeoutMs = 2000,
-  stopOnEvent?: string,
+  stopOnEvent?: string
 ): Promise<string> {
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
@@ -250,8 +262,8 @@ describe("GET /api/events/stream — runId filter", () => {
       runId: targetRunId,
     });
 
-    // Give the gateway a tick to dispatch
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Give the gateway a tick to dispatch (microtask flush — no real timer sleep needed)
+    await waitForDispatch();
 
     const raw = await readSSERaw(res, 500);
     const pairs = parseSSEPairs(raw);
@@ -276,7 +288,7 @@ describe("GET /api/events/stream — runId filter", () => {
       agentId: "a2",
       runId: "run-other-888",
     });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitForDispatch();
 
     const raw = await readSSERaw(res, 300);
     const pairs = parseSSEPairs(raw);
@@ -319,7 +331,7 @@ describe("GET /api/events/stream — agentId filter", () => {
       agentId: targetAgentId,
       runId: "r1",
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitForDispatch();
 
     const raw = await readSSERaw(res, 500, "agent:started");
     const pairs = parseSSEPairs(raw);
@@ -340,7 +352,7 @@ describe("GET /api/events/stream — agentId filter", () => {
       agentId: "agent-other",
       runId: "r2",
     });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitForDispatch();
 
     const raw = await readSSERaw(res, 300);
     const pairs = parseSSEPairs(raw);
@@ -383,7 +395,7 @@ describe("GET /api/events/stream — eventTypes filter", () => {
       errorCode: "INTERNAL_ERROR",
       message: "oops",
     });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitForDispatch();
 
     const raw = await readSSERaw(res, 500, "agent:started");
     const pairs = parseSSEPairs(raw);
@@ -417,7 +429,7 @@ describe("GET /api/events/stream — eventTypes filter", () => {
       errorCode: "INTERNAL_ERROR",
       message: "bad",
     });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await waitForDispatch();
 
     const raw = await readSSERaw(res, 500);
     const pairs = parseSSEPairs(raw);
@@ -467,7 +479,7 @@ describe("GET /api/events/stream — subscription isolation", () => {
 
     // Open a stream — this increments subscriberCount while stream is open
     const resPromise = app.request("/api/events/stream");
-    await new Promise((resolve) => setTimeout(resolve, 50)); // let subscription register
+    await waitForDispatch(); // let subscription register (microtask flush)
 
     const res = await resPromise;
     const raw = await readSSERaw(res, 500, "connected");
