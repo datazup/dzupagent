@@ -68,6 +68,26 @@
       "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
       "outputs": []
     },
+    "test:integration": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "package.json",
+        "tsconfig.json",
+        "vitest.integration.config.*"
+      ],
+      "outputs": []
+    },
+    "@dzupagent/server#test:integration": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "package.json",
+        "tsconfig.json",
+        "vitest.integration.config.*"
+      ],
+      "outputs": []
+    },
     "@dzupagent/dialogue-core-replay#test": {
       "dependsOn": ["^build", "@dzupagent/dialogue-core-replay#build"],
       "inputs": ["src/**", "test/**", "package.json", "tsconfig.json"],
