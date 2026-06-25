@@ -5,9 +5,9 @@
  * focused on lifecycle while wire-format and configuration details live
  * alongside the helpers that use them.
  */
-import type { LlmAuditSink } from '@dzupagent/core/events'
-import type { OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
-import type { AdapterConfig } from '../types.js'
+import type { LlmAuditSink } from "@dzupagent/core/events";
+import type { OutboundUrlSecurityPolicy } from "@dzupagent/core/security";
+import type { AdapterConfig } from "../types.js";
 
 /**
  * Streaming tool-call delta as emitted by OpenAI Chat Completions.
@@ -18,38 +18,38 @@ import type { AdapterConfig } from '../types.js'
  * to `tool_calls`.
  */
 export interface SSEToolCallDelta {
-  index: number
-  id?: string
-  type?: 'function'
+  index: number;
+  id?: string;
+  type?: "function";
   function?: {
-    name?: string
-    arguments?: string
-  }
+    name?: string;
+    arguments?: string;
+  };
 }
 
 /** SSE chunk shape returned by the OpenAI streaming API. */
 export interface SSEChunkChoice {
   delta?: {
-    content?: string
-    tool_calls?: SSEToolCallDelta[]
-  }
-  finish_reason?: string | null
+    content?: string;
+    tool_calls?: SSEToolCallDelta[];
+  };
+  finish_reason?: string | null;
 }
 
 export interface SSEChunkUsage {
-  prompt_tokens?: number
-  completion_tokens?: number
+  prompt_tokens?: number;
+  completion_tokens?: number;
 }
 
 export interface SSEChunk {
-  choices?: SSEChunkChoice[]
-  usage?: SSEChunkUsage
+  choices?: SSEChunkChoice[];
+  usage?: SSEChunkUsage;
 }
 
 /** Non-streaming response shape. */
 export interface OpenAIChatResponse {
-  choices?: Array<{ message?: { content?: string } }>
-  usage?: SSEChunkUsage
+  choices?: Array<{ message?: { content?: string } }>;
+  usage?: SSEChunkUsage;
 }
 
 /**
@@ -60,9 +60,9 @@ export interface OpenAIChatResponse {
  * parameters}` where `parameters` is a JSON Schema object.
  */
 export interface OpenAIToolDefinition {
-  name: string
-  description?: string
-  parameters?: Record<string, unknown>
+  name: string;
+  description?: string;
+  parameters?: Record<string, unknown>;
 }
 
 /**
@@ -70,27 +70,27 @@ export interface OpenAIToolDefinition {
  * Exactly: `[{ type: 'function', function: {name, description, parameters} }]`.
  */
 export interface OpenAIToolWire {
-  type: 'function'
+  type: "function";
   function: {
-    name: string
-    description?: string
-    parameters?: Record<string, unknown>
-  }
+    name: string;
+    description?: string;
+    parameters?: Record<string, unknown>;
+  };
 }
 
 export interface OpenAIConfig extends AdapterConfig {
   /** OpenAI API key. Falls back to OPENAI_API_KEY env var. */
-  apiKey?: string
+  apiKey?: string;
   /** Default model when none specified. Default: 'gpt-4o-mini' */
-  model?: string
+  model?: string;
   /** Custom base URL for OpenAI-compatible endpoints. Default: 'https://api.openai.com/v1' */
-  baseURL?: string
+  baseURL?: string;
   /**
    * Outbound URL policy for OpenAI-compatible endpoints. When omitted, the
    * configured baseURL host is treated as operator-owned for compatibility
    * with local/self-hosted providers; redirects remain policy-validated.
    */
-  outboundUrlPolicy?: OutboundUrlSecurityPolicy
+  outboundUrlPolicy?: OutboundUrlSecurityPolicy;
   /**
    * Optional best-effort audit sink invoked once per terminal LLM call.
    * Wire via `attachLlmAuditEventBridge` from `@dzupagent/core` to forward
@@ -99,43 +99,51 @@ export interface OpenAIConfig extends AdapterConfig {
    * Both the streaming `execute()` path and non-streaming `run()` path emit
    * a best-effort audit record. Sink failures are logged and swallowed.
    */
-  auditSink?: LlmAuditSink
+  auditSink?: LlmAuditSink;
   /** Optional audit run identifier copied into LLM audit records. */
-  auditRunId?: string
+  auditRunId?: string;
   /** Optional audit tenant identifier copied into LLM audit records. */
-  auditTenantId?: string
+  auditTenantId?: string;
+  /**
+   * Optional fetch implementation passed to the outbound URL policy guard.
+   * Primarily intended for testing; omit in production to use the default
+   * secure-fetch implementation.
+   */
+  fetchImpl?: typeof fetch;
 }
 
 export interface OpenAIRunResult {
-  content: string
+  content: string;
   usage?: {
-    inputTokens: number
-    outputTokens: number
-  }
+    inputTokens: number;
+    outputTokens: number;
+  };
 }
 
-export const DEFAULT_BASE_URL = 'https://api.openai.com/v1'
-export const DEFAULT_MODEL = 'gpt-4o-mini'
+export const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+export const DEFAULT_MODEL = "gpt-4o-mini";
 
 /**
  * Build a default outbound URL policy that whitelists the configured baseURL
  * host. Used when the operator does not supply an explicit policy.
  */
-export function defaultOpenAIOutboundPolicy(baseURL: string): OutboundUrlSecurityPolicy | undefined {
+export function defaultOpenAIOutboundPolicy(
+  baseURL: string
+): OutboundUrlSecurityPolicy | undefined {
   try {
-    const parsed = new URL(baseURL)
-    return { allowedHosts: [parsed.host] }
+    const parsed = new URL(baseURL);
+    return { allowedHosts: [parsed.host] };
   } catch {
-    return undefined
+    return undefined;
   }
 }
 
 /** Raw event shape streamed between open() and mapRawEvent(). */
 export type OpenAIRawEvent =
-  | { kind: 'sse'; chunk: SSEChunk }
+  | { kind: "sse"; chunk: SSEChunk }
   | {
-      kind: 'completed'
-      fullText: string
-      usage?: { inputTokens: number; outputTokens: number }
-      durationMs: number
-    }
+      kind: "completed";
+      fullText: string;
+      usage?: { inputTokens: number; outputTokens: number };
+      durationMs: number;
+    };

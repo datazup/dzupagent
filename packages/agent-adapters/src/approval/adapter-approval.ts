@@ -30,32 +30,35 @@
  * ```
  */
 
-import { fetchWithOutboundUrlPolicy } from '@dzupagent/core/security'
-import type { DzupEvent } from '@dzupagent/core/events'
-import type { OutboundUrlSecurityPolicy } from '@dzupagent/core/security'
+import { fetchWithOutboundUrlPolicy } from "@dzupagent/core/security";
+import type { DzupEvent } from "@dzupagent/core/events";
+import type { OutboundUrlSecurityPolicy } from "@dzupagent/core/security";
 
-import type { AgentEvent, AgentStreamEvent } from '../types.js'
-import { validateWebhookUrl } from '../utils/url-validator.js'
-import { InMemoryApprovalAuditStore } from './approval-audit.js'
-import type { ApprovalAuditEntry, ApprovalAuditStore } from './approval-audit.js'
+import type { AgentEvent, AgentStreamEvent } from "../types.js";
+import { validateWebhookUrl } from "../utils/url-validator.js";
+import { InMemoryApprovalAuditStore } from "./approval-audit.js";
+import type {
+  ApprovalAuditEntry,
+  ApprovalAuditStore,
+} from "./approval-audit.js";
 import type {
   AdapterApprovalConfig,
   ApprovalContext,
   ApprovalRequest,
   ApprovalResult,
-} from './approval-types.js'
+} from "./approval-types.js";
 export type {
   AdapterApprovalConfig,
   ApprovalContext,
   ApprovalMode,
   ApprovalRequest,
   ApprovalResult,
-} from './approval-types.js'
+} from "./approval-types.js";
 
 function isProviderRawStreamEvent(
-  event: AgentStreamEvent,
-): event is Extract<AgentStreamEvent, { type: 'adapter:provider_raw' }> {
-  return event.type === 'adapter:provider_raw'
+  event: AgentStreamEvent
+): event is Extract<AgentStreamEvent, { type: "adapter:provider_raw" }> {
+  return event.type === "adapter:provider_raw";
 }
 
 // ---------------------------------------------------------------------------
@@ -63,31 +66,31 @@ function isProviderRawStreamEvent(
 // ---------------------------------------------------------------------------
 
 interface PendingResolvers {
-  resolve: (result: ApprovalResult) => void
-  timer: ReturnType<typeof setTimeout> | undefined
+  resolve: (result: ApprovalResult) => void;
+  timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 // ---------------------------------------------------------------------------
 // AdapterApprovalGate
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TIMEOUT_MS = 300_000 // 5 minutes
+const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
 
 export class AdapterApprovalGate {
-  private readonly config: AdapterApprovalConfig
-  private readonly timeoutMs: number
-  private readonly pending = new Map<string, ApprovalRequest>()
-  private readonly resolvers = new Map<string, PendingResolvers>()
-  private readonly auditStore: ApprovalAuditStore
+  private readonly config: AdapterApprovalConfig;
+  private readonly timeoutMs: number;
+  private readonly pending = new Map<string, ApprovalRequest>();
+  private readonly resolvers = new Map<string, PendingResolvers>();
+  private readonly auditStore: ApprovalAuditStore;
 
   constructor(config: AdapterApprovalConfig) {
-    this.config = config
-    this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS
-    this.auditStore = config.auditStore ?? new InMemoryApprovalAuditStore()
+    this.config = config;
+    this.timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.auditStore = config.auditStore ?? new InMemoryApprovalAuditStore();
 
     // Validate webhook URL at construction time (fail fast)
     if (config.webhookUrl) {
-      validateWebhookUrl(config.webhookUrl, config.webhookUrlValidation)
+      validateWebhookUrl(config.webhookUrl, config.webhookUrlValidation);
     }
   }
 
@@ -103,18 +106,18 @@ export class AdapterApprovalGate {
    */
   async requestApproval(context: ApprovalContext): Promise<ApprovalResult> {
     // 1. Auto mode -- always approve
-    if (this.config.mode === 'auto') {
+    if (this.config.mode === "auto") {
       this.recordAudit({
         requestId: crypto.randomUUID(),
         providerId: context.providerId,
-        action: 'auto_approved',
+        action: "auto_approved",
         timestamp: Date.now(),
-        actor: 'auto-policy',
-        reason: 'Auto-approved by policy (auto mode)',
+        actor: "auto-policy",
+        reason: "Auto-approved by policy (auto mode)",
         estimatedCostCents: context.estimatedCostCents,
         mode: this.config.mode,
-      })
-      return 'approved'
+      });
+      return "approved";
     }
 
     // 2. Cost-based auto-approval
@@ -126,38 +129,38 @@ export class AdapterApprovalGate {
       this.recordAudit({
         requestId: crypto.randomUUID(),
         providerId: context.providerId,
-        action: 'auto_approved',
+        action: "auto_approved",
         timestamp: Date.now(),
-        actor: 'auto-policy',
-        reason: 'Auto-approved by cost threshold',
+        actor: "auto-policy",
+        reason: "Auto-approved by cost threshold",
         estimatedCostCents: context.estimatedCostCents,
         mode: this.config.mode,
-      })
-      return 'approved'
+      });
+      return "approved";
     }
 
     // 3. Conditional mode -- evaluate predicate
-    if (this.config.mode === 'conditional' && this.config.condition) {
-      const needsApproval = await this.config.condition(context)
+    if (this.config.mode === "conditional" && this.config.condition) {
+      const needsApproval = await this.config.condition(context);
       if (!needsApproval) {
         this.recordAudit({
           requestId: crypto.randomUUID(),
           providerId: context.providerId,
-          action: 'auto_approved',
+          action: "auto_approved",
           timestamp: Date.now(),
-          actor: 'auto-policy',
-          reason: 'Auto-approved by conditional predicate',
+          actor: "auto-policy",
+          reason: "Auto-approved by conditional predicate",
           estimatedCostCents: context.estimatedCostCents,
           mode: this.config.mode,
-        })
-        return 'approved'
+        });
+        return "approved";
       }
     }
 
     // 4. Create tracked request
-    const requestId = crypto.randomUUID()
-    const now = new Date()
-    const expiresAt = new Date(now.getTime() + this.timeoutMs)
+    const requestId = crypto.randomUUID();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + this.timeoutMs);
 
     const request: ApprovalRequest = {
       requestId,
@@ -165,62 +168,66 @@ export class AdapterApprovalGate {
       context,
       requestedAt: now,
       expiresAt,
-      status: 'pending',
-    }
+      status: "pending",
+    };
 
-    this.pending.set(requestId, request)
+    this.pending.set(requestId, request);
 
     this.recordAudit({
       requestId,
       providerId: context.providerId,
-      action: 'requested',
+      action: "requested",
       timestamp: Date.now(),
-      actor: 'system',
+      actor: "system",
       estimatedCostCents: context.estimatedCostCents,
       mode: this.config.mode,
-    })
+    });
 
     // 5. Emit approval:requested event
-    this.emitEvent({ type: 'approval:requested', runId: context.runId, plan: context })
+    this.emitEvent({
+      type: "approval:requested",
+      runId: context.runId,
+      plan: context,
+    });
 
     // 6. Fire-and-forget webhook notification
     if (this.config.webhookUrl) {
       this.notifyWebhook(requestId, context).catch(() => {
         // Non-critical -- webhook failure must not block approval flow
-      })
+      });
     }
 
     // 7. Wait for grant/reject or timeout
     return new Promise<ApprovalResult>((resolve) => {
       const timer = setTimeout(() => {
-        const req = this.pending.get(requestId)
-        if (req && req.status === 'pending') {
-          req.status = 'expired'
-          this.pending.delete(requestId)
-          this.resolvers.delete(requestId)
+        const req = this.pending.get(requestId);
+        if (req && req.status === "pending") {
+          req.status = "expired";
+          this.pending.delete(requestId);
+          this.resolvers.delete(requestId);
           this.recordAudit({
             requestId,
             providerId: context.providerId,
-            action: 'timed_out',
+            action: "timed_out",
             timestamp: Date.now(),
-            actor: 'system',
+            actor: "system",
             reason: `Timed out after ${String(this.timeoutMs)}ms`,
             mode: this.config.mode,
-          })
+          });
           this.emitEvent({
-            type: 'approval:rejected',
+            type: "approval:rejected",
             runId: context.runId,
             reason: `Approval timed out after ${String(this.timeoutMs)}ms`,
-          })
-          resolve('timeout')
+          });
+          resolve("timeout");
         }
-      }, this.timeoutMs)
-      if (typeof timer.unref === 'function') {
-        timer.unref()
+      }, this.timeoutMs);
+      if (typeof timer.unref === "function") {
+        timer.unref();
       }
 
-      this.resolvers.set(requestId, { resolve, timer })
-    })
+      this.resolvers.set(requestId, { resolve, timer });
+    });
   }
 
   /**
@@ -230,33 +237,33 @@ export class AdapterApprovalGate {
    * @returns `true` if the request was found and granted, `false` otherwise.
    */
   grant(requestId: string, approvedBy?: string): boolean {
-    const request = this.pending.get(requestId)
-    const resolvers = this.resolvers.get(requestId)
+    const request = this.pending.get(requestId);
+    const resolvers = this.resolvers.get(requestId);
 
-    if (!request || request.status !== 'pending' || !resolvers) {
-      return false
+    if (!request || request.status !== "pending" || !resolvers) {
+      return false;
     }
 
-    request.status = 'approved'
-    this.cleanup(requestId, resolvers)
+    request.status = "approved";
+    this.cleanup(requestId, resolvers);
 
     this.recordAudit({
       requestId,
       providerId: request.context.providerId,
-      action: 'granted',
+      action: "granted",
       timestamp: Date.now(),
-      actor: approvedBy ?? 'unknown',
+      actor: approvedBy ?? "unknown",
       mode: this.config.mode,
-    })
+    });
 
     this.emitEvent({
-      type: 'approval:granted',
+      type: "approval:granted",
       runId: request.runId,
       approvedBy,
-    })
+    });
 
-    resolvers.resolve('approved')
-    return true
+    resolvers.resolve("approved");
+    return true;
   }
 
   /**
@@ -265,48 +272,48 @@ export class AdapterApprovalGate {
    * @returns `true` if the request was found and rejected, `false` otherwise.
    */
   reject(requestId: string, reason?: string): boolean {
-    const request = this.pending.get(requestId)
-    const resolvers = this.resolvers.get(requestId)
+    const request = this.pending.get(requestId);
+    const resolvers = this.resolvers.get(requestId);
 
-    if (!request || request.status !== 'pending' || !resolvers) {
-      return false
+    if (!request || request.status !== "pending" || !resolvers) {
+      return false;
     }
 
-    request.status = 'rejected'
-    this.cleanup(requestId, resolvers)
+    request.status = "rejected";
+    this.cleanup(requestId, resolvers);
 
     this.recordAudit({
       requestId,
       providerId: request.context.providerId,
-      action: 'rejected',
+      action: "rejected",
       timestamp: Date.now(),
-      actor: 'user',
+      actor: "user",
       reason,
       mode: this.config.mode,
-    })
+    });
 
     this.emitEvent({
-      type: 'approval:rejected',
+      type: "approval:rejected",
       runId: request.runId,
       reason,
-    })
+    });
 
-    resolvers.resolve('rejected')
-    return true
+    resolvers.resolve("rejected");
+    return true;
   }
 
   /**
    * Get a pending approval request by ID.
    */
   getRequest(requestId: string): ApprovalRequest | undefined {
-    return this.pending.get(requestId)
+    return this.pending.get(requestId);
   }
 
   /**
    * List all pending approval requests.
    */
   listPending(): ApprovalRequest[] {
-    return [...this.pending.values()].filter((r) => r.status === 'pending')
+    return [...this.pending.values()].filter((r) => r.status === "pending");
   }
 
   /**
@@ -315,25 +322,25 @@ export class AdapterApprovalGate {
   clear(): void {
     for (const [requestId, resolvers] of this.resolvers) {
       if (resolvers.timer !== undefined) {
-        clearTimeout(resolvers.timer)
+        clearTimeout(resolvers.timer);
       }
-      this.resolvers.delete(requestId)
+      this.resolvers.delete(requestId);
     }
-    this.pending.clear()
+    this.pending.clear();
   }
 
   /**
    * Dispose the gate, clearing all pending requests and timers.
    */
   dispose(): void {
-    this.clear()
+    this.clear();
   }
 
   /**
    * Get the audit store for querying approval history.
    */
   getAuditStore(): ApprovalAuditStore {
-    return this.auditStore
+    return this.auditStore;
   }
 
   /**
@@ -343,45 +350,44 @@ export class AdapterApprovalGate {
    */
   guard(
     context: ApprovalContext,
-    source: AsyncGenerator<AgentEvent>,
-  ): AsyncGenerator<AgentEvent>
+    source: AsyncGenerator<AgentEvent>
+  ): AsyncGenerator<AgentEvent>;
   guard(
     context: ApprovalContext,
-    source: AsyncGenerator<AgentStreamEvent>,
-  ): AsyncGenerator<AgentStreamEvent>
+    source: AsyncGenerator<AgentStreamEvent>
+  ): AsyncGenerator<AgentStreamEvent>;
   async *guard(
     context: ApprovalContext,
-    source: AsyncGenerator<AgentStreamEvent>,
+    source: AsyncGenerator<AgentStreamEvent>
   ): AsyncGenerator<AgentStreamEvent> {
-    const result = await this.requestApproval(context)
+    const result = await this.requestApproval(context);
 
-    if (result === 'approved') {
+    if (result === "approved") {
       for await (const event of source) {
         if (isProviderRawStreamEvent(event)) {
-          yield event
-          continue
+          yield event;
+          continue;
         }
-        yield event
+        yield event;
       }
-      return
+      return;
     }
 
     // Rejected or timed out -- yield failure event and drain source
-    const message = result === 'rejected'
-      ? 'Approval rejected'
-      : 'Approval timeout'
+    const message =
+      result === "rejected" ? "Approval rejected" : "Approval timeout";
 
     const failedEvent: AgentEvent = {
-      type: 'adapter:failed',
+      type: "adapter:failed",
       providerId: context.providerId,
       error: message,
       timestamp: Date.now(),
-    }
+    };
 
-    yield failedEvent
+    yield failedEvent;
 
     // Ensure the source generator is properly closed
-    await source.return(undefined)
+    await source.return(undefined);
   }
 
   // -------------------------------------------------------------------------
@@ -390,7 +396,7 @@ export class AdapterApprovalGate {
 
   private recordAudit(entry: ApprovalAuditEntry): void {
     try {
-      this.auditStore.record(entry)
+      this.auditStore.record(entry);
     } catch {
       // Audit recording must never throw — it is non-critical.
     }
@@ -398,45 +404,67 @@ export class AdapterApprovalGate {
 
   private cleanup(requestId: string, resolvers: PendingResolvers): void {
     if (resolvers.timer !== undefined) {
-      clearTimeout(resolvers.timer)
+      clearTimeout(resolvers.timer);
     }
-    this.pending.delete(requestId)
-    this.resolvers.delete(requestId)
+    this.pending.delete(requestId);
+    this.resolvers.delete(requestId);
   }
 
   private emitEvent(
     event:
-      | { type: 'approval:requested'; runId: string; plan: unknown }
-      | { type: 'approval:granted'; runId: string; approvedBy?: string | undefined }
-      | { type: 'approval:rejected'; runId: string; reason?: string | undefined },
+      | { type: "approval:requested"; runId: string; plan: unknown }
+      | {
+          type: "approval:granted";
+          runId: string;
+          approvedBy?: string | undefined;
+        }
+      | {
+          type: "approval:rejected";
+          runId: string;
+          reason?: string | undefined;
+        }
   ): void {
     if (this.config.eventBus) {
-      this.config.eventBus.emit(event as DzupEvent)
+      this.config.eventBus.emit(event as DzupEvent);
     }
   }
 
-  private async notifyWebhook(requestId: string, context: ApprovalContext): Promise<void> {
-    if (!this.config.webhookUrl) return
+  private async notifyWebhook(
+    requestId: string,
+    context: ApprovalContext
+  ): Promise<void> {
+    if (!this.config.webhookUrl) return;
 
     // Re-validate at call time in case the URL was mutated after construction
-    validateWebhookUrl(this.config.webhookUrl, this.config.webhookUrlValidation)
-    const urlPolicy: OutboundUrlSecurityPolicy | undefined = this.config.webhookUrlValidation
+    validateWebhookUrl(
+      this.config.webhookUrl,
+      this.config.webhookUrlValidation
+    );
+    const urlPolicy: OutboundUrlSecurityPolicy | undefined =
+      this.config.webhookUrlValidation;
 
-    await fetchWithOutboundUrlPolicy(this.config.webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'approval_requested',
-        requestId,
-        runId: context.runId,
-        description: context.description,
-        providerId: context.providerId,
-        estimatedCostCents: context.estimatedCostCents,
-        tags: context.tags,
-        metadata: context.metadata,
-      }),
-    }, {
-      policy: urlPolicy,
-    })
+    await fetchWithOutboundUrlPolicy(
+      this.config.webhookUrl,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "approval_requested",
+          requestId,
+          runId: context.runId,
+          description: context.description,
+          providerId: context.providerId,
+          estimatedCostCents: context.estimatedCostCents,
+          tags: context.tags,
+          metadata: context.metadata,
+        }),
+      },
+      {
+        policy: urlPolicy,
+        ...(this.config.webhookFetchImpl !== undefined
+          ? { fetchImpl: this.config.webhookFetchImpl }
+          : {}),
+      }
+    );
   }
 }
