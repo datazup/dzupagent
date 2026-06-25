@@ -208,7 +208,7 @@ describe('DelegationManager', () => {
           scope: ['memory.read'],
           parentTokenId: parent.id,
         }),
-      ).rejects.toThrow('not covered by parent scope')
+      ).rejects.toMatchObject({ code: 'DELEGATION_SCOPE_VIOLATION' })
     })
 
     it('rejects when depth exceeds maxDepth', async () => {
@@ -235,7 +235,7 @@ describe('DelegationManager', () => {
           scope: ['code.review'],
           parentTokenId: child.id,
         }),
-      ).rejects.toThrow('exceeds maximum')
+      ).rejects.toMatchObject({ code: 'DELEGATION_DEPTH_EXCEEDED' })
     })
 
     it('rejects when parent token does not exist', async () => {
@@ -246,7 +246,7 @@ describe('DelegationManager', () => {
           scope: ['code.*'],
           parentTokenId: 'nonexistent',
         }),
-      ).rejects.toThrow('Parent token not found')
+      ).rejects.toMatchObject({ code: 'DELEGATION_NOT_FOUND' })
     })
   })
 

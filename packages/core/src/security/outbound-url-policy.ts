@@ -1,6 +1,7 @@
 import { lookup as defaultLookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { Agent as UndiciAgent, buildConnector } from 'undici'
+import { ForgeError } from '../errors/forge-error.js'
 
 export interface OutboundUrlSecurityPolicy {
   /**
@@ -288,7 +289,11 @@ export async function fetchWithOutboundUrlPolicy(
 
     const validation = await validateOutboundUrl(currentUrl, options.policy)
     if (!validation.ok) {
-      throw new Error(`Outbound URL rejected: ${validation.reason}`)
+      throw new ForgeError({
+        code: 'SSRF_BLOCKED',
+        message: `Outbound URL rejected: ${validation.reason}`,
+        context: { reason: validation.reason },
+      })
     }
 
     throwIfAborted(currentInit.signal)
@@ -323,7 +328,11 @@ export async function fetchWithOutboundUrlPolicy(
     if (!location) return response
     if (options.followRedirects === false) return response
     if (redirectCount === maxRedirects) {
-      throw new Error(`Outbound URL rejected: too many redirects after ${maxRedirects} hops.`)
+      throw new ForgeError({
+        code: 'SSRF_BLOCKED',
+        message: `Outbound URL rejected: too many redirects after ${maxRedirects} hops.`,
+        context: { maxRedirects },
+      })
     }
 
     currentUrl = new URL(location, validation.url).href
@@ -337,5 +346,9 @@ export async function fetchWithOutboundUrlPolicy(
     }
   }
 
-  throw new Error(`Outbound URL rejected: too many redirects after ${maxRedirects} hops.`)
+  throw new ForgeError({
+    code: 'SSRF_BLOCKED',
+    message: `Outbound URL rejected: too many redirects after ${maxRedirects} hops.`,
+    context: { maxRedirects },
+  })
 }

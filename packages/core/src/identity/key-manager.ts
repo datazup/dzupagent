@@ -5,6 +5,7 @@
  */
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify, randomUUID } from 'node:crypto'
 
+import { ForgeError } from '../errors/forge-error.js'
 import type { KeyStore, SignedDocument, SigningKeyPair, SigningKeyStatus } from './signing-types.js'
 
 // ---------------------------------------------------------------------------
@@ -126,13 +127,21 @@ export function createKeyManager(config: KeyManagerConfig): KeyManager {
     if (keyId) {
       const kp = await store.get(keyId)
       if (!kp) {
-        throw new Error(`Signing key not found: ${keyId}`)
+        throw new ForgeError({
+          code: 'SIGNING_KEY_NOT_FOUND',
+          message: 'Signing key not found',
+          context: { keyId },
+        })
       }
       return kp
     }
     const active = await store.getActive()
     if (!active) {
-      throw new Error('No active signing key. Call generate() first.')
+      throw new ForgeError({
+        code: 'SIGNING_KEY_UNAVAILABLE',
+        message: 'No active signing key. Call generate() first.',
+        suggestion: 'Call KeyManager.generate() before signing.',
+      })
     }
     return active
   }

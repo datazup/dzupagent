@@ -7,6 +7,7 @@
  * ForgeMessageUriSchema instead (defined in the messaging module).
  */
 import { z } from 'zod'
+import { ForgeError } from '../errors/forge-error.js'
 
 // ---------------------------------------------------------------------------
 // URI regex
@@ -103,7 +104,11 @@ export function toAgentUri(forgeUri: string): string {
  */
 export function fromAgentUri(agentUri: string): string {
   if (!agentUri.startsWith('agent://')) {
-    throw new Error(`Expected agent:// URI, got: ${agentUri}`)
+    throw new ForgeError({
+      code: 'IDENTITY_VALIDATION_FAILED',
+      message: 'Expected an agent:// URI',
+      context: { agentUri },
+    })
   }
   const forgeUri = 'forge://' + agentUri.slice('agent://'.length)
   ForgeUriSchema.parse(forgeUri)

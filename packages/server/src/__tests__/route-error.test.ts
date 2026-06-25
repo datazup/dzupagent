@@ -209,9 +209,24 @@ describe("mapErrorToStatus (ERR-M-04)", () => {
     expect(mapErrorToStatus(new Error("BadRequest: nope"))).toBe(400);
   });
 
-  it("falls back to legacy substring for plain not-found / already-exists errors", () => {
-    expect(mapErrorToStatus(new Error("Agent xyz not found"))).toBe(404);
-    expect(mapErrorToStatus(new Error("resource already exists"))).toBe(409);
+  it("ERR-M-07: retires the legacy substring fallback — plain not-found / already-exists no longer map to 4xx", () => {
+    // The English-substring guess has been removed. An unclassified plain Error
+    // (no ForgeError code, no safe prefix) now maps to the fallback (500), so the
+    // server never guesses HTTP status from free-text message content.
+    expect(mapErrorToStatus(new Error("not found"))).toBe(500);
+    expect(mapErrorToStatus(new Error("Agent xyz not found"))).toBe(500);
+    expect(mapErrorToStatus(new Error("resource already exists"))).toBe(500);
+  });
+
+  it("ERR-M-07: callers must opt in via a typed code or safe prefix to get a 4xx", () => {
+    // Typed ForgeError code → 404 (preferred migration path).
+    expect(mapErrorToStatus({ code: "EVAL_RUN_NOT_FOUND" })).toBe(404);
+    // Safe message prefix → 404 (legacy convention still honored).
+    expect(mapErrorToStatus(new Error("NotFound: Eval run not found"))).toBe(
+      404
+    );
+    // Same plain message WITHOUT prefix/code → fallback, not 404.
+    expect(mapErrorToStatus(new Error("Eval run not found"))).toBe(500);
   });
 
   it("returns the supplied fallback for unclassified errors", () => {

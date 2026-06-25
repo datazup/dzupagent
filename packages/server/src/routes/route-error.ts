@@ -102,13 +102,16 @@ export function logRouteError(
  *      (`*_NOT_FOUND` → 404, `*_CONFLICT`/`*_ALREADY_EXISTS` → 409,
  *      `*_INVALID`/`*_VALIDATION` / `*_BAD_REQUEST` → 400, `*_UNAVAILABLE` → 503).
  *   2. Error class-name / message safe prefixes (NotFound → 404, Conflict → 409,
- *      Validation / BadRequest → 400).
- *   3. Legacy fallback: scan the message for `not found` / `already exists`
- *      (kept ONLY so pre-existing plain-`Error` throwers keep their status while
- *      callers migrate to typed errors).
- *   4. Otherwise the caller-supplied `fallback` (default 500).
+ *      Validation / BadRequest → 400). Throw sites that need a non-500 status
+ *      MUST opt in: either throw a `ForgeError` with a typed `code`, or prefix
+ *      the message with one of the safe tokens above.
+ *   3. Otherwise the caller-supplied `fallback` (default 500).
  *
- * Centralising this means routes no longer inline `message.includes('not found')`.
+ * ERR-M-07/L-03: the legacy `message.includes('not found' / 'already exists')`
+ * substring fallback has been RETIRED. The server no longer guesses HTTP status
+ * from free-text English, so an unclassified `new Error('… not found')` maps to
+ * the fallback (500) — callers must use typed `ForgeError` codes or safe
+ * prefixes to surface a 4xx.
  */
 export function mapErrorToStatus(
   err: unknown,
@@ -147,13 +150,10 @@ export function mapErrorToStatus(
     if (startsWith("NotFound")) return 404;
     if (startsWith("Conflict")) return 409;
     if (startsWith("Validation") || startsWith("BadRequest")) return 400;
-
-    // 3. Legacy substring fallback (typed errors above are preferred).
-    const lower = err.message.toLowerCase();
-    if (lower.includes("not found")) return 404;
-    if (lower.includes("already exists")) return 409;
   }
 
+  // ERR-M-07/L-03: no English substring fallback — unclassified errors take the
+  // caller-supplied fallback so the server never guesses status from message text.
   return fallback;
 }
 

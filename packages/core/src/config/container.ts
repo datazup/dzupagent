@@ -15,6 +15,8 @@
  * ```
  */
 
+import { ForgeError } from "../errors/forge-error.js";
+
 type Factory<T> = (container: ForgeContainer) => T;
 
 export class ForgeContainer {
@@ -36,7 +38,12 @@ export class ForgeContainer {
     }
     const factory = this.factories.get(name);
     if (!factory) {
-      throw new Error(`ForgeContainer: service "${name}" is not registered.`);
+      throw new ForgeError({
+        code: "MISSING_DEPENDENCY",
+        message: `ForgeContainer: service "${name}" is not registered.`,
+        context: { service: name },
+        suggestion: `Register "${name}" via container.register() before calling get().`,
+      });
     }
     const instance = factory(this);
     this.instances.set(name, instance);
