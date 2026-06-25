@@ -234,6 +234,7 @@ export class CompiledWorkflow {
             suspendedAtNodeId: lastCompleted,
           };
         }
+        this.activeRuns.delete(runId);
         return this.resume(checkpointToResume, initialState, {
           ...(options?.signal !== undefined ? { signal: options.signal } : {}),
           ...(options?.onEvent !== undefined
