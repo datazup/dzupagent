@@ -62,6 +62,16 @@ export class MCPClient {
       eagerTools: [],
       deferredTools: [],
     });
+    if (
+      config.filesystemRoot !== undefined &&
+      config.filesystemRoot.length === 0
+    ) {
+      defaultLogger.warn(
+        "[mcp-client] addServer(): filesystemRoot is an empty string — " +
+          "the filesystem jail will NOT be applied. Pass a non-empty path or omit the field.",
+        { serverId: config.id }
+      );
+    }
     return this;
   }
 
@@ -259,7 +269,7 @@ export class MCPClient {
 
     // Jailed-fs guard: reject path args that escape the configured filesystem root.
     const { filesystemRoot } = conn.config;
-    if (filesystemRoot) {
+    if (filesystemRoot != null && filesystemRoot.length > 0) {
       for (const [key, value] of Object.entries(args)) {
         if (PATH_ARG_KEYS.has(key) && typeof value === "string") {
           try {

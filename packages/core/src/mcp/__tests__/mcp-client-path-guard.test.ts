@@ -97,6 +97,21 @@ describe("MCPClient jailed-fs path-escape guard", () => {
       expect(result.content[0]?.text).not.toContain("MCP_PATH_ESCAPE");
     }
   });
+
+  it("treats empty-string filesystemRoot as not configured (no path jail)", async () => {
+    // An empty string is falsy; the old `if (filesystemRoot)` guard would
+    // skip the jail silently. With the fix the guard checks
+    // `filesystemRoot != null && filesystemRoot.length > 0`, so empty string
+    // behaves identically to undefined (no jail applied).
+    const client = makeClient(""); // empty string
+    const result = await client.invokeTool("read_file", {
+      path: "../../etc/passwd",
+    });
+    // No path-escape error should be returned — only a transport failure.
+    if (result.isError) {
+      expect(result.content[0]?.text).not.toContain("MCP_PATH_ESCAPE");
+    }
+  });
 });
 
 function makeClientWithShellTool(filesystemRoot?: string): MCPClient {
