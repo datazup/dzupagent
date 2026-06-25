@@ -12,7 +12,7 @@ import type {
   RoutingDecision,
   TaskDescriptor,
   TaskRoutingStrategy,
-} from '../types.js'
+} from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,46 +20,46 @@ import type {
 
 export interface ContextEstimate {
   /** Estimated input tokens */
-  inputTokens: number
+  inputTokens: number;
   /** Estimated output tokens (rough heuristic) */
-  outputTokens: number
+  outputTokens: number;
   /** Total estimated tokens */
-  totalTokens: number
+  totalTokens: number;
   /** Whether this fits in the provider's context window */
-  fitsInContext: boolean
+  fitsInContext: boolean;
   /** Recommended provider based on context needs */
-  recommendedProvider?: AdapterProviderId | undefined
+  recommendedProvider?: AdapterProviderId | undefined;
 }
 
 export interface ContextAwareRouterConfig {
   /** Provider context window sizes (override defaults) */
-  contextWindows?: Partial<Record<AdapterProviderId, number>> | undefined
+  contextWindows?: Partial<Record<AdapterProviderId, number>> | undefined;
   /** Safety margin -- reserve this percentage of context window. Default 0.2 (20%) */
-  safetyMargin?: number | undefined
+  safetyMargin?: number | undefined;
   /** Default estimated output tokens when unknown. Default 4000 */
-  defaultOutputTokens?: number | undefined
+  defaultOutputTokens?: number | undefined;
   /** Custom token estimator. Default: ~4 chars per token */
-  tokenEstimator?: (text: string) => number
+  tokenEstimator?: (text: string) => number;
 }
 
 export interface ContextInjection {
   /** Label for this context chunk */
-  label: string
+  label: string;
   /** The content to inject */
-  content: string
+  content: string;
   /** Priority (higher = injected first if space is tight) */
-  priority: number
+  priority: number;
   /** Whether this is required or can be dropped if budget is tight */
-  required?: boolean | undefined
+  required?: boolean | undefined;
 }
 
 export interface ContextInjectionConfig {
   /** Max tokens to use for injected context. Default: 50% of provider's context window */
-  maxContextTokens?: number | undefined
+  maxContextTokens?: number | undefined;
   /** Separator between context chunks. Default: '\n\n---\n\n' */
-  separator?: string | undefined
+  separator?: string | undefined;
   /** Where to inject: 'prepend' (before prompt) or 'system' (as system prompt). Default 'prepend' */
-  position?: 'prepend' | 'system'
+  position?: "prepend" | "system";
 }
 
 // ---------------------------------------------------------------------------
@@ -70,33 +70,33 @@ const DEFAULT_CONTEXT_WINDOWS: Record<AdapterProviderId, number> = {
   claude: 200_000,
   codex: 128_000,
   gemini: 1_000_000,
-  'gemini-sdk': 1_000_000,
+  "gemini-sdk": 1_000_000,
   qwen: 128_000,
   crush: 32_000,
   goose: 128_000,
   openrouter: 200_000,
   openai: 128_000,
-}
+};
 
 /**
  * Provider priority order used as a tiebreaker when multiple providers can
  * handle the context.
  */
 const PROVIDER_PRIORITY: readonly AdapterProviderId[] = [
-  'claude',
-  'codex',
-  'gemini',
-  'gemini-sdk',
-  'qwen',
-  'crush',
-  'goose',
-  'openrouter',
-  'openai',
-]
+  "claude",
+  "codex",
+  "gemini",
+  "gemini-sdk",
+  "qwen",
+  "crush",
+  "goose",
+  "openrouter",
+  "openai",
+];
 
 function getProviderPriority(providerId: AdapterProviderId): number {
-  const priority = PROVIDER_PRIORITY.indexOf(providerId)
-  return priority === -1 ? Number.MAX_SAFE_INTEGER : priority
+  const priority = PROVIDER_PRIORITY.indexOf(providerId);
+  return priority === -1 ? Number.MAX_SAFE_INTEGER : priority;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +108,7 @@ function getProviderPriority(providerId: AdapterProviderId): number {
  * Override via config.tokenEstimator for more accurate estimation.
  */
 function defaultTokenEstimator(text: string): number {
-  return Math.ceil(text.length / 4)
+  return Math.ceil(text.length / 4);
 }
 
 // ---------------------------------------------------------------------------
@@ -126,46 +126,49 @@ function defaultTokenEstimator(text: string): number {
  * 5. Confidence is based on how well the context fits (closer to max = lower confidence)
  */
 export class ContextAwareRouter implements TaskRoutingStrategy {
-  readonly name = 'context-aware'
+  readonly name = "context-aware";
 
-  private readonly contextWindows: Record<AdapterProviderId, number>
-  private readonly safetyMargin: number
-  private readonly defaultOutputTokens: number
-  private readonly tokenEstimator: (text: string) => number
+  private readonly contextWindows: Record<AdapterProviderId, number>;
+  private readonly safetyMargin: number;
+  private readonly defaultOutputTokens: number;
+  private readonly tokenEstimator: (text: string) => number;
 
   constructor(config?: ContextAwareRouterConfig) {
     this.contextWindows = {
       ...DEFAULT_CONTEXT_WINDOWS,
       ...config?.contextWindows,
-    }
-    this.safetyMargin = config?.safetyMargin ?? 0.2
-    this.defaultOutputTokens = config?.defaultOutputTokens ?? 4000
-    this.tokenEstimator = config?.tokenEstimator ?? defaultTokenEstimator
+    };
+    this.safetyMargin = config?.safetyMargin ?? 0.2;
+    this.defaultOutputTokens = config?.defaultOutputTokens ?? 4000;
+    this.tokenEstimator = config?.tokenEstimator ?? defaultTokenEstimator;
   }
 
   /** Estimate context requirements for an input */
-  estimateContext(input: AgentInput, injections?: ContextInjection[]): ContextEstimate {
-    let inputTokens = this.tokenEstimator(input.prompt)
+  estimateContext(
+    input: AgentInput,
+    injections?: ContextInjection[]
+  ): ContextEstimate {
+    let inputTokens = this.tokenEstimator(input.prompt);
 
     if (input.systemPrompt) {
-      inputTokens += this.tokenEstimator(input.systemPrompt)
+      inputTokens += this.tokenEstimator(input.systemPrompt);
     }
 
     if (injections) {
       for (const injection of injections) {
-        inputTokens += this.tokenEstimator(injection.content)
+        inputTokens += this.tokenEstimator(injection.content);
         // Small overhead for the label and separator
-        inputTokens += this.tokenEstimator(injection.label) + 10
+        inputTokens += this.tokenEstimator(injection.label) + 10;
       }
     }
 
-    const outputTokens = this.defaultOutputTokens
-    const totalTokens = inputTokens + outputTokens
+    const outputTokens = this.defaultOutputTokens;
+    const totalTokens = inputTokens + outputTokens;
 
     // Find the best-fit provider
-    const recommended = this.findRecommendedProvider(totalTokens)
+    const recommended = this.findRecommendedProvider(totalTokens);
 
-    const fitsInContext = recommended !== undefined
+    const fitsInContext = recommended !== undefined;
 
     return {
       inputTokens,
@@ -173,38 +176,62 @@ export class ContextAwareRouter implements TaskRoutingStrategy {
       totalTokens,
       fitsInContext,
       recommendedProvider: recommended,
+    };
+  }
+
+  /**
+   * Estimate input tokens for a task, accounting for systemPrompt and
+   * pre-computed estimatedInputTokens when available.
+   */
+  private estimateTaskInputTokens(task: TaskDescriptor): number {
+    // Use caller-supplied estimate when available — more precise than our heuristic
+    if (task.estimatedInputTokens !== undefined) {
+      return task.estimatedInputTokens;
     }
+    let tokens = this.tokenEstimator(task.prompt);
+    if (task.systemPrompt) {
+      tokens += this.tokenEstimator(task.systemPrompt);
+    }
+    return tokens;
   }
 
   /** TaskRoutingStrategy.route -- routes based on context window fit */
-  route(task: TaskDescriptor, availableProviders: AdapterProviderId[]): RoutingDecision {
+  route(
+    task: TaskDescriptor,
+    availableProviders: AdapterProviderId[]
+  ): RoutingDecision {
     // Respect explicit preference if available and fits
-    if (task.preferredProvider && availableProviders.includes(task.preferredProvider)) {
-      const inputTokens = this.tokenEstimator(task.prompt)
-      const totalTokens = inputTokens + this.defaultOutputTokens
-      const effectiveWindow = this.getEffectiveWindow(task.preferredProvider)
+    if (
+      task.preferredProvider &&
+      availableProviders.includes(task.preferredProvider)
+    ) {
+      const inputTokens = this.estimateTaskInputTokens(task);
+      const totalTokens = inputTokens + this.defaultOutputTokens;
+      const effectiveWindow = this.getEffectiveWindow(task.preferredProvider);
 
       if (totalTokens <= effectiveWindow) {
         return {
           provider: task.preferredProvider,
           reason: `Preferred provider "${task.preferredProvider}" has sufficient context window`,
-          fallbackProviders: availableProviders.filter((p) => p !== task.preferredProvider),
+          fallbackProviders: availableProviders.filter(
+            (p) => p !== task.preferredProvider
+          ),
           confidence: 0.95,
-        }
+        };
       }
     }
 
     if (availableProviders.length === 0) {
       return {
-        provider: 'auto',
-        reason: 'No adapters available for context-aware routing',
+        provider: "auto",
+        reason: "No adapters available for context-aware routing",
         fallbackProviders: [],
         confidence: 0,
-      }
+      };
     }
 
-    const inputTokens = this.tokenEstimator(task.prompt)
-    const totalTokens = inputTokens + this.defaultOutputTokens
+    const inputTokens = this.estimateTaskInputTokens(task);
+    const totalTokens = inputTokens + this.defaultOutputTokens;
 
     // Filter providers that can handle the context
     const fittingProviders = availableProviders.filter((providerId) =>
@@ -213,66 +240,72 @@ export class ContextAwareRouter implements TaskRoutingStrategy {
         outputTokens: this.defaultOutputTokens,
         totalTokens,
         fitsInContext: true,
-      }),
-    )
+      })
+    );
 
     if (fittingProviders.length > 0) {
       // Sort by priority order
       const sorted = fittingProviders.sort((a, b) => {
-        return getProviderPriority(a) - getProviderPriority(b)
-      })
+        return getProviderPriority(a) - getProviderPriority(b);
+      });
 
-      const best = sorted[0]!
-      const effectiveWindow = this.getEffectiveWindow(best)
-      const utilization = totalTokens / effectiveWindow
+      const best = sorted[0]!;
+      const effectiveWindow = this.getEffectiveWindow(best);
+      const utilization = totalTokens / effectiveWindow;
       // Higher utilization = lower confidence (tighter fit)
-      const confidence = Math.max(0.4, Math.min(0.95, 1.0 - utilization * 0.6))
+      const confidence = Math.max(0.4, Math.min(0.95, 1.0 - utilization * 0.6));
 
       return {
         provider: best,
-        reason: `Context fits within ${best} window (${totalTokens} / ${effectiveWindow} tokens, ${Math.round(utilization * 100)}% utilization)`,
+        reason: `Context fits within ${best} window (${totalTokens} / ${effectiveWindow} tokens, ${Math.round(
+          utilization * 100
+        )}% utilization)`,
         fallbackProviders: sorted.slice(1),
         confidence,
-      }
+      };
     }
 
     // No provider fits -- fall back to gemini (largest context window)
-    const fallback: AdapterProviderId = availableProviders.includes('gemini')
-      ? 'gemini'
-      : availableProviders[0]!
+    const fallback: AdapterProviderId = availableProviders.includes("gemini")
+      ? "gemini"
+      : availableProviders[0]!;
 
-    const effectiveWindow = this.getEffectiveWindow(fallback)
-    const utilization = totalTokens / effectiveWindow
+    const effectiveWindow = this.getEffectiveWindow(fallback);
+    const utilization = totalTokens / effectiveWindow;
 
     return {
       provider: fallback,
-      reason: `No provider has sufficient context window for ${totalTokens} tokens; falling back to ${fallback} (${effectiveWindow} effective tokens, ${Math.round(utilization * 100)}% utilization)`,
+      reason: `No provider has sufficient context window for ${totalTokens} tokens; falling back to ${fallback} (${effectiveWindow} effective tokens, ${Math.round(
+        utilization * 100
+      )}% utilization)`,
       fallbackProviders: availableProviders.filter((p) => p !== fallback),
       confidence: Math.max(0.1, 0.4 - (utilization - 1.0) * 0.3),
-    }
+    };
   }
 
   /** Check if a specific provider can handle the estimated context */
   canHandle(providerId: AdapterProviderId, estimate: ContextEstimate): boolean {
-    const effectiveWindow = this.getEffectiveWindow(providerId)
-    return estimate.totalTokens <= effectiveWindow
+    const effectiveWindow = this.getEffectiveWindow(providerId);
+    return estimate.totalTokens <= effectiveWindow;
   }
 
   /** Get effective context window (after safety margin) for a provider */
   private getEffectiveWindow(providerId: AdapterProviderId): number {
-    const rawWindow = this.contextWindows[providerId] ?? 0
-    return Math.floor(rawWindow * (1 - this.safetyMargin))
+    const rawWindow = this.contextWindows[providerId] ?? 0;
+    return Math.floor(rawWindow * (1 - this.safetyMargin));
   }
 
   /** Find the best recommended provider by priority among those that fit */
-  private findRecommendedProvider(totalTokens: number): AdapterProviderId | undefined {
+  private findRecommendedProvider(
+    totalTokens: number
+  ): AdapterProviderId | undefined {
     for (const providerId of PROVIDER_PRIORITY) {
-      const effectiveWindow = this.getEffectiveWindow(providerId)
+      const effectiveWindow = this.getEffectiveWindow(providerId);
       if (totalTokens <= effectiveWindow) {
-        return providerId
+        return providerId;
       }
     }
-    return undefined
+    return undefined;
   }
 }
 
@@ -287,39 +320,42 @@ export class ContextAwareRouter implements TaskRoutingStrategy {
  * to fit within token budgets, and applies them to AgentInput objects.
  */
 export class ContextInjectionMiddleware {
-  private injections: ContextInjection[] = []
-  private readonly maxContextTokens: number | undefined
-  private readonly separator: string
-  private readonly position: 'prepend' | 'system'
-  private readonly tokenEstimator: (text: string) => number
+  private injections: ContextInjection[] = [];
+  private readonly maxContextTokens: number | undefined;
+  private readonly separator: string;
+  private readonly position: "prepend" | "system";
+  private readonly tokenEstimator: (text: string) => number;
 
-  constructor(config?: ContextInjectionConfig, tokenEstimator?: (text: string) => number) {
-    this.maxContextTokens = config?.maxContextTokens
-    this.separator = config?.separator ?? '\n\n---\n\n'
-    this.position = config?.position ?? 'prepend'
-    this.tokenEstimator = tokenEstimator ?? defaultTokenEstimator
+  constructor(
+    config?: ContextInjectionConfig,
+    tokenEstimator?: (text: string) => number
+  ) {
+    this.maxContextTokens = config?.maxContextTokens;
+    this.separator = config?.separator ?? "\n\n---\n\n";
+    this.position = config?.position ?? "prepend";
+    this.tokenEstimator = tokenEstimator ?? defaultTokenEstimator;
   }
 
   /** Add a context injection for the next execution */
   addInjection(injection: ContextInjection): void {
-    this.injections.push(injection)
+    this.injections.push(injection);
   }
 
   /** Add multiple injections */
   addInjections(injections: ContextInjection[]): void {
     for (const injection of injections) {
-      this.injections.push(injection)
+      this.injections.push(injection);
     }
   }
 
   /** Clear all pending injections */
   clearInjections(): void {
-    this.injections = []
+    this.injections = [];
   }
 
   /** Get current injections sorted by priority (descending) */
   getInjections(): ContextInjection[] {
-    return [...this.injections].sort((a, b) => b.priority - a.priority)
+    return [...this.injections].sort((a, b) => b.priority - a.priority);
   }
 
   /**
@@ -327,60 +363,60 @@ export class ContextInjectionMiddleware {
    * Sorts by priority, trims to fit budget, and injects.
    */
   apply(input: AgentInput, maxTokens?: number): AgentInput {
-    const sorted = this.getInjections()
+    const sorted = this.getInjections();
     if (sorted.length === 0) {
-      return input
+      return input;
     }
 
-    const budget = maxTokens ?? this.maxContextTokens ?? Infinity
-    let usedTokens = 0
-    const includedChunks: string[] = []
+    const budget = maxTokens ?? this.maxContextTokens ?? Infinity;
+    let usedTokens = 0;
+    const includedChunks: string[] = [];
 
     // First pass: include all required injections
-    const required = sorted.filter((inj) => inj.required)
-    const optional = sorted.filter((inj) => !inj.required)
+    const required = sorted.filter((inj) => inj.required);
+    const optional = sorted.filter((inj) => !inj.required);
 
     for (const injection of required) {
-      const chunkText = `[${injection.label}]\n${injection.content}`
-      const tokens = this.tokenEstimator(chunkText)
+      const chunkText = `[${injection.label}]\n${injection.content}`;
+      const tokens = this.tokenEstimator(chunkText);
       // Required injections are always included even if over budget
-      usedTokens += tokens
-      includedChunks.push(chunkText)
+      usedTokens += tokens;
+      includedChunks.push(chunkText);
     }
 
     // Second pass: include optional injections until budget exhausted
     for (const injection of optional) {
-      const chunkText = `[${injection.label}]\n${injection.content}`
-      const tokens = this.tokenEstimator(chunkText)
+      const chunkText = `[${injection.label}]\n${injection.content}`;
+      const tokens = this.tokenEstimator(chunkText);
       if (usedTokens + tokens <= budget) {
-        usedTokens += tokens
-        includedChunks.push(chunkText)
+        usedTokens += tokens;
+        includedChunks.push(chunkText);
       }
     }
 
     if (includedChunks.length === 0) {
-      return input
+      return input;
     }
 
-    const injectedContent = includedChunks.join(this.separator)
+    const injectedContent = includedChunks.join(this.separator);
 
-    if (this.position === 'system') {
-      const existingSystem = input.systemPrompt ?? ''
+    if (this.position === "system") {
+      const existingSystem = input.systemPrompt ?? "";
       const newSystemPrompt = existingSystem
         ? `${existingSystem}${this.separator}${injectedContent}`
-        : injectedContent
+        : injectedContent;
 
       return {
         ...input,
         systemPrompt: newSystemPrompt,
-      }
+      };
     }
 
     // Default: prepend to prompt
     return {
       ...input,
       prompt: `${injectedContent}${this.separator}${input.prompt}`,
-    }
+    };
   }
 
   /**
@@ -391,21 +427,25 @@ export class ContextInjectionMiddleware {
   enrichInput(
     input: AgentInput,
     providerId: AdapterProviderId,
-    router: ContextAwareRouter,
+    router: ContextAwareRouter
   ): AgentInput {
     // Estimate how much room we have after the base prompt
-    const baseEstimate = router.estimateContext(input)
-    const providerWindow = this.getProviderContextBudget(providerId, router)
+    const baseEstimate = router.estimateContext(input);
+    const providerWindow = this.getProviderContextBudget(providerId, router);
 
     // Reserve space for the prompt + output; remainder is available for injections
-    const availableForInjections = Math.max(0, providerWindow - baseEstimate.totalTokens)
+    const availableForInjections = Math.max(
+      0,
+      providerWindow - baseEstimate.totalTokens
+    );
 
     // Use the smaller of: configured max, or what the provider has room for
-    const effectiveBudget = this.maxContextTokens !== undefined
-      ? Math.min(this.maxContextTokens, availableForInjections)
-      : availableForInjections
+    const effectiveBudget =
+      this.maxContextTokens !== undefined
+        ? Math.min(this.maxContextTokens, availableForInjections)
+        : availableForInjections;
 
-    return this.apply(input, effectiveBudget)
+    return this.apply(input, effectiveBudget);
   }
 
   /**
@@ -415,7 +455,7 @@ export class ContextInjectionMiddleware {
    */
   private getProviderContextBudget(
     providerId: AdapterProviderId,
-    router: ContextAwareRouter,
+    router: ContextAwareRouter
   ): number {
     // Use canHandle to find the effective window:
     // The effective window is the largest totalTokens that canHandle returns true for
@@ -423,14 +463,14 @@ export class ContextInjectionMiddleware {
       claude: 200_000,
       codex: 128_000,
       gemini: 1_000_000,
-      'gemini-sdk': 1_000_000,
+      "gemini-sdk": 1_000_000,
       qwen: 128_000,
       crush: 32_000,
       goose: 128_000,
       openrouter: 200_000,
       openai: 128_000,
-    }
-    const rawWindow = contextWindows[providerId] ?? 0
+    };
+    const rawWindow = contextWindows[providerId] ?? 0;
 
     // Probe the router to find the effective window (with safety margin applied)
     // We test with a synthetic estimate; the router applies its own safety margin
@@ -439,30 +479,30 @@ export class ContextInjectionMiddleware {
       outputTokens: 0,
       totalTokens: rawWindow,
       fitsInContext: true,
-    }
+    };
 
     // If the full window doesn't fit, reduce by increments
     if (router.canHandle(providerId, probeEstimate)) {
-      return rawWindow
+      return rawWindow;
     }
 
     // Binary search for the effective threshold
-    let low = 0
-    let high = rawWindow
+    let low = 0;
+    let high = rawWindow;
     while (high - low > 100) {
-      const mid = Math.floor((low + high) / 2)
+      const mid = Math.floor((low + high) / 2);
       const midEstimate: ContextEstimate = {
         inputTokens: 0,
         outputTokens: 0,
         totalTokens: mid,
         fitsInContext: true,
-      }
+      };
       if (router.canHandle(providerId, midEstimate)) {
-        low = mid
+        low = mid;
       } else {
-        high = mid
+        high = mid;
       }
     }
-    return low
+    return low;
   }
 }
