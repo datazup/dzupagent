@@ -903,9 +903,9 @@ describe("Slack connector — slack-connector.test.ts", () => {
       expect(tk.name).toBe("slack");
     });
 
-    it("toolkit contains exactly 3 tools", () => {
+    it("toolkit contains exactly 6 tools", () => {
       const tk = createSlackConnectorToolkit({ token: "x" });
-      expect(tk.tools).toHaveLength(3);
+      expect(tk.tools).toHaveLength(6);
     });
 
     it("toolkit tools include all three expected names", () => {

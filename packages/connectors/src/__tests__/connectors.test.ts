@@ -91,7 +91,7 @@ describe("HTTP connector", () => {
     expect(result).toContain("200 OK");
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining("http://api.test/health"),
-      expect.objectContaining({ method: "GET" })
+      expect.objectContaining({ method: "GET" }),
     );
 
     vi.unstubAllGlobals();
@@ -111,9 +111,9 @@ describe("HTTP connector", () => {
 });
 
 describe("Slack connector", () => {
-  it("creates 3 tools", () => {
+  it("creates 6 tools", () => {
     const tools = createSlackConnector({ token: "fake" });
-    expect(tools).toHaveLength(3);
+    expect(tools).toHaveLength(6);
     const names = tools.map((t) => t.name);
     expect(names).toContain("slack_send_message");
     expect(names).toContain("slack_list_channels");
