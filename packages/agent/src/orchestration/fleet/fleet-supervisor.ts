@@ -1,8 +1,8 @@
 import { ulid } from "ulidx";
-import { ForgeError } from "@dzupagent/core/events";
 import type {
   FleetRunResult,
   FleetRunSpec,
+  FleetTask,
   KnowledgeEnvelope,
   RepoAgentResult,
   RepoRef,
@@ -11,6 +11,10 @@ import type {
   FleetPolicy,
   FleetSupervisorApi,
   RepoAgentRef,
+  TaskState,
+  TaskStatePayload,
+  WorkerHandle,
+  WorkerSpec,
 } from "@dzupagent/agent-types/fleet";
 import { RepoAgent } from "./repo-agent.js";
 
@@ -31,19 +35,30 @@ interface RepoAgentSlot {
   ref: RepoAgentRef;
 }
 
+interface ActiveRun {
+  runId: string;
+  spec: FleetRunSpec;
+  policy: FleetPolicy;
+  repoAgents: Map<string, RepoAgentSlot>;
+}
+
 /**
  * FleetSupervisor drives a FleetRunSpec to completion. For fan-out scenarios
  * every repo runs the task in parallel; otherwise the injected FleetPolicy
  * assigns each task to a single worker. Assignment decisions are mirrored into
  * the shared KnowledgeStore.
  *
- * Mid-run control (pause/cancel/reassign) is **not implemented** in Phase 1a.
- * These methods throw a {@link ForgeError} (`CAPABILITY_NOT_FOUND`,
- * non-recoverable) rather than silently no-op'ing, so a policy that depends on
- * them fails loudly instead of believing the fleet can be drained or rebalanced.
- * Real implementations land in Phase 1b.
+ * Phase 1b: mid-run control (pauseTask/cancelTask/reassign) operates on live
+ * worker handles registered during spawn. Pause signals the worker; cancel
+ * terminates it and writes a surrendered task-state; reassign cancels and
+ * re-dispatches to the next available idle worker via the active policy.
  */
 export class FleetSupervisor implements FleetSupervisorApi {
+  /** Live worker handles keyed by taskId, populated during run(). */
+  private readonly _taskHandles = new Map<string, WorkerHandle>();
+  /** Active run context, set at the start of run() and cleared when done. */
+  private _activeRun: ActiveRun | null = null;
+
   constructor(private readonly deps: FleetSupervisorDeps) {}
 
   async run(spec: FleetRunSpec, policy: FleetPolicy): Promise<FleetRunResult> {
@@ -56,107 +71,221 @@ export class FleetSupervisor implements FleetSupervisorApi {
         repo: repo.name,
         busy: false,
       };
+      const trackingExecutor = this.trackingExecutorFor(repo, spec);
       const agent = new RepoAgent({
         runId: spec.runId,
         repo,
-        executor: this.deps.executorFor(repo),
+        executor: trackingExecutor,
         knowledge: this.deps.knowledge,
         workerId: ref.workerId,
       });
       repoAgents.set(repo.name, { agent, repo, ref });
     }
 
-    const outcomes: RepoAgentResult[] = [];
-    const isFanOut =
-      spec.scenario === "audit-fanout" || policy.id === "fan-out";
+    this._activeRun = { runId: spec.runId, spec, policy, repoAgents };
 
-    if (isFanOut) {
-      for (const task of spec.tasks) {
-        const runs = [...repoAgents.values()].map(async ({ agent, ref }) => {
-          ref.busy = true;
-          try {
-            const result = await agent.dispatch(task);
-            outcomes.push(result);
-            return result;
-          } finally {
-            ref.busy = false;
-          }
-        });
-        await Promise.all(runs);
-      }
-    } else {
-      for (const task of spec.tasks) {
-        const fleet: RepoAgentRef[] = [...repoAgents.values()].map(
-          (v) => v.ref
-        );
-        const assignment = await policy.assignTask(
-          task,
-          fleet,
-          this.deps.knowledge
-        );
-        const target = [...repoAgents.values()].find(
-          (v) => v.ref.workerId === assignment.workerId
-        );
-        if (!target) {
-          throw new Error(
-            `Policy assigned unknown worker ${assignment.workerId}`
+    try {
+      const outcomes: RepoAgentResult[] = [];
+      const isFanOut =
+        spec.scenario === "audit-fanout" || policy.id === "fan-out";
+
+      if (isFanOut) {
+        for (const task of spec.tasks) {
+          const runs = [...repoAgents.values()].map(async ({ agent, ref }) => {
+            ref.busy = true;
+            try {
+              const result = await agent.dispatch(task);
+              outcomes.push(result);
+              return result;
+            } finally {
+              ref.busy = false;
+              this._taskHandles.delete(task.id);
+            }
+          });
+          await Promise.all(runs);
+        }
+      } else {
+        for (const task of spec.tasks) {
+          const fleet: RepoAgentRef[] = [...repoAgents.values()].map(
+            (v) => v.ref,
           );
-        }
-        await this.writeDecision(
-          spec.runId,
-          "assignment",
-          policy.id,
-          [task.id, assignment.workerId],
-          assignment.rationale
-        );
-        target.ref.busy = true;
-        try {
-          const result = await target.agent.dispatch(task);
-          outcomes.push(result);
-          await policy.onWorkerComplete(result, this);
-        } finally {
-          target.ref.busy = false;
+          const assignment = await policy.assignTask(
+            task,
+            fleet,
+            this.deps.knowledge,
+          );
+          const target = [...repoAgents.values()].find(
+            (v) => v.ref.workerId === assignment.workerId,
+          );
+          if (!target) {
+            throw new Error(
+              `Policy assigned unknown worker ${assignment.workerId}`,
+            );
+          }
+          await this.writeDecision(
+            spec.runId,
+            "assignment",
+            policy.id,
+            [task.id, assignment.workerId],
+            assignment.rationale,
+          );
+          target.ref.busy = true;
+          try {
+            const result = await target.agent.dispatch(task);
+            outcomes.push(result);
+            await policy.onWorkerComplete(result, this);
+          } finally {
+            target.ref.busy = false;
+            this._taskHandles.delete(task.id);
+          }
         }
       }
+
+      const allOk = outcomes.every((o) => o.state === "completed");
+      return {
+        runId: spec.runId,
+        status: allOk ? "completed" : "failed",
+        finishedAt: new Date().toISOString(),
+        taskOutcomes: outcomes,
+      };
+    } finally {
+      this._activeRun = null;
     }
-
-    const allOk = outcomes.every((o) => o.state === "completed");
-    return {
-      runId: spec.runId,
-      status: allOk ? "completed" : "failed",
-      finishedAt: new Date().toISOString(),
-      taskOutcomes: outcomes,
-    };
-  }
-
-  async pauseTask(taskId: string, reason: string): Promise<void> {
-    throw this.unimplementedControl("pauseTask", taskId, { reason });
-  }
-  async cancelTask(taskId: string, reason: string): Promise<void> {
-    throw this.unimplementedControl("cancelTask", taskId, { reason });
-  }
-  async reassign(taskId: string): Promise<void> {
-    throw this.unimplementedControl("reassign", taskId);
   }
 
   /**
-   * Build a non-recoverable error for the Phase-1b fleet control surface so
-   * callers fail loudly instead of relying on a silent no-op.
+   * Signals a live worker to pause. Writes a `blocked` task-state into the
+   * knowledge store and sends a pause message to the worker handle. The worker
+   * itself decides whether to honour the pause — the supervisor does not
+   * forcibly halt execution.
    */
-  private unimplementedControl(
-    operation: "pauseTask" | "cancelTask" | "reassign",
-    taskId: string,
-    extra: Record<string, unknown> = {}
-  ): ForgeError {
-    return new ForgeError({
-      code: "CAPABILITY_NOT_FOUND",
-      message: `FleetSupervisor.${operation} is not implemented (Phase 1b).`,
-      recoverable: false,
-      suggestion:
-        "Mid-run fleet control (pause/cancel/reassign) is not available in Phase 1a. " +
-        "Do not depend on it from a FleetPolicy yet.",
-      context: { operation, taskId, ...extra },
-    });
+  async pauseTask(taskId: string, reason: string): Promise<void> {
+    const handle = this._taskHandles.get(taskId);
+    const runId = this._activeRun?.runId ?? "unknown";
+    await this.writeTaskControlState(runId, taskId, "blocked", reason);
+    if (handle) {
+      await handle.send({ kind: "message", text: `pause: ${reason}` });
+    }
+  }
+
+  /**
+   * Cancels a live worker and marks the task surrendered. Calls
+   * `WorkerHandle.cancel(reason)` if a live handle exists, then writes a
+   * `surrendered` task-state. The task will not be retried automatically.
+   */
+  async cancelTask(taskId: string, reason: string): Promise<void> {
+    const handle = this._taskHandles.get(taskId);
+    if (handle) {
+      await handle.cancel(reason);
+      this._taskHandles.delete(taskId);
+    }
+    const runId = this._activeRun?.runId ?? "unknown";
+    await this.writeTaskControlState(runId, taskId, "surrendered", reason);
+  }
+
+  /**
+   * Cancels the current worker for a task (if live) and re-dispatches it to
+   * the next available idle worker chosen by the active policy. If no run is
+   * active or no idle worker is available the task is cancelled and written as
+   * surrendered — the run's outcome will reflect the failure.
+   */
+  async reassign(taskId: string): Promise<void> {
+    // Capture run context and task BEFORE cancelling — cancelling the live handle
+    // triggers the dispatch microtask chain which clears _activeRun by the time
+    // the await resumes.
+    const ctx = this._activeRun;
+    const task = ctx?.spec.tasks.find((t) => t.id === taskId);
+
+    const handle = this._taskHandles.get(taskId);
+    if (handle) {
+      await handle.cancel("reassignment requested");
+      this._taskHandles.delete(taskId);
+      // Yield the microtask queue so the run loop's dispatch chain (generator
+      // drain → wait() → finally { busy=false }) can complete before we
+      // inspect the idle fleet for reassignment.
+      await Promise.resolve();
+    }
+
+    if (!ctx) {
+      return;
+    }
+
+    if (!task) {
+      return;
+    }
+
+    const fleet: RepoAgentRef[] = [...ctx.repoAgents.values()].map(
+      (v) => v.ref,
+    );
+    const idle = fleet.filter((f) => !f.busy);
+    if (idle.length === 0) {
+      await this.writeTaskControlState(
+        ctx.runId,
+        taskId,
+        "surrendered",
+        "no idle worker available for reassignment",
+      );
+      return;
+    }
+
+    const assignment = await ctx.policy.assignTask(
+      task,
+      idle,
+      this.deps.knowledge,
+    );
+    await this.writeDecision(
+      ctx.runId,
+      "assignment",
+      ctx.policy.id,
+      [taskId, assignment.workerId, "reassignment"],
+      assignment.rationale,
+    );
+
+    const target = [...ctx.repoAgents.values()].find(
+      (v) => v.ref.workerId === assignment.workerId,
+    );
+    if (!target) {
+      await this.writeTaskControlState(
+        ctx.runId,
+        taskId,
+        "surrendered",
+        `reassignment target worker ${assignment.workerId} not found`,
+      );
+      return;
+    }
+
+    target.ref.busy = true;
+    target.agent
+      .dispatch(task)
+      .then(async (result) => {
+        await ctx.policy.onWorkerComplete(result, this);
+      })
+      .catch(() => {
+        // Dispatch errors after reassignment are surfaced through task-state
+        // written by RepoAgent; not re-thrown here since this is async.
+      })
+      .finally(() => {
+        target.ref.busy = false;
+        this._taskHandles.delete(taskId);
+      });
+  }
+
+  /**
+   * Returns a handle-tracking wrapper around the real executor for a given
+   * repo. When the underlying executor spawns a worker, the handle is
+   * registered under the task's id so control methods can reach it.
+   */
+  private trackingExecutorFor(repo: RepoRef, spec: FleetRunSpec): Executor {
+    const supervisor = this;
+    const inner = this.deps.executorFor(repo);
+    return {
+      id: inner.id,
+      async spawn(workerSpec: WorkerSpec): Promise<WorkerHandle> {
+        const handle = await inner.spawn(workerSpec);
+        supervisor._taskHandles.set(workerSpec.taskBundle.id, handle);
+        return handle;
+      },
+    };
   }
 
   private async seed(spec: FleetRunSpec): Promise<void> {
@@ -165,12 +294,38 @@ export class FleetSupervisor implements FleetSupervisorApi {
     }
   }
 
+  private async writeTaskControlState(
+    runId: string,
+    taskId: string,
+    state: TaskState,
+    blockedReason: string,
+  ): Promise<void> {
+    const payload: TaskStatePayload = { taskId, state, blockedReason };
+    const env: KnowledgeEnvelope = {
+      id: ulid(),
+      runId,
+      repo: null,
+      kind: "task-state",
+      key: taskId,
+      version:
+        Date.now() * 1000 +
+        (Math.abs(taskId.charCodeAt(taskId.length - 1)) % 1000),
+      authorWorkerId: null,
+      parentId: null,
+      createdAt: new Date().toISOString(),
+      supersededAt: null,
+      payload,
+      tags: ["control"],
+    };
+    await this.deps.knowledge.append(`run:${runId}`, env);
+  }
+
   private async writeDecision(
     runId: string,
     decisionKind: DecisionKind,
     policyId: string,
     inputs: unknown[],
-    outcome: unknown
+    outcome: unknown,
   ): Promise<void> {
     const env: KnowledgeEnvelope = {
       id: ulid(),
