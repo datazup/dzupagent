@@ -47,6 +47,7 @@ import { AdapterStreamRunner } from "./stream-runner.js";
 import type { AdapterStreamSource } from "./stream-runner.js";
 import type { RunEventStore } from "../runs/run-event-store.js";
 import { buildPreflightValidator } from "../guardrails/preflight-validator.js";
+import { ForgeError } from "@dzupagent/core/events";
 
 // Backward-compat re-exports
 export { filterSensitiveEnvVars };
@@ -438,9 +439,12 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         .filter((i) => i.severity === "error")
         .map((i) => `[${i.code}] ${i.message}`)
         .join("; ");
-      throw new Error(
-        `Preflight validation failed for provider "${this.providerId}": ${errors}`
-      );
+      throw new ForgeError({
+        code: "VALIDATION_FAILED",
+        message: `Preflight validation failed for provider "${this.providerId}": ${errors}`,
+        recoverable: false,
+        context: { providerId: this.providerId, issues: result.issues },
+      });
     }
   }
 

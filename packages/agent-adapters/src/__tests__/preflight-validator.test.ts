@@ -10,6 +10,7 @@ import {
 } from "../guardrails/preflight-validator.js";
 import type { AgentInput, AgentEvent } from "../types.js";
 import { BaseCliAdapter } from "../base/base-cli-adapter.js";
+import { ForgeError } from "@dzupagent/core/events";
 
 // ---------------------------------------------------------------------------
 // process-helpers mock — required because BaseCliAdapter imports spawn utilities
@@ -227,6 +228,23 @@ describe("BaseCliAdapter.assertReady() — M-10 preflight enforcement", () => {
     );
   });
 
+  it("throws a ForgeError with code VALIDATION_FAILED when budget is zero", async () => {
+    const adapter = new TestableCliAdapter();
+    const input: AgentInput = { prompt: "do work", maxBudgetUsd: 0 };
+
+    let thrown: unknown;
+    try {
+      await adapter.runAssertReady(input);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ForgeError);
+    expect((thrown as ForgeError).code).toBe("VALIDATION_FAILED");
+    expect((thrown as ForgeError).message).toMatch(
+      /Preflight validation failed/
+    );
+  });
+
   it("throws when maxBudgetUsd is negative", async () => {
     const adapter = new TestableCliAdapter();
     const input: AgentInput = { prompt: "do work", maxBudgetUsd: -5 };
@@ -234,6 +252,20 @@ describe("BaseCliAdapter.assertReady() — M-10 preflight enforcement", () => {
     await expect(adapter.runAssertReady(input)).rejects.toThrow(
       /Preflight validation failed/
     );
+  });
+
+  it("throws a ForgeError (not a plain Error) when maxBudgetUsd is negative", async () => {
+    const adapter = new TestableCliAdapter();
+    const input: AgentInput = { prompt: "do work", maxBudgetUsd: -5 };
+
+    let thrown: unknown;
+    try {
+      await adapter.runAssertReady(input);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ForgeError);
+    expect(ForgeError.is(thrown)).toBe(true);
   });
 
   it("does not throw when maxBudgetUsd is positive", async () => {
@@ -256,5 +288,20 @@ describe("BaseCliAdapter.assertReady() — M-10 preflight enforcement", () => {
 
     const gen = adapter.execute(input);
     await expect(gen.next()).rejects.toThrow(/Preflight validation failed/);
+  });
+
+  it("execute() throws a ForgeError (not plain Error) when budget is exhausted", async () => {
+    const adapter = new TestableCliAdapter();
+    const input: AgentInput = { prompt: "do work", maxBudgetUsd: 0 };
+
+    const gen = adapter.execute(input);
+    let thrown: unknown;
+    try {
+      await gen.next();
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(ForgeError);
+    expect((thrown as ForgeError).code).toBe("VALIDATION_FAILED");
   });
 });
