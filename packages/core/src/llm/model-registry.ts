@@ -512,14 +512,15 @@ export class ModelRegistry {
       }
     }
 
-    // If we had providers but all were skipped due to capability mismatch,
-    // throw a specific NO_CAPABLE_FALLBACK error instead of the generic one.
+    // If requirements were provided and at least one provider was skipped due
+    // to a capability/context mismatch, throw NO_CAPABLE_FALLBACK. This applies
+    // even when some providers failed for other reasons (circuit open, factory
+    // error) — the caller needs to know that the requirements could not be met,
+    // not just that all providers were exhausted.
     if (
       anyProviderFound &&
-      capabilitySkipCount > 0 &&
-      errors.every(
-        (e) => e.includes("contextWindow") || e.includes("missing capabilities")
-      )
+      requirements !== undefined &&
+      capabilitySkipCount > 0
     ) {
       throw new ForgeError({
         code: "NO_CAPABLE_FALLBACK",

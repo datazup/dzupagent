@@ -224,4 +224,29 @@ describe("AdapterStreamRunner — tool-call audit (M-12)", () => {
     expect(record?.argsHash.length).toBeGreaterThan(0);
     expect(typeof record?.startedAt).toBe("string");
   });
+
+  it("argsHash reflects tool INPUT args, not the tool output (M-12)", async () => {
+    const sink = vi.fn<[ToolCallAuditRecord], void>();
+    const runner = new AdapterStreamRunner({ toolCallAuditSink: sink });
+
+    // Use clearly distinct input and output so we can assert which one was hashed.
+    const inputArgs = { file: "/src/index.ts", line: 42 };
+    const outputText = "COMPLETELY_DIFFERENT_OUTPUT_VALUE";
+
+    const source = makeEventSource([
+      toolCall("read_file", "tc-input", inputArgs),
+      toolResult("read_file", "tc-input", outputText),
+      completed(),
+    ]);
+
+    await collect(runner.run(source, makeInput()));
+
+    expect(sink).toHaveBeenCalledTimes(1);
+    const record = sink.mock.calls[0]?.[0];
+
+    // argsHash must contain a representation of the input args
+    expect(record?.argsHash).toContain("/src/index.ts");
+    // argsHash must NOT contain the tool output
+    expect(record?.argsHash).not.toContain(outputText);
+  });
 });

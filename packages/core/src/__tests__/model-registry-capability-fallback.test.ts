@@ -351,4 +351,54 @@ describe("ModelRegistry — capability-aware fallback (M-11)", () => {
     const result = registry.getModelWithFallback("chat");
     expect(result.provider).toBe("anthropic");
   });
+
+  it("throws NO_CAPABLE_FALLBACK when requirements given and at least one provider was capability-skipped, even if another failed for a different reason (M-11 mixed failure)", () => {
+    // Provider 1: factory throws — simulates a runtime/circuit-style failure
+    const mixedFactory: ModelFactory = (provider, spec, overrides) => {
+      if (provider.provider === "anthropic") {
+        throw new Error("factory unavailable");
+      }
+      return stubFactory(provider, spec, overrides);
+    };
+    registry.setFactory(mixedFactory);
+
+    // Provider 1: primary — will fail at factory time (not a capability skip)
+    registry.addProvider(
+      makeProvider({
+        provider: "anthropic",
+        priority: 1,
+        models: {
+          chat: {
+            name: "claude-haiku",
+            maxTokens: 1024,
+            capabilities: ["tool_use"],
+          },
+        },
+      })
+    );
+
+    // Provider 2: has the tier but lacks the required capability → capability skip
+    registry.addProvider(
+      makeProvider({
+        provider: "openai",
+        priority: 2,
+        apiKey: "oai",
+        models: {
+          chat: {
+            name: "gpt-3.5-no-tools",
+            maxTokens: 4096,
+            capabilities: ["streaming"],
+          },
+        },
+      })
+    );
+
+    // With requirements provided and at least one capability skip, the registry
+    // must throw NO_CAPABLE_FALLBACK — not ALL_PROVIDERS_EXHAUSTED.
+    expect(() =>
+      registry.getModelWithFallback("chat", undefined, {
+        requiredCapabilities: ["tool_use"],
+      })
+    ).toThrow(expect.objectContaining({ code: "NO_CAPABLE_FALLBACK" }));
+  });
 });

@@ -182,7 +182,12 @@ export class AdapterStreamRunner<TRaw> {
     // when toolCallAuditSink is configured.
     const pendingToolCalls = new Map<
       string,
-      { toolName: string; startedAt: number; startedAtIso: string }
+      {
+        toolName: string;
+        startedAt: number;
+        startedAtIso: string;
+        argsHash: string;
+      }
     >();
 
     try {
@@ -253,10 +258,13 @@ export class AdapterStreamRunner<TRaw> {
               if (ev.type === "adapter:tool_call") {
                 const key = ev.toolCallId ?? ev.toolName;
                 const now = Date.now();
+                // Capture the INPUT args hash at call time — argsHash reflects
+                // what was passed TO the tool, not what the tool returned.
                 pendingToolCalls.set(key, {
                   toolName: ev.toolName,
                   startedAt: now,
                   startedAtIso: new Date(now).toISOString(),
+                  argsHash: this.hashArgs(ev.input),
                 });
               } else if (ev.type === "adapter:tool_result") {
                 const key = ev.toolCallId ?? ev.toolName;
@@ -267,7 +275,9 @@ export class AdapterStreamRunner<TRaw> {
                 const record: ToolCallAuditRecord = {
                   type: "tool_call",
                   toolName: ev.toolName,
-                  argsHash: this.hashArgs(ev.output),
+                  // Use the input args hash captured when the call was opened,
+                  // not the tool's output — argsHash identifies the call, not the result.
+                  argsHash: pending?.argsHash ?? this.hashArgs(undefined),
                   resultStatus: "success",
                   durationMs,
                   ...(ev.toolCallId !== undefined
