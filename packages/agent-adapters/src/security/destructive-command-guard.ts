@@ -58,17 +58,26 @@ const COMMAND_INPUT_KEYS = ["command", "cmd", "code", "input"] as const;
 /**
  * Assert that a tool call does not invoke a destructive shell command.
  *
- * Only inspects tools listed in {@link SHELL_TOOL_NAMES}. For those,
- * extracts the command string from known input keys and checks it against
+ * Only inspects tools listed in {@link SHELL_TOOL_NAMES} or in `extraShellToolNames`.
+ * For those, extracts the command string from known input keys and checks it against
  * {@link DESTRUCTIVE_COMMAND_PATTERNS}.
+ *
+ * @param extraShellToolNames - Additional MCP shell tool names to inspect beyond
+ *   the built-in {@link SHELL_TOOL_NAMES} set. Used when an operator registers a
+ *   custom MCP shell server with a non-standard tool name (e.g. "execute", "terminal").
  *
  * @throws ForgeError with code `DESTRUCTIVE_COMMAND_BLOCKED` on match.
  */
 export function assertCommandNotDestructive(
   toolName: string,
-  input: Record<string, unknown> | null | undefined
+  input: Record<string, unknown> | null | undefined,
+  extraShellToolNames?: readonly string[]
 ): void {
-  if (!SHELL_TOOL_NAMES.has(toolName)) return;
+  const isShellTool =
+    SHELL_TOOL_NAMES.has(toolName) ||
+    (extraShellToolNames !== undefined &&
+      extraShellToolNames.includes(toolName));
+  if (!isShellTool) return;
   if (input === null || input === undefined || typeof input !== "object")
     return;
 
