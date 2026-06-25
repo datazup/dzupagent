@@ -159,12 +159,17 @@ describe("AdapterStreamRunner — tool-call audit (M-12)", () => {
 
     // The pending tool call is flushed as an error record
     expect(sink).toHaveBeenCalledTimes(1);
-    expect(sink.mock.calls[0]?.[0]).toMatchObject({
+    const flushedRecord = sink.mock.calls[0]?.[0];
+    expect(flushedRecord).toMatchObject({
       type: "tool_call",
       toolName: "exploding_tool",
       resultStatus: "error",
     });
-    expect(sink.mock.calls[0]?.[0]?.durationMs).toBeGreaterThanOrEqual(0);
+    expect(flushedRecord?.durationMs).toBeGreaterThanOrEqual(0);
+    // argsHash must use the originally-captured input hash, not the hardcoded sentinel
+    expect(typeof flushedRecord?.argsHash).toBe("string");
+    expect(flushedRecord?.argsHash.length).toBeGreaterThan(0);
+    expect(flushedRecord?.argsHash).not.toBe("<stream-error>");
   });
 
   it("does not emit any records when toolCallAuditSink is not configured", async () => {

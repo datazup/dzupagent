@@ -343,7 +343,7 @@ export class AdapterStreamRunner<TRaw> {
           this.emitToolCallAudit({
             type: "tool_call",
             toolName: pending.toolName,
-            argsHash: "<stream-error>",
+            argsHash: pending.argsHash,
             resultStatus: "error",
             durationMs: Math.max(0, Date.now() - pending.startedAt),
             startedAt: pending.startedAtIso,
