@@ -85,7 +85,7 @@ export function assertCommandNotDestructive(
       if (pattern.test(value)) {
         throw new ForgeError({
           code: "DESTRUCTIVE_COMMAND_BLOCKED",
-          message: `Destructive shell command blocked: ${label}`,
+          message: `DESTRUCTIVE_COMMAND_BLOCKED: ${label}`,
           recoverable: false,
           context: { toolName, pattern: label },
         });

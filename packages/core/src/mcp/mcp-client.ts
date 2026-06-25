@@ -259,7 +259,7 @@ export class MCPClient {
             type: "text" as const,
             text:
               err instanceof Error
-                ? `DESTRUCTIVE_COMMAND_BLOCKED: ${err.message}`
+                ? err.message
                 : "DESTRUCTIVE_COMMAND_BLOCKED: destructive command rejected",
           },
         ],
