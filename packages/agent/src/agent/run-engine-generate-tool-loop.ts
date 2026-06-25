@@ -98,6 +98,14 @@ function buildPolicyConfig(
     ...(toolExec?.scanFailureMode !== undefined
       ? { scanFailureMode: toolExec.scanFailureMode }
       : {}),
+    // MC-3 — forward the prompt-injection guardrail to the generate-path
+    // tool loop (parity with stream(), MJ-AGENT-02).
+    ...(toolExec?.promptInjectionGuard !== undefined
+      ? { promptInjectionGuard: toolExec.promptInjectionGuard }
+      : {}),
+    ...(toolExec?.wrapToolResults !== undefined
+      ? { wrapToolResults: toolExec.wrapToolResults }
+      : {}),
     ...(toolExec?.timeouts !== undefined ? { toolTimeouts: toolExec.timeouts } : {}),
     ...(toolExec?.tracer !== undefined ? { tracer: toolExec.tracer } : {}),
     // agentId: fall back to the agent's own id ONLY when toolExecution is

@@ -36,7 +36,10 @@ function makeParams(
 ): PolicyEnabledToolExecutorParams {
   return {
     toolMap: new Map(tools.map((t) => [t.name, t])),
-    config: { maxIterations: 10, ...configOverrides },
+    // MC-3 (AGENT-H-06): output-validation wiring tests assert the executor's
+    // raw result content, which is orthogonal to the prompt-injection wrapping
+    // default. Opt out of wrapping so the exact-content assertions hold.
+    config: { maxIterations: 10, wrapToolResults: false, ...configOverrides },
     getOrCreateStat: makeStatGetter(),
   }
 }

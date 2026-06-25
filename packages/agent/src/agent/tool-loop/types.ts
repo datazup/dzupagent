@@ -310,6 +310,37 @@ export interface ToolLoopConfig {
   scanToolResults?: boolean;
 
   /**
+   * MC-3 (AGENT-H-06 / SEC-M-06 / AGENT-M-07) — prompt-injection guardrail.
+   *
+   * Every successful tool result is structurally untrusted external data, so
+   * the loop wraps its content in a labelled, delimited quoted-data block
+   * (`<untrusted_content source="tool_result">…</untrusted_content>`) BEFORE
+   * it is appended to the model's message history. This makes it explicit to
+   * the model which spans are external data rather than authoritative
+   * instruction, blunting prompt-injection payloads embedded in tool output.
+   *
+   * Defaults to an internal {@link PromptInjectionGuard} instance, so the
+   * protection is on by default. Supply your own instance to share screening
+   * configuration across boundaries, or set {@link wrapToolResults} to
+   * `false` to opt out (e.g. when an upstream layer already wrapped the
+   * content). Uses structural typing so the agent package need not import the
+   * concrete class from `@dzupagent/security` here.
+   */
+  promptInjectionGuard?: {
+    wrap: (
+      content: string,
+      opts?: { label?: string; screen?: boolean; delimit?: boolean }
+    ) => string;
+  };
+
+  /**
+   * Disable wrapping tool results via {@link promptInjectionGuard}.
+   * Defaults to `true` (wrapping ON). Set to `false` to append raw tool
+   * output without the untrusted-content delimiter.
+   */
+  wrapToolResults?: boolean;
+
+  /**
    * Controls what happens when {@link safetyMonitor.scanContent} itself
    * throws while scanning a tool result.
    *

@@ -139,14 +139,24 @@ describe('RF-15 — prompt-injection scan on tool results', () => {
       },
     })
 
-    expect(result.message.content).toBe(POISONED)
+    // MC-3 (AGENT-H-06): the RF-15 scanner leaves the payload intact (off),
+    // and the payload is preserved verbatim as quoted data inside the
+    // default `<untrusted_content>` wrapper. `eventResult` stays raw.
+    expect(result.message.content).toContain(POISONED)
+    expect(result.message.content).toContain('<untrusted_content source="tool_result">')
+    expect(result.eventResult).toBe(POISONED)
     expect(events).toHaveLength(0)
   })
 
   it('passes the result through when no policy is configured (legacy path)', async () => {
     const result = await executeStreamingToolCall(baseParams())
 
-    expect(result.message.content).toBe(POISONED)
+    // MC-3: wrapping applies even on the legacy/no-policy path — untrusted
+    // tool output is always delimited. The raw payload survives as quoted
+    // data; the emitted event payload remains raw.
+    expect(result.message.content).toContain(POISONED)
+    expect(result.message.content).toContain('<untrusted_content source="tool_result">')
+    expect(result.eventResult).toBe(POISONED)
   })
 
   it('does not block clean tool output even when promptInjection=block', async () => {
@@ -164,7 +174,11 @@ describe('RF-15 — prompt-injection scan on tool results', () => {
       },
     })
 
-    expect(result.message.content).toBe('a.txt\nb.txt\nc.txt')
+    // MC-3: clean output is not blocked by the scanner and is preserved
+    // verbatim inside the default `<untrusted_content>` wrapper.
+    expect(result.message.content).toContain('a.txt\nb.txt\nc.txt')
+    expect(result.message.content).toContain('<untrusted_content source="tool_result">')
+    expect(result.eventResult).toBe('a.txt\nb.txt\nc.txt')
     expect(events).toHaveLength(0)
   })
 })

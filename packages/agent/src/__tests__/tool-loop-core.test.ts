@@ -140,11 +140,19 @@ describe('Sequential tool execution', () => {
     expect(result.stopReason).toBe('complete')
     expect(result.llmCalls).toBe(2)
 
-    // ToolMessage with the result should be in messages
+    // ToolMessage with the result should be in messages. MC-3 (AGENT-H-06):
+    // tool output is now wrapped in an `<untrusted_content source="tool_result">`
+    // delimiter before entering message history, so the raw result is a
+    // SUBSTRING of the (delimited) ToolMessage content rather than the whole
+    // content.
     const toolMsg = result.messages.find(
-      m => m._getType() === 'tool' && typeof m.content === 'string' && m.content === 'file contents',
+      m =>
+        m._getType() === 'tool' &&
+        typeof m.content === 'string' &&
+        m.content.includes('file contents'),
     )
     expect(toolMsg).toBeDefined()
+    expect(toolMsg?.content).toContain('<untrusted_content source="tool_result">')
   })
 
   it('handles multiple tool calls in a single response sequentially', async () => {

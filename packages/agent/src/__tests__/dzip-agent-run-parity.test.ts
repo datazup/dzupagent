@@ -107,7 +107,13 @@ describe('DzupAgent generate()/stream() parity', () => {
       message => message instanceof ToolMessage,
     ) as ToolMessage | undefined
 
-    expect(toolMessage?.content).toBe('raw-a-b')
+    // MC-3 (AGENT-H-06): the generate-path ToolMessage CONTEXT content is
+    // wrapped in an `<untrusted_content>` delimiter (the wrapped value still
+    // contains the middleware-transformed `raw-a-b` as quoted data), while the
+    // emitted `tool_result` EVENT below stays raw — identical observability
+    // semantics across generate() and stream() (parity, MJ-AGENT-02).
+    expect(toolMessage?.content as string).toContain('raw-a-b')
+    expect(toolMessage?.content as string).toContain('<untrusted_content source="tool_result">')
 
     const streamAgent = makeAgent()
     const streamEvents = await collectStreamEvents(streamAgent)

@@ -354,6 +354,15 @@ export {
   skillDegradationValidator,
 } from "./guardrails/preflight-validator.js";
 export type { PreflightValidatorOptions } from "./guardrails/preflight-validator.js";
+// MC-3 (AGENT-H-06 / SEC-M-06 / AGENT-M-07) — composable prompt-injection
+// guardrail. Re-exported from `@dzupagent/security` so adapters can wrap
+// untrusted cross-provider context, retrieved content, and tool results in a
+// labelled, delimited quoted-data block.
+export { PromptInjectionGuard } from "./guardrails/prompt-injection-guard.js";
+export type {
+  GuardOptions,
+  ScreenResult,
+} from "./guardrails/prompt-injection-guard.js";
 
 // --- Workflow DSL ---
 export {

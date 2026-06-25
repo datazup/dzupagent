@@ -59,6 +59,27 @@ export interface StreamingToolPolicyOptions {
    * PII scanning on tool results — mirrors `promptInjectionToolResults` for PII.
    */
   piiToolResults?: PiiMode
+  /**
+   * MC-3 (AGENT-H-06 / SEC-M-06) — prompt-injection guardrail. Mirrors
+   * `ToolLoopConfig.promptInjectionGuard` so the streaming tool path wraps a
+   * successful tool result's CONTEXT content (the ToolMessage) in an
+   * `<untrusted_content source="tool_result">` delimiter, matching the
+   * generate() path for stream/generate parity (MJ-AGENT-02). The emitted
+   * `tool_result` event payload stays raw. Defaults to an internal
+   * {@link PromptInjectionGuard}; structural type avoids importing the
+   * concrete class here.
+   */
+  promptInjectionGuard?: {
+    wrap: (
+      content: string,
+      opts?: { label?: string; screen?: boolean; delimit?: boolean },
+    ) => string
+  }
+  /**
+   * Disable wrapping tool results via {@link promptInjectionGuard}. Defaults
+   * to `true` (wrapping ON), mirroring `ToolLoopConfig.wrapToolResults`.
+   */
+  wrapToolResults?: boolean
   tracer?: ToolLoopTracer
   agentId?: string
   runId?: string

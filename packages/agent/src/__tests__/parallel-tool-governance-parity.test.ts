@@ -281,9 +281,11 @@ describe('parallel tool safety-scan parity (MJ-AGENT-03)', () => {
       expect(typeof poisonedMsg!.content).toBe('string')
       expect(poisonedMsg!.content as string).toMatch(/^\[blocked\]/)
 
-      // The clean output passed through unchanged.
+      // The clean output passed through the scanner unchanged. MC-3: it is
+      // preserved verbatim as quoted data inside the `<untrusted_content>`
+      // wrapper applied to every successful result.
       expect(cleanMsg).toBeDefined()
-      expect(cleanMsg!.content).toBe(CLEAN)
+      expect(cleanMsg!.content as string).toContain(CLEAN)
     },
   )
 
@@ -320,7 +322,10 @@ describe('parallel tool safety-scan parity (MJ-AGENT-03)', () => {
       const poisonedMsg = toolMessages.find(
         (m) => (m as { name?: string }).name === 'fetch_poisoned',
       )
-      expect(poisonedMsg!.content).toBe(POISONED)
+      // MC-3: the wrapper delimits — it does not alter — the untrusted payload,
+      // so the poisoned text survives verbatim as quoted data.
+      expect(poisonedMsg!.content as string).toContain(POISONED)
+      expect(poisonedMsg!.content as string).toContain('<untrusted_content source="tool_result">')
     },
   )
 })
@@ -423,7 +428,9 @@ describe('parallel tool timeout parity (MJ-AGENT-03)', () => {
           m._getType() === 'tool'
           && (m as { name?: string }).name === 'fast',
       )
-      expect(fastMsg!.content).toBe('quick')
+      // MC-3: the successful result is wrapped in an `<untrusted_content>`
+      // delimiter, so match by substring.
+      expect(fastMsg!.content as string).toContain('quick')
     },
   )
 })

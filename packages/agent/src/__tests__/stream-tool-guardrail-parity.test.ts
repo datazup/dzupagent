@@ -338,8 +338,21 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
       const streamEvents = await drainStream(streamAgent, [new HumanMessage('search')])
       const generateResult = await generateAgent.generate([new HumanMessage('search')])
 
+      // MC-3 (AGENT-H-06): the emitted `tool_result` EVENT carries the raw
+      // result in BOTH modes (observability parity), while the context-bound
+      // ToolMessage content is wrapped in an `<untrusted_content>` delimiter
+      // in BOTH modes. Here we assert the stream event is raw and the
+      // generate-path message content is the wrapped form containing the raw
+      // result as quoted data.
       expect(firstStreamToolResult(streamEvents)).toBe('hits: 42')
-      expect(generatedToolContents(generateResult)).toContain('hits: 42')
+      const generated = generatedToolContents(generateResult)
+      expect(
+        generated.some(
+          c =>
+            c.includes('hits: 42') &&
+            c.includes('<untrusted_content source="tool_result">'),
+        ),
+      ).toBe(true)
     })
 
     it('covers validation failure shaping in stream and generate modes', async () => {
