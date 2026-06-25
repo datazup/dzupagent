@@ -251,7 +251,7 @@ export class MCPClient {
     // Destructive-command guard: runs at the MCP layer regardless of
     // whether the call came via the adapter event stream.
     try {
-      assertCommandNotDestructive(toolName, args);
+      assertCommandNotDestructive(toolName, args, conn.config.shellToolNames);
     } catch (err) {
       return {
         content: [

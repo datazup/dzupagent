@@ -26,10 +26,6 @@ export const DESTRUCTIVE_COMMAND_PATTERNS: ReadonlyArray<{
     label: "root filesystem wipe (rm -rf /)",
   },
   {
-    pattern: /\brm\s+(?:(?:--recursive|--force|-[a-zA-Z]+)\s+)*\/\*?(\s|$)/i,
-    label: "root filesystem wipe (rm -r -f / or long flags)",
-  },
-  {
     pattern: /\bcurl\b.*\|\s*(sh|bash)\b/i,
     label: "remote code execution via curl pipe",
   },

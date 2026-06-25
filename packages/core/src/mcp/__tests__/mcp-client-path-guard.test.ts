@@ -198,4 +198,38 @@ describe("MCPClient.invokeTool() destructive-command guard", () => {
       );
     }
   });
+
+  it("blocks a non-standard shell tool name registered in MCPServerConfig.shellToolNames", async () => {
+    // Build a client with a server that declares "execute" as a shell tool
+    const client = new MCPClient();
+    const serverConfig: MCPServerConfig = {
+      id: "test-custom-shell",
+      name: "Custom Shell Server",
+      url: "stdio://test",
+      transport: "stdio",
+      shellToolNames: ["execute"],
+    };
+    const c = client as unknown as Record<string, unknown>;
+    const connections = c["connections"] as Map<
+      string,
+      {
+        state: string;
+        config: MCPServerConfig;
+        tools: Array<{ name: string; serverId: string }>;
+        eagerTools: Array<{ name: string; serverId: string }>;
+        deferredTools: Array<{ name: string; serverId: string }>;
+      }
+    >;
+    connections.set("test-custom-shell", {
+      state: "connected",
+      config: serverConfig,
+      tools: [{ name: "execute", serverId: "test-custom-shell" }],
+      eagerTools: [{ name: "execute", serverId: "test-custom-shell" }],
+      deferredTools: [],
+    });
+
+    const result = await client.invokeTool("execute", { command: "rm -rf /" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("DESTRUCTIVE_COMMAND_BLOCKED");
+  });
 });

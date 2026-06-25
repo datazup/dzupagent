@@ -49,6 +49,13 @@ export interface MCPServerConfig {
    * the guard (default, backwards compatible).
    */
   filesystemRoot?: string;
+  /**
+   * Additional MCP shell tool names to inspect for destructive commands beyond
+   * the built-in set (bash, execute_command, run_shell, run_command, shell).
+   * Used when an operator registers a custom MCP shell server whose tool names
+   * differ from the built-in list (e.g. "execute", "terminal").
+   */
+  shellToolNames?: readonly string[];
 }
 
 /** MCP tool parameter schema (JSON Schema subset) */
