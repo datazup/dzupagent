@@ -22,13 +22,11 @@ export const DESTRUCTIVE_COMMAND_PATTERNS: ReadonlyArray<{
   label: string;
 }> = [
   {
-    pattern:
-      /\brm\s+(?:--recursive|--force|-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*)\b.*\/\*?(\s|$)/i,
+    pattern: /\brm\s+(?:(?:--recursive|--force|-[a-zA-Z]+)\s+)*\/\*?(\s|$)/i,
     label: "root filesystem wipe (rm -rf /)",
   },
   {
-    pattern:
-      /\brm\s+(?:-[a-zA-Z]+\s+)*(?:--recursive|--force|-[a-zA-Z]*f[a-zA-Z]*)\s+\/\*?(\s|$)/i,
+    pattern: /\brm\s+(?:(?:--recursive|--force|-[a-zA-Z]+)\s+)*\/\*?(\s|$)/i,
     label: "root filesystem wipe (rm -r -f / or long flags)",
   },
   {
@@ -68,7 +66,7 @@ const COMMAND_INPUT_KEYS = ["command", "cmd", "code", "input"] as const;
  */
 export function assertCommandNotDestructive(
   toolName: string,
-  input: Record<string, unknown> | null | undefined,
+  input: Record<string, unknown> | null | undefined
 ): void {
   if (!SHELL_TOOL_NAMES.has(toolName)) return;
   if (input === null || input === undefined || typeof input !== "object")
