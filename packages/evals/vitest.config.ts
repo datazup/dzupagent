@@ -6,9 +6,11 @@ export default defineConfig({
     environment: "node",
     testTimeout: 300_000,
     hookTimeout: 300_000,
-    // Contract tests spin up real adapters (MockSandbox, InMemoryVectorStore)
-    // and their dynamic imports can exceed 90s under the full release gate.
-    // Run sequentially so they do not starve each other under the default pool.
+    // singleFork: retained — evals contract tests spin up real in-process
+    // adapters (MockSandbox, InMemoryVectorStore) whose dynamic imports each
+    // take 10-30 s; running N forks in parallel exhausts CI memory and causes
+    // Vitest RPC timeouts observed at >4 parallel workers. Sequential execution
+    // in one fork keeps total wall-clock cost predictable (~90 s max).
     pool: "forks",
     poolOptions: { forks: { singleFork: true } },
     include: ["src/**/*.test.ts", "src/**/*.spec.ts"],
