@@ -6,10 +6,7 @@ export default defineConfig({
     environment: "node",
     testTimeout: 30_000,
     include: ["src/**/*.test.ts", "src/**/*.spec.ts"],
-    exclude: [
-      "src/__tests__/chunker.test.ts",
-      "src/__tests__/minimal-chunker.test.ts",
-    ],
+    exclude: [],
     maxConcurrency: 1,
     fileParallelism: false,
     // singleFork: retained — @langchain/core graph module load measured at
