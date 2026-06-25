@@ -20,6 +20,7 @@ import {
   assertPathWithinRoot,
   PATH_ARG_KEYS,
 } from "./mcp-security.js";
+import { assertCommandNotDestructive } from "../security/destructive-command-guard.js";
 import { fetchWithOutboundUrlPolicy } from "../security/outbound-url-policy.js";
 import {
   getMcpTransportCapability,
@@ -135,7 +136,7 @@ export class MCPClient {
    */
   async disconnectAll(): Promise<void> {
     await Promise.all(
-      Array.from(this.connections.keys()).map((id) => this.disconnect(id)),
+      Array.from(this.connections.keys()).map((id) => this.disconnect(id))
     );
   }
 
@@ -209,7 +210,7 @@ export class MCPClient {
    */
   async invokeTool(
     toolName: string,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): Promise<MCPToolResult> {
     const descriptor = this.findTool(toolName);
     if (!descriptor) {
@@ -231,6 +232,25 @@ export class MCPClient {
           {
             type: "text",
             text: `MCP server "${descriptor.serverId}" is not connected`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
+    // Destructive-command guard: runs at the MCP layer regardless of
+    // whether the call came via the adapter event stream.
+    try {
+      assertCommandNotDestructive(toolName, args);
+    } catch (err) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text:
+              err instanceof Error
+                ? `DESTRUCTIVE_COMMAND_BLOCKED: ${err.message}`
+                : "DESTRUCTIVE_COMMAND_BLOCKED: destructive command rejected",
           },
         ],
         isError: true,
@@ -323,7 +343,7 @@ export class MCPClient {
    * Discover tools from an MCP server via its transport.
    */
   private async discoverTools(
-    conn: ServerConnection,
+    conn: ServerConnection
   ): Promise<MCPToolDescriptor[]> {
     const { config } = conn;
     const timeout = config.timeoutMs ?? 10_000;
@@ -333,20 +353,20 @@ export class MCPClient {
         return this.discoverViaHttp(config, timeout);
       case "sse":
         throw new MCPUnsupportedTransportError(
-          getMcpTransportCapability("sse"),
+          getMcpTransportCapability("sse")
         );
       case "stdio":
         return this.discoverViaStdio(config, timeout);
       default:
         throw new Error(
-          `Unsupported MCP transport: ${config.transport as string}`,
+          `Unsupported MCP transport: ${config.transport as string}`
         );
     }
   }
 
   private async discoverViaHttp(
     config: MCPServerConfig,
-    timeout: number,
+    timeout: number
   ): Promise<MCPToolDescriptor[]> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
@@ -365,7 +385,7 @@ export class MCPClient {
         },
         {
           policy: config.urlPolicy,
-        },
+        }
       );
 
       if (!response.ok) {
@@ -395,7 +415,7 @@ export class MCPClient {
 
   private async discoverViaStdio(
     config: MCPServerConfig,
-    timeout: number,
+    timeout: number
   ): Promise<MCPToolDescriptor[]> {
     const request =
       JSON.stringify({
@@ -443,7 +463,7 @@ export class MCPClient {
   private async executeToolCall(
     conn: ServerConnection,
     toolName: string,
-    args: Record<string, unknown>,
+    args: Record<string, unknown>
   ): Promise<MCPToolResult> {
     const { config } = conn;
     const timeout = config.timeoutMs ?? 10_000;
@@ -474,7 +494,7 @@ export class MCPClient {
             },
             {
               policy: config.urlPolicy,
-            },
+            }
           );
 
           if (!response.ok) {
@@ -492,7 +512,7 @@ export class MCPClient {
 
       case "sse":
         throw new MCPUnsupportedTransportError(
-          getMcpTransportCapability("sse"),
+          getMcpTransportCapability("sse")
         );
 
       case "stdio": {
@@ -525,7 +545,7 @@ export class MCPClient {
   private spawnWithStdin(
     config: MCPServerConfig,
     input: string,
-    timeout: number,
+    timeout: number
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       import("node:child_process")
@@ -537,11 +557,11 @@ export class MCPClient {
           assertMcpCommandAllowed(
             config.url,
             config.args,
-            config.stdioArgPolicy ?? "strict",
+            config.stdioArgPolicy ?? "strict"
           );
           const env = sanitizeMcpEnv(
             process.env as Record<string, string | undefined>,
-            config.env,
+            config.env
           );
           const proc = spawn(config.url, config.args ?? [], {
             env: env as NodeJS.ProcessEnv,
@@ -577,8 +597,8 @@ export class MCPClient {
                   : "";
               reject(
                 new Error(
-                  `MCP stdio process exited with code ${codeStr}: ${stderrSummary}${stdoutSummary}`,
-                ),
+                  `MCP stdio process exited with code ${codeStr}: ${stderrSummary}${stdoutSummary}`
+                )
               );
             }
           });
