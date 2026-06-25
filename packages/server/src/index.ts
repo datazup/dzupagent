@@ -141,6 +141,8 @@ export type {
   WSClient,
   ClientFilter,
   EventBridgeConfig,
+  EventBridgeLogger,
+  WSClientTenantResolver,
 } from "./ws/event-bridge.js";
 export { createWsControlHandler } from "./ws/control-protocol.js";
 export { createScopedAuthorizeFilter } from "./ws/authorization.js";
