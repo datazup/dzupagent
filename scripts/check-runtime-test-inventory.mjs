@@ -3,6 +3,49 @@ import { basename, dirname, extname, join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
+// ---------------------------------------------------------------------------
+// Capability classification (TEST-M-03 / MC-8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Classify a test file path into one of four capability tiers:
+ *   'unit'                — pure logic, no I/O or external services
+ *   'component'           — real modules but no external services
+ *   'integration-external'— requires Postgres/Redis/Qdrant or Docker
+ *   'e2e'                 — full-stack end-to-end
+ *
+ * Classification is based on filename patterns and directory markers;
+ * no file content is read. Matches are checked most-specific first.
+ */
+export function classifyTestCapability(filePath) {
+  const normalised = filePath.replace(/\\/g, '/')
+
+  // e2e: filename contains 'e2e' segment OR lives in an e2e/ directory
+  if (/(?:^|\/)e2e(?:\/|[^/]*\.test\.)/.test(normalised) || /\.e2e\.test\./.test(normalised)) {
+    return 'e2e'
+  }
+
+  // integration-external: *.integration.test.ts OR lives in an integration/
+  // directory, OR filename implies a real external service (postgres, bullmq,
+  // redis, qdrant, testcontainer, vector-ops)
+  if (
+    /\.integration\.test\./.test(normalised) ||
+    /(?:^|\/)integration\//.test(normalised) ||
+    /(?:postgres|bullmq|redis|qdrant|testcontainer|vector-ops)/.test(normalised)
+  ) {
+    return 'integration-external'
+  }
+
+  // contract: exercises real module boundaries but no external services —
+  // classify as 'component'
+  if (/\.contract\.test\./.test(normalised) || /(?:^|\/)contract\//.test(normalised)) {
+    return 'component'
+  }
+
+  // Default: unit for all other test files
+  return 'unit'
+}
+
 const runtimePackageDenylist = new Set([
   'create-dzupagent',
   'test-utils',
@@ -448,12 +491,88 @@ function printRuntimeTestInventory(report) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Capability-tier report (MC-8 / TEST-M-03)
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan test files across all runtime packages and bucket them by capability
+ * tier using classifyTestCapability().  Returns a summary map:
+ *   { unit: string[], component: string[], 'integration-external': string[], e2e: string[] }
+ */
+function buildCapabilityReport(repoRoot = process.cwd()) {
+  const context = createContext(repoRoot)
+  const packageNames = readdirSync(context.packagesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort()
+
+  const runtimePackages = packageNames.filter((name) => {
+    if (runtimePackageDenylist.has(name)) return false
+    return existsSync(join(context.packagesDir, name, 'src'))
+  })
+
+  const tiers = { unit: [], component: [], 'integration-external': [], e2e: [] }
+
+  for (const pkgName of runtimePackages) {
+    // Use rg --files to enumerate test files for this package
+    const patterns = ['*test.ts', '*test.tsx', '*test.mjs', '*test.mts']
+    const rgArgs = ['--files', `packages/${pkgName}/src`]
+    for (const p of patterns) rgArgs.push('-g', p)
+
+    let files = []
+    try {
+      const out = execFileSync('rg', rgArgs, {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim()
+      if (out.length > 0) files = out.split('\n').map((f) => f.trim()).filter(Boolean)
+    } catch (err) {
+      if (!(err && typeof err === 'object' && 'status' in err && err.status === 1)) throw err
+    }
+
+    for (const relPath of files) {
+      const tier = classifyTestCapability(relPath)
+      // relPath is already repo-relative (e.g. packages/foo/src/__tests__/bar.test.ts)
+      tiers[tier].push(relPath)
+    }
+  }
+
+  return tiers
+}
+
+function printCapabilityReport(repoRoot = process.cwd()) {
+  const tiers = buildCapabilityReport(repoRoot)
+  const tierOrder = ['unit', 'component', 'integration-external', 'e2e']
+
+  console.log('\nCapability-tier inventory (MC-8 / TEST-M-03):')
+  for (const tier of tierOrder) {
+    const files = tiers[tier]
+    console.log(`\n  ${tier} (${files.length} file${files.length === 1 ? '' : 's'}):`)
+    if (files.length === 0) {
+      console.log('    (none)')
+    } else {
+      for (const f of files) {
+        console.log(`    - ${f}`)
+      }
+    }
+  }
+
+  const total = tierOrder.reduce((sum, t) => sum + tiers[t].length, 0)
+  console.log(`\nTotal classified: ${total} test file${total === 1 ? '' : 's'}`)
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const report = runRuntimeTestInventory()
-    printRuntimeTestInventory(report)
-    if (report.exitCode !== 0) {
-      process.exitCode = report.exitCode
+    if (process.argv.includes('--capability-report')) {
+      printCapabilityReport()
+    } else {
+      const report = runRuntimeTestInventory()
+      printRuntimeTestInventory(report)
+      if (report.exitCode !== 0) {
+        process.exitCode = report.exitCode
+      }
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))

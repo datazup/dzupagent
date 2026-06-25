@@ -1,36 +1,39 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
     globals: false,
-    environment: 'node',
+    environment: "node",
     testTimeout: 30_000,
-    include: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
+    include: ["src/**/*.test.ts", "src/**/*.spec.ts"],
     exclude: [
-      'src/__tests__/chunker.test.ts',
-      'src/__tests__/minimal-chunker.test.ts',
+      "src/__tests__/chunker.test.ts",
+      "src/__tests__/minimal-chunker.test.ts",
     ],
     maxConcurrency: 1,
     fileParallelism: false,
-    // Use forked child processes so the heap limit flag is respected.
-    // The @langchain/core graph loads ~300-400 MB; default worker heap is too small.
-    pool: 'forks',
+    // singleFork: retained — @langchain/core graph module load measured at
+    // 300-400 MB heap. Parallel forks each pay this cost independently and
+    // exhaust the default 4 GB heap on CI. singleFork serialises files in one
+    // process that already has --max-old-space-size=4096; fileParallelism:false
+    // prevents Vitest from attempting concurrent file runs inside that fork.
+    pool: "forks",
     poolOptions: {
       forks: {
-        execArgv: ['--max-old-space-size=4096'],
+        execArgv: ["--max-old-space-size=4096"],
         singleFork: true,
       },
     },
     coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json-summary'],
-      include: ['src/**/*.ts'],
+      provider: "v8",
+      reporter: ["text", "json-summary"],
+      include: ["src/**/*.ts"],
       exclude: [
-        'src/**/*.test.ts',
-        'src/**/*.spec.ts',
-        'src/**/__tests__/**',
-        'src/**/__fixtures__/**',
-        'src/**/index.ts',
+        "src/**/*.test.ts",
+        "src/**/*.spec.ts",
+        "src/**/__tests__/**",
+        "src/**/__fixtures__/**",
+        "src/**/index.ts",
       ],
       thresholds: {
         statements: 70,

@@ -21,6 +21,8 @@
     "test": "turbo run test",
     "test:inventory:runtime": "node scripts/check-runtime-test-inventory.mjs",
     "test:inventory:runtime:strict": "node scripts/check-runtime-test-inventory.mjs --strict-integration",
+    "test:inventory:capability": "node scripts/check-runtime-test-inventory.mjs --capability-report",
+    "test:required-integration": "RUN_REQUIRED_INTEGRATION=1 turbo run test:integration",
     "test:coverage:workspace": "node scripts/check-workspace-coverage.mjs",
     "test:coverage:workspace:report": "node scripts/check-workspace-coverage.mjs --report-only",
     "check:improvements:drift": "node scripts/check-improvements-drift.mjs",
