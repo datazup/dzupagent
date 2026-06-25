@@ -544,7 +544,7 @@ describe("AdapterGuardrails", () => {
       const failedEvent = output.find(
         (e) => e.type === "adapter:failed"
       ) as Extract<AgentEvent, { type: "adapter:failed" }>;
-      expect(failedEvent.error).toContain("DESTRUCTIVE_COMMAND_BLOCKED");
+      expect(failedEvent.error).toContain("Destructive shell command blocked");
     });
 
     it("passes through when the shell command is safe", async () => {
