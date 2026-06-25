@@ -17,6 +17,8 @@ import {
   ForgeError,
   type LlmAuditSink,
   type LlmInvocationRecord,
+  type ToolCallAuditRecord,
+  type ToolCallAuditSink,
 } from "@dzupagent/core/events";
 import { defaultLogger } from "@dzupagent/core/utils";
 import type {
@@ -129,6 +131,13 @@ export interface AdapterStreamRunnerConfig {
   auditRunId?: string;
   /** Optional tenant id for the audit record. */
   auditTenantId?: string;
+  /**
+   * Optional best-effort sink invoked once per tool call with a
+   * {@link ToolCallAuditRecord}. The runner correlates `adapter:tool_call`
+   * and `adapter:tool_result` events to compute duration and result status.
+   * Sink errors are swallowed — tool audit emission must not break the call path.
+   */
+  toolCallAuditSink?: ToolCallAuditSink;
 }
 
 export class AdapterStreamRunner<TRaw> {
@@ -168,6 +177,13 @@ export class AdapterStreamRunner<TRaw> {
     let auditEmitted = false;
     const auditStartedAt = new Date(context.startedAt).toISOString();
     let lastEventAt = Date.now();
+
+    // Per-tool-call correlation: keyed by toolCallId (or toolName as fallback)
+    // when toolCallAuditSink is configured.
+    const pendingToolCalls = new Map<
+      string,
+      { toolName: string; startedAt: number; startedAtIso: string }
+    >();
 
     try {
       const stream = source.open(input, abortController.signal);
@@ -231,6 +247,39 @@ export class AdapterStreamRunner<TRaw> {
               auditEmitted = true;
               this.emitAudit(source.providerId, context, ev, auditStartedAt);
             }
+
+            // Per-tool-call audit tracking
+            if (this.config.toolCallAuditSink) {
+              if (ev.type === "adapter:tool_call") {
+                const key = ev.toolCallId ?? ev.toolName;
+                const now = Date.now();
+                pendingToolCalls.set(key, {
+                  toolName: ev.toolName,
+                  startedAt: now,
+                  startedAtIso: new Date(now).toISOString(),
+                });
+              } else if (ev.type === "adapter:tool_result") {
+                const key = ev.toolCallId ?? ev.toolName;
+                const pending = pendingToolCalls.get(key);
+                pendingToolCalls.delete(key);
+                const startedAt = pending?.startedAt ?? Date.now();
+                const durationMs = Math.max(0, Date.now() - startedAt);
+                const record: ToolCallAuditRecord = {
+                  type: "tool_call",
+                  toolName: ev.toolName,
+                  argsHash: this.hashArgs(ev.output),
+                  resultStatus: "success",
+                  durationMs,
+                  ...(ev.toolCallId !== undefined
+                    ? { toolCallId: ev.toolCallId }
+                    : {}),
+                  startedAt:
+                    pending?.startedAtIso ?? new Date(startedAt).toISOString(),
+                };
+                this.emitToolCallAudit(record);
+              }
+            }
+
             yield ev;
           }
         }
@@ -277,6 +326,20 @@ export class AdapterStreamRunner<TRaw> {
       if (!auditEmitted) {
         auditEmitted = true;
         this.emitAudit(source.providerId, context, failedEv, auditStartedAt);
+      }
+      // Flush any in-flight tool calls as errors
+      if (this.config.toolCallAuditSink) {
+        for (const [, pending] of pendingToolCalls) {
+          this.emitToolCallAudit({
+            type: "tool_call",
+            toolName: pending.toolName,
+            argsHash: "<stream-error>",
+            resultStatus: "error",
+            durationMs: Math.max(0, Date.now() - pending.startedAt),
+            startedAt: pending.startedAtIso,
+          });
+        }
+        pendingToolCalls.clear();
       }
       yield failedEv;
       return;
@@ -432,5 +495,37 @@ export class AdapterStreamRunner<TRaw> {
       ...(input.correlationId ? { correlationId: input.correlationId } : {}),
       ...extra,
     };
+  }
+
+  /**
+   * Emit a {@link ToolCallAuditRecord} to the configured sink.
+   * Best-effort: any sink error is logged and swallowed.
+   */
+  private emitToolCallAudit(record: ToolCallAuditRecord): void {
+    const sink = this.config.toolCallAuditSink;
+    if (!sink) return;
+    try {
+      sink(record);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      defaultLogger.warn(
+        "[AdapterStreamRunner] toolCallAuditSink failed:",
+        msg
+      );
+    }
+  }
+
+  /**
+   * Derive a short, opaque identifier from tool arguments.
+   * Truncates the JSON representation to 64 characters so audit records
+   * remain compact without leaking full payload content.
+   */
+  private hashArgs(args: unknown): string {
+    try {
+      const json = JSON.stringify(args) ?? "";
+      return json.length > 64 ? `${json.slice(0, 61)}...` : json;
+    } catch {
+      return "<non-serializable>";
+    }
   }
 }

@@ -11,6 +11,8 @@ export type {
   SubagentRuntimeDzupEvent,
   SubagentGovernanceDzupEvent,
   RunLifecycleEvent,
+  ToolCallAuditRecord,
+  ToolCallAuditSink,
   ToolStatSummary,
 } from "./event-types.js";
 export { attachLlmAuditEventBridge } from "./llm-audit-bridge.js";
