@@ -250,6 +250,13 @@ export const PATH_ARG_KEYS: ReadonlySet<string> = new Set([
  * that start with `rootDir`. Rejects traversal sequences and any path that
  * resolves outside the root.
  *
+ * **Symlink limitation:** this function uses `path.resolve()` (lexical
+ * resolution), NOT `fs.realpath()`. A symlink placed *inside* the jail root
+ * that points *outside* it will pass this guard and be followed by the MCP
+ * tool when it opens the path. For MCP tool servers that can create files or
+ * symlinks, run the server in a chroot or container rather than relying on
+ * this guard alone.
+ *
  * @throws ForgeError with code `MCP_PATH_ESCAPE` when the path escapes.
  */
 export function assertPathWithinRoot(userPath: string, rootDir: string): void {
