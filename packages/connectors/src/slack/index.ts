@@ -1,2 +1,27 @@
-export { createSlackConnector, createSlackConnectorToolkit } from './slack-connector.js'
-export type { SlackConnectorConfig } from './slack-connector.js'
+export {
+  createSlackConnector,
+  createSlackConnectorToolkit,
+  textToSectionBlock,
+  textToHeaderBlock,
+  createDividerBlock,
+  textsToContextBlock,
+  textToBlocks,
+  truncateForBlock,
+  parseSlackEventEnvelope,
+  extractSlackEvent,
+  isDirectMessage,
+  isBotMention,
+  extractReactionName,
+} from "./slack-connector.js";
+export type {
+  SlackConnectorConfig,
+  SlackBlock,
+  SlackSectionBlock,
+  SlackHeaderBlock,
+  SlackDividerBlock,
+  SlackContextBlock,
+  SlackActionsBlock,
+  SlackEvent,
+  SlackEventEnvelope,
+  SlackEventType,
+} from "./slack-connector.js";
