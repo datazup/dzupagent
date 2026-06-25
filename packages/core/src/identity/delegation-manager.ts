@@ -6,6 +6,7 @@
  */
 import { createHmac, timingSafeEqual, randomUUID } from 'node:crypto'
 
+import { ForgeError } from '../errors/forge-error.js'
 import { CapabilityMatcher } from '../registry/capability-matcher.js'
 import type {
   DelegationToken,
@@ -83,14 +84,20 @@ export class DelegationManager {
     if (params.parentTokenId) {
       const parent = await this.store.get(params.parentTokenId)
       if (!parent) {
-        throw new Error(`Parent token not found: ${params.parentTokenId}`)
+        throw new ForgeError({
+          code: 'DELEGATION_NOT_FOUND',
+          message: 'Parent delegation token not found',
+          context: { parentTokenId: params.parentTokenId },
+        })
       }
 
       depth = parent.depth + 1
       if (depth > this.maxDepth) {
-        throw new Error(
-          `Delegation depth ${depth} exceeds maximum of ${this.maxDepth}`,
-        )
+        throw new ForgeError({
+          code: 'DELEGATION_DEPTH_EXCEEDED',
+          message: 'Delegation depth exceeds the configured maximum',
+          context: { depth, maxDepth: this.maxDepth },
+        })
       }
 
       // Validate scope narrowing: every requested scope pattern must be
@@ -103,9 +110,11 @@ export class DelegationManager {
             this.matcher.matchesPattern(parentPattern, requested),
         )
         if (!covered) {
-          throw new Error(
-            `Scope "${requested}" is not covered by parent scope [${parent.scope.join(', ')}]`,
-          )
+          throw new ForgeError({
+            code: 'DELEGATION_SCOPE_VIOLATION',
+            message: 'Requested scope is not covered by the parent scope',
+            context: { requested, parentScope: parent.scope },
+          })
         }
       }
     }

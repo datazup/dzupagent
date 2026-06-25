@@ -50,7 +50,11 @@ export type ForgeErrorCode =
   | "IDENTITY_NOT_FOUND"
   | "IDENTITY_INVALID"
   | "IDENTITY_RESOLUTION_FAILED"
+  | "IDENTITY_VALIDATION_FAILED"
+  | "SIGNING_KEY_NOT_FOUND"
+  | "SIGNING_KEY_UNAVAILABLE"
   // --- Delegation errors ---
+  | "DELEGATION_NOT_FOUND"
   | "DELEGATION_EXPIRED"
   | "DELEGATION_REVOKED"
   | "DELEGATION_DEPTH_EXCEEDED"
@@ -92,5 +96,7 @@ export type ForgeErrorCode =
   | "ALL_ADAPTERS_EXHAUSTED"
   // --- Output parsing errors ---
   | "OUTPUT_PARSE_FAILED"
+  // --- Security errors ---
+  | "SSRF_BLOCKED"
   // --- General ---
   | "INTERNAL_ERROR";
