@@ -714,6 +714,12 @@ export const auditLog = pgTable(
     tenantId: text("tenant_id").notNull().default("default"),
   },
   (table) => [
+    // MC-1 (AGENT-H-02): durable hash-chain integrity. A unique index on `seq`
+    // guarantees no two rows share a sequence number, so two concurrent
+    // PostgresAuditStore instances that race on the last-row read + insert
+    // surface a unique-constraint violation instead of silently forking the
+    // chain with duplicate seq values. Mirrors `flow_events_run_seq_unique`.
+    uniqueIndex("dzupagent_audit_log_seq_unique").on(table.seq),
     index("dzupagent_audit_log_action_idx").on(table.action),
     index("dzupagent_audit_log_actor_id_idx").on(table.actorId),
     index("dzupagent_audit_log_ts_idx").on(table.ts),
