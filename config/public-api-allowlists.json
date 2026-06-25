@@ -88,7 +88,8 @@
         { "match": "exact", "pattern": "./pii/index.js" },
         { "match": "exact", "pattern": "./rate-limit/index.js" },
         { "match": "exact", "pattern": "./content-scanner.js" },
-        { "match": "exact", "pattern": "./policy-config.js" }
+        { "match": "exact", "pattern": "./policy-config.js" },
+        { "match": "exact", "pattern": "./guardrails/index.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},

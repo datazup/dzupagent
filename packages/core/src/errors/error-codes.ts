@@ -10,6 +10,7 @@ export type ForgeErrorCode =
   | "PROVIDER_TIMEOUT"
   | "PROVIDER_REJECTED_REQUEST"
   | "ALL_PROVIDERS_EXHAUSTED"
+  | "NO_CAPABLE_FALLBACK"
   | "RATE_LIMIT_EXCEEDED"
   // --- Budget errors ---
   | "BUDGET_EXCEEDED"

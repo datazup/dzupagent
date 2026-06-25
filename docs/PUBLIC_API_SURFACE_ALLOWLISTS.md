@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-06-23
+Date: 2026-06-25
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -16,7 +16,7 @@ Generated from package root facades plus `config/public-api-allowlists.json` and
 
 Root index: `packages/security/src/index.ts`
 
-- Stable root sources: `5`
+- Stable root sources: `6`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Security package root exports are the primary consumption surface; all exports are stable from initial release.
@@ -32,6 +32,7 @@ No stable subpaths configured.
 | `stable` | `./prompt-injection/index.js` | 7 | `exact:./prompt-injection/index.js` | `INJECTION_PATTERNS`, `INJECTION_REDACTION`, `PromptInjectionDetector`, `PromptInjectionBlockedError` |
 | `stable` | `./pii/index.js` | 6 | `exact:./pii/index.js` | `PII_PATTERNS`, `PiiDetector`, `PiiCanonicalType`, `PiiDetailedScanResult` |
 | `stable` | `./rate-limit/index.js` | 5 | `exact:./rate-limit/index.js` | `FixedWindowRateLimiter`, `KeyedTokenBucketRateLimiter`, `FixedWindowRateLimiterConfig`, `KeyedTokenBucketConfig` |
+| `stable` | `./guardrails/index.js` | 3 | `exact:./guardrails/index.js` | `PromptInjectionGuard`, `GuardOptions`, `ScreenResult` |
 | `stable` | `./content-scanner.js` | 6 | `exact:./content-scanner.js` | `ContentScanner`, `ContentScannerConfig`, `ContentScanResult`, `ContentScanVerdict` |
 | `stable` | `./policy-config.js` | 1 | `exact:./policy-config.js` | `SecurityPolicyConfig` |
 
@@ -63,7 +64,7 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./errors/forge-error.js` | 2 | `prefix:./errors/` | `ForgeError`, `ForgeErrorOptions` |
 | `stable` | `./errors/error-codes.js` | 1 | `prefix:./errors/` | `ForgeErrorCode` |
 | `stable` | `./events/event-bus.js` | 3 | `prefix:./events/` | `createEventBus`, `typedEmit`, `DzupEventBus` |
-| `stable` | `./events/event-types.js` | 9 | `prefix:./events/` | `AdapterProgressDzupEvent`, `AdapterRuntimeDzupEvent`, `DzupEvent`, `DzupEventOf` |
+| `stable` | `./events/event-types.js` | 11 | `prefix:./events/` | `AdapterProgressDzupEvent`, `AdapterRuntimeDzupEvent`, `DzupEvent`, `DzupEventOf` |
 | `stable` | `./events/llm-audit-bridge.js` | 2 | `prefix:./events/` | `attachLlmAuditEventBridge`, `LlmAuditSink` |
 | `stable` | `./events/degraded-operation.js` | 1 | `prefix:./events/` | `emitDegradedOperation` |
 | `stable` | `./events/tool-event-correlation.js` | 3 | `prefix:./events/` | `requireTerminalToolExecutionRunId`, `TerminalToolExecutionRunIdOptions`, `TerminalToolEventType` |
@@ -74,10 +75,10 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./plugin/plugin-registry.js` | 1 | `prefix:./plugin/` | `PluginRegistry` |
 | `stable` | `./plugin/plugin-discovery.js` | 6 | `prefix:./plugin/` | `discoverPlugins`, `validateManifest`, `resolvePluginOrder`, `PluginManifest` |
 | `stable` | `./plugin/plugin-manifest.js` | 2 | `prefix:./plugin/` | `createManifest`, `serializeManifest` |
-| `stable` | `./llm/model-registry.js` | 2 | `prefix:./llm/` | `ModelRegistry`, `ModelFallbackCandidate` |
+| `stable` | `./llm/model-registry.js` | 3 | `prefix:./llm/` | `ModelRegistry`, `ModelFallbackCandidate`, `FallbackRequirements` |
 | `stable` | `@langchain/core/language_models/chat_models` | 1 | `exact:@langchain/core/language_models/chat_models` | `BaseChatModel` |
 | `stable` | `./llm/harness-profile.js` | 7 | `prefix:./llm/` | `HarnessProfileRegistry`, `HarnessProfile`, `ResolvedHarnessOverrides`, `SystemPromptOverride` |
-| `stable` | `./llm/model-config.js` | 9 | `prefix:./llm/` | `KnownLLMProvider`, `LLMProviderConfig`, `LLMProviderName`, `ModelTier` |
+| `stable` | `./llm/model-config.js` | 10 | `prefix:./llm/` | `KnownLLMProvider`, `LLMProviderConfig`, `LLMProviderName`, `ModelCapability` |
 | `stable` | `./llm/circuit-breaker.js` | 4 | `prefix:./llm/` | `CircuitBreaker`, `KeyedCircuitBreaker`, `CircuitBreakerConfig`, `CircuitState` |
 | `deprecated-transitional` | `./rate-limit/token-bucket.js` | 2 | `exact:./rate-limit/token-bucket.js` | `TokenBucket`, `TokenBucketConfig` |
 | `stable` | `./llm/invoke.js` | 5 | `prefix:./llm/` | `invokeWithTimeout`, `extractTokenUsage`, `estimateTokens`, `TokenUsage` |
@@ -630,7 +631,7 @@ No stable subpaths configured.
 Root index: `packages/agent-adapters/src/index.ts`
 
 - Stable root sources: `15`
-- Deprecated transitional root sources: `84`
+- Deprecated transitional root sources: `86`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
 
@@ -700,6 +701,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `stable` | `./integration/index.js` | 1 | `prefix:./integration/` | `RegistryExecutionPort` |
 | `deprecated-transitional` | `./guardrails/adapter-guardrails.js` | 8 | `prefix:./guardrails/` | `AdapterGuardrails`, `AdapterStuckDetector`, `AdapterGuardrailsConfig`, `StuckDetectorConfig` |
 | `deprecated-transitional` | `./guardrails/preflight-validator.js` | 5 | `prefix:./guardrails/` | `buildPreflightValidator`, `budgetSanityValidator`, `skillToolCoverageValidator`, `skillDegradationValidator` |
+| `deprecated-transitional` | `./guardrails/prompt-injection-guard.js` | 3 | `prefix:./guardrails/` | `PromptInjectionGuard`, `GuardOptions`, `ScreenResult` |
 | `deprecated-transitional` | `./workflow/adapter-workflow.js` | 12 | `prefix:./workflow/` | `ADAPTER_WORKFLOW_OWNERSHIP`, `AdapterWorkflowBuilder`, `AdapterWorkflow`, `defineWorkflow` |
 | `deprecated-transitional` | `./workflow/template-resolver.js` | 3 | `prefix:./workflow/` | `WorkflowStepResolver`, `TemplateContext`, `TemplateReference` |
 | `deprecated-transitional` | `./workflow/workflow-validator.js` | 3 | `prefix:./workflow/` | `WorkflowValidator`, `ValidationError`, `ValidationResult` |
@@ -731,6 +733,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./base/cli-stream-source.js` | 1 | `prefix:./base/` | `CliAdapterStreamSource` |
 | `deprecated-transitional` | `./utils/url-validator.js` | 2 | `prefix:./utils/` | `validateWebhookUrl`, `UrlValidationOptions` |
 | `deprecated-transitional` | `./utils/provider-helpers.js` | 2 | `prefix:./utils/` | `resolveFallbackProviderId`, `requireFallbackProviderId` |
+| `deprecated-transitional` | `./utils/http-error.js` | 1 | `prefix:./utils/` | `httpErrorToForgeError` |
 | `deprecated-transitional` | `./skills/skill-projector.js` | 3 | `prefix:./skills/` | `SkillProjector`, `SkillProjection`, `ProjectionOptions` |
 | `deprecated-transitional` | `./skills/adapter-skill-types.js` | 4 | `prefix:./skills/` | `AdapterSkillBundle`, `CompiledAdapterSkill`, `AdapterSkillCompiler`, `ProjectionUsageRecord` |
 | `deprecated-transitional` | `./skills/adapter-skill-registry.js` | 2 | `prefix:./skills/` | `AdapterSkillRegistry`, `createDefaultSkillRegistry` |
@@ -1092,8 +1095,8 @@ Root index: `packages/server/src/index.ts`
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
-| `stable` | `./app.js` | 12 | `stable/app/keep-root` | `createForgeApp`, `ForgeServerConfig`, `ForgeHostRuntimeConfig`, `ForgeRouteFamiliesConfig` |
-| `stable` | `./route-plugin.js` | 2 | `stable/extensibility/keep-root` | `ServerRoutePlugin`, `ServerRoutePluginContext` |
+| `stable` | `./app.js` | 15 | `stable/app/keep-root` | `createForgeApp`, `buildForgeApp`, `startForgeRuntime`, `RuntimeHandle` |
+| `stable` | `./route-plugin.js` | 5 | `stable/extensibility/keep-root` | `ServerRoutePlugin`, `ServerRoutePluginContext`, `ServerRouteMountable`, `ServerDeclaredServices` |
 | `stable` | `./routes/runs.js` | 1 | `stable/routes-core/keep-root` | `createRunRoutes` |
 | `stable` | `./routes/agents.js` | 2 | `stable/routes-core/keep-root` | `createAgentDefinitionRoutes`, `createAgentRoutes` |
 | `stable` | `./routes/approval.js` | 1 | `stable/routes-core/keep-root` | `createApprovalRoutes` |
@@ -1112,7 +1115,7 @@ Root index: `packages/server/src/index.ts`
 | `stable` | `./queue/postgres-run-queue.js` | 3 | `stable/queue/keep-root` | `PostgresRunQueue`, `PostgresRunQueueConfig`, `PostgresRunQueueDatabase` |
 | `stable` | `./metrics/queue-gauge.js` | 2 | `secondary/runtime/keep-root` | `registerQueueGauges`, `updateQueueGauges` |
 | `stable` | `./lifecycle/graceful-shutdown.js` | 3 | `stable/lifecycle/keep-root` | `GracefulShutdown`, `ShutdownConfig`, `ShutdownState` |
-| `stable` | `./ws/event-bridge.js` | 4 | `stable/realtime/keep-root` | `EventBridge`, `WSClient`, `ClientFilter`, `EventBridgeConfig` |
+| `stable` | `./ws/event-bridge.js` | 6 | `stable/realtime/keep-root` | `EventBridge`, `WSClient`, `ClientFilter`, `EventBridgeConfig` |
 | `stable` | `./ws/control-protocol.js` | 6 | `stable/realtime/keep-root` | `createWsControlHandler`, `WSControlClientMessage`, `WSControlServerMessage`, `WSControlHandlerOptions` |
 | `stable` | `./ws/authorization.js` | 3 | `stable/realtime/keep-root` | `createScopedAuthorizeFilter`, `WSClientScope`, `ScopedAuthorizeFilterOptions` |
 | `stable` | `./ws/scope-registry.js` | 1 | `stable/realtime/keep-root` | `WSClientScopeRegistry` |

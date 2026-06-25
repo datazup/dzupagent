@@ -46,6 +46,8 @@ import { createStdinResponder } from "./stdin-responder.js";
 import { AdapterStreamRunner } from "./stream-runner.js";
 import type { AdapterStreamSource } from "./stream-runner.js";
 import type { RunEventStore } from "../runs/run-event-store.js";
+import { buildPreflightValidator } from "../guardrails/preflight-validator.js";
+import { ForgeError } from "@dzupagent/core/events";
 
 // Backward-compat re-exports
 export { filterSensitiveEnvVars };
@@ -103,20 +105,20 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     context: TContext,
     validator: (
       rules: TRule[],
-      context: TContext,
+      context: TContext
     ) => ReadonlyArray<RuleViolation>,
-    opts?: { runId?: string; sessionId?: string },
+    opts?: { runId?: string; sessionId?: string }
   ): ReadonlyArray<RuleViolation> {
     return this.governance.validateAndEmitRules(
       rules,
       context,
       validator,
-      opts,
+      opts
     );
   }
 
   async *execute(
-    input: AgentInput,
+    input: AgentInput
   ): AsyncGenerator<AgentEvent, void, undefined> {
     for await (const event of this.executeWithRaw(input)) {
       if (event.type !== "adapter:provider_raw") {
@@ -132,20 +134,20 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
    * for the `codex` provider which has its own raw channel.
    */
   async *executeWithRaw(
-    input: AgentInput,
+    input: AgentInput
   ): AsyncGenerator<AgentStreamEvent, void, undefined> {
     const sessionId = randomUUID();
     const startTime = Date.now();
     const runIdForContext = input.correlationId ?? sessionId;
     this.governance.setRunContext({ runId: runIdForContext, sessionId });
 
-    await this.assertReady();
+    await this.assertReady(input);
 
     // Start artifact watcher (no-op when no factory wired).
     const workingDirectory =
       input.workingDirectory ?? this.config.workingDirectory ?? process.cwd();
     this.startArtifactWatcher(
-      resolveWatcherPaths(this.providerId, input, workingDirectory),
+      resolveWatcherPaths(this.providerId, input, workingDirectory)
     );
 
     const policy = this.resolveInteractionPolicy(input);
@@ -197,7 +199,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       },
       mapRawEvent(
         record: Record<string, unknown>,
-        _context: import("./stream-runner.js").StreamContext,
+        _context: import("./stream-runner.js").StreamContext
       ): AgentEvent | AgentEvent[] | null {
         const events: AgentEvent[] = [];
         for (const evt of pendingEvents.splice(0)) events.push(evt);
@@ -244,7 +246,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     const originalMapRawEvent = source.mapRawEvent!.bind(source);
     source.mapRawEvent = (
       record: Record<string, unknown>,
-      context: import("./stream-runner.js").StreamContext,
+      context: import("./stream-runner.js").StreamContext
     ) => {
       if (emitRaw) {
         rawOrdinal += 1;
@@ -293,7 +295,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
                 code: captured.error.code,
                 timestamp: Date.now(),
               },
-              input.correlationId,
+              input.correlationId
             );
             continue;
           }
@@ -315,7 +317,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
             durationMs: Date.now() - startTime,
             timestamp: Date.now(),
           },
-          input.correlationId,
+          input.correlationId
         );
       }
     } finally {
@@ -334,7 +336,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
 
   async *resumeSession(
     sessionId: string,
-    input: AgentInput,
+    input: AgentInput
   ): AsyncGenerator<AgentEvent, void, undefined> {
     yield* this.execute({ ...input, resumeSessionId: sessionId });
   }
@@ -369,9 +371,9 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     factory:
       | ((
           paths: string[],
-          providerId: AdapterProviderId,
+          providerId: AdapterProviderId
         ) => ArtifactWatcherHandle)
-      | null,
+      | null
   ): void {
     this.artifactWatcherHost.setFactory(factory);
   }
@@ -419,8 +421,31 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     return shouldRethrowAdapterError(err);
   }
 
-  protected async assertReady(): Promise<void> {
-    // default: no preflight checks
+  /**
+   * Pre-execution preflight gate. Runs the built-in validators (budget sanity,
+   * skill-tool coverage) before any process is spawned. Subclasses may override
+   * to add provider-specific checks — call `super.assertReady(input)` first.
+   *
+   * Throws a descriptive Error when any validator returns `ok: false`.
+   */
+  protected async assertReady(input?: AgentInput): Promise<void> {
+    if (!input) return;
+    const validator = buildPreflightValidator();
+    const result = await validator.validate(input, {
+      providerId: this.providerId,
+    });
+    if (!result.ok) {
+      const errors = result.issues
+        .filter((i) => i.severity === "error")
+        .map((i) => `[${i.code}] ${i.message}`)
+        .join("; ");
+      throw new ForgeError({
+        code: "VALIDATION_FAILED",
+        message: `Preflight validation failed for provider "${this.providerId}": ${errors}`,
+        recoverable: false,
+        context: { providerId: this.providerId, issues: result.issues },
+      });
+    }
   }
 
   protected resolveInteractionPolicy(input: AgentInput): InteractionPolicy {
@@ -439,6 +464,6 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   protected abstract buildArgs(input: AgentInput): string[];
   protected abstract mapProviderEvent(
     record: Record<string, unknown>,
-    sessionId: string,
+    sessionId: string
   ): AgentEvent | undefined;
 }

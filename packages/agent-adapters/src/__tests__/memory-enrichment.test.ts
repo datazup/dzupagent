@@ -1,50 +1,57 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from "vitest";
 
-import { withMemoryEnrichment, withHierarchicalMemoryEnrichment, type MemoryServiceLike, type HierarchicalMemoryEnrichmentOptions } from '../middleware/memory-enrichment.js'
-import type { AgentCLIAdapter, AgentEvent, AgentInput } from '../types.js'
+import {
+  withMemoryEnrichment,
+  withHierarchicalMemoryEnrichment,
+  type MemoryServiceLike,
+  type HierarchicalMemoryEnrichmentOptions,
+} from "../middleware/memory-enrichment.js";
+import type { AgentCLIAdapter, AgentEvent, AgentInput } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeEvent(partial: Partial<AgentEvent> & { type: AgentEvent['type'] }): AgentEvent {
-  return partial as AgentEvent
+function makeEvent(
+  partial: Partial<AgentEvent> & { type: AgentEvent["type"] }
+): AgentEvent {
+  return partial as AgentEvent;
 }
 
 function makeStartedEvent(): AgentEvent {
   return makeEvent({
-    type: 'adapter:started',
-    providerId: 'claude',
-    sessionId: 'sess-1',
-    prompt: 'test',
+    type: "adapter:started",
+    providerId: "claude",
+    sessionId: "sess-1",
+    prompt: "test",
     isResume: false,
     timestamp: Date.now(),
-  })
+  });
 }
 
 function makeCompletedEvent(): AgentEvent {
   return makeEvent({
-    type: 'adapter:completed',
-    providerId: 'claude',
-    sessionId: 'sess-1',
-    result: 'done',
+    type: "adapter:completed",
+    providerId: "claude",
+    sessionId: "sess-1",
+    result: "done",
     inputTokens: 10,
     outputTokens: 5,
     costUsd: 0,
     durationMs: 100,
     timestamp: Date.now(),
-  })
+  });
 }
 
 /** Create a fake adapter that captures the AgentInput passed to execute(). */
 function makeCaptureAdapter(): {
-  adapter: AgentCLIAdapter
-  capturedInputs: AgentInput[]
+  adapter: AgentCLIAdapter;
+  capturedInputs: AgentInput[];
 } {
-  const capturedInputs: AgentInput[] = []
+  const capturedInputs: AgentInput[] = [];
 
   const adapter: AgentCLIAdapter = {
-    providerId: 'claude',
+    providerId: "claude",
 
     getCapabilities: () => ({
       supportsResume: true,
@@ -56,359 +63,541 @@ function makeCaptureAdapter(): {
 
     configure: () => {},
     interrupt: () => {},
-    healthCheck: async () => ({ healthy: true, providerId: 'claude', sdkInstalled: true, cliAvailable: false }),
+    healthCheck: async () => ({
+      healthy: true,
+      providerId: "claude",
+      sdkInstalled: true,
+      cliAvailable: false,
+    }),
 
     async *execute(input: AgentInput) {
-      capturedInputs.push(input)
-      yield makeStartedEvent()
-      yield makeCompletedEvent()
+      capturedInputs.push(input);
+      yield makeStartedEvent();
+      yield makeCompletedEvent();
     },
 
     async *resumeSession(_sessionId: string, input: AgentInput) {
-      capturedInputs.push(input)
-      yield makeStartedEvent()
-      yield makeCompletedEvent()
+      capturedInputs.push(input);
+      yield makeStartedEvent();
+      yield makeCompletedEvent();
     },
-  }
+  };
 
-  return { adapter, capturedInputs }
+  return { adapter, capturedInputs };
 }
 
-function makeMemoryService(records: Record<string, unknown>[]): MemoryServiceLike {
+function makeMemoryService(
+  records: Record<string, unknown>[]
+): MemoryServiceLike {
   return {
     search: vi.fn().mockResolvedValue(records),
-  }
+  };
 }
 
-async function collectEvents(gen: AsyncGenerator<AgentEvent>): Promise<AgentEvent[]> {
-  const events: AgentEvent[] = []
-  for await (const e of gen) events.push(e)
-  return events
+async function collectEvents(
+  gen: AsyncGenerator<AgentEvent>
+): Promise<AgentEvent[]> {
+  const events: AgentEvent[] = [];
+  for await (const e of gen) events.push(e);
+  return events;
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('withMemoryEnrichment', () => {
-  it('delegates providerId from wrapped adapter', () => {
-    const { adapter } = makeCaptureAdapter()
+describe("withMemoryEnrichment", () => {
+  it("delegates providerId from wrapped adapter", () => {
+    const { adapter } = makeCaptureAdapter();
     const enriched = withMemoryEnrichment(adapter, {
       memoryService: makeMemoryService([]),
-      namespace: 'ctx',
+      namespace: "ctx",
       scope: {},
-    })
-    expect(enriched.providerId).toBe('claude')
-  })
+    });
+    expect(enriched.providerId).toBe("claude");
+  });
 
-  it('delegates getCapabilities from wrapped adapter', () => {
-    const { adapter } = makeCaptureAdapter()
+  it("delegates getCapabilities from wrapped adapter", () => {
+    const { adapter } = makeCaptureAdapter();
     const enriched = withMemoryEnrichment(adapter, {
       memoryService: makeMemoryService([]),
-      namespace: 'ctx',
+      namespace: "ctx",
       scope: {},
-    })
-    expect(enriched.getCapabilities().supportsResume).toBe(true)
-  })
+    });
+    expect(enriched.getCapabilities().supportsResume).toBe(true);
+  });
 
-  it('passes input unchanged when no memories are recalled', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
+  it("passes input unchanged when no memories are recalled", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
     const enriched = withMemoryEnrichment(adapter, {
       memoryService: makeMemoryService([]),
-      namespace: 'ctx',
+      namespace: "ctx",
       scope: {},
-    })
+    });
 
-    await collectEvents(enriched.execute({ prompt: 'Hello' }))
+    await collectEvents(enriched.execute({ prompt: "Hello" }));
 
-    expect(capturedInputs).toHaveLength(1)
-    expect(capturedInputs[0]?.systemPrompt).toBeUndefined()
-  })
+    expect(capturedInputs).toHaveLength(1);
+    expect(capturedInputs[0]?.systemPrompt).toBeUndefined();
+  });
 
-  it('injects recalled memory into systemPrompt (text field)', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
+  it("injects recalled memory into systemPrompt (text field)", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
     const enriched = withMemoryEnrichment(adapter, {
       memoryService: makeMemoryService([
-        { text: 'User prefers TypeScript over JavaScript.' },
-        { text: 'Project uses Vitest for testing.' },
+        { text: "User prefers TypeScript over JavaScript." },
+        { text: "Project uses Vitest for testing." },
       ]),
-      namespace: 'ctx',
-      scope: { tenantId: 'acme' },
-    })
+      namespace: "ctx",
+      scope: { tenantId: "acme" },
+    });
 
-    await collectEvents(enriched.execute({ prompt: 'How to test?' }))
+    await collectEvents(enriched.execute({ prompt: "How to test?" }));
 
-    const systemPrompt = capturedInputs[0]?.systemPrompt ?? ''
-    expect(systemPrompt).toContain('## Recalled context')
-    expect(systemPrompt).toContain('User prefers TypeScript over JavaScript.')
-    expect(systemPrompt).toContain('Project uses Vitest for testing.')
-  })
+    const systemPrompt = capturedInputs[0]?.systemPrompt ?? "";
+    expect(systemPrompt).toContain("## Recalled context");
+    expect(systemPrompt).toContain("User prefers TypeScript over JavaScript.");
+    expect(systemPrompt).toContain("Project uses Vitest for testing.");
+  });
 
-  it('appends memory block to existing systemPrompt', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
+  it("appends memory block to existing systemPrompt", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
     const enriched = withMemoryEnrichment(adapter, {
-      memoryService: makeMemoryService([{ text: 'Memory snippet.' }]),
-      namespace: 'ctx',
+      memoryService: makeMemoryService([{ text: "Memory snippet." }]),
+      namespace: "ctx",
       scope: {},
-    })
+    });
 
-    await collectEvents(enriched.execute({ prompt: 'Go', systemPrompt: 'Be concise.' }))
+    await collectEvents(
+      enriched.execute({ prompt: "Go", systemPrompt: "Be concise." })
+    );
 
-    const sp = capturedInputs[0]?.systemPrompt ?? ''
-    expect(sp).toContain('Be concise.')
-    expect(sp).toContain('Memory snippet.')
-    expect(sp.indexOf('Be concise.')).toBeLessThan(sp.indexOf('Memory snippet.'))
-  })
+    const sp = capturedInputs[0]?.systemPrompt ?? "";
+    expect(sp).toContain("Be concise.");
+    expect(sp).toContain("Memory snippet.");
+    expect(sp.indexOf("Be concise.")).toBeLessThan(
+      sp.indexOf("Memory snippet.")
+    );
+  });
 
-  it('uses custom header when provided', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
+  it("uses custom header when provided", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
     const enriched = withMemoryEnrichment(adapter, {
-      memoryService: makeMemoryService([{ text: 'A fact.' }]),
-      namespace: 'ctx',
+      memoryService: makeMemoryService([{ text: "A fact." }]),
+      namespace: "ctx",
       scope: {},
-      header: '## My Custom Header\n',
-    })
+      header: "## My Custom Header\n",
+    });
 
-    await collectEvents(enriched.execute({ prompt: 'Test' }))
+    await collectEvents(enriched.execute({ prompt: "Test" }));
 
-    expect(capturedInputs[0]?.systemPrompt).toContain('## My Custom Header')
-  })
+    expect(capturedInputs[0]?.systemPrompt).toContain("## My Custom Header");
+  });
 
-  it('uses custom formatRecord when provided', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
+  it("uses custom formatRecord when provided", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
     const enriched = withMemoryEnrichment(adapter, {
-      memoryService: makeMemoryService([{ id: '42', note: 'Custom note here.' }]),
-      namespace: 'ctx',
+      memoryService: makeMemoryService([
+        { id: "42", note: "Custom note here." },
+      ]),
+      namespace: "ctx",
       scope: {},
-      formatRecord: (r) => `[${r['id']}] ${r['note']}`,
-    })
+      formatRecord: (r) => `[${r["id"]}] ${r["note"]}`,
+    });
 
-    await collectEvents(enriched.execute({ prompt: 'Test' }))
+    await collectEvents(enriched.execute({ prompt: "Test" }));
 
-    expect(capturedInputs[0]?.systemPrompt).toContain('[42] Custom note here.')
-  })
+    expect(capturedInputs[0]?.systemPrompt).toContain("[42] Custom note here.");
+  });
 
-  it('passes search scope and limit to memoryService', async () => {
-    const mockSearch = vi.fn().mockResolvedValue([])
-    const ms: MemoryServiceLike = { search: mockSearch }
-    const { adapter } = makeCaptureAdapter()
+  it("passes search scope and limit to memoryService", async () => {
+    const mockSearch = vi.fn().mockResolvedValue([]);
+    const ms: MemoryServiceLike = { search: mockSearch };
+    const { adapter } = makeCaptureAdapter();
 
     const enriched = withMemoryEnrichment(adapter, {
       memoryService: ms,
-      namespace: 'decisions',
-      scope: { tenantId: 'acme', projectId: 'proj-1' },
+      namespace: "decisions",
+      scope: { tenantId: "acme", projectId: "proj-1" },
       limit: 3,
-    })
+    });
 
-    await collectEvents(enriched.execute({ prompt: 'Test query' }))
+    await collectEvents(enriched.execute({ prompt: "Test query" }));
 
-    expect(mockSearch).toHaveBeenCalledWith('decisions', { tenantId: 'acme', projectId: 'proj-1' }, 'Test query', 3)
-  })
+    expect(mockSearch).toHaveBeenCalledWith(
+      "decisions",
+      { tenantId: "acme", projectId: "proj-1" },
+      "Test query",
+      3
+    );
+  });
 
-  it('is non-fatal: continues on memory recall error', async () => {
+  it("is non-fatal: continues on memory recall error", async () => {
     const failingMs: MemoryServiceLike = {
-      search: vi.fn().mockRejectedValue(new Error('DB unavailable')),
-    }
-    const { adapter, capturedInputs } = makeCaptureAdapter()
-    const onRecallError = vi.fn()
+      search: vi.fn().mockRejectedValue(new Error("DB unavailable")),
+    };
+    const { adapter, capturedInputs } = makeCaptureAdapter();
+    const onRecallError = vi.fn();
 
     const enriched = withMemoryEnrichment(adapter, {
       memoryService: failingMs,
-      namespace: 'ctx',
+      namespace: "ctx",
       scope: {},
       onRecallError,
-    })
+    });
 
-    const events = await collectEvents(enriched.execute({ prompt: 'Test' }))
+    const events = await collectEvents(enriched.execute({ prompt: "Test" }));
 
-    expect(events).toHaveLength(2) // still gets started + completed
-    expect(capturedInputs[0]?.systemPrompt).toBeUndefined() // no enrichment
-    expect(onRecallError).toHaveBeenCalledWith(expect.any(Error))
-  })
+    expect(events).toHaveLength(2); // still gets started + completed
+    expect(capturedInputs[0]?.systemPrompt).toBeUndefined(); // no enrichment
+    expect(onRecallError).toHaveBeenCalledWith(expect.any(Error));
+  });
 
-  it('enriches resumeSession the same way as execute', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
+  it("enriches resumeSession the same way as execute", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
     const enriched = withMemoryEnrichment(adapter, {
-      memoryService: makeMemoryService([{ text: 'Resume fact.' }]),
-      namespace: 'ctx',
+      memoryService: makeMemoryService([{ text: "Resume fact." }]),
+      namespace: "ctx",
       scope: {},
-    })
+    });
 
-    await collectEvents(enriched.resumeSession('sess-abc', { prompt: 'Continue' }))
+    await collectEvents(
+      enriched.resumeSession("sess-abc", { prompt: "Continue" })
+    );
 
-    const sp = capturedInputs[0]?.systemPrompt ?? ''
-    expect(sp).toContain('Resume fact.')
-  })
+    const sp = capturedInputs[0]?.systemPrompt ?? "";
+    expect(sp).toContain("Resume fact.");
+  });
 
-  it('delegates interrupt to wrapped adapter', () => {
-    const interruptSpy = vi.fn()
-    const { adapter } = makeCaptureAdapter()
-    ;(adapter as { interrupt: typeof adapter.interrupt }).interrupt = interruptSpy
+  it("delegates interrupt to wrapped adapter", () => {
+    const interruptSpy = vi.fn();
+    const { adapter } = makeCaptureAdapter();
+    (adapter as { interrupt: typeof adapter.interrupt }).interrupt =
+      interruptSpy;
 
-    const enriched = withMemoryEnrichment(adapter, {
-      memoryService: makeMemoryService([]),
-      namespace: 'ctx',
-      scope: {},
-    })
-    enriched.interrupt()
-
-    expect(interruptSpy).toHaveBeenCalledOnce()
-  })
-
-  it('delegates healthCheck to wrapped adapter', async () => {
-    const { adapter } = makeCaptureAdapter()
     const enriched = withMemoryEnrichment(adapter, {
       memoryService: makeMemoryService([]),
-      namespace: 'ctx',
+      namespace: "ctx",
       scope: {},
-    })
-    const health = await enriched.healthCheck()
-    expect(health.healthy).toBe(true)
-  })
+    });
+    enriched.interrupt();
 
-  it('falls back to JSON stringify for records with no text field', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
+    expect(interruptSpy).toHaveBeenCalledOnce();
+  });
+
+  it("delegates healthCheck to wrapped adapter", async () => {
+    const { adapter } = makeCaptureAdapter();
     const enriched = withMemoryEnrichment(adapter, {
-      memoryService: makeMemoryService([{ key: 'val', num: 42 }]),
-      namespace: 'ctx',
+      memoryService: makeMemoryService([]),
+      namespace: "ctx",
       scope: {},
-    })
+    });
+    const health = await enriched.healthCheck();
+    expect(health.healthy).toBe(true);
+  });
 
-    await collectEvents(enriched.execute({ prompt: 'Test' }))
+  it("falls back to JSON stringify for records with no text field", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
+    const enriched = withMemoryEnrichment(adapter, {
+      memoryService: makeMemoryService([{ key: "val", num: 42 }]),
+      namespace: "ctx",
+      scope: {},
+    });
 
-    expect(capturedInputs[0]?.systemPrompt).toContain('"key":"val"')
-  })
-})
+    await collectEvents(enriched.execute({ prompt: "Test" }));
+
+    expect(capturedInputs[0]?.systemPrompt).toContain('"key":"val"');
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Hierarchical Memory Enrichment Tests
 // ---------------------------------------------------------------------------
 
-describe('withHierarchicalMemoryEnrichment', () => {
-  it('merges records from multiple sources into systemPrompt', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
+describe("withHierarchicalMemoryEnrichment", () => {
+  it("merges records from multiple sources into systemPrompt", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
     const enriched = withHierarchicalMemoryEnrichment(adapter, {
       sources: [
-        { level: 'global', loader: makeMemoryService([{ text: 'Global rule: be polite.' }]) },
-        { level: 'project', loader: makeMemoryService([{ text: 'Project uses Vitest.' }]) },
+        {
+          level: "global",
+          loader: makeMemoryService([{ text: "Global rule: be polite." }]),
+        },
+        {
+          level: "project",
+          loader: makeMemoryService([{ text: "Project uses Vitest." }]),
+        },
       ],
-    })
+    });
 
-    await collectEvents(enriched.execute({ prompt: 'Hello' }))
+    await collectEvents(enriched.execute({ prompt: "Hello" }));
 
-    const sp = capturedInputs[0]?.systemPrompt ?? ''
-    expect(sp).toContain('## Project Context')
-    expect(sp).toContain('Global rule: be polite.')
-    expect(sp).toContain('Project uses Vitest.')
-  })
+    const sp = capturedInputs[0]?.systemPrompt ?? "";
+    expect(sp).toContain("## Project Context");
+    expect(sp).toContain("Global rule: be polite.");
+    expect(sp).toContain("Project uses Vitest.");
+  });
 
-  it('skips sources with skip: true', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
-    const skippedLoader = makeMemoryService([{ text: 'Should not appear.' }])
+  it("skips sources with skip: true", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
+    const skippedLoader = makeMemoryService([{ text: "Should not appear." }]);
 
     const enriched = withHierarchicalMemoryEnrichment(adapter, {
       sources: [
-        { level: 'global', loader: makeMemoryService([{ text: 'Included.' }]) },
-        { level: 'workspace', loader: skippedLoader, skip: true },
+        { level: "global", loader: makeMemoryService([{ text: "Included." }]) },
+        { level: "workspace", loader: skippedLoader, skip: true },
       ],
-    })
+    });
 
-    await collectEvents(enriched.execute({ prompt: 'Test' }))
+    await collectEvents(enriched.execute({ prompt: "Test" }));
 
-    const sp = capturedInputs[0]?.systemPrompt ?? ''
-    expect(sp).toContain('Included.')
-    expect(sp).not.toContain('Should not appear.')
-    expect(skippedLoader.search).not.toHaveBeenCalled()
-  })
+    const sp = capturedInputs[0]?.systemPrompt ?? "";
+    expect(sp).toContain("Included.");
+    expect(sp).not.toContain("Should not appear.");
+    expect(skippedLoader.search).not.toHaveBeenCalled();
+  });
 
-  it('enforces maxTotalTokens budget with whole-record truncation', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
+  it("enforces maxTotalTokens budget with whole-record truncation", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
     // Each record text ~20 chars => ~5 tokens each
     const enriched = withHierarchicalMemoryEnrichment(adapter, {
       sources: [
-        { level: 'global', loader: makeMemoryService([{ text: 'AAAA BBBB CCCC DDDD' }]) },   // ~5 tokens
-        { level: 'workspace', loader: makeMemoryService([{ text: 'EEEE FFFF GGGG HHHH' }]) }, // ~5 tokens
-        { level: 'project', loader: makeMemoryService([{ text: 'IIII JJJJ KKKK LLLL' }]) },   // ~5 tokens
+        {
+          level: "global",
+          loader: makeMemoryService([{ text: "AAAA BBBB CCCC DDDD" }]),
+        }, // ~5 tokens
+        {
+          level: "workspace",
+          loader: makeMemoryService([{ text: "EEEE FFFF GGGG HHHH" }]),
+        }, // ~5 tokens
+        {
+          level: "project",
+          loader: makeMemoryService([{ text: "IIII JJJJ KKKK LLLL" }]),
+        }, // ~5 tokens
       ],
       maxTotalTokens: 10, // allows only ~2 sources
-    })
+    });
 
-    await collectEvents(enriched.execute({ prompt: 'Test' }))
+    await collectEvents(enriched.execute({ prompt: "Test" }));
 
-    const sp = capturedInputs[0]?.systemPrompt ?? ''
-    expect(sp).toContain('AAAA BBBB CCCC DDDD')
-    expect(sp).toContain('EEEE FFFF GGGG HHHH')
-    expect(sp).not.toContain('IIII JJJJ KKKK LLLL')
-  })
+    const sp = capturedInputs[0]?.systemPrompt ?? "";
+    expect(sp).toContain("AAAA BBBB CCCC DDDD");
+    expect(sp).toContain("EEEE FFFF GGGG HHHH");
+    expect(sp).not.toContain("IIII JJJJ KKKK LLLL");
+  });
 
-  it('calls onRecalled with correct metadata', async () => {
-    const { adapter } = makeCaptureAdapter()
-    const onRecalled = vi.fn()
+  it("calls onRecalled with correct metadata", async () => {
+    const { adapter } = makeCaptureAdapter();
+    const onRecalled = vi.fn();
 
     const enriched = withHierarchicalMemoryEnrichment(adapter, {
       sources: [
-        { level: 'global', loader: makeMemoryService([{ name: 'rule-1', text: 'Be polite.' }]) },
-        { level: 'agent', loader: makeMemoryService([{ key: 'pref-1', text: 'Use TS.' }]) },
+        {
+          level: "global",
+          loader: makeMemoryService([{ name: "rule-1", text: "Be polite." }]),
+        },
+        {
+          level: "agent",
+          loader: makeMemoryService([{ key: "pref-1", text: "Use TS." }]),
+        },
       ],
       onRecalled,
-    })
+    });
 
-    await collectEvents(enriched.execute({ prompt: 'Test' }))
+    await collectEvents(enriched.execute({ prompt: "Test" }));
 
-    expect(onRecalled).toHaveBeenCalledOnce()
+    expect(onRecalled).toHaveBeenCalledOnce();
     const [entries, totalTokens] = onRecalled.mock.calls[0] as [
       Array<{ level: string; name: string; tokenEstimate: number }>,
-      number,
-    ]
-    expect(entries).toHaveLength(2)
-    expect(entries[0]?.level).toBe('global')
-    expect(entries[0]?.name).toBe('rule-1')
-    expect(entries[0]?.tokenEstimate).toBeGreaterThan(0)
-    expect(entries[1]?.level).toBe('agent')
-    expect(entries[1]?.name).toBe('pref-1')
-    expect(totalTokens).toBe(entries[0]!.tokenEstimate + entries[1]!.tokenEstimate)
-  })
+      number
+    ];
+    expect(entries).toHaveLength(2);
+    expect(entries[0]?.level).toBe("global");
+    expect(entries[0]?.name).toBe("rule-1");
+    expect(entries[0]?.tokenEstimate).toBeGreaterThan(0);
+    expect(entries[1]?.level).toBe("agent");
+    expect(entries[1]?.name).toBe("pref-1");
+    expect(totalTokens).toBe(
+      entries[0]!.tokenEstimate + entries[1]!.tokenEstimate
+    );
+  });
 
-  it('isolates source errors — other sources still load', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
-    const onRecallError = vi.fn()
+  it("isolates source errors — other sources still load", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
+    const onRecallError = vi.fn();
     const failingLoader: MemoryServiceLike = {
-      search: vi.fn().mockRejectedValue(new Error('DB down')),
-    }
+      search: vi.fn().mockRejectedValue(new Error("DB down")),
+    };
 
     const enriched = withHierarchicalMemoryEnrichment(adapter, {
       sources: [
-        { level: 'global', loader: failingLoader },
-        { level: 'project', loader: makeMemoryService([{ text: 'Surviving record.' }]) },
+        { level: "global", loader: failingLoader },
+        {
+          level: "project",
+          loader: makeMemoryService([{ text: "Surviving record." }]),
+        },
       ],
       onRecallError,
-    })
+    });
 
-    const events = await collectEvents(enriched.execute({ prompt: 'Test' }))
+    const events = await collectEvents(enriched.execute({ prompt: "Test" }));
 
-    expect(events).toHaveLength(2)
-    expect(onRecallError).toHaveBeenCalledWith(expect.any(Error))
-    const sp = capturedInputs[0]?.systemPrompt ?? ''
-    expect(sp).toContain('Surviving record.')
-  })
+    expect(events).toHaveLength(2);
+    expect(onRecallError).toHaveBeenCalledWith(expect.any(Error));
+    const sp = capturedInputs[0]?.systemPrompt ?? "";
+    expect(sp).toContain("Surviving record.");
+  });
 
-  it('delegates providerId from wrapped adapter', () => {
-    const { adapter } = makeCaptureAdapter()
-    const enriched = withHierarchicalMemoryEnrichment(adapter, { sources: [] })
-    expect(enriched.providerId).toBe('claude')
-  })
+  it("delegates providerId from wrapped adapter", () => {
+    const { adapter } = makeCaptureAdapter();
+    const enriched = withHierarchicalMemoryEnrichment(adapter, { sources: [] });
+    expect(enriched.providerId).toBe("claude");
+  });
 
-  it('enriches resumeSession the same way as execute', async () => {
-    const { adapter, capturedInputs } = makeCaptureAdapter()
+  it("enriches resumeSession the same way as execute", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
     const enriched = withHierarchicalMemoryEnrichment(adapter, {
       sources: [
-        { level: 'project', loader: makeMemoryService([{ text: 'Resume context.' }]) },
+        {
+          level: "project",
+          loader: makeMemoryService([{ text: "Resume context." }]),
+        },
       ],
-    })
+    });
 
-    await collectEvents(enriched.resumeSession('sess-resume', { prompt: 'Continue' }))
+    await collectEvents(
+      enriched.resumeSession("sess-resume", { prompt: "Continue" })
+    );
 
-    const sp = capturedInputs[0]?.systemPrompt ?? ''
-    expect(sp).toContain('Resume context.')
-  })
-})
+    const sp = capturedInputs[0]?.systemPrompt ?? "";
+    expect(sp).toContain("Resume context.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M-08 — Memory enrichment scope guard (per-source namespace + query)
+// ---------------------------------------------------------------------------
+
+describe("withHierarchicalMemoryEnrichment (M-08 scope guard)", () => {
+  it("calls each source with its own namespace and the input prompt as query", async () => {
+    const { adapter } = makeCaptureAdapter();
+
+    const loaderA = makeMemoryService([{ text: "A result." }]);
+    const loaderB = makeMemoryService([{ text: "B result." }]);
+
+    const enriched = withHierarchicalMemoryEnrichment(adapter, {
+      sources: [
+        {
+          level: "global",
+          loader: loaderA,
+          namespace: "global-rules",
+          scope: { tenantId: "acme" },
+          limit: 3,
+        },
+        {
+          level: "project",
+          loader: loaderB,
+          namespace: "project-context",
+          scope: { tenantId: "acme", projectId: "proj-1" },
+          limit: 5,
+        },
+      ],
+    });
+
+    await collectEvents(
+      enriched.execute({ prompt: "What is the project about?" })
+    );
+
+    expect(loaderA.search).toHaveBeenCalledWith(
+      "global-rules",
+      { tenantId: "acme" },
+      "What is the project about?",
+      3
+    );
+    expect(loaderB.search).toHaveBeenCalledWith(
+      "project-context",
+      { tenantId: "acme", projectId: "proj-1" },
+      "What is the project about?",
+      5
+    );
+  });
+
+  it("uses queryBuilder when provided instead of raw input prompt", async () => {
+    const { adapter } = makeCaptureAdapter();
+    const loader = makeMemoryService([{ text: "Result." }]);
+
+    const enriched = withHierarchicalMemoryEnrichment(adapter, {
+      sources: [
+        {
+          level: "agent",
+          loader,
+          namespace: "agent-ctx",
+          scope: {},
+          queryBuilder: (prompt) => `KEYWORDS: ${prompt.slice(0, 10)}`,
+        },
+      ],
+    });
+
+    await collectEvents(
+      enriched.execute({ prompt: "Hello world — long prompt text" })
+    );
+
+    expect(loader.search).toHaveBeenCalledWith(
+      "agent-ctx",
+      {},
+      "KEYWORDS: Hello worl",
+      undefined
+    );
+  });
+
+  it("skips sources without namespace in tenant-aware mode (fail-closed)", async () => {
+    const { adapter, capturedInputs } = makeCaptureAdapter();
+
+    const loaderWithNs = makeMemoryService([{ text: "Has namespace." }]);
+    const loaderNoNs = makeMemoryService([
+      { text: "No namespace — should be skipped." },
+    ]);
+
+    const enriched = withHierarchicalMemoryEnrichment(adapter, {
+      tenantAware: true,
+      sources: [
+        // This source has a namespace — must be called
+        {
+          level: "global",
+          loader: loaderWithNs,
+          namespace: "global",
+          scope: {},
+        },
+        // This source has NO namespace — must be skipped in tenant-aware mode
+        { level: "project", loader: loaderNoNs },
+      ],
+    });
+
+    await collectEvents(enriched.execute({ prompt: "Test" }));
+
+    // The namespaced source is called
+    expect(loaderWithNs.search).toHaveBeenCalledOnce();
+    // The un-namespaced source is NOT called (fail-closed)
+    expect(loaderNoNs.search).not.toHaveBeenCalled();
+
+    // Only the namespaced source's content appears in systemPrompt
+    const sp = capturedInputs[0]?.systemPrompt ?? "";
+    expect(sp).toContain("Has namespace.");
+    expect(sp).not.toContain("No namespace — should be skipped.");
+  });
+
+  it("calls sources without namespace normally when tenantAware is false (default)", async () => {
+    const { adapter } = makeCaptureAdapter();
+    const loader = makeMemoryService([{ text: "No ns result." }]);
+
+    const enriched = withHierarchicalMemoryEnrichment(adapter, {
+      // tenantAware not set — defaults to false
+      sources: [{ level: "project", loader }],
+    });
+
+    await collectEvents(enriched.execute({ prompt: "My query" }));
+
+    // Called with empty-string namespace fallbacks (non-tenant-aware mode)
+    expect(loader.search).toHaveBeenCalledWith("", {}, "My query", undefined);
+  });
+});

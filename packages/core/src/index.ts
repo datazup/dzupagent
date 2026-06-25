@@ -26,6 +26,8 @@ export type {
   LlmInvocationRecord,
   MapReduceDzupEvent,
   RunLifecycleEvent,
+  ToolCallAuditRecord,
+  ToolCallAuditSink,
   ToolStatSummary,
 } from "./events/event-types.js";
 export { attachLlmAuditEventBridge } from "./events/llm-audit-bridge.js";
@@ -60,7 +62,10 @@ export { createManifest, serializeManifest } from "./plugin/plugin-manifest.js";
 
 // --- LLM ---
 export { ModelRegistry } from "./llm/model-registry.js";
-export type { ModelFallbackCandidate } from "./llm/model-registry.js";
+export type {
+  ModelFallbackCandidate,
+  FallbackRequirements,
+} from "./llm/model-registry.js";
 // Re-export the LangChain model type that ModelRegistry.getModel() returns, so
 // consumers source the SAME type symbol as the registry produces (instead of
 // importing a second copy from @langchain/core and casting across the package
@@ -80,6 +85,7 @@ export type {
   KnownLLMProvider,
   LLMProviderConfig,
   LLMProviderName,
+  ModelCapability,
   ModelTier,
   ModelSpec,
   ModelOverrides,

@@ -46,12 +46,35 @@ export interface StructuredOutputModelCapabilities {
   fallbackStrategies?: StructuredOutputStrategy[];
 }
 
+/**
+ * Named capabilities a model may support.
+ * Used by {@link ModelRegistry.getModelWithFallback} to skip fallback
+ * candidates that cannot satisfy the caller's requirements.
+ */
+export type ModelCapability =
+  | "tool_use"
+  | "function_calling"
+  | "vision"
+  | "streaming";
+
 /** Model spec for a given tier */
 export interface ModelSpec {
   name: string;
   maxTokens: number;
   temperature?: number;
   streaming?: boolean;
+  /**
+   * Context-window size in tokens. When provided, the fallback selection
+   * logic will skip candidates whose contextWindow is smaller than the
+   * requested minimum.
+   */
+  contextWindow?: number;
+  /**
+   * Capabilities this model supports (e.g. 'tool_use', 'vision').
+   * Used by capability-aware fallback to skip models that lack required
+   * capabilities rather than silently degrading.
+   */
+  capabilities?: ModelCapability[];
   /** Optional structured-output capability metadata for this model. */
   structuredOutput?: StructuredOutputModelCapabilities;
 }
@@ -81,5 +104,5 @@ export interface ModelOverrides {
 export type ModelFactory = (
   provider: LLMProviderConfig,
   spec: ModelSpec,
-  overrides?: ModelOverrides,
+  overrides?: ModelOverrides
 ) => BaseChatModel;

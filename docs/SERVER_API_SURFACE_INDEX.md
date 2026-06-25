@@ -1,6 +1,6 @@
 # Server API Surface Index
 
-Date: 2026-06-23
+Date: 2026-06-25
 
 Generated from `packages/server/src/index.ts` and `config/server-api-tiers.json`.
 
@@ -18,8 +18,8 @@ No direct `@dzupagent/server` root imports found in scanned workspace code.
 
 | Source Module | Tier | Area | Root Exposure | Export Count | Sample Exports |
 | --- | --- | --- | --- | ---: | --- |
-| `./app.js` | `stable` | `app` | `keep-root` | 12 | `createForgeApp`, `ForgeServerConfig`, `ForgeHostRuntimeConfig`, `ForgeRouteFamiliesConfig` |
-| `./route-plugin.js` | `stable` | `extensibility` | `keep-root` | 2 | `ServerRoutePlugin`, `ServerRoutePluginContext` |
+| `./app.js` | `stable` | `app` | `keep-root` | 15 | `createForgeApp`, `buildForgeApp`, `startForgeRuntime`, `RuntimeHandle` |
+| `./route-plugin.js` | `stable` | `extensibility` | `keep-root` | 5 | `ServerRoutePlugin`, `ServerRoutePluginContext`, `ServerRouteMountable`, `ServerDeclaredServices` |
 | `./routes/runs.js` | `stable` | `routes-core` | `keep-root` | 1 | `createRunRoutes` |
 | `./routes/agents.js` | `stable` | `routes-core` | `keep-root` | 2 | `createAgentDefinitionRoutes`, `createAgentRoutes` |
 | `./routes/approval.js` | `stable` | `routes-core` | `keep-root` | 1 | `createApprovalRoutes` |
@@ -38,7 +38,7 @@ No direct `@dzupagent/server` root imports found in scanned workspace code.
 | `./queue/postgres-run-queue.js` | `stable` | `queue` | `keep-root` | 3 | `PostgresRunQueue`, `PostgresRunQueueConfig`, `PostgresRunQueueDatabase` |
 | `./metrics/queue-gauge.js` | `secondary` | `runtime` | `keep-root` | 2 | `registerQueueGauges`, `updateQueueGauges` |
 | `./lifecycle/graceful-shutdown.js` | `stable` | `lifecycle` | `keep-root` | 3 | `GracefulShutdown`, `ShutdownConfig`, `ShutdownState` |
-| `./ws/event-bridge.js` | `stable` | `realtime` | `keep-root` | 4 | `EventBridge`, `WSClient`, `ClientFilter`, `EventBridgeConfig` |
+| `./ws/event-bridge.js` | `stable` | `realtime` | `keep-root` | 6 | `EventBridge`, `WSClient`, `ClientFilter`, `EventBridgeConfig` |
 | `./ws/control-protocol.js` | `stable` | `realtime` | `keep-root` | 6 | `createWsControlHandler`, `WSControlClientMessage`, `WSControlServerMessage`, `WSControlHandlerOptions` |
 | `./ws/authorization.js` | `stable` | `realtime` | `keep-root` | 3 | `createScopedAuthorizeFilter`, `WSClientScope`, `ScopedAuthorizeFilterOptions` |
 | `./ws/scope-registry.js` | `stable` | `realtime` | `keep-root` | 1 | `WSClientScopeRegistry` |

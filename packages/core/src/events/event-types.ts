@@ -32,6 +32,8 @@ export type {
   MapReduceDzupEvent,
   SubagentRuntimeDzupEvent,
   SubagentGovernanceDzupEvent,
+  ToolCallAuditRecord,
+  ToolCallAuditSink,
   ToolStatSummary,
 } from "./event-types-shared.js";
 

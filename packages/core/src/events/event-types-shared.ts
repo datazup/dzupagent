@@ -7,6 +7,41 @@
  */
 
 /**
+ * Per-tool-call audit record emitted by the stream runner whenever an
+ * `adapter:tool_call` / `adapter:tool_result` pair is observed.
+ *
+ * The record is delivered through a {@link ToolCallAuditSink} attached to
+ * {@link AdapterStreamRunnerConfig.toolCallAuditSink}. Sink errors are
+ * swallowed — audit emission must not break the LLM call path.
+ */
+export interface ToolCallAuditRecord {
+  type: "tool_call";
+  /** Name of the tool that was invoked. */
+  toolName: string;
+  /**
+   * Short identifier derived from the input args — either a truncated JSON
+   * string or a simple hash. Suitable for correlation / deduplication without
+   * leaking full payload content to the audit log.
+   */
+  argsHash: string;
+  /** Outcome of the tool invocation. */
+  resultStatus: "success" | "error";
+  /** Wall-clock duration of the tool call in milliseconds (>= 0). */
+  durationMs: number;
+  /** Optional tool call ID supplied by the adapter. */
+  toolCallId?: string;
+  /** ISO timestamp of when the tool call started. */
+  startedAt: string;
+}
+
+/**
+ * Sink function type for per-tool-call audit records.
+ * Mirrors the design of {@link LlmAuditSink} — synchronous, best-effort,
+ * errors swallowed by the caller.
+ */
+export type ToolCallAuditSink = (record: ToolCallAuditRecord) => void;
+
+/**
  * Budget usage snapshot — emitted with budget warnings.
  */
 export interface BudgetUsage {
