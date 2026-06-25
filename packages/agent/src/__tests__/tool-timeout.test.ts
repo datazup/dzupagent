@@ -156,7 +156,12 @@ describe('ToolLoopConfig.toolTimeouts (sequential path)', () => {
 
     expect(result.stopReason).toBe('complete')
     const toolMsg = result.messages.find(
-      m => m._getType() === 'tool' && m.content === 'quick-result',
+      // MC-3: successful results are wrapped in an `<untrusted_content>`
+      // delimiter; match by substring.
+      m =>
+        m._getType() === 'tool' &&
+        typeof m.content === 'string' &&
+        m.content.includes('quick-result'),
     )
     expect(toolMsg).toBeDefined()
   })
@@ -183,7 +188,10 @@ describe('ToolLoopConfig.toolTimeouts (sequential path)', () => {
 
     expect(result.stopReason).toBe('complete')
     const toolMsg = result.messages.find(
-      m => m._getType() === 'tool' && m.content === 'finished',
+      m =>
+        m._getType() === 'tool' &&
+        typeof m.content === 'string' &&
+        m.content.includes('finished'),
     )
     expect(toolMsg).toBeDefined()
   })
@@ -257,7 +265,10 @@ describe('ToolLoopConfig.toolTimeouts (parallel path)', () => {
     expect(slowMsg).toBeDefined()
 
     const fastMsg = result.messages.find(
-      m => m._getType() === 'tool' && m.content === 'fast-result',
+      m =>
+        m._getType() === 'tool' &&
+        typeof m.content === 'string' &&
+        m.content.includes('fast-result'),
     )
     expect(fastMsg).toBeDefined()
   })

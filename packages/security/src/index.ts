@@ -43,6 +43,9 @@ export type {
   TokenBucketConsumeResult,
 } from './rate-limit/index.js'
 
+export { PromptInjectionGuard } from './guardrails/index.js'
+export type { GuardOptions, ScreenResult } from './guardrails/index.js'
+
 export { ContentScanner } from './content-scanner.js'
 export type {
   ContentScannerConfig,

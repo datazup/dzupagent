@@ -49,6 +49,14 @@ export function buildStreamingToolPolicy(
     ...(toolExec.scanFailureMode !== undefined
       ? { scanFailureMode: toolExec.scanFailureMode }
       : {}),
+    // MC-3 — forward the prompt-injection guardrail so stream() wraps tool
+    // results identically to generate() (parity, MJ-AGENT-02).
+    ...(toolExec.promptInjectionGuard !== undefined
+      ? { promptInjectionGuard: toolExec.promptInjectionGuard }
+      : {}),
+    ...(toolExec.wrapToolResults !== undefined
+      ? { wrapToolResults: toolExec.wrapToolResults }
+      : {}),
     ...(toolExec.tracer !== undefined ? { tracer: toolExec.tracer } : {}),
     // agentId / runId mirror the executeGenerateRun fallback: when
     // `toolExecution` is provided, fall back to the surrounding agent id

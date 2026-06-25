@@ -493,6 +493,9 @@ export async function executeStreamingToolCall(
     if (phase.kind === 'short-circuit') return phase.result
 
     // Phase 3 — assemble success result with stuck-detection nudge.
+    // MC-3 — forward the prompt-injection guard config so the streaming path
+    // wraps tool-result context identically to generate() (parity,
+    // MJ-AGENT-02).
     return buildSuccessResult(omitUndefined({
       toolName,
       toolCallId,
@@ -500,6 +503,8 @@ export async function executeStreamingToolCall(
       validatedArgs: phase.validatedArgs,
       stuckDetector: params.stuckDetector,
       budget: params.budget,
+      promptInjectionGuard: policy?.promptInjectionGuard,
+      wrapToolResults: policy?.wrapToolResults,
     }))
   } catch (error: unknown) {
     // Phase 4 — error path: latency recording, tool:error emission,

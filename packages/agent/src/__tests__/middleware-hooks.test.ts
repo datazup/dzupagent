@@ -77,6 +77,10 @@ describe('DzupAgent middleware hooks', () => {
 
     const toolMsg = result.messages.find((m) => m instanceof ToolMessage) as ToolMessage
     expect(toolMsg).toBeDefined()
-    expect(toolMsg.content).toBe('raw-a-b')
+    // MC-3 (AGENT-H-06): wrapToolCall middleware runs in order (raw → raw-a →
+    // raw-a-b), and the final result is then wrapped in an
+    // `<untrusted_content>` delimiter before entering message history.
+    expect(toolMsg.content as string).toContain('raw-a-b')
+    expect(toolMsg.content as string).toContain('<untrusted_content source="tool_result">')
   })
 })

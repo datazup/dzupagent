@@ -58,7 +58,11 @@ describe('buildSuccessResult', () => {
     })
 
     expect(result.message).toBeInstanceOf(ToolMessage)
-    expect(result.message.content).toBe('found 3 results')
+    // MC-3 (AGENT-H-06): the CONTEXT-bound ToolMessage content is wrapped in
+    // an `<untrusted_content>` delimiter by default; the raw result survives
+    // as quoted data and the emitted `eventResult` stays raw.
+    expect(result.message.content as string).toContain('found 3 results')
+    expect(result.message.content as string).toContain('<untrusted_content source="tool_result">')
     expect(result.message.tool_call_id).toBe('call_1')
     expect(result.eventResult).toBe('found 3 results')
   })

@@ -1266,7 +1266,11 @@ describe('executeStreamingToolCall', () => {
   it('executes tool and returns ToolMessage with result', async () => {
     const result = await executeStreamingToolCall(baseStreamParams())
     expect(result.message).toBeInstanceOf(ToolMessage)
-    expect(result.message.content).toBe('results found')
+    // MC-3 (AGENT-H-06): the CONTEXT-bound ToolMessage content is wrapped in
+    // an `<untrusted_content>` delimiter by default; the emitted `eventResult`
+    // stays raw.
+    expect(result.message.content as string).toContain('results found')
+    expect(result.message.content as string).toContain('<untrusted_content source="tool_result">')
     expect(result.eventResult).toBe('results found')
   })
 
@@ -1304,7 +1308,10 @@ describe('executeStreamingToolCall', () => {
       transformToolResult: vi.fn(async () => 'transformed'),
     })
     const result = await executeStreamingToolCall(params)
-    expect(result.message.content).toBe('transformed')
+    // MC-3: the transformed result is wrapped in an `<untrusted_content>`
+    // delimiter for the CONTEXT message; the emitted `eventResult` stays raw.
+    expect(result.message.content as string).toContain('transformed')
+    expect(result.message.content as string).toContain('<untrusted_content source="tool_result">')
     expect(result.eventResult).toBe('transformed')
   })
 

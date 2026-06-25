@@ -287,9 +287,11 @@ describe('Parallel tool execution edge cases', () => {
       { maxIterations: 10, parallelTools: true },
     )
 
-    // Both tools should have messages in the result
+    // Both tools should have messages in the result. MC-3: the success
+    // content is wrapped in an `<untrusted_content>` delimiter, so match by
+    // substring rather than exact equality.
     const successMsg = result.messages.find(
-      m => typeof m.content === 'string' && m.content === 'success',
+      m => typeof m.content === 'string' && m.content.includes('success'),
     )
     const errorMsg = result.messages.find(
       m => typeof m.content === 'string' && m.content.includes('parallel failure'),
@@ -383,7 +385,9 @@ describe('Tool result edge cases', () => {
       model,
       [new HumanMessage('go')],
       [tool],
-      { maxIterations: 10 },
+      // MC-3: this test verifies non-string result stringification (42 → '42'),
+      // orthogonal to the prompt-injection wrapping default.
+      { maxIterations: 10, wrapToolResults: false },
     )
 
     const toolMsg = result.messages.find(
@@ -405,7 +409,9 @@ describe('Tool result edge cases', () => {
       model,
       [new HumanMessage('go')],
       [tool],
-      { maxIterations: 10 },
+      // MC-3: this test verifies object-result JSON stringification (parsed
+      // back), orthogonal to the prompt-injection wrapping default.
+      { maxIterations: 10, wrapToolResults: false },
     )
 
     const toolMsg = result.messages.find(
@@ -427,7 +433,9 @@ describe('Tool result edge cases', () => {
       model,
       [new HumanMessage('go')],
       [tool],
-      { maxIterations: 10 },
+      // MC-3: verifies empty-string passthrough, orthogonal to the
+      // prompt-injection wrapping default.
+      { maxIterations: 10, wrapToolResults: false },
     )
 
     expect(result.stopReason).toBe('complete')
@@ -640,7 +648,9 @@ describe('transformToolResult in parallel path', () => {
       model,
       [new HumanMessage('go')],
       [toolA, toolB],
-      { maxIterations: 10, parallelTools: true, transformToolResult },
+      // MC-3: this test asserts transformToolResult prefixes via startsWith,
+      // orthogonal to the prompt-injection wrapping default.
+      { maxIterations: 10, parallelTools: true, transformToolResult, wrapToolResults: false },
     )
 
     const transformedMsgs = result.messages.filter(

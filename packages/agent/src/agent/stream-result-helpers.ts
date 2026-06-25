@@ -7,6 +7,7 @@
  * in their own module. Behaviour is unchanged.
  */
 import { ToolMessage } from '@langchain/core/messages'
+import { PromptInjectionGuard } from '@dzupagent/security'
 import type { IterationBudget } from '../guardrails/iteration-budget.js'
 import { omitUndefined } from '../utils/exact-optional.js'
 import { emitToolError, statusFromError } from './tool-lifecycle-policy.js'
@@ -56,6 +57,38 @@ export function recordToolLatencyOutcome(args: {
 }
 
 /**
+ * MC-3 (AGENT-H-06) — process-wide default prompt-injection guardrail for the
+ * streaming tool path. Mirrors the generate() path default so both modes wrap
+ * tool-result context identically (stream/generate parity, MJ-AGENT-02).
+ */
+const DEFAULT_PROMPT_INJECTION_GUARD = new PromptInjectionGuard()
+
+/**
+ * MC-3 — wrap a successful tool result's CONTEXT content in an
+ * `<untrusted_content source="tool_result">` delimiter before it enters the
+ * model's message history. Returns the raw result unchanged when wrapping is
+ * disabled. The emitted `tool_result` event payload (`eventResult`) keeps the
+ * raw output — only the ToolMessage content is wrapped.
+ */
+function wrapToolResultContent(
+  result: string,
+  guard:
+    | {
+        wrap: (
+          content: string,
+          opts?: { label?: string; screen?: boolean; delimit?: boolean }
+        ) => string
+      }
+    | undefined,
+  wrapToolResults: boolean | undefined,
+): string {
+  if (wrapToolResults === false) return result
+  return (guard ?? DEFAULT_PROMPT_INJECTION_GUARD).wrap(result, {
+    label: 'tool_result',
+  })
+}
+
+/**
  * Build the success-path {@link StreamingToolExecutionResult}, applying
  * stuck-detection on the verified tool call. When the detector flags a
  * repeat, the tool is added to the iteration-budget block list and a
@@ -68,8 +101,31 @@ export function buildSuccessResult(args: {
   validatedArgs: Record<string, unknown>
   stuckDetector?: StuckDetector
   budget?: IterationBudget
+  promptInjectionGuard?: {
+    wrap: (
+      content: string,
+      opts?: { label?: string; screen?: boolean; delimit?: boolean }
+    ) => string
+  }
+  wrapToolResults?: boolean
 }): StreamingToolExecutionResult {
-  const { toolName, toolCallId, transformedResult, validatedArgs, stuckDetector, budget } = args
+  const {
+    toolName,
+    toolCallId,
+    transformedResult,
+    validatedArgs,
+    stuckDetector,
+    budget,
+    promptInjectionGuard,
+    wrapToolResults,
+  } = args
+  // Context-bound content is wrapped; `eventResult` stays raw for parity with
+  // the generate() path's observability semantics.
+  const contextContent = wrapToolResultContent(
+    transformedResult,
+    promptInjectionGuard,
+    wrapToolResults,
+  )
   const stuckCheck = stuckDetector?.recordToolCall(toolName, validatedArgs)
   if (stuckCheck?.stuck) {
     const reason = stuckCheck.reason ?? 'Unknown stuck condition'
@@ -77,7 +133,7 @@ export function buildSuccessResult(args: {
     budget?.blockTool(toolName)
     return {
       message: new ToolMessage({
-        content: transformedResult,
+        content: contextContent,
         tool_call_id: toolCallId,
         name: toolName,
       }),
@@ -94,7 +150,7 @@ export function buildSuccessResult(args: {
   }
   return {
     message: new ToolMessage({
-      content: transformedResult,
+      content: contextContent,
       tool_call_id: toolCallId,
       name: toolName,
     }),

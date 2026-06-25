@@ -104,6 +104,33 @@ export interface ToolExecutionConfig {
   scanFailureMode?: ToolResultScanFailureMode
 
   /**
+   * MC-3 (AGENT-H-06 / SEC-M-06) — prompt-injection guardrail. Every
+   * successful tool result is wrapped in an
+   * `<untrusted_content source="tool_result">` delimiter before it enters the
+   * model's message history, in BOTH generate() and stream() modes
+   * (parity, MJ-AGENT-02). Defaults to an internal `PromptInjectionGuard`.
+   * Supply your own to share screening config, or set
+   * {@link wrapToolResults} to `false` to opt out.
+   *
+   * Forwarded to {@link ToolLoopConfig.promptInjectionGuard} /
+   * {@link StreamingToolPolicyOptions.promptInjectionGuard}.
+   */
+  promptInjectionGuard?: {
+    wrap: (
+      content: string,
+      opts?: { label?: string; screen?: boolean; delimit?: boolean }
+    ) => string
+  }
+
+  /**
+   * Disable wrapping tool results via {@link promptInjectionGuard}.
+   * Defaults to `true` (wrapping ON). Forwarded to
+   * {@link ToolLoopConfig.wrapToolResults} /
+   * {@link StreamingToolPolicyOptions.wrapToolResults}.
+   */
+  wrapToolResults?: boolean
+
+  /**
    * Per-tool execution timeouts in milliseconds. Forwarded to
    * {@link ToolLoopConfig.toolTimeouts}.
    */

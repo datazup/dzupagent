@@ -44,7 +44,10 @@ function makeParams(
 ) {
   return {
     toolMap: new Map(tools.map((t) => [t.name, t])),
-    config: { maxIterations: 10, ...configOverrides } as ToolLoopConfig,
+    // MC-3 (AGENT-H-06): these tests assert the executor's raw result content
+    // for the RF-09 retry path, which is orthogonal to the prompt-injection
+    // wrapping default. Opt out of wrapping here so the assertions stay exact.
+    config: { maxIterations: 10, wrapToolResults: false, ...configOverrides } as ToolLoopConfig,
     getOrCreateStat: makeStatGetter(),
   }
 }
