@@ -22,15 +22,16 @@ export const DESTRUCTIVE_COMMAND_PATTERNS: ReadonlyArray<{
   label: string;
 }> = [
   {
-    pattern: /\brm\s+(?:(?:--recursive|--force|-[a-zA-Z]+)\s+)*\/\*?(\s|$)/i,
+    pattern:
+      /\brm\s+(?:(?:--recursive|--force|-[a-zA-Z]+)\s+)*\/[/.]?\*?(\s|$)/i,
     label: "root filesystem wipe (rm -rf /)",
   },
   {
-    pattern: /\bcurl\b.*\|\s*(sh|bash)\b/i,
+    pattern: /\bcurl\b.*\|\s*(sh|bash|zsh|fish|ksh|dash)\b/i,
     label: "remote code execution via curl pipe",
   },
   {
-    pattern: /\bwget\b.*\|\s*(sh|bash)\b/i,
+    pattern: /\bwget\b.*\|\s*(sh|bash|zsh|fish|ksh|dash)\b/i,
     label: "remote code execution via wget pipe",
   },
   {
