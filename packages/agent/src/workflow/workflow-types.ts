@@ -4,41 +4,52 @@
 
 /** A single step in a workflow */
 export interface WorkflowStep<TInput = unknown, TOutput = unknown> {
-  id: string
-  description?: string
-  execute: (input: TInput, ctx: WorkflowContext) => Promise<TOutput>
+  id: string;
+  description?: string;
+  execute: (input: TInput, ctx: WorkflowContext) => Promise<TOutput>;
 }
 
 /** Context passed to each workflow step */
 export interface WorkflowContext {
-  workflowId: string
+  workflowId: string;
   /** Accumulated state from previous steps */
-  state: Record<string, unknown>
+  state: Record<string, unknown>;
   /** Signal for cancellation */
-  signal?: AbortSignal
+  signal?: AbortSignal;
 }
 
 /** Internal node representation in the workflow graph */
 export type WorkflowNode =
-  | { type: 'step'; step: WorkflowStep }
-  | { type: 'parallel'; steps: WorkflowStep[]; mergeStrategy: MergeStrategy }
-  | { type: 'branch'; condition: (state: Record<string, unknown>) => string; branches: Record<string, WorkflowStep[]> }
-  | { type: 'suspend'; reason: string }
+  | { type: "step"; step: WorkflowStep }
+  | { type: "parallel"; steps: WorkflowStep[]; mergeStrategy: MergeStrategy }
+  | {
+      type: "branch";
+      condition: (state: Record<string, unknown>) => string;
+      branches: Record<string, WorkflowStep[]>;
+    }
+  | { type: "suspend"; reason: string };
 
 // Workflow state merge strategy — see workflow execution
 /** Strategy for merging parallel step results in a workflow graph (data shape merge). Not the same as adapter-level MergeStrategy in parallel-executor.ts, which controls response selection across providers. */
-export type MergeStrategy = 'merge-objects' | 'concat-arrays' | 'last-wins'
+export type MergeStrategy = "merge-objects" | "concat-arrays" | "last-wins";
 
 /** Events emitted during workflow execution */
 export type WorkflowEvent =
-  | { type: 'step:started'; stepId: string }
-  | { type: 'step:completed'; stepId: string; durationMs: number }
-  | { type: 'step:failed'; stepId: string; error: string }
-  | { type: 'parallel:started'; stepIds: string[] }
-  | { type: 'parallel:completed'; stepIds: string[]; durationMs: number }
-  | { type: 'branch:evaluated'; condition: string; selected: string }
-  | { type: 'suspended'; reason: string }
-  | { type: 'step:skipped'; stepId: string; reason: string }
-  | { type: 'step:retrying'; stepId: string; attempt: number; maxAttempts: number; backoffMs: number }
-  | { type: 'workflow:completed'; durationMs: number }
-  | { type: 'workflow:failed'; error: string }
+  | { type: "step:started"; stepId: string }
+  | { type: "step:completed"; stepId: string; durationMs: number }
+  | { type: "step:failed"; stepId: string; error: string }
+  | { type: "parallel:started"; stepIds: string[] }
+  | { type: "parallel:completed"; stepIds: string[]; durationMs: number }
+  | { type: "branch:evaluated"; condition: string; selected: string }
+  | { type: "suspended"; reason: string }
+  | { type: "step:skipped"; stepId: string; reason: string }
+  | {
+      type: "step:retrying";
+      stepId: string;
+      attempt: number;
+      maxAttempts: number;
+      backoffMs: number;
+    }
+  | { type: "workflow:completed"; durationMs: number }
+  | { type: "workflow:failed"; error: string }
+  | { type: "workflow:stuck"; nodeId: string; reason: string };
