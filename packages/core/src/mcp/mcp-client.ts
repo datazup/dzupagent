@@ -264,6 +264,7 @@ export class MCPClient {
           },
         ],
         isError: true,
+        errorCode: "DESTRUCTIVE_COMMAND_BLOCKED",
       };
     }
 
@@ -286,6 +287,7 @@ export class MCPClient {
                 },
               ],
               isError: true,
+              errorCode: "MCP_PATH_ESCAPE",
             };
           }
         }

@@ -112,6 +112,15 @@ describe("MCPClient jailed-fs path-escape guard", () => {
       expect(result.content[0]?.text).not.toContain("MCP_PATH_ESCAPE");
     }
   });
+
+  it("sets errorCode to MCP_PATH_ESCAPE when path is rejected", async () => {
+    const client = makeClient("/workspace/tenant-a");
+    const result = await client.invokeTool("read_file", {
+      path: "../../etc/passwd",
+    });
+    expect(result.isError).toBe(true);
+    expect(result.errorCode).toBe("MCP_PATH_ESCAPE");
+  });
 });
 
 function makeClientWithShellTool(filesystemRoot?: string): MCPClient {
@@ -231,5 +240,12 @@ describe("MCPClient.invokeTool() destructive-command guard", () => {
     const result = await client.invokeTool("execute", { command: "rm -rf /" });
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("DESTRUCTIVE_COMMAND_BLOCKED");
+  });
+
+  it("sets errorCode to DESTRUCTIVE_COMMAND_BLOCKED when command is rejected", async () => {
+    const client = makeClientWithShellTool();
+    const result = await client.invokeTool("bash", { command: "rm -rf /" });
+    expect(result.isError).toBe(true);
+    expect(result.errorCode).toBe("DESTRUCTIVE_COMMAND_BLOCKED");
   });
 });

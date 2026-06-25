@@ -91,6 +91,8 @@ export interface MCPToolResult {
     mimeType?: string;
   }>;
   isError?: boolean;
+  /** Machine-readable error code for structured error handling. Set by guards; undefined for transport errors. */
+  errorCode?: string;
 }
 
 /** Connection state for an MCP server */
