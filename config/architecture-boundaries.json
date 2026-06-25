@@ -854,6 +854,30 @@
         ],
         "ForgeIntegrationsConfig": ["routePlugins"]
       }
+    },
+    "controlPlaneFreezeBaseline": {
+      "description": "MC-5 (ARCH-H-01) hard freeze for the ForgeControlPlaneRouteFamilyConfig injection surface. This interface is a frozen compatibility surface: its field set may only shrink as families contract per packages/server/src/composition/CONTROL-PLANE-CONTRACTION.md. Adding a field requires an approved RFC plus updates to this baseline and the contraction schedule. Enforced by scripts/check-control-plane-freeze.mjs (wired into verify:strict).",
+      "interface": "ForgeControlPlaneRouteFamilyConfig",
+      "sourceFiles": [
+        "packages/server/src/composition/types.ts",
+        "packages/server/src/composition/control-plane-types.ts"
+      ],
+      "contractionSchedule": "packages/server/src/composition/CONTROL-PLANE-CONTRACTION.md",
+      "fieldCount": 12,
+      "fields": [
+        "approvalStore",
+        "catalogStore",
+        "clusterStore",
+        "learningEventProcessor",
+        "mailDelivery",
+        "mailboxStore",
+        "notifier",
+        "personaStore",
+        "presetRegistry",
+        "promptFeedbackLoop",
+        "promptStore",
+        "reflectionStore"
+      ]
     }
   },
   "layerGraph": {
