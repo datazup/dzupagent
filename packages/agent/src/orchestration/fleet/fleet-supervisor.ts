@@ -2,7 +2,6 @@ import { ulid } from "ulidx";
 import type {
   FleetRunResult,
   FleetRunSpec,
-  FleetTask,
   KnowledgeEnvelope,
   RepoAgentResult,
   RepoRef,
@@ -71,7 +70,7 @@ export class FleetSupervisor implements FleetSupervisorApi {
         repo: repo.name,
         busy: false,
       };
-      const trackingExecutor = this.trackingExecutorFor(repo, spec);
+      const trackingExecutor = this.trackingExecutorFor(repo);
       const agent = new RepoAgent({
         runId: spec.runId,
         repo,
@@ -275,7 +274,7 @@ export class FleetSupervisor implements FleetSupervisorApi {
    * repo. When the underlying executor spawns a worker, the handle is
    * registered under the task's id so control methods can reach it.
    */
-  private trackingExecutorFor(repo: RepoRef, spec: FleetRunSpec): Executor {
+  private trackingExecutorFor(repo: RepoRef): Executor {
     const supervisor = this;
     const inner = this.deps.executorFor(repo);
     return {
