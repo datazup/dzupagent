@@ -17,6 +17,7 @@ import {
 import type { AgentCircuitBreaker } from "../orchestration/circuit-breaker.js";
 import type { ProviderExecutionPort } from "../orchestration/provider-adapter/provider-execution-port.js";
 import type { RoutingPolicy } from "../orchestration/routing-policy-types.js";
+import { OrchestrationError } from "../orchestration/orchestration-error.js";
 
 // Top-level mock so vi.mocked(PlanningAgent) works in the LLM-path tests.
 vi.mock("../orchestration/planning-agent.js");
@@ -951,7 +952,7 @@ describe("DelegatingSupervisor", () => {
 
     // --- Routing-policy path ---
 
-    it("calls routeSubtasksViaPolicy instead of keyword matching when routingPolicy is set", async () => {
+    it("uses routingPolicy selection instead of keyword matching when routingPolicy is set", async () => {
       const tracker = new SimpleDelegationTracker({
         runStore: store,
         eventBus,
@@ -959,31 +960,61 @@ describe("DelegatingSupervisor", () => {
       });
       const specialists = new Map<string, AgentExecutionSpec>([
         [
-          "api-agent",
-          makeSpecialist("api-agent", { metadata: { tags: ["api"] } }),
+          "db-agent",
+          makeSpecialist("db-agent", { metadata: { tags: ["database"] } }),
+        ],
+        [
+          "policy-agent",
+          makeSpecialist("policy-agent", { metadata: { tags: ["frontend"] } }),
         ],
       ]);
-      const routingPolicy: RoutingPolicy = {
-        select: (_task, candidates) => ({
-          selected: candidates.slice(0, 1),
-          reason: "first candidate",
+      const select = vi.fn(
+        (
+          _task: Parameters<RoutingPolicy["select"]>[0],
+          candidates: Parameters<RoutingPolicy["select"]>[1]
+        ) => ({
+          selected: [
+            candidates.find((candidate) => candidate.id === "policy-agent")!,
+          ],
+          reason: "force policy branch",
           strategy: "rule",
-        }),
+        })
+      );
+      const routingPolicy: RoutingPolicy = {
+        select,
       };
-      const supervisor = new DelegatingSupervisor({
+      const policySupervisor = new DelegatingSupervisor({
         specialists,
         tracker,
         eventBus,
         routingPolicy,
       });
 
-      const result = await supervisor.planAndDelegate("build the api endpoint");
+      const policyResult = await policySupervisor.planAndDelegate(
+        "set up the database schema"
+      );
 
-      expect(result.results.size).toBeGreaterThan(0);
-      expect(result.succeeded.length).toBeGreaterThan(0);
+      expect(select).toHaveBeenCalledTimes(1);
+      expect(policyResult.succeeded).toEqual(["policy-agent"]);
+      expect(policyResult.succeeded).not.toContain("db-agent");
+
+      select.mockClear();
+
+      const keywordSupervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+      });
+      const keywordResult = await keywordSupervisor.planAndDelegate(
+        "set up the database schema"
+      );
+
+      expect(select).not.toHaveBeenCalled();
+      expect(keywordResult.succeeded).toContain("db-agent");
+      expect(keywordResult.succeeded).not.toContain("policy-agent");
     });
 
-    it("returns succeeded specialist IDs from policy-routed assignments", async () => {
+    it("propagates only selected specialist results from policy-routed assignments", async () => {
       const tracker = new SimpleDelegationTracker({
         runStore: store,
         eventBus,
@@ -994,13 +1025,39 @@ describe("DelegatingSupervisor", () => {
           "api-agent",
           makeSpecialist("api-agent", { metadata: { tags: ["api"] } }),
         ],
+        [
+          "ui-agent",
+          makeSpecialist("ui-agent", { metadata: { tags: ["ui"] } }),
+        ],
       ]);
+      const select = vi
+        .fn()
+        .mockImplementationOnce(
+          (
+            _task: Parameters<RoutingPolicy["select"]>[0],
+            candidates: Parameters<RoutingPolicy["select"]>[1]
+          ) => ({
+            selected: [
+              candidates.find((candidate) => candidate.id === "api-agent")!,
+            ],
+            reason: "api branch",
+            strategy: "rule",
+          })
+        )
+        .mockImplementationOnce(
+          (
+            _task: Parameters<RoutingPolicy["select"]>[0],
+            candidates: Parameters<RoutingPolicy["select"]>[1]
+          ) => ({
+            selected: [
+              candidates.find((candidate) => candidate.id === "ui-agent")!,
+            ],
+            reason: "ui branch",
+            strategy: "rule",
+          })
+        );
       const routingPolicy: RoutingPolicy = {
-        select: (_task, candidates) => ({
-          selected: candidates,
-          reason: "all candidates",
-          strategy: "rule",
-        }),
+        select,
       };
       const supervisor = new DelegatingSupervisor({
         specialists,
@@ -1009,9 +1066,21 @@ describe("DelegatingSupervisor", () => {
         routingPolicy,
       });
 
-      const result = await supervisor.planAndDelegate("build the api endpoint");
+      const apiResult = await supervisor.planAndDelegate("build the api endpoint");
 
-      expect(result.succeeded).toContain("api-agent");
+      expect(apiResult.succeeded).toEqual(["api-agent"]);
+      expect(apiResult.results.get("api-agent")?.output).toBe(
+        "Result from api-agent"
+      );
+      expect(apiResult.results.has("ui-agent")).toBe(false);
+
+      const uiResult = await supervisor.planAndDelegate("build the api endpoint");
+
+      expect(uiResult.succeeded).toEqual(["ui-agent"]);
+      expect(uiResult.results.get("ui-agent")?.output).toBe(
+        "Result from ui-agent"
+      );
+      expect(uiResult.results.has("api-agent")).toBe(false);
     });
 
     it("throws OrchestrationError when routingPolicy returns empty selection for all subtasks", async () => {
@@ -1026,23 +1095,52 @@ describe("DelegatingSupervisor", () => {
           makeSpecialist("api-agent", { metadata: { tags: ["api"] } }),
         ],
       ]);
-      const routingPolicy: RoutingPolicy = {
+      const selectingPolicy: RoutingPolicy = {
+        select: (
+          _task: Parameters<RoutingPolicy["select"]>[0],
+          candidates: Parameters<RoutingPolicy["select"]>[1]
+        ) => ({
+          selected: [candidates[0]!],
+          reason: "select first candidate",
+          strategy: "rule",
+        }),
+      };
+      const successfulSupervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+        routingPolicy: selectingPolicy,
+      });
+
+      await expect(
+        successfulSupervisor.planAndDelegate("do something unrelated xyz")
+      ).resolves.toMatchObject({
+        succeeded: ["api-agent"],
+      });
+
+      const emptyPolicy: RoutingPolicy = {
         select: () => ({
           selected: [],
           reason: "no match",
           strategy: "rule",
         }),
       };
-      const supervisor = new DelegatingSupervisor({
+      const emptyRouteSupervisor = new DelegatingSupervisor({
         specialists,
         tracker,
         eventBus,
-        routingPolicy,
+        routingPolicy: emptyPolicy,
       });
 
-      await expect(
-        supervisor.planAndDelegate("do something unrelated xyz")
-      ).rejects.toThrow("No specialists matched");
+      let thrown: unknown;
+      try {
+        await emptyRouteSupervisor.planAndDelegate("do something unrelated xyz");
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toBeInstanceOf(OrchestrationError);
+      expect((thrown as Error).message).toContain("No specialists matched");
     });
   });
 
