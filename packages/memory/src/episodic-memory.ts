@@ -288,8 +288,8 @@ export class EpisodicMemory {
       .filter((ep) => ep.endedAt !== undefined);
 
     for (let i = 0; i < closed.length - 1; i++) {
-      const prev = closed[i];
-      const next = closed[i + 1];
+      const prev = closed[i]!;
+      const next = closed[i + 1]!;
       const gapMs = next.startedAt - prev.endedAt!;
       if (gapMs > 0) {
         gaps.push({ afterEpisodeId: prev.id, beforeEpisodeId: next.id, gapMs });
