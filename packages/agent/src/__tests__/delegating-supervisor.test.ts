@@ -16,6 +16,10 @@ import {
 } from "../orchestration/delegating-supervisor.js";
 import type { AgentCircuitBreaker } from "../orchestration/circuit-breaker.js";
 import type { ProviderExecutionPort } from "../orchestration/provider-adapter/provider-execution-port.js";
+import type { RoutingPolicy } from "../orchestration/routing-policy-types.js";
+
+// Top-level mock so vi.mocked(PlanningAgent) works in the LLM-path tests.
+vi.mock("../orchestration/planning-agent.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -699,6 +703,263 @@ describe("DelegatingSupervisor", () => {
         "set up the database schema"
       );
       expect((planEvent as Record<string, unknown>).assignments).toBeDefined();
+    });
+
+    // --- LLM path ---
+    // vi.mock is hoisted so the PlanningAgent mock state is shared across these
+    // three tests. Each test sets planningAgentImpl before calling planAndDelegate.
+
+    it("calls PlanningAgent.decompose when llm option is provided and returns succeeded node IDs", async () => {
+      const { PlanningAgent } = await import(
+        "../orchestration/planning-agent.js"
+      );
+      vi.mocked(PlanningAgent).mockImplementation(
+        () =>
+          ({
+            decompose: vi.fn().mockResolvedValue({
+              goal: "build the api",
+              nodes: [
+                {
+                  id: "node-1",
+                  task: "task 1",
+                  specialistId: "spec-a",
+                  input: {},
+                  dependsOn: [],
+                },
+              ],
+              executionLevels: [["node-1"]],
+            }),
+            executePlan: vi.fn().mockResolvedValue({
+              plan: { goal: "build the api", nodes: [], executionLevels: [] },
+              results: new Map([["node-1", { success: true, output: "done" }]]),
+              success: true,
+              totalDurationMs: 10,
+              failedNodes: [],
+              skippedNodes: [],
+            }),
+          } as unknown as InstanceType<typeof PlanningAgent>)
+      );
+
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        eventBus,
+        executor: specialistExecutor(store),
+      });
+      const specialists = new Map<string, AgentExecutionSpec>([
+        ["spec-a", makeSpecialist("spec-a", { metadata: { tags: ["api"] } })],
+      ]);
+      const supervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+      });
+
+      const mockLlm = { invoke: vi.fn().mockResolvedValue({ content: "" }) };
+      const result = await supervisor.planAndDelegate("build the api", {
+        llm: mockLlm,
+      });
+
+      expect(result.succeeded).toContain("node-1");
+    });
+
+    it("emits supervisor:llm_decompose_fallback and falls back to keyword matching on LLM failure", async () => {
+      const { PlanningAgent } = await import(
+        "../orchestration/planning-agent.js"
+      );
+      vi.mocked(PlanningAgent).mockImplementation(
+        () =>
+          ({
+            decompose: vi.fn().mockRejectedValue(new Error("LLM unavailable")),
+          } as unknown as InstanceType<typeof PlanningAgent>)
+      );
+
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        eventBus,
+        executor: specialistExecutor(store),
+      });
+      const specialists = new Map<string, AgentExecutionSpec>([
+        [
+          "db-specialist",
+          makeSpecialist("db-specialist", { metadata: { tags: ["database"] } }),
+        ],
+      ]);
+      const supervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+      });
+
+      const mockLlm = { invoke: vi.fn() };
+      await supervisor.planAndDelegate("set up the database schema", {
+        llm: mockLlm,
+      });
+
+      const fallbackEvent = events.find(
+        (e) => e.type === "supervisor:llm_decompose_fallback"
+      );
+      expect(fallbackEvent).toBeDefined();
+      const planCreatedEvent = events.find(
+        (e) =>
+          e.type === "supervisor:plan_created" &&
+          (e as Record<string, unknown>).source === "keyword"
+      );
+      expect(planCreatedEvent).toBeDefined();
+    });
+
+    it("forwards acknowledgeUnresolvedNodes to PlanningAgent.decompose", async () => {
+      const decomposeMock = vi.fn().mockResolvedValue({
+        goal: "build the api",
+        nodes: [
+          {
+            id: "node-1",
+            task: "task 1",
+            specialistId: "spec-a",
+            input: {},
+            dependsOn: [],
+          },
+        ],
+        executionLevels: [["node-1"]],
+      });
+      const { PlanningAgent } = await import(
+        "../orchestration/planning-agent.js"
+      );
+      vi.mocked(PlanningAgent).mockImplementation(
+        () =>
+          ({
+            decompose: decomposeMock,
+            executePlan: vi.fn().mockResolvedValue({
+              plan: { goal: "build the api", nodes: [], executionLevels: [] },
+              results: new Map([["node-1", { success: true, output: "done" }]]),
+              success: true,
+              totalDurationMs: 5,
+              failedNodes: [],
+              skippedNodes: [],
+            }),
+          } as unknown as InstanceType<typeof PlanningAgent>)
+      );
+
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        eventBus,
+        executor: specialistExecutor(store),
+      });
+      const specialists = new Map<string, AgentExecutionSpec>([
+        ["spec-a", makeSpecialist("spec-a", { metadata: { tags: ["api"] } })],
+      ]);
+      const supervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+      });
+
+      const mockLlm = { invoke: vi.fn().mockResolvedValue({ content: "" }) };
+      await supervisor.planAndDelegate("build the api", {
+        llm: mockLlm,
+        acknowledgeUnresolvedNodes: true,
+      });
+
+      expect(decomposeMock).toHaveBeenCalledWith(
+        "build the api",
+        mockLlm,
+        expect.objectContaining({ acknowledgeUnresolvedNodes: true })
+      );
+    });
+
+    // --- Routing-policy path ---
+
+    it("calls routeSubtasksViaPolicy instead of keyword matching when routingPolicy is set", async () => {
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        eventBus,
+        executor: specialistExecutor(store),
+      });
+      const specialists = new Map<string, AgentExecutionSpec>([
+        [
+          "api-agent",
+          makeSpecialist("api-agent", { metadata: { tags: ["api"] } }),
+        ],
+      ]);
+      const routingPolicy: RoutingPolicy = {
+        select: (_task, candidates) => ({
+          selected: candidates.slice(0, 1),
+          reason: "first candidate",
+          strategy: "rule",
+        }),
+      };
+      const supervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+        routingPolicy,
+      });
+
+      const result = await supervisor.planAndDelegate("build the api endpoint");
+
+      expect(result.results.size).toBeGreaterThan(0);
+      expect(result.succeeded.length).toBeGreaterThan(0);
+    });
+
+    it("returns succeeded specialist IDs from policy-routed assignments", async () => {
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        eventBus,
+        executor: specialistExecutor(store),
+      });
+      const specialists = new Map<string, AgentExecutionSpec>([
+        [
+          "api-agent",
+          makeSpecialist("api-agent", { metadata: { tags: ["api"] } }),
+        ],
+      ]);
+      const routingPolicy: RoutingPolicy = {
+        select: (_task, candidates) => ({
+          selected: candidates,
+          reason: "all candidates",
+          strategy: "rule",
+        }),
+      };
+      const supervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+        routingPolicy,
+      });
+
+      const result = await supervisor.planAndDelegate("build the api endpoint");
+
+      expect(result.succeeded).toContain("api-agent");
+    });
+
+    it("throws OrchestrationError when routingPolicy returns empty selection for all subtasks", async () => {
+      const tracker = new SimpleDelegationTracker({
+        runStore: store,
+        eventBus,
+        executor: withStoreUpdate(store),
+      });
+      const specialists = new Map<string, AgentExecutionSpec>([
+        [
+          "api-agent",
+          makeSpecialist("api-agent", { metadata: { tags: ["api"] } }),
+        ],
+      ]);
+      const routingPolicy: RoutingPolicy = {
+        select: () => ({
+          selected: [],
+          reason: "no match",
+          strategy: "rule",
+        }),
+      };
+      const supervisor = new DelegatingSupervisor({
+        specialists,
+        tracker,
+        eventBus,
+        routingPolicy,
+      });
+
+      await expect(
+        supervisor.planAndDelegate("do something unrelated xyz")
+      ).rejects.toThrow("No specialists matched");
     });
   });
 
