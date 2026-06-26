@@ -1868,3 +1868,135 @@ describe("StreamActionParser — tryParseJson edge cases", () => {
     expect(received[0]).toEqual({ msg: "hello world" });
   });
 });
+
+// ===========================================================================
+// 17. Additional stream semantics and cleanup
+// ===========================================================================
+
+describe("StreamingRunHandle — push-then-fail ordering", () => {
+  it("multiple text events followed by error all appear in drain order", async () => {
+    const handle = new StreamingRunHandle();
+    handle.push({ type: "text_delta", content: "t1" });
+    handle.push({ type: "text_delta", content: "t2" });
+    handle.push({ type: "text_delta", content: "t3" });
+    handle.fail(new Error("triple-fail"));
+
+    const events = await drainHandle(handle);
+    expect(events).toHaveLength(4);
+    expect(events[0]!.type).toBe("text_delta");
+    expect(events[1]!.type).toBe("text_delta");
+    expect(events[2]!.type).toBe("text_delta");
+    expect(events[3]!.type).toBe("error");
+  });
+
+  it("fail() error message is the exact Error message, not wrapped", async () => {
+    const handle = new StreamingRunHandle();
+    handle.fail(new Error("exact message"));
+    const events = await drainHandle(handle);
+    const errEvent = events.find((e) => e.type === "error");
+    expect(errEvent!.type).toBe("error");
+    if (errEvent!.type === "error") {
+      expect(errEvent!.error.message).toBe("exact message");
+    }
+  });
+
+  it("done event finalOutput is preserved including whitespace", async () => {
+    const handle = new StreamingRunHandle();
+    handle.push({ type: "done", finalOutput: "  spaced  " });
+    handle.complete();
+    const events = await drainHandle(handle);
+    if (events[0]!.type === "done") {
+      expect(events[0]!.finalOutput).toBe("  spaced  ");
+    }
+  });
+
+  it("large finalOutput string is preserved verbatim", async () => {
+    const bigText = "x".repeat(100_000);
+    const handle = new StreamingRunHandle();
+    handle.push({ type: "done", finalOutput: bigText });
+    handle.complete();
+    const events = await drainHandle(handle);
+    if (events[0]!.type === "done") {
+      expect(events[0]!.finalOutput).toHaveLength(100_000);
+    }
+  });
+});
+
+describe("StreamActionParser — reset / re-use semantics", () => {
+  it("a fresh parser has no fired IDs — same ID from two parsers both fire", async () => {
+    const log: string[] = [];
+    const makeParser = () => {
+      const t = makeTool("t", async () => {
+        log.push("called");
+        return "ok";
+      });
+      return new StreamActionParser([t]);
+    };
+
+    const p1 = makeParser();
+    const p2 = makeParser();
+
+    await p1.processChunk({
+      tool_calls: [{ id: "shared-id", name: "t", args: {} }],
+    });
+    await p2.processChunk({
+      tool_calls: [{ id: "shared-id", name: "t", args: {} }],
+    });
+
+    // Each independent parser fires once
+    expect(log).toHaveLength(2);
+  });
+
+  it("tool with numeric args works correctly", async () => {
+    const received: unknown[] = [];
+    const tool = makeTool("math", async (a) => {
+      received.push(a);
+      return String((a["x"] as number) + (a["y"] as number));
+    });
+    const parser = new StreamActionParser([tool]);
+
+    const events = await parser.processChunk({
+      tool_calls: [{ id: "m1", name: "math", args: { x: 3, y: 4 } }],
+    });
+
+    const result = events.find((e) => e.type === "tool_result");
+    expect(result!.data.result).toBe("7");
+  });
+
+  it("processChunk with both content and tool_call produces text event first", async () => {
+    const tool = makeTool("u", async () => "ok");
+    const parser = new StreamActionParser([tool]);
+
+    const events = await parser.processChunk({
+      content: "Thinking...",
+      tool_calls: [{ id: "u1", name: "u", args: {} }],
+    });
+
+    expect(events[0]!.type).toBe("text");
+    expect(events[0]!.data.content).toBe("Thinking...");
+  });
+
+  it("tool_call_complete event carries a reference to the tool call", async () => {
+    // In sequential mode the exec returns [tool_call_complete, tool_result]
+    const tool = makeTool("ref-check", async () => "done");
+    const parser = new StreamActionParser([tool]);
+
+    const events = await parser.processChunk({
+      tool_calls: [{ id: "rc1", name: "ref-check", args: { a: 1 } }],
+    });
+
+    const complete = events.find((e) => e.type === "tool_call_complete");
+    expect(complete).toBeDefined();
+    expect(complete!.data.toolCall?.name).toBe("ref-check");
+    expect(complete!.data.toolCall?.id).toBe("rc1");
+  });
+
+  it("StreamingRunHandle maxBufferSize=0 drops every pushed event", async () => {
+    const handle = new StreamingRunHandle({ maxBufferSize: 0 });
+    handle.push({ type: "text_delta", content: "dropped" });
+    handle.complete();
+
+    const events = await drainHandle(handle);
+    expect(events).toHaveLength(0);
+  });
+});
