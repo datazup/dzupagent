@@ -139,6 +139,7 @@ describe("DelegatingSupervisor", () => {
   let events: DzupEvent[];
 
   beforeEach(() => {
+    vi.resetAllMocks();
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
@@ -706,29 +707,30 @@ describe("DelegatingSupervisor", () => {
     });
 
     // --- LLM path ---
-    // vi.mock is hoisted so the PlanningAgent mock state is shared across these
-    // three tests. Each test sets planningAgentImpl before calling planAndDelegate.
+    // vi.mock is hoisted, so beforeEach resets the PlanningAgent constructor mock
+    // before each LLM-path branch test configures its own implementation.
 
-    it("calls PlanningAgent.decompose when llm option is provided and returns succeeded node IDs", async () => {
+    it("calls PlanningAgent.decompose only when llm option is provided and returns succeeded node IDs", async () => {
       const { PlanningAgent } = await import(
         "../orchestration/planning-agent.js"
       );
+      const decomposeMock = vi.fn().mockResolvedValue({
+        goal: "build the api",
+        nodes: [
+          {
+            id: "node-1",
+            task: "task 1",
+            specialistId: "spec-a",
+            input: {},
+            dependsOn: [],
+          },
+        ],
+        executionLevels: [["node-1"]],
+      });
       vi.mocked(PlanningAgent).mockImplementation(
         () =>
           ({
-            decompose: vi.fn().mockResolvedValue({
-              goal: "build the api",
-              nodes: [
-                {
-                  id: "node-1",
-                  task: "task 1",
-                  specialistId: "spec-a",
-                  input: {},
-                  dependsOn: [],
-                },
-              ],
-              executionLevels: [["node-1"]],
-            }),
+            decompose: decomposeMock,
             executePlan: vi.fn().mockResolvedValue({
               plan: { goal: "build the api", nodes: [], executionLevels: [] },
               results: new Map([["node-1", { success: true, output: "done" }]]),
@@ -760,16 +762,61 @@ describe("DelegatingSupervisor", () => {
       });
 
       expect(result.succeeded).toContain("node-1");
+      expect(decomposeMock).toHaveBeenCalledWith(
+        "build the api",
+        mockLlm,
+        {}
+      );
+
+      vi.mocked(PlanningAgent).mockClear();
+      decomposeMock.mockClear();
+
+      const keywordResult = await supervisor.planAndDelegate(
+        "build the api endpoint"
+      );
+
+      expect(keywordResult.succeeded).toContain("spec-a");
+      expect(PlanningAgent).not.toHaveBeenCalled();
+      expect(decomposeMock).not.toHaveBeenCalled();
     });
 
-    it("emits supervisor:llm_decompose_fallback and falls back to keyword matching on LLM failure", async () => {
+    it("emits supervisor:llm_decompose_fallback only on LLM failure and falls back to keyword matching", async () => {
       const { PlanningAgent } = await import(
         "../orchestration/planning-agent.js"
       );
+      const successfulDecompose = vi.fn().mockResolvedValue({
+        goal: "set up the database schema",
+        nodes: [
+          {
+            id: "llm-node",
+            task: "schema task",
+            specialistId: "db-specialist",
+            input: {},
+            dependsOn: [],
+          },
+        ],
+        executionLevels: [["llm-node"]],
+      });
+      const executePlanMock = vi.fn().mockResolvedValue({
+        plan: {
+          goal: "set up the database schema",
+          nodes: [],
+          executionLevels: [],
+        },
+        results: new Map([["llm-node", { success: true, output: "llm done" }]]),
+        success: true,
+        totalDurationMs: 4,
+        failedNodes: [],
+        skippedNodes: [],
+      });
+      const failingDecompose = vi
+        .fn()
+        .mockRejectedValue(new Error("LLM unavailable"));
       vi.mocked(PlanningAgent).mockImplementation(
         () =>
           ({
-            decompose: vi.fn().mockRejectedValue(new Error("LLM unavailable")),
+            decompose: successfulDecompose,
+            executePlan: executePlanMock,
           } as unknown as InstanceType<typeof PlanningAgent>)
       );
 
@@ -791,23 +838,51 @@ describe("DelegatingSupervisor", () => {
       });
 
       const mockLlm = { invoke: vi.fn() };
-      await supervisor.planAndDelegate("set up the database schema", {
-        llm: mockLlm,
-      });
+      const llmResult = await supervisor.planAndDelegate(
+        "set up the database schema",
+        {
+          llm: mockLlm,
+        }
+      );
+
+      expect(llmResult.succeeded).toEqual(["llm-node"]);
+      expect(
+        events.some((e) => e.type === "supervisor:llm_decompose_fallback")
+      ).toBe(false);
+
+      vi.mocked(PlanningAgent).mockImplementation(
+        () =>
+          ({
+            decompose: failingDecompose,
+          } as unknown as InstanceType<typeof PlanningAgent>)
+      );
+
+      const fallbackResult = await supervisor.planAndDelegate(
+        "set up the database schema",
+        {
+          llm: mockLlm,
+        }
+      );
+
+      expect(fallbackResult.succeeded).toContain("db-specialist");
 
       const fallbackEvent = events.find(
         (e) => e.type === "supervisor:llm_decompose_fallback"
       );
-      expect(fallbackEvent).toBeDefined();
-      const planCreatedEvent = events.find(
+      expect(fallbackEvent).toMatchObject({
+        type: "supervisor:llm_decompose_fallback",
+        goal: "set up the database schema",
+        error: "LLM unavailable",
+      });
+      const keywordPlanCreatedEvents = events.filter(
         (e) =>
           e.type === "supervisor:plan_created" &&
           (e as Record<string, unknown>).source === "keyword"
       );
-      expect(planCreatedEvent).toBeDefined();
+      expect(keywordPlanCreatedEvents).toHaveLength(1);
     });
 
-    it("forwards acknowledgeUnresolvedNodes to PlanningAgent.decompose", async () => {
+    it("forwards acknowledgeUnresolvedNodes to PlanningAgent.decompose only when set", async () => {
       const decomposeMock = vi.fn().mockResolvedValue({
         goal: "build the api",
         nodes: [
@@ -856,14 +931,22 @@ describe("DelegatingSupervisor", () => {
       const mockLlm = { invoke: vi.fn().mockResolvedValue({ content: "" }) };
       await supervisor.planAndDelegate("build the api", {
         llm: mockLlm,
+      });
+
+      await supervisor.planAndDelegate("build the api", {
+        llm: mockLlm,
         acknowledgeUnresolvedNodes: true,
       });
 
-      expect(decomposeMock).toHaveBeenCalledWith(
-        "build the api",
-        mockLlm,
-        expect.objectContaining({ acknowledgeUnresolvedNodes: true })
+      const defaultOptions = decomposeMock.mock.calls[0]?.[2];
+      const acknowledgedOptions = decomposeMock.mock.calls[1]?.[2];
+      expect(defaultOptions).not.toHaveProperty(
+        "acknowledgeUnresolvedNodes",
+        true
       );
+      expect(acknowledgedOptions).toMatchObject({
+        acknowledgeUnresolvedNodes: true,
+      });
     });
 
     // --- Routing-policy path ---
