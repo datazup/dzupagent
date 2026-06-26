@@ -225,3 +225,14 @@ export type {
   DomainScorerResult,
   DomainScorerParams,
 } from './scorers/domain-scorer.js';
+
+export { FactualityScorer, FactualityEval } from './scorers/factuality-scorer.js';
+export type {
+  FactualityClaim,
+  FactualityClaimResult,
+  FactualityClaimStatus,
+  FactualityEvalInput,
+  FactualityReport,
+  FactualityScorerConfig,
+  ReferenceFact,
+} from './scorers/factuality-scorer.js';

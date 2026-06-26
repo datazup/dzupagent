@@ -202,6 +202,16 @@ export {
 } from './quality/quality-dimensions.js'
 export { analyzeCoverage, findUncoveredFiles } from './quality/coverage-analyzer.js'
 export type { CoverageReport, CoverageConfig } from './quality/coverage-analyzer.js'
+export { DeadCodeEliminator } from './quality/dead-code-eliminator.js'
+export type {
+  DeadCodeAnalysisResult,
+  DeadCodeEliminatorOptions,
+  DeadCodePatch,
+  DeadCodeReference,
+  DeadCodeSourceFile,
+  DeadCodeSymbol,
+  DeadCodeSymbolKind,
+} from './quality/dead-code-eliminator.js'
 export { validateImports as validateImportCoherence } from './quality/import-validator.js'
 export type {
   ImportIssue,
