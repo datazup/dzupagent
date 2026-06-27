@@ -1,21 +1,21 @@
-import assert from "node:assert/strict";
+import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import test from "node:test";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, "fixtures");
-const replayPkg = new URL("../dist/index.js", import.meta.url).href;
-const corePkg = new URL(
-  "../../dialogue-core/dist/index.js",
-  import.meta.url,
-).href;
 
-async function loadPackages() {
-  const replay = await import(`${replayPkg}?t=${Date.now()}`);
-  const core = await import(`${corePkg}?t=${Date.now()}`);
-  return { replay, core };
+// Import from built dist — these tests require `yarn build` to have run first.
+// In CI, build runs before test.
+import * as replayModule from "../dist/index.js";
+import * as coreModule from "../../dialogue-core/dist/index.js";
+
+const replay = replayModule;
+const core = coreModule;
+
+function makeSchedulerFactory(coreLib) {
+  return (ports, options) => new coreLib.DialogueScheduler(ports, options);
 }
 
 async function loadFixture(name) {
@@ -23,55 +23,38 @@ async function loadFixture(name) {
   return JSON.parse(raw);
 }
 
-function makeSchedulerFactory(core) {
-  return (ports, options) => new core.DialogueScheduler(ports, options);
-}
+describe("replayDialogue", () => {
+  it("done-path fixture replays without live calls and matches runSpecHash", async () => {
+    const golden = await loadFixture("done-path.golden.json");
 
-test("done-path fixture replays without live calls and matches runSpecHash", async () => {
-  const { replay, core } = await loadPackages();
-  const golden = await loadFixture("done-path.golden.json");
+    const result = await replay.replayDialogue(golden, makeSchedulerFactory(core));
 
-  const result = await replay.replayDialogue(
-    golden,
-    makeSchedulerFactory(core),
-  );
+    expect(result.actualRunSpecHash).toBe(golden.runSpecHash);
+    expect([...result.actualVerbSequence]).toEqual(golden.verbSequence);
+  });
 
-  assert.equal(result.actualRunSpecHash, golden.runSpecHash);
-  assert.deepEqual([...result.actualVerbSequence], golden.verbSequence);
-});
+  it("escalate-path fixture replays two verbs in order", async () => {
+    const golden = await loadFixture("escalate-path.golden.json");
 
-test("escalate-path fixture replays two verbs in order", async () => {
-  const { replay, core } = await loadPackages();
-  const golden = await loadFixture("escalate-path.golden.json");
+    const result = await replay.replayDialogue(golden, makeSchedulerFactory(core));
 
-  const result = await replay.replayDialogue(
-    golden,
-    makeSchedulerFactory(core),
-  );
+    expect(result.actualRunSpecHash).toBe(golden.runSpecHash);
+    expect([...result.actualVerbSequence]).toEqual(golden.verbSequence);
+  });
 
-  assert.equal(result.actualRunSpecHash, golden.runSpecHash);
-  assert.deepEqual([...result.actualVerbSequence], golden.verbSequence);
-});
+  it("branch-fork-merge fixture replays three verbs in order", async () => {
+    const golden = await loadFixture("branch-fork-merge.golden.json");
 
-test("branch-fork-merge fixture replays three verbs in order", async () => {
-  const { replay, core } = await loadPackages();
-  const golden = await loadFixture("branch-fork-merge.golden.json");
+    const result = await replay.replayDialogue(golden, makeSchedulerFactory(core));
 
-  const result = await replay.replayDialogue(
-    golden,
-    makeSchedulerFactory(core),
-  );
+    expect(result.actualRunSpecHash).toBe(golden.runSpecHash);
+    expect([...result.actualVerbSequence]).toEqual(golden.verbSequence);
+  });
 
-  assert.equal(result.actualRunSpecHash, golden.runSpecHash);
-  assert.deepEqual([...result.actualVerbSequence], golden.verbSequence);
-});
+  it("ReplayExhaustedError is thrown directly by RecordedAgentPort when recordings exhausted", async () => {
+    const port = new replay.RecordedAgentPort([]);
 
-test("ReplayExhaustedError is thrown directly by RecordedAgentPort when recordings exhausted", async () => {
-  const { replay } = await loadPackages();
-  const port = new replay.RecordedAgentPort([]);
-
-  await assert.rejects(
-    () =>
+    await expect(
       port.run({
         turnType: "deliberate",
         turnIndex: 0,
@@ -82,73 +65,61 @@ test("ReplayExhaustedError is thrown directly by RecordedAgentPort when recordin
         input: { prompt: "hello", participants: [] },
         escape: false,
       }),
-    (err) => {
-      assert.equal(err.name, "ReplayExhaustedError");
-      assert.equal(err.portName, "agent");
-      assert.equal(err.callIndex, 0);
+    ).rejects.toSatisfy((err) => {
+      expect(err.name).toBe("ReplayExhaustedError");
+      expect(err.portName).toBe("agent");
+      expect(err.callIndex).toBe(0);
       return true;
-    },
-  );
-});
+    });
+  });
 
-test("verbSequence mismatch is detected when agent calls are exhausted mid-run", async () => {
-  const { replay, core } = await loadPackages();
-  const golden = await loadFixture("done-path.golden.json");
+  it("verbSequence mismatch is detected when agent calls are exhausted mid-run", async () => {
+    const golden = await loadFixture("done-path.golden.json");
 
-  // Remove all agent calls — scheduler will fail the turn (status=failed),
-  // so no verbs are captured and verbSequence will diverge from the golden.
-  const exhausted = {
-    ...golden,
-    turns: golden.turns.map((t) => ({ ...t, agentCalls: [] })),
-  };
+    // Remove all agent calls — scheduler will fail the turn (status=failed),
+    // so no verbs are captured and verbSequence will diverge from the golden.
+    const exhausted = {
+      ...golden,
+      turns: golden.turns.map((t) => ({ ...t, agentCalls: [] })),
+    };
 
-  await assert.rejects(
-    () => replay.replayDialogue(exhausted, makeSchedulerFactory(core)),
-    (err) => {
-      assert.equal(err.name, "ReplayAssertionError");
-      assert.ok(
-        err.message.includes("verbSequence diverged"),
-        `Expected verbSequence mismatch, got: ${err.message}`,
-      );
+    await expect(
+      replay.replayDialogue(exhausted, makeSchedulerFactory(core)),
+    ).rejects.toSatisfy((err) => {
+      expect(err.name).toBe("ReplayAssertionError");
+      expect(err.message).toMatch(/verbSequence diverged/);
       return true;
-    },
-  );
-});
+    });
+  });
 
-test("runSpecHash mismatch causes ReplayAssertionError at the correct turn", async () => {
-  const { replay, core } = await loadPackages();
-  const golden = await loadFixture("done-path.golden.json");
+  it("runSpecHash mismatch causes ReplayAssertionError at the correct turn", async () => {
+    const golden = await loadFixture("done-path.golden.json");
 
-  // Corrupt the stored hash — the computed hash will differ
-  const corrupted = {
-    ...golden,
-    runSpecHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-  };
+    // Corrupt the stored hash — the computed hash will differ
+    const corrupted = {
+      ...golden,
+      runSpecHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    };
 
-  await assert.rejects(
-    () => replay.replayDialogue(corrupted, makeSchedulerFactory(core)),
-    (err) => {
-      assert.equal(err.name, "ReplayAssertionError");
-      assert.ok(
-        err.message.includes("runSpecHash mismatch"),
-        `Expected runSpecHash mismatch message, got: ${err.message}`,
-      );
+    await expect(
+      replay.replayDialogue(corrupted, makeSchedulerFactory(core)),
+    ).rejects.toSatisfy((err) => {
+      expect(err.name).toBe("ReplayAssertionError");
+      expect(err.message).toMatch(/runSpecHash mismatch/);
       return true;
-    },
-  );
-});
+    });
+  });
 
-test("GoldenTraceValidationError is thrown for invalid fixture shape", async () => {
-  const { replay } = await loadPackages();
-  const factory = (ports, options) => {
-    throw new Error("should not reach scheduler");
-  };
+  it("GoldenTraceValidationError is thrown for invalid fixture shape", async () => {
+    const factory = (_ports, _options) => {
+      throw new Error("should not reach scheduler");
+    };
 
-  await assert.rejects(
-    () => replay.replayDialogue({ not: "a valid trace" }, factory),
-    (err) => {
-      assert.equal(err.name, "GoldenTraceValidationError");
+    await expect(
+      replay.replayDialogue({ not: "a valid trace" }, factory),
+    ).rejects.toSatisfy((err) => {
+      expect(err.name).toBe("GoldenTraceValidationError");
       return true;
-    },
-  );
+    });
+  });
 });
