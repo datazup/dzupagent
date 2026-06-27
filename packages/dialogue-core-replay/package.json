@@ -15,7 +15,8 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
-    "test": "node --test test/replay-dialogue.test.mjs"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@dzupagent/dialogue-core": "0.2.0"
@@ -23,7 +24,8 @@
   "devDependencies": {
     "@types/node": "^22.13.0",
     "tsup": "*",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   },
   "files": [
     "dist"

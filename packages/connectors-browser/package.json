@@ -14,7 +14,8 @@
     "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@dzupagent/core": "0.2.0"

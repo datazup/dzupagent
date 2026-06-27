@@ -18,6 +18,7 @@
     "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "lint": "eslint src/"
   },
