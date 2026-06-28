@@ -23,5 +23,12 @@ export default defineConfig({
     "string_decoder",
     "buffer",
     "util",
+    "@langchain/core",
+    "@langchain/core/embeddings",
+    "@langchain/core/language_models/chat_models",
+    "@langchain/core/messages",
+    "@langchain/langgraph",
+    "@langchain/langgraph-checkpoint-postgres",
+    "@langchain/langgraph-checkpoint-postgres/store",
   ],
 });
