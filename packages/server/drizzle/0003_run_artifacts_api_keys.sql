@@ -39,6 +39,21 @@ CREATE TABLE IF NOT EXISTS "api_keys" (
     "metadata" jsonb DEFAULT '{}'::jsonb
 );
 
+-- If a consuming app already owns an api_keys table, CREATE TABLE IF NOT EXISTS
+-- is a no-op. Keep the Forge columns additive so this migration remains
+-- repeat-safe in shared app databases.
+ALTER TABLE "api_keys"
+    ADD COLUMN IF NOT EXISTS "owner_id" varchar(255);
+
+ALTER TABLE "api_keys"
+    ADD COLUMN IF NOT EXISTS "rate_limit_tier" varchar(50) DEFAULT 'standard';
+
+ALTER TABLE "api_keys"
+    ADD COLUMN IF NOT EXISTS "revoked_at" timestamp;
+
+ALTER TABLE "api_keys"
+    ADD COLUMN IF NOT EXISTS "metadata" jsonb DEFAULT '{}'::jsonb;
+
 CREATE INDEX IF NOT EXISTS "api_keys_owner_id_idx"
     ON "api_keys" ("owner_id");
 
