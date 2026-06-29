@@ -17,6 +17,7 @@ export const FEATURE_BITS = {
   PARALLEL: 1 << 1, // 2
   SUSPEND: 1 << 2, // 4    (approval | clarification | persona | route)
   FOR_EACH: 1 << 3, // 8
+  RUNTIME_LEAF: 1 << 4, // 16   (agent | validate | adapter.*) — MPCO P1
 } as const;
 
 export type FeatureBitmask = number;
@@ -28,11 +29,13 @@ export type FeatureBitmask = number;
  * Routing rule (matches D2 table exactly):
  *   - any FOR_EACH bit              → 'pipeline'
  *   - any BRANCH | PARALLEL | SUSPEND bit → 'workflow-builder'
+ *   - any RUNTIME_LEAF bit alone    → 'workflow-builder' (MPCO P1)
  *   - otherwise                     → 'skill-chain'
  */
 export function routeTarget(ast: FlowNode): {
   target: CompilationTarget;
   bitmask: FeatureBitmask;
+  reason?: "RUNTIME_LEAF_PRESENT";
 } {
   const bitmask = computeFeatureBitmask(ast);
   if ((bitmask & FEATURE_BITS.FOR_EACH) !== 0) {
@@ -44,6 +47,15 @@ export function routeTarget(ast: FlowNode): {
     0
   ) {
     return { target: "workflow-builder", bitmask };
+  }
+  if ((bitmask & FEATURE_BITS.RUNTIME_LEAF) !== 0) {
+    // MPCO P1: divert runtime-leaf-only flows away from skill-chain (which
+    // rejects adapter.run/validate at lowering) to the runtime-capable target.
+    return {
+      target: "workflow-builder",
+      bitmask,
+      reason: "RUNTIME_LEAF_PRESENT",
+    };
   }
   return { target: "skill-chain", bitmask };
 }
@@ -125,11 +137,15 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "knowledge.write":
       case "knowledge.query":
       case "worker.dispatch":
+        // Non-runtime leaf nodes — contribute no feature bits (unchanged).
+        return;
       case "adapter.run":
       case "adapter.race":
       case "adapter.parallel":
       case "adapter.supervisor": {
-        // Runtime-executed leaf nodes — contribute no feature bits.
+        // Runtime-executed leaf nodes — MPCO P1 marks them so routing keeps
+        // them off the skill-chain target (which rejects them at lowering).
+        bits |= FEATURE_BITS.RUNTIME_LEAF;
         return;
       }
       case "try_catch": {
@@ -151,6 +167,7 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       }
       case "agent":
       case "validate":
+        bits |= FEATURE_BITS.RUNTIME_LEAF;
         return;
       default: {
         // Exhaustiveness guard — if a new FlowNode variant is added without
