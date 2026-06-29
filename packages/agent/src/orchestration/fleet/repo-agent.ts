@@ -1,4 +1,5 @@
 import { ulid } from "ulidx";
+import { KnowledgeCollisionError } from "@dzupagent/agent-types/fleet";
 import type {
   FleetTask,
   KnowledgeEnvelope,
@@ -31,6 +32,7 @@ export interface RepoAgentDeps {
  */
 export class RepoAgent {
   private readonly workerId: WorkerId;
+  private taskStateVersionOffset = 0;
 
   constructor(private readonly deps: RepoAgentDeps) {
     this.workerId = deps.workerId ?? `worker-${ulid()}`;
@@ -95,9 +97,7 @@ export class RepoAgent {
       repo: this.deps.repo.name,
       kind: "task-state",
       key: taskId,
-      version:
-        Date.now() * 1000 +
-        (Math.abs(this.workerId.charCodeAt(this.workerId.length - 1)) % 1000),
+      version: this.nextTaskStateVersion(),
       authorWorkerId: this.workerId,
       parentId: null,
       createdAt: new Date().toISOString(),
@@ -105,6 +105,31 @@ export class RepoAgent {
       payload,
       tags: [],
     };
-    await this.deps.knowledge.append(`run:${this.deps.runId}`, env);
+    await this.appendTaskStateWithCollisionRetry(env);
+  }
+
+  private nextTaskStateVersion(): number {
+    const suffix =
+      Math.abs(this.workerId.charCodeAt(this.workerId.length - 1)) % 1000;
+    const offset = this.taskStateVersionOffset;
+    this.taskStateVersionOffset = (this.taskStateVersionOffset + 1) % 1000;
+    return Date.now() * 1000 + ((suffix + offset) % 1000);
+  }
+
+  private async appendTaskStateWithCollisionRetry(
+    env: KnowledgeEnvelope
+  ): Promise<void> {
+    const scope = `run:${this.deps.runId}`;
+    for (let attempt = 0; attempt < 1000; attempt += 1) {
+      try {
+        await this.deps.knowledge.append(scope, env);
+        return;
+      } catch (error) {
+        if (!(error instanceof KnowledgeCollisionError) || attempt === 999) {
+          throw error;
+        }
+        env.version += 1;
+      }
+    }
   }
 }
