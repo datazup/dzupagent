@@ -21,9 +21,6 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@dzupagent/adapter-types": "*"
-  },
   "devDependencies": {
     "tsup": "*",
     "typescript": "^5.8.3"

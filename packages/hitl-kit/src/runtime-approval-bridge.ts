@@ -11,13 +11,12 @@
  *
  * Approval ids are deterministic (`runId:nodeId:attempt`) so a resume targets
  * the same pending entry. mapOutcome projects the store's ApprovalOutcome onto
- * the shared CollabGateDecision vocabulary.
+ * the shared collaboration gate decision vocabulary.
  *
  * ensurePending swallows DuplicateApprovalError so the bridge works WHETHER OR
  * NOT the store-level idempotency patch (P6a) has landed — MPCO does not depend
  * on that fix landing first.
  */
-import type { CollabGateDecision } from "@dzupagent/adapter-types";
 import {
   InMemoryApprovalStateStore,
   ApprovalTimeoutError,
@@ -26,11 +25,11 @@ import {
   type ApprovalStateStore,
 } from "./approval-state-store.js";
 
-/** The subset of CollabGateDecision a human/runtime gate can terminate with. */
-export type TerminalGateDecision = Extract<
-  CollabGateDecision,
-  "human_approved" | "human_rejected" | "timeout"
->;
+/** The terminal decisions a human/runtime gate can return. */
+export type TerminalGateDecision =
+  | "human_approved"
+  | "human_rejected"
+  | "timeout";
 
 export interface RuntimeApprovalBridgeOptions {
   /** Backing approval state store. Defaults to an in-memory instance. */
@@ -66,7 +65,7 @@ export class RuntimeApprovalBridge {
     }
   }
 
-  /** Pure mapping from a terminal ApprovalOutcome to a CollabGateDecision. */
+  /** Pure mapping from a terminal ApprovalOutcome to a gate decision. */
   mapOutcome(outcome: ApprovalOutcome): TerminalGateDecision {
     return outcome.decision === "granted" ? "human_approved" : "human_rejected";
   }

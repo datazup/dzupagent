@@ -76,11 +76,6 @@ jobs:
       - name: Publish to Verdaccio
         run: |
           npm set registry http://localhost:4873
-          npm adduser --registry http://localhost:4873 <<EOF
-          compat
-          compat
-          compat@example.com
-          EOF
           for pkg in packages/*/; do
             if [ -f "$pkg/package.json" ]; then
               echo "Publishing $pkg..."
