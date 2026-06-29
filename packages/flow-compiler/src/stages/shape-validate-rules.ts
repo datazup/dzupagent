@@ -1,4 +1,4 @@
-import { distributedValidators } from "./shape-validate-rules-distributed.js";
+import type { distributedValidators } from "./shape-validate-rules-distributed.js";
 import {
   emptyBody,
   isNonEmptyString,
@@ -29,8 +29,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         emptyBody(
           node.type,
           path,
-          "sequence.nodes must contain at least one node"
-        )
+          "sequence.nodes must contain at least one node",
+        ),
       );
     }
     node.nodes.forEach((child, idx) => visit(child, `${path}.nodes[${idx}]`));
@@ -41,8 +41,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "action.toolRef is required (non-empty string)"
-        )
+          "action.toolRef is required (non-empty string)",
+        ),
       );
     }
     if (!isPlainObject(node.input)) {
@@ -50,8 +50,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "action.input is required (object, may be empty)"
-        )
+          "action.input is required (object, may be empty)",
+        ),
       );
     }
   },
@@ -61,13 +61,13 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "for_each.source is required (non-empty string)"
-        )
+          "for_each.source is required (non-empty string)",
+        ),
       );
     }
     if (!isNonEmptyString(node.as)) {
       errors.push(
-        missing(node.type, path, "for_each.as is required (non-empty string)")
+        missing(node.type, path, "for_each.as is required (non-empty string)"),
       );
     }
     if (node.body.length === 0) {
@@ -75,8 +75,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         emptyBody(
           node.type,
           path,
-          "for_each.body must contain at least one node"
-        )
+          "for_each.body must contain at least one node",
+        ),
       );
     }
     node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
@@ -87,13 +87,17 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "branch.condition is required (non-empty string)"
-        )
+          "branch.condition is required (non-empty string)",
+        ),
       );
     }
     if (node.then.length === 0) {
       errors.push(
-        emptyBody(node.type, path, "branch.then must contain at least one node")
+        emptyBody(
+          node.type,
+          path,
+          "branch.then must contain at least one node",
+        ),
       );
     }
     node.then.forEach((child, idx) => visit(child, `${path}.then[${idx}]`));
@@ -103,8 +107,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
           emptyBody(
             node.type,
             path,
-            "branch.else, when present, must contain at least one node"
-          )
+            "branch.else, when present, must contain at least one node",
+          ),
         );
       }
       node.else.forEach((child, idx) => visit(child, `${path}.else[${idx}]`));
@@ -116,8 +120,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         emptyBody(
           node.type,
           path,
-          "parallel.branches must contain at least one branch"
-        )
+          "parallel.branches must contain at least one branch",
+        ),
       );
     }
     node.branches.forEach((branch, bIdx) => {
@@ -126,12 +130,12 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
           emptyBody(
             node.type,
             `${path}.branches[${bIdx}]`,
-            "parallel.branches[*] must contain at least one node"
-          )
+            "parallel.branches[*] must contain at least one node",
+          ),
         );
       }
       branch.forEach((child, idx) =>
-        visit(child, `${path}.branches[${bIdx}][${idx}]`)
+        visit(child, `${path}.branches[${bIdx}][${idx}]`),
       );
     });
   },
@@ -141,8 +145,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "approval.question is required (non-empty string)"
-        )
+          "approval.question is required (non-empty string)",
+        ),
       );
     }
     if (node.onApprove.length === 0) {
@@ -150,12 +154,12 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         emptyBody(
           node.type,
           path,
-          "approval.onApprove must contain at least one node"
-        )
+          "approval.onApprove must contain at least one node",
+        ),
       );
     }
     node.onApprove.forEach((child, idx) =>
-      visit(child, `${path}.onApprove[${idx}]`)
+      visit(child, `${path}.onApprove[${idx}]`),
     );
     if (node.onReject !== undefined) {
       if (node.onReject.length === 0) {
@@ -163,12 +167,12 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
           emptyBody(
             node.type,
             path,
-            "approval.onReject, when present, must contain at least one node"
-          )
+            "approval.onReject, when present, must contain at least one node",
+          ),
         );
       }
       node.onReject.forEach((child, idx) =>
-        visit(child, `${path}.onReject[${idx}]`)
+        visit(child, `${path}.onReject[${idx}]`),
       );
     }
   },
@@ -178,8 +182,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "clarification.question is required (non-empty string)"
-        )
+          "clarification.question is required (non-empty string)",
+        ),
       );
     }
     if (node.expected === "choice") {
@@ -188,8 +192,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
           missing(
             node.type,
             path,
-            "clarification.choices is required (non-empty array) when expected='choice'"
-          )
+            "clarification.choices is required (non-empty array) when expected='choice'",
+          ),
         );
       }
     }
@@ -200,8 +204,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "persona.personaId is required (non-empty string)"
-        )
+          "persona.personaId is required (non-empty string)",
+        ),
       );
     }
     if (node.body.length === 0) {
@@ -209,8 +213,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         emptyBody(
           node.type,
           path,
-          "persona.body must contain at least one node"
-        )
+          "persona.body must contain at least one node",
+        ),
       );
     }
     node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
@@ -222,8 +226,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
           missing(
             node.type,
             path,
-            "route.provider is required (non-empty string) when strategy='fixed-provider'"
-          )
+            "route.provider is required (non-empty string) when strategy='fixed-provider'",
+          ),
         );
       }
     } else if (node.strategy === "capability") {
@@ -232,14 +236,14 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
           missing(
             node.type,
             path,
-            "route.tags is required (non-empty array) when strategy='capability'"
-          )
+            "route.tags is required (non-empty array) when strategy='capability'",
+          ),
         );
       }
     }
     if (node.body.length === 0) {
       errors.push(
-        emptyBody(node.type, path, "route.body must contain at least one node")
+        emptyBody(node.type, path, "route.body must contain at least one node"),
       );
     }
     node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
@@ -253,8 +257,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "spawn.templateRef is required (non-empty string)"
-        )
+          "spawn.templateRef is required (non-empty string)",
+        ),
       );
     }
   },
@@ -264,8 +268,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "classify.prompt is required (non-empty string)"
-        )
+          "classify.prompt is required (non-empty string)",
+        ),
       );
     }
     if (!Array.isArray(node.choices) || node.choices.length === 0) {
@@ -273,8 +277,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "classify.choices is required (non-empty array)"
-        )
+          "classify.choices is required (non-empty array)",
+        ),
       );
     }
     if (!isNonEmptyString(node.outputKey)) {
@@ -282,8 +286,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "classify.outputKey is required (non-empty string)"
-        )
+          "classify.outputKey is required (non-empty string)",
+        ),
       );
     }
     if (node.defaultChoice !== undefined) {
@@ -292,8 +296,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
           missing(
             node.type,
             path,
-            "classify.defaultChoice must be a non-empty string when present"
-          )
+            "classify.defaultChoice must be a non-empty string when present",
+          ),
         );
       } else if (
         !Array.isArray(node.choices) ||
@@ -303,8 +307,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
           missing(
             node.type,
             path,
-            "classify.defaultChoice must match one of classify.choices"
-          )
+            "classify.defaultChoice must match one of classify.choices",
+          ),
         );
       }
     }
@@ -312,7 +316,7 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
   emit: (node, { path, errors }) => {
     if (!isNonEmptyString(node.event)) {
       errors.push(
-        missing(node.type, path, "emit.event is required (non-empty string)")
+        missing(node.type, path, "emit.event is required (non-empty string)"),
       );
     }
   },
@@ -328,8 +332,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "checkpoint.captureOutputOf is required (non-empty string)"
-        )
+          "checkpoint.captureOutputOf is required (non-empty string)",
+        ),
       );
     }
   },
@@ -339,8 +343,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "restore.checkpointLabel is required (non-empty string)"
-        )
+          "restore.checkpointLabel is required (non-empty string)",
+        ),
       );
     }
   },
@@ -350,8 +354,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         emptyBody(
           node.type,
           path,
-          "try_catch.body must contain at least one node"
-        )
+          "try_catch.body must contain at least one node",
+        ),
       );
     }
     node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
@@ -363,13 +367,13 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "loop.condition is required (non-empty string)"
-        )
+          "loop.condition is required (non-empty string)",
+        ),
       );
     }
     if (node.body.length === 0) {
       errors.push(
-        emptyBody(node.type, path, "loop.body must contain at least one node")
+        emptyBody(node.type, path, "loop.body must contain at least one node"),
       );
     }
     node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
@@ -377,7 +381,7 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
   http: (node, { path, errors }) => {
     if (!isNonEmptyString(node.url)) {
       errors.push(
-        missing(node.type, path, "http.url is required (non-empty string)")
+        missing(node.type, path, "http.url is required (non-empty string)"),
       );
     }
   },
@@ -387,8 +391,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "wait.durationMs is required (non-negative number)"
-        )
+          "wait.durationMs is required (non-negative number)",
+        ),
       );
     }
   },
@@ -398,8 +402,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "subflow.flowRef is required (non-empty string)"
-        )
+          "subflow.flowRef is required (non-empty string)",
+        ),
       );
     }
   },
@@ -409,8 +413,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "prompt.userPrompt is required (non-empty string)"
-        )
+          "prompt.userPrompt is required (non-empty string)",
+        ),
       );
     }
   },
@@ -420,8 +424,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "return_to.targetId is required (non-empty string)"
-        )
+          "return_to.targetId is required (non-empty string)",
+        ),
       );
     }
     if (!isNonEmptyString(node.condition)) {
@@ -429,15 +433,19 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "return_to.condition is required (non-empty string)"
-        )
+          "return_to.condition is required (non-empty string)",
+        ),
       );
     }
   },
   agent: (node, { path, errors }) => {
     if (!isNonEmptyString(node.agentId)) {
       errors.push(
-        missing(node.type, path, "agent.agentId is required (non-empty string)")
+        missing(
+          node.type,
+          path,
+          "agent.agentId is required (non-empty string)",
+        ),
       );
     }
     if (!isNonEmptyString(node.instructions)) {
@@ -445,8 +453,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "agent.instructions is required (non-empty string)"
-        )
+          "agent.instructions is required (non-empty string)",
+        ),
       );
     }
     if (!isPlainObject(node.output) || !isNonEmptyString(node.output.key)) {
@@ -454,8 +462,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "agent.output.key is required (non-empty string)"
-        )
+          "agent.output.key is required (non-empty string)",
+        ),
       );
     }
     if (
@@ -467,8 +475,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "agent.output requires either schemaRef or inline schema"
-        )
+          "agent.output requires either schemaRef or inline schema",
+        ),
       );
     }
   },
@@ -481,8 +489,8 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
         missing(
           node.type,
           path,
-          "validate node requires either ref or non-empty commands"
-        )
+          "validate node requires either ref or non-empty commands",
+        ),
       );
     }
   },

@@ -34,6 +34,7 @@ import {
 } from "../llm/tokenizer-registry.js";
 import { estimateTokens, extractTokenUsage } from "../llm/invoke.js";
 import { isContextLengthError, isTransientError } from "../llm/retry.js";
+import type * as RetryModule from "../llm/retry.js";
 import type {
   ModelSpec,
   LLMProviderConfig,
@@ -79,7 +80,7 @@ vi.mock("../llm/embedding-registry.js", () => ({
   createDefaultEmbeddingRegistry: () => ({}),
 }));
 vi.mock("../llm/retry.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../llm/retry.js")>();
+  const actual = await importOriginal<typeof RetryModule>();
   return actual;
 });
 
