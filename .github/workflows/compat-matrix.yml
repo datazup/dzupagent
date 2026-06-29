@@ -50,7 +50,7 @@ jobs:
 
       - name: Bump versions to snapshot
         run: |
-          VERSION="${{ steps.snapshot.outputs.snapshot-version }}"
+          VERSION="${{ steps.snapshot.outputs.version }}"
           node -e "
             const fs = require('fs');
             const path = require('path');
@@ -60,7 +60,7 @@ jobs:
               const pkg = JSON.parse(fs.readFileSync(p, 'utf8'));
               pkg.version = '$VERSION';
               // update cross-package deps
-              ['dependencies','devDependencies','peerDependencies'].forEach(section => {
+              ['dependencies','devDependencies','peerDependencies','optionalDependencies'].forEach(section => {
                 if (!pkg[section]) return;
                 Object.keys(pkg[section]).forEach(dep => {
                   if (dep.startsWith('@dzupagent/')) pkg[section][dep] = '$VERSION';
@@ -76,11 +76,6 @@ jobs:
       - name: Publish to Verdaccio
         run: |
           npm set registry http://localhost:4873
-          npm adduser --registry http://localhost:4873 <<EOF
-          compat
-          compat
-          compat@example.com
-          EOF
           for pkg in packages/*/; do
             if [ -f "$pkg/package.json" ]; then
               echo "Publishing $pkg..."

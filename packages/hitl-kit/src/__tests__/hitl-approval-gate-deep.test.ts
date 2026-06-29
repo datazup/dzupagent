@@ -60,7 +60,7 @@ class MultiApproverGate {
   async createPending(
     runId: string,
     approvalId: string,
-    payload: unknown
+    payload: unknown,
   ): Promise<void> {
     await this.store.createPending(runId, approvalId, payload);
     this.approverDecisions.set(`${runId}::${approvalId}`, []);
@@ -81,7 +81,7 @@ class MultiApproverGate {
       strategy: "and" | "or" | "majority";
       requiredApprovers: string[];
       reason?: string;
-    }
+    },
   ): Promise<void> {
     const key = `${runId}::${approvalId}`;
     const decisions = this.approverDecisions.get(key);
@@ -109,7 +109,7 @@ class MultiApproverGate {
         await this.store.reject(
           runId,
           approvalId,
-          rejected.map((r) => r.reason ?? "rejected").join("; ")
+          rejected.map((r) => r.reason ?? "rejected").join("; "),
         );
       }
     } else if (options.strategy === "and") {
@@ -119,7 +119,7 @@ class MultiApproverGate {
         await this.store.reject(
           runId,
           approvalId,
-          rejected[0]!.reason ?? "rejected"
+          rejected[0]!.reason ?? "rejected",
         );
       }
     } else if (options.strategy === "majority") {
@@ -139,13 +139,13 @@ class MultiApproverGate {
   poll(
     runId: string,
     approvalId: string,
-    timeoutMs: number
+    timeoutMs: number,
   ): Promise<ApprovalOutcome> {
     return this.store.poll(runId, approvalId, timeoutMs);
   }
 
   private buildMeta(
-    decisions: { approver: string; decision: string; at: Date }[]
+    decisions: { approver: string; decision: string; at: Date }[],
   ): { approvedBy: string[]; timestamps: string[] } {
     return {
       approvedBy: decisions.map((d) => d.approver),
@@ -182,7 +182,7 @@ describe("Single approver", () => {
     const outcome = await pollP;
     expect(outcome.decision).toBe("granted");
     expect((outcome.response as Record<string, unknown>)["approvedBy"]).toBe(
-      "alice"
+      "alice",
     );
   });
 
@@ -503,7 +503,7 @@ describe("Timeout behaviour", () => {
     const store = makeStore();
     await store.createPending("r5", "ap", {});
     await expect(store.poll("r5", "ap", 20)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
+      ApprovalTimeoutError,
     );
     store.clear();
   });
@@ -534,7 +534,7 @@ describe("Timeout behaviour", () => {
     const outcome = await pollP;
     expect(outcome.decision).toBe("granted");
     expect((outcome.response as Record<string, unknown>)["autoApproved"]).toBe(
-      true
+      true,
     );
     store.clear();
   });
@@ -558,7 +558,7 @@ describe("Timeout behaviour", () => {
     const store = makeStore();
     const gate = new ApprovalGate({ store });
     await expect(
-      gate.waitForApproval("r5d", "ap", {}, 15)
+      gate.waitForApproval("r5d", "ap", {}, 15),
     ).rejects.toBeInstanceOf(ApprovalTimeoutError);
     store.clear();
   });
@@ -567,7 +567,7 @@ describe("Timeout behaviour", () => {
     const store = makeStore();
     const gate = new ApprovalGate({ store, defaultTimeoutMs: 20 });
     await expect(gate.waitForApproval("r5e", "ap", {})).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
+      ApprovalTimeoutError,
     );
     store.clear();
   });
@@ -608,7 +608,7 @@ describe("Timeout escalation", () => {
     expect(
       ((outcome as ApprovalOutcome).response as Record<string, unknown>)[
         "escalated"
-      ]
+      ],
     ).toBe(true);
     store.clear();
   });
@@ -620,7 +620,7 @@ describe("Timeout escalation", () => {
 
     async function pollWithEscalation(
       timeoutMs: number,
-      maxEscalations: number
+      maxEscalations: number,
     ): Promise<ApprovalOutcome> {
       try {
         return await store.poll("r6b", "ap", timeoutMs);
@@ -815,14 +815,14 @@ describe("Conditional gates", () => {
     constructor(
       private readonly store: InMemoryApprovalStateStore,
       private readonly condition: (
-        payload: unknown
-      ) => boolean | Promise<boolean>
+        payload: unknown,
+      ) => boolean | Promise<boolean>,
     ) {}
 
     async request(
       runId: string,
       approvalId: string,
-      payload: unknown
+      payload: unknown,
     ): Promise<ApprovalOutcome> {
       const needsApproval = await this.condition(payload);
       if (!needsApproval) {
@@ -847,7 +847,7 @@ describe("Conditional gates", () => {
     const outcome = await gate.request("r9", "ap", { riskLevel: "low" });
     expect(outcome.decision).toBe("granted");
     expect((outcome.response as Record<string, unknown>)["bypassed"]).toBe(
-      true
+      true,
     );
     // No pending entry was created
     expect(store.getPayload("r9", "ap")).toBeUndefined();
@@ -923,7 +923,7 @@ describe("Gate in workflow", () => {
    */
   async function runWorkflowWithGate(
     store: InMemoryApprovalStateStore,
-    opts: { condition?: boolean; runId?: string } = {}
+    opts: { condition?: boolean; runId?: string } = {},
   ): Promise<WorkflowState> {
     const state: WorkflowState = { step: "start" };
     const runId = opts.runId ?? "wf-run";
@@ -1071,7 +1071,7 @@ describe("Duplicate approval idempotence", () => {
     await store.grant("r11b", "ap", "first-grant");
     // Second grant on same (already resolved) key should not throw
     await expect(
-      store.grant("r11b", "ap", "second-grant")
+      store.grant("r11b", "ap", "second-grant"),
     ).resolves.toBeUndefined();
     // Poll returns the first grant outcome
     const outcome = await store.poll("r11b", "ap", 500);
@@ -1084,18 +1084,24 @@ describe("Duplicate approval idempotence", () => {
     await store.createPending("r11c", "ap", {});
     await store.reject("r11c", "ap", "first-reject");
     await expect(
-      store.reject("r11c", "ap", "second-reject")
+      store.reject("r11c", "ap", "second-reject"),
     ).resolves.toBeUndefined();
     const outcome = await store.poll("r11c", "ap", 500);
     expect(outcome.reason).toBe("first-reject");
     store.clear();
   });
 
-  it("createPending is NOT idempotent — throws DuplicateApprovalError on repeat", async () => {
+  it("createPending is idempotent for pending keys — throws DuplicateApprovalError only on terminal (MPCO P6)", async () => {
     const store = makeStore();
     await store.createPending("r11d", "ap", {});
+    // Pending duplicate must NOT throw (resume case).
+    await expect(
+      store.createPending("r11d", "ap", {}),
+    ).resolves.toBeUndefined();
+    // Only after reaching terminal should it throw.
+    await store.grant("r11d", "ap");
     await expect(store.createPending("r11d", "ap", {})).rejects.toBeInstanceOf(
-      DuplicateApprovalError
+      DuplicateApprovalError,
     );
     store.clear();
   });
@@ -1175,27 +1181,29 @@ describe("Error cases", () => {
   it("grant on unknown approvalId throws UnknownApprovalError", async () => {
     const store = makeStore();
     await expect(store.grant("no-run", "no-ap")).rejects.toBeInstanceOf(
-      UnknownApprovalError
+      UnknownApprovalError,
     );
   });
 
   it("reject on unknown approvalId throws UnknownApprovalError", async () => {
     const store = makeStore();
     await expect(
-      store.reject("no-run", "no-ap", "reason")
+      store.reject("no-run", "no-ap", "reason"),
     ).rejects.toBeInstanceOf(UnknownApprovalError);
   });
 
   it("poll on unknown approvalId throws UnknownApprovalError", async () => {
     const store = makeStore();
     await expect(store.poll("no-run", "no-ap", 500)).rejects.toBeInstanceOf(
-      UnknownApprovalError
+      UnknownApprovalError,
     );
   });
 
   it("DuplicateApprovalError has the correct name", async () => {
     const store = makeStore();
     await store.createPending("r13a", "ap", {});
+    // Must reach terminal before createPending throws DuplicateApprovalError (MPCO P6).
+    await store.grant("r13a", "ap");
     const err = await store
       .createPending("r13a", "ap", {})
       .catch((e: Error) => e);
@@ -1228,7 +1236,7 @@ describe("Error cases", () => {
 
     // Attempt to grant using a wrong runId (simulates invalid token)
     await expect(store.grant("fake-run", "ap")).rejects.toBeInstanceOf(
-      UnknownApprovalError
+      UnknownApprovalError,
     );
 
     // Real approval is still pending — verify by granting correctly
@@ -1245,7 +1253,7 @@ describe("Error cases", () => {
     await store.grant("r13d", "ap", { by: "approver" });
     // Attempt to "revoke" by rejecting — should be idempotent (grant already won)
     await expect(
-      store.reject("r13d", "ap", "revoked")
+      store.reject("r13d", "ap", "revoked"),
     ).resolves.toBeUndefined();
     const outcome = await store.poll("r13d", "ap", 500);
     // The original grant is cached; revocation after grant does not change the outcome
@@ -1298,7 +1306,7 @@ describe("Error cases", () => {
     };
     const gate = new ApprovalGate({ store: fakeStore });
     await expect(
-      gate.waitForApproval("x", "y", {}, 500)
+      gate.waitForApproval("x", "y", {}, 500),
     ).rejects.toBeInstanceOf(UnknownApprovalError);
   });
 });
@@ -1372,7 +1380,7 @@ describe("ApprovalGate convenience API", () => {
     const store = makeStore();
     const gate = new ApprovalGate({ store, defaultTimeoutMs: 20 });
     await expect(gate.waitForApproval("rc3", "ap", {})).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
+      ApprovalTimeoutError,
     );
     store.clear();
   });
@@ -1385,7 +1393,7 @@ describe("ApprovalGate convenience API", () => {
       "inspect-run",
       "merge-gate",
       payload,
-      3_000
+      3_000,
     );
     await Promise.resolve();
     expect(store.getPayload("inspect-run", "merge-gate")).toEqual(payload);
@@ -1486,7 +1494,7 @@ describe("InMemoryApprovalStateStore.clear()", () => {
     await store.createPending("cl2", "ap", { v: 1 });
     store.clear();
     await expect(
-      store.createPending("cl2", "ap", { v: 2 })
+      store.createPending("cl2", "ap", { v: 2 }),
     ).resolves.toBeUndefined();
     expect(store.getPayload("cl2", "ap")).toEqual({ v: 2 });
     store.clear();
@@ -1519,7 +1527,7 @@ describe("ApprovalStateStore interface compliance", () => {
         async (): Promise<ApprovalOutcome> => ({
           decision: "granted",
           response: "custom",
-        })
+        }),
       ),
     };
     const gate = new ApprovalGate({ store: custom });
@@ -1535,7 +1543,7 @@ describe("ApprovalStateStore interface compliance", () => {
       grant: vi.fn(async () => undefined),
       reject: vi.fn(async () => undefined),
       poll: vi.fn(
-        async (): Promise<ApprovalOutcome> => ({ decision: "granted" })
+        async (): Promise<ApprovalOutcome> => ({ decision: "granted" }),
       ),
     };
     const gate = new ApprovalGate({ store: custom });
@@ -1549,7 +1557,7 @@ describe("ApprovalStateStore interface compliance", () => {
       grant: vi.fn(async () => undefined),
       reject: vi.fn(async () => undefined),
       poll: vi.fn(
-        async (): Promise<ApprovalOutcome> => ({ decision: "rejected" })
+        async (): Promise<ApprovalOutcome> => ({ decision: "rejected" }),
       ),
     };
     const gate = new ApprovalGate({ store: custom });
@@ -1557,7 +1565,7 @@ describe("ApprovalStateStore interface compliance", () => {
     expect(custom.reject).toHaveBeenCalledWith(
       "rj-run",
       "rj-ap",
-      "cost too high"
+      "cost too high",
     );
   });
 });

@@ -301,10 +301,11 @@ const ALWAYS_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
   "return_to",
 ]);
 
-// Node types that are only unsupported in the skill-chain target.
-// These are runtime-executed in richer contexts where the runtime itself
-// handles them; they are not lowerable by the skill-chain lowerer.
-const SKILL_CHAIN_ONLY_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
+// Node types that are unsupported in skill-chain AND workflow-builder targets.
+// These are runtime-executed nodes that the generic lowerers cannot represent.
+// The pipeline target (which has for_each/loop context) may handle them via
+// a richer runtime that drives them natively, so they are not flagged there.
+const LOWERER_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
   "agent",
   "validate",
   "adapter.run",
@@ -313,11 +314,21 @@ const SKILL_CHAIN_ONLY_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
   "adapter.supervisor",
 ]);
 
+// Node types that are only unsupported in the skill-chain target.
+// (Currently empty — all formerly skill-chain-only types are covered by
+// LOWERER_UNSUPPORTED_NODE_TYPES above.)
+const SKILL_CHAIN_ONLY_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>();
+
 function isUnsupportedForTarget(
   nodeType: FlowNode["type"],
-  target: CompilationTarget
+  target: CompilationTarget,
 ): boolean {
   if (ALWAYS_UNSUPPORTED_NODE_TYPES.has(nodeType)) return true;
+  if (
+    (target === "skill-chain" || target === "workflow-builder") &&
+    LOWERER_UNSUPPORTED_NODE_TYPES.has(nodeType)
+  )
+    return true;
   if (
     target === "skill-chain" &&
     SKILL_CHAIN_ONLY_UNSUPPORTED_NODE_TYPES.has(nodeType)
@@ -328,7 +339,7 @@ function isUnsupportedForTarget(
 
 export function collectUnsupportedRuntimeNodes(
   ast: FlowNode,
-  target: CompilationTarget
+  target: CompilationTarget,
 ): UnsupportedRuntimeNode[] {
   const unsupported: UnsupportedRuntimeNode[] = [];
 
@@ -340,7 +351,7 @@ export function collectUnsupportedRuntimeNodes(
     switch (node.type) {
       case "sequence": {
         node.nodes.forEach((child, idx) =>
-          visit(child, `${path}.nodes[${idx}]`)
+          visit(child, `${path}.nodes[${idx}]`),
         );
         return;
       }
@@ -348,7 +359,7 @@ export function collectUnsupportedRuntimeNodes(
         node.then.forEach((child, idx) => visit(child, `${path}.then[${idx}]`));
         if (node.else) {
           node.else.forEach((child, idx) =>
-            visit(child, `${path}.else[${idx}]`)
+            visit(child, `${path}.else[${idx}]`),
           );
         }
         return;
@@ -356,7 +367,7 @@ export function collectUnsupportedRuntimeNodes(
       case "parallel": {
         node.branches.forEach((branch, bIdx) => {
           branch.forEach((child, idx) =>
-            visit(child, `${path}.branches[${bIdx}][${idx}]`)
+            visit(child, `${path}.branches[${bIdx}][${idx}]`),
           );
         });
         return;
@@ -367,11 +378,11 @@ export function collectUnsupportedRuntimeNodes(
       }
       case "approval": {
         node.onApprove.forEach((child, idx) =>
-          visit(child, `${path}.onApprove[${idx}]`)
+          visit(child, `${path}.onApprove[${idx}]`),
         );
         if (node.onReject) {
           node.onReject.forEach((child, idx) =>
-            visit(child, `${path}.onReject[${idx}]`)
+            visit(child, `${path}.onReject[${idx}]`),
           );
         }
         return;
@@ -384,7 +395,7 @@ export function collectUnsupportedRuntimeNodes(
       case "try_catch": {
         node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
         node.catch.forEach((child, idx) =>
-          visit(child, `${path}.catch[${idx}]`)
+          visit(child, `${path}.catch[${idx}]`),
         );
         return;
       }

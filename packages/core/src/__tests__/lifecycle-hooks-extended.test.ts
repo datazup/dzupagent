@@ -99,7 +99,7 @@ describe("onApprovalRequired hook semantics", () => {
       undefined,
       "onApprovalRequired",
       plan,
-      ctx,
+      ctx
     );
 
     expect(capturedPlan).toEqual({ action: "delete", target: "/tmp/file" });
@@ -119,7 +119,7 @@ describe("onApprovalRequired hook semantics", () => {
       undefined,
       "onApprovalRequired",
       "deploy to production",
-      ctx,
+      ctx
     );
 
     expect(capturedPlan).toBe("deploy to production");
@@ -142,7 +142,7 @@ describe("onApprovalRequired hook semantics", () => {
       undefined,
       "onApprovalRequired",
       plan,
-      ctx,
+      ctx
     );
 
     expect(received).toHaveLength(2);
@@ -156,7 +156,7 @@ describe("onApprovalRequired hook semantics", () => {
     });
 
     await expect(
-      runHooks([hook as never], undefined, "onApprovalRequired", {}, makeCtx()),
+      runHooks([hook as never], undefined, "onApprovalRequired", {}, makeCtx())
     ).resolves.toBeUndefined();
   });
 
@@ -191,7 +191,7 @@ describe("runHooks — mixed null and undefined entries", () => {
 
   it("handles array of all undefineds without throwing", async () => {
     await expect(
-      runHooks([undefined, undefined, undefined], undefined, "test"),
+      runHooks([undefined, undefined, undefined], undefined, "test")
     ).resolves.toBeUndefined();
   });
 
@@ -226,14 +226,14 @@ describe("chained runModifierHook — pipeline composition", () => {
       undefined,
       "step1",
       "original",
-      "original",
+      "original"
     );
     const step2 = await runModifierHook(
       addPrefix as never,
       undefined,
       "step2",
       step1,
-      step1,
+      step1
     );
 
     expect(step1).toBe("original-A");
@@ -288,7 +288,7 @@ describe("chained runModifierHook — pipeline composition", () => {
       hook as never,
       undefined,
       "test",
-      true,
+      true
     );
     expect(result).toBe(false);
   });
@@ -322,7 +322,7 @@ describe("runHooks — sequential execution is strictly serial", () => {
       vi.fn(async () => {
         await new Promise((r) => setTimeout(r, 5));
         order.push(n);
-      }),
+      })
     );
     await runHooks(hooks, undefined, "test");
     expect(order).toEqual([1, 2, 3, 4, 5]);
@@ -397,7 +397,7 @@ describe("hook:error event shape", () => {
         }),
       ],
       bus,
-      "myHookName",
+      "myHookName"
     );
     const evt = events[0] as Extract<DzupEvent, { type: "hook:error" }>;
     expect(evt.type).toBe("hook:error");
@@ -415,7 +415,7 @@ describe("hook:error event shape", () => {
         }),
       ],
       bus,
-      "",
+      ""
     );
     const evt = events[0] as Extract<DzupEvent, { type: "hook:error" }>;
     expect(evt.hookName).toBe("");
@@ -430,7 +430,7 @@ describe("hook:error event shape", () => {
       }) as never,
       bus,
       "beforeToolCall",
-      "current",
+      "current"
     );
     const evt = events[0] as Extract<DzupEvent, { type: "hook:error" }>;
     expect(evt.hookName).toBe("beforeToolCall");
@@ -440,7 +440,6 @@ describe("hook:error event shape", () => {
   it("null throw coerces to string 'null' in message", async () => {
     const bus = createEventBus();
     const events = collectEvents(bus);
-    // eslint-disable-next-line @typescript-eslint/no-throw-literal
     await runHooks(
       [
         vi.fn(async () => {
@@ -448,7 +447,7 @@ describe("hook:error event shape", () => {
         }),
       ],
       bus,
-      "test",
+      "test"
     );
     const evt = events[0] as Extract<DzupEvent, { type: "hook:error" }>;
     expect(evt.message).toBe("null");
@@ -464,7 +463,7 @@ describe("hook:error event shape", () => {
         }),
       ],
       bus,
-      "test",
+      "test"
     );
     const evt = events[0] as Extract<DzupEvent, { type: "hook:error" }>;
     expect(typeof evt.message).toBe("string");
@@ -489,7 +488,7 @@ describe("multiple buses — error isolation", () => {
         }),
       ],
       busA,
-      "test",
+      "test"
     );
 
     expect(eventsA).toHaveLength(1);
@@ -509,7 +508,7 @@ describe("multiple buses — error isolation", () => {
         }),
       ],
       busA,
-      "hookA",
+      "hookA"
     );
     await runHooks(
       [
@@ -518,7 +517,7 @@ describe("multiple buses — error isolation", () => {
         }),
       ],
       busB,
-      "hookB",
+      "hookB"
     );
 
     expect(eventsA).toHaveLength(1);
@@ -570,7 +569,7 @@ describe("HookContext with eventBus field", () => {
       ],
       runnerBus,
       "test",
-      ctx,
+      ctx
     );
 
     // Error goes to runnerBus (passed as 2nd arg), not contextBus
@@ -592,7 +591,7 @@ describe("mergeHooks — advanced scenarios", () => {
       { onRunStart: fns[1] },
       { onRunStart: fns[2] },
       { onRunStart: fns[3] },
-      { onRunStart: fns[4] },
+      { onRunStart: fns[4] }
     );
     expect(merged.onRunStart).toHaveLength(5);
     for (let i = 0; i < 5; i++) {
@@ -628,7 +627,7 @@ describe("mergeHooks — advanced scenarios", () => {
     const merged = mergeHooks<Hooks>(
       { onRunStart: h },
       { onRunComplete: h },
-      { onRunError: h },
+      { onRunError: h }
     );
     const keys = Object.keys(merged);
     expect(keys).toContain("onRunStart");
@@ -644,7 +643,7 @@ describe("mergeHooks — advanced scenarios", () => {
     const merged = mergeHooks<Hooks>(
       { onRunStart: h1 },
       { onRunStart: h2 },
-      { onRunStart: h3 },
+      { onRunStart: h3 }
     );
     expect(merged.onRunStart![0]).toBe(h1);
     expect(merged.onRunStart![1]).toBe(h2);
@@ -686,7 +685,7 @@ describe("hook deregistration via array mutation", () => {
   it("all hooks removed — empty array executes without error", async () => {
     const hooks: Array<() => Promise<void>> = [];
     await expect(
-      runHooks(hooks as never[], undefined, "test"),
+      runHooks(hooks as never[], undefined, "test")
     ).resolves.toBeUndefined();
   });
 });
@@ -709,7 +708,7 @@ describe("beforeToolCall arg forwarding", () => {
       "current-input",
       "myTool",
       { key: "val" },
-      makeCtx(),
+      makeCtx()
     );
     expect(capturedName).toBe("myTool");
   });
@@ -727,7 +726,7 @@ describe("beforeToolCall arg forwarding", () => {
       "pass-through",
       "tool",
       { query: "test" },
-      makeCtx(),
+      makeCtx()
     );
     expect(capturedInput).toEqual({ query: "test" });
   });
@@ -739,7 +738,7 @@ describe("beforeToolCall arg forwarding", () => {
       async (_name: string, _input: unknown, c: HookContext) => {
         capturedCtx = c;
         return undefined;
-      },
+      }
     );
     await runModifierHook(
       hook as never,
@@ -748,7 +747,7 @@ describe("beforeToolCall arg forwarding", () => {
       "pass-through",
       "tool",
       {},
-      ctx,
+      ctx
     );
     expect(capturedCtx).toBe(ctx);
   });
@@ -758,7 +757,7 @@ describe("beforeToolCall arg forwarding", () => {
     const hook = vi.fn(
       async (_name: string, input: Record<string, unknown>) => {
         return { ...input, injected: true };
-      },
+      }
     );
     const result = await runModifierHook(
       hook as never,
@@ -767,7 +766,7 @@ describe("beforeToolCall arg forwarding", () => {
       { original: true },
       "tool",
       { original: true },
-      ctx,
+      ctx
     );
     expect(result).toEqual({ original: true, injected: true });
   });
@@ -793,7 +792,7 @@ describe("afterToolCall arg forwarding", () => {
       "search",
       { q: "query" },
       "tool-output",
-      ctx,
+      ctx
     );
     // runModifierHook forwards extra args (not currentValue)
     expect(receivedArgs[0]).toBe("search");
@@ -806,7 +805,7 @@ describe("afterToolCall arg forwarding", () => {
     const hook = vi.fn(
       async (_name: string, _input: unknown, result: string) => {
         return result + " [audited]";
-      },
+      }
     );
     const result = await runModifierHook(
       hook as never,
@@ -815,7 +814,7 @@ describe("afterToolCall arg forwarding", () => {
       "raw-output",
       "audit-tool",
       {},
-      "raw-output",
+      "raw-output"
     );
     expect(result).toBe("raw-output [audited]");
   });
@@ -840,7 +839,7 @@ describe("onToolError arg types", () => {
       "onToolError",
       "badTool",
       err,
-      makeCtx(),
+      makeCtx()
     );
 
     expect(receivedError).toBeInstanceOf(TypeError);
@@ -858,7 +857,7 @@ describe("onToolError arg types", () => {
       "onToolError",
       "specificTool",
       new Error("err"),
-      makeCtx(),
+      makeCtx()
     );
     expect(receivedName).toBe("specificTool");
   });
@@ -874,7 +873,7 @@ describe("hooks registered in a loop", () => {
     const hooks = Array.from({ length: 10 }, (_, i) =>
       vi.fn(async () => {
         calls.push(i);
-      }),
+      })
     );
     await runHooks(hooks, undefined, "test");
     expect(calls).toHaveLength(10);
@@ -925,7 +924,7 @@ describe("async hook with delayed throw — error isolation", () => {
         }),
       ],
       bus,
-      "asyncHook",
+      "asyncHook"
     );
 
     expect(events[0]).toMatchObject({
@@ -951,7 +950,7 @@ describe("runModifierHook — async delay correctness", () => {
       undefined,
       "test",
       "hello",
-      "hello",
+      "hello"
     );
     expect(result).toBe("HELLO");
   });
@@ -964,7 +963,7 @@ describe("runModifierHook — async delay correctness", () => {
       undefined,
       "test",
       original,
-      original,
+      original
     );
     expect(result).toBe(original);
   });
@@ -989,7 +988,7 @@ describe("onBudgetWarning — BudgetUsage shape", () => {
       "onBudgetWarning",
       "warn",
       usage,
-      ctx,
+      ctx
     );
 
     expect(capturedUsage).toMatchObject({
@@ -1014,7 +1013,7 @@ describe("onBudgetWarning — BudgetUsage shape", () => {
       "onBudgetWarning",
       "warn",
       usage,
-      ctx,
+      ctx
     );
     await runHooks(
       [hook as never],
@@ -1022,7 +1021,7 @@ describe("onBudgetWarning — BudgetUsage shape", () => {
       "onBudgetWarning",
       "critical",
       usage,
-      ctx,
+      ctx
     );
 
     expect(levels).toEqual(["warn", "critical"]);
@@ -1048,7 +1047,7 @@ describe("onBudgetExceeded — reason and usage", () => {
       "onBudgetExceeded",
       "cost limit exceeded",
       usage,
-      ctx,
+      ctx
     );
 
     expect(reason).toBe("cost limit exceeded");
@@ -1068,7 +1067,7 @@ describe("onBudgetExceeded — reason and usage", () => {
       "onBudgetExceeded",
       "token limit exceeded",
       usage,
-      ctx,
+      ctx
     );
 
     expect(reason).toBe("token limit exceeded");
@@ -1088,7 +1087,7 @@ describe("onBudgetExceeded — reason and usage", () => {
       "onBudgetExceeded",
       "budget exceeded",
       usage,
-      ctx,
+      ctx
     );
 
     expect(capturedUsage!.tokensUsed).toBe(1200);
@@ -1132,8 +1131,8 @@ describe("concurrent runHooks invocations", () => {
           }),
         ],
         undefined,
-        "concurrent",
-      ),
+        "concurrent"
+      )
     );
     await Promise.all(promises);
     expect(results).toHaveLength(10);
@@ -1177,7 +1176,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       undefined,
       "onRunComplete",
       ctx,
-      "success",
+      "success"
     );
     expect(callLog).toEqual(["complete:e2e-run:success"]);
   });
@@ -1193,7 +1192,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       undefined,
       "onRunError",
       ctx,
-      new Error("crash"),
+      new Error("crash")
     );
     expect(callLog).toEqual(["error:e2e-run:crash"]);
   });
@@ -1212,7 +1211,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       { original: true },
       "myTool",
       { original: true },
-      ctx,
+      ctx
     );
     expect(callLog).toEqual(["before:myTool"]);
     expect(result).toEqual({ original: true, modified: true });
@@ -1233,7 +1232,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       "myTool",
       {},
       "raw-result",
-      ctx,
+      ctx
     );
     expect(callLog).toEqual(["after:myTool"]);
     expect(output).toBe("raw-result [cached]");
@@ -1252,7 +1251,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       "onToolError",
       "badTool",
       err,
-      ctx,
+      ctx
     );
     expect(callLog).toEqual(["toolError:badTool:tool-fail"]);
   });
@@ -1269,7 +1268,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       "onPhaseChange",
       "execute",
       "plan",
-      ctx,
+      ctx
     );
     expect(callLog).toEqual(["phase:plan->execute"]);
   });
@@ -1278,7 +1277,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
     const hooks: AgentHooks = {
       onApprovalRequired: vi.fn(async (plan, c) => {
         callLog.push(
-          `approval:${(plan as Record<string, string>).action}:${c.agentId}`,
+          `approval:${(plan as Record<string, string>).action}:${c.agentId}`
         );
       }),
     };
@@ -1287,7 +1286,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       undefined,
       "onApprovalRequired",
       { action: "deploy" },
-      ctx,
+      ctx
     );
     expect(callLog).toEqual(["approval:deploy:e2e-agent"]);
   });
@@ -1305,7 +1304,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       "onBudgetWarning",
       "warn",
       usage,
-      ctx,
+      ctx
     );
     expect(callLog).toEqual(["budget-warn:warn:750"]);
   });
@@ -1323,7 +1322,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       "onBudgetExceeded",
       "over token limit",
       usage,
-      ctx,
+      ctx
     );
     expect(callLog).toEqual(["budget-exceeded:over token limit"]);
   });
@@ -1369,7 +1368,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       {},
       "t",
       {},
-      ctx,
+      ctx
     );
     await runModifierHook(
       hooks.afterToolCall as never,
@@ -1379,7 +1378,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       "t",
       {},
       "r",
-      ctx,
+      ctx
     );
     await runHooks(
       [hooks.onPhaseChange as never],
@@ -1387,14 +1386,14 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       "onPhaseChange",
       "plan",
       "init",
-      ctx,
+      ctx
     );
     await runHooks(
       [hooks.onApprovalRequired as never],
       undefined,
       "onApprovalRequired",
       {},
-      ctx,
+      ctx
     );
     await runHooks(
       [hooks.onBudgetWarning as never],
@@ -1402,7 +1401,7 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       "onBudgetWarning",
       "warn",
       makeBudget(),
-      ctx,
+      ctx
     );
     await runHooks(
       [hooks.onBudgetExceeded as never],
@@ -1410,21 +1409,21 @@ describe("AgentHooks — all hooks exercised end-to-end", () => {
       "onBudgetExceeded",
       "limit",
       makeBudget(),
-      ctx,
+      ctx
     );
     await runHooks(
       [hooks.onRunError as never],
       undefined,
       "onRunError",
       ctx,
-      new Error("x"),
+      new Error("x")
     );
     await runHooks(
       [hooks.onRunComplete as never],
       undefined,
       "onRunComplete",
       ctx,
-      null,
+      null
     );
 
     expect(callLog).toEqual([

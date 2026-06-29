@@ -64,10 +64,10 @@
     "@anthropic-ai/claude-agent-sdk-win32-arm64" "0.3.195"
     "@anthropic-ai/claude-agent-sdk-win32-x64" "0.3.195"
 
-"@anthropic-ai/sdk@0.102.0", "@anthropic-ai/sdk@^0.103.0":
-  version "0.102.0"
-  resolved "https://registry.yarnpkg.com/@anthropic-ai/sdk/-/sdk-0.102.0.tgz#640dd8a98d31dd7b3cfa2ca51e079aaf32cf3dc3"
-  integrity sha512-cThh3KcPW3lzkFyTz1cjyhJvOVw45NkLMoowO2ZJ/76CBz44ADUon+NsjEc/PypAkARs72Xu8qxTnx6PAOTQUQ==
+"@anthropic-ai/sdk@0.103.0", "@anthropic-ai/sdk@^0.103.0":
+  version "0.103.0"
+  resolved "https://registry.yarnpkg.com/@anthropic-ai/sdk/-/sdk-0.103.0.tgz#9c61bca13c329fbd45bd171d06649f6d3bf3ea2e"
+  integrity sha512-1uG7RNgoHTUxzOXqSCODKt0UTVlxWiHk/2Tt2/uQJiPW7XzBeKVuJyd3Aw6T3LPyvZV/jDTnPLX7SaM70WLLjA==
   dependencies:
     json-schema-to-ts "^3.1.1"
     standardwebhooks "^1.0.0"

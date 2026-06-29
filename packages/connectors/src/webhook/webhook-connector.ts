@@ -7,6 +7,7 @@
  *  2. Sender mode: deliver webhook payloads to remote endpoints with retry logic.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { fetchWithOutboundUrlPolicy } from "@dzupagent/core/security";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -312,7 +313,7 @@ export class WebhookConnector {
           headers["X-Hub-Signature-256"] = `sha256=${sig}`;
         }
 
-        const response = await fetch(url, {
+        const response = await fetchWithOutboundUrlPolicy(url, {
           method: "POST",
           headers,
           body,

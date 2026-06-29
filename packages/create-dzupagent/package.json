@@ -30,6 +30,7 @@
   },
   "devDependencies": {
     "@dzupagent/agent": "0.2.0",
+    "@dzupagent/agent-adapters": "0.2.0",
     "tsup": "*",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

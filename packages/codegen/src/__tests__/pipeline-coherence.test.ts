@@ -23,6 +23,7 @@ import type { GuardrailGateConfig } from "../pipeline/guardrail-gate.js";
 import { runBudgetGate } from "../pipeline/budget-gate.js";
 import type { BudgetGateConfig } from "../pipeline/budget-gate.js";
 import type { GuardrailEngine } from "../guardrails/guardrail-engine.js";
+import type { GuardrailReporter } from "../guardrails/guardrail-reporter.js";
 import type {
   GuardrailContext,
   GuardrailReport,
@@ -813,8 +814,7 @@ describe("runGuardrailGate", () => {
     const reporter = { format: vi.fn(() => "FORMATTED REPORT") };
     const config: GuardrailGateConfig = {
       engine: makePassEngine(),
-      reporter:
-        reporter as unknown as import("../guardrails/guardrail-reporter.js").GuardrailReporter,
+      reporter: reporter as unknown as GuardrailReporter,
     };
     const result = runGuardrailGate(config, dummyContext);
     expect(result.formattedReport).toBe("FORMATTED REPORT");
