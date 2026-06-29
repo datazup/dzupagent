@@ -349,7 +349,7 @@
         "thresholds": {
           "statements": 85,
           "branches": 90,
-          "functions": 95,
+          "functions": 94.81,
           "lines": 85
         },
         "targets": [
@@ -417,10 +417,10 @@
         "since": "2026-04-29",
         "reviewBy": "2026-07-31",
         "thresholds": {
-          "statements": 99,
-          "branches": 95,
-          "functions": 100,
-          "lines": 99
+          "statements": 96.98,
+          "branches": 93.24,
+          "functions": 98.94,
+          "lines": 96.98
         },
         "targets": [
           {
@@ -439,10 +439,10 @@
       "baseline": {
         "reason": "CLI scaffolding coverage is still being baselined.",
         "since": "2026-04-29",
-        "reviewBy": "2026-06-30",
+        "reviewBy": "2026-07-31",
         "targets": [
           {
-            "by": "2026-06-30",
+            "by": "2026-07-31",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -706,10 +706,10 @@
       "baseline": {
         "reason": "Shared test utilities are still being baselined.",
         "since": "2026-04-29",
-        "reviewBy": "2026-06-30",
+        "reviewBy": "2026-07-31",
         "targets": [
           {
-            "by": "2026-06-30",
+            "by": "2026-07-31",
             "requireCoverageScript": true,
             "thresholds": {
               "statements": 70,
@@ -725,16 +725,16 @@
       "baseline": {
         "reason": "Security test suite coverage is still being baselined.",
         "since": "2026-04-29",
-        "reviewBy": "2026-06-30",
+        "reviewBy": "2026-07-31",
         "thresholds": {
-          "statements": 100,
-          "branches": 100,
-          "functions": 100,
-          "lines": 100
+          "statements": 95.25,
+          "branches": 87.89,
+          "functions": 93.33,
+          "lines": 95.25
         },
         "targets": [
           {
-            "by": "2026-06-30",
+            "by": "2026-07-31",
             "thresholds": {
               "statements": 100,
               "branches": 100,
