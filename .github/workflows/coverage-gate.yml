@@ -134,7 +134,8 @@ jobs:
         run: |
           shopt -s nullglob
           for artifact_dir in coverage-artifacts/coverage-*; do
-            folder="${artifact_dir##coverage-}"
+            artifact_name="${artifact_dir##*/}"
+            folder="${artifact_name#coverage-}"
             mkdir -p "packages/${folder}/coverage"
             cp -R "${artifact_dir}/." "packages/${folder}/coverage/"
           done
