@@ -653,7 +653,8 @@
         { "match": "exact", "pattern": "./types.js" },
         { "match": "exact", "pattern": "./approval-state-store.js" },
         { "match": "exact", "pattern": "./postgres-approval-store.js" },
-        { "match": "exact", "pattern": "./approval-gate.js" }
+        { "match": "exact", "pattern": "./approval-gate.js" },
+        { "match": "exact", "pattern": "./runtime-approval-bridge.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},

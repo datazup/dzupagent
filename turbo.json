@@ -17,6 +17,14 @@
     "@dzupagent/memory#build": {
       "dependsOn": ["^build", "@dzupagent/memory-ipc#build"]
     },
+    "@dzupagent/app-tools#build": {
+      "dependsOn": [
+        "^build",
+        "@dzupagent/code-edit-kit#build",
+        "@dzupagent/hitl-kit#build"
+      ],
+      "outputs": ["dist/**"]
+    },
     "dev": {
       "cache": false,
       "persistent": true
