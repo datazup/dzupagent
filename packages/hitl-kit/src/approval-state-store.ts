@@ -22,11 +22,11 @@
 
 /** Terminal outcome of an approval request. */
 export interface ApprovalOutcome {
-  decision: 'granted' | 'rejected'
+  decision: "granted" | "rejected";
   /** Optional response payload attached when granting (e.g. selectedOption). */
-  response?: unknown
+  response?: unknown;
   /** Optional rejection reason. */
-  reason?: string
+  reason?: string;
 }
 
 /**
@@ -44,47 +44,61 @@ export interface ApprovalOutcome {
  */
 export interface ApprovalStateStore {
   /**
-   * Register a new pending approval. The payload is retained so clients
-   * fetching approval details later (e.g. a dashboard) can render the
-   * question that was asked.
+   * Register a new pending approval. Idempotent for a still-pending
+   * `(runId, approvalId)` — re-creating a pending request is a no-op that
+   * preserves the original payload and any registered waiters (so a resumed
+   * run can safely re-enter). Re-creating a key that already reached a
+   * terminal outcome throws {@link DuplicateApprovalError}. The payload is
+   * retained so clients fetching approval details later (e.g. a dashboard)
+   * can render the question that was asked.
    */
-  createPending(runId: string, approvalId: string, payload: unknown): Promise<void>
+  createPending(
+    runId: string,
+    approvalId: string,
+    payload: unknown,
+  ): Promise<void>;
 
   /** Grant a pending approval, attaching an optional response. */
-  grant(runId: string, approvalId: string, response?: unknown): Promise<void>
+  grant(runId: string, approvalId: string, response?: unknown): Promise<void>;
 
   /** Reject a pending approval with a reason. */
-  reject(runId: string, approvalId: string, reason: string): Promise<void>
+  reject(runId: string, approvalId: string, reason: string): Promise<void>;
 
   /**
    * Await the terminal outcome of a pending approval. Resolves as soon as
    * `grant`/`reject` is called for the same key, or rejects with
    * {@link ApprovalTimeoutError} once `timeoutMs` elapses.
    */
-  poll(runId: string, approvalId: string, timeoutMs: number): Promise<ApprovalOutcome>
+  poll(
+    runId: string,
+    approvalId: string,
+    timeoutMs: number,
+  ): Promise<ApprovalOutcome>;
 }
 
 /** Raised by poll() when no decision is recorded before the deadline. */
 export class ApprovalTimeoutError extends Error {
   constructor(runId: string, approvalId: string, timeoutMs: number) {
-    super(`Approval timed out after ${timeoutMs}ms for run=${runId} approval=${approvalId}`)
-    this.name = 'ApprovalTimeoutError'
+    super(
+      `Approval timed out after ${timeoutMs}ms for run=${runId} approval=${approvalId}`,
+    );
+    this.name = "ApprovalTimeoutError";
   }
 }
 
 /** Raised when createPending is called twice for the same key. */
 export class DuplicateApprovalError extends Error {
   constructor(runId: string, approvalId: string) {
-    super(`Approval already exists for run=${runId} approval=${approvalId}`)
-    this.name = 'DuplicateApprovalError'
+    super(`Approval already exists for run=${runId} approval=${approvalId}`);
+    this.name = "DuplicateApprovalError";
   }
 }
 
 /** Raised when grant/reject targets an unknown approval. */
 export class UnknownApprovalError extends Error {
   constructor(runId: string, approvalId: string) {
-    super(`No pending approval found for run=${runId} approval=${approvalId}`)
-    this.name = 'UnknownApprovalError'
+    super(`No pending approval found for run=${runId} approval=${approvalId}`);
+    this.name = "UnknownApprovalError";
   }
 }
 
@@ -93,15 +107,15 @@ export class UnknownApprovalError extends Error {
 // ---------------------------------------------------------------------------
 
 interface PendingEntry {
-  payload: unknown
+  payload: unknown;
   /** Set when a decision has already arrived before poll() was called. */
-  outcome?: ApprovalOutcome
+  outcome?: ApprovalOutcome;
   /** List of waiters registered via poll() for the same key. */
   waiters: Array<{
-    resolve: (outcome: ApprovalOutcome) => void
-    reject: (err: Error) => void
-    timer?: ReturnType<typeof setTimeout>
-  }>
+    resolve: (outcome: ApprovalOutcome) => void;
+    reject: (err: Error) => void;
+    timer?: ReturnType<typeof setTimeout>;
+  }>;
 }
 
 /**
@@ -115,75 +129,103 @@ interface PendingEntry {
  * cached outcome immediately.
  */
 export class InMemoryApprovalStateStore implements ApprovalStateStore {
-  private readonly entries = new Map<string, PendingEntry>()
+  private readonly entries = new Map<string, PendingEntry>();
 
   private key(runId: string, approvalId: string): string {
-    return `${runId}::${approvalId}`
+    return `${runId}::${approvalId}`;
   }
 
-  async createPending(runId: string, approvalId: string, payload: unknown): Promise<void> {
-    const key = this.key(runId, approvalId)
-    if (this.entries.has(key)) {
-      throw new DuplicateApprovalError(runId, approvalId)
+  async createPending(
+    runId: string,
+    approvalId: string,
+    payload: unknown,
+  ): Promise<void> {
+    const key = this.key(runId, approvalId);
+    const existing = this.entries.get(key);
+    if (existing) {
+      // MPCO P6 / interface contract (:35): createPending is idempotent for a
+      // still-PENDING key — re-creating it must NOT throw and must NOT clobber
+      // the retained payload or the registered waiters (resume re-enters here).
+      // Only a key that already reached a TERMINAL outcome is a true duplicate.
+      if (existing.outcome) {
+        throw new DuplicateApprovalError(runId, approvalId);
+      }
+      return;
     }
-    this.entries.set(key, { payload, waiters: [] })
+    this.entries.set(key, { payload, waiters: [] });
   }
 
-  async grant(runId: string, approvalId: string, response?: unknown): Promise<void> {
-    this.resolveOutcome(runId, approvalId, { decision: 'granted', response })
+  async grant(
+    runId: string,
+    approvalId: string,
+    response?: unknown,
+  ): Promise<void> {
+    this.resolveOutcome(runId, approvalId, { decision: "granted", response });
   }
 
-  async reject(runId: string, approvalId: string, reason: string): Promise<void> {
-    this.resolveOutcome(runId, approvalId, { decision: 'rejected', reason })
+  async reject(
+    runId: string,
+    approvalId: string,
+    reason: string,
+  ): Promise<void> {
+    this.resolveOutcome(runId, approvalId, { decision: "rejected", reason });
   }
 
-  private resolveOutcome(runId: string, approvalId: string, outcome: ApprovalOutcome): void {
-    const key = this.key(runId, approvalId)
-    const entry = this.entries.get(key)
+  private resolveOutcome(
+    runId: string,
+    approvalId: string,
+    outcome: ApprovalOutcome,
+  ): void {
+    const key = this.key(runId, approvalId);
+    const entry = this.entries.get(key);
     if (!entry) {
-      throw new UnknownApprovalError(runId, approvalId)
+      throw new UnknownApprovalError(runId, approvalId);
     }
     if (entry.outcome) {
       // Idempotent: repeat calls with the same decision are ignored. Conflict
       // detection (grant then reject) is left to the caller.
-      return
+      return;
     }
-    entry.outcome = outcome
+    entry.outcome = outcome;
     for (const waiter of entry.waiters) {
       if (waiter.timer) {
-        clearTimeout(waiter.timer)
+        clearTimeout(waiter.timer);
       }
-      waiter.resolve(outcome)
+      waiter.resolve(outcome);
     }
-    entry.waiters = []
+    entry.waiters = [];
   }
 
-  async poll(runId: string, approvalId: string, timeoutMs: number): Promise<ApprovalOutcome> {
-    const key = this.key(runId, approvalId)
-    const entry = this.entries.get(key)
+  async poll(
+    runId: string,
+    approvalId: string,
+    timeoutMs: number,
+  ): Promise<ApprovalOutcome> {
+    const key = this.key(runId, approvalId);
+    const entry = this.entries.get(key);
     if (!entry) {
-      throw new UnknownApprovalError(runId, approvalId)
+      throw new UnknownApprovalError(runId, approvalId);
     }
     if (entry.outcome) {
-      return entry.outcome
+      return entry.outcome;
     }
 
     return new Promise<ApprovalOutcome>((resolve, reject) => {
-      const waiter: PendingEntry['waiters'][number] = { resolve, reject }
+      const waiter: PendingEntry["waiters"][number] = { resolve, reject };
       waiter.timer = setTimeout(() => {
-        const idx = entry.waiters.indexOf(waiter)
+        const idx = entry.waiters.indexOf(waiter);
         if (idx >= 0) {
-          entry.waiters.splice(idx, 1)
+          entry.waiters.splice(idx, 1);
         }
-        reject(new ApprovalTimeoutError(runId, approvalId, timeoutMs))
-      }, timeoutMs)
-      entry.waiters.push(waiter)
-    })
+        reject(new ApprovalTimeoutError(runId, approvalId, timeoutMs));
+      }, timeoutMs);
+      entry.waiters.push(waiter);
+    });
   }
 
   /** Test helper — returns the retained payload, or undefined if unknown. */
   getPayload(runId: string, approvalId: string): unknown {
-    return this.entries.get(this.key(runId, approvalId))?.payload
+    return this.entries.get(this.key(runId, approvalId))?.payload;
   }
 
   /** Test helper — clears all in-memory state. */
@@ -191,11 +233,11 @@ export class InMemoryApprovalStateStore implements ApprovalStateStore {
     for (const entry of this.entries.values()) {
       for (const waiter of entry.waiters) {
         if (waiter.timer) {
-          clearTimeout(waiter.timer)
+          clearTimeout(waiter.timer);
         }
-        waiter.reject(new Error('Store cleared'))
+        waiter.reject(new Error("Store cleared"));
       }
     }
-    this.entries.clear()
+    this.entries.clear();
   }
 }
