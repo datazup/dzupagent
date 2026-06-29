@@ -1,16 +1,21 @@
-# SDD Progress Ledger — RF-11 Agent Fidelity Bundle (2026-06-25)
+# SDD Progress: MPCO Foundation (P1 → P1b → P5)
 
-Branch: feat/rf-11-agent-fidelity-bundle
-Base commit: 046047b1
+Plan: workspace-docs/repos/scripts/docs/mpco-foundation-implementation-plan-2026-06-29.md
+dzupagent branch: feat/mpco-foundation base c4dda519
+scripts branch: feat/mpco-foundation base d9c2cba6
 
 ## Tasks
 
-- Task 1 (M-08+M-09+M-10 — connectors-dev): pending
-- Task 2 (M-11+M-12 — core-dev): pending
-- Task 3 (M-13 — agent-dev): pending
-- Task 1 (M-08+M-09+M-10 — connectors-dev): complete (commit 35cddf1f, review clean — 3 minor: style reflow, assertReady silent no-op, empty-namespace comment)
-- Task 2 (M-11+M-12 — core-dev): complete (commits ab1a3076+b6c67194, M-11 capability fallback + M-12 per-tool-call audit, typecheck 61/61 green)
-- Task 3 (M-13 — agent-dev): complete (pre-existing — PipelineStuckDetector wired in pipeline-runtime-types.ts, auto-wire confirmed)
-  === ALL RF-11 TASKS COMPLETE (M-08..M-13) ===
-- Task 2 (M-11+M-12 — core-dev): complete (commits ab1a3076..d6461db5, fix d6461db5, review clean)
-- Task 3 (M-13 — agent-dev): complete (commits be08a655..ae6b02f6, review clean — minor: test-1 fragile find, journaling asymmetry; important-not-spec: resume lacks stuck detector)
+- Task 1 (P1 RUNTIME*LEAF routing — dzupagent/flow-compiler): complete (commits c4dda519..6176b7bc, review clean — d4fb4159 impl + 6176b7bc fix). Review caught IMPORTANT: RUNTIME_LEAF overcapture onto fleet.*/knowledge._/worker.dispatch (real source grouped them with adapter._ in one case block; brief assumed adapter.\_ standalone) — FIXED by splitting case + T4 regression test. 31/31 pass, pkg typecheck EXIT 0. MINOR(carry to final): test-file quote/semicolon reformat churn.
+- Task 2 (P1b canonical-AST executor — scripts/mpco): complete (scripts repo commits 6795e049 impl + 02bec1cd tests, review clean). 5/5 pass. Review caught 2 IMPORTANT test gaps (else-path + unknown-node throw untested) — FIXED with 2 added tests, impl unchanged (blob 99be3f0b). NOTE: scripts feat/mpco-foundation also carries 3 PRE-EXISTING unrelated commits already on main (b04d6122 chore compose, 6f33eb6c fix workspace audit, 0e566a89 test compose) — they sit between session-start base d9c2cba6 and Task2's parent; harmless on merge (already on main). Task2's true review base = 6795e049^ = 0e566a89. MINOR(carry to final): adapter.run step omits confidence; evalCondition ctx=state untested.
+- Task 3 (P5 collab.review*loop macro expansion — dzupagent/flow-dsl): complete (dzupagent commit 7f1eef26, review clean on opus). 8/8 expand tests + full flow-dsl 319/319, typecheck+lint EXIT 0. KEY CORRECTION: brief+my ground-truth cited WRONG layer (flow-ast/parse/*); live pipeline parseDslToDocument→normalizeDslDocument→validateDocument runs flow-dsl/src/normalize\_ layer. Implementer pivoted (verified by reviewer against source): conditional key `if` NOT `branch`; approval body `on_approve`; adapter.run REQUIRES non-empty `output`; validate omitted when no gate commands; top-level `steps` NOT `nodes`; mini-yaml is BLOCK-STYLE ONLY (no inline {}/[{}]); T7 source needs dsl/id/version:1. MINOR(carry to final): parse-dsl.ts whole-file prettier reflow inflates diff (~8 real lines); expandOne output aliases input commands/meta (benign, pure-by-no-mutation holds); T5a whitelist looser than emitted.
+
+## Closeout
+
+- Root yarn typecheck: PASS for MPCO blast radius. First run EXIT=1 but the ONLY error was a transient shared-kit dist race: @datazup/app-chat-contracts dist/index.d.ts not yet emitted when @reward-app/api + @scripts-app/api typechecked (TS7016). NO error referenced flow-compiler/flow-dsl/RUNTIME_LEAF/route-target/expand-collab/reason. flow-compiler + flow-dsl typecheck EXIT=0; after dist built, both reward-app/api + scripts-app/api re-typecheck EXIT=0. Pre-existing, unrelated to MPCO (shared-kit on feat/broker-hosted-auth-google-social).
+- FINAL whole-branch review (opus, both repos): READY TO MERGE — Yes. 0 Critical, 0 Important. All 4 Global Constraints verified vs source in final state; 3-task seam vocabulary-coherent (if→branch normalization is the correct layer boundary, not a mismatch); both per-task fixes hold (T1 case-split+T4, T2 else/throw tests); no scope creep beyond foundation slice; all 4 carried minors triage ACCEPTABLE. ARCH NOTE (deferred to P8 runner, NOT a defect): P1b executor handles sequence/adapter.run/validate/branch but not approval/complete (which P5 emits) — fails safe via default throw; P5 is compile-only & never feeds P1b in this slice. P8 must extend executor node matrix.
+- Merge feat/mpco-foundation (both repos): DEFERRED by operator choice (Keep branches as-is). Branches preserved, NOT merged, NOT pushed. Operator merges per shared-repo protocol.
+  MERGE RECIPE (next session):
+  - dzupagent (SHARED — protocol-bound): isolated worktree + NODE_AUTH_TOKEN, NEVER live. `git -C dzupagent worktree add ../dz-merge main` → merge feat/mpco-foundation → root `yarn typecheck` (expect the transient app-chat-contracts dist race; build shared-app-kit first or re-run) → merge to dzupagent main. Range c4dda519..7f1eef26 (commits d4fb4159, 6176b7bc, 7f1eef26).
+  - scripts (NOT live-linked, lower risk): merge feat/mpco-foundation → main. ONLY mpco/ commits are new (6795e049, 02bec1cd); the other 3 (b04d6122, 6f33eb6c, 0e566a89) are already on main — clean fast-forward/merge.
+  - FOLLOW-UP (P8 runner): extend scripts/mpco/execute-canonical-ast.mjs node matrix to approval + complete (P5 emits them; executor currently throws on them — fails safe but must be wired before the two halves connect). ✅ DONE 2026-06-29 (scripts feat/mpco-foundation commits cd171c73 impl + 0b766bd0 minor): executor now handles complete (terminal, sets lastOutput from result) + approval (new injected approveGate(node,ctx)->bool port mirroring evalCondition; recurses onApprove/onReject camelCase). 10/10 tests inc. nested P5-shape (approval→onApprove→[complete]). Review clean (1 minor cosmetic fixed). Seam P5↔P1b now closed for these node types.
