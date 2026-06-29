@@ -266,7 +266,7 @@ export async function runCompile(
         code: "UNSUPPORTED_RUNTIME_NODE_FOR_TARGET",
         message:
           `Node type "${node.type}" at "${node.path}" is valid in the AST but cannot be represented by ` +
-          `the "skill-chain" generic compiler target. Use a runtime that executes this node kind or add a ` +
+          `the "${target}" generic compiler target. Use a runtime that executes this node kind or add a ` +
           "reviewed executable target contract before emitting artifacts.",
         nodePath: node.path,
         category: "lowering",
