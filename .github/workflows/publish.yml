@@ -12,6 +12,7 @@ concurrency:
 permissions:
   contents: write
   id-token: write
+  packages: write
 
 jobs:
   publish:
@@ -45,15 +46,23 @@ jobs:
       - name: Check publish metadata
         run: yarn check:publish-metadata
 
-      - name: Report npm publish auth mode
+      - name: Configure GitHub Packages publish auth
+        run: |
+          cat >> "$NPM_CONFIG_USERCONFIG" <<'NPMRC'
+          @dzupagent:registry=https://npm.pkg.github.com
+          //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+          NPMRC
+
+      - name: Report package publish auth mode
         run: |
           if [ -n "$NODE_AUTH_TOKEN" ]; then
-            echo "NPM_TOKEN is configured; Changesets will publish with token auth."
+            echo "Package publish token is configured for GitHub Packages."
           else
-            echo "NPM_TOKEN is not configured; Changesets will rely on npm trusted publishing via GitHub OIDC."
+            echo "No package publish token is configured."
+            exit 1
           fi
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Create Release PR or Publish
         uses: changesets/action@v1
@@ -64,4 +73,4 @@ jobs:
           commit: 'chore: version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || secrets.GITHUB_TOKEN }}
