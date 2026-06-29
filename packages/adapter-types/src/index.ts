@@ -15,6 +15,7 @@ export * from "./contracts/adapter-monitor-dashboard.js";
 export * from "./contracts/dzupagent.js";
 export * from "./contracts/run-store.js";
 export * from "./contracts/provider-origin.js";
+export * from "./contracts/collab-task.js";
 export * from "./contracts/validation.js";
 export * from "./provider-execution-port.js";
 export * from "./pipeline-executor-port.js";
