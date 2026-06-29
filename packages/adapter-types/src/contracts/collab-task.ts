@@ -11,7 +11,10 @@ export type CollabState =
   | "input_required"
   | "completed"
   | "failed"
-  | "rejected";
+  | "rejected"
+  /** MPCO P8a / T15 — terminal: a per-run budget cap was exceeded; further
+   *  proposer/critic calls are blocked. Detail in `terminationReason`. */
+  | "budget_exceeded";
 
 export type CollabRole = "proposer" | "critic" | "reconciler" | "human";
 
