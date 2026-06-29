@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { createEventBus, type DzupEventBus } from '@dzupagent/core'
 import { runLogRoot } from '@dzupagent/agent-adapters'
 import type { AgentEvent } from '@dzupagent/agent-adapters'
+import { waitForCondition } from '@dzupagent/testing'
 
 import {
   PromptFeedbackLoop,
@@ -700,7 +701,10 @@ describe('PromptFeedbackLoop', () => {
     })
 
     // Allow async handler to run.
-    await new Promise((r) => setTimeout(r, 10))
+    await waitForCondition(() => spy.mock.calls.length === 1, {
+      timeoutMs: 1_000,
+      intervalMs: 10,
+    })
     expect(spy).toHaveBeenCalledTimes(1)
 
     loop.stop()

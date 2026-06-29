@@ -21,6 +21,7 @@ export const DESTRUCTIVE_COMMAND_PATTERNS: ReadonlyArray<{
   pattern: RegExp;
   label: string;
 }> = [
+  /* eslint-disable security/detect-unsafe-regex */
   {
     pattern:
       /\brm\s+(?:(?:--recursive|--force|-[a-zA-Z]+)\s+)*\/[/.]?\*?(\s|$)/i,
@@ -47,6 +48,7 @@ export const DESTRUCTIVE_COMMAND_PATTERNS: ReadonlyArray<{
     pattern: /\bmkfs\b[^;]*\/dev\/(sd[a-z]|hd[a-z]|nvme\d+(?:n\d+(?:p\d+)?)?)/i,
     label: "filesystem destruction via mkfs",
   },
+  /* eslint-enable security/detect-unsafe-regex */
 ];
 
 /** Recognized input key names that carry the command string. */

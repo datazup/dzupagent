@@ -29,10 +29,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import {
-  PluginRegistry,
-  PluginRegistrationConflictError,
-} from "../plugin/plugin-registry.js";
+import { PluginRegistry } from "../plugin/plugin-registry.js";
+import type { PluginRegistrationConflictError } from "../plugin/plugin-registry.js";
 import type {
   DzupPlugin,
   PluginContext,
@@ -41,12 +39,12 @@ import type {
 import {
   resolvePluginOrder,
   validateManifest,
-  PluginNameConflictError,
   discoverPlugins,
 } from "../plugin/plugin-discovery.js";
 import type {
   DiscoveredPlugin,
   PluginManifest,
+  PluginNameConflictError,
 } from "../plugin/plugin-discovery.js";
 import {
   createManifest,

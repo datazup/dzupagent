@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * W31-C — HITL-kit: escalation policy deep coverage.
  *

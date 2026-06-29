@@ -185,8 +185,8 @@ describe('tool-resolver', { timeout: 120_000 }, () => {
         githubConnectorProfiles: {
           internal: {
             token: 'ghp-profile',
-            baseUrl: 'http://127.0.0.1:8080/api/v3',
-            allowedHosts: ['127.0.0.1:8080'],
+            baseUrl: 'https://ghe.example.com/api/v3',
+            allowedHosts: ['ghe.example.com'],
           },
         },
         defaultGithubConnectorProfile: 'internal',
@@ -198,7 +198,7 @@ describe('tool-resolver', { timeout: 120_000 }, () => {
       await expect(githubTool!.invoke({ owner: 'org', repo: 'repo', path: 'README.md' })).resolves.toBe('hello')
       expect(fetchMock).toHaveBeenCalledTimes(1)
       expect(fetchMock.mock.calls[0]![0]).toBe(
-        'http://127.0.0.1:8080/api/v3/repos/org/repo/contents/README.md',
+        'https://ghe.example.com/api/v3/repos/org/repo/contents/README.md',
       )
     } finally {
       vi.unstubAllGlobals()

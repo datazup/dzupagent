@@ -440,6 +440,7 @@ describe("hook:error event shape", () => {
   it("null throw coerces to string 'null' in message", async () => {
     const bus = createEventBus();
     const events = collectEvents(bus);
+    // eslint-disable-next-line @typescript-eslint/only-throw-error
     await runHooks(
       [
         vi.fn(async () => {
