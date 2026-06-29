@@ -63,6 +63,15 @@ describe("budget accumulator (MPCO P8a / T15)", () => {
     });
   });
 
+  it("MPCO P8a: checkBudget does not exceed at the token cap boundary", () => {
+    expect(
+      checkBudget(
+        { totalTokens: 1000, totalCostCents: 0, calls: 1 },
+        { maxTokens: 1000 },
+      ),
+    ).toEqual({ exceeded: false });
+  });
+
   it("T15b: checkBudget flags a cost breach", () => {
     const res = checkBudget(
       { totalTokens: 10, totalCostCents: 250, calls: 1 },
