@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+import { expect } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdir, readdir, rm, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -51,7 +51,7 @@ export function createPorts(options = {}) {
 }
 
 export function assertAllFakesOnly(ports) {
-  assert.deepEqual(ports.liveCallSensor, {
+  expect(ports.liveCallSensor).toEqual({
     agent: 0,
     workspace: 0,
     validator: 0,
@@ -61,8 +61,8 @@ export function assertAllFakesOnly(ports) {
 
 export function assertTraceHasNoSecret(tracePort, secret) {
   for (const event of tracePort.events) {
-    assert.equal(JSON.stringify(event).includes(secret), false);
-    assert.notEqual(event.visibility, "raw");
+    expect(JSON.stringify(event).includes(secret)).toBe(false);
+    expect(event.visibility).not.toBe("raw");
   }
 }
 
