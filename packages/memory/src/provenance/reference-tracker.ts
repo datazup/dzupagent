@@ -300,17 +300,17 @@ export class RedisReferenceStore implements ReferenceStore {
         // Remove (runId@ts) from the reverse entry-keyed sorted set
         await this.cache
           .zrem(this.entryKey(entryId), this.encodeMember(runId, retrievedAt))
-          .catch(err => this.onError('clearRun:zrem', err))
+          .catch((err: unknown) => this.onError('clearRun:zrem', err))
 
         // Remove the per-citation context value
         await this.cache
           .delete(this.ctxKey(runId, entryId, retrievedAt))
-          .catch(err => this.onError('clearRun:ctx-delete', err))
+          .catch((err: unknown) => this.onError('clearRun:ctx-delete', err))
 
         // Remove the member from the run sorted set itself
         await this.cache
           .zrem(runKey, member)
-          .catch(err => this.onError('clearRun:zrem-self', err))
+          .catch((err: unknown) => this.onError('clearRun:zrem-self', err))
       }
     } catch (err) {
       this.onError('clearRun', err)

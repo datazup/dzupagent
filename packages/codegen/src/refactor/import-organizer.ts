@@ -63,8 +63,12 @@ export interface OrganizeResult {
  *   2 — everything between `import` and `from` (bindings)
  *   3 — module specifier (without quotes)
  */
+/* eslint-disable security/detect-unsafe-regex --
+ * Bounded import grammar over a single source line; not used with untrusted patterns.
+ */
 const IMPORT_RE =
   /^import\s+(type\s+)?({[^}]*}|\*\s+as\s+\w+|\w+(?:\s*,\s*{[^}]*})?|['"][^'"]*['"])\s+from\s+['"]([^'"]+)['"]\s*;?\s*$/;
+/* eslint-enable security/detect-unsafe-regex */
 
 /** Matches a side-effect import: `import './foo'` or `import "foo"` */
 const SIDE_EFFECT_RE = /^import\s+['"]([^'"]+)['"]\s*;?\s*$/;
