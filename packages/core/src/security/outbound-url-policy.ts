@@ -82,7 +82,7 @@ function toSet(values?: ReadonlySet<string> | readonly string[]): Set<string> {
 
 function isHostAllowlisted(
   parsedUrl: URL,
-  policy?: OutboundUrlSecurityPolicy
+  policy?: OutboundUrlSecurityPolicy,
 ): boolean {
   const allowedHosts = toSet(policy?.allowedHosts);
   if (allowedHosts.size === 0) return false;
@@ -94,14 +94,14 @@ function isHostAllowlisted(
 
 function isIpAllowlisted(
   address: string,
-  policy?: OutboundUrlSecurityPolicy
+  policy?: OutboundUrlSecurityPolicy,
 ): boolean {
   const allowedIps = toSet(policy?.allowedIpAddresses);
   return allowedIps.has(normalizeHostname(address));
 }
 
 function parseIpv4(
-  address: string
+  address: string,
 ): [number, number, number, number] | undefined {
   const parts = address.split(".");
   if (parts.length !== 4) return undefined;
@@ -169,7 +169,7 @@ export function isPublicIpAddress(address: string): boolean {
 
 export function validateOutboundUrlSyntax(
   url: string | URL,
-  policy?: OutboundUrlSecurityPolicy
+  policy?: OutboundUrlSecurityPolicy,
 ): OutboundUrlPolicyResult {
   let parsedUrl: URL;
   try {
@@ -233,7 +233,7 @@ export function validateOutboundUrlSyntax(
 
 export async function validateOutboundUrl(
   url: string | URL,
-  policy?: OutboundUrlSecurityPolicy
+  policy?: OutboundUrlSecurityPolicy,
 ): Promise<OutboundUrlPolicyResult> {
   const syntax = validateOutboundUrlSyntax(url, policy);
   if (!syntax.ok) return syntax;
@@ -307,7 +307,7 @@ function isRedirectStatus(status: number): boolean {
  * remain correct; only the underlying socket's lookup is overridden.
  */
 function createIpPinnedDispatcher(
-  address: OutboundUrlResolvedAddress
+  address: OutboundUrlResolvedAddress,
 ): UndiciAgent {
   const pinnedAddress = address.address;
   const pinnedFamily: 0 | 4 | 6 =
@@ -319,7 +319,7 @@ function createIpPinnedDispatcher(
         callback(
           null,
           [{ address: pinnedAddress, family: pinnedFamily }] as never,
-          pinnedFamily as never
+          pinnedFamily as never,
         );
         return;
       }
@@ -333,7 +333,7 @@ function createIpPinnedDispatcher(
 }
 
 function getResolvedAddressForPinning(
-  validation: Extract<OutboundUrlPolicyResult, { ok: true }>
+  validation: Extract<OutboundUrlPolicyResult, { ok: true }>,
 ): OutboundUrlResolvedAddress | undefined {
   for (const entry of validation.resolvedAddresses) {
     const normalized = normalizeHostname(entry.address);
@@ -356,7 +356,7 @@ function throwIfAborted(signal: AbortSignal | null | undefined): void {
 export async function fetchWithOutboundUrlPolicy(
   url: string | URL,
   init: RequestInit = {},
-  options: SecureFetchOptions = {}
+  options: SecureFetchOptions = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   const callerProvidedFetch = options.fetchImpl !== undefined;
@@ -383,12 +383,15 @@ export async function fetchWithOutboundUrlPolicy(
     // fetchImpl, pin the TCP connection to the address we just validated so a
     // racing DNS swap cannot redirect the connection to a private/internal IP
     // between validation and connect. We skip pinning when the caller owns the
-    // fetch implementation (they manage their own security posture) and when
+    // fetch implementation (they manage their own security posture), when
     // validation produced no resolved addresses (e.g., IP-literal or example
-    // hosts that took the syntax-only path).
-    const pinnedAddress = callerProvidedFetch
-      ? undefined
-      : getResolvedAddressForPinning(validation);
+    // hosts that took the syntax-only path), and when the host is explicitly
+    // allowlisted (operator has deliberately authorized it — no DNS rebind risk
+    // for known-trusted IP-literal or internal hosts).
+    const pinnedAddress =
+      callerProvidedFetch || isHostAllowlisted(validation.url, options.policy)
+        ? undefined
+        : getResolvedAddressForPinning(validation);
     const requestInit: RequestInit = {
       ...currentInit,
       redirect: "manual",

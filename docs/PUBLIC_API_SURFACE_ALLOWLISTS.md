@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-06-25
+Date: 2026-06-29
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -339,7 +339,7 @@ Root index: `packages/agent/src/index.ts`
 Root index: `packages/codegen/src/index.ts`
 
 - Stable root sources: `21`
-- Deprecated transitional root sources: `74`
+- Deprecated transitional root sources: `75`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to vfs/tools/runtime/compat before a future 1.0 root contraction.
 
@@ -392,6 +392,7 @@ Root index: `packages/codegen/src/index.ts`
 | `deprecated-transitional` | `./quality/convention-gate.js` | 6 | `prefix:./quality/` | `ConventionGate`, `ConventionViolation`, `ConventionCategory`, `LearnedConvention` |
 | `deprecated-transitional` | `./quality/quality-dimensions.js` | 6 | `prefix:./quality/` | `typeStrictness`, `eslintClean`, `hasTests`, `codeCompleteness` |
 | `deprecated-transitional` | `./quality/coverage-analyzer.js` | 4 | `prefix:./quality/` | `analyzeCoverage`, `findUncoveredFiles`, `CoverageReport`, `CoverageConfig` |
+| `deprecated-transitional` | `./quality/dead-code-eliminator.js` | 8 | `prefix:./quality/` | `DeadCodeEliminator`, `DeadCodeAnalysisResult`, `DeadCodeEliminatorOptions`, `DeadCodePatch` |
 | `deprecated-transitional` | `./quality/import-validator.js` | 3 | `prefix:./quality/` | `validateImports`, `ImportIssue`, `ImportValidationResult` |
 | `deprecated-transitional` | `./quality/contract-validator.js` | 7 | `prefix:./quality/` | `extractEndpoints`, `extractAPICalls`, `validateContracts`, `APIEndpoint` |
 | `deprecated-transitional` | `./adaptation/path-mapper.js` | 1 | `prefix:./adaptation/` | `PathMapper` |

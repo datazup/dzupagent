@@ -31,6 +31,7 @@ import {
 import { scoreWithDecay, createDecayMetadata } from "../decay-engine.js";
 import { InMemoryMemoryClient } from "../in-memory-client.js";
 import type { MemoryRecord, MemoryScope } from "@dzupagent/agent-types";
+import type { BaseStore } from "@langchain/langgraph";
 import type { SemanticStoreAdapter } from "../memory-types.js";
 import type { MemoryStoreCapabilities } from "../store-capabilities.js";
 
@@ -91,7 +92,7 @@ function makeSemanticStoreAdapter(
 function makeBaseStore(
   data: Map<string, Record<string, unknown>> = new Map(),
 ): {
-  store: any;
+  store: BaseStore;
   put: ReturnType<typeof vi.fn>;
   search: ReturnType<typeof vi.fn>;
   get: ReturnType<typeof vi.fn>;
