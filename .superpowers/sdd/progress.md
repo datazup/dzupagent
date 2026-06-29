@@ -1,5 +1,7 @@
 # SDD Progress: MPCO Foundation (P1 → P1b → P5)
 
+NEXT SLICE PLAN WRITTEN (awaiting operator review, not yet executed): workspace-docs/repos/scripts/docs/mpco-resolver-envelope-gate-plan-2026-06-29.md — P2 resolver + P3 envelope + P4 command-gate, 7 tasks, source-verified. Risks resolved: run-validation.js bug at :154 (not :149); executor enum reconciliation 2-sided (impl+test, none→advisory floor, add blocks_auto_accept); new contract names collision-free; no mpco:test script (uses node --test). dzupagent type surface → feat/mpco-resolver-envelope-gate; scripts → continue feat/mpco-foundation.
+
 Plan: workspace-docs/repos/scripts/docs/mpco-foundation-implementation-plan-2026-06-29.md
 dzupagent branch: feat/mpco-foundation base c4dda519
 scripts branch: feat/mpco-foundation base d9c2cba6
