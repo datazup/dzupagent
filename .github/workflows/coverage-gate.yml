@@ -128,8 +128,16 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           pattern: coverage-*
-          path: packages
-          merge-multiple: true
+          path: coverage-artifacts
+
+      - name: Restore coverage summaries
+        run: |
+          shopt -s nullglob
+          for artifact_dir in coverage-artifacts/coverage-*; do
+            folder="${artifact_dir##coverage-}"
+            mkdir -p "packages/${folder}/coverage"
+            cp -R "${artifact_dir}/." "packages/${folder}/coverage/"
+          done
 
       - name: Enforce workspace coverage gate
         run: yarn test:coverage:workspace
