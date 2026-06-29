@@ -1,4 +1,10 @@
-# SDD Progress: MPCO Governance P8a (T15 budget + T16 circuit) — IN FLIGHT (started 2026-06-29)
+# SDD Progress: MPCO Runner P8 (executable review-loop) — PLANNING (started 2026-06-29)
+
+NEXT SLICE PLAN being authored (opus subagent, source-verified): workspace-docs/repos/scripts/docs/mpco-runner-p8-plan-2026-06-29.md — the keystone executable review-loop runner (deps P5+P6/P7+P8a all DONE). Wires bridge selection (interactive→Runtime/operator→Operator) + governance ports (real createBudgetGovernor→checkBudget/accrueUsage + markBudgetExceeded on terminal-over-budget — executor deliberately doesn't) + cross_validate cross-family enforcement + order randomization + confidence-aware critique gate + bounded-revise subgraph (T13) into the Option-B canonical-AST executor. Keystone gate = e2e compile-AND-execute fake adapter.run+validate flow. VERIFIED branch base: dzupagent feat/mpco-governance (308ed3f3) STACKS COMPLETE MPCO dzupagent stack P2(6f3d6b73)/P3(33dab0ab)/P4(68284ddc)/P6(041c2565+b5716afa)/P8a(0920297b+308ed3f3) — correct base if P8 needs dzupagent change. scripts continues feat/mpco-approval-bridges (executor+bridges+governor all here). NOTE: first plan-author dispatch hit a connection error mid-run after 22 verification reads; resumed same agent (a18976419e07a592d) to write the plan from its retained context. AWAITING plan file + my review.
+
+---
+
+# SDD Progress: MPCO Governance P8a (T15 budget + T16 circuit) — COMPLETE (2026-06-29) — see READY-TO-MERGE=YES block below
 
 Plan: workspace-docs/repos/scripts/docs/mpco-governance-p8a-plan-2026-06-29.md (opus-authored, source-verified, NO blockers — circuit breaker AdapterHealthMonitor.canExecute @health-monitor.ts:86 live; executor pre-call seam execute-canonical-ast.mjs:26 ports.runAdapter live; both self-reviewed vs source).
 dzupagent branch: feat/mpco-governance base b5716afa (cut from feat/mpco-approval-bridges tip = PR#14, carries P1-P6). adapter-types typecheck BASELINE = 0 (clean) → Tasks1/2 gate is literal EXIT 0.
