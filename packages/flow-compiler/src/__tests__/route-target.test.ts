@@ -170,13 +170,13 @@ describe("routeTarget — D2 routing matrix", () => {
 describe("computeFeatureBitmask — per-bit isolation", () => {
   it("sets exactly BRANCH for a lone branch", () => {
     expect(computeFeatureBitmask(branch([action("t")]))).toBe(
-      FEATURE_BITS.BRANCH,
+      FEATURE_BITS.BRANCH
     );
   });
 
   it("sets exactly PARALLEL for a lone parallel", () => {
     expect(computeFeatureBitmask(parallel([action("a")]))).toBe(
-      FEATURE_BITS.PARALLEL,
+      FEATURE_BITS.PARALLEL
     );
   });
 
@@ -186,31 +186,31 @@ describe("computeFeatureBitmask — per-bit isolation", () => {
 
   it("sets exactly SUSPEND for a lone approval", () => {
     expect(computeFeatureBitmask(approval(action("n")))).toBe(
-      FEATURE_BITS.SUSPEND,
+      FEATURE_BITS.SUSPEND
     );
   });
 
   it("sets exactly SUSPEND for a lone persona", () => {
     expect(computeFeatureBitmask(persona(action("n")))).toBe(
-      FEATURE_BITS.SUSPEND,
+      FEATURE_BITS.SUSPEND
     );
   });
 
   it("sets exactly SUSPEND for a lone route", () => {
     expect(computeFeatureBitmask(route(action("n")))).toBe(
-      FEATURE_BITS.SUSPEND,
+      FEATURE_BITS.SUSPEND
     );
   });
 
   it("sets exactly FOR_EACH for a lone for_each", () => {
     expect(computeFeatureBitmask(forEach(action("p")))).toBe(
-      FEATURE_BITS.FOR_EACH,
+      FEATURE_BITS.FOR_EACH
     );
   });
 
   it("returns SEQUENTIAL_ONLY (0) for a flat action", () => {
     expect(computeFeatureBitmask(action("a"))).toBe(
-      FEATURE_BITS.SEQUENTIAL_ONLY,
+      FEATURE_BITS.SEQUENTIAL_ONLY
     );
   });
 
@@ -218,7 +218,7 @@ describe("computeFeatureBitmask — per-bit isolation", () => {
     const ast = sequence(
       branch([action("t")]),
       parallel([action("a")]),
-      forEach(action("p")),
+      forEach(action("p"))
     );
     const expected =
       FEATURE_BITS.BRANCH | FEATURE_BITS.PARALLEL | FEATURE_BITS.FOR_EACH;
@@ -235,10 +235,10 @@ const adapterRun = (instructions = "do it"): FlowNode =>
     type: "adapter.run",
     provider: "codex",
     instructions,
-  }) as unknown as FlowNode;
+  } as unknown as FlowNode);
 
 const validate = (command = "yarn typecheck"): FlowNode =>
-  ({ type: "validate", commands: [{ command }] }) as unknown as FlowNode;
+  ({ type: "validate", commands: [{ command }] } as unknown as FlowNode);
 
 const forEachLeaf = (body: FlowNode): FlowNode =>
   ({
@@ -246,10 +246,10 @@ const forEachLeaf = (body: FlowNode): FlowNode =>
     source: "items",
     as: "item",
     body: [body],
-  }) as unknown as FlowNode;
+  } as unknown as FlowNode);
 
 const branchLeaf = (...thenNodes: FlowNode[]): FlowNode =>
-  ({ type: "branch", condition: "x", then: thenNodes }) as unknown as FlowNode;
+  ({ type: "branch", condition: "x", then: thenNodes } as unknown as FlowNode);
 
 describe("RUNTIME_LEAF routing (MPCO P1)", () => {
   it("T1a: adapter.run-only flow routes to workflow-builder", () => {
@@ -279,6 +279,16 @@ describe("RUNTIME_LEAF routing (MPCO P1)", () => {
   it("T3b: RUNTIME_LEAF bit is set whenever a runtime leaf is present", () => {
     const bitmask = computeFeatureBitmask(sequence(adapterRun()));
     expect(bitmask & FEATURE_BITS.RUNTIME_LEAF).not.toBe(0);
+  });
+
+  it("T4: knowledge.query-only flow stays on skill-chain (not a runtime leaf)", () => {
+    const knowledgeQuery = {
+      type: "knowledge.query",
+      query: "q",
+    } as unknown as FlowNode;
+    const result = routeTarget(sequence(knowledgeQuery));
+    expect(result.target).toBe("skill-chain");
+    expect(result.reason).toBeUndefined();
   });
 });
 

@@ -29,6 +29,7 @@ export type FeatureBitmask = number;
  * Routing rule (matches D2 table exactly):
  *   - any FOR_EACH bit              → 'pipeline'
  *   - any BRANCH | PARALLEL | SUSPEND bit → 'workflow-builder'
+ *   - any RUNTIME_LEAF bit alone    → 'workflow-builder' (MPCO P1)
  *   - otherwise                     → 'skill-chain'
  */
 export function routeTarget(ast: FlowNode): {
@@ -136,6 +137,8 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "knowledge.write":
       case "knowledge.query":
       case "worker.dispatch":
+        // Non-runtime leaf nodes — contribute no feature bits (unchanged).
+        return;
       case "adapter.run":
       case "adapter.race":
       case "adapter.parallel":
@@ -312,7 +315,7 @@ const SKILL_CHAIN_ONLY_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
 
 function isUnsupportedForTarget(
   nodeType: FlowNode["type"],
-  target: CompilationTarget,
+  target: CompilationTarget
 ): boolean {
   if (ALWAYS_UNSUPPORTED_NODE_TYPES.has(nodeType)) return true;
   if (
@@ -325,7 +328,7 @@ function isUnsupportedForTarget(
 
 export function collectUnsupportedRuntimeNodes(
   ast: FlowNode,
-  target: CompilationTarget,
+  target: CompilationTarget
 ): UnsupportedRuntimeNode[] {
   const unsupported: UnsupportedRuntimeNode[] = [];
 
@@ -337,7 +340,7 @@ export function collectUnsupportedRuntimeNodes(
     switch (node.type) {
       case "sequence": {
         node.nodes.forEach((child, idx) =>
-          visit(child, `${path}.nodes[${idx}]`),
+          visit(child, `${path}.nodes[${idx}]`)
         );
         return;
       }
@@ -345,7 +348,7 @@ export function collectUnsupportedRuntimeNodes(
         node.then.forEach((child, idx) => visit(child, `${path}.then[${idx}]`));
         if (node.else) {
           node.else.forEach((child, idx) =>
-            visit(child, `${path}.else[${idx}]`),
+            visit(child, `${path}.else[${idx}]`)
           );
         }
         return;
@@ -353,7 +356,7 @@ export function collectUnsupportedRuntimeNodes(
       case "parallel": {
         node.branches.forEach((branch, bIdx) => {
           branch.forEach((child, idx) =>
-            visit(child, `${path}.branches[${bIdx}][${idx}]`),
+            visit(child, `${path}.branches[${bIdx}][${idx}]`)
           );
         });
         return;
@@ -364,11 +367,11 @@ export function collectUnsupportedRuntimeNodes(
       }
       case "approval": {
         node.onApprove.forEach((child, idx) =>
-          visit(child, `${path}.onApprove[${idx}]`),
+          visit(child, `${path}.onApprove[${idx}]`)
         );
         if (node.onReject) {
           node.onReject.forEach((child, idx) =>
-            visit(child, `${path}.onReject[${idx}]`),
+            visit(child, `${path}.onReject[${idx}]`)
           );
         }
         return;
@@ -381,7 +384,7 @@ export function collectUnsupportedRuntimeNodes(
       case "try_catch": {
         node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
         node.catch.forEach((child, idx) =>
-          visit(child, `${path}.catch[${idx}]`),
+          visit(child, `${path}.catch[${idx}]`)
         );
         return;
       }
