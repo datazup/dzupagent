@@ -17,6 +17,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { BaseStore } from "@langchain/langgraph";
 
 // ─── Source modules under test ────────────────────────────────────────────────
 import { KeywordFTSSearch } from "../retrieval/fts-search.js";
@@ -116,7 +117,7 @@ function makeBaseStore(
   const del = vi.fn(async (_ns: string[], key: string) => {
     data.delete(key);
   });
-  const store = { put, search, get, delete: del };
+  const store = { put, search, get, delete: del } as unknown as BaseStore;
   return { store, put, search, get, del };
 }
 

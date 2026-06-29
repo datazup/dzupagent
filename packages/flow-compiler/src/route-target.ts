@@ -294,18 +294,14 @@ export interface UnsupportedRuntimeNode {
 }
 
 // Node types that cannot be lowered by any generic compiler target.
-// 'prompt' and 'return_to' are authoring-time constructs with no lowering
-// representation in skill-chain, workflow-builder, or pipeline targets.
 const ALWAYS_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
   "prompt",
   "return_to",
 ]);
 
-// Node types that are unsupported in skill-chain AND workflow-builder targets.
-// These are runtime-executed nodes that the generic lowerers cannot represent.
-// The pipeline target (which has for_each/loop context) may handle them via
-// a richer runtime that drives them natively, so they are not flagged there.
-const LOWERER_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
+// Runtime-executed leaves can be carried inside richer pipeline artifacts, but
+// a flow made only from these leaves would emit an empty generic artifact.
+const RUNTIME_LEAF_NODE_TYPES = new Set<FlowNode["type"]>([
   "agent",
   "validate",
   "adapter.run",
@@ -314,26 +310,15 @@ const LOWERER_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
   "adapter.supervisor",
 ]);
 
-// Node types that are only unsupported in the skill-chain target.
-// (Currently empty — all formerly skill-chain-only types are covered by
-// LOWERER_UNSUPPORTED_NODE_TYPES above.)
-const SKILL_CHAIN_ONLY_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>();
-
 function isUnsupportedForTarget(
   nodeType: FlowNode["type"],
   target: CompilationTarget,
+  hasArtifactAnchor: boolean
 ): boolean {
   if (ALWAYS_UNSUPPORTED_NODE_TYPES.has(nodeType)) return true;
-  if (
-    (target === "skill-chain" || target === "workflow-builder") &&
-    LOWERER_UNSUPPORTED_NODE_TYPES.has(nodeType)
-  )
-    return true;
-  if (
-    target === "skill-chain" &&
-    SKILL_CHAIN_ONLY_UNSUPPORTED_NODE_TYPES.has(nodeType)
-  )
-    return true;
+  if (!RUNTIME_LEAF_NODE_TYPES.has(nodeType)) return false;
+  if (target === "skill-chain") return true;
+  if (!hasArtifactAnchor) return true;
   return false;
 }
 
@@ -342,9 +327,10 @@ export function collectUnsupportedRuntimeNodes(
   target: CompilationTarget,
 ): UnsupportedRuntimeNode[] {
   const unsupported: UnsupportedRuntimeNode[] = [];
+  const hasArtifactAnchor = hasGenericArtifactAnchor(ast, target);
 
   const visit = (node: FlowNode, path: string): void => {
-    if (isUnsupportedForTarget(node.type, target)) {
+    if (isUnsupportedForTarget(node.type, target, hasArtifactAnchor)) {
       unsupported.push({ type: node.type, path });
     }
 
@@ -441,4 +427,72 @@ export function collectUnsupportedRuntimeNodes(
 
   visit(ast, "root");
   return unsupported;
+}
+
+function hasGenericArtifactAnchor(
+  ast: FlowNode,
+  target: CompilationTarget
+): boolean {
+  const visit = (node: FlowNode): boolean => {
+    switch (node.type) {
+      case "action":
+      case "clarification":
+      case "complete":
+        return true;
+      case "for_each":
+        return target === "pipeline";
+      case "branch":
+        return (
+          node.then.some(visit) || (node.else !== undefined && node.else.some(visit))
+        );
+      case "parallel":
+        return node.branches.some((branch) => branch.some(visit));
+      case "approval":
+        return (
+          node.onApprove.some(visit) ||
+          (node.onReject !== undefined && node.onReject.some(visit))
+        );
+      case "persona":
+      case "route":
+        return node.body.some(visit);
+      case "sequence":
+        return node.nodes.some(visit);
+      case "try_catch":
+        return node.body.some(visit) || node.catch.some(visit);
+      case "loop":
+        return target === "pipeline" || node.body.some(visit);
+      case "spawn":
+      case "classify":
+      case "emit":
+      case "memory":
+      case "set":
+      case "checkpoint":
+      case "restore":
+      case "http":
+      case "wait":
+      case "subflow":
+      case "prompt":
+      case "return_to":
+      case "agent":
+      case "validate":
+      case "fleet.dispatch":
+      case "fleet.gather":
+      case "fleet.contract-net":
+      case "knowledge.write":
+      case "knowledge.query":
+      case "worker.dispatch":
+      case "adapter.run":
+      case "adapter.race":
+      case "adapter.parallel":
+      case "adapter.supervisor":
+        return false;
+      default: {
+        const _exhaustive: never = node;
+        void _exhaustive;
+        return false;
+      }
+    }
+  };
+
+  return visit(ast);
 }

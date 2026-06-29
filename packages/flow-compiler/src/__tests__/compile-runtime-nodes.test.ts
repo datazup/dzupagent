@@ -62,7 +62,7 @@ describe('runtime-only compiler diagnostics', () => {
         message: expect.stringContaining('Node type "agent"'),
       }),
     ])
-    expect(result.errors[0]?.message).toContain('"skill-chain" generic compiler target')
+    expect(result.errors[0]?.message).toContain('"workflow-builder" generic compiler target')
   })
 
   it('fails validate-only flows without silently emitting empty artifacts', async () => {

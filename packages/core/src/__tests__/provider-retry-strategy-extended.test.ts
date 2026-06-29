@@ -26,6 +26,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type * as RetryModule from "../llm/retry.js";
 import { AIMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { BaseMessage } from "@langchain/core/messages";
@@ -110,7 +111,7 @@ vi.mock("../llm/circuit-breaker.js", () => {
 });
 
 vi.mock("../llm/retry.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../llm/retry.js")>();
+  const actual = await importOriginal<typeof RetryModule>();
   return {
     ...actual,
     DEFAULT_RETRY_CONFIG: { maxAttempts: 1, backoffMs: 0, maxBackoffMs: 0 },

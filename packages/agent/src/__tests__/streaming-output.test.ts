@@ -762,7 +762,7 @@ describe("StreamActionParser — error in stream mid-way", () => {
 
   it("non-Error rejection value is stringified in the error event", async () => {
     const tool = makeTool("rejection", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-throw-literal
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
       throw 42;
     });
     const parser = new StreamActionParser([tool]);

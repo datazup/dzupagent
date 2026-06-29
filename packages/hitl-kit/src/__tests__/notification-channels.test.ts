@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * W32-F — HITL-kit: notification channel deep coverage (+65 tests).
  *

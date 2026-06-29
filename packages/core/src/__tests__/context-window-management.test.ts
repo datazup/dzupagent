@@ -14,6 +14,7 @@
  * No live LLM calls. All tests are deterministic.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type * as RetryModule from "../llm/retry.js";
 import {
   AIMessage,
   HumanMessage,

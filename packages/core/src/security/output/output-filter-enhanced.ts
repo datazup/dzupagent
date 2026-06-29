@@ -112,6 +112,7 @@ const CLASSIFICATION_LEVELS: ReadonlyArray<string> = [
 /**
  * Additional PII/secret patterns to apply at higher classification levels.
  */
+/* eslint-disable security/detect-unsafe-regex */
 const ENHANCED_REDACTION_PATTERNS: ReadonlyArray<{
   minLevel: number;
   patterns: Array<{ pattern: RegExp; replacement: string }>;
@@ -121,7 +122,6 @@ const ENHANCED_REDACTION_PATTERNS: ReadonlyArray<{
     minLevel: 1,
     patterns: [
       {
-        // eslint-disable-next-line security/detect-unsafe-regex
         pattern:
           /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g,
         replacement: "[REDACTED:ip]",
@@ -143,7 +143,6 @@ const ENHANCED_REDACTION_PATTERNS: ReadonlyArray<{
     minLevel: 3,
     patterns: [
       {
-        // eslint-disable-next-line security/detect-unsafe-regex
         pattern: /(?:\/[\w.-]+){3,}/g,
         replacement: "[REDACTED:path]",
       },
@@ -161,6 +160,7 @@ const ENHANCED_REDACTION_PATTERNS: ReadonlyArray<{
     ],
   },
 ];
+/* eslint-enable security/detect-unsafe-regex */
 
 export interface ClassificationAwareRedactorOptions {
   /**

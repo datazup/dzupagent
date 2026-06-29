@@ -19,9 +19,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { AIMessage, HumanMessage } from "@langchain/core/messages";
+import { AIMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import type { BaseMessage } from "@langchain/core/messages";
+import type { BaseMessage, HumanMessage } from "@langchain/core/messages";
 import { DzupAgent } from "../agent/dzip-agent.js";
 import { AgentOrchestrator } from "../orchestration/orchestrator.js";
 import { OrchestrationError } from "../orchestration/orchestration-error.js";
