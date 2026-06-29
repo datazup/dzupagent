@@ -17,6 +17,7 @@ export const FEATURE_BITS = {
   PARALLEL: 1 << 1, // 2
   SUSPEND: 1 << 2, // 4    (approval | clarification | persona | route)
   FOR_EACH: 1 << 3, // 8
+  RUNTIME_LEAF: 1 << 4, // 16   (agent | validate | adapter.*) — MPCO P1
 } as const;
 
 export type FeatureBitmask = number;
@@ -33,6 +34,7 @@ export type FeatureBitmask = number;
 export function routeTarget(ast: FlowNode): {
   target: CompilationTarget;
   bitmask: FeatureBitmask;
+  reason?: "RUNTIME_LEAF_PRESENT";
 } {
   const bitmask = computeFeatureBitmask(ast);
   if ((bitmask & FEATURE_BITS.FOR_EACH) !== 0) {
@@ -44,6 +46,15 @@ export function routeTarget(ast: FlowNode): {
     0
   ) {
     return { target: "workflow-builder", bitmask };
+  }
+  if ((bitmask & FEATURE_BITS.RUNTIME_LEAF) !== 0) {
+    // MPCO P1: divert runtime-leaf-only flows away from skill-chain (which
+    // rejects adapter.run/validate at lowering) to the runtime-capable target.
+    return {
+      target: "workflow-builder",
+      bitmask,
+      reason: "RUNTIME_LEAF_PRESENT",
+    };
   }
   return { target: "skill-chain", bitmask };
 }
@@ -129,7 +140,9 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "adapter.race":
       case "adapter.parallel":
       case "adapter.supervisor": {
-        // Runtime-executed leaf nodes — contribute no feature bits.
+        // Runtime-executed leaf nodes — MPCO P1 marks them so routing keeps
+        // them off the skill-chain target (which rejects them at lowering).
+        bits |= FEATURE_BITS.RUNTIME_LEAF;
         return;
       }
       case "try_catch": {
@@ -151,6 +164,7 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       }
       case "agent":
       case "validate":
+        bits |= FEATURE_BITS.RUNTIME_LEAF;
         return;
       default: {
         // Exhaustiveness guard — if a new FlowNode variant is added without
@@ -298,7 +312,7 @@ const SKILL_CHAIN_ONLY_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
 
 function isUnsupportedForTarget(
   nodeType: FlowNode["type"],
-  target: CompilationTarget
+  target: CompilationTarget,
 ): boolean {
   if (ALWAYS_UNSUPPORTED_NODE_TYPES.has(nodeType)) return true;
   if (
@@ -311,7 +325,7 @@ function isUnsupportedForTarget(
 
 export function collectUnsupportedRuntimeNodes(
   ast: FlowNode,
-  target: CompilationTarget
+  target: CompilationTarget,
 ): UnsupportedRuntimeNode[] {
   const unsupported: UnsupportedRuntimeNode[] = [];
 
@@ -323,7 +337,7 @@ export function collectUnsupportedRuntimeNodes(
     switch (node.type) {
       case "sequence": {
         node.nodes.forEach((child, idx) =>
-          visit(child, `${path}.nodes[${idx}]`)
+          visit(child, `${path}.nodes[${idx}]`),
         );
         return;
       }
@@ -331,7 +345,7 @@ export function collectUnsupportedRuntimeNodes(
         node.then.forEach((child, idx) => visit(child, `${path}.then[${idx}]`));
         if (node.else) {
           node.else.forEach((child, idx) =>
-            visit(child, `${path}.else[${idx}]`)
+            visit(child, `${path}.else[${idx}]`),
           );
         }
         return;
@@ -339,7 +353,7 @@ export function collectUnsupportedRuntimeNodes(
       case "parallel": {
         node.branches.forEach((branch, bIdx) => {
           branch.forEach((child, idx) =>
-            visit(child, `${path}.branches[${bIdx}][${idx}]`)
+            visit(child, `${path}.branches[${bIdx}][${idx}]`),
           );
         });
         return;
@@ -350,11 +364,11 @@ export function collectUnsupportedRuntimeNodes(
       }
       case "approval": {
         node.onApprove.forEach((child, idx) =>
-          visit(child, `${path}.onApprove[${idx}]`)
+          visit(child, `${path}.onApprove[${idx}]`),
         );
         if (node.onReject) {
           node.onReject.forEach((child, idx) =>
-            visit(child, `${path}.onReject[${idx}]`)
+            visit(child, `${path}.onReject[${idx}]`),
           );
         }
         return;
@@ -367,7 +381,7 @@ export function collectUnsupportedRuntimeNodes(
       case "try_catch": {
         node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
         node.catch.forEach((child, idx) =>
-          visit(child, `${path}.catch[${idx}]`)
+          visit(child, `${path}.catch[${idx}]`),
         );
         return;
       }
