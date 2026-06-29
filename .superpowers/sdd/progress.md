@@ -2,6 +2,24 @@
 
 NEXT SLICE PLAN WRITTEN (awaiting operator review, not yet executed): workspace-docs/repos/scripts/docs/mpco-resolver-envelope-gate-plan-2026-06-29.md — P2 resolver + P3 envelope + P4 command-gate, 7 tasks, source-verified. Risks resolved: run-validation.js bug at :154 (not :149); executor enum reconciliation 2-sided (impl+test, none→advisory floor, add blocks_auto_accept); new contract names collision-free; no mpco:test script (uses node --test). dzupagent type surface → feat/mpco-resolver-envelope-gate; scripts → continue feat/mpco-foundation.
 
+---
+
+# SDD Progress: MPCO Resolver+Envelope+Gate (P2 → P3 → P4) — IN FLIGHT (started 2026-06-29)
+
+Plan: workspace-docs/repos/scripts/docs/mpco-resolver-envelope-gate-plan-2026-06-29.md
+dzupagent branch: feat/mpco-resolver-envelope-gate base 20b0fd76 (cut from feat/mpco-foundation)
+scripts branch: feat/mpco-foundation base dc41c63f (continues foundation; mpco/ + impl-orch/ clean, 10 unrelated dirty files present — commit by explicit path only)
+
+## Slice Tasks
+
+- Task 1 (P2 resolver — dzupagent adapter-types): complete (commit 6f3d6b73, review clean — spec ✅, quality approved). 7/7 tests pass (brief said "8" — harmless miscount; 7 it() blocks cover all named behaviors), typecheck EXIT 0. ⚠️ resolved: AdapterProviderId includes goose/openrouter (confirmed by typecheck green); barrel additive. MINOR(carry to final): formatter reflowed index.ts quotes/semicolons (cosmetic); ResolutionSource has unused 'nondeterministic' member (plan-mandated, forward-looking — used by later escalation logic).
+- Task 2 (P2 scripts projection): complete (scripts commit 2fb44cd3, review clean — spec ✅, quality approved). 3/3 tests pass. Commit scope verified clean (only 2 mpco/ files; 0 unrelated dirty files swept in).
+- Task 3 (P3 CollabTask envelope + scripts persistence): complete (dzupagent 33dab0ab 2/2 + scripts c90cb66d 5/5, review clean — spec ✅, quality approved). Evidence boundary enforced BOTH at type level (EvidenceRef.digestOf: "sanitized" literal) AND runtime (assertEvidenceSanitized checks digestOf!=='sanitized' + raw-events uri substring). Atomic write (tmp+renameSync) test-verified no .tmp leftover. resolution:ProviderResolution wires the P2 dep. dzupagent typecheck EXIT 0. DEVIATION (sound): test used `!` non-null assertions on task.parts[0] for noUncheckedIndexedAccess — array statically non-empty, test-local hygiene. Both commit scopes clean (no unrelated dirt). ⚠️ resolved: AdapterProviderId accepts codex/claude (typecheck green). MINOR(carry to final): assertEvidenceSanitized uses `part.evidence ?? []` (defensive, lets zero-evidence rationale pass silently).
+- Task 4 (P4 CommandGateResult + aggregation — dzupagent): complete (commit 68284ddc, review clean — spec ✅, quality approved). 5/5 tests pass (brief said "6" — harmless miscount; 5 cover T9a/T9b/empty-floor/T9c/T9d), typecheck EXIT 0. DecisionImpact exactly 3 (no 'none'); IMPACT_RANK {advisory:0,blocks_auto_accept:1,blocks_acceptance:2}; applyAllowFailure spreads new obj, never touches status (T9c asserts both); aggregate empty→advisory. Commit scope clean (3 files, 1-line barrel append).
+- Task 5 (P4 scripts command-gate projection): complete (scripts commit 1ac85ae5, review clean — spec ✅, quality approved no findings, reviewer re-ran 4/4 green). Enum strings exactly match dzupagent (advisory/blocks_auto_accept/blocks_acceptance, no 'none'); status passthrough verbatim; allowFailure only downgrades impact. Optional mpco:test package.json add SKIPPED (package.json is dirty). Commit scope clean (2 mpco/ files only).
+- Task 6 (P4 fix lossy run-validation.js:154): pending
+- Task 7 (P4 reconcile executor worstImpact enum): pending
+
 Plan: workspace-docs/repos/scripts/docs/mpco-foundation-implementation-plan-2026-06-29.md
 dzupagent branch: feat/mpco-foundation base c4dda519
 scripts branch: feat/mpco-foundation base d9c2cba6
