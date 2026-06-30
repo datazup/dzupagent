@@ -58,7 +58,6 @@ export type { AutoDetectResult } from './auto-detect.js'
 export {
   QdrantAdapter, translateQdrantFilter,
   PineconeAdapter, translatePineconeFilter,
-  PgVectorAdapter,
   ChromaDBAdapter,
   TurbopufferAdapter, translateTurbopufferFilter,
   LanceDBAdapter, translateLanceDBFilter,
@@ -66,7 +65,6 @@ export {
 export type {
   QdrantAdapterConfig,
   PineconeAdapterConfig,
-  PgVectorAdapterConfig,
   ChromaDBAdapterConfig,
   TurbopufferAdapterConfig,
   LanceDBAdapterConfig,

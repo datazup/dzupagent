@@ -51,7 +51,7 @@ export interface EmbeddingConfig {
 
 /** Configuration for the vector store adapter */
 export interface VectorStoreConfig {
-  /** Adapter name: 'qdrant', 'pgvector', 'chroma', 'pinecone', 'inmemory', etc. */
+  /** Adapter name: 'qdrant', 'chroma', 'pinecone', 'inmemory', etc. */
   adapter: string
   /** Prefix for tenant-scoped collection names, e.g. 'tenant_' */
   collectionPrefix: string
