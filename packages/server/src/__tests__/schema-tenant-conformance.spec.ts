@@ -7,7 +7,6 @@ import * as schema from "../persistence/drizzle-schema.js";
  * Any new table added here must justify its exemption in a comment.
  */
 const TENANT_EXEMPT = new Set([
-  "forgeVectors", // embedding store — shared across tenants by design
   "clusterRoles", // child of agentClusters (inherits tenant via cluster_id FK)
   "traceSteps", // child of runTraces (inherits tenant via run_id FK)
   "a2aTaskMessages", // child of a2aTasks (inherits tenant via task_id FK)

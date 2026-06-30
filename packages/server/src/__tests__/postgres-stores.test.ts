@@ -1,5 +1,5 @@
 /**
- * Tests for PostgresRunStore, PostgresAgentStore, and DrizzleVectorStore
+ * Tests for PostgresRunStore and PostgresAgentStore
  * using a hand-rolled chainable mock of the Drizzle PostgresJsDatabase fluent
  * API. No real database connection is required.
  */
@@ -7,7 +7,6 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import {
   PostgresRunStore,
   PostgresAgentStore,
-  DrizzleVectorStore,
 } from '../persistence/postgres-stores.js'
 import type { AgentExecutionSpec, LogEntry } from '@dzupagent/core'
 
@@ -581,153 +580,6 @@ describe('PostgresAgentStore', () => {
       const values = setCall!.args[0] as Record<string, unknown>
       expect(values['active']).toBe(false)
       expect(values['updatedAt']).toBeInstanceOf(Date)
-    })
-  })
-})
-
-// ---------------------------------------------------------------------------
-// DrizzleVectorStore
-// ---------------------------------------------------------------------------
-
-describe('DrizzleVectorStore', () => {
-  describe('upsert()', () => {
-    it('no-ops on empty entries array', async () => {
-      const db = buildMockDb()
-      const store = new DrizzleVectorStore(db)
-
-      await store.upsert('col', [])
-
-      expect(db.insert).not.toHaveBeenCalled()
-    })
-
-    it('calls insert once per entry', async () => {
-      const db = buildMockDb()
-      const store = new DrizzleVectorStore(db)
-
-      await store.upsert('col', [
-        { key: 'k1', embedding: [1, 2, 3], text: 'a' },
-        { key: 'k2', embedding: [4, 5, 6], text: 'b' },
-      ])
-
-      expect(db.insert).toHaveBeenCalledTimes(2)
-    })
-
-    it('defaults metadata to empty object and text to null when omitted', async () => {
-      const log: Array<{ op: string; fn: string; args: unknown[] }> = []
-      const db = buildMockDb({ log })
-      const store = new DrizzleVectorStore(db)
-
-      await store.upsert('col', [{ key: 'k1', embedding: [1, 2] }])
-
-      const valuesCall = log.find((l) => l.op === 'insert' && l.fn === 'values')
-      const values = valuesCall!.args[0] as Record<string, unknown>
-      expect(values['metadata']).toEqual({})
-      expect(values['text']).toBeNull()
-    })
-  })
-
-  describe('search()', () => {
-    it('returns mapped results with distance normalised to number', async () => {
-      const rows = [
-        { key: 'k1', distance: '0.12', embedding: [1, 2], metadata: { a: 1 }, text: 'hi' },
-        { key: 'k2', distance: '0.5', embedding: [3, 4], metadata: null, text: null },
-      ]
-      const db = buildMockDb({ selectRows: rows })
-      const store = new DrizzleVectorStore(db)
-
-      const results = await store.search('col', { queryVector: [1, 2] })
-
-      expect(results).toHaveLength(2)
-      expect(typeof results[0]!.distance).toBe('number')
-      expect(results[0]!.distance).toBeCloseTo(0.12)
-      expect(results[1]!.metadata).toEqual({})
-      expect(results[1]!.text).toBeNull()
-    })
-
-    it('defaults limit to 10 and metric to cosine', async () => {
-      const log: Array<{ op: string; fn: string; args: unknown[] }> = []
-      const db = buildMockDb({ selectRows: [], log })
-      const store = new DrizzleVectorStore(db)
-
-      await store.search('col', { queryVector: [0] })
-
-      const limitCall = log.find((l) => l.op === 'select' && l.fn === 'limit')
-      expect(limitCall!.args[0]).toBe(10)
-    })
-
-    it('accepts l2 and inner_product metrics without throwing', async () => {
-      const db = buildMockDb({ selectRows: [] })
-      const store = new DrizzleVectorStore(db)
-
-      await expect(store.search('col', { queryVector: [0], metric: 'l2' })).resolves.toBeDefined()
-      await expect(store.search('col', { queryVector: [0], metric: 'inner_product' })).resolves.toBeDefined()
-    })
-
-    it('passes explicit limit through', async () => {
-      const log: Array<{ op: string; fn: string; args: unknown[] }> = []
-      const db = buildMockDb({ selectRows: [], log })
-      const store = new DrizzleVectorStore(db)
-
-      await store.search('col', { queryVector: [0], limit: 3 })
-
-      const limitCall = log.find((l) => l.op === 'select' && l.fn === 'limit')
-      expect(limitCall!.args[0]).toBe(3)
-    })
-  })
-
-  describe('delete()', () => {
-    it('issues a delete where collection+key match', async () => {
-      const db = buildMockDb()
-      const store = new DrizzleVectorStore(db)
-
-      await store.delete('col', 'k1')
-
-      expect(db.delete).toHaveBeenCalledTimes(1)
-    })
-  })
-
-  describe('deleteCollection()', () => {
-    it('issues a delete for the whole collection', async () => {
-      const db = buildMockDb()
-      const store = new DrizzleVectorStore(db)
-
-      await store.deleteCollection('col')
-
-      expect(db.delete).toHaveBeenCalledTimes(1)
-    })
-  })
-
-  describe('listCollections()', () => {
-    it('returns distinct collection names in order', async () => {
-      const db = buildMockDb({ selectRows: [{ collection: 'a' }, { collection: 'b' }] })
-      const store = new DrizzleVectorStore(db)
-
-      const names = await store.listCollections()
-
-      expect(names).toEqual(['a', 'b'])
-    })
-
-    it('returns empty array when no collections exist', async () => {
-      const db = buildMockDb({ selectRows: [] })
-      const store = new DrizzleVectorStore(db)
-
-      expect(await store.listCollections()).toEqual([])
-    })
-  })
-
-  describe('count()', () => {
-    it('returns the count value from the first row', async () => {
-      const db = buildMockDb({ selectRows: [{ count: 42 }] })
-      const store = new DrizzleVectorStore(db)
-
-      expect(await store.count('col')).toBe(42)
-    })
-
-    it('returns 0 when query returns no rows', async () => {
-      const db = buildMockDb({ selectRows: [] })
-      const store = new DrizzleVectorStore(db)
-
-      expect(await store.count('col')).toBe(0)
     })
   })
 })

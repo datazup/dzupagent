@@ -8,8 +8,8 @@
  * The suite is skipped automatically when Docker is unavailable or
  * testcontainers cannot be imported.
  *
- * Uses the `pgvector/pgvector:pg16` image so the `vector` extension is
- * pre-installed and vector columns in the schema do not cause errors.
+ * Uses the plain `postgres:16` image. Semantic/vector storage belongs in
+ * Qdrant, not in the relational Forge tables.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { LogEntry } from '@dzupagent/core'
@@ -70,8 +70,6 @@ const canRun = GenericContainerClass !== undefined && containerRuntimeAvailable
  * need a migration directory: the schema is derived directly from drizzle-schema.ts.
  */
 async function createSchema(client: PgClient): Promise<void> {
-  await client.query('CREATE EXTENSION IF NOT EXISTS vector')
-
   await client.query(`
     CREATE TABLE IF NOT EXISTS dzip_agents (
       id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -85,7 +83,6 @@ async function createSchema(client: PgClient): Promise<void> {
       version     INTEGER NOT NULL DEFAULT 1,
       active      BOOLEAN NOT NULL DEFAULT TRUE,
       metadata    JSONB DEFAULT '{}',
-      instruction_embedding vector(1536),
       created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
       updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
     )
@@ -106,8 +103,6 @@ async function createSchema(client: PgClient): Promise<void> {
       owner_id            TEXT,
       tenant_id           TEXT,
       metadata            JSONB DEFAULT '{}',
-      input_embedding     vector(1536),
-      output_embedding    vector(1536),
       started_at          TIMESTAMP NOT NULL DEFAULT NOW(),
       completed_at        TIMESTAMP
     )
@@ -151,9 +146,9 @@ describe.skipIf(!canRun)('PostgresRunStore integration (testcontainers)', () => 
 
   beforeAll(async () => {
     // ----------------------------------------------------------------
-    // 1. Start PostgreSQL container (pgvector image ships the extension)
+    // 1. Start PostgreSQL container
     // ----------------------------------------------------------------
-    const containerDef = new GC('pgvector/pgvector:pg16')
+    const containerDef = new GC('postgres:16')
       .withExposedPorts(5432)
       .withEnvironment({
         POSTGRES_USER: 'test',
