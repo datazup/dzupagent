@@ -81,6 +81,8 @@ export class PostgresApprovalStateStore implements ApprovalStateStore {
        RETURNING 1`
     const { rows } = await this.client.query(sql, [runId, approvalId, JSON.stringify(payload ?? null)])
     if (rows.length === 0) {
+      const existing = await this.fetch(runId, approvalId)
+      if (existing?.status === 'pending') return
       throw new DuplicateApprovalError(runId, approvalId)
     }
   }

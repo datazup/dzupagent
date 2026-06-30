@@ -764,7 +764,15 @@ export type KnowledgeQueryNode = FlowNodeBase & {
 export type AdapterRunNode = FlowNodeBase & {
   type: "adapter.run";
   /** Explicit provider; required unless `tags` routing is used. */
-  provider?: "claude" | "codex" | "gemini" | "qwen" | "goose" | "crush";
+  provider?:
+    | "claude"
+    | "codex"
+    | "gemini"
+    | "openai"
+    | "openrouter"
+    | "qwen"
+    | "goose"
+    | "crush";
   /** Capability tags for registry routing; one of `provider`/`tags` required. */
   tags?: string[];
   /** Provider model hint. */

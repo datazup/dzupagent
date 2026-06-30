@@ -48,8 +48,8 @@ export function accrueUsage(
 ): BudgetTally {
   const u = usage;
   const tokens = u
-    ? u.inputTokens +
-      u.outputTokens +
+    ? (u.inputTokens ?? 0) +
+      (u.outputTokens ?? 0) +
       (u.cachedInputTokens ?? 0) +
       (u.cacheWriteTokens ?? 0)
     : 0;

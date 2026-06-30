@@ -10,6 +10,8 @@ const ADAPTER_PROVIDERS = new Set<NonNullable<AdapterRunNode["provider"]>>([
   "claude",
   "codex",
   "gemini",
+  "openai",
+  "openrouter",
   "qwen",
   "goose",
   "crush",
