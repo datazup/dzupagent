@@ -9,7 +9,7 @@ In scope:
 - Auto-detection helpers: `auto-detect.ts`.
 - In-memory baseline implementation: `in-memory-vector-store.ts`.
 - Embedding providers: `embeddings/*`.
-- Vector store adapters: `adapters/*` (Qdrant, Pinecone, PgVector, Chroma, Turbopuffer, LanceDB).
+- Vector store adapters: `adapters/*` (Qdrant, Pinecone, Chroma, Turbopuffer, LanceDB).
 - Public vectordb barrel: `index.ts`.
 
 Related package-level integration touched by this subsystem:
@@ -52,7 +52,6 @@ Embedding providers (`embeddings/`):
 Vector store adapters (`adapters/`):
 - `qdrant-adapter.ts`
 - `pinecone-adapter.ts`
-- `pgvector-adapter.ts`
 - `chroma-adapter.ts`
 - `turbopuffer-adapter.ts`
 - `lancedb-adapter.ts` (public LanceDB barrel)
@@ -70,7 +69,6 @@ Tests currently covering this area:
 - `src/vectordb/__tests__/embeddings.test.ts`
 - `src/vectordb/__tests__/qdrant-adapter.test.ts`
 - `src/vectordb/__tests__/pinecone-adapter.test.ts`
-- `src/vectordb/__tests__/pgvector-adapter.test.ts`
 - `src/vectordb/__tests__/chroma-adapter.test.ts`
 - `src/__tests__/vectordb/turbopuffer-adapter.test.ts`
 - `src/__tests__/lancedb-adapter.test.ts`
@@ -114,7 +112,6 @@ Tests currently covering this area:
 
 5. Adapter execution patterns:
 - HTTP adapters (`QdrantAdapter`, `PineconeAdapter`, `ChromaDBAdapter`, `TurbopufferAdapter`) call remote APIs through `fetch` (native or injected for tests).
-- `PgVectorAdapter` uses an injected `queryFn(sql, params)` and parameterized SQL values for runtime operations.
 - `LanceDBAdapter` dynamically imports optional peers (`@lancedb/lancedb`, optionally `apache-arrow`) and supports Arrow-related helper paths.
 
 ## Key APIs and Types
@@ -153,7 +150,6 @@ Auto-detection APIs:
 Adapter APIs:
 - `QdrantAdapter`, `translateQdrantFilter`
 - `PineconeAdapter`, `translatePineconeFilter`
-- `PgVectorAdapter`
 - `ChromaDBAdapter`
 - `TurbopufferAdapter`, `translateTurbopufferFilter`
 - `LanceDBAdapter`, `translateLanceDBFilter`
@@ -180,7 +176,7 @@ Peer dependencies relevant to vectordb runtime:
 Runtime expectations:
 - `globalThis.fetch` for HTTP embedding providers and HTTP vector adapters.
 - `process.env` for auto-detection and LanceDB default URI resolution.
-- PostgreSQL with `pgvector` extension for `PgVectorAdapter`.
+- Qdrant is the Datazup local/dev vector database. PostgreSQL is relational-only and is not used as a vector store.
 
 Internal package dependency used in this subsystem:
 - LanceDB error signaling uses `ForgeError` from `src/errors/forge-error.ts`.
@@ -213,7 +209,7 @@ What tests validate today:
 - In-memory math/filter behavior (`cosineSimilarity`, `evaluateFilter`) and collection/vector lifecycle behavior.
 - `SemanticStore` behavior for embedding, batching, filtering, and collection creation defaults.
 - Embedding provider request formatting, default dimensions/models, error paths, and ordering guarantees.
-- Adapter request/response mapping, filter translation, and score conversion logic across Qdrant/Pinecone/PgVector/Chroma/Turbopuffer/LanceDB.
+- Adapter request/response mapping, filter translation, and score conversion logic across Qdrant/Pinecone/Chroma/Turbopuffer/LanceDB.
 - Auto-detection precedence for embedding and vector provider detection (including LanceDB/Turbopuffer branches).
 - LanceDB-specific behavior including SQL translation escaping and extension methods (`buildFTSIndex`, `searchAsArrow`, `getConfig`).
 
@@ -227,7 +223,6 @@ Observability available in code:
 - Root export surface omits LanceDB APIs even though vectordb barrel exports them.
 - `TurbopufferAdapter.search` currently sets `distance_metric` from a hardcoded cosine path and does not consult a persisted per-collection metric.
 - `TurbopufferAdapter.createCollection` only records the collection locally and does not apply `CollectionConfig` remotely (namespace is materialized on upsert).
-- `PgVectorAdapter.createCollection` always builds a `vector_cosine_ops` ivfflat index, regardless of requested `CollectionConfig.metric`.
 - Metadata `contains` behavior is backend-dependent (exact-match fallback for some adapters vs substring SQL/LIKE-style behavior for others).
 - LanceDB config fields `hybridSearch` and `vectorWeight` are stored in config but not currently used in the default `search` flow.
 - Vector event types exist in platform event unions, but vectordb implementations do not emit them.
@@ -235,4 +230,3 @@ Observability available in code:
 
 ## Changelog
 - 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
-
