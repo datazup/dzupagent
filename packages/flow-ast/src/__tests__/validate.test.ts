@@ -533,6 +533,25 @@ describe("flowNodeSchema.safeParse — AdapterRunNode", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts OpenAI and OpenRouter adapter.run providers", () => {
+    for (const provider of ["openai", "openrouter"] as const) {
+      const result = flowNodeSchema.safeParse({
+        type: "adapter.run",
+        id: `run-${provider}`,
+        provider,
+        instructions: "Run",
+        output: "result",
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.type).toBe("adapter.run");
+        if (result.data.type === "adapter.run") {
+          expect(result.data.provider).toBe(provider);
+        }
+      }
+    }
+  });
+
   it("rejects adapter.run with neither provider nor tags", () => {
     const result = flowNodeSchema.safeParse({
       type: "adapter.run",

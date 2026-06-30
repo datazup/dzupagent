@@ -87,6 +87,8 @@ describe("normalizeDslDocument — adapter.run wrapper", () => {
       "claude",
       "codex",
       "gemini",
+      "openai",
+      "openrouter",
       "qwen",
       "goose",
       "crush",

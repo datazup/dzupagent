@@ -301,10 +301,30 @@ describe("PostgresApprovalStateStore", () => {
     );
   });
 
-  it("createPending on a duplicate throws DuplicateApprovalError", async () => {
+  it("createPending on a duplicate pending row is idempotent", async () => {
     const client = new FakeSqlClient();
     const store = new PostgresApprovalStateStore(client);
     await store.createPending("run-1", "ap-1", null);
+    await expect(
+      store.createPending("run-1", "ap-1", null),
+    ).resolves.toBeUndefined();
+  });
+
+  it("createPending on a duplicate granted row throws DuplicateApprovalError", async () => {
+    const client = new FakeSqlClient();
+    const store = new PostgresApprovalStateStore(client);
+    await store.createPending("run-1", "ap-1", null);
+    await store.grant("run-1", "ap-1", { by: "alice" });
+    await expect(
+      store.createPending("run-1", "ap-1", null),
+    ).rejects.toBeInstanceOf(DuplicateApprovalError);
+  });
+
+  it("createPending on a duplicate rejected row throws DuplicateApprovalError", async () => {
+    const client = new FakeSqlClient();
+    const store = new PostgresApprovalStateStore(client);
+    await store.createPending("run-1", "ap-1", null);
+    await store.reject("run-1", "ap-1", "no");
     await expect(
       store.createPending("run-1", "ap-1", null),
     ).rejects.toBeInstanceOf(DuplicateApprovalError);

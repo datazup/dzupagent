@@ -658,6 +658,20 @@ describe("parseFlow — adapter.run node", () => {
     expect(result.ast).toEqual(node);
   });
 
+  it("parses OpenAI and OpenRouter adapter.run providers", () => {
+    for (const provider of ["openai", "openrouter"] as const) {
+      const node = {
+        type: "adapter.run",
+        provider,
+        instructions: "Run",
+        output: "result",
+      };
+      const result = parseFlow(node);
+      expect(result.errors).toEqual([]);
+      expect(result.ast).toEqual(node);
+    }
+  });
+
   it("rejects adapter.run with neither provider nor tags", () => {
     const result = parseFlow({
       type: "adapter.run",
