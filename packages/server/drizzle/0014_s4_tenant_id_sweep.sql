@@ -12,7 +12,8 @@
 --   2. Tables with a nullable tenant_id -> SET NOT NULL + SET DEFAULT 'default':
 --        deployment_history, forge_node_ledger.
 --
--- Skipped: forge_vectors (shared embedding store, no meaningful tenant scope).
+-- Vector storage is owned by Qdrant in Datazup dev stacks; no forge_vectors
+-- table is created in the plain-Postgres baseline.
 --
 -- Additive and idempotent (IF NOT EXISTS / IF NOT NULL is implied by repeat
 -- safety of SET NOT NULL once backfilled). Store-layer filtering by tenant_id

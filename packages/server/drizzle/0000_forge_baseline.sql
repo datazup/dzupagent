@@ -3,8 +3,10 @@
 -- Earlier generated migrations in this directory were additive patches against
 -- an already-existing Forge schema. Fresh dev databases need the baseline
 -- tables first so those later ALTER/UPDATE migrations have something to target.
-
-CREATE EXTENSION IF NOT EXISTS vector;
+--
+-- Datazup local/dev stacks use plain PostgreSQL for relational data and Qdrant
+-- for embeddings and semantic search. Do not require the pgvector extension in
+-- this baseline.
 
 CREATE TABLE IF NOT EXISTS "dzip_agents" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -18,7 +20,7 @@ CREATE TABLE IF NOT EXISTS "dzip_agents" (
   "version" integer NOT NULL DEFAULT 1,
   "active" boolean NOT NULL DEFAULT true,
   "metadata" jsonb DEFAULT '{}'::jsonb,
-  "instruction_embedding" vector(1536),
+  "instruction_embedding" double precision[],
   "tenant_id" text NOT NULL DEFAULT 'default',
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now()
@@ -39,8 +41,8 @@ CREATE TABLE IF NOT EXISTS "forge_runs" (
   "owner_id" text,
   "tenant_id" text NOT NULL DEFAULT 'default',
   "metadata" jsonb DEFAULT '{}'::jsonb,
-  "input_embedding" vector(1536),
-  "output_embedding" vector(1536),
+  "input_embedding" double precision[],
+  "output_embedding" double precision[],
   "started_at" timestamp NOT NULL DEFAULT now(),
   "completed_at" timestamp
 );
@@ -155,19 +157,6 @@ CREATE TABLE IF NOT EXISTS "run_reflections" (
 );
 CREATE INDEX IF NOT EXISTS "run_reflections_owner_id_idx" ON "run_reflections" ("owner_id");
 CREATE INDEX IF NOT EXISTS "run_reflections_tenant_id_idx" ON "run_reflections" ("tenant_id");
-
-CREATE TABLE IF NOT EXISTS "forge_vectors" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-  "collection" varchar(255) NOT NULL,
-  "key" varchar(512) NOT NULL,
-  "embedding" vector(1536),
-  "metadata" jsonb DEFAULT '{}'::jsonb,
-  "text" text,
-  "created_at" timestamp NOT NULL DEFAULT now(),
-  "updated_at" timestamp NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS "forge_vectors_collection_key_idx" ON "forge_vectors" ("collection", "key");
-CREATE INDEX IF NOT EXISTS "forge_vectors_collection_idx" ON "forge_vectors" ("collection");
 
 CREATE TABLE IF NOT EXISTS "agent_catalog" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
