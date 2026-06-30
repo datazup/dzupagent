@@ -5,7 +5,7 @@
 -- tables first so those later ALTER/UPDATE migrations have something to target.
 --
 -- Datazup local/dev stacks use plain PostgreSQL for relational data and Qdrant
--- for embeddings and semantic search. Do not require the pgvector extension in
+-- for embeddings and semantic search. Do not require a vector extension in
 -- this baseline.
 
 CREATE TABLE IF NOT EXISTS "dzip_agents" (
@@ -20,7 +20,6 @@ CREATE TABLE IF NOT EXISTS "dzip_agents" (
   "version" integer NOT NULL DEFAULT 1,
   "active" boolean NOT NULL DEFAULT true,
   "metadata" jsonb DEFAULT '{}'::jsonb,
-  "instruction_embedding" double precision[],
   "tenant_id" text NOT NULL DEFAULT 'default',
   "created_at" timestamp NOT NULL DEFAULT now(),
   "updated_at" timestamp NOT NULL DEFAULT now()
@@ -41,8 +40,6 @@ CREATE TABLE IF NOT EXISTS "forge_runs" (
   "owner_id" text,
   "tenant_id" text NOT NULL DEFAULT 'default',
   "metadata" jsonb DEFAULT '{}'::jsonb,
-  "input_embedding" double precision[],
-  "output_embedding" double precision[],
   "started_at" timestamp NOT NULL DEFAULT now(),
   "completed_at" timestamp
 );

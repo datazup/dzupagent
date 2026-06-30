@@ -12,7 +12,7 @@
 --   2. Tables with a nullable tenant_id -> SET NOT NULL + SET DEFAULT 'default':
 --        deployment_history, forge_node_ledger.
 --
--- Vector storage is owned by Qdrant in Datazup dev stacks; no forge_vectors
+-- Vector storage is owned by Qdrant in Datazup dev stacks; no Forge vector
 -- table is created in the plain-Postgres baseline.
 --
 -- Additive and idempotent (IF NOT EXISTS / IF NOT NULL is implied by repeat

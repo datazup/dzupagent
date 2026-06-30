@@ -14,13 +14,6 @@
 export {
   PostgresRunStore,
   PostgresAgentStore,
-  DrizzleVectorStore,
-} from './persistence/postgres-stores.js'
-export type {
-  VectorDistanceMetric,
-  VectorEntry as DrizzleVectorEntry,
-  VectorSearchResult as DrizzleVectorSearchResult,
-  VectorSearchOptions as DrizzleVectorSearchOptions,
 } from './persistence/postgres-stores.js'
 
 // --- Drizzle schema ---
@@ -28,7 +21,6 @@ export {
   dzipAgents,
   forgeRuns,
   forgeRunLogs,
-  forgeVectors,
   deploymentHistory,
   a2aTasks,
   a2aTaskMessages,
@@ -55,10 +47,6 @@ export {
   generateRawApiKey,
 } from './persistence/api-key-store.js'
 export type { ApiKeyRecord, CreateApiKeyResult } from './persistence/api-key-store.js'
-
-// --- pgvector helpers ---
-export { vectorColumn } from './persistence/vector-column.js'
-export { cosineDistance, l2Distance, innerProduct, toVector } from './persistence/vector-ops.js'
 
 // --- Run trace persistence ---
 export { InMemoryRunTraceStore, computeStepDistribution } from './persistence/run-trace-store.js'

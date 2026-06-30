@@ -19,7 +19,6 @@ import {
   primaryKey,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { vectorColumn } from "./vector-column.js";
 import type { ReflectionPattern } from "@dzupagent/agent/reflection";
 
 // ---------------------------------------------------------------------------
@@ -38,10 +37,6 @@ export const dzipAgents = pgTable("dzip_agents", {
   version: integer("version").default(1).notNull(),
   active: boolean("active").default(true).notNull(),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
-  /** Optional pgvector embedding of agent instructions for semantic search. */
-  instructionEmbedding: vectorColumn("instruction_embedding", {
-    dimensions: 1536,
-  }),
   /** MC-S02: Tenant scope. Defaults to 'default'. */
   tenantId: text("tenant_id").notNull().default("default"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -75,10 +70,6 @@ export const forgeRuns = pgTable("forge_runs", {
   /** MC-S02: Tenant scope. Defaults to 'default'. */
   tenantId: text("tenant_id").notNull().default("default"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
-  /** Optional pgvector embedding of run input for semantic search. */
-  inputEmbedding: vectorColumn("input_embedding", { dimensions: 1536 }),
-  /** Optional pgvector embedding of run output for semantic search. */
-  outputEmbedding: vectorColumn("output_embedding", { dimensions: 1536 }),
   startedAt: timestamp("started_at").defaultNow().notNull(),
   completedAt: timestamp("completed_at"),
 });
@@ -165,21 +156,6 @@ export const deploymentHistory = pgTable(
   ]
 );
 
-// ---------------------------------------------------------------------------
-// General-Purpose Vector Storage
-// ---------------------------------------------------------------------------
-
-/**
- * General-purpose vector storage table for Drizzle-native pgvector queries.
- *
- * Stores vectors organised by `collection` with an application-defined `key`
- * for upsert semantics. The `embedding` column uses pgvector's `vector(1536)`
- * type and supports cosine distance, L2 distance, and inner product operators.
- *
- * An HNSW index on the embedding column accelerates approximate
- * nearest-neighbor searches. A unique constraint on (collection, key)
- * enables upsert-on-conflict.
- */
 // ---------------------------------------------------------------------------
 // A2A Tasks
 // ---------------------------------------------------------------------------
@@ -327,36 +303,6 @@ export const runReflections = pgTable(
   (table) => [
     index("run_reflections_tenant_id_idx").on(table.tenantId),
     index("run_reflections_owner_id_idx").on(table.ownerId),
-  ]
-);
-
-// ---------------------------------------------------------------------------
-// General-Purpose Vector Storage
-// ---------------------------------------------------------------------------
-
-export const forgeVectors = pgTable(
-  "forge_vectors",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    /** Logical grouping (e.g. "agent-instructions", "run-outputs"). */
-    collection: varchar("collection", { length: 255 }).notNull(),
-    /** Application-defined key, unique within a collection. */
-    key: varchar("key", { length: 512 }).notNull(),
-    /** pgvector embedding (1536 dimensions, matching OpenAI ada-002/text-embedding-3-small). */
-    embedding: vectorColumn("embedding", { dimensions: 1536 }),
-    /** Arbitrary JSON metadata for filtering. */
-    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}),
-    /** Original text that was embedded (for retrieval display). */
-    text: text("text"),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at").defaultNow().notNull(),
-  },
-  (table) => [
-    uniqueIndex("forge_vectors_collection_key_idx").on(
-      table.collection,
-      table.key
-    ),
-    index("forge_vectors_collection_idx").on(table.collection),
   ]
 );
 

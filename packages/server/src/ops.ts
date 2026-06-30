@@ -41,19 +41,11 @@ export type { MetricsAccessControl, MetricsRouteConfig } from './routes/metrics.
 export { PrometheusMetricsCollector } from './metrics/prometheus-collector.js'
 
 // --- Persistence / Database Operations ---
-export { PostgresRunStore, PostgresAgentStore, DrizzleVectorStore } from './persistence/postgres-stores.js'
-export type {
-  VectorDistanceMetric,
-  VectorEntry as DrizzleVectorEntry,
-  VectorSearchResult as DrizzleVectorSearchResult,
-  VectorSearchOptions as DrizzleVectorSearchOptions,
-} from './persistence/postgres-stores.js'
+export { PostgresRunStore, PostgresAgentStore } from './persistence/postgres-stores.js'
 export { PostgresApiKeyStore, hashApiKey, generateRawApiKey } from './persistence/api-key-store.js'
 export type { ApiKeyRecord, CreateApiKeyResult } from './persistence/api-key-store.js'
 export { createApiKeyRoutes } from './routes/api-keys.js'
 export type { ApiKeyRoutesConfig } from './routes/api-keys.js'
-export { vectorColumn } from './persistence/vector-column.js'
-export { cosineDistance, l2Distance, innerProduct, toVector } from './persistence/vector-ops.js'
 export { InMemoryRunTraceStore, computeStepDistribution } from './persistence/run-trace-store.js'
 export { DrizzleRunTraceStore } from './persistence/drizzle-run-trace-store.js'
 export type {
@@ -99,7 +91,6 @@ export {
   dzipAgents,
   forgeRuns,
   forgeRunLogs,
-  forgeVectors,
   deploymentHistory,
   a2aTasks,
   a2aTaskMessages,
