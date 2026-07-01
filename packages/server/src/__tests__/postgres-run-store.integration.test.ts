@@ -27,6 +27,7 @@ interface StartedTestContainer {
 }
 
 interface GenericContainerLike {
+  withName(name: string): GenericContainerLike
   withExposedPorts(...ports: number[]): GenericContainerLike
   withEnvironment(env: Record<string, string>): GenericContainerLike
   withWaitStrategy(strategy: unknown): GenericContainerLike
@@ -149,6 +150,7 @@ describe.skipIf(!canRun)('PostgresRunStore integration (testcontainers)', () => 
     // 1. Start PostgreSQL container
     // ----------------------------------------------------------------
     const containerDef = new GC('postgres:16')
+      .withName(`datazup-dzupagent-run-store-test-postgres-${process.pid}`)
       .withExposedPorts(5432)
       .withEnvironment({
         POSTGRES_USER: 'test',
