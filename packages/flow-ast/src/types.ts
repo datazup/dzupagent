@@ -797,6 +797,7 @@ export type AdapterRunNode = FlowNodeBase & {
     | "gemini"
     | "openai"
     | "openrouter"
+    | "openrouter-crush"
     | "qwen"
     | "goose"
     | "crush";

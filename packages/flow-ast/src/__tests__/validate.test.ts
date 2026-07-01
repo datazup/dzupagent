@@ -534,7 +534,11 @@ describe("flowNodeSchema.safeParse — AdapterRunNode", () => {
   });
 
   it("accepts OpenAI and OpenRouter adapter.run providers", () => {
-    for (const provider of ["openai", "openrouter"] as const) {
+    for (const provider of [
+      "openai",
+      "openrouter",
+      "openrouter-crush",
+    ] as const) {
       const result = flowNodeSchema.safeParse({
         type: "adapter.run",
         id: `run-${provider}`,

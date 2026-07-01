@@ -89,6 +89,7 @@ describe("normalizeDslDocument — adapter.run wrapper", () => {
       "gemini",
       "openai",
       "openrouter",
+      "openrouter-crush",
       "qwen",
       "goose",
       "crush",

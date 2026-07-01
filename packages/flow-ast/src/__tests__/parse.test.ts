@@ -678,7 +678,11 @@ describe("parseFlow — adapter.run node", () => {
   });
 
   it("parses OpenAI and OpenRouter adapter.run providers", () => {
-    for (const provider of ["openai", "openrouter"] as const) {
+    for (const provider of [
+      "openai",
+      "openrouter",
+      "openrouter-crush",
+    ] as const) {
       const node = {
         type: "adapter.run",
         provider,
