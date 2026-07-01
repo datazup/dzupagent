@@ -158,7 +158,7 @@ function parseBlock(
       ],
     };
   }
-  if (current.content.startsWith("- ")) {
+  if (current.content === "-" || current.content.startsWith("- ")) {
     return parseSequence(lines, startIndex, indent);
   }
   return parseMapping(lines, startIndex, indent);
@@ -178,9 +178,9 @@ function parseSequence(
     if (line.indent !== indent) {
       return unexpectedIndent(line);
     }
-    if (!line.content.startsWith("- ")) break;
+    if (line.content !== "-" && !line.content.startsWith("- ")) break;
 
-    const rest = line.content.slice(2).trimEnd();
+    const rest = line.content === "-" ? "" : line.content.slice(2).trimEnd();
     if (rest.length === 0) {
       const nested = parseNested(lines, index + 1, indent + 2);
       if (!nested.ok) return nested;
