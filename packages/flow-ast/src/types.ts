@@ -262,6 +262,9 @@ export type FlowNode =
   | FleetContractNetNode
   | KnowledgeWriteNode
   | KnowledgeQueryNode
+  | ShellRunNode
+  | EvidenceWriteNode
+  | ValidateSchemaNode
   | AdapterRunNode
   | AdapterRaceNode
   | AdapterParallelNode
@@ -752,6 +755,30 @@ export type KnowledgeQueryNode = FlowNodeBase & {
   output: string;
 };
 
+export type ShellRunNode = FlowNodeBase & {
+  type: "shell.run";
+  command: string;
+  cwd?: string;
+  timeoutMs?: number;
+  required?: boolean;
+  allowFailure?: boolean;
+  output: string;
+};
+
+export type EvidenceWriteNode = FlowNodeBase & {
+  type: "evidence.write";
+  source: string;
+  output: string;
+  redact?: boolean;
+};
+
+export type ValidateSchemaNode = FlowNodeBase & {
+  type: "validate.schema";
+  source: string;
+  schema: Record<string, unknown> | string;
+  output: string;
+};
+
 /**
  * `adapter.run` — a single routed, in-process agent-adapter call with registry
  * fallback. Executes by delegating to the `OrchestratorFacade` at runtime (ADR
@@ -962,6 +989,9 @@ export const FLOW_NODE_KIND_REGISTRY = {
   "fleet.contract-net": true,
   "knowledge.write": true,
   "knowledge.query": true,
+  "shell.run": true,
+  "evidence.write": true,
+  "validate.schema": true,
   "adapter.run": true,
   "adapter.race": true,
   "adapter.parallel": true,

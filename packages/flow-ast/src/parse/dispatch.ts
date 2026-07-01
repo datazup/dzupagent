@@ -46,6 +46,11 @@ import {
   parseFleetContractNet,
 } from "./fleet.js";
 import { parseKnowledgeWrite, parseKnowledgeQuery } from "./knowledge.js";
+import {
+  parseEvidenceWrite,
+  parseShellRun,
+  parseValidateSchema,
+} from "./implementation.js";
 import { parseAdapterRun } from "./adapter-run.js";
 import { parseAdapterRace } from "./adapter-race.js";
 import { parseAdapterParallel } from "./adapter-parallel.js";
@@ -160,6 +165,12 @@ export function parseNode(
       return parseKnowledgeWrite(value, pointer, ctx);
     case "knowledge.query":
       return parseKnowledgeQuery(value, pointer, ctx);
+    case "shell.run":
+      return parseShellRun(value, pointer, ctx);
+    case "evidence.write":
+      return parseEvidenceWrite(value, pointer, ctx);
+    case "validate.schema":
+      return parseValidateSchema(value, pointer, ctx);
     case "adapter.run":
       return parseAdapterRun(value, pointer, ctx);
     case "adapter.race":
