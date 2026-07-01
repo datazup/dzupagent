@@ -240,6 +240,13 @@ const adapterRun = (instructions = "do it"): FlowNode =>
 const validate = (command = "yarn typecheck"): FlowNode =>
   ({ type: "validate", commands: [{ command }] } as unknown as FlowNode);
 
+const shellRun = (): FlowNode =>
+  ({
+    type: "shell.run",
+    command: "yarn test",
+    output: "testResult",
+  } as unknown as FlowNode);
+
 const forEachLeaf = (body: FlowNode): FlowNode =>
   ({
     type: "for_each",
@@ -260,6 +267,12 @@ describe("RUNTIME_LEAF routing (MPCO P1)", () => {
 
   it("T1b: validate-only flow routes to workflow-builder", () => {
     const result = routeTarget(sequence(validate()));
+    expect(result.target).toBe("workflow-builder");
+    expect(result.reason).toBe("RUNTIME_LEAF_PRESENT");
+  });
+
+  it("T1c: implementation primitive-only flow routes to workflow-builder", () => {
+    const result = routeTarget(sequence(shellRun()));
     expect(result.target).toBe("workflow-builder");
     expect(result.reason).toBe("RUNTIME_LEAF_PRESENT");
   });
