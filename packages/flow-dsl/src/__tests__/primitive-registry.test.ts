@@ -29,4 +29,19 @@ describe("primitive registry", () => {
       /duplicate primitive test\.echo@1/i,
     );
   });
+
+  it("registers collab.review_loop with a composite expander", () => {
+    const registry = createPrimitiveRegistry(BUILT_IN_PRIMITIVES);
+    const reviewLoop = registry.get("collab.review_loop", "1");
+
+    expect(reviewLoop?.category).toBe("composite");
+    expect(reviewLoop?.expandsTo).toEqual([
+      "adapter.run",
+      "validate",
+      "if",
+      "approval",
+      "complete",
+    ]);
+    expect(typeof reviewLoop?.expand).toBe("function");
+  });
 });

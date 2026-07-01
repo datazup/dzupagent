@@ -2,6 +2,8 @@ import type { FlowDocumentDsl, FlowDocumentV1 } from "@dzupagent/flow-ast";
 
 import { DSL_ERROR } from "./errors.js";
 import { normalizeSteps } from "./normalize-node-helpers.js";
+import { DEFAULT_PRIMITIVE_REGISTRY } from "./primitives/built-ins.js";
+import { normalizePrimitiveImports } from "./primitives/imports.js";
 import {
   isPlainObject,
   normalizeDefaults,
@@ -23,6 +25,7 @@ const TOP_LEVEL_KEYS = new Set([
   "defaults",
   "tags",
   "meta",
+  "uses",
   "durability",
   "steps",
 ]);
@@ -75,6 +78,11 @@ export function normalizeDslDocument(raw: unknown): NormalizeDslResult {
     "root.durability",
     diagnostics,
   );
+  const uses = normalizePrimitiveImports(
+    raw.uses,
+    diagnostics,
+    DEFAULT_PRIMITIVE_REGISTRY,
+  );
 
   const dslDeclared = typeof raw.dsl === "string" ? raw.dsl : undefined;
   const dslEffective: FlowDocumentDsl =
@@ -98,7 +106,12 @@ export function normalizeDslDocument(raw: unknown): NormalizeDslResult {
   if (inputs !== undefined) doc.inputs = inputs;
   if (defaults !== undefined) doc.defaults = defaults;
   if (tags !== undefined) doc.tags = tags;
-  if (meta !== undefined) doc.meta = meta;
+  if (meta !== undefined || uses !== undefined) {
+    doc.meta = {
+      ...(meta ?? {}),
+      ...(uses !== undefined ? { primitiveUses: uses } : {}),
+    };
+  }
   if (durability !== undefined) {
     doc.durability = durability as FlowDocumentV1["durability"];
   }

@@ -15,6 +15,16 @@ export interface PrimitivePolicyDefaults {
   rawProviderOutput?: false;
 }
 
+export interface PrimitiveExpansionContext {
+  kind: string;
+  version: string;
+}
+
+export type PrimitiveExpansionHandler = (
+  raw: unknown,
+  context: PrimitiveExpansionContext
+) => Array<Record<string, unknown>>;
+
 export interface PrimitiveDefinition {
   kind: string;
   version: string;
@@ -27,6 +37,7 @@ export interface PrimitiveDefinition {
   idempotency?: NodeIdempotencyMode;
   defaultPolicy?: PrimitivePolicyDefaults;
   expandsTo?: string[];
+  expand?: PrimitiveExpansionHandler;
   executesWith?: string;
   supportsInlineBody?: boolean;
   supportsReferenceCall?: boolean;

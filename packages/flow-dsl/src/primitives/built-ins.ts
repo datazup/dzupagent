@@ -1,4 +1,6 @@
 import type { PrimitiveDefinition } from "./types.js";
+import { expandCollabReviewLoop } from "./collab-review-loop.js";
+import { createPrimitiveRegistry } from "./registry.js";
 
 export const BUILT_IN_PRIMITIVES: readonly PrimitiveDefinition[] =
   Object.freeze([
@@ -54,5 +56,9 @@ export const BUILT_IN_PRIMITIVES: readonly PrimitiveDefinition[] =
       idempotency: "at-least-once",
       schema: { type: "object" },
       expandsTo: ["adapter.run", "validate", "if", "approval", "complete"],
+      expand: expandCollabReviewLoop,
     },
   ]);
+
+export const DEFAULT_PRIMITIVE_REGISTRY =
+  createPrimitiveRegistry(BUILT_IN_PRIMITIVES);
