@@ -25,6 +25,11 @@ interface TestContainer {
 
 interface GenericContainerCtor {
   new (image: string): {
+    withName(name: string): {
+      withExposedPorts(...ports: number[]): {
+        start(): Promise<TestContainer>
+      }
+    }
     withExposedPorts(...ports: number[]): {
       start(): Promise<TestContainer>
     }
@@ -142,6 +147,7 @@ describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
 
   beforeAll(async () => {
     container = await new Container('redis:7-alpine')
+      .withName(`datazup-dzupagent-bullmq-test-redis-${process.pid}`)
       .withExposedPorts(6379)
       .start()
     redisHost = container.getHost()

@@ -19,6 +19,7 @@ interface StartedTestContainer {
 }
 
 interface GenericContainerLike {
+  withName(name: string): GenericContainerLike
   withExposedPorts(...ports: number[]): GenericContainerLike
   withEnvironment(env: Record<string, string>): GenericContainerLike
   withWaitStrategy(strategy: unknown): GenericContainerLike
@@ -116,6 +117,7 @@ describe.skipIf(!canRun)('tenant-scope Postgres migration and stores (testcontai
 
   beforeAll(async () => {
     const containerDef = new GC('postgres:16-alpine')
+      .withName(`datazup-dzupagent-tenant-scope-test-postgres-${process.pid}`)
       .withExposedPorts(5432)
       .withEnvironment({
         POSTGRES_USER: 'test',
