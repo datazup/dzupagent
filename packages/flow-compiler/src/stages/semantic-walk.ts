@@ -206,6 +206,9 @@ export async function visit(
     case "validate":
     case "set":
     case "worker.dispatch":
+    case "shell.run":
+    case "evidence.write":
+    case "validate.schema":
     case "adapter.run":
     case "adapter.race":
     case "adapter.parallel":

@@ -17,7 +17,7 @@ export const FEATURE_BITS = {
   PARALLEL: 1 << 1, // 2
   SUSPEND: 1 << 2, // 4    (approval | clarification | persona | route)
   FOR_EACH: 1 << 3, // 8
-  RUNTIME_LEAF: 1 << 4, // 16   (agent | validate | adapter.*) — MPCO P1
+  RUNTIME_LEAF: 1 << 4, // 16   (agent | validate | adapter.* | implementation primitives) — MPCO P1
 } as const;
 
 export type FeatureBitmask = number;
@@ -139,6 +139,9 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "worker.dispatch":
         // Non-runtime leaf nodes — contribute no feature bits (unchanged).
         return;
+      case "shell.run":
+      case "evidence.write":
+      case "validate.schema":
       case "adapter.run":
       case "adapter.race":
       case "adapter.parallel":
@@ -256,6 +259,9 @@ export function hasOnError(ast: FlowNode): boolean {
       case "knowledge.write":
       case "knowledge.query":
       case "worker.dispatch":
+      case "shell.run":
+      case "evidence.write":
+      case "validate.schema":
       case "adapter.run":
       case "adapter.race":
       case "adapter.parallel":
@@ -308,6 +314,9 @@ const RUNTIME_LEAF_NODE_TYPES = new Set<FlowNode["type"]>([
   "adapter.race",
   "adapter.parallel",
   "adapter.supervisor",
+  "shell.run",
+  "evidence.write",
+  "validate.schema",
 ]);
 
 function isUnsupportedForTarget(
@@ -412,6 +421,9 @@ export function collectUnsupportedRuntimeNodes(
       case "knowledge.write":
       case "knowledge.query":
       case "worker.dispatch":
+      case "shell.run":
+      case "evidence.write":
+      case "validate.schema":
       case "adapter.run":
       case "adapter.race":
       case "adapter.parallel":
@@ -481,6 +493,9 @@ function hasGenericArtifactAnchor(
       case "knowledge.write":
       case "knowledge.query":
       case "worker.dispatch":
+      case "shell.run":
+      case "evidence.write":
+      case "validate.schema":
       case "adapter.run":
       case "adapter.race":
       case "adapter.parallel":

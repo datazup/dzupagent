@@ -402,6 +402,46 @@ function formatNode(
       lines.push(`${childIndent}filter: ${formatScalar(node.filter)}`);
       lines.push(`${childIndent}output: ${node.output}`);
       return;
+    case "shell.run":
+      lines.push(`${indent}- shell.run:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}command: ${quote(node.command)}`);
+      if (node.cwd) lines.push(`${childIndent}cwd: ${quote(node.cwd)}`);
+      if (node.timeoutMs !== undefined)
+        lines.push(`${childIndent}timeoutMs: ${node.timeoutMs}`);
+      if (node.required !== undefined)
+        lines.push(`${childIndent}required: ${String(node.required)}`);
+      if (node.allowFailure !== undefined)
+        lines.push(`${childIndent}allowFailure: ${String(node.allowFailure)}`);
+      lines.push(`${childIndent}output: ${node.output}`);
+      if (node.effectClass)
+        lines.push(`${childIndent}effectClass: ${node.effectClass}`);
+      if (node.idempotency)
+        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
+      return;
+    case "evidence.write":
+      lines.push(`${indent}- evidence.write:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}source: ${quote(node.source)}`);
+      lines.push(`${childIndent}output: ${node.output}`);
+      if (node.redact !== undefined)
+        lines.push(`${childIndent}redact: ${String(node.redact)}`);
+      if (node.effectClass)
+        lines.push(`${childIndent}effectClass: ${node.effectClass}`);
+      if (node.idempotency)
+        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
+      return;
+    case "validate.schema":
+      lines.push(`${indent}- validate.schema:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}source: ${quote(node.source)}`);
+      lines.push(`${childIndent}schema: ${formatScalar(node.schema)}`);
+      lines.push(`${childIndent}output: ${node.output}`);
+      if (node.effectClass)
+        lines.push(`${childIndent}effectClass: ${node.effectClass}`);
+      if (node.idempotency)
+        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
+      return;
     case "adapter.run":
       lines.push(`${indent}- adapter.run:`);
       pushCommon(lines, node, indentLevel + 2);

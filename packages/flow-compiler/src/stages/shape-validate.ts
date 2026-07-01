@@ -187,6 +187,9 @@ function childSlices(
     case "knowledge.write":
     case "knowledge.query":
     case "worker.dispatch":
+    case "shell.run":
+    case "evidence.write":
+    case "validate.schema":
     case "adapter.run":
     case "adapter.race":
     case "adapter.parallel":

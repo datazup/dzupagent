@@ -1,4 +1,6 @@
 import type { PrimitiveDefinition } from "./types.js";
+import { expandCollabReviewLoop } from "./collab-review-loop.js";
+import { createPrimitiveRegistry } from "./registry.js";
 
 export const BUILT_IN_PRIMITIVES: readonly PrimitiveDefinition[] =
   Object.freeze([
@@ -54,5 +56,42 @@ export const BUILT_IN_PRIMITIVES: readonly PrimitiveDefinition[] =
       idempotency: "at-least-once",
       schema: { type: "object" },
       expandsTo: ["adapter.run", "validate", "if", "approval", "complete"],
+      expand: expandCollabReviewLoop,
+    },
+    {
+      kind: "shell.run",
+      version: "1",
+      namespace: "shell",
+      category: "leaf",
+      description: "Run a shell command through the host command port.",
+      effectClass: "code_change",
+      idempotency: "at-least-once",
+      schema: { type: "object" },
+      executesWith: "shell.run",
+    },
+    {
+      kind: "evidence.write",
+      version: "1",
+      namespace: "evidence",
+      category: "leaf",
+      description: "Write sanitized digest evidence for a state value.",
+      effectClass: "file_write",
+      idempotency: "idempotent",
+      schema: { type: "object" },
+      executesWith: "evidence.write",
+    },
+    {
+      kind: "validate.schema",
+      version: "1",
+      namespace: "validate",
+      category: "validator",
+      description: "Validate a state value against a schema ref or inline schema.",
+      effectClass: "compute",
+      idempotency: "idempotent",
+      schema: { type: "object" },
+      executesWith: "validate.schema",
     },
   ]);
+
+export const DEFAULT_PRIMITIVE_REGISTRY =
+  createPrimitiveRegistry(BUILT_IN_PRIMITIVES);

@@ -163,6 +163,9 @@ export function validateCanonicalNodeIds(
     case "fleet.contract-net":
     case "knowledge.write":
     case "knowledge.query":
+    case "shell.run":
+    case "evidence.write":
+    case "validate.schema":
     case "adapter.run":
     case "adapter.race":
     case "adapter.parallel":

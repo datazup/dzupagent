@@ -160,6 +160,9 @@ function projectNode(node: FlowNode, state: ProjectionState): ProjectionResult {
     case "fleet.contract-net":
     case "knowledge.write":
     case "knowledge.query":
+    case "shell.run":
+    case "evidence.write":
+    case "validate.schema":
     case "adapter.run":
     case "adapter.race":
     case "adapter.parallel":
@@ -261,6 +264,12 @@ function labelForNode(node: FlowNode): string {
       return `knowledge.write:${node.scope}`;
     case "knowledge.query":
       return `knowledge.query:${node.output}`;
+    case "shell.run":
+      return `shell.run:${node.output}`;
+    case "evidence.write":
+      return `evidence.write:${node.output}`;
+    case "validate.schema":
+      return `validate.schema:${node.output}`;
     case "adapter.run":
       return `adapter.run:${node.provider ?? (node.tags ?? []).join(",")}`;
     case "adapter.race":

@@ -90,6 +90,31 @@ const workerDispatch = (overrides: Partial<WorkerDispatchNode> = {}): WorkerDisp
   ...overrides,
 })
 
+const shellRun = (overrides: Record<string, unknown> = {}): FlowNode =>
+  ({
+    type: 'shell.run',
+    command: 'yarn test',
+    output: 'testResult',
+    ...overrides,
+  }) as FlowNode
+
+const evidenceWrite = (overrides: Record<string, unknown> = {}): FlowNode =>
+  ({
+    type: 'evidence.write',
+    source: 'testResult',
+    output: 'evidence',
+    ...overrides,
+  }) as FlowNode
+
+const validateSchema = (overrides: Record<string, unknown> = {}): FlowNode =>
+  ({
+    type: 'validate.schema',
+    source: 'evidence',
+    schema: 'EvidenceSchema',
+    output: 'schemaResult',
+    ...overrides,
+  }) as FlowNode
+
 // ---------------------------------------------------------------------------
 // R1 — EMPTY_BODY
 // ---------------------------------------------------------------------------
@@ -181,6 +206,34 @@ describe('validateShape — worker dispatch runtime leaf', () => {
         'worker.dispatch.dispatchId is required (non-empty string)',
         'worker.dispatch.instructions is required (non-empty string)',
         'worker.dispatch.outputKey is required (non-empty string)',
+      ]),
+    )
+  })
+})
+
+describe('validateShape — implementation primitive runtime leaves', () => {
+  it('accepts valid implementation primitive nodes', () => {
+    expect(validateShape(shellRun())).toEqual([])
+    expect(validateShape(evidenceWrite())).toEqual([])
+    expect(validateShape(validateSchema())).toEqual([])
+  })
+
+  it('rejects implementation primitives missing required fields', () => {
+    const errors = [
+      ...validateShape(shellRun({ command: '', output: '' })),
+      ...validateShape(evidenceWrite({ source: '', output: '' })),
+      ...validateShape(validateSchema({ source: '', schema: null, output: '' })),
+    ]
+
+    expect(errors.map((error) => error.message)).toEqual(
+      expect.arrayContaining([
+        'shell.run.command is required (non-empty string)',
+        'shell.run.output is required (non-empty string)',
+        'evidence.write.source is required (non-empty string)',
+        'evidence.write.output is required (non-empty string)',
+        'validate.schema.source is required (non-empty string)',
+        'validate.schema.output is required (non-empty string)',
+        'validate.schema.schema is required (schema ref string or object)',
       ]),
     )
   })

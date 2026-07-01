@@ -12,6 +12,7 @@ const ADAPTER_PROVIDERS = new Set<NonNullable<AdapterRunNode["provider"]>>([
   "gemini",
   "openai",
   "openrouter",
+  "openrouter-crush",
   "qwen",
   "goose",
   "crush",

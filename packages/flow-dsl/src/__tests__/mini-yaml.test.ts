@@ -111,6 +111,17 @@ describe('parseYamlSubset', () => {
       expect(result).toEqual({ ok: true, value: [{ key: 'value' }, { key: 'other' }] })
     })
 
+    it('parses bare sequence mapping entries', () => {
+      const source = 'commands:\n  -\n    command: yarn test\n    cwd: .'
+      const result = parseYamlSubset(source)
+      expect(result).toEqual({
+        ok: true,
+        value: {
+          commands: [{ command: 'yarn test', cwd: '.' }],
+        },
+      })
+    })
+
     it('parses a sequence value under a mapping key', () => {
       const source = 'tags:\n  - a\n  - b'
       const result = parseYamlSubset(source)

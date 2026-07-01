@@ -130,6 +130,25 @@ const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode["type"], FlowNode> = {
     filter: { scope: "project" },
     output: "knowledgeResults",
   },
+  "shell.run": {
+    type: "shell.run",
+    command: "node --test scripts/mpco/*.test.mjs",
+    output: "shellResult",
+    effectClass: "code_change",
+    idempotency: "at-least-once",
+  },
+  "evidence.write": {
+    type: "evidence.write",
+    source: "{{ state.shellResult }}",
+    output: "evidenceRef",
+    redact: true,
+  },
+  "validate.schema": {
+    type: "validate.schema",
+    source: "{{ state.summary }}",
+    schema: { type: "object" },
+    output: "schemaResult",
+  },
   "adapter.run": {
     type: "adapter.run",
     provider: "claude",
@@ -659,7 +678,11 @@ describe("parseFlow — adapter.run node", () => {
   });
 
   it("parses OpenAI and OpenRouter adapter.run providers", () => {
-    for (const provider of ["openai", "openrouter"] as const) {
+    for (const provider of [
+      "openai",
+      "openrouter",
+      "openrouter-crush",
+    ] as const) {
       const node = {
         type: "adapter.run",
         provider,

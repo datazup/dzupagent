@@ -46,6 +46,11 @@ import {
   validateFleetContractNet,
 } from "./fleet.js";
 import { validateKnowledgeWrite, validateKnowledgeQuery } from "./knowledge.js";
+import {
+  validateEvidenceWrite,
+  validateShellRun,
+  validateValidateSchema,
+} from "./implementation.js";
 import { validateAdapterRun } from "./adapter-run.js";
 import { validateAdapterRace } from "./adapter-race.js";
 import { validateAdapterParallel } from "./adapter-parallel.js";
@@ -151,6 +156,12 @@ export function validateFlowNode(
       return validateKnowledgeWrite(value, path, issues);
     case "knowledge.query":
       return validateKnowledgeQuery(value, path, issues);
+    case "shell.run":
+      return validateShellRun(value, path, issues);
+    case "evidence.write":
+      return validateEvidenceWrite(value, path, issues);
+    case "validate.schema":
+      return validateValidateSchema(value, path, issues);
     case "adapter.run":
       return validateAdapterRun(value, path, issues);
     case "adapter.race":

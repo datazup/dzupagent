@@ -7,4 +7,5 @@ export * from "./normalize.js";
 export * from "./document-validate.js";
 export * from "./document-to-graph.js";
 export * from "./template.js";
+export * from "./mini-yaml.js";
 export * from "./primitives/index.js";

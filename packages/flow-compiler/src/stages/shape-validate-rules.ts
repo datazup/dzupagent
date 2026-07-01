@@ -494,4 +494,76 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
       );
     }
   },
+  "shell.run": (node, { path, errors }) => {
+    if (!isNonEmptyString(node.command)) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "shell.run.command is required (non-empty string)",
+        ),
+      );
+    }
+    if (!isNonEmptyString(node.output)) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "shell.run.output is required (non-empty string)",
+        ),
+      );
+    }
+  },
+  "evidence.write": (node, { path, errors }) => {
+    if (!isNonEmptyString(node.source)) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "evidence.write.source is required (non-empty string)",
+        ),
+      );
+    }
+    if (!isNonEmptyString(node.output)) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "evidence.write.output is required (non-empty string)",
+        ),
+      );
+    }
+  },
+  "validate.schema": (node, { path, errors }) => {
+    if (!isNonEmptyString(node.source)) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "validate.schema.source is required (non-empty string)",
+        ),
+      );
+    }
+    if (!isNonEmptyString(node.output)) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "validate.schema.output is required (non-empty string)",
+        ),
+      );
+    }
+    if (
+      !isNonEmptyString(node.schema) &&
+      !isPlainObject(node.schema)
+    ) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "validate.schema.schema is required (schema ref string or object)",
+        ),
+      );
+    }
+  },
 };

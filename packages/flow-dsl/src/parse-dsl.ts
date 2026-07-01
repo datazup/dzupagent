@@ -1,7 +1,7 @@
 import type { FlowDocumentV1 } from "@dzupagent/flow-ast";
 
 import { parseYamlSubset } from "./mini-yaml.js";
-import { expandCollabMacros } from "./expand-collab-macros.js";
+import { expandRegisteredComposites } from "./primitives/composite-expansion.js";
 import { normalizeDslDocument } from "./normalize.js";
 import { validateDocument } from "./document-validate.js";
 import type { ParseDslResult } from "./types.js";
@@ -28,10 +28,10 @@ export function parseDslToDocument(source: string): ParseDslResult {
     };
   }
 
-  // MPCO P5: expand collab.* macros into canonical nodes before normalization.
+  // MPCO P2: expand registered composite primitives before normalization.
   let expandedRaw: unknown;
   try {
-    expandedRaw = expandCollabMacros(yaml.value);
+    expandedRaw = expandRegisteredComposites(yaml.value);
   } catch (error) {
     return {
       ok: false,
@@ -40,7 +40,7 @@ export function parseDslToDocument(source: string): ParseDslResult {
       diagnostics: [
         {
           phase: "normalize" as const,
-          code: "INVALID_COLLAB_MACRO",
+          code: "INVALID_COMPOSITE_PRIMITIVE",
           message: error instanceof Error ? error.message : String(error),
           path: "root.steps",
         },
