@@ -2,7 +2,6 @@ import type {
   ApprovalPayload,
   ClarificationPayload,
 } from "@dzupagent/hitl-kit";
-import { createRenameSymbolTool } from "@dzupagent/code-edit-kit";
 import type { McpClient } from "@dzupagent/code-edit-kit";
 import type { DomainToolDefinition } from "../types.js";
 import { InMemoryDomainToolRegistry } from "../registry.js";
@@ -172,7 +171,6 @@ interface RenameSymbolExecOutput {
 function buildRenameSymbolTool(
   mcpClient?: McpClient,
 ): ExecutableDomainTool<RenameSymbolExecInput, RenameSymbolExecOutput> {
-  const lcTool = createRenameSymbolTool(mcpClient);
   const definition: DomainToolDefinition = {
     name: "code_edit.rename_symbol",
     description:
@@ -197,6 +195,8 @@ function buildRenameSymbolTool(
     async execute(
       input: RenameSymbolExecInput,
     ): Promise<RenameSymbolExecOutput> {
+      const { createRenameSymbolTool } = await import("@dzupagent/code-edit-kit");
+      const lcTool = createRenameSymbolTool(mcpClient);
       const raw = (await lcTool.invoke(input)) as string;
       if (raw.startsWith("rename_symbol failed:")) {
         throw new Error(raw);
