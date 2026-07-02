@@ -22,8 +22,10 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "eslint": "^10.1.0",
     "tsup": "*",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   },
   "license": "MIT",
   "publishConfig": {

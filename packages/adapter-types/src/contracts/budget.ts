@@ -60,7 +60,7 @@ export function emptyTally(): BudgetTally {
  */
 export function accrueUsage(
   tally: BudgetTally,
-  usage?: TokenUsage,
+  usage?: Partial<TokenUsage>,
 ): BudgetTally {
   const u = usage;
   const budgetTokens = u ? (u.inputTokens ?? 0) + (u.outputTokens ?? 0) : 0;

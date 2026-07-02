@@ -50,11 +50,13 @@ describe("CollabTask envelope (MPCO P3)", () => {
       parts: [part],
       risk: "medium",
     };
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    expect(task.parts[0]!.kind).toBe("rationale");
+    const firstPart = task.parts[0];
+    expect(firstPart?.kind).toBe("rationale");
+    if (firstPart?.kind !== "rationale") {
+      throw new Error("expected rationale part");
+    }
     // every evidence ref digestOf is the sanitized literal
-    const refs = (task.parts[0]! as Extract<CollabPart, { kind: "rationale" }>)
-      .evidence;
+    const refs = firstPart.evidence;
     expect(refs.every((r) => r.digestOf === "sanitized")).toBe(true);
   });
 

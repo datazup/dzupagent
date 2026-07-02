@@ -74,12 +74,10 @@ describe("budget accumulator (MPCO P8a / T15)", () => {
   });
 
   it("accrueUsage tolerates partial usage payloads", () => {
-    expect(
-      accrueUsage(emptyTally(), { inputTokens: 10 } as any).totalTokens,
-    ).toBe(10);
-    expect(
-      accrueUsage(emptyTally(), { outputTokens: 7 } as any).totalTokens,
-    ).toBe(7);
+    expect(accrueUsage(emptyTally(), { inputTokens: 10 }).totalTokens).toBe(
+      10,
+    );
+    expect(accrueUsage(emptyTally(), { outputTokens: 7 }).totalTokens).toBe(7);
   });
 
   // T15: cap breach detection
