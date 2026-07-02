@@ -654,6 +654,10 @@ describe("lowerPipelineFlat — W1 durability wiring (T5, T7)", () => {
       sideEffects: [],
       namespace: "agents",
     });
+    const agentDef = registry.get("agents.researcher");
+    if (agentDef === undefined) {
+      throw new Error("test setup: agents.researcher not registered");
+    }
     const resolved = new Map<string, ResolvedTool>([
       [
         "root",
@@ -661,7 +665,7 @@ describe("lowerPipelineFlat — W1 durability wiring (T5, T7)", () => {
           ref: "agent-1",
           kind: "agent" as const,
           inputSchema: { type: "object" },
-          handle: registry.get("agents.researcher"),
+          handle: agentDef,
         },
       ],
     ]);
@@ -679,12 +683,14 @@ describe("lowerPipelineFlat — W1 durability wiring (T5, T7)", () => {
       _idGen: makeIdGen("agent-plain"),
     });
 
-    const node = artifact.nodes[0] as AgentNode;
     expect(warnings).toHaveLength(0);
-    expect(node.type).toBe("agent");
-    expect("declaredIdempotencyKey" in node).toBe(false);
-    expect("idempotency" in node).toBe(false);
-    expect("effectClass" in node).toBe(false);
+    const node = artifact.nodes[0];
+    expect(node).toBeDefined();
+    const agentNode = node as AgentNode;
+    expect(agentNode.type).toBe("agent");
+    expect("declaredIdempotencyKey" in agentNode).toBe(false);
+    expect("idempotency" in agentNode).toBe(false);
+    expect("effectClass" in agentNode).toBe(false);
   });
 
   it("T7: round-trip — a lowered action WITH decls honors the declared key when fed through nodeIdempotencyContext-shaped access; WITHOUT decls yields identical field-shape to the pre-W1 baseline", () => {
