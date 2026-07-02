@@ -23,6 +23,7 @@ import type {
   PipelineDefinition,
   PipelineNode,
   PipelineCheckpointStore,
+  PipelineCheckpointExecutionLog,
 } from "@dzupagent/core/pipeline";
 import type {
   NodeExecutor as RuntimeNodeExecutor,
@@ -58,6 +59,21 @@ export type {
  * specialise it to the canonical `PipelineNode`.
  */
 export type NodeExecutor = RuntimeNodeExecutor<PipelineNode>;
+
+export interface PipelineExecutionLogEntry
+  extends PipelineCheckpointExecutionLog {
+  /** Pipeline definition ID this run belongs to. */
+  pipelineId: string;
+  /** Unique run identifier. */
+  pipelineRunId: string;
+  /** Checkpoint version that produced this execution-log snapshot. */
+  checkpointVersion: number;
+}
+
+export interface PipelineExecutionLogStore {
+  /** Append one execution-log snapshot produced by a checkpoint save. */
+  append(entry: PipelineExecutionLogEntry): Promise<void>;
+}
 
 // ---------------------------------------------------------------------------
 // Retry policy
@@ -144,6 +160,12 @@ export interface PipelineRuntimeConfig {
    * that store takes precedence over `checkpointStore`.
    */
   checkpointStores?: Record<string, PipelineCheckpointStore>;
+  /**
+   * Named execution-log sinks addressable by `definition.executionLog.storeRef`.
+   * When the definition declares both `storeRef` and `eventHistory`, checkpoint
+   * execution-log snapshots are appended to the matching sink.
+   */
+  executionLogStores?: Record<string, PipelineExecutionLogStore>;
   /**
    * Pre-connected Redis client (ioredis / node-redis compatible).
    * Used to auto-wire `RedisPipelineCheckpointStore` when `checkpointStore`

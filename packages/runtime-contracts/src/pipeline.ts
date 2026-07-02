@@ -69,6 +69,19 @@ export interface NodeResult {
   output: unknown;
   durationMs: number;
   error?: string;
+  /**
+   * Opaque provider session handles produced by this node, when available.
+   * Pipeline checkpoints persist these only when checkpoint policy explicitly
+   * requests provider-session-ref capture.
+   */
+  providerSessionRefs?: ProviderSessionRef[];
+}
+
+export interface ProviderSessionRef {
+  provider: string;
+  sessionId: string;
+  label?: string;
+  metadata?: Record<string, unknown>;
 }
 
 /**

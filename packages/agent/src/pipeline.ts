@@ -28,6 +28,8 @@ export type {
   NodeExecutionContext,
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
+  PipelineExecutionLogEntry,
+  PipelineExecutionLogStore,
   LoopMetrics,
   RetryPolicy,
   OTelSpanLike,

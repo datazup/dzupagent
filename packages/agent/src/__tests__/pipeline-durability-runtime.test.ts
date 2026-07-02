@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { PipelineDefinition } from "@dzupagent/core";
+import type { PipelineCheckpoint, PipelineDefinition } from "@dzupagent/core";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import type {
   NodeExecutor,
+  PipelineExecutionLogEntry,
+  PipelineExecutionLogStore,
   PipelineRuntimeEvent,
 } from "../pipeline/pipeline-runtime-types.js";
 
@@ -123,6 +125,48 @@ describe("PipelineRuntime W1 durability policy", () => {
     );
   });
 
+  it("embeds provider session refs when checkpoint.includeProviderSessionRefs is true", async () => {
+    const store = new InMemoryPipelineCheckpointStore();
+    const runtime = new PipelineRuntime({
+      definition: linearPipeline({
+        checkpoint: { includeProviderSessionRefs: true },
+      }),
+      nodeExecutor: async (nodeId, _node, ctx) => {
+        ctx.state[`seen_${nodeId}`] = true;
+        return {
+          nodeId,
+          output: `out-${nodeId}`,
+          durationMs: 1,
+          providerSessionRefs:
+            nodeId === "a"
+              ? [
+                  {
+                    provider: "openai",
+                    sessionId: "sess-a",
+                    metadata: { threadId: "thread-a" },
+                  },
+                ]
+              : [],
+        } as Awaited<ReturnType<NodeExecutor>>;
+      },
+      checkpointStore: store,
+    });
+
+    const result = await runtime.execute();
+    const checkpoint: PipelineCheckpoint | undefined = await store.load(
+      result.runId,
+    );
+
+    expect(checkpoint?.providerSessionRefs).toEqual([
+      {
+        nodeId: "a",
+        provider: "openai",
+        sessionId: "sess-a",
+        metadata: { threadId: "thread-a" },
+      },
+    ]);
+  });
+
   it("embeds compact executionLog events in checkpoints when executionLog.eventHistory=compact", async () => {
     const store = new InMemoryPipelineCheckpointStore();
     const runtime = new PipelineRuntime({
@@ -145,6 +189,41 @@ describe("PipelineRuntime W1 durability policy", () => {
     expect(logTypes).toContain("pipeline:started");
     expect(logTypes).toContain("pipeline:checkpoint_saved");
     expect(logTypes).not.toContain("pipeline:node_started");
+  });
+
+  it("writes executionLog snapshots to the named executionLog.storeRef sink", async () => {
+    const store = new InMemoryPipelineCheckpointStore();
+    const appended: PipelineExecutionLogEntry[] = [];
+    const executionLogStore: PipelineExecutionLogStore = {
+      append: async (entry) => {
+        appended.push(entry);
+      },
+    };
+    const runtime = new PipelineRuntime({
+      definition: linearPipeline({
+        executionLog: {
+          storeRef: "audit-log",
+          eventHistory: "compact",
+        },
+      }),
+      nodeExecutor: executorWithRuns(),
+      checkpointStore: store,
+      executionLogStores: { "audit-log": executionLogStore },
+    });
+
+    const result = await runtime.execute();
+
+    expect(appended).toHaveLength(3);
+    expect(appended.at(-1)).toMatchObject({
+      pipelineId: "w1-runtime-pipe",
+      pipelineRunId: result.runId,
+      checkpointVersion: 3,
+      storeRef: "audit-log",
+      eventHistory: "compact",
+    });
+    expect(appended.at(-1)?.events.map((event) => event.type)).toContain(
+      "pipeline:checkpoint_saved",
+    );
   });
 
   it("recovers after process restart from the next node after the latest checkpoint", async () => {

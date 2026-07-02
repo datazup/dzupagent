@@ -995,6 +995,7 @@ export type {
   PipelineCheckpoint,
   PipelineCheckpointEventRecord,
   PipelineCheckpointExecutionLog,
+  PipelineCheckpointProviderSessionRef,
   PipelineCheckpointSummary,
   PipelineCheckpointStore,
 } from "./pipeline/index.js";

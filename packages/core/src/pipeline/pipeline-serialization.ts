@@ -142,6 +142,17 @@ export const PipelineCheckpointSchema = z.object({
       }))),
     })
     .optional(),
+  providerSessionRefs: z
+    .array(
+      z.object({
+        nodeId: z.string().min(1),
+        provider: z.string().min(1),
+        sessionId: z.string().min(1),
+        label: z.string().optional(),
+        metadata: z.record(z.string(), z.unknown()).optional(),
+      }),
+    )
+    .optional(),
   createdAt: z.string().min(1),
 });
 

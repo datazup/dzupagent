@@ -37,6 +37,7 @@ export type {
   PipelineCheckpoint,
   PipelineCheckpointEventRecord,
   PipelineCheckpointExecutionLog,
+  PipelineCheckpointProviderSessionRef,
   PipelineCheckpointSummary,
   PipelineCheckpointStore,
 } from "./pipeline-checkpoint-store.js";

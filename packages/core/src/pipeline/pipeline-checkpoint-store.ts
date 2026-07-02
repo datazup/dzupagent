@@ -88,6 +88,8 @@ export interface PipelineCheckpoint {
   events?: PipelineCheckpointEventRecord[];
   /** Execution-log snapshot embedded in this checkpoint when requested by policy. */
   executionLog?: PipelineCheckpointExecutionLog;
+  /** Provider session handles captured from node results when requested by policy. */
+  providerSessionRefs?: PipelineCheckpointProviderSessionRef[];
   /** ISO-8601 timestamp of when this checkpoint was created */
   createdAt: string;
 }
@@ -100,6 +102,15 @@ export interface PipelineCheckpointExecutionLog {
   storeRef?: string;
   eventHistory: "compact" | "full";
   events: PipelineCheckpointEventRecord[];
+}
+
+export interface PipelineCheckpointProviderSessionRef {
+  /** Node that produced this provider session reference. */
+  nodeId: string;
+  provider: string;
+  sessionId: string;
+  label?: string;
+  metadata?: Record<string, unknown>;
 }
 
 /**

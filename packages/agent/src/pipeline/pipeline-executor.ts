@@ -22,6 +22,7 @@ import type {
   PipelineCheckpoint,
   PipelineCheckpointEventRecord,
   PipelineCheckpointExecutionLog,
+  PipelineCheckpointProviderSessionRef,
   PipelineCheckpointRetentionPolicy,
   PipelineCheckpointStore,
   ForkNode,
@@ -326,6 +327,7 @@ export class PipelineExecutor {
         this.saveCheckpoint(
           runId,
           runState,
+          nodeResults,
           completedNodeIds,
           nodeIdempotencyKeys,
           loopState,
@@ -393,6 +395,7 @@ export class PipelineExecutor {
           await this.saveCheckpoint(
             runId,
             runState,
+            nodeResults,
             completedNodeIds,
             nodeIdempotencyKeys,
             loopState,
@@ -412,6 +415,7 @@ export class PipelineExecutor {
       await this.saveCheckpoint(
         runId,
         runState,
+        nodeResults,
         completedNodeIds,
         nodeIdempotencyKeys,
         loopState,
@@ -462,6 +466,7 @@ export class PipelineExecutor {
         await this.saveCheckpoint(
           runId,
           runState,
+          nodeResults,
           completedNodeIds,
           nodeIdempotencyKeys,
           loopState,
@@ -511,6 +516,7 @@ export class PipelineExecutor {
     await this.saveCheckpoint(
       runId,
       runState,
+      nodeResults,
       completedNodeIds,
       nodeIdempotencyKeys,
       loopState,
@@ -555,6 +561,11 @@ export class PipelineExecutor {
     if (this.config.checkpointStore) {
       versionTracker.version++;
       const savedEvent = checkpointSavedEvent(runId, versionTracker.version);
+      const executionLog = checkpointExecutionLog(
+        this.config,
+        eventLog,
+        savedEvent,
+      );
       const checkpoint: PipelineCheckpoint = createPipelineCheckpoint({
         pipelineRunId: runId,
         pipelineId: this.config.definition.id,
@@ -564,12 +575,17 @@ export class PipelineExecutor {
         loopState,
         forkState,
         events: checkpointEvents(this.config, eventLog, savedEvent),
-        executionLog: checkpointExecutionLog(this.config, eventLog, savedEvent),
+        executionLog,
+        providerSessionRefs: checkpointProviderSessionRefs(
+          this.config,
+          nodeResults,
+        ),
         state: runState,
         suspendedAtNodeId: nodeId,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
       });
       await this.config.checkpointStore.save(checkpoint);
+      await appendExecutionLogSnapshot(this.config, checkpoint);
       await applyCheckpointRetention(
         this.config.checkpointStore,
         runId,
@@ -638,6 +654,7 @@ export class PipelineExecutor {
   private async saveCheckpoint(
     runId: string,
     runState: Record<string, unknown>,
+    nodeResults: Map<string, NodeResult>,
     completedNodeIds: string[],
     nodeIdempotencyKeys: Record<string, string>,
     loopState: Record<string, { iteration: number }>,
@@ -669,6 +686,11 @@ export class PipelineExecutor {
     if (strategy === "after_each_node") {
       versionTracker.version++;
       const savedEvent = checkpointSavedEvent(runId, versionTracker.version);
+      const executionLog = checkpointExecutionLog(
+        this.config,
+        eventLog,
+        savedEvent,
+      );
       const checkpoint: PipelineCheckpoint = createPipelineCheckpoint({
         pipelineRunId: runId,
         pipelineId: this.config.definition.id,
@@ -678,11 +700,16 @@ export class PipelineExecutor {
         loopState,
         forkState,
         events: checkpointEvents(this.config, eventLog, savedEvent),
-        executionLog: checkpointExecutionLog(this.config, eventLog, savedEvent),
+        executionLog,
+        providerSessionRefs: checkpointProviderSessionRefs(
+          this.config,
+          nodeResults,
+        ),
         state: runState,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
       });
       await this.config.checkpointStore.save(checkpoint);
+      await appendExecutionLogSnapshot(this.config, checkpoint);
       await applyCheckpointRetention(
         this.config.checkpointStore,
         runId,
@@ -754,6 +781,32 @@ function checkpointExecutionLog(
   };
 }
 
+function checkpointProviderSessionRefs(
+  config: PipelineRuntimeConfig,
+  nodeResults: Map<string, NodeResult>,
+): PipelineCheckpointProviderSessionRef[] | undefined {
+  if (config.definition.checkpoint?.includeProviderSessionRefs !== true) {
+    return undefined;
+  }
+
+  const refs: PipelineCheckpointProviderSessionRef[] = [];
+  for (const result of nodeResults.values()) {
+    for (const ref of result.providerSessionRefs ?? []) {
+      refs.push({
+        nodeId: result.nodeId,
+        provider: ref.provider,
+        sessionId: ref.sessionId,
+        ...(ref.label !== undefined ? { label: ref.label } : {}),
+        ...(ref.metadata !== undefined
+          ? { metadata: structuredClone(ref.metadata) }
+          : {}),
+      });
+    }
+  }
+
+  return refs.length > 0 ? refs : undefined;
+}
+
 function toCheckpointEventRecord(
   event: PipelineRuntimeEvent,
 ): PipelineCheckpointEventRecord {
@@ -769,6 +822,22 @@ function isCompactExecutionLogEvent(event: PipelineRuntimeEvent): boolean {
     event.type === "pipeline:node_completed" ||
     event.type === "pipeline:checkpoint_saved"
   );
+}
+
+async function appendExecutionLogSnapshot(
+  config: PipelineRuntimeConfig,
+  checkpoint: PipelineCheckpoint,
+): Promise<void> {
+  const executionLog = checkpoint.executionLog;
+  if (!executionLog?.storeRef) return;
+  const store = config.executionLogStores?.[executionLog.storeRef];
+  if (!store) return;
+  await store.append({
+    pipelineRunId: checkpoint.pipelineRunId,
+    pipelineId: checkpoint.pipelineId,
+    checkpointVersion: checkpoint.version,
+    ...executionLog,
+  });
 }
 
 async function applyCheckpointRetention(
