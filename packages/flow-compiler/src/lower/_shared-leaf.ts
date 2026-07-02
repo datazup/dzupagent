@@ -49,7 +49,7 @@ export function lowerAction(
     const message = `lower/action: no resolved tool at path '${path}' (toolRef='${node.toolRef}')`;
     if (loweringMode(ctx) === "executable") {
       throw new Error(
-        `${message}; executable lowering rejects unresolved semantic references`
+        `${message}; executable lowering rejects unresolved semantic references`,
       );
     }
 
@@ -159,7 +159,7 @@ export function lowerForEach(
 ): LowerPipelineResult {
   if (!ctx.allowForEach) {
     throw new Error(
-      `router-contract violation: for_each in flat target at ${path}`
+      `router-contract violation: for_each in flat target at ${path}`,
     );
   }
 
@@ -168,7 +168,7 @@ export function lowerForEach(
     node.body,
     ctx,
     (idx) => `${path}.body[${idx}]`,
-    lowerOne
+    lowerOne,
   );
   const bodyNodeIds = bodyResult.nodes.map((n) => n.id);
 

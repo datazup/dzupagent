@@ -72,7 +72,7 @@ export interface PipelineNodeBase {
   /**
    * W1 durability wiring (Slice 1). Fine-grained side-effect classification
    * lowered from the DSL (flow-ast `EffectClass`, carried here as a plain string
-   * to avoid a core → flow-ast dependency). CARRIED for ledger / observability
+   * to avoid a core→flow-ast dependency). CARRIED for ledger / observability
    * only in Slice 1 — no runtime behavior rides on it yet (forward-looking).
    */
   effectClass?: string;
