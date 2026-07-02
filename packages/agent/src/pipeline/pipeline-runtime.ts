@@ -303,6 +303,23 @@ export class PipelineRuntime {
         (restartPolicy === "resume_from_checkpoint" ||
           restartPolicy === "redeliver_running")
       ) {
+        const maxReplayNodes = this.config.definition.resume?.maxReplayNodes;
+        if (maxReplayNodes !== undefined) {
+          const replayNodeCount = this.countReplayNodesFrom(
+            restartNodeId,
+            runState,
+            completedNodeIds,
+          );
+          if (replayNodeCount > maxReplayNodes) {
+            return this.failReplayBudgetExceeded({
+              runId,
+              nodeResults,
+              replayNodeCount,
+              maxReplayNodes,
+              startTime,
+            });
+          }
+        }
         const versionTracker = { version: checkpoint.version };
         return this.runFromNode({
           startNodeId: restartNodeId,
@@ -359,6 +376,23 @@ export class PipelineRuntime {
     }
 
     const versionTracker = { version: checkpoint.version };
+    const maxReplayNodes = this.config.definition.resume?.maxReplayNodes;
+    if (maxReplayNodes !== undefined) {
+      const replayNodeCount = this.countReplayNodesFrom(
+        nextNodeIds[0]!,
+        runState,
+        completedNodeIds,
+      );
+      if (replayNodeCount > maxReplayNodes) {
+        return this.failReplayBudgetExceeded({
+          runId,
+          nodeResults,
+          replayNodeCount,
+          maxReplayNodes,
+          startTime,
+        });
+      }
+    }
 
     // Continue from the first next node — `runFromNode` translates any
     // executor-thrown error into a failed run result, matching the
@@ -467,6 +501,50 @@ export class PipelineRuntime {
     }
 
     return candidate && !completed.has(candidate) ? candidate : undefined;
+  }
+
+  private countReplayNodesFrom(
+    startNodeId: string,
+    runState: Record<string, unknown>,
+    completedNodeIds: string[],
+  ): number {
+    const completed = new Set(completedNodeIds);
+    const visited = new Set<string>();
+    const stack = [startNodeId];
+    let count = 0;
+
+    while (stack.length > 0) {
+      const nodeId = stack.pop()!;
+      if (visited.has(nodeId)) continue;
+      visited.add(nodeId);
+      if (completed.has(nodeId)) continue;
+
+      count += 1;
+      stack.push(...this.getNextNodeIdsForResume(nodeId, runState));
+    }
+
+    return count;
+  }
+
+  private failReplayBudgetExceeded(args: {
+    runId: string;
+    nodeResults: Map<string, NodeResult>;
+    replayNodeCount: number;
+    maxReplayNodes: number;
+    startTime: number;
+  }): PipelineRunResult {
+    const errorMessage =
+      `Resume replay budget exceeded: ${args.replayNodeCount} nodes would replay, ` +
+      `maxReplayNodes is ${args.maxReplayNodes}.`;
+    this.state = "failed";
+    this.emit(pipelineFailedEvent(args.runId, errorMessage));
+    return {
+      pipelineId: this.config.definition.id,
+      runId: args.runId,
+      state: "failed",
+      nodeResults: args.nodeResults,
+      totalDurationMs: Date.now() - args.startTime,
+    };
   }
 
   /** Cancel execution. */

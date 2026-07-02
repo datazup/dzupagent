@@ -181,4 +181,43 @@ describe("PipelineRuntime W1 durability policy", () => {
     expect(recovered.state).toBe("completed");
     expect(secondRuns).toEqual(["b", "c"]);
   });
+
+  it("fails process-restart recovery when remaining replay exceeds maxReplayNodes", async () => {
+    const store = new InMemoryPipelineCheckpointStore();
+    const first = new PipelineRuntime({
+      definition: linearPipeline({
+        resume: {
+          onProcessRestart: "resume_from_checkpoint",
+          maxReplayNodes: 1,
+        },
+      }),
+      nodeExecutor: async (nodeId, node, ctx) => {
+        if (nodeId === "b") {
+          throw new Error("crash after checkpoint a");
+        }
+        return executorWithRuns()(nodeId, node, ctx);
+      },
+      checkpointStore: store,
+    });
+
+    const failed = await first.execute();
+    expect(failed.state).toBe("failed");
+
+    const secondRuns: string[] = [];
+    const second = new PipelineRuntime({
+      definition: linearPipeline({
+        resume: {
+          onProcessRestart: "resume_from_checkpoint",
+          maxReplayNodes: 1,
+        },
+      }),
+      nodeExecutor: executorWithRuns(secondRuns),
+      checkpointStore: store,
+    });
+
+    const recovered = await second.recoverAfterProcessRestart(failed.runId);
+
+    expect(recovered.state).toBe("failed");
+    expect(secondRuns).toEqual([]);
+  });
 });
