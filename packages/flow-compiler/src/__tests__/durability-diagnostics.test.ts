@@ -64,7 +64,7 @@ describe("durability diagnostics — D6 evidence", () => {
           mode: "durable",
           checkpoint: { strategy: "after_each_node", storeRef: "pg://ck" },
         },
-      }),
+      })
     );
     expect("errors" in result).toBe(false);
     if ("errors" in result) throw new Error("expected success");
@@ -89,12 +89,12 @@ describe("durability diagnostics — D5 durable without store", () => {
       toolResolver: makeResolver(["tool.run"]),
     });
     const result = await compiler.compileDocument(
-      baseDoc({ durability: { mode: "durable" } }),
+      baseDoc({ durability: { mode: "durable" } })
     );
     expect("errors" in result).toBe(false);
     if ("errors" in result) throw new Error("expected success");
     expect(result.warnings.some((w) => w.code === "DURABILITY_NO_STORE")).toBe(
-      true,
+      true
     );
   });
 
@@ -105,12 +105,12 @@ describe("durability diagnostics — D5 durable without store", () => {
     const result = await compiler.compileDocument(
       baseDoc({
         durability: { mode: "durable", checkpoint: { storeRef: "pg://ck" } },
-      }),
+      })
     );
     expect("errors" in result).toBe(false);
     if ("errors" in result) throw new Error("expected success");
     expect(result.warnings.some((w) => w.code === "DURABILITY_NO_STORE")).toBe(
-      false,
+      false
     );
   });
 
@@ -119,12 +119,12 @@ describe("durability diagnostics — D5 durable without store", () => {
       toolResolver: makeResolver(["tool.run"]),
     });
     const result = await compiler.compileDocument(
-      baseDoc({ durability: { mode: "checkpointed" } }),
+      baseDoc({ durability: { mode: "checkpointed" } })
     );
     expect("errors" in result).toBe(false);
     if ("errors" in result) throw new Error("expected success");
     expect(result.warnings.some((w) => w.code === "DURABILITY_NO_STORE")).toBe(
-      false,
+      false
     );
   });
 });
@@ -141,15 +141,15 @@ describe("durability diagnostics — backward compatibility", () => {
       result.warnings.some(
         (w) =>
           w.code === "DURABILITY_NO_STORE" ||
-          w.code === "IDEMPOTENCY_MODE_CONFLICT",
-      ),
+          w.code === "IDEMPOTENCY_MODE_CONFLICT"
+      )
     ).toBe(false);
   });
 });
 
 // A document whose single action node carries the given extra fields.
 function docWithActionNode(
-  nodeExtra: Record<string, unknown>,
+  nodeExtra: Record<string, unknown>
 ): Record<string, unknown> {
   return {
     dsl: "dzupflow/v1",
@@ -178,11 +178,11 @@ describe("durability diagnostics — D1 mutating effect without idempotency", ()
       toolResolver: makeResolver(["tool.run"]),
     });
     const result = await compiler.compileDocument(
-      docWithActionNode({ effectClass: "db_write" }),
+      docWithActionNode({ effectClass: "db_write" })
     );
     if ("errors" in result) throw new Error("expected success");
     expect(
-      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY"),
+      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY")
     ).toBe(true);
   });
 
@@ -194,11 +194,11 @@ describe("durability diagnostics — D1 mutating effect without idempotency", ()
       docWithActionNode({
         effectClass: "db_write",
         idempotency: "exactly-once-required",
-      }),
+      })
     );
     if ("errors" in result) throw new Error("expected success");
     expect(
-      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY"),
+      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY")
     ).toBe(false);
   });
 
@@ -210,11 +210,11 @@ describe("durability diagnostics — D1 mutating effect without idempotency", ()
       docWithActionNode({
         effectClass: "file_write",
         allowDuplicateEffects: true,
-      }),
+      })
     );
     if ("errors" in result) throw new Error("expected success");
     expect(
-      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY"),
+      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY")
     ).toBe(false);
   });
 
@@ -223,11 +223,11 @@ describe("durability diagnostics — D1 mutating effect without idempotency", ()
       toolResolver: makeResolver(["tool.run"]),
     });
     const result = await compiler.compileDocument(
-      docWithActionNode({ effectClass: "read" }),
+      docWithActionNode({ effectClass: "read" })
     );
     if ("errors" in result) throw new Error("expected success");
     expect(
-      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY"),
+      result.warnings.some((w) => w.code === "MUTATING_EFFECT_NO_IDEMPOTENCY")
     ).toBe(false);
   });
 });
@@ -238,11 +238,11 @@ describe("durability diagnostics — D2 idempotent without output schema", () =>
       toolResolver: makeResolver(["tool.run"]),
     });
     const result = await compiler.compileDocument(
-      docWithActionNode({ idempotency: "idempotent" }),
+      docWithActionNode({ idempotency: "idempotent" })
     );
     if ("errors" in result) throw new Error("expected success");
     expect(
-      result.warnings.some((w) => w.code === "IDEMPOTENT_NO_OUTPUT_SCHEMA"),
+      result.warnings.some((w) => w.code === "IDEMPOTENT_NO_OUTPUT_SCHEMA")
     ).toBe(true);
   });
 
@@ -254,11 +254,11 @@ describe("durability diagnostics — D2 idempotent without output schema", () =>
       docWithActionNode({
         idempotency: "idempotent",
         outputSchema: "schema.v1",
-      }),
+      })
     );
     if ("errors" in result) throw new Error("expected success");
     expect(
-      result.warnings.some((w) => w.code === "IDEMPOTENT_NO_OUTPUT_SCHEMA"),
+      result.warnings.some((w) => w.code === "IDEMPOTENT_NO_OUTPUT_SCHEMA")
     ).toBe(false);
   });
 
@@ -267,11 +267,11 @@ describe("durability diagnostics — D2 idempotent without output schema", () =>
       toolResolver: makeResolver(["tool.run"]),
     });
     const result = await compiler.compileDocument(
-      docWithActionNode({ idempotency: "at-least-once" }),
+      docWithActionNode({ idempotency: "at-least-once" })
     );
     if ("errors" in result) throw new Error("expected success");
     expect(
-      result.warnings.some((w) => w.code === "IDEMPOTENT_NO_OUTPUT_SCHEMA"),
+      result.warnings.some((w) => w.code === "IDEMPOTENT_NO_OUTPUT_SCHEMA")
     ).toBe(false);
   });
 });
@@ -279,7 +279,7 @@ describe("durability diagnostics — D2 idempotent without output schema", () =>
 // A document with the given durability block and the given root nodes.
 function docWithDurability(
   durability: Record<string, unknown> | undefined,
-  nodes: Record<string, unknown>[],
+  nodes: Record<string, unknown>[]
 ): Record<string, unknown> {
   return {
     dsl: "dzupflow/v1",
@@ -311,14 +311,12 @@ describe("durability diagnostics — D3 resume reachability", () => {
             effectClass: "db_write",
             idempotency: "exactly-once-required",
           },
-        ],
-      ),
+        ]
+      )
     );
     if ("errors" in result) throw new Error("expected success");
     expect(
-      result.warnings.some(
-        (w) => w.code === "DURABLE_MUTATION_NO_RESUME_POINT",
-      ),
+      result.warnings.some((w) => w.code === "DURABLE_MUTATION_NO_RESUME_POINT")
     ).toBe(true);
   });
 
@@ -339,14 +337,12 @@ describe("durability diagnostics — D3 resume reachability", () => {
             idempotency: "exactly-once-required",
             resumePoint: true,
           },
-        ],
-      ),
+        ]
+      )
     );
     if ("errors" in result) throw new Error("expected success");
     expect(
-      result.warnings.some(
-        (w) => w.code === "DURABLE_MUTATION_NO_RESUME_POINT",
-      ),
+      result.warnings.some((w) => w.code === "DURABLE_MUTATION_NO_RESUME_POINT")
     ).toBe(false);
   });
 
@@ -364,13 +360,149 @@ describe("durability diagnostics — D3 resume reachability", () => {
           effectClass: "db_write",
           idempotency: "exactly-once-required",
         },
-      ]),
+      ])
     );
     if ("errors" in result) throw new Error("expected success");
     expect(
-      result.warnings.some(
-        (w) => w.code === "DURABLE_MUTATION_NO_RESUME_POINT",
-      ),
+      result.warnings.some((w) => w.code === "DURABLE_MUTATION_NO_RESUME_POINT")
     ).toBe(false);
+  });
+});
+
+describe("durability diagnostics — Slice 2 checkpoint-strategy reconciliation", () => {
+  // A branch in the root escalates routing to `workflow-builder`, which emits a
+  // PipelineDefinition artifact — the only artifact shape that honors
+  // `checkpointStrategy` at runtime. A plain sequence routes to `skill-chain`,
+  // whose artifact is intentionally NOT stamped (see the skill-chain test below).
+  function pipelineDoc(
+    checkpoint: Record<string, unknown> | undefined
+  ): Record<string, unknown> {
+    return {
+      dsl: "dzupflow/v1",
+      id: "slice2-strategy-test",
+      version: 1,
+      ...(checkpoint !== undefined ? { durability: { checkpoint } } : {}),
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "branch",
+            id: "b1",
+            condition: "check.ok",
+            then: [
+              { type: "action", id: "s1", toolRef: "tool.run", input: {} },
+            ],
+            else: [
+              { type: "action", id: "s2", toolRef: "tool.run", input: {} },
+            ],
+          },
+          { type: "complete", id: "done" },
+        ],
+      },
+    };
+  }
+
+  it("stamps the runtime checkpointStrategy on a pipeline artifact for a 1:1 strategy (after_each_node)", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      pipelineDoc({ strategy: "after_each_node", storeRef: "pg://ck" })
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(result.target).not.toBe("skill-chain");
+    expect(
+      (result.artifact as Record<string, unknown>)["checkpointStrategy"]
+    ).toBe("after_each_node");
+    // 1:1 map is not a coarsening → no coarsening warning.
+    expect(
+      result.warnings.some((w) => w.code === "CHECKPOINT_STRATEGY_COARSENED")
+    ).toBe(false);
+  });
+
+  it("translates explicit → manual with no coarsening warning", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      pipelineDoc({ strategy: "explicit" })
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      (result.artifact as Record<string, unknown>)["checkpointStrategy"]
+    ).toBe("manual");
+    expect(
+      result.warnings.some((w) => w.code === "CHECKPOINT_STRATEGY_COARSENED")
+    ).toBe(false);
+  });
+
+  it("coarsens after_each_effect → after_each_node AND emits the coarsening warning", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      pipelineDoc({ strategy: "after_each_effect" })
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      (result.artifact as Record<string, unknown>)["checkpointStrategy"]
+    ).toBe("after_each_node");
+    const warn = result.warnings.find(
+      (w) => w.code === "CHECKPOINT_STRATEGY_COARSENED"
+    );
+    expect(warn).toBeDefined();
+    expect(warn?.nodePath).toBe("root.durability.checkpoint");
+    expect(warn?.message).toContain("after_each_effect");
+  });
+
+  it("coarsens after_each_branch → after_each_node AND emits the coarsening warning", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      pipelineDoc({ strategy: "after_each_branch" })
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      (result.artifact as Record<string, unknown>)["checkpointStrategy"]
+    ).toBe("after_each_node");
+    expect(
+      result.warnings.some((w) => w.code === "CHECKPOINT_STRATEGY_COARSENED")
+    ).toBe(true);
+  });
+
+  it("leaves the pipeline artifact untouched (no checkpointStrategy, no warning) when durability omits a strategy", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(pipelineDoc(undefined));
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      "checkpointStrategy" in (result.artifact as Record<string, unknown>)
+    ).toBe(false);
+    expect(
+      result.warnings.some((w) => w.code === "CHECKPOINT_STRATEGY_COARSENED")
+    ).toBe(false);
+  });
+
+  it("emits the coarsening warning even for a skill-chain doc, but does NOT stamp the skill-chain artifact", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    // A plain sequence routes to skill-chain. The warning is target-independent
+    // (author declared an unimplemented strategy), but the artifact must not be
+    // stamped — skill-chain does not honor checkpointStrategy.
+    const result = await compiler.compileDocument(
+      baseDoc({ durability: { checkpoint: { strategy: "after_each_effect" } } })
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(result.target).toBe("skill-chain");
+    expect(
+      "checkpointStrategy" in (result.artifact as Record<string, unknown>)
+    ).toBe(false);
+    expect(
+      result.warnings.some((w) => w.code === "CHECKPOINT_STRATEGY_COARSENED")
+    ).toBe(true);
   });
 });

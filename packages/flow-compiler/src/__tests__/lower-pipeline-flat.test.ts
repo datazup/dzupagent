@@ -759,3 +759,51 @@ describe("lowerPipelineFlat — W1 durability wiring (T5, T7)", () => {
     });
   });
 });
+
+describe("lowerPipelineFlat — W1 Slice 2 document checkpoint strategy", () => {
+  it("does NOT set checkpointStrategy when the input omits it (byte-identical no-op)", () => {
+    const resolver = makeResolver(["tools.read"]);
+    const resolved = buildResolved(resolver, [
+      { nodePath: "root", toolRef: "tools.read" },
+    ]);
+    const ast: ActionNode = {
+      type: "action",
+      toolRef: "tools.read",
+      input: {},
+    };
+
+    const { artifact } = lowerPipelineFlat({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      name: "no-strategy",
+      _idGen: makeIdGen("no-strat"),
+    });
+
+    // Absent ⇒ the key must not be present at all, not present-but-undefined.
+    expect("checkpointStrategy" in artifact).toBe(false);
+  });
+
+  it("stamps the translated runtime checkpointStrategy on the artifact when provided", () => {
+    const resolver = makeResolver(["tools.read"]);
+    const resolved = buildResolved(resolver, [
+      { nodePath: "root", toolRef: "tools.read" },
+    ]);
+    const ast: ActionNode = {
+      type: "action",
+      toolRef: "tools.read",
+      input: {},
+    };
+
+    const { artifact } = lowerPipelineFlat({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      name: "with-strategy",
+      checkpointStrategy: "manual",
+      _idGen: makeIdGen("with-strat"),
+    });
+
+    expect(artifact.checkpointStrategy).toBe("manual");
+  });
+});

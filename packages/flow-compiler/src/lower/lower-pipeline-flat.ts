@@ -14,31 +14,34 @@
  * @module lower/lower-pipeline-flat
  */
 
-import type { FlowNode, ResolvedTool } from '@dzupagent/flow-ast'
-import type { PipelineDefinition } from '@dzupagent/core/pipeline'
+import type { FlowNode, ResolvedTool } from "@dzupagent/flow-ast";
+import type {
+  CheckpointStrategy,
+  PipelineDefinition,
+} from "@dzupagent/core/pipeline";
 
-import { lowerNodeToPipeline } from './_shared.js'
-import type { LoweringMode, LowerPipelineContext } from './_shared.js'
-import { collectFlowArtifactMetadata } from '../flow-artifact-metadata.js'
+import { lowerNodeToPipeline } from "./_shared.js";
+import type { LoweringMode, LowerPipelineContext } from "./_shared.js";
+import { collectFlowArtifactMetadata } from "../flow-artifact-metadata.js";
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 export interface LowerPipelineFlatInput {
-  ast: FlowNode
-  resolved: Map<string, ResolvedTool>
-  resolvedPersonas: Map<string, string>
+  ast: FlowNode;
+  resolved: Map<string, ResolvedTool>;
+  resolvedPersonas: Map<string, string>;
   /**
    * Human-readable name for the emitted pipeline.
    * Defaults to `"flow-pipeline"` when not provided.
    */
-  name?: string
+  name?: string;
   /**
    * Semantic version to stamp on the emitted PipelineDefinition.
    * Defaults to `"0.1.0"` when not provided.
    */
-  version?: string
+  version?: string;
   /**
    * Deterministic ID generator injected by tests so snapshots are stable.
    * Defaults to `crypto.randomUUID` when not provided.
@@ -46,50 +49,63 @@ export interface LowerPipelineFlatInput {
    *
    * @internal
    */
-  _idGen?: () => string
+  _idGen?: () => string;
   /**
    * Defaults to executable lowering. Diagnostic lowering may emit unresolved
    * action stubs with warnings for authoring tools and tests.
    */
-  mode?: LoweringMode
+  mode?: LoweringMode;
+  /**
+   * W1 Slice 2: document-level checkpoint strategy, already translated from the
+   * AST vocabulary to the runtime `CheckpointStrategy` by the orchestrator (see
+   * `checkpointStrategyForRuntime`). When present it is stamped on the emitted
+   * PipelineDefinition; when absent the field is omitted entirely so pre-Slice-2
+   * artifacts are byte-identical.
+   */
+  checkpointStrategy?: CheckpointStrategy;
 }
 
 export function lowerPipelineFlat(input: LowerPipelineFlatInput): {
-  artifact: PipelineDefinition
-  warnings: string[]
+  artifact: PipelineDefinition;
+  warnings: string[];
 } {
   const ctx: LowerPipelineContext = {
     resolved: input.resolved,
     resolvedPersonas: input.resolvedPersonas,
-    mode: input.mode ?? 'executable',
+    mode: input.mode ?? "executable",
     allowForEach: false,
     idGen: input._idGen,
-  }
+  };
 
   // Lower the entire AST — for_each throws if encountered (router-contract
   // violation; let it propagate unmodified).
-  const result = lowerNodeToPipeline(input.ast, ctx, 'root')
+  const result = lowerNodeToPipeline(input.ast, ctx, "root");
 
-  const firstNode = result.nodes[0]
+  const firstNode = result.nodes[0];
 
   if (firstNode === undefined) {
     throw new Error(
-      'lowerPipelineFlat: no nodes produced from AST — cannot emit an empty PipelineDefinition',
-    )
+      "lowerPipelineFlat: no nodes produced from AST — cannot emit an empty PipelineDefinition"
+    );
   }
 
   const artifact: PipelineDefinition = {
     id: ctx.idGen !== undefined ? ctx.idGen() : crypto.randomUUID(),
-    name: input.name ?? 'flow-pipeline',
-    version: input.version ?? '0.1.0',
-    schemaVersion: '1.0.0',
+    name: input.name ?? "flow-pipeline",
+    version: input.version ?? "0.1.0",
+    schemaVersion: "1.0.0",
     entryNodeId: firstNode.id,
     nodes: result.nodes,
     edges: result.edges,
     metadata: {
       flow: collectFlowArtifactMetadata(input.ast),
     },
-  }
+    // W1 Slice 2: additive — only present when the orchestrator threaded a
+    // translated strategy through. Absent ⇒ today's behavior, byte-identical.
+    ...(input.checkpointStrategy !== undefined
+      ? { checkpointStrategy: input.checkpointStrategy }
+      : {}),
+  };
 
-  return { artifact, warnings: result.warnings }
+  return { artifact, warnings: result.warnings };
 }

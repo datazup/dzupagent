@@ -66,7 +66,7 @@ function hasOutputSchema(node: Record<string, unknown>): boolean {
  * Returns Stage-4 warnings (never errors — advisory only in P0).
  */
 export function computeDurabilityDiagnostics(
-  document: unknown,
+  document: unknown
 ): CompilationWarning[] {
   if (!isObject(document)) return [];
   const warnings: CompilationWarning[] = [];
@@ -87,6 +87,33 @@ export function computeDurabilityDiagnostics(
         category: "policy",
       });
     }
+  }
+
+  // ── Slice 2: checkpoint strategy coarsened to node granularity ────────────
+  // The AST vocabulary (after_each_effect / after_each_branch) has no runtime
+  // execution path yet; lowering down-maps both to `after_each_node`. Warn so
+  // the coarsening is honest rather than silent. `explicit` (→ manual) and
+  // `after_each_node` (1:1) map without loss and do not warn.
+  const checkpointForStrategy = isObject(durability)
+    ? durability["checkpoint"]
+    : undefined;
+  const astStrategy = isObject(checkpointForStrategy)
+    ? checkpointForStrategy["strategy"]
+    : undefined;
+  if (
+    astStrategy === "after_each_effect" ||
+    astStrategy === "after_each_branch"
+  ) {
+    warnings.push({
+      stage: 4,
+      code: "CHECKPOINT_STRATEGY_COARSENED",
+      message:
+        `durability.checkpoint.strategy '${astStrategy}' has no runtime path yet ` +
+        "and is coarsened to 'after_each_node' (checkpoint after every node); " +
+        "finer per-effect/per-branch checkpointing is not implemented.",
+      nodePath: "root.durability.checkpoint",
+      category: "policy",
+    });
   }
 
   // -- D3: requireResumePoint without a reachable resume point ---------------
@@ -229,7 +256,7 @@ function isResumePoint(node: Record<string, unknown>): boolean {
 function walkSteps(
   node: unknown,
   path: string,
-  warnings: CompilationWarning[],
+  warnings: CompilationWarning[]
 ): void {
   if (!isObject(node)) return;
 
@@ -263,7 +290,7 @@ function walkSteps(
     const child = node[childKey];
     if (Array.isArray(child)) {
       child.forEach((c, i) =>
-        walkSteps(c, `${path}.${childKey}[${i}]`, warnings),
+        walkSteps(c, `${path}.${childKey}[${i}]`, warnings)
       );
     } else if (isObject(child)) {
       walkSteps(child, `${path}.${childKey}`, warnings);
@@ -274,7 +301,7 @@ function walkSteps(
 function checkAdapterIdempotency(
   node: Record<string, unknown>,
   path: string,
-  warnings: CompilationWarning[],
+  warnings: CompilationWarning[]
 ): void {
   const enumMode = node["idempotency"];
   const meta = node["meta"];
@@ -301,7 +328,7 @@ function checkAdapterIdempotency(
 function checkNodeEffectIdempotency(
   node: Record<string, unknown>,
   path: string,
-  warnings: CompilationWarning[],
+  warnings: CompilationWarning[]
 ): void {
   const effectClass = node["effectClass"];
   const idempotency = node["idempotency"];
