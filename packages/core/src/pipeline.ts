@@ -291,6 +291,7 @@ export type {
   ErrorEdge,
   PipelineEdge,
   CheckpointStrategy,
+  PipelineResumePolicy,
   PipelineDefinition,
   PipelineValidationError,
   PipelineValidationWarning,

@@ -439,11 +439,19 @@ describe("durability diagnostics — Slice 2 checkpoint-strategy reconciliation"
   function pipelineDoc(
     checkpoint: Record<string, unknown> | undefined
   ): Record<string, unknown> {
+    return pipelineDocWithDurability(
+      checkpoint !== undefined ? { checkpoint } : undefined
+    );
+  }
+
+  function pipelineDocWithDurability(
+    durability: Record<string, unknown> | undefined
+  ): Record<string, unknown> {
     return {
       dsl: "dzupflow/v1",
       id: "slice2-strategy-test",
       version: 1,
-      ...(checkpoint !== undefined ? { durability: { checkpoint } } : {}),
+      ...(durability !== undefined ? { durability } : {}),
       root: {
         type: "sequence",
         id: "root",
@@ -566,5 +574,79 @@ describe("durability diagnostics — Slice 2 checkpoint-strategy reconciliation"
     expect(
       result.warnings.some((w) => w.code === "CHECKPOINT_STRATEGY_COARSENED")
     ).toBe(true);
+  });
+
+  it("Gap 2: derives checkpointStrategy from durability.mode when no explicit strategy", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      pipelineDocWithDurability({ mode: "durable" })
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      (result.artifact as Record<string, unknown>)["checkpointStrategy"]
+    ).toBe("after_each_node");
+  });
+
+  it("Gap 2: mode 'volatile' derives 'none'", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      pipelineDocWithDurability({ mode: "volatile" })
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      (result.artifact as Record<string, unknown>)["checkpointStrategy"]
+    ).toBe("none");
+  });
+
+  it("Gap 2: explicit checkpoint.strategy wins over mode", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      pipelineDocWithDurability({
+        mode: "volatile",
+        checkpoint: { strategy: "after_each_node" },
+      })
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect(
+      (result.artifact as Record<string, unknown>)["checkpointStrategy"]
+    ).toBe("after_each_node");
+  });
+
+  it("Gap 3: stamps the additive resume policy on the pipeline artifact", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      pipelineDocWithDurability({
+        resume: {
+          onProcessRestart: "resume_from_checkpoint",
+          maxReplayNodes: 4,
+        },
+      })
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect((result.artifact as Record<string, unknown>)["resume"]).toEqual({
+      onProcessRestart: "resume_from_checkpoint",
+      maxReplayNodes: 4,
+    });
+  });
+
+  it("Gap 3: omits resume on the artifact when no resume block is declared", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      pipelineDocWithDurability({ mode: "durable" })
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect("resume" in (result.artifact as Record<string, unknown>)).toBe(
+      false
+    );
   });
 });

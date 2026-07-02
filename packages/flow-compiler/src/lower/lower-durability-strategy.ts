@@ -169,9 +169,7 @@ export function resumePolicyFromPolicy(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
-function coarsenWarning(
-  strategy: "after_each_effect" | "after_each_branch"
-): CompilationWarning {
+function coarsenWarning(strategy: AstCheckpointStrategy): CompilationWarning {
   return {
     stage: 4,
     code: "CHECKPOINT_STRATEGY_COARSENED",
