@@ -23,6 +23,9 @@ export type {
   PipelineEdge,
   CheckpointStrategy,
   PipelineResumePolicy,
+  PipelineCheckpointRetentionPolicy,
+  PipelineCheckpointPolicy,
+  PipelineExecutionLogPolicy,
   PipelineDefinition,
   PipelineValidationError,
   PipelineValidationWarning,
@@ -32,6 +35,8 @@ export type {
 // --- Checkpoint store types ---
 export type {
   PipelineCheckpoint,
+  PipelineCheckpointEventRecord,
+  PipelineCheckpointExecutionLog,
   PipelineCheckpointSummary,
   PipelineCheckpointStore,
 } from "./pipeline-checkpoint-store.js";

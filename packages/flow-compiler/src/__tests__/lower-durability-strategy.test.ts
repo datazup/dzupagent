@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import type { FlowDurabilityPolicy } from "@dzupagent/flow-ast";
 
 import {
+  checkpointPolicyFromPolicy,
   checkpointStrategyForRuntime,
   checkpointStrategyFromPolicy,
+  executionLogPolicyFromPolicy,
   resumePolicyFromPolicy,
 } from "../lower/lower-durability-strategy.js";
 
@@ -121,5 +123,45 @@ describe("resumePolicyFromPolicy — Gap 3 additive resume lowering", () => {
 
   it("returns undefined when the resume block is present but empty", () => {
     expect(resumePolicyFromPolicy({ resume: {} })).toBeUndefined();
+  });
+});
+
+describe("checkpointPolicyFromPolicy — W1 runtime checkpoint policy lowering", () => {
+  it("passes through storeRef, includeEvents, provider refs, and retention", () => {
+    const policy: FlowDurabilityPolicy = {
+      checkpoint: {
+        storeRef: "primary-checkpoints",
+        includeEvents: true,
+        includeProviderSessionRefs: true,
+        retention: { ttlMs: 60_000, maxVersions: 3 },
+      },
+    };
+
+    expect(checkpointPolicyFromPolicy(policy)).toEqual({
+      storeRef: "primary-checkpoints",
+      includeEvents: true,
+      includeProviderSessionRefs: true,
+      retention: { ttlMs: 60_000, maxVersions: 3 },
+    });
+  });
+
+  it("returns undefined when no checkpoint runtime policy is declared", () => {
+    expect(checkpointPolicyFromPolicy(undefined)).toBeUndefined();
+    expect(checkpointPolicyFromPolicy({ checkpoint: {} })).toBeUndefined();
+  });
+});
+
+describe("executionLogPolicyFromPolicy — W1 execution log policy lowering", () => {
+  it("passes through executionLog storeRef and eventHistory", () => {
+    expect(
+      executionLogPolicyFromPolicy({
+        executionLog: { storeRef: "audit-log", eventHistory: "compact" },
+      }),
+    ).toEqual({ storeRef: "audit-log", eventHistory: "compact" });
+  });
+
+  it("returns undefined when no executionLog policy is declared", () => {
+    expect(executionLogPolicyFromPolicy(undefined)).toBeUndefined();
+    expect(executionLogPolicyFromPolicy({ executionLog: {} })).toBeUndefined();
   });
 });

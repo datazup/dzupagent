@@ -15,6 +15,7 @@ import type {
   PipelineNode,
   PipelineEdge,
   PipelineCheckpoint,
+  PipelineCheckpointStore,
 } from "@dzupagent/core/pipeline";
 import { validatePipeline } from "./pipeline-validator.js";
 import { InMemoryPipelineCheckpointStore } from "./in-memory-checkpoint-store.js";
@@ -63,8 +64,24 @@ export class PipelineRuntime {
    */
   private budgetTracker: BudgetTrackerState = createBudgetTrackerState();
   private readonly executor: PipelineExecutor;
+  private readonly eventLog: PipelineRuntimeEvent[];
 
   constructor(config: PipelineRuntimeConfig) {
+    const eventLog: PipelineRuntimeEvent[] = [];
+    const downstreamOnEvent = config.onEvent;
+    const captureEvents = shouldCaptureRuntimeEvents(config.definition);
+    const resolvedCheckpointStore = resolveCheckpointStore(config);
+    config = {
+      ...config,
+      ...(resolvedCheckpointStore !== undefined
+        ? { checkpointStore: resolvedCheckpointStore }
+        : {}),
+      onEvent: (event) => {
+        if (captureEvents) eventLog.push(structuredClone(event));
+        downstreamOnEvent?.(event);
+      },
+    };
+
     // Auto-wire checkpoint store when not explicitly provided.
     if (!config.checkpointStore) {
       if (config.redisClient) {
@@ -89,6 +106,7 @@ export class PipelineRuntime {
       }
     }
     this.config = config;
+    this.eventLog = eventLog;
     this.nodeMap = new Map();
     this.outgoingEdges = new Map();
     this.errorEdges = new Map();
@@ -172,6 +190,7 @@ export class PipelineRuntime {
       nodeIdempotencyKeys,
       loopState,
       forkState,
+      eventLog: this.eventLog,
       versionTracker,
       startTime,
     });
@@ -248,6 +267,7 @@ export class PipelineRuntime {
         nodeIdempotencyKeys,
         loopState,
         forkState,
+        eventLog: this.eventLog,
         versionTracker,
         startTime,
       });
@@ -269,12 +289,35 @@ export class PipelineRuntime {
         nodeIdempotencyKeys,
         loopState,
         forkState,
+        eventLog: this.eventLog,
         versionTracker,
         startTime,
       });
     }
 
     if (!checkpoint.suspendedAtNodeId) {
+      const restartNodeId = this.findRestartNodeId(completedNodeIds, runState);
+      const restartPolicy = this.config.definition.resume?.onProcessRestart;
+      if (
+        restartNodeId &&
+        (restartPolicy === "resume_from_checkpoint" ||
+          restartPolicy === "redeliver_running")
+      ) {
+        const versionTracker = { version: checkpoint.version };
+        return this.runFromNode({
+          startNodeId: restartNodeId,
+          runId,
+          runState,
+          nodeResults,
+          completedNodeIds,
+          nodeIdempotencyKeys,
+          loopState,
+          forkState,
+          eventLog: this.eventLog,
+          versionTracker,
+          startTime,
+        });
+      }
       // No suspension point and no mid-flight loop — nothing to resume
       this.state = "completed";
       this.emit(pipelineCompletedEvent(runId, 0));
@@ -329,9 +372,51 @@ export class PipelineRuntime {
       nodeIdempotencyKeys,
       loopState,
       forkState,
+      eventLog: this.eventLog,
       versionTracker,
       startTime,
     });
+  }
+
+  async recoverAfterProcessRestart(
+    pipelineRunId: string,
+    additionalState?: Record<string, unknown>,
+  ): Promise<PipelineRunResult> {
+    const policy =
+      this.config.definition.resume?.onProcessRestart ??
+      "resume_from_checkpoint";
+    const store = this.config.checkpointStore;
+    if (!store) {
+      throw new Error(
+        `Cannot recover run '${pipelineRunId}': no checkpoint store configured.`,
+      );
+    }
+
+    const checkpoint = await store.load(pipelineRunId);
+    if (!checkpoint) {
+      throw new Error(
+        `Cannot recover run '${pipelineRunId}': no checkpoint found.`,
+      );
+    }
+
+    if (policy === "fail_running") {
+      this.state = "failed";
+      this.emit(
+        pipelineFailedEvent(
+          pipelineRunId,
+          "Run marked failed after process restart by resume.onProcessRestart=fail_running",
+        ),
+      );
+      return {
+        pipelineId: this.config.definition.id,
+        runId: pipelineRunId,
+        state: "failed",
+        nodeResults: new Map(),
+        totalDurationMs: 0,
+      };
+    }
+
+    return this.resume(checkpoint, additionalState);
   }
 
   /**
@@ -366,6 +451,22 @@ export class PipelineRuntime {
       if (forkState[node.forkId]) return node.id;
     }
     return undefined;
+  }
+
+  private findRestartNodeId(
+    completedNodeIds: string[],
+    runState: Record<string, unknown>,
+  ): string | undefined {
+    const completed = new Set(completedNodeIds);
+    let candidate: string | undefined = this.config.definition.entryNodeId;
+    const visited = new Set<string>();
+
+    while (candidate && completed.has(candidate) && !visited.has(candidate)) {
+      visited.add(candidate);
+      candidate = this.getNextNodeIdsForResume(candidate, runState)[0];
+    }
+
+    return candidate && !completed.has(candidate) ? candidate : undefined;
   }
 
   /** Cancel execution. */
@@ -409,6 +510,7 @@ export class PipelineRuntime {
         >;
       }
     >;
+    eventLog: PipelineRuntimeEvent[];
     versionTracker: { version: number };
     startTime: number;
   }): Promise<PipelineRunResult> {
@@ -450,4 +552,24 @@ export class PipelineRuntime {
   private emit(event: PipelineRuntimeEvent): void {
     this.config.onEvent?.(event);
   }
+}
+
+function resolveCheckpointStore(
+  config: PipelineRuntimeConfig,
+): PipelineCheckpointStore | undefined {
+  const storeRef = config.definition.checkpoint?.storeRef;
+  if (storeRef && config.checkpointStores?.[storeRef]) {
+    return config.checkpointStores[storeRef];
+  }
+  return config.checkpointStore;
+}
+
+function shouldCaptureRuntimeEvents(
+  definition: PipelineRuntimeConfig["definition"],
+): boolean {
+  return (
+    definition.checkpoint?.includeEvents === true ||
+    (definition.executionLog?.eventHistory !== undefined &&
+      definition.executionLog.eventHistory !== "none")
+  );
 }

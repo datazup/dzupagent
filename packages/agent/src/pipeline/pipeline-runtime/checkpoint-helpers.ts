@@ -1,4 +1,8 @@
-import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import type {
+  PipelineCheckpoint,
+  PipelineCheckpointEventRecord,
+  PipelineCheckpointExecutionLog,
+} from "@dzupagent/core/pipeline";
 import { omitUndefined } from "../../utils/exact-optional.js";
 
 export function createPipelineCheckpoint(options: {
@@ -26,6 +30,8 @@ export function createPipelineCheckpoint(options: {
       >;
     }
   >;
+  events?: PipelineCheckpointEventRecord[] | undefined;
+  executionLog?: PipelineCheckpointExecutionLog | undefined;
 }): PipelineCheckpoint {
   return omitUndefined({
     pipelineRunId: options.pipelineRunId,
@@ -50,6 +56,13 @@ export function createPipelineCheckpoint(options: {
     state: structuredClone(options.state),
     suspendedAtNodeId: options.suspendedAtNodeId,
     recoveryAttemptsUsed: options.recoveryAttemptsUsed,
+    events:
+      options.events && options.events.length > 0
+        ? structuredClone(options.events)
+        : undefined,
+    executionLog: options.executionLog
+      ? structuredClone(options.executionLog)
+      : undefined,
     createdAt: new Date().toISOString(),
   });
 }

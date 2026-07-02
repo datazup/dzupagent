@@ -173,6 +173,18 @@ export class RedisPipelineCheckpointStore implements PipelineCheckpointStore {
     await this.client.srem(this.runsKey(), pipelineRunId)
   }
 
+  async pruneVersions(pipelineRunId: string, keepLatest: number): Promise<number> {
+    const zkey = this.versionsKey(pipelineRunId)
+    const versions = await this.client.zrange(zkey, 0, -1)
+    if (versions.length <= keepLatest) return 0
+
+    const prune = versions.slice(0, versions.length - keepLatest)
+    const keys = prune.map(v => this.versionKey(pipelineRunId, Number(v)))
+    if (keys.length > 0) await this.client.del(...keys)
+    if (prune.length > 0) await this.client.zrem(zkey, ...prune)
+    return prune.length
+  }
+
   async prune(maxAgeMs: number): Promise<number> {
     const cutoff = Date.now() - maxAgeMs
     const runs = await this.client.smembers(this.runsKey())

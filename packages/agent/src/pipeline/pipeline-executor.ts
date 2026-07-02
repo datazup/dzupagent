@@ -20,6 +20,10 @@ import type {
   PipelineNode,
   PipelineEdge,
   PipelineCheckpoint,
+  PipelineCheckpointEventRecord,
+  PipelineCheckpointExecutionLog,
+  PipelineCheckpointRetentionPolicy,
+  PipelineCheckpointStore,
   ForkNode,
   JoinNode,
   LoopNode,
@@ -106,6 +110,8 @@ export interface ExecuteFromNodeInput {
       >;
     }
   >;
+  /** Runtime events captured by PipelineRuntime when checkpoint/log policy asks for them. */
+  eventLog: PipelineRuntimeEvent[];
   versionTracker: { version: number };
   startTime: number;
 }
@@ -141,6 +147,7 @@ export class PipelineExecutor {
       nodeIdempotencyKeys,
       loopState,
       forkState,
+      eventLog,
       versionTracker,
       startTime,
     } = input;
@@ -192,6 +199,7 @@ export class PipelineExecutor {
           nodeIdempotencyKeys,
           loopState,
           forkState,
+          eventLog,
           versionTracker,
           startTime
         );
@@ -208,6 +216,7 @@ export class PipelineExecutor {
           nodeIdempotencyKeys,
           loopState,
           forkState,
+          eventLog,
           versionTracker
         );
         currentNodeId = forkOutcome.nextNodeId;
@@ -225,6 +234,7 @@ export class PipelineExecutor {
           nodeIdempotencyKeys,
           loopState,
           forkState,
+          eventLog,
           versionTracker,
           startTime
         );
@@ -243,6 +253,7 @@ export class PipelineExecutor {
         nodeIdempotencyKeys,
         loopState,
         forkState,
+        eventLog,
         versionTracker,
         startTime
       );
@@ -282,6 +293,7 @@ export class PipelineExecutor {
         >;
       }
     >,
+    eventLog: PipelineRuntimeEvent[],
     versionTracker: { version: number },
     startTime: number
   ): Promise<StandardNodeOutcome> {
@@ -318,6 +330,7 @@ export class PipelineExecutor {
           nodeIdempotencyKeys,
           loopState,
           forkState,
+          eventLog,
           versionTracker
         ),
     });
@@ -343,6 +356,7 @@ export class PipelineExecutor {
         >;
       }
     >,
+    eventLog: PipelineRuntimeEvent[],
     versionTracker: { version: number }
   ): Promise<{ nextNodeId: string | undefined }> {
     const forkId = forkNode.forkId;
@@ -383,6 +397,7 @@ export class PipelineExecutor {
             nodeIdempotencyKeys,
             loopState,
             forkState,
+            eventLog,
             versionTracker
           );
         },
@@ -401,6 +416,7 @@ export class PipelineExecutor {
         nodeIdempotencyKeys,
         loopState,
         forkState,
+        eventLog,
         versionTracker
       );
       return { nextNodeId: this.next(joinNode.id, runState) };
@@ -428,6 +444,7 @@ export class PipelineExecutor {
         >;
       }
     >,
+    eventLog: PipelineRuntimeEvent[],
     versionTracker: { version: number },
     startTime: number
   ): Promise<
@@ -449,6 +466,7 @@ export class PipelineExecutor {
           nodeIdempotencyKeys,
           loopState,
           forkState,
+          eventLog,
           versionTracker
         );
       },
@@ -497,6 +515,7 @@ export class PipelineExecutor {
       nodeIdempotencyKeys,
       loopState,
       forkState,
+      eventLog,
       versionTracker
     );
     return { kind: "continue", nextNodeId: this.next(loopNode.id, runState) };
@@ -526,6 +545,7 @@ export class PipelineExecutor {
         >;
       }
     >,
+    eventLog: PipelineRuntimeEvent[],
     versionTracker: { version: number },
     startTime: number
   ): Promise<PipelineRunResult> {
@@ -534,6 +554,7 @@ export class PipelineExecutor {
 
     if (this.config.checkpointStore) {
       versionTracker.version++;
+      const savedEvent = checkpointSavedEvent(runId, versionTracker.version);
       const checkpoint: PipelineCheckpoint = createPipelineCheckpoint({
         pipelineRunId: runId,
         pipelineId: this.config.definition.id,
@@ -542,12 +563,19 @@ export class PipelineExecutor {
         nodeIdempotencyKeys,
         loopState,
         forkState,
+        events: checkpointEvents(this.config, eventLog, savedEvent),
+        executionLog: checkpointExecutionLog(this.config, eventLog, savedEvent),
         state: runState,
         suspendedAtNodeId: nodeId,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
       });
       await this.config.checkpointStore.save(checkpoint);
-      this.emit(checkpointSavedEvent(runId, versionTracker.version));
+      await applyCheckpointRetention(
+        this.config.checkpointStore,
+        runId,
+        this.config.definition.checkpoint?.retention,
+      );
+      this.emit(savedEvent);
     }
 
     return this.runResult(
@@ -625,6 +653,7 @@ export class PipelineExecutor {
         >;
       }
     >,
+    eventLog: PipelineRuntimeEvent[],
     versionTracker: { version: number }
   ): Promise<void> {
     const strategy = this.config.definition.checkpointStrategy;
@@ -639,6 +668,7 @@ export class PipelineExecutor {
 
     if (strategy === "after_each_node") {
       versionTracker.version++;
+      const savedEvent = checkpointSavedEvent(runId, versionTracker.version);
       const checkpoint: PipelineCheckpoint = createPipelineCheckpoint({
         pipelineRunId: runId,
         pipelineId: this.config.definition.id,
@@ -647,11 +677,18 @@ export class PipelineExecutor {
         nodeIdempotencyKeys,
         loopState,
         forkState,
+        events: checkpointEvents(this.config, eventLog, savedEvent),
+        executionLog: checkpointExecutionLog(this.config, eventLog, savedEvent),
         state: runState,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
       });
       await this.config.checkpointStore.save(checkpoint);
-      this.emit(checkpointSavedEvent(runId, versionTracker.version));
+      await applyCheckpointRetention(
+        this.config.checkpointStore,
+        runId,
+        this.config.definition.checkpoint?.retention,
+      );
+      this.emit(savedEvent);
     }
   }
 
@@ -684,5 +721,66 @@ export class PipelineExecutor {
 
   private emit(event: PipelineRuntimeEvent): void {
     this.config.onEvent?.(event);
+  }
+}
+
+function checkpointEvents(
+  config: PipelineRuntimeConfig,
+  eventLog: PipelineRuntimeEvent[],
+  savedEvent: PipelineRuntimeEvent,
+): PipelineCheckpointEventRecord[] | undefined {
+  if (config.definition.checkpoint?.includeEvents !== true) return undefined;
+  return [...eventLog, savedEvent].map(toCheckpointEventRecord);
+}
+
+function checkpointExecutionLog(
+  config: PipelineRuntimeConfig,
+  eventLog: PipelineRuntimeEvent[],
+  savedEvent: PipelineRuntimeEvent,
+): PipelineCheckpointExecutionLog | undefined {
+  const policy = config.definition.executionLog;
+  if (!policy?.eventHistory || policy.eventHistory === "none") return undefined;
+
+  const checkpointLog = [...eventLog, savedEvent];
+  const events =
+    policy.eventHistory === "compact"
+      ? checkpointLog.filter(isCompactExecutionLogEvent)
+      : checkpointLog;
+
+  return {
+    ...(policy.storeRef !== undefined ? { storeRef: policy.storeRef } : {}),
+    eventHistory: policy.eventHistory,
+    events: events.map(toCheckpointEventRecord),
+  };
+}
+
+function toCheckpointEventRecord(
+  event: PipelineRuntimeEvent,
+): PipelineCheckpointEventRecord {
+  return structuredClone(event) as PipelineCheckpointEventRecord;
+}
+
+function isCompactExecutionLogEvent(event: PipelineRuntimeEvent): boolean {
+  return (
+    event.type === "pipeline:started" ||
+    event.type === "pipeline:suspended" ||
+    event.type === "pipeline:completed" ||
+    event.type === "pipeline:failed" ||
+    event.type === "pipeline:node_completed" ||
+    event.type === "pipeline:checkpoint_saved"
+  );
+}
+
+async function applyCheckpointRetention(
+  store: PipelineCheckpointStore,
+  runId: string,
+  retention: PipelineCheckpointRetentionPolicy | undefined,
+): Promise<void> {
+  if (!retention) return;
+  if (retention.ttlMs !== undefined) {
+    await store.prune(retention.ttlMs);
+  }
+  if (retention.maxVersions !== undefined) {
+    await store.pruneVersions?.(runId, retention.maxVersions);
   }
 }

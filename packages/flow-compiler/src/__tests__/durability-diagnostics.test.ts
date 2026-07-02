@@ -637,6 +637,40 @@ describe("durability diagnostics — Slice 2 checkpoint-strategy reconciliation"
     });
   });
 
+  it("W1: stamps checkpoint runtime policy and executionLog policy on the pipeline artifact", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      pipelineDocWithDurability({
+        checkpoint: {
+          strategy: "after_each_node",
+          storeRef: "primary-checkpoints",
+          includeEvents: true,
+          includeProviderSessionRefs: true,
+          retention: { ttlMs: 60_000, maxVersions: 3 },
+        },
+        executionLog: {
+          storeRef: "audit-log",
+          eventHistory: "compact",
+        },
+      })
+    );
+    if ("errors" in result) throw new Error("expected success");
+    expect((result.artifact as Record<string, unknown>)["checkpoint"]).toEqual({
+      storeRef: "primary-checkpoints",
+      includeEvents: true,
+      includeProviderSessionRefs: true,
+      retention: { ttlMs: 60_000, maxVersions: 3 },
+    });
+    expect(
+      (result.artifact as Record<string, unknown>)["executionLog"]
+    ).toEqual({
+      storeRef: "audit-log",
+      eventHistory: "compact",
+    });
+  });
+
   it("Gap 3: omits resume on the artifact when no resume block is declared", async () => {
     const compiler = createFlowCompiler({
       toolResolver: makeResolver(["tool.run"]),

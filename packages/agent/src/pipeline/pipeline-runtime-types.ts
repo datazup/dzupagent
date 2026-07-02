@@ -139,6 +139,12 @@ export interface PipelineRuntimeConfig {
    */
   checkpointStore?: PipelineCheckpointStore;
   /**
+   * Named checkpoint stores addressable by `definition.checkpoint.storeRef`.
+   * When a definition declares a storeRef and this registry contains a match,
+   * that store takes precedence over `checkpointStore`.
+   */
+  checkpointStores?: Record<string, PipelineCheckpointStore>;
+  /**
    * Pre-connected Redis client (ioredis / node-redis compatible).
    * Used to auto-wire `RedisPipelineCheckpointStore` when `checkpointStore`
    * is not explicitly provided.

@@ -127,6 +127,7 @@ const RESUME_ON_RESTART = [
   "resume_from_checkpoint",
   "redeliver_running",
 ] as const;
+const EXECUTION_LOG_HISTORY = ["none", "compact", "full"] as const;
 
 function validateOptionalDurability(
   obj: Record<string, unknown>,
@@ -216,6 +217,85 @@ function validateOptionalDurability(
           });
         }
       }
+      if (
+        "includeProviderSessionRefs" in cp &&
+        cp["includeProviderSessionRefs"] !== undefined
+      ) {
+        if (typeof cp["includeProviderSessionRefs"] === "boolean") {
+          checkpoint.includeProviderSessionRefs =
+            cp["includeProviderSessionRefs"];
+        } else {
+          issues.push({
+            path: joinPath(
+              joinPath(base, "checkpoint"),
+              "includeProviderSessionRefs",
+            ),
+            code: "MISSING_REQUIRED_FIELD",
+            message:
+              "document.durability.checkpoint.includeProviderSessionRefs must be a boolean when present",
+          });
+        }
+      }
+      if ("retention" in cp && cp["retention"] !== undefined) {
+        const retentionValue = cp["retention"];
+        if (!isPlainObject(retentionValue)) {
+          issues.push({
+            path: joinPath(joinPath(base, "checkpoint"), "retention"),
+            code: "MISSING_REQUIRED_FIELD",
+            message:
+              "document.durability.checkpoint.retention must be an object when present",
+          });
+        } else {
+          const retention: NonNullable<
+            NonNullable<FlowDurabilityPolicy["checkpoint"]>["retention"]
+          > = {};
+          if (
+            "ttlMs" in retentionValue &&
+            retentionValue["ttlMs"] !== undefined
+          ) {
+            const ttlMs = retentionValue["ttlMs"];
+            if (typeof ttlMs === "number" && Number.isInteger(ttlMs) && ttlMs >= 0) {
+              retention.ttlMs = ttlMs;
+            } else {
+              issues.push({
+                path: joinPath(
+                  joinPath(joinPath(base, "checkpoint"), "retention"),
+                  "ttlMs",
+                ),
+                code: "MISSING_REQUIRED_FIELD",
+                message:
+                  "document.durability.checkpoint.retention.ttlMs must be a non-negative integer when present",
+              });
+            }
+          }
+          if (
+            "maxVersions" in retentionValue &&
+            retentionValue["maxVersions"] !== undefined
+          ) {
+            const maxVersions = retentionValue["maxVersions"];
+            if (
+              typeof maxVersions === "number" &&
+              Number.isInteger(maxVersions) &&
+              maxVersions > 0
+            ) {
+              retention.maxVersions = maxVersions;
+            } else {
+              issues.push({
+                path: joinPath(
+                  joinPath(joinPath(base, "checkpoint"), "retention"),
+                  "maxVersions",
+                ),
+                code: "MISSING_REQUIRED_FIELD",
+                message:
+                  "document.durability.checkpoint.retention.maxVersions must be a positive integer when present",
+              });
+            }
+          }
+          if (Object.keys(retention).length > 0) {
+            checkpoint.retention = retention;
+          }
+        }
+      }
       if (Object.keys(checkpoint).length > 0)
         durability.checkpoint = checkpoint;
     }
@@ -277,6 +357,59 @@ function validateOptionalDurability(
         }
       }
       if (Object.keys(resume).length > 0) durability.resume = resume;
+    }
+  }
+
+  if ("executionLog" in value && value["executionLog"] !== undefined) {
+    const rawExecutionLog = value["executionLog"];
+    if (!isPlainObject(rawExecutionLog)) {
+      issues.push({
+        path: joinPath(base, "executionLog"),
+        code: "MISSING_REQUIRED_FIELD",
+        message:
+          "document.durability.executionLog must be an object when present",
+      });
+    } else {
+      const executionLog: NonNullable<FlowDurabilityPolicy["executionLog"]> =
+        {};
+      if (
+        "storeRef" in rawExecutionLog &&
+        rawExecutionLog["storeRef"] !== undefined
+      ) {
+        if (typeof rawExecutionLog["storeRef"] === "string") {
+          executionLog.storeRef = rawExecutionLog["storeRef"];
+        } else {
+          issues.push({
+            path: joinPath(joinPath(base, "executionLog"), "storeRef"),
+            code: "MISSING_REQUIRED_FIELD",
+            message:
+              "document.durability.executionLog.storeRef must be a string when present",
+          });
+        }
+      }
+      if (
+        "eventHistory" in rawExecutionLog &&
+        rawExecutionLog["eventHistory"] !== undefined
+      ) {
+        const history = rawExecutionLog["eventHistory"];
+        if (
+          typeof history === "string" &&
+          (EXECUTION_LOG_HISTORY as readonly string[]).includes(history)
+        ) {
+          executionLog.eventHistory = history as NonNullable<
+            FlowDurabilityPolicy["executionLog"]
+          >["eventHistory"];
+        } else {
+          issues.push({
+            path: joinPath(joinPath(base, "executionLog"), "eventHistory"),
+            code: "MISSING_REQUIRED_FIELD",
+            message: `document.durability.executionLog.eventHistory must be one of ${EXECUTION_LOG_HISTORY.join("|")} when present`,
+          });
+        }
+      }
+      if (Object.keys(executionLog).length > 0) {
+        durability.executionLog = executionLog;
+      }
     }
   }
 

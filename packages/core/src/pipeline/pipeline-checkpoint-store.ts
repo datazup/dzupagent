@@ -84,8 +84,22 @@ export interface PipelineCheckpoint {
   };
   /** Number of recovery attempts consumed in this run (persisted to enforce limits across restarts) */
   recoveryAttemptsUsed?: number;
+  /** Runtime events embedded in this checkpoint when requested by policy. */
+  events?: PipelineCheckpointEventRecord[];
+  /** Execution-log snapshot embedded in this checkpoint when requested by policy. */
+  executionLog?: PipelineCheckpointExecutionLog;
   /** ISO-8601 timestamp of when this checkpoint was created */
   createdAt: string;
+}
+
+export type PipelineCheckpointEventRecord = Record<string, unknown> & {
+  type: string;
+};
+
+export interface PipelineCheckpointExecutionLog {
+  storeRef?: string;
+  eventHistory: "compact" | "full";
+  events: PipelineCheckpointEventRecord[];
 }
 
 /**
@@ -130,6 +144,9 @@ export interface PipelineCheckpointStore {
 
   /** Delete all checkpoints for a run */
   delete(pipelineRunId: string): Promise<void>;
+
+  /** Optional: prune old versions for one run, keeping the newest `keepLatest` versions */
+  pruneVersions?(pipelineRunId: string, keepLatest: number): Promise<number>;
 
   /** Prune checkpoints older than maxAgeMs; returns the number of pruned checkpoints */
   prune(maxAgeMs: number): Promise<number>;

@@ -45,7 +45,9 @@ import { lowerSkillChain } from "./lower/lower-skill-chain.js";
 import { lowerPipelineFlat } from "./lower/lower-pipeline-flat.js";
 import { lowerPipelineLoop } from "./lower/lower-pipeline-loop.js";
 import {
+  checkpointPolicyFromPolicy,
   checkpointStrategyFromPolicy,
+  executionLogPolicyFromPolicy,
   resumePolicyFromPolicy,
 } from "./lower/lower-durability-strategy.js";
 import { hasOnError } from "./route-target.js";
@@ -458,6 +460,15 @@ export async function runCompileDocument(
     const resume = resumePolicyFromPolicy(documentDurability);
     if (resume !== undefined) {
       (result.artifact as Record<string, unknown>)["resume"] = resume;
+    }
+    const checkpoint = checkpointPolicyFromPolicy(documentDurability);
+    if (checkpoint !== undefined) {
+      (result.artifact as Record<string, unknown>)["checkpoint"] = checkpoint;
+    }
+    const executionLog = executionLogPolicyFromPolicy(documentDurability);
+    if (executionLog !== undefined) {
+      (result.artifact as Record<string, unknown>)["executionLog"] =
+        executionLog;
     }
   }
 

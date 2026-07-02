@@ -130,6 +130,18 @@ export const PipelineCheckpointSchema = z.object({
       costCents: z.number().nonnegative(),
     })
     .optional(),
+  events: z.array(z.record(z.string(), z.unknown()).and(z.object({
+    type: z.string().min(1),
+  }))).optional(),
+  executionLog: z
+    .object({
+      storeRef: z.string().optional(),
+      eventHistory: z.enum(["compact", "full"]),
+      events: z.array(z.record(z.string(), z.unknown()).and(z.object({
+        type: z.string().min(1),
+      }))),
+    })
+    .optional(),
   createdAt: z.string().min(1),
 });
 
@@ -151,6 +163,19 @@ export const PipelineDefinitionSchema = z.object({
   checkpointStrategy: z
     .enum(["after_each_node", "on_suspend", "manual", "none"])
     .optional(),
+  checkpoint: z
+    .object({
+      storeRef: z.string().optional(),
+      includeEvents: z.boolean().optional(),
+      includeProviderSessionRefs: z.boolean().optional(),
+      retention: z
+        .object({
+          ttlMs: z.number().int().nonnegative().optional(),
+          maxVersions: z.number().int().positive().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   resume: z
     .object({
       onProcessRestart: z
@@ -158,6 +183,12 @@ export const PipelineDefinitionSchema = z.object({
         .optional(),
       requireResumePoint: z.boolean().optional(),
       maxReplayNodes: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  executionLog: z
+    .object({
+      storeRef: z.string().optional(),
+      eventHistory: z.enum(["none", "compact", "full"]).optional(),
     })
     .optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),

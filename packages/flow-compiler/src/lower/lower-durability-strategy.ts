@@ -36,6 +36,8 @@
 import type { FlowDurabilityPolicy } from "@dzupagent/flow-ast";
 import type {
   CheckpointStrategy,
+  PipelineCheckpointPolicy,
+  PipelineExecutionLogPolicy,
   PipelineResumePolicy,
 } from "@dzupagent/core/pipeline";
 
@@ -164,6 +166,46 @@ export function resumePolicyFromPolicy(
   }
   if (resume.maxReplayNodes !== undefined) {
     out.maxReplayNodes = resume.maxReplayNodes;
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+export function checkpointPolicyFromPolicy(
+  policy: FlowDurabilityPolicy | undefined
+): PipelineCheckpointPolicy | undefined {
+  const checkpoint = policy?.checkpoint;
+  if (checkpoint === undefined) return undefined;
+
+  const out: PipelineCheckpointPolicy = {};
+  if (checkpoint.storeRef !== undefined) {
+    out.storeRef = checkpoint.storeRef;
+  }
+  if (checkpoint.includeEvents !== undefined) {
+    out.includeEvents = checkpoint.includeEvents;
+  }
+  if (checkpoint.includeProviderSessionRefs !== undefined) {
+    out.includeProviderSessionRefs = checkpoint.includeProviderSessionRefs;
+  }
+  if (checkpoint.retention !== undefined) {
+    out.retention = { ...checkpoint.retention };
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+export function executionLogPolicyFromPolicy(
+  policy: FlowDurabilityPolicy | undefined
+): PipelineExecutionLogPolicy | undefined {
+  const executionLog = policy?.executionLog;
+  if (executionLog === undefined) return undefined;
+
+  const out: PipelineExecutionLogPolicy = {};
+  if (executionLog.storeRef !== undefined) {
+    out.storeRef = executionLog.storeRef;
+  }
+  if (executionLog.eventHistory !== undefined) {
+    out.eventHistory = executionLog.eventHistory;
   }
 
   return Object.keys(out).length > 0 ? out : undefined;

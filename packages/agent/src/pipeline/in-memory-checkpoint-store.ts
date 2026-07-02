@@ -61,6 +61,16 @@ export class InMemoryPipelineCheckpointStore implements PipelineCheckpointStore 
     this.store.delete(pipelineRunId)
   }
 
+  async pruneVersions(pipelineRunId: string, keepLatest: number): Promise<number> {
+    const versions = this.store.get(pipelineRunId)
+    if (!versions || versions.length <= keepLatest) return 0
+
+    const sorted = [...versions].sort((a, b) => a.version - b.version)
+    const remaining = sorted.slice(-keepLatest)
+    this.store.set(pipelineRunId, remaining)
+    return sorted.length - remaining.length
+  }
+
   async prune(maxAgeMs: number): Promise<number> {
     const cutoff = Date.now() - maxAgeMs
     let pruned = 0

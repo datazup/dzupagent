@@ -213,6 +213,31 @@ export interface PipelineResumePolicy {
   maxReplayNodes?: number;
 }
 
+export interface PipelineCheckpointRetentionPolicy {
+  /** Prune checkpoint versions older than this age after each checkpoint save. */
+  ttlMs?: number;
+  /** Keep only the newest N checkpoint versions per run after each save. */
+  maxVersions?: number;
+}
+
+export interface PipelineCheckpointPolicy {
+  /** Reference to a configured runtime checkpoint store. */
+  storeRef?: string;
+  /** Embed runtime events in each checkpoint snapshot. */
+  includeEvents?: boolean;
+  /** Carry provider session references when future node executors expose them. */
+  includeProviderSessionRefs?: boolean;
+  /** Retention policy applied by the runtime after checkpoint saves. */
+  retention?: PipelineCheckpointRetentionPolicy;
+}
+
+export interface PipelineExecutionLogPolicy {
+  /** Reference to a configured execution-log sink. */
+  storeRef?: string;
+  /** How much event history to retain in checkpoint snapshots. */
+  eventHistory?: "none" | "compact" | "full";
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline definition
 // ---------------------------------------------------------------------------
@@ -246,8 +271,12 @@ export interface PipelineDefinition {
   tokenLimit?: number;
   /** When to create checkpoints */
   checkpointStrategy?: CheckpointStrategy;
+  /** W1 document-level checkpoint policy lowered from durability.checkpoint. */
+  checkpoint?: PipelineCheckpointPolicy;
   /** W1 Slice 2 — declared resume policy (additive; absent ⇒ today's behavior). */
   resume?: PipelineResumePolicy;
+  /** W1 document-level execution log policy lowered from durability.executionLog. */
+  executionLog?: PipelineExecutionLogPolicy;
   /** Arbitrary metadata */
   metadata?: Record<string, unknown>;
   /** Tags for categorization / filtering */

@@ -155,6 +155,44 @@ describe("document.durability — happy path", () => {
     }
   });
 
+  it("parses checkpoint store/events/retention and executionLog policy", () => {
+    const r = flowDocumentSchema.safeParse({
+      ...baseDocument,
+      durability: {
+        mode: "durable",
+        checkpoint: {
+          strategy: "after_each_node",
+          storeRef: "primary-checkpoints",
+          includeEvents: true,
+          includeProviderSessionRefs: true,
+          retention: { ttlMs: 60_000, maxVersions: 5 },
+        },
+        executionLog: {
+          storeRef: "audit-log",
+          eventHistory: "compact",
+        },
+      },
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.durability?.checkpoint?.storeRef).toBe(
+        "primary-checkpoints",
+      );
+      expect(r.data.durability?.checkpoint?.includeEvents).toBe(true);
+      expect(r.data.durability?.checkpoint?.includeProviderSessionRefs).toBe(
+        true,
+      );
+      expect(r.data.durability?.checkpoint?.retention).toEqual({
+        ttlMs: 60_000,
+        maxVersions: 5,
+      });
+      expect(r.data.durability?.executionLog).toEqual({
+        storeRef: "audit-log",
+        eventHistory: "compact",
+      });
+    }
+  });
+
   it("defaults to absent when not declared (backward compatible)", () => {
     const r = flowDocumentSchema.safeParse(baseDocument);
     expect(r.success).toBe(true);
@@ -193,6 +231,17 @@ describe("document.durability — rejection", () => {
     const r = flowDocumentSchema.safeParse({
       ...baseDocument,
       durability: { mode: "durable", resume: { onProcessRestart: "pray" } },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects invalid checkpoint retention and executionLog.eventHistory", () => {
+    const r = flowDocumentSchema.safeParse({
+      ...baseDocument,
+      durability: {
+        checkpoint: { retention: { ttlMs: -1, maxVersions: 0 } },
+        executionLog: { eventHistory: "verbose" },
+      },
     });
     expect(r.success).toBe(false);
   });

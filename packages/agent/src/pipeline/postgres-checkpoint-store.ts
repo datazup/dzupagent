@@ -260,6 +260,27 @@ export class PostgresPipelineCheckpointStore
     await this.client.query(sql, [pipelineRunId]);
   }
 
+  async pruneVersions(
+    pipelineRunId: string,
+    keepLatest: number
+  ): Promise<number> {
+    const sql = `
+      DELETE FROM ${this.tableName}
+      WHERE pipeline_run_id = $1
+        AND version NOT IN (
+          SELECT version
+          FROM ${this.tableName}
+          WHERE pipeline_run_id = $1
+          ORDER BY version DESC
+          LIMIT $2
+        )
+    `;
+    const result: { rows: unknown[]; rowCount?: number } =
+      await this.client.query(sql, [pipelineRunId, keepLatest]);
+    if (typeof result.rowCount === "number") return result.rowCount;
+    return result.rows.length;
+  }
+
   async prune(maxAgeMs: number): Promise<number> {
     const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
     // Prune both explicit-TTL expirations and rows older than the cutoff.
