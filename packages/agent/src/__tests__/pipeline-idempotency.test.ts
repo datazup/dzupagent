@@ -207,4 +207,29 @@ describe("nodeIdempotencyKey — canonical key format (N3 / N3b)", () => {
     // No-input (empty-object default) is its own stable variant.
     expect(nodeIdempotencyKey("run-1", "n1")).not.toBe(a);
   });
+
+  it("uses a declared node idempotency key when present (W1)", () => {
+    const node: PipelineNode = {
+      id: "declared-node",
+      type: "tool",
+      toolName: "tools.write",
+      arguments: { id: 1 },
+      declaredIdempotencyKey: "order-123",
+      idempotency: "exactly-once-required",
+    };
+
+    const context = nodeIdempotencyContext(node);
+
+    expect(context).toMatchObject({
+      attemptPolicy: "exactly-once-required",
+      declaredKey: "order-123",
+      input: { arguments: { id: 1 } },
+    });
+    expect(nodeIdempotencyKey("run-1", node.id, context)).toBe(
+      "dzup:v1:declared:order-123"
+    );
+    expect(nodeIdempotencyKey("run-1", node.id, { input: { id: 1 } })).not.toBe(
+      "dzup:v1:declared:order-123"
+    );
+  });
 });

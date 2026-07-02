@@ -266,6 +266,44 @@ describe('lowerPipelineFlat', () => {
     expect(warnings).toHaveLength(0)
   })
 
+  it('lowers W1 per-node durability fields from action metadata', () => {
+    const resolver = makeResolver(['tools.write'])
+    const resolved = buildResolved(resolver, [{ nodePath: 'root', toolRef: 'tools.write' }])
+    const ast: ActionNode = {
+      type: 'action',
+      toolRef: 'tools.write',
+      input: { id: 1 },
+      idempotency: 'exactly-once-required',
+      effectClass: 'db_write',
+      meta: {
+        mutation: {
+          policy: 'mutating',
+          idempotencyKey: 'ticket-123',
+        },
+      },
+    }
+
+    const { artifact, warnings } = lowerPipelineFlat({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      name: 'durable-action',
+      _idGen: makeIdGen('w1'),
+    })
+
+    const node = artifact.nodes[0] as ToolNode
+
+    expect(warnings).toHaveLength(0)
+    expect(node).toMatchObject({
+      type: 'tool',
+      toolName: 'tools.write',
+      arguments: { id: 1 },
+      declaredIdempotencyKey: 'ticket-123',
+      idempotency: 'exactly-once-required',
+      effectClass: 'db_write',
+    })
+  })
+
   it('sequence of two actions produces two ToolNodes with a sequential edge', () => {
     const resolver = makeResolver(['step.a', 'step.b'])
     const ast = sequence(action('step.a'), action('step.b'))

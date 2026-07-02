@@ -361,6 +361,29 @@ describe('serializePipeline / deserializePipeline', () => {
     expect(restored.nodes).toHaveLength(1)
   })
 
+  it('round-trips W1 per-node durability fields', () => {
+    const original = makeMinimalPipeline({
+      nodes: [
+        {
+          type: 'tool',
+          id: 'n1',
+          toolName: 'write.record',
+          declaredIdempotencyKey: 'record-123',
+          idempotency: 'exactly-once-required',
+          effectClass: 'db_write',
+        },
+      ],
+    })
+
+    const restored = deserializePipeline(serializePipeline(original))
+
+    expect(restored.nodes[0]).toMatchObject({
+      declaredIdempotencyKey: 'record-123',
+      idempotency: 'exactly-once-required',
+      effectClass: 'db_write',
+    })
+  })
+
   it('deserializePipeline rejects invalid JSON', () => {
     expect(() => deserializePipeline('not-json')).toThrow('invalid JSON')
   })

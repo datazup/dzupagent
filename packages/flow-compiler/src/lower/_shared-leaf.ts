@@ -14,19 +14,19 @@ import type {
   CompleteNode,
   FlowNode,
   ForEachNode,
-} from '@dzupagent/flow-ast'
+} from "@dzupagent/flow-ast";
 import type {
   AgentNode,
   LoopNode,
   SuspendNode,
   ToolNode,
-} from '@dzupagent/core/orchestration'
+} from "@dzupagent/core/orchestration";
 
 import type {
   LowerPipelineContext,
   LowerPipelineResult,
-} from './_shared-types.js'
-import { freshId, loweringMode, lowerChildren } from './_shared-utils.js'
+} from "./_shared-types.js";
+import { freshId, loweringMode, lowerChildren } from "./_shared-utils.js";
 
 /**
  * action → look up resolved tool, emit ToolNode or AgentNode depending on kind.
@@ -41,50 +41,106 @@ export function lowerAction(
     path: string,
   ) => LowerPipelineResult,
 ): LowerPipelineResult {
-  void lowerOne // action has no children but signature kept symmetric
-  const warnings: string[] = []
-  const rt = ctx.resolved.get(path)
+  void lowerOne; // action has no children but signature kept symmetric
+  const warnings: string[] = [];
+  const rt = ctx.resolved.get(path);
 
   if (rt === undefined) {
-    const message = `lower/action: no resolved tool at path '${path}' (toolRef='${node.toolRef}')`
-    if (loweringMode(ctx) === 'executable') {
+    const message = `lower/action: no resolved tool at path '${path}' (toolRef='${node.toolRef}')`;
+    if (loweringMode(ctx) === "executable") {
       throw new Error(
         `${message}; executable lowering rejects unresolved semantic references`,
-      )
+      );
     }
 
-    warnings.push(`${message}; emitting diagnostic stub`)
+    warnings.push(`${message}; emitting diagnostic stub`);
     const stub: ToolNode = {
       id: freshId(ctx),
-      type: 'tool',
+      type: "tool",
       name: node.toolRef,
       toolName: node.toolRef,
       arguments: node.input,
-    }
-    return { nodes: [stub], edges: [], warnings }
+    };
+    return { nodes: [stub], edges: [], warnings };
   }
 
-  const id = freshId(ctx)
+  const id = freshId(ctx);
 
-  if (rt.kind === 'agent') {
+  // W1 durability wiring (Slice 1): carry the node's declared per-node
+  // durability from the AST onto the runtime node. Each field is only set when
+  // declared, so an action with no durability decls lowers byte-identically to
+  // before (the spread of `{}` is a no-op).
+  const durability = actionDurabilityFields(node);
+
+  if (rt.kind === "agent") {
     const agentNode: AgentNode = {
       id,
-      type: 'agent',
+      type: "agent",
       name: node.toolRef,
       agentId: rt.ref,
-    }
-    return { nodes: [agentNode], edges: [], warnings }
+      ...durability,
+    };
+    return { nodes: [agentNode], edges: [], warnings };
   }
 
   // mcp-tool | skill | workflow all lower to ToolNode
   const toolNode: ToolNode = {
     id,
-    type: 'tool',
+    type: "tool",
     name: node.toolRef,
     toolName: rt.ref,
     arguments: node.input,
+    ...durability,
+  };
+  return { nodes: [toolNode], edges: [], warnings };
+}
+
+/**
+ * W1 (Slice 1): extract the declared per-node durability fields from an AST
+ * `ActionNode` into the additive `PipelineNodeBase` shape. Returns only the
+ * fields that are actually declared, so absent declarations produce `{}` and
+ * the lowered node is unchanged from pre-W1 behavior.
+ *
+ * - `effectClass` (`FlowNodeBase.effectClass`) — carried for observability only.
+ * - `idempotency` (`FlowNodeBase.idempotency`) — maps to the runtime attempt policy.
+ * - `declaredIdempotencyKey` (`meta.mutation.idempotencyKey`) — wins over the
+ *   derived key at runtime. `meta.mutation` may be `FlowMutationMetadata` or a
+ *   raw `FlowValue`, so it is narrowed defensively before reading.
+ */
+function actionDurabilityFields(node: ActionNode): {
+  effectClass?: string;
+  idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+  declaredIdempotencyKey?: string;
+} {
+  const fields: {
+    effectClass?: string;
+    idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+    declaredIdempotencyKey?: string;
+  } = {};
+
+  if (node.effectClass !== undefined) {
+    fields.effectClass = node.effectClass;
   }
-  return { nodes: [toolNode], edges: [], warnings }
+  if (node.idempotency !== undefined) {
+    fields.idempotency = node.idempotency;
+  }
+
+  const mutation = node.meta?.mutation;
+  if (
+    mutation !== undefined &&
+    mutation !== null &&
+    typeof mutation === "object" &&
+    "idempotencyKey" in mutation &&
+    typeof (mutation as { idempotencyKey?: unknown }).idempotencyKey ===
+      "string"
+  ) {
+    const key = (mutation as { idempotencyKey: string }).idempotencyKey;
+    if (key.length > 0) {
+      fields.declaredIdempotencyKey = key;
+    }
+  }
+
+  return fields;
 }
 
 /**
@@ -104,7 +160,7 @@ export function lowerForEach(
   if (!ctx.allowForEach) {
     throw new Error(
       `router-contract violation: for_each in flat target at ${path}`,
-    )
+    );
   }
 
   // Lower the body nodes as a sequence
@@ -113,17 +169,17 @@ export function lowerForEach(
     ctx,
     (idx) => `${path}.body[${idx}]`,
     lowerOne,
-  )
-  const bodyNodeIds = bodyResult.nodes.map((n) => n.id)
+  );
+  const bodyNodeIds = bodyResult.nodes.map((n) => n.id);
 
   const loopNode: LoopNode = {
     id: freshId(ctx),
-    type: 'loop',
+    type: "loop",
     name: `forEach:${node.as}`,
     bodyNodeIds,
     maxIterations: 1000, // reasonable upper bound; runtime may override
     continuePredicateName: `forEach__${node.as}__predicate`,
-  }
+  };
 
   // The loop node acts as the container; body nodes remain in the flat list
   // alongside it. Sequential edges from the body are kept.
@@ -131,7 +187,7 @@ export function lowerForEach(
     nodes: [loopNode, ...bodyResult.nodes],
     edges: bodyResult.edges,
     warnings: bodyResult.warnings,
-  }
+  };
 }
 
 /**
@@ -145,15 +201,15 @@ export function lowerClarification(
 ): LowerPipelineResult {
   const suspendNode: SuspendNode = {
     id: freshId(ctx),
-    type: 'suspend',
+    type: "suspend",
     name: `clarification:${path}`,
     description: node.question,
     resumeCondition:
-      node.expected === 'choice'
-        ? `clarification__choice__${node.choices?.join('|') ?? ''}`
+      node.expected === "choice"
+        ? `clarification__choice__${node.choices?.join("|") ?? ""}`
         : undefined,
-  }
-  return { nodes: [suspendNode], edges: [], warnings: [] }
+  };
+  return { nodes: [suspendNode], edges: [], warnings: [] };
 }
 
 /**
@@ -165,13 +221,13 @@ export function lowerComplete(
   ctx: LowerPipelineContext,
   path: string,
 ): LowerPipelineResult {
-  void path
+  void path;
   const suspendNode: SuspendNode = {
     id: freshId(ctx),
-    type: 'suspend',
+    type: "suspend",
     name: `complete:${path}`,
     description: node.result,
     // No resumeCondition — this node is terminal.
-  }
-  return { nodes: [suspendNode], edges: [], warnings: [] }
+  };
+  return { nodes: [suspendNode], edges: [], warnings: [] };
 }
