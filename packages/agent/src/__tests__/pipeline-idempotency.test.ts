@@ -14,6 +14,7 @@ import {
   nodeIdempotencyKey,
   nodeIdempotencyContext,
 } from "../pipeline/pipeline-runtime/idempotency.js";
+import { materializeIdempotencyKey } from "@dzupagent/runtime-contracts";
 import type { PipelineDefinition, PipelineNode } from "@dzupagent/core";
 
 /**
@@ -231,5 +232,207 @@ describe("nodeIdempotencyKey — canonical key format (N3 / N3b)", () => {
     expect(nodeIdempotencyKey("run-1", node.id, { input: { id: 1 } })).not.toBe(
       "dzup:v1:declared:order-123"
     );
+  });
+});
+
+describe("W1 durability wiring — declared-key short-circuit matrix (T1-T4, T7)", () => {
+  it("T1: a node with NO durability decls derives the canonical key, unchanged (declared short-circuit does not fire)", () => {
+    const node: PipelineNode = {
+      id: "plain-node",
+      type: "tool",
+      toolName: "tools.read",
+      arguments: { q: "x" },
+      // No `declaredIdempotencyKey`, no `idempotency`.
+    };
+
+    const context = nodeIdempotencyContext(node);
+    // The declared short-circuit must not have fired: no `declaredKey` in context.
+    expect(context).not.toHaveProperty("declaredKey");
+    expect(context.attemptPolicy).toBe("at-least-once");
+
+    const actual = nodeIdempotencyKey("run-9", node.id, context);
+
+    // Golden: reconstruct the same key via the canonical deriver directly.
+    const golden = materializeIdempotencyKey({
+      sourceHash: "",
+      runId: "run-9",
+      nodeId: node.id,
+      attemptPolicy: "at-least-once",
+      input: { arguments: { q: "x" } },
+    });
+
+    expect(actual).toBe(golden);
+    expect(actual.startsWith("dzup:v1:declared:")).toBe(false);
+  });
+
+  it("T2: nodeIdempotencyKey with an explicit declaredKey returns the literal namespaced form, not the derived key", () => {
+    const declared = nodeIdempotencyKey("run-1", "node-x", {
+      declaredKey: "k",
+    });
+    expect(declared).toBe("dzup:v1:declared:k");
+
+    const derived = nodeIdempotencyKey("run-1", "node-x");
+    expect(declared).not.toBe(derived);
+  });
+
+  it("T3: of two nodes in the same batch, only the declared one short-circuits — the other still derives", () => {
+    const declaredNode: PipelineNode = {
+      id: "n-declared",
+      type: "tool",
+      toolName: "tools.write",
+      arguments: { id: 1 },
+      declaredIdempotencyKey: "batch-key-1",
+    };
+    const plainNode: PipelineNode = {
+      id: "n-plain",
+      type: "tool",
+      toolName: "tools.write",
+      arguments: { id: 2 },
+    };
+
+    const declaredKey = nodeIdempotencyKey(
+      "run-batch",
+      declaredNode.id,
+      nodeIdempotencyContext(declaredNode)
+    );
+    const plainKey = nodeIdempotencyKey(
+      "run-batch",
+      plainNode.id,
+      nodeIdempotencyContext(plainNode)
+    );
+
+    expect(declaredKey).toBe("dzup:v1:declared:batch-key-1");
+
+    const plainGolden = materializeIdempotencyKey({
+      sourceHash: "",
+      runId: "run-batch",
+      nodeId: plainNode.id,
+      attemptPolicy: "at-least-once",
+      input: { arguments: { id: 2 } },
+    });
+    expect(plainKey).toBe(plainGolden);
+    expect(plainKey.startsWith("dzup:v1:declared:")).toBe(false);
+    expect(declaredKey).not.toBe(plainKey);
+  });
+
+  it("T4: idempotency: 'exactly-once-required' threads through as attemptPolicy and changes the derived key vs the at-least-once golden", () => {
+    const strictNode: PipelineNode = {
+      id: "strict-node",
+      type: "tool",
+      toolName: "tools.charge",
+      arguments: { amount: 100 },
+      idempotency: "exactly-once-required",
+      // No declaredIdempotencyKey — must still derive, just with the stricter policy.
+    };
+
+    const context = nodeIdempotencyContext(strictNode);
+    expect(context.attemptPolicy).toBe("exactly-once-required");
+    expect(context).not.toHaveProperty("declaredKey");
+
+    const actual = nodeIdempotencyKey("run-strict", strictNode.id, context);
+
+    const atLeastOnceGolden = materializeIdempotencyKey({
+      sourceHash: "",
+      runId: "run-strict",
+      nodeId: strictNode.id,
+      attemptPolicy: "at-least-once",
+      input: { arguments: { amount: 100 } },
+    });
+    const exactlyOnceGolden = materializeIdempotencyKey({
+      sourceHash: "",
+      runId: "run-strict",
+      nodeId: strictNode.id,
+      attemptPolicy: "exactly-once-required",
+      input: { arguments: { amount: 100 } },
+    });
+
+    expect(actual).toBe(exactlyOnceGolden);
+    expect(actual).not.toBe(atLeastOnceGolden);
+  });
+
+  it("T6: a declared key can never collide with the derived key space for the same (runId, nodeId) — segment-2 literals are disjoint", () => {
+    const runId = "run-disjoint";
+    const nodeId = "node-disjoint";
+
+    const declaredKey = nodeIdempotencyKey(runId, nodeId, {
+      declaredKey: "same-logical-id",
+    });
+    const derivedKey = nodeIdempotencyKey(runId, nodeId, {
+      input: { same: "logical-id" },
+    });
+
+    expect(declaredKey).not.toBe(derivedKey);
+
+    // The declared space's 3rd colon-segment is always the literal "declared".
+    const declaredSegments = declaredKey.split(":");
+    expect(declaredSegments[2]).toBe("declared");
+
+    // The derived space's 3rd colon-segment is the sourceHash (never the
+    // literal "declared" — empty string when no flowDefinition is threaded,
+    // or a hex digest when one is).
+    const derivedSegments = derivedKey.split(":");
+    expect(derivedSegments[2]).not.toBe("declared");
+
+    // Even with a flowDefinition threaded (non-empty sourceHash), the derived
+    // segment-2 still can't spell "declared" (it's a hex sha256 digest).
+    const derivedWithSource = nodeIdempotencyKey(runId, nodeId, {
+      flowDefinition: { id: "f", v: 1 },
+      input: { same: "logical-id" },
+    });
+    expect(derivedWithSource.split(":")[2]).not.toBe("declared");
+  });
+
+  it("T7 (runtime half): a node carrying W1-lowered fields (declaredIdempotencyKey + idempotency) honors the declared key end-to-end via nodeIdempotencyContext + nodeIdempotencyKey", () => {
+    // Simulates the shape lowerAction produces for an action WITH durability
+    // decls (mirrors the flow-compiler T5/T7 lowering test's expected node).
+    const loweredWithDecls: PipelineNode = {
+      id: "w1-lowered",
+      type: "tool",
+      name: "tools.write",
+      toolName: "tools.write",
+      arguments: { id: 1 },
+      declaredIdempotencyKey: "ticket-123",
+      idempotency: "exactly-once-required",
+      effectClass: "db_write",
+    };
+
+    const key = nodeIdempotencyKey(
+      "run-roundtrip",
+      loweredWithDecls.id,
+      nodeIdempotencyContext(loweredWithDecls)
+    );
+    expect(key).toBe("dzup:v1:declared:ticket-123");
+
+    // Simulates the shape lowerAction produces for an action WITHOUT any
+    // durability decls — must be identical to the pre-W1 baseline: a node
+    // with no declaredIdempotencyKey/idempotency/effectClass fields at all.
+    const loweredWithoutDecls: PipelineNode = {
+      id: "w1-lowered",
+      type: "tool",
+      name: "tools.write",
+      toolName: "tools.write",
+      arguments: { id: 1 },
+    };
+    const preW1Baseline: PipelineNode = {
+      id: "w1-lowered",
+      type: "tool",
+      name: "tools.write",
+      toolName: "tools.write",
+      arguments: { id: 1 },
+    };
+
+    const keyWithoutDecls = nodeIdempotencyKey(
+      "run-roundtrip",
+      loweredWithoutDecls.id,
+      nodeIdempotencyContext(loweredWithoutDecls)
+    );
+    const baselineKey = nodeIdempotencyKey(
+      "run-roundtrip",
+      preW1Baseline.id,
+      nodeIdempotencyContext(preW1Baseline)
+    );
+
+    expect(keyWithoutDecls).toBe(baselineKey);
+    expect(keyWithoutDecls).not.toBe(key);
   });
 });
