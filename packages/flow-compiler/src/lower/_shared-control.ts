@@ -21,6 +21,7 @@ import type {
   LowerPipelineContext,
   LowerPipelineResult,
 } from "./_shared-types.js";
+import { nodeDurabilityFields } from "./_shared-durability.js";
 import { freshId, lowerChildren, seqEdge } from "./_shared-utils.js";
 
 type LowerOne = (
@@ -64,6 +65,7 @@ export function lowerBranch(
     gateType: "quality",
     name: `branch:${path}`,
     condition: node.condition,
+    ...nodeDurabilityFields(node),
   };
 
   const thenResult = lowerChildren(

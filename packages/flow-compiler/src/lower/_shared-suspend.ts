@@ -24,6 +24,7 @@ import type {
   LowerPipelineContext,
   LowerPipelineResult,
 } from './_shared-types.js'
+import { nodeDurabilityFields } from './_shared-durability.js'
 import { freshId, lowerChildren, seqEdge } from './_shared-utils.js'
 
 type LowerOne = (
@@ -48,6 +49,7 @@ export function lowerApproval(
     gateType: 'approval',
     name: `approval:${path}`,
     condition: node.question,
+    ...nodeDurabilityFields(node),
   }
 
   const approveResult = lowerChildren(
@@ -116,6 +118,7 @@ export function lowerPersona(
     name: `persona:${node.personaId}`,
     description: confirmedPersona ?? node.personaId,
     resumeCondition: `persona__${node.personaId}__activated`,
+    ...nodeDurabilityFields(node),
   }
 
   const bodyResult = lowerChildren(
@@ -157,6 +160,7 @@ export function lowerRoute(
     name: `route:${node.strategy}`,
     description: routeMeta,
     resumeCondition: `route__${node.strategy}__resolved`,
+    ...nodeDurabilityFields(node),
   }
 
   const bodyResult = lowerChildren(

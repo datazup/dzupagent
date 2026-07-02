@@ -195,6 +195,24 @@ export type CheckpointStrategy =
   | "manual"
   | "none";
 
+/**
+ * W1 Slice 2 (doc-level durability). Additive resume policy lowered from the
+ * flow-ast `FlowDurabilityPolicy.resume` block. Absent ⇒ today's behavior.
+ * Currently surfaced as declared intent on the definition; the executor's
+ * resume-on-restart wiring consumes it in a later slice.
+ */
+export interface PipelineResumePolicy {
+  /** Behavior for runs found still-running after a process restart. */
+  onProcessRestart?:
+    | "fail_running"
+    | "resume_from_checkpoint"
+    | "redeliver_running";
+  /** Author demands a reachable resume point (compile-enforced upstream). */
+  requireResumePoint?: boolean;
+  /** Cap on how many nodes may be replayed on resume. */
+  maxReplayNodes?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline definition
 // ---------------------------------------------------------------------------
@@ -228,6 +246,8 @@ export interface PipelineDefinition {
   tokenLimit?: number;
   /** When to create checkpoints */
   checkpointStrategy?: CheckpointStrategy;
+  /** W1 Slice 2 — declared resume policy (additive; absent ⇒ today's behavior). */
+  resume?: PipelineResumePolicy;
   /** Arbitrary metadata */
   metadata?: Record<string, unknown>;
   /** Tags for categorization / filtering */

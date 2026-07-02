@@ -159,6 +159,45 @@ describe('lowerPipelineLoop', () => {
     expect(artifact.edges).toHaveLength(0)
   })
 
+  it('lowers W1 durability fields from for_each metadata onto the runtime loop', () => {
+    const resolver = makeResolver(['items.process'])
+    const idGen = makeIdGen()
+    const ast: ForEachNode = {
+      type: 'for_each',
+      source: '$.items',
+      as: 'item',
+      body: [action('items.process')],
+      idempotency: 'idempotent',
+      effectClass: 'compute',
+      meta: {
+        mutation: {
+          policy: 'idempotent',
+          idempotencyKey: 'foreach-key',
+        },
+      },
+    }
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.body[0]', toolRef: 'items.process' },
+    ])
+
+    const { artifact, warnings } = lowerPipelineLoop({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      idGen,
+      name: 'durable-loop',
+    })
+
+    expect(warnings).toEqual([])
+    const loopNode = artifact.nodes[0] as LoopNode
+    expect(loopNode).toMatchObject({
+      type: 'loop',
+      declaredIdempotencyKey: 'foreach-key',
+      idempotency: 'idempotent',
+      effectClass: 'compute',
+    })
+  })
+
   // ---------------------------------------------------------------------------
   // Test 2: for_each with a multi-action body → edges chain body nodes
   // ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@
 
 import type {
   ActionNode,
+  ApprovalNode,
   BranchNode,
   FlowNode,
   ParallelNode,
@@ -390,7 +391,19 @@ describe("lowerPipelineFlat", () => {
   });
 
   it("unresolved action emits warning and stubs a ToolNode in diagnostic mode", () => {
-    const ast = action("unknown.tool");
+    const ast: ActionNode = {
+      type: "action",
+      toolRef: "unknown.tool",
+      input: {},
+      idempotency: "idempotent",
+      effectClass: "network_write",
+      meta: {
+        mutation: {
+          policy: "idempotent",
+          idempotencyKey: "diagnostic-key",
+        },
+      },
+    };
     const resolved = new Map<string, ResolvedTool>();
 
     const { artifact, warnings } = lowerPipelineFlat({
@@ -405,6 +418,11 @@ describe("lowerPipelineFlat", () => {
     const node = artifact.nodes[0] as ToolNode;
     expect(node.type).toBe("tool");
     expect(node.toolName).toBe("unknown.tool");
+    expect(node).toMatchObject({
+      declaredIdempotencyKey: "diagnostic-key",
+      idempotency: "idempotent",
+      effectClass: "network_write",
+    });
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("no resolved tool at path");
   });
@@ -756,6 +774,82 @@ describe("lowerPipelineFlat — W1 durability wiring (T5, T7)", () => {
       type: "tool",
       toolName: "tools.write",
       arguments: { id: 1 },
+    });
+  });
+
+  it("lowers W1 durability fields from branch metadata onto the runtime gate", () => {
+    const resolver = makeResolver(["tools.read"]);
+    const resolved = buildResolved(resolver, [
+      { nodePath: "root.then[0]", toolRef: "tools.read" },
+    ]);
+    const ast: BranchNode = {
+      type: "branch",
+      condition: "needsReview",
+      then: [action("tools.read")],
+      idempotency: "idempotent",
+      effectClass: "compute",
+      meta: {
+        mutation: {
+          policy: "idempotent",
+          idempotencyKey: "branch-key",
+        },
+      },
+    };
+
+    const { artifact, warnings } = lowerPipelineFlat({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      name: "durable-branch",
+      _idGen: makeIdGen("branch-durable"),
+    });
+
+    expect(warnings).toHaveLength(0);
+    const gateNode = artifact.nodes[0] as GateNode;
+    expect(gateNode).toMatchObject({
+      type: "gate",
+      gateType: "quality",
+      declaredIdempotencyKey: "branch-key",
+      idempotency: "idempotent",
+      effectClass: "compute",
+    });
+  });
+
+  it("lowers W1 durability fields from approval metadata onto the runtime gate", () => {
+    const resolver = makeResolver(["tools.write"]);
+    const resolved = buildResolved(resolver, [
+      { nodePath: "root.onApprove[0]", toolRef: "tools.write" },
+    ]);
+    const ast: ApprovalNode = {
+      type: "approval",
+      question: "Approve write?",
+      onApprove: [action("tools.write")],
+      idempotency: "exactly-once-required",
+      effectClass: "network_write",
+      meta: {
+        mutation: {
+          policy: "mutating",
+          idempotencyKey: "approval-key",
+        },
+      },
+    };
+
+    const { artifact, warnings } = lowerPipelineFlat({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      name: "durable-approval",
+      _idGen: makeIdGen("approval-durable"),
+    });
+
+    expect(warnings).toHaveLength(0);
+    const gateNode = artifact.nodes[0] as GateNode;
+    expect(gateNode).toMatchObject({
+      type: "gate",
+      gateType: "approval",
+      declaredIdempotencyKey: "approval-key",
+      idempotency: "exactly-once-required",
+      effectClass: "network_write",
     });
   });
 });

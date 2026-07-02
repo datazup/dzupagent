@@ -369,6 +369,68 @@ describe("durability diagnostics — D3 resume reachability", () => {
   });
 });
 
+describe("durability diagnostics — Gap 4 requireResumePoint warn→ERROR", () => {
+  it("FAILS the compile (error, not warning) when requireResumePoint is true and no resume point is reachable", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithDurability({ resume: { requireResumePoint: true } }, [
+        { type: "action", id: "s1", toolRef: "tool.run", input: {} },
+      ])
+    );
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) throw new Error("expected failure");
+    const err = result.errors.find((e) => e.code === "RESUME_POINT_REQUIRED");
+    expect(err).toBeDefined();
+    expect(err?.stage).toBe(4);
+  });
+
+  it("does NOT fail when requireResumePoint is true and a resume point IS reachable", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithDurability({ resume: { requireResumePoint: true } }, [
+        {
+          type: "action",
+          id: "s1",
+          toolRef: "tool.run",
+          input: {},
+          resumePoint: true,
+        },
+      ])
+    );
+    expect("errors" in result).toBe(false);
+  });
+
+  it("keeps DURABLE_MUTATION_NO_RESUME_POINT as a WARNING (not an error)", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tool.run"]),
+    });
+    const result = await compiler.compileDocument(
+      docWithDurability(
+        { mode: "durable", checkpoint: { storeRef: "pg://ck" } },
+        [
+          {
+            type: "action",
+            id: "s1",
+            toolRef: "tool.run",
+            input: {},
+            effectClass: "db_write",
+            idempotency: "exactly-once-required",
+          },
+        ]
+      )
+    );
+    if ("errors" in result)
+      throw new Error("expected success (heuristic is advisory)");
+    expect(
+      result.warnings.some((w) => w.code === "DURABLE_MUTATION_NO_RESUME_POINT")
+    ).toBe(true);
+  });
+});
+
 describe("durability diagnostics — Slice 2 checkpoint-strategy reconciliation", () => {
   // A branch in the root escalates routing to `workflow-builder`, which emits a
   // PipelineDefinition artifact — the only artifact shape that honors

@@ -24,7 +24,7 @@
  *  - D5 — `durability.mode: durable` while no checkpoint `storeRef` is
  *         configured (OQ-1: compile-warn, runtime-admission-fail).
  */
-import type { CompilationWarning } from "../types.js";
+import type { CompilationError, CompilationWarning } from "../types.js";
 
 const ADAPTER_NODE_KEYS = [
   "adapter.run",
@@ -116,24 +116,10 @@ export function computeDurabilityDiagnostics(
     });
   }
 
-  // -- D3: requireResumePoint without a reachable resume point ---------------
-  const resume = isObject(durability) ? durability["resume"] : undefined;
-  if (
-    isObject(resume) &&
-    resume["requireResumePoint"] === true &&
-    !containsReachableResumePoint(document["root"])
-  ) {
-    warnings.push({
-      stage: 4,
-      code: "RESUME_POINT_REQUIRED",
-      message:
-        "durability.resume.requireResumePoint is true but the flow has no reachable " +
-        "resume point; add a checkpoint node, set `resumePoint: true`, or mark " +
-        "`meta.resume.safeToReplayFrom: true` on a reachable node (D3).",
-      nodePath: "root.durability.resume",
-      category: "resume",
-    });
-  }
+  // Gap 4 (W1 Slice 2): the explicit `requireResumePoint: true` + no-reachable-
+  // resume-point case is now a compile ERROR, not a warning — see
+  // `computeDurabilityErrors` below. The author explicitly demanded a resume
+  // point; honor it by failing the compile rather than merely advising.
 
   // -- D3 (broad): durable flow with mutating effects but no resume point -----
   // Distinct from RESUME_POINT_REQUIRED (which is gated on an explicit
@@ -161,6 +147,41 @@ export function computeDurabilityDiagnostics(
   walkSteps(document["root"], "root", warnings);
 
   return warnings;
+}
+
+/**
+ * Compute document-level durability ERRORS (Gap 4, W1 Slice 2). Distinct from
+ * {@link computeDurabilityDiagnostics} (advisory warnings): these fail the
+ * compile. Currently one rule:
+ *
+ *  - RESUME_POINT_REQUIRED — the author set `durability.resume.requireResumePoint:
+ *    true` but no reachable resume point exists. They explicitly demanded a
+ *    resume point, so this is an error, not advice. (The broad heuristic
+ *    `DURABLE_MUTATION_NO_RESUME_POINT` stays a warning in the diagnostics pass.)
+ */
+export function computeDurabilityErrors(document: unknown): CompilationError[] {
+  if (!isObject(document)) return [];
+  const durability = document["durability"];
+  const resume = isObject(durability) ? durability["resume"] : undefined;
+  if (
+    isObject(resume) &&
+    resume["requireResumePoint"] === true &&
+    !containsReachableResumePoint(document["root"])
+  ) {
+    return [
+      {
+        stage: 4,
+        code: "RESUME_POINT_REQUIRED",
+        message:
+          "durability.resume.requireResumePoint is true but the flow has no reachable " +
+          "resume point; add a checkpoint node, set `resumePoint: true`, or mark " +
+          "`meta.resume.safeToReplayFrom: true` on a reachable node (D3).",
+        nodePath: "root.durability.resume",
+        category: "resume",
+      },
+    ];
+  }
+  return [];
 }
 
 /** True when any reachable node carries a mutating `effectClass`. */

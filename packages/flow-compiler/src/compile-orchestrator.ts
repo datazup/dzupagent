@@ -36,12 +36,18 @@ import type { DzupEvent } from "@dzupagent/core";
 
 import { validateShape } from "./stages/shape-validate.js";
 import { semanticResolve } from "./stages/semantic.js";
-import { computeDurabilityDiagnostics } from "./stages/durability-diagnostics.js";
+import {
+  computeDurabilityDiagnostics,
+  computeDurabilityErrors,
+} from "./stages/durability-diagnostics.js";
 import { collectUnsupportedRuntimeNodes, routeTarget } from "./route-target.js";
 import { lowerSkillChain } from "./lower/lower-skill-chain.js";
 import { lowerPipelineFlat } from "./lower/lower-pipeline-flat.js";
 import { lowerPipelineLoop } from "./lower/lower-pipeline-loop.js";
-import { checkpointStrategyForRuntime } from "./lower/lower-durability-strategy.js";
+import {
+  checkpointStrategyFromPolicy,
+  resumePolicyFromPolicy,
+} from "./lower/lower-durability-strategy.js";
 import { hasOnError } from "./route-target.js";
 import { collectFleetSteps } from "./lower/lower-fleet-nodes.js";
 import type { LoweredFleetStep } from "./lower/lower-fleet-nodes.js";
@@ -413,6 +419,17 @@ export async function runCompileDocument(
   const documentDurability = extractDocumentDurability(document);
   const durabilityWarnings = computeDurabilityDiagnostics(document);
 
+  // Gap 4 (W1 Slice 2): an explicit `requireResumePoint: true` with no reachable
+  // resume point is a hard compile error — fail fast before lowering.
+  const durabilityErrors = computeDurabilityErrors(document);
+  if (durabilityErrors.length > 0) {
+    return {
+      compileId: crypto.randomUUID(),
+      errors: durabilityErrors,
+      diagnosticCountsByCategory: countDiagnosticsByCategory(durabilityErrors),
+    };
+  }
+
   const result = await runCompile(deps, prepared.flowInput, {
     sourceKind: "flow-document",
     source: document,
@@ -420,22 +437,28 @@ export async function runCompileDocument(
 
   if ("errors" in result) return result;
 
-  // W1 Slice 2: translate the document-level AST checkpoint strategy into the
-  // runtime `CheckpointStrategy` and stamp it on the emitted PipelineDefinition.
-  // Only pipeline-shaped targets (`workflow-builder` / `pipeline`) produce a
-  // PipelineDefinition; `skill-chain` artifacts have a different shape and are
-  // left untouched. Absent strategy ⇒ artifact unchanged (byte-identical).
-  const { strategy: runtimeCheckpointStrategy } = checkpointStrategyForRuntime(
-    documentDurability?.checkpoint?.strategy
-  );
-  if (
-    runtimeCheckpointStrategy !== undefined &&
+  // W1 Slice 2: lower the document-level durability policy onto the emitted
+  // PipelineDefinition. Only pipeline-shaped targets (`workflow-builder` /
+  // `pipeline`) produce a PipelineDefinition; `skill-chain` artifacts have a
+  // different shape and are left untouched. Absent policy ⇒ artifact unchanged
+  // (byte-identical). The `CHECKPOINT_STRATEGY_COARSENED` warning is emitted by
+  // the durability-diagnostics stage (canonical home), so the helper's warnings
+  // are intentionally discarded here to avoid a duplicate.
+  const isPipelineArtifact =
     result.target !== "skill-chain" &&
     typeof result.artifact === "object" &&
-    result.artifact !== null
-  ) {
-    (result.artifact as Record<string, unknown>)["checkpointStrategy"] =
-      runtimeCheckpointStrategy;
+    result.artifact !== null;
+  if (isPipelineArtifact) {
+    const { checkpointStrategy: runtimeCheckpointStrategy } =
+      checkpointStrategyFromPolicy(documentDurability);
+    if (runtimeCheckpointStrategy !== undefined) {
+      (result.artifact as Record<string, unknown>)["checkpointStrategy"] =
+        runtimeCheckpointStrategy;
+    }
+    const resume = resumePolicyFromPolicy(documentDurability);
+    if (resume !== undefined) {
+      (result.artifact as Record<string, unknown>)["resume"] = resume;
+    }
   }
 
   const mergedWarnings =

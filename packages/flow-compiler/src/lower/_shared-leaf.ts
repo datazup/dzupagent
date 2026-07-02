@@ -26,6 +26,7 @@ import type {
   LowerPipelineContext,
   LowerPipelineResult,
 } from "./_shared-types.js";
+import { nodeDurabilityFields } from "./_shared-durability.js";
 import { freshId, loweringMode, lowerChildren } from "./_shared-utils.js";
 
 /**
@@ -44,6 +45,7 @@ export function lowerAction(
   void lowerOne; // action has no children but signature kept symmetric
   const warnings: string[] = [];
   const rt = ctx.resolved.get(path);
+  const durability = nodeDurabilityFields(node);
 
   if (rt === undefined) {
     const message = `lower/action: no resolved tool at path '${path}' (toolRef='${node.toolRef}')`;
@@ -60,6 +62,7 @@ export function lowerAction(
       name: node.toolRef,
       toolName: node.toolRef,
       arguments: node.input,
+      ...durability,
     };
     return { nodes: [stub], edges: [], warnings };
   }
@@ -70,8 +73,6 @@ export function lowerAction(
   // durability from the AST onto the runtime node. Each field is only set when
   // declared, so an action with no durability decls lowers byte-identically to
   // before (the spread of `{}` is a no-op).
-  const durability = actionDurabilityFields(node);
-
   if (rt.kind === "agent") {
     const agentNode: AgentNode = {
       id,
@@ -93,54 +94,6 @@ export function lowerAction(
     ...durability,
   };
   return { nodes: [toolNode], edges: [], warnings };
-}
-
-/**
- * W1 (Slice 1): extract the declared per-node durability fields from an AST
- * `ActionNode` into the additive `PipelineNodeBase` shape. Returns only the
- * fields that are actually declared, so absent declarations produce `{}` and
- * the lowered node is unchanged from pre-W1 behavior.
- *
- * - `effectClass` (`FlowNodeBase.effectClass`) — carried for observability only.
- * - `idempotency` (`FlowNodeBase.idempotency`) — maps to the runtime attempt policy.
- * - `declaredIdempotencyKey` (`meta.mutation.idempotencyKey`) — wins over the
- *   derived key at runtime. `meta.mutation` may be `FlowMutationMetadata` or a
- *   raw `FlowValue`, so it is narrowed defensively before reading.
- */
-function actionDurabilityFields(node: ActionNode): {
-  effectClass?: string;
-  idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
-  declaredIdempotencyKey?: string;
-} {
-  const fields: {
-    effectClass?: string;
-    idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
-    declaredIdempotencyKey?: string;
-  } = {};
-
-  if (node.effectClass !== undefined) {
-    fields.effectClass = node.effectClass;
-  }
-  if (node.idempotency !== undefined) {
-    fields.idempotency = node.idempotency;
-  }
-
-  const mutation = node.meta?.mutation;
-  if (
-    mutation !== undefined &&
-    mutation !== null &&
-    typeof mutation === "object" &&
-    "idempotencyKey" in mutation &&
-    typeof (mutation as { idempotencyKey?: unknown }).idempotencyKey ===
-      "string"
-  ) {
-    const key = (mutation as { idempotencyKey: string }).idempotencyKey;
-    if (key.length > 0) {
-      fields.declaredIdempotencyKey = key;
-    }
-  }
-
-  return fields;
 }
 
 /**
@@ -179,6 +132,7 @@ export function lowerForEach(
     bodyNodeIds,
     maxIterations: 1000, // reasonable upper bound; runtime may override
     continuePredicateName: `forEach__${node.as}__predicate`,
+    ...nodeDurabilityFields(node),
   };
 
   // The loop node acts as the container; body nodes remain in the flat list
@@ -208,6 +162,7 @@ export function lowerClarification(
       node.expected === "choice"
         ? `clarification__choice__${node.choices?.join("|") ?? ""}`
         : undefined,
+    ...nodeDurabilityFields(node),
   };
   return { nodes: [suspendNode], edges: [], warnings: [] };
 }
@@ -221,13 +176,13 @@ export function lowerComplete(
   ctx: LowerPipelineContext,
   path: string
 ): LowerPipelineResult {
-  void path;
   const suspendNode: SuspendNode = {
     id: freshId(ctx),
     type: "suspend",
     name: `complete:${path}`,
     description: node.result,
     // No resumeCondition — this node is terminal.
+    ...nodeDurabilityFields(node),
   };
   return { nodes: [suspendNode], edges: [], warnings: [] };
 }

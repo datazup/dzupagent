@@ -22,18 +22,19 @@ export type {
   ErrorEdge,
   PipelineEdge,
   CheckpointStrategy,
+  PipelineResumePolicy,
   PipelineDefinition,
   PipelineValidationError,
   PipelineValidationWarning,
   PipelineValidationResult,
-} from './pipeline-definition.js'
+} from "./pipeline-definition.js";
 
 // --- Checkpoint store types ---
 export type {
   PipelineCheckpoint,
   PipelineCheckpointSummary,
   PipelineCheckpointStore,
-} from './pipeline-checkpoint-store.js'
+} from "./pipeline-checkpoint-store.js";
 
 // --- Serialization ---
 export {
@@ -56,8 +57,12 @@ export {
   // Functions
   serializePipeline,
   deserializePipeline,
-} from './pipeline-serialization.js'
+} from "./pipeline-serialization.js";
 
 // --- Layout ---
-export { autoLayout } from './pipeline-layout.js'
-export type { NodePosition, ViewportState, PipelineLayout } from './pipeline-layout.js'
+export { autoLayout } from "./pipeline-layout.js";
+export type {
+  NodePosition,
+  ViewportState,
+  PipelineLayout,
+} from "./pipeline-layout.js";

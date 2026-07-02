@@ -33,7 +33,13 @@
  * @module lower/lower-durability-strategy
  */
 
-import type { CheckpointStrategy } from "@dzupagent/core/pipeline";
+import type { FlowDurabilityPolicy } from "@dzupagent/flow-ast";
+import type {
+  CheckpointStrategy,
+  PipelineResumePolicy,
+} from "@dzupagent/core/pipeline";
+
+import type { CompilationWarning } from "../types.js";
 
 /** AST-side checkpoint strategy vocabulary (FlowDurabilityPolicy.checkpoint.strategy). */
 export type AstCheckpointStrategy =
@@ -79,4 +85,101 @@ export function checkpointStrategyForRuntime(
       // to node granularity and flag so the caller warns rather than pretends.
       return { strategy: "after_each_node", coarsened: true };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Policy-level lowering (Gap 2 mode-derive + Gap 3 resume)
+// ---------------------------------------------------------------------------
+
+export interface CheckpointLoweringResult {
+  /**
+   * Runtime checkpoint strategy, or `undefined` when the policy declares neither
+   * a `checkpoint.strategy` nor a `mode` — in which case the lowered
+   * PipelineDefinition is byte-identical to today (no field set).
+   */
+  checkpointStrategy?: CheckpointStrategy;
+  /** Stage-4 advisory warnings (coarsen notices). Empty for lossless mappings. */
+  warnings: CompilationWarning[];
+}
+
+/**
+ * Lower the whole `FlowDurabilityPolicy` into a runtime `CheckpointStrategy`.
+ *
+ * Precedence (§5.2): an explicit `checkpoint.strategy` always wins; when absent,
+ * derive from the coarse `durability.mode`:
+ *
+ *   mode 'checkpointed' | 'durable' → after_each_node
+ *   mode 'volatile'                 → none
+ *   mode absent (and no strategy)   → undefined (no-op, today's behavior)
+ *
+ * Coarsening of `after_each_effect`/`after_each_branch` re-uses
+ * `checkpointStrategyForRuntime` and surfaces the `CHECKPOINT_STRATEGY_COARSENED`
+ * warning so the down-map stays honest.
+ */
+export function checkpointStrategyFromPolicy(
+  policy: FlowDurabilityPolicy | undefined
+): CheckpointLoweringResult {
+  const warnings: CompilationWarning[] = [];
+  if (policy === undefined) return { warnings };
+
+  const strategy = policy.checkpoint?.strategy;
+  if (strategy !== undefined) {
+    const { strategy: runtime, coarsened } =
+      checkpointStrategyForRuntime(strategy);
+    if (coarsened) warnings.push(coarsenWarning(strategy));
+    return runtime !== undefined
+      ? { checkpointStrategy: runtime, warnings }
+      : { warnings };
+  }
+
+  // No explicit strategy — derive from `mode`.
+  switch (policy.mode) {
+    case "checkpointed":
+    case "durable":
+      return { checkpointStrategy: "after_each_node", warnings };
+    case "volatile":
+      return { checkpointStrategy: "none", warnings };
+    default:
+      return { warnings };
+  }
+}
+
+/**
+ * Lower the AST `durability.resume` block onto the additive runtime
+ * `PipelineDefinition.resume`. Returns `undefined` when no resume policy is
+ * declared (or the block is empty), so the field stays absent (byte-identical).
+ */
+export function resumePolicyFromPolicy(
+  policy: FlowDurabilityPolicy | undefined
+): PipelineResumePolicy | undefined {
+  const resume = policy?.resume;
+  if (resume === undefined) return undefined;
+
+  const out: PipelineResumePolicy = {};
+  if (resume.onProcessRestart !== undefined) {
+    out.onProcessRestart = resume.onProcessRestart;
+  }
+  if (resume.requireResumePoint !== undefined) {
+    out.requireResumePoint = resume.requireResumePoint;
+  }
+  if (resume.maxReplayNodes !== undefined) {
+    out.maxReplayNodes = resume.maxReplayNodes;
+  }
+
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function coarsenWarning(
+  strategy: "after_each_effect" | "after_each_branch"
+): CompilationWarning {
+  return {
+    stage: 4,
+    code: "CHECKPOINT_STRATEGY_COARSENED",
+    message:
+      `durability.checkpoint.strategy '${strategy}' has no runtime execution ` +
+      "path yet and is coarsened to 'after_each_node' (checkpoint after every " +
+      "node); finer per-effect/per-branch checkpointing is not implemented.",
+    nodePath: "root.durability.checkpoint",
+    category: "policy",
+  };
 }

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { checkpointStrategyForRuntime } from "../lower/lower-durability-strategy.js";
+import type { FlowDurabilityPolicy } from "@dzupagent/flow-ast";
+
+import {
+  checkpointStrategyForRuntime,
+  checkpointStrategyFromPolicy,
+  resumePolicyFromPolicy,
+} from "../lower/lower-durability-strategy.js";
 
 describe("checkpointStrategyForRuntime — W1 Slice 2 vocab reconciliation (Option A)", () => {
   it("maps after_each_node 1:1 (real runtime behavior today)", () => {
@@ -36,5 +42,84 @@ describe("checkpointStrategyForRuntime — W1 Slice 2 vocab reconciliation (Opti
       strategy: undefined,
       coarsened: false,
     });
+  });
+});
+
+describe("checkpointStrategyFromPolicy — Gap 2 mode-derive (§5.2)", () => {
+  it("returns no strategy for an undefined policy (byte-identical no-op)", () => {
+    expect(checkpointStrategyFromPolicy(undefined)).toEqual({ warnings: [] });
+  });
+
+  it("prefers an explicit checkpoint.strategy over mode", () => {
+    const policy: FlowDurabilityPolicy = {
+      mode: "volatile",
+      checkpoint: { strategy: "after_each_node" },
+    };
+    const out = checkpointStrategyFromPolicy(policy);
+    expect(out.checkpointStrategy).toBe("after_each_node");
+    expect(out.warnings).toHaveLength(0);
+  });
+
+  it("carries the coarsening warning when the explicit strategy is coarsened", () => {
+    const policy: FlowDurabilityPolicy = {
+      checkpoint: { strategy: "after_each_effect" },
+    };
+    const out = checkpointStrategyFromPolicy(policy);
+    expect(out.checkpointStrategy).toBe("after_each_node");
+    expect(out.warnings.map((w) => w.code)).toContain(
+      "CHECKPOINT_STRATEGY_COARSENED"
+    );
+  });
+
+  it("derives after_each_node from mode 'checkpointed' when no explicit strategy", () => {
+    expect(checkpointStrategyFromPolicy({ mode: "checkpointed" })).toEqual({
+      checkpointStrategy: "after_each_node",
+      warnings: [],
+    });
+  });
+
+  it("derives after_each_node from mode 'durable'", () => {
+    expect(checkpointStrategyFromPolicy({ mode: "durable" })).toEqual({
+      checkpointStrategy: "after_each_node",
+      warnings: [],
+    });
+  });
+
+  it("derives 'none' from mode 'volatile'", () => {
+    expect(checkpointStrategyFromPolicy({ mode: "volatile" })).toEqual({
+      checkpointStrategy: "none",
+      warnings: [],
+    });
+  });
+
+  it("no-ops when both strategy and mode are absent", () => {
+    expect(checkpointStrategyFromPolicy({})).toEqual({ warnings: [] });
+  });
+});
+
+describe("resumePolicyFromPolicy — Gap 3 additive resume lowering", () => {
+  it("returns undefined when no resume block is declared", () => {
+    expect(resumePolicyFromPolicy(undefined)).toBeUndefined();
+    expect(resumePolicyFromPolicy({})).toBeUndefined();
+    expect(resumePolicyFromPolicy({ mode: "durable" })).toBeUndefined();
+  });
+
+  it("passes through the declared resume fields", () => {
+    const policy: FlowDurabilityPolicy = {
+      resume: {
+        onProcessRestart: "resume_from_checkpoint",
+        requireResumePoint: true,
+        maxReplayNodes: 5,
+      },
+    };
+    expect(resumePolicyFromPolicy(policy)).toEqual({
+      onProcessRestart: "resume_from_checkpoint",
+      requireResumePoint: true,
+      maxReplayNodes: 5,
+    });
+  });
+
+  it("returns undefined when the resume block is present but empty", () => {
+    expect(resumePolicyFromPolicy({ resume: {} })).toBeUndefined();
   });
 });
