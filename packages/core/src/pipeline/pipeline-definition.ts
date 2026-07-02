@@ -20,104 +20,124 @@
  */
 export interface NodeRetryPolicy {
   /** Initial backoff delay in ms */
-  initialBackoffMs?: number
+  initialBackoffMs?: number;
   /** Maximum backoff delay in ms */
-  maxBackoffMs?: number
+  maxBackoffMs?: number;
   /** Backoff multiplier */
-  multiplier?: number
+  multiplier?: number;
   /** Alias for `multiplier` */
-  backoffMultiplier?: number
+  backoffMultiplier?: number;
   /** Add random jitter (0-50%) to backoff delay */
-  jitter?: boolean
+  jitter?: boolean;
   /**
    * Error patterns that are retryable.
    * - `string` values match via `error.includes(pattern)`
    * - `RegExp` values match via `pattern.test(error)`
    */
-  retryableErrors?: Array<string | RegExp>
+  retryableErrors?: Array<string | RegExp>;
 }
 
 export interface PipelineNodeBase {
   /** Unique identifier within the pipeline */
-  id: string
+  id: string;
   /** Discriminator for the node type */
-  type: string
+  type: string;
   /** Optional human-readable name */
-  name?: string
+  name?: string;
   /** Optional description of what this node does */
-  description?: string
+  description?: string;
   /** Maximum execution time in milliseconds */
-  timeoutMs?: number
+  timeoutMs?: number;
   /** Number of retries on failure (0 = no retries) */
-  retries?: number
+  retries?: number;
   /**
    * Per-node retry policy override. When set, values here take precedence
    * over the global pipeline-level retry policy for this specific node.
    * The `retries` field above still controls max retry count.
    */
-  retryPolicy?: NodeRetryPolicy
+  retryPolicy?: NodeRetryPolicy;
+  /**
+   * W1 durability wiring (Slice 1). A declared idempotency key lowered from the
+   * DSL (`meta.mutation.idempotencyKey`). When a non-empty string, the runtime
+   * uses it verbatim (namespaced) as the node's idempotency key instead of
+   * deriving one. Absent ⇒ the derived key, unchanged (backward-safe).
+   */
+  declaredIdempotencyKey?: string;
+  /**
+   * W1 durability wiring (Slice 1). Node delivery / attempt policy lowered from
+   * the DSL (flow-ast `NodeIdempotencyMode`). Maps to the canonical idempotency
+   * key's `attemptPolicy`. Absent ⇒ the runtime default (`at-least-once`).
+   */
+  idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+  /**
+   * W1 durability wiring (Slice 1). Fine-grained side-effect classification
+   * lowered from the DSL (flow-ast `EffectClass`, carried here as a plain string
+   * to avoid a core → flow-ast dependency). CARRIED for ledger / observability
+   * only in Slice 1 — no runtime behavior rides on it yet (forward-looking).
+   */
+  effectClass?: string;
 }
 
 export interface AgentNode extends PipelineNodeBase {
-  type: 'agent'
+  type: "agent";
   /** ID of the agent to invoke */
-  agentId: string
+  agentId: string;
   /** Optional agent configuration overrides */
-  config?: Record<string, unknown>
+  config?: Record<string, unknown>;
 }
 
 export interface ToolNode extends PipelineNodeBase {
-  type: 'tool'
+  type: "tool";
   /** Name of the tool to invoke */
-  toolName: string
+  toolName: string;
   /** Static arguments to pass to the tool */
-  arguments?: Record<string, unknown>
+  arguments?: Record<string, unknown>;
 }
 
 export interface TransformNode extends PipelineNodeBase {
-  type: 'transform'
+  type: "transform";
   /** Registered transform function name */
-  transformName: string
+  transformName: string;
 }
 
 export interface GateNode extends PipelineNodeBase {
-  type: 'gate'
+  type: "gate";
   /** Type of gate check */
-  gateType: 'approval' | 'budget' | 'quality'
+  gateType: "approval" | "budget" | "quality";
   /** Optional condition expression */
-  condition?: string
+  condition?: string;
 }
 
 export interface ForkNode extends PipelineNodeBase {
-  type: 'fork'
+  type: "fork";
   /** ID shared with the corresponding JoinNode */
-  forkId: string
+  forkId: string;
 }
 
 export interface JoinNode extends PipelineNodeBase {
-  type: 'join'
+  type: "join";
   /** ID of the corresponding ForkNode */
-  forkId: string
+  forkId: string;
   /** How to merge results from parallel branches */
-  mergeStrategy?: 'all' | 'first' | 'majority'
+  mergeStrategy?: "all" | "first" | "majority";
 }
 
 export interface LoopNode extends PipelineNodeBase {
-  type: 'loop'
+  type: "loop";
   /** Node IDs that form the loop body */
-  bodyNodeIds: string[]
+  bodyNodeIds: string[];
   /** Maximum number of iterations before stopping */
-  maxIterations: number
+  maxIterations: number;
   /** Registered predicate function name evaluated after each iteration */
-  continuePredicateName: string
+  continuePredicateName: string;
   /** Whether to throw when maxIterations is reached (default: false) */
-  failOnMaxIterations?: boolean
+  failOnMaxIterations?: boolean;
 }
 
 export interface SuspendNode extends PipelineNodeBase {
-  type: 'suspend'
+  type: "suspend";
   /** Optional condition that must be met for automatic resume */
-  resumeCondition?: string
+  resumeCondition?: string;
 }
 
 /**
@@ -131,45 +151,49 @@ export type PipelineNode =
   | ForkNode
   | JoinNode
   | LoopNode
-  | SuspendNode
+  | SuspendNode;
 
 // ---------------------------------------------------------------------------
 // Edge types — discriminated union on `type`
 // ---------------------------------------------------------------------------
 
 export interface SequentialEdge {
-  type: 'sequential'
-  sourceNodeId: string
-  targetNodeId: string
+  type: "sequential";
+  sourceNodeId: string;
+  targetNodeId: string;
 }
 
 export interface ConditionalEdge {
-  type: 'conditional'
-  sourceNodeId: string
+  type: "conditional";
+  sourceNodeId: string;
   /** Registered predicate function name */
-  predicateName: string
+  predicateName: string;
   /** Map of predicate return value -> target node ID */
-  branches: Record<string, string>
+  branches: Record<string, string>;
 }
 
 export interface ErrorEdge {
-  type: 'error'
-  sourceNodeId: string
-  targetNodeId: string
+  type: "error";
+  sourceNodeId: string;
+  targetNodeId: string;
   /** Optional list of error codes that trigger this edge (all errors if omitted) */
-  errorCodes?: string[]
+  errorCodes?: string[];
 }
 
 /**
  * Discriminated union of all 3 pipeline edge types.
  */
-export type PipelineEdge = SequentialEdge | ConditionalEdge | ErrorEdge
+export type PipelineEdge = SequentialEdge | ConditionalEdge | ErrorEdge;
 
 // ---------------------------------------------------------------------------
 // Checkpoint strategy
 // ---------------------------------------------------------------------------
 
-export type CheckpointStrategy = 'after_each_node' | 'on_suspend' | 'manual' | 'none'
+export type CheckpointStrategy =
+  | "after_each_node"
+  | "on_suspend"
+  | "manual"
+  | "none";
 
 // ---------------------------------------------------------------------------
 // Pipeline definition
@@ -183,31 +207,31 @@ export type CheckpointStrategy = 'after_each_node' | 'on_suspend' | 'manual' | '
  */
 export interface PipelineDefinition {
   /** Unique pipeline identifier */
-  id: string
+  id: string;
   /** Human-readable name */
-  name: string
+  name: string;
   /** Semantic version of this pipeline definition */
-  version: string
+  version: string;
   /** Optional description */
-  description?: string
+  description?: string;
   /** Schema version for forward compatibility */
-  schemaVersion: '1.0.0'
+  schemaVersion: "1.0.0";
   /** ID of the first node to execute */
-  entryNodeId: string
+  entryNodeId: string;
   /** All nodes in the pipeline */
-  nodes: PipelineNode[]
+  nodes: PipelineNode[];
   /** All edges connecting nodes */
-  edges: PipelineEdge[]
+  edges: PipelineEdge[];
   /** Maximum cost in cents before the pipeline is halted */
-  budgetLimitCents?: number
+  budgetLimitCents?: number;
   /** Maximum token usage before the pipeline is halted */
-  tokenLimit?: number
+  tokenLimit?: number;
   /** When to create checkpoints */
-  checkpointStrategy?: CheckpointStrategy
+  checkpointStrategy?: CheckpointStrategy;
   /** Arbitrary metadata */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
   /** Tags for categorization / filtering */
-  tags?: string[]
+  tags?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -216,29 +240,29 @@ export interface PipelineDefinition {
 
 export interface PipelineValidationError {
   /** Machine-readable error code */
-  code: string
+  code: string;
   /** Human-readable error message */
-  message: string
+  message: string;
   /** Node ID where the error occurred (if applicable) */
-  nodeId?: string
+  nodeId?: string;
   /** Edge index where the error occurred (if applicable) */
-  edgeIndex?: number
+  edgeIndex?: number;
 }
 
 export interface PipelineValidationWarning {
   /** Machine-readable warning code */
-  code: string
+  code: string;
   /** Human-readable warning message */
-  message: string
+  message: string;
   /** Node ID where the warning applies (if applicable) */
-  nodeId?: string
+  nodeId?: string;
 }
 
 export interface PipelineValidationResult {
   /** Whether the pipeline definition is valid */
-  valid: boolean
+  valid: boolean;
   /** Errors that prevent execution */
-  errors: PipelineValidationError[]
+  errors: PipelineValidationError[];
   /** Non-blocking warnings */
-  warnings: PipelineValidationWarning[]
+  warnings: PipelineValidationWarning[];
 }

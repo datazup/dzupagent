@@ -68,6 +68,13 @@ export interface NodeIdempotencyKeyContext {
    * constant that does not perturb the key).
    */
   input?: unknown;
+  /**
+   * W1: a declared idempotency key lowered from the DSL
+   * (`meta.mutation.idempotencyKey`). When a non-empty string it WINS — the
+   * returned key is the namespaced declared key (`dzup:v1:declared:{k}`) and the
+   * canonical derivation is bypassed entirely. Absent ⇒ derived key, unchanged.
+   */
+  declaredKey?: string;
 }
 
 /**
@@ -94,8 +101,17 @@ export interface NodeIdempotencyKeyContext {
 export function nodeIdempotencyKey(
   runId: string,
   nodeId: string,
-  context: NodeIdempotencyKeyContext = {}
+  context: NodeIdempotencyKeyContext = {},
 ): string {
+  // W1: a declared key from the DSL wins — namespaced so it can never collide
+  // with the derived `dzup:v1:{sourceHash}:...` key space. Deterministic across
+  // dispatch-time and record-time because it rides in the same context both
+  // times. Absent ⇒ fall through to the canonical derivation (unchanged).
+  const declared = context.declaredKey;
+  if (typeof declared === "string" && declared.length > 0) {
+    return `dzup:v1:declared:${declared}`;
+  }
+
   return materializeIdempotencyKey({
     sourceHash:
       context.flowDefinition === undefined
@@ -111,11 +127,13 @@ export function nodeIdempotencyKey(
 /**
  * Derive the canonical-key `attemptPolicy` and `input` for a runtime node.
  *
- * - `attemptPolicy`: read from `node.idempotency` when a richer compiler stamps
- *   it onto the node (the flow-ast `IdempotencyClass`:
- *   `'idempotent' | 'at-least-once' | 'exactly-once-required'`). The canonical
- *   `PipelineNode` union does not type this field, so it is read defensively;
- *   when absent it defaults to `at-least-once`.
+ * - `attemptPolicy`: read from the node's typed `idempotency` field (the flow-ast
+ *   `NodeIdempotencyMode`: `'idempotent' | 'at-least-once' |
+ *   'exactly-once-required'`), lowered onto `PipelineNodeBase` by W1; when absent
+ *   it defaults to `at-least-once`.
+ * - `declaredKey`: read from the node's `declaredIdempotencyKey` (W1). When a
+ *   non-empty string it is threaded through so {@link nodeIdempotencyKey}
+ *   short-circuits to the namespaced declared key.
  * - `input`: the node's *static configured input*, not the live mutable run
  *   state. The key is computed at dispatch time and again when the completion
  *   is recorded; using live state would let the two diverge if the node mutates
@@ -127,11 +145,20 @@ export function nodeIdempotencyKey(
  * `flowDefinition` onto before passing to {@link nodeIdempotencyKey}.
  */
 export function nodeIdempotencyContext(
-  node: PipelineNode
-): Pick<NodeIdempotencyKeyContext, "attemptPolicy" | "input"> {
-  const idempotency = (node as { idempotency?: unknown }).idempotency;
+  node: PipelineNode,
+): Pick<NodeIdempotencyKeyContext, "attemptPolicy" | "input" | "declaredKey"> {
   const attemptPolicy =
-    typeof idempotency === "string" ? idempotency : ATTEMPT_POLICY_DEFAULT;
+    typeof node.idempotency === "string"
+      ? node.idempotency
+      : ATTEMPT_POLICY_DEFAULT;
+
+  // W1: a declared idempotency key from the DSL, when present, short-circuits
+  // the derivation in `nodeIdempotencyKey`. Only a non-empty string counts.
+  const declaredKey =
+    typeof node.declaredIdempotencyKey === "string" &&
+    node.declaredIdempotencyKey.length > 0
+      ? node.declaredIdempotencyKey
+      : undefined;
 
   // Static, drift-free per-node input. `config`/`arguments` are the only
   // input-bearing fields on the canonical node union; absent fields hash to the
@@ -144,5 +171,7 @@ export function nodeIdempotencyContext(
     input.arguments = node.arguments;
   }
 
-  return { attemptPolicy, input };
+  return declaredKey === undefined
+    ? { attemptPolicy, input }
+    : { attemptPolicy, input, declaredKey };
 }

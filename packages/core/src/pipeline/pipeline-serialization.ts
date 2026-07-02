@@ -17,6 +17,11 @@ const PipelineNodeBaseSchema = z.object({
   description: z.string().optional(),
   timeoutMs: z.number().int().positive().optional(),
   retries: z.number().int().nonnegative().optional(),
+  declaredIdempotencyKey: z.string().optional(),
+  idempotency: z
+    .enum(['idempotent', 'at-least-once', 'exactly-once-required'])
+    .optional(),
+  effectClass: z.string().optional(),
 })
 
 export const AgentNodeSchema = PipelineNodeBaseSchema.extend({
