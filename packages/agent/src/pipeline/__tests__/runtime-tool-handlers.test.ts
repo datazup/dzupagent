@@ -5,6 +5,10 @@ import type {
   NodeExecutor,
   RuntimeToolHandler,
 } from "../pipeline-runtime-types.js";
+import {
+  runtimeToolFailure,
+  runtimeToolSuccess,
+} from "../runtime-tool-handlers.js";
 
 function makeRuntimeToolPipeline(node: ToolNode): PipelineDefinition {
   return {
@@ -106,5 +110,92 @@ describe("PipelineRuntime runtime tool handlers", () => {
     expect(result.state).toBe("completed");
     expect(result.nodeResults.get("tool_0")?.output).toEqual({ type: "tool" });
     expect(fallbackExecutor).toHaveBeenCalledTimes(1);
+  });
+
+  it("unwraps structured runtime-tool success envelopes into node results", async () => {
+    const handler = vi.fn<RuntimeToolHandler>(async () =>
+      runtimeToolSuccess({
+        output: { text: "ok" },
+        providerSessionRefs: [
+          {
+            provider: "openai",
+            sessionId: "sess-1",
+            label: "prompt",
+            metadata: { threadId: "thread-1" },
+          },
+        ],
+      }),
+    );
+
+    const runtime = new PipelineRuntime({
+      definition: makeRuntimeToolPipeline({
+        id: "prompt_0",
+        type: "tool",
+        toolName: "dzup.runtime.prompt",
+        arguments: { userPrompt: "Summarize." },
+      }),
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      runtimeToolHandlers: {
+        "dzup.runtime.prompt": handler,
+      },
+    });
+
+    const result = await runtime.execute();
+    const nodeResult = result.nodeResults.get("prompt_0");
+
+    expect(result.state).toBe("completed");
+    expect(nodeResult?.output).toEqual({ text: "ok" });
+    expect(nodeResult?.providerSessionRefs).toEqual([
+      {
+        provider: "openai",
+        sessionId: "sess-1",
+        label: "prompt",
+        metadata: { threadId: "thread-1" },
+      },
+    ]);
+  });
+
+  it("unwraps structured runtime-tool failure envelopes into node errors", async () => {
+    const handler = vi.fn<RuntimeToolHandler>(async () =>
+      runtimeToolFailure({
+        message: "schema validation failed",
+        code: "VALIDATION_FAILED",
+        retryable: false,
+        metadata: { schemaRef: "schema.review", failures: 2 },
+      }),
+    );
+
+    const runtime = new PipelineRuntime({
+      definition: makeRuntimeToolPipeline({
+        id: "validate_0",
+        type: "tool",
+        toolName: "dzup.runtime.validate",
+        arguments: { ref: "schema.review" },
+      }),
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      runtimeToolHandlers: {
+        "dzup.runtime.validate": handler,
+      },
+    });
+
+    const result = await runtime.execute();
+    const nodeResult = result.nodeResults.get("validate_0");
+
+    expect(result.state).toBe("failed");
+    expect(nodeResult?.error).toBe("schema validation failed");
+    expect(nodeResult?.errorMetadata).toEqual({
+      code: "VALIDATION_FAILED",
+      retryable: false,
+      schemaRef: "schema.review",
+      failures: 2,
+    });
   });
 });
