@@ -36,6 +36,10 @@
     "@dzupagent/memory#typecheck": {
       "dependsOn": ["@dzupagent/memory-ipc#build"]
     },
+    "@dzupagent/connectors#typecheck": {
+      "dependsOn": ["^build", "^typecheck", "@dzupagent/flow-ast#build"],
+      "outputs": []
+    },
     "lint": {
       "inputs": ["src/**", "package.json", ".eslintrc*", "eslint.config.*"],
       "outputs": []
@@ -49,6 +53,16 @@
         "tsconfig.json",
         "vitest.config.*"
       ],
+      "outputs": []
+    },
+    "@dzupagent/agent#test": {
+      "dependsOn": ["^build", "@dzupagent/agent#build"],
+      "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
+      "outputs": []
+    },
+    "@dzupagent/agent-adapters#test": {
+      "dependsOn": ["^build", "@dzupagent/agent-adapters#build"],
+      "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
       "outputs": []
     },
     "@dzupagent/evals#test": {
