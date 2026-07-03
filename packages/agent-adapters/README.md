@@ -167,19 +167,58 @@ for await (const event of registry.executeWithFallback(
 - `bid(prompt, options)` — contract-net style provider bidding.
 - `chat(prompt, options)` — multi-turn workflow with session continuity.
 
-### 4) Context-aware routing and injection
+### 4) Runtime tool bridge for compiled flows
+
+Compiled `dzupflow/v1` runtime leaves lower to `dzup.runtime.*` tool nodes in
+`@dzupagent/agent`. Use `createAdapterRuntimeToolHandlers` to execute those
+nodes through an adapter orchestrator without writing per-tool glue.
+
+```ts
+import { PipelineRuntime } from '@dzupagent/agent/pipeline'
+import {
+  ClaudeAgentAdapter,
+  CodexAdapter,
+  createOrchestrator,
+} from '@dzupagent/agent-adapters'
+import { createAdapterRuntimeToolHandlers } from '@dzupagent/agent-adapters/pipeline'
+
+const orchestrator = createOrchestrator({
+  adapters: [new ClaudeAgentAdapter(), new CodexAdapter()],
+})
+
+const runtime = new PipelineRuntime({
+  definition: compiledPlanningDag,
+  nodeExecutor: fallbackExecutor,
+  runtimeToolHandlers: createAdapterRuntimeToolHandlers({ orchestrator }),
+  runtimeToolReadiness: 'fail_fast',
+})
+
+await runtime.execute()
+```
+
+The bridge maps `prompt`, `worker.dispatch`, `adapter.run`, `adapter.race`,
+`adapter.parallel`, and `adapter.supervisor` to the facade's `run`, `race`,
+`parallel`, and `supervisor` APIs. The optional `validate` port remains
+host-provided so apps can decide whether validation references execute command
+suites, JSON schema checks, policy checks, or app-specific validators.
+Use `runtimeToolReadiness: 'fail_fast'` to reject missing handlers before
+execute/resume/redelivery starts. Adapter bridge results preserve provider
+session refs on successful, failed, and cancelled runtime nodes so resumable
+hosts can persist provider session provenance outside the node output payload.
+
+### 5) Context-aware routing and injection
 
 - `ContextAwareRouter` estimates token usage and routes to providers with sufficient effective context window.
 - Built-in context window defaults for all supported providers; configurable safety margin and token estimator.
 - `ContextInjectionMiddleware` manages prioritized context chunks, applies token-budget filtering, and injects context into prompt or system prompt.
 
-### 5) Safety and governance features
+### 6) Safety and governance features
 
 - `AdapterGuardrails` / `AdapterStuckDetector` — runtime budget and stall detection.
 - `AdapterApprovalGate` — human-in-the-loop approval (`auto`, `required`, `conditional`), timeout handling, and webhook/event notifications.
 - `AdapterRecoveryCopilot` / `ExecutionTraceCapture` — analyze failures and suggest or apply recovery strategies.
 
-### 6) Structured outputs and protocol adaptation
+### 7) Structured outputs and protocol adaptation
 
 - `StructuredOutputAdapter` retries and validates model output against schemas.
 - Built-in schemas:
@@ -187,13 +226,13 @@ for await (const event of registry.executeWithFallback(
   - `RegexOutputSchema`
 - Optional format-instruction injection and fallback provider rotation on parse failures.
 
-### 7) Stateful and persistent execution
+### 8) Stateful and persistent execution
 
 - `SessionRegistry` for workflow-scoped conversation/session tracking.
 - `WorkflowCheckpointer`, `InMemoryCheckpointStore`, `FileCheckpointStore` for resumable workflows.
 - `RunManager` for run lifecycle tracking, stats, pruning, and event emission.
 
-### 8) Additional platform utilities
+### 9) Additional platform utilities
 
 - `AdapterTracer` for trace spans/events.
 - `StreamingHandler` for stream formatting and progress output.
@@ -396,6 +435,7 @@ console.log(workflowResult.success, workflowResult.finalState)
 - **Registry/routing:** `ProviderAdapterRegistry`, `TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter`, `CapabilityRouter`, `ContextAwareRouter`
 - **Orchestration:** `OrchestratorFacade`, `createOrchestrator`, `SupervisorOrchestrator`, `ParallelExecutor`, `MapReduceOrchestrator`, `ContractNetOrchestrator`
 - **Workflow/session/persistence:** `defineWorkflow`, `AdapterWorkflowBuilder`, `SessionRegistry`, `WorkflowCheckpointer`, `RunManager`, `FileCheckpointStore`
+- **Pipeline/runtime bridge:** `AdapterPipeline`, `PolicyEnforcementPipeline`, `createAdapterRuntimeToolHandlers`, `createAdapterRuntimeToolPorts`
 - **Controls/safety:** `AdapterGuardrails`, `AdapterApprovalGate`, `AdapterRecoveryCopilot`, `CostTrackingMiddleware`, `CostOptimizationEngine`
 - **Output/streaming/observability:** `StructuredOutputAdapter`, `JsonOutputSchema`, `RegexOutputSchema`, `StreamingHandler`, `AdapterTracer`
 - **Integration surfaces:** `AdapterHttpHandler`, `createAdapterPlugin`, `AgentIntegrationBridge`, `MCPToolSharingBridge`
