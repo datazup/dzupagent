@@ -50,3 +50,6 @@ bun.lockb
 
 # Generic local logs
 *.log
+
+# Local agent worktrees
+.worktrees/
