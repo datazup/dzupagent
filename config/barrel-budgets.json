@@ -39,14 +39,18 @@
     "narrowed route-plugin seam.",
     "2026-06-29 PR-14 strict-gate re-pin: budgets updated to the current measured baseline after",
     "approval-bridge and adapter contract exports landed. Existing >500 LOC modules are debt-pinned",
-    "in fileLineAllowlist so new oversized files still fail the gate."
+    "in fileLineAllowlist so new oversized files still fail the gate.",
+    "2026-07-03 broad-verify re-pin: budgets updated to the current measured committed baseline after",
+    "prior public root exports plus flow condition-expression/fragments/expressions work landed. Existing",
+    ">500 LOC modules are debt-pinned in fileLineAllowlist so future oversized files and root-index growth",
+    "still fail the gate."
   ],
   "packages": {
     "@dzupagent/core": {
-      "maxRootBarrelExplicitExports": 889,
+      "maxRootBarrelExplicitExports": 895,
       "maxRootBarrelStarExports": 0,
       "maxRootBarrelSourceCount": 138,
-      "maxRootIndexLines": 1262
+      "maxRootIndexLines": 1268
     },
     "@dzupagent/security": {
       "maxRootIndexLines": 58,
@@ -54,13 +58,15 @@
       "fileLineAllowlist": []
     },
     "@dzupagent/agent": {
-      "maxRootIndexLines": 722,
+      "maxRootIndexLines": 732,
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/index.ts",
         "src/agent/run-engine.ts",
         "src/agent/tool-loop/types.ts",
         "src/pipeline/pipeline-executor.ts",
+        "src/pipeline/pipeline-runtime.ts",
+        "src/pipeline/runtime-tool-handlers.ts",
         "src/reflection/run-reflector.ts",
         "src/security/agent-auth.ts",
         "src/self-correction/post-run-analyzer.ts",
@@ -92,7 +98,7 @@
       "fileLineAllowlist": ["src/github/github-client.ts"]
     },
     "@dzupagent/agent-adapters": {
-      "maxRootIndexLines": 778,
+      "maxRootIndexLines": 788,
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/index.ts",
@@ -168,12 +174,12 @@
       "fileLineAllowlist": []
     },
     "@dzupagent/flow-ast": {
-      "maxRootBarrelExplicitExports": 0,
-      "maxRootBarrelStarExports": 5,
-      "maxRootBarrelSourceCount": 5,
-      "maxRootIndexLines": 5,
+      "maxRootBarrelExplicitExports": 7,
+      "maxRootBarrelStarExports": 6,
+      "maxRootBarrelSourceCount": 8,
+      "maxRootIndexLines": 17,
       "auxiliarySourceLineBudgets": {
-        "src/types.ts": 1174
+        "src/types.ts": 1213
       },
       "maxFileLines": 500,
       "fileLineAllowlist": ["src/types.ts", "src/validate/document.ts"]
@@ -182,11 +188,13 @@
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/compile-orchestrator.ts",
-        "src/lower/lower-skill-chain.ts"
+        "src/lower/lower-skill-chain.ts",
+        "src/route-target.ts",
+        "src/stages/shape-validate-rules.ts"
       ]
     },
     "@dzupagent/flow-dsl": {
-      "maxRootIndexLines": 9,
+      "maxRootIndexLines": 12,
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/format-dsl.ts",

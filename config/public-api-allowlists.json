@@ -608,8 +608,11 @@
       "rootIndex": "packages/flow-ast/src/index.ts",
       "stableRoot": [
         { "match": "exact", "pattern": "./types.js" },
+        { "match": "exact", "pattern": "./fragments.js" },
+        { "match": "exact", "pattern": "./expressions.js" },
         { "match": "exact", "pattern": "./parse.js" },
         { "match": "exact", "pattern": "./validate.js" },
+        { "match": "exact", "pattern": "./condition-expression.js" },
         { "match": "exact", "pattern": "./output-key-uniqueness.js" },
         { "match": "exact", "pattern": "./policy-numbers.js" }
       ],
