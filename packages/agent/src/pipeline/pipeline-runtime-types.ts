@@ -31,6 +31,7 @@ import type {
   NodeExecutor as RuntimeNodeExecutor,
   NodeResult,
   PipelineRuntimeEvent,
+  ProviderSessionRef,
 } from "@dzupagent/runtime-contracts";
 import type { RecoveryCopilot } from "../recovery/recovery-copilot.js";
 import type { PipelineStuckDetector } from "../self-correction/pipeline-stuck-detector.js";
@@ -49,6 +50,7 @@ export type {
   PipelineRunResult,
   PipelineRuntimeEvent,
   LoopMetrics,
+  ProviderSessionRef,
 } from "@dzupagent/runtime-contracts";
 
 /**
@@ -69,9 +71,36 @@ export interface RuntimeToolHandlerInput {
   context: NodeExecutionContext;
 }
 
+export interface RuntimeToolStructuredError {
+  message: string;
+  code?: string;
+  retryable?: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RuntimeToolHandlerSuccessResult {
+  readonly __dzupRuntimeToolResult: true;
+  readonly ok: true;
+  output: unknown;
+  providerSessionRefs?: ProviderSessionRef[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface RuntimeToolHandlerFailureResult {
+  readonly __dzupRuntimeToolResult: true;
+  readonly ok: false;
+  error: RuntimeToolStructuredError;
+  output?: unknown;
+  providerSessionRefs?: ProviderSessionRef[];
+}
+
+export type RuntimeToolHandlerResult =
+  | RuntimeToolHandlerSuccessResult
+  | RuntimeToolHandlerFailureResult;
+
 export type RuntimeToolHandler = (
   input: RuntimeToolHandlerInput,
-) => Promise<unknown>;
+) => Promise<unknown | RuntimeToolHandlerResult>;
 
 export type RuntimeToolHandlers = Record<string, RuntimeToolHandler>;
 

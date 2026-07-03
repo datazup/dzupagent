@@ -70,6 +70,12 @@ export interface NodeResult {
   durationMs: number;
   error?: string;
   /**
+   * Machine-readable error detail, when the node executor can provide it.
+   * `error` remains the human-readable summary used by legacy retry and
+   * routing paths; this object is for diagnostics, policy, and observability.
+   */
+  errorMetadata?: Record<string, unknown>;
+  /**
    * Opaque provider session handles produced by this node, when available.
    * Pipeline checkpoints persist these only when checkpoint policy explicitly
    * requests provider-session-ref capture.

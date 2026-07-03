@@ -21,12 +21,34 @@ export type {
 export { PipelineRuntime } from './pipeline/pipeline-runtime.js'
 export {
   RUNTIME_TOOL_PREFIX,
+  RUNTIME_TOOL_NAMES,
+  RUNTIME_TOOL_RESULT_MARKER,
+  createRuntimeToolHandlers,
   createRuntimeToolNodeExecutor,
   isRuntimeToolNode,
+  runtimeToolFailure,
+  runtimeToolSuccess,
 } from './pipeline/runtime-tool-handlers.js'
 export type {
+  RuntimeAdapterParallelRequest,
+  RuntimeAdapterRaceRequest,
+  RuntimeAdapterRunRequest,
+  RuntimeAdapterSupervisorRequest,
+  RuntimePromptRequest,
+  RuntimeToolExecutionPorts,
   RuntimeToolHandler,
+  RuntimeToolHandlerFailureResult,
   RuntimeToolHandlers,
+  RuntimeToolHandlerInput,
+  RuntimeToolHandlerSuccessResult,
+  RuntimeToolPort,
+  RuntimeToolPortFailure,
+  RuntimeToolPortRequest,
+  RuntimeToolPortResult,
+  RuntimeToolPortSuccess,
+  RuntimeToolStructuredError,
+  RuntimeValidateRequest,
+  RuntimeWorkerDispatchRequest,
 } from './pipeline/runtime-tool-handlers.js'
 export { executeLoop, stateFieldTruthy, qualityBelow, hasErrors } from './pipeline/loop-executor.js'
 export type {
@@ -35,9 +57,9 @@ export type {
   PipelineRunResult,
   NodeExecutor,
   NodeExecutionContext,
+  ProviderSessionRef,
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
-  RuntimeToolHandlerInput,
   PipelineExecutionLogEntry,
   PipelineExecutionLogStore,
   LoopMetrics,
