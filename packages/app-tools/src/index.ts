@@ -27,6 +27,14 @@ export {
 } from "./tools/pm.js";
 
 export {
+  buildPlanTools,
+  InMemoryTodoStore,
+  type TodoItem,
+  type TodoStatus,
+  type TodoStore,
+} from "./tools/plan.js";
+
+export {
   InMemoryWorkflowRunner,
   type WorkflowDefinition,
   type WorkflowRunRecord,
