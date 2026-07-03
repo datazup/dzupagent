@@ -1,3 +1,5 @@
+import { exec } from "node:child_process";
+import type { ExecException } from "node:child_process";
 import type { PipelineDefinition, ToolNode } from "@dzupagent/core/pipeline";
 import type {
   NodeExecutionContext,
@@ -140,6 +142,7 @@ export interface RuntimeAdapterRunRequest extends RuntimeToolPortRequest {
   provider?: string;
   tags?: string[];
   model?: string;
+  tools?: boolean;
   instructions: string;
   systemPrompt?: string;
   input?: Record<string, unknown>;
@@ -234,6 +237,11 @@ export interface RuntimeToolReadinessResult {
 export interface RuntimeValidationCommand {
   id?: string;
   command: string;
+  kind?: "shell" | "schema";
+  schemaRef?: string;
+  dataPath?: string;
+  data?: unknown;
+  metadata?: Record<string, unknown>;
 }
 
 export interface RuntimeValidationCommandResult {
@@ -267,6 +275,56 @@ export interface RuntimeValidatePortOptions {
   suites?: Record<string, RuntimeValidationSuite | RuntimeValidationCommand[]>;
   resolveSuite?: RuntimeValidationSuiteResolver;
   runCommand?: RuntimeValidationCommandRunner;
+}
+
+export interface RuntimeShellValidationCommandRunnerOptions {
+  /**
+   * Exact command strings allowed to execute. Empty/omitted means deny all
+   * unless `allowCommand` returns true.
+   */
+  allowCommands?: readonly string[];
+  allowCommand?: (
+    command: RuntimeValidationCommand,
+    request: RuntimeValidateRequest,
+  ) => boolean | Promise<boolean>;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
+  maxBuffer?: number;
+}
+
+export interface RuntimeJsonSchemaValidationSuiteResolverOptions {
+  schemas: Record<string, unknown>;
+}
+
+export interface RuntimeJsonSchemaValidationInput {
+  schemaRef: string;
+  schema: unknown;
+  data: unknown;
+  command: RuntimeValidationCommand;
+  request: RuntimeValidateRequest;
+}
+
+export interface RuntimeJsonSchemaValidationResult {
+  ok: boolean;
+  errors?: unknown;
+  metadata?: Record<string, unknown>;
+}
+
+export type RuntimeJsonSchemaValidator = (
+  input: RuntimeJsonSchemaValidationInput,
+) =>
+  | boolean
+  | RuntimeJsonSchemaValidationResult
+  | Promise<boolean | RuntimeJsonSchemaValidationResult>;
+
+export interface RuntimeJsonSchemaValidationRunnerOptions {
+  schemas: Record<string, unknown>;
+  validate: RuntimeJsonSchemaValidator;
+  selectData?: (
+    request: RuntimeValidateRequest,
+    command: RuntimeValidationCommand,
+  ) => unknown;
 }
 
 export function createRuntimeToolHandlers(
@@ -430,6 +488,128 @@ export function createRuntimeValidatePort(
   };
 }
 
+export function createRuntimeShellValidationCommandRunner(
+  options: RuntimeShellValidationCommandRunnerOptions = {},
+): RuntimeValidationCommandRunner {
+  return async (command, request) => {
+    const allowed = await isShellValidationCommandAllowed(
+      command,
+      request,
+      options,
+    );
+    if (!allowed) {
+      return {
+        ...command,
+        ok: false,
+        error: "Runtime validation command denied by policy",
+        metadata: {
+          ...(command.metadata ?? {}),
+          code: "RUNTIME_VALIDATE_COMMAND_DENIED",
+        },
+      };
+    }
+
+    return executeShellValidationCommand(command, options);
+  };
+}
+
+export function createRuntimeJsonSchemaValidationSuiteResolver(
+  options: RuntimeJsonSchemaValidationSuiteResolverOptions,
+): RuntimeValidationSuiteResolver {
+  return async (ref) => {
+    if (!Object.hasOwn(options.schemas, ref)) return undefined;
+    return [
+      {
+        id: ref,
+        command: `schema:${ref}`,
+        kind: "schema",
+        schemaRef: ref,
+      },
+    ];
+  };
+}
+
+export function createRuntimeJsonSchemaValidationRunner(
+  options: RuntimeJsonSchemaValidationRunnerOptions,
+): RuntimeValidationCommandRunner {
+  return async (command, request) => {
+    const schemaRef = command.schemaRef ?? schemaRefFromCommand(command.command);
+    if (schemaRef === undefined) {
+      return {
+        ...command,
+        ok: false,
+        error: "Runtime validation command is not a schema validation command",
+        metadata: {
+          ...(command.metadata ?? {}),
+          code: "RUNTIME_VALIDATE_SCHEMA_COMMAND_INVALID",
+        },
+      };
+    }
+
+    if (!Object.hasOwn(options.schemas, schemaRef)) {
+      return {
+        ...command,
+        id: command.id ?? schemaRef,
+        ok: false,
+        error: `JSON schema "${schemaRef}" was not found`,
+        metadata: {
+          ...(command.metadata ?? {}),
+          code: "RUNTIME_VALIDATE_SCHEMA_NOT_FOUND",
+          schemaRef,
+        },
+      };
+    }
+
+    const schema = options.schemas[schemaRef];
+    const data = command.data ?? options.selectData?.(request, command) ?? request.context.state;
+
+    try {
+      const validation = await options.validate({
+        schemaRef,
+        schema,
+        data,
+        command,
+        request,
+      });
+      const normalized =
+        typeof validation === "boolean" ? { ok: validation } : validation;
+
+      return compactRuntimeToolResult({
+        ...command,
+        id: command.id ?? schemaRef,
+        command: command.command,
+        ok: normalized.ok,
+        error: normalized.ok ? undefined : "JSON schema validation failed",
+        metadata: normalized.ok
+          ? {
+              ...(command.metadata ?? {}),
+              ...(normalized.metadata ?? {}),
+              schemaRef,
+            }
+          : {
+              ...(command.metadata ?? {}),
+              ...(normalized.metadata ?? {}),
+              code: "RUNTIME_VALIDATE_SCHEMA_FAILED",
+              schemaRef,
+              errors: normalized.errors,
+            },
+      }) as RuntimeValidationCommandResult;
+    } catch (error) {
+      return {
+        ...command,
+        id: command.id ?? schemaRef,
+        ok: false,
+        error: errorMessage(error),
+        metadata: {
+          ...(command.metadata ?? {}),
+          code: "RUNTIME_VALIDATE_SCHEMA_VALIDATOR_FAILED",
+          schemaRef,
+        },
+      };
+    }
+  };
+}
+
 function createPortRuntimeToolHandler<TRequest extends RuntimeToolPortRequest>(
   toolName: string,
   port: RuntimeToolPort<TRequest> | undefined,
@@ -528,6 +708,79 @@ async function runValidationCommand(
   }
 }
 
+async function isShellValidationCommandAllowed(
+  command: RuntimeValidationCommand,
+  request: RuntimeValidateRequest,
+  options: RuntimeShellValidationCommandRunnerOptions,
+): Promise<boolean> {
+  if (options.allowCommands?.includes(command.command)) return true;
+  if (options.allowCommand !== undefined) {
+    return await options.allowCommand(command, request);
+  }
+  return false;
+}
+
+function executeShellValidationCommand(
+  command: RuntimeValidationCommand,
+  options: RuntimeShellValidationCommandRunnerOptions,
+): Promise<RuntimeValidationCommandResult> {
+  return new Promise((resolve) => {
+    exec(
+      command.command,
+      compactRuntimeToolResult({
+        cwd: options.cwd,
+        env: options.env,
+        timeout: options.timeoutMs,
+        maxBuffer: options.maxBuffer,
+      }),
+      (
+        error: ExecException | null,
+        stdout: string,
+        stderr: string,
+      ): void => {
+        if (error !== null) {
+          resolve(
+            compactRuntimeToolResult({
+              ...command,
+              ok: false,
+              exitCode:
+                typeof error.code === "number" ? error.code : undefined,
+              stdout,
+              stderr,
+              error: error.message,
+              metadata: {
+                ...(command.metadata ?? {}),
+                code:
+                  error.killed === true
+                    ? "RUNTIME_VALIDATE_COMMAND_TIMEOUT"
+                    : "RUNTIME_VALIDATE_COMMAND_FAILED",
+              },
+            }) as RuntimeValidationCommandResult,
+          );
+          return;
+        }
+
+        resolve(
+          compactRuntimeToolResult({
+            ...command,
+            ok: true,
+            exitCode: 0,
+            stdout,
+            stderr,
+            metadata: command.metadata,
+          }) as RuntimeValidationCommandResult,
+        );
+      },
+    );
+  });
+}
+
+function schemaRefFromCommand(command: string): string | undefined {
+  if (!command.startsWith("schema:")) return undefined;
+  const schemaRef = command.slice("schema:".length);
+  return schemaRef.length > 0 ? schemaRef : undefined;
+}
+
 function parseValidationCommands(value: unknown): RuntimeValidationCommand[] {
   if (!Array.isArray(value)) return [];
   const commands: RuntimeValidationCommand[] = [];
@@ -536,10 +789,28 @@ function parseValidationCommands(value: unknown): RuntimeValidationCommand[] {
     const command = item["command"];
     if (typeof command !== "string" || command.length === 0) continue;
     const id = item["id"];
+    const kind = item["kind"];
+    const schemaRef = item["schemaRef"];
+    const dataPath = item["dataPath"];
+    const metadata = item["metadata"];
     commands.push(
       compactRuntimeToolResult({
         id: typeof id === "string" && id.length > 0 ? id : undefined,
         command,
+        kind:
+          kind === "shell" || kind === "schema"
+            ? kind
+            : undefined,
+        schemaRef:
+          typeof schemaRef === "string" && schemaRef.length > 0
+            ? schemaRef
+            : undefined,
+        dataPath:
+          typeof dataPath === "string" && dataPath.length > 0
+            ? dataPath
+            : undefined,
+        data: "data" in item ? item["data"] : undefined,
+        metadata: isRecord(metadata) ? metadata : undefined,
       }) as RuntimeValidationCommand,
     );
   }
@@ -677,6 +948,7 @@ function commonAdapterRequest(
   Pick<
     RuntimeAdapterRunRequest,
     | "model"
+    | "tools"
     | "systemPrompt"
     | "input"
     | "persona"
@@ -692,6 +964,7 @@ function commonAdapterRequest(
     arguments: args,
     context: input.context,
     model: optionalString(args, "model"),
+    tools: optionalBoolean(args, "tools"),
     systemPrompt: optionalString(args, "systemPrompt"),
     input: optionalRecord(args, "input"),
     persona: optionalString(args, "persona"),
@@ -704,6 +977,7 @@ function commonAdapterRequest(
     Pick<
       RuntimeAdapterRunRequest,
       | "model"
+      | "tools"
       | "systemPrompt"
       | "input"
       | "persona"

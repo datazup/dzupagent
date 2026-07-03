@@ -34,6 +34,7 @@ export interface TaskDecomposer {
 export interface SubTaskResult {
   subtask: SubTask
   providerId: AdapterProviderId | null
+  sessionId?: string | undefined
   result: string
   success: boolean
   durationMs: number

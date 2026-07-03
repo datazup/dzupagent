@@ -262,6 +262,7 @@ export class SupervisorOrchestrator {
     const startMs = Date.now()
     let resultText = ''
     let resultProviderId: AdapterProviderId | null = null
+    let sessionId: string | undefined
     let success = false
     let errorMessage: string | undefined
     let cancelled = false
@@ -275,6 +276,7 @@ export class SupervisorOrchestrator {
         if (this.isCompletedEvent(event)) {
           resultText = event.result
           resultProviderId = event.providerId
+          sessionId = event.sessionId
           success = true
         } else if (this.isFailedEvent(event)) {
           // Adapter-level failures are emitted as events but the generator
@@ -282,6 +284,7 @@ export class SupervisorOrchestrator {
           // if no completion event arrives.
           errorMessage = event.error
           resultProviderId = event.providerId
+          sessionId = event.sessionId
         }
       }
 
@@ -316,6 +319,7 @@ export class SupervisorOrchestrator {
     return {
       subtask,
       providerId: resultProviderId,
+      ...(sessionId !== undefined ? { sessionId } : {}),
       result: resultText,
       success,
       durationMs,

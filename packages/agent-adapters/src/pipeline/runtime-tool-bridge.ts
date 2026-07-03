@@ -11,6 +11,7 @@ import {
   type RuntimeToolPortResult,
   type RuntimeValidateRequest,
   type RuntimeWorkerDispatchRequest,
+  type ProviderSessionRef,
 } from '@dzupagent/agent/pipeline'
 
 import type {
@@ -74,6 +75,8 @@ async function runPromptRuntimeTool(
   const result = await orchestrator.run(request.userPrompt, {
     preferredProvider: optionalProviderId(request.provider),
     systemPrompt: request.systemPrompt,
+    model: request.model,
+    tools: request.tools,
   })
 
   return portResultFromRunResult(result, (run) => ({
@@ -81,7 +84,7 @@ async function runPromptRuntimeTool(
     providerId: run.providerId,
     durationMs: run.durationMs,
     usage: run.usage,
-  }))
+  }), 'prompt')
 }
 
 async function runWorkerDispatchRuntimeTool(
@@ -94,6 +97,7 @@ async function runWorkerDispatchRuntimeTool(
       preferredProvider: providerId(request.provider),
       systemPrompt: request.systemPrompt,
       tags: request.commandSurface !== undefined ? [request.commandSurface] : [],
+      model: request.model,
     },
   )
 
@@ -103,7 +107,7 @@ async function runWorkerDispatchRuntimeTool(
     providerId: run.providerId,
     durationMs: run.durationMs,
     usage: run.usage,
-  }))
+  }), 'worker.dispatch')
 }
 
 async function runAdapterRunRuntimeTool(
@@ -118,10 +122,11 @@ async function runAdapterRunRuntimeTool(
       tags: request.tags ?? [],
       policy: request.policy as RunOptions['policy'],
       personaId: request.persona,
+      ...runtimeRunOptions(request),
     },
   )
 
-  return portResultFromRunResult(result, adapterRunOutput)
+  return portResultFromRunResult(result, adapterRunOutput, 'adapter.run')
 }
 
 async function runAdapterRaceRuntimeTool(
@@ -142,10 +147,14 @@ async function runAdapterRaceRuntimeTool(
         metadata: { providerId: result.providerId },
       },
       output: result,
+      providerSessionRefs: providerResultSessionRefs(result, 'adapter.race'),
     }
   }
 
-  return { output: result }
+  return {
+    output: result,
+    providerSessionRefs: providerResultSessionRefs(result, 'adapter.race'),
+  }
 }
 
 async function runAdapterParallelRuntimeTool(
@@ -174,10 +183,14 @@ async function runAdapterParallelRuntimeTool(
         },
       },
       output: result,
+      providerSessionRefs: parallelSessionRefs(result, 'adapter.parallel'),
     }
   }
 
-  return { output: result }
+  return {
+    output: result,
+    providerSessionRefs: parallelSessionRefs(result, 'adapter.parallel'),
+  }
 }
 
 async function runAdapterSupervisorRuntimeTool(
@@ -196,15 +209,20 @@ async function runAdapterSupervisorRuntimeTool(
         retryable: false,
       },
       output: result,
+      providerSessionRefs: supervisorSessionRefs(result, 'adapter.supervisor'),
     }
   }
 
-  return { output: result }
+  return {
+    output: result,
+    providerSessionRefs: supervisorSessionRefs(result, 'adapter.supervisor'),
+  }
 }
 
 function portResultFromRunResult(
   result: RunResult,
   output: (result: RunResult) => Record<string, unknown>,
+  label: string,
 ): RuntimeToolPortResult {
   if (result.cancelled === true || result.error !== undefined) {
     return {
@@ -217,10 +235,14 @@ function portResultFromRunResult(
         metadata: { providerId: result.providerId },
       },
       output: output(result),
+      providerSessionRefs: runSessionRefs(result, label),
     }
   }
 
-  return { output: compact(output(result)) }
+  return {
+    output: compact(output(result)),
+    providerSessionRefs: runSessionRefs(result, label),
+  }
 }
 
 function adapterRunOutput(result: RunResult): Record<string, unknown> {
@@ -230,6 +252,16 @@ function adapterRunOutput(result: RunResult): Record<string, unknown> {
     durationMs: result.durationMs,
     usage: result.usage,
   }
+}
+
+function runtimeRunOptions(request: RuntimeAdapterRunRequest): RunOptions {
+  return compact({
+    model: request.model,
+    tools: request.tools,
+    reasoning: request.reasoning,
+    promptPrep: request.promptPrep,
+    outputSchema: recordOutputSchema(request.outputSchema),
+  }) as RunOptions
 }
 
 function promptWithInput(
@@ -263,6 +295,79 @@ function mergeStrategy(merge: string | undefined): NonNullable<ParallelOptions['
     return merge
   }
   return 'all'
+}
+
+function recordOutputSchema(
+  schema: string | Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  return isRecord(schema) ? schema : undefined
+}
+
+function runSessionRefs(
+  result: RunResult,
+  label: string,
+): ProviderSessionRef[] | undefined {
+  return providerSessionRefs(result.providerId, result.sessionId, label)
+}
+
+function providerResultSessionRefs(
+  result: ProviderResult,
+  label: string,
+): ProviderSessionRef[] | undefined {
+  return providerSessionRefs(result.providerId, result.sessionId, label)
+}
+
+function parallelSessionRefs(
+  result: ParallelExecutionResult,
+  label: string,
+): ProviderSessionRef[] | undefined {
+  return uniqueProviderSessionRefs(
+    [result.selectedResult, ...result.allResults],
+    label,
+  )
+}
+
+function supervisorSessionRefs(
+  result: SupervisorResult,
+  label: string,
+): ProviderSessionRef[] | undefined {
+  const refs = result.subtaskResults.flatMap((subtask) =>
+    subtask.providerId === null
+      ? []
+      : providerSessionRefs(subtask.providerId, subtask.sessionId, label) ?? [],
+  )
+  return refs.length > 0 ? refs : undefined
+}
+
+function uniqueProviderSessionRefs(
+  results: ProviderResult[],
+  label: string,
+): ProviderSessionRef[] | undefined {
+  const refs: ProviderSessionRef[] = []
+  const seen = new Set<string>()
+  for (const result of results) {
+    const nextRefs = providerResultSessionRefs(result, label) ?? []
+    for (const ref of nextRefs) {
+      const key = `${ref.provider}:${ref.sessionId}:${ref.label ?? ''}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      refs.push(ref)
+    }
+  }
+  return refs.length > 0 ? refs : undefined
+}
+
+function providerSessionRefs(
+  provider: string | undefined,
+  sessionId: string | undefined,
+  label: string,
+): ProviderSessionRef[] | undefined {
+  if (provider === undefined || sessionId === undefined) return undefined
+  return [{ provider, sessionId, label }]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function compact<T extends Record<string, unknown>>(value: T): Partial<T> {

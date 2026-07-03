@@ -123,6 +123,7 @@ export async function executeRun(
     return {
       result: completion.result,
       providerId: completion.providerId,
+      sessionId: completion.sessionId,
       durationMs: Date.now() - startMs,
       usage: completion.usage,
     }

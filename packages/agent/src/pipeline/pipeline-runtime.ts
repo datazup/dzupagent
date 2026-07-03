@@ -211,6 +211,8 @@ export class PipelineRuntime {
     checkpoint: PipelineCheckpoint,
     additionalState?: Record<string, unknown>,
   ): Promise<PipelineRunResult> {
+    this.assertRuntimeToolReadiness();
+
     const runId = checkpoint.pipelineRunId;
     const runState: Record<string, unknown> = {
       ...checkpoint.state,
@@ -471,6 +473,8 @@ export class PipelineRuntime {
     checkpoint: PipelineCheckpoint,
     additionalState?: Record<string, unknown>,
   ): Promise<PipelineRunResult> {
+    this.assertRuntimeToolReadiness();
+
     const runId = checkpoint.pipelineRunId;
     const runState: Record<string, unknown> = {
       ...checkpoint.state,

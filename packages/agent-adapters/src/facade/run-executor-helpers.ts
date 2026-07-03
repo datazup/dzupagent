@@ -30,12 +30,20 @@ export function resolveRunFallbackProviderId(
 }
 
 export function buildRunInput(prompt: string, options: RunOptions | undefined, signal: AbortSignal): AgentInput {
+  const adapterOptions: Record<string, unknown> = {}
+  if (options?.model !== undefined) adapterOptions.model = options.model
+  if (options?.tools !== undefined) adapterOptions.tools = options.tools
+  if (options?.reasoning !== undefined) adapterOptions.reasoning = options.reasoning
+  if (options?.promptPrep !== undefined) adapterOptions.promptPrep = options.promptPrep
+
   return {
     prompt,
     workingDirectory: options?.workingDirectory,
     systemPrompt: options?.systemPrompt,
     maxTurns: options?.maxTurns,
     signal,
+    ...(options?.outputSchema !== undefined ? { outputSchema: options.outputSchema } : {}),
+    ...(Object.keys(adapterOptions).length > 0 ? { options: adapterOptions } : {}),
   }
 }
 
@@ -96,6 +104,7 @@ export function handleRunError(err: unknown, ctx: HandleRunErrorContext): RunRes
         ctx.task.preferredProvider,
         ctx.lastFailure?.providerId,
       ),
+      sessionId: ctx.completion?.sessionId ?? ctx.lastFailure?.sessionId,
       durationMs: Date.now() - ctx.startMs,
       usage: ctx.completion?.usage,
       cancelled: true,

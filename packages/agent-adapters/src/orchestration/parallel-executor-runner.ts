@@ -121,6 +121,7 @@ export async function runSingleProvider(
 
         return {
           providerId,
+          sessionId: completed.sessionId,
           result: finalResult,
           success: true,
           durationMs,
@@ -157,6 +158,7 @@ export async function runSingleProvider(
 
     return {
       providerId,
+      sessionId: failedEvent?.sessionId,
       result: '',
       success: false,
       durationMs,

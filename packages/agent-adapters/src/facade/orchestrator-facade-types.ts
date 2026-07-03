@@ -68,6 +68,11 @@ export interface RunOptions {
   workingDirectory?: string | undefined
   systemPrompt?: string | undefined
   maxTurns?: number | undefined
+  model?: string | undefined
+  tools?: boolean | undefined
+  outputSchema?: Record<string, unknown> | undefined
+  reasoning?: string | undefined
+  promptPrep?: string | undefined
   /** When true and an approvalGate is configured, requires approval before execution. */
   requireApproval?: boolean | undefined
   /** Approval context metadata forwarded to the approval gate. */
@@ -92,6 +97,7 @@ export interface RunOptions {
 export interface RunResult {
   result: string
   providerId: AdapterProviderId
+  sessionId?: string | undefined
   durationMs: number
   usage?: TokenUsage | undefined
   cancelled?: true | undefined

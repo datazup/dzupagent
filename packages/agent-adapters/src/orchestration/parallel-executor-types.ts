@@ -53,6 +53,7 @@ export interface ParallelExecutionOptions {
 
 export interface ProviderResult {
   providerId: AdapterProviderId
+  sessionId?: string | undefined
   result: string
   success: boolean
   durationMs: number
