@@ -454,41 +454,19 @@
       }
     },
     "dialogue-core": {
-      "baseline": {
-        "reason": "test:coverage runs vitest (correct runner) and produces a report, but statements/lines always read 0%: src/__tests__/fakes.mjs#loadDialogueCore transpiles src/**/*.ts out-of-band via ts.transpileModule (no sourceMap) into an os.tmpdir() dir, then dynamically imports the compiled JS from there, bypassing vitest's transform pipeline entirely. V8 records hits against the tmpdir paths, so vitest's coverage collector (scoped to src/**/*.ts) can't attribute them back; branch/function numbers are structural AST counts, not runtime-attributed, so they still show real values. Needs either sourcemap-based remapping of tmpdir hits back to src/, or reworking the harness to let vitest transform the TS directly, before real thresholds can be enforced.",
-        "since": "2026-06-24",
-        "reviewBy": "2026-07-31",
-        "targets": [
-          {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+      "thresholds": {
+        "statements": 75,
+        "branches": 70,
+        "functions": 80,
+        "lines": 75
       }
     },
     "dialogue-core-replay": {
-      "baseline": {
-        "reason": "test:coverage runs vitest and passes (7 tests), but statements/lines always read 0% for the same reason as dialogue-core: dialogue-core's src/__tests__/fakes.mjs#loadDialogueCore out-of-band tsc-transpiles into an os.tmpdir() dir and dynamically imports from there, so v8 coverage hits never map back to src/**/*.ts. Fix upstream in dialogue-core's test harness before real thresholds can be enforced here.",
-        "since": "2026-06-24",
-        "reviewBy": "2026-07-31",
-        "targets": [
-          {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+      "thresholds": {
+        "statements": 60,
+        "branches": 65,
+        "functions": 60,
+        "lines": 60
       }
     },
     "subagents": {

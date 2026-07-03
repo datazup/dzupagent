@@ -6,10 +6,8 @@ import path from "node:path";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, "fixtures");
 
-// Import from built dist — these tests require `yarn build` to have run first.
-// In CI, build runs before test.
-import * as replayModule from "../dist/index.js";
-import * as coreModule from "../../dialogue-core/dist/index.js";
+import * as replayModule from "../src/index.ts";
+import * as coreModule from "../../dialogue-core/src/index.ts";
 
 const replay = replayModule;
 const core = coreModule;

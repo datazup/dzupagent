@@ -1,24 +1,9 @@
 import { expect } from "vitest";
-import { createHash } from "node:crypto";
-import { mkdir, readdir, rm, readFile, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { pathToFileURL, fileURLToPath } from "node:url";
-
-import ts from "typescript";
 
 const secretPattern = /SECRET-[A-Z0-9_-]+/g;
-const testDirectory = path.dirname(fileURLToPath(import.meta.url));
-const packageRoot = path.resolve(testDirectory, "../..");
-const sourceRoot = path.join(packageRoot, "src");
-
-let compileCounter = 0;
 
 export async function loadDialogueCore() {
-  const outputRoot = await compileDialogueCoreSource();
-  const entryUrl = pathToFileURL(path.join(outputRoot, "index.js")).href;
-
-  return import(`${entryUrl}?cache=${compileCounter}`);
+  return import("../index.ts");
 }
 
 export function createPorts(options = {}) {
@@ -420,61 +405,4 @@ function stripUndefined(value) {
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value);
-}
-
-async function compileDialogueCoreSource() {
-  compileCounter += 1;
-  const hash = createHash("sha256").update(packageRoot).digest("hex").slice(0, 8);
-  const outputRoot = path.join(
-    os.tmpdir(),
-    `dzupagent-dialogue-core-${hash}-${process.pid}-${compileCounter}`,
-  );
-
-  await rm(outputRoot, { force: true, recursive: true });
-  await mkdir(outputRoot, { recursive: true });
-
-  for (const sourcePath of await listTypeScriptFiles(sourceRoot)) {
-    const relativePath = path.relative(sourceRoot, sourcePath);
-
-    if (relativePath.startsWith(`__tests__${path.sep}`)) {
-      continue;
-    }
-
-    const outputPath = path.join(
-      outputRoot,
-      relativePath.replace(/\.ts$/, ".js"),
-    );
-    const source = await readFile(sourcePath, "utf8");
-    const transpiled = ts.transpileModule(source, {
-      compilerOptions: {
-        module: ts.ModuleKind.ES2022,
-        moduleResolution: ts.ModuleResolutionKind.NodeNext,
-        target: ts.ScriptTarget.ES2022,
-        verbatimModuleSyntax: true,
-      },
-      fileName: sourcePath,
-    });
-
-    await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, transpiled.outputText, "utf8");
-  }
-
-  return outputRoot;
-}
-
-async function listTypeScriptFiles(directory) {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = await Promise.all(
-    entries.map(async (entry) => {
-      const entryPath = path.join(directory, entry.name);
-
-      if (entry.isDirectory()) {
-        return listTypeScriptFiles(entryPath);
-      }
-
-      return entry.name.endsWith(".ts") ? [entryPath] : [];
-    }),
-  );
-
-  return files.flat();
 }
