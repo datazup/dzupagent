@@ -1,5 +1,5 @@
-import { exec } from "node:child_process";
-import type { ExecException } from "node:child_process";
+import { execFile } from "node:child_process";
+import type { ExecFileException } from "node:child_process";
 import type { PipelineDefinition, ToolNode } from "@dzupagent/core/pipeline";
 import type {
   NodeExecutionContext,
@@ -227,14 +227,23 @@ export type RuntimeToolPort<TRequest extends RuntimeToolPortRequest> = (
 ) => Promise<RuntimeToolPortResult>;
 
 export interface RuntimeToolExecutionPorts {
+  /** Execute a compiled `validate` runtime leaf, usually by resolving an app-owned validation suite. */
   validate?: RuntimeToolPort<RuntimeValidateRequest>;
+  /** Execute a compiled `prompt` runtime leaf against the host's model/provider layer. */
   prompt?: RuntimeToolPort<RuntimePromptRequest>;
+  /** Execute a compiled `worker.dispatch` runtime leaf against the host's worker/fleet layer. */
   workerDispatch?: RuntimeToolPort<RuntimeWorkerDispatchRequest>;
+  /** Execute a compiled `shell.run` runtime leaf through an app-owned command policy. */
   shellRun?: RuntimeToolPort<RuntimeShellRunRequest>;
+  /** Execute a compiled `validate.schema` runtime leaf against an app-owned schema registry. */
   validateSchema?: RuntimeToolPort<RuntimeValidateSchemaRequest>;
+  /** Execute a compiled `adapter.run` runtime leaf through an adapter bridge. */
   adapterRun?: RuntimeToolPort<RuntimeAdapterRunRequest>;
+  /** Execute a compiled `adapter.race` runtime leaf through an adapter bridge. */
   adapterRace?: RuntimeToolPort<RuntimeAdapterRaceRequest>;
+  /** Execute a compiled `adapter.parallel` runtime leaf through an adapter bridge. */
   adapterParallel?: RuntimeToolPort<RuntimeAdapterParallelRequest>;
+  /** Execute a compiled `adapter.supervisor` runtime leaf through an adapter bridge. */
   adapterSupervisor?: RuntimeToolPort<RuntimeAdapterSupervisorRequest>;
 }
 
@@ -865,9 +874,26 @@ function executeShellValidationCommand(
   command: RuntimeValidationCommand,
   options: RuntimeShellValidationCommandRunnerOptions,
 ): Promise<RuntimeValidationCommandResult> {
+  const parsed = parseRuntimeValidationCommand(command.command);
+  if (!parsed.ok) {
+    return Promise.resolve(
+      compactRuntimeToolResult({
+        ...command,
+        ok: false,
+        error: "Runtime validation command could not be parsed safely",
+        metadata: {
+          ...(command.metadata ?? {}),
+          code: "RUNTIME_VALIDATE_COMMAND_UNSAFE",
+          reason: parsed.reason,
+        },
+      }) as RuntimeValidationCommandResult,
+    );
+  }
+
   return new Promise((resolve) => {
-    exec(
-      command.command,
+    execFile(
+      parsed.file,
+      parsed.args,
       compactRuntimeToolResult({
         cwd: options.cwd,
         env: options.env,
@@ -875,7 +901,7 @@ function executeShellValidationCommand(
         maxBuffer: options.maxBuffer,
       }),
       (
-        error: ExecException | null,
+        error: ExecFileException | null,
         stdout: string,
         stderr: string,
       ): void => {
@@ -914,6 +940,78 @@ function executeShellValidationCommand(
       },
     );
   });
+}
+
+type ParsedRuntimeValidationCommand =
+  | { ok: true; file: string; args: string[] }
+  | { ok: false; reason: string };
+
+function parseRuntimeValidationCommand(command: string): ParsedRuntimeValidationCommand {
+  const tokens: string[] = [];
+  let current = "";
+  let hasToken = false;
+  let quote: "'" | "\"" | undefined;
+  let escaped = false;
+
+  for (let index = 0; index < command.length; index += 1) {
+    const char = command[index]!;
+
+    if (escaped) {
+      current += char;
+      hasToken = true;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (quote !== undefined) {
+      if (char === quote) {
+        quote = undefined;
+      } else {
+        current += char;
+        hasToken = true;
+      }
+      continue;
+    }
+
+    if (char === "'" || char === "\"") {
+      quote = char;
+      hasToken = true;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (hasToken) {
+        tokens.push(current);
+        current = "";
+        hasToken = false;
+      }
+      continue;
+    }
+
+    if (isShellControlCharacter(char)) {
+      return { ok: false, reason: `unsupported shell control character "${char}"` };
+    }
+
+    current += char;
+    hasToken = true;
+  }
+
+  if (escaped) return { ok: false, reason: "unterminated escape sequence" };
+  if (quote !== undefined) return { ok: false, reason: "unterminated quoted string" };
+  if (hasToken) tokens.push(current);
+  if (tokens.length === 0) return { ok: false, reason: "empty command" };
+
+  const [file, ...args] = tokens;
+  return { ok: true, file: file!, args };
+}
+
+function isShellControlCharacter(char: string): boolean {
+  return char === "&" || char === "|" || char === ";" || char === "<" || char === ">" || char === "`";
 }
 
 function schemaRefFromCommand(command: string): string | undefined {

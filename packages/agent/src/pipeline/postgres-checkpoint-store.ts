@@ -61,6 +61,7 @@ interface CheckpointRow {
   created_at: Date | string;
   expires_at: Date | string | null;
   recovery_attempts_used: number | null;
+  provider_session_refs: PipelineCheckpoint["providerSessionRefs"] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,6 +122,7 @@ export class PostgresPipelineCheckpointStore
         loop_state JSONB,
         fork_state JSONB,
         recovery_attempts_used INTEGER DEFAULT 0,
+        provider_session_refs JSONB,
         state JSONB NOT NULL,
         suspended_at_node_id TEXT,
         budget_state JSONB,
@@ -138,12 +140,14 @@ export class PostgresPipelineCheckpointStore
     // W5-gap: persist recovery attempt counter so maxRecoveryAttempts is
     // enforced across process restarts, not just within a single run.
     const addRecoveryAttemptsCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS recovery_attempts_used INTEGER DEFAULT 0`;
+    const addProviderSessionRefsCol = `ALTER TABLE ${this.tableName} ADD COLUMN IF NOT EXISTS provider_session_refs JSONB`;
 
     await this.client.query(createTable);
     await this.client.query(addIdempotencyCol);
     await this.client.query(addLoopStateCol);
     await this.client.query(addForkStateCol);
     await this.client.query(addRecoveryAttemptsCol);
+    await this.client.query(addProviderSessionRefsCol);
     await this.client.query(createRunIdx);
     await this.client.query(createExpiryIdx);
   }
@@ -158,9 +162,9 @@ export class PostgresPipelineCheckpointStore
         pipeline_run_id, pipeline_id, version, schema_version,
         completed_node_ids, state, suspended_at_node_id, budget_state,
         created_at, expires_at, node_idempotency_keys, loop_state, fork_state,
-        recovery_attempts_used
+        recovery_attempts_used, provider_session_refs
       )
-      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14)
+      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb, $9, $10, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15::jsonb)
       ON CONFLICT (pipeline_run_id, version) DO UPDATE SET
         pipeline_id = EXCLUDED.pipeline_id,
         schema_version = EXCLUDED.schema_version,
@@ -173,7 +177,8 @@ export class PostgresPipelineCheckpointStore
         node_idempotency_keys = EXCLUDED.node_idempotency_keys,
         loop_state = EXCLUDED.loop_state,
         fork_state = EXCLUDED.fork_state,
-        recovery_attempts_used = EXCLUDED.recovery_attempts_used
+        recovery_attempts_used = EXCLUDED.recovery_attempts_used,
+        provider_session_refs = EXCLUDED.provider_session_refs
     `;
 
     await this.client.query(sql, [
@@ -193,6 +198,9 @@ export class PostgresPipelineCheckpointStore
       checkpoint.loopState ? JSON.stringify(checkpoint.loopState) : null,
       checkpoint.forkState ? JSON.stringify(checkpoint.forkState) : null,
       checkpoint.recoveryAttemptsUsed ?? 0,
+      checkpoint.providerSessionRefs
+        ? JSON.stringify(checkpoint.providerSessionRefs)
+        : null,
     ]);
   }
 
@@ -336,6 +344,9 @@ function rowToCheckpoint(row: CheckpointRow): PipelineCheckpoint {
     row.recovery_attempts_used > 0
   ) {
     cp.recoveryAttemptsUsed = row.recovery_attempts_used;
+  }
+  if (Array.isArray(row.provider_session_refs)) {
+    cp.providerSessionRefs = row.provider_session_refs;
   }
   return cp;
 }
