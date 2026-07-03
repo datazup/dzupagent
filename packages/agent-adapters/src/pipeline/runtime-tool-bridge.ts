@@ -17,9 +17,11 @@ import {
 import type {
   FacadeSupervisorOptions,
   ParallelOptions,
+} from '../facade/orchestration-patterns.js'
+import type {
   RunOptions,
   RunResult,
-} from '../facade/orchestrator-facade.js'
+} from '../facade/orchestrator-facade-types.js'
 import type {
   ParallelExecutionResult,
   ProviderResult,
