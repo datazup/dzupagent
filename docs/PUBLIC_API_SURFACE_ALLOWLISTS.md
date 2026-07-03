@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-07-02
+Date: 2026-07-03
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -180,7 +180,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./protocol/index.js` | 62 | `prefix:./protocol/` | `ForgeMessageUriSchema`, `ForgeMessageMetadataSchema`, `ForgePayloadSchema`, `ForgeMessageSchema` |
 | `deprecated-transitional` | `./registry/index.js` | 31 | `prefix:./registry/` | `InMemoryRegistry`, `CapabilityMatcher`, `compareSemver`, `STANDARD_CAPABILITIES` |
 | `deprecated-transitional` | `./flow/index.js` | 10 | `prefix:./flow/` | `SkillHandle`, `McpToolHandle`, `WorkflowHandle`, `ResolvedAgentHandle` |
-| `deprecated-transitional` | `./pipeline/index.js` | 51 | `prefix:./pipeline/` | `NodeRetryPolicy`, `PipelineNodeBase`, `AgentNode`, `ToolNode` |
+| `deprecated-transitional` | `./pipeline/index.js` | 52 | `prefix:./pipeline/` | `NodeRetryPolicy`, `PipelineNodeSource`, `PipelineNodeBase`, `AgentNode` |
 | `deprecated-transitional` | `./formats/index.js` | 62 | `prefix:./formats/` | `// Agent Card V2
   AgentCardV2Schema`, `validateAgentCard`, `// Tool Format Adapters
   zodToJsonSchema`, `jsonSchemaToZod` |
@@ -207,7 +207,7 @@ Root index: `packages/core/src/index.ts`
 Root index: `packages/agent/src/index.ts`
 
 - Stable root sources: `13`
-- Deprecated transitional root sources: `91`
+- Deprecated transitional root sources: `92`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction.
 
@@ -299,8 +299,9 @@ Root index: `packages/agent/src/index.ts`
 | `deprecated-transitional` | `./pipeline/pipeline-validator.js` | 1 | `prefix:./pipeline/` | `validatePipeline` |
 | `deprecated-transitional` | `./pipeline/in-memory-checkpoint-store.js` | 1 | `prefix:./pipeline/` | `InMemoryPipelineCheckpointStore` |
 | `deprecated-transitional` | `./pipeline/pipeline-runtime.js` | 1 | `prefix:./pipeline/` | `PipelineRuntime` |
+| `deprecated-transitional` | `./pipeline/runtime-tool-handlers.js` | 5 | `prefix:./pipeline/` | `RUNTIME_TOOL_PREFIX`, `createRuntimeToolNodeExecutor`, `isRuntimeToolNode`, `RuntimeToolHandler` |
 | `deprecated-transitional` | `./pipeline/loop-executor.js` | 4 | `prefix:./pipeline/` | `executeLoop`, `stateFieldTruthy`, `qualityBelow`, `hasErrors` |
-| `deprecated-transitional` | `./pipeline/pipeline-runtime-types.js` | 11 | `prefix:./pipeline/` | `PipelineState`, `NodeResult`, `PipelineRunResult`, `NodeExecutor` |
+| `deprecated-transitional` | `./pipeline/pipeline-runtime-types.js` | 12 | `prefix:./pipeline/` | `PipelineState`, `NodeResult`, `PipelineRunResult`, `NodeExecutor` |
 | `deprecated-transitional` | `./pipeline/step-type-registry.js` | 4 | `prefix:./pipeline/` | `StepTypeRegistry`, `defaultStepTypeRegistry`, `StepContext`, `StepTypeDescriptor` |
 | `deprecated-transitional` | `./pipeline/retry-policy.js` | 4 | `prefix:./pipeline/` | `DEFAULT_RETRY_POLICY`, `calculateBackoff`, `isRetryable`, `resolveRetryPolicy` |
 | `deprecated-transitional` | `./pipeline/pipeline-templates.js` | 8 | `prefix:./pipeline/` | `createCodeReviewPipeline`, `createFeatureGenerationPipeline`, `createTestGenerationPipeline`, `createRefactoringPipeline` |
@@ -632,7 +633,7 @@ No stable subpaths configured.
 Root index: `packages/agent-adapters/src/index.ts`
 
 - Stable root sources: `15`
-- Deprecated transitional root sources: `86`
+- Deprecated transitional root sources: `87`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
 
@@ -676,6 +677,7 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./middleware/middleware-pipeline.js` | 3 | `prefix:./middleware/` | `MiddlewarePipeline`, `AdapterMiddleware`, `MiddlewareContext` |
 | `deprecated-transitional` | `./middleware/middleware-factories.js` | 2 | `prefix:./middleware/` | `createCostTrackingMiddleware`, `createGuardrailsMiddleware` |
 | `deprecated-transitional` | `./middleware/content-sanitizer.js` | 3 | `prefix:./middleware/` | `sanitizeContent`, `createContentSanitizerMiddleware`, `ContentSanitizerConfig` |
+| `deprecated-transitional` | `./pipeline/runtime-tool-bridge.js` | 4 | `prefix:./pipeline/` | `createAdapterRuntimeToolHandlers`, `createAdapterRuntimeToolPorts`, `AdapterRuntimeToolBridgeOptions`, `AdapterRuntimeToolOrchestrator` |
 | `deprecated-transitional` | `./orchestration/supervisor.js` | 8 | `prefix:./orchestration/` | `SupervisorOrchestrator`, `KeywordTaskDecomposer`, `SupervisorConfig`, `SupervisorOptions` |
 | `deprecated-transitional` | `./orchestration/parallel-executor.js` | 6 | `prefix:./orchestration/` | `ParallelExecutor`, `ParallelExecutorConfig`, `ParallelExecutionOptions`, `ParallelExecutionResult` |
 | `deprecated-transitional` | `./orchestration/map-reduce.js` | 10 | `prefix:./orchestration/` | `MapReduceOrchestrator`, `LineChunker`, `DirectoryChunker`, `MapReduceConfig` |
@@ -979,7 +981,7 @@ No stable subpaths configured.
 
 Root index: `packages/flow-ast/src/index.ts`
 
-- Stable root sources: `0`
+- Stable root sources: `2`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Flow AST root exports are stable Layer 0 parser, validator, and contract primitives; add allowlist rules before exposing new root modules.
@@ -992,6 +994,8 @@ No stable subpaths configured.
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
+| `stable` | `./fragments.js` | 5 | `exact:./fragments.js` | `FlowFragmentCatalog`, `FlowFragmentCatalogEntry`, `FlowFragmentDsl`, `FlowFragmentExportSpec` |
+| `stable` | `./expressions.js` | 2 | `exact:./expressions.js` | `FlowExpression`, `FlowExpressionAnalysis` |
 
 ## @dzupagent/memory-ipc
 
