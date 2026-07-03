@@ -1799,6 +1799,7 @@ __metadata:
   dependencies:
     "@dzupagent/agent": "npm:0.2.0"
     "@dzupagent/core": "npm:0.2.0"
+    "@dzupagent/flow-compiler": "npm:0.2.0"
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
     vitest: "npm:^3.2.4"
