@@ -41,12 +41,13 @@ function toolsForRun(
 }
 
 describe("subagent tools", () => {
-  it("exposes the four expected tools", () => {
+  it("exposes the five expected tools", () => {
     const { tools } = setup();
     expect(tools.map((t) => t.name).sort()).toEqual([
       "await_subagent",
       "cancel_subagent",
       "check_subagent",
+      "fanout_template",
       "spawn_subagent",
     ]);
   });

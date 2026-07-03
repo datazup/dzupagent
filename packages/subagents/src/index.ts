@@ -35,6 +35,8 @@ export type {
 export type {
   SubagentRuntimeEvent,
   SubagentEventType,
+  FanoutRuntimeEvent,
+  FanoutEventType,
   SubagentEventSink,
 } from "./contracts/events.js";
 export type { Clock } from "./contracts/clock.js";
@@ -80,6 +82,7 @@ export {
   denyAllSpawnPolicy,
   type SpawnPolicy,
   type SpawnPolicyDecision,
+  type SpawnContext,
   type SpawnApprovalGate,
   type ApprovalOutcome,
 } from "./governance/spawn-gate.js";
@@ -110,3 +113,16 @@ export {
   type SubagentToolDescriptor,
   type SubagentToolsConfig,
 } from "./tools/subagent-tools.js";
+export {
+  createFanoutTemplateTool,
+  isFanoutValidationError,
+  DEFAULT_FANOUT_LIMITS,
+  type FanoutToolConfig,
+  type FanoutLimits,
+  type FanoutItem,
+  type FanoutTemplateArgs,
+  type FanoutItemStatus,
+  type FanoutReport,
+  type FanoutReportItem,
+  type FanoutValidationError,
+} from "./tools/fanout-tool.js";

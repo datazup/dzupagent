@@ -1,5 +1,7 @@
 import type { SubagentSpec, TaskId } from "../contracts/background-task.js";
 import type { BackgroundSubagentRuntime } from "../runtime/background-subagent-runtime.js";
+import { createFanoutTemplateTool } from "./fanout-tool.js";
+import type { FanoutToolConfig } from "./fanout-tool.js";
 
 /**
  * Provider-neutral tool descriptor. Hosts adapt these to their concrete tool
@@ -25,11 +27,17 @@ export interface SubagentToolsConfig {
    * to their request/run context so spawned tasks are attributed correctly.
    */
   resolveParentRunId: () => string;
+  /**
+   * Optional tuning for the `fanout_template` tool (batch-id generation,
+   * limits, clock). The tool itself is always included; these only tune it.
+   */
+  fanout?: Pick<FanoutToolConfig, "generateBatchId" | "limits" | "clock">;
 }
 
 /**
- * Build the four LLM-facing subagent tools. Each delegates to the runtime and
- * returns plain serialisable results so the model can reason about them.
+ * Build the five LLM-facing subagent tools: the four single-task tools plus
+ * the `fanout_template` batch tool. Each delegates to the runtime and returns
+ * plain serialisable results so the model can reason about them.
  */
 export function createSubagentTools(
   config: SubagentToolsConfig,
@@ -157,5 +165,11 @@ export function createSubagentTools(
     },
   };
 
-  return [spawn, check, await_, cancel];
+  const fanout = createFanoutTemplateTool({
+    runtime,
+    resolveParentRunId,
+    ...config.fanout,
+  });
+
+  return [spawn, check, await_, cancel, fanout];
 }
