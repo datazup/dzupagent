@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 describe('agent-adapters export map', () => {
@@ -23,5 +23,21 @@ describe('agent-adapters export map', () => {
       import: './dist/dzupagent/index.js',
       types: './dist/dzupagent/index.d.ts',
     })
+  })
+
+  it('imports the pipeline package subpath from built artifacts when dist exists', async () => {
+    const builtPipeline = join(process.cwd(), 'dist/pipeline/index.js')
+    try {
+      await access(builtPipeline)
+    } catch {
+      return
+    }
+
+    const mod = await import(builtPipeline)
+
+    expect(mod).toEqual(expect.objectContaining({
+      AdapterPipeline: expect.any(Function),
+      createAdapterRuntimeToolHandlers: expect.any(Function),
+    }))
   })
 })

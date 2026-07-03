@@ -292,6 +292,158 @@ describe('adapter runtime tool bridge', () => {
     ])
   })
 
+  it('propagates rich runtime options into race, parallel, and supervisor facade APIs', async () => {
+    const calls: Array<{ method: string; options: unknown; signal?: AbortSignal }> = []
+    const orchestrator: AdapterRuntimeToolOrchestrator = {
+      async run() {
+        throw new Error('run should not be used')
+      },
+      async race(_prompt, options, signal) {
+        calls.push({ method: 'race', options, signal })
+        return {
+          providerId: 'claude',
+          result: 'race ok',
+          success: true,
+          durationMs: 1,
+          events: [],
+          sessionId: 'sess-race',
+        }
+      },
+      async parallel(_prompt, options) {
+        calls.push({ method: 'parallel', options })
+        return {
+          selectedResult: {
+            providerId: 'claude',
+            result: 'parallel ok',
+            success: true,
+            durationMs: 1,
+            events: [],
+            sessionId: 'sess-parallel',
+          },
+          allResults: [],
+          strategy: 'best-of-n',
+          totalDurationMs: 1,
+        }
+      },
+      async supervisor(_goal, options) {
+        calls.push({ method: 'supervisor', options })
+        return {
+          goal: 'Coordinate review.',
+          subtaskResults: [
+            {
+              subtask: { description: 'Review architecture', tags: [] },
+              providerId: 'claude',
+              result: 'supervisor ok',
+              success: true,
+              durationMs: 1,
+              sessionId: 'sess-supervisor',
+            },
+          ],
+          totalDurationMs: 1,
+        }
+      },
+    }
+    const handlers = createAdapterRuntimeToolHandlers({ orchestrator })
+    const commonArgs = {
+      providers: ['claude', 'codex'],
+      model: 'claude-sonnet',
+      systemPrompt: 'Use system guidance.',
+      persona: 'architect',
+      reasoning: 'high',
+      promptPrep: 'compress',
+      policy: { allowTools: false },
+      outputSchema: {
+        type: 'object',
+        properties: { accepted: { type: 'boolean' } },
+      },
+    }
+
+    await new PipelineRuntime({
+      definition: runtimeToolDefinition({
+        id: 'race_options',
+        toolName: 'dzup.runtime.adapter.race',
+        arguments: {
+          ...commonArgs,
+          instructions: 'Race.',
+          output: 'raceResult',
+        },
+      }),
+      nodeExecutor: unexpectedFallback,
+      runtimeToolHandlers: handlers,
+    }).execute()
+    await new PipelineRuntime({
+      definition: runtimeToolDefinition({
+        id: 'parallel_options',
+        toolName: 'dzup.runtime.adapter.parallel',
+        arguments: {
+          ...commonArgs,
+          merge: 'best-of-n',
+          instructions: 'Parallel.',
+          output: 'parallelResult',
+        },
+      }),
+      nodeExecutor: unexpectedFallback,
+      runtimeToolHandlers: handlers,
+    }).execute()
+    await new PipelineRuntime({
+      definition: runtimeToolDefinition({
+        id: 'supervisor_options',
+        toolName: 'dzup.runtime.adapter.supervisor',
+        arguments: {
+          ...commonArgs,
+          goal: 'Coordinate review.',
+          specialists: ['architect'],
+          output: 'supervisorResult',
+        },
+      }),
+      nodeExecutor: unexpectedFallback,
+      runtimeToolHandlers: handlers,
+    }).execute()
+
+    expect(calls).toEqual([
+      {
+        method: 'race',
+        options: expect.objectContaining({
+          model: 'claude-sonnet',
+          systemPrompt: 'Use system guidance.',
+          personaId: 'architect',
+          reasoning: 'high',
+          promptPrep: 'compress',
+          policy: { allowTools: false },
+          outputSchema: commonArgs.outputSchema,
+        }),
+        signal: undefined,
+      },
+      {
+        method: 'parallel',
+        options: expect.objectContaining({
+          providers: ['claude', 'codex'],
+          mergeStrategy: 'best-of-n',
+          model: 'claude-sonnet',
+          systemPrompt: 'Use system guidance.',
+          personaId: 'architect',
+          reasoning: 'high',
+          promptPrep: 'compress',
+          policy: { allowTools: false },
+          outputSchema: commonArgs.outputSchema,
+        }),
+      },
+      {
+        method: 'supervisor',
+        options: expect.objectContaining({
+          model: 'claude-sonnet',
+          systemPrompt: 'Use system guidance.',
+          personaId: 'architect',
+          reasoning: 'high',
+          promptPrep: 'compress',
+          policy: { allowTools: false },
+          outputSchema: commonArgs.outputSchema,
+          context: expect.stringContaining('"architect"'),
+        }),
+      },
+    ])
+  })
+
   it('maps failed and cancelled adapter orchestration results to runtime node errors', async () => {
     const orchestrator: AdapterRuntimeToolOrchestrator = {
       async run() {

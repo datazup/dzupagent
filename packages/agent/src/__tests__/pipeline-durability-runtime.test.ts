@@ -226,6 +226,62 @@ describe("PipelineRuntime W1 durability policy", () => {
     );
   });
 
+  it("writes provider session refs to executionLog snapshots when checkpoint policy includes them", async () => {
+    const store = new InMemoryPipelineCheckpointStore();
+    const appended: PipelineExecutionLogEntry[] = [];
+    const executionLogStore: PipelineExecutionLogStore = {
+      append: async (entry) => {
+        appended.push(entry);
+      },
+    };
+    const runtime = new PipelineRuntime({
+      definition: linearPipeline({
+        checkpoint: { includeProviderSessionRefs: true },
+        executionLog: {
+          storeRef: "audit-log",
+          eventHistory: "compact",
+        },
+      }),
+      nodeExecutor: async (nodeId, _node, ctx) => {
+        ctx.state[`seen_${nodeId}`] = true;
+        return {
+          nodeId,
+          output: `out-${nodeId}`,
+          durationMs: 1,
+          providerSessionRefs:
+            nodeId === "a"
+              ? [
+                  {
+                    provider: "openai",
+                    sessionId: "sess-a",
+                    label: "adapter.run",
+                    metadata: { threadId: "thread-a" },
+                  },
+                ]
+              : [],
+        } as Awaited<ReturnType<NodeExecutor>>;
+      },
+      checkpointStore: store,
+      executionLogStores: { "audit-log": executionLogStore },
+    });
+
+    const result = await runtime.execute();
+
+    expect(appended.at(-1)).toMatchObject({
+      pipelineRunId: result.runId,
+      checkpointVersion: 3,
+      providerSessionRefs: [
+        {
+          nodeId: "a",
+          provider: "openai",
+          sessionId: "sess-a",
+          label: "adapter.run",
+          metadata: { threadId: "thread-a" },
+        },
+      ],
+    });
+  });
+
   it("recovers after process restart from the next node after the latest checkpoint", async () => {
     const store = new InMemoryPipelineCheckpointStore();
     const firstRuns: string[] = [];

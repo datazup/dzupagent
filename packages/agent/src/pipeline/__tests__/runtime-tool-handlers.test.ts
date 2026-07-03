@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import type {
   PipelineCheckpoint,
   PipelineDefinition,
@@ -11,13 +12,17 @@ import type {
   RuntimeToolHandler,
 } from "../pipeline-runtime-types.js";
 import {
+  createRuntimeAjvValidationRunner,
   createRuntimeJsonSchemaValidationRunner,
   createRuntimeJsonSchemaValidationSuiteResolver,
   createRuntimeShellValidationCommandRunner,
   createRuntimeToolHandlers,
+  createRuntimeValidationSuiteRegistry,
   createRuntimeValidatePort,
+  createRuntimeZodValidationRunner,
   getRuntimeToolReadiness,
   runtimeToolFailure,
+  runtimeShellAllowlistPresets,
   runtimeToolSuccess,
 } from "../runtime-tool-handlers.js";
 
@@ -577,6 +582,112 @@ describe("PipelineRuntime runtime tool handlers", () => {
       ],
     });
   });
+
+  it("resolves validation suites from an app registry example", async () => {
+    const registry = createRuntimeValidationSuiteRegistry({
+      suites: {
+        "app.preflight": [
+          { id: "typecheck", command: "yarn typecheck", kind: "shell" },
+        ],
+      },
+    });
+    const runtime = new PipelineRuntime({
+      definition: makeRuntimeToolPipeline({
+        id: "validate_0",
+        type: "tool",
+        toolName: "dzup.runtime.validate",
+        arguments: { ref: "app.preflight" },
+      }),
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validate: createRuntimeValidatePort({
+          resolveSuite: registry.resolveSuite,
+          runCommand: async (command) => ({ ...command, ok: true }),
+        }),
+      }),
+    });
+
+    const result = await runtime.execute();
+
+    expect(result.state).toBe("completed");
+    expect(result.nodeResults.get("validate_0")?.output).toMatchObject({
+      valid: true,
+      ref: "app.preflight",
+      commandResults: [
+        { id: "typecheck", command: "yarn typecheck", ok: true },
+      ],
+    });
+  });
+
+  it("provides Ajv-style and Zod schema validation runner adapters", async () => {
+    const ajvRunner = createRuntimeAjvValidationRunner({
+      schemas: {
+        "review.schema": {
+          type: "object",
+          required: ["status"],
+        },
+      },
+      ajv: {
+        validate: (_schema, data) =>
+          typeof data === "object" && data !== null && "status" in data,
+        errors: [{ message: "must have required property status" }],
+      },
+    });
+    const zodRunner = createRuntimeZodValidationRunner({
+      schemas: {
+        "review.zod": z.object({ status: z.literal("accepted") }),
+      },
+    });
+
+    const ajvResult = await ajvRunner(
+      { id: "review.schema", command: "schema:review.schema" },
+      validateRequest({ title: "draft" }),
+    );
+    const zodResult = await zodRunner(
+      { id: "review.zod", command: "schema:review.zod" },
+      validateRequest({ status: "accepted" }),
+    );
+
+    expect(ajvResult).toMatchObject({
+      id: "review.schema",
+      command: "schema:review.schema",
+      ok: false,
+      metadata: {
+        code: "RUNTIME_VALIDATE_SCHEMA_FAILED",
+        schemaRef: "review.schema",
+        errors: [{ message: "must have required property status" }],
+      },
+    });
+    expect(zodResult).toMatchObject({
+      id: "review.zod",
+      command: "schema:review.zod",
+      ok: true,
+      metadata: { schemaRef: "review.zod" },
+    });
+  });
+
+  it("provides shell allowlist presets for common package-manager checks", async () => {
+    const runner = createRuntimeShellValidationCommandRunner(
+      runtimeShellAllowlistPresets.yarnChecks(["yarn typecheck"]),
+    );
+
+    const denied = await runner(
+      { id: "lint", command: "yarn lint" },
+      validateRequest({}),
+    );
+
+    expect(denied).toMatchObject({
+      id: "lint",
+      command: "yarn lint",
+      ok: false,
+      error: "Runtime validation command denied by policy",
+      metadata: { code: "RUNTIME_VALIDATE_COMMAND_DENIED" },
+    });
+  });
 });
 
 function makeCheckpoint(
@@ -591,5 +702,19 @@ function makeCheckpoint(
     state: {},
     createdAt: "2026-07-03T00:00:00.000Z",
     ...overrides,
+  };
+}
+
+function validateRequest(
+  state: Record<string, unknown>,
+): Parameters<ReturnType<typeof createRuntimeJsonSchemaValidationRunner>>[1] {
+  return {
+    nodeId: "validate_0",
+    arguments: {},
+    ref: "review.schema",
+    context: {
+      state,
+      previousResults: new Map(),
+    },
   };
 }

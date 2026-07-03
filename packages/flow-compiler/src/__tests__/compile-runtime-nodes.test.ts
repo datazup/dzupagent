@@ -240,6 +240,95 @@ describe('runtime-only compiler diagnostics', () => {
     ])
   })
 
+  it('lowers every runtime leaf node shape used by compile-to-run fixtures', async () => {
+    const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
+
+    const result = await compiler.compile({
+      type: 'sequence',
+      nodes: [
+        {
+          type: 'prompt',
+          userPrompt: 'Collect requirements.',
+          outputKey: 'requirements',
+        },
+        {
+          type: 'worker.dispatch',
+          dispatchId: 'review-change',
+          provider: 'codex',
+          instructions: 'Review the diff.',
+          outputKey: 'workerReview',
+        },
+        {
+          type: 'adapter.run',
+          provider: 'claude',
+          instructions: 'Run a review.',
+          output: 'adapterResult',
+        },
+        {
+          type: 'adapter.race',
+          providers: ['claude', 'codex'],
+          instructions: 'Race providers.',
+          output: 'raceResult',
+        },
+        {
+          type: 'adapter.parallel',
+          providers: ['claude', 'codex'],
+          merge: 'all',
+          instructions: 'Compare providers.',
+          output: 'parallelResult',
+        },
+        {
+          type: 'adapter.supervisor',
+          goal: 'Coordinate review.',
+          specialists: ['architect'],
+          output: 'supervisorResult',
+        },
+        {
+          type: 'shell.run',
+          command: 'yarn test',
+          output: 'shellValidation',
+        },
+        {
+          type: 'validate.schema',
+          source: 'adapterResult',
+          schema: 'review.schema',
+          output: 'schemaValidation',
+        },
+        {
+          type: 'validate',
+          ref: 'runtime.suite',
+        },
+      ],
+    })
+
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.target).toBe('planning-dag')
+    const artifact = result.artifact as PipelineDefinition
+    expect(artifact.nodes.map((node) => node.type)).toEqual([
+      'tool',
+      'tool',
+      'tool',
+      'tool',
+      'tool',
+      'tool',
+      'tool',
+      'tool',
+      'tool',
+    ])
+    expect(artifact.nodes.map((node) => 'toolName' in node ? node.toolName : undefined)).toEqual([
+      'dzup.runtime.prompt',
+      'dzup.runtime.worker.dispatch',
+      'dzup.runtime.adapter.run',
+      'dzup.runtime.adapter.race',
+      'dzup.runtime.adapter.parallel',
+      'dzup.runtime.adapter.supervisor',
+      'dzup.runtime.shell.run',
+      'dzup.runtime.validate.schema',
+      'dzup.runtime.validate',
+    ])
+  })
+
   it('keeps supported action-only flows lowerable', async () => {
     const compiler = createFlowCompiler({ toolResolver: makeResolver(['tasks.run']) })
 
