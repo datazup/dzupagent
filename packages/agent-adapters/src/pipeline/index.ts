@@ -14,3 +14,11 @@ export {
   AdapterPipeline,
   type PreparePipelineArgs,
 } from './adapter-pipeline.js'
+export {
+  createAdapterRuntimeToolHandlers,
+  createAdapterRuntimeToolPorts,
+} from './runtime-tool-bridge.js'
+export type {
+  AdapterRuntimeToolBridgeOptions,
+  AdapterRuntimeToolOrchestrator,
+} from './runtime-tool-bridge.js'

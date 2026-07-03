@@ -43,7 +43,11 @@ import {
   PipelineExecutor,
   type PipelineExecutorCoordinator,
 } from "./pipeline-executor.js";
-import { createRuntimeToolNodeExecutor } from "./runtime-tool-handlers.js";
+import {
+  createRuntimeToolNodeExecutor,
+  formatRuntimeToolReadinessError,
+  getRuntimeToolReadiness,
+} from "./runtime-tool-handlers.js";
 
 // ---------------------------------------------------------------------------
 // Pipeline Runtime
@@ -158,6 +162,7 @@ export class PipelineRuntime {
       const messages = validation.errors.map((e) => e.message).join("; ");
       throw new Error(`Pipeline validation failed: ${messages}`);
     }
+    this.assertRuntimeToolReadiness();
 
     const runId = generateRunId();
     const runState: Record<string, unknown> = { ...initialState };
@@ -705,6 +710,18 @@ export class PipelineRuntime {
 
   private emit(event: PipelineRuntimeEvent): void {
     this.config.onEvent?.(event);
+  }
+
+  private assertRuntimeToolReadiness(): void {
+    if (this.config.runtimeToolReadiness !== "fail_fast") return;
+
+    const readiness = getRuntimeToolReadiness(
+      this.config.definition,
+      this.config.runtimeToolHandlers,
+    );
+    if (!readiness.ready) {
+      throw new Error(formatRuntimeToolReadinessError(readiness));
+    }
   }
 }
 

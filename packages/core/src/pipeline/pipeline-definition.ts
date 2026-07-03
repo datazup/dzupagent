@@ -37,6 +37,17 @@ export interface NodeRetryPolicy {
   retryableErrors?: Array<string | RegExp>;
 }
 
+export interface PipelineNodeSource {
+  /** Source artifact kind that produced this pipeline node. */
+  kind: "flow-node";
+  /** Source AST path, for example `root.nodes[0]`. */
+  path: string;
+  /** Source DSL/AST node type, for example `prompt` or `adapter.run`. */
+  nodeType: string;
+  /** Stable source node ID when the authored flow declared one. */
+  nodeId?: string;
+}
+
 export interface PipelineNodeBase {
   /** Unique identifier within the pipeline */
   id: string;
@@ -76,6 +87,11 @@ export interface PipelineNodeBase {
    * only in Slice 1 — no runtime behavior rides on it yet (forward-looking).
    */
   effectClass?: string;
+  /**
+   * Optional provenance for nodes emitted by a compiler/lowerer. Runtime logic
+   * does not interpret this field; it is for diagnostics and observability.
+   */
+  source?: PipelineNodeSource;
 }
 
 export interface AgentNode extends PipelineNodeBase {

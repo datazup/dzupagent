@@ -7,6 +7,7 @@
 // --- Definition types ---
 export type {
   NodeRetryPolicy,
+  PipelineNodeSource,
   PipelineNodeBase,
   AgentNode,
   ToolNode,

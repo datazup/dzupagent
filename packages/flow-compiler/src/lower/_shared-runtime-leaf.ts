@@ -1,5 +1,9 @@
 import type { FlowNode } from "@dzupagent/flow-ast";
-import type { AgentNode, ToolNode } from "@dzupagent/core/orchestration";
+import type {
+  AgentNode,
+  PipelineNodeSource,
+  ToolNode,
+} from "@dzupagent/core/orchestration";
 
 import type {
   LowerPipelineContext,
@@ -47,6 +51,7 @@ export function lowerRuntimeLeaf(
     id,
     ...(node.name !== undefined ? { name: node.name } : {}),
     ...(node.description !== undefined ? { description: node.description } : {}),
+    source: flowNodeSource(node, path),
     ...nodeDurabilityFields(node),
   };
 
@@ -67,6 +72,18 @@ export function lowerRuntimeLeaf(
     arguments: runtimePayload(node),
   };
   return { nodes: [toolNode], edges: [], warnings: [] };
+}
+
+function flowNodeSource(
+  node: RuntimeLeafNode,
+  path: string
+): PipelineNodeSource {
+  return {
+    kind: "flow-node",
+    path,
+    nodeType: node.type,
+    ...(node.id !== undefined ? { nodeId: node.id } : {}),
+  };
 }
 
 function runtimePayload(

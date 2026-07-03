@@ -969,6 +969,7 @@ export type {
 // --- Pipeline ---
 export type {
   NodeRetryPolicy,
+  PipelineNodeSource,
   PipelineNodeBase,
   AgentNode,
   ToolNode,

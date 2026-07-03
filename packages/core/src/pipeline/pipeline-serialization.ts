@@ -22,6 +22,14 @@ const PipelineNodeBaseSchema = z.object({
     .enum(["idempotent", "at-least-once", "exactly-once-required"])
     .optional(),
   effectClass: z.string().optional(),
+  source: z
+    .object({
+      kind: z.literal("flow-node"),
+      path: z.string().min(1),
+      nodeType: z.string().min(1),
+      nodeId: z.string().min(1).optional(),
+    })
+    .optional(),
 });
 
 export const AgentNodeSchema = PipelineNodeBaseSchema.extend({

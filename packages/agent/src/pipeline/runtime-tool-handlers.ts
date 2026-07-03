@@ -1,4 +1,4 @@
-import type { ToolNode } from "@dzupagent/core/pipeline";
+import type { PipelineDefinition, ToolNode } from "@dzupagent/core/pipeline";
 import type {
   NodeExecutionContext,
   NodeExecutor,
@@ -218,6 +218,57 @@ export interface RuntimeToolExecutionPorts {
   adapterSupervisor?: RuntimeToolPort<RuntimeAdapterSupervisorRequest>;
 }
 
+export interface RuntimeToolReadinessNode {
+  nodeId: string;
+  toolName: string;
+  ready: boolean;
+}
+
+export interface RuntimeToolReadinessResult {
+  ready: boolean;
+  requiredToolNames: string[];
+  missingToolNames: string[];
+  nodes: RuntimeToolReadinessNode[];
+}
+
+export interface RuntimeValidationCommand {
+  id?: string;
+  command: string;
+}
+
+export interface RuntimeValidationCommandResult {
+  id?: string;
+  command: string;
+  ok: boolean;
+  exitCode?: number;
+  stdout?: string;
+  stderr?: string;
+  durationMs?: number;
+  error?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface RuntimeValidationSuite {
+  ref?: string;
+  commands: RuntimeValidationCommand[];
+}
+
+export type RuntimeValidationSuiteResolver = (
+  ref: string,
+  request: RuntimeValidateRequest,
+) => Promise<RuntimeValidationSuite | RuntimeValidationCommand[] | undefined>;
+
+export type RuntimeValidationCommandRunner = (
+  command: RuntimeValidationCommand,
+  request: RuntimeValidateRequest,
+) => Promise<boolean | RuntimeValidationCommandResult>;
+
+export interface RuntimeValidatePortOptions {
+  suites?: Record<string, RuntimeValidationSuite | RuntimeValidationCommand[]>;
+  resolveSuite?: RuntimeValidationSuiteResolver;
+  runCommand?: RuntimeValidationCommandRunner;
+}
+
 export function createRuntimeToolHandlers(
   ports: RuntimeToolExecutionPorts,
 ): RuntimeToolHandlers {
@@ -266,6 +317,119 @@ export function createRuntimeToolHandlers(
   };
 }
 
+export function getRuntimeToolReadiness(
+  definition: PipelineDefinition,
+  handlers: RuntimeToolHandlers | undefined,
+): RuntimeToolReadinessResult {
+  const nodes: RuntimeToolReadinessNode[] = [];
+  const requiredToolNames: string[] = [];
+  const missingToolNames: string[] = [];
+  const seenRequired = new Set<string>();
+  const seenMissing = new Set<string>();
+
+  for (const node of definition.nodes) {
+    if (!isRuntimeToolNode(node)) continue;
+
+    if (!seenRequired.has(node.toolName)) {
+      seenRequired.add(node.toolName);
+      requiredToolNames.push(node.toolName);
+    }
+
+    const ready = handlers?.[node.toolName] !== undefined;
+    nodes.push({ nodeId: node.id, toolName: node.toolName, ready });
+
+    if (!ready && !seenMissing.has(node.toolName)) {
+      seenMissing.add(node.toolName);
+      missingToolNames.push(node.toolName);
+    }
+  }
+
+  return {
+    ready: missingToolNames.length === 0,
+    requiredToolNames,
+    missingToolNames,
+    nodes,
+  };
+}
+
+export function formatRuntimeToolReadinessError(
+  readiness: RuntimeToolReadinessResult,
+): string {
+  const missingNodes = readiness.nodes.filter((node) => !node.ready);
+  if (missingNodes.length === 0) return "Runtime tool handlers are ready.";
+
+  const details = missingNodes
+    .map(
+      (node) =>
+        `missing handler for "${node.toolName}" used by node "${node.nodeId}"`,
+    )
+    .join("; ");
+  return `Runtime tool handlers are not ready: ${details}`;
+}
+
+export function createRuntimeValidatePort(
+  options: RuntimeValidatePortOptions = {},
+): RuntimeToolPort<RuntimeValidateRequest> {
+  return async (request) => {
+    const commands = await resolveValidationCommands(request, options);
+    if ("error" in commands) return commands;
+
+    if (commands.length === 0) {
+      return {
+        output: {
+          valid: true,
+          ref: request.ref,
+          commandResults: [],
+        },
+      };
+    }
+
+    if (options.runCommand === undefined) {
+      return {
+        error: {
+          message: "No runtime validation command runner configured",
+          code: "RUNTIME_VALIDATE_RUNNER_MISSING",
+          retryable: false,
+          metadata: {
+            ref: request.ref,
+            commandCount: commands.length,
+          },
+        },
+      };
+    }
+
+    const commandResults: RuntimeValidationCommandResult[] = [];
+    for (const command of commands) {
+      commandResults.push(await runValidationCommand(command, request, options));
+    }
+
+    const failed = commandResults.filter((result) => !result.ok);
+    const output = {
+      valid: failed.length === 0,
+      ref: request.ref,
+      commandResults,
+    };
+
+    if (failed.length === 0) return { output };
+
+    return {
+      error: {
+        message: "Runtime validation failed",
+        code: "RUNTIME_VALIDATE_FAILED",
+        retryable: false,
+        metadata: compactRuntimeToolResult({
+          ref: request.ref,
+          failedCommandIds: failed
+            .map((result) => result.id)
+            .filter((id): id is string => id !== undefined),
+          failedCommands: failed.map((result) => result.command),
+        }),
+      },
+      output,
+    };
+  };
+}
+
 function createPortRuntimeToolHandler<TRequest extends RuntimeToolPortRequest>(
   toolName: string,
   port: RuntimeToolPort<TRequest> | undefined,
@@ -300,6 +464,86 @@ function createPortRuntimeToolHandler<TRequest extends RuntimeToolPortRequest>(
       });
     }
   };
+}
+
+async function resolveValidationCommands(
+  request: RuntimeValidateRequest,
+  options: RuntimeValidatePortOptions,
+): Promise<RuntimeValidationCommand[] | RuntimeToolPortFailure> {
+  const inlineCommands = parseValidationCommands(request.commands);
+  if (inlineCommands.length > 0) return inlineCommands;
+
+  if (request.ref === undefined) return [];
+
+  const configuredSuite = options.suites?.[request.ref];
+  if (configuredSuite !== undefined) return commandsFromSuite(configuredSuite);
+
+  const resolvedSuite = await options.resolveSuite?.(request.ref, request);
+  if (resolvedSuite !== undefined) return commandsFromSuite(resolvedSuite);
+
+  return {
+    error: {
+      message: `Runtime validation suite "${request.ref}" was not found`,
+      code: "RUNTIME_VALIDATE_SUITE_NOT_FOUND",
+      retryable: false,
+      metadata: { ref: request.ref },
+    },
+  };
+}
+
+function commandsFromSuite(
+  suite: RuntimeValidationSuite | RuntimeValidationCommand[],
+): RuntimeValidationCommand[] {
+  return Array.isArray(suite) ? suite : suite.commands;
+}
+
+async function runValidationCommand(
+  command: RuntimeValidationCommand,
+  request: RuntimeValidateRequest,
+  options: RuntimeValidatePortOptions,
+): Promise<RuntimeValidationCommandResult> {
+  const startTime = Date.now();
+  try {
+    const result = await options.runCommand!(command, request);
+    if (typeof result === "boolean") {
+      return {
+        ...command,
+        ok: result,
+        durationMs: Date.now() - startTime,
+      };
+    }
+    return compactRuntimeToolResult({
+      ...result,
+      id: result.id ?? command.id,
+      command: result.command,
+      durationMs: result.durationMs ?? Date.now() - startTime,
+    }) as RuntimeValidationCommandResult;
+  } catch (error) {
+    return compactRuntimeToolResult({
+      ...command,
+      ok: false,
+      durationMs: Date.now() - startTime,
+      error: errorMessage(error),
+    }) as RuntimeValidationCommandResult;
+  }
+}
+
+function parseValidationCommands(value: unknown): RuntimeValidationCommand[] {
+  if (!Array.isArray(value)) return [];
+  const commands: RuntimeValidationCommand[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const command = item["command"];
+    if (typeof command !== "string" || command.length === 0) continue;
+    const id = item["id"];
+    commands.push(
+      compactRuntimeToolResult({
+        id: typeof id === "string" && id.length > 0 ? id : undefined,
+        command,
+      }) as RuntimeValidationCommand,
+    );
+  }
+  return commands;
 }
 
 function buildValidateRequest(input: RuntimeToolHandlerInput): RuntimeValidateRequest {

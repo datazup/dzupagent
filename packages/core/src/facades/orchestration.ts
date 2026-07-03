@@ -84,6 +84,7 @@ export type { HierarchyLevel } from '../skills/hierarchical-walker.js'
 // Pipeline
 // ---------------------------------------------------------------------------
 export type {
+  PipelineNodeSource,
   PipelineNodeBase,
   AgentNode,
   ToolNode,

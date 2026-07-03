@@ -197,6 +197,13 @@ export interface PipelineRuntimeConfig {
    */
   runtimeToolHandlers?: RuntimeToolHandlers;
   /**
+   * Runtime-tool readiness strategy. `lazy` preserves the historical behavior:
+   * a missing `dzup.runtime.*` handler fails when that node executes.
+   * `fail_fast` validates the whole graph before a run starts and throws a
+   * configuration error for any missing runtime-tool handler.
+   */
+  runtimeToolReadiness?: "lazy" | "fail_fast";
+  /**
    * Optional checkpoint store for persistence.
    *
    * When omitted, the runtime selects a store automatically:

@@ -125,6 +125,16 @@ export {
 } from "./middleware/content-sanitizer.js";
 export type { ContentSanitizerConfig } from "./middleware/content-sanitizer.js";
 
+// --- Runtime tool bridge ---
+export {
+  createAdapterRuntimeToolHandlers,
+  createAdapterRuntimeToolPorts,
+} from "./pipeline/runtime-tool-bridge.js";
+export type {
+  AdapterRuntimeToolBridgeOptions,
+  AdapterRuntimeToolOrchestrator,
+} from "./pipeline/runtime-tool-bridge.js";
+
 // --- Event factories ---
 export * from "./events/index.js";
 
