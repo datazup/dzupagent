@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { parseFlow } from '../index.js'
 import type { FlowNode } from '../index.js'
-import { checkOutputKeyUniqueness } from '../output-key-uniqueness.js'
+import {
+  OUTPUT_KEY_UNIQUENESS_CODE,
+  OUTPUT_KEY_UNIQUENESS_SEVERITY,
+  checkOutputKeyUniqueness,
+} from '../output-key-uniqueness.js'
 
 const agentNode = (id: string, key: string): Record<string, unknown> => ({
   type: 'agent',
@@ -36,7 +40,8 @@ describe('checkOutputKeyUniqueness', () => {
     })
     const diags = checkOutputKeyUniqueness(root)
     expect(diags).toHaveLength(1)
-    expect(diags[0]!.severity).toBe('warning')
+    expect(diags[0]!.code).toBe(OUTPUT_KEY_UNIQUENESS_CODE)
+    expect(diags[0]!.severity).toBe(OUTPUT_KEY_UNIQUENESS_SEVERITY)
     expect(diags[0]!.message).toMatch(/result/)
     expect(diags[0]!.relatedIds).toEqual(['a', 'b'])
     expect(diags[0]!.key).toBe('result')
@@ -116,11 +121,31 @@ describe('checkOutputKeyUniqueness', () => {
 
     expect(checkOutputKeyUniqueness(root)).toEqual([
       expect.objectContaining({
-        severity: 'warning',
+        code: OUTPUT_KEY_UNIQUENESS_CODE,
+        severity: OUTPUT_KEY_UNIQUENESS_SEVERITY,
         key: 'result',
         relatedIds: ['a', 'b'],
       }),
     ])
+  })
+
+  it('does not retain duplicate state after a warning-producing validation', () => {
+    const duplicateRoot = parseRoot({
+      type: 'sequence',
+      nodes: [agentNode('a', 'result'), agentNode('b', 'result')],
+    })
+    expect(checkOutputKeyUniqueness(duplicateRoot)).toEqual([
+      expect.objectContaining({
+        code: OUTPUT_KEY_UNIQUENESS_CODE,
+        severity: OUTPUT_KEY_UNIQUENESS_SEVERITY,
+      }),
+    ])
+
+    const uniqueRoot = parseRoot({
+      type: 'sequence',
+      nodes: [agentNode('c', 'result'), agentNode('d', 'review')],
+    })
+    expect(checkOutputKeyUniqueness(uniqueRoot)).toEqual([])
   })
 
   it('flags duplicate inside a persona body', () => {
