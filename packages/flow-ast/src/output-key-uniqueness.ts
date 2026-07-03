@@ -10,8 +10,12 @@
  */
 import type { AgentNode, FlowNode } from './types.js'
 
+export const OUTPUT_KEY_UNIQUENESS_CODE = 'output_key_collision'
+export const OUTPUT_KEY_UNIQUENESS_SEVERITY = 'warning'
+
 export interface OutputKeyDiagnostic {
-  severity: 'warning' | 'error'
+  code: typeof OUTPUT_KEY_UNIQUENESS_CODE
+  severity: typeof OUTPUT_KEY_UNIQUENESS_SEVERITY
   message: string
   /** Both colliding agent node ids, lexicographically sorted. */
   relatedIds: string[]
@@ -34,7 +38,8 @@ function pushDiagnostic(
 ): void {
   const pair = [firstId, secondId].sort()
   diags.push({
-    severity: 'warning',
+    code: OUTPUT_KEY_UNIQUENESS_CODE,
+    severity: OUTPUT_KEY_UNIQUENESS_SEVERITY,
     message:
       `Two agent nodes in the same sequence scope use output.key "${key}" ` +
       `("${pair[0]}" and "${pair[1]}"). The second write will overwrite the first.`,
