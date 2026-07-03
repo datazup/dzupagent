@@ -15,6 +15,10 @@ describe('agent-adapters export map', () => {
       import: './dist/integration/index.js',
       types: './dist/integration/index.d.ts',
     })
+    expect(packageJson.exports['./pipeline']).toEqual({
+      import: './dist/pipeline/index.js',
+      types: './dist/pipeline/index.d.ts',
+    })
     expect(packageJson.exports['./dzupagent']).toEqual({
       import: './dist/dzupagent/index.js',
       types: './dist/dzupagent/index.d.ts',

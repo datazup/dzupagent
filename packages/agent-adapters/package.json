@@ -30,6 +30,10 @@
       "types": "./dist/persistence.d.ts",
       "import": "./dist/persistence.js"
     },
+    "./pipeline": {
+      "types": "./dist/pipeline/index.d.ts",
+      "import": "./dist/pipeline/index.js"
+    },
     "./runs": {
       "types": "./dist/runs/index.d.ts",
       "import": "./dist/runs/index.js"

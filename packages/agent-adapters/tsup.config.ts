@@ -10,6 +10,7 @@ export default defineConfig({
     "src/persistence.ts",
     "src/learning.ts",
     "src/recovery.ts",
+    "src/pipeline/index.ts",
     "src/runs/index.ts",
     "src/integration/index.ts",
     "src/dzupagent/index.ts",

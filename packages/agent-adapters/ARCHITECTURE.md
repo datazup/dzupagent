@@ -59,6 +59,7 @@ Published package subpaths (`package.json` `exports`):
 - `./workflow`
 - `./http`
 - `./persistence`
+- `./pipeline`
 - `./runs`
 - `./integration`
 - `./dzupagent`

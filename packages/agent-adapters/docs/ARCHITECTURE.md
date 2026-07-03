@@ -12,6 +12,7 @@ This document supplements the root `ARCHITECTURE.md` with package-specific detai
 | `./workflow`        | Workflow DSL builder, resolver, and validator                                   |
 | `./http`            | HTTP handler, request schemas, and rate limiting                                |
 | `./persistence`     | Checkpoint, run manager, run log, and run event store helpers                   |
+| `./pipeline`        | Adapter pipeline steps and runtime tool bridge for compiled flows              |
 | `./runs`            | Run-log accessors and run-event persistence                                     |
 | `./integration`     | Adapter-as-tool bridge, external-tool integration, and MCP helpers              |
 | `./dzupagent`       | `.dzupagent`/UCL ingestion helpers, skill projection, and script automation     |
