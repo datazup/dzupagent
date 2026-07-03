@@ -172,6 +172,12 @@ const zodRunner = createRuntimeZodValidationRunner({
 })
 ```
 
+`shell.run` is intentionally host-owned. The package exposes the typed
+`shellRun` port so apps can enforce their own command policy, working
+directory, environment, audit trail, and sandboxing; it does not ship a generic
+`shell.run` executor. The reusable shell helper is scoped to validation suites
+and still requires an explicit allowlist.
+
 ### Structured Output
 
 - `generateStructuredOutput(config)` -- generate typed output from an LLM using Zod schemas
