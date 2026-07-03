@@ -6,6 +6,9 @@ import type {
   RuntimeToolHandler,
 } from "../pipeline-runtime-types.js";
 import {
+  createRuntimeToolHandlers,
+  createRuntimeValidatePort,
+  getRuntimeToolReadiness,
   runtimeToolFailure,
   runtimeToolSuccess,
 } from "../runtime-tool-handlers.js";
@@ -196,6 +199,165 @@ describe("PipelineRuntime runtime tool handlers", () => {
       retryable: false,
       schemaRef: "schema.review",
       failures: 2,
+    });
+  });
+
+  it("reports missing runtime tool handlers before execution", () => {
+    const definition = makeRuntimeToolPipeline({
+      id: "adapter_0",
+      type: "tool",
+      toolName: "dzup.runtime.adapter.run",
+      arguments: { provider: "codex", instructions: "Run.", output: "result" },
+    });
+
+    expect(getRuntimeToolReadiness(definition, {})).toEqual({
+      ready: false,
+      requiredToolNames: ["dzup.runtime.adapter.run"],
+      missingToolNames: ["dzup.runtime.adapter.run"],
+      nodes: [
+        {
+          nodeId: "adapter_0",
+          toolName: "dzup.runtime.adapter.run",
+          ready: false,
+        },
+      ],
+    });
+  });
+
+  it("fails fast on missing runtime handlers when configured", async () => {
+    const runtime = new PipelineRuntime({
+      definition: makeRuntimeToolPipeline({
+        id: "adapter_0",
+        type: "tool",
+        toolName: "dzup.runtime.adapter.run",
+        arguments: { provider: "codex", instructions: "Run.", output: "result" },
+      }),
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      runtimeToolHandlers: {},
+      runtimeToolReadiness: "fail_fast",
+    });
+
+    await expect(runtime.execute()).rejects.toThrow(
+      'Runtime tool handlers are not ready: missing handler for "dzup.runtime.adapter.run" used by node "adapter_0"',
+    );
+  });
+
+  it("runs validate commands through the concrete validate port", async () => {
+    const runtime = new PipelineRuntime({
+      definition: makeRuntimeToolPipeline({
+        id: "validate_0",
+        type: "tool",
+        toolName: "dzup.runtime.validate",
+        arguments: {
+          commands: [
+            { id: "typecheck", command: "yarn typecheck" },
+            { id: "test", command: "yarn test" },
+          ],
+        },
+      }),
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validate: createRuntimeValidatePort({
+          runCommand: async ({ id, command }) => ({
+            id,
+            command,
+            ok: true,
+            exitCode: 0,
+            stdout: `${command}: ok`,
+          }),
+        }),
+      }),
+    });
+
+    const result = await runtime.execute();
+
+    expect(result.state).toBe("completed");
+    expect(result.nodeResults.get("validate_0")?.output).toEqual({
+      valid: true,
+      ref: undefined,
+      commandResults: [
+        {
+          id: "typecheck",
+          command: "yarn typecheck",
+          ok: true,
+          exitCode: 0,
+          stdout: "yarn typecheck: ok",
+          durationMs: expect.any(Number),
+        },
+        {
+          id: "test",
+          command: "yarn test",
+          ok: true,
+          exitCode: 0,
+          stdout: "yarn test: ok",
+          durationMs: expect.any(Number),
+        },
+      ],
+    });
+  });
+
+  it("turns validate command failures into structured runtime errors", async () => {
+    const runtime = new PipelineRuntime({
+      definition: makeRuntimeToolPipeline({
+        id: "validate_0",
+        type: "tool",
+        toolName: "dzup.runtime.validate",
+        arguments: {
+          ref: "suite.ci",
+          commands: [{ id: "test", command: "yarn test" }],
+        },
+      }),
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validate: createRuntimeValidatePort({
+          runCommand: async ({ id, command }) => ({
+            id,
+            command,
+            ok: false,
+            exitCode: 1,
+            stderr: "1 failed",
+          }),
+        }),
+      }),
+    });
+
+    const result = await runtime.execute();
+    const nodeResult = result.nodeResults.get("validate_0");
+
+    expect(result.state).toBe("failed");
+    expect(nodeResult?.error).toBe("Runtime validation failed");
+    expect(nodeResult?.errorMetadata).toEqual({
+      code: "RUNTIME_VALIDATE_FAILED",
+      retryable: false,
+      ref: "suite.ci",
+      failedCommandIds: ["test"],
+      failedCommands: ["yarn test"],
+    });
+    expect(nodeResult?.output).toEqual({
+      valid: false,
+      ref: "suite.ci",
+      commandResults: [
+        {
+          id: "test",
+          command: "yarn test",
+          ok: false,
+          exitCode: 1,
+          stderr: "1 failed",
+          durationMs: expect.any(Number),
+        },
+      ],
     });
   });
 });

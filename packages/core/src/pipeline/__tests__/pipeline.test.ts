@@ -191,6 +191,24 @@ describe("PipelineNode discriminated union", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts source flow-node provenance on pipeline nodes", () => {
+    const node: ToolNode = {
+      type: "tool",
+      id: "t-source",
+      toolName: "dzup.runtime.prompt",
+      source: {
+        kind: "flow-node",
+        path: "root.nodes[0]",
+        nodeType: "prompt",
+        nodeId: "collect-requirements",
+      },
+    };
+
+    const result = PipelineNodeSchema.safeParse(node);
+
+    expect(result.success).toBe(true);
+  });
+
   it("rejects unknown node type", () => {
     const node = { type: "unknown", id: "u1" };
     const result = PipelineNodeSchema.safeParse(node);
@@ -410,6 +428,35 @@ describe("serializePipeline / deserializePipeline", () => {
       declaredIdempotencyKey: "record-123",
       idempotency: "exactly-once-required",
       effectClass: "db_write",
+    });
+  });
+
+  it("round-trips per-node source provenance", () => {
+    const original = makeMinimalPipeline({
+      nodes: [
+        {
+          type: "tool",
+          id: "n1",
+          toolName: "dzup.runtime.prompt",
+          source: {
+            kind: "flow-node",
+            path: "root.nodes[0]",
+            nodeType: "prompt",
+            nodeId: "collect-requirements",
+          },
+        },
+      ],
+    });
+
+    const restored = deserializePipeline(serializePipeline(original));
+
+    expect(restored.nodes[0]).toMatchObject({
+      source: {
+        kind: "flow-node",
+        path: "root.nodes[0]",
+        nodeType: "prompt",
+        nodeId: "collect-requirements",
+      },
     });
   });
 

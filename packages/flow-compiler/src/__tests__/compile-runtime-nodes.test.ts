@@ -174,6 +174,43 @@ describe('runtime-only compiler diagnostics', () => {
     ])
   })
 
+  it('preserves source flow-node identity on lowered runtime tool nodes', async () => {
+    const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
+
+    const result = await compiler.compileDocument({
+      dsl: 'dzupflow/v1',
+      id: 'source-runtime-node',
+      version: 1,
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          {
+            type: 'prompt',
+            id: 'collect-requirements',
+            userPrompt: 'Collect requirements.',
+            outputKey: 'requirements',
+          },
+        ],
+      },
+    })
+
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.target).toBe('planning-dag')
+    const artifact = result.artifact as PipelineDefinition
+    expect(artifact.nodes[0]).toMatchObject({
+      type: 'tool',
+      toolName: 'dzup.runtime.prompt',
+      source: {
+        kind: 'flow-node',
+        path: 'root.nodes[0]',
+        nodeType: 'prompt',
+        nodeId: 'collect-requirements',
+      },
+    })
+  })
+
   it('lowers worker.dispatch-only flows to planning-dag runtime tool nodes', async () => {
     const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
 
