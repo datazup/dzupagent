@@ -28,6 +28,18 @@ function findTool(
 }
 
 describe("plan.write_todos", () => {
+  it("accepts an empty content string and renders the pending marker with a trailing space", async () => {
+    const store = new InMemoryTodoStore();
+    const writeTodos = findTool(buildPlanTools(store), "plan.write_todos");
+    const todos: TodoItem[] = [{ content: "", status: "pending" }];
+
+    const result = (await writeTodos.execute({ todos })) as PlanTodosOutput;
+
+    expect(result.todos).toEqual(todos);
+    expect(store.get()).toEqual(todos);
+    expect(result.rendered).toBe("[ ] ");
+  });
+
   it("replaces the full list, returns the accepted list, and renders status markers", async () => {
     const store = new InMemoryTodoStore();
     store.set([{ content: "old task", status: "pending" }]);
