@@ -11,6 +11,13 @@ const agentNode = (id: string, key: string): Record<string, unknown> => ({
   output: { key, schema: { type: 'object' } },
 })
 
+const promptNode = (id: string, outputKey: string): Record<string, unknown> => ({
+  type: 'prompt',
+  id,
+  userPrompt: 'summarize the input',
+  outputKey,
+})
+
 function parseRoot(input: object): FlowNode {
   const result = parseFlow(input)
   if (!result.ast) {
@@ -71,6 +78,49 @@ describe('checkOutputKeyUniqueness', () => {
       nodes: [agentNode('a', 'r1'), agentNode('b', 'r2')],
     })
     expect(checkOutputKeyUniqueness(root)).toEqual([])
+  })
+
+  it('does not globally reject duplicate output.key in nested sequence scopes', () => {
+    const root = parseRoot({
+      type: 'sequence',
+      nodes: [
+        agentNode('root-agent', 'result'),
+        {
+          type: 'sequence',
+          id: 'nested',
+          nodes: [agentNode('nested-agent', 'result')],
+        },
+      ],
+    })
+
+    expect(checkOutputKeyUniqueness(root)).toEqual([])
+  })
+
+  it('does not flag duplicate output keys from non-agent output-producing nodes', () => {
+    const root = parseRoot({
+      type: 'sequence',
+      nodes: [
+        promptNode('prompt-a', 'result'),
+        promptNode('prompt-b', 'result'),
+      ],
+    })
+
+    expect(checkOutputKeyUniqueness(root)).toEqual([])
+  })
+
+  it('does not promote allowed warning-scoped collisions to errors', () => {
+    const root = parseRoot({
+      type: 'sequence',
+      nodes: [agentNode('a', 'result'), agentNode('b', 'result')],
+    })
+
+    expect(checkOutputKeyUniqueness(root)).toEqual([
+      expect.objectContaining({
+        severity: 'warning',
+        key: 'result',
+        relatedIds: ['a', 'b'],
+      }),
+    ])
   })
 
   it('flags duplicate inside a persona body', () => {
