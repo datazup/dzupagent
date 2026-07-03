@@ -1,6 +1,6 @@
 import type { FlowNode, ResolvedTool, ToolResolver } from '@dzupagent/flow-ast'
 import { InMemoryDomainToolRegistry } from '@dzupagent/app-tools'
-import type { SkillChain } from '@dzupagent/core/pipeline'
+import type { PipelineDefinition } from '@dzupagent/core/pipeline'
 import { describe, expect, it } from 'vitest'
 
 import { collectUnsupportedRuntimeNodes, createFlowCompiler } from '../index.js'
@@ -46,26 +46,28 @@ const agentNode: FlowNode = {
 }
 
 describe('runtime-only compiler diagnostics', () => {
-  it('fails agent-only flows with actionable lowering diagnostics', async () => {
+  it('lowers agent-only flows to planning-dag AgentNode artifacts', async () => {
     const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
 
     const result = await compiler.compile(agentNode)
 
-    expect('errors' in result).toBe(true)
-    if (!('errors' in result)) throw new Error('expected compile failure')
-    expect(result.errors).toEqual([
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.target).toBe('planning-dag')
+    const artifact = result.artifact as PipelineDefinition
+    expect(artifact.nodes).toEqual([
       expect.objectContaining({
-        stage: 4,
-        code: 'UNSUPPORTED_RUNTIME_NODE_FOR_TARGET',
-        nodePath: 'root',
-        category: 'lowering',
-        message: expect.stringContaining('Node type "agent"'),
+        type: 'agent',
+        agentId: 'reviewer',
+        config: expect.objectContaining({
+          instructions: 'Review the change.',
+          output: { key: 'review', schema: { type: 'object' } },
+        }),
       }),
     ])
-    expect(result.errors[0]?.message).toContain('"workflow-builder" generic compiler target')
   })
 
-  it('fails validate-only flows without silently emitting empty artifacts', async () => {
+  it('lowers validate-only flows to planning-dag runtime tool nodes', async () => {
     const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
 
     const result = await compiler.compile({
@@ -73,18 +75,20 @@ describe('runtime-only compiler diagnostics', () => {
       ref: 'schema.review',
     })
 
-    expect('errors' in result).toBe(true)
-    if (!('errors' in result)) throw new Error('expected compile failure')
-    expect(result.errors[0]).toMatchObject({
-      stage: 4,
-      code: 'UNSUPPORTED_RUNTIME_NODE_FOR_TARGET',
-      nodePath: 'root',
-      category: 'lowering',
-    })
-    expect(result.errors[0]?.message).toContain('Node type "validate"')
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.target).toBe('planning-dag')
+    const artifact = result.artifact as PipelineDefinition
+    expect(artifact.nodes).toEqual([
+      expect.objectContaining({
+        type: 'tool',
+        toolName: 'dzup.runtime.validate',
+        arguments: { ref: 'schema.review' },
+      }),
+    ])
   })
 
-  it('fails adapter runtime-only flows without silently emitting empty artifacts', async () => {
+  it('lowers adapter runtime-only flows to planning-dag runtime tool nodes', async () => {
     const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
 
     const result = await compiler.compile({
@@ -94,18 +98,24 @@ describe('runtime-only compiler diagnostics', () => {
       output: 'adapterResult',
     })
 
-    expect('errors' in result).toBe(true)
-    if (!('errors' in result)) throw new Error('expected compile failure')
-    expect(result.errors[0]).toMatchObject({
-      stage: 4,
-      code: 'UNSUPPORTED_RUNTIME_NODE_FOR_TARGET',
-      nodePath: 'root',
-      category: 'lowering',
-    })
-    expect(result.errors[0]?.message).toContain('Node type "adapter.run"')
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.target).toBe('planning-dag')
+    const artifact = result.artifact as PipelineDefinition
+    expect(artifact.nodes).toEqual([
+      expect.objectContaining({
+        type: 'tool',
+        toolName: 'dzup.runtime.adapter.run',
+        arguments: {
+          provider: 'codex',
+          instructions: 'Discuss the architecture.',
+          output: 'adapterResult',
+        },
+      }),
+    ])
   })
 
-  it('names prompt and return_to nodes in deterministic AST order', async () => {
+  it('lowers prompt nodes but still rejects return_to nodes in deterministic AST order', async () => {
     const compiler = createFlowCompiler({ toolResolver: makeResolver(['tasks.run']) })
 
     const result = await compiler.compile({
@@ -120,8 +130,65 @@ describe('runtime-only compiler diagnostics', () => {
     expect('errors' in result).toBe(true)
     if (!('errors' in result)) throw new Error('expected compile failure')
     expect(result.errors.map((error) => [error.nodePath, error.message])).toEqual([
-      ['root.nodes[0]', expect.stringContaining('Node type "prompt"')],
       ['root.nodes[1]', expect.stringContaining('Node type "return_to"')],
+    ])
+  })
+
+  it('lowers prompt-only flows to planning-dag runtime tool nodes', async () => {
+    const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
+
+    const result = await compiler.compile({
+      type: 'prompt',
+      userPrompt: 'Collect requirements.',
+      outputKey: 'requirements',
+      provider: 'openai',
+      model: 'gpt-4.1',
+    })
+
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.target).toBe('planning-dag')
+    const artifact = result.artifact as PipelineDefinition
+    expect(artifact.nodes).toEqual([
+      expect.objectContaining({
+        type: 'tool',
+        toolName: 'dzup.runtime.prompt',
+        arguments: {
+          userPrompt: 'Collect requirements.',
+          outputKey: 'requirements',
+          provider: 'openai',
+          model: 'gpt-4.1',
+        },
+      }),
+    ])
+  })
+
+  it('lowers worker.dispatch-only flows to planning-dag runtime tool nodes', async () => {
+    const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
+
+    const result = await compiler.compile({
+      type: 'worker.dispatch',
+      dispatchId: 'review-change',
+      provider: 'codex',
+      instructions: 'Review the current diff.',
+      outputKey: 'workerReview',
+    })
+
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.target).toBe('planning-dag')
+    const artifact = result.artifact as PipelineDefinition
+    expect(artifact.nodes).toEqual([
+      expect.objectContaining({
+        type: 'tool',
+        toolName: 'dzup.runtime.worker.dispatch',
+        arguments: {
+          dispatchId: 'review-change',
+          provider: 'codex',
+          instructions: 'Review the current diff.',
+          outputKey: 'workerReview',
+        },
+      }),
     ])
   })
 
@@ -140,7 +207,7 @@ describe('runtime-only compiler diagnostics', () => {
     expect(result.warnings).toEqual([])
   })
 
-  it('allows worker dispatch runtime leaves alongside lowerable skill-chain work', async () => {
+  it('routes worker dispatch runtime leaves alongside lowerable actions to planning-dag', async () => {
     const compiler = createFlowCompiler({ toolResolver: makeResolver(['tasks.run']) })
 
     const ast: FlowNode = {
@@ -160,9 +227,20 @@ describe('runtime-only compiler diagnostics', () => {
 
     expect('errors' in result).toBe(false)
     if ('errors' in result) throw new Error('expected compile success')
-    expect(result.target).toBe('skill-chain')
-    expect((result.artifact as SkillChain).steps).toHaveLength(1)
-    expect(collectUnsupportedRuntimeNodes(ast, 'skill-chain')).toEqual([])
+    expect(result.target).toBe('planning-dag')
+    const artifact = result.artifact as PipelineDefinition
+    expect(artifact.nodes.map((node) => node.type)).toEqual(['tool', 'tool'])
+    expect(artifact.nodes[0]).toMatchObject({
+      type: 'tool',
+      toolName: 'dzup.runtime.worker.dispatch',
+    })
+    expect(artifact.nodes[1]).toMatchObject({
+      type: 'tool',
+      toolName: 'tasks.run',
+    })
+    expect(collectUnsupportedRuntimeNodes(ast, 'skill-chain')).toEqual([
+      { type: 'worker.dispatch', path: 'root.nodes[0]' },
+    ])
   })
 
   it('exposes unsupported runtime nodes for route-level audits', () => {

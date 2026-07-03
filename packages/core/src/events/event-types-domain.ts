@@ -203,7 +203,7 @@ export type DomainLifecycleEvent =
   | {
       type: "flow:compile_lowered";
       compileId: string;
-      target: "skill-chain" | "workflow-builder" | "pipeline";
+      target: "skill-chain" | "workflow-builder" | "pipeline" | "planning-dag";
       nodeCount: number;
       edgeCount: number;
       warningCount: number;
@@ -211,13 +211,13 @@ export type DomainLifecycleEvent =
   | {
       type: "flow:compile_completed";
       compileId: string;
-      target: "skill-chain" | "workflow-builder" | "pipeline";
+      target: "skill-chain" | "workflow-builder" | "pipeline" | "planning-dag";
       durationMs: number;
     }
   | {
       type: "flow:compile_result";
       compileId: string;
-      target: "skill-chain" | "workflow-builder" | "pipeline";
+      target: "skill-chain" | "workflow-builder" | "pipeline" | "planning-dag";
       artifact: unknown;
       evidence?: {
         schema: "dzupagent.flowCompileEvidence/v1";
@@ -230,7 +230,11 @@ export type DomainLifecycleEvent =
         compileId: string;
         canonicalNodeIds: string[];
         canonicalNodePaths: Record<string, { type: string; id?: string }>;
-        loweredTarget: "skill-chain" | "workflow-builder" | "pipeline";
+        loweredTarget:
+          | "skill-chain"
+          | "workflow-builder"
+          | "pipeline"
+          | "planning-dag";
         correlationIds: {
           compileId: string;
           eventCorrelationId: string;
@@ -249,7 +253,8 @@ export type DomainLifecycleEvent =
           | "BRANCH_PRESENT"
           | "PARALLEL_PRESENT"
           | "SUSPEND_PRESENT"
-          | "FOR_EACH_PRESENT";
+          | "FOR_EACH_PRESENT"
+          | "RUNTIME_LEAF_PRESENT";
         message: string;
       }>;
     }

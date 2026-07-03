@@ -259,21 +259,21 @@ const branchLeaf = (...thenNodes: FlowNode[]): FlowNode =>
   ({ type: "branch", condition: "x", then: thenNodes } as unknown as FlowNode);
 
 describe("RUNTIME_LEAF routing (MPCO P1)", () => {
-  it("T1a: adapter.run-only flow routes to workflow-builder", () => {
+  it("T1a: adapter.run-only flow routes to planning-dag", () => {
     const result = routeTarget(sequence(adapterRun()));
-    expect(result.target).toBe("workflow-builder");
+    expect(result.target).toBe("planning-dag");
     expect(result.reason).toBe("RUNTIME_LEAF_PRESENT");
   });
 
-  it("T1b: validate-only flow routes to workflow-builder", () => {
+  it("T1b: validate-only flow routes to planning-dag", () => {
     const result = routeTarget(sequence(validate()));
-    expect(result.target).toBe("workflow-builder");
+    expect(result.target).toBe("planning-dag");
     expect(result.reason).toBe("RUNTIME_LEAF_PRESENT");
   });
 
-  it("T1c: implementation primitive-only flow routes to workflow-builder", () => {
+  it("T1c: implementation primitive-only flow routes to planning-dag", () => {
     const result = routeTarget(sequence(shellRun()));
-    expect(result.target).toBe("workflow-builder");
+    expect(result.target).toBe("planning-dag");
     expect(result.reason).toBe("RUNTIME_LEAF_PRESENT");
   });
 
@@ -283,10 +283,10 @@ describe("RUNTIME_LEAF routing (MPCO P1)", () => {
     expect(result.reason).toBeUndefined();
   });
 
-  it("T3: branch + adapter.run routes to workflow-builder via BRANCH, not RUNTIME_LEAF reason", () => {
+  it("T3: branch + adapter.run routes to planning-dag via runtime-leaf support", () => {
     const result = routeTarget(branchLeaf(adapterRun()));
-    expect(result.target).toBe("workflow-builder");
-    expect(result.reason).toBeUndefined(); // rule 2 (BRANCH) wins before rule 3
+    expect(result.target).toBe("planning-dag");
+    expect(result.reason).toBe("RUNTIME_LEAF_PRESENT");
   });
 
   it("T3b: RUNTIME_LEAF bit is set whenever a runtime leaf is present", () => {

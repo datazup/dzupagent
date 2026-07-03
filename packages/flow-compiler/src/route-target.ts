@@ -28,8 +28,8 @@ export type FeatureBitmask = number;
  *
  * Routing rule (matches D2 table exactly):
  *   - any FOR_EACH bit              → 'pipeline'
+ *   - any RUNTIME_LEAF bit          → 'planning-dag' (W3 Slice A)
  *   - any BRANCH | PARALLEL | SUSPEND bit → 'workflow-builder'
- *   - any RUNTIME_LEAF bit alone    → 'workflow-builder' (MPCO P1)
  *   - otherwise                     → 'skill-chain'
  */
 export function routeTarget(ast: FlowNode): {
@@ -41,21 +41,19 @@ export function routeTarget(ast: FlowNode): {
   if ((bitmask & FEATURE_BITS.FOR_EACH) !== 0) {
     return { target: "pipeline", bitmask };
   }
+  if ((bitmask & FEATURE_BITS.RUNTIME_LEAF) !== 0) {
+    return {
+      target: "planning-dag",
+      bitmask,
+      reason: "RUNTIME_LEAF_PRESENT",
+    };
+  }
   if (
     (bitmask &
       (FEATURE_BITS.BRANCH | FEATURE_BITS.PARALLEL | FEATURE_BITS.SUSPEND)) !==
     0
   ) {
     return { target: "workflow-builder", bitmask };
-  }
-  if ((bitmask & FEATURE_BITS.RUNTIME_LEAF) !== 0) {
-    // MPCO P1: divert runtime-leaf-only flows away from skill-chain (which
-    // rejects adapter.run/validate at lowering) to the runtime-capable target.
-    return {
-      target: "workflow-builder",
-      bitmask,
-      reason: "RUNTIME_LEAF_PRESENT",
-    };
   }
   return { target: "skill-chain", bitmask };
 }
@@ -136,9 +134,9 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "fleet.contract-net":
       case "knowledge.write":
       case "knowledge.query":
-      case "worker.dispatch":
         // Non-runtime leaf nodes — contribute no feature bits (unchanged).
         return;
+      case "worker.dispatch":
       case "shell.run":
       case "evidence.write":
       case "validate.schema":
@@ -163,6 +161,7 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
         return;
       }
       case "prompt":
+        bits |= FEATURE_BITS.RUNTIME_LEAF;
         return;
       case "return_to": {
         bits |= FEATURE_BITS.FOR_EACH;
@@ -300,10 +299,7 @@ export interface UnsupportedRuntimeNode {
 }
 
 // Node types that cannot be lowered by any generic compiler target.
-const ALWAYS_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>([
-  "prompt",
-  "return_to",
-]);
+const ALWAYS_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>(["return_to"]);
 
 // Runtime-executed leaves can be carried inside richer pipeline artifacts, but
 // a flow made only from these leaves would emit an empty generic artifact.
@@ -314,6 +310,8 @@ const RUNTIME_LEAF_NODE_TYPES = new Set<FlowNode["type"]>([
   "adapter.race",
   "adapter.parallel",
   "adapter.supervisor",
+  "prompt",
+  "worker.dispatch",
   "shell.run",
   "evidence.write",
   "validate.schema",
@@ -327,6 +325,7 @@ function isUnsupportedForTarget(
   if (ALWAYS_UNSUPPORTED_NODE_TYPES.has(nodeType)) return true;
   if (!RUNTIME_LEAF_NODE_TYPES.has(nodeType)) return false;
   if (target === "skill-chain") return true;
+  if (target === "planning-dag") return false;
   if (!hasArtifactAnchor) return true;
   return false;
 }
@@ -483,15 +482,16 @@ function hasGenericArtifactAnchor(
       case "http":
       case "wait":
       case "subflow":
-      case "prompt":
       case "return_to":
-      case "agent":
-      case "validate":
       case "fleet.dispatch":
       case "fleet.gather":
       case "fleet.contract-net":
       case "knowledge.write":
       case "knowledge.query":
+        return false;
+      case "prompt":
+      case "agent":
+      case "validate":
       case "worker.dispatch":
       case "shell.run":
       case "evidence.write":
@@ -500,7 +500,7 @@ function hasGenericArtifactAnchor(
       case "adapter.race":
       case "adapter.parallel":
       case "adapter.supervisor":
-        return false;
+        return target === "planning-dag";
       default: {
         const _exhaustive: never = node;
         void _exhaustive;

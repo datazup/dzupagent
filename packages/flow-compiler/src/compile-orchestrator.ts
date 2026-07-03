@@ -326,7 +326,7 @@ export async function runCompile(
     const out = lowerSkillChain({ ast, resolved, mode: "executable" });
     artifact = out.artifact;
     warnings = out.warnings;
-  } else if (target === "workflow-builder") {
+  } else if (target === "workflow-builder" || target === "planning-dag") {
     const out = lowerPipelineFlat({
       ast,
       resolved,
@@ -605,7 +605,7 @@ function countDiagnosticsByCategory(
  * defensively on unexpected shapes — telemetry must never crash a compile.
  */
 function countArtifact(
-  target: "skill-chain" | "workflow-builder" | "pipeline",
+  target: "skill-chain" | "workflow-builder" | "pipeline" | "planning-dag",
   artifact: unknown
 ): { nodeCount: number; edgeCount: number } {
   if (artifact === null || typeof artifact !== "object") {
@@ -697,6 +697,13 @@ function targetReasons(
     reasons.push({
       code: "FOR_EACH_PRESENT",
       message: "Loop semantics are present; routed to pipeline.",
+    });
+  }
+  if ((bitmask & (1 << 4)) !== 0) {
+    reasons.push({
+      code: "RUNTIME_LEAF_PRESENT",
+      message:
+        "Runtime-executed leaf nodes are present; routed to planning-dag.",
     });
   }
 

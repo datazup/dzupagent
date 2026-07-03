@@ -93,7 +93,11 @@ export interface AsyncPersonaResolver {
   resolve(ref: string): Promise<boolean>;
 }
 
-export type CompilationTarget = "skill-chain" | "workflow-builder" | "pipeline";
+export type CompilationTarget =
+  | "skill-chain"
+  | "workflow-builder"
+  | "pipeline"
+  | "planning-dag";
 
 export type CompilationStage = 1 | 2 | 3 | 4;
 
@@ -137,7 +141,8 @@ export interface CompilationTargetReason {
     | "BRANCH_PRESENT"
     | "PARALLEL_PRESENT"
     | "SUSPEND_PRESENT"
-    | "FOR_EACH_PRESENT";
+    | "FOR_EACH_PRESENT"
+    | "RUNTIME_LEAF_PRESENT";
   message: string;
 }
 

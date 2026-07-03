@@ -28,6 +28,7 @@ import {
   lowerSequence,
 } from "./_shared-control.js";
 import { lowerApproval, lowerPersona, lowerRoute } from "./_shared-suspend.js";
+import { lowerRuntimeLeaf } from "./_shared-runtime-leaf.js";
 
 /**
  * Lower a single FlowNode (and its subtree) into a flat list of
@@ -100,14 +101,6 @@ export function lowerNodeToPipeline(
     case "fleet.contract-net":
     case "knowledge.write":
     case "knowledge.query":
-    case "worker.dispatch":
-    case "shell.run":
-    case "evidence.write":
-    case "validate.schema":
-    case "adapter.run":
-    case "adapter.race":
-    case "adapter.parallel":
-    case "adapter.supervisor":
       // Runtime-executed nodes: present in AST but not emitted as graph edges.
       return { nodes: [], edges: [], warnings: [] };
 
@@ -119,10 +112,20 @@ export function lowerNodeToPipeline(
       // loop body is lowered as a sequence; condition evaluation is runtime-only.
       return lowerSequence(node.body, ctx, `${path}.body`, lowerNodeToPipeline);
 
-    case "prompt":
-    case "return_to":
     case "agent":
     case "validate":
+    case "prompt":
+    case "worker.dispatch":
+    case "shell.run":
+    case "evidence.write":
+    case "validate.schema":
+    case "adapter.run":
+    case "adapter.race":
+    case "adapter.parallel":
+    case "adapter.supervisor":
+      return lowerRuntimeLeaf(node, ctx, path);
+
+    case "return_to":
     case "set":
       // Runtime-executed leaf nodes: present in AST but not emitted as graph edges.
       return { nodes: [], edges: [], warnings: [] };
