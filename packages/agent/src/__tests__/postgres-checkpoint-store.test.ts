@@ -21,6 +21,11 @@ interface RecordedCall {
   params: unknown[];
 }
 
+interface StatefulTable {
+  columns: Set<string>;
+  rows: Array<Record<string, unknown>>;
+}
+
 function createMockClient(responders: Array<(call: RecordedCall) => unknown>) {
   const calls: RecordedCall[] = [];
   let idx = 0;
@@ -36,6 +41,110 @@ function createMockClient(responders: Array<(call: RecordedCall) => unknown>) {
   };
 
   return { client, calls };
+}
+
+function createStatefulCompatibilityClient(tableName: string) {
+  const calls: RecordedCall[] = [];
+  const table: StatefulTable = {
+    columns: new Set([
+      "pipeline_run_id",
+      "pipeline_id",
+      "version",
+      "schema_version",
+      "completed_node_ids",
+      "state",
+      "suspended_at_node_id",
+      "budget_state",
+      "created_at",
+      "expires_at",
+      "node_idempotency_keys",
+      "loop_state",
+      "fork_state",
+      "recovery_attempts_used",
+    ]),
+    rows: [
+      {
+        pipeline_run_id: "legacy-run",
+        pipeline_id: "pipeline-legacy",
+        version: 1,
+        schema_version: "1.0.0",
+        completed_node_ids: ["start"],
+        state: { legacy: true },
+        suspended_at_node_id: null,
+        budget_state: null,
+        created_at: "2026-04-24T00:00:00.000Z",
+        expires_at: null,
+        node_idempotency_keys: null,
+        loop_state: null,
+        fork_state: null,
+        recovery_attempts_used: 0,
+      },
+    ],
+  };
+
+  const client: PostgresClientLike = {
+    query: vi.fn(async <T>(text: string, params: unknown[] = []) => {
+      calls.push({ text, params });
+
+      if (text.includes("CREATE TABLE IF NOT EXISTS")) {
+        return { rows: [] as T[] };
+      }
+
+      const addColumn = text.match(/ADD COLUMN IF NOT EXISTS ([a-z_]+)/);
+      if (addColumn) {
+        table.columns.add(addColumn[1]!);
+        return { rows: [] as T[] };
+      }
+
+      if (text.includes(`INSERT INTO ${tableName}`)) {
+        table.rows.push({
+          pipeline_run_id: params[0],
+          pipeline_id: params[1],
+          version: params[2],
+          schema_version: params[3],
+          completed_node_ids: JSON.parse(params[4] as string),
+          state: JSON.parse(params[5] as string),
+          suspended_at_node_id: params[6],
+          budget_state:
+            typeof params[7] === "string"
+              ? JSON.parse(params[7] as string)
+              : null,
+          created_at: params[8],
+          expires_at: params[9],
+          node_idempotency_keys:
+            typeof params[10] === "string"
+              ? JSON.parse(params[10] as string)
+              : null,
+          loop_state:
+            typeof params[11] === "string"
+              ? JSON.parse(params[11] as string)
+              : null,
+          fork_state:
+            typeof params[12] === "string"
+              ? JSON.parse(params[12] as string)
+              : null,
+          recovery_attempts_used: params[13],
+          provider_session_refs:
+            typeof params[14] === "string"
+              ? JSON.parse(params[14] as string)
+              : null,
+        });
+        return { rows: [] as T[] };
+      }
+
+      if (text.includes(`SELECT * FROM ${tableName}`)) {
+        const runId = params[0];
+        const rows = table.rows
+          .filter((row) => row.pipeline_run_id === runId)
+          .sort((a, b) => Number(b.version) - Number(a.version));
+        return { rows: rows.slice(0, 1) as T[] };
+      }
+
+      return { rows: [] as T[] };
+    }),
+  };
+
+  return { client, calls, table };
 }
 
 // ---------------------------------------------------------------------------
@@ -63,8 +172,9 @@ function makeCheckpoint(
 
 describe("PostgresPipelineCheckpointStore", () => {
   describe("setup()", () => {
-    it("issues CREATE TABLE, the idempotency + loop-state + fork-state + recovery-attempts migrations, and index DDL using the configured table name", async () => {
+    it("issues CREATE TABLE, checkpoint-field migrations, and index DDL using the configured table name", async () => {
       const { client, calls } = createMockClient([
+        () => ({ rows: [] }),
         () => ({ rows: [] }),
         () => ({ rows: [] }),
         () => ({ rows: [] }),
@@ -80,7 +190,7 @@ describe("PostgresPipelineCheckpointStore", () => {
 
       await store.setup();
 
-      expect(calls).toHaveLength(7);
+      expect(calls).toHaveLength(8);
       expect(calls[0]!.text).toContain(
         "CREATE TABLE IF NOT EXISTS my_checkpoints"
       );
@@ -101,9 +211,12 @@ describe("PostgresPipelineCheckpointStore", () => {
         "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS recovery_attempts_used"
       );
       expect(calls[5]!.text).toContain(
-        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+        "ALTER TABLE my_checkpoints ADD COLUMN IF NOT EXISTS provider_session_refs"
       );
       expect(calls[6]!.text).toContain(
+        "CREATE INDEX IF NOT EXISTS my_checkpoints_run_idx"
+      );
+      expect(calls[7]!.text).toContain(
         "CREATE INDEX IF NOT EXISTS my_checkpoints_expiry_idx"
       );
     });
@@ -117,6 +230,44 @@ describe("PostgresPipelineCheckpointStore", () => {
             tableName: 'evil"; DROP',
           })
       ).toThrow(/Invalid tableName/);
+    });
+
+    it("migrates a pre-existing table without provider_session_refs while preserving legacy rows", async () => {
+      const { client, table } =
+        createStatefulCompatibilityClient("pipeline_checkpoints");
+      const store = new PostgresPipelineCheckpointStore({ client });
+
+      expect(table.columns.has("provider_session_refs")).toBe(false);
+
+      await store.setup();
+      const legacy = await store.load("legacy-run");
+      await store.save(
+        makeCheckpoint({
+          pipelineRunId: "new-run",
+          providerSessionRefs: [
+            {
+              nodeId: "adapter_0",
+              provider: "codex",
+              sessionId: "sess-1",
+            },
+          ],
+        })
+      );
+      const migrated = await store.load("new-run");
+
+      expect(table.columns.has("provider_session_refs")).toBe(true);
+      expect(legacy).toMatchObject({
+        pipelineRunId: "legacy-run",
+        state: { legacy: true },
+      });
+      expect(legacy?.providerSessionRefs).toBeUndefined();
+      expect(migrated?.providerSessionRefs).toEqual([
+        {
+          nodeId: "adapter_0",
+          provider: "codex",
+          sessionId: "sess-1",
+        },
+      ]);
     });
   });
 
@@ -169,7 +320,7 @@ describe("PostgresPipelineCheckpointStore", () => {
       const mock = createMockClient([() => ({ rows: [] })]);
       const s = new PostgresPipelineCheckpointStore({ client: mock.client });
       await s.save({ ...makeCheckpoint(), recoveryAttemptsUsed: 3 });
-      // $14 is the last positional param — recovery_attempts_used
+      // $14 is recovery_attempts_used.
       expect(mock.calls[0]!.params[13]).toBe(3);
     });
 
@@ -178,6 +329,36 @@ describe("PostgresPipelineCheckpointStore", () => {
       const s = new PostgresPipelineCheckpointStore({ client: mock.client });
       await s.save(makeCheckpoint()); // no recoveryAttemptsUsed field
       expect(mock.calls[0]!.params[13]).toBe(0);
+    });
+
+    it("serialises providerSessionRefs into param $15", async () => {
+      const mock = createMockClient([() => ({ rows: [] })]);
+      const s = new PostgresPipelineCheckpointStore({ client: mock.client });
+      await s.save(
+        makeCheckpoint({
+          providerSessionRefs: [
+            {
+              nodeId: "adapter_0",
+              provider: "codex",
+              sessionId: "sess-1",
+              label: "draft",
+              metadata: { conversationId: "conv-1" },
+            },
+          ],
+        })
+      );
+
+      expect(mock.calls[0]!.params[14]).toBe(
+        JSON.stringify([
+          {
+            nodeId: "adapter_0",
+            provider: "codex",
+            sessionId: "sess-1",
+            label: "draft",
+            metadata: { conversationId: "conv-1" },
+          },
+        ])
+      );
     });
   });
 
@@ -270,6 +451,47 @@ describe("PostgresPipelineCheckpointStore", () => {
       const store = new PostgresPipelineCheckpointStore({ client });
       const result = await store.load("run-1");
       expect(result!.recoveryAttemptsUsed).toBe(2);
+    });
+
+    it("restores providerSessionRefs from the row", async () => {
+      const { client } = createMockClient([
+        () => ({
+          rows: [
+            {
+              pipeline_run_id: "run-1",
+              pipeline_id: "pipeline-1",
+              version: 1,
+              schema_version: "1.0.0",
+              completed_node_ids: ["adapter_0"],
+              state: {},
+              suspended_at_node_id: null,
+              budget_state: null,
+              created_at: "2026-04-24T00:00:00.000Z",
+              expires_at: null,
+              provider_session_refs: [
+                {
+                  nodeId: "adapter_0",
+                  provider: "codex",
+                  sessionId: "sess-1",
+                  label: "draft",
+                  metadata: { conversationId: "conv-1" },
+                },
+              ],
+            },
+          ],
+        }),
+      ]);
+      const store = new PostgresPipelineCheckpointStore({ client });
+      const result = await store.load("run-1");
+      expect(result!.providerSessionRefs).toEqual([
+        {
+          nodeId: "adapter_0",
+          provider: "codex",
+          sessionId: "sess-1",
+          label: "draft",
+          metadata: { conversationId: "conv-1" },
+        },
+      ]);
     });
 
     it("omits recoveryAttemptsUsed when the column is 0 or null (W5-gap)", async () => {

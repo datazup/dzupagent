@@ -173,6 +173,42 @@ describe('RedisPipelineCheckpointStore', () => {
     expect(latest!.completedNodeIds).toEqual(['a', 'b', 'c'])
   })
 
+  it('round-trips provider session refs from the latest checkpoint', async () => {
+    await store.save(makeCheckpoint({
+      version: 1,
+      providerSessionRefs: [
+        {
+          nodeId: 'adapter_0',
+          provider: 'codex',
+          sessionId: 'sess-old',
+        },
+      ],
+    }))
+    await store.save(makeCheckpoint({
+      version: 2,
+      providerSessionRefs: [
+        {
+          nodeId: 'adapter_1',
+          provider: 'openai',
+          sessionId: 'sess-new',
+          label: 'review',
+          metadata: { threadId: 'thread-1' },
+        },
+      ],
+    }))
+
+    const latest = await store.load('run-1')
+    expect(latest?.providerSessionRefs).toEqual([
+      {
+        nodeId: 'adapter_1',
+        provider: 'openai',
+        sessionId: 'sess-new',
+        label: 'review',
+        metadata: { threadId: 'thread-1' },
+      },
+    ])
+  })
+
   it('loadVersion() returns a specific version and undefined otherwise', async () => {
     await store.save(makeCheckpoint({ version: 1, state: { n: 1 } }))
     await store.save(makeCheckpoint({ version: 2, state: { n: 2 } }))

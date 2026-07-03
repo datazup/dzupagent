@@ -5,6 +5,7 @@ import {
   createRuntimeToolHandlers,
   InMemoryPipelineCheckpointStore,
   PipelineRuntime,
+  runtimeToolFailure,
   type NodeExecutor,
   type RuntimeToolHandler,
 } from "@dzupagent/agent/pipeline";
@@ -451,6 +452,77 @@ describe("W1 + W3 compile-to-run integration", () => {
       commandResults: [
         { id: "typecheck", command: "yarn typecheck", ok: true },
       ],
+    });
+  });
+
+  it("surfaces compiled shell.run runtime handler failures as failed pipeline results", async () => {
+    const result = await compileAndRunSingleRuntimeNode({
+      runtimeNode: {
+        type: "shell.run",
+        command: "yarn test",
+        output: "shellValidation",
+      },
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        shellRun: async ({ command, output }) =>
+          runtimeToolFailure({
+            message: "shell command failed",
+            code: "RUNTIME_SHELL_RUN_FAILED",
+            retryable: false,
+            metadata: { command, output, exitCode: 1 },
+          }),
+      }),
+      inspectState: () => {
+        throw new Error("inspect node should not run after shell.run failure");
+      },
+    });
+
+    const nodeResult = firstRuntimeResult(result);
+    expect(result.state).toBe("failed");
+    expect(nodeResult?.error).toBe("shell command failed");
+    expect(nodeResult?.errorMetadata).toEqual({
+      code: "RUNTIME_SHELL_RUN_FAILED",
+      retryable: false,
+      command: "yarn test",
+      output: "shellValidation",
+      exitCode: 1,
+    });
+  });
+
+  it("surfaces compiled validate.schema runtime handler failures as failed pipeline results", async () => {
+    const result = await compileAndRunSingleRuntimeNode({
+      runtimeNode: {
+        type: "validate.schema",
+        source: "adapterResult",
+        schema: "review.schema",
+        output: "schemaValidation",
+      },
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validateSchema: async ({ source, schema, output }) =>
+          runtimeToolFailure({
+            message: "schema validation failed",
+            code: "RUNTIME_VALIDATE_SCHEMA_FAILED",
+            retryable: false,
+            metadata: { source, schema, output, failures: 2 },
+          }),
+      }),
+      initialState: {
+        adapterResult: "rejected",
+      },
+      inspectState: () => {
+        throw new Error("inspect node should not run after validate.schema failure");
+      },
+    });
+
+    const nodeResult = firstRuntimeResult(result);
+    expect(result.state).toBe("failed");
+    expect(nodeResult?.error).toBe("schema validation failed");
+    expect(nodeResult?.errorMetadata).toEqual({
+      code: "RUNTIME_VALIDATE_SCHEMA_FAILED",
+      retryable: false,
+      source: "adapterResult",
+      schema: "review.schema",
+      output: "schemaValidation",
+      failures: 2,
     });
   });
 });

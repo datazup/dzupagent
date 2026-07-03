@@ -512,6 +512,99 @@ describe("PipelineRuntime runtime tool handlers", () => {
     });
   });
 
+  it("rejects shell validate commands that require shell metacharacter parsing", async () => {
+    const command = `${process.execPath} -e "process.stdout.write('ok')" && ${process.execPath} -e "process.stdout.write('bad')"`;
+    const runner = createRuntimeShellValidationCommandRunner({
+      allowCommands: [command],
+    });
+
+    const result = await runner(
+      { id: "compound", command },
+      validateRequest({}),
+    );
+
+    expect(result).toMatchObject({
+      id: "compound",
+      command,
+      ok: false,
+      error: "Runtime validation command could not be parsed safely",
+      metadata: { code: "RUNTIME_VALIDATE_COMMAND_UNSAFE" },
+    });
+  });
+
+  it("preserves quoted shell validate arguments as single argv entries", async () => {
+    const command = `${process.execPath} -e "process.stdout.write(process.argv[1] + '|' + process.argv[2])" "two words" "quoted ; literal"`;
+    const runner = createRuntimeShellValidationCommandRunner({
+      allowCommands: [command],
+    });
+
+    const result = await runner(
+      { id: "quoted", command },
+      validateRequest({}),
+    );
+
+    expect(result).toMatchObject({
+      id: "quoted",
+      command,
+      ok: true,
+      exitCode: 0,
+      stdout: "two words|quoted ; literal",
+    });
+  });
+
+  it("preserves explicit empty quoted shell validate arguments", async () => {
+    const command = `${process.execPath} -e "process.stdout.write(String(process.argv.length) + ':' + JSON.stringify(process.argv.slice(1)))" "" "tail"`;
+    const runner = createRuntimeShellValidationCommandRunner({
+      allowCommands: [command],
+    });
+
+    const result = await runner(
+      { id: "empty-quoted", command },
+      validateRequest({}),
+    );
+
+    expect(result).toMatchObject({
+      id: "empty-quoted",
+      command,
+      ok: true,
+      exitCode: 0,
+      stdout: '3:["","tail"]',
+    });
+  });
+
+  it("keeps shell.run host-owned when no execution port is configured", async () => {
+    const runtime = new PipelineRuntime({
+      definition: makeRuntimeToolPipeline({
+        id: "shell_0",
+        type: "tool",
+        toolName: "dzup.runtime.shell.run",
+        arguments: {
+          command: "yarn typecheck",
+          output: "shellResult",
+        },
+      }),
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      runtimeToolHandlers: createRuntimeToolHandlers({}),
+    });
+
+    const result = await runtime.execute();
+    const nodeResult = result.nodeResults.get("shell_0");
+
+    expect(result.state).toBe("failed");
+    expect(nodeResult?.error).toBe(
+      'No runtime execution port configured for "dzup.runtime.shell.run"',
+    );
+    expect(nodeResult?.errorMetadata).toEqual({
+      code: "RUNTIME_PORT_MISSING",
+      retryable: false,
+      toolName: "dzup.runtime.shell.run",
+    });
+  });
+
   it("resolves schema validation suites and reports policy-specific schema errors", async () => {
     const runtime = new PipelineRuntime({
       definition: makeRuntimeToolPipeline({

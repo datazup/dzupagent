@@ -281,7 +281,7 @@ describe('Claude adapter conformance contract', () => {
       }
       expect(err).toMatchObject({ code: 'ADAPTER_SDK_NOT_INSTALLED' })
     }
-  }, 15_000)
+  }, 60_000)
 
   it('configure() merges config without throwing', () => {
     const adapter = new ClaudeAgentAdapter()

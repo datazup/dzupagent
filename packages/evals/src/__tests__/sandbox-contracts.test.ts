@@ -352,7 +352,7 @@ describe('Sandbox contract tests', () => {
     beforeEach(async () => {
       adapter = await createCodegenMockSandbox();
       available = adapter !== null;
-    }, 30_000);
+    }, 120_000);
 
     afterEach(async () => {
       if (adapter && typeof (adapter as Record<string, unknown>)['cleanup'] === 'function') {

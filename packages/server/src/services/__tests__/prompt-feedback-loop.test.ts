@@ -760,7 +760,10 @@ describe('PromptFeedbackLoop', () => {
       scoredAt: Date.now(),
     })
 
-    await new Promise((r) => setTimeout(r, 10))
+    await waitForCondition(() => spy.mock.calls.length === 1, {
+      timeoutMs: 1_000,
+      intervalMs: 10,
+    })
     expect(spy).toHaveBeenCalledTimes(1)
 
     loop.stop()

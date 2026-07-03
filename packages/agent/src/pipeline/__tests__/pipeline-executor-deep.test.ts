@@ -320,35 +320,50 @@ describe("PipelineExecutor — parallel fork/join pipeline", () => {
 
   it("parallel branches run concurrently — combined duration is less than sequential sum", async () => {
     const { createWorkflow } = await import("../../workflow/index.js");
-    const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    let activeBranches = 0;
+    let maxActiveBranches = 0;
+    let startedBranches = 0;
+    let releaseBranches: () => void = () => {};
+    const release = new Promise<void>((resolve) => {
+      releaseBranches = resolve;
+    });
+
+    async function markBranchActive(): Promise<void> {
+      activeBranches++;
+      startedBranches++;
+      maxActiveBranches = Math.max(maxActiveBranches, activeBranches);
+      if (startedBranches === 2) releaseBranches();
+      await Promise.race([
+        release,
+        new Promise<void>((resolve) => setTimeout(resolve, 100)),
+      ]);
+      activeBranches--;
+    }
 
     const wf = createWorkflow({ id: "parallel-timing" })
       .parallel([
         {
           id: "slow-a",
           execute: async () => {
-            await delay(30);
+            await markBranchActive();
             return { a: 1 };
           },
         },
         {
           id: "slow-b",
           execute: async () => {
-            await delay(30);
+            await markBranchActive();
             return { b: 2 };
           },
         },
       ])
       .build();
 
-    const start = Date.now();
     const result = await wf.run({});
-    const elapsed = Date.now() - start;
 
     expect(result["a"]).toBe(1);
     expect(result["b"]).toBe(2);
-    // If they ran sequentially it would be ~60ms; parallel should be < 55ms
-    expect(elapsed).toBeLessThan(55);
+    expect(maxActiveBranches).toBe(2);
   });
 
   it("one failing parallel branch causes the whole fork to fail", async () => {

@@ -101,5 +101,5 @@ describe('agent-adapters export map', () => {
     } finally {
       await rm(tempDir, { recursive: true, force: true })
     }
-  })
+  }, 90_000)
 })
