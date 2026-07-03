@@ -178,6 +178,10 @@ export type SubagentRuntimeEvent =
       taskId: string;
       parentRunId: string;
       agentId: string;
+      /** Fan-out batch this spawn belongs to, when spawned by a fan-out tool. */
+      batchId?: string;
+      /** Spawn depth (0 = spawned by the top-level run). */
+      depth?: number;
     }
   | { type: "subagent:admitted"; taskId: string }
   | { type: "subagent:progress"; taskId: string; note: string }
@@ -192,6 +196,69 @@ export type SubagentRuntimeEvent =
   | { type: "subagent:expired"; taskId: string };
 
 /**
+ * Task lifecycle statuses referenced by fan-out settlement events. Mirrors
+ * `TaskStatus` in `@dzupagent/subagents` (kept in sync by intent —
+ * adapter-types stays dependency-free).
+ */
+export type FanoutTaskStatus =
+  | "queued"
+  | "awaiting_approval"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "expired";
+
+/**
+ * Batch fan-out lifecycle events emitted on the framework event bus by the
+ * `fanout_template` tool in `@dzupagent/subagents` (dynamic-subagents Spec 03
+ * §5). Canonical contract home is here, alongside `SubagentRuntimeEvent`;
+ * core's `event-types-shared.ts` mirrors this union into `DzupEvent`.
+ *
+ * Host UX contract: a consumer can render "M of N settled" from
+ * `fanout:started.declared` + counting `fanout:item_settled`, without polling
+ * the task store.
+ */
+export type FanoutRuntimeEvent =
+  | {
+      type: "fanout:started";
+      batchId: string;
+      parentRunId: string;
+      mode: "template" | "script";
+      declared: number;
+    }
+  | {
+      type: "fanout:item_dispatched";
+      batchId: string;
+      itemKey: string;
+      taskId: string;
+    }
+  | {
+      type: "fanout:item_settled";
+      batchId: string;
+      itemKey: string;
+      taskId: string;
+      status: FanoutTaskStatus;
+      durationMs?: number;
+    }
+  | {
+      type: "fanout:completed";
+      batchId: string;
+      dispatched: number;
+      succeeded: number;
+      failed: number;
+      uncovered: number;
+      wallClockMs: number;
+    }
+  | {
+      type: "fanout:aborted";
+      batchId: string;
+      reason: "denied" | "script_error" | "budget_exceeded" | "timeout";
+      dispatched: number;
+    }
+  | { type: "fanout:progress"; batchId: string; message: string };
+
+/**
  * Adapter-owned runtime events that are deliberately allowed on DzupEventBus.
  *
  * Keep this provider-neutral: it describes adapter orchestration/runtime state,
@@ -200,7 +267,8 @@ export type SubagentRuntimeEvent =
 export type AdapterRuntimeEventBusEvent =
   | AgentProgressEvent
   | MapReduceRuntimeEvent
-  | SubagentRuntimeEvent;
+  | SubagentRuntimeEvent
+  | FanoutRuntimeEvent;
 
 /** Emitted after memory injection completes (withHierarchicalMemoryEnrichment) */
 export interface AgentMemoryRecalledEvent {
