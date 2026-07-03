@@ -355,6 +355,17 @@ describe("semanticResolve — condition expression validation", () => {
     );
   });
 
+  it("rejects branch conditions outside the runtime-supported expression subset", async () => {
+    const resolver = makeResolver(["pm.task"]);
+    const ast = sequence(branch("state.count + 1 > 3", [action("pm.task")]));
+    const result = await semanticResolve(ast, { toolResolver: resolver });
+    const condErr = result.errors.find((e) => e.code === "INVALID_CONDITION");
+    expect(condErr).toBeDefined();
+    expect(condErr?.nodeType).toBe("branch");
+    expect(condErr?.nodePath).toBe("root.nodes[0].condition");
+    expect(condErr?.message).toContain("runtime-supported expression subset");
+  });
+
   it("passes for_each source that is a valid identifier", async () => {
     const resolver = makeResolver(["pm.task"]);
     const ast = sequence(forEach("items", "item", action("pm.task")));
