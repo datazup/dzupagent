@@ -11,6 +11,8 @@ export const SubagentErrorCode = {
   TASK_EXECUTION_FAILED: "TASK_EXECUTION_FAILED",
   /** Spawn rejected by the host spawn policy. */
   POLICY_DENIED: "POLICY_DENIED",
+  /** Spawn rejected structurally: at/over `LifecyclePolicy.maxSpawnDepth`. */
+  MAX_SPAWN_DEPTH_EXCEEDED: "MAX_SPAWN_DEPTH_EXCEEDED",
   /** HITL approval gate rejected (or no gate was configured). */
   APPROVAL_REJECTED: "APPROVAL_REJECTED",
   /** A `running` task was left behind by a process restart and reconciled. */

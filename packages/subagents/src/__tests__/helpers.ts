@@ -1,5 +1,6 @@
 import type { Clock } from "../contracts/clock.js";
 import type {
+  FanoutRuntimeEvent,
   SubagentEventSink,
   SubagentRuntimeEvent,
 } from "../contracts/events.js";
@@ -51,8 +52,8 @@ export class ManualClock implements Clock {
 
 /** Collects emitted runtime events for assertions. */
 export class RecordingEventSink implements SubagentEventSink {
-  readonly events: SubagentRuntimeEvent[] = [];
-  emit(event: SubagentRuntimeEvent): void {
+  readonly events: Array<SubagentRuntimeEvent | FanoutRuntimeEvent> = [];
+  emit(event: SubagentRuntimeEvent | FanoutRuntimeEvent): void {
     this.events.push(event);
   }
   types(): string[] {

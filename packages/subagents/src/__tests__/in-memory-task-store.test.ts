@@ -14,6 +14,7 @@ describe("InMemoryTaskStore.remove", () => {
       status: "succeeded",
       createdAt: 0,
       ttlMs: 1,
+      depth: 0,
       endedAt: 1,
     });
     await store.remove("a");

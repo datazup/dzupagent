@@ -89,4 +89,17 @@ export interface BackgroundTask {
   checkpointRef?: string;
   /** Approval correlation id when the task passed (or is passing) an HITL gate. */
   approvalId?: string;
+  /**
+   * Spawn depth (0 = spawned by the top-level run). Set at spawn admission,
+   * immutable, persisted — durable-queue workers and orphan reconciliation see
+   * it. Spawns at `depth >= LifecyclePolicy.maxSpawnDepth` are rejected
+   * structurally, before any policy check.
+   */
+  depth: number;
+  /**
+   * Fan-out batch this task belongs to, when spawned by a fan-out tool. Set at
+   * spawn admission, immutable, persisted — individual tasks of an interrupted
+   * batch remain queryable by `batchId` via the store.
+   */
+  batchId?: string;
 }

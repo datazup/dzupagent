@@ -6,16 +6,52 @@ export type SpawnPolicyDecision =
   | { allow: false; reason: string };
 
 /**
+ * Full context of a spawn request, available to context-aware policies via
+ * {@link SpawnPolicy.checkWithContext} (dynamic-subagents Spec 03 §2).
+ * Structural controls that must not depend on policy opt-in (the depth bound)
+ * are enforced by the runtime BEFORE any policy method is called.
+ */
+export interface SpawnContext {
+  parentRunId: string;
+  /** 0 = spawned by the top-level run. */
+  depth: number;
+  /** Task whose execution requested this spawn, when spawned from inside a task. */
+  originTaskId?: string;
+  /** Present when the spawn originates from a fan-out batch. */
+  batch?: {
+    batchId: string;
+    /** Declared items in the batch. */
+    batchSize: number;
+    mode: "template" | "script";
+    /** Whether a batch-level gate decision already passed (Phase B hardening). */
+    approved: boolean;
+  };
+}
+
+/**
  * The policy seam. A host supplies a policy that inspects the spec (agentId,
  * outboundScope, memoryScope) and the parent run, returning whether the spawn is
  * allowed and whether it must pass a human approval gate first. This is where the
  * governance moat lives — kept injectable so hosts plug in their own policy
  * engine without this package importing it.
+ *
+ * Dispatch rule (see {@link SpawnGate.evaluate}): when a policy defines
+ * `checkWithContext`, the gate calls it with the full {@link SpawnContext};
+ * otherwise it calls `check(spec, ctx.parentRunId)` — legacy policies always
+ * receive a plain string, never an object. (A union-typed second parameter was
+ * rejected: it is compile-compatible via method bivariance but runtime-unsafe —
+ * an old policy doing `parentRunId.startsWith(...)` would throw on the object
+ * form.)
  */
 export interface SpawnPolicy {
   check(
     spec: SubagentSpec,
-    parentRunId: string
+    parentRunId: string,
+  ): Promise<SpawnPolicyDecision> | SpawnPolicyDecision;
+  /** Additive opt-in for context-aware (batch/depth-aware) policies. */
+  checkWithContext?(
+    spec: SubagentSpec,
+    ctx: SpawnContext,
   ): Promise<SpawnPolicyDecision> | SpawnPolicyDecision;
 }
 
@@ -68,19 +104,27 @@ export type ApprovalOutcome =
 export class SpawnGate {
   constructor(
     private readonly policy: SpawnPolicy,
-    private readonly approvalGate?: SpawnApprovalGate
+    private readonly approvalGate?: SpawnApprovalGate,
   ) {}
 
   async evaluate(
     spec: SubagentSpec,
-    parentRunId: string,
-    approvalId: string
+    parentRunIdOrContext: string | SpawnContext,
+    approvalId: string,
   ): Promise<
     | { outcome: "allowed" }
     | { outcome: "needs_approval" }
     | { outcome: "denied"; reason: string }
   > {
-    const decision = await this.policy.check(spec, parentRunId);
+    const ctx: SpawnContext =
+      typeof parentRunIdOrContext === "string"
+        ? { parentRunId: parentRunIdOrContext, depth: 0 }
+        : parentRunIdOrContext;
+    // Dispatch rule (Spec 03 §2): context-aware policies get the full context;
+    // legacy policies keep receiving a plain string (never the context object).
+    const decision = this.policy.checkWithContext
+      ? await this.policy.checkWithContext(spec, ctx)
+      : await this.policy.check(spec, ctx.parentRunId);
     if (!decision.allow) {
       return { outcome: "denied", reason: decision.reason };
     }
@@ -93,7 +137,7 @@ export class SpawnGate {
   /** Block on the HITL gate. Returns the resolved outcome. */
   async awaitApproval(
     parentRunId: string,
-    approvalId: string
+    approvalId: string,
   ): Promise<ApprovalOutcome> {
     if (!this.approvalGate) {
       // No gate wired but policy demanded approval — fail closed.

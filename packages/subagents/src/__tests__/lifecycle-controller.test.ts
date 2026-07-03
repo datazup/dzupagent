@@ -28,6 +28,7 @@ function task(over: Partial<BackgroundTask> = {}): BackgroundTask {
     status: "queued",
     createdAt: 0,
     ttlMs: 1000,
+    depth: 0,
     ...over,
   };
 }

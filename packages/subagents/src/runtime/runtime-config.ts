@@ -10,6 +10,13 @@ export interface LifecyclePolicy {
   retentionMs: number;
   /** Interval between lifecycle sweeps (TTL expiry + retention GC). */
   gcIntervalMs: number;
+  /**
+   * Structural spawn-depth bound (dynamic-subagents Spec 03 FR7). Spawn
+   * requests at `depth >= maxSpawnDepth` are rejected BEFORE any policy call —
+   * structural, not policy-overridable, mirroring `assertDepthAllowed` in the
+   * agent package but enforced at the runtime that actually executes.
+   */
+  maxSpawnDepth: number;
 }
 
 export const DEFAULT_LIFECYCLE_POLICY: LifecyclePolicy = {
@@ -18,4 +25,5 @@ export const DEFAULT_LIFECYCLE_POLICY: LifecyclePolicy = {
   defaultTtlMs: 15 * 60 * 1000, // 15 minutes
   retentionMs: 60 * 60 * 1000, // 1 hour
   gcIntervalMs: 60 * 1000, // 60 seconds
+  maxSpawnDepth: 2,
 };

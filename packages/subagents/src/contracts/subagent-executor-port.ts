@@ -13,6 +13,12 @@ export interface SubagentExecutionContext {
   onProgress?: (note: string) => void;
   /** Available when a checkpointer is configured, for resumable execution. */
   checkpointer?: CheckpointerPort;
+  /**
+   * Spawn depth of the executing task (0 = spawned by the top-level run). Any
+   * spawn performed from inside this task must inherit `depth + 1` so the
+   * runtime's structural `maxSpawnDepth` bound holds across nesting.
+   */
+  depth?: number;
 }
 
 /**
@@ -24,6 +30,6 @@ export interface SubagentExecutionContext {
 export interface SubagentExecutorPort {
   run(
     spec: SubagentSpec,
-    ctx: SubagentExecutionContext
+    ctx: SubagentExecutionContext,
   ): Promise<SubagentResult>;
 }

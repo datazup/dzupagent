@@ -17,7 +17,7 @@ import { defaultSubagentLogger } from "../contracts/logger.js";
 import type { TaskRunner } from "../contracts/task-runner.js";
 import type { TaskStore } from "../contracts/task-store.js";
 import { LifecycleController } from "../lifecycle/lifecycle-controller.js";
-import type { SpawnGate } from "../governance/spawn-gate.js";
+import type { SpawnContext, SpawnGate } from "../governance/spawn-gate.js";
 import type { LifecyclePolicy } from "./runtime-config.js";
 import { DEFAULT_LIFECYCLE_POLICY } from "./runtime-config.js";
 
@@ -43,6 +43,19 @@ export type SpawnOutcome =
 
 export interface SpawnOptions {
   ttlMs?: number;
+  /**
+   * Spawn depth (0 = spawned by the top-level run; defaults to 0). Spawns
+   * performed from inside a task must pass the parent task's `depth + 1`.
+   * Requests at `depth >= LifecyclePolicy.maxSpawnDepth` are rejected
+   * structurally, before any policy call.
+   */
+  depth?: number;
+  /** Fan-out batch id this spawn belongs to; persisted on the task. */
+  batchId?: string;
+  /** Task whose execution requested this spawn (nested spawns). */
+  originTaskId?: string;
+  /** Full batch context handed to context-aware policies (Spec 03 §2). */
+  batch?: SpawnContext["batch"];
 }
 
 /**
@@ -106,8 +119,22 @@ export class BackgroundSubagentRuntime {
       this.clock,
       this.events,
       (taskId) => this.abortController(taskId),
-      this.logger
+      this.logger,
     );
+  }
+
+  /**
+   * The runtime's event sink — exposed so batch coordinators (the fan-out
+   * tool) emit their `fanout:*` lifecycle events on the same sink as the
+   * per-task events, keeping one observability plane.
+   */
+  get eventSink(): SubagentEventSink {
+    return this.events;
+  }
+
+  /** The effective lifecycle policy (defaults merged with overrides). */
+  get lifecyclePolicy(): Readonly<LifecyclePolicy> {
+    return this.policy;
   }
 
   /** Start the periodic TTL/GC sweep. */
@@ -126,8 +153,32 @@ export class BackgroundSubagentRuntime {
   async spawn(
     spec: SubagentSpec,
     parentRunId: string,
-    options: SpawnOptions = {}
+    options: SpawnOptions = {},
   ): Promise<SpawnOutcome> {
+    const depth = options.depth ?? 0;
+
+    // Structural depth bound (Spec 03 FR7): enforced BEFORE any policy call so
+    // it is not policy-overridable. No task is persisted for over-depth spawns.
+    if (depth >= this.policy.maxSpawnDepth) {
+      this.logger.warn({
+        code: SubagentErrorCode.MAX_SPAWN_DEPTH_EXCEEDED,
+        reason: "max_spawn_depth_exceeded",
+        parentRunId,
+        depth,
+        maxSpawnDepth: this.policy.maxSpawnDepth,
+      });
+      this.governance.emitGovernance({
+        type: "governance:rule_violation",
+        runId: parentRunId,
+        detail: "max_spawn_depth_exceeded",
+      });
+      return {
+        ok: false,
+        reason: "denied",
+        detail: "max_spawn_depth_exceeded",
+      };
+    }
+
     // CODE-M-01: count both queued and awaiting_approval (non-terminal pending
     // work) against the cap so approval-gated tasks don't bypass the limit.
     const [queued, pendingApproval] = await Promise.all([
@@ -149,11 +200,21 @@ export class BackgroundSubagentRuntime {
       status: "queued",
       createdAt: this.clock.now(),
       ttlMs: options.ttlMs ?? this.policy.defaultTtlMs,
+      depth,
+      ...(options.batchId !== undefined ? { batchId: options.batchId } : {}),
     };
     await this.store.put(task);
 
     const approvalId = `subagent:${id}`;
-    const decision = await this.gate.evaluate(spec, parentRunId, approvalId);
+    const ctx: SpawnContext = {
+      parentRunId,
+      depth,
+      ...(options.originTaskId !== undefined
+        ? { originTaskId: options.originTaskId }
+        : {}),
+      ...(options.batch !== undefined ? { batch: options.batch } : {}),
+    };
+    const decision = await this.gate.evaluate(spec, ctx, approvalId);
 
     if (decision.outcome === "denied") {
       await this.store.patch(id, {
@@ -194,7 +255,7 @@ export class BackgroundSubagentRuntime {
   private async resolveApprovalThenAdmit(
     id: TaskId,
     parentRunId: string,
-    approvalId: string
+    approvalId: string,
   ): Promise<void> {
     const outcome = await this.gate.awaitApproval(parentRunId, approvalId);
     this.governance.emitGovernance({
@@ -249,6 +310,8 @@ export class BackgroundSubagentRuntime {
       taskId: id,
       parentRunId,
       agentId: task.spec.agentId,
+      depth: task.depth,
+      ...(task.batchId !== undefined ? { batchId: task.batchId } : {}),
     });
 
     // Fire-and-forget execution; runner persists terminal state + events.
@@ -278,7 +341,7 @@ export class BackgroundSubagentRuntime {
    */
   private async resolveOwned(
     taskId: TaskId,
-    scope?: TaskScope
+    scope?: TaskScope,
   ): Promise<BackgroundTask | null> {
     const task = await this.store.get(taskId);
     if (!task) return null;
@@ -291,7 +354,7 @@ export class BackgroundSubagentRuntime {
   /** Pull: current task state (ownership-scoped when `scope` is supplied). */
   async check(
     taskId: TaskId,
-    scope?: TaskScope
+    scope?: TaskScope,
   ): Promise<BackgroundTask | null> {
     return this.resolveOwned(taskId, scope);
   }
@@ -304,7 +367,7 @@ export class BackgroundSubagentRuntime {
   async await(
     taskId: TaskId,
     options: { timeoutMs?: number; pollIntervalMs?: number } = {},
-    scope?: TaskScope
+    scope?: TaskScope,
   ): Promise<BackgroundTask | null> {
     const pollIntervalMs = options.pollIntervalMs ?? 25;
     const deadline =
@@ -330,7 +393,7 @@ export class BackgroundSubagentRuntime {
   /** Cancel a task: abort its run (if running) or mark cancelled (if pending). */
   async cancel(
     taskId: TaskId,
-    scope?: TaskScope
+    scope?: TaskScope,
   ): Promise<BackgroundTask | null> {
     const task = await this.resolveOwned(taskId, scope);
     if (!task || isTerminalStatus(task.status)) {

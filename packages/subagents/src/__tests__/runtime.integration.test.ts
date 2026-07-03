@@ -209,6 +209,7 @@ describe("runtime orphan reconciliation", () => {
       status: "running",
       createdAt: 0,
       ttlMs: 1000,
+      depth: 0,
     });
     const reconciled = await runtime.reconcileOrphans();
     expect(reconciled).toEqual(["orphan"]);
