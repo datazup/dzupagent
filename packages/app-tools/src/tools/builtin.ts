@@ -6,6 +6,7 @@ import type { McpClient } from "@dzupagent/code-edit-kit";
 import type { DomainToolDefinition } from "../types.js";
 import { InMemoryDomainToolRegistry } from "../registry.js";
 import { buildHumanTools } from "./human.js";
+import { buildPlanTools, InMemoryTodoStore } from "./plan.js";
 import { buildPmTools, InMemoryPmTaskStore, type PmTaskStore } from "./pm.js";
 import { buildProjectDocsTools } from "./project_docs.js";
 import { buildRecordTools, type RecordToolOptions } from "./record.js";
@@ -244,6 +245,7 @@ export function createBuiltinToolRegistry(
   const now = opts.now ?? (() => new Date());
   const pmIdFactory = opts.pmIdFactory ?? buildDefaultIdFactory();
   const pmStore = opts.pmStore ?? new InMemoryPmTaskStore();
+  const todoStore = new InMemoryTodoStore();
 
   const workflowDefinitions = new Map<string, WorkflowDefinition>();
   if (opts.workflows) {
@@ -268,6 +270,7 @@ export function createBuiltinToolRegistry(
 
   const tools: AnyExecutableDomainTool[] = [
     ...buildProjectDocsTools(rootDir),
+    ...buildPlanTools(todoStore),
     ...buildPmTools(pmStore, pmIdFactory, now),
     ...buildWorkflowTools(workflowDefinitions, workflowRunner),
     ...buildHumanTools(onClarify, onApprove),

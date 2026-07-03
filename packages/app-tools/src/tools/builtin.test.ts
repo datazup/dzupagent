@@ -74,6 +74,8 @@ describe("createBuiltinToolRegistry", () => {
       [
         "human.approve",
         "human.clarify",
+        "plan.read_todos",
+        "plan.write_todos",
         "pm.create_task",
         "pm.get_task",
         "pm.list_tasks",
@@ -91,15 +93,73 @@ describe("createBuiltinToolRegistry", () => {
         "workflow.status",
       ].sort(),
     );
-    expect(executors.size).toBe(17);
+    expect(executors.size).toBe(19);
     expect(registry.get("record.append")?.permissionLevel).toBe("write");
     expect(registry.get("human.clarify")?.sideEffects[0]?.type).toBe(
       "sends_notification",
     );
     expect(registry.get("human.approve")?.requiresApproval).toBe(true);
+    expect(registry.listByNamespace("plan")).toHaveLength(2);
     expect(registry.listByNamespace("pm")).toHaveLength(4);
     expect(registry.listByNamespace("workflow")).toHaveLength(3);
     expect(registry.listByNamespace("topics")).toHaveLength(3);
+  });
+});
+
+describe("plan.*", () => {
+  type Todo = {
+    content: string;
+    status: "pending" | "in_progress" | "completed";
+  };
+
+  type PlanTodosOutput = {
+    todos: Todo[];
+    rendered: string;
+  };
+
+  it("shares one todo store across plan executors in a registry bundle", async () => {
+    const { executors } = createBuiltinToolRegistry();
+    const write = getExecutor<{ todos: Todo[] }, PlanTodosOutput>(
+      executors,
+      "plan.write_todos",
+    );
+    const read = getExecutor<Record<string, never>, PlanTodosOutput>(
+      executors,
+      "plan.read_todos",
+    );
+    const todos: Todo[] = [
+      { content: "Inspect default registry wiring", status: "completed" },
+      { content: "Register plan tools", status: "in_progress" },
+    ];
+
+    await write.execute({ todos });
+    const result = await read.execute({});
+
+    expect(result.todos).toEqual(todos);
+    expect(result.rendered).toContain("[>] Register plan tools");
+  });
+
+  it("scopes todo storage to each registry bundle", async () => {
+    const first = createBuiltinToolRegistry();
+    const second = createBuiltinToolRegistry();
+    const writeFirst = getExecutor<{ todos: Todo[] }, PlanTodosOutput>(
+      first.executors,
+      "plan.write_todos",
+    );
+    const readSecond = getExecutor<Record<string, never>, PlanTodosOutput>(
+      second.executors,
+      "plan.read_todos",
+    );
+
+    await writeFirst.execute({
+      todos: [{ content: "Only in first registry", status: "pending" }],
+    });
+    const result = await readSecond.execute({});
+
+    expect(result).toEqual({
+      todos: [],
+      rendered: "(todo list is empty)",
+    });
   });
 });
 
