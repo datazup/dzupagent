@@ -1,12 +1,22 @@
 import type { FlowDocumentV1 } from "@dzupagent/flow-ast";
 
 import { parseYamlSubset } from "./mini-yaml.js";
-import { expandRegisteredComposites } from "./primitives/composite-expansion.js";
+import { expandRegisteredCompositesDetailed } from "./primitives/composite-expansion.js";
 import { normalizeDslDocument } from "./normalize.js";
 import { validateDocument } from "./document-validate.js";
 import type { ParseDslResult } from "./types.js";
+import type { FragmentRegistry } from "./fragments/types.js";
+import type { PrimitiveRegistry } from "./primitives/types.js";
 
-export function parseDslToDocument(source: string): ParseDslResult {
+export interface ParseDslToDocumentOptions {
+  fragmentRegistry?: FragmentRegistry;
+  primitiveRegistry?: PrimitiveRegistry;
+}
+
+export function parseDslToDocument(
+  source: string,
+  options: ParseDslToDocumentOptions = {},
+): ParseDslResult {
   const yaml = parseYamlSubset(source);
   if (!yaml.ok) {
     return {
@@ -30,8 +40,14 @@ export function parseDslToDocument(source: string): ParseDslResult {
 
   // MPCO P2: expand registered composite primitives before normalization.
   let expandedRaw: unknown;
+  let fragmentExpansions: unknown[] = [];
   try {
-    expandedRaw = expandRegisteredComposites(yaml.value);
+    const expanded = expandRegisteredCompositesDetailed(yaml.value, {
+      primitiveRegistry: options.primitiveRegistry,
+      fragmentRegistry: options.fragmentRegistry,
+    });
+    expandedRaw = expanded.raw;
+    fragmentExpansions = expanded.fragmentExpansions;
   } catch (error) {
     return {
       ok: false,
@@ -48,7 +64,10 @@ export function parseDslToDocument(source: string): ParseDslResult {
     };
   }
 
-  const normalized = normalizeDslDocument(expandedRaw);
+  const normalized = normalizeDslDocument(expandedRaw, {
+    primitiveRegistry: options.primitiveRegistry,
+    fragmentRegistry: options.fragmentRegistry,
+  });
   if (!normalized.ok) {
     return {
       ok: false,
@@ -59,6 +78,12 @@ export function parseDslToDocument(source: string): ParseDslResult {
   }
 
   const { document } = normalized;
+  if (fragmentExpansions.length > 0) {
+    document.meta = {
+      ...(document.meta ?? {}),
+      fragmentExpansions,
+    };
+  }
   const validation = validateDocument(document);
   const allDiagnostics = validation.diagnostics;
   if (allDiagnostics.length > 0) {

@@ -63,6 +63,15 @@ export { validateShape } from "./stages/shape-validate.js";
 export { semanticResolve } from "./stages/semantic.js";
 export type { SemanticOptions, SemanticResult } from "./stages/semantic.js";
 export {
+  currentFlowRefFromDocument,
+  inlineSubflows,
+} from "./stages/subflow-inline.js";
+export type {
+  InlineSubflowOptions,
+  InlineSubflowResult,
+} from "./stages/subflow-inline.js";
+export { analyzeFlowExpression } from "./stages/expression-validate.js";
+export {
   routeTarget,
   computeFeatureBitmask,
   hasOnError,

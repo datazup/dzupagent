@@ -2,6 +2,7 @@ import type {
   AsyncToolResolver,
   AsyncToolsetResolver,
   FlowDiagnosticCategory,
+  FlowDocumentV1,
   FlowDocumentPolicy,
   FlowDurabilityPolicy,
   ToolResolver,
@@ -14,6 +15,7 @@ import type { ProfileRegistry } from "./profile-registry.js";
 
 export interface CompilerOptions {
   toolResolver: ToolResolver | AsyncToolResolver;
+  flowDocumentResolver?: FlowDocumentResolver;
   personaResolver?: PersonaResolver | AsyncPersonaResolver;
   /**
    * Resolves `toolset: <name>` references on AgentNodes into expanded
@@ -81,6 +83,10 @@ export interface CompilerOptions {
   target?: "codev-runtime";
 }
 
+export interface FlowDocumentResolver {
+  resolve(flowRef: string): FlowDocumentV1 | null | Promise<FlowDocumentV1 | null>;
+}
+
 export interface PersonaResolver {
   resolve(ref: string): boolean; // true if persona exists
 }
@@ -116,6 +122,8 @@ export interface CompileInvocationOptions {
   sourceKind?: FlowCompileSourceKind;
   source?: unknown;
   correlation?: FlowCompileCorrelation;
+  currentFlowRef?: string;
+  fragmentExpansions?: FlowCompileFragmentEvidence[];
 }
 
 export interface CompilationDiagnostic {
@@ -216,4 +224,27 @@ export interface FlowCompileEvidence {
     eventCorrelationId: string;
     runId?: string;
   };
+  composition?: FlowCompileCompositionEvidence;
+}
+
+export interface FlowCompileCompositionEvidence {
+  subflows?: FlowCompileSubflowEvidence[];
+  fragments?: FlowCompileFragmentEvidence[];
+}
+
+export interface FlowCompileSubflowEvidence {
+  flowRef: string;
+  instanceId: string;
+  nodePath: string;
+}
+
+export interface FlowCompileFragmentEvidence {
+  id: string;
+  version: number;
+  namespace: string;
+  catalogRef: string;
+  instanceId: string;
+  invocationPath: string;
+  expandedPaths: string[];
+  exports: Record<string, string>;
 }

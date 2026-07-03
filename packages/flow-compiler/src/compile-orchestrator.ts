@@ -58,6 +58,10 @@ import {
   prepareFlowInputFromDsl,
 } from "./authoring-input.js";
 import { collectFlowArtifactMetadata } from "./flow-artifact-metadata.js";
+import {
+  currentFlowRefFromDocument,
+  inlineSubflows,
+} from "./stages/subflow-inline.js";
 
 import type {
   CompilerOptions,
@@ -70,6 +74,8 @@ import type {
   FlowCompileEvidence,
   FlowCompileSourceKind,
   CompileSuccess,
+  FlowCompileFragmentEvidence,
+  FlowCompileSubflowEvidence,
 } from "./types.js";
 
 // Flow compiler event shapes are part of the canonical `DzupEvent` union in
@@ -125,6 +131,7 @@ export async function runCompile(
   const startedAt = Date.now();
   const sourceKind = invocationOptions.sourceKind ?? defaultSourceKind(input);
   const sourceHash = hashSource(invocationOptions.source ?? input);
+  let subflowEvidence: FlowCompileSubflowEvidence[] = [];
 
   emit({
     type: "flow:compile_started",
@@ -167,7 +174,31 @@ export async function runCompile(
     };
   }
 
-  const ast = parseResult.ast;
+  let ast = parseResult.ast;
+
+  if (opts.flowDocumentResolver !== undefined) {
+    const inlineResult = await inlineSubflows(ast, opts.flowDocumentResolver, {
+      currentFlowRef: invocationOptions.currentFlowRef,
+    });
+    if (inlineResult.diagnostics.length > 0) {
+      emit({
+        type: "flow:compile_failed",
+        compileId,
+        stage: 2,
+        errorCount: inlineResult.diagnostics.length,
+        durationMs: Date.now() - startedAt,
+      });
+      return {
+        errors: inlineResult.diagnostics,
+        compileId,
+        diagnosticCountsByCategory: countDiagnosticsByCategory(
+          inlineResult.diagnostics
+        ),
+      };
+    }
+    ast = inlineResult.root;
+    subflowEvidence = inlineResult.subflows;
+  }
 
   // -----------------------------------------------------------------------
   // Stage 2: Shape validation
@@ -387,6 +418,8 @@ export async function runCompile(
       sourceKind,
       sourceHash,
       correlation: invocationOptions.correlation,
+      subflows: subflowEvidence,
+      fragments: invocationOptions.fragmentExpansions,
     }),
     diagnosticCountsByCategory: countDiagnosticsByCategory(
       toCompilationWarnings(warnings)
@@ -435,6 +468,8 @@ export async function runCompileDocument(
   const result = await runCompile(deps, prepared.flowInput, {
     sourceKind: "flow-document",
     source: document,
+    currentFlowRef: currentFlowRefFromDocument(document),
+    fragmentExpansions: extractFragmentExpansions(document),
   });
 
   if ("errors" in result) return result;
@@ -555,6 +590,8 @@ function buildCompileEvidence(args: {
   sourceKind: FlowCompileSourceKind;
   sourceHash: string;
   correlation?: CompileInvocationOptions["correlation"];
+  subflows?: FlowCompileSubflowEvidence[];
+  fragments?: FlowCompileFragmentEvidence[];
 }): FlowCompileEvidence {
   const metadata = collectFlowArtifactMetadata(args.ast);
   const canonicalNodePaths: FlowCompileEvidence["canonicalNodePaths"] = {};
@@ -573,7 +610,7 @@ function buildCompileEvidence(args: {
   const eventCorrelationId =
     args.correlation?.eventCorrelationId ?? args.compileId;
 
-  return {
+  const evidence: FlowCompileEvidence = {
     schema: "dzupagent.flowCompileEvidence/v1",
     sourceKind: args.sourceKind,
     sourceHash: args.sourceHash,
@@ -587,6 +624,48 @@ function buildCompileEvidence(args: {
       ...(args.correlation?.runId ? { runId: args.correlation.runId } : {}),
     },
   };
+  const composition = {
+    ...(args.subflows && args.subflows.length > 0
+      ? { subflows: args.subflows }
+      : {}),
+    ...(args.fragments && args.fragments.length > 0
+      ? { fragments: args.fragments }
+      : {}),
+  };
+  if (Object.keys(composition).length > 0) {
+    evidence.composition = composition;
+  }
+  return evidence;
+}
+
+function isFragmentEvidence(value: unknown): value is FlowCompileFragmentEvidence {
+  if (typeof value !== "object" || value === null) return false;
+  const item = value as Partial<FlowCompileFragmentEvidence>;
+  return (
+    typeof item.id === "string" &&
+    typeof item.version === "number" &&
+    typeof item.namespace === "string" &&
+    typeof item.catalogRef === "string" &&
+    typeof item.instanceId === "string" &&
+    typeof item.invocationPath === "string" &&
+    Array.isArray(item.expandedPaths) &&
+    item.expandedPaths.every((path) => typeof path === "string") &&
+    typeof item.exports === "object" &&
+    item.exports !== null &&
+    !Array.isArray(item.exports)
+  );
+}
+
+function extractFragmentExpansions(
+  document: unknown
+): FlowCompileFragmentEvidence[] | undefined {
+  if (typeof document !== "object" || document === null) return undefined;
+  const meta = (document as { meta?: unknown }).meta;
+  if (typeof meta !== "object" || meta === null) return undefined;
+  const expansions = (meta as { fragmentExpansions?: unknown }).fragmentExpansions;
+  if (!Array.isArray(expansions)) return undefined;
+  const filtered = expansions.filter(isFragmentEvidence);
+  return filtered.length > 0 ? filtered : undefined;
 }
 
 function countDiagnosticsByCategory(

@@ -4,6 +4,8 @@ import { DSL_ERROR } from "./errors.js";
 import { normalizeSteps } from "./normalize-node-helpers.js";
 import { DEFAULT_PRIMITIVE_REGISTRY } from "./primitives/built-ins.js";
 import { normalizePrimitiveImports } from "./primitives/imports.js";
+import type { FragmentRegistry } from "./fragments/types.js";
+import type { PrimitiveRegistry } from "./primitives/types.js";
 import {
   isPlainObject,
   normalizeDefaults,
@@ -14,6 +16,11 @@ import {
 import type { DslDiagnostic, NormalizeDslResult } from "./types.js";
 
 export { normalizeSteps } from "./normalize-node-helpers.js";
+
+export interface NormalizeDslDocumentOptions {
+  fragmentRegistry?: FragmentRegistry;
+  primitiveRegistry?: PrimitiveRegistry;
+}
 
 const TOP_LEVEL_KEYS = new Set([
   "dsl",
@@ -30,7 +37,10 @@ const TOP_LEVEL_KEYS = new Set([
   "steps",
 ]);
 
-export function normalizeDslDocument(raw: unknown): NormalizeDslResult {
+export function normalizeDslDocument(
+  raw: unknown,
+  options: NormalizeDslDocumentOptions = {},
+): NormalizeDslResult {
   const diagnostics: DslDiagnostic[] = [];
   if (!isPlainObject(raw)) {
     diagnostics.push({
@@ -81,7 +91,8 @@ export function normalizeDslDocument(raw: unknown): NormalizeDslResult {
   const uses = normalizePrimitiveImports(
     raw.uses,
     diagnostics,
-    DEFAULT_PRIMITIVE_REGISTRY,
+    options.primitiveRegistry ?? DEFAULT_PRIMITIVE_REGISTRY,
+    options.fragmentRegistry,
   );
 
   const dslDeclared = typeof raw.dsl === "string" ? raw.dsl : undefined;
@@ -109,7 +120,12 @@ export function normalizeDslDocument(raw: unknown): NormalizeDslResult {
   if (meta !== undefined || uses !== undefined) {
     doc.meta = {
       ...(meta ?? {}),
-      ...(uses !== undefined ? { primitiveUses: uses } : {}),
+      ...(uses?.primitiveUses !== undefined
+        ? { primitiveUses: uses.primitiveUses }
+        : {}),
+      ...(uses?.fragmentUses !== undefined
+        ? { fragmentUses: uses.fragmentUses }
+        : {}),
     };
   }
   if (durability !== undefined) {

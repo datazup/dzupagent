@@ -1,4 +1,4 @@
-import type { FlowNode } from '@dzupagent/flow-ast'
+import { validateFlowConditionExpression, type FlowNode } from '@dzupagent/flow-ast'
 
 import type { WalkContext } from './semantic-context.js'
 
@@ -6,15 +6,11 @@ import type { WalkContext } from './semantic-context.js'
 // Condition expression validation (Stage 3 / R3)
 // ---------------------------------------------------------------------------
 
-/** Patterns that are syntactically valid JS but semantically unsafe in conditions. */
-const UNSAFE_PATTERNS = /eval\s*\(|Function\s*\(|import\s*\(/
-
 /**
  * Validate a condition expression string (`branch.condition` or
  * `for_each.source`) by:
  *   1. Rejecting known unsafe patterns (eval, dynamic Function/import).
- *   2. Attempting to parse the expression via `new Function()` — which
- *      detects syntax errors without evaluating anything.
+ *   2. Checking the expression against the shared runtime-supported subset.
  *
  * Emits `INVALID_CONDITION` into `ctx.errors` on failure; silently
  * passes valid expressions.
@@ -32,7 +28,10 @@ export function validateConditionExpr(
 ): void {
   if (!expr) return
 
-  if (UNSAFE_PATTERNS.test(expr)) {
+  const validation = validateFlowConditionExpression(expr)
+  if (validation.valid) return
+
+  if (validation.reason.includes('disallowed construct')) {
     ctx.errors.push({
       nodeType,
       nodePath,
@@ -43,17 +42,13 @@ export function validateConditionExpr(
     return
   }
 
-  try {
-    new Function('ctx', `return (${expr})`)
-  } catch (err) {
-    ctx.errors.push({
-      nodeType,
-      nodePath,
-      code: 'INVALID_CONDITION',
-      category: 'shape',
-      message: `${fieldLabel} is not a valid expression: ${err instanceof Error ? err.message : String(err)}`,
-    })
-  }
+  ctx.errors.push({
+    nodeType,
+    nodePath,
+    code: 'INVALID_CONDITION',
+    category: 'shape',
+    message: `${fieldLabel} is not a valid expression in the runtime-supported expression subset: ${validation.reason}`,
+  })
 }
 
 // ---------------------------------------------------------------------------
