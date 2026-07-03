@@ -172,6 +172,7 @@ describe("Runtime orphan/TTL/approval logging", () => {
         defaultTtlMs: 1000,
         retentionMs: 1000,
         gcIntervalMs: 1000,
+        maxSpawnDepth: 2,
       },
     });
     return { store, clock, runtime };
@@ -217,6 +218,7 @@ describe("Runtime orphan/TTL/approval logging", () => {
         defaultTtlMs: 1000,
         retentionMs: 1000,
         gcIntervalMs: 1000,
+        maxSpawnDepth: 2,
       },
       clock,
       events,
@@ -268,6 +270,7 @@ describe("Runtime orphan/TTL/approval logging", () => {
         defaultTtlMs: 1000,
         retentionMs: 1000,
         gcIntervalMs: 1000,
+        maxSpawnDepth: 2,
       },
     });
 

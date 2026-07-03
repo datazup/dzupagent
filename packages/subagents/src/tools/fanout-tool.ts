@@ -64,7 +64,7 @@ export interface FanoutItem {
 }
 
 /** Template-mode arguments (Spec 01 §2.1). */
-export interface FanoutTemplateArgs {
+export type FanoutTemplateArgs = {
   items: FanoutItem[];
   spec: {
     agentId: string;
@@ -77,7 +77,7 @@ export interface FanoutTemplateArgs {
   concurrency?: number;
   ttlMs?: number;
   budget?: { maxTotalOutputTokens?: number; maxWallClockMs?: number };
-}
+};
 
 /** Honest terminal status of a declared item (NFR4). */
 export type FanoutItemStatus =
