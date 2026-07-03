@@ -73,6 +73,14 @@ describe('runtime-only compiler diagnostics', () => {
     const result = await compiler.compile({
       type: 'validate',
       ref: 'schema.review',
+      effectClass: 'db_write',
+      idempotency: 'exactly-once-required',
+      meta: {
+        mutation: {
+          policy: 'mutating',
+          idempotencyKey: 'review-validate',
+        },
+      },
     })
 
     expect('errors' in result).toBe(false)
@@ -84,6 +92,9 @@ describe('runtime-only compiler diagnostics', () => {
         type: 'tool',
         toolName: 'dzup.runtime.validate',
         arguments: { ref: 'schema.review' },
+        declaredIdempotencyKey: 'review-validate',
+        effectClass: 'db_write',
+        idempotency: 'exactly-once-required',
       }),
     ])
   })

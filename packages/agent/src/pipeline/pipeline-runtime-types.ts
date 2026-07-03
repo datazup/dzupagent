@@ -22,10 +22,12 @@
 import type {
   PipelineDefinition,
   PipelineNode,
+  ToolNode,
   PipelineCheckpointStore,
   PipelineCheckpointExecutionLog,
 } from "@dzupagent/core/pipeline";
 import type {
+  NodeExecutionContext,
   NodeExecutor as RuntimeNodeExecutor,
   NodeResult,
   PipelineRuntimeEvent,
@@ -59,6 +61,19 @@ export type {
  * specialise it to the canonical `PipelineNode`.
  */
 export type NodeExecutor = RuntimeNodeExecutor<PipelineNode>;
+
+export interface RuntimeToolHandlerInput {
+  nodeId: string;
+  node: ToolNode;
+  arguments: Record<string, unknown>;
+  context: NodeExecutionContext;
+}
+
+export type RuntimeToolHandler = (
+  input: RuntimeToolHandlerInput,
+) => Promise<unknown>;
+
+export type RuntimeToolHandlers = Record<string, RuntimeToolHandler>;
 
 export interface PipelineExecutionLogEntry
   extends PipelineCheckpointExecutionLog {
@@ -145,6 +160,13 @@ export interface PipelineRuntimeConfig {
   definition: PipelineDefinition;
   /** Function that executes individual nodes */
   nodeExecutor: NodeExecutor;
+  /**
+   * Optional host-provided handlers for compiler-lowered W3 runtime tool nodes
+   * (`dzup.runtime.<node.type>`). When this registry is configured, matching
+   * namespaced runtime `ToolNode`s are executed here before falling back to the
+   * generic `nodeExecutor`; missing handlers fail the node with a clear error.
+   */
+  runtimeToolHandlers?: RuntimeToolHandlers;
   /**
    * Optional checkpoint store for persistence.
    *

@@ -6,7 +6,14 @@
  * primitives that all per-kind files consume.
  */
 
-import type { FlowNode, ValidationError, ValidationErrorCode } from '../types.js'
+import type {
+  EffectClass,
+  FlowNode,
+  NodeIdempotencyMode,
+  ValidationError,
+  ValidationErrorCode,
+} from '../types.js'
+import { EFFECT_CLASSES, NODE_IDEMPOTENCY_MODES } from '../types.js'
 import { describeJsType, isPlainObject, joinPath } from '../validation-helpers.js'
 
 // ---------------------------------------------------------------------------
@@ -95,6 +102,8 @@ export interface CommonNodeFields {
   name?: string
   description?: string
   meta?: Record<string, unknown>
+  effectClass?: EffectClass
+  idempotency?: NodeIdempotencyMode
   resumePoint?: boolean
 }
 
@@ -117,10 +126,55 @@ export function validateCommonNodeFields(
   const meta = validateOptionalObjectField(obj, path, 'meta', issues)
   if (meta !== undefined) fields.meta = meta
 
+  const effectClass = validateOptionalEffectClassField(obj, path, issues)
+  if (effectClass !== undefined) fields.effectClass = effectClass
+
+  const idempotency = validateOptionalIdempotencyField(obj, path, issues)
+  if (idempotency !== undefined) fields.idempotency = idempotency
+
   const resumePoint = validateOptionalBooleanField(obj, path, 'resumePoint', issues)
   if (resumePoint !== undefined) fields.resumePoint = resumePoint
 
   return fields
+}
+
+export function validateOptionalEffectClassField(
+  obj: Record<string, unknown>,
+  path: string,
+  issues: SchemaIssue[],
+): EffectClass | undefined {
+  if (!('effectClass' in obj) || obj.effectClass === undefined) return undefined
+  const value = obj.effectClass
+  if (typeof value === 'string' && (EFFECT_CLASSES as readonly string[]).includes(value)) {
+    return value as EffectClass
+  }
+  issues.push({
+    path: joinPath(path, 'effectClass'),
+    code: 'MISSING_REQUIRED_FIELD',
+    message: `effectClass must be one of ${EFFECT_CLASSES.join('|')}`,
+  })
+  return undefined
+}
+
+export function validateOptionalIdempotencyField(
+  obj: Record<string, unknown>,
+  path: string,
+  issues: SchemaIssue[],
+): NodeIdempotencyMode | undefined {
+  if (!('idempotency' in obj) || obj.idempotency === undefined) return undefined
+  const value = obj.idempotency
+  if (
+    typeof value === 'string' &&
+    (NODE_IDEMPOTENCY_MODES as readonly string[]).includes(value)
+  ) {
+    return value as NodeIdempotencyMode
+  }
+  issues.push({
+    path: joinPath(path, 'idempotency'),
+    code: 'MISSING_REQUIRED_FIELD',
+    message: `idempotency must be one of ${NODE_IDEMPOTENCY_MODES.join('|')}`,
+  })
+  return undefined
 }
 
 export function validateOptionalStringField(

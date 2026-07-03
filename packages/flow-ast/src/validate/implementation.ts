@@ -1,13 +1,7 @@
 import type {
-  EffectClass,
   EvidenceWriteNode,
-  NodeIdempotencyMode,
   ShellRunNode,
   ValidateSchemaNode,
-} from "../types.js";
-import {
-  EFFECT_CLASSES,
-  NODE_IDEMPOTENCY_MODES,
 } from "../types.js";
 import { describeJsType, joinPath } from "../validation-helpers.js";
 import { validateCommonNodeFields } from "./shared.js";
@@ -32,45 +26,6 @@ function requiredString(
   return undefined;
 }
 
-function optionalEffectFields(
-  obj: Record<string, unknown>,
-  path: string,
-  issues: SchemaIssue[]
-): Pick<ShellRunNode, "effectClass" | "idempotency"> {
-  const fields: Pick<ShellRunNode, "effectClass" | "idempotency"> = {};
-  if (obj["effectClass"] !== undefined) {
-    const value = obj["effectClass"];
-    if (
-      typeof value === "string" &&
-      (EFFECT_CLASSES as readonly string[]).includes(value)
-    ) {
-      fields.effectClass = value as EffectClass;
-    } else {
-      issues.push({
-        path: joinPath(path, "effectClass"),
-        code: "MISSING_REQUIRED_FIELD",
-        message: `effectClass must be one of ${EFFECT_CLASSES.join("|")}`,
-      });
-    }
-  }
-  if (obj["idempotency"] !== undefined) {
-    const value = obj["idempotency"];
-    if (
-      typeof value === "string" &&
-      (NODE_IDEMPOTENCY_MODES as readonly string[]).includes(value)
-    ) {
-      fields.idempotency = value as NodeIdempotencyMode;
-    } else {
-      issues.push({
-        path: joinPath(path, "idempotency"),
-        code: "MISSING_REQUIRED_FIELD",
-        message: `idempotency must be one of ${NODE_IDEMPOTENCY_MODES.join("|")}`,
-      });
-    }
-  }
-  return fields;
-}
-
 export function validateShellRun(
   obj: Record<string, unknown>,
   path: string,
@@ -83,7 +38,6 @@ export function validateShellRun(
   const node: ShellRunNode = {
     type: "shell.run",
     ...validateCommonNodeFields(obj, path, issues),
-    ...optionalEffectFields(obj, path, issues),
     command,
     output,
   };
@@ -138,7 +92,6 @@ export function validateEvidenceWrite(
   const node: EvidenceWriteNode = {
     type: "evidence.write",
     ...validateCommonNodeFields(obj, path, issues),
-    ...optionalEffectFields(obj, path, issues),
     source,
     output,
   };
@@ -181,7 +134,6 @@ export function validateValidateSchema(
   return {
     type: "validate.schema",
     ...validateCommonNodeFields(obj, path, issues),
-    ...optionalEffectFields(obj, path, issues),
     source,
     schema: schema as string | Record<string, unknown>,
     output,

@@ -1,13 +1,7 @@
 import type {
-  EffectClass,
   EvidenceWriteNode,
-  NodeIdempotencyMode,
   ShellRunNode,
   ValidateSchemaNode,
-} from "../types.js";
-import {
-  EFFECT_CLASSES,
-  NODE_IDEMPOTENCY_MODES,
 } from "../types.js";
 import {
   type ParseContext,
@@ -35,43 +29,6 @@ function requiredString(
   return undefined;
 }
 
-function optionalEffectFields(
-  obj: Record<string, unknown>,
-  pointer: string,
-  ctx: ParseContext
-): Pick<ShellRunNode, "effectClass" | "idempotency"> {
-  const fields: Pick<ShellRunNode, "effectClass" | "idempotency"> = {};
-  if (obj.effectClass !== undefined) {
-    if (
-      typeof obj.effectClass === "string" &&
-      (EFFECT_CLASSES as readonly string[]).includes(obj.effectClass)
-    ) {
-      fields.effectClass = obj.effectClass as EffectClass;
-    } else {
-      ctx.errors.push({
-        code: "WRONG_FIELD_TYPE",
-        message: `effectClass must be one of ${EFFECT_CLASSES.join("|")}`,
-        pointer: joinPointer(pointer, "effectClass"),
-      });
-    }
-  }
-  if (obj.idempotency !== undefined) {
-    if (
-      typeof obj.idempotency === "string" &&
-      (NODE_IDEMPOTENCY_MODES as readonly string[]).includes(obj.idempotency)
-    ) {
-      fields.idempotency = obj.idempotency as NodeIdempotencyMode;
-    } else {
-      ctx.errors.push({
-        code: "WRONG_FIELD_TYPE",
-        message: `idempotency must be one of ${NODE_IDEMPOTENCY_MODES.join("|")}`,
-        pointer: joinPointer(pointer, "idempotency"),
-      });
-    }
-  }
-  return fields;
-}
-
 export function parseShellRun(
   obj: Record<string, unknown>,
   pointer: string,
@@ -84,7 +41,6 @@ export function parseShellRun(
   const node: ShellRunNode = {
     type: "shell.run",
     ...parseCommonNodeFields(obj, pointer, ctx),
-    ...optionalEffectFields(obj, pointer, ctx),
     command,
     output,
   };
@@ -135,7 +91,6 @@ export function parseEvidenceWrite(
   const node: EvidenceWriteNode = {
     type: "evidence.write",
     ...parseCommonNodeFields(obj, pointer, ctx),
-    ...optionalEffectFields(obj, pointer, ctx),
     source,
     output,
   };
@@ -178,7 +133,6 @@ export function parseValidateSchema(
   return {
     type: "validate.schema",
     ...parseCommonNodeFields(obj, pointer, ctx),
-    ...optionalEffectFields(obj, pointer, ctx),
     source,
     schema: schema as string | Record<string, unknown>,
     output,

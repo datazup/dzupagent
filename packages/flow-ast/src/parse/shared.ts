@@ -6,8 +6,17 @@
  * primitives that all per-kind files consume.
  */
 
-import type { FlowNode, FlowNodeBase } from "../types.js";
-import { FLOW_NODE_KINDS } from "../types.js";
+import type {
+  EffectClass,
+  FlowNode,
+  FlowNodeBase,
+  NodeIdempotencyMode,
+} from "../types.js";
+import {
+  EFFECT_CLASSES,
+  FLOW_NODE_KINDS,
+  NODE_IDEMPOTENCY_MODES,
+} from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Public parse-result surface
@@ -68,11 +77,23 @@ export function parseCommonNodeFields(
   ctx: ParseContext
 ): Pick<
   FlowNodeBase,
-  "id" | "name" | "description" | "meta" | "resumePoint"
+  | "id"
+  | "name"
+  | "description"
+  | "meta"
+  | "effectClass"
+  | "idempotency"
+  | "resumePoint"
 > {
   const fields: Pick<
     FlowNodeBase,
-    "id" | "name" | "description" | "meta" | "resumePoint"
+    | "id"
+    | "name"
+    | "description"
+    | "meta"
+    | "effectClass"
+    | "idempotency"
+    | "resumePoint"
   > = {};
 
   parseOptionalStringField(obj, "id", pointer, ctx, (value) => {
@@ -99,6 +120,34 @@ export function parseCommonNodeFields(
           pointer: joinPointer(pointer, "meta"),
         });
       }
+    }
+  }
+  if ("effectClass" in obj && obj.effectClass !== undefined) {
+    if (
+      typeof obj.effectClass === "string" &&
+      (EFFECT_CLASSES as readonly string[]).includes(obj.effectClass)
+    ) {
+      fields.effectClass = obj.effectClass as EffectClass;
+    } else {
+      ctx.errors.push({
+        code: "WRONG_FIELD_TYPE",
+        message: `effectClass must be one of ${EFFECT_CLASSES.join("|")}`,
+        pointer: joinPointer(pointer, "effectClass"),
+      });
+    }
+  }
+  if ("idempotency" in obj && obj.idempotency !== undefined) {
+    if (
+      typeof obj.idempotency === "string" &&
+      (NODE_IDEMPOTENCY_MODES as readonly string[]).includes(obj.idempotency)
+    ) {
+      fields.idempotency = obj.idempotency as NodeIdempotencyMode;
+    } else {
+      ctx.errors.push({
+        code: "WRONG_FIELD_TYPE",
+        message: `idempotency must be one of ${NODE_IDEMPOTENCY_MODES.join("|")}`,
+        pointer: joinPointer(pointer, "idempotency"),
+      });
     }
   }
   parseOptionalBooleanField(obj, "resumePoint", pointer, ctx, (value) => {

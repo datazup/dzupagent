@@ -19,6 +19,15 @@ export type {
   RedisPipelineCheckpointStoreOptions,
 } from './pipeline/redis-checkpoint-store.js'
 export { PipelineRuntime } from './pipeline/pipeline-runtime.js'
+export {
+  RUNTIME_TOOL_PREFIX,
+  createRuntimeToolNodeExecutor,
+  isRuntimeToolNode,
+} from './pipeline/runtime-tool-handlers.js'
+export type {
+  RuntimeToolHandler,
+  RuntimeToolHandlers,
+} from './pipeline/runtime-tool-handlers.js'
 export { executeLoop, stateFieldTruthy, qualityBelow, hasErrors } from './pipeline/loop-executor.js'
 export type {
   PipelineState,
@@ -28,6 +37,7 @@ export type {
   NodeExecutionContext,
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
+  RuntimeToolHandlerInput,
   PipelineExecutionLogEntry,
   PipelineExecutionLogStore,
   LoopMetrics,

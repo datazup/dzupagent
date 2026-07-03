@@ -43,6 +43,7 @@ import {
   PipelineExecutor,
   type PipelineExecutorCoordinator,
 } from "./pipeline-executor.js";
+import { createRuntimeToolNodeExecutor } from "./runtime-tool-handlers.js";
 
 // ---------------------------------------------------------------------------
 // Pipeline Runtime
@@ -73,6 +74,10 @@ export class PipelineRuntime {
     const resolvedCheckpointStore = resolveCheckpointStore(config);
     config = {
       ...config,
+      nodeExecutor: createRuntimeToolNodeExecutor(
+        config.nodeExecutor,
+        config.runtimeToolHandlers,
+      ),
       ...(resolvedCheckpointStore !== undefined
         ? { checkpointStore: resolvedCheckpointStore }
         : {}),

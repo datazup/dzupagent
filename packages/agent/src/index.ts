@@ -429,6 +429,15 @@ export { validatePipeline } from "./pipeline/pipeline-validator.js";
 export { InMemoryPipelineCheckpointStore } from "./pipeline/in-memory-checkpoint-store.js";
 export { PipelineRuntime } from "./pipeline/pipeline-runtime.js";
 export {
+  RUNTIME_TOOL_PREFIX,
+  createRuntimeToolNodeExecutor,
+  isRuntimeToolNode,
+} from "./pipeline/runtime-tool-handlers.js";
+export type {
+  RuntimeToolHandler,
+  RuntimeToolHandlers,
+} from "./pipeline/runtime-tool-handlers.js";
+export {
   executeLoop,
   stateFieldTruthy,
   qualityBelow,
@@ -442,6 +451,7 @@ export type {
   NodeExecutionContext,
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
+  RuntimeToolHandlerInput,
   LoopMetrics,
   RetryPolicy,
   OTelSpanLike,
