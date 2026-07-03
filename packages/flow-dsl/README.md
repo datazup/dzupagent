@@ -233,8 +233,9 @@ via `resolveDeep` at execution.
 ### `prompt`
 
 Single LLM call with explicit user/system prompts. When nested inside a
-`persona` body, the persona's `systemPromptTemplate` is inherited unless an
-explicit `systemPrompt` is set on the node (see [persona inheritance](#persona--inheritance-semantics)).
+`persona` body, runtime persona inheritance applies to the prompt node unless
+an explicit `systemPrompt` is set on the node (see
+[persona inheritance](#persona--inheritance-semantics)).
 
 ```yaml
 - prompt:
@@ -293,12 +294,13 @@ Standalone validation gate (referenced suite or inline commands).
 ### `persona` — inheritance semantics
 
 Wraps a body of steps with a persona binding. If the bound persona has a
-`systemPromptTemplate`, nested `prompt` and `agent` nodes inherit it as their
-system prompt **unless** they set their own `systemPrompt` / `instructions`.
-Explicit always wins. Nested personas override the outer binding inside their
-own body.
+`systemPromptTemplate`, runtime inheritance currently applies to nested
+`prompt` nodes only. A nested `prompt.systemPrompt` wins over the inherited
+template. Nested `agent` and `adapter.*` nodes do not inherit that binding at
+runtime; set `instructions` / `persona` explicitly on those nodes. Nested
+personas override the outer binding inside their own body for prompt nodes.
 
-When inheritance fires for a leaf node, the journal records
+When inheritance fires for a prompt node, the journal records
 `persona_systemprompt_applied { personaId }`.
 
 ```yaml
@@ -518,10 +520,10 @@ the same `output.key` within the same sequence-scope. Scopes are:
 Cross-scope duplicates are allowed because they cannot both execute on the same
 path.
 
-Today these are surfaced as **warnings** in
-`analyzeFlowRuntimeReadiness().warnings` with severity `output_key_collision`.
-They do not block readiness. Promotion to errors is planned for a follow-up
-milestone.
+Today these are surfaced by `checkOutputKeyUniqueness(root)` as structured
+diagnostics with code `output_key_collision` and severity `warning`. They do
+not block DSL parsing or document validation. Promotion to errors is planned for
+a follow-up milestone.
 
 ## Validation
 
