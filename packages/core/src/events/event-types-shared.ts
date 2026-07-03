@@ -170,6 +170,10 @@ export type SubagentRuntimeDzupEvent =
       taskId: string;
       parentRunId: string;
       agentId: string;
+      /** Fan-out batch this spawn belongs to, when spawned by a fan-out tool. */
+      batchId?: string;
+      /** Spawn depth (0 = spawned by the top-level run). */
+      depth?: number;
     }
   | { type: "subagent:admitted"; taskId: string }
   | { type: "subagent:progress"; taskId: string; note: string }
@@ -182,6 +186,58 @@ export type SubagentRuntimeDzupEvent =
     }
   | { type: "subagent:cancelled"; taskId: string }
   | { type: "subagent:expired"; taskId: string };
+
+/**
+ * Batch fan-out lifecycle events emitted by the `fanout_template` tool in
+ * `@dzupagent/subagents` and bridged onto the bus. Mirrors the adapter-types
+ * `FanoutRuntimeEvent` contract (kept in sync by intent — see the
+ * event-union-sync drift test in `@dzupagent/subagents`).
+ */
+export type FanoutRuntimeDzupEvent =
+  | {
+      type: "fanout:started";
+      batchId: string;
+      parentRunId: string;
+      mode: "template" | "script";
+      declared: number;
+    }
+  | {
+      type: "fanout:item_dispatched";
+      batchId: string;
+      itemKey: string;
+      taskId: string;
+    }
+  | {
+      type: "fanout:item_settled";
+      batchId: string;
+      itemKey: string;
+      taskId: string;
+      status:
+        | "queued"
+        | "awaiting_approval"
+        | "running"
+        | "succeeded"
+        | "failed"
+        | "cancelled"
+        | "expired";
+      durationMs?: number;
+    }
+  | {
+      type: "fanout:completed";
+      batchId: string;
+      dispatched: number;
+      succeeded: number;
+      failed: number;
+      uncovered: number;
+      wallClockMs: number;
+    }
+  | {
+      type: "fanout:aborted";
+      batchId: string;
+      reason: "denied" | "script_error" | "budget_exceeded" | "timeout";
+      dispatched: number;
+    }
+  | { type: "fanout:progress"; batchId: string; message: string };
 
 /**
  * Governance decisions surfaced by the subagent spawn gate. A focused subset of
@@ -201,4 +257,5 @@ export type AdapterRuntimeDzupEvent =
   | AdapterProgressDzupEvent
   | MapReduceDzupEvent
   | SubagentRuntimeDzupEvent
+  | FanoutRuntimeDzupEvent
   | SubagentGovernanceDzupEvent;

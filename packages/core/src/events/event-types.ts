@@ -30,6 +30,7 @@ export type {
   BudgetUsage,
   LlmInvocationRecord,
   MapReduceDzupEvent,
+  FanoutRuntimeDzupEvent,
   SubagentRuntimeDzupEvent,
   SubagentGovernanceDzupEvent,
   ToolCallAuditRecord,
