@@ -837,6 +837,9 @@ async function appendExecutionLogSnapshot(
     pipelineId: checkpoint.pipelineId,
     checkpointVersion: checkpoint.version,
     ...executionLog,
+    ...(checkpoint.providerSessionRefs !== undefined
+      ? { providerSessionRefs: checkpoint.providerSessionRefs }
+      : {}),
   });
 }
 

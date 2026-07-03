@@ -257,6 +257,25 @@ export class SupervisorOrchestrator {
       prompt: subtask.description,
       workingDirectory: options?.workingDirectory,
       signal: options?.signal,
+      ...(options?.systemPrompt !== undefined ? { systemPrompt: options.systemPrompt } : {}),
+      ...(options?.outputSchema !== undefined ? { outputSchema: options.outputSchema } : {}),
+      ...((options?.model !== undefined ||
+        options?.tools !== undefined ||
+        options?.reasoning !== undefined ||
+        options?.promptPrep !== undefined ||
+        options?.policy !== undefined ||
+        options?.personaId !== undefined)
+        ? {
+            options: compactSupervisorOptions({
+              model: options.model,
+              tools: options.tools,
+              reasoning: options.reasoning,
+              promptPrep: options.promptPrep,
+              policy: options.policy,
+              personaId: options.personaId,
+            }),
+          }
+        : {}),
     }
 
     const startMs = Date.now()
@@ -357,4 +376,10 @@ export class SupervisorOrchestrator {
   private isFailedEvent(event: AgentEvent): event is AgentFailedEvent {
     return event.type === 'adapter:failed'
   }
+}
+
+function compactSupervisorOptions<T extends Record<string, unknown>>(value: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined),
+  ) as Partial<T>
 }

@@ -158,6 +158,7 @@ export interface RuntimeAdapterRunRequest extends RuntimeToolPortRequest {
 export interface RuntimeAdapterRaceRequest extends RuntimeToolPortRequest {
   providers: string[];
   model?: string;
+  tools?: boolean;
   instructions: string;
   systemPrompt?: string;
   input?: Record<string, unknown>;
@@ -180,6 +181,7 @@ export interface RuntimeAdapterSupervisorRequest
   goal: string;
   specialists?: string[];
   model?: string;
+  tools?: boolean;
   systemPrompt?: string;
   input?: Record<string, unknown>;
   persona?: string;
@@ -321,6 +323,39 @@ export type RuntimeJsonSchemaValidator = (
 export interface RuntimeJsonSchemaValidationRunnerOptions {
   schemas: Record<string, unknown>;
   validate: RuntimeJsonSchemaValidator;
+  selectData?: (
+    request: RuntimeValidateRequest,
+    command: RuntimeValidationCommand,
+  ) => unknown;
+}
+
+export interface RuntimeValidationSuiteRegistryOptions {
+  suites: Record<string, RuntimeValidationSuite | RuntimeValidationCommand[]>;
+}
+
+export interface RuntimeValidationSuiteRegistry {
+  resolveSuite: RuntimeValidationSuiteResolver;
+}
+
+export interface RuntimeAjvLike {
+  validate(schema: unknown, data: unknown): boolean | Promise<boolean>;
+  errors?: unknown;
+}
+
+export interface RuntimeAjvValidationRunnerOptions
+  extends Omit<RuntimeJsonSchemaValidationRunnerOptions, "validate"> {
+  ajv: RuntimeAjvLike;
+}
+
+export interface RuntimeZodLikeSchema {
+  safeParse(data: unknown): {
+    success: boolean;
+    error?: unknown;
+  };
+}
+
+export interface RuntimeZodValidationRunnerOptions {
+  schemas: Record<string, RuntimeZodLikeSchema>;
   selectData?: (
     request: RuntimeValidateRequest,
     command: RuntimeValidationCommand,
@@ -609,6 +644,85 @@ export function createRuntimeJsonSchemaValidationRunner(
     }
   };
 }
+
+export function createRuntimeValidationSuiteRegistry(
+  options: RuntimeValidationSuiteRegistryOptions,
+): RuntimeValidationSuiteRegistry {
+  return {
+    resolveSuite: async (ref) => options.suites[ref],
+  };
+}
+
+export function createRuntimeAjvValidationRunner(
+  options: RuntimeAjvValidationRunnerOptions,
+): RuntimeValidationCommandRunner {
+  return createRuntimeJsonSchemaValidationRunner(compactRuntimeToolResult({
+    schemas: options.schemas,
+    selectData: options.selectData,
+    validate: async ({ schema, data }: RuntimeJsonSchemaValidationInput) => {
+      const ok = await options.ajv.validate(schema, data);
+      return {
+        ok,
+        errors: ok ? undefined : options.ajv.errors,
+      };
+    },
+  }) as RuntimeJsonSchemaValidationRunnerOptions);
+}
+
+export function createRuntimeZodValidationRunner(
+  options: RuntimeZodValidationRunnerOptions,
+): RuntimeValidationCommandRunner {
+  return createRuntimeJsonSchemaValidationRunner(compactRuntimeToolResult({
+    schemas: options.schemas,
+    selectData: options.selectData,
+    validate: ({ schema, data }: RuntimeJsonSchemaValidationInput) => {
+      if (!isZodLikeSchema(schema)) {
+        return {
+          ok: false,
+          errors: "Configured schema does not expose safeParse(data)",
+        };
+      }
+      const result = schema.safeParse(data);
+      return {
+        ok: result.success,
+        errors: result.success ? undefined : result.error,
+      };
+    },
+  }) as RuntimeJsonSchemaValidationRunnerOptions);
+}
+
+export const runtimeShellAllowlistPresets = {
+  yarnChecks(
+    allowCommands: readonly string[] = [
+      "yarn typecheck",
+      "yarn lint",
+      "yarn test",
+      "yarn build",
+    ],
+  ): RuntimeShellValidationCommandRunnerOptions {
+    return { allowCommands };
+  },
+  npmChecks(
+    allowCommands: readonly string[] = [
+      "npm run typecheck",
+      "npm run lint",
+      "npm test",
+      "npm run build",
+    ],
+  ): RuntimeShellValidationCommandRunnerOptions {
+    return { allowCommands };
+  },
+  pnpmChecks(
+    allowCommands: readonly string[] = [
+      "pnpm typecheck",
+      "pnpm lint",
+      "pnpm test",
+      "pnpm build",
+    ],
+  ): RuntimeShellValidationCommandRunnerOptions {
+    return { allowCommands };
+  },
+} as const;
 
 function createPortRuntimeToolHandler<TRequest extends RuntimeToolPortRequest>(
   toolName: string,
@@ -1148,6 +1262,15 @@ function requiredStringArray(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isZodLikeSchema(value: unknown): value is RuntimeZodLikeSchema {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "safeParse" in value &&
+    typeof (value as { safeParse?: unknown }).safeParse === "function"
+  );
 }
 
 function compactRuntimeToolResult<T extends Record<string, unknown>>(

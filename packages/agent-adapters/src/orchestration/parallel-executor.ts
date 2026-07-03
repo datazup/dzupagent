@@ -158,13 +158,21 @@ export class ParallelExecutor {
    */
   async race(
     input: AgentInput,
-    providers: AdapterProviderId[],
+    providersOrOptions: AdapterProviderId[] | Omit<ParallelExecutionOptions, 'mergeStrategy'>,
     signal?: AbortSignal | undefined,
   ): Promise<ProviderResult> {
+    const options = Array.isArray(providersOrOptions)
+      ? {
+          providers: providersOrOptions,
+          mergeStrategy: 'first-wins' as const,
+          ...(signal !== undefined ? { signal } : {}),
+        }
+      : {
+          ...providersOrOptions,
+          mergeStrategy: 'first-wins' as const,
+        }
     const result = await this.execute(input, {
-      providers,
-      mergeStrategy: 'first-wins',
-      ...(signal !== undefined ? { signal } : {}),
+      ...options,
     })
     return result.selectedResult
   }

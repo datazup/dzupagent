@@ -45,6 +45,7 @@ import {
   type ContractNetFacadeOptions,
   type FacadeSupervisorOptions,
   type ParallelOptions,
+  type RaceOptions,
 } from './orchestration-patterns.js'
 import type {
   ChatOptions,
@@ -65,6 +66,7 @@ export type {
 export type {
   FacadeSupervisorOptions,
   ParallelOptions,
+  RaceOptions,
   ContractNetFacadeOptions,
 } from './orchestration-patterns.js'
 
@@ -147,7 +149,7 @@ export class OrchestratorFacade {
   /** Race -- first-wins across providers. */
   async race(
     prompt: string,
-    providers?: AdapterProviderId[],
+    providers?: AdapterProviderId[] | RaceOptions,
     signal?: AbortSignal,
   ): Promise<ProviderResult> {
     this.assertNotShutdown('race')

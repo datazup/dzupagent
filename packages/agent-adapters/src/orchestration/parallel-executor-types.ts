@@ -45,6 +45,22 @@ export interface ParallelExecutionOptions {
   timeoutMs?: number | undefined
   /** Scoring function for 'best-of-n' — higher is better */
   scorer?: (result: ProviderResult) => number
+  /** System prompt forwarded to adapters through AgentInput. */
+  systemPrompt?: string | undefined
+  /** Adapter model hint forwarded through AgentInput.options. */
+  model?: string | undefined
+  /** Tool-use hint forwarded through AgentInput.options. */
+  tools?: boolean | undefined
+  /** Structured output schema forwarded to adapters through AgentInput. */
+  outputSchema?: Record<string, unknown> | undefined
+  /** Reasoning-effort hint forwarded through AgentInput.options. */
+  reasoning?: string | undefined
+  /** Prompt-preparation hint forwarded through AgentInput.options. */
+  promptPrep?: string | undefined
+  /** Policy metadata forwarded through AgentInput.options. */
+  policy?: Record<string, unknown> | undefined
+  /** Persona provenance forwarded through AgentInput.options. */
+  personaId?: string | undefined
 }
 
 // ---------------------------------------------------------------------------

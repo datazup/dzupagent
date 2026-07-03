@@ -31,11 +31,27 @@ export interface AdapterRuntimeToolOrchestrator {
   run(prompt: string, options?: RunOptions): Promise<RunResult>
   race(
     prompt: string,
-    providers?: AdapterProviderId[],
+    options?: AdapterRuntimeRaceOptions,
     signal?: AbortSignal,
   ): Promise<ProviderResult>
   parallel(prompt: string, options?: ParallelOptions): Promise<ParallelExecutionResult>
   supervisor(goal: string, options?: FacadeSupervisorOptions): Promise<SupervisorResult>
+}
+
+export interface AdapterRuntimeRaceOptions extends RuntimeAdapterCommonOptions {
+  providers?: AdapterProviderId[]
+  signal?: AbortSignal
+}
+
+interface RuntimeAdapterCommonOptions {
+  model?: string
+  tools?: boolean
+  systemPrompt?: string
+  reasoning?: string
+  promptPrep?: string
+  outputSchema?: Record<string, unknown>
+  policy?: Record<string, unknown>
+  personaId?: string
 }
 
 export interface AdapterRuntimeToolBridgeOptions {
@@ -135,7 +151,10 @@ async function runAdapterRaceRuntimeTool(
 ): Promise<RuntimeToolPortResult> {
   const result = await orchestrator.race(
     promptWithInput(request.instructions, request.input),
-    request.providers.map(providerId),
+    {
+      providers: request.providers.map(providerId),
+      ...runtimeCommonOptions(request),
+    },
   )
 
   if (!result.success) {
@@ -166,6 +185,7 @@ async function runAdapterParallelRuntimeTool(
     {
       providers: request.providers.map(providerId),
       mergeStrategy: mergeStrategy(request.merge),
+      ...runtimeCommonOptions(request),
     },
   )
 
@@ -199,6 +219,7 @@ async function runAdapterSupervisorRuntimeTool(
 ): Promise<RuntimeToolPortResult> {
   const result = await orchestrator.supervisor(request.goal, {
     context: supervisorContext(request),
+    ...runtimeCommonOptions(request),
   })
 
   if (result.cancelled === true) {
@@ -256,12 +277,27 @@ function adapterRunOutput(result: RunResult): Record<string, unknown> {
 
 function runtimeRunOptions(request: RuntimeAdapterRunRequest): RunOptions {
   return compact({
+    ...runtimeCommonOptions(request),
+  }) as RunOptions
+}
+
+function runtimeCommonOptions(
+  request:
+    | RuntimeAdapterRunRequest
+    | RuntimeAdapterRaceRequest
+    | RuntimeAdapterParallelRequest
+    | RuntimeAdapterSupervisorRequest,
+): RuntimeAdapterCommonOptions {
+  return compact({
     model: request.model,
     tools: request.tools,
+    systemPrompt: request.systemPrompt,
     reasoning: request.reasoning,
     promptPrep: request.promptPrep,
     outputSchema: recordOutputSchema(request.outputSchema),
-  }) as RunOptions
+    policy: request.policy as RunOptions['policy'],
+    personaId: request.persona,
+  }) as RuntimeAdapterCommonOptions
 }
 
 function promptWithInput(

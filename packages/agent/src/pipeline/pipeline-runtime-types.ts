@@ -25,6 +25,7 @@ import type {
   ToolNode,
   PipelineCheckpointStore,
   PipelineCheckpointExecutionLog,
+  PipelineCheckpointProviderSessionRef,
 } from "@dzupagent/core/pipeline";
 import type {
   NodeExecutionContext,
@@ -112,6 +113,8 @@ export interface PipelineExecutionLogEntry
   pipelineRunId: string;
   /** Checkpoint version that produced this execution-log snapshot. */
   checkpointVersion: number;
+  /** Provider session handles captured in the same checkpoint snapshot. */
+  providerSessionRefs?: PipelineCheckpointProviderSessionRef[];
 }
 
 export interface PipelineExecutionLogStore {

@@ -60,6 +60,22 @@ export interface SupervisorOptions {
   context?: string | undefined
   /** Budget constraint forwarded to task descriptors. */
   budgetConstraint?: 'low' | 'medium' | 'high' | 'unlimited' | undefined
+  /** System prompt forwarded to subtask adapters when supported. */
+  systemPrompt?: string | undefined
+  /** Adapter model hint forwarded to subtask adapters when supported. */
+  model?: string | undefined
+  /** Tool-use hint forwarded to subtask adapters when supported. */
+  tools?: boolean | undefined
+  /** Structured output schema forwarded to subtask adapters when supported. */
+  outputSchema?: Record<string, unknown> | undefined
+  /** Reasoning-effort hint forwarded to subtask adapters when supported. */
+  reasoning?: string | undefined
+  /** Prompt-preparation hint forwarded to subtask adapters when supported. */
+  promptPrep?: string | undefined
+  /** Policy metadata forwarded to subtask adapters when supported. */
+  policy?: Record<string, unknown> | undefined
+  /** Persona provenance forwarded to subtask adapters when supported. */
+  personaId?: string | undefined
 }
 
 /** Configuration for the SupervisorOrchestrator. */
