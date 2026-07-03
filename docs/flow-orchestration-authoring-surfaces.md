@@ -28,4 +28,4 @@ This document maps the public authoring surfaces for flow and orchestration acro
 
 ## Schema Versioning
 
-All flow documents carry a `$schema: 'dzupflow/v1'` field. Breaking schema changes require a new major version and a migration shim in `@dzupagent/flow-ast`.
+Flow documents carry a `dsl` field. Stable flows use `dsl: dzupflow/v1`; agent-executing primitives use `dsl: dzupflow/v1alpha-agent`. Breaking schema changes require a new major version and a migration shim in `@dzupagent/flow-ast`.
