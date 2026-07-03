@@ -226,6 +226,7 @@ function buildDefaultIdFactory(): () => string {
  * Namespaces included:
  *
  * - `project_docs.*` — list, read
+ * - `plan.*`         — read_todos, write_todos
  * - `pm.*`           — create_task, update_task, get_task, list_tasks
  * - `workflow.*`     — list, run, status
  * - `human.*`        — clarify, approve
