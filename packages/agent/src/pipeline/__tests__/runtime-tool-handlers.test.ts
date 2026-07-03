@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PipelineDefinition, ToolNode } from "@dzupagent/core/pipeline";
+import type {
+  PipelineCheckpoint,
+  PipelineDefinition,
+  ToolNode,
+} from "@dzupagent/core/pipeline";
+import { InMemoryPipelineCheckpointStore } from "../in-memory-checkpoint-store.js";
 import { PipelineRuntime } from "../pipeline-runtime.js";
 import type {
   NodeExecutor,
   RuntimeToolHandler,
 } from "../pipeline-runtime-types.js";
 import {
+  createRuntimeJsonSchemaValidationRunner,
+  createRuntimeJsonSchemaValidationSuiteResolver,
+  createRuntimeShellValidationCommandRunner,
   createRuntimeToolHandlers,
   createRuntimeValidatePort,
   getRuntimeToolReadiness,
@@ -246,6 +254,58 @@ describe("PipelineRuntime runtime tool handlers", () => {
     );
   });
 
+  it("fails fast before resuming a checkpoint with missing runtime handlers", async () => {
+    const runtime = new PipelineRuntime({
+      definition: makeRuntimeToolPipeline({
+        id: "adapter_0",
+        type: "tool",
+        toolName: "dzup.runtime.adapter.run",
+        arguments: { provider: "codex", instructions: "Run.", output: "result" },
+      }),
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      runtimeToolHandlers: {},
+      runtimeToolReadiness: "fail_fast",
+    });
+
+    await expect(runtime.resume(makeCheckpoint())).rejects.toThrow(
+      'Runtime tool handlers are not ready: missing handler for "dzup.runtime.adapter.run" used by node "adapter_0"',
+    );
+  });
+
+  it("fails fast before redelivering a checkpoint after process restart", async () => {
+    const checkpoint = makeCheckpoint();
+    const checkpointStore = new InMemoryPipelineCheckpointStore();
+    await checkpointStore.save(checkpoint);
+
+    const runtime = new PipelineRuntime({
+      definition: {
+        ...makeRuntimeToolPipeline({
+          id: "adapter_0",
+          type: "tool",
+          toolName: "dzup.runtime.adapter.run",
+          arguments: { provider: "codex", instructions: "Run.", output: "result" },
+        }),
+        resume: { onProcessRestart: "redeliver_running" },
+      },
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      checkpointStore,
+      runtimeToolHandlers: {},
+      runtimeToolReadiness: "fail_fast",
+    });
+
+    await expect(runtime.recoverAfterProcessRestart("run-1")).rejects.toThrow(
+      'Runtime tool handlers are not ready: missing handler for "dzup.runtime.adapter.run" used by node "adapter_0"',
+    );
+  });
+
   it("runs validate commands through the concrete validate port", async () => {
     const runtime = new PipelineRuntime({
       definition: makeRuntimeToolPipeline({
@@ -360,4 +420,176 @@ describe("PipelineRuntime runtime tool handlers", () => {
       ],
     });
   });
+
+  it("runs allowed shell validate commands through the host shell runner", async () => {
+    const command = `${process.execPath} -e "process.stdout.write('ok')"`;
+    const runtime = new PipelineRuntime({
+      definition: makeRuntimeToolPipeline({
+        id: "validate_0",
+        type: "tool",
+        toolName: "dzup.runtime.validate",
+        arguments: {
+          commands: [{ id: "node-ok", command }],
+        },
+      }),
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validate: createRuntimeValidatePort({
+          runCommand: createRuntimeShellValidationCommandRunner({
+            allowCommands: [command],
+          }),
+        }),
+      }),
+    });
+
+    const result = await runtime.execute();
+
+    expect(result.state).toBe("completed");
+    expect(result.nodeResults.get("validate_0")?.output).toMatchObject({
+      valid: true,
+      commandResults: [
+        {
+          id: "node-ok",
+          command,
+          ok: true,
+          exitCode: 0,
+          stdout: "ok",
+        },
+      ],
+    });
+  });
+
+  it("denies shell validate commands that are not approved by policy", async () => {
+    const runtime = new PipelineRuntime({
+      definition: makeRuntimeToolPipeline({
+        id: "validate_0",
+        type: "tool",
+        toolName: "dzup.runtime.validate",
+        arguments: {
+          commands: [{ id: "blocked", command: "echo blocked" }],
+        },
+      }),
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validate: createRuntimeValidatePort({
+          runCommand: createRuntimeShellValidationCommandRunner(),
+        }),
+      }),
+    });
+
+    const result = await runtime.execute();
+    const nodeResult = result.nodeResults.get("validate_0");
+
+    expect(result.state).toBe("failed");
+    expect(nodeResult?.errorMetadata).toMatchObject({
+      code: "RUNTIME_VALIDATE_FAILED",
+      failedCommandIds: ["blocked"],
+    });
+    expect(nodeResult?.output).toMatchObject({
+      valid: false,
+      commandResults: [
+        {
+          id: "blocked",
+          command: "echo blocked",
+          ok: false,
+          error: "Runtime validation command denied by policy",
+          metadata: { code: "RUNTIME_VALIDATE_COMMAND_DENIED" },
+        },
+      ],
+    });
+  });
+
+  it("resolves schema validation suites and reports policy-specific schema errors", async () => {
+    const runtime = new PipelineRuntime({
+      definition: makeRuntimeToolPipeline({
+        id: "validate_0",
+        type: "tool",
+        toolName: "dzup.runtime.validate",
+        arguments: { ref: "schema.review" },
+      }),
+      nodeExecutor: async (nodeId) => ({
+        nodeId,
+        output: "fallback",
+        durationMs: 1,
+      }),
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validate: createRuntimeValidatePort({
+          resolveSuite: createRuntimeJsonSchemaValidationSuiteResolver({
+            schemas: {
+              "schema.review": {
+                type: "object",
+                required: ["status"],
+              },
+            },
+          }),
+          runCommand: createRuntimeJsonSchemaValidationRunner({
+            schemas: {
+              "schema.review": {
+                type: "object",
+                required: ["status"],
+              },
+            },
+            validate: ({ data }) => ({
+              ok:
+                typeof data === "object" &&
+                data !== null &&
+                "status" in data,
+              errors: ['missing required property "status"'],
+            }),
+            selectData: (request) => request.context.state,
+          }),
+        }),
+      }),
+    });
+
+    const result = await runtime.execute({ title: "draft" });
+    const nodeResult = result.nodeResults.get("validate_0");
+
+    expect(result.state).toBe("failed");
+    expect(nodeResult?.errorMetadata).toMatchObject({
+      code: "RUNTIME_VALIDATE_FAILED",
+      failedCommandIds: ["schema.review"],
+      failedCommands: ["schema:schema.review"],
+    });
+    expect(nodeResult?.output).toMatchObject({
+      valid: false,
+      ref: "schema.review",
+      commandResults: [
+        {
+          id: "schema.review",
+          command: "schema:schema.review",
+          ok: false,
+          error: "JSON schema validation failed",
+          metadata: {
+            code: "RUNTIME_VALIDATE_SCHEMA_FAILED",
+            schemaRef: "schema.review",
+            errors: ['missing required property "status"'],
+          },
+        },
+      ],
+    });
+  });
 });
+
+function makeCheckpoint(
+  overrides: Partial<PipelineCheckpoint> = {},
+): PipelineCheckpoint {
+  return {
+    pipelineRunId: "run-1",
+    pipelineId: "runtime-tool-handler-test",
+    version: 1,
+    schemaVersion: "1.0.0",
+    completedNodeIds: [],
+    state: {},
+    createdAt: "2026-07-03T00:00:00.000Z",
+    ...overrides,
+  };
+}
