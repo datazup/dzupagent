@@ -20,6 +20,7 @@ export * from "./contracts/command-gate.js";
 export * from "./contracts/budget.js";
 export * from "./contracts/circuit-gate.js";
 export * from "./contracts/validation.js";
+export * from "./contracts/interrupt.js";
 export * from "./provider-execution-port.js";
 export * from "./pipeline-executor-port.js";
 export * from "./utils/correlation.js";
