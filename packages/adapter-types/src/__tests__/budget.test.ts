@@ -80,6 +80,23 @@ describe("budget accumulator (MPCO P8a / T15)", () => {
     expect(accrueUsage(emptyTally(), { outputTokens: 7 }).totalTokens).toBe(7);
   });
 
+  it("accrueUsage keeps cache telemetry when optional input/output token fields are missing", () => {
+    const t = accrueUsage(emptyTally(), {
+      cachedInputTokens: 4,
+      cacheWriteTokens: 6,
+    });
+
+    expect(t).toMatchObject({
+      totalTokens: 10,
+      budgetTokens: 0,
+      cachedInputTokens: 4,
+      cacheWriteTokens: 6,
+      totalCostCents: 0,
+      calls: 1,
+    });
+    expect(Number.isNaN(t.totalTokens)).toBe(false);
+  });
+
   // T15: cap breach detection
   it("T15a: checkBudget flags a token breach", () => {
     const tally: BudgetTally = {
