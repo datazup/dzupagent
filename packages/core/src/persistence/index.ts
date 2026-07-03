@@ -47,3 +47,15 @@ export type {
   RunJournal,
   RunJournalConfig,
 } from "./run-journal-types.js";
+
+// ---------------------------------------------------------------------------
+// RunStateApi (getState/getStateHistory) — checkpoint-state-api spec
+// ---------------------------------------------------------------------------
+export { createRunStateApi } from "./run-state-api.js";
+export type {
+  RunStateApi,
+  RunStateApiDeps,
+  RunStateSnapshot,
+  RunStateHistoryEntry,
+  RunStateHistoryPage,
+} from "./run-state-api.js";

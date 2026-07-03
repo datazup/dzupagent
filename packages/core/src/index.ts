@@ -315,6 +315,16 @@ export type {
 export { DeltaRunStateStore } from "./persistence/delta-run-state-store.js";
 export type { DeltaRunStateStoreOptions } from "./persistence/delta-run-state-store.js";
 
+// --- Run State API (getState/getStateHistory) — checkpoint-state-api spec ---
+export { createRunStateApi } from "./persistence/run-state-api.js";
+export type {
+  RunStateApi,
+  RunStateApiDeps,
+  RunStateSnapshot,
+  RunStateHistoryEntry,
+  RunStateHistoryPage,
+} from "./persistence/run-state-api.js";
+
 // --- Versioned Context Backend ---
 export { InMemoryVersionedContextBackend } from "./persistence/versioned-context-backend.js";
 export type {
