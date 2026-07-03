@@ -219,6 +219,89 @@ describe('adapter runtime tool bridge', () => {
     )
   })
 
+  it('propagates runtime policy options into real race and parallel adapter inputs', async () => {
+    const claude = createCapturingAdapter('claude', 'claude result')
+    const codex = createCapturingAdapter('codex', 'codex result')
+    const orchestrator = createOrchestrator({
+      adapters: [claude.adapter, codex.adapter],
+      eventBus: createEventBus(),
+    })
+    const handlers = createAdapterRuntimeToolHandlers({ orchestrator })
+    const outputSchema = {
+      type: 'object',
+      properties: { accepted: { type: 'boolean' } },
+    }
+    const commonArguments = {
+      providers: ['claude', 'codex'],
+      model: 'claude-sonnet',
+      tools: true,
+      systemPrompt: 'Use system guidance.',
+      reasoning: 'high',
+      promptPrep: 'compress',
+      outputSchema,
+      policy: { allowTools: false },
+    }
+
+    await new PipelineRuntime({
+      definition: runtimeToolDefinition({
+        id: 'race_policy',
+        toolName: 'dzup.runtime.adapter.race',
+        arguments: {
+          ...commonArguments,
+          instructions: 'Race.',
+          input: { issue: 42 },
+          output: 'raceResult',
+        },
+      }),
+      nodeExecutor: unexpectedFallback,
+      runtimeToolHandlers: handlers,
+    }).execute()
+    await new PipelineRuntime({
+      definition: runtimeToolDefinition({
+        id: 'parallel_policy',
+        toolName: 'dzup.runtime.adapter.parallel',
+        arguments: {
+          ...commonArguments,
+          merge: 'all',
+          instructions: 'Parallel.',
+          input: { issue: 43 },
+          output: 'parallelResult',
+        },
+      }),
+      nodeExecutor: unexpectedFallback,
+      runtimeToolHandlers: handlers,
+    }).execute()
+
+    const captured = [...claude.inputs, ...codex.inputs]
+    expect(captured).toHaveLength(4)
+    expect(captured).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          prompt: expect.stringContaining('"issue": 42'),
+          systemPrompt: 'Use system guidance.',
+          outputSchema,
+          options: expect.objectContaining({
+            model: 'claude-sonnet',
+            tools: true,
+            reasoning: 'high',
+            promptPrep: 'compress',
+          }),
+        }),
+        expect.objectContaining({
+          prompt: expect.stringContaining('"issue": 43'),
+          systemPrompt: 'Use system guidance.',
+          outputSchema,
+          options: expect.objectContaining({
+            model: 'claude-sonnet',
+            tools: true,
+            reasoning: 'high',
+            promptPrep: 'compress',
+          }),
+        }),
+      ]),
+    )
+  })
+
   it('executes adapter.supervisor runtime nodes through facade orchestration', async () => {
     const orchestrator: AdapterRuntimeToolOrchestrator = {
       async run() {

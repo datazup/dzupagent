@@ -15,6 +15,7 @@ import type {
   PipelineNode,
   PipelineEdge,
   PipelineCheckpoint,
+  PipelineCheckpointProviderSessionRef,
   PipelineCheckpointStore,
 } from "@dzupagent/core/pipeline";
 import { validatePipeline } from "./pipeline-validator.js";
@@ -640,6 +641,19 @@ export class PipelineRuntime {
   /** Get current run state. */
   getRunState(): PipelineState {
     return this.state;
+  }
+
+  /**
+   * Return provider session handles captured in the latest checkpoint for a run.
+   *
+   * This gives handoff/resume consumers a stable query surface without requiring
+   * them to load or parse raw checkpoint records.
+   */
+  async getProviderSessionRefs(
+    pipelineRunId: string,
+  ): Promise<PipelineCheckpointProviderSessionRef[]> {
+    const checkpoint = await this.config.checkpointStore?.load(pipelineRunId);
+    return structuredClone(checkpoint?.providerSessionRefs ?? []);
   }
 
   // ---------------------------------------------------------------------------

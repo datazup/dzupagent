@@ -104,6 +104,74 @@ const reviewTool = agent.asTool({ description: 'Run code review' })
 
 **Types:** `PipelineState`, `NodeResult`, `PipelineRunResult`, `PipelineRuntimeConfig`, `NodeMetrics`, `BottleneckEntry`
 
+#### Runtime Validation Helpers
+
+Compiled flow runtime leaves such as `validate`, `validate.schema`, and
+`shell.run` can be wired through `createRuntimeToolHandlers`:
+
+```ts
+import {
+  createRuntimeAjvValidationRunner,
+  createRuntimeShellValidationCommandRunner,
+  createRuntimeToolHandlers,
+  createRuntimeValidatePort,
+  createRuntimeValidationSuiteRegistry,
+  runtimeShellAllowlistPresets,
+} from '@dzupagent/agent/pipeline'
+
+const schemas = {
+  'review.schema': {
+    type: 'object',
+    required: ['status'],
+  },
+}
+
+const suites = createRuntimeValidationSuiteRegistry({
+  suites: {
+    'app.preflight': [
+      { id: 'schema', command: 'schema:review.schema', kind: 'schema' },
+      { id: 'typecheck', command: 'yarn typecheck', kind: 'shell' },
+    ],
+  },
+})
+
+const schemaRunner = createRuntimeAjvValidationRunner({
+  schemas,
+  ajv,
+  selectData: (request) => request.context.state,
+})
+const shellRunner = createRuntimeShellValidationCommandRunner(
+  runtimeShellAllowlistPresets.yarnChecks(['yarn typecheck']),
+)
+
+const handlers = createRuntimeToolHandlers({
+  validate: createRuntimeValidatePort({
+    resolveSuite: suites.resolveSuite,
+    runCommand: (command, request) =>
+      command.kind === 'schema'
+        ? schemaRunner(command, request)
+        : shellRunner(command, request),
+  }),
+  shellRun: async ({ command }) => ({
+    output: { command, exitCode: 0 },
+  }),
+})
+```
+
+For shell-backed validation suites, pass an allowlist preset to
+`createRuntimeShellValidationCommandRunner` and compose it with schema runners
+inside your app-owned command runner:
+
+```ts
+import {
+  createRuntimeZodValidationRunner,
+} from '@dzupagent/agent/pipeline'
+
+const zodRunner = createRuntimeZodValidationRunner({
+  schemas: { 'review.zod': reviewSchema },
+})
+```
+
 ### Structured Output
 
 - `generateStructuredOutput(config)` -- generate typed output from an LLM using Zod schemas

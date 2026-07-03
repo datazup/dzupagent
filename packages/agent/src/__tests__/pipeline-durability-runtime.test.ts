@@ -167,6 +167,48 @@ describe("PipelineRuntime W1 durability policy", () => {
     ]);
   });
 
+  it("exposes provider session refs through the runtime query API", async () => {
+    const store = new InMemoryPipelineCheckpointStore();
+    const runtime = new PipelineRuntime({
+      definition: linearPipeline({
+        checkpoint: { includeProviderSessionRefs: true },
+      }),
+      nodeExecutor: async (nodeId, _node, ctx) => {
+        ctx.state[`seen_${nodeId}`] = true;
+        return {
+          nodeId,
+          output: `out-${nodeId}`,
+          durationMs: 1,
+          providerSessionRefs:
+            nodeId === "a"
+              ? [
+                  {
+                    provider: "openai",
+                    sessionId: "sess-a",
+                    label: "adapter.run",
+                    metadata: { threadId: "thread-a" },
+                  },
+                ]
+              : [],
+        } as Awaited<ReturnType<NodeExecutor>>;
+      },
+      checkpointStore: store,
+    });
+
+    const result = await runtime.execute();
+
+    expect(await runtime.getProviderSessionRefs(result.runId)).toEqual([
+      {
+        nodeId: "a",
+        provider: "openai",
+        sessionId: "sess-a",
+        label: "adapter.run",
+        metadata: { threadId: "thread-a" },
+      },
+    ]);
+    expect(await runtime.getProviderSessionRefs("missing-run")).toEqual([]);
+  });
+
   it("embeds compact executionLog events in checkpoints when executionLog.eventHistory=compact", async () => {
     const store = new InMemoryPipelineCheckpointStore();
     const runtime = new PipelineRuntime({

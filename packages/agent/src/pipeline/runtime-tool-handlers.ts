@@ -21,6 +21,8 @@ export const RUNTIME_TOOL_NAMES = {
   validate: "dzup.runtime.validate",
   prompt: "dzup.runtime.prompt",
   workerDispatch: "dzup.runtime.worker.dispatch",
+  shellRun: "dzup.runtime.shell.run",
+  validateSchema: "dzup.runtime.validate.schema",
   adapterRun: "dzup.runtime.adapter.run",
   adapterRace: "dzup.runtime.adapter.race",
   adapterParallel: "dzup.runtime.adapter.parallel",
@@ -138,6 +140,17 @@ export interface RuntimeWorkerDispatchRequest extends RuntimeToolPortRequest {
   resultSchema?: string;
 }
 
+export interface RuntimeShellRunRequest extends RuntimeToolPortRequest {
+  command: string;
+  output: string;
+}
+
+export interface RuntimeValidateSchemaRequest extends RuntimeToolPortRequest {
+  source: string;
+  schema: string | Record<string, unknown>;
+  output: string;
+}
+
 export interface RuntimeAdapterRunRequest extends RuntimeToolPortRequest {
   provider?: string;
   tags?: string[];
@@ -217,6 +230,8 @@ export interface RuntimeToolExecutionPorts {
   validate?: RuntimeToolPort<RuntimeValidateRequest>;
   prompt?: RuntimeToolPort<RuntimePromptRequest>;
   workerDispatch?: RuntimeToolPort<RuntimeWorkerDispatchRequest>;
+  shellRun?: RuntimeToolPort<RuntimeShellRunRequest>;
+  validateSchema?: RuntimeToolPort<RuntimeValidateSchemaRequest>;
   adapterRun?: RuntimeToolPort<RuntimeAdapterRunRequest>;
   adapterRace?: RuntimeToolPort<RuntimeAdapterRaceRequest>;
   adapterParallel?: RuntimeToolPort<RuntimeAdapterParallelRequest>;
@@ -382,6 +397,18 @@ export function createRuntimeToolHandlers(
       ports.workerDispatch,
       buildWorkerDispatchRequest,
       ({ args }) => requiredString(args, "outputKey", RUNTIME_TOOL_NAMES.workerDispatch),
+    ),
+    [RUNTIME_TOOL_NAMES.shellRun]: createPortRuntimeToolHandler(
+      RUNTIME_TOOL_NAMES.shellRun,
+      ports.shellRun,
+      buildShellRunRequest,
+      ({ args }) => requiredString(args, "output", RUNTIME_TOOL_NAMES.shellRun),
+    ),
+    [RUNTIME_TOOL_NAMES.validateSchema]: createPortRuntimeToolHandler(
+      RUNTIME_TOOL_NAMES.validateSchema,
+      ports.validateSchema,
+      buildValidateSchemaRequest,
+      ({ args }) => requiredString(args, "output", RUNTIME_TOOL_NAMES.validateSchema),
     ),
     [RUNTIME_TOOL_NAMES.adapterRun]: createPortRuntimeToolHandler(
       RUNTIME_TOOL_NAMES.adapterRun,
@@ -991,6 +1018,35 @@ function buildWorkerDispatchRequest(
     resultFormat: optionalString(args, "resultFormat"),
     resultSchema: optionalString(args, "resultSchema"),
   }) as RuntimeWorkerDispatchRequest;
+}
+
+function buildShellRunRequest(input: RuntimeToolHandlerInput): RuntimeShellRunRequest {
+  const args = input.arguments;
+  return compactRuntimeToolResult({
+    nodeId: input.nodeId,
+    arguments: args,
+    context: input.context,
+    command: requiredString(args, "command", RUNTIME_TOOL_NAMES.shellRun),
+    output: requiredString(args, "output", RUNTIME_TOOL_NAMES.shellRun),
+  }) as RuntimeShellRunRequest;
+}
+
+function buildValidateSchemaRequest(
+  input: RuntimeToolHandlerInput,
+): RuntimeValidateSchemaRequest {
+  const args = input.arguments;
+  const schema = optionalSchema(args, "schema");
+  if (schema === undefined) {
+    throw new Error(`${RUNTIME_TOOL_NAMES.validateSchema}.schema must be a schema ref string or object`);
+  }
+  return compactRuntimeToolResult({
+    nodeId: input.nodeId,
+    arguments: args,
+    context: input.context,
+    source: requiredString(args, "source", RUNTIME_TOOL_NAMES.validateSchema),
+    schema,
+    output: requiredString(args, "output", RUNTIME_TOOL_NAMES.validateSchema),
+  }) as RuntimeValidateSchemaRequest;
 }
 
 function buildAdapterRunRequest(

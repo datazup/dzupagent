@@ -348,6 +348,111 @@ describe("W1 + W3 compile-to-run integration", () => {
       },
     ]);
   });
+
+  it("executes a compiled shell.run runtime node through the concrete shell handler", async () => {
+    const seenAtInspector: Record<string, unknown>[] = [];
+    const result = await compileAndRunSingleRuntimeNode({
+      runtimeNode: {
+        type: "shell.run",
+        command: "yarn typecheck",
+        output: "shellValidation",
+      },
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        shellRun: async ({ command, output }) => ({
+          output: {
+            command,
+            output,
+            exitCode: 0,
+            stdout: "typecheck passed",
+          },
+        }),
+      }),
+      inspectState: (state) => seenAtInspector.push({ ...state }),
+    });
+
+    expect(result.state).toBe("completed");
+    expect(seenAtInspector).toEqual([
+      {
+        shellValidation: {
+          command: "yarn typecheck",
+          output: "shellValidation",
+          exitCode: 0,
+          stdout: "typecheck passed",
+        },
+      },
+    ]);
+  });
+
+  it("executes a compiled validate.schema runtime node through the concrete schema handler", async () => {
+    const seenAtInspector: Record<string, unknown>[] = [];
+    const result = await compileAndRunSingleRuntimeNode({
+      runtimeNode: {
+        type: "validate.schema",
+        source: "adapterResult",
+        schema: "review.schema",
+        output: "schemaValidation",
+      },
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validateSchema: async ({ source, schema, output, context }) => ({
+          output: {
+            source,
+            schema,
+            output,
+            valid: context.state[source] === "accepted",
+          },
+        }),
+      }),
+      initialState: {
+        adapterResult: "accepted",
+      },
+      inspectState: (state) => seenAtInspector.push({ ...state }),
+    });
+
+    expect(result.state).toBe("completed");
+    expect(seenAtInspector).toEqual([
+      {
+        adapterResult: "accepted",
+        schemaValidation: {
+          source: "adapterResult",
+          schema: "review.schema",
+          output: "schemaValidation",
+          valid: true,
+        },
+      },
+    ]);
+  });
+
+  it("executes a compiled validate runtime node through the concrete validation suite handler", async () => {
+    const seenAtInspector: Record<string, unknown>[] = [];
+    const result = await compileAndRunSingleRuntimeNode({
+      runtimeNode: {
+        type: "validate",
+        ref: "app.preflight",
+      },
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validate: async ({ ref }) => ({
+          output: {
+            valid: true,
+            ref,
+            commandResults: [
+              { id: "typecheck", command: "yarn typecheck", ok: true },
+            ],
+          },
+        }),
+      }),
+      inspectState: (state) => seenAtInspector.push({ ...state }),
+    });
+
+    expect(result.state).toBe("completed");
+    expect(seenAtInspector).toEqual([{}]);
+    expect(firstRuntimeResult(result)?.output).toEqual({
+      valid: true,
+      ref: "app.preflight",
+      commandResults: [
+        { id: "typecheck", command: "yarn typecheck", ok: true },
+      ],
+    });
+  });
 });
 
 type RuntimeLeafFixtureNode =
@@ -392,12 +497,28 @@ type RuntimeLeafFixtureNode =
       goal: string;
       specialists?: string[];
       output: string;
+    }
+  | {
+      type: "shell.run";
+      command: string;
+      output: string;
+    }
+  | {
+      type: "validate.schema";
+      source: string;
+      schema: string | Record<string, unknown>;
+      output: string;
+    }
+  | {
+      type: "validate";
+      ref: string;
     };
 
 async function compileAndRunSingleRuntimeNode(options: {
   runtimeNode: RuntimeLeafFixtureNode;
   runtimeToolHandlers: ReturnType<typeof createRuntimeToolHandlers>;
   inspectState: (state: Record<string, unknown>) => void;
+  initialState?: Record<string, unknown>;
 }) {
   const compiler = createFlowCompiler({
     toolResolver: {
@@ -463,7 +584,7 @@ async function compileAndRunSingleRuntimeNode(options: {
     },
   });
 
-  return runtime.execute();
+  return runtime.execute(options.initialState);
 }
 
 function firstRuntimeResult(
