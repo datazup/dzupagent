@@ -51,7 +51,7 @@ const todoItemSchema = {
   additionalProperties: false,
   required: ["content", "status"],
   properties: {
-    content: { type: "string", minLength: 1 },
+    content: { type: "string" },
     status: { type: "string", enum: TODO_STATUSES },
   },
 };
@@ -93,7 +93,6 @@ function assertTodoList(input: TodoItem[]): void {
       todo === null ||
       typeof todo !== "object" ||
       typeof todo.content !== "string" ||
-      todo.content.length === 0 ||
       !isTodoStatus(todo.status)
     ) {
       throw new Error(`plan.write_todos received invalid todo at index ${index}`);
