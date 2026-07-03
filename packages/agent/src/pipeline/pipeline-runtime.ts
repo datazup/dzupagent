@@ -455,7 +455,78 @@ export class PipelineRuntime {
       };
     }
 
+    if (policy === "redeliver_running") {
+      return this.redeliverFromCheckpoint(checkpoint, additionalState);
+    }
+
     return this.resume(checkpoint, additionalState);
+  }
+
+  private async redeliverFromCheckpoint(
+    checkpoint: PipelineCheckpoint,
+    additionalState?: Record<string, unknown>,
+  ): Promise<PipelineRunResult> {
+    const runId = checkpoint.pipelineRunId;
+    const runState: Record<string, unknown> = {
+      ...checkpoint.state,
+      ...additionalState,
+    };
+    const nodeResults = new Map<string, NodeResult>();
+    const completedNodeIds: string[] = [];
+    const nodeIdempotencyKeys: Record<string, string> = {
+      ...checkpoint.nodeIdempotencyKeys,
+    };
+    const loopState: Record<string, { iteration: number }> = {};
+    const forkState: Record<
+      string,
+      {
+        branches: Record<
+          string,
+          {
+            stateDelta: Record<string, unknown>;
+            nodeResults: Record<string, unknown>;
+          }
+        >;
+      }
+    > = {};
+    const startNodeId = this.config.definition.entryNodeId;
+    const startTime = Date.now();
+
+    const maxReplayNodes = this.config.definition.resume?.maxReplayNodes;
+    if (maxReplayNodes !== undefined) {
+      const replayNodeCount = this.countReplayNodesFrom(
+        startNodeId,
+        runState,
+        completedNodeIds,
+      );
+      if (replayNodeCount > maxReplayNodes) {
+        return this.failReplayBudgetExceeded({
+          runId,
+          nodeResults,
+          replayNodeCount,
+          maxReplayNodes,
+          startTime,
+        });
+      }
+    }
+
+    this.state = "running";
+    this.recoveryAttemptsUsed = checkpoint.recoveryAttemptsUsed ?? 0;
+    this.emit(pipelineStartedEvent(this.config.definition.id, runId));
+
+    return this.runFromNode({
+      startNodeId,
+      runId,
+      runState,
+      nodeResults,
+      completedNodeIds,
+      nodeIdempotencyKeys,
+      loopState,
+      forkState,
+      eventLog: this.eventLog,
+      versionTracker: { version: checkpoint.version },
+      startTime,
+    });
   }
 
   /**

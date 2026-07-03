@@ -261,6 +261,80 @@ describe("PipelineRuntime W1 durability policy", () => {
     expect(secondRuns).toEqual(["b", "c"]);
   });
 
+  it("redelivers a running pipeline from the entry node after process restart", async () => {
+    const store = new InMemoryPipelineCheckpointStore();
+    const firstRuns: string[] = [];
+    const first = new PipelineRuntime({
+      definition: linearPipeline({
+        resume: { onProcessRestart: "redeliver_running" },
+      }),
+      nodeExecutor: async (nodeId, node, ctx) => {
+        if (nodeId === "b") {
+          throw new Error("crash after checkpoint a");
+        }
+        return executorWithRuns(firstRuns)(nodeId, node, ctx);
+      },
+      checkpointStore: store,
+    });
+
+    const failed = await first.execute();
+    expect(failed.state).toBe("failed");
+    expect(firstRuns).toEqual(["a"]);
+
+    const secondRuns: string[] = [];
+    const second = new PipelineRuntime({
+      definition: linearPipeline({
+        resume: { onProcessRestart: "redeliver_running" },
+      }),
+      nodeExecutor: executorWithRuns(secondRuns),
+      checkpointStore: store,
+    });
+
+    const redelivered = await second.recoverAfterProcessRestart(failed.runId);
+
+    expect(redelivered.state).toBe("completed");
+    expect(secondRuns).toEqual(["a", "b", "c"]);
+  });
+
+  it("counts the full redelivered pipeline against maxReplayNodes", async () => {
+    const store = new InMemoryPipelineCheckpointStore();
+    const first = new PipelineRuntime({
+      definition: linearPipeline({
+        resume: {
+          onProcessRestart: "redeliver_running",
+          maxReplayNodes: 2,
+        },
+      }),
+      nodeExecutor: async (nodeId, node, ctx) => {
+        if (nodeId === "b") {
+          throw new Error("crash after checkpoint a");
+        }
+        return executorWithRuns()(nodeId, node, ctx);
+      },
+      checkpointStore: store,
+    });
+
+    const failed = await first.execute();
+    expect(failed.state).toBe("failed");
+
+    const secondRuns: string[] = [];
+    const second = new PipelineRuntime({
+      definition: linearPipeline({
+        resume: {
+          onProcessRestart: "redeliver_running",
+          maxReplayNodes: 2,
+        },
+      }),
+      nodeExecutor: executorWithRuns(secondRuns),
+      checkpointStore: store,
+    });
+
+    const redelivered = await second.recoverAfterProcessRestart(failed.runId);
+
+    expect(redelivered.state).toBe("failed");
+    expect(secondRuns).toEqual([]);
+  });
+
   it("fails process-restart recovery when remaining replay exceeds maxReplayNodes", async () => {
     const store = new InMemoryPipelineCheckpointStore();
     const first = new PipelineRuntime({
