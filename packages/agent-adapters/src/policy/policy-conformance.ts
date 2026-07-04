@@ -145,9 +145,9 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   openai: {
     supportsSandbox: false,
     supportsNetworkToggle: false,
-    supportsToolPolicyMode: false,
-    supportsToolAllowlist: false,
-    supportsToolBlocklist: false,
+    supportsToolPolicyMode: true,
+    supportsToolAllowlist: true,
+    supportsToolBlocklist: true,
     supportsBudget: false,
     supportsMaxTurns: true,
     supportsStructuredOutput: false,
@@ -206,6 +206,7 @@ export class PolicyConformanceChecker {
 
     // --- approvalRequired ---
     const approvalSupport = getProviderCapabilities(provider)?.approvalSupport ?? 'host-gated'
+    const toolControlSupport = getProviderCapabilities(provider)?.toolControlSupport
     if (policy.approvalRequired && approvalSupport === 'provider-config') {
       violations.push({
         field: 'approvalRequired',
@@ -224,7 +225,8 @@ export class PolicyConformanceChecker {
     if (
       policy.toolPolicy !== undefined &&
       policy.toolPolicy !== 'open' &&
-      !caps.supportsToolPolicyMode
+      !caps.supportsToolPolicyMode &&
+      toolControlSupport?.mode !== 'native'
     ) {
       violations.push({
         field: 'toolPolicy',

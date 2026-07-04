@@ -497,6 +497,12 @@ async function runOneItem(args: {
   }
 
   const spec = buildSpec(args.batch.template, args.item);
+  const estimatedCostUsd = getEstimatedCostUsd(spec);
+  if (!reserveEstimatedBudgetUsd(args.budgetState, estimatedCostUsd)) {
+    const reportItem = buildBudgetAbortedItem(args.item.key, args.budgetState);
+    await persistItem(args.fanoutBatchStore, args.batchId, reportItem, Date.now());
+    return reportItem;
+  }
   const spawned = await args.runtime.spawn(
     spec,
     args.parentRunId,
@@ -815,6 +821,23 @@ function recordActualBudgetUsd(
   }
 }
 
+function reserveEstimatedBudgetUsd(
+  state: FanoutBudgetState,
+  estimatedCostUsd: number | undefined,
+): boolean {
+  if (estimatedCostUsd === undefined) return true;
+  const rounded = roundBudgetUsd(estimatedCostUsd);
+  if (
+    state.maxTotalBudgetUsd !== undefined &&
+    roundBudgetUsd((state.budgetUsdActual ?? 0) + rounded) > state.maxTotalBudgetUsd
+  ) {
+    state.abort("max_total_budget_usd_preflight_exceeded");
+    return false;
+  }
+  state.budgetUsdReserved = roundBudgetUsd((state.budgetUsdReserved ?? 0) + rounded);
+  return true;
+}
+
 function reserveBudgetUsd(
   state: FanoutBudgetState,
   template: SubagentSpec,
@@ -835,6 +858,10 @@ function reserveBudgetUsd(
     return { exceeded: true, reason: "max_total_budget_usd_exceeded" };
   }
   return { exceeded: false };
+}
+
+function getEstimatedCostUsd(template: SubagentSpec): number | undefined {
+  return (template.resolvedDefinition ?? template.definition)?.constraints?.estimatedCostUsd;
 }
 
 function roundBudgetUsd(value: number): number {

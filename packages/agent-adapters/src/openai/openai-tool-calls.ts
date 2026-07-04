@@ -227,5 +227,28 @@ export function resolveOpenAITools(
       });
     }
   }
-  return wire;
+  return filterOpenAIToolsByPolicy(wire, input);
+}
+
+function filterOpenAIToolsByPolicy(
+  tools: OpenAIToolWire[],
+  input: AgentInput
+): OpenAIToolWire[] | undefined {
+  const policy = input.policyContext?.activePolicy;
+  if (policy === undefined) return tools.length > 0 ? tools : undefined;
+
+  const allowed = new Set(policy.allowedTools ?? []);
+  const blocked = new Set(policy.blockedTools ?? []);
+  const strictWithoutAllowlist =
+    policy.toolPolicy === "strict" && allowed.size === 0;
+
+  const filtered = tools.filter((tool) => {
+    const name = tool.function.name;
+    if (strictWithoutAllowlist) return false;
+    if (allowed.size > 0 && !allowed.has(name)) return false;
+    if (blocked.has(name)) return false;
+    return true;
+  });
+
+  return filtered.length > 0 ? filtered : undefined;
 }

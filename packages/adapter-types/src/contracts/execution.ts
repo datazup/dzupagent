@@ -42,6 +42,11 @@ export interface AdapterCapabilityProfile {
   supportsToolCalls: boolean
   supportsStreaming: boolean
   supportsCostUsage: boolean
+  nativeToolControls?: {
+    mode?: boolean | undefined
+    allowlist?: boolean | undefined
+    blocklist?: boolean | undefined
+  } | undefined
   maxContextTokens?: number | undefined
 }
 

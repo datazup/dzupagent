@@ -51,6 +51,7 @@ export interface InlineAgentDefinition {
   /** Governance and adapter-policy hints carried with the definition. */
   constraints?: {
     maxBudgetUsd?: number;
+    estimatedCostUsd?: number;
     approvalMode?: "auto" | "required" | "conditional";
     networkPolicy?: "off" | "restricted" | "on";
     toolPolicy?: "strict" | "balanced" | "open";

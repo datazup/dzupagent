@@ -63,6 +63,11 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
       supportsToolCalls: true,
       supportsStreaming: true,
       supportsCostUsage: true,
+      nativeToolControls: {
+        mode: true,
+        allowlist: true,
+        blocklist: true,
+      },
     }
   }
 
@@ -150,7 +155,7 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
       stream: true,
       signal,
       ...(tools && tools.length > 0 ? { tools } : {}),
-      ...(toolChoice !== undefined ? { toolChoice } : {}),
+      ...(tools && tools.length > 0 && toolChoice !== undefined ? { toolChoice } : {}),
     })
 
     let usage: { inputTokens: number; outputTokens: number } | undefined
