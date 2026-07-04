@@ -115,7 +115,7 @@ export const MUTATING_EFFECT_CLASSES: readonly EffectClass[] = [
  * no policy is declared.
  */
 export function effectClassFromMutationPolicy(
-  policy: FlowMutationMetadata["policy"] | undefined
+  policy: FlowMutationMetadata["policy"] | undefined,
 ): EffectClass | undefined {
   switch (policy) {
     case "read-only":
@@ -1123,7 +1123,7 @@ export const FLOW_NODE_KIND_REGISTRY = {
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(
-  FLOW_NODE_KIND_REGISTRY
+  FLOW_NODE_KIND_REGISTRY,
 ) as FlowNodeKind[];
 
 export function isFlowNodeKind(value: string): value is FlowNodeKind {
@@ -1198,7 +1198,8 @@ export type ValidationErrorCode =
   | "PROFILE_RESOLVER_INFRA_ERROR"
   | "INVALID_TEMPLATE_FRONTMATTER"
   | "MISSING_REQUIRED_SECTION"
-  | "UNKNOWN_FRONTMATTER_KEY";
+  | "UNKNOWN_FRONTMATTER_KEY"
+  | "SPDD_ORDERING_VIOLATION";
 
 /**
  * Resolves opaque tool/skill/workflow references emitted by flow-ast

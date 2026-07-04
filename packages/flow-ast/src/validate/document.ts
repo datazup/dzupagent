@@ -10,6 +10,7 @@ import {
   joinPath,
 } from "../validation-helpers.js";
 import { validateCanonicalNodeIds } from "../validation-traversal.js";
+import { validateSpddNodeOrdering } from "../validation-ordering.js";
 import {
   validateOptionalObjectField,
   validateOptionalStringArrayField,
@@ -94,6 +95,9 @@ export function validateFlowDocument(
     issues,
     new Map<string, string>(),
   );
+
+  validateSpddNodeOrdering(rootNode, joinPath(path, "root"), issues);
+  if (issues.some((i) => i.code === "SPDD_ORDERING_VIOLATION")) return null;
 
   const doc: FlowDocumentV1 = {
     dsl:
@@ -254,7 +258,11 @@ function validateOptionalDurability(
             retentionValue["ttlMs"] !== undefined
           ) {
             const ttlMs = retentionValue["ttlMs"];
-            if (typeof ttlMs === "number" && Number.isInteger(ttlMs) && ttlMs >= 0) {
+            if (
+              typeof ttlMs === "number" &&
+              Number.isInteger(ttlMs) &&
+              ttlMs >= 0
+            ) {
               retention.ttlMs = ttlMs;
             } else {
               issues.push({
