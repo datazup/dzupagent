@@ -123,6 +123,46 @@ describe("subagent tools", () => {
     ]);
   });
 
+  it("exposes check_fanout when a batch store is configured", async () => {
+    const fanoutBatchStore = new InMemoryFanoutBatchStore();
+    const { tools, byName } = setup({
+      executorMode: "instant",
+      fanoutBatchStore,
+    });
+    expect(tools.map((t) => t.name).sort()).toEqual([
+      "await_subagent",
+      "cancel_subagent",
+      "check_fanout",
+      "check_subagent",
+      "fanout_template",
+      "spawn_subagent",
+    ]);
+
+    const report = (await byName.fanout_template!.invoke({
+      items: [
+        { key: "a", input: "alpha" },
+        { key: "b", input: "beta" },
+      ],
+      spec: { agentId: "x" },
+    })) as { batchId: string };
+
+    await expect(
+      byName.check_fanout!.invoke({ batchId: report.batchId }),
+    ).resolves.toMatchObject({
+      found: true,
+      report: {
+        batchId: report.batchId,
+        declared: 2,
+        dispatched: 2,
+        uncovered: [],
+        settled: { succeeded: 2 },
+      },
+    });
+    await expect(
+      byName.check_fanout!.invoke({ batchId: "missing" }),
+    ).resolves.toEqual({ found: false });
+  });
+
   it("spawn → check → await round-trip", async () => {
     const { executor, byName } = setup();
     const spawned = (await byName.spawn_subagent!.invoke({
