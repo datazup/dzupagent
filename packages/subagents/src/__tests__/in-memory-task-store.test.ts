@@ -15,6 +15,7 @@ describe("InMemoryTaskStore.remove", () => {
       createdAt: 0,
       ttlMs: 1,
       endedAt: 1,
+      depth: 0,
     });
     await store.remove("a");
     expect(await store.get("a")).toBeNull();

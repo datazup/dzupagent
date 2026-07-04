@@ -31,6 +31,7 @@ function seedTask(
     status: "queued",
     createdAt: 0,
     ttlMs: 1000,
+    depth: 0,
   };
   return store.put(task);
 }
@@ -187,6 +188,7 @@ describe("Runtime orphan/TTL/approval logging", () => {
       status: "running",
       createdAt: 0,
       ttlMs: 1000,
+      depth: 0,
     });
 
     const reconciled = await runtime.reconcileOrphans();
@@ -215,6 +217,7 @@ describe("Runtime orphan/TTL/approval logging", () => {
         defaultTtlMs: 1000,
         retentionMs: 1000,
         gcIntervalMs: 1000,
+        maxSpawnDepth: 2,
       },
       clock,
       events,
@@ -228,6 +231,7 @@ describe("Runtime orphan/TTL/approval logging", () => {
       status: "queued",
       createdAt: 0,
       ttlMs: 100,
+      depth: 0,
     });
 
     clock.set(200);

@@ -1,5 +1,6 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { createSubagentTools } from "../tools/subagent-tools.js";
+import type { SubagentToolContext } from "../tools/subagent-tools.js";
 import { fanoutBatchRecordToReport } from "../tools/fanout-tool.js";
 import { createInProcessSubagentRuntime } from "../runtime/create-runtime.js";
 import { allowAllSpawnPolicy } from "../governance/spawn-gate.js";
@@ -26,6 +27,8 @@ function setup(
     maxWallClockMs?: number;
     maxTotalOutputTokens?: number;
     maxResultBytes?: number;
+    maxSpawnDepth?: number;
+    spawnContext?: SubagentToolContext;
     fanoutBatchStore?: FanoutBatchStore;
     approvalGate?: {
       waitForApproval: (runId: string, approvalId: string) => Promise<unknown>;
@@ -54,11 +57,17 @@ function setup(
         ? { maxConcurrentBackground: opts.maxConcurrent }
         : {}),
       ...(opts.maxQueued !== undefined ? { maxQueuedTasks: opts.maxQueued } : {}),
+      ...(opts.maxSpawnDepth !== undefined
+        ? { maxSpawnDepth: opts.maxSpawnDepth }
+        : {}),
     },
   });
   const tools = createSubagentTools({
     runtime,
     resolveParentRunId: () => "run-1",
+    ...(opts.spawnContext !== undefined
+      ? { resolveSpawnContext: () => opts.spawnContext! }
+      : {}),
     events,
     generateBatchId: sequentialIds("batch"),
     ...(opts.fanoutBatchStore !== undefined
@@ -140,6 +149,42 @@ describe("subagent tools", () => {
       status: "succeeded",
       result: { output: "done" },
     });
+  });
+
+  it("propagates nested spawn depth and origin task id from the tool context", async () => {
+    const seen: unknown[] = [];
+    const policy: SpawnPolicy = {
+      check: () => ({ allow: true, requiresApproval: false }),
+      checkWithContext: (_spec, _parentRunId, context) => {
+        seen.push(context);
+        return { allow: true, requiresApproval: false };
+      },
+    };
+    const { runtime, byName, events } = setup({
+      executorMode: "instant",
+      policy,
+      spawnContext: {
+        parentRunId: "run-1",
+        depth: 1,
+        originTaskId: "parent-task",
+      },
+    });
+
+    const spawned = (await byName.spawn_subagent!.invoke({
+      agentId: "x",
+      input: "go",
+    })) as { ok: boolean; taskId: string };
+
+    expect(spawned.ok).toBe(true);
+    await flush();
+    const [task] = await runtime.list("run-1");
+    expect(task).toMatchObject({ depth: 1 });
+    expect(seen).toEqual([
+      { kind: "spawn", depth: 1, originTaskId: "parent-task" },
+    ]);
+    expect(events.events.find((event) => event.type === "subagent:spawned")).toMatchObject(
+      { depth: 1 },
+    );
   });
 
   it("check reports not found for unknown task", async () => {
@@ -348,6 +393,59 @@ describe("subagent tools", () => {
         "allowed-a",
         "allowed-c",
       ]);
+    });
+
+    it("reports over-depth fanout item spawns as denied without executor work", async () => {
+      const checkWithContext = vi.fn(() => ({
+        allow: true as const,
+        requiresApproval: false,
+      }));
+      const { byName, executor, runtime, events } = setup({
+        executorMode: "instant",
+        maxSpawnDepth: 2,
+        spawnContext: {
+          parentRunId: "run-1",
+          depth: 2,
+          originTaskId: "parent-task",
+        },
+        policy: {
+          check: () => ({ allow: true, requiresApproval: false }),
+          checkWithContext,
+        },
+      });
+      const spawnSpy = vi.spyOn(runtime, "spawn");
+
+      const report = (await byName.fanout_template!.invoke({
+        items: [
+          { key: "a", input: "alpha" },
+          { key: "b", input: "beta" },
+        ],
+        spec: { agentId: "x" },
+      })) as {
+        dispatched: number;
+        uncovered: string[];
+        settled: { denied: number };
+        items: Array<{ key: string; status: string; error?: string }>;
+      };
+
+      expect(report.dispatched).toBe(0);
+      expect(report.uncovered).toEqual([]);
+      expect(report.settled.denied).toBe(2);
+      expect(report.items).toMatchObject([
+        { key: "a", status: "denied", error: "max_spawn_depth_exceeded" },
+        { key: "b", status: "denied", error: "max_spawn_depth_exceeded" },
+      ]);
+      expect(spawnSpy).toHaveBeenCalledTimes(2);
+      for (const call of spawnSpy.mock.calls) {
+        expect(call[2]).toMatchObject({
+          depth: 2,
+          originTaskId: "parent-task",
+        });
+      }
+      expect(executor.runCalls).toEqual([]);
+      expect(checkWithContext).toHaveBeenCalledTimes(1);
+      expect(events.types()).not.toContain("fanout:item_dispatched");
+      expect(events.types()).toContain("fanout:completed");
     });
 
     it("requests one batch approval and does not ask per item", async () => {

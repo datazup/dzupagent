@@ -60,6 +60,7 @@ function seedTask(store: InMemoryTaskStore, id = "a"): Promise<void> {
     status: "queued",
     createdAt: 0,
     ttlMs: 1000,
+    depth: 0,
   };
   return store.put(task);
 }
