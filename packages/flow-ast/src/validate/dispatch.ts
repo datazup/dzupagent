@@ -55,6 +55,20 @@ import { validateAdapterRun } from "./adapter-run.js";
 import { validateAdapterRace } from "./adapter-race.js";
 import { validateAdapterParallel } from "./adapter-parallel.js";
 import { validateAdapterSupervisor } from "./adapter-supervisor.js";
+import {
+  validateSpddImportSources,
+  validateSpddBuildSourcePack,
+  validateSpddRunAnalysis,
+  validateSpddGenerateCanvas,
+  validateSpddValidateCanvas,
+  validateSpddReviewCanvas,
+  validateSpddProjectPlan,
+  validateSpddArmDispatch,
+  validateSpddRunValidation,
+  validateSpddCollectProof,
+  validateSpddScanDrift,
+  validateSpddCreateSyncProposal,
+} from "./spdd.js";
 
 export function validateFlowNode(
   value: unknown,
@@ -170,6 +184,30 @@ export function validateFlowNode(
       return validateAdapterParallel(value, path, issues);
     case "adapter.supervisor":
       return validateAdapterSupervisor(value, path, issues);
+    case "spdd.import_sources":
+      return validateSpddImportSources(value, path, issues);
+    case "spdd.build_source_pack":
+      return validateSpddBuildSourcePack(value, path, issues);
+    case "spdd.run_analysis":
+      return validateSpddRunAnalysis(value, path, issues);
+    case "spdd.generate_canvas":
+      return validateSpddGenerateCanvas(value, path, issues);
+    case "spdd.validate_canvas":
+      return validateSpddValidateCanvas(value, path, issues);
+    case "spdd.review_canvas":
+      return validateSpddReviewCanvas(value, path, issues);
+    case "spdd.project_plan":
+      return validateSpddProjectPlan(value, path, issues);
+    case "spdd.arm_dispatch":
+      return validateSpddArmDispatch(value, path, issues);
+    case "spdd.run_validation":
+      return validateSpddRunValidation(value, path, issues);
+    case "spdd.collect_proof":
+      return validateSpddCollectProof(value, path, issues);
+    case "spdd.scan_drift":
+      return validateSpddScanDrift(value, path, issues);
+    case "spdd.create_sync_proposal":
+      return validateSpddCreateSyncProposal(value, path, issues);
     default:
       issues.push({
         path,

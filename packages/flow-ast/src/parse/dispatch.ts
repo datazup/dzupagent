@@ -55,6 +55,20 @@ import { parseAdapterRun } from "./adapter-run.js";
 import { parseAdapterRace } from "./adapter-race.js";
 import { parseAdapterParallel } from "./adapter-parallel.js";
 import { parseAdapterSupervisor } from "./adapter-supervisor.js";
+import {
+  parseSpddImportSources,
+  parseSpddBuildSourcePack,
+  parseSpddRunAnalysis,
+  parseSpddGenerateCanvas,
+  parseSpddValidateCanvas,
+  parseSpddReviewCanvas,
+  parseSpddProjectPlan,
+  parseSpddArmDispatch,
+  parseSpddRunValidation,
+  parseSpddCollectProof,
+  parseSpddScanDrift,
+  parseSpddCreateSyncProposal,
+} from "./spdd.js";
 
 export function parseNode(
   value: unknown,
@@ -179,6 +193,30 @@ export function parseNode(
       return parseAdapterParallel(value, pointer, ctx);
     case "adapter.supervisor":
       return parseAdapterSupervisor(value, pointer, ctx);
+    case "spdd.import_sources":
+      return parseSpddImportSources(value, pointer, ctx);
+    case "spdd.build_source_pack":
+      return parseSpddBuildSourcePack(value, pointer, ctx);
+    case "spdd.run_analysis":
+      return parseSpddRunAnalysis(value, pointer, ctx);
+    case "spdd.generate_canvas":
+      return parseSpddGenerateCanvas(value, pointer, ctx);
+    case "spdd.validate_canvas":
+      return parseSpddValidateCanvas(value, pointer, ctx);
+    case "spdd.review_canvas":
+      return parseSpddReviewCanvas(value, pointer, ctx);
+    case "spdd.project_plan":
+      return parseSpddProjectPlan(value, pointer, ctx);
+    case "spdd.arm_dispatch":
+      return parseSpddArmDispatch(value, pointer, ctx);
+    case "spdd.run_validation":
+      return parseSpddRunValidation(value, pointer, ctx);
+    case "spdd.collect_proof":
+      return parseSpddCollectProof(value, pointer, ctx);
+    case "spdd.scan_drift":
+      return parseSpddScanDrift(value, pointer, ctx);
+    case "spdd.create_sync_proposal":
+      return parseSpddCreateSyncProposal(value, pointer, ctx);
     default:
       // Defensive — KNOWN_NODE_TYPES is the source of truth above.
       ctx.errors.push({
