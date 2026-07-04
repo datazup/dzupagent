@@ -46,7 +46,14 @@ export type { AgentMessage, AgentMessageHandler } from "./events/agent-bus.js";
 
 // --- Hooks ---
 export type { AgentHooks, HookContext } from "./hooks/hook-types.js";
-export { runHooks, runModifierHook, mergeHooks } from "./hooks/hook-runner.js";
+export {
+  runHooks,
+  runModifierHook,
+  mergeHooks,
+  runBeforeModelCall,
+  runAfterModelCall,
+  runOnModelError,
+} from "./hooks/hook-runner.js";
 
 // --- Plugin ---
 export type { DzupPlugin, PluginContext } from "./plugin/plugin-types.js";

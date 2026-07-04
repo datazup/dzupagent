@@ -69,4 +69,11 @@ export type { AgentMessage, AgentMessageHandler } from "./events/agent-bus.js";
 // Lifecycle hooks
 // ---------------------------------------------------------------------------
 export type { AgentHooks, HookContext } from "./hooks/hook-types.js";
-export { runHooks, runModifierHook, mergeHooks } from "./hooks/hook-runner.js";
+export {
+  runHooks,
+  runModifierHook,
+  mergeHooks,
+  runBeforeModelCall,
+  runAfterModelCall,
+  runOnModelError,
+} from "./hooks/hook-runner.js";
