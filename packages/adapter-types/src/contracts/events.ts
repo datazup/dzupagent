@@ -253,7 +253,12 @@ export type FanoutRuntimeEvent =
   | {
       type: "fanout:aborted";
       batchId: string;
-      reason: "denied" | "script_error" | "budget_exceeded" | "timeout";
+      reason:
+        | "denied"
+        | "script_error"
+        | "budget_exceeded"
+        | "timeout"
+        | "validation_error";
       dispatched: number;
     }
   | { type: "fanout:progress"; batchId: string; message: string };

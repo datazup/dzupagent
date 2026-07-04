@@ -29,9 +29,13 @@ export interface SubagentToolsConfig {
   resolveParentRunId: () => string;
   /**
    * Optional tuning for the `fanout_template` tool (batch-id generation,
-   * limits, clock). The tool itself is always included; these only tune it.
+   * limits, clock, and an optional durable batch ledger). The tool itself is
+   * always included; these only tune it.
    */
-  fanout?: Pick<FanoutToolConfig, "generateBatchId" | "limits" | "clock">;
+  fanout?: Pick<
+    FanoutToolConfig,
+    "generateBatchId" | "limits" | "clock" | "fanoutBatchStore"
+  >;
 }
 
 /**

@@ -17,7 +17,12 @@ import { defaultSubagentLogger } from "../contracts/logger.js";
 import type { TaskRunner } from "../contracts/task-runner.js";
 import type { TaskStore } from "../contracts/task-store.js";
 import { LifecycleController } from "../lifecycle/lifecycle-controller.js";
-import type { SpawnContext, SpawnGate } from "../governance/spawn-gate.js";
+import type {
+  ApprovedSpawnBatch,
+  SpawnBatchRequest,
+  SpawnContext,
+  SpawnGate,
+} from "../governance/spawn-gate.js";
 import type { LifecyclePolicy } from "./runtime-config.js";
 import { DEFAULT_LIFECYCLE_POLICY } from "./runtime-config.js";
 
@@ -40,6 +45,18 @@ const noopGovernanceSink: GovernanceEventSink = { emitGovernance: () => {} };
 export type SpawnOutcome =
   | { ok: true; taskId: TaskId; status: BackgroundTask["status"] }
   | { ok: false; reason: "queue_full" | "denied"; detail?: string };
+
+/**
+ * Result of a batch-level gate evaluation (Phase B hardening). A fan-out
+ * coordinator calls {@link BackgroundSubagentRuntime.evaluateBatch} ONCE before
+ * dispatching items; on `ok` it threads the returned {@link ApprovedSpawnBatch}
+ * into each per-item `spawn(...)` via `options.batch`. A `needs_approval`
+ * decision is resolved inside `evaluateBatch` (a single batch-level HITL wait
+ * keyed by `batchId`), so callers only ever see allowed-or-denied.
+ */
+export type SpawnBatchAdmission =
+  | { ok: true; batch: ApprovedSpawnBatch; approvalRequired: boolean }
+  | { ok: false; reason: "denied"; detail: string };
 
 export interface SpawnOptions {
   ttlMs?: number;
@@ -418,6 +435,66 @@ export class BackgroundSubagentRuntime {
   /** List tasks for a parent run (or all). */
   async list(parentRunId?: string): Promise<BackgroundTask[]> {
     return this.store.list(parentRunId !== undefined ? { parentRunId } : {});
+  }
+
+  /**
+   * Batch-level gate (Phase B hardening). Evaluates a whole fan-out batch ONCE
+   * before any item is dispatched, delegating to {@link SpawnGate.evaluateBatch}.
+   * On `needs_approval` it blocks on a single batch-level HITL wait keyed by
+   * `batchId`, emitting the corresponding governance events (so a batch is one
+   * approval, not one-per-item). Denials (policy or rejected approval) surface a
+   * `governance:rule_violation`. On success it returns an
+   * {@link ApprovedSpawnBatch} the coordinator threads into each per-item spawn.
+   */
+  async evaluateBatch(
+    request: SpawnBatchRequest,
+  ): Promise<SpawnBatchAdmission> {
+    const decision = await this.gate.evaluateBatch(request);
+    if (decision.outcome === "denied") {
+      this.governance.emitGovernance({
+        type: "governance:rule_violation",
+        runId: request.parentRunId,
+        detail: decision.reason,
+      });
+      return { ok: false, reason: "denied", detail: decision.reason };
+    }
+
+    if (decision.outcome === "needs_approval") {
+      this.governance.emitGovernance({
+        type: "governance:approval_requested",
+        runId: request.parentRunId,
+        approvalId: request.batchId,
+      });
+      const outcome = await this.gate.awaitApproval(
+        request.parentRunId,
+        request.batchId,
+      );
+      this.governance.emitGovernance({
+        type: "governance:approval_resolved",
+        runId: request.parentRunId,
+        approvalId: request.batchId,
+        detail: outcome.approved ? "approved" : outcome.reason,
+      });
+      if (!outcome.approved) {
+        this.governance.emitGovernance({
+          type: "governance:rule_violation",
+          runId: request.parentRunId,
+          detail: outcome.reason,
+        });
+        return { ok: false, reason: "denied", detail: outcome.reason };
+      }
+    }
+
+    return {
+      ok: true,
+      approvalRequired: decision.outcome === "needs_approval",
+      batch: {
+        batchId: request.batchId,
+        mode: request.mode,
+        template: request.template,
+        itemKeys: [...request.itemKeys],
+      },
+    };
   }
 
   /**

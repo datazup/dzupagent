@@ -7,6 +7,10 @@ import { isTerminalStatus } from "../contracts/background-task.js";
 import type { Clock } from "../contracts/clock.js";
 import { systemClock } from "../contracts/clock.js";
 import type { FanoutRuntimeEvent } from "../contracts/events.js";
+import type {
+  FanoutBatchItemUpdate,
+  FanoutBatchStore,
+} from "../contracts/fanout-batch-store.js";
 import type { BackgroundSubagentRuntime } from "../runtime/background-subagent-runtime.js";
 import type { SubagentToolDescriptor } from "./subagent-tools.js";
 
@@ -55,6 +59,15 @@ export interface FanoutToolConfig {
   limits?: Partial<FanoutLimits>;
   /** Injected clock (no `Date.now()` in core paths); defaults to systemClock. */
   clock?: Clock;
+  /**
+   * Optional durable ledger for per-item fan-out progress (Phase B hardening).
+   * When supplied, the coordinator records the batch and every item lifecycle
+   * transition (dispatched → settled/denied/aborted) so a batch's progress and
+   * per-item reports survive coordinator loss and remain queryable by `batchId`.
+   * Omit for pure in-memory fan-out (the returned {@link FanoutReport} is still
+   * complete regardless).
+   */
+  fanoutBatchStore?: FanoutBatchStore;
 }
 
 /** A declared fan-out item. Keys must be unique within a batch. */
@@ -199,11 +212,26 @@ export function createFanoutTemplateTool(
   const { runtime, resolveParentRunId } = config;
   const limits: FanoutLimits = { ...DEFAULT_FANOUT_LIMITS, ...config.limits };
   const clock = config.clock ?? systemClock;
+  const store = config.fanoutBatchStore;
   const generateBatchId =
     config.generateBatchId ??
     (() => `fanout-${clock.now().toString(36)}-${(batchCounter += 1)}`);
   const emit = (event: FanoutRuntimeEvent): void =>
     runtime.eventSink.emit(event);
+
+  /** Best-effort per-item ledger write; a store failure never aborts fan-out. */
+  const recordItem = async (
+    batchId: string,
+    itemKey: string,
+    update: FanoutBatchItemUpdate,
+  ): Promise<void> => {
+    if (store === undefined) return;
+    try {
+      await store.recordItem(batchId, itemKey, update);
+    } catch {
+      // Non-fatal: the ledger is an observability aid, not the source of truth.
+    }
+  };
 
   return {
     name: "fanout_template",
@@ -310,14 +338,38 @@ export function createFanoutTemplateTool(
       );
       const startedAt = clock.now();
       const deadline = startedAt + maxWallClockMs;
-      const batch = {
-        batchId,
-        batchSize: declared,
-        mode: "template" as const,
-        // V1 has no batch-level gate (Phase B hardening) — per-spawn policy
-        // remains the gate, and it must know no batch approval happened.
-        approved: false,
+
+      // The template spec the batch is approved against. Per-item specs are
+      // scope-narrowed against this by the gate (validateBatchScope) at spawn.
+      const batchTemplateSpec: SubagentSpec = {
+        agentId: args.spec.agentId,
+        input: { fanoutMode: "template" },
+        ...(args.spec.instructions !== undefined
+          ? { instructions: args.spec.instructions }
+          : {}),
+        ...(args.spec.outboundScope !== undefined
+          ? { outboundScope: args.spec.outboundScope }
+          : {}),
+        ...(args.spec.memoryScope !== undefined
+          ? { memoryScope: args.spec.memoryScope }
+          : {}),
       };
+
+      // Durable ledger: record the batch up front so per-item progress survives
+      // coordinator loss. Non-fatal — a store failure never blocks the fan-out.
+      if (store !== undefined) {
+        try {
+          await store.create({
+            batchId,
+            parentRunId,
+            mode: "template",
+            declared: args.items.map((item) => item.key),
+            startedAt,
+          });
+        } catch {
+          // Non-fatal.
+        }
+      }
 
       emit({
         type: "fanout:started",
@@ -326,6 +378,79 @@ export function createFanoutTemplateTool(
         mode: "template",
         declared,
       });
+
+      // Batch-level gate (Phase B hardening): one decision for the whole batch,
+      // BEFORE the worker pool starts. On denial no item is dispatched; every
+      // declared item is reported `denied` (honest coverage — uncovered stays []).
+      const admission = await runtime.evaluateBatch({
+        batchId,
+        parentRunId,
+        mode: "template",
+        template: batchTemplateSpec,
+        itemKeys: args.items.map((item) => item.key),
+      });
+      if (!admission.ok) {
+        const wallClockMs = clock.now() - startedAt;
+        const items: FanoutReportItem[] = args.items.map((item) => ({
+          key: item.key,
+          status: "denied" as const,
+          error: admission.detail,
+        }));
+        for (const item of items) {
+          await recordItem(batchId, item.key, {
+            status: "denied",
+            error: admission.detail,
+            updatedAt: clock.now(),
+          });
+        }
+        if (store !== undefined) {
+          try {
+            await store.complete(batchId, {
+              status: "aborted",
+              completedAt: clock.now(),
+              wallClockMs,
+              abortedReason: admission.detail,
+            });
+          } catch {
+            // Non-fatal.
+          }
+        }
+        emit({
+          type: "fanout:aborted",
+          batchId,
+          reason: "denied",
+          dispatched: 0,
+        });
+        return {
+          batchId,
+          mode: "template",
+          declared,
+          dispatched: 0,
+          settled: {
+            succeeded: 0,
+            failed: 0,
+            cancelled: 0,
+            expired: 0,
+            denied: declared,
+            aborted_budget: 0,
+          },
+          uncovered: [],
+          items,
+          extraDispatches: [],
+          budget: { wallClockMs, aborted: false },
+          logs: [],
+        };
+      }
+
+      // Per-item spawn context: carries the approved template so the gate runs
+      // the scope-narrowing invariant on every per-item spec (Phase B).
+      const batch = {
+        batchId,
+        batchSize: declared,
+        mode: "template" as const,
+        approved: true,
+        template: admission.batch.template,
+      };
 
       const records = new Map<string, FanoutReportItem>();
       const abortState: {
@@ -418,7 +543,7 @@ export function createFanoutTemplateTool(
               abortState.reason = "budget_exceeded";
             }
           }
-          records.set(item.key, {
+          const settledRecord: FanoutReportItem = {
             key: item.key,
             taskId,
             status: task.status,
@@ -426,6 +551,19 @@ export function createFanoutTemplateTool(
             ...(task.error !== undefined ? { error: task.error } : {}),
             ...(durationMs !== undefined ? { durationMs } : {}),
             ...(outputTokens !== undefined ? { outputTokens } : {}),
+          };
+          records.set(item.key, settledRecord);
+          await recordItem(batchId, item.key, {
+            taskId,
+            status: task.status,
+            ...(task.result !== undefined ? { result: task.result } : {}),
+            ...(settledRecord.resultTruncated !== undefined
+              ? { resultTruncated: settledRecord.resultTruncated }
+              : {}),
+            ...(task.error !== undefined ? { error: task.error } : {}),
+            ...(durationMs !== undefined ? { durationMs } : {}),
+            ...(outputTokens !== undefined ? { outputTokens } : {}),
+            updatedAt: clock.now(),
           });
           emit({
             type: "fanout:item_settled",
@@ -450,6 +588,12 @@ export function createFanoutTemplateTool(
           taskId,
           status: "aborted_budget",
           error: "fanout_wall_clock_exceeded",
+        });
+        await recordItem(batchId, item.key, {
+          taskId,
+          status: "aborted_budget",
+          error: "fanout_wall_clock_exceeded",
+          updatedAt: clock.now(),
         });
         emit({
           type: "fanout:item_settled",
@@ -477,6 +621,13 @@ export function createFanoutTemplateTool(
               ? { error: dispatch.detail }
               : {}),
           });
+          await recordItem(batchId, item.key, {
+            status: "denied",
+            ...(dispatch.detail !== undefined
+              ? { error: dispatch.detail }
+              : {}),
+            updatedAt: clock.now(),
+          });
           return;
         }
         if (dispatch.kind === "never_dispatched") {
@@ -488,9 +639,18 @@ export function createFanoutTemplateTool(
             key: item.key,
             status: "never_dispatched",
           });
+          await recordItem(batchId, item.key, {
+            status: "never_dispatched",
+            updatedAt: clock.now(),
+          });
           return;
         }
         dispatched += 1;
+        await recordItem(batchId, item.key, {
+          taskId: dispatch.taskId,
+          status: "running",
+          updatedAt: clock.now(),
+        });
         emit({
           type: "fanout:item_dispatched",
           batchId,
@@ -561,6 +721,29 @@ export function createFanoutTemplateTool(
       });
 
       const wallClockMs = clock.now() - startedAt;
+
+      // Finalise the durable ledger (Phase B): mark the batch terminal so a
+      // reader can distinguish a completed batch from one whose coordinator
+      // died mid-run. Non-fatal — a store failure never fails the invocation.
+      if (store !== undefined) {
+        try {
+          await store.complete(batchId, {
+            status: abortState.aborted ? "aborted" : "completed",
+            completedAt: clock.now(),
+            wallClockMs,
+            ...(sawUsage ? { outputTokensUsed } : {}),
+            ...(abortState.aborted
+              ? { abortedReason: abortState.reason ?? "timeout" }
+              : {}),
+            ...(abortState.aborted && abortState.reason === "budget_exceeded"
+              ? { budgetAborted: true }
+              : {}),
+          });
+        } catch {
+          // Non-fatal.
+        }
+      }
+
       if (abortState.aborted) {
         emit({
           type: "fanout:aborted",

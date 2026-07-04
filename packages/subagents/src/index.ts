@@ -58,6 +58,7 @@ export {
   type GovernanceEventSink,
   type SpawnOutcome,
   type SpawnOptions,
+  type SpawnBatchAdmission,
 } from "./runtime/background-subagent-runtime.js";
 export {
   createInProcessSubagentRuntime,
@@ -80,11 +81,15 @@ export {
   SpawnGate,
   allowAllSpawnPolicy,
   denyAllSpawnPolicy,
+  validateBatchScope,
   type SpawnPolicy,
   type SpawnPolicyDecision,
   type SpawnContext,
   type SpawnApprovalGate,
   type ApprovalOutcome,
+  type SpawnBatchMode,
+  type SpawnBatchRequest,
+  type ApprovedSpawnBatch,
 } from "./governance/spawn-gate.js";
 
 // Runners
@@ -102,6 +107,18 @@ export {
 // Stores
 export { InMemoryTaskStore } from "./store/in-memory-task-store.js";
 export { InMemoryCheckpointer } from "./store/in-memory-checkpointer.js";
+export { InMemoryFanoutBatchStore } from "./store/in-memory-fanout-batch-store.js";
+export {
+  type FanoutBatchStore,
+  type FanoutBatchMode,
+  type FanoutBatchStatus,
+  type FanoutBatchItemStatus,
+  type FanoutBatchItemRecord,
+  type FanoutBatchRecord,
+  type FanoutBatchCreate,
+  type FanoutBatchItemUpdate,
+  type FanoutBatchCompleteUpdate,
+} from "./contracts/fanout-batch-store.js";
 
 // API + tools
 export {

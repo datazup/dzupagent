@@ -25,7 +25,42 @@ export interface SpawnContext {
     mode: "template" | "script";
     /** Whether a batch-level gate decision already passed (Phase B hardening). */
     approved: boolean;
+    /**
+     * The template spec the batch was approved against (Phase B hardening). When
+     * present, {@link SpawnGate.evaluate} enforces {@link validateBatchScope}
+     * BEFORE the per-item policy call: a per-item spec may only NARROW the
+     * approved template (never widen `agentId`, `outboundScope`, or
+     * `memoryScope`). This prevents a batch coordinator from smuggling a
+     * broader-scoped spawn past a batch-level approval.
+     */
+    template?: SubagentSpec;
   };
+}
+
+/** Fan-out batch mode (mirrors {@link SpawnContext} `batch.mode`). */
+export type SpawnBatchMode = "template" | "script";
+
+/**
+ * Batch-level gate request (Phase B hardening). A fan-out coordinator submits
+ * the batch template + declared item keys to {@link SpawnGate.evaluateBatch}
+ * ONCE before dispatching any item, obtaining a single approval decision keyed
+ * by `batchId` — the per-item spawns then run under that approval and are
+ * scope-checked against `template` via {@link validateBatchScope}.
+ */
+export interface SpawnBatchRequest {
+  batchId: string;
+  parentRunId: string;
+  mode: SpawnBatchMode;
+  template: SubagentSpec;
+  itemKeys: string[];
+}
+
+/** A batch that has passed the batch-level gate; threaded to per-item spawns. */
+export interface ApprovedSpawnBatch {
+  batchId: string;
+  mode: SpawnBatchMode;
+  template: SubagentSpec;
+  itemKeys: string[];
 }
 
 /**
@@ -120,11 +155,61 @@ export class SpawnGate {
       typeof parentRunIdOrContext === "string"
         ? { parentRunId: parentRunIdOrContext, depth: 0 }
         : parentRunIdOrContext;
+    // Batch scope-narrowing invariant (Phase B hardening): a per-item spawn that
+    // carries an approved batch template may only narrow it. Enforced BEFORE the
+    // per-item policy call so a widened spec cannot reach the policy at all.
+    if (ctx.batch?.template !== undefined) {
+      const scope = validateBatchScope(spec, ctx.batch.template);
+      if (!scope.allow) {
+        return { outcome: "denied", reason: scope.reason };
+      }
+    }
     // Dispatch rule (Spec 03 §2): context-aware policies get the full context;
     // legacy policies keep receiving a plain string (never the context object).
     const decision = this.policy.checkWithContext
       ? await this.policy.checkWithContext(spec, ctx)
       : await this.policy.check(spec, ctx.parentRunId);
+    if (!decision.allow) {
+      return { outcome: "denied", reason: decision.reason };
+    }
+    if (decision.requiresApproval) {
+      return { outcome: "needs_approval" };
+    }
+    return { outcome: "allowed" };
+  }
+
+  /**
+   * Batch-level gate (Phase B hardening). Evaluates a fan-out batch ONCE, keyed
+   * by `batchId`, before any item is dispatched. The batch template is checked
+   * through the SAME policy seam as a single spawn (context-aware policies see a
+   * `batch`-flavoured {@link SpawnContext}); a `needs_approval` decision is a
+   * single batch-level approval, not one-per-item. The per-item spawns then run
+   * under this decision and are scope-narrowed against the template by
+   * {@link evaluate} (via {@link validateBatchScope}).
+   */
+  async evaluateBatch(
+    request: SpawnBatchRequest,
+  ): Promise<
+    | { outcome: "allowed" }
+    | { outcome: "needs_approval" }
+    | { outcome: "denied"; reason: string }
+  > {
+    const ctx: SpawnContext = {
+      parentRunId: request.parentRunId,
+      depth: 0,
+      batch: {
+        batchId: request.batchId,
+        batchSize: request.itemKeys.length,
+        mode: request.mode,
+        approved: false,
+        template: request.template,
+      },
+    };
+    // Batch-level check: evaluate the TEMPLATE (not a per-item spec), so
+    // validateBatchScope is a no-op here (template compared against itself).
+    const decision = this.policy.checkWithContext
+      ? await this.policy.checkWithContext(request.template, ctx)
+      : await this.policy.check(request.template, ctx.parentRunId);
     if (!decision.allow) {
       return { outcome: "denied", reason: decision.reason };
     }
@@ -155,4 +240,56 @@ export class SpawnGate {
       return { approved: false, reason };
     }
   }
+}
+
+/**
+ * Batch scope-narrowing invariant (Phase B hardening). A per-item fan-out spawn
+ * may only NARROW the batch template it was approved against — never widen it.
+ * A widening attempt is denied BEFORE any per-item policy call. Three ranked
+ * checks (returns the first violation):
+ *
+ * 1. `agentId` — MUST match the template exactly (dispatching a different agent
+ *    is a full escape from the approved surface).
+ * 2. `outboundScope` — MUST be a subset of the template's scopes.
+ * 3. `memoryScope` — MUST NOT widen (rank `global < workspace < project < agent`,
+ *    where a higher rank is narrower).
+ */
+export function validateBatchScope(
+  spec: SubagentSpec,
+  template: SubagentSpec,
+): { allow: true } | { allow: false; reason: string } {
+  if (spec.agentId !== template.agentId) {
+    return { allow: false, reason: "batch_scope_widened: agentId" };
+  }
+  if (!isOutboundScopeSubset(spec.outboundScope, template.outboundScope)) {
+    return { allow: false, reason: "batch_scope_widened: outboundScope" };
+  }
+  if (!isMemoryScopeNarrowed(spec.memoryScope, template.memoryScope)) {
+    return { allow: false, reason: "batch_scope_widened: memoryScope" };
+  }
+  return { allow: true };
+}
+
+function isOutboundScopeSubset(
+  requested: string[] | undefined,
+  approved: string[] | undefined,
+): boolean {
+  if (requested === undefined || requested.length === 0) return true;
+  if (approved === undefined) return false;
+  const allowed = new Set(approved);
+  return requested.every((scope) => allowed.has(scope));
+}
+
+function isMemoryScopeNarrowed(
+  requested: SubagentSpec["memoryScope"],
+  approved: SubagentSpec["memoryScope"],
+): boolean {
+  if (requested === undefined || approved === undefined) return true;
+  const ranks: Record<NonNullable<SubagentSpec["memoryScope"]>, number> = {
+    global: 0,
+    workspace: 1,
+    project: 2,
+    agent: 3,
+  };
+  return ranks[requested] >= ranks[approved];
 }
