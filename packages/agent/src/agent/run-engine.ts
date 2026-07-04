@@ -1,5 +1,10 @@
 import type { BaseMessage } from '@langchain/core/messages'
+import { runBeforeModelCall } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core/events'
+import {
+  buildModelHookContext,
+  resolveModelIdForHooks,
+} from './model-hooks.js'
 import { defaultLogger, type FrameworkLogger } from '@dzupagent/core/utils'
 import type {
   DzupAgentConfig,
@@ -161,6 +166,33 @@ export async function prepareRunState(
     params.config.id,
     params.runId,
   )
+
+  // WS3 Task 3.2 — model-lifecycle hooks run BEFORE prompt-cache injection.
+  // ORDERING IS LOAD-BEARING: `beforeModelCall` may rewrite the message array,
+  // and cache breakpoints must be computed on the FINAL array — injecting
+  // markers first would let a hook edit silently invalidate breakpoint
+  // placement. Error-isolated in the core dispatcher (a throwing hook is
+  // swallowed and the transcript passes through unchanged).
+  {
+    const resolvedModelId = resolveModelIdForHooks(
+      params.config.model,
+      params.resolvedModel,
+    )
+    const hookCtx = buildModelHookContext(
+      params.config,
+      params.config.id,
+      params.runId ?? params.options?.runId,
+    )
+    finalMessages = await runBeforeModelCall(
+      params.config.hooks?.beforeModelCall
+        ? [params.config.hooks.beforeModelCall]
+        : undefined,
+      params.config.eventBus,
+      finalMessages,
+      resolvedModelId,
+      hookCtx,
+    )
+  }
 
   // Inject Anthropic prompt-cache markers for Claude models (RF-13 / AG-12 / REC-H-10).
   // No-op for non-Claude model IDs and short prompts — safe for all providers.

@@ -16,6 +16,15 @@ import {
 } from '@dzupagent/core/llm'
 import { injectPromptCacheMarkersForModel } from '@dzupagent/context'
 import {
+  runBeforeModelCall,
+  runAfterModelCall,
+  runOnModelError,
+} from '@dzupagent/core'
+import {
+  buildModelHookContext,
+  resolveModelIdForHooks,
+} from './model-hooks.js'
+import {
   runToolLoop,
   type ToolLoopConfig,
   type ToolLoopResult,
@@ -162,6 +171,48 @@ export async function setupModelCall(
 
   const auditedInvokeModel = wrapInvokeModelWithAudit(params)
 
+  // WS3 Task 3.2 — model-lifecycle hook plumbing for the generate tool-loop
+  // path. `beforeModelCall` runs inside `maybeCompress` (below) immediately
+  // BEFORE prompt-cache re-injection so cache breakpoints are computed on the
+  // final, hook-rewritten transcript. `afterModelCall` / `onModelError` fire
+  // at the model-invocation seam (the tool loop's `invokeModel`).
+  const modelHooks = params.config.hooks
+  const resolvedModelId = resolveModelIdForHooks(
+    params.config.model,
+    params.runState.model,
+  )
+  const hookCtx = buildModelHookContext(
+    params.config,
+    params.agentId,
+    params.options?.runId ?? toolExec?.runId,
+  )
+  const invokeModelWithHooks = async (
+    model: typeof params.runState.model,
+    messages: Parameters<typeof auditedInvokeModel>[1],
+  ): ReturnType<typeof auditedInvokeModel> => {
+    try {
+      const response = await auditedInvokeModel(model, messages)
+      await runAfterModelCall(
+        modelHooks?.afterModelCall ? [modelHooks.afterModelCall] : undefined,
+        params.config.eventBus,
+        messages,
+        response,
+        resolvedModelId,
+        hookCtx,
+      )
+      return response
+    } catch (err) {
+      await runOnModelError(
+        modelHooks?.onModelError ? [modelHooks.onModelError] : undefined,
+        params.config.eventBus,
+        err instanceof Error ? err : new Error(String(err)),
+        resolvedModelId,
+        hookCtx,
+      )
+      throw err
+    }
+  }
+
   const result = await runToolLoop(
     params.runState.model,
     params.runState.preparedMessages,
@@ -197,7 +248,7 @@ export async function setupModelCall(
           timestamp: Date.now(),
         })
       },
-      invokeModel: auditedInvokeModel,
+      invokeModel: invokeModelWithHooks,
       transformToolResult: (name, input, result) =>
         params.transformToolResult(name, input, result),
       onUsage: (usage) => {
@@ -289,10 +340,23 @@ export async function setupModelCall(
               null,
             )
             if (result.compressed) {
+              // WS3 Task 3.2 — model-lifecycle hooks run BEFORE prompt-cache
+              // re-injection on the freshly compressed transcript. ORDERING IS
+              // LOAD-BEARING: `beforeModelCall` may rewrite the array and cache
+              // breakpoints must be computed on the final array.
+              const hookedMessages = await runBeforeModelCall(
+                modelHooks?.beforeModelCall
+                  ? [modelHooks.beforeModelCall]
+                  : undefined,
+                params.config.eventBus,
+                result.messages,
+                resolvedModelId,
+                hookCtx,
+              )
               return {
                 ...result,
                 messages: injectPromptCacheMarkersForModel(
-                  result.messages,
+                  hookedMessages,
                   params.runState.model,
                 ),
               }

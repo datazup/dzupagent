@@ -35,6 +35,8 @@ import {
   checkIdleStuck,
   consumeStream,
   createStreamRunFinalizer,
+  dispatchStreamAfterModelCall,
+  dispatchStreamOnModelError,
   maybeAdoptCompression,
   openIterationStream,
   recordIterationUsage,
@@ -122,20 +124,49 @@ export async function* streamRun(
     }
 
     const chunks: string[] = []
-    const opened = await openIterationStream(ctx, runState, allMessages)
-    llmCalls += 1
+    // WS3 Task 3.2 — snapshot the request transcript (what the model
+    // receives this turn) so afterModelCall reports the exact input.
+    const requestMessages = [...allMessages]
+    let opened: Awaited<ReturnType<typeof openIterationStream>>
+    // `consumeStream` is a generator; its RETURN value (the assembled final
+    // message, or null) is what `yield*` resolves to.
+    let fullResponse: ReturnType<typeof consumeStream> extends AsyncGenerator<
+      unknown,
+      infer R
+    >
+      ? R
+      : never
+    try {
+      opened = await openIterationStream(ctx, runState, allMessages)
+      llmCalls += 1
 
-    const fullResponse = yield* consumeStream({
-      stream: opened.stream,
-      chunks,
-      activeProvider: opened.activeProvider,
-      activeModelName: opened.activeModelName,
-      activeAttempt: opened.activeAttempt,
-      ctx,
-    })
+      fullResponse = yield* consumeStream({
+        stream: opened.stream,
+        chunks,
+        activeProvider: opened.activeProvider,
+        activeModelName: opened.activeModelName,
+        activeAttempt: opened.activeAttempt,
+        ctx,
+      })
+    } catch (err) {
+      // WS3 Task 3.2 — error seam: a stream-open or consumption failure fires
+      // onModelError before the error propagates.
+      await dispatchStreamOnModelError(ctx, runState, err, options)
+      throw err
+    }
     if (!fullResponse) continue
 
     allMessages.push(fullResponse)
+
+    // WS3 Task 3.2 — success seam: afterModelCall fires ONCE with the
+    // fully-accumulated final message (not per-chunk).
+    await dispatchStreamAfterModelCall(
+      ctx,
+      runState,
+      requestMessages,
+      fullResponse,
+      options,
+    )
 
     yield* recordIterationUsage(omitUndefined({
       fullResponse,

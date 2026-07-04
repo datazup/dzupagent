@@ -32,6 +32,15 @@ import {
   unwrapStructuredEnvelope,
 } from '@dzupagent/core/pipeline'
 import { injectPromptCacheMarkersForModel } from '@dzupagent/context'
+import {
+  runBeforeModelCall,
+  runAfterModelCall,
+  runOnModelError,
+} from '@dzupagent/core'
+import {
+  buildModelHookContext,
+  resolveModelIdForHooks,
+} from './model-hooks.js'
 import { extractTokenUsage, type StructuredOutputModelCapabilities } from '@dzupagent/core/llm'
 import { defaultLogger } from '@dzupagent/core/utils'
 import type { AIMessage as AIMessageType } from '@langchain/core/messages'
@@ -90,6 +99,11 @@ export async function generateStructured<T>(
     ?? (model as BaseChatModel & { name?: string }).name
     ?? 'unknown'
 
+  // WS3 Task 3.2 — resolve the model id + hook context once for the native
+  // structured-output model-lifecycle hooks below.
+  const resolvedModelId = resolveModelIdForHooks(ctx.config.model, model)
+  const hookCtx = buildModelHookContext(ctx.config, ctx.agentId, options?.runId)
+
   ctx.config.eventBus?.emit({
     type: 'agent:structured_schema_prepared',
     agentId: ctx.agentId,
@@ -117,6 +131,18 @@ export async function generateStructured<T>(
       }).withStructuredOutput(schemaContract.requestSchema as ZodType<T>, { includeRaw: true })
 
       const prepared = await ctx.prepareMessages(requestMessages)
+      // WS3 Task 3.2 — model-lifecycle hooks run BEFORE prompt-cache injection.
+      // ORDERING IS LOAD-BEARING: `beforeModelCall` may rewrite the message
+      // array, and cache breakpoints must be computed on the FINAL array.
+      const beforeMessages = await runBeforeModelCall(
+        ctx.config.hooks?.beforeModelCall
+          ? [ctx.config.hooks.beforeModelCall]
+          : undefined,
+        ctx.config.eventBus,
+        prepared.messages,
+        resolvedModelId,
+        hookCtx,
+      )
       // REC-H-10 — apply Anthropic prompt-cache markers before invoking the
       // native structured-output model. The non-streaming/streaming paths
       // already inject in `prepareRunState`, but this branch bypasses
@@ -125,7 +151,7 @@ export async function generateStructured<T>(
       // structured generate call. Injector is a no-op for non-Claude models
       // and short transcripts.
       const cachedMessages = injectPromptCacheMarkersForModel(
-        prepared.messages,
+        beforeMessages,
         ctx.resolvedModel,
       )
       const response = await structuredModel.invoke(cachedMessages)
@@ -134,6 +160,19 @@ export async function generateStructured<T>(
       const parsed = schemaContract.responseSchema.parse(payload)
       const usage = buildNativeStructuredUsage(raw, modelName)
 
+      // WS3 Task 3.2 — success seam: fire `afterModelCall` once with the
+      // native response (best-effort; errors swallowed by the dispatcher).
+      await runAfterModelCall(
+        ctx.config.hooks?.afterModelCall
+          ? [ctx.config.hooks.afterModelCall]
+          : undefined,
+        ctx.config.eventBus,
+        cachedMessages,
+        raw ?? new AIMessage(''),
+        resolvedModelId,
+        hookCtx,
+      )
+
       return {
         data: unwrapStructuredEnvelope(parsed, schemaContract.requiresEnvelope),
         usage,
@@ -141,6 +180,18 @@ export async function generateStructured<T>(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       nativeStructuredError = err instanceof Error ? err : new Error(message)
+
+      // WS3 Task 3.2 — error seam: fire `onModelError` for the failed native
+      // invocation before falling back to the text-JSON path.
+      await runOnModelError(
+        ctx.config.hooks?.onModelError
+          ? [ctx.config.hooks.onModelError]
+          : undefined,
+        ctx.config.eventBus,
+        nativeStructuredError,
+        resolvedModelId,
+        hookCtx,
+      )
 
       ctx.config.eventBus?.emit({
         type: 'agent:structured_native_rejected',

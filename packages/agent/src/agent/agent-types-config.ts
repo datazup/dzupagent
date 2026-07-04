@@ -21,6 +21,7 @@ import type {
   TokenBucketConfig,
 } from '@dzupagent/core/llm'
 import type { DzupEventBus } from '@dzupagent/core/events'
+import type { AgentHooks } from '@dzupagent/core'
 import type { DzupRunStateStore } from '@dzupagent/core/persistence'
 import type { PermissionTier } from '@dzupagent/core/tools'
 import type { MessageManagerConfig, ConversationPhase } from '@dzupagent/context'
@@ -89,6 +90,18 @@ export interface DzupAgentConfig extends MemoryConfigSlice, ObservabilityConfigS
   description?: string
   /** Event bus for emitting telemetry and lifecycle events */
   eventBus?: DzupEventBus
+
+  /**
+   * Lifecycle hooks (WS3). Model-lifecycle hooks — `beforeModelCall`,
+   * `afterModelCall`, `onModelError` — are dispatched around every LLM
+   * invocation on all four call paths (generate, generate compression,
+   * streaming compression, native structured output). `beforeModelCall`
+   * may rewrite the message array and runs BEFORE prompt-cache injection so
+   * cache breakpoints are computed on the final array. All hooks are
+   * error-isolated: a throwing hook is swallowed (emitted on `eventBus`) and
+   * never aborts the run.
+   */
+  hooks?: AgentHooks
 
   /**
    * How instructions are resolved:

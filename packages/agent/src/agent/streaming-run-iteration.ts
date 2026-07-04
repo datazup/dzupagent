@@ -15,12 +15,21 @@ import {
   type TokenUsage,
 } from '@dzupagent/core/llm'
 import { injectPromptCacheMarkersForModel } from '@dzupagent/context'
+import {
+  runBeforeModelCall,
+  runAfterModelCall,
+  runOnModelError,
+} from '@dzupagent/core'
 import type {
   AgentStreamEvent,
   GenerateOptions,
 } from './agent-types.js'
 import type { PreparedRunState, ToolStatTracker } from './run-engine.js'
 import { emitStopReasonTelemetry } from './run-engine.js'
+import {
+  buildModelHookContext,
+  resolveModelIdForHooks,
+} from './model-hooks.js'
 import {
   emitProviderRunEvent,
   openStreamWithProviderFailover,
@@ -311,12 +320,31 @@ export async function maybeAdoptCompression(
       null,
     )
     if (compressResult.compressed) {
+      // WS3 Task 3.2 — model-lifecycle hooks run BEFORE prompt-cache
+      // re-injection on the compressed transcript. ORDERING IS LOAD-BEARING:
+      // `beforeModelCall` may rewrite the array, and cache breakpoints must be
+      // computed on the final array (a hook edit after injection would
+      // silently invalidate breakpoint placement). The hooked transcript is
+      // adopted for the next stream iteration.
+      const hookedMessages = await runBeforeModelCall(
+        ctx.config.hooks?.beforeModelCall
+          ? [ctx.config.hooks.beforeModelCall]
+          : undefined,
+        ctx.config.eventBus,
+        compressResult.messages,
+        resolveModelIdForHooks(ctx.config.model, runState.model),
+        buildModelHookContext(
+          ctx.config,
+          ctx.agentId,
+          ctx.config.toolExecution?.runId,
+        ),
+      )
       // REC-H-10 — re-apply Anthropic prompt-cache markers after the
       // transcript has been replaced; otherwise subsequent stream iterations
       // miss the cache and pay full input price for every turn. Injector is
       // a no-op for non-Claude models and short transcripts.
       const recached = injectPromptCacheMarkersForModel(
-        compressResult.messages,
+        hookedMessages,
         runState.model,
       )
       allMessages.length = 0
@@ -325,4 +353,58 @@ export async function maybeAdoptCompression(
   } catch {
     // Compression is best-effort and must not abort an active stream.
   }
+}
+
+/**
+ * WS3 Task 3.2 — fire `afterModelCall` once per completed stream iteration
+ * with the fully-accumulated final message (NOT per-chunk), matching how the
+ * streaming path already post-processes an assembled response. Error-isolated
+ * in the core dispatcher.
+ */
+export async function dispatchStreamAfterModelCall(
+  ctx: StreamRunContext,
+  runState: PreparedRunState,
+  requestMessages: BaseMessage[],
+  finalMessage: BaseMessage,
+  options: GenerateOptions | undefined,
+): Promise<void> {
+  await runAfterModelCall(
+    ctx.config.hooks?.afterModelCall
+      ? [ctx.config.hooks.afterModelCall]
+      : undefined,
+    ctx.config.eventBus,
+    requestMessages,
+    finalMessage,
+    resolveModelIdForHooks(ctx.config.model, runState.model),
+    buildModelHookContext(
+      ctx.config,
+      ctx.agentId,
+      options?.runId ?? ctx.config.toolExecution?.runId,
+    ),
+  )
+}
+
+/**
+ * WS3 Task 3.2 — fire `onModelError` when a streaming model invocation throws
+ * (stream open or consumption failure). Error-isolated in the core dispatcher.
+ */
+export async function dispatchStreamOnModelError(
+  ctx: StreamRunContext,
+  runState: PreparedRunState,
+  error: unknown,
+  options: GenerateOptions | undefined,
+): Promise<void> {
+  await runOnModelError(
+    ctx.config.hooks?.onModelError
+      ? [ctx.config.hooks.onModelError]
+      : undefined,
+    ctx.config.eventBus,
+    error instanceof Error ? error : new Error(String(error)),
+    resolveModelIdForHooks(ctx.config.model, runState.model),
+    buildModelHookContext(
+      ctx.config,
+      ctx.agentId,
+      options?.runId ?? ctx.config.toolExecution?.runId,
+    ),
+  )
 }
