@@ -1566,6 +1566,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@dzupagent/hitl-kit@workspace:packages/hitl-kit"
   dependencies:
+    "@dzupagent/adapter-types": "npm:0.2.0"
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
     vitest: "npm:^3.2.4"
