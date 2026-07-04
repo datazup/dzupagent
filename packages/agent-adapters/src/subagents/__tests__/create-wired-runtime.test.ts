@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createEventBus } from "@dzupagent/core/events";
 import type { DzupEvent } from "@dzupagent/core/events";
 import type { AgentInput } from "@dzupagent/adapter-types";
+import type { BackgroundTask, PostgresQueryClient } from "@dzupagent/subagents";
 import { allowAllSpawnPolicy } from "@dzupagent/subagents";
 import { createWiredSubagentRuntime } from "../create-wired-runtime.js";
 import type { ProviderAdapterRegistry } from "../../registry/adapter-registry.js";
@@ -27,6 +28,102 @@ function registryWith(
     recordSuccess: () => {},
     recordFailure: () => {},
   } as unknown as ProviderAdapterRegistry;
+}
+
+class MemoryPostgresClient implements PostgresQueryClient {
+  readonly tasks = new Map<string, BackgroundTask & { version: number }>();
+  readonly queue = new Map<
+    string,
+    {
+      task_id: string;
+      enqueued_at: number;
+      available_at: number;
+      attempts: number;
+      leased_by: string | null;
+      lease_until: number | null;
+    }
+  >();
+
+  async query(
+    text: string,
+    values: readonly unknown[] = [],
+  ): Promise<{ rows: Record<string, unknown>[] }> {
+    const normalized = text.replace(/\s+/g, " ").trim();
+    if (normalized.startsWith("INSERT INTO wired_subagent_tasks")) {
+      const task = values[1] as BackgroundTask;
+      this.tasks.set(task.id, { ...structuredClone(task), version: 1 });
+      return { rows: [] };
+    }
+    if (normalized.startsWith("SELECT task_json, version FROM wired_subagent_tasks WHERE id =")) {
+      const found = this.tasks.get(values[0] as string);
+      return {
+        rows: found ? [{ task_json: structuredClone(found), version: found.version }] : [],
+      };
+    }
+    if (normalized.startsWith("SELECT task_json, version FROM wired_subagent_tasks WHERE")) {
+      const filter = values[0] as {
+        parentRunId?: string;
+        statuses?: string[];
+        endedBefore?: number;
+      };
+      return {
+        rows: [...this.tasks.values()]
+          .filter((task) => {
+            if (filter.parentRunId !== undefined && task.parentRunId !== filter.parentRunId) {
+              return false;
+            }
+            if (filter.statuses !== undefined && !filter.statuses.includes(task.status)) {
+              return false;
+            }
+            if (
+              filter.endedBefore !== undefined &&
+              (task.endedAt === undefined || task.endedAt >= filter.endedBefore)
+            ) {
+              return false;
+            }
+            return true;
+          })
+          .map((task) => ({ task_json: structuredClone(task), version: task.version })),
+      };
+    }
+    if (normalized.startsWith("UPDATE wired_subagent_tasks SET task_json =")) {
+      const id = values[0] as string;
+      const patch = values[1] as Partial<BackgroundTask>;
+      const expectedStatus = values[3] as BackgroundTask["status"] | null;
+      const found = this.tasks.get(id);
+      if (!found || (expectedStatus !== null && found.status !== expectedStatus)) {
+        return { rows: [] };
+      }
+      const updated = { ...found, ...structuredClone(patch), version: found.version + 1 };
+      this.tasks.set(id, updated);
+      return { rows: [{ task_json: structuredClone(updated), version: updated.version }] };
+    }
+    if (normalized.startsWith("INSERT INTO wired_subagent_queue")) {
+      const taskId = values[0] as string;
+      this.queue.set(taskId, {
+        task_id: taskId,
+        enqueued_at: values[1] as number,
+        available_at: values[1] as number,
+        attempts: 0,
+        leased_by: null,
+        lease_until: null,
+      });
+      return { rows: [] };
+    }
+    if (normalized.startsWith("WITH next_task AS")) {
+      const task = [...this.queue.values()].find((row) => row.leased_by === null);
+      if (!task) return { rows: [] };
+      task.leased_by = values[2] as string;
+      task.lease_until = values[1] as number;
+      task.attempts += 1;
+      return { rows: [structuredClone(task)] };
+    }
+    if (normalized.startsWith("DELETE FROM wired_subagent_queue")) {
+      this.queue.delete(values[0] as string);
+      return { rows: [] };
+    }
+    throw new Error(`Unexpected SQL: ${normalized}`);
+  }
 }
 
 async function waitFor(
@@ -91,6 +188,40 @@ describe("createWiredSubagentRuntime (end-to-end)", () => {
     if (!out.ok) throw new Error("spawn failed");
     const final = await runtime.await(out.taskId, { timeoutMs: 2000 });
     expect(final?.status).toBe("succeeded");
+  });
+
+  it("can wire the runtime to the Postgres durable queue/store path", async () => {
+    const client = new MemoryPostgresClient();
+    const runtime = createWiredSubagentRuntime({
+      registry: registryWith([{ type: "adapter:completed", result: "postgres-ok" }]),
+      policy: allowAllSpawnPolicy,
+      postgresDurability: {
+        client,
+        taskTableName: "wired_subagent_tasks",
+        queueTableName: "wired_subagent_queue",
+        workerId: "wired-worker",
+        staleRunningRecovery: {
+          runningTimeoutMs: 1000,
+          action: "fail",
+        },
+      },
+    });
+
+    const out = await runtime.spawn({ agentId: "claude", input: "durable" }, "run-pg");
+    expect(out).toMatchObject({ ok: true, status: "running" });
+    if (!out.ok) throw new Error("spawn failed");
+
+    const final = await runtime.await(out.taskId, { timeoutMs: 2000 });
+
+    expect(final).toMatchObject({
+      status: "succeeded",
+      result: { output: "postgres-ok" },
+    });
+    expect(client.queue.size).toBe(0);
+    expect(client.tasks.get(out.taskId)).toMatchObject({
+      status: "succeeded",
+      result: { output: "postgres-ok" },
+    });
   });
 
   it("denies spawns by default when no policy is supplied (AGENT-L-10)", async () => {

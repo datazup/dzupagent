@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { BackgroundTask } from "../contracts/background-task.js";
 import {
   DurableQueueRunner,
@@ -16,6 +18,7 @@ import {
   ControllableExecutor,
   flush,
   ManualClock,
+  RecordingLogger,
   RecordingEventSink,
 } from "./helpers.js";
 
@@ -29,6 +32,17 @@ describe("createPostgresSubagentSchemaSql", () => {
     expect(ddl).toContain("PRIMARY KEY");
     expect(ddl).toContain("lease_until");
     expect(ddl).toContain("CREATE INDEX IF NOT EXISTS subagent_task_queue_claim_idx");
+  });
+
+  it("keeps the packaged migration aligned with the subagent Postgres tables", async () => {
+    const migration = await readFile(
+      join(process.cwd(), "migrations", "0001_postgres_subagent_tasks.sql"),
+      "utf8",
+    );
+
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS subagent_tasks");
+    expect(migration).toContain("CREATE TABLE IF NOT EXISTS subagent_task_queue");
+    expect(migration).toContain("subagent_task_queue_claim_idx");
   });
 });
 
@@ -227,17 +241,39 @@ describe("PostgresTaskStore", () => {
       endedAt: 10,
     });
   });
+
+  it("logs compare-and-set misses for operator visibility", async () => {
+    const client = new MemoryPostgresClient();
+    const logger = new RecordingLogger();
+    const store = new PostgresTaskStore({ client, logger });
+    await store.put(task("cas-miss", "running"));
+
+    const applied = await store.patchIfStatus("cas-miss", "queued", {
+      status: "succeeded",
+    });
+
+    expect(applied).toBe(false);
+    expect(logger.at("warn")).toContainEqual(
+      expect.objectContaining({
+        taskId: "cas-miss",
+        code: "TASK_STORE_CAS_MISS",
+        expectedStatus: "queued",
+      }),
+    );
+  });
 });
 
 describe("PostgresTaskQueue", () => {
   it("coalesces duplicate enqueue and claims with FOR UPDATE SKIP LOCKED", async () => {
     const client = new MemoryPostgresClient();
+    const logger = new RecordingLogger();
     const queue = new PostgresTaskQueue({
       client,
       workerId: "worker-a",
       clock: () => 100,
       leaseMs: 50,
       autoDrain: false,
+      logger,
     });
 
     await queue.enqueue("queued-once");
@@ -253,11 +289,23 @@ describe("PostgresTaskQueue", () => {
     expect(handled).toEqual(["queued-once"]);
     expect([...client.sql].join("\n")).toContain("FOR UPDATE SKIP LOCKED");
     expect(client.queue.size).toBe(0);
+    expect(logger.at("info")).toContainEqual(
+      expect.objectContaining({
+        taskId: "queued-once",
+        code: "TASK_QUEUE_CLAIMED",
+        workerId: "worker-a",
+      }),
+    );
   });
 });
 
 const databaseUrl =
   process.env["SUBAGENTS_POSTGRES_TEST_URL"] ?? process.env["TEST_DATABASE_URL"];
+if (!databaseUrl && process.env["RUN_REQUIRED_INTEGRATION"]) {
+  throw new Error(
+    "SUBAGENTS_POSTGRES_TEST_URL or TEST_DATABASE_URL is required when RUN_REQUIRED_INTEGRATION=1",
+  );
+}
 
 describe.skipIf(!databaseUrl)("PostgresTaskStore/PostgresTaskQueue integration", () => {
   const suffix = `${process.pid}_${Date.now()}`;
@@ -439,6 +487,32 @@ describe("recoverStaleRunningTasks", () => {
     expect(await store.get("fresh-running")).toMatchObject({
       status: "running",
     });
+  });
+
+  it("logs stale-running recovery decisions", async () => {
+    const client = new MemoryPostgresClient();
+    const logger = new RecordingLogger();
+    const store = new PostgresTaskStore({ client });
+    await store.put({
+      ...task("stale-log", "running"),
+      startedAt: 1,
+    });
+
+    await recoverStaleRunningTasks({
+      store,
+      now: 100,
+      runningTimeoutMs: 50,
+      action: "fail",
+      logger,
+    });
+
+    expect(logger.at("info")).toContainEqual(
+      expect.objectContaining({
+        taskId: "stale-log",
+        code: "STALE_RUNNING_TASK_RECOVERED",
+        action: "fail",
+      }),
+    );
   });
 }
 );
