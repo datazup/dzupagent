@@ -1,4 +1,5 @@
 import type { TaskId } from "../contracts/background-task.js";
+import { isTerminalStatus } from "../contracts/background-task.js";
 import { SubagentErrorCode } from "../contracts/error-codes.js";
 import type { SubagentLogger } from "../contracts/logger.js";
 import { defaultSubagentLogger } from "../contracts/logger.js";
@@ -135,6 +136,10 @@ export class DurableQueueRunner implements TaskRunner {
   private async execute(taskId: TaskId): Promise<void> {
     const controller = this.signals.get(taskId) ?? new AbortController();
     try {
+      const current = await this.deps.store.get(taskId);
+      if (!current || isTerminalStatus(current.status)) {
+        return;
+      }
       await this.inner.start(taskId, controller.signal);
     } catch (error) {
       // Defense-in-depth: `inner.start` already settles + logs executor throws,

@@ -176,6 +176,11 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       supportsToolCalls: true,
       supportsStreaming: true,
       supportsCostUsage: true,
+      nativeToolControls: {
+        mode: true,
+        allowlist: true,
+        blocklist: true,
+      },
     };
   }
 
@@ -301,6 +306,17 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       "medium";
     if (reasoning) {
       opts.reasoningEffort = reasoning;
+    }
+
+    const activePolicy = input.policyContext?.activePolicy;
+    if (activePolicy?.allowedTools && activePolicy.allowedTools.length > 0) {
+      opts.allowedTools = [...activePolicy.allowedTools];
+    }
+    if (activePolicy?.blockedTools && activePolicy.blockedTools.length > 0) {
+      opts.blockedTools = [...activePolicy.blockedTools];
+    }
+    if (activePolicy?.toolPolicy !== undefined) {
+      opts.toolPolicy = activePolicy.toolPolicy;
     }
 
     return opts;

@@ -112,6 +112,14 @@ export {
   recoverFanoutReport,
   type HostFanoutBatchStoreOptions,
 } from "./store/host-fanout-batch-store.js";
+export {
+  HostTaskStore,
+  type HostTaskStoreOptions,
+} from "./store/host-task-store.js";
+export {
+  HostTaskQueue,
+  type HostTaskQueueOptions,
+} from "./store/host-task-queue.js";
 export { InMemoryFanoutBatchStore } from "./store/in-memory-fanout-batch-store.js";
 export { InMemoryTaskStore } from "./store/in-memory-task-store.js";
 export { InMemoryCheckpointer } from "./store/in-memory-checkpointer.js";
