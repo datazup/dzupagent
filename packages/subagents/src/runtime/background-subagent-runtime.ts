@@ -49,6 +49,8 @@ export interface SpawnOptions {
   ttlMs?: number;
   batch?: ApprovedSpawnBatch;
   batchItemKey?: string;
+  depth?: number;
+  originTaskId?: string;
 }
 
 export type SpawnBatchAdmission =
@@ -138,6 +140,27 @@ export class BackgroundSubagentRuntime {
     parentRunId: string,
     options: SpawnOptions = {}
   ): Promise<SpawnOutcome> {
+    const depth = options.depth ?? 0;
+    if (depth >= this.policy.maxSpawnDepth) {
+      this.logger.warn({
+        code: SubagentErrorCode.MAX_SPAWN_DEPTH_EXCEEDED,
+        reason: "max_spawn_depth_exceeded",
+        parentRunId,
+        depth,
+        maxSpawnDepth: this.policy.maxSpawnDepth,
+      });
+      this.governance.emitGovernance({
+        type: "governance:rule_violation",
+        runId: parentRunId,
+        detail: "max_spawn_depth_exceeded",
+      });
+      return {
+        ok: false,
+        reason: "denied",
+        detail: "max_spawn_depth_exceeded",
+      };
+    }
+
     // CODE-M-01: count both queued and awaiting_approval (non-terminal pending
     // work) against the cap so approval-gated tasks don't bypass the limit.
     const [queued, pendingApproval] = await Promise.all([
@@ -160,6 +183,7 @@ export class BackgroundSubagentRuntime {
       status: "queued",
       createdAt: this.clock.now(),
       ttlMs: options.ttlMs ?? this.policy.defaultTtlMs,
+      depth,
     };
     await this.store.put(task);
 
@@ -174,8 +198,17 @@ export class BackgroundSubagentRuntime {
             ...(options.batchItemKey !== undefined
               ? { itemKey: options.batchItemKey }
               : {}),
+            depth,
+            ...(options.originTaskId !== undefined
+              ? { originTaskId: options.originTaskId }
+              : {}),
           }
-        : undefined
+        : {
+            depth,
+            ...(options.originTaskId !== undefined
+              ? { originTaskId: options.originTaskId }
+              : {}),
+          }
     );
 
     if (decision.outcome === "denied") {
@@ -272,6 +305,7 @@ export class BackgroundSubagentRuntime {
       taskId: id,
       parentRunId,
       agentId: task.spec.agentId,
+      depth: task.depth,
       ...(task.batchId !== undefined ? { batchId: task.batchId } : {}),
     });
 

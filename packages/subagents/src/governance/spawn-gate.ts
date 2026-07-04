@@ -24,6 +24,11 @@ export interface ApprovedSpawnBatch {
 
 export type SpawnPolicyContext =
   | {
+      kind: "spawn";
+      depth: number;
+      originTaskId?: string;
+    }
+  | {
       kind: "batch";
       batchId: string;
       batchSize: number;
@@ -40,8 +45,10 @@ export type SpawnPolicyContext =
     };
 
 export interface SpawnEvaluationContext {
-  batch: ApprovedSpawnBatch;
+  batch?: ApprovedSpawnBatch;
   itemKey?: string;
+  depth?: number;
+  originTaskId?: string;
 }
 
 /**
@@ -127,7 +134,7 @@ export class SpawnGate {
   > {
     void approvalId;
 
-    if (context !== undefined) {
+    if (context?.batch !== undefined) {
       const scopeDecision = validateBatchScope(spec, context.batch.template);
       if (!scopeDecision.allow) {
         return { outcome: "denied", reason: scopeDecision.reason };
@@ -137,7 +144,7 @@ export class SpawnGate {
     const decision = await this.checkPolicy(
       spec,
       parentRunId,
-      context !== undefined
+      context?.batch !== undefined
         ? {
             kind: "batch_item",
             batchId: context.batch.batchId,
@@ -146,12 +153,20 @@ export class SpawnGate {
             mode: context.batch.mode,
             batchApproved: true,
           }
+        : context !== undefined
+          ? {
+              kind: "spawn",
+              depth: context.depth ?? 0,
+              ...(context.originTaskId !== undefined
+                ? { originTaskId: context.originTaskId }
+                : {}),
+            }
         : undefined
     );
     if (!decision.allow) {
       return { outcome: "denied", reason: decision.reason };
     }
-    if (context !== undefined) {
+    if (context?.batch !== undefined) {
       return { outcome: "allowed" };
     }
     if (decision.requiresApproval) {

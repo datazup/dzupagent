@@ -10,6 +10,11 @@ export interface LifecyclePolicy {
   retentionMs: number;
   /** Interval between lifecycle sweeps (TTL expiry + retention GC). */
   gcIntervalMs: number;
+  /**
+   * Structural spawn-depth bound. Requests at depth >= maxSpawnDepth are
+   * rejected before policy evaluation.
+   */
+  maxSpawnDepth: number;
 }
 
 export const DEFAULT_LIFECYCLE_POLICY: LifecyclePolicy = {
@@ -18,4 +23,5 @@ export const DEFAULT_LIFECYCLE_POLICY: LifecyclePolicy = {
   defaultTtlMs: 15 * 60 * 1000, // 15 minutes
   retentionMs: 60 * 60 * 1000, // 1 hour
   gcIntervalMs: 60 * 1000, // 60 seconds
+  maxSpawnDepth: 2,
 };

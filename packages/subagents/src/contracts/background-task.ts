@@ -91,4 +91,6 @@ export interface BackgroundTask {
   checkpointRef?: string;
   /** Approval correlation id when the task passed (or is passing) an HITL gate. */
   approvalId?: string;
+  /** Spawn depth (0 = spawned by the top-level run). */
+  depth: number;
 }

@@ -60,6 +60,7 @@ export class InProcessRunner implements TaskRunner {
         taskId,
         signal,
         checkpointer,
+        depth: task.depth,
         onProgress: (note) =>
           events.emit({ type: "subagent:progress", taskId, note }),
       });

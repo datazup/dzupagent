@@ -1,4 +1,7 @@
-import type { SubagentRuntimeEvent } from "@dzupagent/adapter-types";
+import type {
+  FanoutRuntimeEvent,
+  SubagentRuntimeEvent,
+} from "@dzupagent/adapter-types";
 
 /**
  * Lifecycle events emitted on the runtime event bus. The canonical definition
@@ -10,11 +13,15 @@ import type { SubagentRuntimeEvent } from "@dzupagent/adapter-types";
  * duplicated here — they flow on the existing `GovernanceEvent` side-channel to
  * keep the audit plane single-sourced.
  */
-export type { SubagentRuntimeEvent } from "@dzupagent/adapter-types";
+export type {
+  FanoutRuntimeEvent,
+  SubagentRuntimeEvent,
+} from "@dzupagent/adapter-types";
 
 export type SubagentEventType = SubagentRuntimeEvent["type"];
+export type FanoutEventType = FanoutRuntimeEvent["type"];
 
 /** Minimal event sink the runtime needs — satisfied by the core event bus. */
 export interface SubagentEventSink {
-  emit(event: SubagentRuntimeEvent): void;
+  emit(event: SubagentRuntimeEvent | FanoutRuntimeEvent): void;
 }

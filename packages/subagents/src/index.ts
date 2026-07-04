@@ -35,6 +35,8 @@ export type {
 export type {
   SubagentRuntimeEvent,
   SubagentEventType,
+  FanoutRuntimeEvent,
+  FanoutEventType,
   SubagentEventSink,
 } from "./contracts/events.js";
 export type { Clock } from "./contracts/clock.js";
@@ -124,6 +126,7 @@ export {
 export {
   createSubagentTools,
   type SubagentToolDescriptor,
+  type SubagentToolContext,
   type SubagentToolsConfig,
 } from "./tools/subagent-tools.js";
 export {
@@ -133,6 +136,7 @@ export {
   type FanoutLimits,
   type FanoutReport,
   type FanoutReportItem,
+  type FanoutSpawnContext,
   type FanoutTemplateArgs,
   type FanoutToolConfig,
 } from "./tools/fanout-tool.js";

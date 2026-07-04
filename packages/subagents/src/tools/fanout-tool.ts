@@ -13,6 +13,12 @@ import type { ApprovedSpawnBatch } from "../governance/spawn-gate.js";
 import type { BackgroundSubagentRuntime } from "../runtime/background-subagent-runtime.js";
 import type { SubagentToolDescriptor } from "./subagent-tools.js";
 
+export interface FanoutSpawnContext {
+  parentRunId: string;
+  depth?: number;
+  originTaskId?: string;
+}
+
 type FanoutItemStatus =
   | TaskStatus
   | "denied"
@@ -48,6 +54,7 @@ export interface FanoutLimits {
 export interface FanoutToolConfig {
   runtime: BackgroundSubagentRuntime;
   resolveParentRunId: () => string;
+  resolveSpawnContext?: () => FanoutSpawnContext;
   events?: SubagentEventSink;
   generateBatchId?: () => string;
   fanoutBatchStore?: FanoutBatchStore;
@@ -183,7 +190,10 @@ async function runTemplateFanout(
   validateArgs(args, limits);
 
   const batchId = config.generateBatchId?.() ?? `fanout-${Date.now()}`;
-  const parentRunId = config.resolveParentRunId();
+  const spawnContext = config.resolveSpawnContext?.() ?? {
+    parentRunId: config.resolveParentRunId(),
+  };
+  const parentRunId = spawnContext.parentRunId;
   const startedAt = Date.now();
   const itemReports = new Array<FanoutReportItem>(args.items.length);
   const concurrency = clampConcurrency(args.concurrency, limits, args.items.length);
@@ -258,6 +268,7 @@ async function runTemplateFanout(
         events: config.events,
         fanoutBatchStore: config.fanoutBatchStore,
         batch: batchAdmission.batch,
+        spawnContext,
         ttlMs: args.ttlMs,
         startedAt: Date.now(),
         limits,
@@ -394,6 +405,7 @@ async function runOneItem(args: {
   events?: SubagentEventSink;
   fanoutBatchStore?: FanoutBatchStore;
   batch: ApprovedSpawnBatch;
+  spawnContext: FanoutSpawnContext;
   ttlMs?: number;
   startedAt: number;
   limits: FanoutLimits;
@@ -411,6 +423,12 @@ async function runOneItem(args: {
     args.parentRunId,
     {
       ...(args.ttlMs !== undefined ? { ttlMs: args.ttlMs } : {}),
+      ...(args.spawnContext.depth !== undefined
+        ? { depth: args.spawnContext.depth }
+        : {}),
+      ...(args.spawnContext.originTaskId !== undefined
+        ? { originTaskId: args.spawnContext.originTaskId }
+        : {}),
       batch: args.batch,
       batchItemKey: args.item.key,
     },

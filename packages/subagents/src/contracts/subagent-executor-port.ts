@@ -13,6 +13,11 @@ export interface SubagentExecutionContext {
   onProgress?: (note: string) => void;
   /** Available when a checkpointer is configured, for resumable execution. */
   checkpointer?: CheckpointerPort;
+  /**
+   * Spawn depth of the executing task (0 = spawned by the top-level run). Hosts
+   * that expose child-spawn tools inside this executor should pass depth + 1.
+   */
+  depth?: number;
 }
 
 /**

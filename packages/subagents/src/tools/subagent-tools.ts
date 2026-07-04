@@ -1,7 +1,10 @@
 import type { SubagentSpec, TaskId } from "../contracts/background-task.js";
 import type { SubagentEventSink } from "../contracts/events.js";
 import type { FanoutBatchStore } from "../contracts/fanout-batch-store.js";
-import type { BackgroundSubagentRuntime } from "../runtime/background-subagent-runtime.js";
+import type {
+  BackgroundSubagentRuntime,
+  SpawnOptions,
+} from "../runtime/background-subagent-runtime.js";
 import { createFanoutTemplateTool } from "./fanout-tool.js";
 import type { FanoutLimits } from "./fanout-tool.js";
 
@@ -22,6 +25,12 @@ export interface SubagentToolDescriptor<
   invoke(args: TArgs): Promise<TResult>;
 }
 
+export interface SubagentToolContext {
+  parentRunId: string;
+  depth?: number;
+  originTaskId?: string;
+}
+
 export interface SubagentToolsConfig {
   runtime: BackgroundSubagentRuntime;
   /**
@@ -29,6 +38,8 @@ export interface SubagentToolsConfig {
    * to their request/run context so spawned tasks are attributed correctly.
    */
   resolveParentRunId: () => string;
+  /** Richer context for nested tool bindings; defaults to top-level depth 0. */
+  resolveSpawnContext?: () => SubagentToolContext;
   /** Optional event sink for fanout:* lifecycle events. */
   events?: SubagentEventSink;
   /** Optional deterministic batch id generator for fanout_template. */
@@ -47,9 +58,14 @@ export function createSubagentTools(
   config: SubagentToolsConfig,
 ): SubagentToolDescriptor[] {
   const { runtime, resolveParentRunId } = config;
+  const resolveContext = (): SubagentToolContext =>
+    config.resolveSpawnContext?.() ?? { parentRunId: resolveParentRunId() };
   const fanout = createFanoutTemplateTool({
     runtime,
     resolveParentRunId,
+    ...(config.resolveSpawnContext !== undefined
+      ? { resolveSpawnContext: config.resolveSpawnContext }
+      : {}),
     ...(config.events !== undefined ? { events: config.events } : {}),
     ...(config.generateBatchId !== undefined
       ? { generateBatchId: config.generateBatchId }
@@ -93,11 +109,15 @@ export function createSubagentTools(
           ? { instructions: args.instructions }
           : {}),
       };
-      const outcome = await runtime.spawn(
-        spec,
-        resolveParentRunId(),
-        args.ttlMs !== undefined ? { ttlMs: args.ttlMs } : {},
-      );
+      const ctx = resolveContext();
+      const options: SpawnOptions = {
+        ...(args.ttlMs !== undefined ? { ttlMs: args.ttlMs } : {}),
+        ...(ctx.depth !== undefined ? { depth: ctx.depth } : {}),
+        ...(ctx.originTaskId !== undefined
+          ? { originTaskId: ctx.originTaskId }
+          : {}),
+      };
+      const outcome = await runtime.spawn(spec, ctx.parentRunId, options);
       return outcome;
     },
   };
@@ -115,7 +135,7 @@ export function createSubagentTools(
       // SEC-M-04: scope the lookup to the caller's run so one run cannot read
       // another run's task by supplying its taskId.
       const task = await runtime.check(taskId, {
-        parentRunId: resolveParentRunId(),
+        parentRunId: resolveContext().parentRunId,
       });
       if (!task) {
         return { found: false };
@@ -150,7 +170,7 @@ export function createSubagentTools(
         const task = await runtime.await(
           taskId,
           timeoutMs !== undefined ? { timeoutMs } : {},
-          { parentRunId: resolveParentRunId() },
+          { parentRunId: resolveContext().parentRunId },
         );
         if (!task) {
           return { found: false };
@@ -175,7 +195,7 @@ export function createSubagentTools(
     invoke: async ({ taskId }) => {
       // SEC-M-04: ownership-scoped cancel; a foreign taskId is a no-op (not_found).
       const task = await runtime.cancel(taskId, {
-        parentRunId: resolveParentRunId(),
+        parentRunId: resolveContext().parentRunId,
       });
       return { status: task?.status ?? "not_found" };
     },
