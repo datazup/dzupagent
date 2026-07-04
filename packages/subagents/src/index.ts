@@ -127,6 +127,7 @@ export {
 export {
   OrchestratorBackgroundApi,
   TaskHandle,
+  type OrchestratorBackgroundApiOptions,
 } from "./api/orchestrator-background-api.js";
 export {
   createSubagentTools,

@@ -6,6 +6,7 @@ import type {
   SpawnOptions,
 } from "../runtime/background-subagent-runtime.js";
 import { createFanoutTemplateTool } from "./fanout-tool.js";
+import { fanoutBatchRecordToReport } from "./fanout-tool.js";
 import type { FanoutLimits } from "./fanout-tool.js";
 
 /**
@@ -201,5 +202,27 @@ export function createSubagentTools(
     },
   };
 
-  return [spawn, check, await_, cancel, fanout];
+  const tools: SubagentToolDescriptor[] = [spawn, check, await_, cancel, fanout];
+  if (config.fanoutBatchStore !== undefined) {
+    const checkFanout: SubagentToolDescriptor<{ batchId: string }> = {
+      name: "check_fanout",
+      description:
+        "Check the current reconstructed report for a fanout_template batch by batchId.",
+      parameters: {
+        type: "object",
+        properties: { batchId: { type: "string" } },
+        required: ["batchId"],
+      },
+      invoke: async ({ batchId }) => {
+        const record = await config.fanoutBatchStore!.get(batchId);
+        if (record === null) {
+          return { found: false };
+        }
+        return { found: true, report: fanoutBatchRecordToReport(record) };
+      },
+    };
+    tools.push(checkFanout);
+  }
+
+  return tools;
 }
