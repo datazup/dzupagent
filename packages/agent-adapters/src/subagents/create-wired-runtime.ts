@@ -15,6 +15,7 @@ import {
   type RecoverStaleRunningTasksOptions,
   type SpawnApprovalGate,
   type SpawnPolicy,
+  type SubagentLogger,
   type SubagentEventSink,
   type SubagentSpec,
   type TaskStore,
@@ -43,6 +44,8 @@ export interface CreateWiredSubagentRuntimeOptions {
   checkpointStore?: CheckpointStore;
   /** Custom task store; defaults to in-memory. */
   taskStore?: TaskStore;
+  /** Structured logger for runtime/store/queue operator events. */
+  logger?: SubagentLogger;
   /** Opt-in Postgres-backed durable task store + leased queue. */
   postgresDurability?: {
     client: PostgresQueryClient;
@@ -86,6 +89,7 @@ export function createWiredSubagentRuntime(
     (options.postgresDurability
       ? new PostgresTaskStore({
           client: options.postgresDurability.client,
+          ...(options.logger ? { logger: options.logger } : {}),
           ...(options.postgresDurability.taskTableName
             ? { tableName: options.postgresDurability.taskTableName }
             : {}),
@@ -124,9 +128,11 @@ export function createWiredSubagentRuntime(
         executor,
         events,
         clock,
+        ...(options.logger ? { logger: options.logger } : {}),
         ...(checkpointer ? { checkpointer } : {}),
         queue: new PostgresTaskQueue({
           client: options.postgresDurability.client,
+          ...(options.logger ? { logger: options.logger } : {}),
           ...(options.postgresDurability.queueTableName
             ? { tableName: options.postgresDurability.queueTableName }
             : {}),
@@ -148,6 +154,7 @@ export function createWiredSubagentRuntime(
         executor,
         events,
         clock,
+        ...(options.logger ? { logger: options.logger } : {}),
         ...(checkpointer ? { checkpointer } : {}),
       });
 
@@ -164,6 +171,7 @@ export function createWiredSubagentRuntime(
     gate,
     events,
     governance,
+    ...(options.logger ? { logger: options.logger } : {}),
     resolveAdmission: buildAdmissionResolver(options),
     ...(options.postgresDurability?.staleRunningRecovery
       ? { staleRunningRecovery: options.postgresDurability.staleRunningRecovery }
