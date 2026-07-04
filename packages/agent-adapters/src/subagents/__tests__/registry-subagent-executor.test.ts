@@ -2,14 +2,16 @@ import { describe, it, expect, vi } from "vitest";
 import type { AgentInput } from "@dzupagent/adapter-types";
 import { RegistrySubagentExecutor } from "../registry-subagent-executor.js";
 import type { ProviderAdapterRegistry } from "../../registry/adapter-registry.js";
+import type { AgentDefinition } from "../../dzupagent/agent-loader.js";
 
 /** Minimal adapter that yields a scripted event stream. */
 function fakeAdapter(
   events: Array<Record<string, unknown>>,
   capture?: (input: AgentInput) => void,
+  providerId = "claude",
 ) {
   return {
-    providerId: "claude",
+    providerId,
     async *execute(input: AgentInput) {
       capture?.(input);
       for (const e of events) {
@@ -20,7 +22,10 @@ function fakeAdapter(
 }
 
 /** A registry stub exposing only what the executor uses. */
-function fakeRegistry(adapter: unknown): {
+function fakeRegistry(
+  adapter: unknown,
+  adapters: Record<string, unknown> = { claude: adapter },
+): {
   registry: ProviderAdapterRegistry;
   recordSuccess: ReturnType<typeof vi.fn>;
   recordFailure: ReturnType<typeof vi.fn>;
@@ -28,13 +33,35 @@ function fakeRegistry(adapter: unknown): {
   const recordSuccess = vi.fn();
   const recordFailure = vi.fn();
   const registry = {
-    listAdapters: () => ["claude"],
-    getHealthy: () => adapter,
-    get: () => adapter,
+    listAdapters: () => Object.keys(adapters),
+    getHealthy: (providerId: string) => adapters[providerId],
+    get: (providerId: string) => adapters[providerId],
+    getForTask: () => {
+      const providerId = Object.keys(adapters)[0]!;
+      return {
+        adapter: adapters[providerId],
+        decision: { provider: providerId, reason: "test", confidence: 1 },
+      };
+    },
     recordSuccess,
     recordFailure,
   } as unknown as ProviderAdapterRegistry;
   return { registry, recordSuccess, recordFailure };
+}
+
+function fakeAgentDefinition(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
+  return {
+    name: "security-reviewer",
+    description: "Reviews security concerns.",
+    version: 1,
+    preferredProvider: "codex" as never,
+    skillNames: [],
+    memoryScope: "project",
+    constraints: {},
+    personaPrompt: "Review for security issues.",
+    filePath: "/agents/security-reviewer.md",
+    ...overrides,
+  };
 }
 
 const ctx = () => ({ taskId: "t1", signal: new AbortController().signal });
@@ -124,6 +151,122 @@ describe("RegistrySubagentExecutor", () => {
     expect(seen?.prompt).toBe(JSON.stringify({ task: "survey" }));
   });
 
+  it("keeps provider id resolution ahead of same-named personas", async () => {
+    let seen: AgentInput | undefined;
+    const adapter = fakeAdapter(
+      [{ type: "adapter:completed", result: "ok" }],
+      (input) => {
+        seen = input;
+      },
+    );
+    const loader = {
+      loadAgent: vi.fn(async () => fakeAgentDefinition({ name: "claude" })),
+      compileForProvider: vi.fn(async () => "persona prompt"),
+    };
+    const { registry } = fakeRegistry(adapter);
+    const exec = new RegistrySubagentExecutor(registry, {}, { loader });
+
+    await exec.run({ agentId: "claude", input: "x" }, ctx());
+
+    expect(loader.loadAgent).not.toHaveBeenCalled();
+    expect(seen?.systemPrompt).toBeUndefined();
+  });
+
+  it("resolves agent ids through the persona loader when no provider id matches", async () => {
+    let seen: AgentInput | undefined;
+    const claude = fakeAdapter([{ type: "adapter:completed", result: "ok" }]);
+    const codex = fakeAdapter(
+      [{ type: "adapter:completed", result: "ok" }],
+      (input) => {
+        seen = input;
+      },
+      "codex",
+    );
+    const agent = fakeAgentDefinition();
+    const loader = {
+      loadAgent: vi.fn(async () => agent),
+      compileForProvider: vi.fn(async () => "Compiled persona prompt."),
+    };
+    const { registry, recordSuccess } = fakeRegistry(claude, { claude, codex });
+    const exec = new RegistrySubagentExecutor(registry, {}, { loader });
+
+    await exec.run(
+      {
+        agentId: "security-reviewer",
+        input: "audit auth",
+        instructions: "Focus on token handling.",
+      },
+      ctx(),
+    );
+
+    expect(loader.loadAgent).toHaveBeenCalledWith("security-reviewer");
+    expect(loader.compileForProvider).toHaveBeenCalledWith(agent, "codex");
+    expect(seen?.systemPrompt).toBe(
+      "Compiled persona prompt.\n\nFocus on token handling.",
+    );
+    expect(recordSuccess).toHaveBeenCalledWith("codex");
+  });
+
+  it("rejects inline definitions unless allowInline is enabled", async () => {
+    const adapter = fakeAdapter([{ type: "adapter:completed", result: "ok" }]);
+    const { registry } = fakeRegistry(adapter);
+    const exec = new RegistrySubagentExecutor(registry);
+
+    await expect(
+      exec.run(
+        {
+          agentId: "inline",
+          input: "x",
+          definition: {
+            name: "inline-reviewer",
+            personaPrompt: "Review carefully.",
+          },
+        },
+        ctx(),
+      ),
+    ).rejects.toThrow("Inline subagent definitions are disabled");
+  });
+
+  it("materializes inline definitions when allowInline is enabled", async () => {
+    let seen: AgentInput | undefined;
+    const adapter = fakeAdapter(
+      [{ type: "adapter:completed", result: "ok" }],
+      (input) => {
+        seen = input;
+      },
+    );
+    const { registry } = fakeRegistry(adapter);
+    const exec = new RegistrySubagentExecutor(registry, {}, { allowInline: true });
+
+    await exec.run(
+      {
+        agentId: "inline",
+        input: "x",
+        instructions: "Use short findings.",
+        definition: {
+          name: "inline-reviewer",
+          personaPrompt: "Review carefully.",
+          preferredProvider: "claude",
+          constraints: {
+            maxBudgetUsd: 1,
+            approvalMode: "required",
+            networkPolicy: "off",
+            toolPolicy: "strict",
+          },
+        },
+      },
+      ctx(),
+    );
+
+    expect(seen?.systemPrompt).toBe("Review carefully.\n\nUse short findings.");
+    expect(seen?.maxBudgetUsd).toBe(1);
+    expect(seen?.policyContext?.activePolicy).toMatchObject({
+      approvalRequired: true,
+      networkAccess: false,
+      maxBudgetUsd: 1,
+    });
+  });
+
   it("throws when the provider is not registered", async () => {
     const registry = {
       listAdapters: () => ["claude"],
@@ -135,7 +278,7 @@ describe("RegistrySubagentExecutor", () => {
     const exec = new RegistrySubagentExecutor(registry);
     await expect(
       exec.run({ agentId: "ghost", input: "x" }, ctx()),
-    ).rejects.toThrow(/not registered/);
+    ).rejects.toThrow(/provider adapter, persona, or inline definition/);
   });
 
   // ── AGENT-M-05: output-token budget ceiling ────────────────────────

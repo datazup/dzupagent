@@ -8,10 +8,12 @@ import type { ProviderAdapterRegistry } from "../../registry/adapter-registry.js
 
 function registryWith(
   events: Array<Record<string, unknown>>,
+  capture?: (input: AgentInput) => void,
 ): ProviderAdapterRegistry {
   const adapter = {
     providerId: "claude",
-    async *execute(_input: AgentInput) {
+    async *execute(input: AgentInput) {
+      capture?.(input);
       for (const e of events) {
         yield e as never;
       }
@@ -109,5 +111,37 @@ describe("createWiredSubagentRuntime (end-to-end)", () => {
     });
     const out = await runtime.spawn({ agentId: "claude", input: "x" }, "r");
     expect(out).toEqual({ ok: false, reason: "denied", detail: "blocked" });
+  });
+
+  it("threads persona options into the registry executor", async () => {
+    let seen: AgentInput | undefined;
+    const runtime = createWiredSubagentRuntime({
+      registry: registryWith(
+        [{ type: "adapter:completed", result: "ok" }],
+        (input) => {
+          seen = input;
+        },
+      ),
+      policy: allowAllSpawnPolicy,
+      allowInline: true,
+    });
+
+    const out = await runtime.spawn(
+      {
+        agentId: "inline",
+        input: "x",
+        definition: {
+          name: "inline-reviewer",
+          personaPrompt: "Review carefully.",
+          preferredProvider: "claude",
+        },
+      },
+      "r",
+    );
+    if (!out.ok) throw new Error("spawn failed");
+    const final = await runtime.await(out.taskId, { timeoutMs: 2000 });
+
+    expect(final?.status).toBe("succeeded");
+    expect(seen?.systemPrompt).toBe("Review carefully.");
   });
 });

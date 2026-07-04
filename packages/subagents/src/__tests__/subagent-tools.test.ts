@@ -227,6 +227,38 @@ describe("subagent tools", () => {
     );
   });
 
+  it("passes inline definitions through singleton and fanout specs", async () => {
+    const { byName, executor } = setup({ executorMode: "instant" });
+    const definition = {
+      name: "inline-reviewer",
+      personaPrompt: "Review with precision.",
+      preferredProvider: "claude",
+      constraints: { toolPolicy: "strict" as const },
+    };
+
+    await byName.spawn_subagent!.invoke({
+      agentId: "inline",
+      input: "singleton",
+      definition,
+    });
+    await byName.fanout_template!.invoke({
+      items: [
+        { key: "a", input: "alpha" },
+        { key: "b", input: "beta" },
+      ],
+      spec: {
+        agentId: "inline",
+        definition,
+      },
+    });
+
+    expect(executor.runCalls.map((call) => call.definition)).toEqual([
+      definition,
+      definition,
+      definition,
+    ]);
+  });
+
   it("check reports not found for unknown task", async () => {
     const { byName } = setup();
     expect(await byName.check_subagent!.invoke({ taskId: "ghost" })).toEqual({

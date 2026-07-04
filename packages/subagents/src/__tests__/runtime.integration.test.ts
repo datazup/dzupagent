@@ -98,6 +98,34 @@ describe("runtime governance", () => {
     expect(governance.types()).toContain("governance:rule_violation");
   });
 
+  it("rejects inline definitions attached to non-inline agent ids before policy", async () => {
+    const policy: SpawnPolicy = {
+      check: () => {
+        throw new Error("policy should not run for invalid inline definition");
+      },
+    };
+    const { runtime, governance } = setup({ policy });
+
+    const out = await runtime.spawn(
+      {
+        agentId: "claude",
+        input: "go",
+        definition: {
+          name: "reviewer",
+          personaPrompt: "Review carefully.",
+        },
+      },
+      "run-1",
+    );
+
+    expect(out).toEqual({
+      ok: false,
+      reason: "denied",
+      detail: "inline_definition_requires_inline_agent_id",
+    });
+    expect(governance.types()).toContain("governance:rule_violation");
+  });
+
   it("blocks on approval then admits after grant", async () => {
     let resolveApproval: (() => void) | undefined;
     const approvalGate = {
