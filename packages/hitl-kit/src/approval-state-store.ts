@@ -20,14 +20,14 @@
  *     shared database.
  */
 
-/** Terminal outcome of an approval request. */
-export interface ApprovalOutcome {
-  decision: "granted" | "rejected";
-  /** Optional response payload attached when granting (e.g. selectedOption). */
-  response?: unknown;
-  /** Optional rejection reason. */
-  reason?: string;
-}
+import type { InterruptOutcome } from "@dzupagent/adapter-types";
+
+/**
+ * Terminal outcome of an approval request. Alias of the shared
+ * InterruptOutcome contract (@dzupagent/adapter-types) — kept as a
+ * named export here for backward compatibility with existing imports.
+ */
+export type ApprovalOutcome = InterruptOutcome;
 
 /**
  * Durable backing store for pending approval requests.
@@ -55,7 +55,7 @@ export interface ApprovalStateStore {
   createPending(
     runId: string,
     approvalId: string,
-    payload: unknown,
+    payload: unknown
   ): Promise<void>;
 
   /** Grant a pending approval, attaching an optional response. */
@@ -72,7 +72,7 @@ export interface ApprovalStateStore {
   poll(
     runId: string,
     approvalId: string,
-    timeoutMs: number,
+    timeoutMs: number
   ): Promise<ApprovalOutcome>;
 }
 
@@ -80,7 +80,7 @@ export interface ApprovalStateStore {
 export class ApprovalTimeoutError extends Error {
   constructor(runId: string, approvalId: string, timeoutMs: number) {
     super(
-      `Approval timed out after ${timeoutMs}ms for run=${runId} approval=${approvalId}`,
+      `Approval timed out after ${timeoutMs}ms for run=${runId} approval=${approvalId}`
     );
     this.name = "ApprovalTimeoutError";
   }
@@ -138,7 +138,7 @@ export class InMemoryApprovalStateStore implements ApprovalStateStore {
   async createPending(
     runId: string,
     approvalId: string,
-    payload: unknown,
+    payload: unknown
   ): Promise<void> {
     const key = this.key(runId, approvalId);
     const existing = this.entries.get(key);
@@ -158,7 +158,7 @@ export class InMemoryApprovalStateStore implements ApprovalStateStore {
   async grant(
     runId: string,
     approvalId: string,
-    response?: unknown,
+    response?: unknown
   ): Promise<void> {
     this.resolveOutcome(runId, approvalId, { decision: "granted", response });
   }
@@ -166,7 +166,7 @@ export class InMemoryApprovalStateStore implements ApprovalStateStore {
   async reject(
     runId: string,
     approvalId: string,
-    reason: string,
+    reason: string
   ): Promise<void> {
     this.resolveOutcome(runId, approvalId, { decision: "rejected", reason });
   }
@@ -174,7 +174,7 @@ export class InMemoryApprovalStateStore implements ApprovalStateStore {
   private resolveOutcome(
     runId: string,
     approvalId: string,
-    outcome: ApprovalOutcome,
+    outcome: ApprovalOutcome
   ): void {
     const key = this.key(runId, approvalId);
     const entry = this.entries.get(key);
@@ -199,7 +199,7 @@ export class InMemoryApprovalStateStore implements ApprovalStateStore {
   async poll(
     runId: string,
     approvalId: string,
-    timeoutMs: number,
+    timeoutMs: number
   ): Promise<ApprovalOutcome> {
     const key = this.key(runId, approvalId);
     const entry = this.entries.get(key);
