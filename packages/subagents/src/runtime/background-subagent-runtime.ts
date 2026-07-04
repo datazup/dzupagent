@@ -25,6 +25,10 @@ import type {
 } from "../governance/spawn-gate.js";
 import type { LifecyclePolicy } from "./runtime-config.js";
 import { DEFAULT_LIFECYCLE_POLICY } from "./runtime-config.js";
+import {
+  recoverStaleRunningTasks,
+  type RecoverStaleRunningTasksOptions,
+} from "../store/postgres-task-store.js";
 
 /** Governance event side-channel — structurally compatible with `GovernanceEvent`. */
 export interface GovernanceEventSink {
@@ -99,6 +103,11 @@ export interface BackgroundSubagentRuntimeDeps {
   logger?: SubagentLogger;
   /** Deterministic id generator (no Math.random in core paths). */
   generateId: () => string;
+  /** Optional policy for durable runners that should settle stale running work. */
+  staleRunningRecovery?: Pick<
+    RecoverStaleRunningTasksOptions,
+    "runningTimeoutMs" | "action" | "enqueue"
+  >;
 }
 
 /**
@@ -119,6 +128,10 @@ export class BackgroundSubagentRuntime {
   private readonly generateId: () => string;
   private readonly lifecycle: LifecycleController;
   private readonly controllers = new Map<TaskId, AbortController>();
+  private readonly staleRunningRecovery?: Pick<
+    RecoverStaleRunningTasksOptions,
+    "runningTimeoutMs" | "action" | "enqueue"
+  >;
 
   constructor(deps: BackgroundSubagentRuntimeDeps) {
     this.store = deps.store;
@@ -130,13 +143,14 @@ export class BackgroundSubagentRuntime {
     this.policy = { ...DEFAULT_LIFECYCLE_POLICY, ...deps.policy };
     this.logger = deps.logger ?? defaultSubagentLogger;
     this.generateId = deps.generateId;
+    this.staleRunningRecovery = deps.staleRunningRecovery;
     this.lifecycle = new LifecycleController(
       this.store,
       this.policy,
       this.clock,
       this.events,
       (taskId) => this.abortController(taskId),
-      this.logger
+      this.logger,
     );
   }
 
@@ -170,7 +184,7 @@ export class BackgroundSubagentRuntime {
   async spawn(
     spec: SubagentSpec,
     parentRunId: string,
-    options: SpawnOptions = {}
+    options: SpawnOptions = {},
   ): Promise<SpawnOutcome> {
     const depth = options.depth ?? 0;
 
@@ -272,7 +286,7 @@ export class BackgroundSubagentRuntime {
   private async resolveApprovalThenAdmit(
     id: TaskId,
     parentRunId: string,
-    approvalId: string
+    approvalId: string,
   ): Promise<void> {
     const outcome = await this.gate.awaitApproval(parentRunId, approvalId);
     this.governance.emitGovernance({
@@ -358,7 +372,7 @@ export class BackgroundSubagentRuntime {
    */
   private async resolveOwned(
     taskId: TaskId,
-    scope?: TaskScope
+    scope?: TaskScope,
   ): Promise<BackgroundTask | null> {
     const task = await this.store.get(taskId);
     if (!task) return null;
@@ -371,7 +385,7 @@ export class BackgroundSubagentRuntime {
   /** Pull: current task state (ownership-scoped when `scope` is supplied). */
   async check(
     taskId: TaskId,
-    scope?: TaskScope
+    scope?: TaskScope,
   ): Promise<BackgroundTask | null> {
     return this.resolveOwned(taskId, scope);
   }
@@ -384,7 +398,7 @@ export class BackgroundSubagentRuntime {
   async await(
     taskId: TaskId,
     options: { timeoutMs?: number; pollIntervalMs?: number } = {},
-    scope?: TaskScope
+    scope?: TaskScope,
   ): Promise<BackgroundTask | null> {
     const pollIntervalMs = options.pollIntervalMs ?? 25;
     const deadline =
@@ -410,7 +424,7 @@ export class BackgroundSubagentRuntime {
   /** Cancel a task: abort its run (if running) or mark cancelled (if pending). */
   async cancel(
     taskId: TaskId,
-    scope?: TaskScope
+    scope?: TaskScope,
   ): Promise<BackgroundTask | null> {
     const task = await this.resolveOwned(taskId, scope);
     if (!task || isTerminalStatus(task.status)) {
@@ -447,7 +461,7 @@ export class BackgroundSubagentRuntime {
    * {@link ApprovedSpawnBatch} the coordinator threads into each per-item spawn.
    */
   async evaluateBatch(
-    request: SpawnBatchRequest
+    request: SpawnBatchRequest,
   ): Promise<SpawnBatchAdmission> {
     const decision = await this.gate.evaluateBatch(request);
     if (decision.outcome === "denied") {
@@ -467,7 +481,7 @@ export class BackgroundSubagentRuntime {
       });
       const outcome = await this.gate.awaitApproval(
         request.parentRunId,
-        request.batchId
+        request.batchId,
       );
       this.governance.emitGovernance({
         type: "governance:approval_resolved",
@@ -507,6 +521,13 @@ export class BackgroundSubagentRuntime {
     const orphans = await this.lifecycle.findOrphans();
     const reconciled: TaskId[] = [];
     const durable = this.runner.capabilities().durable;
+    if (durable && this.staleRunningRecovery !== undefined) {
+      return recoverStaleRunningTasks({
+        store: this.store,
+        now: this.clock.now(),
+        ...this.staleRunningRecovery,
+      });
+    }
     for (const task of orphans) {
       if (durable) {
         // Durable runner is expected to resume; leave state for it to pick up.

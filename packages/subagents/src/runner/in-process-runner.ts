@@ -1,5 +1,4 @@
-import type { TaskId } from "../contracts/background-task.js";
-import { isTerminalStatus } from "../contracts/background-task.js";
+import type { TaskId, TaskStatus } from "../contracts/background-task.js";
 import type { Clock } from "../contracts/clock.js";
 import type { SubagentEventSink } from "../contracts/events.js";
 import type { CheckpointerPort } from "../contracts/checkpointer-port.js";
@@ -53,7 +52,21 @@ export class InProcessRunner implements TaskRunner {
     }
 
     const startedAt = clock.now();
-    await store.patch(taskId, { status: "running", startedAt });
+    // The runtime hands us a freshly-read task; for the initial transition we
+    // already know its current status. Durable stores get a compare-and-set so
+    // a racing worker cannot double-start; the in-memory tier (no CAS) patches
+    // directly, matching the runtime's single-owner admission.
+    if (store.patchIfStatus) {
+      const started = await store.patchIfStatus(taskId, task.status, {
+        status: "running",
+        startedAt,
+      });
+      if (!started) {
+        return;
+      }
+    } else {
+      await store.patch(taskId, { status: "running", startedAt });
+    }
 
     try {
       const result = await executor.run(task.spec, {
@@ -71,10 +84,14 @@ export class InProcessRunner implements TaskRunner {
       }
 
       const endedAt = clock.now();
-      if (await this.alreadyTerminal(taskId)) {
+      const settled = await this.patchIfCurrentStatus(taskId, "running", {
+        status: "succeeded",
+        result,
+        endedAt,
+      });
+      if (!settled) {
         return;
       }
-      await store.patch(taskId, { status: "succeeded", result, endedAt });
       events.emit({
         type: "subagent:completed",
         taskId,
@@ -88,10 +105,14 @@ export class InProcessRunner implements TaskRunner {
       const endedAt = clock.now();
       const message = error instanceof Error ? error.message : String(error);
       const recoverable = isRecoverableError(error);
-      if (await this.alreadyTerminal(taskId)) {
+      const settled = await this.patchIfCurrentStatus(taskId, "running", {
+        status: "failed",
+        error: message,
+        endedAt,
+      });
+      if (!settled) {
         return;
       }
-      await store.patch(taskId, { status: "failed", error: message, endedAt });
       this.logger.error({
         taskId,
         code: SubagentErrorCode.TASK_EXECUTION_FAILED,
@@ -107,22 +128,31 @@ export class InProcessRunner implements TaskRunner {
     }
   }
 
-  /**
-   * Guard against overwriting a task that reached a terminal state out-of-band
-   * (e.g. TTL expiry aborted it while the executor was still resolving). The
-   * out-of-band transition is authoritative.
-   */
-  private async alreadyTerminal(taskId: TaskId): Promise<boolean> {
-    const current = await this.deps.store.get(taskId);
-    return current ? isTerminalStatus(current.status) : true;
-  }
-
   private async settleCancelled(taskId: TaskId): Promise<void> {
-    if (await this.alreadyTerminal(taskId)) {
+    const endedAt = this.deps.clock.now();
+    const settled = await this.patchIfCurrentStatus(taskId, "running", {
+      status: "cancelled",
+      endedAt,
+    });
+    if (!settled) {
       return;
     }
-    const endedAt = this.deps.clock.now();
-    await this.deps.store.patch(taskId, { status: "cancelled", endedAt });
     this.deps.events.emit({ type: "subagent:cancelled", taskId });
+  }
+
+  private async patchIfCurrentStatus(
+    taskId: TaskId,
+    expectedStatus: TaskStatus,
+    patch: Parameters<TaskStore["patch"]>[1],
+  ): Promise<boolean> {
+    if (this.deps.store.patchIfStatus) {
+      return this.deps.store.patchIfStatus(taskId, expectedStatus, patch);
+    }
+    const current = await this.deps.store.get(taskId);
+    if (!current || current.status !== expectedStatus) {
+      return false;
+    }
+    await this.deps.store.patch(taskId, patch);
+    return true;
   }
 }

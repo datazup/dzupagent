@@ -108,6 +108,26 @@ export { InMemoryTaskStore } from "./store/in-memory-task-store.js";
 export { InMemoryCheckpointer } from "./store/in-memory-checkpointer.js";
 export { InMemoryFanoutBatchStore } from "./store/in-memory-fanout-batch-store.js";
 export {
+  HostTaskStore,
+  type HostTaskStoreOptions,
+} from "./store/host-task-store.js";
+export {
+  HostTaskQueue,
+  type HostTaskQueueOptions,
+} from "./store/host-task-queue.js";
+export {
+  createPostgresSubagentSchemaSql,
+  PostgresTaskQueue,
+  PostgresTaskStore,
+  recoverStaleRunningTasks,
+  type PostgresSubagentSchemaSqlOptions,
+  type PostgresQueryClient,
+  type PostgresTaskQueueOptions,
+  type PostgresTaskStoreOptions,
+  type RecoverStaleRunningTasksOptions,
+  type VersionedTask,
+} from "./store/postgres-task-store.js";
+export {
   type FanoutBatchStore,
   type FanoutBatchMode,
   type FanoutBatchStatus,

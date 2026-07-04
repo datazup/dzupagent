@@ -12,12 +12,14 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "migrations"
   ],
   "scripts": {
     "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
     "lint": "eslint src/",
     "test": "vitest run",
+    "test:integration": "vitest run src/__tests__/postgres-task-store-queue.test.ts",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
