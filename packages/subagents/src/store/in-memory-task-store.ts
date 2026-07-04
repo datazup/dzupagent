@@ -53,6 +53,19 @@ export class InMemoryTaskStore implements TaskStore {
     this.tasks.set(id, { ...existing, ...structuredClone(patch) });
   }
 
+  async patchIfStatus(
+    id: TaskId,
+    expectedStatus: TaskStatus,
+    patch: Partial<BackgroundTask>
+  ): Promise<boolean> {
+    const existing = this.tasks.get(id);
+    if (!existing || existing.status !== expectedStatus) {
+      return false;
+    }
+    this.tasks.set(id, { ...existing, ...structuredClone(patch) });
+    return true;
+  }
+
   /** Remove a task entirely — used by GC for terminal tasks past retention. */
   async remove(id: TaskId): Promise<void> {
     this.tasks.delete(id);

@@ -21,4 +21,22 @@ export interface TaskStore {
   get(id: TaskId): Promise<BackgroundTask | null>;
   list(filter: TaskFilter): Promise<BackgroundTask[]>;
   patch(id: TaskId, patch: Partial<BackgroundTask>): Promise<void>;
+  /**
+   * Optional optimistic update hook for durable stores. Returns false when the
+   * stored record no longer has the expected version.
+   */
+  patchIfVersion?(
+    id: TaskId,
+    expectedVersion: number,
+    patch: Partial<BackgroundTask>,
+  ): Promise<boolean>;
+  /**
+   * Optional compare-and-set transition hook. Returns false when the task is
+   * missing or no longer has the expected status.
+   */
+  patchIfStatus?(
+    id: TaskId,
+    expectedStatus: TaskStatus,
+    patch: Partial<BackgroundTask>,
+  ): Promise<boolean>;
 }

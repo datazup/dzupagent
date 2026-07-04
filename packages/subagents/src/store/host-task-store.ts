@@ -66,6 +66,21 @@ export class HostTaskStore implements TaskStore {
     });
   }
 
+  async patchIfStatus(
+    id: TaskId,
+    expectedStatus: TaskStatus,
+    patch: Partial<BackgroundTask>,
+  ): Promise<boolean> {
+    let applied = false;
+    await this.mutate(async () => {
+      const existing = await this.read(id);
+      if (existing === null || existing.status !== expectedStatus) return;
+      await this.write({ ...existing, ...structuredClone(patch) });
+      applied = true;
+    });
+    return applied;
+  }
+
   async remove(id: TaskId): Promise<void> {
     await this.mutate(async () => {
       try {
