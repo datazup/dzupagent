@@ -2,12 +2,17 @@ import { typedEmit } from "@dzupagent/core/events";
 import type { DzupEventBus } from "@dzupagent/core/events";
 import {
   BackgroundSubagentRuntime,
+  DurableQueueRunner,
   InMemoryTaskStore,
+  PostgresTaskQueue,
+  PostgresTaskStore,
   SpawnGate,
   denyAllSpawnPolicy,
   type CheckpointerPort,
   type GovernanceEventSink,
   type LifecyclePolicy,
+  type PostgresQueryClient,
+  type RecoverStaleRunningTasksOptions,
   type SpawnApprovalGate,
   type SpawnPolicy,
   type SubagentEventSink,
@@ -38,6 +43,19 @@ export interface CreateWiredSubagentRuntimeOptions {
   checkpointStore?: CheckpointStore;
   /** Custom task store; defaults to in-memory. */
   taskStore?: TaskStore;
+  /** Opt-in Postgres-backed durable task store + leased queue. */
+  postgresDurability?: {
+    client: PostgresQueryClient;
+    taskTableName?: string;
+    queueTableName?: string;
+    workerId?: string;
+    leaseMs?: number;
+    pollIntervalMs?: number;
+    staleRunningRecovery?: Pick<
+      RecoverStaleRunningTasksOptions,
+      "runningTimeoutMs" | "action" | "enqueue"
+    >;
+  };
   policy?: SpawnPolicy;
   approvalGate?: SpawnApprovalGate;
   lifecyclePolicy?: Partial<LifecyclePolicy>;
@@ -63,7 +81,16 @@ export interface CreateWiredSubagentRuntimeOptions {
 export function createWiredSubagentRuntime(
   options: CreateWiredSubagentRuntimeOptions,
 ): BackgroundSubagentRuntime {
-  const store = options.taskStore ?? new InMemoryTaskStore();
+  const store =
+    options.taskStore ??
+    (options.postgresDurability
+      ? new PostgresTaskStore({
+          client: options.postgresDurability.client,
+          ...(options.postgresDurability.taskTableName
+            ? { tableName: options.postgresDurability.taskTableName }
+            : {}),
+        })
+      : new InMemoryTaskStore());
   const executor = new RegistrySubagentExecutor(
     options.registry,
     options.executorLimits ?? {},
@@ -90,13 +117,39 @@ export function createWiredSubagentRuntime(
     ? new CheckpointStorePort(options.checkpointStore)
     : undefined;
 
-  const runner = new InProcessRunner({
-    store,
-    executor,
-    events,
-    clock: { now: () => Date.now() },
-    ...(checkpointer ? { checkpointer } : {}),
-  });
+  const clock = { now: () => Date.now() };
+  const runner = options.postgresDurability
+    ? new DurableQueueRunner({
+        store,
+        executor,
+        events,
+        clock,
+        ...(checkpointer ? { checkpointer } : {}),
+        queue: new PostgresTaskQueue({
+          client: options.postgresDurability.client,
+          ...(options.postgresDurability.queueTableName
+            ? { tableName: options.postgresDurability.queueTableName }
+            : {}),
+          ...(options.postgresDurability.workerId
+            ? { workerId: options.postgresDurability.workerId }
+            : {}),
+          ...(options.postgresDurability.leaseMs
+            ? { leaseMs: options.postgresDurability.leaseMs }
+            : {}),
+          ...(options.postgresDurability.pollIntervalMs
+            ? { pollIntervalMs: options.postgresDurability.pollIntervalMs }
+            : {}),
+        }),
+        durable: true,
+        horizontal: true,
+      })
+    : new InProcessRunner({
+        store,
+        executor,
+        events,
+        clock,
+        ...(checkpointer ? { checkpointer } : {}),
+      });
 
   // AGENT-L-10: deny-by-default. A host must pass an explicit `policy` to permit
   // spawns; the wired (production) runtime never ships an allow-all surface.
@@ -112,6 +165,9 @@ export function createWiredSubagentRuntime(
     events,
     governance,
     resolveAdmission: buildAdmissionResolver(options),
+    ...(options.postgresDurability?.staleRunningRecovery
+      ? { staleRunningRecovery: options.postgresDurability.staleRunningRecovery }
+      : {}),
     ...(options.lifecyclePolicy ? { policy: options.lifecyclePolicy } : {}),
     generateId: options.generateId ?? (() => randomUUID()),
   });

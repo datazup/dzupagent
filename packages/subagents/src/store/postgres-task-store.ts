@@ -19,6 +19,7 @@ export interface PostgresQueryClient {
 export interface PostgresTaskStoreOptions {
   client: PostgresQueryClient;
   tableName?: string;
+  logger?: SubagentLogger;
 }
 
 export interface PostgresSubagentSchemaSqlOptions {
@@ -71,10 +72,12 @@ export interface VersionedTask {
 export class PostgresTaskStore implements TaskStore {
   private readonly client: PostgresQueryClient;
   private readonly tableName: string;
+  private readonly logger: SubagentLogger;
 
   constructor(options: PostgresTaskStoreOptions) {
     this.client = options.client;
     this.tableName = sanitizeIdentifier(options.tableName ?? "subagent_tasks");
+    this.logger = options.logger ?? defaultSubagentLogger;
   }
 
   async put(task: BackgroundTask): Promise<void> {
@@ -177,7 +180,16 @@ export class PostgresTaskStore implements TaskStore {
         ],
       ),
     );
-    return rows.length > 0;
+    const applied = rows.length > 0;
+    if (!applied && (expectedVersion !== null || expectedStatus !== null)) {
+      this.logger.warn({
+        taskId: id,
+        code: "TASK_STORE_CAS_MISS",
+        ...(expectedVersion !== null ? { expectedVersion } : {}),
+        ...(expectedStatus !== null ? { expectedStatus } : {}),
+      });
+    }
+    return applied;
   }
 }
 
@@ -306,12 +318,18 @@ export class PostgresTaskQueue implements TaskQueue {
              last_claimed_at = $1
          FROM next_task
          WHERE q.task_id = next_task.task_id
-         RETURNING q.task_id, q.leased_by`,
+         RETURNING q.task_id, q.leased_by, q.attempts`,
         [now, now + this.leaseMs, this.workerId],
       ),
     );
     const row = rows[0];
     if (!row || typeof row.task_id !== "string") return null;
+    this.logger.info({
+      taskId: row.task_id,
+      code: "TASK_QUEUE_CLAIMED",
+      workerId: this.workerId,
+      ...(row.attempts !== undefined ? { attempts: Number(row.attempts) } : {}),
+    });
     return {
       task_id: row.task_id,
       leased_by: typeof row.leased_by === "string" ? row.leased_by : null,
@@ -334,6 +352,7 @@ export interface RecoverStaleRunningTasksOptions {
   runningTimeoutMs: number;
   action?: "fail" | "requeue";
   enqueue?: (taskId: TaskId) => Promise<void>;
+  logger?: SubagentLogger;
 }
 
 export async function recoverStaleRunningTasks(
@@ -360,6 +379,12 @@ export async function recoverStaleRunningTasks(
     if (action === "requeue") {
       await options.enqueue?.(task.id);
     }
+    options.logger?.info({
+      taskId: task.id,
+      code: "STALE_RUNNING_TASK_RECOVERED",
+      action,
+      runningTimeoutMs: options.runningTimeoutMs,
+    });
     recovered.push(task.id);
   }
   return recovered;
