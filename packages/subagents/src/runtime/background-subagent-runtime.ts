@@ -25,6 +25,10 @@ import type {
 } from "../governance/spawn-gate.js";
 import type { LifecyclePolicy } from "./runtime-config.js";
 import { DEFAULT_LIFECYCLE_POLICY } from "./runtime-config.js";
+import {
+  recoverStaleRunningTasks,
+  type RecoverStaleRunningTasksOptions,
+} from "../store/postgres-task-store.js";
 
 /** Governance event side-channel — structurally compatible with `GovernanceEvent`. */
 export interface GovernanceEventSink {
@@ -92,6 +96,11 @@ export interface BackgroundSubagentRuntimeDeps {
   logger?: SubagentLogger;
   /** Optional trusted pre-admission resolver for persona snapshots/policy data. */
   resolveAdmission?: SubagentAdmissionResolver;
+  /** Optional policy for durable runners that should settle stale running work. */
+  staleRunningRecovery?: Pick<
+    RecoverStaleRunningTasksOptions,
+    "runningTimeoutMs" | "action" | "enqueue"
+  >;
   /** Deterministic id generator (no Math.random in core paths). */
   generateId: () => string;
 }
@@ -112,6 +121,10 @@ export class BackgroundSubagentRuntime {
   private readonly policy: LifecyclePolicy;
   private readonly logger: SubagentLogger;
   private readonly resolveAdmission?: SubagentAdmissionResolver;
+  private readonly staleRunningRecovery?: Pick<
+    RecoverStaleRunningTasksOptions,
+    "runningTimeoutMs" | "action" | "enqueue"
+  >;
   private readonly generateId: () => string;
   private readonly lifecycle: LifecycleController;
   private readonly controllers = new Map<TaskId, AbortController>();
@@ -126,6 +139,7 @@ export class BackgroundSubagentRuntime {
     this.policy = { ...DEFAULT_LIFECYCLE_POLICY, ...deps.policy };
     this.logger = deps.logger ?? defaultSubagentLogger;
     this.resolveAdmission = deps.resolveAdmission;
+    this.staleRunningRecovery = deps.staleRunningRecovery;
     this.generateId = deps.generateId;
     this.lifecycle = new LifecycleController(
       this.store,
@@ -513,6 +527,13 @@ export class BackgroundSubagentRuntime {
     const orphans = await this.lifecycle.findOrphans();
     const reconciled: TaskId[] = [];
     const durable = this.runner.capabilities().durable;
+    if (durable && this.staleRunningRecovery !== undefined) {
+      return recoverStaleRunningTasks({
+        store: this.store,
+        now: this.clock.now(),
+        ...this.staleRunningRecovery,
+      });
+    }
     for (const task of orphans) {
       if (durable) {
         // Durable runner is expected to resume; leave state for it to pick up.

@@ -106,7 +106,18 @@ export class LifecycleController {
   }
 
   private async expire(task: BackgroundTask, now: number): Promise<void> {
-    await this.store.patch(task.id, { status: "expired", endedAt: now });
+    const applied = this.store.patchIfStatus
+      ? await this.store.patchIfStatus(task.id, task.status, {
+          status: "expired",
+          endedAt: now,
+        })
+      : await this.patchIfCurrentStatus(task.id, task.status, {
+          status: "expired",
+          endedAt: now,
+        });
+    if (!applied) {
+      return;
+    }
     // For a running task we abort via onExpire; the runtime's run `.finally` is
     // the single slot-release point, so we do NOT release here (avoids a
     // double-release). Queued/awaiting_approval tasks hold no slot.
@@ -136,5 +147,18 @@ export class LifecycleController {
    */
   async findOrphans(): Promise<BackgroundTask[]> {
     return this.store.list({ status: "running" });
+  }
+
+  private async patchIfCurrentStatus(
+    taskId: TaskId,
+    expectedStatus: BackgroundTask["status"],
+    patch: Partial<BackgroundTask>
+  ): Promise<boolean> {
+    const current = await this.store.get(taskId);
+    if (!current || current.status !== expectedStatus) {
+      return false;
+    }
+    await this.store.patch(taskId, patch);
+    return true;
   }
 }
