@@ -116,6 +116,9 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
               ? {
                   inputTokens: event.usage.inputTokens,
                   outputTokens: event.usage.outputTokens,
+                  ...(event.usage.costCents !== undefined
+                    ? { costUsd: event.usage.costCents / 100 }
+                    : {}),
                 }
               : undefined;
             // AGENT-M-05: enforce the output-token ceiling on reported usage.
@@ -346,6 +349,9 @@ function agentInputPolicyFields(
     ...(constraints.networkPolicy !== undefined
       ? { networkAccess: constraints.networkPolicy !== "off" }
       : {}),
+    ...(constraints.toolPolicy !== undefined
+      ? { toolPolicy: constraints.toolPolicy }
+      : {}),
   };
   const compiled = compilePolicyForProvider(providerId, activePolicy);
   const conformance = new PolicyConformanceChecker().check(
@@ -358,11 +364,6 @@ function agentInputPolicyFields(
       .filter((violation) => violation.severity === "warning")
       .map((violation) => `${violation.field}: ${violation.reason}`),
     ...conformance.warnings,
-    ...(constraints.toolPolicy !== undefined && constraints.toolPolicy !== "open"
-      ? [
-          `toolPolicy: Provider '${providerId}' does not expose a native subagent toolPolicy projection; requested '${constraints.toolPolicy}' is advisory metadata.`,
-        ]
-      : []),
   ];
 
   return {

@@ -83,6 +83,7 @@ export interface FanoutReport {
   budget: {
     outputTokensUsed?: number;
     budgetUsdReserved?: number;
+    budgetUsdActual?: number;
     wallClockMs: number;
     aborted: boolean;
     abortedReason?: string;
@@ -99,6 +100,7 @@ export interface FanoutReportItem {
   error?: string;
   durationMs?: number;
   outputTokens?: number;
+  costUsd?: number;
 }
 
 export function fanoutBatchRecordToReport(
@@ -129,6 +131,9 @@ export function fanoutBatchRecordToReport(
         : {}),
       ...(record.budgetUsdReserved !== undefined
         ? { budgetUsdReserved: record.budgetUsdReserved }
+        : {}),
+      ...(record.budgetUsdActual !== undefined
+        ? { budgetUsdActual: record.budgetUsdActual }
         : {}),
       wallClockMs,
       aborted: record.budgetAborted ?? false,
@@ -602,6 +607,7 @@ async function runOneItem(args: {
     limits: args.limits,
   });
   recordOutputTokens(args.budgetState, reportItem.outputTokens);
+  recordActualBudgetUsd(args.budgetState, reportItem.costUsd);
   await persistItem(args.fanoutBatchStore, args.batchId, reportItem, Date.now());
   return reportItem;
 }
@@ -738,6 +744,7 @@ interface FanoutBudgetState {
   readonly maxTotalBudgetUsd?: number;
   outputTokensUsed: number;
   budgetUsdReserved?: number;
+  budgetUsdActual?: number;
   aborted: boolean;
   abortedReason?: string;
   abort(reason: string): void;
@@ -794,6 +801,20 @@ function recordOutputTokens(
   }
 }
 
+function recordActualBudgetUsd(
+  state: FanoutBudgetState,
+  costUsd: number | undefined,
+): void {
+  if (costUsd === undefined) return;
+  state.budgetUsdActual = roundBudgetUsd((state.budgetUsdActual ?? 0) + costUsd);
+  if (
+    state.maxTotalBudgetUsd !== undefined &&
+    state.budgetUsdActual > state.maxTotalBudgetUsd
+  ) {
+    state.abort("max_total_budget_usd_exceeded");
+  }
+}
+
 function reserveBudgetUsd(
   state: FanoutBudgetState,
   template: SubagentSpec,
@@ -830,6 +851,9 @@ function buildBudgetReport(
       : {}),
     ...(state.budgetUsdReserved !== undefined
       ? { budgetUsdReserved: state.budgetUsdReserved }
+      : {}),
+    ...(state.budgetUsdActual !== undefined
+      ? { budgetUsdActual: state.budgetUsdActual }
       : {}),
     wallClockMs,
     aborted: state.aborted,
@@ -869,6 +893,9 @@ function buildSettledReportItem(args: {
     ...(args.result?.usage?.outputTokens !== undefined
       ? { outputTokens: args.result.usage.outputTokens }
       : {}),
+    ...(args.result?.usage?.costUsd !== undefined
+      ? { costUsd: roundBudgetUsd(args.result.usage.costUsd) }
+      : {}),
   };
 }
 
@@ -895,6 +922,7 @@ function batchRecordItemToReportItem(
     ...(item.error !== undefined ? { error: item.error } : {}),
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
     ...(item.outputTokens !== undefined ? { outputTokens: item.outputTokens } : {}),
+    ...(item.costUsd !== undefined ? { costUsd: item.costUsd } : {}),
   };
 }
 
@@ -918,6 +946,9 @@ async function persistReport(
       : {}),
     ...(report.budget.budgetUsdReserved !== undefined
       ? { budgetUsdReserved: report.budget.budgetUsdReserved }
+      : {}),
+    ...(report.budget.budgetUsdActual !== undefined
+      ? { budgetUsdActual: report.budget.budgetUsdActual }
       : {}),
     ...(abortedReason !== undefined ? { abortedReason } : {}),
     ...(report.budget.aborted ? { budgetAborted: true } : {}),
@@ -943,6 +974,7 @@ async function persistItem(
   if (item.error !== undefined) update.error = item.error;
   if (item.durationMs !== undefined) update.durationMs = item.durationMs;
   if (item.outputTokens !== undefined) update.outputTokens = item.outputTokens;
+  if (item.costUsd !== undefined) update.costUsd = item.costUsd;
 
   await store.recordItem(batchId, item.key, update);
 }

@@ -13,6 +13,7 @@ export interface AgentInputPolicy {
   sandboxMode?: 'read-only' | 'workspace-write' | 'full-access' | undefined
   networkAccess?: boolean | undefined
   approvalRequired?: boolean | undefined
+  toolPolicy?: 'strict' | 'balanced' | 'open' | undefined
   allowedTools?: string[] | undefined
   blockedTools?: string[] | undefined
   maxBudgetUsd?: number | undefined

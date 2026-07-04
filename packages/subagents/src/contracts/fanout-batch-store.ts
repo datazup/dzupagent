@@ -21,6 +21,7 @@ export interface FanoutBatchItemRecord {
   error?: string;
   durationMs?: number;
   outputTokens?: number;
+  costUsd?: number;
   updatedAt: number;
 }
 
@@ -37,6 +38,7 @@ export interface FanoutBatchRecord {
   wallClockMs?: number;
   outputTokensUsed?: number;
   budgetUsdReserved?: number;
+  budgetUsdActual?: number;
   abortedReason?: string;
   budgetAborted?: boolean;
 }
@@ -57,6 +59,7 @@ export interface FanoutBatchItemUpdate {
   error?: string;
   durationMs?: number;
   outputTokens?: number;
+  costUsd?: number;
   updatedAt: number;
 }
 
@@ -66,6 +69,7 @@ export interface FanoutBatchCompleteUpdate {
   wallClockMs: number;
   outputTokensUsed?: number;
   budgetUsdReserved?: number;
+  budgetUsdActual?: number;
   abortedReason?: string;
   budgetAborted?: boolean;
 }
