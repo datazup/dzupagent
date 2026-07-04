@@ -5,6 +5,45 @@ export type SpawnPolicyDecision =
   | { allow: true; requiresApproval: boolean }
   | { allow: false; reason: string };
 
+export type SpawnBatchMode = "template" | "script";
+
+export interface SpawnBatchRequest {
+  batchId: string;
+  parentRunId: string;
+  mode: SpawnBatchMode;
+  template: SubagentSpec;
+  itemKeys: string[];
+}
+
+export interface ApprovedSpawnBatch {
+  batchId: string;
+  mode: SpawnBatchMode;
+  template: SubagentSpec;
+  itemKeys: string[];
+}
+
+export type SpawnPolicyContext =
+  | {
+      kind: "batch";
+      batchId: string;
+      batchSize: number;
+      itemKeys: string[];
+      mode: SpawnBatchMode;
+    }
+  | {
+      kind: "batch_item";
+      batchId: string;
+      batchSize: number;
+      itemKey?: string;
+      mode: SpawnBatchMode;
+      batchApproved: true;
+    };
+
+export interface SpawnEvaluationContext {
+  batch: ApprovedSpawnBatch;
+  itemKey?: string;
+}
+
 /**
  * The policy seam. A host supplies a policy that inspects the spec (agentId,
  * outboundScope, memoryScope) and the parent run, returning whether the spawn is
@@ -16,6 +55,11 @@ export interface SpawnPolicy {
   check(
     spec: SubagentSpec,
     parentRunId: string
+  ): Promise<SpawnPolicyDecision> | SpawnPolicyDecision;
+  checkWithContext?(
+    spec: SubagentSpec,
+    parentRunId: string,
+    context: SpawnPolicyContext
   ): Promise<SpawnPolicyDecision> | SpawnPolicyDecision;
 }
 
@@ -74,13 +118,62 @@ export class SpawnGate {
   async evaluate(
     spec: SubagentSpec,
     parentRunId: string,
-    approvalId: string
+    approvalId: string,
+    context?: SpawnEvaluationContext
   ): Promise<
     | { outcome: "allowed" }
     | { outcome: "needs_approval" }
     | { outcome: "denied"; reason: string }
   > {
-    const decision = await this.policy.check(spec, parentRunId);
+    void approvalId;
+
+    if (context !== undefined) {
+      const scopeDecision = validateBatchScope(spec, context.batch.template);
+      if (!scopeDecision.allow) {
+        return { outcome: "denied", reason: scopeDecision.reason };
+      }
+    }
+
+    const decision = await this.checkPolicy(
+      spec,
+      parentRunId,
+      context !== undefined
+        ? {
+            kind: "batch_item",
+            batchId: context.batch.batchId,
+            batchSize: context.batch.itemKeys.length,
+            ...(context.itemKey !== undefined ? { itemKey: context.itemKey } : {}),
+            mode: context.batch.mode,
+            batchApproved: true,
+          }
+        : undefined
+    );
+    if (!decision.allow) {
+      return { outcome: "denied", reason: decision.reason };
+    }
+    if (context !== undefined) {
+      return { outcome: "allowed" };
+    }
+    if (decision.requiresApproval) {
+      return { outcome: "needs_approval" };
+    }
+    return { outcome: "allowed" };
+  }
+
+  async evaluateBatch(
+    request: SpawnBatchRequest
+  ): Promise<
+    | { outcome: "allowed" }
+    | { outcome: "needs_approval" }
+    | { outcome: "denied"; reason: string }
+  > {
+    const decision = await this.checkPolicy(request.template, request.parentRunId, {
+      kind: "batch",
+      batchId: request.batchId,
+      batchSize: request.itemKeys.length,
+      itemKeys: request.itemKeys,
+      mode: request.mode,
+    });
     if (!decision.allow) {
       return { outcome: "denied", reason: decision.reason };
     }
@@ -111,4 +204,55 @@ export class SpawnGate {
       return { approved: false, reason };
     }
   }
+
+  private async checkPolicy(
+    spec: SubagentSpec,
+    parentRunId: string,
+    context?: SpawnPolicyContext
+  ): Promise<SpawnPolicyDecision> {
+    if (context !== undefined && this.policy.checkWithContext !== undefined) {
+      return this.policy.checkWithContext(spec, parentRunId, context);
+    }
+    return this.policy.check(spec, parentRunId);
+  }
+}
+
+function validateBatchScope(
+  spec: SubagentSpec,
+  template: SubagentSpec
+): { allow: true } | { allow: false; reason: string } {
+  if (spec.agentId !== template.agentId) {
+    return { allow: false, reason: "batch_scope_widened: agentId" };
+  }
+  if (!isOutboundScopeSubset(spec.outboundScope, template.outboundScope)) {
+    return { allow: false, reason: "batch_scope_widened: outboundScope" };
+  }
+  if (!isMemoryScopeNarrowed(spec.memoryScope, template.memoryScope)) {
+    return { allow: false, reason: "batch_scope_widened: memoryScope" };
+  }
+  return { allow: true };
+}
+
+function isOutboundScopeSubset(
+  requested: string[] | undefined,
+  approved: string[] | undefined
+): boolean {
+  if (requested === undefined || requested.length === 0) return true;
+  if (approved === undefined) return false;
+  const allowed = new Set(approved);
+  return requested.every((scope) => allowed.has(scope));
+}
+
+function isMemoryScopeNarrowed(
+  requested: SubagentSpec["memoryScope"],
+  approved: SubagentSpec["memoryScope"]
+): boolean {
+  if (requested === undefined || approved === undefined) return true;
+  const ranks: Record<NonNullable<SubagentSpec["memoryScope"]>, number> = {
+    global: 0,
+    workspace: 1,
+    project: 2,
+    agent: 3,
+  };
+  return ranks[requested] >= ranks[approved];
 }

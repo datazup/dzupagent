@@ -170,6 +170,7 @@ export type SubagentRuntimeDzupEvent =
       taskId: string;
       parentRunId: string;
       agentId: string;
+      batchId?: string | undefined;
     }
   | { type: "subagent:admitted"; taskId: string }
   | { type: "subagent:progress"; taskId: string; note: string }
@@ -181,7 +182,49 @@ export type SubagentRuntimeDzupEvent =
       durationMs: number;
     }
   | { type: "subagent:cancelled"; taskId: string }
-  | { type: "subagent:expired"; taskId: string };
+  | { type: "subagent:expired"; taskId: string }
+  | {
+      type: "fanout:started";
+      batchId: string;
+      parentRunId: string;
+      mode: "template" | "script";
+      declared: number;
+    }
+  | {
+      type: "fanout:item_dispatched";
+      batchId: string;
+      itemKey: string;
+      taskId: string;
+    }
+  | {
+      type: "fanout:item_settled";
+      batchId: string;
+      itemKey: string;
+      taskId: string;
+      status: string;
+      durationMs?: number | undefined;
+    }
+  | {
+      type: "fanout:completed";
+      batchId: string;
+      dispatched: number;
+      succeeded: number;
+      failed: number;
+      uncovered: number;
+      wallClockMs: number;
+    }
+  | {
+      type: "fanout:aborted";
+      batchId: string;
+      reason:
+        | "denied"
+        | "script_error"
+        | "budget_exceeded"
+        | "timeout"
+        | "validation_error";
+      dispatched: number;
+    }
+  | { type: "fanout:progress"; batchId: string; message: string };
 
 /**
  * Governance decisions surfaced by the subagent spawn gate. A focused subset of

@@ -1,5 +1,9 @@
 import type { SubagentSpec, TaskId } from "../contracts/background-task.js";
+import type { SubagentEventSink } from "../contracts/events.js";
+import type { FanoutBatchStore } from "../contracts/fanout-batch-store.js";
 import type { BackgroundSubagentRuntime } from "../runtime/background-subagent-runtime.js";
+import { createFanoutTemplateTool } from "./fanout-tool.js";
+import type { FanoutLimits } from "./fanout-tool.js";
 
 /**
  * Provider-neutral tool descriptor. Hosts adapt these to their concrete tool
@@ -25,16 +29,36 @@ export interface SubagentToolsConfig {
    * to their request/run context so spawned tasks are attributed correctly.
    */
   resolveParentRunId: () => string;
+  /** Optional event sink for fanout:* lifecycle events. */
+  events?: SubagentEventSink;
+  /** Optional deterministic batch id generator for fanout_template. */
+  generateBatchId?: () => string;
+  /** Optional store for reconstructing fan-out batch reports after coordinator loss. */
+  fanoutBatchStore?: FanoutBatchStore;
+  /** Optional fanout_template limit overrides. */
+  fanoutLimits?: Partial<FanoutLimits>;
 }
 
 /**
- * Build the four LLM-facing subagent tools. Each delegates to the runtime and
+ * Build the LLM-facing subagent tools. Each delegates to the runtime and
  * returns plain serialisable results so the model can reason about them.
  */
 export function createSubagentTools(
   config: SubagentToolsConfig,
 ): SubagentToolDescriptor[] {
   const { runtime, resolveParentRunId } = config;
+  const fanout = createFanoutTemplateTool({
+    runtime,
+    resolveParentRunId,
+    ...(config.events !== undefined ? { events: config.events } : {}),
+    ...(config.generateBatchId !== undefined
+      ? { generateBatchId: config.generateBatchId }
+      : {}),
+    ...(config.fanoutBatchStore !== undefined
+      ? { fanoutBatchStore: config.fanoutBatchStore }
+      : {}),
+    ...(config.fanoutLimits !== undefined ? { limits: config.fanoutLimits } : {}),
+  });
 
   const spawn: SubagentToolDescriptor<{
     agentId: string;
@@ -157,5 +181,5 @@ export function createSubagentTools(
     },
   };
 
-  return [spawn, check, await_, cancel];
+  return [spawn, check, await_, cancel, fanout];
 }

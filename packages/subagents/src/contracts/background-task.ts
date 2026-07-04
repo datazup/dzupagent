@@ -74,6 +74,8 @@ export interface BackgroundTask {
   id: TaskId;
   /** Run ID of the parent agent/orchestration that spawned this task. */
   parentRunId: string;
+  /** Fan-out batch that created this task, when applicable. */
+  batchId?: string;
   spec: SubagentSpec;
   status: TaskStatus;
   result?: SubagentResult;

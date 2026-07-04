@@ -78,8 +78,12 @@ export {
   SpawnGate,
   allowAllSpawnPolicy,
   denyAllSpawnPolicy,
+  type ApprovedSpawnBatch,
   type SpawnPolicy,
+  type SpawnPolicyContext,
   type SpawnPolicyDecision,
+  type SpawnBatchMode,
+  type SpawnBatchRequest,
   type SpawnApprovalGate,
   type ApprovalOutcome,
 } from "./governance/spawn-gate.js";
@@ -97,8 +101,20 @@ export {
 } from "./runner/durable-queue-runner.js";
 
 // Stores
+export { InMemoryFanoutBatchStore } from "./store/in-memory-fanout-batch-store.js";
 export { InMemoryTaskStore } from "./store/in-memory-task-store.js";
 export { InMemoryCheckpointer } from "./store/in-memory-checkpointer.js";
+export {
+  type FanoutBatchCompleteUpdate,
+  type FanoutBatchCreate,
+  type FanoutBatchItemRecord,
+  type FanoutBatchItemStatus,
+  type FanoutBatchItemUpdate,
+  type FanoutBatchMode,
+  type FanoutBatchRecord,
+  type FanoutBatchStatus,
+  type FanoutBatchStore,
+} from "./contracts/fanout-batch-store.js";
 
 // API + tools
 export {
@@ -110,3 +126,13 @@ export {
   type SubagentToolDescriptor,
   type SubagentToolsConfig,
 } from "./tools/subagent-tools.js";
+export {
+  createFanoutTemplateTool,
+  fanoutBatchRecordToReport,
+  type FanoutBudget,
+  type FanoutLimits,
+  type FanoutReport,
+  type FanoutReportItem,
+  type FanoutTemplateArgs,
+  type FanoutToolConfig,
+} from "./tools/fanout-tool.js";

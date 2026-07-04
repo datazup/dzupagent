@@ -18,6 +18,10 @@ import type { TaskRunner } from "../contracts/task-runner.js";
 import type { TaskStore } from "../contracts/task-store.js";
 import { LifecycleController } from "../lifecycle/lifecycle-controller.js";
 import type { SpawnGate } from "../governance/spawn-gate.js";
+import type {
+  ApprovedSpawnBatch,
+  SpawnBatchRequest,
+} from "../governance/spawn-gate.js";
 import type { LifecyclePolicy } from "./runtime-config.js";
 import { DEFAULT_LIFECYCLE_POLICY } from "./runtime-config.js";
 
@@ -43,7 +47,13 @@ export type SpawnOutcome =
 
 export interface SpawnOptions {
   ttlMs?: number;
+  batch?: ApprovedSpawnBatch;
+  batchItemKey?: string;
 }
+
+export type SpawnBatchAdmission =
+  | { ok: true; batch: ApprovedSpawnBatch; approvalRequired: boolean }
+  | { ok: false; reason: "denied"; detail: string };
 
 /**
  * Ownership scope for pull/cancel operations (SEC-M-04). When supplied, the
@@ -145,6 +155,7 @@ export class BackgroundSubagentRuntime {
     const task: BackgroundTask = {
       id,
       parentRunId,
+      ...(options.batch !== undefined ? { batchId: options.batch.batchId } : {}),
       spec,
       status: "queued",
       createdAt: this.clock.now(),
@@ -153,7 +164,19 @@ export class BackgroundSubagentRuntime {
     await this.store.put(task);
 
     const approvalId = `subagent:${id}`;
-    const decision = await this.gate.evaluate(spec, parentRunId, approvalId);
+    const decision = await this.gate.evaluate(
+      spec,
+      parentRunId,
+      approvalId,
+      options.batch !== undefined
+        ? {
+            batch: options.batch,
+            ...(options.batchItemKey !== undefined
+              ? { itemKey: options.batchItemKey }
+              : {}),
+          }
+        : undefined
+    );
 
     if (decision.outcome === "denied") {
       await this.store.patch(id, {
@@ -249,6 +272,7 @@ export class BackgroundSubagentRuntime {
       taskId: id,
       parentRunId,
       agentId: task.spec.agentId,
+      ...(task.batchId !== undefined ? { batchId: task.batchId } : {}),
     });
 
     // Fire-and-forget execution; runner persists terminal state + events.
@@ -355,6 +379,52 @@ export class BackgroundSubagentRuntime {
   /** List tasks for a parent run (or all). */
   async list(parentRunId?: string): Promise<BackgroundTask[]> {
     return this.store.list(parentRunId !== undefined ? { parentRunId } : {});
+  }
+
+  async evaluateBatch(
+    request: SpawnBatchRequest
+  ): Promise<SpawnBatchAdmission> {
+    const decision = await this.gate.evaluateBatch(request);
+    if (decision.outcome === "denied") {
+      this.governance.emitGovernance({
+        type: "governance:rule_violation",
+        runId: request.parentRunId,
+        detail: decision.reason,
+      });
+      return { ok: false, reason: "denied", detail: decision.reason };
+    }
+
+    if (decision.outcome === "needs_approval") {
+      this.governance.emitGovernance({
+        type: "governance:approval_requested",
+        runId: request.parentRunId,
+        approvalId: request.batchId,
+      });
+      const outcome = await this.gate.awaitApproval(
+        request.parentRunId,
+        request.batchId
+      );
+      this.governance.emitGovernance({
+        type: "governance:approval_resolved",
+        runId: request.parentRunId,
+        approvalId: request.batchId,
+        detail: outcome.approved ? "approved" : outcome.reason,
+      });
+      if (!outcome.approved) {
+        return { ok: false, reason: "denied", detail: outcome.reason };
+      }
+    }
+
+    return {
+      ok: true,
+      approvalRequired: decision.outcome === "needs_approval",
+      batch: {
+        batchId: request.batchId,
+        mode: request.mode,
+        template: request.template,
+        itemKeys: [...request.itemKeys],
+      },
+    };
   }
 
   /**
