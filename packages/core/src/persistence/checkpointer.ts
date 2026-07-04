@@ -1,10 +1,10 @@
-import { PostgresSaver } from '@langchain/langgraph-checkpoint-postgres'
-import { MemorySaver } from '@langchain/langgraph'
-import type { BaseCheckpointSaver } from '@langchain/langgraph'
+import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { MemorySaver } from "@langchain/langgraph";
+import type { BaseCheckpointSaver } from "@langchain/langgraph";
 
 export interface CheckpointerConfig {
-  type: 'postgres' | 'memory'
-  connectionString?: string
+  type: "postgres" | "memory";
+  connectionString?: string;
 }
 
 /**
@@ -13,18 +13,22 @@ export interface CheckpointerConfig {
  * - `postgres`: Requires `connectionString`. Calls `setup()` to ensure
  *   checkpoint tables exist before returning.
  * - `memory`: In-memory checkpointer for development / testing.
+ *
+ * @public Stable root export of `@dzupagent/core` (also available via the
+ * `./persistence` subpath). Consumed in production by downstream apps;
+ * treat signature and error contract as semver-facing.
  */
 export async function createCheckpointer(
-  config: CheckpointerConfig,
+  config: CheckpointerConfig
 ): Promise<BaseCheckpointSaver> {
-  if (config.type === 'postgres') {
+  if (config.type === "postgres") {
     if (!config.connectionString) {
-      throw new Error('connectionString required for postgres checkpointer')
+      throw new Error("connectionString required for postgres checkpointer");
     }
-    const saver = PostgresSaver.fromConnString(config.connectionString)
-    await saver.setup()
-    return saver
+    const saver = PostgresSaver.fromConnString(config.connectionString);
+    await saver.setup();
+    return saver;
   }
 
-  return new MemorySaver()
+  return new MemorySaver();
 }
