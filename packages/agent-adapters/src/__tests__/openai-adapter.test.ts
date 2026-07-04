@@ -57,6 +57,11 @@ describe("OpenAIAdapter", () => {
       supportsToolCalls: true,
       supportsStreaming: true,
       supportsCostUsage: true,
+      nativeToolControls: {
+        mode: true,
+        allowlist: true,
+        blocklist: true,
+      },
     });
   });
 
