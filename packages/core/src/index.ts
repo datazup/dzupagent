@@ -302,6 +302,7 @@ export type {
   RunJournalPage,
   RunJournal,
   RunJournalConfig,
+  RunJournalAppendOptions,
 } from "./persistence/run-journal-types.js";
 
 // --- Run State Snapshot ---
