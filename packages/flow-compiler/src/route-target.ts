@@ -143,7 +143,19 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "adapter.run":
       case "adapter.race":
       case "adapter.parallel":
-      case "adapter.supervisor": {
+      case "adapter.supervisor":
+      case "spdd.import_sources":
+      case "spdd.build_source_pack":
+      case "spdd.run_analysis":
+      case "spdd.generate_canvas":
+      case "spdd.validate_canvas":
+      case "spdd.review_canvas":
+      case "spdd.project_plan":
+      case "spdd.arm_dispatch":
+      case "spdd.run_validation":
+      case "spdd.collect_proof":
+      case "spdd.scan_drift":
+      case "spdd.create_sync_proposal": {
         // Runtime-executed leaf nodes — MPCO P1 marks them so routing keeps
         // them off the skill-chain target (which rejects them at lowering).
         bits |= FEATURE_BITS.RUNTIME_LEAF;
@@ -264,7 +276,19 @@ export function hasOnError(ast: FlowNode): boolean {
       case "adapter.run":
       case "adapter.race":
       case "adapter.parallel":
-      case "adapter.supervisor": {
+      case "adapter.supervisor":
+      case "spdd.import_sources":
+      case "spdd.build_source_pack":
+      case "spdd.run_analysis":
+      case "spdd.generate_canvas":
+      case "spdd.validate_canvas":
+      case "spdd.review_canvas":
+      case "spdd.project_plan":
+      case "spdd.arm_dispatch":
+      case "spdd.run_validation":
+      case "spdd.collect_proof":
+      case "spdd.scan_drift":
+      case "spdd.create_sync_proposal": {
         return;
       }
       case "try_catch": {
@@ -332,7 +356,7 @@ function isUnsupportedForTarget(
 
 export function collectUnsupportedRuntimeNodes(
   ast: FlowNode,
-  target: CompilationTarget,
+  target: CompilationTarget
 ): UnsupportedRuntimeNode[] {
   const unsupported: UnsupportedRuntimeNode[] = [];
   const hasArtifactAnchor = hasGenericArtifactAnchor(ast, target);
@@ -345,7 +369,7 @@ export function collectUnsupportedRuntimeNodes(
     switch (node.type) {
       case "sequence": {
         node.nodes.forEach((child, idx) =>
-          visit(child, `${path}.nodes[${idx}]`),
+          visit(child, `${path}.nodes[${idx}]`)
         );
         return;
       }
@@ -353,7 +377,7 @@ export function collectUnsupportedRuntimeNodes(
         node.then.forEach((child, idx) => visit(child, `${path}.then[${idx}]`));
         if (node.else) {
           node.else.forEach((child, idx) =>
-            visit(child, `${path}.else[${idx}]`),
+            visit(child, `${path}.else[${idx}]`)
           );
         }
         return;
@@ -361,7 +385,7 @@ export function collectUnsupportedRuntimeNodes(
       case "parallel": {
         node.branches.forEach((branch, bIdx) => {
           branch.forEach((child, idx) =>
-            visit(child, `${path}.branches[${bIdx}][${idx}]`),
+            visit(child, `${path}.branches[${bIdx}][${idx}]`)
           );
         });
         return;
@@ -372,11 +396,11 @@ export function collectUnsupportedRuntimeNodes(
       }
       case "approval": {
         node.onApprove.forEach((child, idx) =>
-          visit(child, `${path}.onApprove[${idx}]`),
+          visit(child, `${path}.onApprove[${idx}]`)
         );
         if (node.onReject) {
           node.onReject.forEach((child, idx) =>
-            visit(child, `${path}.onReject[${idx}]`),
+            visit(child, `${path}.onReject[${idx}]`)
           );
         }
         return;
@@ -389,7 +413,7 @@ export function collectUnsupportedRuntimeNodes(
       case "try_catch": {
         node.body.forEach((child, idx) => visit(child, `${path}.body[${idx}]`));
         node.catch.forEach((child, idx) =>
-          visit(child, `${path}.catch[${idx}]`),
+          visit(child, `${path}.catch[${idx}]`)
         );
         return;
       }
@@ -427,6 +451,18 @@ export function collectUnsupportedRuntimeNodes(
       case "adapter.race":
       case "adapter.parallel":
       case "adapter.supervisor":
+      case "spdd.import_sources":
+      case "spdd.build_source_pack":
+      case "spdd.run_analysis":
+      case "spdd.generate_canvas":
+      case "spdd.validate_canvas":
+      case "spdd.review_canvas":
+      case "spdd.project_plan":
+      case "spdd.arm_dispatch":
+      case "spdd.run_validation":
+      case "spdd.collect_proof":
+      case "spdd.scan_drift":
+      case "spdd.create_sync_proposal":
         return;
       default: {
         const _exhaustive: never = node;
@@ -454,7 +490,8 @@ function hasGenericArtifactAnchor(
         return target === "pipeline";
       case "branch":
         return (
-          node.then.some(visit) || (node.else !== undefined && node.else.some(visit))
+          node.then.some(visit) ||
+          (node.else !== undefined && node.else.some(visit))
         );
       case "parallel":
         return node.branches.some((branch) => branch.some(visit));
@@ -500,6 +537,18 @@ function hasGenericArtifactAnchor(
       case "adapter.race":
       case "adapter.parallel":
       case "adapter.supervisor":
+      case "spdd.import_sources":
+      case "spdd.build_source_pack":
+      case "spdd.run_analysis":
+      case "spdd.generate_canvas":
+      case "spdd.validate_canvas":
+      case "spdd.review_canvas":
+      case "spdd.project_plan":
+      case "spdd.arm_dispatch":
+      case "spdd.run_validation":
+      case "spdd.collect_proof":
+      case "spdd.scan_drift":
+      case "spdd.create_sync_proposal":
         return target === "planning-dag";
       default: {
         const _exhaustive: never = node;

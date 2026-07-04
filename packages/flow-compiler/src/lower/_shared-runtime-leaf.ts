@@ -26,7 +26,19 @@ type RuntimeLeafNode = Extract<
       | "adapter.run"
       | "adapter.race"
       | "adapter.parallel"
-      | "adapter.supervisor";
+      | "adapter.supervisor"
+      | "spdd.import_sources"
+      | "spdd.build_source_pack"
+      | "spdd.run_analysis"
+      | "spdd.generate_canvas"
+      | "spdd.validate_canvas"
+      | "spdd.review_canvas"
+      | "spdd.project_plan"
+      | "spdd.arm_dispatch"
+      | "spdd.run_validation"
+      | "spdd.collect_proof"
+      | "spdd.scan_drift"
+      | "spdd.create_sync_proposal";
   }
 >;
 
@@ -50,7 +62,9 @@ export function lowerRuntimeLeaf(
   const base = {
     id,
     ...(node.name !== undefined ? { name: node.name } : {}),
-    ...(node.description !== undefined ? { description: node.description } : {}),
+    ...(node.description !== undefined
+      ? { description: node.description }
+      : {}),
     source: flowNodeSource(node, path),
     ...nodeDurabilityFields(node),
   };
