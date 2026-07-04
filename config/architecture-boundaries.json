@@ -905,7 +905,6 @@
           "eval-contracts",
           "cache",
           "memory-ipc",
-          "hitl-kit",
           "flow-ast",
           "dialogue-core",
           "security"
@@ -921,7 +920,8 @@
           "flow-dsl",
           "memory",
           "context",
-          "dialogue-core-replay"
+          "dialogue-core-replay",
+          "hitl-kit"
         ]
       },
       {

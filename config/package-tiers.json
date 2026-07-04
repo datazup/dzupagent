@@ -299,14 +299,14 @@
   "@dzupagent/hitl-kit": {
     "tier": 1,
     "status": "supported",
-    "architectureRole": "Layer-0 leaf runtime primitive: HITL (human-in-the-loop) type contracts with no @dzupagent runtime dependencies. Promoted from tier-3 to tier-1 to align tier ordering with actual dependency direction; @dzupagent/server depends on this package.",
+    "architectureRole": "Layer-1 foundation package: HITL (human-in-the-loop) type contracts. Moved from layer 0 to layer 1 (runtime-determinism-primitives branch, Task 4) because it now aliases its ApprovalOutcome type to the shared @dzupagent/adapter-types InterruptOutcome contract, giving it a real layer-0 dependency that layer 0's leaf-primitive invariant (no @dzupagent runtime deps) no longer permits. Promoted from tier-3 to tier-1 to align tier ordering with actual dependency direction; @dzupagent/server depends on this package.",
     "roadmapDriver": false,
     "owners": ["apps/ai-saas-starter-kit", "apps/research-app"]
   },
   "@dzupagent/subagents": {
     "tier": 2,
     "status": "supported",
-    "architectureRole": "Layer-2 domain capability: governed async background subagent runtime. Depends only on layer-0 contracts (adapter-types, hitl-kit) and layer-1 foundation (core). Concrete checkpointer and agent execution are injected via ports, wired by @dzupagent/agent-adapters, to preserve the DAG.",
+    "architectureRole": "Layer-2 domain capability: governed async background subagent runtime. Depends only on layer-0 contracts (adapter-types) and layer-1 foundation (core, hitl-kit). Concrete checkpointer and agent execution are injected via ports, wired by @dzupagent/agent-adapters, to preserve the DAG.",
     "roadmapDriver": true,
     "owners": ["apps/codev-app"]
   },

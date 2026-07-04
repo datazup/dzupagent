@@ -43,14 +43,17 @@
     "2026-07-03 broad-verify re-pin: budgets updated to the current measured committed baseline after",
     "prior public root exports plus flow condition-expression/fragments/expressions work landed. Existing",
     ">500 LOC modules are debt-pinned in fileLineAllowlist so future oversized files and root-index growth",
-    "still fail the gate."
+    "still fail the gate.",
+    "2026-07-04 runtime-determinism-primitives re-pin: @dzupagent/core 895->896/1268->1269 for the reviewed",
+    "RunJournalAppendOptions root export (Task 6 flushPolicy addition); @dzupagent/adapter-types 25->26 for",
+    "the reviewed InterruptOutcome/InterruptGate contract module (Task 3, ./contracts/interrupt.js)."
   ],
   "packages": {
     "@dzupagent/core": {
-      "maxRootBarrelExplicitExports": 895,
+      "maxRootBarrelExplicitExports": 896,
       "maxRootBarrelStarExports": 0,
       "maxRootBarrelSourceCount": 138,
-      "maxRootIndexLines": 1268
+      "maxRootIndexLines": 1269
     },
     "@dzupagent/security": {
       "maxRootIndexLines": 58,
@@ -149,7 +152,7 @@
       "fileLineAllowlist": []
     },
     "@dzupagent/adapter-types": {
-      "maxRootIndexLines": 25,
+      "maxRootIndexLines": 26,
       "maxFileLines": 500,
       "fileLineAllowlist": []
     },
