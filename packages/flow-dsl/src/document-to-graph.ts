@@ -167,6 +167,18 @@ function projectNode(node: FlowNode, state: ProjectionState): ProjectionResult {
     case "adapter.race":
     case "adapter.parallel":
     case "adapter.supervisor":
+    case "spdd.import_sources":
+    case "spdd.build_source_pack":
+    case "spdd.run_analysis":
+    case "spdd.generate_canvas":
+    case "spdd.validate_canvas":
+    case "spdd.review_canvas":
+    case "spdd.project_plan":
+    case "spdd.arm_dispatch":
+    case "spdd.run_validation":
+    case "spdd.collect_proof":
+    case "spdd.scan_drift":
+    case "spdd.create_sync_proposal":
       return { entryIds: [id], exitIds: [id] };
     default: {
       const _exhaustive: never = node;
@@ -278,6 +290,30 @@ function labelForNode(node: FlowNode): string {
       return `adapter.parallel:${node.merge ?? "all"}`;
     case "adapter.supervisor":
       return `adapter.supervisor:${node.specialists?.join(",") ?? "auto"}`;
+    case "spdd.import_sources":
+      return `spdd.import_sources:${node.spddRunId}`;
+    case "spdd.build_source_pack":
+      return `spdd.build_source_pack:${node.spddRunId}`;
+    case "spdd.run_analysis":
+      return `spdd.run_analysis:${node.spddRunId}`;
+    case "spdd.generate_canvas":
+      return `spdd.generate_canvas:${node.spddRunId}`;
+    case "spdd.validate_canvas":
+      return `spdd.validate_canvas:${node.spddRunId}`;
+    case "spdd.review_canvas":
+      return `spdd.review_canvas:${node.spddRunId}`;
+    case "spdd.project_plan":
+      return `spdd.project_plan:${node.spddRunId}`;
+    case "spdd.arm_dispatch":
+      return `spdd.arm_dispatch:${node.spddRunId}`;
+    case "spdd.run_validation":
+      return `spdd.run_validation:${node.spddRunId}`;
+    case "spdd.collect_proof":
+      return `spdd.collect_proof:${node.spddRunId}`;
+    case "spdd.scan_drift":
+      return `spdd.scan_drift:${node.spddRunId}`;
+    case "spdd.create_sync_proposal":
+      return `spdd.create_sync_proposal:${node.spddRunId}`;
     default: {
       const _exhaustive: never = node;
       void _exhaustive;
