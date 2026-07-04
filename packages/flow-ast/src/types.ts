@@ -268,7 +268,19 @@ export type FlowNode =
   | AdapterRunNode
   | AdapterRaceNode
   | AdapterParallelNode
-  | AdapterSupervisorNode;
+  | AdapterSupervisorNode
+  | SpddImportSourcesNode
+  | SpddBuildSourcePackNode
+  | SpddRunAnalysisNode
+  | SpddGenerateCanvasNode
+  | SpddValidateCanvasNode
+  | SpddReviewCanvasNode
+  | SpddProjectPlanNode
+  | SpddArmDispatchNode
+  | SpddRunValidationNode
+  | SpddCollectProofNode
+  | SpddScanDriftNode
+  | SpddCreateSyncProposalNode;
 
 export type SequenceNode = FlowNodeBase & {
   type: "sequence";
@@ -948,6 +960,105 @@ export type AdapterSupervisorNode = FlowNodeBase & {
   output: string;
 };
 
+// ---------------------------------------------------------------------------
+// spdd.* nodes — SPDD Phase 3 Slice 3.1 workflow node catalog. Each node is a
+// thin adapter over an already-shipped codev-app SPDD/planning-execution
+// service (see codev-app docs/superpowers/specs/2026-07-04-spdd-phase3-workflow-dsl-design.md).
+// reads/writes contracts are declared via the existing FlowNodeMetadata
+// (meta.requires / meta.produces / meta.artifacts), not a new AST field.
+// ---------------------------------------------------------------------------
+
+export type SpddImportSourcesNode = FlowNodeBase & {
+  type: "spdd.import_sources";
+  spddRunId: string;
+  sourceRefs: unknown[];
+  outputKey: string;
+};
+
+export type SpddBuildSourcePackNode = FlowNodeBase & {
+  type: "spdd.build_source_pack";
+  spddRunId: string;
+  sourceRefsKey: string;
+  featureId?: string;
+  outputKey: string;
+};
+
+export type SpddRunAnalysisNode = FlowNodeBase & {
+  type: "spdd.run_analysis";
+  spddRunId: string;
+  planArtifactId: string;
+  sourceArtifactIds?: string[];
+  outputKey: string;
+};
+
+export type SpddGenerateCanvasNode = FlowNodeBase & {
+  type: "spdd.generate_canvas";
+  spddRunId: string;
+  promptAssetVersionId: string;
+  title?: string;
+  objective?: string;
+  outputKey: string;
+};
+
+export type SpddValidateCanvasNode = FlowNodeBase & {
+  type: "spdd.validate_canvas";
+  spddRunId: string;
+  promptAssetVersionId: string;
+  outputKey: string;
+};
+
+export type SpddReviewCanvasNode = FlowNodeBase & {
+  type: "spdd.review_canvas";
+  spddRunId: string;
+  promptAssetVersionId: string;
+  outputKey: string;
+};
+
+export type SpddProjectPlanNode = FlowNodeBase & {
+  type: "spdd.project_plan";
+  spddRunId: string;
+  promptAssetVersionId: string;
+  outputKey: string;
+};
+
+export type SpddArmDispatchNode = FlowNodeBase & {
+  type: "spdd.arm_dispatch";
+  spddRunId: string;
+  planRunId: string;
+  outputKey: string;
+};
+
+export type SpddRunValidationNode = FlowNodeBase & {
+  type: "spdd.run_validation";
+  spddRunId: string;
+  planRunId: string;
+  executionRunId: string;
+  reviewerId?: string;
+  outputKey: string;
+};
+
+export type SpddCollectProofNode = FlowNodeBase & {
+  type: "spdd.collect_proof";
+  spddRunId: string;
+  planRunId: string;
+  taskId?: string;
+  outputKey: string;
+};
+
+export type SpddScanDriftNode = FlowNodeBase & {
+  type: "spdd.scan_drift";
+  spddRunId: string;
+  promptAssetVersionId: string;
+  outputKey: string;
+};
+
+export type SpddCreateSyncProposalNode = FlowNodeBase & {
+  type: "spdd.create_sync_proposal";
+  spddRunId: string;
+  driftFindingIdsKey: string;
+  outputKey: string;
+};
+
 export type FlowNodeKind = FlowNode["type"];
 
 /**
@@ -997,6 +1108,18 @@ export const FLOW_NODE_KIND_REGISTRY = {
   "adapter.race": true,
   "adapter.parallel": true,
   "adapter.supervisor": true,
+  "spdd.import_sources": true,
+  "spdd.build_source_pack": true,
+  "spdd.run_analysis": true,
+  "spdd.generate_canvas": true,
+  "spdd.validate_canvas": true,
+  "spdd.review_canvas": true,
+  "spdd.project_plan": true,
+  "spdd.arm_dispatch": true,
+  "spdd.run_validation": true,
+  "spdd.collect_proof": true,
+  "spdd.scan_drift": true,
+  "spdd.create_sync_proposal": true,
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(
