@@ -191,7 +191,19 @@ function walkNode(
     case "adapter.run":
     case "adapter.race":
     case "adapter.parallel":
-    case "adapter.supervisor": {
+    case "adapter.supervisor":
+    case "spdd.import_sources":
+    case "spdd.build_source_pack":
+    case "spdd.run_analysis":
+    case "spdd.generate_canvas":
+    case "spdd.validate_canvas":
+    case "spdd.review_canvas":
+    case "spdd.project_plan":
+    case "spdd.arm_dispatch":
+    case "spdd.run_validation":
+    case "spdd.collect_proof":
+    case "spdd.scan_drift":
+    case "spdd.create_sync_proposal": {
       // Runtime-executed nodes — no skill-chain step emitted; silently pass through.
       return;
     }

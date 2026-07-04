@@ -198,6 +198,18 @@ function childSlices(
     case "return_to":
     case "agent":
     case "validate":
+    case "spdd.import_sources":
+    case "spdd.build_source_pack":
+    case "spdd.run_analysis":
+    case "spdd.generate_canvas":
+    case "spdd.validate_canvas":
+    case "spdd.review_canvas":
+    case "spdd.project_plan":
+    case "spdd.arm_dispatch":
+    case "spdd.run_validation":
+    case "spdd.collect_proof":
+    case "spdd.scan_drift":
+    case "spdd.create_sync_proposal":
       return [];
     default: {
       const _exhaustive: never = node;
