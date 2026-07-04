@@ -4,6 +4,7 @@ import { InMemoryTaskStore } from "../store/in-memory-task-store.js";
 import { DEFAULT_LIFECYCLE_POLICY } from "../runtime/runtime-config.js";
 import { ManualClock, RecordingEventSink } from "./helpers.js";
 import type { BackgroundTask } from "../contracts/background-task.js";
+import type { TaskFilter, TaskStore } from "../contracts/task-store.js";
 
 function makeController(over: Partial<typeof DEFAULT_LIFECYCLE_POLICY> = {}) {
   const store = new InMemoryTaskStore();
@@ -102,6 +103,67 @@ describe("LifecycleController sweep", () => {
     await controller.sweep();
     // inFlight stays 1 — the runtime releases when the aborted run settles.
     expect(controller.inFlight).toBe(1);
+  });
+
+  it("does not overwrite a terminal task that wins the expiry race", async () => {
+    class TerminalRaceStore implements TaskStore {
+      private record = task({ id: "racy", status: "running", ttlMs: 10 });
+      async put(next: BackgroundTask): Promise<void> {
+        this.record = structuredClone(next);
+      }
+      async get(_id: string): Promise<BackgroundTask | null> {
+        return structuredClone(this.record);
+      }
+      async list(filter: TaskFilter): Promise<BackgroundTask[]> {
+        if (filter.status !== undefined) {
+          this.record = {
+            ...this.record,
+            status: "succeeded",
+            result: { output: "winner" },
+            endedAt: 90,
+          };
+          return [task({ id: "racy", status: "running", ttlMs: 10 })];
+        }
+        return [structuredClone(this.record)];
+      }
+      async patch(id: string, patch: Partial<BackgroundTask>): Promise<void> {
+        if (id === this.record.id) {
+          this.record = { ...this.record, ...structuredClone(patch) };
+        }
+      }
+      async patchIfStatus(
+        id: string,
+        expectedStatus: BackgroundTask["status"],
+        patch: Partial<BackgroundTask>
+      ): Promise<boolean> {
+        if (id !== this.record.id || this.record.status !== expectedStatus) {
+          return false;
+        }
+        this.record = { ...this.record, ...structuredClone(patch) };
+        return true;
+      }
+    }
+
+    const store = new TerminalRaceStore();
+    const clock = new ManualClock(100);
+    const events = new RecordingEventSink();
+    const onExpire = vi.fn();
+    const controller = new LifecycleController(
+      store,
+      DEFAULT_LIFECYCLE_POLICY,
+      clock,
+      events,
+      onExpire
+    );
+
+    await controller.sweep();
+
+    expect(await store.get("racy")).toMatchObject({
+      status: "succeeded",
+      result: { output: "winner" },
+    });
+    expect(events.types()).not.toContain("subagent:expired");
+    expect(onExpire).not.toHaveBeenCalled();
   });
 });
 

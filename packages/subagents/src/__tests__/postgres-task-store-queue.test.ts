@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Client } from "pg";
 import type { BackgroundTask } from "../contracts/background-task.js";
 import {
   DurableQueueRunner,
   type TaskQueue,
 } from "../runner/durable-queue-runner.js";
 import {
+  createPostgresSubagentSchemaSql,
   PostgresTaskQueue,
   PostgresTaskStore,
   recoverStaleRunningTasks,
@@ -12,9 +14,23 @@ import {
 } from "../store/postgres-task-store.js";
 import {
   ControllableExecutor,
+  flush,
   ManualClock,
   RecordingEventSink,
 } from "./helpers.js";
+
+describe("createPostgresSubagentSchemaSql", () => {
+  it("emits DDL for versioned task storage and leased queue claims", () => {
+    const ddl = createPostgresSubagentSchemaSql().join("\n");
+
+    expect(ddl).toContain("CREATE TABLE IF NOT EXISTS subagent_tasks");
+    expect(ddl).toContain("version integer NOT NULL DEFAULT 1");
+    expect(ddl).toContain("CREATE TABLE IF NOT EXISTS subagent_task_queue");
+    expect(ddl).toContain("PRIMARY KEY");
+    expect(ddl).toContain("lease_until");
+    expect(ddl).toContain("CREATE INDEX IF NOT EXISTS subagent_task_queue_claim_idx");
+  });
+});
 
 function task(id: string, status: BackgroundTask["status"] = "queued"): BackgroundTask {
   return {
@@ -163,7 +179,7 @@ async function waitForStatus(
 ): Promise<void> {
   for (let i = 0; i < 50; i++) {
     if ((await store.get(id))?.status === status) return;
-    await new Promise((resolve) => setTimeout(resolve, 1));
+    await flush();
   }
   throw new Error(`Task ${id} did not reach ${status}`);
 }
@@ -237,6 +253,127 @@ describe("PostgresTaskQueue", () => {
     expect(handled).toEqual(["queued-once"]);
     expect([...client.sql].join("\n")).toContain("FOR UPDATE SKIP LOCKED");
     expect(client.queue.size).toBe(0);
+  });
+});
+
+const databaseUrl =
+  process.env["SUBAGENTS_POSTGRES_TEST_URL"] ?? process.env["TEST_DATABASE_URL"];
+
+describe.skipIf(!databaseUrl)("PostgresTaskStore/PostgresTaskQueue integration", () => {
+  const suffix = `${process.pid}_${Date.now()}`;
+  const taskTableName = `subagent_tasks_it_${suffix}`;
+  const queueTableName = `subagent_task_queue_it_${suffix}`;
+  let client: Client;
+
+  beforeAll(async () => {
+    client = new Client({ connectionString: databaseUrl });
+    await client.connect();
+    for (const statement of createPostgresSubagentSchemaSql({
+      taskTableName,
+      queueTableName,
+    })) {
+      await client.query(statement);
+    }
+  });
+
+  afterAll(async () => {
+    await client?.query(`DROP TABLE IF EXISTS ${queueTableName}`);
+    await client?.query(`DROP TABLE IF EXISTS ${taskTableName}`);
+    await client?.end();
+  });
+
+  it("reattaches store and queue state through a real Postgres database", async () => {
+    const firstStore = new PostgresTaskStore({
+      client,
+      tableName: taskTableName,
+    });
+    const firstQueue = new PostgresTaskQueue({
+      client,
+      tableName: queueTableName,
+      workerId: "producer",
+      autoDrain: false,
+    });
+
+    await firstStore.put(task("pg-durable-task"));
+    await firstQueue.enqueue("pg-durable-task");
+
+    const secondStore = new PostgresTaskStore({
+      client,
+      tableName: taskTableName,
+    });
+    const secondQueue = new PostgresTaskQueue({
+      client,
+      tableName: queueTableName,
+      workerId: "worker",
+      autoDrain: false,
+    });
+    const handled: string[] = [];
+    secondQueue.consume(async (taskId) => {
+      handled.push(taskId);
+      await secondStore.patchIfStatus(taskId, "queued", {
+        status: "succeeded",
+        result: { output: "postgres" },
+        endedAt: 100,
+      });
+    });
+
+    await secondQueue.drainAvailable();
+
+    expect(handled).toEqual(["pg-durable-task"]);
+    expect(await secondStore.get("pg-durable-task")).toMatchObject({
+      status: "succeeded",
+      result: { output: "postgres" },
+      endedAt: 100,
+    });
+  });
+
+  it("lets concurrent workers claim disjoint rows with Postgres leases", async () => {
+    const queue = new PostgresTaskQueue({
+      client,
+      tableName: queueTableName,
+      workerId: "producer-2",
+      autoDrain: false,
+    });
+    await queue.enqueue("pg-concurrent-a");
+    await queue.enqueue("pg-concurrent-b");
+
+    let releaseFirst: (() => void) | undefined;
+    let firstDrain: Promise<void> | undefined;
+    const firstStarted = new Promise<void>((resolve) => {
+      const firstWorker = new PostgresTaskQueue({
+        client,
+        tableName: queueTableName,
+        workerId: "worker-1",
+        leaseMs: 10_000,
+        autoDrain: false,
+      });
+      firstWorker.consume(async () => {
+        resolve();
+        await new Promise<void>((release) => {
+          releaseFirst = release;
+        });
+      });
+      firstDrain = firstWorker.drainAvailable();
+    });
+    await firstStarted;
+
+    const secondHandled: string[] = [];
+    const secondWorker = new PostgresTaskQueue({
+      client,
+      tableName: queueTableName,
+      workerId: "worker-2",
+      leaseMs: 10_000,
+      autoDrain: false,
+    });
+    secondWorker.consume(async (taskId) => {
+      secondHandled.push(taskId);
+    });
+    await secondWorker.drainAvailable();
+    releaseFirst?.();
+    await firstDrain;
+
+    expect(secondHandled).toHaveLength(1);
+    expect(["pg-concurrent-a", "pg-concurrent-b"]).toContain(secondHandled[0]);
   });
 });
 

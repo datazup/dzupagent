@@ -406,4 +406,57 @@ describe("runtime orphan reconciliation", () => {
       },
     });
   });
+
+  it("recovers stale running durable tasks by configured policy", async () => {
+    const { store } = setup();
+    await store.put({
+      id: "stale-durable",
+      parentRunId: "r",
+      spec: { agentId: "x", input: "stale" },
+      status: "running",
+      createdAt: 0,
+      startedAt: 10,
+      ttlMs: 1000,
+      depth: 0,
+    });
+    await store.put({
+      id: "fresh-durable",
+      parentRunId: "r",
+      spec: { agentId: "x", input: "fresh" },
+      status: "running",
+      createdAt: 0,
+      startedAt: 90,
+      ttlMs: 1000,
+      depth: 0,
+    });
+
+    const durableRuntime = new BackgroundSubagentRuntime({
+      store,
+      runner: {
+        start: async () => {},
+        capabilities: () => ({ durable: true, horizontal: false }),
+      },
+      gate: new SpawnGate(allowAllSpawnPolicy),
+      events: new RecordingEventSink(),
+      governance: new RecordingGovernanceSink(),
+      clock: new ManualClock(100),
+      generateId: sequentialIds(),
+      staleRunningRecovery: {
+        runningTimeoutMs: 50,
+        action: "fail",
+      },
+    });
+
+    const reconciled = await durableRuntime.reconcileOrphans();
+
+    expect(reconciled).toEqual(["stale-durable"]);
+    expect(await store.get("stale-durable")).toMatchObject({
+      status: "failed",
+      error: "stale_running_task_recovered",
+      endedAt: 100,
+    });
+    expect(await store.get("fresh-durable")).toMatchObject({
+      status: "running",
+    });
+  });
 });
