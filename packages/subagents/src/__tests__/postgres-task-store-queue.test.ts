@@ -1,0 +1,307 @@
+import { describe, expect, it } from "vitest";
+import type { BackgroundTask } from "../contracts/background-task.js";
+import {
+  DurableQueueRunner,
+  type TaskQueue,
+} from "../runner/durable-queue-runner.js";
+import {
+  PostgresTaskQueue,
+  PostgresTaskStore,
+  recoverStaleRunningTasks,
+  type PostgresQueryClient,
+} from "../store/postgres-task-store.js";
+import {
+  ControllableExecutor,
+  ManualClock,
+  RecordingEventSink,
+} from "./helpers.js";
+
+function task(id: string, status: BackgroundTask["status"] = "queued"): BackgroundTask {
+  return {
+    id,
+    parentRunId: "parent",
+    spec: { agentId: "inline", input: "work" },
+    status,
+    createdAt: 1,
+    ttlMs: 1_000,
+    depth: 0,
+  };
+}
+
+class MemoryPostgresClient implements PostgresQueryClient {
+  readonly tasks = new Map<string, BackgroundTask & { version: number }>();
+  readonly queue = new Map<
+    string,
+    {
+      task_id: string;
+      enqueued_at: number;
+      available_at: number;
+      attempts: number;
+      leased_by: string | null;
+      lease_until: number | null;
+    }
+  >();
+  readonly sql: string[] = [];
+
+  async query(text: string, values: readonly unknown[] = []): Promise<{ rows: Record<string, unknown>[] }> {
+    this.sql.push(text);
+    const normalized = text.replace(/\s+/g, " ").trim();
+
+    if (normalized.startsWith("INSERT INTO subagent_tasks")) {
+      const record = values[1] as BackgroundTask;
+      this.tasks.set(values[0] as string, { ...structuredClone(record), version: 1 });
+      return { rows: [] };
+    }
+
+    if (normalized.startsWith("SELECT task_json, version FROM subagent_tasks WHERE id =")) {
+      const found = this.tasks.get(values[0] as string);
+      return {
+        rows: found ? [{ task_json: structuredClone(found), version: found.version }] : [],
+      };
+    }
+
+    if (normalized.startsWith("SELECT task_json, version FROM subagent_tasks WHERE")) {
+      const rows = [...this.tasks.values()]
+        .filter((record) => {
+          const filter = values[0] as {
+            parentRunId?: string;
+            statuses?: string[];
+            endedBefore?: number;
+          };
+          if (filter.parentRunId !== undefined && record.parentRunId !== filter.parentRunId) {
+            return false;
+          }
+          if (filter.statuses && !filter.statuses.includes(record.status)) {
+            return false;
+          }
+          if (
+            filter.endedBefore !== undefined &&
+            (record.endedAt === undefined || record.endedAt >= filter.endedBefore)
+          ) {
+            return false;
+          }
+          return true;
+        })
+        .map((record) => ({ task_json: structuredClone(record), version: record.version }));
+      return { rows };
+    }
+
+    if (normalized.startsWith("UPDATE subagent_tasks SET task_json =")) {
+      const id = values[0] as string;
+      const patch = values[1] as Partial<BackgroundTask>;
+      const expectedVersion = values[2] as number | null;
+      const expectedStatus = values[3] as BackgroundTask["status"] | null;
+      const found = this.tasks.get(id);
+      if (!found) return { rows: [] };
+      if (expectedVersion !== null && found.version !== expectedVersion) return { rows: [] };
+      if (expectedStatus !== null && found.status !== expectedStatus) return { rows: [] };
+      const updated = { ...found, ...structuredClone(patch), version: found.version + 1 };
+      this.tasks.set(id, updated);
+      return { rows: [{ task_json: structuredClone(updated), version: updated.version }] };
+    }
+
+    if (normalized.startsWith("INSERT INTO subagent_task_queue")) {
+      const taskId = values[0] as string;
+      if (!this.queue.has(taskId)) {
+        this.queue.set(taskId, {
+          task_id: taskId,
+          enqueued_at: values[1] as number,
+          available_at: values[1] as number,
+          attempts: 0,
+          leased_by: null,
+          lease_until: null,
+        });
+      }
+      return { rows: [] };
+    }
+
+    if (normalized.startsWith("WITH next_task AS")) {
+      const now = values[0] as number;
+      const leaseUntil = values[1] as number;
+      const workerId = values[2] as string;
+      const next = [...this.queue.values()]
+        .filter((row) => row.available_at <= now && (row.lease_until === null || row.lease_until <= now))
+        .sort((a, b) => a.enqueued_at - b.enqueued_at)[0];
+      if (!next) return { rows: [] };
+      next.leased_by = workerId;
+      next.lease_until = leaseUntil;
+      next.attempts += 1;
+      return { rows: [structuredClone(next)] };
+    }
+
+    if (normalized.startsWith("DELETE FROM subagent_task_queue")) {
+      const taskId = values[0] as string;
+      const workerId = values[1] as string;
+      const found = this.queue.get(taskId);
+      if (found?.leased_by === workerId) this.queue.delete(taskId);
+      return { rows: [] };
+    }
+
+    throw new Error(`Unexpected SQL: ${normalized}`);
+  }
+}
+
+class OnceThenDuplicateQueue implements TaskQueue {
+  private handler: ((taskId: string) => Promise<void>) | undefined;
+  constructor(private readonly taskId: string) {}
+  async enqueue(): Promise<void> {
+    await this.handler?.(this.taskId);
+    await this.handler?.(this.taskId);
+  }
+  consume(handler: (taskId: string) => Promise<void>): () => void {
+    this.handler = handler;
+    return () => {
+      this.handler = undefined;
+    };
+  }
+}
+
+async function waitForStatus(
+  store: PostgresTaskStore,
+  id: string,
+  status: BackgroundTask["status"],
+): Promise<void> {
+  for (let i = 0; i < 50; i++) {
+    if ((await store.get(id))?.status === status) return;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  throw new Error(`Task ${id} did not reach ${status}`);
+}
+
+describe("PostgresTaskStore", () => {
+  it("patchIfVersion only applies a patch when the stored version still matches", async () => {
+    const client = new MemoryPostgresClient();
+    const store = new PostgresTaskStore({ client });
+    await store.put(task("cas-task"));
+
+    const loaded = await store.getWithVersion("cas-task");
+    expect(loaded?.version).toBe(1);
+
+    await store.patch("cas-task", { status: "running", startedAt: 2 });
+    const stale = await store.patchIfVersion("cas-task", loaded!.version, {
+      status: "succeeded",
+      endedAt: 3,
+    });
+
+    expect(stale).toBe(false);
+    expect(await store.get("cas-task")).toMatchObject({
+      status: "running",
+      startedAt: 2,
+    });
+  });
+
+  it("compare-and-sets status transitions to prevent stale terminal overwrites", async () => {
+    const client = new MemoryPostgresClient();
+    const store = new PostgresTaskStore({ client });
+    await store.put(task("terminal-race", "running"));
+
+    const won = await store.patchIfStatus("terminal-race", "running", {
+      status: "expired",
+      endedAt: 10,
+    });
+    const stale = await store.patchIfStatus("terminal-race", "running", {
+      status: "succeeded",
+      endedAt: 11,
+    });
+
+    expect(won).toBe(true);
+    expect(stale).toBe(false);
+    expect(await store.get("terminal-race")).toMatchObject({
+      status: "expired",
+      endedAt: 10,
+    });
+  });
+});
+
+describe("PostgresTaskQueue", () => {
+  it("coalesces duplicate enqueue and claims with FOR UPDATE SKIP LOCKED", async () => {
+    const client = new MemoryPostgresClient();
+    const queue = new PostgresTaskQueue({
+      client,
+      workerId: "worker-a",
+      clock: () => 100,
+      leaseMs: 50,
+      autoDrain: false,
+    });
+
+    await queue.enqueue("queued-once");
+    await queue.enqueue("queued-once");
+    expect(client.queue.size).toBe(1);
+
+    const handled: string[] = [];
+    queue.consume(async (taskId) => {
+      handled.push(taskId);
+    });
+    await queue.drainAvailable();
+
+    expect(handled).toEqual(["queued-once"]);
+    expect([...client.sql].join("\n")).toContain("FOR UPDATE SKIP LOCKED");
+    expect(client.queue.size).toBe(0);
+  });
+});
+
+describe("DurableQueueRunner CAS integration", () => {
+  it("does not overwrite a terminal task when duplicate delivery races after running", async () => {
+    const client = new MemoryPostgresClient();
+    const store = new PostgresTaskStore({ client });
+    const executor = new ControllableExecutor("manual");
+    const runner = new DurableQueueRunner({
+      store,
+      executor,
+      events: new RecordingEventSink(),
+      clock: new ManualClock(5),
+      queue: new OnceThenDuplicateQueue("racy-task"),
+      durable: true,
+    });
+
+    await store.put(task("racy-task"));
+    const start = runner.start("racy-task", new AbortController().signal);
+    await waitForStatus(store, "racy-task", "running");
+    await store.patchIfStatus("racy-task", "running", {
+      status: "expired",
+      endedAt: 9,
+    });
+    executor.complete("racy-task", { output: "late" });
+    await start;
+
+    expect(executor.runCalls).toHaveLength(1);
+    expect(await store.get("racy-task")).toMatchObject({
+      status: "expired",
+      endedAt: 9,
+    });
+    runner.dispose();
+  });
+});
+
+describe("recoverStaleRunningTasks", () => {
+  it("marks lease-expired running tasks failed by policy", async () => {
+    const client = new MemoryPostgresClient();
+    const store = new PostgresTaskStore({ client });
+    await store.put({
+      ...task("stale-running", "running"),
+      startedAt: 10,
+    });
+    await store.put({
+      ...task("fresh-running", "running"),
+      startedAt: 90,
+    });
+
+    const recovered = await recoverStaleRunningTasks({
+      store,
+      now: 100,
+      runningTimeoutMs: 50,
+      action: "fail",
+    });
+
+    expect(recovered).toEqual(["stale-running"]);
+    expect(await store.get("stale-running")).toMatchObject({
+      status: "failed",
+      error: "stale_running_task_recovered",
+      endedAt: 100,
+    });
+    expect(await store.get("fresh-running")).toMatchObject({
+      status: "running",
+    });
+  });
+}
+);
