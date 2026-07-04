@@ -1,3 +1,4 @@
+import type { InterruptOutcome } from "@dzupagent/adapter-types";
 import type { SubagentSpec } from "../contracts/background-task.js";
 
 /** Decision returned by a {@link SpawnPolicy} check. */
@@ -118,18 +119,21 @@ export const denyAllSpawnPolicy: SpawnPolicy = {
 };
 
 /**
- * Minimal HITL seam, structurally compatible with `ApprovalGate` from
- * `@dzupagent/hitl-kit` (`waitForApproval` resolves on grant, throws
- * `ApprovalRejectedError` on reject). Kept as a local interface so tests need no
- * real gate and so a host can wire any approval backend.
+ * Minimal HITL seam. Returns an InterruptOutcome directly (promise-
+ * resolves on both grant and reject) rather than the previous
+ * throw-on-reject contract, so SpawnGate no longer needs to catch and
+ * re-wrap errors into a local outcome shape. Structurally compatible
+ * with `@dzupagent/hitl-kit`'s ApprovalGate once that gate exposes a
+ * waitForInterrupt method (or is adapted via a thin wrapper) — kept as
+ * a local interface so tests need no real gate and so a host can wire
+ * any approval backend.
  */
 export interface SpawnApprovalGate {
-  waitForApproval(runId: string, approvalId: string): Promise<unknown>;
+  waitForInterrupt(
+    runId: string,
+    interruptId: string,
+  ): Promise<InterruptOutcome>;
 }
-
-export type ApprovalOutcome =
-  | { approved: true }
-  | { approved: false; reason: string };
 
 /**
  * Runs the spawn governance flow: policy check, then (if required) a blocking
@@ -219,26 +223,19 @@ export class SpawnGate {
     return { outcome: "allowed" };
   }
 
-  /** Block on the HITL gate. Returns the resolved outcome. */
+  /** Block on the HITL gate. Returns the resolved InterruptOutcome. */
   async awaitApproval(
     parentRunId: string,
     approvalId: string,
-  ): Promise<ApprovalOutcome> {
+  ): Promise<InterruptOutcome> {
     if (!this.approvalGate) {
       // No gate wired but policy demanded approval — fail closed.
       return {
-        approved: false,
+        decision: "rejected",
         reason: "approval_required_but_no_gate_configured",
       };
     }
-    try {
-      await this.approvalGate.waitForApproval(parentRunId, approvalId);
-      return { approved: true };
-    } catch (error) {
-      const reason =
-        error instanceof Error ? error.message : "approval_rejected";
-      return { approved: false, reason };
-    }
+    return this.approvalGate.waitForInterrupt(parentRunId, approvalId);
   }
 }
 

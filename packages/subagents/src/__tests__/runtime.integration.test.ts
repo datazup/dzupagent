@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { BackgroundSubagentRuntime } from "../runtime/background-subagent-runtime.js";
 import { SpawnGate, allowAllSpawnPolicy } from "../governance/spawn-gate.js";
 import type { SpawnPolicy } from "../governance/spawn-gate.js";
+import type { InterruptOutcome } from "@dzupagent/adapter-types";
 import { InProcessRunner } from "../runner/in-process-runner.js";
 import { InMemoryTaskStore } from "../store/in-memory-task-store.js";
 import {
@@ -17,7 +18,7 @@ function setup(
   opts: {
     policy?: SpawnPolicy;
     approvalGate?: {
-      waitForApproval: (r: string, a: string) => Promise<unknown>;
+      waitForInterrupt: (r: string, a: string) => Promise<InterruptOutcome>;
     };
     executorMode?: "manual" | "instant";
     maxConcurrent?: number;
@@ -101,9 +102,9 @@ describe("runtime governance", () => {
   it("blocks on approval then admits after grant", async () => {
     let resolveApproval: (() => void) | undefined;
     const approvalGate = {
-      waitForApproval: () =>
-        new Promise<unknown>((res) => {
-          resolveApproval = () => res(undefined);
+      waitForInterrupt: () =>
+        new Promise<InterruptOutcome>((res) => {
+          resolveApproval = () => res({ decision: "granted" });
         }),
     };
     const policy: SpawnPolicy = {
@@ -129,9 +130,10 @@ describe("runtime governance", () => {
 
   it("cancels the task when approval is rejected", async () => {
     const approvalGate = {
-      waitForApproval: async () => {
-        throw new Error("denied by reviewer");
-      },
+      waitForInterrupt: async (): Promise<InterruptOutcome> => ({
+        decision: "rejected",
+        reason: "denied by reviewer",
+      }),
     };
     const policy: SpawnPolicy = {
       check: () => ({ allow: true, requiresApproval: true }),

@@ -254,7 +254,12 @@ describe("Runtime orphan/TTL/approval logging", () => {
     const runner = new InProcessRunner({ store, executor, events, clock });
     const gate = new SpawnGate(
       { check: () => ({ allow: true, requiresApproval: true }) },
-      { waitForApproval: () => Promise.reject(new Error("user_declined")) }
+      {
+        waitForInterrupt: async () => ({
+          decision: "rejected",
+          reason: "user_declined",
+        }),
+      }
     );
     const runtime = new BackgroundSubagentRuntime({
       store,

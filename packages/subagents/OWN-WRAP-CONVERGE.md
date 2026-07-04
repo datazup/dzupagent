@@ -54,3 +54,7 @@ point that binds the real checkpointer + executor.
   → re-open the own-vs-wrap decision (the moat assumption would weaken).
 - A provider ships server-side background execution that satisfies the governance
   JTBD → evaluate wrapping it behind `SubagentExecutorPort`.
+- LangChain ships a portable interrupt/resume primitive with a store-backed
+  resume model comparable to `InterruptOutcome` → compare shapes, but note
+  our contract was already formalized against production HITL usage
+  (2026-07-03).

@@ -136,7 +136,7 @@ export class BackgroundSubagentRuntime {
       this.clock,
       this.events,
       (taskId) => this.abortController(taskId),
-      this.logger,
+      this.logger
     );
   }
 
@@ -170,7 +170,7 @@ export class BackgroundSubagentRuntime {
   async spawn(
     spec: SubagentSpec,
     parentRunId: string,
-    options: SpawnOptions = {},
+    options: SpawnOptions = {}
   ): Promise<SpawnOutcome> {
     const depth = options.depth ?? 0;
 
@@ -272,16 +272,16 @@ export class BackgroundSubagentRuntime {
   private async resolveApprovalThenAdmit(
     id: TaskId,
     parentRunId: string,
-    approvalId: string,
+    approvalId: string
   ): Promise<void> {
     const outcome = await this.gate.awaitApproval(parentRunId, approvalId);
     this.governance.emitGovernance({
       type: "governance:approval_resolved",
       runId: parentRunId,
       approvalId,
-      detail: outcome.approved ? "approved" : outcome.reason,
+      detail: outcome.decision === "granted" ? "approved" : outcome.reason,
     });
-    if (!outcome.approved) {
+    if (outcome.decision !== "granted") {
       await this.store.patch(id, {
         status: "cancelled",
         error: `approval_rejected: ${outcome.reason}`,
@@ -358,7 +358,7 @@ export class BackgroundSubagentRuntime {
    */
   private async resolveOwned(
     taskId: TaskId,
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     const task = await this.store.get(taskId);
     if (!task) return null;
@@ -371,7 +371,7 @@ export class BackgroundSubagentRuntime {
   /** Pull: current task state (ownership-scoped when `scope` is supplied). */
   async check(
     taskId: TaskId,
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     return this.resolveOwned(taskId, scope);
   }
@@ -384,7 +384,7 @@ export class BackgroundSubagentRuntime {
   async await(
     taskId: TaskId,
     options: { timeoutMs?: number; pollIntervalMs?: number } = {},
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     const pollIntervalMs = options.pollIntervalMs ?? 25;
     const deadline =
@@ -410,7 +410,7 @@ export class BackgroundSubagentRuntime {
   /** Cancel a task: abort its run (if running) or mark cancelled (if pending). */
   async cancel(
     taskId: TaskId,
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     const task = await this.resolveOwned(taskId, scope);
     if (!task || isTerminalStatus(task.status)) {
@@ -447,7 +447,7 @@ export class BackgroundSubagentRuntime {
    * {@link ApprovedSpawnBatch} the coordinator threads into each per-item spawn.
    */
   async evaluateBatch(
-    request: SpawnBatchRequest,
+    request: SpawnBatchRequest
   ): Promise<SpawnBatchAdmission> {
     const decision = await this.gate.evaluateBatch(request);
     if (decision.outcome === "denied") {
@@ -467,21 +467,22 @@ export class BackgroundSubagentRuntime {
       });
       const outcome = await this.gate.awaitApproval(
         request.parentRunId,
-        request.batchId,
+        request.batchId
       );
       this.governance.emitGovernance({
         type: "governance:approval_resolved",
         runId: request.parentRunId,
         approvalId: request.batchId,
-        detail: outcome.approved ? "approved" : outcome.reason,
+        detail: outcome.decision === "granted" ? "approved" : outcome.reason,
       });
-      if (!outcome.approved) {
+      if (outcome.decision !== "granted") {
+        const rejectionReason = outcome.reason ?? "approval_rejected";
         this.governance.emitGovernance({
           type: "governance:rule_violation",
           runId: request.parentRunId,
-          detail: outcome.reason,
+          detail: rejectionReason,
         });
-        return { ok: false, reason: "denied", detail: outcome.reason };
+        return { ok: false, reason: "denied", detail: rejectionReason };
       }
     }
 

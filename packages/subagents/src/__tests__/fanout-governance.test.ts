@@ -2,7 +2,10 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import { createSubagentTools } from "../tools/subagent-tools.js";
 import { createInProcessSubagentRuntime } from "../runtime/create-runtime.js";
 import { allowAllSpawnPolicy } from "../governance/spawn-gate.js";
-import type { SpawnPolicy } from "../governance/spawn-gate.js";
+import type {
+  SpawnPolicy,
+  SpawnApprovalGate,
+} from "../governance/spawn-gate.js";
 import type { SubagentResult } from "../contracts/background-task.js";
 import type { FanoutBatchStore } from "../contracts/fanout-batch-store.js";
 import { InMemoryFanoutBatchStore } from "../store/in-memory-fanout-batch-store.js";
@@ -28,9 +31,7 @@ function setup(
     maxConcurrent?: number;
     maxQueued?: number;
     fanoutBatchStore?: FanoutBatchStore;
-    approvalGate?: {
-      waitForApproval: (runId: string, approvalId: string) => Promise<unknown>;
-    };
+    approvalGate?: SpawnApprovalGate;
   } = {}
 ) {
   const events = new RecordingEventSink();
@@ -112,8 +113,9 @@ describe("fanout_template batch governance", () => {
       executorMode: "instant",
       policy,
       approvalGate: {
-        waitForApproval: async (runId, approvalId) => {
+        waitForInterrupt: async (runId, approvalId) => {
           approvalCalls.push({ runId, approvalId });
+          return { decision: "granted" };
         },
       },
     });
@@ -158,9 +160,10 @@ describe("fanout_template batch governance", () => {
       policy,
       fanoutBatchStore,
       approvalGate: {
-        waitForApproval: async () => {
-          throw new Error("not approved");
-        },
+        waitForInterrupt: async () => ({
+          decision: "rejected",
+          reason: "not approved",
+        }),
       },
     });
 

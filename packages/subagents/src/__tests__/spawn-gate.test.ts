@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { SpawnGate, allowAllSpawnPolicy } from "../governance/spawn-gate.js";
-import type { SpawnPolicy } from "../governance/spawn-gate.js";
+import type {
+  SpawnApprovalGate,
+  SpawnPolicy,
+} from "../governance/spawn-gate.js";
 import type { SubagentSpec } from "../contracts/background-task.js";
+import type { InterruptOutcome } from "@dzupagent/adapter-types";
 
 const spec: SubagentSpec = { agentId: "x", input: "hi" };
 
@@ -138,31 +142,41 @@ describe("SpawnGate.evaluateBatch", () => {
   });
 });
 
-describe("SpawnGate.awaitApproval", () => {
-  it("fails closed when approval required but no gate wired", async () => {
-    const gate = new SpawnGate(allowAllSpawnPolicy);
-    expect(await gate.awaitApproval("r", "a")).toEqual({
-      approved: false,
-      reason: "approval_required_but_no_gate_configured",
-    });
-  });
-
-  it("approves when the gate resolves", async () => {
-    const gate = new SpawnGate(allowAllSpawnPolicy, {
-      waitForApproval: async () => undefined,
-    });
-    expect(await gate.awaitApproval("r", "a")).toEqual({ approved: true });
-  });
-
-  it("rejects with reason when the gate throws", async () => {
-    const gate = new SpawnGate(allowAllSpawnPolicy, {
-      waitForApproval: async () => {
-        throw new Error("rejected by alice");
+describe("SpawnGate.awaitApproval with InterruptOutcome", () => {
+  it("returns a granted InterruptOutcome when the gate resolves", async () => {
+    const fakeGate: SpawnApprovalGate = {
+      async waitForInterrupt(): Promise<InterruptOutcome> {
+        return { decision: "granted", response: { note: "ok" } };
       },
+    };
+    const spawnGate = new SpawnGate(allowAllSpawnPolicy, fakeGate);
+
+    const outcome = await spawnGate.awaitApproval("run-1", "approval-1");
+    expect(outcome).toEqual({ decision: "granted", response: { note: "ok" } });
+  });
+
+  it("returns a rejected InterruptOutcome when the gate rejects", async () => {
+    const fakeGate: SpawnApprovalGate = {
+      async waitForInterrupt(): Promise<InterruptOutcome> {
+        return { decision: "rejected", reason: "denied by operator" };
+      },
+    };
+    const spawnGate = new SpawnGate(allowAllSpawnPolicy, fakeGate);
+
+    const outcome = await spawnGate.awaitApproval("run-1", "approval-2");
+    expect(outcome).toEqual({
+      decision: "rejected",
+      reason: "denied by operator",
     });
-    expect(await gate.awaitApproval("r", "a")).toEqual({
-      approved: false,
-      reason: "rejected by alice",
+  });
+
+  it("returns a rejected InterruptOutcome when no gate is configured", async () => {
+    const spawnGate = new SpawnGate(allowAllSpawnPolicy, undefined);
+
+    const outcome = await spawnGate.awaitApproval("run-1", "approval-3");
+    expect(outcome).toEqual({
+      decision: "rejected",
+      reason: "approval_required_but_no_gate_configured",
     });
   });
 });

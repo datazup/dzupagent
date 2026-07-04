@@ -86,7 +86,6 @@ export {
   type SpawnPolicyDecision,
   type SpawnContext,
   type SpawnApprovalGate,
-  type ApprovalOutcome,
   type SpawnBatchMode,
   type SpawnBatchRequest,
   type ApprovedSpawnBatch,
