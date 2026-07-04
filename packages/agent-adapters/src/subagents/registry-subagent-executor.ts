@@ -8,6 +8,10 @@ import type {
 } from "@dzupagent/subagents";
 import { ForgeError } from "@dzupagent/core/events";
 import type { ProviderAdapterRegistry } from "../registry/adapter-registry.js";
+import type {
+  AgentDefinition,
+  DzupAgentAgentLoader,
+} from "../dzupagent/agent-loader.js";
 
 /**
  * Implements `@dzupagent/subagents`'s {@link SubagentExecutorPort} by dispatching
@@ -34,28 +38,33 @@ export interface SubagentExecutorLimits {
   maxOutputTokens?: number;
 }
 
+export interface SubagentPersonaOptions {
+  loader?: Pick<DzupAgentAgentLoader, "loadAgent" | "compileForProvider">;
+  allowInline?: boolean;
+}
+
+interface ResolvedSubagentTarget {
+  providerId: AdapterProviderId;
+  adapter?: ReturnType<ProviderAdapterRegistry["get"]>;
+  systemPrompt?: string;
+  constraints?: NonNullable<SubagentSpec["definition"]>["constraints"];
+}
+
 export class RegistrySubagentExecutor implements SubagentExecutorPort {
   constructor(
     private readonly registry: ProviderAdapterRegistry,
     private readonly limits: SubagentExecutorLimits = {},
+    private readonly persona: SubagentPersonaOptions = {},
   ) {}
 
   async run(
     spec: SubagentSpec,
     ctx: SubagentExecutionContext,
   ): Promise<SubagentResult> {
-    const providerId = resolveRegisteredProviderId(this.registry, spec.agentId);
-    if (!providerId) {
-      throw new ForgeError({
-        code: "REGISTRY_AGENT_NOT_FOUND",
-        message: `Subagent provider "${spec.agentId}" is not registered or is unavailable`,
-        recoverable: false,
-        suggestion: "Register the adapter before spawning a subagent for it.",
-      });
-    }
-
-    const adapter =
-      this.registry.getHealthy(providerId) ?? this.registry.get(providerId);
+    const target = await this.resolveTarget(spec);
+    const adapter = target.adapter
+      ?? this.registry.getHealthy(target.providerId)
+      ?? this.registry.get(target.providerId);
     if (!adapter) {
       throw new ForgeError({
         code: "REGISTRY_AGENT_NOT_FOUND",
@@ -75,9 +84,10 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
           ? spec.input
           : JSON.stringify(spec.input),
       signal,
-      ...(spec.instructions !== undefined
-        ? { systemPrompt: spec.instructions }
+      ...(target.systemPrompt !== undefined
+        ? { systemPrompt: target.systemPrompt }
         : {}),
+      ...agentInputPolicyFields(target.constraints),
     };
 
     let resultText = "";
@@ -134,7 +144,7 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
       }
     } catch (error) {
       this.registry.recordFailure(
-        providerId,
+        target.providerId,
         error instanceof Error ? error : new Error(String(error)),
       );
       throw error;
@@ -148,15 +158,190 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
         message: failureError,
         recoverable: true,
       });
-      this.registry.recordFailure(providerId, err);
+      this.registry.recordFailure(target.providerId, err);
       throw err;
     }
 
-    this.registry.recordSuccess(providerId);
+    this.registry.recordSuccess(target.providerId);
     return usage !== undefined
       ? { output: resultText, usage }
       : { output: resultText };
   }
+
+  private async resolveTarget(spec: SubagentSpec): Promise<ResolvedSubagentTarget> {
+    if (spec.agentId === "inline") {
+      return this.resolveInlineTarget(spec);
+    }
+
+    const providerId = resolveRegisteredProviderId(this.registry, spec.agentId);
+    if (providerId !== undefined) {
+      return {
+        providerId,
+        systemPrompt: spec.instructions,
+      };
+    }
+
+    const agent = await this.persona.loader?.loadAgent(spec.agentId);
+    if (agent !== undefined) {
+      return this.resolvePersonaTarget(spec, agent);
+    }
+
+    throw new ForgeError({
+      code: "REGISTRY_AGENT_NOT_FOUND",
+      message: `Subagent "${spec.agentId}" was not found as a provider adapter, persona, or inline definition`,
+      recoverable: false,
+      suggestion:
+        "Register the adapter, add a .dzupagent/agents persona, or use agentId \"inline\" with allowInline enabled.",
+    });
+  }
+
+  private async resolvePersonaTarget(
+    spec: SubagentSpec,
+    agent: AgentDefinition,
+  ): Promise<ResolvedSubagentTarget> {
+    const routed = this.resolveProviderForDefinition(
+      promptFromInput(spec.input),
+      agent.preferredProvider,
+      agent.personaPrompt,
+      agent.skillNames,
+    );
+    const compiled = await this.persona.loader!.compileForProvider(
+      agent,
+      routed.providerId,
+    );
+    return {
+      ...routed,
+      systemPrompt: joinPrompt(compiled, spec.instructions),
+      constraints: agent.constraints,
+    };
+  }
+
+  private async resolveInlineTarget(
+    spec: SubagentSpec,
+  ): Promise<ResolvedSubagentTarget> {
+    if (this.persona.allowInline !== true) {
+      throw new ForgeError({
+        code: "REGISTRY_INVALID_INPUT",
+        message: "Inline subagent definitions are disabled",
+        recoverable: false,
+        suggestion: "Pass allowInline: true when constructing RegistrySubagentExecutor.",
+      });
+    }
+    if (spec.definition === undefined) {
+      throw new ForgeError({
+        code: "REGISTRY_INVALID_INPUT",
+        message: "Inline subagent definition is required",
+        recoverable: false,
+      });
+    }
+
+    const routed = this.resolveProviderForDefinition(
+      promptFromInput(spec.input),
+      spec.definition.preferredProvider as AdapterProviderId | undefined,
+      spec.definition.personaPrompt,
+      spec.definition.skillNames ?? [],
+    );
+    const compiled =
+      this.persona.loader !== undefined
+        ? await this.persona.loader.compileForProvider(
+            inlineDefinitionToAgentDefinition(spec.definition),
+            routed.providerId,
+          )
+        : spec.definition.personaPrompt;
+
+    return {
+      ...routed,
+      systemPrompt: joinPrompt(compiled, spec.instructions),
+      constraints: spec.definition.constraints,
+    };
+  }
+
+  private resolveProviderForDefinition(
+    prompt: string,
+    preferredProvider: AdapterProviderId | undefined,
+    systemPrompt: string,
+    skillNames: string[],
+  ): ResolvedSubagentTarget {
+    if (
+      preferredProvider !== undefined &&
+      resolveRegisteredProviderId(this.registry, preferredProvider) !== undefined
+    ) {
+      const adapter =
+        this.registry.getHealthy(preferredProvider) ??
+        this.registry.get(preferredProvider);
+      if (adapter !== undefined) {
+        return { providerId: preferredProvider, adapter };
+      }
+    }
+
+    const routed = this.registry.getForTask({
+      prompt,
+      tags: [],
+      preferredProvider,
+      systemPrompt,
+      skillIds: skillNames,
+    });
+    return {
+      providerId: routed.decision.provider as AdapterProviderId,
+      adapter: routed.adapter,
+    };
+  }
+}
+
+function promptFromInput(input: SubagentSpec["input"]): string {
+  return typeof input === "string" ? input : JSON.stringify(input);
+}
+
+function joinPrompt(
+  base: string | undefined,
+  instructions: string | undefined,
+): string | undefined {
+  const parts = [base, instructions].filter(
+    (part): part is string => typeof part === "string" && part.length > 0,
+  );
+  return parts.length === 0 ? undefined : parts.join("\n\n");
+}
+
+function inlineDefinitionToAgentDefinition(
+  definition: NonNullable<SubagentSpec["definition"]>,
+): AgentDefinition {
+  return {
+    name: definition.name,
+    description: "",
+    version: 1,
+    preferredProvider: definition.preferredProvider as AdapterProviderId | undefined,
+    skillNames: definition.skillNames ?? [],
+    memoryScope: "project",
+    constraints: definition.constraints ?? {},
+    personaPrompt: definition.personaPrompt,
+    filePath: "<inline>",
+  };
+}
+
+function agentInputPolicyFields(
+  constraints: NonNullable<SubagentSpec["definition"]>["constraints"] | undefined,
+): Partial<AgentInput> {
+  if (constraints === undefined) return {};
+  const activePolicy: NonNullable<AgentInput["policyContext"]>["activePolicy"] = {
+    ...(constraints.maxBudgetUsd !== undefined
+      ? { maxBudgetUsd: constraints.maxBudgetUsd }
+      : {}),
+    ...(constraints.approvalMode === "required"
+      ? { approvalRequired: true }
+      : {}),
+    ...(constraints.networkPolicy !== undefined
+      ? { networkAccess: constraints.networkPolicy !== "off" }
+      : {}),
+  };
+
+  return {
+    ...(constraints.maxBudgetUsd !== undefined
+      ? { maxBudgetUsd: constraints.maxBudgetUsd }
+      : {}),
+    ...(Object.keys(activePolicy).length > 0
+      ? { policyContext: { activePolicy } }
+      : {}),
+  };
 }
 
 /**

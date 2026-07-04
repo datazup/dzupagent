@@ -39,6 +39,24 @@ export function isTerminalStatus(status: TaskStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
 }
 
+export interface InlineAgentDefinition {
+  /** Display/audit label, not a provider registry key. */
+  name: string;
+  /** Persona/system prompt materialized by the injected executor. */
+  personaPrompt: string;
+  /** Optional adapter id hint; executor/router decides fallback behavior. */
+  preferredProvider?: string;
+  /** Optional skill names for executors that can compile local skill bundles. */
+  skillNames?: string[];
+  /** Governance and adapter-policy hints carried with the definition. */
+  constraints?: {
+    maxBudgetUsd?: number;
+    approvalMode?: "auto" | "required" | "conditional";
+    networkPolicy?: "off" | "restricted" | "on";
+    toolPolicy?: "strict" | "balanced" | "open";
+  };
+}
+
 /**
  * Specification of the subagent to dispatch. Intentionally minimal and
  * governance-aware: the spawn gate inspects `agentId`, `outboundScope`, and
@@ -47,6 +65,8 @@ export function isTerminalStatus(status: TaskStatus): boolean {
 export interface SubagentSpec {
   /** Logical agent identity to dispatch; resolved by the injected executor port. */
   agentId: string;
+  /** Inline definition, required only when agentId is "inline". */
+  definition?: InlineAgentDefinition;
   /** Optional per-spawn instruction override. */
   instructions?: string;
   /** The task input handed to the subagent. */

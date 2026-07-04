@@ -80,6 +80,7 @@ export function createSubagentTools(
   const spawn: SubagentToolDescriptor<{
     agentId: string;
     input: string | Record<string, unknown>;
+    definition?: SubagentSpec["definition"];
     instructions?: string;
     ttlMs?: number;
   }> = {
@@ -106,6 +107,7 @@ export function createSubagentTools(
       const spec: SubagentSpec = {
         agentId: args.agentId,
         input: args.input,
+        ...(args.definition !== undefined ? { definition: args.definition } : {}),
         ...(args.instructions !== undefined
           ? { instructions: args.instructions }
           : {}),

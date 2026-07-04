@@ -13,6 +13,7 @@
 // Contracts (seams)
 export type {
   BackgroundTask,
+  InlineAgentDefinition,
   SubagentSpec,
   SubagentResult,
   TaskId,

@@ -21,7 +21,9 @@ import { InProcessRunner } from "@dzupagent/subagents";
 import {
   RegistrySubagentExecutor,
   type SubagentExecutorLimits,
+  type SubagentPersonaOptions,
 } from "./registry-subagent-executor.js";
+import type { DzupAgentAgentLoader } from "../dzupagent/agent-loader.js";
 
 export interface CreateWiredSubagentRuntimeOptions {
   registry: ProviderAdapterRegistry;
@@ -36,6 +38,10 @@ export interface CreateWiredSubagentRuntimeOptions {
   lifecyclePolicy?: Partial<LifecyclePolicy>;
   /** Per-run executor ceilings (AGENT-M-05 token budget, AGENT-L-11 timeout). */
   executorLimits?: SubagentExecutorLimits;
+  /** Optional persona loader for .dzupagent/agents resolution. */
+  personaLoader?: Pick<DzupAgentAgentLoader, "loadAgent" | "compileForProvider">;
+  /** Opt-in inline agent definitions for agentId="inline". Defaults false. */
+  allowInline?: boolean;
   generateId?: () => string;
 }
 
@@ -56,6 +62,7 @@ export function createWiredSubagentRuntime(
   const executor = new RegistrySubagentExecutor(
     options.registry,
     options.executorLimits ?? {},
+    buildPersonaOptions(options),
   );
 
   const events: SubagentEventSink = {
@@ -102,4 +109,13 @@ export function createWiredSubagentRuntime(
     ...(options.lifecyclePolicy ? { policy: options.lifecyclePolicy } : {}),
     generateId: options.generateId ?? (() => randomUUID()),
   });
+}
+
+function buildPersonaOptions(
+  options: CreateWiredSubagentRuntimeOptions,
+): SubagentPersonaOptions {
+  return {
+    ...(options.personaLoader !== undefined ? { loader: options.personaLoader } : {}),
+    ...(options.allowInline !== undefined ? { allowInline: options.allowInline } : {}),
+  };
 }

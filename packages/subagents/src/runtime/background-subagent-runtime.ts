@@ -140,6 +140,16 @@ export class BackgroundSubagentRuntime {
     parentRunId: string,
     options: SpawnOptions = {}
   ): Promise<SpawnOutcome> {
+    const validationError = validateSubagentSpec(spec);
+    if (validationError !== undefined) {
+      this.governance.emitGovernance({
+        type: "governance:rule_violation",
+        runId: parentRunId,
+        detail: validationError,
+      });
+      return { ok: false, reason: "denied", detail: validationError };
+    }
+
     const depth = options.depth ?? 0;
     if (depth >= this.policy.maxSpawnDepth) {
       this.logger.warn({
@@ -501,6 +511,16 @@ export class BackgroundSubagentRuntime {
     this.controllers.get(taskId)?.abort();
     this.controllers.delete(taskId);
   }
+}
+
+function validateSubagentSpec(spec: SubagentSpec): string | undefined {
+  if (spec.definition !== undefined && spec.agentId !== "inline") {
+    return "inline_definition_requires_inline_agent_id";
+  }
+  if (spec.agentId === "inline" && spec.definition === undefined) {
+    return "inline_definition_required";
+  }
+  return undefined;
 }
 
 function sleep(ms: number): Promise<void> {

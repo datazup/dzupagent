@@ -29,6 +29,7 @@ export interface FanoutTemplateArgs extends Record<string, unknown> {
   items: Array<{ key: string; input: string | Record<string, unknown> }>;
   spec: {
     agentId: string;
+    definition?: SubagentSpec["definition"];
     instructions?: string;
     outboundScope?: string[];
     memoryScope?: SubagentSpec["memoryScope"];
@@ -563,6 +564,7 @@ function buildSpec(
   return {
     agentId: template.agentId,
     input: item.input,
+    ...(template.definition !== undefined ? { definition: template.definition } : {}),
     ...(template.instructions !== undefined
       ? { instructions: renderTemplate(template.instructions, item) }
       : {}),
@@ -579,6 +581,7 @@ function buildBatchTemplateSpec(
   return {
     agentId: template.agentId,
     input: { fanoutMode: "template" },
+    ...(template.definition !== undefined ? { definition: template.definition } : {}),
     ...(template.instructions !== undefined
       ? { instructions: template.instructions }
       : {}),
