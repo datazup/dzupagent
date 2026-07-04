@@ -172,6 +172,79 @@ const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode["type"], FlowNode> = {
     goal: "Ship the feature end to end",
     output: "result",
   },
+  "spdd.import_sources": {
+    type: "spdd.import_sources",
+    spddRunId: "run-1",
+    sourceRefs: [],
+    outputKey: "importedSources",
+  },
+  "spdd.build_source_pack": {
+    type: "spdd.build_source_pack",
+    spddRunId: "run-1",
+    sourceRefsKey: "importedSources",
+    outputKey: "sourcePack",
+  },
+  "spdd.run_analysis": {
+    type: "spdd.run_analysis",
+    spddRunId: "run-1",
+    planArtifactId: "artifact-1",
+    outputKey: "analysisResult",
+  },
+  "spdd.generate_canvas": {
+    type: "spdd.generate_canvas",
+    spddRunId: "run-1",
+    promptAssetVersionId: "ver-1",
+    outputKey: "canvasResult",
+  },
+  "spdd.validate_canvas": {
+    type: "spdd.validate_canvas",
+    spddRunId: "run-1",
+    promptAssetVersionId: "ver-1",
+    outputKey: "canvasValidation",
+  },
+  "spdd.review_canvas": {
+    type: "spdd.review_canvas",
+    spddRunId: "run-1",
+    promptAssetVersionId: "ver-1",
+    outputKey: "canvasReview",
+  },
+  "spdd.project_plan": {
+    type: "spdd.project_plan",
+    spddRunId: "run-1",
+    promptAssetVersionId: "ver-1",
+    outputKey: "planResult",
+  },
+  "spdd.arm_dispatch": {
+    type: "spdd.arm_dispatch",
+    spddRunId: "run-1",
+    planRunId: "plan-1",
+    outputKey: "dispatchResult",
+  },
+  "spdd.run_validation": {
+    type: "spdd.run_validation",
+    spddRunId: "run-1",
+    planRunId: "plan-1",
+    executionRunId: "exec-1",
+    outputKey: "validationResult",
+  },
+  "spdd.collect_proof": {
+    type: "spdd.collect_proof",
+    spddRunId: "run-1",
+    planRunId: "plan-1",
+    outputKey: "proofResult",
+  },
+  "spdd.scan_drift": {
+    type: "spdd.scan_drift",
+    spddRunId: "run-1",
+    promptAssetVersionId: "ver-1",
+    outputKey: "driftResult",
+  },
+  "spdd.create_sync_proposal": {
+    type: "spdd.create_sync_proposal",
+    spddRunId: "run-1",
+    driftFindingIdsKey: "driftResult",
+    outputKey: "syncProposal",
+  },
 };
 
 describe("parseFlow — public node contract", () => {
