@@ -51,6 +51,23 @@ const tools = createSubagentTools({
 stock: TTL expiry, retention GC, and concurrency admission keep the store from
 growing without limit.
 
+## Postgres durability
+
+`PostgresTaskStore` and `PostgresTaskQueue` provide an opt-in durable store and
+leased queue for hosts that already run Postgres. Apply
+`migrations/0001_postgres_subagent_tasks.sql`, or use
+`createPostgresSubagentSchemaSql()` if the host owns schema execution.
+
+Run the gated database suite with:
+
+```bash
+SUBAGENTS_POSTGRES_TEST_URL=postgresql://... yarn workspace @dzupagent/subagents test:integration
+```
+
+The higher-level `@dzupagent/agent-adapters/subagents` factory also exposes a
+`postgresDurability` option that wires the Postgres store, leased queue, and
+stale-running recovery policy into `createWiredSubagentRuntime`.
+
 ## Seams (all injectable, all with in-memory defaults)
 
 `TaskRunner` (execution) · `TaskStore` (persistence) · `CheckpointerPort`
