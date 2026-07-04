@@ -41,6 +41,103 @@ describe("SpawnGate.evaluate", () => {
   });
 });
 
+describe("SpawnGate.evaluateBatch", () => {
+  it("uses legacy policy check with the parent run string for batch evaluation", async () => {
+    const calls: Array<{ spec: SubagentSpec; parentRunId: string }> = [];
+    const policy: SpawnPolicy = {
+      check: (checkedSpec, parentRunId) => {
+        calls.push({ spec: checkedSpec, parentRunId });
+        return { allow: true, requiresApproval: true };
+      },
+    };
+    const gate = new SpawnGate(policy);
+
+    expect(
+      await gate.evaluateBatch({
+        batchId: "batch1",
+        parentRunId: "run-1",
+        mode: "template",
+        template: spec,
+        itemKeys: ["a", "b"],
+      }),
+    ).toEqual({ outcome: "needs_approval" });
+    expect(calls).toEqual([{ spec, parentRunId: "run-1" }]);
+  });
+
+  it("invokes checkWithContext with a batch-flavoured SpawnContext for batch-aware policies", async () => {
+    const contexts: unknown[] = [];
+    const policy: SpawnPolicy = {
+      check: () => ({ allow: false, reason: "legacy_not_used" }),
+      checkWithContext: (_checkedSpec, ctx) => {
+        contexts.push(ctx);
+        return { allow: true, requiresApproval: false };
+      },
+    };
+    const gate = new SpawnGate(policy);
+
+    expect(
+      await gate.evaluateBatch({
+        batchId: "batch1",
+        parentRunId: "run-1",
+        mode: "template",
+        template: spec,
+        itemKeys: ["a", "b"],
+      }),
+    ).toEqual({ outcome: "allowed" });
+    // The batch template is threaded through the SAME context-aware policy seam
+    // as a single spawn — carrying the batch descriptor (with the template, so
+    // per-item spawns can be scope-narrowed against it).
+    expect(contexts).toEqual([
+      {
+        parentRunId: "run-1",
+        depth: 0,
+        batch: {
+          batchId: "batch1",
+          batchSize: 2,
+          mode: "template",
+          approved: false,
+          template: spec,
+        },
+      },
+    ]);
+  });
+
+  it("denies approved batch items that widen outbound scope before policy runs", async () => {
+    let policyCalls = 0;
+    const policy: SpawnPolicy = {
+      check: () => {
+        policyCalls += 1;
+        return { allow: true, requiresApproval: false };
+      },
+    };
+    const gate = new SpawnGate(policy);
+
+    // A per-item spawn carrying an approved batch template (with a narrower
+    // outboundScope) that WIDENS the scope must be denied before the policy runs.
+    expect(
+      await gate.evaluate(
+        { agentId: "x", input: "hi", outboundScope: ["repo", "network"] },
+        {
+          parentRunId: "run-1",
+          depth: 0,
+          batch: {
+            batchId: "batch1",
+            batchSize: 1,
+            mode: "template",
+            approved: true,
+            template: { agentId: "x", input: "batch", outboundScope: ["repo"] },
+          },
+        },
+        "subagent:t1",
+      ),
+    ).toEqual({
+      outcome: "denied",
+      reason: "batch_scope_widened: outboundScope",
+    });
+    expect(policyCalls).toBe(0);
+  });
+});
+
 describe("SpawnGate.awaitApproval", () => {
   it("fails closed when approval required but no gate wired", async () => {
     const gate = new SpawnGate(allowAllSpawnPolicy);

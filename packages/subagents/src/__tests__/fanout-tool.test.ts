@@ -32,14 +32,14 @@ class ScriptableExecutor implements SubagentExecutorPort {
 
   constructor(
     private readonly behavior: (
-      spec: SubagentSpec,
+      spec: SubagentSpec
     ) => "succeed" | "fail" | "hang" = () => "succeed",
-    private readonly result: SubagentResult = { output: "ok" },
+    private readonly result: SubagentResult = { output: "ok" }
   ) {}
 
   async run(
     spec: SubagentSpec,
-    ctx: SubagentExecutionContext,
+    ctx: SubagentExecutionContext
   ): Promise<SubagentResult> {
     this.runCalls.push(spec);
     this.inFlight += 1;
@@ -51,7 +51,7 @@ class ScriptableExecutor implements SubagentExecutorPort {
           ctx.signal.addEventListener(
             "abort",
             () => reject(new Error("aborted")),
-            { once: true },
+            { once: true }
           );
         });
       }
@@ -73,7 +73,7 @@ function setup(
     policy?: SpawnPolicy;
     lifecyclePolicy?: Partial<LifecyclePolicy>;
     fanout?: Partial<Pick<FanoutToolConfig, "limits" | "generateBatchId">>;
-  } = {},
+  } = {}
 ) {
   const events = new RecordingEventSink();
   const executor = new ScriptableExecutor(opts.behavior, opts.result);
@@ -154,7 +154,7 @@ describe("fanout_template coverage (Spec 01 AC1)", () => {
       lifecyclePolicy: { maxQueuedTasks: 500 },
     });
     const report = asReport(
-      await tool.invoke({ items: items(500), spec: { agentId: "echo" } }),
+      await tool.invoke({ items: items(500), spec: { agentId: "echo" } })
     );
 
     expect(report.declared).toBe(500);
@@ -163,23 +163,23 @@ describe("fanout_template coverage (Spec 01 AC1)", () => {
     expect(report.settled.succeeded).toBe(500);
     expect(report.items).toHaveLength(500);
     expect(
-      report.items.every((i) => i.status === "succeeded" && i.taskId),
+      report.items.every((i) => i.status === "succeeded" && i.taskId)
     ).toBe(true);
     expect(report.budget.aborted).toBe(false);
     // Bounded concurrency: never more than maxConcurrent in flight.
     expect(executor.peakConcurrency).toBeLessThanOrEqual(4);
     // Event lifecycle: started → N dispatched → N settled → completed.
     expect(events.types().filter((t) => t === "fanout:started")).toHaveLength(
-      1,
+      1
     );
     expect(
-      events.types().filter((t) => t === "fanout:item_dispatched"),
+      events.types().filter((t) => t === "fanout:item_dispatched")
     ).toHaveLength(500);
     expect(
-      events.types().filter((t) => t === "fanout:item_settled"),
+      events.types().filter((t) => t === "fanout:item_settled")
     ).toHaveLength(500);
     expect(events.types().filter((t) => t === "fanout:completed")).toHaveLength(
-      1,
+      1
     );
   }, 25_000);
 
@@ -192,7 +192,7 @@ describe("fanout_template coverage (Spec 01 AC1)", () => {
           { key: "k2", input: { nested: true } },
         ],
         spec: { agentId: "echo", instructions: "Process {{key}}: {{input}}" },
-      }),
+      })
     );
     const instructions = executor.runCalls.map((s) => s.instructions).sort();
     expect(instructions).toEqual([
@@ -204,7 +204,7 @@ describe("fanout_template coverage (Spec 01 AC1)", () => {
   it("truncates oversized per-item results with a resultTruncated marker", async () => {
     const { tool } = setup({ result: { output: "x".repeat(5000) } });
     const report = asReport(
-      await tool.invoke({ items: items(1), spec: { agentId: "echo" } }),
+      await tool.invoke({ items: items(1), spec: { agentId: "echo" } })
     );
     const item = report.items[0]!;
     expect(item.status).toBe("succeeded");
@@ -232,7 +232,7 @@ describe("fanout_template per-item denial (Spec 01 AC3)", () => {
           { key: "good-2", input: "c" },
         ],
         spec: { agentId: "echo", instructions: "{{key}}" },
-      }),
+      })
     );
     expect(report.dispatched).toBe(2);
     expect(report.settled).toMatchObject({ succeeded: 2, denied: 1 });
@@ -242,7 +242,7 @@ describe("fanout_template per-item denial (Spec 01 AC3)", () => {
     // Denied items are honestly reported; they are not "uncovered".
     expect(report.uncovered).toEqual([]);
     expect(
-      events.types().filter((t) => t === "fanout:item_dispatched"),
+      events.types().filter((t) => t === "fanout:item_dispatched")
     ).toHaveLength(2);
   });
 });
@@ -262,7 +262,7 @@ describe("fanout_template queue_full handling (Spec 01 §6)", () => {
         return original(spec, parentRunId, options);
       });
     const report = asReport(
-      await tool.invoke({ items: items(1), spec: { agentId: "echo" } }),
+      await tool.invoke({ items: items(1), spec: { agentId: "echo" } })
     );
     expect(report.dispatched).toBe(1);
     expect(report.uncovered).toEqual([]);
@@ -280,11 +280,11 @@ describe("fanout_template queue_full handling (Spec 01 §6)", () => {
         items: items(3),
         spec: { agentId: "echo" },
         concurrency: 1,
-      }),
+      })
     );
     expect(report.dispatched).toBe(0);
     expect(report.items.every((i) => i.status === "never_dispatched")).toBe(
-      true,
+      true
     );
     expect(report.uncovered).toEqual(["item-0", "item-1", "item-2"]);
     expect(report.budget.aborted).toBe(true);
@@ -306,7 +306,7 @@ describe("fanout_template wall-clock budget abort (Spec 03 AC5-style accounting)
         items: items(6),
         spec: { agentId: "echo" },
         concurrency: 4,
-      }),
+      })
     );
 
     expect(report.declared).toBe(6);
@@ -342,10 +342,10 @@ describe("fanout_template report/event count invariant (Spec 03 AC6)", () => {
           : "succeed",
     });
     const report = asReport(
-      await tool.invoke({ items: items(8), spec: { agentId: "echo" } }),
+      await tool.invoke({ items: items(8), spec: { agentId: "echo" } })
     );
     const dispatchedEvents = events.events.filter(
-      (e) => e.type === "fanout:item_dispatched",
+      (e) => e.type === "fanout:item_dispatched"
     );
     const completed = events.events.find((e) => e.type === "fanout:completed");
     expect(dispatchedEvents).toHaveLength(report.dispatched);
@@ -356,7 +356,7 @@ describe("fanout_template report/event count invariant (Spec 03 AC6)", () => {
       uncovered: 0,
     });
     const nonDispatched = report.items.filter(
-      (i) => i.status === "never_dispatched" || i.status === "denied",
+      (i) => i.status === "never_dispatched" || i.status === "denied"
     );
     expect(report.dispatched).toBe(report.items.length - nonDispatched.length);
     expect(report.settled.failed).toBe(1);
@@ -375,7 +375,11 @@ describe("fanout_template governance context (Spec 03 §2)", () => {
     };
     const { tool } = setup({ policy });
     asReport(await tool.invoke({ items: items(3), spec: { agentId: "echo" } }));
-    expect(contexts).toHaveLength(3);
+    // Phase B hardening: the fan-out now runs a batch-level gate ONCE (the
+    // template check, `approved: false`) before dispatching, then a per-item
+    // check for each of the 3 items (`approved: true`) — 4 context-aware calls.
+    expect(contexts).toHaveLength(4);
+    // Call 0 is the batch-level gate over the template.
     expect(contexts[0]).toMatchObject({
       parentRunId: "run-1",
       depth: 0,
@@ -384,6 +388,17 @@ describe("fanout_template governance context (Spec 03 §2)", () => {
         batchSize: 3,
         mode: "template",
         approved: false,
+      },
+    });
+    // Calls 1..3 are the per-item spawns, running under the passed batch approval.
+    expect(contexts[1]).toMatchObject({
+      parentRunId: "run-1",
+      depth: 0,
+      batch: {
+        batchId: "batch-1",
+        batchSize: 3,
+        mode: "template",
+        approved: true,
       },
     });
     // checkWithContext takes precedence — legacy check is never invoked.
@@ -401,10 +416,13 @@ describe("fanout_template governance context (Spec 03 §2)", () => {
     };
     const { tool } = setup({ policy });
     const report = asReport(
-      await tool.invoke({ items: items(2), spec: { agentId: "echo" } }),
+      await tool.invoke({ items: items(2), spec: { agentId: "echo" } })
     );
     expect(report.settled.succeeded).toBe(2);
-    expect(seen).toEqual(["true", "true"]);
+    // Phase B: one batch-level gate call over the template + one per item — a
+    // legacy policy still ALWAYS receives a plain `parentRunId` string, never
+    // the context object (the regression this rule prevents).
+    expect(seen).toEqual(["true", "true", "true"]);
   });
 });
 
@@ -427,7 +445,7 @@ describe("createSubagentTools integration", () => {
       await fanout.invoke({
         items: [{ key: "only", input: "x" }],
         spec: { agentId: "echo" },
-      }),
+      })
     );
     expect(report.dispatched).toBe(1);
     expect(report.uncovered).toEqual([]);

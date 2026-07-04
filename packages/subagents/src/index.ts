@@ -132,6 +132,7 @@ export {
 } from "./tools/subagent-tools.js";
 export {
   createFanoutTemplateTool,
+  fanoutBatchRecordToReport,
   isFanoutValidationError,
   DEFAULT_FANOUT_LIMITS,
   type FanoutToolConfig,

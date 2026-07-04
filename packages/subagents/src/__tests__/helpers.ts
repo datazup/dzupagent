@@ -63,10 +63,16 @@ export class RecordingEventSink implements SubagentEventSink {
 
 /** Collects governance events for assertions. */
 export class RecordingGovernanceSink implements GovernanceEventSink {
-  readonly events: Array<{ type: string; runId: string; detail?: string }> = [];
+  readonly events: Array<{
+    type: string;
+    runId: string;
+    approvalId?: string;
+    detail?: string;
+  }> = [];
   emitGovernance(event: {
     type: string;
     runId: string;
+    approvalId?: string;
     detail?: string;
   }): void {
     this.events.push(event);
