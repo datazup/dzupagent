@@ -1,5 +1,6 @@
 import type {
   BackgroundTask,
+  SubagentAuditIdentity,
   SubagentResult,
   SubagentSpec,
   TaskId,
@@ -53,6 +54,16 @@ export interface SpawnOptions {
   originTaskId?: string;
 }
 
+export interface SubagentAdmissionResolution {
+  spec: SubagentSpec;
+  audit?: SubagentAuditIdentity;
+}
+
+export type SubagentAdmissionResolver = (
+  spec: SubagentSpec,
+  parentRunId: string
+) => Promise<SubagentAdmissionResolution> | SubagentAdmissionResolution;
+
 export type SpawnBatchAdmission =
   | { ok: true; batch: ApprovedSpawnBatch; approvalRequired: boolean }
   | { ok: false; reason: "denied"; detail: string };
@@ -79,6 +90,8 @@ export interface BackgroundSubagentRuntimeDeps {
   clock?: Clock;
   /** Structured logger seam; defaults to a JSON-to-stderr logger when absent. */
   logger?: SubagentLogger;
+  /** Optional trusted pre-admission resolver for persona snapshots/policy data. */
+  resolveAdmission?: SubagentAdmissionResolver;
   /** Deterministic id generator (no Math.random in core paths). */
   generateId: () => string;
 }
@@ -98,6 +111,7 @@ export class BackgroundSubagentRuntime {
   private readonly clock: Clock;
   private readonly policy: LifecyclePolicy;
   private readonly logger: SubagentLogger;
+  private readonly resolveAdmission?: SubagentAdmissionResolver;
   private readonly generateId: () => string;
   private readonly lifecycle: LifecycleController;
   private readonly controllers = new Map<TaskId, AbortController>();
@@ -111,6 +125,7 @@ export class BackgroundSubagentRuntime {
     this.clock = deps.clock ?? systemClock;
     this.policy = { ...DEFAULT_LIFECYCLE_POLICY, ...deps.policy };
     this.logger = deps.logger ?? defaultSubagentLogger;
+    this.resolveAdmission = deps.resolveAdmission;
     this.generateId = deps.generateId;
     this.lifecycle = new LifecycleController(
       this.store,
@@ -149,6 +164,9 @@ export class BackgroundSubagentRuntime {
       });
       return { ok: false, reason: "denied", detail: validationError };
     }
+
+    const admission = await this.resolveAdmissionSpec(spec, parentRunId);
+    const admittedSpec = admission.spec;
 
     const depth = options.depth ?? 0;
     if (depth >= this.policy.maxSpawnDepth) {
@@ -189,17 +207,18 @@ export class BackgroundSubagentRuntime {
       id,
       parentRunId,
       ...(options.batch !== undefined ? { batchId: options.batch.batchId } : {}),
-      spec,
+      spec: admittedSpec,
       status: "queued",
       createdAt: this.clock.now(),
       ttlMs: options.ttlMs ?? this.policy.defaultTtlMs,
       depth,
+      ...(admission.audit !== undefined ? { audit: admission.audit } : {}),
     };
     await this.store.put(task);
 
     const approvalId = `subagent:${id}`;
     const decision = await this.gate.evaluate(
-      spec,
+      admittedSpec,
       parentRunId,
       approvalId,
       options.batch !== undefined
@@ -316,6 +335,12 @@ export class BackgroundSubagentRuntime {
       parentRunId,
       agentId: task.spec.agentId,
       depth: task.depth,
+      ...(task.audit?.personaName !== undefined
+        ? { personaName: task.audit.personaName }
+        : {}),
+      ...(task.audit?.inlineDefinitionHash !== undefined
+        ? { inlineDefinitionHash: task.audit.inlineDefinitionHash }
+        : {}),
       ...(task.batchId !== undefined ? { batchId: task.batchId } : {}),
     });
 
@@ -428,7 +453,15 @@ export class BackgroundSubagentRuntime {
   async evaluateBatch(
     request: SpawnBatchRequest
   ): Promise<SpawnBatchAdmission> {
-    const decision = await this.gate.evaluateBatch(request);
+    const admission = await this.resolveAdmissionSpec(
+      request.template,
+      request.parentRunId
+    );
+    const resolvedRequest: SpawnBatchRequest = {
+      ...request,
+      template: admission.spec,
+    };
+    const decision = await this.gate.evaluateBatch(resolvedRequest);
     if (decision.outcome === "denied") {
       this.governance.emitGovernance({
         type: "governance:rule_violation",
@@ -465,7 +498,7 @@ export class BackgroundSubagentRuntime {
       batch: {
         batchId: request.batchId,
         mode: request.mode,
-        template: request.template,
+        template: admission.spec,
         itemKeys: [...request.itemKeys],
       },
     };
@@ -511,6 +544,30 @@ export class BackgroundSubagentRuntime {
     this.controllers.get(taskId)?.abort();
     this.controllers.delete(taskId);
   }
+
+  private async resolveAdmissionSpec(
+    spec: SubagentSpec,
+    parentRunId: string
+  ): Promise<SubagentAdmissionResolution> {
+    if (spec.resolvedDefinition !== undefined) {
+      return { spec, audit: defaultAuditForSpec(spec) };
+    }
+    if (this.resolveAdmission === undefined) {
+      return { spec, audit: defaultAuditForSpec(spec) };
+    }
+    const admission = await this.resolveAdmission(spec, parentRunId);
+    const validationError = validateSubagentSpec(admission.spec);
+    if (validationError !== undefined) {
+      return {
+        spec: admission.spec,
+        audit: admission.audit ?? defaultAuditForSpec(admission.spec),
+      };
+    }
+    return {
+      spec: admission.spec,
+      audit: admission.audit ?? defaultAuditForSpec(admission.spec),
+    };
+  }
 }
 
 function validateSubagentSpec(spec: SubagentSpec): string | undefined {
@@ -521,6 +578,13 @@ function validateSubagentSpec(spec: SubagentSpec): string | undefined {
     return "inline_definition_required";
   }
   return undefined;
+}
+
+function defaultAuditForSpec(spec: SubagentSpec): SubagentAuditIdentity | undefined {
+  const definition = spec.definition ?? spec.resolvedDefinition;
+  const personaName = spec.resolvedPersonaName ?? definition?.name;
+  if (personaName === undefined) return undefined;
+  return { personaName };
 }
 
 function sleep(ms: number): Promise<void> {

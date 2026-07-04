@@ -67,6 +67,10 @@ export interface SubagentSpec {
   agentId: string;
   /** Inline definition, required only when agentId is "inline". */
   definition?: InlineAgentDefinition;
+  /** Admission-time persona snapshot produced by trusted runtime wiring. */
+  resolvedDefinition?: InlineAgentDefinition;
+  /** Display/audit name for an admission-time resolved persona snapshot. */
+  resolvedPersonaName?: string;
   /** Optional per-spawn instruction override. */
   instructions?: string;
   /** The task input handed to the subagent. */
@@ -113,4 +117,11 @@ export interface BackgroundTask {
   approvalId?: string;
   /** Spawn depth (0 = spawned by the top-level run). */
   depth: number;
+  /** Persona identity captured at admission for audit events. */
+  audit?: SubagentAuditIdentity;
+}
+
+export interface SubagentAuditIdentity {
+  personaName?: string;
+  inlineDefinitionHash?: string;
 }

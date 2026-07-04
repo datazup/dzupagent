@@ -418,7 +418,7 @@ async function runOneItem(args: {
     return buildBudgetAbortedItem(args.item.key, args.budgetState);
   }
 
-  const spec = buildSpec(args.template, args.item);
+  const spec = buildSpec(args.batch.template, args.item);
   const spawned = await args.runtime.spawn(
     spec,
     args.parentRunId,
@@ -558,13 +558,19 @@ function validateArgs(args: FanoutTemplateArgs, limits: FanoutLimits): void {
 }
 
 function buildSpec(
-  template: FanoutTemplateArgs["spec"],
+  template: SubagentSpec,
   item: { key: string; input: string | Record<string, unknown> },
 ): SubagentSpec {
   return {
     agentId: template.agentId,
     input: item.input,
     ...(template.definition !== undefined ? { definition: template.definition } : {}),
+    ...(template.resolvedDefinition !== undefined
+      ? { resolvedDefinition: template.resolvedDefinition }
+      : {}),
+    ...(template.resolvedPersonaName !== undefined
+      ? { resolvedPersonaName: template.resolvedPersonaName }
+      : {}),
     ...(template.instructions !== undefined
       ? { instructions: renderTemplate(template.instructions, item) }
       : {}),

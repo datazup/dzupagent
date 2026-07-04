@@ -170,7 +170,10 @@ export type SubagentRuntimeDzupEvent =
       taskId: string;
       parentRunId: string;
       agentId: string;
+      depth: number;
       batchId?: string | undefined;
+      personaName?: string | undefined;
+      inlineDefinitionHash?: string | undefined;
     }
   | { type: "subagent:admitted"; taskId: string }
   | { type: "subagent:progress"; taskId: string; note: string }

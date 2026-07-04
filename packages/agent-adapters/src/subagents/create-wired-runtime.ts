@@ -11,9 +11,10 @@ import {
   type SpawnApprovalGate,
   type SpawnPolicy,
   type SubagentEventSink,
+  type SubagentSpec,
   type TaskStore,
 } from "@dzupagent/subagents";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { ProviderAdapterRegistry } from "../registry/adapter-registry.js";
 import type { CheckpointStore } from "../session/workflow-checkpointer.js";
 import { CheckpointStorePort } from "./checkpoint-store-port.js";
@@ -23,7 +24,11 @@ import {
   type SubagentExecutorLimits,
   type SubagentPersonaOptions,
 } from "./registry-subagent-executor.js";
-import type { DzupAgentAgentLoader } from "../dzupagent/agent-loader.js";
+import type {
+  AgentDefinition,
+  DzupAgentAgentLoader,
+} from "../dzupagent/agent-loader.js";
+import type { AdapterProviderId } from "../types.js";
 
 export interface CreateWiredSubagentRuntimeOptions {
   registry: ProviderAdapterRegistry;
@@ -106,6 +111,7 @@ export function createWiredSubagentRuntime(
     gate,
     events,
     governance,
+    resolveAdmission: buildAdmissionResolver(options),
     ...(options.lifecyclePolicy ? { policy: options.lifecyclePolicy } : {}),
     generateId: options.generateId ?? (() => randomUUID()),
   });
@@ -118,4 +124,106 @@ function buildPersonaOptions(
     ...(options.personaLoader !== undefined ? { loader: options.personaLoader } : {}),
     ...(options.allowInline !== undefined ? { allowInline: options.allowInline } : {}),
   };
+}
+
+function buildAdmissionResolver(options: CreateWiredSubagentRuntimeOptions) {
+  return async (spec: SubagentSpec) => {
+    if (spec.agentId === "inline") {
+      return {
+        spec,
+        audit:
+          spec.definition !== undefined
+            ? {
+                personaName: spec.definition.name,
+                inlineDefinitionHash: hashDefinition(spec.definition),
+              }
+            : undefined,
+      };
+    }
+
+    if (resolveRegisteredProviderId(options.registry, spec.agentId) !== undefined) {
+      return { spec };
+    }
+
+    const agent = await options.personaLoader?.loadAgent(spec.agentId);
+    if (agent === undefined) {
+      return { spec };
+    }
+
+    const routedProvider = resolveProviderForAgent(options.registry, spec, agent);
+    const compiledPrompt = await options.personaLoader!.compileForProvider(
+      agent,
+      routedProvider,
+    );
+    const resolvedDefinition = {
+      name: agent.name,
+      personaPrompt: compiledPrompt,
+      preferredProvider: routedProvider,
+      skillNames: [...agent.skillNames],
+      constraints: { ...agent.constraints },
+    };
+
+    return {
+      spec: {
+        ...spec,
+        resolvedPersonaName: agent.name,
+        resolvedDefinition,
+      },
+      audit: {
+        personaName: agent.name,
+        inlineDefinitionHash: hashDefinition(resolvedDefinition),
+      },
+    };
+  };
+}
+
+function resolveProviderForAgent(
+  registry: ProviderAdapterRegistry,
+  spec: SubagentSpec,
+  agent: AgentDefinition,
+): AdapterProviderId {
+  if (
+    agent.preferredProvider !== undefined &&
+    resolveRegisteredProviderId(registry, agent.preferredProvider) !== undefined
+  ) {
+    return agent.preferredProvider;
+  }
+  const routed = registry.getForTask({
+    prompt: typeof spec.input === "string" ? spec.input : JSON.stringify(spec.input),
+    tags: [],
+    preferredProvider: agent.preferredProvider,
+    systemPrompt: agent.personaPrompt,
+    skillIds: agent.skillNames,
+  });
+  return routed.decision.provider as AdapterProviderId;
+}
+
+function resolveRegisteredProviderId(
+  registry: ProviderAdapterRegistry,
+  agentId: string,
+): AdapterProviderId | undefined {
+  return registry.listAdapters().some((providerId) => providerId === agentId)
+    ? (agentId as AdapterProviderId)
+    : undefined;
+}
+
+function hashDefinition(definition: NonNullable<SubagentSpec["definition"]>): string {
+  return `sha256:${createHash("sha256")
+    .update(stableStringify(definition))
+    .digest("hex")}`;
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b));
+    return `{${entries
+      .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableStringify(entryValue)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }

@@ -16,6 +16,7 @@ import { InMemoryTaskStore } from "../store/in-memory-task-store.js";
 import {
   BackgroundSubagentRuntime,
   type GovernanceEventSink,
+  type SubagentAdmissionResolver,
 } from "./background-subagent-runtime.js";
 import type { LifecyclePolicy } from "./runtime-config.js";
 
@@ -41,6 +42,7 @@ export interface CreateInProcessRuntimeOptions {
   policy?: SpawnPolicy;
   approvalGate?: SpawnApprovalGate;
   governance?: GovernanceEventSink;
+  resolveAdmission?: SubagentAdmissionResolver;
   lifecyclePolicy?: Partial<LifecyclePolicy>;
   clock?: Clock;
   generateId?: () => string;
@@ -83,6 +85,9 @@ export function createInProcessSubagentRuntime(
     gate,
     events: options.events,
     ...(options.governance ? { governance: options.governance } : {}),
+    ...(options.resolveAdmission !== undefined
+      ? { resolveAdmission: options.resolveAdmission }
+      : {}),
     ...(options.lifecyclePolicy ? { policy: options.lifecyclePolicy } : {}),
     clock,
     generateId: options.generateId ?? (() => randomUUID()),

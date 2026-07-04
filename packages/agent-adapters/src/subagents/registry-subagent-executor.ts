@@ -181,6 +181,10 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
       };
     }
 
+    if (spec.resolvedDefinition !== undefined) {
+      return this.resolveDefinitionTarget(spec, spec.resolvedDefinition);
+    }
+
     const agent = await this.persona.loader?.loadAgent(spec.agentId);
     if (agent !== undefined) {
       return this.resolvePersonaTarget(spec, agent);
@@ -235,24 +239,30 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
       });
     }
 
+    return this.resolveDefinitionTarget(spec, spec.definition);
+  }
+
+  private async resolveDefinitionTarget(
+    spec: SubagentSpec,
+    definition: NonNullable<SubagentSpec["definition"]>,
+  ): Promise<ResolvedSubagentTarget> {
     const routed = this.resolveProviderForDefinition(
       promptFromInput(spec.input),
-      spec.definition.preferredProvider as AdapterProviderId | undefined,
-      spec.definition.personaPrompt,
-      spec.definition.skillNames ?? [],
+      definition.preferredProvider as AdapterProviderId | undefined,
+      definition.personaPrompt,
+      definition.skillNames ?? [],
     );
     const compiled =
-      this.persona.loader !== undefined
+      this.persona.loader !== undefined && spec.resolvedDefinition === undefined
         ? await this.persona.loader.compileForProvider(
-            inlineDefinitionToAgentDefinition(spec.definition),
+            inlineDefinitionToAgentDefinition(definition),
             routed.providerId,
           )
-        : spec.definition.personaPrompt;
-
+        : definition.personaPrompt;
     return {
       ...routed,
       systemPrompt: joinPrompt(compiled, spec.instructions),
-      constraints: spec.definition.constraints,
+      constraints: definition.constraints,
     };
   }
 

@@ -166,10 +166,11 @@ export class SpawnGate {
     if (!decision.allow) {
       return { outcome: "denied", reason: decision.reason };
     }
+    const constrained = applySpecConstraints(spec, decision);
     if (context?.batch !== undefined) {
       return { outcome: "allowed" };
     }
-    if (decision.requiresApproval) {
+    if (constrained.requiresApproval) {
       return { outcome: "needs_approval" };
     }
     return { outcome: "allowed" };
@@ -192,7 +193,8 @@ export class SpawnGate {
     if (!decision.allow) {
       return { outcome: "denied", reason: decision.reason };
     }
-    if (decision.requiresApproval) {
+    const constrained = applySpecConstraints(request.template, decision);
+    if (constrained.requiresApproval) {
       return { outcome: "needs_approval" };
     }
     return { outcome: "allowed" };
@@ -230,6 +232,17 @@ export class SpawnGate {
     }
     return this.policy.check(spec, parentRunId);
   }
+}
+
+function applySpecConstraints(
+  spec: SubagentSpec,
+  decision: Extract<SpawnPolicyDecision, { allow: true }>,
+): Extract<SpawnPolicyDecision, { allow: true }> {
+  const constraints = (spec.resolvedDefinition ?? spec.definition)?.constraints;
+  if (constraints?.approvalMode === "required") {
+    return { allow: true, requiresApproval: true };
+  }
+  return decision;
 }
 
 function validateBatchScope(
