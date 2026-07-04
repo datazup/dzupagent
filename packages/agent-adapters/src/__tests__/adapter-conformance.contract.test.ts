@@ -12,9 +12,23 @@ import { OpenRouterAdapter } from '../openrouter/openrouter-adapter.js'
 import type { AgentCLIAdapter, AgentEvent, AdapterProviderId, TokenUsage } from '../types.js'
 import { getProcessHelperMocks } from './test-helpers.js'
 
+const codexSdkMock = vi.hoisted(() => {
+  const startThread = vi.fn()
+  const resumeThread = vi.fn()
+  const Codex = vi.fn().mockImplementation(() => ({
+    startThread,
+    resumeThread,
+  }))
+  return { Codex, startThread, resumeThread }
+})
+
 vi.mock('../utils/process-helpers.js', () => ({
   isBinaryAvailable: vi.fn(),
   spawnAndStreamJsonl: vi.fn(),
+}))
+
+vi.mock('@openai/codex-sdk', () => ({
+  Codex: codexSdkMock.Codex,
 }))
 
 type CliConformanceCase = {
@@ -299,6 +313,20 @@ describe('Claude adapter conformance contract', () => {
 // ---------------------------------------------------------------------------
 
 describe('Codex adapter conformance contract', () => {
+  beforeEach(() => {
+    codexSdkMock.startThread.mockReset()
+    codexSdkMock.resumeThread.mockReset()
+    codexSdkMock.Codex.mockClear()
+    codexSdkMock.startThread.mockReturnValue({
+      runStreamed: vi.fn().mockResolvedValue({
+        events: (async function* () {
+          yield { type: 'thread.started', thread_id: 'codex-contract-thread' }
+          yield { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }
+        })(),
+      }),
+    })
+  })
+
   it('creates with valid config and reports capabilities', () => {
     const adapter = new CodexAdapter({ model: 'gpt-5.4' })
     expect(adapter.providerId).toBe('codex')
@@ -309,6 +337,11 @@ describe('Codex adapter conformance contract', () => {
     expect(caps.supportsToolCalls).toBe(true)
     expect(caps.supportsStreaming).toBe(true)
     expect(caps.supportsCostUsage).toBe(true)
+    expect(caps.nativeToolControls).toEqual({
+      mode: true,
+      allowlist: true,
+      blocklist: true,
+    })
   })
 
   it('execute() either throws SDK_NOT_INSTALLED or starts with adapter:started', async () => {

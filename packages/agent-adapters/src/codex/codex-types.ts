@@ -128,6 +128,9 @@ export interface CodexThreadOptions {
   approvalPolicy?: string
   networkAccessEnabled?: boolean
   skipGitRepoCheck?: boolean
+  allowedTools?: string[]
+  blockedTools?: string[]
+  toolPolicy?: string
   /** Normalized reasoning effort level forwarded to the Codex SDK */
   reasoningEffort?: string
 }

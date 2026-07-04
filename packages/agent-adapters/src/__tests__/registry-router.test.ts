@@ -331,7 +331,7 @@ describe('AdapterRegistryRouter', () => {
     const policyInput: AgentInput = {
       prompt: 'p',
       policyContext: {
-        activePolicy: { blockedTools: ['bash'] },
+        activePolicy: { approvalRequired: true },
         conformanceMode: 'warn-only',
       },
     }
@@ -348,7 +348,7 @@ describe('AdapterRegistryRouter', () => {
       details: expect.objectContaining({
         kind: 'policy_conformance_violation',
         providerId: 'openai',
-        field: 'blockedTools',
+        field: 'approvalRequired',
         fallbackBehavior: 'continue_primary_attempt',
       }),
     })
@@ -356,7 +356,7 @@ describe('AdapterRegistryRouter', () => {
       expect.objectContaining({
         type: 'policy:conformance_violation',
         providerId: 'openai',
-        field: 'blockedTools',
+        field: 'approvalRequired',
         conformanceMode: 'warn-only',
         fallbackBehavior: 'continue_primary_attempt',
       }),

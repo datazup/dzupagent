@@ -13,6 +13,7 @@ export interface AgentInputPolicy {
   sandboxMode?: 'read-only' | 'workspace-write' | 'full-access' | undefined
   networkAccess?: boolean | undefined
   approvalRequired?: boolean | undefined
+  toolPolicy?: 'strict' | 'balanced' | 'open' | undefined
   allowedTools?: string[] | undefined
   blockedTools?: string[] | undefined
   maxBudgetUsd?: number | undefined
@@ -31,6 +32,7 @@ export interface AgentPolicyExecutionContext {
   activePolicy?: AgentInputPolicy | undefined
   conformanceMode?: AgentPolicyConformanceMode | undefined
   projectedGuardrails?: AgentPolicyGuardrailHints | undefined
+  conformanceWarnings?: string[] | undefined
 }
 
 /** Runtime capability declaration for adapter behavior. */
@@ -40,6 +42,11 @@ export interface AdapterCapabilityProfile {
   supportsToolCalls: boolean
   supportsStreaming: boolean
   supportsCostUsage: boolean
+  nativeToolControls?: {
+    mode?: boolean | undefined
+    allowlist?: boolean | undefined
+    blocklist?: boolean | undefined
+  } | undefined
   maxContextTokens?: number | undefined
 }
 

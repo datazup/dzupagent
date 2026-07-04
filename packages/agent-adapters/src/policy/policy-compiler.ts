@@ -37,6 +37,8 @@ export interface AdapterPolicy {
   networkAccess?: boolean
   /** Whether human approval is required before execution. */
   approvalRequired?: boolean
+  /** High-level provider tool access mode. */
+  toolPolicy?: 'strict' | 'balanced' | 'open'
   /** Tool names the agent is allowed to use (allowlist). */
   allowedTools?: string[]
   /** Tool names the agent must never use (blocklist). */

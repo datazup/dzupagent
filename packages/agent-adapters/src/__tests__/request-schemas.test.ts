@@ -132,9 +132,24 @@ describe('HTTP provider policy', () => {
       .toBe(true)
   })
 
-  it('does not advertise native policy projection for API-only providers', () => {
-    expect(getProviderCapabilities('openai')?.supportsPolicyProjection).toBe(false)
+  it('advertises OpenAI policy projection only where request-level controls exist', () => {
+    expect(getProviderCapabilities('codex')?.toolControlSupport).toEqual({
+      mode: 'native',
+      allowlist: 'native',
+      blocklist: 'native',
+    })
+    expect(getProviderCapabilities('openai')?.supportsPolicyProjection).toBe(true)
+    expect(getProviderCapabilities('openai')?.toolControlSupport).toEqual({
+      mode: 'native',
+      allowlist: 'native',
+      blocklist: 'native',
+    })
     expect(getProviderCapabilities('openrouter')?.supportsPolicyProjection).toBe(false)
+    expect(getProviderCapabilities('openrouter')?.toolControlSupport).toEqual({
+      mode: 'none',
+      allowlist: 'none',
+      blocklist: 'none',
+    })
   })
 
   it('distinguishes native, provider-config, and host-gated approval support', () => {
@@ -175,6 +190,7 @@ describe('HTTP provider policy', () => {
       'goose',
       'crush',
       'gemini-sdk',
+      'openai',
     ])
   })
 

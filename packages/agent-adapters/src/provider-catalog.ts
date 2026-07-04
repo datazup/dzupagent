@@ -3,6 +3,13 @@ import type { AdapterMonitorStatus } from './types.js'
 
 export type MonitorTier = 'deep' | 'partial' | 'artifact-backed' | 'none'
 export type ApprovalSupportTier = 'native' | 'provider-config' | 'host-gated'
+export type ToolControlSupportTier = 'native' | 'provider-config' | 'host-gated' | 'none'
+
+export interface ProviderToolControlSupport {
+  mode: ToolControlSupportTier
+  allowlist: ToolControlSupportTier
+  blocklist: ToolControlSupportTier
+}
 
 export interface ProviderCapabilities {
   runtimeExecution: boolean
@@ -26,6 +33,7 @@ export interface ProviderCapabilities {
    */
   supportsPolicyProjection: boolean
   supportsSkillProjection: boolean
+  toolControlSupport: ProviderToolControlSupport
 }
 
 /**
@@ -63,6 +71,7 @@ export const PROVIDER_CATALOG = {
     approvalSupport: 'native',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
+    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
   },
   codex: {
     runtimeExecution: true,
@@ -73,6 +82,7 @@ export const PROVIDER_CATALOG = {
     approvalSupport: 'native',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
+    toolControlSupport: { mode: 'native', allowlist: 'native', blocklist: 'native' },
   },
   gemini: {
     runtimeExecution: true,
@@ -83,6 +93,7 @@ export const PROVIDER_CATALOG = {
     approvalSupport: 'provider-config',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
+    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
   },
   qwen: {
     runtimeExecution: true,
@@ -93,6 +104,7 @@ export const PROVIDER_CATALOG = {
     approvalSupport: 'provider-config',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
+    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
   },
   goose: {
     runtimeExecution: true,
@@ -103,6 +115,7 @@ export const PROVIDER_CATALOG = {
     approvalSupport: 'provider-config',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
+    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
   },
   crush: {
     runtimeExecution: true,
@@ -113,6 +126,7 @@ export const PROVIDER_CATALOG = {
     approvalSupport: 'provider-config',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
+    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
   },
   'gemini-sdk': {
     runtimeExecution: true,
@@ -123,6 +137,7 @@ export const PROVIDER_CATALOG = {
     approvalSupport: 'provider-config',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
+    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
   },
   openrouter: {
     runtimeExecution: true,
@@ -133,6 +148,7 @@ export const PROVIDER_CATALOG = {
     approvalSupport: 'host-gated',
     supportsPolicyProjection: false,
     supportsSkillProjection: true,
+    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
   },
   openai: {
     runtimeExecution: true,
@@ -141,8 +157,9 @@ export const PROVIDER_CATALOG = {
     monitorIntrospection: 'none',
     supportsReplay: false,
     approvalSupport: 'host-gated',
-    supportsPolicyProjection: false,
+    supportsPolicyProjection: true,
     supportsSkillProjection: true,
+    toolControlSupport: { mode: 'native', allowlist: 'native', blocklist: 'native' },
   },
 } satisfies Record<AdapterProviderId, ProviderCapabilities>
 

@@ -495,8 +495,7 @@ describe('PolicyConformanceChecker', () => {
 
   describe('allowedTools and blockedTools', () => {
     it('should produce a warning for allowedTools on providers without allowlist support', () => {
-      // None of the current providers support tool allowlists
-      for (const provider of ALL_PROVIDERS) {
+      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'openai' && p !== 'codex')) {
         const result = compileAndCheck(provider, { allowedTools: ['read', 'write'] })
         const violation = result.violations.find((v) => v.field === 'allowedTools')
         expect(violation).toBeDefined()
@@ -510,8 +509,18 @@ describe('PolicyConformanceChecker', () => {
       expect(violation).toBeUndefined()
     })
 
+    it('should not warn for OpenAI allowedTools because request tools are filtered natively', () => {
+      const result = compileAndCheck('openai', { allowedTools: ['lookup'] })
+      expect(result.violations.find((v) => v.field === 'allowedTools')).toBeUndefined()
+    })
+
+    it('should not warn for Codex allowedTools because thread options carry native controls', () => {
+      const result = compileAndCheck('codex', { allowedTools: ['read_file'] })
+      expect(result.violations.find((v) => v.field === 'allowedTools')).toBeUndefined()
+    })
+
     it('should produce a warning for blockedTools on providers without blocklist support', () => {
-      for (const provider of ALL_PROVIDERS) {
+      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'openai' && p !== 'codex')) {
         const result = compileAndCheck(provider, { blockedTools: ['shell'] })
         const violation = result.violations.find((v) => v.field === 'blockedTools')
         expect(violation).toBeDefined()
@@ -523,6 +532,26 @@ describe('PolicyConformanceChecker', () => {
       const result = compileAndCheck('claude', { blockedTools: [] })
       const violation = result.violations.find((v) => v.field === 'blockedTools')
       expect(violation).toBeUndefined()
+    })
+
+    it('should not warn for OpenAI blockedTools because request tools are filtered natively', () => {
+      const result = compileAndCheck('openai', { blockedTools: ['delete_file'] })
+      expect(result.violations.find((v) => v.field === 'blockedTools')).toBeUndefined()
+    })
+
+    it('should not warn for Codex blockedTools because thread options carry native controls', () => {
+      const result = compileAndCheck('codex', { blockedTools: ['shell'] })
+      expect(result.violations.find((v) => v.field === 'blockedTools')).toBeUndefined()
+    })
+
+    it('should not warn for OpenAI strict toolPolicy because empty exposure can be enforced natively', () => {
+      const result = compileAndCheck('openai', { toolPolicy: 'strict' })
+      expect(result.violations.find((v) => v.field === 'toolPolicy')).toBeUndefined()
+    })
+
+    it('should not warn for Codex strict toolPolicy because thread options carry native controls', () => {
+      const result = compileAndCheck('codex', { toolPolicy: 'strict' })
+      expect(result.violations.find((v) => v.field === 'toolPolicy')).toBeUndefined()
     })
   })
 

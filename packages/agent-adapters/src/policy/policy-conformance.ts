@@ -53,6 +53,7 @@ export interface PolicyConformanceResult {
 interface ProviderCapabilities {
   supportsSandbox: boolean
   supportsNetworkToggle: boolean
+  supportsToolPolicyMode: boolean
   supportsToolAllowlist: boolean
   supportsToolBlocklist: boolean
   supportsBudget: boolean
@@ -64,6 +65,7 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   claude: {
     supportsSandbox: true,
     supportsNetworkToggle: false,
+    supportsToolPolicyMode: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: true,
@@ -73,8 +75,9 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   codex: {
     supportsSandbox: true,
     supportsNetworkToggle: true,
-    supportsToolAllowlist: false,
-    supportsToolBlocklist: false,
+    supportsToolPolicyMode: true,
+    supportsToolAllowlist: true,
+    supportsToolBlocklist: true,
     supportsBudget: false,
     supportsMaxTurns: true,
     supportsStructuredOutput: false,
@@ -82,6 +85,7 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   gemini: {
     supportsSandbox: true,
     supportsNetworkToggle: false,
+    supportsToolPolicyMode: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -91,6 +95,7 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   'gemini-sdk': {
     supportsSandbox: false,
     supportsNetworkToggle: false,
+    supportsToolPolicyMode: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -100,6 +105,7 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   qwen: {
     supportsSandbox: true,
     supportsNetworkToggle: false,
+    supportsToolPolicyMode: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -109,6 +115,7 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   crush: {
     supportsSandbox: true,
     supportsNetworkToggle: false,
+    supportsToolPolicyMode: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -118,6 +125,7 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   goose: {
     supportsSandbox: true,
     supportsNetworkToggle: false,
+    supportsToolPolicyMode: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -127,6 +135,7 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   openrouter: {
     supportsSandbox: false,
     supportsNetworkToggle: false,
+    supportsToolPolicyMode: false,
     supportsToolAllowlist: false,
     supportsToolBlocklist: false,
     supportsBudget: false,
@@ -136,8 +145,9 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   openai: {
     supportsSandbox: false,
     supportsNetworkToggle: false,
-    supportsToolAllowlist: false,
-    supportsToolBlocklist: false,
+    supportsToolPolicyMode: true,
+    supportsToolAllowlist: true,
+    supportsToolBlocklist: true,
     supportsBudget: false,
     supportsMaxTurns: true,
     supportsStructuredOutput: false,
@@ -196,6 +206,7 @@ export class PolicyConformanceChecker {
 
     // --- approvalRequired ---
     const approvalSupport = getProviderCapabilities(provider)?.approvalSupport ?? 'host-gated'
+    const toolControlSupport = getProviderCapabilities(provider)?.toolControlSupport
     if (policy.approvalRequired && approvalSupport === 'provider-config') {
       violations.push({
         field: 'approvalRequired',
@@ -206,6 +217,20 @@ export class PolicyConformanceChecker {
       violations.push({
         field: 'approvalRequired',
         reason: `Provider '${provider}' does not support native or provider-config approval gates. Use the OrchestratorFacade approval gate instead.`,
+        severity: 'warning',
+      })
+    }
+
+    // --- toolPolicy ---
+    if (
+      policy.toolPolicy !== undefined &&
+      policy.toolPolicy !== 'open' &&
+      !caps.supportsToolPolicyMode &&
+      toolControlSupport?.mode !== 'native'
+    ) {
+      violations.push({
+        field: 'toolPolicy',
+        reason: `Provider '${provider}' does not support native toolPolicy modes. Requested '${policy.toolPolicy}' will be carried as metadata and enforced only by explicit tool allow/block guardrails when present.`,
         severity: 'warning',
       })
     }
