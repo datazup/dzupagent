@@ -12,6 +12,9 @@ import type {
   AgentDefinition,
   DzupAgentAgentLoader,
 } from "../dzupagent/agent-loader.js";
+import { compilePolicyForProvider } from "../policy/policy-compiler.js";
+import { PolicyConformanceChecker } from "../policy/policy-conformance.js";
+import type { AdapterPolicy } from "../policy/policy-compiler.js";
 
 /**
  * Implements `@dzupagent/subagents`'s {@link SubagentExecutorPort} by dispatching
@@ -87,7 +90,7 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
       ...(target.systemPrompt !== undefined
         ? { systemPrompt: target.systemPrompt }
         : {}),
-      ...agentInputPolicyFields(target.constraints),
+      ...agentInputPolicyFields(target.providerId, target.constraints),
     };
 
     let resultText = "";
@@ -329,10 +332,11 @@ function inlineDefinitionToAgentDefinition(
 }
 
 function agentInputPolicyFields(
+  providerId: AdapterProviderId,
   constraints: NonNullable<SubagentSpec["definition"]>["constraints"] | undefined,
 ): Partial<AgentInput> {
   if (constraints === undefined) return {};
-  const activePolicy: NonNullable<AgentInput["policyContext"]>["activePolicy"] = {
+  const activePolicy: AdapterPolicy = {
     ...(constraints.maxBudgetUsd !== undefined
       ? { maxBudgetUsd: constraints.maxBudgetUsd }
       : {}),
@@ -343,13 +347,53 @@ function agentInputPolicyFields(
       ? { networkAccess: constraints.networkPolicy !== "off" }
       : {}),
   };
+  const compiled = compilePolicyForProvider(providerId, activePolicy);
+  const conformance = new PolicyConformanceChecker().check(
+    providerId,
+    activePolicy,
+    compiled,
+  );
+  const conformanceWarnings = [
+    ...conformance.violations
+      .filter((violation) => violation.severity === "warning")
+      .map((violation) => `${violation.field}: ${violation.reason}`),
+    ...conformance.warnings,
+    ...(constraints.toolPolicy !== undefined && constraints.toolPolicy !== "open"
+      ? [
+          `toolPolicy: Provider '${providerId}' does not expose a native subagent toolPolicy projection; requested '${constraints.toolPolicy}' is advisory metadata.`,
+        ]
+      : []),
+  ];
 
   return {
     ...(constraints.maxBudgetUsd !== undefined
       ? { maxBudgetUsd: constraints.maxBudgetUsd }
       : {}),
+    ...(Object.keys(compiled.inputOptions).length > 0 ||
+    constraints.toolPolicy !== undefined ||
+    constraints.networkPolicy !== undefined
+      ? {
+          options: {
+            ...compiled.inputOptions,
+            ...(constraints.networkPolicy !== undefined
+              ? { networkPolicy: constraints.networkPolicy }
+              : {}),
+            ...(constraints.toolPolicy !== undefined
+              ? { toolPolicy: constraints.toolPolicy }
+              : {}),
+          },
+        }
+      : {}),
     ...(Object.keys(activePolicy).length > 0
-      ? { policyContext: { activePolicy } }
+      ? {
+          policyContext: {
+            activePolicy,
+            ...(Object.keys(compiled.guardrails).length > 0
+              ? { projectedGuardrails: compiled.guardrails }
+              : {}),
+            ...(conformanceWarnings.length > 0 ? { conformanceWarnings } : {}),
+          },
+        }
       : {}),
   };
 }

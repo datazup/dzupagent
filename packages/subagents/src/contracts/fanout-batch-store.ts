@@ -36,6 +36,7 @@ export interface FanoutBatchRecord {
   completedAt?: number;
   wallClockMs?: number;
   outputTokensUsed?: number;
+  budgetUsdReserved?: number;
   abortedReason?: string;
   budgetAborted?: boolean;
 }
@@ -64,6 +65,7 @@ export interface FanoutBatchCompleteUpdate {
   completedAt: number;
   wallClockMs: number;
   outputTokensUsed?: number;
+  budgetUsdReserved?: number;
   abortedReason?: string;
   budgetAborted?: boolean;
 }

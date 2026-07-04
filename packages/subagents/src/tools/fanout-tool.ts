@@ -41,6 +41,7 @@ export interface FanoutTemplateArgs extends Record<string, unknown> {
 
 export interface FanoutBudget {
   maxTotalOutputTokens?: number;
+  maxTotalBudgetUsd?: number;
   maxWallClockMs?: number;
 }
 
@@ -48,6 +49,7 @@ export interface FanoutLimits {
   maxBatchSize: number;
   maxConcurrent: number;
   maxTotalOutputTokens?: number;
+  maxTotalBudgetUsd?: number;
   maxWallClockMs: number;
   maxResultBytes: number;
 }
@@ -80,6 +82,7 @@ export interface FanoutReport {
   extraDispatches: [];
   budget: {
     outputTokensUsed?: number;
+    budgetUsdReserved?: number;
     wallClockMs: number;
     aborted: boolean;
     abortedReason?: string;
@@ -123,6 +126,9 @@ export function fanoutBatchRecordToReport(
     budget: {
       ...(record.outputTokensUsed !== undefined
         ? { outputTokensUsed: record.outputTokensUsed }
+        : {}),
+      ...(record.budgetUsdReserved !== undefined
+        ? { budgetUsdReserved: record.budgetUsdReserved }
         : {}),
       wallClockMs,
       aborted: record.budgetAborted ?? false,
@@ -237,6 +243,29 @@ async function runTemplateFanout(
       Date.now(),
       "aborted",
       batchAdmission.detail,
+    );
+    return report;
+  }
+
+  const reservedBudgetUsd = reserveBudgetUsd(
+    budgetState,
+    batchAdmission.batch.template,
+    args.items.length,
+  );
+  if (reservedBudgetUsd.exceeded) {
+    const report = buildBudgetAbortedBatchReport({
+      args,
+      batchId,
+      startedAt,
+      events: config.events,
+      budgetState,
+    });
+    await persistReport(
+      config.fanoutBatchStore,
+      report,
+      Date.now(),
+      "aborted",
+      reservedBudgetUsd.reason,
     );
     return report;
   }
@@ -393,6 +422,50 @@ function buildDeniedBatchReport(args: {
     items: reports,
     extraDispatches: [],
     budget: { wallClockMs, aborted: false },
+    logs: [],
+  };
+}
+
+function buildBudgetAbortedBatchReport(args: {
+  args: FanoutTemplateArgs;
+  batchId: string;
+  startedAt: number;
+  events?: SubagentEventSink;
+  budgetState: FanoutBudgetState;
+}): FanoutReport {
+  const reports: FanoutReportItem[] = args.args.items.map((item) =>
+    buildBudgetAbortedItem(item.key, args.budgetState),
+  );
+  const settled = countSettled(reports);
+  const wallClockMs = Date.now() - args.startedAt;
+  const budget = buildBudgetReport(args.budgetState, wallClockMs);
+
+  args.events?.emit({
+    type: "fanout:aborted",
+    batchId: args.batchId,
+    reason: "budget_exceeded",
+    dispatched: 0,
+  });
+  args.events?.emit({
+    type: "fanout:completed",
+    batchId: args.batchId,
+    dispatched: 0,
+    succeeded: 0,
+    failed: 0,
+    uncovered: 0,
+    wallClockMs,
+  });
+
+  return {
+    batchId: args.batchId,
+    mode: "template",
+    declared: args.args.items.length,
+    dispatched: 0,
+    settled,
+    uncovered: [],
+    items: reports,
+    extraDispatches: [],
+    budget,
     logs: [],
   };
 }
@@ -662,7 +735,9 @@ interface FanoutBudgetState {
   readonly startedAt: number;
   readonly maxWallClockMs: number;
   readonly maxTotalOutputTokens?: number;
+  readonly maxTotalBudgetUsd?: number;
   outputTokensUsed: number;
+  budgetUsdReserved?: number;
   aborted: boolean;
   abortedReason?: string;
   abort(reason: string): void;
@@ -681,11 +756,16 @@ function createBudgetState(
     budget?.maxTotalOutputTokens !== undefined
       ? budget.maxTotalOutputTokens
       : limits.maxTotalOutputTokens;
+  const maxTotalBudgetUsd =
+    budget?.maxTotalBudgetUsd !== undefined
+      ? budget.maxTotalBudgetUsd
+      : limits.maxTotalBudgetUsd;
 
   return {
     startedAt,
     maxWallClockMs,
     ...(maxTotalOutputTokens !== undefined ? { maxTotalOutputTokens } : {}),
+    ...(maxTotalBudgetUsd !== undefined ? { maxTotalBudgetUsd } : {}),
     outputTokensUsed: 0,
     aborted: false,
     abort(reason: string): void {
@@ -714,6 +794,32 @@ function recordOutputTokens(
   }
 }
 
+function reserveBudgetUsd(
+  state: FanoutBudgetState,
+  template: SubagentSpec,
+  itemCount: number,
+): { exceeded: false } | { exceeded: true; reason: string } {
+  const perItemBudgetUsd = (
+    template.resolvedDefinition ??
+    template.definition
+  )?.constraints?.maxBudgetUsd;
+  if (perItemBudgetUsd === undefined) return { exceeded: false };
+
+  state.budgetUsdReserved = roundBudgetUsd(perItemBudgetUsd * itemCount);
+  if (
+    state.maxTotalBudgetUsd !== undefined &&
+    state.budgetUsdReserved > state.maxTotalBudgetUsd
+  ) {
+    state.abort("max_total_budget_usd_exceeded");
+    return { exceeded: true, reason: "max_total_budget_usd_exceeded" };
+  }
+  return { exceeded: false };
+}
+
+function roundBudgetUsd(value: number): number {
+  return Math.round(value * 1000000) / 1000000;
+}
+
 function buildBudgetReport(
   state: FanoutBudgetState,
   wallClockMs: number,
@@ -721,6 +827,9 @@ function buildBudgetReport(
   return {
     ...(state.outputTokensUsed > 0
       ? { outputTokensUsed: state.outputTokensUsed }
+      : {}),
+    ...(state.budgetUsdReserved !== undefined
+      ? { budgetUsdReserved: state.budgetUsdReserved }
       : {}),
     wallClockMs,
     aborted: state.aborted,
@@ -806,6 +915,9 @@ async function persistReport(
     wallClockMs: report.budget.wallClockMs,
     ...(report.budget.outputTokensUsed !== undefined
       ? { outputTokensUsed: report.budget.outputTokensUsed }
+      : {}),
+    ...(report.budget.budgetUsdReserved !== undefined
+      ? { budgetUsdReserved: report.budget.budgetUsdReserved }
       : {}),
     ...(abortedReason !== undefined ? { abortedReason } : {}),
     ...(report.budget.aborted ? { budgetAborted: true } : {}),

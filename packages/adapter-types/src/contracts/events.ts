@@ -237,6 +237,11 @@ export type SubagentRuntimeEvent =
     }
   | { type: "fanout:progress"; batchId: string; message: string };
 
+export type FanoutRuntimeEvent = Extract<
+  SubagentRuntimeEvent,
+  { type: `fanout:${string}` }
+>;
+
 /**
  * Adapter-owned runtime events that are deliberately allowed on DzupEventBus.
  *

@@ -31,6 +31,7 @@ export interface AgentPolicyExecutionContext {
   activePolicy?: AgentInputPolicy | undefined
   conformanceMode?: AgentPolicyConformanceMode | undefined
   projectedGuardrails?: AgentPolicyGuardrailHints | undefined
+  conformanceWarnings?: string[] | undefined
 }
 
 /** Runtime capability declaration for adapter behavior. */

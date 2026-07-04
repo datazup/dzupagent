@@ -79,6 +79,9 @@ export class InMemoryFanoutBatchStore implements FanoutBatchStore {
     if (update.outputTokensUsed !== undefined) {
       record.outputTokensUsed = update.outputTokensUsed;
     }
+    if (update.budgetUsdReserved !== undefined) {
+      record.budgetUsdReserved = update.budgetUsdReserved;
+    }
     record.updatedAt = update.completedAt;
     if (update.abortedReason !== undefined) {
       record.abortedReason = update.abortedReason;
