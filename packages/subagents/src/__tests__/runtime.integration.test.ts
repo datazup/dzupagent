@@ -349,4 +349,61 @@ describe("runtime orphan reconciliation", () => {
       "orphaned_by_process_restart"
     );
   });
+
+  it("preserves resolved persona snapshots for durable orphan resumption", async () => {
+    const { runtime, store } = setup();
+    await store.put({
+      id: "durable-orphan",
+      parentRunId: "r",
+      spec: {
+        agentId: "reviewer",
+        input: "hi",
+        resolvedPersonaName: "reviewer",
+        resolvedDefinition: {
+          name: "reviewer",
+          personaPrompt: "Snapshot prompt.",
+          constraints: { maxBudgetUsd: 0.5 },
+        },
+      },
+      audit: {
+        personaName: "reviewer",
+        inlineDefinitionHash: "sha256:snapshot",
+      },
+      status: "running",
+      createdAt: 0,
+      ttlMs: 1000,
+      depth: 0,
+    });
+    const durableRuntime = new BackgroundSubagentRuntime({
+      store,
+      runner: {
+        start: async () => {},
+        capabilities: () => ({ durable: true, horizontal: false }),
+      },
+      gate: new SpawnGate(allowAllSpawnPolicy),
+      events: new RecordingEventSink(),
+      governance: new RecordingGovernanceSink(),
+      clock: new ManualClock(0),
+      generateId: sequentialIds(),
+    });
+
+    const reconciled = await durableRuntime.reconcileOrphans();
+
+    expect(reconciled).toEqual([]);
+    expect(await runtime.check("durable-orphan")).toMatchObject({
+      status: "running",
+      spec: {
+        resolvedPersonaName: "reviewer",
+        resolvedDefinition: {
+          name: "reviewer",
+          personaPrompt: "Snapshot prompt.",
+          constraints: { maxBudgetUsd: 0.5 },
+        },
+      },
+      audit: {
+        personaName: "reviewer",
+        inlineDefinitionHash: "sha256:snapshot",
+      },
+    });
+  });
 });

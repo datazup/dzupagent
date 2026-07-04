@@ -838,6 +838,75 @@ describe("subagent tools", () => {
       });
     });
 
+    it("aborts before dispatch when persona maxBudgetUsd exceeds aggregate budget", async () => {
+      const fanoutBatchStore = new InMemoryFanoutBatchStore();
+      const { byName, executor } = setup({
+        executorMode: "instant",
+        fanoutBatchStore,
+      });
+
+      const report = (await byName.fanout_template!.invoke({
+        items: [
+          { key: "a", input: "alpha" },
+          { key: "b", input: "beta" },
+          { key: "c", input: "gamma" },
+        ],
+        spec: {
+          agentId: "inline",
+          definition: {
+            name: "inline-budgeted",
+            personaPrompt: "Stay scoped.",
+            constraints: { maxBudgetUsd: 0.5 },
+          },
+        },
+        budget: { maxTotalBudgetUsd: 1 },
+      })) as {
+        batchId: string;
+        dispatched: number;
+        settled: { aborted_budget: number };
+        budget: {
+          budgetUsdReserved?: number;
+          aborted: boolean;
+          abortedReason?: string;
+        };
+        items: Array<{ key: string; status: string; error?: string }>;
+      };
+
+      expect(report).toMatchObject({
+        dispatched: 0,
+        settled: { aborted_budget: 3 },
+        budget: {
+          budgetUsdReserved: 1.5,
+          aborted: true,
+          abortedReason: "max_total_budget_usd_exceeded",
+        },
+        items: [
+          {
+            key: "a",
+            status: "aborted_budget",
+            error: "max_total_budget_usd_exceeded",
+          },
+          {
+            key: "b",
+            status: "aborted_budget",
+            error: "max_total_budget_usd_exceeded",
+          },
+          {
+            key: "c",
+            status: "aborted_budget",
+            error: "max_total_budget_usd_exceeded",
+          },
+        ],
+      });
+      expect(executor.runCalls).toEqual([]);
+      expect(await fanoutBatchStore.get(report.batchId)).toMatchObject({
+        status: "aborted",
+        budgetAborted: true,
+        budgetUsdReserved: 1.5,
+        abortedReason: "max_total_budget_usd_exceeded",
+      });
+    });
+
     it("aborts in-flight and queued items when wall-clock budget expires", async () => {
       vi.useFakeTimers();
       const fanoutBatchStore = new InMemoryFanoutBatchStore();

@@ -267,6 +267,51 @@ describe("RegistrySubagentExecutor", () => {
     });
   });
 
+  it("projects persona constraints into provider-specific input options and conformance warnings", async () => {
+    let seen: AgentInput | undefined;
+    const adapter = fakeAdapter(
+      [{ type: "adapter:completed", result: "ok" }],
+      (input) => {
+        seen = input;
+      },
+      "codex",
+    );
+    const { registry } = fakeRegistry(adapter, { codex: adapter });
+    const exec = new RegistrySubagentExecutor(registry, {}, { allowInline: true });
+
+    await exec.run(
+      {
+        agentId: "inline",
+        input: "x",
+        definition: {
+          name: "codex-inline",
+          personaPrompt: "Use the CLI safely.",
+          preferredProvider: "codex",
+          constraints: {
+            maxBudgetUsd: 1,
+            networkPolicy: "off",
+            toolPolicy: "strict",
+          },
+        },
+      },
+      ctx(),
+    );
+
+    expect(seen?.options).toMatchObject({
+      networkAccessEnabled: false,
+      toolPolicy: "strict",
+    });
+    expect(seen?.policyContext?.projectedGuardrails).toMatchObject({
+      maxCostCents: 100,
+    });
+    expect(seen?.policyContext?.conformanceWarnings).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("maxBudgetUsd"),
+        expect.stringContaining("toolPolicy"),
+      ]),
+    );
+  });
+
   it("throws when the provider is not registered", async () => {
     const registry = {
       listAdapters: () => ["claude"],
