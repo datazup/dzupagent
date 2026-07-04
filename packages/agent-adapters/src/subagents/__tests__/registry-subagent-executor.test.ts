@@ -306,10 +306,7 @@ describe("RegistrySubagentExecutor", () => {
       maxCostCents: 100,
     });
     expect(seen?.policyContext?.conformanceWarnings).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("maxBudgetUsd"),
-        expect.stringContaining("toolPolicy"),
-      ]),
+      [expect.stringContaining("maxBudgetUsd")],
     );
   });
 

@@ -4,12 +4,15 @@ import { tmpdir } from "node:os";
 import { describe, it, expect } from "vitest";
 import type { TaskRunner } from "../contracts/task-runner.js";
 import type { BackgroundTask } from "../contracts/background-task.js";
+import type { TaskStore } from "../contracts/task-store.js";
 import { InProcessRunner } from "../runner/in-process-runner.js";
 import {
   DurableQueueRunner,
   InMemoryTaskQueue,
 } from "../runner/durable-queue-runner.js";
 import type { TaskQueue } from "../runner/durable-queue-runner.js";
+import { HostTaskQueue } from "../store/host-task-queue.js";
+import { HostTaskStore } from "../store/host-task-store.js";
 import { InMemoryTaskStore } from "../store/in-memory-task-store.js";
 import {
   ControllableExecutor,
@@ -26,7 +29,7 @@ interface Harness {
 }
 
 async function waitForTerminal(
-  store: InMemoryTaskStore,
+  store: TaskStore,
   id: string,
   attempts = 50
 ): Promise<void> {
@@ -43,7 +46,7 @@ async function waitForTerminal(
 }
 
 async function waitForStatus(
-  store: InMemoryTaskStore,
+  store: TaskStore,
   id: string,
   status: string,
   attempts = 50
@@ -113,7 +116,24 @@ class FileBackedTaskQueue implements TaskQueue {
   }
 }
 
-function seedTask(store: InMemoryTaskStore, id = "a"): Promise<void> {
+class DuplicateDeliveryQueue implements TaskQueue {
+  private handler: ((taskId: string) => Promise<void>) | undefined;
+
+  async enqueue(taskId: string): Promise<void> {
+    if (!this.handler) return;
+    await this.handler(taskId);
+    await this.handler(taskId);
+  }
+
+  consume(handler: (taskId: string) => Promise<void>): () => void {
+    this.handler = handler;
+    return () => {
+      this.handler = undefined;
+    };
+  }
+}
+
+function seedTask(store: TaskStore, id = "a"): Promise<void> {
   const task: BackgroundTask = {
     id,
     parentRunId: "r",
@@ -350,5 +370,172 @@ describe("DurableQueueRunner durable snapshot preservation", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it("drains file-backed queue and task store state after runner reattachment", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dzupagent-external-runner-"));
+    try {
+      const queuePath = join(dir, "queue.json");
+      const storeDir = join(dir, "tasks");
+      const firstStore = new HostTaskStore({ directory: storeDir });
+      const executor = new ControllableExecutor("instant", { output: "external-restored" });
+      const events = new RecordingEventSink();
+      const clock = new ManualClock(0);
+
+      await firstStore.put({
+        id: "external-durable-task",
+        parentRunId: "parent-run",
+        spec: {
+          agentId: "inline",
+          resolvedPersonaName: "reviewer",
+          resolvedDefinition: {
+            name: "reviewer",
+            personaPrompt: "Review from external seams.",
+            constraints: { maxBudgetUsd: 0.25, toolPolicy: "strict" },
+          },
+          input: "check this",
+        },
+        audit: {
+          personaName: "reviewer",
+          inlineDefinitionHash: "hash-reviewer",
+        },
+        status: "queued",
+        createdAt: 0,
+        ttlMs: 1000,
+        depth: 0,
+      });
+
+      await new FileBackedTaskQueue(queuePath).enqueue("external-durable-task");
+
+      const reattachedStore = new HostTaskStore({ directory: storeDir });
+      const reattachedRunner = new DurableQueueRunner({
+        store: reattachedStore,
+        executor,
+        events,
+        clock,
+        queue: new FileBackedTaskQueue(queuePath),
+        durable: true,
+      });
+      await waitForTerminal(reattachedStore, "external-durable-task");
+
+      expect(executor.runCalls[0]).toMatchObject({
+        resolvedPersonaName: "reviewer",
+        resolvedDefinition: {
+          name: "reviewer",
+          personaPrompt: "Review from external seams.",
+          constraints: { maxBudgetUsd: 0.25, toolPolicy: "strict" },
+        },
+      });
+      expect(await new HostTaskStore({ directory: storeDir }).get("external-durable-task"))
+        .toMatchObject({
+          status: "succeeded",
+          audit: {
+            personaName: "reviewer",
+            inlineDefinitionHash: "hash-reviewer",
+          },
+          result: { output: "external-restored" },
+        });
+      reattachedRunner.dispose();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("drains host-backed queue and task store state after runner reattachment", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dzupagent-host-runner-"));
+    try {
+      const queueDir = join(dir, "queue");
+      const storeDir = join(dir, "tasks");
+      const firstStore = new HostTaskStore({ directory: storeDir });
+      const executor = new ControllableExecutor("instant", { output: "host-restored" });
+      const events = new RecordingEventSink();
+      const clock = new ManualClock(0);
+
+      await firstStore.put({
+        id: "host-durable-task",
+        parentRunId: "parent-run",
+        spec: {
+          agentId: "inline",
+          resolvedPersonaName: "reviewer",
+          resolvedDefinition: {
+            name: "reviewer",
+            personaPrompt: "Review from host queue.",
+            constraints: { maxBudgetUsd: 0.25, toolPolicy: "strict" },
+          },
+          input: "check this",
+        },
+        audit: {
+          personaName: "reviewer",
+          inlineDefinitionHash: "hash-reviewer",
+        },
+        status: "queued",
+        createdAt: 0,
+        ttlMs: 1000,
+        depth: 0,
+      });
+
+      await new HostTaskQueue({
+        directory: queueDir,
+        workerId: "enqueuer",
+        autoDrain: false,
+      }).enqueue("host-durable-task");
+
+      const reattachedStore = new HostTaskStore({ directory: storeDir });
+      const reattachedQueue = new HostTaskQueue({
+        directory: queueDir,
+        workerId: "runner",
+        autoDrain: false,
+      });
+      const reattachedRunner = new DurableQueueRunner({
+        store: reattachedStore,
+        executor,
+        events,
+        clock,
+        queue: reattachedQueue,
+        durable: true,
+      });
+      await reattachedQueue.drainAvailable();
+      await waitForTerminal(reattachedStore, "host-durable-task");
+
+      expect(executor.runCalls).toHaveLength(1);
+      expect(await new HostTaskStore({ directory: storeDir }).get("host-durable-task"))
+        .toMatchObject({
+          status: "succeeded",
+          audit: {
+            personaName: "reviewer",
+            inlineDefinitionHash: "hash-reviewer",
+          },
+          result: { output: "host-restored" },
+        });
+      reattachedRunner.dispose();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("DurableQueueRunner idempotent delivery", () => {
+  it("does not execute a terminal task again when a durable queue redelivers its id", async () => {
+    const store = new InMemoryTaskStore();
+    const executor = new ControllableExecutor("instant", { output: "once" });
+    const events = new RecordingEventSink();
+    const runner = new DurableQueueRunner({
+      store,
+      executor,
+      events,
+      clock: new ManualClock(0),
+      queue: new DuplicateDeliveryQueue(),
+      durable: true,
+    });
+
+    await seedTask(store, "duplicate-task");
+    await runner.start("duplicate-task", new AbortController().signal);
+
+    expect(executor.runCalls).toHaveLength(1);
+    expect(await store.get("duplicate-task")).toMatchObject({
+      status: "succeeded",
+      result: { output: "once" },
+    });
+    runner.dispose();
   });
 });

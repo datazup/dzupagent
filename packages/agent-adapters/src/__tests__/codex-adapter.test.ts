@@ -91,6 +91,11 @@ describe("CodexAdapter", () => {
         supportsToolCalls: true,
         supportsStreaming: true,
         supportsCostUsage: true,
+        nativeToolControls: {
+          mode: true,
+          allowlist: true,
+          blocklist: true,
+        },
       });
     });
   });
@@ -641,6 +646,36 @@ describe("CodexAdapter", () => {
 
       expect(mockStartThread).toHaveBeenCalledWith(
         expect.objectContaining({ workingDirectory: "/my/project" }),
+      );
+    });
+
+    it("passes active policy tool controls to thread options", async () => {
+      const thread = createMockThread([
+        threadStartedEvent(),
+        turnCompletedEvent(),
+      ]);
+      mockStartThread.mockReturnValue(thread);
+
+      await collectEvents(
+        adapter.execute(
+          makeInput({
+            policyContext: {
+              activePolicy: {
+                allowedTools: ["read_file", "search"],
+                blockedTools: ["shell"],
+                toolPolicy: "strict",
+              },
+            },
+          }),
+        ),
+      );
+
+      expect(mockStartThread).toHaveBeenCalledWith(
+        expect.objectContaining({
+          allowedTools: ["read_file", "search"],
+          blockedTools: ["shell"],
+          toolPolicy: "strict",
+        }),
       );
     });
 
