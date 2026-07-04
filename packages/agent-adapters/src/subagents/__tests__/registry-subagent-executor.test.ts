@@ -264,6 +264,7 @@ describe("RegistrySubagentExecutor", () => {
       approvalRequired: true,
       networkAccess: false,
       maxBudgetUsd: 1,
+      toolPolicy: "strict",
     });
   });
 
@@ -310,6 +311,44 @@ describe("RegistrySubagentExecutor", () => {
         expect.stringContaining("toolPolicy"),
       ]),
     );
+  });
+
+  it("preserves balanced toolPolicy in policy transport without fabricating native enforcement", async () => {
+    let seen: AgentInput | undefined;
+    const adapter = fakeAdapter(
+      [{ type: "adapter:completed", result: "ok" }],
+      (input) => {
+        seen = input;
+      },
+      "claude",
+    );
+    const { registry } = fakeRegistry(adapter, { claude: adapter });
+    const exec = new RegistrySubagentExecutor(registry, {}, { allowInline: true });
+
+    await exec.run(
+      {
+        agentId: "inline",
+        input: "x",
+        definition: {
+          name: "tool-balanced",
+          personaPrompt: "Use normal tools.",
+          preferredProvider: "claude",
+          constraints: {
+            toolPolicy: "balanced",
+          },
+        },
+      },
+      ctx(),
+    );
+
+    expect(seen?.options).toMatchObject({ toolPolicy: "balanced" });
+    expect(seen?.policyContext?.activePolicy).toMatchObject({
+      toolPolicy: "balanced",
+    });
+    expect(seen?.policyContext?.conformanceWarnings).toEqual(
+      expect.arrayContaining([expect.stringContaining("toolPolicy")]),
+    );
+    expect(seen?.policyContext?.projectedGuardrails).toBeUndefined();
   });
 
   it("throws when the provider is not registered", async () => {

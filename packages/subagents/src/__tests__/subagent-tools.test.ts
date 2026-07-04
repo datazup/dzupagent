@@ -907,6 +907,124 @@ describe("subagent tools", () => {
       });
     });
 
+    it("records actual USD consumption separately from reserved budget", async () => {
+      const fanoutBatchStore = new InMemoryFanoutBatchStore();
+      const { byName } = setup({
+        executorMode: "instant",
+        fanoutBatchStore,
+        instantResult: {
+          output: "ok",
+          usage: { outputTokens: 4, costUsd: 0.125 },
+        },
+      });
+
+      const report = (await byName.fanout_template!.invoke({
+        items: [
+          { key: "a", input: "alpha" },
+          { key: "b", input: "beta" },
+        ],
+        spec: {
+          agentId: "inline",
+          definition: {
+            name: "inline-budgeted",
+            personaPrompt: "Stay scoped.",
+            constraints: { maxBudgetUsd: 0.5 },
+          },
+        },
+        budget: { maxTotalBudgetUsd: 2 },
+      })) as {
+        batchId: string;
+        budget: {
+          budgetUsdReserved?: number;
+          budgetUsdActual?: number;
+          aborted: boolean;
+        };
+      };
+
+      expect(report.budget).toMatchObject({
+        budgetUsdReserved: 1,
+        budgetUsdActual: 0.25,
+        aborted: false,
+      });
+      expect(await fanoutBatchStore.get(report.batchId)).toMatchObject({
+        budgetUsdReserved: 1,
+        budgetUsdActual: 0.25,
+      });
+      expect(
+        fanoutBatchRecordToReport((await fanoutBatchStore.get(report.batchId))!),
+      ).toMatchObject({
+        budget: {
+          budgetUsdReserved: 1,
+          budgetUsdActual: 0.25,
+          aborted: false,
+        },
+      });
+    });
+
+    it("aborts later queued items when actual USD consumption exceeds aggregate budget", async () => {
+      const fanoutBatchStore = new InMemoryFanoutBatchStore();
+      const { byName } = setup({
+        executorMode: "instant",
+        fanoutBatchStore,
+        instantResult: {
+          output: "ok",
+          usage: { outputTokens: 1, costUsd: 0.75 },
+        },
+      });
+
+      const report = (await byName.fanout_template!.invoke({
+        concurrency: 1,
+        items: [
+          { key: "a", input: "alpha" },
+          { key: "b", input: "beta" },
+          { key: "c", input: "gamma" },
+        ],
+        spec: {
+          agentId: "inline",
+          definition: {
+            name: "inline-costed",
+            personaPrompt: "Stay scoped.",
+          },
+        },
+        budget: { maxTotalBudgetUsd: 1 },
+      })) as {
+        batchId: string;
+        dispatched: number;
+        settled: { succeeded: number; aborted_budget: number };
+        budget: {
+          budgetUsdActual?: number;
+          aborted: boolean;
+          abortedReason?: string;
+        };
+        items: Array<{ key: string; status: string; costUsd?: number }>;
+      };
+
+      expect(report).toMatchObject({
+        dispatched: 2,
+        settled: { succeeded: 2, aborted_budget: 1 },
+        budget: {
+          budgetUsdActual: 1.5,
+          aborted: true,
+          abortedReason: "max_total_budget_usd_exceeded",
+        },
+        items: [
+          { key: "a", status: "succeeded", costUsd: 0.75 },
+          { key: "b", status: "succeeded", costUsd: 0.75 },
+          { key: "c", status: "aborted_budget" },
+        ],
+      });
+      expect(
+        fanoutBatchRecordToReport((await fanoutBatchStore.get(report.batchId))!),
+      ).toMatchObject({
+        budget: {
+          budgetUsdActual: 1.5,
+          aborted: true,
+          abortedReason: "max_total_budget_usd_exceeded",
+        },
+        settled: { succeeded: 2, aborted_budget: 1 },
+      });
+    });
+
     it("aborts in-flight and queued items when wall-clock budget expires", async () => {
       vi.useFakeTimers();
       const fanoutBatchStore = new InMemoryFanoutBatchStore();

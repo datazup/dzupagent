@@ -153,3 +153,75 @@ describe("DurableQueueRunner capabilities", () => {
     expect(runner.capabilities()).toEqual({ durable: true, horizontal: true });
   });
 });
+
+describe("DurableQueueRunner durable snapshot preservation", () => {
+  it("executes a queued resolved persona snapshot with audit identity after runner reattachment", async () => {
+    const store = new InMemoryTaskStore();
+    const executor = new ControllableExecutor("instant", { output: "restored" });
+    const events = new RecordingEventSink();
+    const clock = new ManualClock(0);
+    const queue = new InMemoryTaskQueue();
+
+    const firstRunner = new DurableQueueRunner({
+      store,
+      executor,
+      events,
+      clock,
+      queue,
+      durable: true,
+    });
+    firstRunner.dispose();
+
+    await store.put({
+      id: "durable-task",
+      parentRunId: "parent-run",
+      spec: {
+        agentId: "inline",
+        resolvedPersonaName: "reviewer",
+        resolvedDefinition: {
+          name: "reviewer",
+          personaPrompt: "Review carefully.",
+          constraints: { maxBudgetUsd: 0.25, toolPolicy: "strict" },
+        },
+        input: "check this",
+      },
+      audit: {
+        personaName: "reviewer",
+        inlineDefinitionHash: "hash-reviewer",
+      },
+      status: "queued",
+      createdAt: 0,
+      ttlMs: 1000,
+      depth: 0,
+    });
+
+    const secondRunner = new DurableQueueRunner({
+      store,
+      executor,
+      events,
+      clock,
+      queue,
+      durable: true,
+    });
+    await secondRunner.start("durable-task", new AbortController().signal);
+    await waitForTerminal(store, "durable-task");
+
+    expect(executor.runCalls[0]).toMatchObject({
+      resolvedPersonaName: "reviewer",
+      resolvedDefinition: {
+        name: "reviewer",
+        personaPrompt: "Review carefully.",
+        constraints: { maxBudgetUsd: 0.25, toolPolicy: "strict" },
+      },
+    });
+    expect(await store.get("durable-task")).toMatchObject({
+      status: "succeeded",
+      audit: {
+        personaName: "reviewer",
+        inlineDefinitionHash: "hash-reviewer",
+      },
+      result: { output: "restored" },
+    });
+    secondRunner.dispose();
+  });
+});
