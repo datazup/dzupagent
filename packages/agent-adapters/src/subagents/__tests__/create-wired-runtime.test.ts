@@ -5,6 +5,7 @@ import type { AgentInput } from "@dzupagent/adapter-types";
 import { allowAllSpawnPolicy } from "@dzupagent/subagents";
 import { createWiredSubagentRuntime } from "../create-wired-runtime.js";
 import type { ProviderAdapterRegistry } from "../../registry/adapter-registry.js";
+import type { AgentDefinition } from "../../dzupagent/agent-loader.js";
 
 function registryWith(
   events: Array<Record<string, unknown>>,
@@ -143,5 +144,86 @@ describe("createWiredSubagentRuntime (end-to-end)", () => {
 
     expect(final?.status).toBe("succeeded");
     expect(seen?.systemPrompt).toBe("Review carefully.");
+  });
+
+  it("forces approval before admission for loaded persona constraints", async () => {
+    const loader = {
+      loadAgent: async () =>
+        ({
+          name: "security-reviewer",
+          description: "",
+          version: 1,
+          preferredProvider: "claude",
+          skillNames: [],
+          memoryScope: "project",
+          constraints: { approvalMode: "required" },
+          personaPrompt: "Review security issues.",
+          filePath: "/agents/security-reviewer.md",
+        }) satisfies AgentDefinition,
+      compileForProvider: async (agent: AgentDefinition) => agent.personaPrompt,
+    };
+    let resolveApproval: (() => void) | undefined;
+    const runtime = createWiredSubagentRuntime({
+      registry: registryWith([{ type: "adapter:completed", result: "ok" }]),
+      policy: allowAllSpawnPolicy,
+      personaLoader: loader,
+      approvalGate: {
+        waitForApproval: () =>
+          new Promise<unknown>((resolve) => {
+            resolveApproval = () => resolve(undefined);
+          }),
+      },
+    });
+
+    const out = await runtime.spawn(
+      { agentId: "security-reviewer", input: "audit auth" },
+      "run-1",
+    );
+
+    expect(out).toMatchObject({ ok: true, status: "awaiting_approval" });
+    if (!out.ok) throw new Error("spawn failed");
+    resolveApproval?.();
+    const final = await runtime.await(out.taskId, { timeoutMs: 2000 });
+    expect(final?.status).toBe("succeeded");
+  });
+
+  it("publishes personaName and inlineDefinitionHash on spawned events", async () => {
+    const bus = createEventBus();
+    const seen: DzupEvent[] = [];
+    bus.onAny((e: DzupEvent) => seen.push(e));
+    const loader = {
+      loadAgent: async () =>
+        ({
+          name: "security-reviewer",
+          description: "",
+          version: 1,
+          preferredProvider: "claude",
+          skillNames: [],
+          memoryScope: "project",
+          constraints: {},
+          personaPrompt: "Review security issues.",
+          filePath: "/agents/security-reviewer.md",
+        }) satisfies AgentDefinition,
+      compileForProvider: async (agent: AgentDefinition) => agent.personaPrompt,
+    };
+    const runtime = createWiredSubagentRuntime({
+      registry: registryWith([{ type: "adapter:completed", result: "ok" }]),
+      eventBus: bus,
+      policy: allowAllSpawnPolicy,
+      personaLoader: loader,
+    });
+
+    const out = await runtime.spawn(
+      { agentId: "security-reviewer", input: "audit auth" },
+      "run-1",
+    );
+    if (!out.ok) throw new Error("spawn failed");
+    await runtime.await(out.taskId, { timeoutMs: 2000 });
+
+    const spawned = seen.find((event) => event.type === "subagent:spawned");
+    expect(spawned).toMatchObject({
+      personaName: "security-reviewer",
+      inlineDefinitionHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+    });
   });
 });

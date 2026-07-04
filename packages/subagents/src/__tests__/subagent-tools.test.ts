@@ -6,6 +6,7 @@ import { createInProcessSubagentRuntime } from "../runtime/create-runtime.js";
 import { allowAllSpawnPolicy } from "../governance/spawn-gate.js";
 import type { SpawnPolicy } from "../governance/spawn-gate.js";
 import type { SubagentResult } from "../contracts/background-task.js";
+import type { SubagentAdmissionResolver } from "../runtime/background-subagent-runtime.js";
 import type { FanoutBatchStore } from "../contracts/fanout-batch-store.js";
 import { InMemoryFanoutBatchStore } from "../store/in-memory-fanout-batch-store.js";
 import {
@@ -33,6 +34,7 @@ function setup(
     approvalGate?: {
       waitForApproval: (runId: string, approvalId: string) => Promise<unknown>;
     };
+    resolveAdmission?: SubagentAdmissionResolver;
   } = {},
 ) {
   const events = new RecordingEventSink();
@@ -50,6 +52,9 @@ function setup(
     policy: opts.policy ?? allowAllSpawnPolicy,
     ...(opts.approvalGate !== undefined
       ? { approvalGate: opts.approvalGate }
+      : {}),
+    ...(opts.resolveAdmission !== undefined
+      ? { resolveAdmission: opts.resolveAdmission }
       : {}),
     governance,
     lifecyclePolicy: {
@@ -256,6 +261,47 @@ describe("subagent tools", () => {
       definition,
       definition,
       definition,
+    ]);
+  });
+
+  it("uses the batch-start resolved persona snapshot for every fanout item", async () => {
+    let resolutionCount = 0;
+    const { byName, executor } = setup({
+      executorMode: "instant",
+      resolveAdmission: async (spec) => {
+        if (spec.agentId !== "reviewer") return { spec };
+        resolutionCount += 1;
+        return {
+          spec: {
+            ...spec,
+            resolvedPersonaName: "reviewer",
+            resolvedDefinition: {
+              name: "reviewer",
+              personaPrompt: `snapshot-${resolutionCount}`,
+            },
+          },
+          audit: {
+            personaName: "reviewer",
+            inlineDefinitionHash: `sha256:${resolutionCount}`,
+          },
+        };
+      },
+    });
+
+    await byName.fanout_template!.invoke({
+      items: [
+        { key: "a", input: "alpha" },
+        { key: "b", input: "beta" },
+        { key: "c", input: "gamma" },
+      ],
+      spec: { agentId: "reviewer" },
+    });
+
+    expect(resolutionCount).toBe(1);
+    expect(executor.runCalls.map((call) => call.resolvedDefinition)).toEqual([
+      { name: "reviewer", personaPrompt: "snapshot-1" },
+      { name: "reviewer", personaPrompt: "snapshot-1" },
+      { name: "reviewer", personaPrompt: "snapshot-1" },
     ]);
   });
 
