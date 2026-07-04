@@ -163,3 +163,30 @@ export {
   type FanoutReportItem,
   type FanoutValidationError,
 } from "./tools/fanout-tool.js";
+
+// Fanout eval harness — deterministic scorers + runner for spawn-decision
+// quality, agent-identity resolution, and fan-out report accuracy.
+export {
+  type FanoutEvalResult,
+  type FanoutScorerConfig,
+  type FanoutScorer,
+  type FanoutEvalCase,
+  type FanoutCaseScore,
+  type FanoutSuiteReport,
+  runFanoutEvalSuite,
+  runFanoutEvalSuites,
+  createSpawnDecisionScorer,
+  type SpawnDecisionCase,
+  createAgentIdentityResolutionScorer,
+  type AgentIdentityResolutionCase,
+  createFanoutReportAccuracyScorer,
+  scoreFanoutBatchRecord,
+  checkReportInternalConsistency,
+  type FanoutReportAccuracyCase,
+  SPAWN_DECISION_SCENARIOS,
+  SPAWN_DECISION_KNOWN_BAD_CASE,
+  AGENT_IDENTITY_RESOLUTION_SCENARIOS,
+  AGENT_IDENTITY_RESOLUTION_KNOWN_BAD_CASE,
+  FANOUT_REPORT_ACCURACY_SCENARIOS,
+  FANOUT_REPORT_ACCURACY_KNOWN_BAD_CASE,
+} from "./eval/index.js";
