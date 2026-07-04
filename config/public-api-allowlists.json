@@ -110,6 +110,7 @@
         { "match": "prefix", "pattern": "./prompt/" },
         { "match": "prefix", "pattern": "./security/" },
         { "match": "prefix", "pattern": "./facades/" },
+        { "match": "exact", "pattern": "./persistence/checkpointer.js" },
         { "match": "exact", "pattern": "<local>:dzupagent_CORE_VERSION" },
         { "match": "exact", "pattern": "@dzupagent/security" },
         {
