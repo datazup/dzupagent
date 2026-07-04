@@ -15,17 +15,17 @@
  */
 export interface ReplayEvent {
   /** Zero-based position in the event stream. */
-  index: number
+  index: number;
   /** When the event was captured (epoch ms). */
-  timestamp: number
+  timestamp: number;
   /** Event type discriminator (mirrors DzupEvent['type']). */
-  type: string
+  type: string;
   /** Pipeline node that emitted this event, if applicable. */
-  nodeId?: string
+  nodeId?: string;
   /** Full event payload (excluding `type` which is stored separately). */
-  data: Record<string, unknown>
+  data: Record<string, unknown>;
   /** State snapshot captured at this point (present at snapshot intervals). */
-  stateSnapshot?: Record<string, unknown>
+  stateSnapshot?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,9 +37,9 @@ export interface ReplayEvent {
  */
 export interface Breakpoint {
   /** Unique breakpoint identifier. */
-  id: string
+  id: string;
   /** What kind of condition triggers this breakpoint. */
-  type: 'event-type' | 'node-id' | 'condition' | 'error'
+  type: "event-type" | "node-id" | "condition" | "error";
   /**
    * Match value:
    * - For 'event-type': the event type string to match.
@@ -47,11 +47,11 @@ export interface Breakpoint {
    * - For 'error': matches any event with an `error` field.
    * - For 'condition': human-readable label (actual logic in `condition`).
    */
-  value: string
+  value: string;
   /** Custom predicate for 'condition' breakpoints. */
-  condition?: (event: ReplayEvent) => boolean
+  condition?: (event: ReplayEvent) => boolean;
   /** Whether this breakpoint is active. */
-  enabled: boolean
+  enabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,26 +59,26 @@ export interface Breakpoint {
 // ---------------------------------------------------------------------------
 
 /** Replay playback status. */
-export type ReplayStatus = 'paused' | 'playing' | 'stepping' | 'completed'
+export type ReplayStatus = "paused" | "playing" | "stepping" | "completed";
 
 /**
  * Full state of an active replay session.
  */
 export interface ReplaySession {
   /** Unique session identifier. */
-  id: string
+  id: string;
   /** The run being replayed. */
-  runId: string
+  runId: string;
   /** All captured events for this run. */
-  events: ReplayEvent[]
+  events: ReplayEvent[];
   /** Current playback position (index into events). */
-  currentIndex: number
+  currentIndex: number;
   /** Current playback status. */
-  status: ReplayStatus
+  status: ReplayStatus;
   /** Active breakpoints. */
-  breakpoints: Breakpoint[]
+  breakpoints: Breakpoint[];
   /** Playback speed multiplier (1 = real-time, 2 = 2x, 0.5 = half-speed). */
-  speed: number
+  speed: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,13 +90,13 @@ export interface ReplaySession {
  */
 export interface TraceCaptureConfig {
   /** How often to capture full state snapshots (every N events). 0 = never. */
-  snapshotInterval: number
+  snapshotInterval: number;
   /** Event type patterns to include. Empty = capture all. */
-  includeTypes?: string[]
+  includeTypes?: string[];
   /** Event type patterns to exclude (applied after include filter). */
-  excludeTypes?: string[]
+  excludeTypes?: string[];
   /** Maximum number of events to capture (oldest are dropped). 0 = unlimited. */
-  maxEvents?: number
+  maxEvents?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,21 +108,21 @@ export interface TraceCaptureConfig {
  */
 export interface CapturedTrace {
   /** Schema version for forward compatibility. */
-  schemaVersion: '1.0.0'
+  schemaVersion: "1.0.0";
   /** The run this trace belongs to. */
-  runId: string
+  runId: string;
   /** Agent that produced this trace. */
-  agentId?: string
+  agentId?: string;
   /** All captured events. */
-  events: ReplayEvent[]
+  events: ReplayEvent[];
   /** When the trace capture started (epoch ms). */
-  startedAt: number
+  startedAt: number;
   /** When the trace capture ended (epoch ms). */
-  completedAt?: number
+  completedAt?: number;
   /** Capture configuration used. */
-  config: TraceCaptureConfig
+  config: TraceCaptureConfig;
   /** Arbitrary metadata attached by the user. */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,13 +134,13 @@ export interface CapturedTrace {
  */
 export interface StateDiffEntry {
   /** The field path (dot-separated for nested). */
-  path: string
+  path: string;
   /** Previous value (undefined if added). */
-  previous?: unknown
+  previous?: unknown;
   /** Current value (undefined if removed). */
-  current?: unknown
+  current?: unknown;
   /** Type of change. */
-  changeType: 'added' | 'modified' | 'removed'
+  changeType: "added" | "modified" | "removed";
 }
 
 // ---------------------------------------------------------------------------
@@ -152,23 +152,23 @@ export interface StateDiffEntry {
  */
 export interface TimelineNode {
   /** Event index. */
-  index: number
+  index: number;
   /** Timestamp (epoch ms). */
-  timestamp: number
+  timestamp: number;
   /** Event type. */
-  type: string
+  type: string;
   /** Node ID if applicable. */
-  nodeId?: string
+  nodeId?: string;
   /** Duration in ms (for tool/llm calls). */
-  durationMs?: number
+  durationMs?: number;
   /** Whether this event represents an error. */
-  isError: boolean
+  isError: boolean;
   /** Token usage at this point (cumulative). */
-  tokenUsage?: number
+  tokenUsage?: number;
   /** Cost at this point in cents (cumulative). */
-  costCents?: number
+  costCents?: number;
   /** Latency of this specific step in ms. */
-  latencyMs?: number
+  latencyMs?: number;
 }
 
 /**
@@ -176,19 +176,19 @@ export interface TimelineNode {
  */
 export interface TimelineData {
   /** Ordered timeline nodes. */
-  nodes: TimelineNode[]
+  nodes: TimelineNode[];
   /** Total duration of the trace in ms. */
-  totalDurationMs: number
+  totalDurationMs: number;
   /** Total token usage. */
-  totalTokens: number
+  totalTokens: number;
   /** Total cost in cents. */
-  totalCostCents: number
+  totalCostCents: number;
   /** Count of errors in the trace. */
-  errorCount: number
+  errorCount: number;
   /** Count of recovery attempts (retries). */
-  recoveryCount: number
+  recoveryCount: number;
   /** Distinct node IDs visited. */
-  nodeIds: string[]
+  nodeIds: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -196,16 +196,42 @@ export interface TimelineData {
 // ---------------------------------------------------------------------------
 
 /** Supported serialization formats. */
-export type SerializationFormat = 'json' | 'json-compact' | 'binary'
+export type SerializationFormat = "json" | "json-compact" | "binary";
 
 /**
  * Options for trace serialization.
  */
 export interface SerializeOptions {
   /** Output format. */
-  format: SerializationFormat
+  format: SerializationFormat;
   /** Strip potentially sensitive data from event payloads. */
-  sanitize?: boolean
+  sanitize?: boolean;
   /** Specific field paths to redact (dot-separated). */
-  redactFields?: string[]
+  redactFields?: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Replay errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Thrown when an operation references a replay session ID that the
+ * ReplayEngine's registry does not (or no longer) contain.
+ */
+export class ReplaySessionNotFoundError extends Error {
+  constructor(sessionId: string) {
+    super(`Replay session not found: ${sessionId}`);
+    this.name = "ReplaySessionNotFoundError";
+  }
+}
+
+/**
+ * Thrown when a replay operation is given an event index outside the
+ * bounds of the session's event array.
+ */
+export class ReplayIndexOutOfBoundsError extends Error {
+  constructor(index: number, eventCount: number) {
+    super(`Replay index ${index} out of bounds for ${eventCount} events`);
+    this.name = "ReplayIndexOutOfBoundsError";
+  }
 }

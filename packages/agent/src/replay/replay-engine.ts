@@ -11,17 +11,22 @@ import type {
   ReplaySession,
   CapturedTrace,
   Breakpoint,
-} from './replay-types.js'
+} from "./replay-types.js";
 
 // ---------------------------------------------------------------------------
 // Session ID generator
 // ---------------------------------------------------------------------------
 
-let sessionCounter = 0
+let sessionCounter = 0;
 
-function generateSessionId(): string {
-  sessionCounter++
-  return `replay_${Date.now()}_${sessionCounter}`
+/**
+ * Generate a new unique replay session ID. Exported so other modules
+ * (e.g. `ReplayController.fork`) that construct `ReplaySession` objects
+ * outside of `ReplayEngine.createSession` can reuse the same id scheme.
+ */
+export function generateSessionId(): string {
+  sessionCounter++;
+  return `replay_${Date.now()}_${sessionCounter}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -39,7 +44,7 @@ function generateSessionId(): string {
  * ```
  */
 export class ReplayEngine {
-  private readonly sessions = new Map<string, ReplaySession>()
+  private readonly sessions = new Map<string, ReplaySession>();
 
   /**
    * Create a new replay session from a captured trace.
@@ -50,54 +55,65 @@ export class ReplayEngine {
    */
   createSession(
     trace: CapturedTrace,
-    options?: { speed?: number; breakpoints?: Breakpoint[] },
+    options?: { speed?: number; breakpoints?: Breakpoint[] }
   ): ReplaySession {
     const session: ReplaySession = {
       id: generateSessionId(),
       runId: trace.runId,
       events: [...trace.events],
       currentIndex: -1, // Before the first event
-      status: 'paused',
+      status: "paused",
       breakpoints: options?.breakpoints ? [...options.breakpoints] : [],
       speed: options?.speed ?? 1,
-    }
+    };
 
-    this.sessions.set(session.id, session)
-    return session
+    this.registerSession(session);
+    return session;
+  }
+
+  /**
+   * Register an already-constructed session in the engine's registry.
+   *
+   * Used internally by `createSession`, and externally by callers (such as
+   * `ReplayController.fork`) that construct a `ReplaySession` themselves
+   * and need it tracked by the engine.
+   */
+  registerSession(session: ReplaySession): void {
+    this.sessions.set(session.id, session);
   }
 
   /**
    * Get a session by ID.
    */
   getSession(sessionId: string): ReplaySession | undefined {
-    return this.sessions.get(sessionId)
+    return this.sessions.get(sessionId);
   }
 
   /**
    * List all active sessions.
    */
   listSessions(): ReplaySession[] {
-    return [...this.sessions.values()]
+    return [...this.sessions.values()];
   }
 
   /**
    * Delete a session and free its resources.
    */
   deleteSession(sessionId: string): boolean {
-    return this.sessions.delete(sessionId)
+    return this.sessions.delete(sessionId);
   }
 
   /**
    * Delete all sessions.
    */
   clear(): void {
-    this.sessions.clear()
+    this.sessions.clear();
   }
 
   /**
    * Get the number of active sessions.
    */
   get sessionCount(): number {
-    return this.sessions.size
+    return this.sessions.size;
   }
 }

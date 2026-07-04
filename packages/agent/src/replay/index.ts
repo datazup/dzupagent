@@ -18,28 +18,32 @@ export type {
   TimelineData,
   SerializationFormat,
   SerializeOptions,
-} from './replay-types.js'
+} from "./replay-types.js";
+export {
+  ReplaySessionNotFoundError,
+  ReplayIndexOutOfBoundsError,
+} from "./replay-types.js";
 
 // --- Trace Capture ---
-export { TraceCapture } from './trace-capture.js'
+export { TraceCapture } from "./trace-capture.js";
 
 // --- Replay Engine ---
-export { ReplayEngine } from './replay-engine.js'
+export { ReplayEngine } from "./replay-engine.js";
 
 // --- Replay Controller ---
-export { ReplayController } from './replay-controller.js'
+export { ReplayController } from "./replay-controller.js";
 export type {
   ReplayEventCallback,
   BreakpointHitCallback,
   StatusChangeCallback,
-} from './replay-controller.js'
+} from "./replay-controller.js";
 
 // --- Replay Inspector ---
-export { ReplayInspector } from './replay-inspector.js'
+export { ReplayInspector } from "./replay-inspector.js";
 export type {
   NodeMetrics as ReplayNodeMetrics,
   ReplaySummary,
-} from './replay-inspector.js'
+} from "./replay-inspector.js";
 
 // --- Trace Serializer ---
-export { TraceSerializer } from './trace-serializer.js'
+export { TraceSerializer } from "./trace-serializer.js";
