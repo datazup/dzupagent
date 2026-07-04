@@ -224,6 +224,45 @@ describe("createWiredSubagentRuntime (end-to-end)", () => {
     });
   });
 
+  it("threads a host logger into the durable Postgres store and queue", async () => {
+    const client = new MemoryPostgresClient();
+    const logs: Record<string, unknown>[] = [];
+    const logger = {
+      error: (fields: Record<string, unknown>) => logs.push({ level: "error", ...fields }),
+      warn: (fields: Record<string, unknown>) => logs.push({ level: "warn", ...fields }),
+      info: (fields: Record<string, unknown>) => logs.push({ level: "info", ...fields }),
+      debug: (fields: Record<string, unknown>) => logs.push({ level: "debug", ...fields }),
+    };
+    const runtime = createWiredSubagentRuntime({
+      registry: registryWith([{ type: "adapter:completed", result: "postgres-ok" }]),
+      policy: allowAllSpawnPolicy,
+      logger,
+      postgresDurability: {
+        client,
+        taskTableName: "wired_subagent_tasks",
+        queueTableName: "wired_subagent_queue",
+        workerId: "wired-worker",
+        staleRunningRecovery: {
+          runningTimeoutMs: 1000,
+          action: "fail",
+        },
+      },
+    });
+
+    const out = await runtime.spawn({ agentId: "claude", input: "durable" }, "run-pg");
+    if (!out.ok) throw new Error("spawn failed");
+    await runtime.await(out.taskId, { timeoutMs: 2000 });
+
+    expect(logs).toContainEqual(
+      expect.objectContaining({
+        level: "info",
+        code: "TASK_QUEUE_CLAIMED",
+        taskId: out.taskId,
+        workerId: "wired-worker",
+      }),
+    );
+  });
+
   it("denies spawns by default when no policy is supplied (AGENT-L-10)", async () => {
     const runtime = createWiredSubagentRuntime({
       registry: registryWith([{ type: "adapter:completed", result: "ok" }]),
