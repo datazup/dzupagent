@@ -103,6 +103,11 @@ export {
 } from "./runner/durable-queue-runner.js";
 
 // Stores
+export {
+  HostFanoutBatchStore,
+  recoverFanoutReport,
+  type HostFanoutBatchStoreOptions,
+} from "./store/host-fanout-batch-store.js";
 export { InMemoryFanoutBatchStore } from "./store/in-memory-fanout-batch-store.js";
 export { InMemoryTaskStore } from "./store/in-memory-task-store.js";
 export { InMemoryCheckpointer } from "./store/in-memory-checkpointer.js";
