@@ -187,6 +187,63 @@ describe('OpenAIAdapter — tool calling', () => {
     expect(body['tool_choice']).toEqual({ type: 'function', function: { name: 't' } })
   })
 
+  it('filters exposed OpenAI function tools from active allowedTools and blockedTools policy', async () => {
+    const sseLines = ['data: {"choices":[{"delta":{"content":"x"}}]}', 'data: [DONE]']
+    const fetchMock = vi.fn().mockResolvedValue(mockFetchResponse(createSSEStream(sseLines)))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const adapter = new OpenAIAdapter({ apiKey: 'k' })
+    await collectEvents(
+      adapter.execute({
+        prompt: 'p',
+        options: {
+          tools: [
+            { name: 'lookup', parameters: {} },
+            { name: 'write_file', parameters: {} },
+            { name: 'delete_file', parameters: {} },
+          ],
+        },
+        policyContext: {
+          activePolicy: {
+            allowedTools: ['lookup', 'write_file'],
+            blockedTools: ['write_file'],
+          },
+        },
+      }),
+    )
+
+    const body = readBody(fetchMock.mock.calls[0])
+    expect(body['tools']).toEqual([
+      {
+        type: 'function',
+        function: { name: 'lookup', parameters: {} },
+      },
+    ])
+  })
+
+  it('omits OpenAI tools entirely for strict toolPolicy without an explicit allowlist', async () => {
+    const sseLines = ['data: {"choices":[{"delta":{"content":"x"}}]}', 'data: [DONE]']
+    const fetchMock = vi.fn().mockResolvedValue(mockFetchResponse(createSSEStream(sseLines)))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const adapter = new OpenAIAdapter({ apiKey: 'k' })
+    await collectEvents(
+      adapter.execute({
+        prompt: 'p',
+        options: {
+          tools: [{ name: 'lookup', parameters: {} }],
+        },
+        policyContext: {
+          activePolicy: { toolPolicy: 'strict' },
+        },
+      }),
+    )
+
+    const body = readBody(fetchMock.mock.calls[0])
+    expect(body).not.toHaveProperty('tools')
+    expect(body).not.toHaveProperty('tool_choice')
+  })
+
   it('accumulates tool_call argument fragments across deltas and emits a single adapter:tool_call', async () => {
     const sseLines = [
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}',

@@ -27,6 +27,7 @@ function setup(
     maxBatchSize?: number;
     maxWallClockMs?: number;
     maxTotalOutputTokens?: number;
+    maxTotalBudgetUsd?: number;
     maxResultBytes?: number;
     maxSpawnDepth?: number;
     spawnContext?: SubagentToolContext;
@@ -93,6 +94,9 @@ function setup(
         : {}),
       ...(opts.maxTotalOutputTokens !== undefined
         ? { maxTotalOutputTokens: opts.maxTotalOutputTokens }
+        : {}),
+      ...(opts.maxTotalBudgetUsd !== undefined
+        ? { maxTotalBudgetUsd: opts.maxTotalBudgetUsd }
         : {}),
     },
   });
@@ -1022,6 +1026,75 @@ describe("subagent tools", () => {
           abortedReason: "max_total_budget_usd_exceeded",
         },
         settled: { succeeded: 2, aborted_budget: 1 },
+      });
+    });
+
+    it("uses per-item cost estimates to avoid dispatching queued items that cannot fit remaining budget", async () => {
+      const fanoutBatchStore = new InMemoryFanoutBatchStore();
+      const { byName, executor } = setup({
+        executorMode: "instant",
+        fanoutBatchStore,
+        instantResult: {
+          output: "ok",
+          usage: { outputTokens: 1, costUsd: 0.25 },
+        },
+      });
+
+      const report = (await byName.fanout_template!.invoke({
+        concurrency: 1,
+        items: [
+          { key: "a", input: "alpha" },
+          { key: "b", input: "beta" },
+          { key: "c", input: "gamma" },
+        ],
+        spec: {
+          agentId: "inline",
+          definition: {
+            name: "inline-estimated",
+            personaPrompt: "Stay scoped.",
+            constraints: { estimatedCostUsd: 0.6 },
+          },
+        },
+        budget: { maxTotalBudgetUsd: 1 },
+      })) as {
+        batchId: string;
+        dispatched: number;
+        settled: { succeeded: number; aborted_budget: number };
+        budget: {
+          budgetUsdReserved?: number;
+          budgetUsdActual?: number;
+          aborted: boolean;
+          abortedReason?: string;
+        };
+        items: Array<{ key: string; status: string; costUsd?: number; error?: string }>;
+      };
+
+      expect(report).toMatchObject({
+        dispatched: 2,
+        settled: { succeeded: 2, aborted_budget: 1 },
+        budget: {
+          budgetUsdReserved: 1.2,
+          budgetUsdActual: 0.5,
+          aborted: true,
+          abortedReason: "max_total_budget_usd_preflight_exceeded",
+        },
+        items: [
+          { key: "a", status: "succeeded", costUsd: 0.25 },
+          { key: "b", status: "succeeded", costUsd: 0.25 },
+          {
+            key: "c",
+            status: "aborted_budget",
+            error: "max_total_budget_usd_preflight_exceeded",
+          },
+        ],
+      });
+      expect(executor.runCalls.map((call) => call.input)).toEqual(["alpha", "beta"]);
+      expect(await fanoutBatchStore.get(report.batchId)).toMatchObject({
+        status: "aborted",
+        budgetAborted: true,
+        budgetUsdReserved: 1.2,
+        budgetUsdActual: 0.5,
+        abortedReason: "max_total_budget_usd_preflight_exceeded",
       });
     });
 
