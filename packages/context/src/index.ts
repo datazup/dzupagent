@@ -13,76 +13,98 @@ export {
   formatSummaryContext,
   pruneToolResults,
   repairOrphanedToolPairs,
-} from './message-manager.js'
-export type { MessageManagerConfig } from './message-manager.js'
+} from "./message-manager.js";
+export type { MessageManagerConfig } from "./message-manager.js";
 
 // --- Auto-Compression Pipeline ---
-export { autoCompress, FrozenSnapshot } from './auto-compress.js'
+export { autoCompress, FrozenSnapshot } from "./auto-compress.js";
 export type {
   AutoCompressConfig,
   CompressResult,
   AutoCompressTokenizer,
-} from './auto-compress.js'
+} from "./auto-compress.js";
 
 // --- Snapshot Builder ---
-export { buildFrozenSnapshot } from './snapshot-builder.js'
+export { buildFrozenSnapshot } from "./snapshot-builder.js";
 export type {
   MemoryServiceLike,
   BuildFrozenSnapshotOptions,
-} from './snapshot-builder.js'
+} from "./snapshot-builder.js";
 
 // --- Extraction Bridge ---
-export { createExtractionHook } from './extraction-bridge.js'
-export type { MessageExtractionFn } from './extraction-bridge.js'
+export { createExtractionHook } from "./extraction-bridge.js";
+export type { MessageExtractionFn } from "./extraction-bridge.js";
 
 // --- Completeness Scoring ---
-export { scoreCompleteness } from './completeness-scorer.js'
-export type { CompletenessResult, DescriptionInput } from './completeness-scorer.js'
+export { scoreCompleteness } from "./completeness-scorer.js";
+export type {
+  CompletenessResult,
+  DescriptionInput,
+} from "./completeness-scorer.js";
 
 // --- Context Eviction ---
-export { evictIfNeeded } from './context-eviction.js'
-export type { EvictionConfig, EvictionResult } from './context-eviction.js'
+export { evictIfNeeded, evictWithOffload } from "./context-eviction.js";
+export type {
+  EvictionConfig,
+  EvictionResult,
+  OffloadSink,
+  OffloadEvictionResult,
+} from "./context-eviction.js";
 
 // --- System Reminders ---
-export { SystemReminderInjector } from './system-reminder.js'
-export type { SystemReminderConfig, ReminderContent } from './system-reminder.js'
+export { SystemReminderInjector } from "./system-reminder.js";
+export type {
+  SystemReminderConfig,
+  ReminderContent,
+} from "./system-reminder.js";
 
 // --- Phase-Aware Windowing ---
-export { PhaseAwareWindowManager, DEFAULT_PHASES } from './phase-window.js'
+export { PhaseAwareWindowManager, DEFAULT_PHASES } from "./phase-window.js";
 export type {
   ConversationPhase,
   PhaseConfig,
   MessageRetention,
   PhaseDetection,
   PhaseWindowConfig,
-} from './phase-window.js'
+} from "./phase-window.js";
 
 // --- Progressive Compression ---
-export { compressToLevel, compressToBudget, selectCompressionLevel } from './progressive-compress.js'
-export type { CompressionLevel, ProgressiveCompressConfig, ProgressiveCompressResult } from './progressive-compress.js'
+export {
+  compressToLevel,
+  compressToBudget,
+  selectCompressionLevel,
+} from "./progressive-compress.js";
+export type {
+  CompressionLevel,
+  ProgressiveCompressConfig,
+  ProgressiveCompressResult,
+} from "./progressive-compress.js";
 
 // --- Prompt Cache ---
-export { applyAnthropicCacheControl, applyCacheBreakpoints } from './prompt-cache.js'
-export type { CacheStrategy, CacheBreakpointOptions } from './prompt-cache.js'
+export {
+  applyAnthropicCacheControl,
+  applyCacheBreakpoints,
+} from "./prompt-cache.js";
+export type { CacheStrategy, CacheBreakpointOptions } from "./prompt-cache.js";
 export {
   injectPromptCacheMarkers,
   injectPromptCacheMarkersForModel,
   isClaudeId,
   resolveModelId,
-} from './prompt-cache-injector.js'
+} from "./prompt-cache-injector.js";
 
 // --- Context Transfer ---
-export { ContextTransferService } from './context-transfer.js'
+export { ContextTransferService } from "./context-transfer.js";
 export type {
   IntentContext,
   IntentType,
   ContextTransferConfig,
   IntentRelevanceRule,
   TransferScope,
-} from './context-transfer.js'
+} from "./context-transfer.js";
 
 // --- Token Lifecycle ---
-export { TokenLifecycleManager, createTokenBudget } from './token-lifecycle.js'
+export { TokenLifecycleManager, createTokenBudget } from "./token-lifecycle.js";
 export type {
   TokenBudget,
   TokenPhaseUsage,
@@ -90,8 +112,8 @@ export type {
   TokenLifecycleStatus,
   TokenLifecycleReport,
   TokenCounter,
-} from './token-lifecycle.js'
+} from "./token-lifecycle.js";
 
 // --- Token Counters ---
-export { CharEstimateCounter } from './char-estimate-counter.js'
-export { TiktokenCounter } from './tiktoken-counter.js'
+export { CharEstimateCounter } from "./char-estimate-counter.js";
+export { TiktokenCounter } from "./tiktoken-counter.js";
