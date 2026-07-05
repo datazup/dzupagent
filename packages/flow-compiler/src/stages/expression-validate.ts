@@ -4,11 +4,35 @@ import type {
 } from "@dzupagent/flow-ast";
 
 function isFlowExpression(value: unknown): value is FlowExpression {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      ("op" in value || "exprJs" in value),
-  );
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  if (typeof record.exprJs === "string") return true;
+  switch (record.op) {
+    case "literal":
+      return "value" in record;
+    case "ref":
+      return typeof record.path === "string";
+    case "and":
+    case "or":
+      return Array.isArray(record.args);
+    case "not":
+    case "exists":
+    case "empty":
+      return "arg" in record;
+    case "eq":
+    case "ne":
+    case "gt":
+    case "gte":
+    case "lt":
+    case "lte":
+      return "left" in record && "right" in record;
+    case "contains":
+      return "collection" in record && "value" in record;
+    case "in":
+      return "value" in record && "collection" in record;
+    default:
+      return false;
+  }
 }
 
 function childExpressions(expr: FlowExpression): FlowExpression[] {
@@ -46,6 +70,14 @@ function childExpressions(expr: FlowExpression): FlowExpression[] {
 export function analyzeFlowExpression(
   expr: FlowExpression,
 ): FlowExpressionAnalysis {
+  if (!isFlowExpression(expr)) {
+    return {
+      deterministic: false,
+      refs: [],
+      warnings: ["INVALID_EXPRESSION_NODE"],
+    };
+  }
+
   if ("exprJs" in expr) {
     return {
       deterministic: false,
@@ -60,13 +92,21 @@ export function analyzeFlowExpression(
     return { deterministic: true, refs: [], warnings: [] };
   }
 
-  const nested = childExpressions(expr)
-    .filter(isFlowExpression)
-    .map(analyzeFlowExpression);
+  const children = childExpressions(expr);
+  const invalidChildCount = children.filter(
+    (child) => !isFlowExpression(child),
+  ).length;
+  const nested = children.filter(isFlowExpression).map(analyzeFlowExpression);
 
   return {
-    deterministic: nested.every((item) => item.deterministic),
+    deterministic:
+      invalidChildCount === 0 && nested.every((item) => item.deterministic),
     refs: [...new Set(nested.flatMap((item) => item.refs))],
-    warnings: [...new Set(nested.flatMap((item) => item.warnings))],
+    warnings: [
+      ...new Set([
+        ...nested.flatMap((item) => item.warnings),
+        ...(invalidChildCount > 0 ? ["INVALID_EXPRESSION_NODE"] : []),
+      ]),
+    ],
   };
 }

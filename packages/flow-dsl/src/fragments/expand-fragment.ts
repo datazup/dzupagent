@@ -56,6 +56,22 @@ function normalizeExportMap(
   );
 }
 
+function normalizeExportAvailability(
+  exports: Record<string, unknown> | undefined,
+): Record<string, "success" | "always"> {
+  return Object.fromEntries(
+    Object.entries(exports ?? {}).map(([name, value]) => {
+      const availability =
+        value &&
+        typeof value === "object" &&
+        (value as { availability?: unknown }).availability === "always"
+          ? "always"
+          : "success";
+      return [name, availability];
+    }),
+  );
+}
+
 function rewriteExportExpression(
   expression: string,
   instanceId: string,
@@ -219,6 +235,7 @@ export function expandFragmentInvocation(
       : defaultInstanceId(input.kind, input.path);
   const params = resolveParams(input);
   const exports = normalizeExportMap(entry.fragment.exports, instanceId, params);
+  const exportAvailability = normalizeExportAvailability(entry.fragment.exports);
   const expandedNodes = entry.fragment.root.nodes.map((node, index) =>
     expandNode(
       node as unknown as Record<string, unknown>,
@@ -246,6 +263,7 @@ export function expandFragmentInvocation(
     invocationPath: input.path,
     expandedPaths: sourceMap.map((item) => item.expandedPath),
     exports,
+    exportAvailability,
   };
 
   return {
