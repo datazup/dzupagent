@@ -143,7 +143,19 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "adapter.run":
       case "adapter.race":
       case "adapter.parallel":
-      case "adapter.supervisor": {
+      case "adapter.supervisor":
+      case "spdd.import_sources":
+      case "spdd.build_source_pack":
+      case "spdd.project_plan":
+      case "spdd.scan_drift":
+      case "spdd.run_analysis":
+      case "spdd.generate_canvas":
+      case "spdd.validate_canvas":
+      case "spdd.review_canvas":
+      case "spdd.arm_dispatch":
+      case "spdd.run_validation":
+      case "spdd.collect_proof":
+      case "spdd.create_sync_proposal": {
         // Runtime-executed leaf nodes — MPCO P1 marks them so routing keeps
         // them off the skill-chain target (which rejects them at lowering).
         bits |= FEATURE_BITS.RUNTIME_LEAF;
@@ -264,7 +276,19 @@ export function hasOnError(ast: FlowNode): boolean {
       case "adapter.run":
       case "adapter.race":
       case "adapter.parallel":
-      case "adapter.supervisor": {
+      case "adapter.supervisor":
+      case "spdd.import_sources":
+      case "spdd.build_source_pack":
+      case "spdd.project_plan":
+      case "spdd.scan_drift":
+      case "spdd.run_analysis":
+      case "spdd.generate_canvas":
+      case "spdd.validate_canvas":
+      case "spdd.review_canvas":
+      case "spdd.arm_dispatch":
+      case "spdd.run_validation":
+      case "spdd.collect_proof":
+      case "spdd.create_sync_proposal": {
         return;
       }
       case "try_catch": {
@@ -427,6 +451,18 @@ export function collectUnsupportedRuntimeNodes(
       case "adapter.race":
       case "adapter.parallel":
       case "adapter.supervisor":
+      case "spdd.import_sources":
+      case "spdd.build_source_pack":
+      case "spdd.project_plan":
+      case "spdd.scan_drift":
+      case "spdd.run_analysis":
+      case "spdd.generate_canvas":
+      case "spdd.validate_canvas":
+      case "spdd.review_canvas":
+      case "spdd.arm_dispatch":
+      case "spdd.run_validation":
+      case "spdd.collect_proof":
+      case "spdd.create_sync_proposal":
         return;
       default: {
         const _exhaustive: never = node;
@@ -500,6 +536,18 @@ function hasGenericArtifactAnchor(
       case "adapter.race":
       case "adapter.parallel":
       case "adapter.supervisor":
+      case "spdd.import_sources":
+      case "spdd.build_source_pack":
+      case "spdd.project_plan":
+      case "spdd.scan_drift":
+      case "spdd.run_analysis":
+      case "spdd.generate_canvas":
+      case "spdd.validate_canvas":
+      case "spdd.review_canvas":
+      case "spdd.arm_dispatch":
+      case "spdd.run_validation":
+      case "spdd.collect_proof":
+      case "spdd.create_sync_proposal":
         return target === "planning-dag";
       default: {
         const _exhaustive: never = node;

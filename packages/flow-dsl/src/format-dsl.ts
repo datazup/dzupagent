@@ -572,6 +572,79 @@ function formatNode(
         lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
       lines.push(`${childIndent}output: ${node.output}`);
       return;
+    case "spdd.import_sources":
+      lines.push(`${indent}- spdd.import_sources:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
+      lines.push(`${childIndent}sourceRefs: ${formatScalar(node.sourceRefs)}`);
+      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
+      return;
+    case "spdd.build_source_pack":
+      lines.push(`${indent}- spdd.build_source_pack:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
+      lines.push(`${childIndent}sourceRefsKey: ${node.sourceRefsKey}`);
+      if (node.featureId) lines.push(`${childIndent}featureId: ${node.featureId}`);
+      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
+      return;
+    case "spdd.project_plan":
+    case "spdd.scan_drift":
+    case "spdd.validate_canvas":
+    case "spdd.review_canvas":
+      lines.push(`${indent}- ${node.type}:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
+      lines.push(`${childIndent}promptAssetVersionId: ${node.promptAssetVersionId}`);
+      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
+      return;
+    case "spdd.run_analysis":
+      lines.push(`${indent}- spdd.run_analysis:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
+      lines.push(`${childIndent}planArtifactId: ${node.planArtifactId}`);
+      if (node.sourceArtifactIds)
+        lines.push(`${childIndent}sourceArtifactIds: ${formatScalar(node.sourceArtifactIds)}`);
+      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
+      return;
+    case "spdd.generate_canvas":
+      lines.push(`${indent}- spdd.generate_canvas:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
+      lines.push(`${childIndent}promptAssetVersionId: ${node.promptAssetVersionId}`);
+      if (node.title) lines.push(`${childIndent}title: ${quote(node.title)}`);
+      if (node.objective) lines.push(`${childIndent}objective: ${quote(node.objective)}`);
+      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
+      return;
+    case "spdd.arm_dispatch":
+      lines.push(`${indent}- spdd.arm_dispatch:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
+      lines.push(`${childIndent}planRunId: ${node.planRunId}`);
+      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
+      return;
+    case "spdd.run_validation":
+      lines.push(`${indent}- spdd.run_validation:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
+      lines.push(`${childIndent}planRunId: ${node.planRunId}`);
+      lines.push(`${childIndent}executionRunId: ${node.executionRunId}`);
+      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
+      return;
+    case "spdd.collect_proof":
+      lines.push(`${indent}- spdd.collect_proof:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
+      lines.push(`${childIndent}planRunId: ${node.planRunId}`);
+      if (node.taskId) lines.push(`${childIndent}taskId: ${node.taskId}`);
+      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
+      return;
+    case "spdd.create_sync_proposal":
+      lines.push(`${indent}- spdd.create_sync_proposal:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
+      lines.push(`${childIndent}driftFindingIdsKey: ${node.driftFindingIdsKey}`);
+      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
+      return;
     default: {
       const _exhaustive: never = node;
       void _exhaustive;

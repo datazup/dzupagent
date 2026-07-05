@@ -194,6 +194,18 @@ function childSlices(
     case "adapter.race":
     case "adapter.parallel":
     case "adapter.supervisor":
+    case "spdd.import_sources":
+    case "spdd.build_source_pack":
+    case "spdd.project_plan":
+    case "spdd.scan_drift":
+    case "spdd.run_analysis":
+    case "spdd.generate_canvas":
+    case "spdd.validate_canvas":
+    case "spdd.review_canvas":
+    case "spdd.arm_dispatch":
+    case "spdd.run_validation":
+    case "spdd.collect_proof":
+    case "spdd.create_sync_proposal":
     case "prompt":
     case "return_to":
     case "agent":
