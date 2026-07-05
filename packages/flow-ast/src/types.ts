@@ -268,7 +268,19 @@ export type FlowNode =
   | AdapterRunNode
   | AdapterRaceNode
   | AdapterParallelNode
-  | AdapterSupervisorNode;
+  | AdapterSupervisorNode
+  | SpddImportSourcesNode
+  | SpddBuildSourcePackNode
+  | SpddProjectPlanNode
+  | SpddScanDriftNode
+  | SpddRunAnalysisNode
+  | SpddGenerateCanvasNode
+  | SpddValidateCanvasNode
+  | SpddReviewCanvasNode
+  | SpddArmDispatchNode
+  | SpddRunValidationNode
+  | SpddCollectProofNode
+  | SpddCreateSyncProposalNode;
 
 export type SequenceNode = FlowNodeBase & {
   type: "sequence";
@@ -948,6 +960,98 @@ export type AdapterSupervisorNode = FlowNodeBase & {
   output: string;
 };
 
+export type SpddSourceRef = Record<string, unknown>;
+
+export type SpddImportSourcesNode = FlowNodeBase & {
+  type: "spdd.import_sources";
+  spddRunId: string;
+  sourceRefs: SpddSourceRef[];
+  outputKey: string;
+};
+
+export type SpddBuildSourcePackNode = FlowNodeBase & {
+  type: "spdd.build_source_pack";
+  spddRunId: string;
+  sourceRefsKey: string;
+  outputKey: string;
+  featureId?: string;
+};
+
+export type SpddProjectPlanNode = FlowNodeBase & {
+  type: "spdd.project_plan";
+  spddRunId: string;
+  promptAssetVersionId: string;
+  outputKey: string;
+};
+
+export type SpddScanDriftNode = FlowNodeBase & {
+  type: "spdd.scan_drift";
+  spddRunId: string;
+  promptAssetVersionId: string;
+  outputKey: string;
+};
+
+export type SpddRunAnalysisNode = FlowNodeBase & {
+  type: "spdd.run_analysis";
+  spddRunId: string;
+  planArtifactId: string;
+  outputKey: string;
+  sourceArtifactIds?: string[];
+};
+
+export type SpddGenerateCanvasNode = FlowNodeBase & {
+  type: "spdd.generate_canvas";
+  spddRunId: string;
+  promptAssetVersionId: string;
+  outputKey: string;
+  title?: string;
+  objective?: string;
+};
+
+export type SpddValidateCanvasNode = FlowNodeBase & {
+  type: "spdd.validate_canvas";
+  spddRunId: string;
+  promptAssetVersionId: string;
+  outputKey: string;
+};
+
+export type SpddReviewCanvasNode = FlowNodeBase & {
+  type: "spdd.review_canvas";
+  spddRunId: string;
+  promptAssetVersionId: string;
+  outputKey: string;
+};
+
+export type SpddArmDispatchNode = FlowNodeBase & {
+  type: "spdd.arm_dispatch";
+  spddRunId: string;
+  planRunId: string;
+  outputKey: string;
+};
+
+export type SpddRunValidationNode = FlowNodeBase & {
+  type: "spdd.run_validation";
+  spddRunId: string;
+  planRunId: string;
+  executionRunId: string;
+  outputKey: string;
+};
+
+export type SpddCollectProofNode = FlowNodeBase & {
+  type: "spdd.collect_proof";
+  spddRunId: string;
+  planRunId: string;
+  outputKey: string;
+  taskId?: string;
+};
+
+export type SpddCreateSyncProposalNode = FlowNodeBase & {
+  type: "spdd.create_sync_proposal";
+  spddRunId: string;
+  driftFindingIdsKey: string;
+  outputKey: string;
+};
+
 export type FlowNodeKind = FlowNode["type"];
 
 /**
@@ -997,6 +1101,18 @@ export const FLOW_NODE_KIND_REGISTRY = {
   "adapter.race": true,
   "adapter.parallel": true,
   "adapter.supervisor": true,
+  "spdd.import_sources": true,
+  "spdd.build_source_pack": true,
+  "spdd.project_plan": true,
+  "spdd.scan_drift": true,
+  "spdd.run_analysis": true,
+  "spdd.generate_canvas": true,
+  "spdd.validate_canvas": true,
+  "spdd.review_canvas": true,
+  "spdd.arm_dispatch": true,
+  "spdd.run_validation": true,
+  "spdd.collect_proof": true,
+  "spdd.create_sync_proposal": true,
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(
