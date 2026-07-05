@@ -1,4 +1,13 @@
-const STATE_KEY_FIELDS = new Set(["output", "outputKey", "outputVar", "source"]);
+const STATE_KEY_FIELDS = new Set([
+  "output",
+  "outputKey",
+  "outputVar",
+  "source",
+  "progressKey",
+  "sourceRefsKey",
+  "driftFindingIdsKey",
+  "errorVar",
+]);
 const SOURCE_IS_STATE_NODE_TYPES = new Set([
   "evidence.write",
   "validate.schema",
@@ -9,6 +18,16 @@ const STRUCTURAL_PARAM_RE = /^\{\{\s*params\.([A-Za-z0-9_]+)\s*\}\}$/;
 const PARAM_RE = /\{\{\s*params\.([A-Za-z0-9_]+)\s*\}\}/g;
 const STATE_TEMPLATE_RE =
   /\{\{\s*state\.([A-Za-z0-9_]+)((?:\.[A-Za-z0-9_]+)*)\s*\}\}/g;
+const CHILD_NODE_FIELDS = new Set([
+  "nodes",
+  "body",
+  "then",
+  "else",
+  "catch",
+  "branches",
+  "onApprove",
+  "onReject",
+]);
 
 export function privateKey(instanceId: string, key: string): string {
   return `${instanceId}__${key}`;
@@ -58,6 +77,7 @@ export function rewriteFragmentValue(
   params: Record<string, unknown> = {},
   nodeType?: string,
   stateKeyFieldDepth = 0,
+  nodeScopeEligible = false,
 ): unknown {
   if (typeof value === "string") {
     if (STRUCTURAL_PARAM_RE.test(value)) return substituteParams(value, params);
@@ -71,27 +91,61 @@ export function rewriteFragmentValue(
         params,
         nodeType,
         stateKeyFieldDepth + 1,
+        nodeScopeEligible,
       ),
     );
   }
   if (!value || typeof value !== "object") return value;
 
+  const objectValue = value as Record<string, unknown>;
+  const isFlowNodeObject =
+    nodeScopeEligible && typeof objectValue.type === "string";
+  const currentNodeType =
+    isFlowNodeObject && typeof objectValue.type === "string"
+      ? objectValue.type
+      : nodeType;
+  const currentStateKeyFieldDepth = isFlowNodeObject ? 0 : stateKeyFieldDepth;
   const output: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (key === "id" && typeof child === "string") {
+  for (const [key, child] of Object.entries(objectValue)) {
+    if (isFlowNodeObject && key === "id" && typeof child === "string") {
       output[key] = privateKey(instanceId, child);
       continue;
     }
     if (
-      stateKeyFieldDepth === 0 &&
+      currentStateKeyFieldDepth === 0 &&
+      currentNodeType === "set" &&
+      key === "assign" &&
+      child &&
+      typeof child === "object" &&
+      !Array.isArray(child)
+    ) {
+      output[key] = Object.fromEntries(
+        Object.entries(child as Record<string, unknown>).map(
+          ([assignKey, assignValue]) => [
+            privateKey(instanceId, assignKey),
+            rewriteFragmentValue(
+              assignValue,
+              instanceId,
+              params,
+              currentNodeType,
+              currentStateKeyFieldDepth + 1,
+              false,
+            ),
+          ],
+        ),
+      );
+      continue;
+    }
+    if (
+      currentStateKeyFieldDepth === 0 &&
       typeof child === "string" &&
-      shouldRewriteStateKeyField(nodeType, key, child)
+      shouldRewriteStateKeyField(currentNodeType, key, child)
     ) {
       output[key] = privateKey(instanceId, child);
       continue;
     }
     if (
-      stateKeyFieldDepth === 0 &&
+      currentStateKeyFieldDepth === 0 &&
       key === "output" &&
       child &&
       typeof child === "object" &&
@@ -105,8 +159,9 @@ export function rewriteFragmentValue(
               child,
               instanceId,
               params,
-              nodeType,
-              stateKeyFieldDepth + 1,
+              currentNodeType,
+              currentStateKeyFieldDepth + 1,
+              false,
             );
       continue;
     }
@@ -114,8 +169,9 @@ export function rewriteFragmentValue(
       child,
       instanceId,
       params,
-      nodeType,
-      stateKeyFieldDepth + 1,
+      currentNodeType,
+      currentStateKeyFieldDepth + 1,
+      CHILD_NODE_FIELDS.has(key),
     );
   }
   return output;
@@ -127,7 +183,7 @@ export function rewriteFragmentNode(
   params: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const nodeType = typeof node.type === "string" ? node.type : undefined;
-  return rewriteFragmentValue(node, instanceId, params, nodeType) as Record<
+  return rewriteFragmentValue(node, instanceId, params, nodeType, 0, true) as Record<
     string,
     unknown
   >;
