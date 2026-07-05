@@ -236,3 +236,15 @@ export type {
   FactualityScorerConfig,
   ReferenceFact,
 } from './scorers/factuality-scorer.js';
+
+export {
+  runDeterministicFanoutCoverageEval,
+  scoreFanoutCoverageReport,
+} from './fanout-coverage/index.js';
+export type {
+  FanoutCoverageDispatch,
+  FanoutCoverageEvalInput,
+  FanoutCoverageEvalReport,
+  FanoutCoverageScore,
+  FanoutCoverageStatus,
+} from './fanout-coverage/index.js';
