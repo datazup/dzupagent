@@ -9,6 +9,7 @@ on:
       - 'README.md'
       - 'AGENTS.md'
       - 'CLAUDE.md'
+      - 'turbo.json'
       - 'typedoc.json'
       - 'tsconfig.docs.json'
       - 'package.json'
@@ -24,6 +25,7 @@ on:
       - 'README.md'
       - 'AGENTS.md'
       - 'CLAUDE.md'
+      - 'turbo.json'
       - 'typedoc.json'
       - 'tsconfig.docs.json'
       - 'package.json'
@@ -91,5 +93,8 @@ jobs:
       - name: Build core package for subpath export consumers
         run: yarn build --filter=@dzupagent/core
 
+      - name: Check Turbo typecheck build order
+        run: yarn check:turbo:typecheck-order
+
       - name: Run strict verification without circular imports
-        run: yarn -s verify:strict:ci:no-circular
+        run: yarn verify:strict:ci:no-circular
