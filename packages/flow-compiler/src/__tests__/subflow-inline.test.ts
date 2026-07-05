@@ -188,6 +188,268 @@ describe("inlineSubflows", () => {
     });
   });
 
+  it("rewrites inlined subflow agent output keys", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1alpha-agent",
+      id: "child",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "agent",
+            id: "plan",
+            agentId: "planner",
+            instructions: "Plan from {{ state.request }}",
+            output: { key: "plan", schemaRef: "plan.v1" },
+          },
+        ],
+      },
+    };
+
+    const result = await inlineSubflows(
+      {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "subflow", id: "child_call", flowRef: "child" }],
+      },
+      resolverFrom({ child }),
+    );
+
+    expect(result.root.type).toBe("sequence");
+    if (result.root.type !== "sequence") throw new Error("expected sequence");
+    expect(result.root.nodes[0]).toMatchObject({
+      id: "child_call__plan",
+      instructions: "Plan from {{ state.child_call__request }}",
+      output: { key: "child_call__plan", schemaRef: "plan.v1" },
+    });
+  });
+
+  it("rewrites inlined subflow loop and SPDD state keys", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "child",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "loop",
+            id: "poll",
+            condition: "{{ state.keepPolling }}",
+            progressKey: "pollProgress",
+            body: [{ type: "complete", id: "poll_done" }],
+          },
+          {
+            type: "spdd.build_source_pack",
+            id: "build_pack",
+            spddRunId: "run-1",
+            sourceRefsKey: "sourceRefs",
+            outputKey: "sourcePack",
+          },
+          {
+            type: "spdd.create_sync_proposal",
+            id: "sync",
+            spddRunId: "run-1",
+            driftFindingIdsKey: "driftFindingIds",
+            outputKey: "syncProposal",
+          },
+        ],
+      },
+    };
+
+    const result = await inlineSubflows(
+      {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "subflow", id: "child_call", flowRef: "child" }],
+      },
+      resolverFrom({ child }),
+    );
+
+    expect(result.root.type).toBe("sequence");
+    if (result.root.type !== "sequence") throw new Error("expected sequence");
+    expect(result.root.nodes).toEqual([
+      expect.objectContaining({
+        id: "child_call__poll",
+        progressKey: "child_call__pollProgress",
+        condition: "{{ state.child_call__keepPolling }}",
+      }),
+      expect.objectContaining({
+        id: "child_call__build_pack",
+        sourceRefsKey: "child_call__sourceRefs",
+        outputKey: "child_call__sourcePack",
+      }),
+      expect.objectContaining({
+        id: "child_call__sync",
+        driftFindingIdsKey: "child_call__driftFindingIds",
+        outputKey: "child_call__syncProposal",
+      }),
+    ]);
+  });
+
+  it("rewrites inlined subflow set assign keys and try_catch errorVar", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "child",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "set",
+            id: "record",
+            assign: { status: "ready" },
+          },
+          {
+            type: "try_catch",
+            id: "recover",
+            body: [{ type: "complete", id: "attempt" }],
+            catch: [{ type: "complete", id: "caught" }],
+            errorVar: "lastError",
+          },
+        ],
+      },
+    };
+
+    const result = await inlineSubflows(
+      {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "subflow", id: "child_call", flowRef: "child" }],
+      },
+      resolverFrom({ child }),
+    );
+
+    expect(result.root.type).toBe("sequence");
+    if (result.root.type !== "sequence") throw new Error("expected sequence");
+    expect(result.root.nodes[0]).toEqual({
+      type: "set",
+      id: "child_call__record",
+      assign: { child_call__status: "ready" },
+    });
+    expect(result.root.nodes[1]).toMatchObject({
+      id: "child_call__recover",
+      errorVar: "child_call__lastError",
+    });
+  });
+
+  it("does not rewrite non-state source fields during subflow inlining", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "child",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "fleet.gather",
+            id: "gather",
+            source: "fleet.dispatch",
+            output: "fleetResults",
+          },
+          {
+            type: "evidence.write",
+            id: "write_evidence",
+            source: "fleetResults",
+            output: "evidenceRef",
+          },
+        ],
+      },
+    };
+
+    const result = await inlineSubflows(
+      {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "subflow", id: "child_call", flowRef: "child" }],
+      },
+      resolverFrom({ child }),
+    );
+
+    expect(result.root.type).toBe("sequence");
+    if (result.root.type !== "sequence") throw new Error("expected sequence");
+    expect(result.root.nodes[0]).toMatchObject({
+      id: "child_call__gather",
+      source: "fleet.dispatch",
+      output: "child_call__fleetResults",
+    });
+    expect(result.root.nodes[1]).toMatchObject({
+      id: "child_call__write_evidence",
+      source: "child_call__fleetResults",
+      output: "child_call__evidenceRef",
+    });
+  });
+
+  it("does not treat nested typed data payloads as subflow nodes", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "child",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "adapter.run",
+            id: "summarize",
+            provider: "claude",
+            instructions: "Summarize",
+            input: {
+              payload: {
+                type: "evidence.write",
+                id: "external-id",
+                source: "externalEvidence",
+                output: "rawArtifact",
+              },
+            },
+            meta: {
+              type: "evidence.write",
+              id: "metadata-id",
+              source: "dsl",
+              output: "metadata",
+            },
+            output: "summary",
+          },
+        ],
+      },
+    };
+
+    const result = await inlineSubflows(
+      {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "subflow", id: "child_call", flowRef: "child" }],
+      },
+      resolverFrom({ child }),
+    );
+
+    expect(result.root.type).toBe("sequence");
+    if (result.root.type !== "sequence") throw new Error("expected sequence");
+    expect(result.root.nodes[0]).toMatchObject({
+      id: "child_call__summarize",
+      input: {
+        payload: {
+          type: "evidence.write",
+          id: "external-id",
+          source: "externalEvidence",
+          output: "rawArtifact",
+        },
+      },
+      meta: {
+        type: "evidence.write",
+        id: "metadata-id",
+        source: "dsl",
+        output: "metadata",
+      },
+      output: "child_call__summary",
+    });
+  });
+
   it("fails when a subflow reference cannot be resolved", async () => {
     const result = await inlineSubflows(
       {
