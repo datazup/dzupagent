@@ -131,4 +131,60 @@ describe("HostFanoutBatchStore", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("persists item provider attribution across host-store restarts", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "dzupagent-fanout-"));
+    try {
+      const first = new HostFanoutBatchStore({ directory: dir });
+      await first.create({
+        batchId: "providers",
+        parentRunId: "run-1",
+        mode: "template",
+        declared: ["security", "docs"],
+        startedAt: 10,
+      });
+      await first.recordItem("providers", "security", {
+        taskId: "task-security",
+        status: "succeeded",
+        provider: "codex",
+        result: { output: "reviewed" },
+        updatedAt: 20,
+      });
+
+      const second = new HostFanoutBatchStore({ directory: dir });
+      await second.recordItem("providers", "docs", {
+        taskId: "task-docs",
+        status: "succeeded",
+        provider: "claude",
+        result: { output: "documented" },
+        updatedAt: 30,
+      });
+      await second.complete("providers", {
+        status: "completed",
+        completedAt: 35,
+        wallClockMs: 25,
+      });
+
+      const recovered = await recoverFanoutReport(
+        new HostFanoutBatchStore({ directory: dir }),
+        "providers",
+      );
+      expect(recovered?.items).toEqual([
+        expect.objectContaining({
+          key: "security",
+          taskId: "task-security",
+          provider: "codex",
+          status: "succeeded",
+        }),
+        expect.objectContaining({
+          key: "docs",
+          taskId: "task-docs",
+          provider: "claude",
+          status: "succeeded",
+        }),
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

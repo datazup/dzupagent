@@ -485,6 +485,82 @@ describe("fragment expansion", () => {
     });
   });
 
+  it("does not rewrite nested source metadata inside state-source nodes", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.source_metadata_scope",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "evidence.write",
+              id: "write_evidence",
+              source: "searchResult",
+              meta: { source: "dsl" },
+              output: "evidenceRef",
+            },
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.source_metadata_scope",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toMatchObject({
+      "evidence.write": {
+        source: "gate__searchResult",
+        meta: { source: "dsl" },
+        output: "gate__evidenceRef",
+      },
+    });
+  });
+
+  it("does not rewrite nested output key metadata inside state-source nodes", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.output_metadata_scope",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "evidence.write",
+              id: "write_evidence",
+              source: "searchResult",
+              meta: { output: { key: "documentation" } },
+              output: "evidenceRef",
+            },
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.output_metadata_scope",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toMatchObject({
+      "evidence.write": {
+        source: "gate__searchResult",
+        meta: { output: { key: "documentation" } },
+        output: "gate__evidenceRef",
+      },
+    });
+  });
+
   it("rejects non-string params used in interpolation positions", () => {
     const registry = createFragmentRegistry([
       {
