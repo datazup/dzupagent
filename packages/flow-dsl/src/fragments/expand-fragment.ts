@@ -3,6 +3,9 @@ import type {
   FragmentInvocationInput,
 } from "./types.js";
 import {
+  CHILD_NODE_FIELDS,
+  type FragmentReferenceScope,
+  hasParentReferenceScope,
   privateKey,
   rewriteFragmentNode,
   rewriteFragmentValue,
@@ -190,6 +193,103 @@ function rewriteNestedFragmentOutputMapping(
   };
 }
 
+function collectReferenceScope(
+  nodes: readonly Record<string, unknown>[],
+): FragmentReferenceScope {
+  const nodeIds = new Set<string>();
+  const checkpointLabels = new Set<string>();
+
+  function visit(value: unknown, nodeScopeEligible: boolean): void {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, nodeScopeEligible);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+
+    const objectValue = value as Record<string, unknown>;
+    const isNode = nodeScopeEligible && typeof objectValue.type === "string";
+    if (isNode) {
+      if (typeof objectValue.id === "string") nodeIds.add(objectValue.id);
+      if (
+        !hasParentReferenceScope(objectValue) &&
+        objectValue.type === "checkpoint" &&
+        typeof objectValue.label === "string" &&
+        !objectValue.label.includes("{{")
+      ) {
+        checkpointLabels.add(objectValue.label);
+      }
+    }
+    for (const [key, child] of Object.entries(objectValue)) {
+      visit(child, CHILD_NODE_FIELDS.has(key));
+    }
+  }
+
+  for (const node of nodes) visit(node, true);
+  return { nodeIds, checkpointLabels };
+}
+
+function isLiteralReference(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && !value.includes("{{");
+}
+
+function validateLocalReferences(
+  nodes: readonly Record<string, unknown>[],
+  referenceScope: FragmentReferenceScope,
+): void {
+  const problems: string[] = [];
+
+  function visit(value: unknown, nodeScopeEligible: boolean): void {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, nodeScopeEligible);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+
+    const objectValue = value as Record<string, unknown>;
+    const isNode = nodeScopeEligible && typeof objectValue.type === "string";
+    if (isNode && !hasParentReferenceScope(objectValue)) {
+      const nodeLabel =
+        typeof objectValue.id === "string"
+          ? `${objectValue.type}#${objectValue.id}`
+          : objectValue.type;
+      if (
+        objectValue.type === "checkpoint" &&
+        isLiteralReference(objectValue.captureOutputOf) &&
+        !referenceScope.nodeIds?.has(objectValue.captureOutputOf)
+      ) {
+        problems.push(
+          `${nodeLabel} checkpoint.captureOutputOf="${objectValue.captureOutputOf}"`,
+        );
+      }
+      if (
+        objectValue.type === "return_to" &&
+        isLiteralReference(objectValue.targetId) &&
+        !referenceScope.nodeIds?.has(objectValue.targetId)
+      ) {
+        problems.push(`${nodeLabel} return_to.targetId="${objectValue.targetId}"`);
+      }
+      if (
+        objectValue.type === "restore" &&
+        isLiteralReference(objectValue.checkpointLabel) &&
+        !referenceScope.checkpointLabels?.has(objectValue.checkpointLabel)
+      ) {
+        problems.push(
+          `${nodeLabel} restore.checkpointLabel="${objectValue.checkpointLabel}"`,
+        );
+      }
+    }
+
+    for (const [key, child] of Object.entries(objectValue)) {
+      visit(child, CHILD_NODE_FIELDS.has(key));
+    }
+  }
+
+  for (const node of nodes) visit(node, true);
+  if (problems.length > 0) {
+    throw new Error(`fragment local reference validation failed: ${problems.join("; ")}`);
+  }
+}
+
 interface ExpandedNode {
   steps: Record<string, unknown>[];
   fragmentExpansions: FragmentInvocationExpansion["fragmentExpansions"];
@@ -200,12 +300,14 @@ function expandNode(
   input: FragmentInvocationInput,
   instanceId: string,
   params: Record<string, unknown>,
+  referenceScope: FragmentReferenceScope,
   index: number,
 ): ExpandedNode {
   const rewritten = rewriteFragmentNode(
     node,
     instanceId,
     params,
+    referenceScope,
   );
   if (typeof rewritten.type === "string" && input.registry.has(rewritten.type)) {
     const expanded = expandFragmentInvocation({
@@ -236,12 +338,20 @@ export function expandFragmentInvocation(
   const params = resolveParams(input);
   const exports = normalizeExportMap(entry.fragment.exports, instanceId, params);
   const exportAvailability = normalizeExportAvailability(entry.fragment.exports);
+  const referenceScope = collectReferenceScope(
+    entry.fragment.root.nodes as unknown as Record<string, unknown>[],
+  );
+  validateLocalReferences(
+    entry.fragment.root.nodes as unknown as Record<string, unknown>[],
+    referenceScope,
+  );
   const expandedNodes = entry.fragment.root.nodes.map((node, index) =>
     expandNode(
       node as unknown as Record<string, unknown>,
       input,
       instanceId,
       params,
+      referenceScope,
       index,
     ),
   );

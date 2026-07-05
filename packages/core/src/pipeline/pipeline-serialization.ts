@@ -72,6 +72,33 @@ export const LoopNodeSchema = PipelineNodeBaseSchema.extend({
   maxIterations: z.number().int().positive(),
   continuePredicateName: z.string().min(1),
   failOnMaxIterations: z.boolean().optional(),
+  forEach: z
+    .object({
+      source: z.string().min(1),
+      as: z.string().min(1),
+      order: z.literal("input"),
+      attachAs: z.string().min(1).optional(),
+      collect: z
+        .object({
+          from: z.string().min(1),
+          into: z.string().min(1),
+          order: z.literal("input"),
+        })
+        .optional(),
+      accumulator: z
+        .object({
+          key: z.string().min(1),
+          window: z.number().int().positive().optional(),
+          initialValue: z.unknown().optional(),
+        })
+        .optional(),
+      concurrency: z.number().int().min(1).max(8),
+      empty: z.object({
+        body: z.literal("skip"),
+        aggregate: z.literal("empty-array"),
+      }),
+    })
+    .optional(),
 });
 
 export const SuspendNodeSchema = PipelineNodeBaseSchema.extend({
