@@ -11,6 +11,7 @@ import type { PrimitiveRegistry } from "./primitives/types.js";
 export interface ParseDslToDocumentOptions {
   fragmentRegistry?: FragmentRegistry;
   primitiveRegistry?: PrimitiveRegistry;
+  requirePinnedFragmentUses?: boolean;
 }
 
 export function parseDslToDocument(
@@ -45,6 +46,7 @@ export function parseDslToDocument(
     const expanded = expandRegisteredCompositesDetailed(yaml.value, {
       primitiveRegistry: options.primitiveRegistry,
       fragmentRegistry: options.fragmentRegistry,
+      requirePinnedFragmentUses: options.requirePinnedFragmentUses,
     });
     expandedRaw = expanded.raw;
     fragmentExpansions = expanded.fragmentExpansions;

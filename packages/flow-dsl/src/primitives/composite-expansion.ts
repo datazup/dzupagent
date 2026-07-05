@@ -11,11 +11,14 @@ type StepWrapper = Record<string, unknown>;
 export interface CompositeExpansionOptions {
   primitiveRegistry?: PrimitiveRegistry;
   fragmentRegistry?: FragmentRegistry;
+  requirePinnedFragmentUses?: boolean;
 }
 
 interface ResolvedCompositeExpansionOptions {
   primitiveRegistry: PrimitiveRegistry;
   fragmentRegistry?: FragmentRegistry;
+  requirePinnedFragmentUses: boolean;
+  pinnedFragmentUses: Record<string, string>;
 }
 
 export interface CompositeExpansionResult {
@@ -42,6 +45,29 @@ function isPrimitiveRegistry(value: unknown): value is PrimitiveRegistry {
   );
 }
 
+function normalizePinnedFragmentUses(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
+function assertPinnedFragmentUse(
+  kind: string,
+  version: number,
+  namespace: string,
+  options: ResolvedCompositeExpansionOptions,
+): void {
+  if (!options.requirePinnedFragmentUses) return;
+  const expectedRef = `dzup.${namespace}@${version}`;
+  if (options.pinnedFragmentUses[namespace] === expectedRef) return;
+  throw new Error(
+    `fragment ${kind}@${version} requires pinned uses entry "${namespace}: ${expectedRef}"`,
+  );
+}
+
 function expandStepArray(
   stepsRaw: StepWrapper[],
   options: ResolvedCompositeExpansionOptions
@@ -62,7 +88,14 @@ function expandStepArray(
     const definition = options.primitiveRegistry.get(kind);
     if (definition?.category !== "composite") {
       const fragmentRegistry = options.fragmentRegistry;
-      if (fragmentRegistry?.get(kind)) {
+      const fragmentEntry = fragmentRegistry?.get(kind);
+      if (fragmentEntry) {
+        assertPinnedFragmentUse(
+          kind,
+          fragmentEntry.version,
+          fragmentEntry.namespace,
+          options,
+        );
         const expanded = expandFragmentInvocation({
           registry: fragmentRegistry,
           kind,
@@ -113,15 +146,23 @@ export function expandRegisteredCompositesDetailed(
   const options: ResolvedCompositeExpansionOptions = isPrimitiveRegistry(
     registryOrOptions
   )
-    ? { primitiveRegistry: registryOrOptions }
+    ? {
+        primitiveRegistry: registryOrOptions,
+        requirePinnedFragmentUses: false,
+        pinnedFragmentUses: {},
+      }
     : {
         primitiveRegistry:
           registryOrOptions.primitiveRegistry ?? DEFAULT_PRIMITIVE_REGISTRY,
+        requirePinnedFragmentUses:
+          registryOrOptions.requirePinnedFragmentUses ?? false,
+        pinnedFragmentUses: {},
         ...(registryOrOptions.fragmentRegistry
           ? { fragmentRegistry: registryOrOptions.fragmentRegistry }
           : {}),
       };
   const doc = raw as Record<string, unknown>;
+  options.pinnedFragmentUses = normalizePinnedFragmentUses(doc.uses);
   const arrayKey = isStepWrapperArray(doc.steps)
     ? "steps"
     : isStepWrapperArray(doc.nodes)
