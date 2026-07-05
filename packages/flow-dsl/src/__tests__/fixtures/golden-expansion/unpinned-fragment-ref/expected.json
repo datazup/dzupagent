@@ -1,0 +1,5 @@
+{
+  "ok": false,
+  "requirePinnedFragmentUses": true,
+  "diagnostics": ["requires pinned uses entry \"sdlc: dzup.sdlc@1\""]
+}
