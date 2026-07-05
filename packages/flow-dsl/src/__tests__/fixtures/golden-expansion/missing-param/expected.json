@@ -1,0 +1,4 @@
+{
+  "ok": false,
+  "diagnostics": ["missing required fragment param \"cwd\""]
+}

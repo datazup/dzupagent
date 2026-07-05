@@ -1,0 +1,6 @@
+dsl: dzupflow/v1
+id: unpinned-fragment-ref
+version: 1
+steps:
+  - sdlc.validation_gate:
+      id: gate

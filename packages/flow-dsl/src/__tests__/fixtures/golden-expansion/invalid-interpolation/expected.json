@@ -1,0 +1,4 @@
+{
+  "ok": false,
+  "diagnostics": ["fragment param \"commands\" must be string for interpolation"]
+}

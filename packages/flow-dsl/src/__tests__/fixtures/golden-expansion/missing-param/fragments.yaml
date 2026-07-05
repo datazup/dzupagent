@@ -1,0 +1,17 @@
+dsl: dzupflow/v1
+documentType: fragment
+id: sdlc.validation_gate
+version: 1
+params:
+  cwd:
+    type: string
+    required: true
+root:
+  type: sequence
+  nodes:
+    -
+      type: shell.run
+      id: run_validation
+      command: yarn test
+      cwd: "{{ params.cwd }}"
+      output: validationOutput

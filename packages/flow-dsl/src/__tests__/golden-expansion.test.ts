@@ -15,6 +15,7 @@ interface GoldenExpectation {
   fragmentInstances?: string[];
   jsonContains?: string[];
   diagnostics?: string[];
+  requirePinnedFragmentUses?: boolean;
 }
 
 interface GoldenFragmentExpansion {
@@ -90,6 +91,7 @@ describe("golden fragment expansion fixtures", () => {
     const expected = parseExpectation(caseName);
     const result = parseDslToDocument(readFixture(caseName, "invocation.yaml"), {
       fragmentRegistry,
+      requirePinnedFragmentUses: expected.requirePinnedFragmentUses,
     });
 
     expect(result.ok).toBe(expected.ok);

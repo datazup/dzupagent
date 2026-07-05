@@ -1,0 +1,16 @@
+dsl: dzupflow/v1
+documentType: fragment
+id: sdlc.bad_interpolation
+version: 1
+params:
+  commands:
+    type: array
+    required: true
+root:
+  type: sequence
+  nodes:
+    -
+      type: shell.run
+      id: run_commands
+      command: "run {{ params.commands }}"
+      output: commandResult

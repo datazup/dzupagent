@@ -1,0 +1,7 @@
+dsl: dzupflow/v1
+id: invalid-interpolation
+version: 1
+steps:
+  - sdlc.bad_interpolation:
+      id: gate
+      commands: [yarn test]
