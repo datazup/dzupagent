@@ -18,6 +18,7 @@ export interface FanoutBatchItemRecord {
   status: FanoutBatchItemStatus;
   result?: SubagentResult;
   resultTruncated?: boolean;
+  provider?: string;
   error?: string;
   durationMs?: number;
   outputTokens?: number;
@@ -56,6 +57,7 @@ export interface FanoutBatchItemUpdate {
   status?: FanoutBatchItemStatus;
   result?: SubagentResult;
   resultTruncated?: boolean;
+  provider?: string;
   error?: string;
   durationMs?: number;
   outputTokens?: number;

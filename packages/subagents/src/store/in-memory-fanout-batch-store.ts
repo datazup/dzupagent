@@ -60,6 +60,7 @@ export class InMemoryFanoutBatchStore implements FanoutBatchStore {
     if (update.resultTruncated !== undefined) {
       next.resultTruncated = update.resultTruncated;
     }
+    if (update.provider !== undefined) next.provider = update.provider;
     if (update.error !== undefined) next.error = update.error;
     if (update.durationMs !== undefined) next.durationMs = update.durationMs;
     if (update.outputTokens !== undefined) next.outputTokens = update.outputTokens;

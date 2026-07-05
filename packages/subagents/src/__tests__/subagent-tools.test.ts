@@ -378,6 +378,48 @@ describe("subagent tools", () => {
   });
 
   describe("fanout_template", () => {
+    it("includes provider attribution in report items and recovered fanout reports", async () => {
+      const fanoutBatchStore = new InMemoryFanoutBatchStore();
+      const { byName } = setup({
+        executorMode: "instant",
+        fanoutBatchStore,
+        instantResult: {
+          output: "done",
+          provider: "codex",
+        },
+      });
+
+      const report = (await byName.fanout_template!.invoke({
+        items: [{ key: "repo-a", input: "audit repo-a" }],
+        spec: { agentId: "codex" },
+      })) as {
+        batchId: string;
+        items: Array<{ key: string; status: string; provider?: string }>;
+      };
+
+      expect(report.items[0]).toMatchObject({
+        key: "repo-a",
+        status: "succeeded",
+        provider: "codex",
+      });
+
+      const recovered = await byName.check_fanout!.invoke({
+        batchId: report.batchId,
+      });
+
+      expect(recovered).toMatchObject({
+        found: true,
+        report: {
+          items: [
+            expect.objectContaining({
+              key: "repo-a",
+              provider: "codex",
+            }),
+          ],
+        },
+      });
+    });
+
     it("dispatches every declared item exactly once and reports coverage", async () => {
       const { byName, executor, events } = setup({
         executorMode: "instant",

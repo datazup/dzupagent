@@ -97,6 +97,7 @@ export interface FanoutReportItem {
   status: FanoutItemStatus;
   result?: SubagentResult;
   resultTruncated?: boolean;
+  provider?: string;
   error?: string;
   durationMs?: number;
   outputTokens?: number;
@@ -917,6 +918,9 @@ function buildSettledReportItem(args: {
     ...truncateResult(args.result, args.limits.maxResultBytes),
     ...(args.error !== undefined ? { error: args.error } : {}),
     durationMs: args.durationMs,
+    ...(args.result?.provider !== undefined
+      ? { provider: args.result.provider }
+      : {}),
     ...(args.result?.usage?.outputTokens !== undefined
       ? { outputTokens: args.result.usage.outputTokens }
       : {}),
@@ -946,6 +950,7 @@ function batchRecordItemToReportItem(
     ...(item.resultTruncated !== undefined
       ? { resultTruncated: item.resultTruncated }
       : {}),
+    ...(item.provider !== undefined ? { provider: item.provider } : {}),
     ...(item.error !== undefined ? { error: item.error } : {}),
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
     ...(item.outputTokens !== undefined ? { outputTokens: item.outputTokens } : {}),
@@ -998,6 +1003,7 @@ async function persistItem(
   if (item.resultTruncated !== undefined) {
     update.resultTruncated = item.resultTruncated;
   }
+  if (item.provider !== undefined) update.provider = item.provider;
   if (item.error !== undefined) update.error = item.error;
   if (item.durationMs !== undefined) update.durationMs = item.durationMs;
   if (item.outputTokens !== undefined) update.outputTokens = item.outputTokens;
