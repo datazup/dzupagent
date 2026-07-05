@@ -40,6 +40,20 @@
       "dependsOn": ["^build", "^typecheck", "@dzupagent/flow-ast#build"],
       "outputs": []
     },
+    "@dzupagent/agent-adapters#typecheck": {
+      "dependsOn": [
+        "^build",
+        "@dzupagent/adapter-rules#build",
+        "@dzupagent/adapter-types#build",
+        "@dzupagent/agent#build",
+        "@dzupagent/agent-types#build",
+        "@dzupagent/core#build",
+        "@dzupagent/runtime-contracts#build",
+        "@dzupagent/security#build",
+        "@dzupagent/subagents#build"
+      ],
+      "outputs": []
+    },
     "lint": {
       "inputs": ["src/**", "package.json", ".eslintrc*", "eslint.config.*"],
       "outputs": []
