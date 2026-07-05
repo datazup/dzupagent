@@ -54,7 +54,7 @@ function rewriteValue(value: unknown, instanceId: string): unknown {
       output[key] = privateKey(instanceId, child);
       continue;
     }
-    if (STATE_KEY_FIELDS.has(key) && typeof child === "string") {
+    if (STATE_KEY_FIELDS.has(key) && typeof child === "string" && !child.includes("{{")) {
       output[key] = privateKey(instanceId, child);
       continue;
     }

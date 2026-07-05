@@ -5,6 +5,7 @@ export type FlowFragmentDsl = "dzupflow/v1";
 export interface FlowFragmentExportSpec {
   expression: string;
   description?: string;
+  availability?: "success" | "always";
 }
 
 export interface FlowFragmentV1 {
