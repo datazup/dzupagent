@@ -82,9 +82,63 @@ describe("RegistrySubagentExecutor", () => {
     const result = await exec.run({ agentId: "claude", input: "do it" }, ctx());
     expect(result).toEqual({
       output: "final answer",
+      provider: "claude",
       usage: { inputTokens: 3, outputTokens: 10 },
     });
     expect(recordSuccess).toHaveBeenCalledWith("claude");
+  });
+
+  it("returns the provider id that executed a direct provider subagent", async () => {
+    const adapter = fakeAdapter(
+      [{ type: "adapter:completed", result: "ok" }],
+      undefined,
+      "codex",
+    );
+    const { registry } = fakeRegistry(adapter, { codex: adapter });
+    const exec = new RegistrySubagentExecutor(registry);
+
+    const result = await exec.run(
+      {
+        agentId: "codex",
+        input: "audit repo-a",
+      },
+      ctx(),
+    );
+
+    expect(result).toMatchObject({
+      output: "ok",
+      provider: "codex",
+    });
+  });
+
+  it("returns the routed provider id for a persona subagent", async () => {
+    const adapter = fakeAdapter(
+      [{ type: "adapter:completed", result: "reviewed" }],
+      undefined,
+      "claude",
+    );
+    const agent = fakeAgentDefinition({
+      preferredProvider: "claude" as never,
+    });
+    const loader = {
+      loadAgent: vi.fn(async () => agent),
+      compileForProvider: vi.fn(async () => "compiled security prompt"),
+    };
+    const { registry } = fakeRegistry(adapter);
+    const exec = new RegistrySubagentExecutor(registry, {}, { loader });
+
+    const result = await exec.run(
+      {
+        agentId: "security-reviewer",
+        input: "audit repo-a",
+      },
+      ctx(),
+    );
+
+    expect(result).toMatchObject({
+      output: "reviewed",
+      provider: "claude",
+    });
   });
 
   it("forwards progress events to onProgress", async () => {

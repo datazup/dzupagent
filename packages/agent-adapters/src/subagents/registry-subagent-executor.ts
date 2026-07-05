@@ -170,8 +170,8 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
 
     this.registry.recordSuccess(target.providerId);
     return usage !== undefined
-      ? { output: resultText, usage }
-      : { output: resultText };
+      ? { output: resultText, provider: target.providerId, usage }
+      : { output: resultText, provider: target.providerId };
   }
 
   private async resolveTarget(spec: SubagentSpec): Promise<ResolvedSubagentTarget> {
