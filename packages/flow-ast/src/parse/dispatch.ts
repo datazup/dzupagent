@@ -55,6 +55,7 @@ import { parseAdapterRun } from "./adapter-run.js";
 import { parseAdapterRace } from "./adapter-race.js";
 import { parseAdapterParallel } from "./adapter-parallel.js";
 import { parseAdapterSupervisor } from "./adapter-supervisor.js";
+import { parseSpddNode } from "./spdd.js";
 
 export function parseNode(
   value: unknown,
@@ -179,6 +180,19 @@ export function parseNode(
       return parseAdapterParallel(value, pointer, ctx);
     case "adapter.supervisor":
       return parseAdapterSupervisor(value, pointer, ctx);
+    case "spdd.import_sources":
+    case "spdd.build_source_pack":
+    case "spdd.project_plan":
+    case "spdd.scan_drift":
+    case "spdd.run_analysis":
+    case "spdd.generate_canvas":
+    case "spdd.validate_canvas":
+    case "spdd.review_canvas":
+    case "spdd.arm_dispatch":
+    case "spdd.run_validation":
+    case "spdd.collect_proof":
+    case "spdd.create_sync_proposal":
+      return parseSpddNode(value, pointer, ctx);
     default:
       // Defensive — KNOWN_NODE_TYPES is the source of truth above.
       ctx.errors.push({
