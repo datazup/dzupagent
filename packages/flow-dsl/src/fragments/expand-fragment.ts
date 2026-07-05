@@ -2,7 +2,11 @@ import type {
   FragmentInvocationExpansion,
   FragmentInvocationInput,
 } from "./types.js";
-import { privateKey, rewriteFragmentValue } from "./hygiene.js";
+import {
+  privateKey,
+  rewriteFragmentNode,
+  rewriteFragmentValue,
+} from "./hygiene.js";
 
 function assertInvocation(raw: unknown): asserts raw is Record<string, unknown> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -20,6 +24,16 @@ function toStepWrapper(node: Record<string, unknown>): Record<string, unknown> {
 
 function invocationControlKeys(): Set<string> {
   return new Set(["id", "type", "output"]);
+}
+
+function sanitizeInstancePart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function defaultInstanceId(kind: string, path: string): string {
+  const kindPart = sanitizeInstancePart(kind);
+  const pathPart = sanitizeInstancePart(path);
+  return pathPart.length > 0 ? `${kindPart}_${pathPart}` : kindPart;
 }
 
 function normalizeExportMap(
@@ -47,11 +61,11 @@ function rewriteExportExpression(
   instanceId: string,
   params: Record<string, unknown>,
 ): string {
-  const substituted = rewriteFragmentValue(expression, instanceId, params);
-  return String(substituted).replace(
-    /\{\{\s*state\.([A-Za-z0-9_]+)\s*\}\}/g,
-    (_match, key) => `{{ state.${privateKey(instanceId, key)} }}`,
-  );
+  const rewritten = rewriteFragmentValue(expression, instanceId, params);
+  if (typeof rewritten !== "string") {
+    throw new Error("fragment export expression must resolve to string");
+  }
+  return rewritten;
 }
 
 function validateParamType(
@@ -172,11 +186,11 @@ function expandNode(
   params: Record<string, unknown>,
   index: number,
 ): ExpandedNode {
-  const rewritten = rewriteFragmentValue(
+  const rewritten = rewriteFragmentNode(
     node,
     instanceId,
     params,
-  ) as Record<string, unknown>;
+  );
   if (typeof rewritten.type === "string" && input.registry.has(rewritten.type)) {
     const expanded = expandFragmentInvocation({
       registry: input.registry,
@@ -202,7 +216,7 @@ export function expandFragmentInvocation(
   const instanceId =
     typeof input.raw.id === "string" && input.raw.id.length > 0
       ? input.raw.id
-      : input.kind.replace(/[^A-Za-z0-9_]+/g, "_");
+      : defaultInstanceId(input.kind, input.path);
   const params = resolveParams(input);
   const exports = normalizeExportMap(entry.fragment.exports, instanceId, params);
   const expandedNodes = entry.fragment.root.nodes.map((node, index) =>
