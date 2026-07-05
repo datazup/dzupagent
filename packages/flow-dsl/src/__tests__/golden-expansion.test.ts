@@ -17,6 +17,10 @@ interface GoldenExpectation {
   diagnostics?: string[];
 }
 
+interface GoldenFragmentExpansion {
+  instanceId: string;
+}
+
 const fixturesDir = join(
   dirname(fileURLToPath(import.meta.url)),
   "fixtures",
@@ -107,7 +111,10 @@ describe("golden fragment expansion fixtures", () => {
     }
     expect(new Set(nodeIds).size).toBe(nodeIds.length);
 
-    const expansions = result.document.meta?.fragmentExpansions ?? [];
+    const expansions =
+      (result.document.meta?.fragmentExpansions as
+        | GoldenFragmentExpansion[]
+        | undefined) ?? [];
     const instanceIds = expansions.map((expansion) => expansion.instanceId);
     for (const instanceId of expected.fragmentInstances ?? []) {
       expect(instanceIds).toContain(instanceId);
