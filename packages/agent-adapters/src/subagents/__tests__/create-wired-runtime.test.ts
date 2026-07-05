@@ -166,6 +166,7 @@ describe("createWiredSubagentRuntime (end-to-end)", () => {
     expect(final?.status).toBe("succeeded");
     expect(final?.result).toEqual({
       output: "the answer",
+      provider: "claude",
       usage: { inputTokens: 2, outputTokens: 5 },
     });
 
