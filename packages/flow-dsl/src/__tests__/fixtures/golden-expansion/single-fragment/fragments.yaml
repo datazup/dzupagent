@@ -1,0 +1,25 @@
+dsl: dzupflow/v1
+documentType: fragment
+id: sdlc.validation_gate
+version: 1
+params:
+  cwd:
+    type: string
+    required: true
+exports:
+  status: "{{ state.validationStatus }}"
+root:
+  type: sequence
+  nodes:
+    -
+      type: shell.run
+      id: run_commands
+      command: yarn test
+      cwd: "{{ params.cwd }}"
+      output: commandResult
+    -
+      type: validate.schema
+      id: classify_result
+      source: commandResult
+      schema: dzup.sdlc.validation-result@1
+      output: validationStatus

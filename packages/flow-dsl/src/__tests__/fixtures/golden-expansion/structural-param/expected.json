@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "nodeIds": ["gate__run_commands"],
+  "fragmentInstances": ["gate"],
+  "jsonContains": [
+    "\"commands\":[\"yarn typecheck\",\"yarn test\"]",
+    "gate__commandResult"
+  ]
+}

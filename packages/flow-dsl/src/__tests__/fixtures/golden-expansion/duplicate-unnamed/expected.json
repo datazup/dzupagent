@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "nodeIds": [
+    "sdlc_validation_gate_steps_0__run_commands",
+    "sdlc_validation_gate_steps_0__classify_result",
+    "sdlc_validation_gate_steps_0__export_status",
+    "sdlc_validation_gate_steps_1__run_commands",
+    "sdlc_validation_gate_steps_1__classify_result",
+    "sdlc_validation_gate_steps_1__export_status"
+  ],
+  "fragmentInstances": [
+    "sdlc_validation_gate_steps_0",
+    "sdlc_validation_gate_steps_1"
+  ],
+  "jsonContains": ["apiValidation", "webValidation"]
+}

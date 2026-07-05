@@ -193,7 +193,7 @@ describe("fragment expansion", () => {
               command: "{{ params.commands }}",
               env: "{{ params.env }}",
               output: "commandResult",
-            },
+            } as unknown as FlowNode,
           ],
         },
       },
@@ -324,7 +324,7 @@ describe("fragment expansion", () => {
               id: "write_evidence",
               message: "parent says {{ params.parentSource }}",
               output: "evidenceRef",
-            },
+            } as unknown as FlowNode,
           ],
         },
       },
@@ -374,7 +374,7 @@ describe("fragment expansion", () => {
               message:
                 "local {{ state.testResult }} from {{ params.parentSource }}",
               output: "evidenceRef",
-            },
+            } as unknown as FlowNode,
           ],
         },
       },
@@ -452,7 +452,7 @@ describe("fragment expansion", () => {
               source: "workspace-docs",
               query: "fragments",
               output: "searchResult",
-            },
+            } as unknown as FlowNode,
             {
               type: "evidence.write",
               id: "write_evidence",
@@ -785,6 +785,54 @@ steps:
         invocationPath: "steps[0].fragment[0]",
       }),
     ]);
+  });
+
+  it("records export availability for failure-shaped fragments", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.validation_gate",
+        version: 1,
+        exports: {
+          status: {
+            expression: "{{ state.validationStatus }}",
+            availability: "always",
+          },
+          evidence: {
+            expression: "{{ state.validationEvidence }}",
+            availability: "success",
+          },
+        },
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "validate.schema",
+              id: "classify",
+              source: "rawResult",
+              schema: "dzup.sdlc.validation-result@1",
+              output: "validationStatus",
+            },
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.validation_gate",
+      raw: {
+        id: "gate",
+        output: { status: "validationStatus", evidence: "validationEvidence" },
+      },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.metadata.exportAvailability).toEqual({
+      status: "always",
+      evidence: "success",
+    });
   });
 
   it("expands registered fragment invocations before normalization", () => {

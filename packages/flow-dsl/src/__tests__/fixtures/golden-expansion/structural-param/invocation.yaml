@@ -1,0 +1,7 @@
+dsl: dzupflow/v1
+id: structural-param
+version: 1
+steps:
+  - sdlc.commands_gate:
+      id: gate
+      commands: [yarn typecheck, yarn test]

@@ -1,0 +1,17 @@
+dsl: dzupflow/v1
+documentType: fragment
+id: sdlc.failure_export_gate
+version: 1
+exports:
+  status:
+    expression: "{{ state.validationStatus }}"
+    availability: always
+root:
+  type: sequence
+  nodes:
+    -
+      type: validate.schema
+      id: classify
+      source: rawResult
+      schema: dzup.sdlc.validation-result@1
+      output: validationStatus

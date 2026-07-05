@@ -1,0 +1,18 @@
+dsl: dzupflow/v1
+documentType: fragment
+id: sdlc.commands_gate
+version: 1
+params:
+  commands:
+    type: array
+    required: true
+root:
+  type: sequence
+  nodes:
+    -
+      type: shell.run
+      id: run_commands
+      command: yarn test
+      meta:
+        commands: "{{ params.commands }}"
+      output: commandResult

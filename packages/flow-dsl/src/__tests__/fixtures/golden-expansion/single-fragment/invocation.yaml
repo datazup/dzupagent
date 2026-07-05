@@ -1,0 +1,8 @@
+dsl: dzupflow/v1
+id: single-fragment
+version: 1
+steps:
+  - sdlc.validation_gate:
+      id: api_gate
+      cwd: apps/research-app
+      output: apiValidation
