@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "requirePinnedFragmentUses": true,
+  "nodeIds": [
+    "validate_each",
+    "each_validation__run_validation",
+    "each_validation__classify_validation",
+    "each_validation__export_status"
+  ],
+  "fragmentInstances": ["each_validation"],
+  "jsonContains": [
+    "\"source\":\"validationItems\"",
+    "\"as\":\"validationItem\"",
+    "each_validation__validationOutput",
+    "each_validation__validationStatus",
+    "{{ state.validationItem.cwd }}",
+    "{{ state.validationItem.command }}"
+  ]
+}

@@ -144,6 +144,16 @@ describe('lowerPipelineLoop', () => {
     expect(loopNode.name).toBe('forEach:item')
     expect(loopNode.maxIterations).toBe(1000)
     expect(loopNode.continuePredicateName).toBe('forEach__item__predicate')
+    expect((loopNode as LoopNode & { forEach?: unknown }).forEach).toEqual({
+      source: '$.items',
+      as: 'item',
+      order: 'input',
+      concurrency: 1,
+      empty: {
+        body: 'skip',
+        aggregate: 'empty-array',
+      },
+    })
 
     // ToolNode shape
     expect(bodyNode.type).toBe('tool')
@@ -195,6 +205,52 @@ describe('lowerPipelineLoop', () => {
       declaredIdempotencyKey: 'foreach-key',
       idempotency: 'idempotent',
       effectClass: 'compute',
+    })
+  })
+
+  it('lowers explicit for_each collection metadata onto the runtime loop', () => {
+    const resolver = makeResolver(['items.process'])
+    const idGen = makeIdGen()
+    const ast: ForEachNode = {
+      type: 'for_each',
+      source: '$.items',
+      as: 'item',
+      collect: { from: 'itemStatus', into: 'itemStatuses' },
+      attachAs: 'status',
+      accumulator: { key: 'loopWindow', window: 5, initialValue: [] },
+      concurrency: 3,
+      body: [action('items.process')],
+    }
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.body[0]', toolRef: 'items.process' },
+    ])
+
+    const { artifact, warnings } = lowerPipelineLoop({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      idGen,
+      name: 'collection-loop',
+    })
+
+    expect(warnings).toEqual([])
+    const loopNode = artifact.nodes[0] as LoopNode
+    expect((loopNode as LoopNode & { forEach?: unknown }).forEach).toEqual({
+      source: '$.items',
+      as: 'item',
+      order: 'input',
+      attachAs: 'status',
+      collect: {
+        from: 'itemStatus',
+        into: 'itemStatuses',
+        order: 'input',
+      },
+      accumulator: { key: 'loopWindow', window: 5, initialValue: [] },
+      concurrency: 3,
+      empty: {
+        body: 'skip',
+        aggregate: 'empty-array',
+      },
     })
   })
 

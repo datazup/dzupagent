@@ -47,4 +47,35 @@ describe("registry-backed composite expansion", () => {
 
     expect(expandRegisteredComposites(input, registry)).toBe(input);
   });
+
+  it("does not expand wrapper-shaped data inside node payloads", () => {
+    const customComposite: PrimitiveDefinition = {
+      kind: "custom.workflow",
+      version: "1",
+      namespace: "custom",
+      category: "composite",
+      schema: { type: "object" },
+      expandsTo: ["complete"],
+      expand: (raw) => {
+        const input = raw as { id?: string };
+        return [{ complete: { id: input.id ?? "custom_done", result: "custom" } }];
+      },
+    };
+    const registry = createPrimitiveRegistry([customComposite]);
+    const input = {
+      steps: [
+        {
+          action: {
+            id: "inspect_payload",
+            ref: "payload.inspect",
+            input: {
+              examples: [{ "custom.workflow": { id: "payload_data" } }],
+            },
+          },
+        },
+      ],
+    };
+
+    expect(expandRegisteredComposites(input, registry)).toEqual(input);
+  });
 });

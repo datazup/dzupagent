@@ -9,7 +9,7 @@ import { parseDslToDocument } from "../parse-dsl.js";
 describe("built-in SDLC fragments", () => {
   it("registers the first reusable sdlc fragment set", () => {
     expect(
-      BUILT_IN_FRAGMENT_REGISTRY.list("sdlc").map((entry) => entry.id),
+      BUILT_IN_FRAGMENT_REGISTRY.list("sdlc").map((entry) => entry.id)
     ).toEqual([
       "sdlc.closeout",
       "sdlc.current_truth",
@@ -34,7 +34,7 @@ steps:
       cwd: packages/flow-dsl
       command: yarn test
 `,
-      { fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY },
+      { fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY }
     );
 
     expect(result.ok).toBe(true);
@@ -69,5 +69,32 @@ steps:
     expect(result.document?.meta?.fragmentUses).toEqual({
       sdlc: "dzup.sdlc@1",
     });
+  });
+
+  it("expands sdlc.validation_gate with built-in registry in strict unattended mode", () => {
+    const result = parseDslToDocument(
+      `
+dsl: dzupflow/v1
+id: sdlc-library-strict-demo
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.validation_gate:
+      id: validation
+      cwd: packages/flow-dsl
+      command: yarn test
+`,
+      {
+        fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
+        requirePinnedFragmentUses: true,
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.document?.root.nodes.map((node) => node.id)).toEqual([
+      "validation__run_validation",
+      "validation__classify_validation",
+    ]);
   });
 });

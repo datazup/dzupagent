@@ -450,6 +450,70 @@ describe("inlineSubflows", () => {
     });
   });
 
+  it("rewrites inlined subflow node id and checkpoint label references", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "child",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "action",
+            id: "produce",
+            toolRef: "tasks.create",
+            input: {},
+            outputKey: "taskResult",
+          } as unknown as FlowDocumentV1["root"]["nodes"][number],
+          {
+            type: "checkpoint",
+            id: "capture_task",
+            captureOutputOf: "produce",
+            label: "after_task",
+          },
+          {
+            type: "restore",
+            id: "restore_task",
+            checkpointLabel: "after_task",
+          },
+          {
+            type: "return_to",
+            id: "retry_task",
+            targetId: "produce",
+            condition: "{{ state.shouldRetry }}",
+          },
+        ],
+      },
+    };
+
+    const result = await inlineSubflows(
+      {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "subflow", id: "child_call", flowRef: "child" }],
+      },
+      resolverFrom({ child }),
+    );
+
+    expect(result.root.type).toBe("sequence");
+    if (result.root.type !== "sequence") throw new Error("expected sequence");
+    expect(result.root.nodes[1]).toMatchObject({
+      id: "child_call__capture_task",
+      captureOutputOf: "child_call__produce",
+      label: "child_call__after_task",
+    });
+    expect(result.root.nodes[2]).toMatchObject({
+      id: "child_call__restore_task",
+      checkpointLabel: "child_call__after_task",
+    });
+    expect(result.root.nodes[3]).toMatchObject({
+      id: "child_call__retry_task",
+      targetId: "child_call__produce",
+      condition: "{{ state.child_call__shouldRetry }}",
+    });
+  });
+
   it("fails when a subflow reference cannot be resolved", async () => {
     const result = await inlineSubflows(
       {
@@ -581,6 +645,17 @@ describe("inlineSubflows", () => {
             toolRef: "tasks.create",
             input: {},
           },
+          {
+            type: "checkpoint",
+            id: "validation__capture",
+            captureOutputOf: "validation__run",
+            label: "validation__after_run",
+          },
+          {
+            type: "restore",
+            id: "validation__restore",
+            checkpointLabel: "validation__after_run",
+          },
         ],
       },
     });
@@ -592,9 +667,32 @@ describe("inlineSubflows", () => {
     expect(result.evidence.composition?.fragments).toEqual([
       expect.objectContaining({
         id: "sdlc.validation_gate",
+        version: 1,
         catalogRef: "dzup.sdlc@1",
         instanceId: "validation",
+        invocationPath: "steps[0]",
+        expandedPaths: ["steps[0].fragment[0]"],
+        exports: {
+          status: "{{ state.validation__status }}",
+        },
       }),
     ]);
+    expect(result.evidence.canonicalNodeIds).toEqual(
+      expect.arrayContaining([
+        "validation__run",
+        "validation__capture",
+        "validation__restore",
+      ]),
+    );
+    expect(result.evidence.canonicalNodePaths).toMatchObject({
+      "root.nodes[1]": {
+        type: "checkpoint",
+        id: "validation__capture",
+      },
+      "root.nodes[2]": {
+        type: "restore",
+        id: "validation__restore",
+      },
+    });
   });
 });
