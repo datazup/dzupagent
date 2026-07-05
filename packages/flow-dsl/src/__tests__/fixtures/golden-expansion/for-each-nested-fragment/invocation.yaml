@@ -1,0 +1,16 @@
+dsl: dzupflow/v1
+id: for-each-nested-fragment
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - for_each:
+      id: validate_each
+      source: validationItems
+      as: validationItem
+      body:
+        - sdlc.validation_gate:
+            id: each_validation
+            cwd: "{{ state.validationItem.cwd }}"
+            command: "{{ state.validationItem.command }}"
+            output: validationStatus

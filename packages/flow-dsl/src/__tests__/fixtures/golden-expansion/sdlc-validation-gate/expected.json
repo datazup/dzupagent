@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "requirePinnedFragmentUses": true,
+  "nodeIds": [
+    "validation__run_validation",
+    "validation__classify_validation",
+    "validation__export_status"
+  ],
+  "fragmentInstances": ["validation"],
+  "jsonContains": [
+    "dzup.sdlc@1",
+    "validation__validationOutput",
+    "validation__validationStatus"
+  ]
+}

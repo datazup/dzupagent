@@ -375,6 +375,48 @@ describe("semanticResolve — condition expression validation", () => {
     );
   });
 
+  it("rejects scalar state exports from for_each bodies without explicit aggregation", async () => {
+    const resolver = makeResolver([]);
+    const ast = sequence(
+      forEach("items", "item", {
+        type: "set",
+        assign: { itemStatus: "{{ state.item.status }}" },
+      })
+    );
+
+    const result = await semanticResolve(ast, { toolResolver: resolver });
+    const loopErr = result.errors.find(
+      (e) => e.code === "AMBIGUOUS_LOOP_BODY_OUTPUT"
+    );
+
+    expect(loopErr).toBeDefined();
+    expect(loopErr?.nodeType).toBe("for_each");
+    expect(loopErr?.nodePath).toBe("root.nodes[0].body[0].assign.itemStatus");
+    expect(loopErr?.message).toContain("collect");
+  });
+
+  it("allows scalar state exports from for_each bodies when collect declares ordered aggregation", async () => {
+    const resolver = makeResolver([]);
+    const ast = sequence({
+      type: "for_each",
+      source: "items",
+      as: "item",
+      collect: { from: "itemStatus", into: "itemStatuses" },
+      body: [
+        {
+          type: "set",
+          assign: { itemStatus: "{{ state.item.status }}" },
+        },
+      ],
+    });
+
+    const result = await semanticResolve(ast, { toolResolver: resolver });
+
+    expect(
+      result.errors.filter((e) => e.code === "AMBIGUOUS_LOOP_BODY_OUTPUT")
+    ).toEqual([]);
+  });
+
   it("rejects branch condition with syntax error", async () => {
     const resolver = makeResolver(["pm.task"]);
     const ast = sequence(branch("if (", [action("pm.task")]));

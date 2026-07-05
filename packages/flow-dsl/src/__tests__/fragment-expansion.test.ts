@@ -770,6 +770,262 @@ describe("fragment expansion", () => {
     });
   });
 
+  it("rewrites fragment-local node id and checkpoint label references", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.reference_hygiene",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "shell.run",
+              id: "run_tests",
+              command: "yarn test",
+              output: "testResult",
+            },
+            {
+              type: "checkpoint",
+              id: "capture_tests",
+              captureOutputOf: "run_tests",
+              label: "after_tests",
+            } as unknown as FlowNode,
+            {
+              type: "restore",
+              id: "restore_tests",
+              checkpointLabel: "after_tests",
+            } as unknown as FlowNode,
+            {
+              type: "return_to",
+              id: "retry_tests",
+              targetId: "run_tests",
+              condition: "{{ state.shouldRetry }}",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.reference_hygiene",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[1]).toEqual({
+      checkpoint: {
+        id: "gate__capture_tests",
+        captureOutputOf: "gate__run_tests",
+        label: "gate__after_tests",
+      },
+    });
+    expect(expanded.steps[2]).toEqual({
+      restore: {
+        id: "gate__restore_tests",
+        checkpointLabel: "gate__after_tests",
+      },
+    });
+    expect(expanded.steps[3]).toEqual({
+      return_to: {
+        id: "gate__retry_tests",
+        targetId: "gate__run_tests",
+        condition: "{{ state.gate__shouldRetry }}",
+      },
+    });
+  });
+
+  it("preserves param-supplied node id and checkpoint label references", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.parent_reference_hygiene",
+        version: 1,
+        params: {
+          targetId: { type: "string", required: true },
+          checkpointLabel: { type: "string", required: true },
+        },
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "checkpoint",
+              id: "capture_parent",
+              captureOutputOf: "{{ params.targetId }}",
+              label: "{{ params.checkpointLabel }}",
+            } as unknown as FlowNode,
+            {
+              type: "restore",
+              id: "restore_parent",
+              checkpointLabel: "{{ params.checkpointLabel }}",
+            } as unknown as FlowNode,
+            {
+              type: "return_to",
+              id: "return_parent",
+              targetId: "{{ params.targetId }}",
+              condition: "{{ state.shouldRetry }}",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.parent_reference_hygiene",
+      raw: {
+        id: "gate",
+        targetId: "parent_node",
+        checkpointLabel: "parent_checkpoint",
+      },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toMatchObject({
+      checkpoint: {
+        captureOutputOf: "parent_node",
+        label: "parent_checkpoint",
+      },
+    });
+    expect(expanded.steps[1]).toMatchObject({
+      restore: { checkpointLabel: "parent_checkpoint" },
+    });
+    expect(expanded.steps[2]).toMatchObject({
+      return_to: {
+        targetId: "parent_node",
+        condition: "{{ state.gate__shouldRetry }}",
+      },
+    });
+  });
+
+  it("rejects missing literal fragment-local node id references", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.missing_node_reference",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "checkpoint",
+              id: "capture_tests",
+              captureOutputOf: "missing_run",
+              label: "after_tests",
+            } as unknown as FlowNode,
+            {
+              type: "return_to",
+              id: "retry_tests",
+              targetId: "missing_run",
+              condition: "{{ state.shouldRetry }}",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    expect(() =>
+      expandFragmentInvocation({
+        registry,
+        kind: "sdlc.missing_node_reference",
+        raw: { id: "gate" },
+        path: "root.steps[0]",
+      }),
+    ).toThrow(
+      /fragment local reference .*captureOutputOf="missing_run".*return_to\.targetId="missing_run"/i,
+    );
+  });
+
+  it("rejects missing literal fragment-local checkpoint labels", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.missing_checkpoint_reference",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "restore",
+              id: "restore_tests",
+              checkpointLabel: "missing_checkpoint",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    expect(() =>
+      expandFragmentInvocation({
+        registry,
+        kind: "sdlc.missing_checkpoint_reference",
+        raw: { id: "gate" },
+        path: "root.steps[0]",
+      }),
+    ).toThrow(/fragment local reference .*restore\.checkpointLabel="missing_checkpoint"/i);
+  });
+
+  it("allows explicit parent-scope reference opt-out for literal references", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.parent_scope_literal_reference",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "checkpoint",
+              id: "capture_parent",
+              captureOutputOf: "parent_node",
+              label: "parent_checkpoint",
+              meta: { referenceScope: "parent" },
+            } as unknown as FlowNode,
+            {
+              type: "restore",
+              id: "restore_parent",
+              checkpointLabel: "parent_checkpoint",
+              meta: { referenceScope: "parent" },
+            } as unknown as FlowNode,
+            {
+              type: "return_to",
+              id: "return_parent",
+              targetId: "parent_node",
+              condition: "{{ state.shouldRetry }}",
+              meta: { referenceScope: "parent" },
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.parent_scope_literal_reference",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toMatchObject({
+      checkpoint: {
+        captureOutputOf: "parent_node",
+        label: "parent_checkpoint",
+      },
+    });
+    expect(expanded.steps[1]).toMatchObject({
+      restore: { checkpointLabel: "parent_checkpoint" },
+    });
+    expect(expanded.steps[2]).toMatchObject({
+      return_to: { targetId: "parent_node" },
+    });
+  });
+
   it("rejects non-string params used in interpolation positions", () => {
     const registry = createFragmentRegistry([
       {

@@ -308,6 +308,7 @@ describe("createFlowCompiler — happy path pipeline", () => {
       type: "for_each",
       source: "items",
       as: "item",
+      collect: { from: "itemStatus", into: "itemStatuses" },
       body: [{ type: "action", toolRef: "items.process", input: {} }],
     };
 
@@ -326,7 +327,25 @@ describe("createFlowCompiler — happy path pipeline", () => {
 
     const pipeline = success.artifact as PipelineDefinition;
     expect(typeof pipeline.id).toBe("string");
-    expect(pipeline.nodes.some((n) => n.type === "loop")).toBe(true);
+    const loop = pipeline.nodes.find((n) => n.type === "loop");
+    expect(loop).toBeDefined();
+    expect(
+      (loop as NonNullable<typeof loop> & { forEach?: unknown }).forEach
+    ).toEqual({
+      source: "items",
+      as: "item",
+      order: "input",
+      collect: {
+        from: "itemStatus",
+        into: "itemStatuses",
+        order: "input",
+      },
+      concurrency: 1,
+      empty: {
+        body: "skip",
+        aggregate: "empty-array",
+      },
+    });
   });
 });
 

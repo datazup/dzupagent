@@ -1,0 +1,11 @@
+dsl: dzupflow/v1
+id: sdlc-validation-gate
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.validation_gate:
+      id: validation
+      cwd: packages/flow-dsl
+      command: yarn test
+      output: validationStatus

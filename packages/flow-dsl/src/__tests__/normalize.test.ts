@@ -497,6 +497,32 @@ describe("normalizeSteps — for_each", () => {
     expect(diagnostics).toHaveLength(0);
   });
 
+  it("normalizes explicit for_each aggregation metadata", () => {
+    const raw = [
+      {
+        for_each: {
+          source: "items",
+          as: "item",
+          collect: { from: "itemStatus", into: "itemStatuses" },
+          attachAs: "status",
+          accumulator: { key: "loopWindow", window: 3, initialValue: [] },
+          concurrency: 4,
+          body: [{ action: { ref: "skill:process", input: {} } }],
+        },
+      },
+    ];
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+    const nodes = normalizeSteps(raw, "root.steps", diagnostics);
+    expect(diagnostics).toHaveLength(0);
+    expect(nodes[0]).toMatchObject({
+      type: "for_each",
+      collect: { from: "itemStatus", into: "itemStatuses" },
+      attachAs: "status",
+      accumulator: { key: "loopWindow", window: 3, initialValue: [] },
+      concurrency: 4,
+    });
+  });
+
   it("errors when for_each.source is missing", () => {
     const raw = [
       {
