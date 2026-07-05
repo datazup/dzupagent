@@ -7,6 +7,18 @@ import type {
 } from "../fragments/types.js";
 
 type StepWrapper = Record<string, unknown>;
+const STEP_ARRAY_FIELDS = new Set([
+  "steps",
+  "nodes",
+  "body",
+  "then",
+  "else",
+  "catch",
+  "onApprove",
+  "onReject",
+  "on_approve",
+  "on_reject",
+]);
 
 export interface CompositeExpansionOptions {
   primitiveRegistry?: PrimitiveRegistry;
@@ -63,15 +75,92 @@ function assertPinnedFragmentUse(
   if (!options.requirePinnedFragmentUses) return;
   const expectedRef = `dzup.${namespace}@${version}`;
   if (options.pinnedFragmentUses[namespace] === expectedRef) return;
+  const foundRef = options.pinnedFragmentUses[namespace];
   throw new Error(
-    `fragment ${kind}@${version} requires pinned uses entry "${namespace}: ${expectedRef}"`,
+    `fragment ${kind}@${version} requires pinned uses entry "${namespace}: ${expectedRef}"` +
+      (foundRef ? `; found "${foundRef}"` : ""),
   );
+}
+
+function expandNestedStepArrays(
+  raw: unknown,
+  options: ResolvedCompositeExpansionOptions,
+  path: string,
+): CompositeExpansionResult & { changed: boolean } {
+  if (isStepWrapperArray(raw)) {
+    return expandStepArray(raw, options, path);
+  }
+  if (Array.isArray(raw)) {
+    return { raw, changed: false, fragmentExpansions: [] };
+  }
+  if (!raw || typeof raw !== "object") {
+    return { raw, changed: false, fragmentExpansions: [] };
+  }
+
+  let changed = false;
+  const fragmentExpansions: FragmentExpansionMetadata[] = [];
+  const entries = Object.entries(raw as Record<string, unknown>).map(
+    ([key, value]) => {
+      if (!STEP_ARRAY_FIELDS.has(key) && key !== "branches") {
+        return [key, value] as const;
+      }
+      const expanded =
+        key === "branches"
+          ? expandBranches(value, options, `${path}.${key}`)
+          : expandNestedStepArrays(value, options, `${path}.${key}`);
+      if (expanded.changed) changed = true;
+      fragmentExpansions.push(...expanded.fragmentExpansions);
+      return [key, expanded.raw] as const;
+    },
+  );
+  return {
+    raw: changed ? Object.fromEntries(entries) : raw,
+    changed,
+    fragmentExpansions,
+  };
+}
+
+function expandBranches(
+  raw: unknown,
+  options: ResolvedCompositeExpansionOptions,
+  path: string,
+): CompositeExpansionResult & { changed: boolean } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { raw, changed: false, fragmentExpansions: [] };
+  }
+
+  let changed = false;
+  const fragmentExpansions: FragmentExpansionMetadata[] = [];
+  const entries = Object.entries(raw as Record<string, unknown>).map(
+    ([branchName, value]) => {
+      const expanded = expandNestedStepArrays(
+        value,
+        options,
+        `${path}.${branchName}`,
+      );
+      if (expanded.changed) changed = true;
+      fragmentExpansions.push(...expanded.fragmentExpansions);
+      return [branchName, expanded.raw] as const;
+    },
+  );
+
+  return {
+    raw: changed ? Object.fromEntries(entries) : raw,
+    changed,
+    fragmentExpansions,
+  };
 }
 
 function expandStepArray(
   stepsRaw: StepWrapper[],
-  options: ResolvedCompositeExpansionOptions
-): { changed: boolean; steps: StepWrapper[]; fragmentExpansions: FragmentExpansionMetadata[] } {
+  options: ResolvedCompositeExpansionOptions,
+  path: string,
+): {
+  changed: boolean;
+  raw: StepWrapper[];
+  steps: StepWrapper[];
+  fragmentExpansions: FragmentExpansionMetadata[];
+} {
   const steps: StepWrapper[] = [];
   const fragmentExpansions: FragmentExpansionMetadata[] = [];
   let changed = false;
@@ -89,7 +178,7 @@ function expandStepArray(
     if (definition?.category !== "composite") {
       const fragmentRegistry = options.fragmentRegistry;
       const fragmentEntry = fragmentRegistry?.get(kind);
-      if (fragmentEntry) {
+      if (fragmentRegistry && fragmentEntry) {
         assertPinnedFragmentUse(
           kind,
           fragmentEntry.version,
@@ -100,10 +189,21 @@ function expandStepArray(
           registry: fragmentRegistry,
           kind,
           raw: wrapper[kind],
-          path: `steps[${index}]`,
+          path: `${path}[${index}]`,
         });
         steps.push(...expanded.steps);
         fragmentExpansions.push(...expanded.fragmentExpansions);
+        changed = true;
+        continue;
+      }
+      const nested = expandNestedStepArrays(
+        wrapper[kind],
+        options,
+        `${path}[${index}]`,
+      );
+      if (nested.changed) {
+        steps.push({ [kind]: nested.raw });
+        fragmentExpansions.push(...nested.fragmentExpansions);
         changed = true;
         continue;
       }
@@ -117,16 +217,17 @@ function expandStepArray(
       );
     }
 
-    steps.push(
-      ...definition.expand(wrapper[kind], {
+    const primitiveSteps = definition.expand(wrapper[kind], {
         kind: definition.kind,
         version: definition.version,
-      })
-    );
+      });
+    const nested = expandStepArray(primitiveSteps, options, `${path}[${index}]`);
+    steps.push(...nested.steps);
+    fragmentExpansions.push(...nested.fragmentExpansions);
     changed = true;
   }
 
-  return { changed, steps, fragmentExpansions };
+  return { changed, raw: changed ? steps : stepsRaw, steps, fragmentExpansions };
 }
 
 export function expandRegisteredComposites(
@@ -171,7 +272,7 @@ export function expandRegisteredCompositesDetailed(
 
   if (arrayKey === null) return { raw, fragmentExpansions: [] };
 
-  const expanded = expandStepArray(doc[arrayKey] as StepWrapper[], options);
+  const expanded = expandStepArray(doc[arrayKey] as StepWrapper[], options, arrayKey);
   if (!expanded.changed) return { raw, fragmentExpansions: [] };
 
   return {

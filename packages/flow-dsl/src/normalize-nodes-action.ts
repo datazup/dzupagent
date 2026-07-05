@@ -51,6 +51,10 @@ const FOR_EACH_KEYS = new Set<string>([
   'source',
   'as',
   'body',
+  'attachAs',
+  'collect',
+  'accumulator',
+  'concurrency',
 ])
 
 const APPROVAL_KEYS = new Set<string>([
@@ -191,12 +195,40 @@ export function normalizeForEach(
 ): ForEachNode {
   reportUnsupportedFields(raw, FOR_EACH_KEYS, path, diagnostics)
   const base = normalizeCommonNodeFields(raw, path, diagnostics)
+  const collect = normalizeForEachCollect(raw.collect, `${path}.collect`, diagnostics)
+  const accumulator = normalizeForEachAccumulator(
+    raw.accumulator,
+    `${path}.accumulator`,
+    diagnostics,
+  )
   const node: ForEachNode = {
     type: 'for_each',
     ...base,
     source: typeof raw.source === 'string' ? raw.source : '',
     as: typeof raw.as === 'string' ? raw.as : '',
     body: normalizeSteps(raw.body, `${path}.body`, diagnostics),
+    ...(typeof raw.attachAs === 'string' ? { attachAs: raw.attachAs } : {}),
+    ...(collect !== undefined ? { collect } : {}),
+    ...(accumulator !== undefined ? { accumulator } : {}),
+    ...(typeof raw.concurrency === 'number'
+      ? { concurrency: Math.min(Math.max(1, Math.floor(raw.concurrency)), 8) }
+      : {}),
+  }
+  if (raw.attachAs !== undefined && typeof raw.attachAs !== 'string') {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'for_each.attachAs must be a string when present',
+      path: `${path}.attachAs`,
+    })
+  }
+  if (raw.concurrency !== undefined && typeof raw.concurrency !== 'number') {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'for_each.concurrency must be a number when present',
+      path: `${path}.concurrency`,
+    })
   }
   if (node.source.length === 0) {
     diagnostics.push({
@@ -223,6 +255,72 @@ export function normalizeForEach(
     })
   }
   return node
+}
+
+function normalizeForEachCollect(
+  raw: unknown,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): ForEachNode['collect'] | undefined {
+  if (raw === undefined) return undefined
+  if (!isPlainObject(raw)) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'for_each.collect must be an object with from and into',
+      path,
+    })
+    return undefined
+  }
+  if (typeof raw.from === 'string' && typeof raw.into === 'string') {
+    return { from: raw.from, into: raw.into }
+  }
+  diagnostics.push({
+    phase: 'normalize',
+    code: DSL_ERROR.INVALID_NODE_SHAPE,
+    message: 'for_each.collect.from and for_each.collect.into must be strings',
+    path,
+  })
+  return undefined
+}
+
+function normalizeForEachAccumulator(
+  raw: unknown,
+  path: string,
+  diagnostics: DslDiagnostic[],
+): ForEachNode['accumulator'] | undefined {
+  if (raw === undefined) return undefined
+  if (!isPlainObject(raw)) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'for_each.accumulator must be an object with key',
+      path,
+    })
+    return undefined
+  }
+  if (typeof raw.key !== 'string') {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'for_each.accumulator.key must be a string',
+      path: `${path}.key`,
+    })
+    return undefined
+  }
+  if (raw.window !== undefined && typeof raw.window !== 'number') {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'for_each.accumulator.window must be a number when present',
+      path: `${path}.window`,
+    })
+  }
+  return {
+    key: raw.key,
+    ...(typeof raw.window === 'number' ? { window: Math.max(1, Math.floor(raw.window)) } : {}),
+    ...(raw.initialValue !== undefined ? { initialValue: raw.initialValue } : {}),
+  }
 }
 
 export function normalizeApproval(

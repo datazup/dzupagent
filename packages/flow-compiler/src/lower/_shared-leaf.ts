@@ -132,6 +132,7 @@ export function lowerForEach(
     bodyNodeIds,
     maxIterations: 1000, // reasonable upper bound; runtime may override
     continuePredicateName: `forEach__${node.as}__predicate`,
+    forEach: forEachContract(node),
     ...nodeDurabilityFields(node),
   };
 
@@ -141,6 +142,26 @@ export function lowerForEach(
     nodes: [loopNode, ...bodyResult.nodes],
     edges: bodyResult.edges,
     warnings: bodyResult.warnings,
+  };
+}
+
+function forEachContract(node: ForEachNode): NonNullable<LoopNode["forEach"]> {
+  return {
+    source: node.source,
+    as: node.as,
+    order: "input",
+    ...(node.attachAs !== undefined ? { attachAs: node.attachAs } : {}),
+    ...(node.collect !== undefined
+      ? { collect: { ...node.collect, order: "input" } }
+      : {}),
+    ...(node.accumulator !== undefined
+      ? { accumulator: node.accumulator }
+      : {}),
+    concurrency: node.concurrency ?? 1,
+    empty: {
+      body: "skip",
+      aggregate: "empty-array",
+    },
   };
 }
 

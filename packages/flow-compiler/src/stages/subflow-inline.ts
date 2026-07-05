@@ -46,6 +46,11 @@ const CHILD_NODE_FIELDS = new Set([
   "onReject",
 ]);
 
+interface ReferenceScope {
+  nodeIds: ReadonlySet<string>;
+  checkpointLabels: ReadonlySet<string>;
+}
+
 function privateKey(instanceId: string, key: string): string {
   return `${instanceId}__${key}`;
 }
@@ -75,12 +80,84 @@ function shouldRewriteStateKeyField(
   return STATE_KEY_FIELDS.has(key);
 }
 
+function shouldRewriteNodeReferenceField(
+  nodeType: string | undefined,
+  key: string,
+  value: string,
+  referenceScope: ReferenceScope,
+): boolean {
+  if (value.includes("{{")) return false;
+  if (
+    nodeType === "return_to" &&
+    key === "targetId" &&
+    referenceScope.nodeIds.has(value)
+  ) {
+    return true;
+  }
+  if (
+    nodeType === "checkpoint" &&
+    key === "captureOutputOf" &&
+    referenceScope.nodeIds.has(value)
+  ) {
+    return true;
+  }
+  if (
+    nodeType === "checkpoint" &&
+    key === "label" &&
+    referenceScope.checkpointLabels.has(value)
+  ) {
+    return true;
+  }
+  return (
+    nodeType === "restore" &&
+    key === "checkpointLabel" &&
+    referenceScope.checkpointLabels.has(value)
+  );
+}
+
+function collectReferenceScope(nodes: readonly FlowNode[]): ReferenceScope {
+  const nodeIds = new Set<string>();
+  const checkpointLabels = new Set<string>();
+
+  function visit(value: unknown, nodeScopeEligible: boolean): void {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, nodeScopeEligible);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+
+    const objectValue = value as Record<string, unknown>;
+    const isNode = nodeScopeEligible && typeof objectValue.type === "string";
+    if (isNode) {
+      if (typeof objectValue.id === "string") nodeIds.add(objectValue.id);
+      if (
+        objectValue.type === "checkpoint" &&
+        typeof objectValue.label === "string" &&
+        !objectValue.label.includes("{{")
+      ) {
+        checkpointLabels.add(objectValue.label);
+      }
+    }
+
+    for (const [key, child] of Object.entries(objectValue)) {
+      visit(child, CHILD_NODE_FIELDS.has(key));
+    }
+  }
+
+  for (const node of nodes) visit(node, true);
+  return { nodeIds, checkpointLabels };
+}
+
 function rewriteValue(
   value: unknown,
   instanceId: string,
   nodeType?: string,
   stateKeyFieldDepth = 0,
   nodeScopeEligible = false,
+  referenceScope: ReferenceScope = {
+    nodeIds: new Set<string>(),
+    checkpointLabels: new Set<string>(),
+  },
 ): unknown {
   if (typeof value === "string") return rewriteStateTemplates(value, instanceId);
   if (Array.isArray(value)) {
@@ -91,6 +168,7 @@ function rewriteValue(
         nodeType,
         stateKeyFieldDepth + 1,
         nodeScopeEligible,
+        referenceScope,
       ),
     );
   }
@@ -128,6 +206,7 @@ function rewriteValue(
               currentNodeType,
               currentStateKeyFieldDepth + 1,
               false,
+              referenceScope,
             ),
           ],
         ),
@@ -151,7 +230,21 @@ function rewriteValue(
               currentNodeType,
               currentStateKeyFieldDepth + 1,
               false,
+              referenceScope,
             );
+      continue;
+    }
+    if (
+      currentStateKeyFieldDepth === 0 &&
+      typeof child === "string" &&
+      shouldRewriteNodeReferenceField(
+        currentNodeType,
+        key,
+        child,
+        referenceScope,
+      )
+    ) {
+      output[key] = privateKey(instanceId, child);
       continue;
     }
     if (
@@ -168,6 +261,7 @@ function rewriteValue(
       currentNodeType,
       currentStateKeyFieldDepth + 1,
       CHILD_NODE_FIELDS.has(key),
+      referenceScope,
     );
   }
   return output;
@@ -228,9 +322,18 @@ async function inlineNode(
       subflows,
     );
     const instanceId = instanceIdFor(node);
+    const referenceScope = collectReferenceScope(nested);
     subflows.push({ flowRef: node.flowRef, instanceId, nodePath: path });
     return nested.map(
-      (child) => rewriteValue(child, instanceId, child.type, 0, true) as FlowNode,
+      (child) =>
+        rewriteValue(
+          child,
+          instanceId,
+          child.type,
+          0,
+          true,
+          referenceScope,
+        ) as FlowNode,
     );
   }
 
