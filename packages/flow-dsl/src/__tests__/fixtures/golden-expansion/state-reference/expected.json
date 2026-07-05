@@ -1,0 +1,6 @@
+{
+  "ok": true,
+  "nodeIds": ["gate__run_tests", "gate__write_evidence"],
+  "fragmentInstances": ["gate"],
+  "jsonContains": ["{{ state.gate__testResult }}", "gate__evidenceRef"]
+}

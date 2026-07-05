@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "nodeIds": ["gate__classify", "gate__export_status"],
+  "fragmentInstances": ["gate"],
+  "jsonContains": [
+    "\"exportAvailability\":{\"status\":\"always\"}",
+    "validationStatus"
+  ]
+}

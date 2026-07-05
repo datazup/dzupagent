@@ -1,0 +1,17 @@
+dsl: dzupflow/v1
+documentType: fragment
+id: sdlc.state_reference_gate
+version: 1
+root:
+  type: sequence
+  nodes:
+    -
+      type: shell.run
+      id: run_tests
+      command: yarn test
+      output: testResult
+    -
+      type: evidence.write
+      id: write_evidence
+      source: "{{ state.testResult }}"
+      output: evidenceRef

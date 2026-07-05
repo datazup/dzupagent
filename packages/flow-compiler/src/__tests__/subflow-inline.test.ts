@@ -152,6 +152,42 @@ describe("inlineSubflows", () => {
     });
   });
 
+  it("rewrites templated state-key fields through template rewriting", async () => {
+    const child: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "child",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          { type: "action", id: "produce", toolRef: "tasks.create", input: {}, outputKey: "taskResult" },
+          {
+            type: "evidence.write",
+            id: "write_evidence",
+            output: "evidenceRef",
+            source: "{{ state.taskResult.status }}",
+          },
+        ],
+      },
+    };
+
+    const result = await inlineSubflows(
+      {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "subflow", id: "child_call", flowRef: "child" }],
+      },
+      resolverFrom({ child }),
+    );
+
+    expect(result.root.type).toBe("sequence");
+    if (result.root.type !== "sequence") throw new Error("expected sequence");
+    expect(result.root.nodes[1]).toMatchObject({
+      source: "{{ state.child_call__taskResult.status }}",
+    });
+  });
+
   it("fails when a subflow reference cannot be resolved", async () => {
     const result = await inlineSubflows(
       {

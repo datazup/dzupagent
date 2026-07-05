@@ -1,0 +1,14 @@
+{
+  "ok": true,
+  "nodeIds": [
+    "api_gate__run_commands",
+    "api_gate__classify_result",
+    "api_gate__export_status"
+  ],
+  "fragmentInstances": ["api_gate"],
+  "jsonContains": [
+    "api_gate__commandResult",
+    "api_gate__validationStatus",
+    "apiValidation"
+  ]
+}

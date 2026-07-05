@@ -1,0 +1,7 @@
+dsl: dzupflow/v1
+id: failure-export
+version: 1
+steps:
+  - sdlc.failure_export_gate:
+      id: gate
+      output: validationStatus

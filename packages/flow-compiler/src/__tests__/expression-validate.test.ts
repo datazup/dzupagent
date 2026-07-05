@@ -46,4 +46,33 @@ describe("analyzeFlowExpression", () => {
       warnings: [],
     });
   });
+
+  it("marks malformed nested expressions as non-deterministic", () => {
+    expect(
+      analyzeFlowExpression({
+        op: "and",
+        args: [{ op: "ref", path: "state.ready" }, { bad: true } as never],
+      }),
+    ).toEqual({
+      deterministic: false,
+      refs: ["state.ready"],
+      warnings: ["INVALID_EXPRESSION_NODE"],
+    });
+  });
+
+  it("marks unknown expression ops as invalid", () => {
+    expect(analyzeFlowExpression({ op: "bogus" } as never)).toEqual({
+      deterministic: false,
+      refs: [],
+      warnings: ["INVALID_EXPRESSION_NODE"],
+    });
+  });
+
+  it("marks malformed known expression ops as invalid", () => {
+    expect(analyzeFlowExpression({ op: "and" } as never)).toEqual({
+      deterministic: false,
+      refs: [],
+      warnings: ["INVALID_EXPRESSION_NODE"],
+    });
+  });
 });
