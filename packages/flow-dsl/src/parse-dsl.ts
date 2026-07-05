@@ -12,13 +12,15 @@ import type { PrimitiveRegistry } from "./primitives/types.js";
 export interface ParseDslToDocumentOptions {
   fragmentRegistry?: FragmentRegistry;
   primitiveRegistry?: PrimitiveRegistry;
+  requirePinnedFragmentUses?: boolean;
 }
 
 export function parseDslToDocument(
   source: string,
-  options: ParseDslToDocumentOptions = {},
+  options: ParseDslToDocumentOptions = {}
 ): ParseDslResult {
-  const fragmentRegistry = options.fragmentRegistry ?? BUILT_IN_FRAGMENT_REGISTRY;
+  const fragmentRegistry =
+    options.fragmentRegistry ?? BUILT_IN_FRAGMENT_REGISTRY;
   const yaml = parseYamlSubset(source);
   if (!yaml.ok) {
     return {
@@ -47,6 +49,7 @@ export function parseDslToDocument(
     const expanded = expandRegisteredCompositesDetailed(yaml.value, {
       primitiveRegistry: options.primitiveRegistry,
       fragmentRegistry,
+      requirePinnedFragmentUses: options.requirePinnedFragmentUses,
     });
     expandedRaw = expanded.raw;
     fragmentExpansions = expanded.fragmentExpansions;
