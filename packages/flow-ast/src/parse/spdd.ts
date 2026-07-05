@@ -80,7 +80,25 @@ function requiredSourceRefs(
   ctx: ParseContext
 ): SpddSourceRef[] | undefined {
   const value = obj.sourceRefs;
-  if (Array.isArray(value)) return value as SpddSourceRef[];
+  if (Array.isArray(value)) {
+    const sourceRefs: SpddSourceRef[] = [];
+    for (let i = 0; i < value.length; i++) {
+      const item = value[i];
+      if (typeof item === "object" && item !== null && !Array.isArray(item)) {
+        sourceRefs.push(item as SpddSourceRef);
+        continue;
+      }
+      ctx.errors.push({
+        code: "EXPECTED_OBJECT",
+        message: `${kind}.sourceRefs items must be objects, received ${describeJsType(
+          item
+        )}`,
+        pointer: joinPointer(joinPointer(pointer, "sourceRefs"), String(i)),
+      });
+      return undefined;
+    }
+    return sourceRefs;
+  }
   ctx.errors.push({
     code: "EXPECTED_ARRAY",
     message: `${kind}.sourceRefs must be an array, received ${describeJsType(

@@ -22,9 +22,29 @@ const STATE_KEY_FIELDS = new Set([
   "outputVar",
   "source",
   "progressKey",
+  "sourceRefsKey",
+  "driftFindingIdsKey",
+  "errorVar",
+]);
+
+const SOURCE_IS_STATE_NODE_TYPES = new Set([
+  "evidence.write",
+  "validate.schema",
+  "validate",
+  "memory.write",
 ]);
 
 const STATE_TEMPLATE_RE = /\{\{\s*state\.([A-Za-z0-9_]+)((?:\.[A-Za-z0-9_]+)*)\s*\}\}/g;
+const CHILD_NODE_FIELDS = new Set([
+  "nodes",
+  "body",
+  "then",
+  "else",
+  "catch",
+  "branches",
+  "onApprove",
+  "onReject",
+]);
 
 function privateKey(instanceId: string, key: string): string {
   return `${instanceId}__${key}`;
@@ -43,22 +63,112 @@ function instanceIdFor(node: FlowNode): string {
     : node.type.replace(/[^A-Za-z0-9_]+/g, "_");
 }
 
-function rewriteValue(value: unknown, instanceId: string): unknown {
+function shouldRewriteStateKeyField(
+  nodeType: string | undefined,
+  key: string,
+  value: string,
+): boolean {
+  if (value.includes("{{")) return false;
+  if (key === "source") {
+    return nodeType !== undefined && SOURCE_IS_STATE_NODE_TYPES.has(nodeType);
+  }
+  return STATE_KEY_FIELDS.has(key);
+}
+
+function rewriteValue(
+  value: unknown,
+  instanceId: string,
+  nodeType?: string,
+  stateKeyFieldDepth = 0,
+  nodeScopeEligible = false,
+): unknown {
   if (typeof value === "string") return rewriteStateTemplates(value, instanceId);
-  if (Array.isArray(value)) return value.map((item) => rewriteValue(item, instanceId));
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      rewriteValue(
+        item,
+        instanceId,
+        nodeType,
+        stateKeyFieldDepth + 1,
+        nodeScopeEligible,
+      ),
+    );
+  }
   if (!value || typeof value !== "object") return value;
 
+  const objectValue = value as Record<string, unknown>;
+  const isFlowNodeObject =
+    nodeScopeEligible && typeof objectValue.type === "string";
+  const currentNodeType =
+    isFlowNodeObject && typeof objectValue.type === "string"
+      ? objectValue.type
+      : nodeType;
+  const currentStateKeyFieldDepth = isFlowNodeObject ? 0 : stateKeyFieldDepth;
   const output: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (key === "id" && typeof child === "string") {
+  for (const [key, child] of Object.entries(objectValue)) {
+    if (isFlowNodeObject && key === "id" && typeof child === "string") {
       output[key] = privateKey(instanceId, child);
       continue;
     }
-    if (STATE_KEY_FIELDS.has(key) && typeof child === "string" && !child.includes("{{")) {
+    if (
+      currentStateKeyFieldDepth === 0 &&
+      currentNodeType === "set" &&
+      key === "assign" &&
+      child &&
+      typeof child === "object" &&
+      !Array.isArray(child)
+    ) {
+      output[key] = Object.fromEntries(
+        Object.entries(child as Record<string, unknown>).map(
+          ([assignKey, assignValue]) => [
+            privateKey(instanceId, assignKey),
+            rewriteValue(
+              assignValue,
+              instanceId,
+              currentNodeType,
+              currentStateKeyFieldDepth + 1,
+              false,
+            ),
+          ],
+        ),
+      );
+      continue;
+    }
+    if (
+      currentStateKeyFieldDepth === 0 &&
+      key === "output" &&
+      child &&
+      typeof child === "object" &&
+      !Array.isArray(child)
+    ) {
+      const outputObj = child as Record<string, unknown>;
+      output[key] =
+        typeof outputObj.key === "string"
+          ? { ...outputObj, key: privateKey(instanceId, outputObj.key) }
+          : rewriteValue(
+              child,
+              instanceId,
+              currentNodeType,
+              currentStateKeyFieldDepth + 1,
+              false,
+            );
+      continue;
+    }
+    if (
+      currentStateKeyFieldDepth === 0 &&
+      typeof child === "string" &&
+      shouldRewriteStateKeyField(currentNodeType, key, child)
+    ) {
       output[key] = privateKey(instanceId, child);
       continue;
     }
-    output[key] = rewriteValue(child, instanceId);
+    output[key] = rewriteValue(
+      child,
+      instanceId,
+      currentNodeType,
+      currentStateKeyFieldDepth + 1,
+      CHILD_NODE_FIELDS.has(key),
+    );
   }
   return output;
 }
@@ -119,7 +229,9 @@ async function inlineNode(
     );
     const instanceId = instanceIdFor(node);
     subflows.push({ flowRef: node.flowRef, instanceId, nodePath: path });
-    return nested.map((child) => rewriteValue(child, instanceId) as FlowNode);
+    return nested.map(
+      (child) => rewriteValue(child, instanceId, child.type, 0, true) as FlowNode,
+    );
   }
 
   if (node.type === "sequence") {
