@@ -57,13 +57,22 @@ export function rewriteFragmentValue(
   instanceId: string,
   params: Record<string, unknown> = {},
   nodeType?: string,
+  stateKeyFieldDepth = 0,
 ): unknown {
   if (typeof value === "string") {
     if (STRUCTURAL_PARAM_RE.test(value)) return substituteParams(value, params);
     return substituteParams(rewriteStateTemplates(value, instanceId), params);
   }
   if (Array.isArray(value)) {
-    return value.map((item) => rewriteFragmentValue(item, instanceId, params, nodeType));
+    return value.map((item) =>
+      rewriteFragmentValue(
+        item,
+        instanceId,
+        params,
+        nodeType,
+        stateKeyFieldDepth + 1,
+      ),
+    );
   }
   if (!value || typeof value !== "object") return value;
 
@@ -74,21 +83,40 @@ export function rewriteFragmentValue(
       continue;
     }
     if (
+      stateKeyFieldDepth === 0 &&
       typeof child === "string" &&
       shouldRewriteStateKeyField(nodeType, key, child)
     ) {
       output[key] = privateKey(instanceId, child);
       continue;
     }
-    if (key === "output" && child && typeof child === "object" && !Array.isArray(child)) {
+    if (
+      stateKeyFieldDepth === 0 &&
+      key === "output" &&
+      child &&
+      typeof child === "object" &&
+      !Array.isArray(child)
+    ) {
       const outputObj = child as Record<string, unknown>;
       output[key] =
         typeof outputObj.key === "string"
           ? { ...outputObj, key: privateKey(instanceId, outputObj.key) }
-          : rewriteFragmentValue(child, instanceId, params, nodeType);
+          : rewriteFragmentValue(
+              child,
+              instanceId,
+              params,
+              nodeType,
+              stateKeyFieldDepth + 1,
+            );
       continue;
     }
-    output[key] = rewriteFragmentValue(child, instanceId, params, nodeType);
+    output[key] = rewriteFragmentValue(
+      child,
+      instanceId,
+      params,
+      nodeType,
+      stateKeyFieldDepth + 1,
+    );
   }
   return output;
 }

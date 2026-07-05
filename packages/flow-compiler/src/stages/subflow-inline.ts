@@ -24,8 +24,17 @@ const STATE_KEY_FIELDS = new Set([
   "progressKey",
 ]);
 
+const STATE_TEMPLATE_RE = /\{\{\s*state\.([A-Za-z0-9_]+)((?:\.[A-Za-z0-9_]+)*)\s*\}\}/g;
+
 function privateKey(instanceId: string, key: string): string {
   return `${instanceId}__${key}`;
+}
+
+function rewriteStateTemplates(value: string, instanceId: string): string {
+  return value.replace(
+    STATE_TEMPLATE_RE,
+    (_match, key: string, pathRest: string) => `{{ state.${privateKey(instanceId, key)}${pathRest} }}`,
+  );
 }
 
 function instanceIdFor(node: FlowNode): string {
@@ -35,6 +44,7 @@ function instanceIdFor(node: FlowNode): string {
 }
 
 function rewriteValue(value: unknown, instanceId: string): unknown {
+  if (typeof value === "string") return rewriteStateTemplates(value, instanceId);
   if (Array.isArray(value)) return value.map((item) => rewriteValue(item, instanceId));
   if (!value || typeof value !== "object") return value;
 
