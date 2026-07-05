@@ -77,7 +77,8 @@
   },
   "scripts": {
     "build": "tsup && tsc --emitDeclarationOnly --declarationMap false",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "yarn typecheck:deps && tsc --noEmit",
+    "typecheck:deps": "node ../../scripts/build-workspace-deps.mjs @dzupagent/agent-adapters",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:orchestration:race": "vitest run src/__tests__/parallel-executor.test.ts src/__tests__/orchestrator-facade.test.ts src/__tests__/parallel-executor.contract.test.ts src/__tests__/parallel-executor-unhandled-rejection.test.ts",
