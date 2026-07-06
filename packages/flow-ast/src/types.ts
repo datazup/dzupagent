@@ -115,7 +115,7 @@ export const MUTATING_EFFECT_CLASSES: readonly EffectClass[] = [
  * no policy is declared.
  */
 export function effectClassFromMutationPolicy(
-  policy: FlowMutationMetadata["policy"] | undefined,
+  policy: FlowMutationMetadata["policy"] | undefined
 ): EffectClass | undefined {
   switch (policy) {
     case "read-only":
@@ -280,7 +280,8 @@ export type FlowNode =
   | SpddRunValidationNode
   | SpddCollectProofNode
   | SpddScanDriftNode
-  | SpddCreateSyncProposalNode;
+  | SpddCreateSyncProposalNode
+  | SpddAgentSwarmNode;
 
 export type SequenceNode = FlowNodeBase & {
   type: "sequence";
@@ -1059,6 +1060,19 @@ export type SpddCreateSyncProposalNode = FlowNodeBase & {
   outputKey: string;
 };
 
+export type SpddSwarmSubTask = {
+  role: string;
+  personaRef?: string;
+  input: Record<string, unknown>;
+};
+
+export type SpddAgentSwarmNode = FlowNodeBase & {
+  type: "spdd.agent_swarm";
+  spddRunId: string;
+  subTasks: SpddSwarmSubTask[];
+  outputKey: string;
+};
+
 export type FlowNodeKind = FlowNode["type"];
 
 /**
@@ -1120,10 +1134,11 @@ export const FLOW_NODE_KIND_REGISTRY = {
   "spdd.collect_proof": true,
   "spdd.scan_drift": true,
   "spdd.create_sync_proposal": true,
+  "spdd.agent_swarm": true,
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(
-  FLOW_NODE_KIND_REGISTRY,
+  FLOW_NODE_KIND_REGISTRY
 ) as FlowNodeKind[];
 
 export function isFlowNodeKind(value: string): value is FlowNodeKind {
