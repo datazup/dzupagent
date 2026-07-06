@@ -95,25 +95,23 @@ export function lowerChildren(
 
   const merged = mergeResults(parts);
 
-  // Add sequential edges between the tail(s) of part[i] and first node of part[i+1].
-  // When a part has multiple exit points (e.g. branch then-tail + else-tail or gate
-  // false-path), it sets `tailNodeIds`; otherwise we fall back to the last node.
-  for (let i = 0; i < parts.length - 1; i++) {
-    const cur = parts[i];
-    const nxt = parts[i + 1];
-    if (cur === undefined || nxt === undefined) continue;
-    const firstNode = nxt.nodes[0];
-    if (firstNode === undefined) continue;
-
-    if (cur.tailNodeIds !== undefined && cur.tailNodeIds.length > 0) {
-      for (const tailId of cur.tailNodeIds) {
+  // Add sequential edges between executable child parts. Some DSL nodes lower
+  // to no pipeline nodes (for example `set` today), so bridge across those
+  // empty parts rather than letting the executable chain stop early.
+  let pendingTailNodeIds: string[] = [];
+  for (const part of parts) {
+    const firstNode = part.nodes[0];
+    if (firstNode !== undefined) {
+      for (const tailId of pendingTailNodeIds) {
         merged.edges.push(seqEdge(tailId, firstNode.id));
       }
-    } else {
-      const lastNode = cur.nodes[cur.nodes.length - 1];
-      if (lastNode !== undefined) {
-        merged.edges.push(seqEdge(lastNode.id, firstNode.id));
-      }
+    }
+
+    const lastNode = part.nodes[part.nodes.length - 1];
+    if (part.tailNodeIds !== undefined && part.tailNodeIds.length > 0) {
+      pendingTailNodeIds = part.tailNodeIds;
+    } else if (lastNode !== undefined) {
+      pendingTailNodeIds = [lastNode.id];
     }
   }
 
