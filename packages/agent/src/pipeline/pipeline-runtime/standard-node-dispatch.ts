@@ -278,6 +278,12 @@ export async function dispatchStandardNode(
 
     emit(nodeCompletedEvent(node.id, finalResult.durationMs));
     nodeResults.set(node.id, finalResult);
+    if (
+      node.source?.nodeType === "action" &&
+      node.source.nodeId !== undefined
+    ) {
+      context.state[node.source.nodeId] = finalResult.output;
+    }
 
     const stuckAbort = recordSuccessInStuckDetector(
       config,

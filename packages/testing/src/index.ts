@@ -55,10 +55,15 @@ export type {
 } from "./sdlc-mvp-evidence.js";
 
 // SDLC flow host helpers
-export { shapeCommandOutputsForBatchValidation } from "./sdlc-validation.js";
+export {
+  createSdlcValidationRuntimeToolHandlers,
+  shapeCommandOutputsForBatchValidation,
+} from "./sdlc-validation.js";
 export type {
   HostValidationCommandOutput,
   SdlcBatchValidationItem,
+  SdlcBatchValidationStatus,
+  SdlcValidationRuntimeToolHandlerOptions,
 } from "./sdlc-validation.js";
 
 // Security testing framework (ECO-183)

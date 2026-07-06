@@ -18,6 +18,7 @@ import type {
 import type {
   AgentNode,
   LoopNode,
+  PipelineNodeSource,
   SuspendNode,
   ToolNode,
 } from "@dzupagent/core/orchestration";
@@ -68,6 +69,7 @@ export function lowerAction(
   }
 
   const id = freshId(ctx);
+  const source = flowNodeSource(node, path);
 
   // W1 durability wiring (Slice 1): carry the node's declared per-node
   // durability from the AST onto the runtime node. Each field is only set when
@@ -79,6 +81,7 @@ export function lowerAction(
       type: "agent",
       name: node.toolRef,
       agentId: rt.ref,
+      source,
       ...durability,
     };
     return { nodes: [agentNode], edges: [], warnings };
@@ -91,9 +94,22 @@ export function lowerAction(
     name: node.toolRef,
     toolName: rt.ref,
     arguments: node.input,
+    source,
     ...durability,
   };
   return { nodes: [toolNode], edges: [], warnings };
+}
+
+function flowNodeSource(
+  node: ActionNode,
+  path: string,
+): PipelineNodeSource {
+  return {
+    kind: "flow-node",
+    path,
+    nodeType: node.type,
+    ...(node.id !== undefined ? { nodeId: node.id } : {}),
+  };
 }
 
 /**

@@ -123,6 +123,7 @@ export function lowerNodeToPipeline(
     case "adapter.race":
     case "adapter.parallel":
     case "adapter.supervisor":
+    case "set":
     case "spdd.import_sources":
     case "spdd.build_source_pack":
     case "spdd.run_analysis":
@@ -139,7 +140,6 @@ export function lowerNodeToPipeline(
       return lowerRuntimeLeaf(node, ctx, path);
 
     case "return_to":
-    case "set":
       // Runtime-executed leaf nodes: present in AST but not emitted as graph edges.
       return { nodes: [], edges: [], warnings: [] };
 
