@@ -1,3 +1,4 @@
+import { Socket } from 'node:net'
 import { describe, expect, it } from 'vitest'
 import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import { InMemoryPipelineCheckpointStore } from '../pipeline/in-memory-checkpoint-store.js'
@@ -569,6 +570,101 @@ describe('PipelineRuntime — lowered for_each collect', () => {
       },
     })
   })
+
+  const maybeLiveRedisIt = process.env.DZUPAGENT_REDIS_URL ? it : it.skip
+
+  maybeLiveRedisIt(
+    'resumes a concurrent for_each failure from a live Redis checkpoint store',
+    async () => {
+      const client = await LiveRedisClient.connect(process.env.DZUPAGENT_REDIS_URL!)
+      const keyPrefix = `test:for-each-live:${Date.now()}`
+      const store = new RedisPipelineCheckpointStore({
+        client,
+        keyPrefix,
+      })
+      try {
+        const bodyRuns: string[] = []
+        const delays: Record<string, number> = { a: 35, b: 5, c: 10, d: 1 }
+        const crashingExecutor: NodeExecutor = async (
+          nodeId: string,
+          _node: PipelineNode,
+          ctx,
+        ) => {
+          const item = ctx.state['item'] as { id: string; status: string }
+          bodyRuns.push(item.id)
+          await new Promise((resolve) => setTimeout(resolve, delays[item.id] ?? 0))
+          if (item.id === 'c') {
+            throw new Error('simulated live redis for_each failure')
+          }
+          ctx.state['itemStatus'] = `${item.id}:${item.status}`
+          return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
+        }
+        const first = new PipelineRuntime({
+          definition: {
+            ...forEachPipeline(3),
+            checkpointStrategy: 'after_each_node',
+          },
+          nodeExecutor: crashingExecutor,
+          checkpointStore: store,
+        })
+
+        const firstResult = await first.execute({
+          items: [
+            { id: 'a', status: 'ready' },
+            { id: 'b', status: 'blocked' },
+            { id: 'c', status: 'ready' },
+            { id: 'd', status: 'blocked' },
+          ],
+        })
+
+        expect(firstResult.state).toBe('failed')
+        expect(bodyRuns).toEqual(['a', 'b', 'c', 'd'])
+        const checkpoint = await store.load(firstResult.runId)
+        expect(checkpoint?.loopState?.['loop-items']).toEqual({ iteration: 2 })
+        expect(checkpoint?.state['itemStatuses']).toEqual([
+          'a:ready',
+          'b:blocked',
+        ])
+
+        const resumeRuns: string[] = []
+        const healthyExecutor: NodeExecutor = async (
+          nodeId: string,
+          _node: PipelineNode,
+          ctx,
+        ) => {
+          const item = ctx.state['item'] as { id: string; status: string }
+          resumeRuns.push(item.id)
+          ctx.state['itemStatus'] = `${item.id}:${item.status}`
+          return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
+        }
+        const second = new PipelineRuntime({
+          definition: {
+            ...forEachPipeline(3),
+            checkpointStrategy: 'after_each_node',
+          },
+          nodeExecutor: healthyExecutor,
+          checkpointStore: store,
+        })
+
+        const resumed = await second.resume(checkpoint!)
+
+        expect(resumed.state).toBe('completed')
+        expect(resumeRuns).toEqual(['c', 'd'])
+        expect(resumed.nodeResults.get('loop-items')?.output).toMatchObject({
+          loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],
+          metrics: {
+            iterationCount: 4,
+            converged: true,
+            terminationReason: 'condition_met',
+          },
+        })
+      } finally {
+        await client.del(`${keyPrefix}:runs`)
+        client.close()
+      }
+    },
+    10_000,
+  )
 })
 
 class MockRedisClient implements RedisClientLike {
@@ -689,4 +785,182 @@ class MockRedisClient implements RedisClientLike {
   async expire(_key: string, _seconds: number): Promise<number> {
     return 1
   }
+}
+
+class LiveRedisClient implements RedisClientLike {
+  private pending = Promise.resolve()
+
+  private constructor(private readonly socket: Socket) {}
+
+  static async connect(rawUrl: string): Promise<LiveRedisClient> {
+    const url = new URL(rawUrl)
+    const socket = new Socket()
+    await new Promise<void>((resolve, reject) => {
+      socket.once('error', reject)
+      socket.connect(Number(url.port || 6379), url.hostname || '127.0.0.1', () => {
+        socket.off('error', reject)
+        resolve()
+      })
+    })
+    const client = new LiveRedisClient(socket)
+    if (url.password) {
+      await client.command('AUTH', url.password)
+    }
+    if (url.pathname && url.pathname !== '/') {
+      await client.command('SELECT', url.pathname.slice(1))
+    }
+    return client
+  }
+
+  close(): void {
+    this.socket.destroy()
+  }
+
+  set(
+    key: string,
+    value: string,
+    ...modifiers: Array<string | number>
+  ): Promise<unknown> {
+    return this.command('SET', key, value, ...modifiers)
+  }
+
+  get(key: string): Promise<string | null> {
+    return this.command('GET', key) as Promise<string | null>
+  }
+
+  del(...keys: string[]): Promise<number> {
+    return this.command('DEL', ...keys) as Promise<number>
+  }
+
+  zadd(key: string, ...scoreMembers: Array<string | number>): Promise<unknown> {
+    return this.command('ZADD', key, ...scoreMembers)
+  }
+
+  zrange(key: string, start: number, stop: number): Promise<string[]> {
+    return this.command('ZRANGE', key, start, stop) as Promise<string[]>
+  }
+
+  zrevrange(key: string, start: number, stop: number): Promise<string[]> {
+    return this.command('ZREVRANGE', key, start, stop) as Promise<string[]>
+  }
+
+  zscore(key: string, member: string): Promise<string | null> {
+    return this.command('ZSCORE', key, member) as Promise<string | null>
+  }
+
+  zrem(key: string, ...members: string[]): Promise<number> {
+    return this.command('ZREM', key, ...members) as Promise<number>
+  }
+
+  sadd(key: string, ...members: string[]): Promise<number> {
+    return this.command('SADD', key, ...members) as Promise<number>
+  }
+
+  srem(key: string, ...members: string[]): Promise<number> {
+    return this.command('SREM', key, ...members) as Promise<number>
+  }
+
+  smembers(key: string): Promise<string[]> {
+    return this.command('SMEMBERS', key) as Promise<string[]>
+  }
+
+  exists(key: string): Promise<number> {
+    return this.command('EXISTS', key) as Promise<number>
+  }
+
+  expire(key: string, seconds: number): Promise<number> {
+    return this.command('EXPIRE', key, seconds) as Promise<number>
+  }
+
+  private command(...parts: Array<string | number>): Promise<unknown> {
+    const run = this.pending.then(() => this.writeCommand(parts))
+    this.pending = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  private writeCommand(parts: Array<string | number>): Promise<unknown> {
+    const payload = encodeRedisCommand(parts)
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = []
+      const onData = (chunk: Buffer) => {
+        chunks.push(chunk)
+        const parsed = parseRedisReply(Buffer.concat(chunks))
+        if (!parsed.complete) return
+        cleanup()
+        if (parsed.error) {
+          reject(new Error(parsed.error))
+        } else {
+          resolve(parsed.value)
+        }
+      }
+      const onError = (error: Error) => {
+        cleanup()
+        reject(error)
+      }
+      const cleanup = () => {
+        this.socket.off('data', onData)
+        this.socket.off('error', onError)
+      }
+      this.socket.on('data', onData)
+      this.socket.once('error', onError)
+      this.socket.write(payload)
+    })
+  }
+}
+
+function encodeRedisCommand(parts: Array<string | number>): string {
+  const encoded = parts.map((part) => String(part))
+  return [
+    `*${encoded.length}`,
+    ...encoded.flatMap((part) => [`$${Buffer.byteLength(part)}`, part]),
+    '',
+  ].join('\r\n')
+}
+
+function parseRedisReply(buffer: Buffer): {
+  complete: boolean
+  value?: unknown
+  error?: string
+} {
+  const parsed = parseRedisValue(buffer, 0)
+  if (!parsed) return { complete: false }
+  return { complete: true, value: parsed.value, error: parsed.error }
+}
+
+function parseRedisValue(
+  buffer: Buffer,
+  offset: number,
+): { value: unknown; offset: number; error?: string } | undefined {
+  const type = String.fromCharCode(buffer[offset])
+  const lineEnd = buffer.indexOf('\r\n', offset)
+  if (lineEnd === -1) return undefined
+  const line = buffer.toString('utf8', offset + 1, lineEnd)
+  const next = lineEnd + 2
+  if (type === '+') return { value: line, offset: next }
+  if (type === '-') return { value: undefined, error: line, offset: next }
+  if (type === ':') return { value: Number(line), offset: next }
+  if (type === '$') {
+    const length = Number(line)
+    if (length === -1) return { value: null, offset: next }
+    const end = next + length
+    if (buffer.length < end + 2) return undefined
+    return { value: buffer.toString('utf8', next, end), offset: end + 2 }
+  }
+  if (type === '*') {
+    const length = Number(line)
+    if (length === -1) return { value: null, offset: next }
+    const values: unknown[] = []
+    let cursor = next
+    for (let index = 0; index < length; index += 1) {
+      const child = parseRedisValue(buffer, cursor)
+      if (!child) return undefined
+      values.push(child.value)
+      cursor = child.offset
+    }
+    return { value: values, offset: cursor }
+  }
+  return { value: undefined, error: `Unsupported Redis reply type: ${type}`, offset: next }
 }
