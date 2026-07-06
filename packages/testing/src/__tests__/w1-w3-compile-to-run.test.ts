@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createFlowCompiler } from "@dzupagent/flow-compiler";
@@ -20,8 +21,10 @@ import {
 } from "@dzupagent/agent/pipeline";
 import {
   createSdlcValidationRuntimeToolHandlers,
+  runSdlcMvpEvidenceReport,
   shapeCommandOutputsForBatchValidation,
 } from "../sdlc-validation.js";
+import { runSdlcMvpEvidenceCli } from "../bin/sdlc-mvp-evidence.js";
 
 const forEachAggregateFixtureDir = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -298,6 +301,128 @@ steps:
         stderr: "failed",
       },
     });
+  });
+
+  it("runs an MVP evidence report for compile preflight, readiness, checkpoint backend, and closeout fixture", async () => {
+    const report = await runSdlcMvpEvidenceReport({
+      packetItems: [{ ref: "packet/alpha" }, { ref: "packet/beta" }],
+      commandOutputs: [
+        {
+          id: "types",
+          command: "yarn workspace @dzupagent/flow-dsl typecheck",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+        },
+        {
+          id: "tests",
+          command: "yarn workspace @dzupagent/testing test",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+        },
+      ],
+      env: {
+        DZUPAGENT_REDIS_URL: "redis://localhost:6379",
+      },
+    });
+
+    expect(report).toMatchObject({
+      parseOk: true,
+      compileOk: true,
+      runtimeReady: true,
+      checkpointBackend: "memory",
+      backendChecks: {
+        redisConfigured: true,
+        postgresConfigured: false,
+      },
+      execution: {
+        state: "completed",
+        exportedState: {
+          truth: { scope: "dzupagent", dirty: false },
+          closeoutStatus: "complete",
+        },
+      },
+    });
+    expect(report.readinessReport).toContain("Runtime tool readiness: ready");
+    expect(report.readinessReport).toContain("Built-in tools: dzup.runtime.set");
+    expect(report.readinessReport).toContain(
+      "Expected state writes: truth__currentTruth, truth",
+    );
+    expect(report.readinessReport).toContain("closeoutStatus");
+  });
+
+  it("prints an operator-facing SDLC MVP evidence report from host evidence files", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "dzupagent-sdlc-evidence-"));
+    const commandOutputPath = join(tempDir, "commands.json");
+    const packetPath = join(tempDir, "packets.json");
+    writeFileSync(
+      commandOutputPath,
+      JSON.stringify([
+        {
+          id: "types",
+          command: "yarn workspace @dzupagent/testing typecheck",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+        },
+      ]),
+    );
+    writeFileSync(
+      packetPath,
+      JSON.stringify([{ ref: "packet/operator-closeout" }]),
+    );
+    const stdout: string[] = [];
+    const stderr: string[] = [];
+
+    try {
+      const exitCode = await runSdlcMvpEvidenceCli(
+        [
+          "--command-output-json",
+          commandOutputPath,
+          "--packet-json",
+          packetPath,
+        ],
+        {
+          env: {
+            DZUPAGENT_POSTGRES_URL: "postgres://localhost/dzupagent",
+          },
+          stdout: (line) => stdout.push(line),
+          stderr: (line) => stderr.push(line),
+        },
+      );
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toEqual([]);
+      const payload = JSON.parse(stdout.join("\n")) as {
+        runtimeReady: boolean;
+        backendChecks: {
+          redisConfigured: boolean;
+          postgresConfigured: boolean;
+        };
+        execution: {
+          state: string;
+          exportedState: {
+            closeoutStatus?: unknown;
+          };
+        };
+      };
+      expect(payload).toMatchObject({
+        runtimeReady: true,
+        backendChecks: {
+          redisConfigured: false,
+          postgresConfigured: true,
+        },
+        execution: {
+          state: "completed",
+          exportedState: {
+            closeoutStatus: "complete",
+          },
+        },
+      });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("executes built-in sdlc.batch_validation through for_each.collect", async () => {
