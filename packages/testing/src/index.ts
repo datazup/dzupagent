@@ -39,10 +39,13 @@ export type { WaitForConditionOptions } from './wait-for-condition.js';
 // SDLC flow host helpers
 export {
   createSdlcValidationRuntimeToolHandlers,
+  runSdlcMvpEvidenceReport,
   shapeCommandOutputsForBatchValidation,
 } from './sdlc-validation.js';
 export type {
   HostValidationCommandOutput,
+  SdlcMvpEvidenceReport,
+  SdlcMvpEvidenceReportOptions,
   SdlcBatchValidationItem,
   SdlcBatchValidationStatus,
   SdlcValidationRuntimeToolHandlerOptions,
