@@ -1,14 +1,18 @@
 // Mock skill step resolver for skill-chain testing
-export { MockSkillStepResolver } from './mock-skill-step-resolver.js';
-export type { MockCall } from './mock-skill-step-resolver.js';
+export { MockSkillStepResolver } from "./mock-skill-step-resolver.js";
+export type { MockCall } from "./mock-skill-step-resolver.js";
 
 // LLM recorder — record/replay RegistryMiddleware for deterministic CI
-export { LlmRecorder } from './llm-recorder.js';
-export type { LlmRecorderOptions, LlmFixture, RecorderMode } from './llm-recorder.js';
+export { LlmRecorder } from "./llm-recorder.js";
+export type {
+  LlmRecorderOptions,
+  LlmFixture,
+  RecorderMode,
+} from "./llm-recorder.js";
 
 // Vitest setup helper
-export { withRecordedRegistry } from './vitest-llm-setup.js';
-export type { RecordedRegistry } from './vitest-llm-setup.js';
+export { withRecordedRegistry } from "./vitest-llm-setup.js";
+export type { RecordedRegistry } from "./vitest-llm-setup.js";
 
 // Eval framework — scorers + suite runner
 export type {
@@ -18,29 +22,29 @@ export type {
   EvalSuite,
   EvalCaseResult,
   EvalRunResult,
-} from './eval/index.js';
+} from "./eval/index.js";
 
-export { ExactMatchScorer } from './eval/index.js';
-export type { ExactMatchOptions } from './eval/index.js';
+export { ExactMatchScorer } from "./eval/index.js";
+export type { ExactMatchOptions } from "./eval/index.js";
 
-export { RegexScorer } from './eval/index.js';
-export type { RegexScorerOptions } from './eval/index.js';
+export { RegexScorer } from "./eval/index.js";
+export type { RegexScorerOptions } from "./eval/index.js";
 
-export { LlmJudgeScorer } from './eval/index.js';
-export type { AnthropicClient, LlmJudgeOptions } from './eval/index.js';
+export { LlmJudgeScorer } from "./eval/index.js";
+export type { AnthropicClient, LlmJudgeOptions } from "./eval/index.js";
 
-export { runEvalSuite } from './eval/index.js';
-export { createDemoEvalSuite, buildStubAnthropicClient } from './eval/index.js';
+export { runEvalSuite } from "./eval/index.js";
+export { createDemoEvalSuite, buildStubAnthropicClient } from "./eval/index.js";
 
 // Polling utility
-export { waitForCondition } from './wait-for-condition.js';
-export type { WaitForConditionOptions } from './wait-for-condition.js';
+export { waitForCondition } from "./wait-for-condition.js";
+export type { WaitForConditionOptions } from "./wait-for-condition.js";
 
 // SDLC MVP evidence helpers and CLI backing implementation
 export {
   runSdlcMvpEvidenceReport,
   shapeSdlcMvpEvidenceCommandOutputs,
-} from './sdlc-mvp-evidence.js';
+} from "./sdlc-mvp-evidence.js";
 export type {
   RunSdlcMvpEvidenceReportInput,
   SdlcMvpEvidenceCommandOutput,
@@ -48,7 +52,14 @@ export type {
   SdlcMvpEvidenceReport,
   ShapeSdlcMvpEvidenceCommandOutputsInput,
   ShapedSdlcMvpEvidenceCommandOutputs,
-} from './sdlc-mvp-evidence.js';
+} from "./sdlc-mvp-evidence.js";
+
+// SDLC flow host helpers
+export { shapeCommandOutputsForBatchValidation } from "./sdlc-validation.js";
+export type {
+  HostValidationCommandOutput,
+  SdlcBatchValidationItem,
+} from "./sdlc-validation.js";
 
 // Security testing framework (ECO-183)
 export type {
@@ -59,11 +70,11 @@ export type {
   SecurityTestResult,
   SecuritySuiteResult,
   SecurityChecker,
-} from './security/security-test-types.js';
+} from "./security/security-test-types.js";
 
-export { runSecuritySuite } from './security/security-runner.js';
+export { runSecuritySuite } from "./security/security-runner.js";
 
-export { INJECTION_SUITE } from './security/injection-suite.js';
-export { ESCALATION_SUITE } from './security/escalation-suite.js';
-export { POISONING_SUITE } from './security/poisoning-suite.js';
-export { ESCAPE_SUITE } from './security/escape-suite.js';
+export { INJECTION_SUITE } from "./security/injection-suite.js";
+export { ESCALATION_SUITE } from "./security/escalation-suite.js";
+export { POISONING_SUITE } from "./security/poisoning-suite.js";
+export { ESCAPE_SUITE } from "./security/escape-suite.js";
