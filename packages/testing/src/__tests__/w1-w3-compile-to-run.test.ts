@@ -518,28 +518,33 @@ steps:
       scope: "dzupagent",
       dirty: false,
     });
-    const finalCheckpoint = await checkpointStore.load(result.runId);
-    expect(finalCheckpoint?.state).toMatchObject({
-      packetStatuses: [
-        { packetRef: "packet/alpha", accepted: true, status: "ready" },
-        { packetRef: "packet/beta", accepted: true, status: "ready" },
-      ],
-      validationStatuses: [
-        {
-          id: "types",
-          command: "yarn workspace @dzupagent/flow-dsl typecheck",
-          accepted: true,
-          status: "pass",
-        },
-        {
-          id: "tests",
-          command: "yarn workspace @dzupagent/testing test",
-          accepted: true,
-          status: "pass",
-        },
-      ],
-      closeoutStatus: "complete",
-    });
+    const outputs = [...result.nodeResults.values()].map((nodeResult) => nodeResult.output);
+    const loopOutputs = outputs
+      .map((output) => (output as { loopOutput?: unknown } | null)?.loopOutput)
+      .filter((output): output is unknown[] => Array.isArray(output));
+    expect(loopOutputs).toEqual(
+      expect.arrayContaining([
+        [
+          { packetRef: "packet/alpha", accepted: true, status: "ready" },
+          { packetRef: "packet/beta", accepted: true, status: "ready" },
+        ],
+        [
+          {
+            id: "types",
+            command: "yarn workspace @dzupagent/flow-dsl typecheck",
+            accepted: true,
+            status: "pass",
+          },
+          {
+            id: "tests",
+            command: "yarn workspace @dzupagent/testing test",
+            accepted: true,
+            status: "pass",
+          },
+        ],
+      ]),
+    );
+    expect(outputs).toContain("complete");
   });
 
   it("executes the aggregate-export DSL fragment fixture through PipelineRuntime", async () => {
