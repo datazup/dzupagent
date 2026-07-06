@@ -94,6 +94,10 @@ function aggregateEvents(events: PipelineRuntimeEvent[]): Array<{
   type: string
   nodeId: string
   aggregateKey?: string
+  aggregateKeys?: string[]
+  source?: string
+  attachAs?: string
+  accumulatorKey?: string
   count?: number
   order?: string
   empty?: boolean
@@ -103,6 +107,10 @@ function aggregateEvents(events: PipelineRuntimeEvent[]): Array<{
       type: string
       nodeId: string
       aggregateKey?: string
+      aggregateKeys?: string[]
+      source?: string
+      attachAs?: string
+      accumulatorKey?: string
       count?: number
       order?: string
       empty?: boolean
@@ -146,6 +154,8 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         type: 'pipeline:for_each_aggregate',
         nodeId: 'loop-items',
         aggregateKey: 'itemStatuses',
+        aggregateKeys: ['itemStatuses'],
+        source: '$.items',
         count: 0,
         order: 'input',
         empty: true,
@@ -210,6 +220,8 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         type: 'pipeline:for_each_aggregate',
         nodeId: 'loop-items',
         aggregateKey: 'itemStatuses',
+        aggregateKeys: ['itemStatuses'],
+        source: '$.items',
         count: 4,
         order: 'input',
         empty: false,
@@ -219,6 +231,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
 
   it('enriches source items with attachAs and maintains a windowed accumulator', async () => {
     const store = new InMemoryPipelineCheckpointStore()
+    const events: PipelineRuntimeEvent[] = []
     const executor: NodeExecutor = async (
       nodeId: string,
       _node: PipelineNode,
@@ -238,6 +251,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
       },
       nodeExecutor: executor,
       checkpointStore: store,
+      onEvent: (event) => events.push(event),
     })
 
     const result = await runtime.execute({
@@ -299,6 +313,19 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     expect(finalCheckpoint?.state['recentItems']).toEqual([
       { id: 'b', status: 'blocked', processed: 'b:blocked' },
       { id: 'c', status: 'ready', processed: 'c:ready' },
+    ])
+    expect(aggregateEvents(events)).toEqual([
+      {
+        type: 'pipeline:for_each_aggregate',
+        nodeId: 'loop-items',
+        aggregateKeys: ['$.items.processed', 'recentItems'],
+        source: '$.items',
+        attachAs: 'processed',
+        accumulatorKey: 'recentItems',
+        count: 3,
+        order: 'input',
+        empty: false,
+      },
     ])
   })
 
@@ -372,6 +399,85 @@ describe('PipelineRuntime — lowered for_each collect', () => {
       loopOutput: ['a:ready', 'b:blocked', 'c:ready'],
       metrics: {
         iterationCount: 3,
+        converged: true,
+        terminationReason: 'condition_met',
+      },
+    })
+  })
+
+  it('persists only the contiguous completed prefix when concurrent items finish out of order before failure', async () => {
+    const store = new InMemoryPipelineCheckpointStore()
+    const bodyRuns: string[] = []
+    const delays: Record<string, number> = { a: 35, b: 5, c: 10, d: 1 }
+    const crashingExecutor: NodeExecutor = async (
+      nodeId: string,
+      _node: PipelineNode,
+      ctx,
+    ) => {
+      const item = ctx.state['item'] as { id: string; status: string }
+      bodyRuns.push(item.id)
+      await new Promise((resolve) => setTimeout(resolve, delays[item.id] ?? 0))
+      if (item.id === 'c') {
+        throw new Error('simulated out-of-order for_each failure')
+      }
+      ctx.state['itemStatus'] = `${item.id}:${item.status}`
+      return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
+    }
+    const first = new PipelineRuntime({
+      definition: {
+        ...forEachPipeline(3),
+        checkpointStrategy: 'after_each_node',
+      },
+      nodeExecutor: crashingExecutor,
+      checkpointStore: store,
+    })
+
+    const firstResult = await first.execute({
+      items: [
+        { id: 'a', status: 'ready' },
+        { id: 'b', status: 'blocked' },
+        { id: 'c', status: 'ready' },
+        { id: 'd', status: 'blocked' },
+      ],
+    })
+
+    expect(firstResult.state).toBe('failed')
+    expect(bodyRuns).toEqual(['a', 'b', 'c', 'd'])
+    const checkpoint = await store.load(firstResult.runId)
+    expect(checkpoint?.loopState?.['loop-items']).toEqual({ iteration: 2 })
+    expect(checkpoint?.state['itemStatuses']).toEqual([
+      'a:ready',
+      'b:blocked',
+    ])
+
+    const resumeRuns: string[] = []
+    const healthyExecutor: NodeExecutor = async (
+      nodeId: string,
+      _node: PipelineNode,
+      ctx,
+    ) => {
+      const item = ctx.state['item'] as { id: string; status: string }
+      resumeRuns.push(item.id)
+      ctx.state['itemStatus'] = `${item.id}:${item.status}`
+      return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
+    }
+    const second = new PipelineRuntime({
+      definition: {
+        ...forEachPipeline(3),
+        checkpointStrategy: 'after_each_node',
+      },
+      nodeExecutor: healthyExecutor,
+      checkpointStore: store,
+    })
+
+    const resumed = await second.resume(checkpoint!)
+
+    expect(resumed.state).toBe('completed')
+    expect(resumeRuns).toEqual(['c', 'd'])
+    expect(resumed.nodeResults.get('loop-items')?.output).toMatchObject({
+      loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],
+      metrics: {
+        iterationCount: 4,
         converged: true,
         terminationReason: 'condition_met',
       },

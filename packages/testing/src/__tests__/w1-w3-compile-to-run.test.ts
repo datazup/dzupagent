@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createFlowCompiler } from "@dzupagent/flow-compiler";
 import type { PipelineDefinition, ToolNode } from "@dzupagent/core/pipeline";
+import {
+  BUILT_IN_FRAGMENT_REGISTRY,
+  createFragmentRegistry,
+  parseDslToDocument,
+  parseYamlSubset,
+} from "@dzupagent/flow-dsl";
 import {
   createRuntimeToolHandlers,
   InMemoryPipelineCheckpointStore,
@@ -10,7 +19,204 @@ import {
   type RuntimeToolHandler,
 } from "@dzupagent/agent/pipeline";
 
+const forEachAggregateFixtureDir = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../../flow-dsl/src/__tests__/fixtures/golden-expansion/for-each-aggregate-export",
+);
+
+function readForEachAggregateFixture(fileName: string): string {
+  return readFileSync(join(forEachAggregateFixtureDir, fileName), "utf8");
+}
+
 describe("W1 + W3 compile-to-run integration", () => {
+  it("executes built-in sdlc.batch_validation through for_each.collect", async () => {
+    const parsed = parseDslToDocument(
+      `
+dsl: dzupflow/v1
+id: built-in-sdlc-batch-validation
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.batch_validation:
+      id: batch
+      itemsKey: validationItems
+      output: validationStatuses
+`,
+      {
+        fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
+        requirePinnedFragmentUses: true,
+      },
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error("expected built-in SDLC fragment to parse");
+
+    const compiler = createFlowCompiler({
+      toolResolver: {
+        resolve(ref) {
+          if (ref !== "validate.schema") return null;
+          return {
+            ref,
+            kind: "skill",
+            inputSchema: { type: "object" },
+            handle: { skillId: ref },
+          };
+        },
+        listAvailable: () => ["validate.schema"],
+      },
+    });
+    const compiled = await compiler.compileDocument(parsed.document);
+    expect("errors" in compiled).toBe(false);
+    if ("errors" in compiled) throw new Error("expected compile success");
+    expect(compiled.target).toBe("pipeline");
+
+    const definition = compiled.artifact as PipelineDefinition;
+    const result = await new PipelineRuntime({
+      definition,
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validateSchema: async ({ context }) => {
+          const item = context.state.validationItem as {
+            id: string;
+            result: "pass" | "fail";
+            command: string;
+          };
+          return {
+            output: {
+              id: item.id,
+              command: item.command,
+              accepted: item.result === "pass",
+              status: item.result,
+            },
+          };
+        },
+      }),
+      nodeExecutor: async (nodeId, node) => ({
+        nodeId,
+        output: null,
+        durationMs: 1,
+        error: `unexpected fallback execution for ${node.type}`,
+      }),
+    }).execute({
+      validationItems: [
+        { id: "types", command: "yarn typecheck", result: "pass" },
+        { id: "tests", command: "yarn test", result: "fail" },
+      ],
+    });
+
+    expect(result.state).toBe("completed");
+    const loopResult = [...result.nodeResults.values()].find((nodeResult) => {
+      const output = nodeResult.output as { loopOutput?: unknown } | null;
+      return output !== null && Array.isArray(output.loopOutput);
+    });
+    expect(loopResult?.output).toMatchObject({
+      loopOutput: [
+        {
+          id: "types",
+          command: "yarn typecheck",
+          accepted: true,
+          status: "pass",
+        },
+        {
+          id: "tests",
+          command: "yarn test",
+          accepted: false,
+          status: "fail",
+        },
+      ],
+      metrics: {
+        iterationCount: 2,
+        converged: true,
+        terminationReason: "condition_met",
+      },
+    });
+  });
+
+  it("executes the aggregate-export DSL fragment fixture through PipelineRuntime", async () => {
+    const fragmentDefinitions = parseYamlSubset(
+      readForEachAggregateFixture("fragments.yaml"),
+    );
+    expect(fragmentDefinitions.ok).toBe(true);
+    if (!fragmentDefinitions.ok) throw new Error("expected fixture fragments to parse");
+
+    const registry = createFragmentRegistry([
+      fragmentDefinitions.value as Parameters<typeof createFragmentRegistry>[0][number],
+    ]);
+    const parsed = parseDslToDocument(readForEachAggregateFixture("invocation.yaml"), {
+      fragmentRegistry: registry,
+      requirePinnedFragmentUses: true,
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error("expected fixture invocation to parse");
+
+    const compiler = createFlowCompiler({
+      toolResolver: {
+        resolve(ref) {
+          if (ref !== "validate.schema") return null;
+          return {
+            ref,
+            kind: "skill",
+            inputSchema: { type: "object" },
+            handle: { skillId: ref },
+          };
+        },
+        listAvailable: () => ["validate.schema"],
+      },
+    });
+    const compiled = await compiler.compileDocument(parsed.document);
+
+    expect("errors" in compiled).toBe(false);
+    if ("errors" in compiled) throw new Error("expected compile success");
+    expect(compiled.target).toBe("pipeline");
+
+    const definition = compiled.artifact as PipelineDefinition;
+    const runtime = new PipelineRuntime({
+      definition,
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validateSchema: async ({ context, output }) => {
+          const item = context.state.validationItem as { id: string; result: string };
+          return {
+            output: {
+              id: item.id,
+              accepted: item.result === "pass",
+              status: `${item.id}:${item.result}`,
+            },
+            metadata: { output },
+          };
+        },
+      }),
+      nodeExecutor: async (nodeId, node) => ({
+        nodeId,
+        output: null,
+        durationMs: 1,
+        error: `unexpected fallback execution for ${node.type}`,
+      }),
+    });
+
+    const result = await runtime.execute({
+      batch__validationItems: [
+        { id: "schema", result: "pass" },
+        { id: "tests", result: "fail" },
+      ],
+    });
+
+    expect(result.state).toBe("completed");
+    const loopResult = [...result.nodeResults.values()].find((nodeResult) => {
+      const output = nodeResult.output as { loopOutput?: unknown } | null;
+      return output !== null && Array.isArray(output.loopOutput);
+    });
+    expect(loopResult?.output).toMatchObject({
+      loopOutput: [
+        { id: "schema", accepted: true, status: "schema:pass" },
+        { id: "tests", accepted: false, status: "tests:fail" },
+      ],
+      metrics: {
+        iterationCount: 2,
+        converged: true,
+        terminationReason: "condition_met",
+      },
+    });
+  });
+
   it("executes a durable planning-dag runtime tool with handler context and checkpointed idempotency", async () => {
     const compiler = createFlowCompiler({
       toolResolver: {
