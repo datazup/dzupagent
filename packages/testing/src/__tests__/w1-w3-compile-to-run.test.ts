@@ -17,6 +17,8 @@ import {
   PipelineRuntime,
   runtimeToolFailure,
   type NodeExecutor,
+  type PostgresClientLike,
+  type RedisClientLike,
   type RuntimeToolHandler,
 } from "@dzupagent/agent/pipeline";
 import {
@@ -336,6 +338,11 @@ steps:
         redisConfigured: true,
         postgresConfigured: false,
       },
+      checkpointProof: {
+        backend: "memory",
+        status: "skipped",
+        reason: "redis client factory not configured",
+      },
       execution: {
         state: "completed",
         exportedState: {
@@ -350,6 +357,82 @@ steps:
       "Expected state writes: truth__currentTruth, truth",
     );
     expect(report.readinessReport).toContain("closeoutStatus");
+  });
+
+  it("runs the MVP evidence report against a Redis checkpoint store when configured", async () => {
+    const report = await runSdlcMvpEvidenceReport({
+      packetItems: [{ ref: "packet/redis" }],
+      commandOutputs: [
+        {
+          id: "types",
+          command: "yarn workspace @dzupagent/testing typecheck",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+        },
+      ],
+      env: {
+        DZUPAGENT_REDIS_URL: "redis://localhost:6379",
+      },
+      redisClientFactory: async () => new InMemoryRedisClient(),
+    });
+
+    expect(report).toMatchObject({
+      runtimeReady: true,
+      checkpointBackend: "redis",
+      checkpointProof: {
+        backend: "redis",
+        status: "passed",
+      },
+      execution: {
+        state: "completed",
+        exportedState: {
+          truth: { scope: "dzupagent", dirty: false },
+          closeoutStatus: "complete",
+        },
+      },
+    });
+    expect(report.checkpointProof.checkpointVersion).toBeGreaterThan(0);
+  });
+
+  it("runs the MVP evidence report against a Postgres checkpoint store when configured", async () => {
+    const report = await runSdlcMvpEvidenceReport({
+      packetItems: [{ ref: "packet/postgres" }],
+      commandOutputs: [
+        {
+          id: "types",
+          command: "yarn workspace @dzupagent/testing typecheck",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+        },
+      ],
+      env: {
+        DZUPAGENT_POSTGRES_URL: "postgres://localhost/dzupagent",
+      },
+      postgresClientFactory: async () => new InMemoryPostgresClient(),
+    });
+
+    expect(report).toMatchObject({
+      runtimeReady: true,
+      checkpointBackend: "postgres",
+      backendChecks: {
+        redisConfigured: false,
+        postgresConfigured: true,
+      },
+      checkpointProof: {
+        backend: "postgres",
+        status: "passed",
+      },
+      execution: {
+        state: "completed",
+        exportedState: {
+          truth: { scope: "dzupagent", dirty: false },
+          closeoutStatus: "complete",
+        },
+      },
+    });
+    expect(report.checkpointProof.checkpointVersion).toBeGreaterThan(0);
   });
 
   it("prints an operator-facing SDLC MVP evidence report from host evidence files", async () => {
@@ -389,6 +472,7 @@ steps:
           },
           stdout: (line) => stdout.push(line),
           stderr: (line) => stderr.push(line),
+          postgresClientFactory: async () => new InMemoryPostgresClient(),
         },
       );
 
@@ -400,6 +484,11 @@ steps:
           redisConfigured: boolean;
           postgresConfigured: boolean;
         };
+        checkpointBackend: string;
+        checkpointProof: {
+          backend: string;
+          status: string;
+        };
         execution: {
           state: string;
           exportedState: {
@@ -409,9 +498,14 @@ steps:
       };
       expect(payload).toMatchObject({
         runtimeReady: true,
+        checkpointBackend: "postgres",
         backendChecks: {
           redisConfigured: false,
           postgresConfigured: true,
+        },
+        checkpointProof: {
+          backend: "postgres",
+          status: "passed",
         },
         execution: {
           state: "completed",
@@ -1357,6 +1451,187 @@ function firstLoopOutput(result: Awaited<ReturnType<PipelineRuntime["execute"]>>
     return output !== null && Array.isArray(output.loopOutput);
   });
   return (loopResult?.output as { loopOutput?: unknown } | undefined)?.loopOutput;
+}
+
+class InMemoryRedisClient implements RedisClientLike {
+  strings = new Map<string, string>();
+  sortedSets = new Map<string, Map<string, number>>();
+  sets = new Map<string, Set<string>>();
+
+  async set(
+    key: string,
+    value: string,
+    ..._modifiers: Array<string | number>
+  ): Promise<"OK"> {
+    this.strings.set(key, value);
+    return "OK";
+  }
+
+  async get(key: string): Promise<string | null> {
+    return this.strings.get(key) ?? null;
+  }
+
+  async del(...keys: string[]): Promise<number> {
+    let count = 0;
+    for (const key of keys) {
+      if (this.strings.delete(key)) count += 1;
+      if (this.sortedSets.delete(key)) count += 1;
+      if (this.sets.delete(key)) count += 1;
+    }
+    return count;
+  }
+
+  async zadd(key: string, ...scoreMembers: Array<string | number>): Promise<number> {
+    let zset = this.sortedSets.get(key);
+    if (!zset) {
+      zset = new Map();
+      this.sortedSets.set(key, zset);
+    }
+    let added = 0;
+    for (let index = 0; index < scoreMembers.length; index += 2) {
+      const score = Number(scoreMembers[index]);
+      const member = String(scoreMembers[index + 1]);
+      if (!zset.has(member)) added += 1;
+      zset.set(member, score);
+    }
+    return added;
+  }
+
+  async zrange(key: string, start: number, stop: number): Promise<string[]> {
+    const zset = this.sortedSets.get(key);
+    if (!zset) return [];
+    const sorted = [...zset.entries()]
+      .sort((left, right) => left[1] - right[1])
+      .map(([member]) => member);
+    const end = stop === -1 ? sorted.length : stop + 1;
+    return sorted.slice(start, end);
+  }
+
+  async zrevrange(key: string, start: number, stop: number): Promise<string[]> {
+    const zset = this.sortedSets.get(key);
+    if (!zset) return [];
+    const sorted = [...zset.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .map(([member]) => member);
+    const end = stop === -1 ? sorted.length : stop + 1;
+    return sorted.slice(start, end);
+  }
+
+  async zscore(key: string, member: string): Promise<string | null> {
+    const score = this.sortedSets.get(key)?.get(member);
+    return score === undefined ? null : String(score);
+  }
+
+  async zrem(key: string, ...members: string[]): Promise<number> {
+    const zset = this.sortedSets.get(key);
+    if (!zset) return 0;
+    let removed = 0;
+    for (const member of members) {
+      if (zset.delete(member)) removed += 1;
+    }
+    return removed;
+  }
+
+  async sadd(key: string, ...members: string[]): Promise<number> {
+    let set = this.sets.get(key);
+    if (!set) {
+      set = new Set();
+      this.sets.set(key, set);
+    }
+    let added = 0;
+    for (const member of members) {
+      if (!set.has(member)) {
+        set.add(member);
+        added += 1;
+      }
+    }
+    return added;
+  }
+
+  async srem(key: string, ...members: string[]): Promise<number> {
+    const set = this.sets.get(key);
+    if (!set) return 0;
+    let removed = 0;
+    for (const member of members) {
+      if (set.delete(member)) removed += 1;
+    }
+    return removed;
+  }
+
+  async smembers(key: string): Promise<string[]> {
+    return [...(this.sets.get(key) ?? [])];
+  }
+
+  async exists(key: string): Promise<number> {
+    return this.strings.has(key) || this.sortedSets.has(key) || this.sets.has(key)
+      ? 1
+      : 0;
+  }
+
+  async expire(_key: string, _seconds: number): Promise<number> {
+    return 1;
+  }
+}
+
+class InMemoryPostgresClient implements PostgresClientLike {
+  rows = new Map<string, Record<string, unknown>>();
+
+  async query<T = unknown>(
+    text: string,
+    params: unknown[] = [],
+  ): Promise<{ rows: T[] }> {
+    if (/^\s*INSERT INTO /i.test(text)) {
+      const row = this.rowFromInsertParams(params);
+      this.rows.set(`${row.pipeline_run_id}:${row.version}`, row);
+      return { rows: [] };
+    }
+    if (/^\s*SELECT \* FROM /i.test(text)) {
+      const runId = String(params[0]);
+      const version = params[1];
+      const rows = [...this.rows.values()]
+        .filter((row) => row.pipeline_run_id === runId)
+        .filter((row) => version === undefined || row.version === version)
+        .sort((left, right) => Number(right.version) - Number(left.version));
+      return { rows: rows.slice(0, 1) as T[] };
+    }
+    if (/^\s*DELETE FROM /i.test(text)) {
+      const runId = String(params[0]);
+      for (const [key, row] of this.rows.entries()) {
+        if (row.pipeline_run_id === runId) this.rows.delete(key);
+      }
+      return { rows: [] };
+    }
+    return { rows: [] };
+  }
+
+  private rowFromInsertParams(params: unknown[]): Record<string, unknown> {
+    return {
+      pipeline_run_id: params[0],
+      pipeline_id: params[1],
+      version: params[2],
+      schema_version: params[3],
+      completed_node_ids: parseJsonParam(params[4], []),
+      state: parseJsonParam(params[5], {}),
+      suspended_at_node_id: params[6],
+      budget_state: parseJsonParam(params[7], null),
+      created_at: params[8],
+      expires_at: params[9],
+      node_idempotency_keys: parseJsonParam(params[10], null),
+      loop_state: parseJsonParam(params[11], null),
+      fork_state: parseJsonParam(params[12], null),
+      recovery_attempts_used: params[13],
+      provider_session_refs: parseJsonParam(params[14], null),
+    };
+  }
+}
+
+function parseJsonParam(value: unknown, fallback: unknown): unknown {
+  if (typeof value !== "string") return value ?? fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
 }
 
 type RuntimeLeafFixtureNode =
