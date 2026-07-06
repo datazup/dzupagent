@@ -10,6 +10,7 @@ const STATE_KEY_FIELDS = new Set([
 ]);
 const SOURCE_IS_STATE_NODE_TYPES = new Set([
   "evidence.write",
+  "for_each",
   "validate.schema",
   "validate",
   "memory.write",
@@ -68,11 +69,17 @@ function substituteParams(value: string, params: Record<string, unknown>): unkno
   });
 }
 
-function rewriteStateTemplates(value: string, instanceId: string): string {
+function rewriteStateTemplates(
+  value: string,
+  instanceId: string,
+  localStateKeys: ReadonlySet<string>,
+): string {
   return value.replace(
     STATE_TEMPLATE_RE,
     (_match, key: string, pathRest: string) =>
-      `{{ state.${privateKey(instanceId, key)}${pathRest} }}`,
+      localStateKeys.has(key)
+        ? `{{ state.${key}${pathRest} }}`
+        : `{{ state.${privateKey(instanceId, key)}${pathRest} }}`,
   );
 }
 
@@ -123,6 +130,24 @@ function shouldRewriteNodeReferenceField(
   );
 }
 
+function unwrapNodeWrapper(
+  value: Record<string, unknown>,
+): { type: string; body: Record<string, unknown> } | undefined {
+  const entries = Object.entries(value);
+  if (entries.length !== 1) return undefined;
+  const [type, body] = entries[0]!;
+  if (
+    typeof type !== "string" ||
+    type.length === 0 ||
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body)
+  ) {
+    return undefined;
+  }
+  return { type, body: body as Record<string, unknown> };
+}
+
 export function rewriteFragmentValue(
   value: unknown,
   instanceId: string,
@@ -131,10 +156,14 @@ export function rewriteFragmentValue(
   stateKeyFieldDepth = 0,
   nodeScopeEligible = false,
   referenceScope: FragmentReferenceScope = {},
+  localStateKeys: ReadonlySet<string> = new Set(),
 ): unknown {
   if (typeof value === "string") {
     if (STRUCTURAL_PARAM_RE.test(value)) return substituteParams(value, params);
-    return substituteParams(rewriteStateTemplates(value, instanceId), params);
+    return substituteParams(
+      rewriteStateTemplates(value, instanceId, localStateKeys),
+      params,
+    );
   }
   if (Array.isArray(value)) {
     return value.map((item) =>
@@ -146,12 +175,29 @@ export function rewriteFragmentValue(
         stateKeyFieldDepth + 1,
         nodeScopeEligible,
         referenceScope,
+        localStateKeys,
       ),
     );
   }
   if (!value || typeof value !== "object") return value;
 
   const objectValue = value as Record<string, unknown>;
+  const wrappedNode = nodeScopeEligible ? unwrapNodeWrapper(objectValue) : undefined;
+  if (wrappedNode !== undefined) {
+    const rewritten = rewriteFragmentValue(
+      { type: wrappedNode.type, ...wrappedNode.body },
+      instanceId,
+      params,
+      undefined,
+      0,
+      true,
+      referenceScope,
+      localStateKeys,
+    ) as Record<string, unknown>;
+    const { type, ...body } = rewritten;
+    return { [String(type)]: body };
+  }
+
   const isFlowNodeObject =
     nodeScopeEligible && typeof objectValue.type === "string";
   const currentNodeType =
@@ -165,6 +211,37 @@ export function rewriteFragmentValue(
       isFlowNodeObject && hasParentReferenceScope(objectValue);
     if (isFlowNodeObject && key === "id" && typeof child === "string") {
       output[key] = privateKey(instanceId, child);
+      continue;
+    }
+    if (
+      currentStateKeyFieldDepth === 0 &&
+      currentNodeType === "for_each" &&
+      key === "collect" &&
+      child &&
+      typeof child === "object" &&
+      !Array.isArray(child)
+    ) {
+      output[key] = Object.fromEntries(
+        Object.entries(child as Record<string, unknown>).map(
+          ([collectKey, collectValue]) => [
+            collectKey,
+            (collectKey === "from" || collectKey === "into") &&
+            typeof collectValue === "string" &&
+            !collectValue.includes("{{")
+              ? privateKey(instanceId, collectValue)
+              : rewriteFragmentValue(
+                  collectValue,
+                  instanceId,
+                  params,
+                  currentNodeType,
+                  currentStateKeyFieldDepth + 1,
+                  false,
+                  referenceScope,
+                  localStateKeys,
+                ),
+          ],
+        ),
+      );
       continue;
     }
     if (
@@ -187,6 +264,7 @@ export function rewriteFragmentValue(
               currentStateKeyFieldDepth + 1,
               false,
               referenceScope,
+              localStateKeys,
             ),
           ],
         ),
@@ -234,9 +312,16 @@ export function rewriteFragmentValue(
               currentStateKeyFieldDepth + 1,
               false,
               referenceScope,
+              localStateKeys,
             );
       continue;
     }
+    const nextLocalStateKeys =
+      currentNodeType === "for_each" &&
+      key === "body" &&
+      typeof objectValue.as === "string"
+        ? new Set([...localStateKeys, objectValue.as])
+        : localStateKeys;
     output[key] = rewriteFragmentValue(
       child,
       instanceId,
@@ -245,6 +330,7 @@ export function rewriteFragmentValue(
       currentStateKeyFieldDepth + 1,
       CHILD_NODE_FIELDS.has(key),
       referenceScope,
+      nextLocalStateKeys,
     );
   }
   return output;

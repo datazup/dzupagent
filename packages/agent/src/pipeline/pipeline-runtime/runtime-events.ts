@@ -63,6 +63,17 @@ export function nodeRetryEvent(
   return { type: 'pipeline:node_retry', nodeId, attempt, maxAttempts, error, backoffMs }
 }
 
+export function forEachAggregateEvent(
+  nodeId: string,
+  count: number,
+  empty: boolean,
+  aggregateKey?: string,
+): PipelineRuntimeEvent {
+  return aggregateKey === undefined
+    ? { type: 'pipeline:for_each_aggregate', nodeId, count, order: 'input', empty }
+    : { type: 'pipeline:for_each_aggregate', nodeId, aggregateKey, count, order: 'input', empty }
+}
+
 export function recoveryAttemptedEvent(
   nodeId: string,
   attempt: number,
