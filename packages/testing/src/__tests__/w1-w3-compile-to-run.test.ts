@@ -18,6 +18,7 @@ import {
   type NodeExecutor,
   type RuntimeToolHandler,
 } from "@dzupagent/agent/pipeline";
+import { shapeCommandOutputsForBatchValidation } from "../sdlc-validation.js";
 
 const forEachAggregateFixtureDir = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -87,8 +88,13 @@ steps:
     ];
     const validationItems = shapeCommandOutputsForBatchValidation(commandOutputs);
 
+    const checkpointStore = new InMemoryPipelineCheckpointStore();
     const result = await new PipelineRuntime({
-      definition: compiled.artifact as PipelineDefinition,
+      definition: {
+        ...(compiled.artifact as PipelineDefinition),
+        checkpointStrategy: "after_each_node",
+      },
+      checkpointStore,
       runtimeToolHandlers: createRuntimeToolHandlers({
         validateSchema: async ({ context }) => {
           const item = context.state.validationItem as {
@@ -149,6 +155,46 @@ steps:
         accepted: false,
         status: "fail",
         exitCode: 1,
+      },
+    ]);
+  });
+
+  it("shapes command outputs through the public SDLC validation helper", () => {
+    expect(
+      shapeCommandOutputsForBatchValidation([
+        {
+          id: "lint",
+          command: "yarn lint",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+          durationMs: 420,
+        },
+        {
+          id: "test",
+          command: "yarn test",
+          exitCode: 2,
+          stdout: "",
+          stderr: "failed",
+        },
+      ]),
+    ).toEqual([
+      {
+        id: "lint",
+        command: "yarn lint",
+        result: "pass",
+        exitCode: 0,
+        stdout: "ok",
+        stderr: "",
+        durationMs: 420,
+      },
+      {
+        id: "test",
+        command: "yarn test",
+        result: "fail",
+        exitCode: 2,
+        stdout: "",
+        stderr: "failed",
       },
     ]);
   });
@@ -288,8 +334,13 @@ steps:
     if ("errors" in compiled) throw new Error("expected compile success");
     expect(compiled.target).toBe("pipeline");
 
+    const checkpointStore = new InMemoryPipelineCheckpointStore();
     const result = await new PipelineRuntime({
-      definition: compiled.artifact as PipelineDefinition,
+      definition: {
+        ...(compiled.artifact as PipelineDefinition),
+        checkpointStrategy: "after_each_node",
+      },
+      checkpointStore,
       runtimeToolHandlers: createRuntimeToolHandlers({
         workerDispatch: async ({ context, outputKey }) => {
           const packet = context.state.packetItem as { ref: string };
@@ -335,6 +386,160 @@ steps:
         status: "ready",
       },
     ]);
+  });
+
+  it("executes an MVP closeout flow chaining truth capture, packet fanout, validation batch, and closeout", async () => {
+    const parsed = parseDslToDocument(
+      `
+dsl: dzupflow/v1
+id: sdlc-mvp-closeout
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.current_truth:
+      id: truth
+      scope: dzupagent
+      output: truth
+  - sdlc.packet_fanout:
+      id: fanout
+      packetsKey: packetItems
+      output: packetStatuses
+  - sdlc.batch_validation:
+      id: batch
+      itemsKey: validationItems
+      output: validationStatuses
+  - sdlc.closeout:
+      id: closeout
+      status: complete
+      output: closeoutStatus
+`,
+      {
+        fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
+        requirePinnedFragmentUses: true,
+      },
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error("expected MVP closeout flow to parse");
+
+    const compiler = createFlowCompiler({
+      toolResolver: {
+        resolve(ref) {
+          if (ref !== "sdlc.current_truth" && ref !== "validate.schema") return null;
+          return {
+            ref,
+            kind: "skill",
+            inputSchema: { type: "object" },
+            handle: { skillId: ref },
+          };
+        },
+        listAvailable: () => ["sdlc.current_truth", "validate.schema"],
+      },
+    });
+    const compiled = await compiler.compileDocument(parsed.document);
+    expect("errors" in compiled).toBe(false);
+    if ("errors" in compiled) throw new Error("expected compile success");
+    expect(compiled.target).toBe("pipeline");
+
+    const checkpointStore = new InMemoryPipelineCheckpointStore();
+    const result = await new PipelineRuntime({
+      definition: {
+        ...(compiled.artifact as PipelineDefinition),
+        checkpointStrategy: "after_each_node",
+      },
+      checkpointStore,
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        workerDispatch: async ({ context }) => {
+          const packet = context.state.packetItem as { ref: string };
+          return {
+            output: {
+              packetRef: packet.ref,
+              accepted: true,
+              status: "ready",
+            },
+          };
+        },
+        validateSchema: async ({ context, output, source }) => {
+          if (output === "closeoutStatus") {
+            return { output: source };
+          }
+          const item = context.state.validationItem as {
+            id: string;
+            command: string;
+            result: "pass" | "fail";
+          };
+          return {
+            output: {
+              id: item.id,
+              command: item.command,
+              accepted: item.result === "pass",
+              status: item.result,
+            },
+          };
+        },
+      }),
+      nodeExecutor: async (nodeId, node) => {
+        if (node.type === "tool" && node.toolName === "sdlc.current_truth") {
+          return {
+            nodeId,
+            output: { scope: "dzupagent", dirty: false },
+            durationMs: 1,
+          };
+        }
+        return {
+          nodeId,
+          output: null,
+          durationMs: 1,
+          error: `unexpected fallback execution for ${node.type}`,
+        };
+      },
+    }).execute({
+      packetItems: [{ ref: "packet/alpha" }, { ref: "packet/beta" }],
+      validationItems: shapeCommandOutputsForBatchValidation([
+        {
+          id: "types",
+          command: "yarn workspace @dzupagent/flow-dsl typecheck",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+        },
+        {
+          id: "tests",
+          command: "yarn workspace @dzupagent/testing test",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+        },
+      ]),
+    });
+
+    expect(result.state).toBe("completed");
+    expect([...result.nodeResults.values()].map((nodeResult) => nodeResult.output)).toContainEqual({
+      scope: "dzupagent",
+      dirty: false,
+    });
+    const finalCheckpoint = await checkpointStore.load(result.runId);
+    expect(finalCheckpoint?.state).toMatchObject({
+      packetStatuses: [
+        { packetRef: "packet/alpha", accepted: true, status: "ready" },
+        { packetRef: "packet/beta", accepted: true, status: "ready" },
+      ],
+      validationStatuses: [
+        {
+          id: "types",
+          command: "yarn workspace @dzupagent/flow-dsl typecheck",
+          accepted: true,
+          status: "pass",
+        },
+        {
+          id: "tests",
+          command: "yarn workspace @dzupagent/testing test",
+          accepted: true,
+          status: "pass",
+        },
+      ],
+      closeoutStatus: "complete",
+    });
   });
 
   it("executes the aggregate-export DSL fragment fixture through PipelineRuntime", async () => {
@@ -938,27 +1143,6 @@ steps:
     });
   });
 });
-
-interface HostValidationCommandOutput {
-  id: string;
-  command: string;
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
-
-function shapeCommandOutputsForBatchValidation(
-  outputs: readonly HostValidationCommandOutput[],
-) {
-  return outputs.map((output) => ({
-    id: output.id,
-    command: output.command,
-    result: output.exitCode === 0 ? "pass" : "fail",
-    exitCode: output.exitCode,
-    stdout: output.stdout,
-    stderr: output.stderr,
-  }));
-}
 
 function firstLoopOutput(result: Awaited<ReturnType<PipelineRuntime["execute"]>>) {
   const loopResult = [...result.nodeResults.values()].find((nodeResult) => {
