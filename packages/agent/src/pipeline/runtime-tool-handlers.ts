@@ -649,6 +649,33 @@ export function formatRuntimeToolReadinessError(
   return `Runtime tool handlers are not ready: ${details}`;
 }
 
+export function formatRuntimeToolReadinessReport(
+  readiness: RuntimeToolReadinessResult,
+): string {
+  const lines = [
+    `Runtime tool readiness: ${readiness.ready ? "ready" : "not ready"}`,
+    `Required tools: ${formatList(readiness.requiredToolNames)}`,
+    `Built-in tools: ${formatList(readiness.builtInToolNames)}`,
+    `Missing handlers: ${formatList(readiness.missingToolNames)}`,
+    `Expected state writes: ${formatList(readiness.expectedStateWriteKeys)}`,
+    "Nodes:",
+  ];
+
+  for (const node of readiness.nodes) {
+    const readinessLabel = node.ready ? "ready" : "missing";
+    const ownershipLabel = node.builtIn ? "built-in" : "host";
+    lines.push(
+      `- ${node.nodeId}: ${node.toolName} [${readinessLabel}, ${ownershipLabel}] writes ${formatList(node.stateWriteKeys)}`,
+    );
+  }
+
+  return lines.join("\n");
+}
+
+function formatList(values: readonly string[]): string {
+  return values.length > 0 ? values.join(", ") : "none";
+}
+
 export function createRuntimeValidatePort(
   options: RuntimeValidatePortOptions = {},
 ): RuntimeToolPort<RuntimeValidateRequest> {
