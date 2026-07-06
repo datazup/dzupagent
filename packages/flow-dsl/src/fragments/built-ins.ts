@@ -19,9 +19,11 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
       type: "sequence",
       nodes: [
         {
-          type: "set",
-          id: "set_closeout_status",
-          assign: { closeoutStatus: "{{ params.status }}" },
+          type: "validate.schema",
+          id: "classify_closeout_status",
+          source: "{{ params.status }}",
+          schema: "dzup.sdlc.closeout-status@1",
+          output: "closeoutStatus",
         },
       ],
     },
