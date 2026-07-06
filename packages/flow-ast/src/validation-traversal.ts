@@ -182,6 +182,7 @@ export function validateCanonicalNodeIds(
     case "spdd.collect_proof":
     case "spdd.scan_drift":
     case "spdd.create_sync_proposal":
+    case "spdd.agent_swarm":
       return;
     default: {
       const _exhaustive: never = node;

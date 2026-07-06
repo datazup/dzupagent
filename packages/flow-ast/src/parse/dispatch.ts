@@ -68,6 +68,7 @@ import {
   parseSpddCollectProof,
   parseSpddScanDrift,
   parseSpddCreateSyncProposal,
+  parseSpddAgentSwarm,
 } from "./spdd.js";
 
 export function parseNode(
@@ -217,6 +218,8 @@ export function parseNode(
       return parseSpddScanDrift(value, pointer, ctx);
     case "spdd.create_sync_proposal":
       return parseSpddCreateSyncProposal(value, pointer, ctx);
+    case "spdd.agent_swarm":
+      return parseSpddAgentSwarm(value, pointer, ctx);
     default:
       // Defensive — KNOWN_NODE_TYPES is the source of truth above.
       ctx.errors.push({

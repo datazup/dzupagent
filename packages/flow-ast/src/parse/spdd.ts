@@ -11,6 +11,8 @@ import type {
   SpddCollectProofNode,
   SpddScanDriftNode,
   SpddCreateSyncProposalNode,
+  SpddAgentSwarmNode,
+  SpddSwarmSubTask,
 } from "../types.js";
 import {
   type ParseContext,
@@ -59,6 +61,49 @@ function requireArrayField(
     return null;
   }
   return value;
+}
+
+function requireSubTasksField(
+  obj: Record<string, unknown>,
+  nodeType: string,
+  pointer: string,
+  ctx: ParseContext
+): SpddSwarmSubTask[] | null {
+  const raw = requireArrayField(obj, "subTasks", nodeType, pointer, ctx);
+  if (raw === null) return null;
+  const subTasks: SpddSwarmSubTask[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    const itemPointer = joinPointer(
+      joinPointer(pointer, "subTasks"),
+      String(i)
+    );
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      ctx.errors.push({
+        code: "EXPECTED_OBJECT",
+        message: `${nodeType}.subTasks items must be objects, received ${describeJsType(
+          item
+        )}`,
+        pointer: itemPointer,
+      });
+      return null;
+    }
+    const record = item as Record<string, unknown>;
+    const role = requireStringField(record, "role", nodeType, itemPointer, ctx);
+    if (role === null) return null;
+    const personaRef =
+      typeof record.personaRef === "string" ? record.personaRef : undefined;
+    const input =
+      typeof record.input === "object" &&
+      record.input !== null &&
+      !Array.isArray(record.input)
+        ? (record.input as Record<string, unknown>)
+        : {};
+    subTasks.push(
+      personaRef === undefined ? { role, input } : { role, personaRef, input }
+    );
+  }
+  return subTasks;
 }
 
 export function parseSpddImportSources(
@@ -539,6 +584,38 @@ export function parseSpddCreateSyncProposal(
     ...common,
     spddRunId,
     driftFindingIdsKey,
+    outputKey,
+  };
+}
+
+export function parseSpddAgentSwarm(
+  obj: Record<string, unknown>,
+  pointer: string,
+  ctx: ParseContext
+): SpddAgentSwarmNode | null {
+  const common = parseCommonNodeFields(obj, pointer, ctx);
+  const spddRunId = requireStringField(
+    obj,
+    "spddRunId",
+    "spdd.agent_swarm",
+    pointer,
+    ctx
+  );
+  const subTasks = requireSubTasksField(obj, "spdd.agent_swarm", pointer, ctx);
+  const outputKey = requireStringField(
+    obj,
+    "outputKey",
+    "spdd.agent_swarm",
+    pointer,
+    ctx
+  );
+  if (spddRunId === null || subTasks === null || outputKey === null)
+    return null;
+  return {
+    type: "spdd.agent_swarm",
+    ...common,
+    spddRunId,
+    subTasks,
     outputKey,
   };
 }

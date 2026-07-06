@@ -60,4 +60,5 @@ export const FLOW_NODE_VALIDATOR_DESCRIPTORS: ReadonlyArray<{
   { type: "spdd.collect_proof", hasChildren: false },
   { type: "spdd.scan_drift", hasChildren: false },
   { type: "spdd.create_sync_proposal", hasChildren: false },
+  { type: "spdd.agent_swarm", hasChildren: false },
 ];

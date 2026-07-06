@@ -245,6 +245,12 @@ const PUBLIC_NODE_KIND_FIXTURES: Record<FlowNode["type"], FlowNode> = {
     driftFindingIdsKey: "driftResult",
     outputKey: "syncProposal",
   },
+  "spdd.agent_swarm": {
+    type: "spdd.agent_swarm",
+    spddRunId: "run-1",
+    subTasks: [{ role: "review", input: { artifactRef: "artifact-1" } }],
+    outputKey: "swarmResult",
+  },
 };
 
 describe("parseFlow — public node contract", () => {
