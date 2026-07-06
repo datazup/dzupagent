@@ -16,9 +16,10 @@ describe("built-in SDLC fragments", () => {
       "sdlc.current_truth",
       "sdlc.gated_packet",
       "sdlc.git_truth",
+      "sdlc.packet_fanout",
       "sdlc.validation_gate",
     ]);
-    expect(BUILT_IN_SDL_FRAGMENT_DEFINITIONS).toHaveLength(6);
+    expect(BUILT_IN_SDL_FRAGMENT_DEFINITIONS).toHaveLength(7);
   });
 
   it("expands sdlc.validation_gate through the built-in registry", () => {
@@ -144,6 +145,59 @@ steps:
     });
     expect(result.document?.root.nodes.map((node) => node.id)).toContain(
       "batch__export_statuses",
+    );
+  });
+
+  it("expands sdlc.packet_fanout by composing gated_packet with for_each collect", () => {
+    const result = parseDslToDocument(
+      `
+dsl: dzupflow/v1
+id: sdlc-packet-fanout-demo
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.packet_fanout:
+      id: fanout
+      packetsKey: packetItems
+      output: packetStatuses
+`,
+      {
+        fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
+        requirePinnedFragmentUses: true,
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    const loop = result.document?.root.nodes.find(
+      (node) => node.id === "fanout__dispatch_each_packet",
+    );
+    expect(loop).toMatchObject({
+      type: "for_each",
+      id: "fanout__dispatch_each_packet",
+      source: "packetItems",
+      as: "packetItem",
+      collect: {
+        from: "fanout__each_packet__packetStatus",
+        into: "fanout__packetStatuses",
+      },
+      body: [
+        {
+          type: "worker.dispatch",
+          id: "fanout__each_packet__dispatch_packet",
+          dispatchId: "sdlc.implement_packet",
+          provider: "codex",
+          instructions:
+            "Implement SDLC packet {{ state.packetItem.ref }} and report gate status.",
+          input: { packetRef: "{{ state.packetItem.ref }}" },
+          outputKey: "fanout__each_packet__packetStatus",
+          commandSurface: "none",
+          resultFormat: "text",
+        },
+      ],
+    });
+    expect(result.document?.root.nodes.map((node) => node.id)).toContain(
+      "fanout__export_statuses",
     );
   });
 });
