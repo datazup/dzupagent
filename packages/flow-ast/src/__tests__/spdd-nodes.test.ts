@@ -18,10 +18,11 @@ const SPDD_NODE_KINDS = [
   "spdd.collect_proof",
   "spdd.scan_drift",
   "spdd.create_sync_proposal",
+  "spdd.agent_swarm",
 ] as const;
 
 describe("spdd.* node kinds", () => {
-  it("registers all 12 spdd node kinds in FLOW_NODE_KIND_REGISTRY", () => {
+  it("registers all 13 spdd node kinds in FLOW_NODE_KIND_REGISTRY", () => {
     for (const kind of SPDD_NODE_KINDS) {
       expect(FLOW_NODE_KIND_REGISTRY).toHaveProperty(kind, true);
       expect(FLOW_NODE_KINDS).toContain(kind);
