@@ -1,0 +1,9 @@
+dsl: dzupflow/v1
+id: for-each-aggregate-export
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.batch_validation:
+      id: batch
+      output: batchStatuses
