@@ -2,16 +2,24 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import {
+  createLivePostgresClient,
+  createLiveRedisClient,
   runSdlcMvpEvidenceReport,
   type HostValidationCommandOutput,
   type SdlcMvpEvidenceReportOptions,
 } from "../sdlc-validation.js";
+import type {
+  PostgresClientLike,
+  RedisClientLike,
+} from "@dzupagent/agent/pipeline";
 
 interface SdlcMvpEvidenceCliDeps {
   env?: Record<string, string | undefined>;
   stdout?: (line: string) => void;
   stderr?: (line: string) => void;
   readFile?: (path: string) => string;
+  redisClientFactory?: (url: string) => Promise<RedisClientLike>;
+  postgresClientFactory?: (url: string) => Promise<PostgresClientLike>;
 }
 
 interface ParsedArgs {
@@ -49,6 +57,9 @@ export async function runSdlcMvpEvidenceCli(
 
     const options: SdlcMvpEvidenceReportOptions = {
       env: deps.env ?? process.env,
+      redisClientFactory: deps.redisClientFactory ?? createLiveRedisClient,
+      postgresClientFactory:
+        deps.postgresClientFactory ?? createLivePostgresClient,
     };
     if (parsedArgs.commandOutputJsonPath !== undefined) {
       options.commandOutputs = readCommandOutputs(

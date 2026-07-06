@@ -38,6 +38,8 @@ export type { WaitForConditionOptions } from './wait-for-condition.js';
 
 // SDLC flow host helpers
 export {
+  createLivePostgresClient,
+  createLiveRedisClient,
   createSdlcValidationRuntimeToolHandlers,
   runSdlcMvpEvidenceReport,
   shapeCommandOutputsForBatchValidation,
