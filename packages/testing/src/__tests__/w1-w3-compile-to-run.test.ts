@@ -18,15 +18,26 @@ import {
   type NodeExecutor,
   type RuntimeToolHandler,
 } from "@dzupagent/agent/pipeline";
-import { shapeCommandOutputsForBatchValidation } from "../sdlc-validation.js";
+import {
+  createSdlcValidationRuntimeToolHandlers,
+  shapeCommandOutputsForBatchValidation,
+} from "../sdlc-validation.js";
 
 const forEachAggregateFixtureDir = join(
   dirname(fileURLToPath(import.meta.url)),
   "../../../flow-dsl/src/__tests__/fixtures/golden-expansion/for-each-aggregate-export",
 );
+const testFixtureDir = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "__fixtures__",
+);
 
 function readForEachAggregateFixture(fileName: string): string {
   return readFileSync(join(forEachAggregateFixtureDir, fileName), "utf8");
+}
+
+function readTestingFixture(fileName: string): string {
+  return readFileSync(join(testFixtureDir, fileName), "utf8");
 }
 
 describe("W1 + W3 compile-to-run integration", () => {
@@ -197,6 +208,96 @@ steps:
         stderr: "failed",
       },
     ]);
+  });
+
+  it("adapts host command outputs through reusable SDLC validation runtime handlers", async () => {
+    const validationItems = shapeCommandOutputsForBatchValidation([
+      {
+        id: "typecheck",
+        command: "yarn typecheck",
+        exitCode: 0,
+        stdout: "ok",
+        stderr: "",
+      },
+      {
+        id: "test",
+        command: "yarn test",
+        exitCode: 1,
+        stdout: "",
+        stderr: "failed",
+      },
+    ]);
+    const handlers = createSdlcValidationRuntimeToolHandlers();
+
+    const first = await handlers["dzup.runtime.validate.schema"]?.({
+      nodeId: "validate_0",
+      node: {
+        id: "validate_0",
+        type: "tool",
+        toolName: "dzup.runtime.validate.schema",
+        arguments: {
+          source: "{{ state.validationItem }}",
+          schema: { type: "object" },
+          output: "validationStatus",
+        },
+      },
+      arguments: {
+        source: "{{ state.validationItem }}",
+        schema: { type: "object" },
+        output: "validationStatus",
+      },
+      context: {
+        state: { validationItem: validationItems[0] },
+        previousResults: new Map(),
+      },
+    });
+    const second = await handlers["dzup.runtime.validate.schema"]?.({
+      nodeId: "validate_1",
+      node: {
+        id: "validate_1",
+        type: "tool",
+        toolName: "dzup.runtime.validate.schema",
+        arguments: {
+          source: "{{ state.validationItem }}",
+          schema: { type: "object" },
+          output: "validationStatus",
+        },
+      },
+      arguments: {
+        source: "{{ state.validationItem }}",
+        schema: { type: "object" },
+        output: "validationStatus",
+      },
+      context: {
+        state: { validationItem: validationItems[1] },
+        previousResults: new Map(),
+      },
+    });
+
+    expect(first).toMatchObject({
+      ok: true,
+      output: {
+        id: "typecheck",
+        command: "yarn typecheck",
+        accepted: true,
+        status: "pass",
+        exitCode: 0,
+        stdout: "ok",
+        stderr: "",
+      },
+    });
+    expect(second).toMatchObject({
+      ok: true,
+      output: {
+        id: "test",
+        command: "yarn test",
+        accepted: false,
+        status: "fail",
+        exitCode: 1,
+        stdout: "",
+        stderr: "failed",
+      },
+    });
   });
 
   it("executes built-in sdlc.batch_validation through for_each.collect", async () => {
@@ -390,30 +491,7 @@ steps:
 
   it("executes an MVP closeout flow chaining truth capture, packet fanout, validation batch, and closeout", async () => {
     const parsed = parseDslToDocument(
-      `
-dsl: dzupflow/v1
-id: sdlc-mvp-closeout
-version: 1
-uses:
-  sdlc: dzup.sdlc@1
-steps:
-  - sdlc.current_truth:
-      id: truth
-      scope: dzupagent
-      output: truth
-  - sdlc.packet_fanout:
-      id: fanout
-      packetsKey: packetItems
-      output: packetStatuses
-  - sdlc.batch_validation:
-      id: batch
-      itemsKey: validationItems
-      output: validationStatuses
-  - sdlc.closeout:
-      id: closeout
-      status: complete
-      output: closeoutStatus
-`,
+      readTestingFixture("sdlc-mvp-closeout.dsl.yaml"),
       {
         fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
         requirePinnedFragmentUses: true,
@@ -425,7 +503,9 @@ steps:
     const compiler = createFlowCompiler({
       toolResolver: {
         resolve(ref) {
-          if (ref !== "sdlc.current_truth" && ref !== "validate.schema") return null;
+          if (ref !== "sdlc.current_truth" && ref !== "validate.schema") {
+            return null;
+          }
           return {
             ref,
             kind: "skill",
@@ -448,36 +528,21 @@ steps:
         checkpointStrategy: "after_each_node",
       },
       checkpointStore,
-      runtimeToolHandlers: createRuntimeToolHandlers({
-        workerDispatch: async ({ context }) => {
-          const packet = context.state.packetItem as { ref: string };
-          return {
-            output: {
-              packetRef: packet.ref,
-              accepted: true,
-              status: "ready",
-            },
-          };
-        },
-        validateSchema: async ({ context, output, source }) => {
-          if (context.state.validationItem === undefined) {
-            return { output: source };
-          }
-          const item = context.state.validationItem as {
-            id: string;
-            command: string;
-            result: "pass" | "fail";
-          };
-          return {
-            output: {
-              id: item.id,
-              command: item.command,
-              accepted: item.result === "pass",
-              status: item.result,
-            },
-          };
-        },
-      }),
+      runtimeToolHandlers: {
+        ...createRuntimeToolHandlers({
+          workerDispatch: async ({ context }) => {
+            const packet = context.state.packetItem as { ref: string };
+            return {
+              output: {
+                packetRef: packet.ref,
+                accepted: true,
+                status: "ready",
+              },
+            };
+          },
+        }),
+        ...createSdlcValidationRuntimeToolHandlers(),
+      },
       nodeExecutor: async (nodeId, node) => {
         if (node.type === "tool" && node.toolName === "sdlc.current_truth") {
           return {
@@ -514,11 +579,15 @@ steps:
     });
 
     expect(result.state).toBe("completed");
-    expect([...result.nodeResults.values()].map((nodeResult) => nodeResult.output)).toContainEqual({
+    expect(
+      [...result.nodeResults.values()].map((nodeResult) => nodeResult.output),
+    ).toContainEqual({
       scope: "dzupagent",
       dirty: false,
     });
-    const outputs = [...result.nodeResults.values()].map((nodeResult) => nodeResult.output);
+    const outputs = [...result.nodeResults.values()].map(
+      (nodeResult) => nodeResult.output,
+    );
     const loopOutputs = outputs
       .map((output) => (output as { loopOutput?: unknown } | null)?.loopOutput)
       .filter((output): output is unknown[] => Array.isArray(output));
@@ -529,22 +598,30 @@ steps:
           { packetRef: "packet/beta", accepted: true, status: "ready" },
         ],
         [
-          {
+          expect.objectContaining({
             id: "types",
             command: "yarn workspace @dzupagent/flow-dsl typecheck",
             accepted: true,
             status: "pass",
-          },
-          {
+            exitCode: 0,
+          }),
+          expect.objectContaining({
             id: "tests",
             command: "yarn workspace @dzupagent/testing test",
             accepted: true,
             status: "pass",
-          },
+            exitCode: 0,
+          }),
         ],
       ]),
     );
     expect(outputs).toContain("complete");
+
+    const finalCheckpoint = await checkpointStore.load(result.runId);
+    expect(finalCheckpoint?.state).toMatchObject({
+      truth: { scope: "dzupagent", dirty: false },
+      closeoutStatus: "complete",
+    });
   });
 
   it("executes the aggregate-export DSL fragment fixture through PipelineRuntime", async () => {

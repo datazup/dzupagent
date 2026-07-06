@@ -227,11 +227,75 @@ describe("PipelineRuntime runtime tool handlers", () => {
       ready: false,
       requiredToolNames: ["dzup.runtime.adapter.run"],
       missingToolNames: ["dzup.runtime.adapter.run"],
+      builtInToolNames: [],
+      expectedStateWriteKeys: ["result"],
       nodes: [
         {
           nodeId: "adapter_0",
           toolName: "dzup.runtime.adapter.run",
           ready: false,
+          builtIn: false,
+          stateWriteKeys: ["result"],
+        },
+      ],
+    });
+  });
+
+  it("reports built-in runtime tools and expected state write keys for readiness diagnostics", () => {
+    const definition: PipelineDefinition = {
+      id: "readiness-diagnostics",
+      name: "Readiness Diagnostics",
+      version: "1.0.0",
+      schemaVersion: "1.0.0",
+      entryNodeId: "set_0",
+      nodes: [
+        {
+          id: "set_0",
+          type: "tool",
+          toolName: "dzup.runtime.set",
+          arguments: {
+            assign: {
+              truth: "{{ state.read_current_truth }}",
+              closeoutStatus: "complete",
+            },
+          },
+        },
+        {
+          id: "prompt_0",
+          type: "tool",
+          toolName: "dzup.runtime.prompt",
+          arguments: { outputKey: "summary", userPrompt: "Summarize" },
+        },
+      ],
+      edges: [
+        { type: "sequential", sourceNodeId: "set_0", targetNodeId: "prompt_0" },
+      ],
+    };
+
+    expect(
+      getRuntimeToolReadiness(definition, {
+        "dzup.runtime.prompt": async () => ({ output: "ok" }),
+      }),
+    ).toEqual({
+      ready: true,
+      requiredToolNames: ["dzup.runtime.set", "dzup.runtime.prompt"],
+      missingToolNames: [],
+      builtInToolNames: ["dzup.runtime.set"],
+      expectedStateWriteKeys: ["truth", "closeoutStatus", "summary"],
+      nodes: [
+        {
+          nodeId: "set_0",
+          toolName: "dzup.runtime.set",
+          ready: true,
+          builtIn: true,
+          stateWriteKeys: ["truth", "closeoutStatus"],
+        },
+        {
+          nodeId: "prompt_0",
+          toolName: "dzup.runtime.prompt",
+          ready: true,
+          builtIn: false,
+          stateWriteKeys: ["summary"],
         },
       ],
     });
