@@ -17,6 +17,7 @@ import type {
   ParallelNode,
   ResolvedTool,
   SequenceNode,
+  SetNode,
 } from "@dzupagent/flow-ast";
 import type {
   AgentNode,
@@ -53,6 +54,11 @@ const action = (toolRef: string): ActionNode => ({
 const sequence = (...nodes: FlowNode[]): SequenceNode => ({
   type: "sequence",
   nodes,
+});
+
+const setNode = (assign: Record<string, unknown>): SetNode => ({
+  type: "set",
+  assign,
 });
 
 const branch = (
@@ -131,6 +137,36 @@ function buildResolved(
 // ---------------------------------------------------------------------------
 
 describe("lowerPipelineFlat", () => {
+  it("lowers set nodes to executable runtime set tool nodes", () => {
+    const { artifact, warnings } = lowerPipelineFlat({
+      ast: sequence(
+        setNode({ truth: "{{ state.read_current_truth }}" }),
+        action("tasks.inspect"),
+      ),
+      resolved: buildResolved(makeResolver(["tasks.inspect"]), [
+        { nodePath: "root.nodes[1]", toolRef: "tasks.inspect" },
+      ]),
+      resolvedPersonas: new Map(),
+      _idGen: makeIdGen(),
+      name: "set-node-runtime",
+    });
+
+    expect(warnings).toEqual([]);
+    const [setTool, inspectTool] = artifact.nodes as [ToolNode, ToolNode];
+    expect(setTool).toMatchObject({
+      type: "tool",
+      toolName: "dzup.runtime.set",
+      arguments: { assign: { truth: "{{ state.read_current_truth }}" } },
+    });
+    expect(artifact.edges).toEqual([
+      {
+        type: "sequential",
+        sourceNodeId: setTool.id,
+        targetNodeId: inspectTool.id,
+      },
+    ]);
+  });
+
   it("gold-file: branch whose then contains parallel with two action leaves", () => {
     /*
      * AST shape:

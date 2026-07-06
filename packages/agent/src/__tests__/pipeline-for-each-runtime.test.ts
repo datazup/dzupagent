@@ -665,6 +665,94 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     },
     10_000,
   )
+
+  maybeLiveRedisIt(
+    'recovers a concurrent for_each run after process restart from a live Redis checkpoint store',
+    async () => {
+      const client = await LiveRedisClient.connect(process.env.DZUPAGENT_REDIS_URL!)
+      const keyPrefix = `test:for-each-live-restart:${Date.now()}`
+      const store = new RedisPipelineCheckpointStore({
+        client,
+        keyPrefix,
+      })
+      try {
+        const bodyRuns: string[] = []
+        const delays: Record<string, number> = { a: 35, b: 5, c: 10, d: 1 }
+        const crashingExecutor: NodeExecutor = async (
+          nodeId: string,
+          _node: PipelineNode,
+          ctx,
+        ) => {
+          const item = ctx.state['item'] as { id: string; status: string }
+          bodyRuns.push(item.id)
+          await new Promise((resolve) => setTimeout(resolve, delays[item.id] ?? 0))
+          if (item.id === 'c') {
+            throw new Error('simulated live redis process restart failure')
+          }
+          ctx.state['itemStatus'] = `${item.id}:${item.status}`
+          return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
+        }
+        const first = new PipelineRuntime({
+          definition: {
+            ...forEachPipeline(3),
+            checkpointStrategy: 'after_each_node',
+          },
+          nodeExecutor: crashingExecutor,
+          checkpointStore: store,
+        })
+
+        const firstResult = await first.execute({
+          items: [
+            { id: 'a', status: 'ready' },
+            { id: 'b', status: 'blocked' },
+            { id: 'c', status: 'ready' },
+            { id: 'd', status: 'blocked' },
+          ],
+        })
+
+        expect(firstResult.state).toBe('failed')
+        expect(bodyRuns).toEqual(['a', 'b', 'c', 'd'])
+
+        const recoveryRuns: string[] = []
+        const healthyExecutor: NodeExecutor = async (
+          nodeId: string,
+          _node: PipelineNode,
+          ctx,
+        ) => {
+          const item = ctx.state['item'] as { id: string; status: string }
+          recoveryRuns.push(item.id)
+          ctx.state['itemStatus'] = `${item.id}:${item.status}`
+          return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
+        }
+        const restarted = new PipelineRuntime({
+          definition: {
+            ...forEachPipeline(3),
+            checkpointStrategy: 'after_each_node',
+            resume: { onProcessRestart: 'resume_from_checkpoint' },
+          },
+          nodeExecutor: healthyExecutor,
+          checkpointStore: store,
+        })
+
+        const recovered = await restarted.recoverAfterProcessRestart(firstResult.runId)
+
+        expect(recovered.state).toBe('completed')
+        expect(recoveryRuns).toEqual(['c', 'd'])
+        expect(recovered.nodeResults.get('loop-items')?.output).toMatchObject({
+          loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],
+          metrics: {
+            iterationCount: 4,
+            converged: true,
+            terminationReason: 'condition_met',
+          },
+        })
+      } finally {
+        await client.del(`${keyPrefix}:runs`)
+        client.close()
+      }
+    },
+    10_000,
+  )
 })
 
 class MockRedisClient implements RedisClientLike {
