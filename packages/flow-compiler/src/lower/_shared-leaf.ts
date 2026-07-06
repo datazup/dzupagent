@@ -142,6 +142,7 @@ export function lowerForEach(
     nodes: [loopNode, ...bodyResult.nodes],
     edges: bodyResult.edges,
     warnings: bodyResult.warnings,
+    tailNodeIds: [loopNode.id],
   };
 }
 
