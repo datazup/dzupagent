@@ -12,12 +12,13 @@ describe("built-in SDLC fragments", () => {
       BUILT_IN_FRAGMENT_REGISTRY.list("sdlc").map((entry) => entry.id)
     ).toEqual([
       "sdlc.closeout",
+      "sdlc.batch_validation",
       "sdlc.current_truth",
       "sdlc.gated_packet",
       "sdlc.git_truth",
       "sdlc.validation_gate",
     ]);
-    expect(BUILT_IN_SDL_FRAGMENT_DEFINITIONS).toHaveLength(5);
+    expect(BUILT_IN_SDL_FRAGMENT_DEFINITIONS).toHaveLength(6);
   });
 
   it("expands sdlc.validation_gate through the built-in registry", () => {
@@ -96,5 +97,53 @@ steps:
       "validation__run_validation",
       "validation__classify_validation",
     ]);
+  });
+
+  it("expands sdlc.batch_validation as a for_each collect fragment", () => {
+    const result = parseDslToDocument(
+      `
+dsl: dzupflow/v1
+id: sdlc-batch-validation-demo
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.batch_validation:
+      id: batch
+      itemsKey: validationItems
+      output: validationStatuses
+`,
+      {
+        fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
+        requirePinnedFragmentUses: true,
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    const loop = result.document?.root.nodes.find(
+      (node) => node.id === "batch__validate_each",
+    );
+    expect(loop).toMatchObject({
+      type: "for_each",
+      id: "batch__validate_each",
+      source: "validationItems",
+      as: "validationItem",
+      collect: {
+        from: "batch__validationStatus",
+        into: "batch__validationStatuses",
+      },
+      body: [
+        {
+          type: "validate.schema",
+          id: "batch__classify_validation",
+          source: "{{ state.validationItem.result }}",
+          schema: "dzup.sdlc.validation-result@1",
+          output: "batch__validationStatus",
+        },
+      ],
+    });
+    expect(result.document?.root.nodes.map((node) => node.id)).toContain(
+      "batch__export_statuses",
+    );
   });
 });
