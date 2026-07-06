@@ -85,8 +85,11 @@ describe("Package exports — @dzupagent/testing", () => {
       "RegexScorer",
       "buildStubAnthropicClient",
       "createDemoEvalSuite",
+      "createSdlcValidationRuntimeToolHandlers",
       "runEvalSuite",
+      "runSdlcMvpEvidenceReport",
       "runSecuritySuite",
+      "shapeCommandOutputsForBatchValidation",
       "waitForCondition",
       "withRecordedRegistry",
     ]);
