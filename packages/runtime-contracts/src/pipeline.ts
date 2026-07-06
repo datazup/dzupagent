@@ -190,6 +190,10 @@ export type PipelineRuntimeEvent =
       type: "pipeline:for_each_aggregate";
       nodeId: string;
       aggregateKey?: string;
+      aggregateKeys?: string[];
+      source?: string;
+      attachAs?: string;
+      accumulatorKey?: string;
       count: number;
       order: "input";
       empty: boolean;

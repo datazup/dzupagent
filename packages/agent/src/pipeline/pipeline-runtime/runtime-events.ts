@@ -67,11 +67,26 @@ export function forEachAggregateEvent(
   nodeId: string,
   count: number,
   empty: boolean,
-  aggregateKey?: string,
+  aggregateKeyOrDetails?: string | {
+    aggregateKey?: string
+    aggregateKeys?: string[]
+    source?: string
+    attachAs?: string
+    accumulatorKey?: string
+  },
 ): PipelineRuntimeEvent {
-  return aggregateKey === undefined
-    ? { type: 'pipeline:for_each_aggregate', nodeId, count, order: 'input', empty }
-    : { type: 'pipeline:for_each_aggregate', nodeId, aggregateKey, count, order: 'input', empty }
+  const details =
+    typeof aggregateKeyOrDetails === 'string'
+      ? { aggregateKey: aggregateKeyOrDetails, aggregateKeys: [aggregateKeyOrDetails] }
+      : aggregateKeyOrDetails
+  return {
+    type: 'pipeline:for_each_aggregate',
+    nodeId,
+    ...(details ?? {}),
+    count,
+    order: 'input',
+    empty,
+  }
 }
 
 export function recoveryAttemptedEvent(
