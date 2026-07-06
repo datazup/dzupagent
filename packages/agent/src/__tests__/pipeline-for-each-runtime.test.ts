@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import { InMemoryPipelineCheckpointStore } from '../pipeline/in-memory-checkpoint-store.js'
+import {
+  RedisPipelineCheckpointStore,
+  type RedisClientLike,
+} from '../pipeline/redis-checkpoint-store.js'
 import type { PipelineDefinition, PipelineNode } from '@dzupagent/core'
 import type {
   NodeExecutor,
@@ -483,4 +487,206 @@ describe('PipelineRuntime — lowered for_each collect', () => {
       },
     })
   })
+
+  it('resumes a concurrent for_each failure from a Redis-backed checkpoint store', async () => {
+    const store = new RedisPipelineCheckpointStore({
+      client: new MockRedisClient(),
+      keyPrefix: 'test:for-each',
+    })
+    const bodyRuns: string[] = []
+    const delays: Record<string, number> = { a: 35, b: 5, c: 10, d: 1 }
+    const crashingExecutor: NodeExecutor = async (
+      nodeId: string,
+      _node: PipelineNode,
+      ctx,
+    ) => {
+      const item = ctx.state['item'] as { id: string; status: string }
+      bodyRuns.push(item.id)
+      await new Promise((resolve) => setTimeout(resolve, delays[item.id] ?? 0))
+      if (item.id === 'c') {
+        throw new Error('simulated redis-backed for_each failure')
+      }
+      ctx.state['itemStatus'] = `${item.id}:${item.status}`
+      return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
+    }
+    const first = new PipelineRuntime({
+      definition: {
+        ...forEachPipeline(3),
+        checkpointStrategy: 'after_each_node',
+      },
+      nodeExecutor: crashingExecutor,
+      checkpointStore: store,
+    })
+
+    const firstResult = await first.execute({
+      items: [
+        { id: 'a', status: 'ready' },
+        { id: 'b', status: 'blocked' },
+        { id: 'c', status: 'ready' },
+        { id: 'd', status: 'blocked' },
+      ],
+    })
+
+    expect(firstResult.state).toBe('failed')
+    expect(bodyRuns).toEqual(['a', 'b', 'c', 'd'])
+    const checkpoint = await store.load(firstResult.runId)
+    expect(checkpoint?.loopState?.['loop-items']).toEqual({ iteration: 2 })
+    expect(checkpoint?.state['itemStatuses']).toEqual([
+      'a:ready',
+      'b:blocked',
+    ])
+
+    const resumeRuns: string[] = []
+    const healthyExecutor: NodeExecutor = async (
+      nodeId: string,
+      _node: PipelineNode,
+      ctx,
+    ) => {
+      const item = ctx.state['item'] as { id: string; status: string }
+      resumeRuns.push(item.id)
+      ctx.state['itemStatus'] = `${item.id}:${item.status}`
+      return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
+    }
+    const second = new PipelineRuntime({
+      definition: {
+        ...forEachPipeline(3),
+        checkpointStrategy: 'after_each_node',
+      },
+      nodeExecutor: healthyExecutor,
+      checkpointStore: store,
+    })
+
+    const resumed = await second.resume(checkpoint!)
+
+    expect(resumed.state).toBe('completed')
+    expect(resumeRuns).toEqual(['c', 'd'])
+    expect(resumed.nodeResults.get('loop-items')?.output).toMatchObject({
+      loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],
+      metrics: {
+        iterationCount: 4,
+        converged: true,
+        terminationReason: 'condition_met',
+      },
+    })
+  })
 })
+
+class MockRedisClient implements RedisClientLike {
+  strings = new Map<string, string>()
+  sortedSets = new Map<string, Map<string, number>>()
+  sets = new Map<string, Set<string>>()
+
+  async set(
+    key: string,
+    value: string,
+    ..._modifiers: Array<string | number>
+  ): Promise<'OK'> {
+    this.strings.set(key, value)
+    return 'OK'
+  }
+
+  async get(key: string): Promise<string | null> {
+    return this.strings.get(key) ?? null
+  }
+
+  async del(...keys: string[]): Promise<number> {
+    let count = 0
+    for (const key of keys) {
+      if (this.strings.delete(key)) count += 1
+      if (this.sortedSets.delete(key)) count += 1
+      if (this.sets.delete(key)) count += 1
+    }
+    return count
+  }
+
+  async zadd(key: string, ...scoreMembers: Array<string | number>): Promise<number> {
+    let zset = this.sortedSets.get(key)
+    if (!zset) {
+      zset = new Map()
+      this.sortedSets.set(key, zset)
+    }
+    let added = 0
+    for (let index = 0; index < scoreMembers.length; index += 2) {
+      const score = Number(scoreMembers[index])
+      const member = String(scoreMembers[index + 1])
+      if (!zset.has(member)) added += 1
+      zset.set(member, score)
+    }
+    return added
+  }
+
+  async zrange(key: string, start: number, stop: number): Promise<string[]> {
+    const zset = this.sortedSets.get(key)
+    if (!zset) return []
+    const sorted = [...zset.entries()]
+      .sort((left, right) => left[1] - right[1])
+      .map(([member]) => member)
+    const end = stop === -1 ? sorted.length : stop + 1
+    return sorted.slice(start, end)
+  }
+
+  async zrevrange(key: string, start: number, stop: number): Promise<string[]> {
+    const zset = this.sortedSets.get(key)
+    if (!zset) return []
+    const sorted = [...zset.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .map(([member]) => member)
+    const end = stop === -1 ? sorted.length : stop + 1
+    return sorted.slice(start, end)
+  }
+
+  async zscore(key: string, member: string): Promise<string | null> {
+    const score = this.sortedSets.get(key)?.get(member)
+    return score === undefined ? null : String(score)
+  }
+
+  async zrem(key: string, ...members: string[]): Promise<number> {
+    const zset = this.sortedSets.get(key)
+    if (!zset) return 0
+    let removed = 0
+    for (const member of members) {
+      if (zset.delete(member)) removed += 1
+    }
+    return removed
+  }
+
+  async sadd(key: string, ...members: string[]): Promise<number> {
+    let set = this.sets.get(key)
+    if (!set) {
+      set = new Set()
+      this.sets.set(key, set)
+    }
+    let added = 0
+    for (const member of members) {
+      if (!set.has(member)) {
+        set.add(member)
+        added += 1
+      }
+    }
+    return added
+  }
+
+  async srem(key: string, ...members: string[]): Promise<number> {
+    const set = this.sets.get(key)
+    if (!set) return 0
+    let removed = 0
+    for (const member of members) {
+      if (set.delete(member)) removed += 1
+    }
+    return removed
+  }
+
+  async smembers(key: string): Promise<string[]> {
+    return [...(this.sets.get(key) ?? [])]
+  }
+
+  async exists(key: string): Promise<number> {
+    return this.strings.has(key) || this.sortedSets.has(key) || this.sets.has(key)
+      ? 1
+      : 0
+  }
+
+  async expire(_key: string, _seconds: number): Promise<number> {
+    return 1
+  }
+}
