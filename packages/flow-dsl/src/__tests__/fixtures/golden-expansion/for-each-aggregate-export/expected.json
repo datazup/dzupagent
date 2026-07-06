@@ -1,0 +1,18 @@
+{
+  "ok": true,
+  "requirePinnedFragmentUses": true,
+  "nodeIds": [
+    "batch__validate_each",
+    "batch__classify_validation",
+    "batch__export_statuses"
+  ],
+  "fragmentInstances": ["batch"],
+  "jsonContains": [
+    "\"source\":\"batch__validationItems\"",
+    "\"from\":\"batch__validationStatus\"",
+    "\"into\":\"batch__validationStatuses\"",
+    "\"source\":\"{{ state.validationItem.result }}\"",
+    "\"statuses\":\"{{ state.batch__validationStatuses }}\"",
+    "\"batchStatuses\":\"{{ state.batch__validationStatuses }}\""
+  ]
+}

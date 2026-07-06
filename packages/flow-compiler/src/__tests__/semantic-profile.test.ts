@@ -271,6 +271,7 @@ describe('createFlowCompiler — profile flattening end-to-end', () => {
           type: 'for_each' as const,
           source: 'state.items',
           as: 'i',
+          collect: { from: 'plan', into: 'plans' },
           body: [
             {
               type: 'agent' as const,
