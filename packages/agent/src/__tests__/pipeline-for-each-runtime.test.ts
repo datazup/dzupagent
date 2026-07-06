@@ -3,6 +3,10 @@ import { describe, expect, it } from 'vitest'
 import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import { InMemoryPipelineCheckpointStore } from '../pipeline/in-memory-checkpoint-store.js'
 import {
+  PostgresPipelineCheckpointStore,
+  type PostgresClientLike,
+} from '../pipeline/postgres-checkpoint-store.js'
+import {
   RedisPipelineCheckpointStore,
   type RedisClientLike,
 } from '../pipeline/redis-checkpoint-store.js'
@@ -572,6 +576,7 @@ describe('PipelineRuntime — lowered for_each collect', () => {
   })
 
   const maybeLiveRedisIt = process.env.DZUPAGENT_REDIS_URL ? it : it.skip
+  const maybeLivePostgresIt = process.env.DZUPAGENT_POSTGRES_URL ? it : it.skip
 
   maybeLiveRedisIt(
     'resumes a concurrent for_each failure from a live Redis checkpoint store',
@@ -753,7 +758,129 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     },
     10_000,
   )
+
+  maybeLivePostgresIt(
+    'recovers a concurrent for_each run after process restart from a live Postgres checkpoint store',
+    async () => {
+      const client = await LivePostgresClient.connect(
+        process.env.DZUPAGENT_POSTGRES_URL!,
+      )
+      const tableName = `test_for_each_pg_restart_${Date.now()}`
+      const store = new PostgresPipelineCheckpointStore({
+        client,
+        tableName,
+      })
+      try {
+        await store.setup()
+        const bodyRuns: string[] = []
+        const delays: Record<string, number> = { a: 35, b: 5, c: 10, d: 1 }
+        const crashingExecutor: NodeExecutor = async (
+          nodeId: string,
+          _node: PipelineNode,
+          ctx,
+        ) => {
+          const item = ctx.state['item'] as { id: string; status: string }
+          bodyRuns.push(item.id)
+          await new Promise((resolve) => setTimeout(resolve, delays[item.id] ?? 0))
+          if (item.id === 'c') {
+            throw new Error('simulated live postgres process restart failure')
+          }
+          ctx.state['itemStatus'] = `${item.id}:${item.status}`
+          return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
+        }
+        const first = new PipelineRuntime({
+          definition: {
+            ...forEachPipeline(3),
+            checkpointStrategy: 'after_each_node',
+          },
+          nodeExecutor: crashingExecutor,
+          checkpointStore: store,
+        })
+
+        const firstResult = await first.execute({
+          items: [
+            { id: 'a', status: 'ready' },
+            { id: 'b', status: 'blocked' },
+            { id: 'c', status: 'ready' },
+            { id: 'd', status: 'blocked' },
+          ],
+        })
+
+        expect(firstResult.state).toBe('failed')
+        expect(bodyRuns).toEqual(['a', 'b', 'c', 'd'])
+
+        const recoveryRuns: string[] = []
+        const healthyExecutor: NodeExecutor = async (
+          nodeId: string,
+          _node: PipelineNode,
+          ctx,
+        ) => {
+          const item = ctx.state['item'] as { id: string; status: string }
+          recoveryRuns.push(item.id)
+          ctx.state['itemStatus'] = `${item.id}:${item.status}`
+          return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
+        }
+        const restarted = new PipelineRuntime({
+          definition: {
+            ...forEachPipeline(3),
+            checkpointStrategy: 'after_each_node',
+            resume: { onProcessRestart: 'resume_from_checkpoint' },
+          },
+          nodeExecutor: healthyExecutor,
+          checkpointStore: store,
+        })
+
+        const recovered = await restarted.recoverAfterProcessRestart(firstResult.runId)
+
+        expect(recovered.state).toBe('completed')
+        expect(recoveryRuns).toEqual(['c', 'd'])
+        expect(recovered.nodeResults.get('loop-items')?.output).toMatchObject({
+          loopOutput: ['a:ready', 'b:blocked', 'c:ready', 'd:blocked'],
+          metrics: {
+            iterationCount: 4,
+            converged: true,
+            terminationReason: 'condition_met',
+          },
+        })
+      } finally {
+        await client.query(`DROP TABLE IF EXISTS ${tableName}`)
+        await client.close()
+      }
+    },
+    10_000,
+  )
 })
+
+class LivePostgresClient implements PostgresClientLike {
+  private constructor(private readonly client: PostgresClientLike & { end(): Promise<void> }) {}
+
+  static async connect(connectionString: string): Promise<LivePostgresClient> {
+    const importModule = new Function(
+      'specifier',
+      'return import(specifier)',
+    ) as (specifier: string) => Promise<unknown>
+    const pg = (await importModule('pg')) as {
+      Client: new (options: { connectionString: string }) => PostgresClientLike & {
+        connect(): Promise<void>
+        end(): Promise<void>
+      }
+    }
+    const client = new pg.Client({ connectionString })
+    await client.connect()
+    return new LivePostgresClient(client)
+  }
+
+  async query<T = unknown>(
+    text: string,
+    params?: unknown[],
+  ): Promise<{ rows: T[] }> {
+    return this.client.query<T>(text, params)
+  }
+
+  async close(): Promise<void> {
+    await this.client.end()
+  }
+}
 
 class MockRedisClient implements RedisClientLike {
   strings = new Map<string, string>()
