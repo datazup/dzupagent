@@ -301,6 +301,43 @@ describe('lowerPipelineLoop', () => {
     })
   })
 
+  it('continues a parent sequence from the for_each loop node, not its body tail', () => {
+    const resolver = makeResolver(['items.process', 'items.closeout'])
+    const idGen = makeIdGen()
+    const ast = sequence(
+      forEach('$.records', 'rec', action('items.process')),
+      action('items.closeout'),
+    )
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.nodes[0].body[0]', toolRef: 'items.process' },
+      { nodePath: 'root.nodes[1]', toolRef: 'items.closeout' },
+    ])
+
+    const { artifact, warnings } = lowerPipelineLoop({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      idGen,
+      name: 'loop-continuation',
+    })
+
+    expect(warnings).toEqual([])
+    const [loopNode, bodyNode, closeoutNode] = artifact.nodes as [
+      LoopNode,
+      ToolNode,
+      ToolNode,
+    ]
+    expect(loopNode.type).toBe('loop')
+    expect(loopNode.bodyNodeIds).toEqual([bodyNode.id])
+    expect(artifact.edges).toEqual([
+      {
+        type: 'sequential',
+        sourceNodeId: loopNode.id,
+        targetNodeId: closeoutNode.id,
+      },
+    ])
+  })
+
   // ---------------------------------------------------------------------------
   // Test 3: for_each inside branch.then → outer structure works without crash
   // ---------------------------------------------------------------------------

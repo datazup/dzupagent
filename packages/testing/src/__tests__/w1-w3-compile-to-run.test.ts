@@ -460,7 +460,7 @@ steps:
           };
         },
         validateSchema: async ({ context, output, source }) => {
-          if (output === "closeoutStatus") {
+          if (context.state.validationItem === undefined) {
             return { output: source };
           }
           const item = context.state.validationItem as {
