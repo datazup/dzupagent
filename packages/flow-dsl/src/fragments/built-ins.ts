@@ -1,4 +1,4 @@
-import type { FlowFragmentV1 } from "@dzupagent/flow-ast";
+import type { FlowFragmentV1, FlowNode } from "@dzupagent/flow-ast";
 
 import { createFragmentRegistry } from "./registry.js";
 
@@ -22,6 +22,44 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
           type: "set",
           id: "set_closeout_status",
           assign: { closeoutStatus: "{{ params.status }}" },
+        },
+      ],
+    },
+  },
+  {
+    dsl: "dzupflow/v1",
+    documentType: "fragment",
+    id: "sdlc.batch_validation",
+    version: 1,
+    description: "Validate an ordered batch of SDLC result items and collect their statuses.",
+    params: {
+      itemsKey: { type: "string", required: true },
+    },
+    exports: {
+      statuses: "{{ state.validationStatuses }}",
+    },
+    root: {
+      type: "sequence",
+      nodes: [
+        {
+          type: "for_each",
+          id: "validate_each",
+          source: "{{ params.itemsKey }}",
+          as: "validationItem",
+          collect: {
+            from: "validationStatus",
+            into: "validationStatuses",
+          },
+          body: [
+            {
+              "validate.schema": {
+                id: "classify_validation",
+                source: "{{ state.validationItem.result }}",
+                schema: "dzup.sdlc.validation-result@1",
+                output: "validationStatus",
+              },
+            } as unknown as FlowNode,
+          ],
         },
       ],
     },

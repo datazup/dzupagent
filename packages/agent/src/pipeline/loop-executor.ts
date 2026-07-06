@@ -245,7 +245,7 @@ async function executeForEachLoop(
         initialAccumulatorValue(context.state, contract.accumulator)
       );
     }
-    onEvent?.(forEachAggregateEvent(loopNode.id, 0, true, contract.collect?.into));
+    onEvent?.(forEachAggregateEvent(loopNode.id, 0, true, contract));
     const totalDuration = Date.now() - startTime;
     return {
       result: {
@@ -323,11 +323,21 @@ async function executeForEachLoop(
         completedBody = false;
         break;
       }
-      const bodyResult = await nodeExecutor(bodyNode.id, bodyNode, {
-        ...context,
-        state: iterationState,
-        previousResults: iterationPreviousResults,
-      });
+      let bodyResult: NodeResult;
+      try {
+        bodyResult = await nodeExecutor(bodyNode.id, bodyNode, {
+          ...context,
+          state: iterationState,
+          previousResults: iterationPreviousResults,
+        });
+      } catch (error) {
+        bodyResult = {
+          nodeId: bodyNode.id,
+          output: null,
+          durationMs: Date.now() - iterStart,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
       iterationPreviousResults.set(bodyNode.id, bodyResult);
       lastBodyResult = bodyResult;
 
@@ -413,6 +423,7 @@ async function executeForEachLoop(
   });
   await Promise.all(workers);
   await flushQueue;
+  await flushCompletedPrefix();
 
   const completedIterations = iterationDurations.filter(
     (duration): duration is number => duration !== undefined
@@ -473,7 +484,7 @@ async function executeForEachLoop(
       loopNode.id,
       items.length,
       false,
-      contract.collect?.into
+      contract
     )
   );
 
@@ -614,24 +625,35 @@ function forEachAggregateEvent(
   nodeId: string,
   count: number,
   empty: boolean,
-  aggregateKey?: string
+  contract: ForEachContract
 ): PipelineRuntimeEvent {
-  return aggregateKey === undefined
-    ? {
-        type: "pipeline:for_each_aggregate",
-        nodeId,
-        count,
-        order: "input",
-        empty,
-      }
-    : {
-        type: "pipeline:for_each_aggregate",
-        nodeId,
-        aggregateKey,
-        count,
-        order: "input",
-        empty,
-      };
+  const aggregateKeys = forEachAggregateKeys(contract);
+  return {
+    type: "pipeline:for_each_aggregate",
+    nodeId,
+    ...(contract.collect !== undefined
+      ? { aggregateKey: contract.collect.into }
+      : {}),
+    ...(aggregateKeys.length > 0 ? { aggregateKeys } : {}),
+    source: contract.source,
+    ...(contract.attachAs !== undefined ? { attachAs: contract.attachAs } : {}),
+    ...(contract.accumulator !== undefined
+      ? { accumulatorKey: contract.accumulator.key }
+      : {}),
+    count,
+    order: "input",
+    empty,
+  };
+}
+
+function forEachAggregateKeys(contract: ForEachContract): string[] {
+  const keys: string[] = [];
+  if (contract.collect !== undefined) keys.push(contract.collect.into);
+  if (contract.attachAs !== undefined) {
+    keys.push(`${contract.source}.${contract.attachAs}`);
+  }
+  if (contract.accumulator !== undefined) keys.push(contract.accumulator.key);
+  return keys;
 }
 
 // ---------------------------------------------------------------------------
