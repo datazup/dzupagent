@@ -20,6 +20,7 @@ import {
   createRuntimeValidationSuiteRegistry,
   createRuntimeValidatePort,
   createRuntimeZodValidationRunner,
+  formatRuntimeToolReadinessReport,
   getRuntimeToolReadiness,
   runtimeToolFailure,
   runtimeShellAllowlistPresets,
@@ -299,6 +300,57 @@ describe("PipelineRuntime runtime tool handlers", () => {
         },
       ],
     });
+  });
+
+  it("formats readiness diagnostics for host and CLI preflight reports", () => {
+    const readiness = getRuntimeToolReadiness(
+      {
+        id: "readiness-report",
+        name: "Readiness Report",
+        version: "1.0.0",
+        schemaVersion: "1.0.0",
+        entryNodeId: "set_0",
+        nodes: [
+          {
+            id: "set_0",
+            type: "tool",
+            toolName: "dzup.runtime.set",
+            arguments: { assign: { truth: "{{ state.truth }}" } },
+          },
+          {
+            id: "adapter_0",
+            type: "tool",
+            toolName: "dzup.runtime.adapter.run",
+            arguments: {
+              provider: "codex",
+              instructions: "Run",
+              output: "adapterResult",
+            },
+          },
+        ],
+        edges: [
+          {
+            type: "sequential",
+            sourceNodeId: "set_0",
+            targetNodeId: "adapter_0",
+          },
+        ],
+      },
+      {},
+    );
+
+    expect(formatRuntimeToolReadinessReport(readiness)).toEqual(
+      [
+        "Runtime tool readiness: not ready",
+        "Required tools: dzup.runtime.set, dzup.runtime.adapter.run",
+        "Built-in tools: dzup.runtime.set",
+        "Missing handlers: dzup.runtime.adapter.run",
+        "Expected state writes: truth, adapterResult",
+        "Nodes:",
+        "- set_0: dzup.runtime.set [ready, built-in] writes truth",
+        "- adapter_0: dzup.runtime.adapter.run [missing, host] writes adapterResult",
+      ].join("\n"),
+    );
   });
 
   it("fails fast on missing runtime handlers when configured", async () => {
