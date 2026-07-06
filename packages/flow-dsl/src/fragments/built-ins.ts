@@ -148,6 +148,41 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
   {
     dsl: "dzupflow/v1",
     documentType: "fragment",
+    id: "sdlc.packet_fanout",
+    version: 1,
+    description: "Dispatch an ordered batch of SDLC packets and collect their gate statuses.",
+    params: {
+      packetsKey: { type: "string", required: true },
+    },
+    exports: {
+      statuses: "{{ state.packetStatuses }}",
+    },
+    root: {
+      type: "sequence",
+      nodes: [
+        {
+          type: "for_each",
+          id: "dispatch_each_packet",
+          source: "{{ params.packetsKey }}",
+          as: "packetItem",
+          collect: {
+            from: "each_packet__packetStatus",
+            into: "packetStatuses",
+          },
+          body: [
+            {
+              type: "sdlc.gated_packet",
+              id: "each_packet",
+              packetRef: "{{ state.packetItem.ref }}",
+            } as unknown as FlowNode,
+          ],
+        },
+      ],
+    },
+  },
+  {
+    dsl: "dzupflow/v1",
+    documentType: "fragment",
     id: "sdlc.validation_gate",
     version: 1,
     description: "Run a validation command and classify the result.",

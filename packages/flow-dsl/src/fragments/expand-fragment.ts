@@ -295,6 +295,81 @@ interface ExpandedNode {
   fragmentExpansions: FragmentInvocationExpansion["fragmentExpansions"];
 }
 
+function unwrapStepWrapper(
+  value: Record<string, unknown>,
+): { kind: string; raw: unknown } | undefined {
+  const entries = Object.entries(value);
+  if (entries.length !== 1) return undefined;
+  const [kind, raw] = entries[0]!;
+  return typeof kind === "string" && kind.length > 0 ? { kind, raw } : undefined;
+}
+
+function expandNestedFragmentNodes(
+  value: unknown,
+  input: FragmentInvocationInput,
+  path: string,
+): { value: unknown; fragmentExpansions: FragmentInvocationExpansion["fragmentExpansions"] } {
+  if (Array.isArray(value)) {
+    const values: unknown[] = [];
+    const fragmentExpansions: FragmentInvocationExpansion["fragmentExpansions"] = [];
+    value.forEach((item, index) => {
+      const expanded = expandNestedFragmentNodes(item, input, `${path}[${index}]`);
+      if (Array.isArray(expanded.value)) {
+        values.push(...expanded.value);
+      } else {
+        values.push(expanded.value);
+      }
+      fragmentExpansions.push(...expanded.fragmentExpansions);
+    });
+    return { value: values, fragmentExpansions };
+  }
+
+  if (!value || typeof value !== "object") {
+    return { value, fragmentExpansions: [] };
+  }
+
+  const objectValue = value as Record<string, unknown>;
+  const wrapper = unwrapStepWrapper(objectValue);
+  if (wrapper && input.registry.has(wrapper.kind)) {
+    const expanded = expandFragmentInvocation({
+      registry: input.registry,
+      kind: wrapper.kind,
+      raw: wrapper.raw,
+      path,
+    });
+    return {
+      value: expanded.steps,
+      fragmentExpansions: expanded.fragmentExpansions,
+    };
+  }
+
+  if (typeof objectValue.type === "string" && input.registry.has(objectValue.type)) {
+    const expanded = expandFragmentInvocation({
+      registry: input.registry,
+      kind: objectValue.type,
+      raw: objectValue,
+      path,
+    });
+    return {
+      value: expanded.steps,
+      fragmentExpansions: expanded.fragmentExpansions,
+    };
+  }
+
+  const fragmentExpansions: FragmentInvocationExpansion["fragmentExpansions"] = [];
+  const entries = Object.entries(objectValue).map(([key, child]) => {
+    if (!CHILD_NODE_FIELDS.has(key)) return [key, child] as const;
+    const expanded = expandNestedFragmentNodes(child, input, `${path}.${key}`);
+    fragmentExpansions.push(...expanded.fragmentExpansions);
+    return [key, expanded.value] as const;
+  });
+
+  return {
+    value: fragmentExpansions.length > 0 ? Object.fromEntries(entries) : value,
+    fragmentExpansions,
+  };
+}
+
 function expandNode(
   node: Record<string, unknown>,
   input: FragmentInvocationInput,
@@ -321,7 +396,15 @@ function expandNode(
       fragmentExpansions: expanded.fragmentExpansions,
     };
   }
-  return { steps: [toStepWrapper(rewritten)], fragmentExpansions: [] };
+  const expandedNested = expandNestedFragmentNodes(
+    rewritten,
+    input,
+    `${input.path}.fragment[${index}]`,
+  );
+  return {
+    steps: [toStepWrapper(expandedNested.value as Record<string, unknown>)],
+    fragmentExpansions: expandedNested.fragmentExpansions,
+  };
 }
 
 export function expandFragmentInvocation(
