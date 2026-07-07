@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import * as testingPkg from "../index.js";
 import * as securityPkg from "../security/index.js";
@@ -123,6 +123,12 @@ describe("Package exports — @dzupagent/testing", () => {
     expect(packageJson.bin?.["dzupagent-sdlc-mvp-evidence"]).toBe(
       "./dist/bin/sdlc-mvp-evidence.js"
     );
+  });
+
+  it("should emit the documented SDLC MVP evidence binary artifact after build", () => {
+    const artifactUrl = new URL("../../dist/bin/sdlc-mvp-evidence.js", import.meta.url);
+
+    expect(existsSync(artifactUrl)).toBe(true);
   });
 });
 

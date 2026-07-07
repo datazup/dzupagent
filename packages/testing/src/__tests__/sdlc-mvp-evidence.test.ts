@@ -26,6 +26,7 @@ describe("SDLC MVP evidence report", () => {
     });
 
     expect(report).toMatchObject({
+      schemaVersion: 1,
       parseOk: true,
       compileOk: true,
       runtimeReady: true,
