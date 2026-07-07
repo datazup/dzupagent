@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
 
+const SDLC_MVP_EVIDENCE_SCHEMA_VERSION = 1;
+
 export interface SdlcMvpEvidenceCommandOutput {
   id: string;
   command: string;
@@ -14,6 +16,7 @@ export interface SdlcMvpEvidencePacketItem {
 }
 
 export interface SdlcMvpEvidenceReport {
+  schemaVersion: typeof SDLC_MVP_EVIDENCE_SCHEMA_VERSION;
   parseOk: boolean;
   compileOk: boolean;
   runtimeReady: boolean;
@@ -81,6 +84,7 @@ export async function runSdlcMvpEvidenceReport(
   const runId = input.runId ?? `sdlc-mvp-evidence-${Date.now()}`;
 
   return {
+    schemaVersion: SDLC_MVP_EVIDENCE_SCHEMA_VERSION,
     parseOk: true,
     compileOk: passed,
     runtimeReady: passed,
