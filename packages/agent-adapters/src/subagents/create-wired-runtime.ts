@@ -2,15 +2,20 @@ import { typedEmit } from "@dzupagent/core/events";
 import type { DzupEventBus } from "@dzupagent/core/events";
 import {
   BackgroundSubagentRuntime,
+  DurableQueueRunner,
   InMemoryTaskStore,
+  PostgresTaskQueue,
+  PostgresTaskStore,
   SpawnGate,
   denyAllSpawnPolicy,
   type CheckpointerPort,
   type GovernanceEventSink,
   type LifecyclePolicy,
+  type PostgresQueryClient,
   type SpawnApprovalGate,
   type SpawnPolicy,
   type SubagentEventSink,
+  type SubagentLogger,
   type TaskStore,
 } from "@dzupagent/subagents";
 import { randomUUID } from "node:crypto";
@@ -31,6 +36,21 @@ export interface CreateWiredSubagentRuntimeOptions {
   checkpointStore?: CheckpointStore;
   /** Custom task store; defaults to in-memory. */
   taskStore?: TaskStore;
+  /** Structured logger for runtime, runner, durable stores, and queues. */
+  logger?: SubagentLogger;
+  /** Durable Postgres-backed task store/queue wiring for production hosts. */
+  postgresDurability?: {
+    client: PostgresQueryClient;
+    taskTableName?: string;
+    queueTableName?: string;
+    workerId?: string;
+    leaseMs?: number;
+    pollIntervalMs?: number;
+    staleRunningRecovery?: {
+      runningTimeoutMs: number;
+      action?: "fail" | "requeue";
+    };
+  };
   policy?: SpawnPolicy;
   approvalGate?: SpawnApprovalGate;
   lifecyclePolicy?: Partial<LifecyclePolicy>;
@@ -52,7 +72,18 @@ export interface CreateWiredSubagentRuntimeOptions {
 export function createWiredSubagentRuntime(
   options: CreateWiredSubagentRuntimeOptions,
 ): BackgroundSubagentRuntime {
-  const store = options.taskStore ?? new InMemoryTaskStore();
+  const postgresDurability = options.postgresDurability;
+  const store =
+    options.taskStore ??
+    (postgresDurability
+      ? new PostgresTaskStore({
+          client: postgresDurability.client,
+          ...(postgresDurability.taskTableName
+            ? { tableName: postgresDurability.taskTableName }
+            : {}),
+          ...(options.logger ? { logger: options.logger } : {}),
+        })
+      : new InMemoryTaskStore());
   const executor = new RegistrySubagentExecutor(
     options.registry,
     options.executorLimits ?? {},
@@ -78,13 +109,40 @@ export function createWiredSubagentRuntime(
     ? new CheckpointStorePort(options.checkpointStore)
     : undefined;
 
-  const runner = new InProcessRunner({
+  const runnerDeps = {
     store,
     executor,
     events,
     clock: { now: () => Date.now() },
     ...(checkpointer ? { checkpointer } : {}),
-  });
+    ...(options.logger ? { logger: options.logger } : {}),
+  };
+  const queue = postgresDurability
+    ? new PostgresTaskQueue({
+        client: postgresDurability.client,
+        ...(postgresDurability.queueTableName
+          ? { tableName: postgresDurability.queueTableName }
+          : {}),
+        ...(postgresDurability.workerId
+          ? { workerId: postgresDurability.workerId }
+          : {}),
+        ...(postgresDurability.leaseMs
+          ? { leaseMs: postgresDurability.leaseMs }
+          : {}),
+        ...(postgresDurability.pollIntervalMs
+          ? { pollIntervalMs: postgresDurability.pollIntervalMs }
+          : {}),
+        ...(options.logger ? { logger: options.logger } : {}),
+      })
+    : undefined;
+  const runner = queue
+    ? new DurableQueueRunner({
+        ...runnerDeps,
+        queue,
+        durable: true,
+        horizontal: true,
+      })
+    : new InProcessRunner(runnerDeps);
 
   // AGENT-L-10: deny-by-default. A host must pass an explicit `policy` to permit
   // spawns; the wired (production) runtime never ships an allow-all surface.
@@ -100,6 +158,15 @@ export function createWiredSubagentRuntime(
     events,
     governance,
     ...(options.lifecyclePolicy ? { policy: options.lifecyclePolicy } : {}),
+    ...(options.logger ? { logger: options.logger } : {}),
+    ...(postgresDurability?.staleRunningRecovery
+      ? {
+          staleRunningRecovery: {
+            ...postgresDurability.staleRunningRecovery,
+            ...(queue ? { enqueue: (taskId: string) => queue.enqueue(taskId) } : {}),
+          },
+        }
+      : {}),
     generateId: options.generateId ?? (() => randomUUID()),
   });
 }
