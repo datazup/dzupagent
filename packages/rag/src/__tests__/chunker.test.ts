@@ -83,13 +83,25 @@ describe("SmartChunker", () => {
       }
     });
 
-    it("chunk IDs follow the pattern sourceId:index", () => {
+    it("chunk IDs are valid Qdrant point IDs (UUID v5 format)", () => {
       const c = smallChunker({ respectBoundaries: false });
       const text = "x".repeat(600);
       const result = c.chunkText(text, "my-doc");
-      for (let i = 0; i < result.length; i++) {
-        expect(result[i]!.id).toBe(`my-doc:${i}`);
+      const uuidPattern =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+      for (const chunk of result) {
+        expect(chunk.id).toMatch(uuidPattern);
       }
+    });
+
+    it("chunk IDs are deterministic for the same sourceId and index", () => {
+      const c = smallChunker({ respectBoundaries: false });
+      const text = "x".repeat(600);
+      const first = c.chunkText(text, "my-doc");
+      const second = c.chunkText(text, "my-doc");
+      expect(second.map((chunk) => chunk.id)).toEqual(
+        first.map((chunk) => chunk.id)
+      );
     });
 
     it("chunkIndex metadata is sequential starting at 0", () => {
