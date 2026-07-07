@@ -36,6 +36,20 @@ export { createDemoEvalSuite, buildStubAnthropicClient } from './eval/index.js';
 export { waitForCondition } from './wait-for-condition.js';
 export type { WaitForConditionOptions } from './wait-for-condition.js';
 
+// SDLC MVP evidence helpers and CLI backing implementation
+export {
+  runSdlcMvpEvidenceReport,
+  shapeSdlcMvpEvidenceCommandOutputs,
+} from './sdlc-mvp-evidence.js';
+export type {
+  RunSdlcMvpEvidenceReportInput,
+  SdlcMvpEvidenceCommandOutput,
+  SdlcMvpEvidencePacketItem,
+  SdlcMvpEvidenceReport,
+  ShapeSdlcMvpEvidenceCommandOutputsInput,
+  ShapedSdlcMvpEvidenceCommandOutputs,
+} from './sdlc-mvp-evidence.js';
+
 // Security testing framework (ECO-183)
 export type {
   SecurityCategory,

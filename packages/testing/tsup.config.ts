@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup'
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/vitest-llm-setup.ts'],
+  entry: ['src/index.ts', 'src/vitest-llm-setup.ts', 'src/bin/sdlc-mvp-evidence.ts'],
   format: ['esm'],
   dts: false,
   clean: true,

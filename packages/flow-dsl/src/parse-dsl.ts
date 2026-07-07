@@ -4,6 +4,7 @@ import { parseYamlSubset } from "./mini-yaml.js";
 import { expandRegisteredCompositesDetailed } from "./primitives/composite-expansion.js";
 import { normalizeDslDocument } from "./normalize.js";
 import { validateDocument } from "./document-validate.js";
+import { BUILT_IN_FRAGMENT_REGISTRY } from "./fragments/built-ins.js";
 import type { ParseDslResult } from "./types.js";
 import type { FragmentRegistry } from "./fragments/types.js";
 import type { PrimitiveRegistry } from "./primitives/types.js";
@@ -17,6 +18,7 @@ export function parseDslToDocument(
   source: string,
   options: ParseDslToDocumentOptions = {},
 ): ParseDslResult {
+  const fragmentRegistry = options.fragmentRegistry ?? BUILT_IN_FRAGMENT_REGISTRY;
   const yaml = parseYamlSubset(source);
   if (!yaml.ok) {
     return {
@@ -44,7 +46,7 @@ export function parseDslToDocument(
   try {
     const expanded = expandRegisteredCompositesDetailed(yaml.value, {
       primitiveRegistry: options.primitiveRegistry,
-      fragmentRegistry: options.fragmentRegistry,
+      fragmentRegistry,
     });
     expandedRaw = expanded.raw;
     fragmentExpansions = expanded.fragmentExpansions;
@@ -66,7 +68,7 @@ export function parseDslToDocument(
 
   const normalized = normalizeDslDocument(expandedRaw, {
     primitiveRegistry: options.primitiveRegistry,
-    fragmentRegistry: options.fragmentRegistry,
+    fragmentRegistry,
   });
   if (!normalized.ok) {
     return {

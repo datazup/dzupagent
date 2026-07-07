@@ -14,6 +14,9 @@
       "types": "./dist/vitest-llm-setup.d.ts"
     }
   },
+  "bin": {
+    "dzupagent-sdlc-mvp-evidence": "./dist/bin/sdlc-mvp-evidence.js"
+  },
   "scripts": {
     "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
     "typecheck": "tsc --noEmit",

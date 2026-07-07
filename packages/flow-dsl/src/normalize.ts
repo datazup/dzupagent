@@ -4,6 +4,7 @@ import { DSL_ERROR } from "./errors.js";
 import { normalizeSteps } from "./normalize-node-helpers.js";
 import { DEFAULT_PRIMITIVE_REGISTRY } from "./primitives/built-ins.js";
 import { normalizePrimitiveImports } from "./primitives/imports.js";
+import { BUILT_IN_FRAGMENT_REGISTRY } from "./fragments/built-ins.js";
 import type { FragmentRegistry } from "./fragments/types.js";
 import type { PrimitiveRegistry } from "./primitives/types.js";
 import {
@@ -42,6 +43,7 @@ export function normalizeDslDocument(
   options: NormalizeDslDocumentOptions = {},
 ): NormalizeDslResult {
   const diagnostics: DslDiagnostic[] = [];
+  const fragmentRegistry = options.fragmentRegistry ?? BUILT_IN_FRAGMENT_REGISTRY;
   if (!isPlainObject(raw)) {
     diagnostics.push({
       phase: "normalize",
@@ -92,7 +94,7 @@ export function normalizeDslDocument(
     raw.uses,
     diagnostics,
     options.primitiveRegistry ?? DEFAULT_PRIMITIVE_REGISTRY,
-    options.fragmentRegistry,
+    fragmentRegistry,
   );
 
   const dslDeclared = typeof raw.dsl === "string" ? raw.dsl : undefined;
