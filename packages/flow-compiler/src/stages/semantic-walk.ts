@@ -225,6 +225,7 @@ export async function visit(
     case "spdd.collect_proof":
     case "spdd.scan_drift":
     case "spdd.create_sync_proposal":
+    case "spdd.agent_swarm":
       return;
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails

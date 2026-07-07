@@ -135,6 +135,7 @@ export function lowerNodeToPipeline(
     case "spdd.collect_proof":
     case "spdd.scan_drift":
     case "spdd.create_sync_proposal":
+    case "spdd.agent_swarm":
       return lowerRuntimeLeaf(node, ctx, path);
 
     case "return_to":

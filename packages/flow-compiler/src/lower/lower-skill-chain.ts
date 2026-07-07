@@ -203,7 +203,8 @@ function walkNode(
     case "spdd.run_validation":
     case "spdd.collect_proof":
     case "spdd.scan_drift":
-    case "spdd.create_sync_proposal": {
+    case "spdd.create_sync_proposal":
+    case "spdd.agent_swarm": {
       // Runtime-executed nodes — no skill-chain step emitted; silently pass through.
       return;
     }

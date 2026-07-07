@@ -155,7 +155,8 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "spdd.run_validation":
       case "spdd.collect_proof":
       case "spdd.scan_drift":
-      case "spdd.create_sync_proposal": {
+      case "spdd.create_sync_proposal":
+      case "spdd.agent_swarm": {
         // Runtime-executed leaf nodes — MPCO P1 marks them so routing keeps
         // them off the skill-chain target (which rejects them at lowering).
         bits |= FEATURE_BITS.RUNTIME_LEAF;
@@ -288,7 +289,8 @@ export function hasOnError(ast: FlowNode): boolean {
       case "spdd.run_validation":
       case "spdd.collect_proof":
       case "spdd.scan_drift":
-      case "spdd.create_sync_proposal": {
+      case "spdd.create_sync_proposal":
+      case "spdd.agent_swarm": {
         return;
       }
       case "try_catch": {
@@ -346,6 +348,7 @@ const RUNTIME_LEAF_NODE_TYPES = new Set<FlowNode["type"]>([
   "spdd.collect_proof",
   "spdd.scan_drift",
   "spdd.create_sync_proposal",
+  "spdd.agent_swarm",
   "prompt",
   "worker.dispatch",
   "shell.run",
@@ -475,6 +478,7 @@ export function collectUnsupportedRuntimeNodes(
       case "spdd.collect_proof":
       case "spdd.scan_drift":
       case "spdd.create_sync_proposal":
+      case "spdd.agent_swarm":
         return;
       default: {
         const _exhaustive: never = node;
@@ -561,6 +565,7 @@ function hasGenericArtifactAnchor(
       case "spdd.collect_proof":
       case "spdd.scan_drift":
       case "spdd.create_sync_proposal":
+      case "spdd.agent_swarm":
         return target === "planning-dag";
       default: {
         const _exhaustive: never = node;

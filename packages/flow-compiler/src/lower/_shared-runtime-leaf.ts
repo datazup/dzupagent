@@ -38,7 +38,8 @@ type RuntimeLeafNode = Extract<
       | "spdd.run_validation"
       | "spdd.collect_proof"
       | "spdd.scan_drift"
-      | "spdd.create_sync_proposal";
+      | "spdd.create_sync_proposal"
+      | "spdd.agent_swarm";
   }
 >;
 

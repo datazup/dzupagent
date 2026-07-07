@@ -684,6 +684,13 @@ function formatNode(
       );
       lines.push(`${childIndent}outputKey: ${node.outputKey}`);
       return;
+    case "spdd.agent_swarm":
+      lines.push(`${indent}- spdd.agent_swarm:`);
+      pushCommon(lines, node, indentLevel + 2);
+      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
+      lines.push(`${childIndent}subTasks: ${formatScalar(node.subTasks)}`);
+      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
+      return;
     default: {
       const _exhaustive: never = node;
       void _exhaustive;

@@ -68,6 +68,7 @@ import {
   validateSpddCollectProof,
   validateSpddScanDrift,
   validateSpddCreateSyncProposal,
+  validateSpddAgentSwarm,
 } from "./spdd.js";
 
 export function validateFlowNode(
@@ -208,6 +209,8 @@ export function validateFlowNode(
       return validateSpddScanDrift(value, path, issues);
     case "spdd.create_sync_proposal":
       return validateSpddCreateSyncProposal(value, path, issues);
+    case "spdd.agent_swarm":
+      return validateSpddAgentSwarm(value, path, issues);
     default:
       issues.push({
         path,

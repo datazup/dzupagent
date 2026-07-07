@@ -567,4 +567,5 @@ export const controlAndLeafValidators: ShapeRulePartial<ControlAndLeafKind> = {
   "spdd.collect_proof": () => {},
   "spdd.scan_drift": () => {},
   "spdd.create_sync_proposal": () => {},
+  "spdd.agent_swarm": () => {},
 };

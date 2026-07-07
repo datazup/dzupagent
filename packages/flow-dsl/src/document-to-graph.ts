@@ -179,6 +179,7 @@ function projectNode(node: FlowNode, state: ProjectionState): ProjectionResult {
     case "spdd.collect_proof":
     case "spdd.scan_drift":
     case "spdd.create_sync_proposal":
+    case "spdd.agent_swarm":
       return { entryIds: [id], exitIds: [id] };
     default: {
       const _exhaustive: never = node;
@@ -314,6 +315,8 @@ function labelForNode(node: FlowNode): string {
       return `spdd.scan_drift:${node.spddRunId}`;
     case "spdd.create_sync_proposal":
       return `spdd.create_sync_proposal:${node.spddRunId}`;
+    case "spdd.agent_swarm":
+      return `spdd.agent_swarm:${node.spddRunId}`;
     default: {
       const _exhaustive: never = node;
       void _exhaustive;
