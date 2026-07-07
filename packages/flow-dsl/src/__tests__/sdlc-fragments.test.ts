@@ -46,4 +46,28 @@ steps:
       sdlc: "dzup.sdlc@1",
     });
   });
+
+  it("expands built-in SDLC fragments through the default parser registry", () => {
+    const result = parseDslToDocument(`
+dsl: dzupflow/v1
+id: default-sdlc-library-demo
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.validation_gate:
+      id: validation
+      cwd: packages/flow-dsl
+      command: yarn test
+`);
+
+    expect(result.ok).toBe(true);
+    expect(result.document?.root.nodes.map((node) => node.id)).toEqual([
+      "validation__run_validation",
+      "validation__classify_validation",
+    ]);
+    expect(result.document?.meta?.fragmentUses).toEqual({
+      sdlc: "dzup.sdlc@1",
+    });
+  });
 });

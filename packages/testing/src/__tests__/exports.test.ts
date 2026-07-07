@@ -5,6 +5,7 @@ import * as securityPkg from "../security/index.js";
 
 interface PackageJson {
   exports?: Record<string, unknown>;
+  bin?: Record<string, string>;
 }
 
 const expectedCoreConsumerSubpaths = [
@@ -47,6 +48,11 @@ describe("Package exports — @dzupagent/testing", () => {
     expect(typeof testingPkg.runSecuritySuite).toBe("function");
   });
 
+  it("should export runSdlcMvpEvidenceReport function", () => {
+    expect(testingPkg.runSdlcMvpEvidenceReport).toBeDefined();
+    expect(typeof testingPkg.runSdlcMvpEvidenceReport).toBe("function");
+  });
+
   it("should export INJECTION_SUITE array", () => {
     expect(testingPkg.INJECTION_SUITE).toBeDefined();
     expect(Array.isArray(testingPkg.INJECTION_SUITE)).toBe(true);
@@ -86,7 +92,9 @@ describe("Package exports — @dzupagent/testing", () => {
       "buildStubAnthropicClient",
       "createDemoEvalSuite",
       "runEvalSuite",
+      "runSdlcMvpEvidenceReport",
       "runSecuritySuite",
+      "shapeSdlcMvpEvidenceCommandOutputs",
       "waitForCondition",
       "withRecordedRegistry",
     ]);
@@ -103,6 +111,18 @@ describe("Package exports — @dzupagent/testing", () => {
       import: "./dist/vitest-llm-setup.js",
       types: "./dist/vitest-llm-setup.d.ts",
     });
+  });
+
+  it("should expose the documented SDLC MVP evidence binary", () => {
+    const rawPackageJson = readFileSync(
+      new URL("../../package.json", import.meta.url),
+      "utf-8"
+    );
+    const packageJson = JSON.parse(rawPackageJson) as PackageJson;
+
+    expect(packageJson.bin?.["dzupagent-sdlc-mvp-evidence"]).toBe(
+      "./dist/bin/sdlc-mvp-evidence.js"
+    );
   });
 });
 
