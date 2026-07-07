@@ -49,4 +49,36 @@ describe('formatDocumentToDsl', () => {
     expect(output).toContain('output: tier')
     expect(output).toContain('default: infra')
   })
+
+  it('formats spdd.agent_swarm nodes', () => {
+    const output = formatDocumentToDsl({
+      dsl: 'dzupflow/v1alpha-agent',
+      id: 'spdd-flow',
+      version: 1,
+      root: {
+        type: 'sequence',
+        id: 'root',
+        nodes: [
+          {
+            type: 'spdd.agent_swarm',
+            id: 'swarm',
+            spddRunId: 'run-1',
+            subTasks: [
+              {
+                role: 'review',
+                personaRef: 'reviewer',
+                input: { artifactRef: 'artifact-1' },
+              },
+            ],
+            outputKey: 'swarmResult',
+          },
+        ],
+      },
+    })
+
+    expect(output).toContain('- spdd.agent_swarm:')
+    expect(output).toContain('spddRunId: run-1')
+    expect(output).toContain('subTasks: [{"role":"review","personaRef":"reviewer","input":{"artifactRef":"artifact-1"}}]')
+    expect(output).toContain('outputKey: swarmResult')
+  })
 })

@@ -295,6 +295,14 @@ describe('runtime-only compiler diagnostics', () => {
           output: 'schemaValidation',
         },
         {
+          type: 'spdd.agent_swarm',
+          spddRunId: 'run-1',
+          subTasks: [
+            { role: 'review', personaRef: 'reviewer', input: { artifactRef: 'artifact-1' } },
+          ],
+          outputKey: 'swarmResult',
+        },
+        {
           type: 'validate',
           ref: 'runtime.suite',
         },
@@ -315,6 +323,7 @@ describe('runtime-only compiler diagnostics', () => {
       'tool',
       'tool',
       'tool',
+      'tool',
     ])
     expect(artifact.nodes.map((node) => 'toolName' in node ? node.toolName : undefined)).toEqual([
       'dzup.runtime.prompt',
@@ -325,6 +334,7 @@ describe('runtime-only compiler diagnostics', () => {
       'dzup.runtime.adapter.supervisor',
       'dzup.runtime.shell.run',
       'dzup.runtime.validate.schema',
+      'dzup.runtime.spdd.agent_swarm',
       'dzup.runtime.validate',
     ])
   })

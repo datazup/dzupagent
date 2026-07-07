@@ -119,6 +119,24 @@ describe("flowNodeSchema.safeParse — valid inputs", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("accepts a spdd.agent_swarm node", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "spdd.agent_swarm",
+      spddRunId: "run-1",
+      subTasks: [
+        {
+          role: "review",
+          personaRef: "reviewer",
+          input: { artifactRef: "artifact-1" },
+        },
+      ],
+      outputKey: "swarmResult",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.type).toBe("spdd.agent_swarm");
+  });
 });
 
 // ---------------------------------------------------------------------------
