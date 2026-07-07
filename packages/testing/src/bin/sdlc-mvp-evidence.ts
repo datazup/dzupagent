@@ -34,9 +34,10 @@ async function main(): Promise<void> {
     throw new Error("--command-output-json is required");
   }
 
+  const packetJsonPath = readArgValue(args, "--packet-json");
   const shaped = await shapeSdlcMvpEvidenceCommandOutputs({
     commandOutputJsonPath,
-    packetJsonPath: readArgValue(args, "--packet-json"),
+    ...(packetJsonPath !== undefined ? { packetJsonPath } : {}),
   });
   const report = await runSdlcMvpEvidenceReport({
     ...shaped,
