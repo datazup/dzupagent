@@ -341,6 +341,7 @@ describe("createFlowCompiler — happy path pipeline", () => {
         order: "input",
       },
       concurrency: 1,
+      failFast: false,
       empty: {
         body: "skip",
         aggregate: "empty-array",

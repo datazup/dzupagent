@@ -93,6 +93,7 @@ export const LoopNodeSchema = PipelineNodeBaseSchema.extend({
         })
         .optional(),
       concurrency: z.number().int().min(1).max(8),
+      failFast: z.boolean().optional(),
       empty: z.object({
         body: z.literal("skip"),
         aggregate: z.literal("empty-array"),

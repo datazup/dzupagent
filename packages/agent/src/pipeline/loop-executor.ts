@@ -414,7 +414,10 @@ async function executeForEachLoop(
   };
 
   const workers = Array.from({ length: concurrency }, async () => {
-    while (firstError === undefined && !context.signal?.aborted) {
+    while (
+      !(contract.failFast === true && firstError !== undefined) &&
+      !context.signal?.aborted
+    ) {
       const index = nextIndex;
       nextIndex += 1;
       if (index >= items.length) return;
@@ -430,8 +433,23 @@ async function executeForEachLoop(
   ).length;
 
   if (firstError !== undefined) {
+    const partialCollected = collected.filter(
+      (_value, index) => completed[index] === true
+    );
+    const partialEnrichedItems = enrichedItems.filter(
+      (_value, index) => completed[index] === true
+    );
     return {
-      result: firstError,
+      result: {
+        ...firstError,
+        output: forEachOutput(
+          contract,
+          partialCollected,
+          partialEnrichedItems,
+          accumulatorValues,
+          firstError.output
+        ),
+      },
       metrics: {
         iterationCount: completedIterations,
         iterationDurations: iterationDurations.filter(

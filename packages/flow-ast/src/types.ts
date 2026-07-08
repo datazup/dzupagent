@@ -314,6 +314,8 @@ export type ForEachNode = FlowNodeBase & {
   };
   /** Run up to N iterations in parallel. Default 1 (sequential). Hard cap: 8. */
   concurrency?: number;
+  /** Stop scheduling new iterations after the first item failure. Default false. */
+  failFast?: boolean;
 };
 export type BranchNode = FlowNodeBase & {
   type: "branch";

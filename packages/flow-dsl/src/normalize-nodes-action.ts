@@ -55,6 +55,7 @@ const FOR_EACH_KEYS = new Set<string>([
   'collect',
   'accumulator',
   'concurrency',
+  'failFast',
 ])
 
 const APPROVAL_KEYS = new Set<string>([
@@ -213,6 +214,7 @@ export function normalizeForEach(
     ...(typeof raw.concurrency === 'number'
       ? { concurrency: Math.min(Math.max(1, Math.floor(raw.concurrency)), 8) }
       : {}),
+    ...(typeof raw.failFast === 'boolean' ? { failFast: raw.failFast } : {}),
   }
   if (raw.attachAs !== undefined && typeof raw.attachAs !== 'string') {
     diagnostics.push({
@@ -228,6 +230,14 @@ export function normalizeForEach(
       code: DSL_ERROR.INVALID_NODE_SHAPE,
       message: 'for_each.concurrency must be a number when present',
       path: `${path}.concurrency`,
+    })
+  }
+  if (raw.failFast !== undefined && typeof raw.failFast !== 'boolean') {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'for_each.failFast must be a boolean when present',
+      path: `${path}.failFast`,
     })
   }
   if (node.source.length === 0) {

@@ -10,11 +10,11 @@ steps:
       output: truth
   - sdlc.packet_fanout:
       id: fanout
-      packetsKey: packetItems
+      packets: packetItems
       output: packetStatuses
   - sdlc.batch_validation:
       id: batch
-      itemsKey: validationItems
+      items: validationItems
       output: validationStatuses
   - sdlc.closeout:
       id: closeout

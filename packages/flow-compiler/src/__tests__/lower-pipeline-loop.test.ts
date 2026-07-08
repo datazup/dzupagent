@@ -149,6 +149,7 @@ describe('lowerPipelineLoop', () => {
       as: 'item',
       order: 'input',
       concurrency: 1,
+      failFast: false,
       empty: {
         body: 'skip',
         aggregate: 'empty-array',
@@ -167,6 +168,32 @@ describe('lowerPipelineLoop', () => {
 
     // A single-node body has no internal edges
     expect(artifact.edges).toHaveLength(0)
+  })
+
+  it('lowers for_each failFast onto the runtime loop contract', () => {
+    const resolver = makeResolver(['items.process'])
+    const idGen = makeIdGen()
+    const ast: ForEachNode = {
+      type: 'for_each',
+      source: '$.items',
+      as: 'item',
+      body: [action('items.process')],
+      failFast: true,
+    }
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.body[0]', toolRef: 'items.process' },
+    ])
+
+    const { artifact } = lowerPipelineLoop({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      idGen,
+      name: 'fail-fast-loop',
+    })
+
+    const loopNode = artifact.nodes[0] as LoopNode
+    expect(loopNode.forEach?.failFast).toBe(true)
   })
 
   it('lowers W1 durability fields from for_each metadata onto the runtime loop', () => {
@@ -247,6 +274,7 @@ describe('lowerPipelineLoop', () => {
       },
       accumulator: { key: 'loopWindow', window: 5, initialValue: [] },
       concurrency: 3,
+      failFast: false,
       empty: {
         body: 'skip',
         aggregate: 'empty-array',

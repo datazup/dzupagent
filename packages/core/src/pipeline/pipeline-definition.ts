@@ -169,6 +169,7 @@ export interface LoopNode extends PipelineNodeBase {
       initialValue?: unknown;
     };
     concurrency: number;
+    failFast?: boolean;
     empty: {
       body: "skip";
       aggregate: "empty-array";

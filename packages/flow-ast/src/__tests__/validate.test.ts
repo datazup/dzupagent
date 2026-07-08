@@ -47,6 +47,32 @@ describe("flowNodeSchema.safeParse — valid inputs", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts for_each aggregation metadata and failFast", () => {
+    const result = flowNodeSchema.safeParse({
+      type: "for_each",
+      id: "validate_each",
+      source: "validationItems",
+      as: "validationItem",
+      collect: { from: "validationStatus", into: "validationResults" },
+      concurrency: 2,
+      failFast: true,
+      body: [
+        {
+          type: "validate.schema",
+          id: "classify_validation",
+          source: "validationItem",
+          schema: "dzup.sdlc.validation-result@1",
+          output: "validationStatus",
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success && result.data.type === "for_each") {
+      expect(result.data.failFast).toBe(true);
+    }
+  });
+
   it("accepts a branch with then and else", () => {
     const result = flowNodeSchema.safeParse({
       type: "branch",

@@ -61,6 +61,11 @@ export function validateForEach(
     joinPath(path, 'concurrency'),
     issues,
   )
+  const failFast = validateFailFast(
+    obj['failFast'],
+    joinPath(path, 'failFast'),
+    issues,
+  )
   if (!ok) return null
   return {
     type: 'for_each',
@@ -72,6 +77,7 @@ export function validateForEach(
     ...(collect !== undefined ? { collect } : {}),
     ...(accumulator !== undefined ? { accumulator } : {}),
     ...(concurrency !== undefined ? { concurrency } : {}),
+    ...(failFast !== undefined ? { failFast } : {}),
   }
 }
 
@@ -157,4 +163,21 @@ function validateConcurrency(
     return undefined
   }
   return Math.min(Math.max(1, Math.floor(value)), 8)
+}
+
+function validateFailFast(
+  value: unknown,
+  path: string,
+  issues: SchemaIssue[],
+): boolean | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'boolean') {
+    issues.push({
+      path,
+      code: 'MISSING_REQUIRED_FIELD',
+      message: 'for_each.failFast must be a boolean when present',
+    })
+    return undefined
+  }
+  return value
 }

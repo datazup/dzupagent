@@ -111,7 +111,9 @@ uses:
 steps:
   - sdlc.batch_validation:
       id: batch
-      itemsKey: validationItems
+      items: validationItems
+      concurrency: 2
+      failFast: true
       output: validationStatuses
 `,
       {
@@ -133,6 +135,8 @@ steps:
         from: "batch__validationStatus",
         into: "batch__validationStatuses",
       },
+      concurrency: 2,
+      failFast: true,
       body: [
         {
           type: "validate.schema",
@@ -159,7 +163,9 @@ uses:
 steps:
   - sdlc.packet_fanout:
       id: fanout
-      packetsKey: packetItems
+      packets: packetItems
+      concurrency: 1
+      failFast: false
       output: packetStatuses
 `,
       {
@@ -181,6 +187,8 @@ steps:
         from: "fanout__each_packet__packetStatus",
         into: "fanout__packetStatuses",
       },
+      concurrency: 1,
+      failFast: false,
       body: [
         {
           type: "worker.dispatch",

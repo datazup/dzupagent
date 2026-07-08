@@ -35,7 +35,9 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
     version: 1,
     description: "Validate an ordered batch of SDLC result items and collect their statuses.",
     params: {
-      itemsKey: { type: "string", required: true },
+      items: { type: "string", required: true },
+      concurrency: { type: "number", default: 1 },
+      failFast: { type: "boolean", default: false },
     },
     exports: {
       statuses: "{{ state.validationStatuses }}",
@@ -46,8 +48,10 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
         {
           type: "for_each",
           id: "validate_each",
-          source: "{{ params.itemsKey }}",
+          source: "{{ params.items }}",
           as: "validationItem",
+          concurrency: "{{ params.concurrency }}" as unknown as number,
+          failFast: "{{ params.failFast }}" as unknown as boolean,
           collect: {
             from: "validationStatus",
             into: "validationStatuses",
@@ -154,7 +158,9 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
     version: 1,
     description: "Dispatch an ordered batch of SDLC packets and collect their gate statuses.",
     params: {
-      packetsKey: { type: "string", required: true },
+      packets: { type: "string", required: true },
+      concurrency: { type: "number", default: 1 },
+      failFast: { type: "boolean", default: false },
     },
     exports: {
       statuses: "{{ state.packetStatuses }}",
@@ -165,8 +171,10 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
         {
           type: "for_each",
           id: "dispatch_each_packet",
-          source: "{{ params.packetsKey }}",
+          source: "{{ params.packets }}",
           as: "packetItem",
+          concurrency: "{{ params.concurrency }}" as unknown as number,
+          failFast: "{{ params.failFast }}" as unknown as boolean,
           collect: {
             from: "each_packet__packetStatus",
             into: "packetStatuses",

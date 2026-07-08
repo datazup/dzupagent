@@ -52,6 +52,7 @@ export function parseForEach(
 
   const attachAs = typeof obj.attachAs === 'string' ? obj.attachAs : undefined
   const concurrency = typeof obj.concurrency === 'number' ? Math.min(Math.max(1, Math.floor(obj.concurrency)), 8) : undefined
+  const failFast = typeof obj.failFast === 'boolean' ? obj.failFast : undefined
 
   let collect: ForEachNode['collect'] | undefined
   if (obj.collect && typeof obj.collect === 'object' && !Array.isArray(obj.collect)) {
@@ -83,5 +84,6 @@ export function parseForEach(
     ...(collect !== undefined ? { collect } : {}),
     ...(accumulator !== undefined ? { accumulator } : {}),
     ...(concurrency !== undefined ? { concurrency } : {}),
+    ...(failFast !== undefined ? { failFast } : {}),
   }
 }

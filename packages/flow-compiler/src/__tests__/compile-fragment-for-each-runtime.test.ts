@@ -86,6 +86,7 @@ describe("compileDocument — fragment for_each runtime contract", () => {
         order: "input",
       },
       concurrency: 1,
+      failFast: false,
       empty: {
         body: "skip",
         aggregate: "empty-array",
