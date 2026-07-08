@@ -91,6 +91,8 @@ describe("Package exports — @dzupagent/testing", () => {
       "RegexScorer",
       "buildStubAnthropicClient",
       "createDemoEvalSuite",
+      "createLivePostgresClient",
+      "createLiveRedisClient",
       "createSdlcValidationRuntimeToolHandlers",
       "runEvalSuite",
       "runSdlcMvpEvidenceReport",
@@ -100,6 +102,11 @@ describe("Package exports — @dzupagent/testing", () => {
       "waitForCondition",
       "withRecordedRegistry",
     ]);
+  });
+
+  it("should export createLiveRedisClient and createLivePostgresClient functions", () => {
+    expect(typeof testingPkg.createLiveRedisClient).toBe("function");
+    expect(typeof testingPkg.createLivePostgresClient).toBe("function");
   });
 
   it("should expose the documented vitest setup subpath", () => {
