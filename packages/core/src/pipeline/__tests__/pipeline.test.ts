@@ -118,6 +118,9 @@ describe("PipelineNode discriminated union", () => {
     const node: AgentNode = { type: "agent", id: "a1", agentId: "my-agent" };
     const result = PipelineNodeSchema.safeParse(node);
     expect(result.success).toBe(true);
+    if (result.success && result.data.type === "loop") {
+      expect(result.data.forEach?.failFast).toBe(true);
+    }
   });
 
   it("accepts ToolNode", () => {
@@ -168,6 +171,36 @@ describe("PipelineNode discriminated union", () => {
       continuePredicateName: "shouldContinue",
     };
     const result = PipelineNodeSchema.safeParse(node);
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts LoopNode for_each runtime metadata with failFast", () => {
+    const node: LoopNode = {
+      type: "loop",
+      id: "validate_each",
+      bodyNodeIds: ["classify_validation"],
+      maxIterations: 1000,
+      continuePredicateName: "forEach__validationItem__predicate",
+      forEach: {
+        source: "validationItems",
+        as: "validationItem",
+        order: "input",
+        collect: {
+          from: "validationStatus",
+          into: "validationResults",
+          order: "input",
+        },
+        concurrency: 2,
+        failFast: true,
+        empty: {
+          body: "skip",
+          aggregate: "empty-array",
+        },
+      },
+    };
+
+    const result = PipelineNodeSchema.safeParse(node);
+
     expect(result.success).toBe(true);
   });
 

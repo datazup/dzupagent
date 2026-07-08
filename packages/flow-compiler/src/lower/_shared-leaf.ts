@@ -175,6 +175,7 @@ function forEachContract(node: ForEachNode): NonNullable<LoopNode["forEach"]> {
       ? { accumulator: node.accumulator }
       : {}),
     concurrency: node.concurrency ?? 1,
+    failFast: node.failFast ?? false,
     empty: {
       body: "skip",
       aggregate: "empty-array",

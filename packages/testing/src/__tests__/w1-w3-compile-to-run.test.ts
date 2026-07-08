@@ -52,7 +52,7 @@ uses:
 steps:
   - sdlc.batch_validation:
       id: batch
-      itemsKey: validationItems
+      items: validationItems
       output: validationStatuses
 `,
       {
@@ -311,7 +311,7 @@ uses:
 steps:
   - sdlc.batch_validation:
       id: batch
-      itemsKey: validationItems
+      items: validationItems
       output: validationStatuses
 `,
       {
@@ -413,7 +413,7 @@ uses:
 steps:
   - sdlc.packet_fanout:
       id: fanout
-      packetsKey: packetItems
+      packets: packetItems
       output: packetStatuses
 `,
       {

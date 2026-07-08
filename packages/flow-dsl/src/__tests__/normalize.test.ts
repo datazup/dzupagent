@@ -507,6 +507,7 @@ describe("normalizeSteps — for_each", () => {
           attachAs: "status",
           accumulator: { key: "loopWindow", window: 3, initialValue: [] },
           concurrency: 4,
+          failFast: true,
           body: [{ action: { ref: "skill:process", input: {} } }],
         },
       },
@@ -520,6 +521,7 @@ describe("normalizeSteps — for_each", () => {
       attachAs: "status",
       accumulator: { key: "loopWindow", window: 3, initialValue: [] },
       concurrency: 4,
+      failFast: true,
     });
   });
 

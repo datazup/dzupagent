@@ -57,6 +57,15 @@ function forEachPipeline(concurrency = 1): PipelineDefinition {
   }
 }
 
+function forEachFailFastPipeline(concurrency = 1, failFast = true): PipelineDefinition {
+  const definition = forEachPipeline(concurrency)
+  const loop = definition.nodes[0]
+  if (loop?.type === 'loop' && loop.forEach !== undefined) {
+    loop.forEach.failFast = failFast
+  }
+  return definition
+}
+
 function forEachAccumulatorPipeline(concurrency = 1): PipelineDefinition {
   return {
     id: 'for-each-accumulator-runtime',
@@ -236,6 +245,40 @@ describe('PipelineRuntime — lowered for_each collect', () => {
         empty: false,
       },
     ])
+  })
+
+  it('with failFast true stops scheduling new items after a failed iteration while settling started work', async () => {
+    const started: string[] = []
+    const executor: NodeExecutor = async (
+      nodeId: string,
+      _node: PipelineNode,
+      ctx,
+    ) => {
+      const item = ctx.state['item'] as { id: string }
+      started.push(item.id)
+      if (item.id === 'a') {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        return { nodeId, output: null, durationMs: 1, error: 'failed a' }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      ctx.state['itemStatus'] = `${item.id}:passed`
+      return { nodeId, output: ctx.state['itemStatus'], durationMs: 1 }
+    }
+    const runtime = new PipelineRuntime({
+      definition: forEachFailFastPipeline(2, true),
+      nodeExecutor: executor,
+    })
+
+    const result = await runtime.execute({
+      items: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }],
+    })
+
+    expect(result.state).toBe('failed')
+    expect(started).toEqual(['a', 'b'])
+    expect(
+      (result.nodeResults.get('loop-items')?.output as { loopOutput?: unknown })
+        ?.loopOutput,
+    ).toEqual(['b:passed'])
   })
 
   it('enriches source items with attachAs and maintains a windowed accumulator', async () => {
