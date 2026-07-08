@@ -139,6 +139,8 @@ export interface FanoutReport {
     outputTokensUsed?: number;
     wallClockMs: number;
     aborted: boolean;
+    /** Set when the batch aborted — mirrors the ledger's `abortedReason`. */
+    abortedReason?: string;
   };
   /** Script `log()` lines; always [] in template mode. */
   logs: string[];
@@ -871,6 +873,9 @@ export function fanoutBatchRecordToReport(
         : {}),
       wallClockMs,
       aborted: record.budgetAborted ?? false,
+      ...(record.abortedReason !== undefined
+        ? { abortedReason: record.abortedReason }
+        : {}),
     },
     logs: [],
   };
