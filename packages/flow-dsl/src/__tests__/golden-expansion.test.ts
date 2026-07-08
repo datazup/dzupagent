@@ -18,10 +18,14 @@ interface GoldenExpectation {
   requirePinnedFragmentUses?: boolean;
 }
 
+interface GoldenFragmentExpansion {
+  instanceId: string;
+}
+
 const fixturesDir = join(
   dirname(fileURLToPath(import.meta.url)),
   "fixtures",
-  "golden-expansion",
+  "golden-expansion"
 );
 
 function readFixture(caseName: string, fileName: string): string {
@@ -39,7 +43,7 @@ function parseFragmentDefinitions(caseName: string): FlowFragmentV1[] {
 
   for (const definition of definitions) {
     expect(definition).toEqual(
-      expect.objectContaining({ documentType: "fragment" }),
+      expect.objectContaining({ documentType: "fragment" })
     );
   }
 
@@ -47,7 +51,9 @@ function parseFragmentDefinitions(caseName: string): FlowFragmentV1[] {
 }
 
 function parseExpectation(caseName: string): GoldenExpectation {
-  return JSON.parse(readFixture(caseName, "expected.json")) as GoldenExpectation;
+  return JSON.parse(
+    readFixture(caseName, "expected.json")
+  ) as GoldenExpectation;
 }
 
 function collectNodeIds(nodes: readonly FlowNode[]): string[] {
@@ -61,7 +67,10 @@ function collectNodeIds(nodes: readonly FlowNode[]): string[] {
     if (!value || typeof value !== "object") return;
 
     const maybeNode = value as { id?: unknown; type?: unknown };
-    if (typeof maybeNode.type === "string" && typeof maybeNode.id === "string") {
+    if (
+      typeof maybeNode.type === "string" &&
+      typeof maybeNode.id === "string"
+    ) {
       ids.push(maybeNode.id);
     }
 
@@ -82,18 +91,23 @@ describe("golden fragment expansion fixtures", () => {
 
   it.each(cases)("%s", (caseName) => {
     const fragmentRegistry = createFragmentRegistry(
-      parseFragmentDefinitions(caseName),
+      parseFragmentDefinitions(caseName)
     );
     const expected = parseExpectation(caseName);
-    const result = parseDslToDocument(readFixture(caseName, "invocation.yaml"), {
-      fragmentRegistry,
-      requirePinnedFragmentUses: expected.requirePinnedFragmentUses,
-    });
+    const result = parseDslToDocument(
+      readFixture(caseName, "invocation.yaml"),
+      {
+        fragmentRegistry,
+        requirePinnedFragmentUses: expected.requirePinnedFragmentUses,
+      }
+    );
 
     expect(result.ok).toBe(expected.ok);
 
     if (!expected.ok) {
-      const diagnostics = result.diagnostics.map((diagnostic) => diagnostic.message);
+      const diagnostics = result.diagnostics.map(
+        (diagnostic) => diagnostic.message
+      );
       for (const expectedDiagnostic of expected.diagnostics ?? []) {
         expect(diagnostics.join("\n")).toContain(expectedDiagnostic);
       }
@@ -109,7 +123,10 @@ describe("golden fragment expansion fixtures", () => {
     }
     expect(new Set(nodeIds).size).toBe(nodeIds.length);
 
-    const expansions = result.document.meta?.fragmentExpansions ?? [];
+    const expansions =
+      (result.document.meta?.fragmentExpansions as
+        | GoldenFragmentExpansion[]
+        | undefined) ?? [];
     const instanceIds = expansions.map((expansion) => expansion.instanceId);
     for (const instanceId of expected.fragmentInstances ?? []) {
       expect(instanceIds).toContain(instanceId);
