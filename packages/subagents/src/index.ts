@@ -13,6 +13,8 @@
 // Contracts (seams)
 export type {
   BackgroundTask,
+  InlineAgentDefinition,
+  SubagentAuditIdentity,
   SubagentSpec,
   SubagentResult,
   TaskId,
@@ -56,6 +58,8 @@ export {
   BackgroundSubagentRuntime,
   type BackgroundSubagentRuntimeDeps,
   type GovernanceEventSink,
+  type SubagentAdmissionResolution,
+  type SubagentAdmissionResolver,
   type SpawnOutcome,
   type SpawnOptions,
   type SpawnBatchAdmission,

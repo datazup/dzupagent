@@ -145,6 +145,115 @@ describe("runtime governance", () => {
     const final = await runtime.check(out.taskId);
     expect(final?.status).toBe("cancelled");
   });
+
+  it("forces approval when admission-resolved persona constraints require it", async () => {
+    let resolveApproval: (() => void) | undefined;
+    const approvalGate = {
+      waitForInterrupt: () =>
+        new Promise<InterruptOutcome>((res) => {
+          resolveApproval = () => res({ decision: "granted" });
+        }),
+    };
+    // Base policy allows without approval; the persona constraint escalates it.
+    const policy: SpawnPolicy = {
+      check: () => ({ allow: true, requiresApproval: false }),
+    };
+    const store = new InMemoryTaskStore();
+    const clock = new ManualClock(0);
+    const events = new RecordingEventSink();
+    const governance = new RecordingGovernanceSink();
+    const executor = new ControllableExecutor("manual");
+    const runner = new InProcessRunner({ store, executor, events, clock });
+    const runtime = new BackgroundSubagentRuntime({
+      store,
+      runner,
+      gate: new SpawnGate(policy, approvalGate),
+      events,
+      governance,
+      clock,
+      generateId: sequentialIds(),
+      resolveAdmission: (spec) => ({
+        spec: {
+          ...spec,
+          resolvedPersonaName: "security-reviewer",
+          resolvedDefinition: {
+            name: "security-reviewer",
+            personaPrompt: "Review security carefully.",
+            constraints: { approvalMode: "required" },
+          },
+        },
+        audit: {
+          personaName: "security-reviewer",
+          inlineDefinitionHash: "sha256:test",
+        },
+      }),
+      policy: {
+        maxConcurrentBackground: 4,
+        maxQueuedTasks: 100,
+        defaultTtlMs: 1000,
+        retentionMs: 1000,
+        gcIntervalMs: 1000,
+      },
+    });
+
+    const out = await runtime.spawn(
+      { agentId: "security-reviewer", input: "go" },
+      "run-1"
+    );
+    expect(out).toMatchObject({ ok: true, status: "awaiting_approval" });
+    if (!out.ok) throw new Error("spawn failed");
+    expect(governance.types()).toContain("governance:approval_requested");
+
+    resolveApproval?.();
+    await flush(10);
+    expect((await runtime.check(out.taskId))?.status).toBe("running");
+  });
+
+  it("emits persona audit metadata on subagent:spawned", async () => {
+    const store = new InMemoryTaskStore();
+    const clock = new ManualClock(0);
+    const events = new RecordingEventSink();
+    const governance = new RecordingGovernanceSink();
+    const executor = new ControllableExecutor("manual");
+    const runner = new InProcessRunner({ store, executor, events, clock });
+    const runtime = new BackgroundSubagentRuntime({
+      store,
+      runner,
+      gate: new SpawnGate(allowAllSpawnPolicy),
+      events,
+      governance,
+      clock,
+      generateId: sequentialIds(),
+      resolveAdmission: (spec) => ({
+        spec: {
+          ...spec,
+          resolvedPersonaName: "reviewer",
+          resolvedDefinition: {
+            name: "reviewer",
+            personaPrompt: "Review carefully.",
+          },
+        },
+        audit: {
+          personaName: "reviewer",
+          inlineDefinitionHash: "sha256:abc",
+        },
+      }),
+    });
+
+    const out = await runtime.spawn(
+      { agentId: "reviewer", input: "go" },
+      "run-1"
+    );
+    if (!out.ok) throw new Error("spawn failed");
+    await flush();
+
+    expect(
+      events.events.find((event) => event.type === "subagent:spawned")
+    ).toMatchObject({
+      personaName: "reviewer",
+      inlineDefinitionHash: "sha256:abc",
+    });
+  });
 });
 
 describe("runtime concurrency + backpressure", () => {
