@@ -258,7 +258,10 @@ function validateForEachScalarExports(
   for (let idx = 0; idx < node.body.length; idx++) {
     const child = node.body[idx];
     if (child === undefined) continue;
-    for (const output of collectScalarOutputPaths(child, `${path}.body[${idx}]`)) {
+    for (const output of collectScalarOutputPaths(
+      child,
+      `${path}.body[${idx}]`
+    )) {
       errors.push({
         nodeType: "for_each",
         nodePath: output.path,
@@ -313,6 +316,7 @@ function collectScalarOutputPaths(
     case "spdd.run_validation":
     case "spdd.collect_proof":
     case "spdd.create_sync_proposal":
+    case "spdd.agent_swarm":
       return [{ key: node.outputKey, path: `${path}.outputKey` }];
     case "fleet.dispatch":
     case "fleet.gather":
