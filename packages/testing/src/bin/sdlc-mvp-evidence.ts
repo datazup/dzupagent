@@ -3,11 +3,16 @@
 import process from "node:process";
 
 import {
+  createLivePostgresClient,
+  createLiveRedisClient,
   runSdlcMvpEvidenceReport,
   shapeSdlcMvpEvidenceCommandOutputs,
 } from "../sdlc-mvp-evidence.js";
 
-function readArgValue(args: readonly string[], name: string): string | undefined {
+function readArgValue(
+  args: readonly string[],
+  name: string
+): string | undefined {
   const inline = args.find((arg) => arg.startsWith(`${name}=`));
   if (inline !== undefined) return inline.slice(name.length + 1);
   const index = args.indexOf(name);
@@ -16,7 +21,8 @@ function readArgValue(args: readonly string[], name: string): string | undefined
 }
 
 function printHelp(): void {
-  process.stdout.write(`Usage: dzupagent-sdlc-mvp-evidence --command-output-json <path> [--packet-json <path>]
+  process.stdout
+    .write(`Usage: dzupagent-sdlc-mvp-evidence --command-output-json <path> [--packet-json <path>]
 
 Builds a JSON SDLC MVP evidence report from host validation command outputs.
 `);
@@ -42,11 +48,15 @@ async function main(): Promise<void> {
   const report = await runSdlcMvpEvidenceReport({
     ...shaped,
     env: process.env,
+    redisClientFactory: createLiveRedisClient,
+    postgresClientFactory: createLivePostgresClient,
   });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 }
 
 main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(
+    `${error instanceof Error ? error.message : String(error)}\n`
+  );
   process.exitCode = 1;
 });

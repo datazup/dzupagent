@@ -42,6 +42,8 @@ export type { WaitForConditionOptions } from "./wait-for-condition.js";
 
 // SDLC MVP evidence helpers and CLI backing implementation
 export {
+  createLivePostgresClient,
+  createLiveRedisClient,
   runSdlcMvpEvidenceReport,
   shapeSdlcMvpEvidenceCommandOutputs,
 } from "./sdlc-mvp-evidence.js";
