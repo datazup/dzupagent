@@ -125,7 +125,7 @@ describe("inlineSubflows", () => {
         type: "sequence",
         id: "root",
         nodes: [
-          { type: "action", id: "produce", toolRef: "tasks.create", input: {}, outputKey: "taskResult" },
+          { type: "action", id: "produce", toolRef: "tasks.create", input: {}, outputKey: "taskResult" } as unknown as FlowDocumentV1["root"]["nodes"][number],
           {
             type: "action",
             id: "consume",
@@ -161,7 +161,7 @@ describe("inlineSubflows", () => {
         type: "sequence",
         id: "root",
         nodes: [
-          { type: "action", id: "produce", toolRef: "tasks.create", input: {}, outputKey: "taskResult" },
+          { type: "action", id: "produce", toolRef: "tasks.create", input: {}, outputKey: "taskResult" } as unknown as FlowDocumentV1["root"]["nodes"][number],
           {
             type: "evidence.write",
             id: "write_evidence",
