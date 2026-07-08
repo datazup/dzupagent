@@ -84,6 +84,7 @@ export class HostFanoutBatchStore implements FanoutBatchStore {
       if (update.outputTokens !== undefined) {
         next.outputTokens = update.outputTokens;
       }
+      if (update.costUsd !== undefined) next.costUsd = update.costUsd;
 
       record.items[index] = next;
       record.updatedAt = update.updatedAt;
@@ -102,6 +103,12 @@ export class HostFanoutBatchStore implements FanoutBatchStore {
       record.wallClockMs = update.wallClockMs;
       if (update.outputTokensUsed !== undefined) {
         record.outputTokensUsed = update.outputTokensUsed;
+      }
+      if (update.budgetUsdReserved !== undefined) {
+        record.budgetUsdReserved = update.budgetUsdReserved;
+      }
+      if (update.budgetUsdActual !== undefined) {
+        record.budgetUsdActual = update.budgetUsdActual;
       }
       record.updatedAt = update.completedAt;
       if (update.abortedReason !== undefined) {

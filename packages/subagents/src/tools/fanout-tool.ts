@@ -1,5 +1,6 @@
 import type {
   BackgroundTask,
+  InlineAgentDefinition,
   SubagentSpec,
   TaskStatus,
 } from "../contracts/background-task.js";
@@ -37,6 +38,8 @@ export interface FanoutLimits {
   maxConcurrent: number;
   /** Aggregate output-token budget across items (advisory if adapters report no usage). */
   maxTotalOutputTokens?: number;
+  /** Aggregate USD budget across items (advisory if adapters report no cost). */
+  maxTotalBudgetUsd?: number;
   /** Whole-fan-out wall clock. Default 15 min. */
   maxWallClockMs: number;
   /** Per-item returned output cap in bytes. Default 2 KiB. */
@@ -82,6 +85,8 @@ export type FanoutTemplateArgs = {
   items: FanoutItem[];
   spec: {
     agentId: string;
+    /** Inline persona definition, required only when agentId is "inline". */
+    definition?: InlineAgentDefinition;
     /** May contain `{{key}}` / `{{input}}` placeholders. */
     instructions?: string;
     outboundScope?: string[];
@@ -90,7 +95,11 @@ export type FanoutTemplateArgs = {
   /** Clamped to `limits.maxConcurrent`. */
   concurrency?: number;
   ttlMs?: number;
-  budget?: { maxTotalOutputTokens?: number; maxWallClockMs?: number };
+  budget?: {
+    maxTotalOutputTokens?: number;
+    maxTotalBudgetUsd?: number;
+    maxWallClockMs?: number;
+  };
 };
 
 /** Honest terminal status of a declared item (NFR4). */
@@ -113,6 +122,8 @@ export interface FanoutReportItem {
   error?: string;
   durationMs?: number;
   outputTokens?: number;
+  /** Actual USD cost reported by the adapter for this item, when known. */
+  costUsd?: number;
 }
 
 /** Structured fan-out result (Spec 01 §5). */
@@ -137,6 +148,10 @@ export interface FanoutReport {
   extraDispatches: Array<{ key: string; taskId: string; status: string }>;
   budget: {
     outputTokensUsed?: number;
+    /** Aggregate USD budget reserved up front / per item before dispatch. */
+    budgetUsdReserved?: number;
+    /** Aggregate USD actually consumed across settled items. */
+    budgetUsdActual?: number;
     wallClockMs: number;
     aborted: boolean;
     /** Set when the batch aborted — mirrors the ledger's `abortedReason`. */
@@ -200,6 +215,28 @@ function sleep(ms: number): Promise<void> {
     const timer = setTimeout(resolve, ms);
     timer.unref?.();
   });
+}
+
+/** Round a USD figure to 6 decimal places to avoid float drift in aggregates. */
+function roundBudgetUsd(value: number): number {
+  return Math.round(value * 1000000) / 1000000;
+}
+
+/** Per-item budget hint carried by the (possibly resolved) template definition. */
+function templateBudgetHints(template: SubagentSpec): {
+  perItemBudgetUsd?: number;
+  estimatedCostUsd?: number;
+} {
+  const constraints = (template.resolvedDefinition ?? template.definition)
+    ?.constraints;
+  return {
+    ...(constraints?.maxBudgetUsd !== undefined
+      ? { perItemBudgetUsd: constraints.maxBudgetUsd }
+      : {}),
+    ...(constraints?.estimatedCostUsd !== undefined
+      ? { estimatedCostUsd: constraints.estimatedCostUsd }
+      : {}),
+  };
 }
 
 /**
@@ -332,6 +369,8 @@ export function createFanoutTemplateTool(
       );
       const maxTotalOutputTokens =
         args.budget?.maxTotalOutputTokens ?? limits.maxTotalOutputTokens;
+      const maxTotalBudgetUsd =
+        args.budget?.maxTotalBudgetUsd ?? limits.maxTotalBudgetUsd;
       const concurrency = Math.max(
         1,
         Math.min(args.concurrency ?? limits.maxConcurrent, limits.maxConcurrent)
@@ -344,6 +383,9 @@ export function createFanoutTemplateTool(
       const batchTemplateSpec: SubagentSpec = {
         agentId: args.spec.agentId,
         input: { fanoutMode: "template" },
+        ...(args.spec.definition !== undefined
+          ? { definition: args.spec.definition }
+          : {}),
         ...(args.spec.instructions !== undefined
           ? { instructions: args.spec.instructions }
           : {}),
@@ -456,14 +498,107 @@ export function createFanoutTemplateTool(
       const abortState: {
         aborted: boolean;
         reason?: "budget_exceeded" | "timeout";
+        /** Specific abort detail (e.g. a USD-budget reason) for item errors/ledger. */
+        detailReason?: string;
       } = { aborted: false };
       let dispatched = 0;
       let outputTokensUsed = 0;
       let sawUsage = false;
+      // USD budget accounting (Spec 01 §6 companion). `reserved` is the up-front
+      // (or per-item preflight) commitment; `actual` is settlement-reported spend.
+      let budgetUsdReserved: number | undefined;
+      let budgetUsdActual: number | undefined;
+
+      /** First abort reason wins; also records the specific detail string. */
+      const abortBudget = (detailReason: string): void => {
+        if (abortState.aborted) return;
+        abortState.aborted = true;
+        abortState.reason = "budget_exceeded";
+        abortState.detailReason = detailReason;
+      };
+
+      const template = admission.batch.template;
+      const { perItemBudgetUsd, estimatedCostUsd } =
+        templateBudgetHints(template);
+
+      // Up-front reservation (reserve N × per-item maxBudgetUsd). When the whole
+      // reservation cannot fit the aggregate USD cap, no item is dispatched and
+      // every declared item is reported `aborted_budget` (honest coverage).
+      if (perItemBudgetUsd !== undefined) {
+        budgetUsdReserved = roundBudgetUsd(perItemBudgetUsd * declared);
+        if (
+          maxTotalBudgetUsd !== undefined &&
+          budgetUsdReserved > maxTotalBudgetUsd
+        ) {
+          abortBudget("max_total_budget_usd_exceeded");
+          const wallClockMs = clock.now() - startedAt;
+          const items: FanoutReportItem[] = args.items.map((item) => ({
+            key: item.key,
+            status: "aborted_budget" as const,
+            error: abortState.detailReason ?? "fanout_budget_aborted",
+          }));
+          for (const item of items) {
+            await recordItem(batchId, item.key, {
+              status: "aborted_budget",
+              ...(item.error !== undefined ? { error: item.error } : {}),
+              updatedAt: clock.now(),
+            });
+          }
+          if (store !== undefined) {
+            try {
+              await store.complete(batchId, {
+                status: "aborted",
+                completedAt: clock.now(),
+                wallClockMs,
+                budgetUsdReserved,
+                abortedReason: abortState.detailReason,
+                budgetAborted: true,
+              });
+            } catch {
+              // Non-fatal.
+            }
+          }
+          emit({
+            type: "fanout:aborted",
+            batchId,
+            reason: "budget_exceeded",
+            dispatched: 0,
+          });
+          return {
+            batchId,
+            mode: "template",
+            declared,
+            dispatched: 0,
+            settled: {
+              succeeded: 0,
+              failed: 0,
+              cancelled: 0,
+              expired: 0,
+              denied: 0,
+              aborted_budget: declared,
+            },
+            uncovered: [],
+            items,
+            extraDispatches: [],
+            budget: {
+              budgetUsdReserved,
+              wallClockMs,
+              aborted: true,
+              ...(abortState.detailReason !== undefined
+                ? { abortedReason: abortState.detailReason }
+                : {}),
+            },
+            logs: [],
+          };
+        }
+      }
 
       const buildSpec = (item: FanoutItem): SubagentSpec => ({
         agentId: args.spec.agentId,
         input: item.input,
+        ...(args.spec.definition !== undefined
+          ? { definition: args.spec.definition }
+          : {}),
         ...(args.spec.instructions !== undefined
           ? {
               instructions: substitutePlaceholders(
@@ -543,6 +678,20 @@ export function createFanoutTemplateTool(
               abortState.reason = "budget_exceeded";
             }
           }
+          // Record actual USD spend and abort remaining work if it overruns the
+          // aggregate cap (later queued items then report `aborted_budget`).
+          const rawCostUsd = task.result?.usage?.costUsd;
+          const costUsd =
+            rawCostUsd !== undefined ? roundBudgetUsd(rawCostUsd) : undefined;
+          if (costUsd !== undefined) {
+            budgetUsdActual = roundBudgetUsd((budgetUsdActual ?? 0) + costUsd);
+            if (
+              maxTotalBudgetUsd !== undefined &&
+              budgetUsdActual > maxTotalBudgetUsd
+            ) {
+              abortBudget("max_total_budget_usd_exceeded");
+            }
+          }
           const provider = task.result?.provider;
           const settledRecord: FanoutReportItem = {
             key: item.key,
@@ -553,6 +702,7 @@ export function createFanoutTemplateTool(
             ...(task.error !== undefined ? { error: task.error } : {}),
             ...(durationMs !== undefined ? { durationMs } : {}),
             ...(outputTokens !== undefined ? { outputTokens } : {}),
+            ...(costUsd !== undefined ? { costUsd } : {}),
           };
           records.set(item.key, settledRecord);
           await recordItem(batchId, item.key, {
@@ -566,6 +716,7 @@ export function createFanoutTemplateTool(
             ...(task.error !== undefined ? { error: task.error } : {}),
             ...(durationMs !== undefined ? { durationMs } : {}),
             ...(outputTokens !== undefined ? { outputTokens } : {}),
+            ...(costUsd !== undefined ? { costUsd } : {}),
             updatedAt: clock.now(),
           });
           emit({
@@ -608,12 +759,55 @@ export function createFanoutTemplateTool(
       };
 
       const processItem = async (item: FanoutItem): Promise<void> => {
+        // A USD-budget abort already tripped — later items are aborted_budget
+        // (honest coverage), NOT never_dispatched (which would be `uncovered`).
+        if (abortState.aborted && abortState.detailReason !== undefined) {
+          records.set(item.key, {
+            key: item.key,
+            status: "aborted_budget",
+            error: abortState.detailReason,
+          });
+          await recordItem(batchId, item.key, {
+            status: "aborted_budget",
+            error: abortState.detailReason,
+            updatedAt: clock.now(),
+          });
+          return;
+        }
         if (abortState.aborted || clock.now() >= deadline) {
           records.set(item.key, {
             key: item.key,
             status: "never_dispatched",
           });
           return;
+        }
+        // Per-item preflight reservation against the estimated cost. If this item
+        // cannot fit the remaining aggregate USD budget, abort before dispatch;
+        // this and every later item are reported `aborted_budget`.
+        if (estimatedCostUsd !== undefined) {
+          const rounded = roundBudgetUsd(estimatedCostUsd);
+          if (
+            maxTotalBudgetUsd !== undefined &&
+            roundBudgetUsd((budgetUsdActual ?? 0) + rounded) > maxTotalBudgetUsd
+          ) {
+            abortBudget("max_total_budget_usd_preflight_exceeded");
+            records.set(item.key, {
+              key: item.key,
+              status: "aborted_budget",
+              error: abortState.detailReason,
+            });
+            await recordItem(batchId, item.key, {
+              status: "aborted_budget",
+              ...(abortState.detailReason !== undefined
+                ? { error: abortState.detailReason }
+                : {}),
+              updatedAt: clock.now(),
+            });
+            return;
+          }
+          budgetUsdReserved = roundBudgetUsd(
+            (budgetUsdReserved ?? 0) + rounded
+          );
         }
         const dispatch = await dispatchItem(item);
         if (dispatch.kind === "denied") {
@@ -735,8 +929,13 @@ export function createFanoutTemplateTool(
             completedAt: clock.now(),
             wallClockMs,
             ...(sawUsage ? { outputTokensUsed } : {}),
+            ...(budgetUsdReserved !== undefined ? { budgetUsdReserved } : {}),
+            ...(budgetUsdActual !== undefined ? { budgetUsdActual } : {}),
             ...(abortState.aborted
-              ? { abortedReason: abortState.reason ?? "timeout" }
+              ? {
+                  abortedReason:
+                    abortState.detailReason ?? abortState.reason ?? "timeout",
+                }
               : {}),
             ...(abortState.aborted && abortState.reason === "budget_exceeded"
               ? { budgetAborted: true }
@@ -777,8 +976,13 @@ export function createFanoutTemplateTool(
         extraDispatches: [],
         budget: {
           ...(sawUsage ? { outputTokensUsed } : {}),
+          ...(budgetUsdReserved !== undefined ? { budgetUsdReserved } : {}),
+          ...(budgetUsdActual !== undefined ? { budgetUsdActual } : {}),
           wallClockMs,
           aborted: abortState.aborted,
+          ...(abortState.aborted && abortState.detailReason !== undefined
+            ? { abortedReason: abortState.detailReason }
+            : {}),
         },
         logs: [],
       };
@@ -811,6 +1015,7 @@ export function fanoutBatchRecordToReport(
     ...(item.outputTokens !== undefined
       ? { outputTokens: item.outputTokens }
       : {}),
+    ...(item.costUsd !== undefined ? { costUsd: item.costUsd } : {}),
   }));
 
   const settled = {
@@ -870,6 +1075,12 @@ export function fanoutBatchRecordToReport(
     budget: {
       ...(record.outputTokensUsed !== undefined
         ? { outputTokensUsed: record.outputTokensUsed }
+        : {}),
+      ...(record.budgetUsdReserved !== undefined
+        ? { budgetUsdReserved: record.budgetUsdReserved }
+        : {}),
+      ...(record.budgetUsdActual !== undefined
+        ? { budgetUsdActual: record.budgetUsdActual }
         : {}),
       wallClockMs,
       aborted: record.budgetAborted ?? false,
