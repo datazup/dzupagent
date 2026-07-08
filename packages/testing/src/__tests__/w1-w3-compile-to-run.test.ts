@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createFlowCompiler } from "@dzupagent/flow-compiler";
 import type { PipelineDefinition, ToolNode } from "@dzupagent/core/pipeline";
+import {
+  BUILT_IN_FRAGMENT_REGISTRY,
+  createFragmentRegistry,
+  parseDslToDocument,
+  parseYamlSubset,
+} from "@dzupagent/flow-dsl";
 import {
   createRuntimeToolHandlers,
   InMemoryPipelineCheckpointStore,
@@ -9,8 +18,698 @@ import {
   type NodeExecutor,
   type RuntimeToolHandler,
 } from "@dzupagent/agent/pipeline";
+import {
+  createSdlcValidationRuntimeToolHandlers,
+  shapeCommandOutputsForBatchValidation,
+} from "../sdlc-validation.js";
+
+const forEachAggregateFixtureDir = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../../flow-dsl/src/__tests__/fixtures/golden-expansion/for-each-aggregate-export",
+);
+const testFixtureDir = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "__fixtures__",
+);
+
+function readForEachAggregateFixture(fileName: string): string {
+  return readFileSync(join(forEachAggregateFixtureDir, fileName), "utf8");
+}
+
+function readTestingFixture(fileName: string): string {
+  return readFileSync(join(testFixtureDir, fileName), "utf8");
+}
 
 describe("W1 + W3 compile-to-run integration", () => {
+  it("shapes host validation command outputs into sdlc.batch_validation inputs", async () => {
+    const parsed = parseDslToDocument(
+      `
+dsl: dzupflow/v1
+id: host-shaped-sdlc-batch-validation
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.batch_validation:
+      id: batch
+      itemsKey: validationItems
+      output: validationStatuses
+`,
+      {
+        fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
+        requirePinnedFragmentUses: true,
+      },
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error("expected built-in SDLC fragment to parse");
+
+    const compiler = createFlowCompiler({
+      toolResolver: {
+        resolve(ref) {
+          if (ref !== "validate.schema") return null;
+          return {
+            ref,
+            kind: "skill",
+            inputSchema: { type: "object" },
+            handle: { skillId: ref },
+          };
+        },
+        listAvailable: () => ["validate.schema"],
+      },
+    });
+    const compiled = await compiler.compileDocument(parsed.document);
+    expect("errors" in compiled).toBe(false);
+    if ("errors" in compiled) throw new Error("expected compile success");
+
+    const commandOutputs = [
+      {
+        id: "typecheck",
+        command: "yarn workspace @dzupagent/flow-dsl typecheck",
+        exitCode: 0,
+        stdout: "Done in 1.25s.",
+        stderr: "",
+      },
+      {
+        id: "tests",
+        command: "yarn workspace @dzupagent/flow-dsl test",
+        exitCode: 1,
+        stdout: "",
+        stderr: "Expected true to be false",
+      },
+    ];
+    const validationItems = shapeCommandOutputsForBatchValidation(commandOutputs);
+
+    const checkpointStore = new InMemoryPipelineCheckpointStore();
+    const result = await new PipelineRuntime({
+      definition: {
+        ...(compiled.artifact as PipelineDefinition),
+        checkpointStrategy: "after_each_node",
+      },
+      checkpointStore,
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validateSchema: async ({ context }) => {
+          const item = context.state.validationItem as {
+            id: string;
+            command: string;
+            result: "pass" | "fail";
+            exitCode: number;
+          };
+          return {
+            output: {
+              id: item.id,
+              command: item.command,
+              accepted: item.result === "pass",
+              status: item.result,
+              exitCode: item.exitCode,
+            },
+          };
+        },
+      }),
+      nodeExecutor: async (nodeId, node) => ({
+        nodeId,
+        output: null,
+        durationMs: 1,
+        error: `unexpected fallback execution for ${node.type}`,
+      }),
+    }).execute({ validationItems });
+
+    expect(validationItems).toEqual([
+      {
+        id: "typecheck",
+        command: "yarn workspace @dzupagent/flow-dsl typecheck",
+        result: "pass",
+        exitCode: 0,
+        stdout: "Done in 1.25s.",
+        stderr: "",
+      },
+      {
+        id: "tests",
+        command: "yarn workspace @dzupagent/flow-dsl test",
+        result: "fail",
+        exitCode: 1,
+        stdout: "",
+        stderr: "Expected true to be false",
+      },
+    ]);
+    expect(result.state).toBe("completed");
+    expect(firstLoopOutput(result)).toMatchObject([
+      {
+        id: "typecheck",
+        command: "yarn workspace @dzupagent/flow-dsl typecheck",
+        accepted: true,
+        status: "pass",
+        exitCode: 0,
+      },
+      {
+        id: "tests",
+        command: "yarn workspace @dzupagent/flow-dsl test",
+        accepted: false,
+        status: "fail",
+        exitCode: 1,
+      },
+    ]);
+  });
+
+  it("shapes command outputs through the public SDLC validation helper", () => {
+    expect(
+      shapeCommandOutputsForBatchValidation([
+        {
+          id: "lint",
+          command: "yarn lint",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+          durationMs: 420,
+        },
+        {
+          id: "test",
+          command: "yarn test",
+          exitCode: 2,
+          stdout: "",
+          stderr: "failed",
+        },
+      ]),
+    ).toEqual([
+      {
+        id: "lint",
+        command: "yarn lint",
+        result: "pass",
+        exitCode: 0,
+        stdout: "ok",
+        stderr: "",
+        durationMs: 420,
+      },
+      {
+        id: "test",
+        command: "yarn test",
+        result: "fail",
+        exitCode: 2,
+        stdout: "",
+        stderr: "failed",
+      },
+    ]);
+  });
+
+  it("adapts host command outputs through reusable SDLC validation runtime handlers", async () => {
+    const validationItems = shapeCommandOutputsForBatchValidation([
+      {
+        id: "typecheck",
+        command: "yarn typecheck",
+        exitCode: 0,
+        stdout: "ok",
+        stderr: "",
+      },
+      {
+        id: "test",
+        command: "yarn test",
+        exitCode: 1,
+        stdout: "",
+        stderr: "failed",
+      },
+    ]);
+    const handlers = createSdlcValidationRuntimeToolHandlers();
+
+    const first = await handlers["dzup.runtime.validate.schema"]?.({
+      nodeId: "validate_0",
+      node: {
+        id: "validate_0",
+        type: "tool",
+        toolName: "dzup.runtime.validate.schema",
+        arguments: {
+          source: "{{ state.validationItem }}",
+          schema: { type: "object" },
+          output: "validationStatus",
+        },
+      },
+      arguments: {
+        source: "{{ state.validationItem }}",
+        schema: { type: "object" },
+        output: "validationStatus",
+      },
+      context: {
+        state: { validationItem: validationItems[0] },
+        previousResults: new Map(),
+      },
+    });
+    const second = await handlers["dzup.runtime.validate.schema"]?.({
+      nodeId: "validate_1",
+      node: {
+        id: "validate_1",
+        type: "tool",
+        toolName: "dzup.runtime.validate.schema",
+        arguments: {
+          source: "{{ state.validationItem }}",
+          schema: { type: "object" },
+          output: "validationStatus",
+        },
+      },
+      arguments: {
+        source: "{{ state.validationItem }}",
+        schema: { type: "object" },
+        output: "validationStatus",
+      },
+      context: {
+        state: { validationItem: validationItems[1] },
+        previousResults: new Map(),
+      },
+    });
+
+    expect(first).toMatchObject({
+      ok: true,
+      output: {
+        id: "typecheck",
+        command: "yarn typecheck",
+        accepted: true,
+        status: "pass",
+        exitCode: 0,
+        stdout: "ok",
+        stderr: "",
+      },
+    });
+    expect(second).toMatchObject({
+      ok: true,
+      output: {
+        id: "test",
+        command: "yarn test",
+        accepted: false,
+        status: "fail",
+        exitCode: 1,
+        stdout: "",
+        stderr: "failed",
+      },
+    });
+  });
+
+  it("executes built-in sdlc.batch_validation through for_each.collect", async () => {
+    const parsed = parseDslToDocument(
+      `
+dsl: dzupflow/v1
+id: built-in-sdlc-batch-validation
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.batch_validation:
+      id: batch
+      itemsKey: validationItems
+      output: validationStatuses
+`,
+      {
+        fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
+        requirePinnedFragmentUses: true,
+      },
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error("expected built-in SDLC fragment to parse");
+
+    const compiler = createFlowCompiler({
+      toolResolver: {
+        resolve(ref) {
+          if (ref !== "validate.schema") return null;
+          return {
+            ref,
+            kind: "skill",
+            inputSchema: { type: "object" },
+            handle: { skillId: ref },
+          };
+        },
+        listAvailable: () => ["validate.schema"],
+      },
+    });
+    const compiled = await compiler.compileDocument(parsed.document);
+    expect("errors" in compiled).toBe(false);
+    if ("errors" in compiled) throw new Error("expected compile success");
+    expect(compiled.target).toBe("pipeline");
+
+    const definition = compiled.artifact as PipelineDefinition;
+    const result = await new PipelineRuntime({
+      definition,
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validateSchema: async ({ context }) => {
+          const item = context.state.validationItem as {
+            id: string;
+            result: "pass" | "fail";
+            command: string;
+          };
+          return {
+            output: {
+              id: item.id,
+              command: item.command,
+              accepted: item.result === "pass",
+              status: item.result,
+            },
+          };
+        },
+      }),
+      nodeExecutor: async (nodeId, node) => ({
+        nodeId,
+        output: null,
+        durationMs: 1,
+        error: `unexpected fallback execution for ${node.type}`,
+      }),
+    }).execute({
+      validationItems: [
+        { id: "types", command: "yarn typecheck", result: "pass" },
+        { id: "tests", command: "yarn test", result: "fail" },
+      ],
+    });
+
+    expect(result.state).toBe("completed");
+    const loopResult = [...result.nodeResults.values()].find((nodeResult) => {
+      const output = nodeResult.output as { loopOutput?: unknown } | null;
+      return output !== null && Array.isArray(output.loopOutput);
+    });
+    expect(loopResult?.output).toMatchObject({
+      loopOutput: [
+        {
+          id: "types",
+          command: "yarn typecheck",
+          accepted: true,
+          status: "pass",
+        },
+        {
+          id: "tests",
+          command: "yarn test",
+          accepted: false,
+          status: "fail",
+        },
+      ],
+      metrics: {
+        iterationCount: 2,
+        converged: true,
+        terminationReason: "condition_met",
+      },
+    });
+  });
+
+  it("executes built-in sdlc.packet_fanout through gated_packet and for_each.collect", async () => {
+    const parsed = parseDslToDocument(
+      `
+dsl: dzupflow/v1
+id: built-in-sdlc-packet-fanout
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.packet_fanout:
+      id: fanout
+      packetsKey: packetItems
+      output: packetStatuses
+`,
+      {
+        fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
+        requirePinnedFragmentUses: true,
+      },
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error("expected built-in SDLC fragment to parse");
+
+    const compiler = createFlowCompiler({
+      toolResolver: {
+        resolve: () => null,
+        listAvailable: () => [],
+      },
+    });
+    const compiled = await compiler.compileDocument(parsed.document);
+    expect("errors" in compiled).toBe(false);
+    if ("errors" in compiled) throw new Error("expected compile success");
+    expect(compiled.target).toBe("pipeline");
+
+    const checkpointStore = new InMemoryPipelineCheckpointStore();
+    const result = await new PipelineRuntime({
+      definition: {
+        ...(compiled.artifact as PipelineDefinition),
+        checkpointStrategy: "after_each_node",
+      },
+      checkpointStore,
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        workerDispatch: async ({ context, outputKey }) => {
+          const packet = context.state.packetItem as { ref: string };
+          return {
+            output: {
+              packetRef: packet.ref,
+              outputKey,
+              accepted: packet.ref !== "packet/beta",
+              status: packet.ref === "packet/beta" ? "blocked" : "ready",
+            },
+          };
+        },
+      }),
+      nodeExecutor: async (nodeId, node) => ({
+        nodeId,
+        output: null,
+        durationMs: 1,
+        error: `unexpected fallback execution for ${node.type}`,
+      }),
+    }).execute({
+      packetItems: [
+        { ref: "packet/alpha" },
+        { ref: "packet/beta" },
+        { ref: "packet/gamma" },
+      ],
+    });
+
+    expect(result.state).toBe("completed");
+    expect(firstLoopOutput(result)).toMatchObject([
+      {
+        packetRef: "packet/alpha",
+        accepted: true,
+        status: "ready",
+      },
+      {
+        packetRef: "packet/beta",
+        accepted: false,
+        status: "blocked",
+      },
+      {
+        packetRef: "packet/gamma",
+        accepted: true,
+        status: "ready",
+      },
+    ]);
+  });
+
+  it("executes an MVP closeout flow chaining truth capture, packet fanout, validation batch, and closeout", async () => {
+    const parsed = parseDslToDocument(
+      readTestingFixture("sdlc-mvp-closeout.dsl.yaml"),
+      {
+        fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
+        requirePinnedFragmentUses: true,
+      },
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error("expected MVP closeout flow to parse");
+
+    const compiler = createFlowCompiler({
+      toolResolver: {
+        resolve(ref) {
+          if (ref !== "sdlc.current_truth" && ref !== "validate.schema") {
+            return null;
+          }
+          return {
+            ref,
+            kind: "skill",
+            inputSchema: { type: "object" },
+            handle: { skillId: ref },
+          };
+        },
+        listAvailable: () => ["sdlc.current_truth", "validate.schema"],
+      },
+    });
+    const compiled = await compiler.compileDocument(parsed.document);
+    expect("errors" in compiled).toBe(false);
+    if ("errors" in compiled) throw new Error("expected compile success");
+    expect(compiled.target).toBe("pipeline");
+
+    const checkpointStore = new InMemoryPipelineCheckpointStore();
+    const result = await new PipelineRuntime({
+      definition: {
+        ...(compiled.artifact as PipelineDefinition),
+        checkpointStrategy: "after_each_node",
+      },
+      checkpointStore,
+      runtimeToolHandlers: {
+        ...createRuntimeToolHandlers({
+          workerDispatch: async ({ context }) => {
+            const packet = context.state.packetItem as { ref: string };
+            return {
+              output: {
+                packetRef: packet.ref,
+                accepted: true,
+                status: "ready",
+              },
+            };
+          },
+        }),
+        ...createSdlcValidationRuntimeToolHandlers(),
+      },
+      nodeExecutor: async (nodeId, node) => {
+        if (node.type === "tool" && node.toolName === "sdlc.current_truth") {
+          return {
+            nodeId,
+            output: { scope: "dzupagent", dirty: false },
+            durationMs: 1,
+          };
+        }
+        return {
+          nodeId,
+          output: null,
+          durationMs: 1,
+          error: `unexpected fallback execution for ${node.type}`,
+        };
+      },
+    }).execute({
+      packetItems: [{ ref: "packet/alpha" }, { ref: "packet/beta" }],
+      validationItems: shapeCommandOutputsForBatchValidation([
+        {
+          id: "types",
+          command: "yarn workspace @dzupagent/flow-dsl typecheck",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+        },
+        {
+          id: "tests",
+          command: "yarn workspace @dzupagent/testing test",
+          exitCode: 0,
+          stdout: "ok",
+          stderr: "",
+        },
+      ]),
+    });
+
+    expect(result.state).toBe("completed");
+    expect(
+      [...result.nodeResults.values()].map((nodeResult) => nodeResult.output),
+    ).toContainEqual({
+      scope: "dzupagent",
+      dirty: false,
+    });
+    const outputs = [...result.nodeResults.values()].map(
+      (nodeResult) => nodeResult.output,
+    );
+    const loopOutputs = outputs
+      .map((output) => (output as { loopOutput?: unknown } | null)?.loopOutput)
+      .filter((output): output is unknown[] => Array.isArray(output));
+    expect(loopOutputs).toEqual(
+      expect.arrayContaining([
+        [
+          { packetRef: "packet/alpha", accepted: true, status: "ready" },
+          { packetRef: "packet/beta", accepted: true, status: "ready" },
+        ],
+        [
+          expect.objectContaining({
+            id: "types",
+            command: "yarn workspace @dzupagent/flow-dsl typecheck",
+            accepted: true,
+            status: "pass",
+            exitCode: 0,
+          }),
+          expect.objectContaining({
+            id: "tests",
+            command: "yarn workspace @dzupagent/testing test",
+            accepted: true,
+            status: "pass",
+            exitCode: 0,
+          }),
+        ],
+      ]),
+    );
+    expect(outputs).toContain("complete");
+
+    const finalCheckpoint = await checkpointStore.load(result.runId);
+    expect(finalCheckpoint?.state).toMatchObject({
+      truth: { scope: "dzupagent", dirty: false },
+      closeoutStatus: "complete",
+    });
+  });
+
+  it("executes the aggregate-export DSL fragment fixture through PipelineRuntime", async () => {
+    const fragmentDefinitions = parseYamlSubset(
+      readForEachAggregateFixture("fragments.yaml"),
+    );
+    expect(fragmentDefinitions.ok).toBe(true);
+    if (!fragmentDefinitions.ok) throw new Error("expected fixture fragments to parse");
+
+    const registry = createFragmentRegistry([
+      fragmentDefinitions.value as Parameters<typeof createFragmentRegistry>[0][number],
+    ]);
+    const parsed = parseDslToDocument(readForEachAggregateFixture("invocation.yaml"), {
+      fragmentRegistry: registry,
+      requirePinnedFragmentUses: true,
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error("expected fixture invocation to parse");
+
+    const compiler = createFlowCompiler({
+      toolResolver: {
+        resolve(ref) {
+          if (ref !== "validate.schema") return null;
+          return {
+            ref,
+            kind: "skill",
+            inputSchema: { type: "object" },
+            handle: { skillId: ref },
+          };
+        },
+        listAvailable: () => ["validate.schema"],
+      },
+    });
+    const compiled = await compiler.compileDocument(parsed.document);
+
+    expect("errors" in compiled).toBe(false);
+    if ("errors" in compiled) throw new Error("expected compile success");
+    expect(compiled.target).toBe("pipeline");
+
+    const definition = compiled.artifact as PipelineDefinition;
+    const runtime = new PipelineRuntime({
+      definition,
+      runtimeToolHandlers: createRuntimeToolHandlers({
+        validateSchema: async ({ context, output }) => {
+          const item = context.state.validationItem as { id: string; result: string };
+          return {
+            output: {
+              id: item.id,
+              accepted: item.result === "pass",
+              status: `${item.id}:${item.result}`,
+            },
+            metadata: { output },
+          };
+        },
+      }),
+      nodeExecutor: async (nodeId, node) => ({
+        nodeId,
+        output: null,
+        durationMs: 1,
+        error: `unexpected fallback execution for ${node.type}`,
+      }),
+    });
+
+    const result = await runtime.execute({
+      batch__validationItems: [
+        { id: "schema", result: "pass" },
+        { id: "tests", result: "fail" },
+      ],
+    });
+
+    expect(result.state).toBe("completed");
+    const loopResult = [...result.nodeResults.values()].find((nodeResult) => {
+      const output = nodeResult.output as { loopOutput?: unknown } | null;
+      return output !== null && Array.isArray(output.loopOutput);
+    });
+    expect(loopResult?.output).toMatchObject({
+      loopOutput: [
+        { id: "schema", accepted: true, status: "schema:pass" },
+        { id: "tests", accepted: false, status: "tests:fail" },
+      ],
+      metrics: {
+        iterationCount: 2,
+        converged: true,
+        terminationReason: "condition_met",
+      },
+    });
+  });
+
   it("executes a durable planning-dag runtime tool with handler context and checkpointed idempotency", async () => {
     const compiler = createFlowCompiler({
       toolResolver: {
@@ -526,6 +1225,14 @@ describe("W1 + W3 compile-to-run integration", () => {
     });
   });
 });
+
+function firstLoopOutput(result: Awaited<ReturnType<PipelineRuntime["execute"]>>) {
+  const loopResult = [...result.nodeResults.values()].find((nodeResult) => {
+    const output = nodeResult.output as { loopOutput?: unknown } | null;
+    return output !== null && Array.isArray(output.loopOutput);
+  });
+  return (loopResult?.output as { loopOutput?: unknown } | undefined)?.loopOutput;
+}
 
 type RuntimeLeafFixtureNode =
   | {

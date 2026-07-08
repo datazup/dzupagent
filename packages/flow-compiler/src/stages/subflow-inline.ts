@@ -22,10 +22,44 @@ const STATE_KEY_FIELDS = new Set([
   "outputVar",
   "source",
   "progressKey",
+  "sourceRefsKey",
+  "driftFindingIdsKey",
+  "errorVar",
 ]);
+
+const SOURCE_IS_STATE_NODE_TYPES = new Set([
+  "evidence.write",
+  "validate.schema",
+  "validate",
+  "memory.write",
+]);
+
+const STATE_TEMPLATE_RE = /\{\{\s*state\.([A-Za-z0-9_]+)((?:\.[A-Za-z0-9_]+)*)\s*\}\}/g;
+const CHILD_NODE_FIELDS = new Set([
+  "nodes",
+  "body",
+  "then",
+  "else",
+  "catch",
+  "branches",
+  "onApprove",
+  "onReject",
+]);
+
+interface ReferenceScope {
+  nodeIds: ReadonlySet<string>;
+  checkpointLabels: ReadonlySet<string>;
+}
 
 function privateKey(instanceId: string, key: string): string {
   return `${instanceId}__${key}`;
+}
+
+function rewriteStateTemplates(value: string, instanceId: string): string {
+  return value.replace(
+    STATE_TEMPLATE_RE,
+    (_match, key: string, pathRest: string) => `{{ state.${privateKey(instanceId, key)}${pathRest} }}`,
+  );
 }
 
 function instanceIdFor(node: FlowNode): string {
@@ -34,21 +68,201 @@ function instanceIdFor(node: FlowNode): string {
     : node.type.replace(/[^A-Za-z0-9_]+/g, "_");
 }
 
-function rewriteValue(value: unknown, instanceId: string): unknown {
-  if (Array.isArray(value)) return value.map((item) => rewriteValue(item, instanceId));
+function shouldRewriteStateKeyField(
+  nodeType: string | undefined,
+  key: string,
+  value: string,
+): boolean {
+  if (value.includes("{{")) return false;
+  if (key === "source") {
+    return nodeType !== undefined && SOURCE_IS_STATE_NODE_TYPES.has(nodeType);
+  }
+  return STATE_KEY_FIELDS.has(key);
+}
+
+function shouldRewriteNodeReferenceField(
+  nodeType: string | undefined,
+  key: string,
+  value: string,
+  referenceScope: ReferenceScope,
+): boolean {
+  if (value.includes("{{")) return false;
+  if (
+    nodeType === "return_to" &&
+    key === "targetId" &&
+    referenceScope.nodeIds.has(value)
+  ) {
+    return true;
+  }
+  if (
+    nodeType === "checkpoint" &&
+    key === "captureOutputOf" &&
+    referenceScope.nodeIds.has(value)
+  ) {
+    return true;
+  }
+  if (
+    nodeType === "checkpoint" &&
+    key === "label" &&
+    referenceScope.checkpointLabels.has(value)
+  ) {
+    return true;
+  }
+  return (
+    nodeType === "restore" &&
+    key === "checkpointLabel" &&
+    referenceScope.checkpointLabels.has(value)
+  );
+}
+
+function collectReferenceScope(nodes: readonly FlowNode[]): ReferenceScope {
+  const nodeIds = new Set<string>();
+  const checkpointLabels = new Set<string>();
+
+  function visit(value: unknown, nodeScopeEligible: boolean): void {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, nodeScopeEligible);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+
+    const objectValue = value as Record<string, unknown>;
+    const isNode = nodeScopeEligible && typeof objectValue.type === "string";
+    if (isNode) {
+      if (typeof objectValue.id === "string") nodeIds.add(objectValue.id);
+      if (
+        objectValue.type === "checkpoint" &&
+        typeof objectValue.label === "string" &&
+        !objectValue.label.includes("{{")
+      ) {
+        checkpointLabels.add(objectValue.label);
+      }
+    }
+
+    for (const [key, child] of Object.entries(objectValue)) {
+      visit(child, CHILD_NODE_FIELDS.has(key));
+    }
+  }
+
+  for (const node of nodes) visit(node, true);
+  return { nodeIds, checkpointLabels };
+}
+
+function rewriteValue(
+  value: unknown,
+  instanceId: string,
+  nodeType?: string,
+  stateKeyFieldDepth = 0,
+  nodeScopeEligible = false,
+  referenceScope: ReferenceScope = {
+    nodeIds: new Set<string>(),
+    checkpointLabels: new Set<string>(),
+  },
+): unknown {
+  if (typeof value === "string") return rewriteStateTemplates(value, instanceId);
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      rewriteValue(
+        item,
+        instanceId,
+        nodeType,
+        stateKeyFieldDepth + 1,
+        nodeScopeEligible,
+        referenceScope,
+      ),
+    );
+  }
   if (!value || typeof value !== "object") return value;
 
+  const objectValue = value as Record<string, unknown>;
+  const isFlowNodeObject =
+    nodeScopeEligible && typeof objectValue.type === "string";
+  const currentNodeType =
+    isFlowNodeObject && typeof objectValue.type === "string"
+      ? objectValue.type
+      : nodeType;
+  const currentStateKeyFieldDepth = isFlowNodeObject ? 0 : stateKeyFieldDepth;
   const output: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (key === "id" && typeof child === "string") {
+  for (const [key, child] of Object.entries(objectValue)) {
+    if (isFlowNodeObject && key === "id" && typeof child === "string") {
       output[key] = privateKey(instanceId, child);
       continue;
     }
-    if (STATE_KEY_FIELDS.has(key) && typeof child === "string") {
+    if (
+      currentStateKeyFieldDepth === 0 &&
+      currentNodeType === "set" &&
+      key === "assign" &&
+      child &&
+      typeof child === "object" &&
+      !Array.isArray(child)
+    ) {
+      output[key] = Object.fromEntries(
+        Object.entries(child as Record<string, unknown>).map(
+          ([assignKey, assignValue]) => [
+            privateKey(instanceId, assignKey),
+            rewriteValue(
+              assignValue,
+              instanceId,
+              currentNodeType,
+              currentStateKeyFieldDepth + 1,
+              false,
+              referenceScope,
+            ),
+          ],
+        ),
+      );
+      continue;
+    }
+    if (
+      currentStateKeyFieldDepth === 0 &&
+      key === "output" &&
+      child &&
+      typeof child === "object" &&
+      !Array.isArray(child)
+    ) {
+      const outputObj = child as Record<string, unknown>;
+      output[key] =
+        typeof outputObj.key === "string"
+          ? { ...outputObj, key: privateKey(instanceId, outputObj.key) }
+          : rewriteValue(
+              child,
+              instanceId,
+              currentNodeType,
+              currentStateKeyFieldDepth + 1,
+              false,
+              referenceScope,
+            );
+      continue;
+    }
+    if (
+      currentStateKeyFieldDepth === 0 &&
+      typeof child === "string" &&
+      shouldRewriteNodeReferenceField(
+        currentNodeType,
+        key,
+        child,
+        referenceScope,
+      )
+    ) {
       output[key] = privateKey(instanceId, child);
       continue;
     }
-    output[key] = rewriteValue(child, instanceId);
+    if (
+      currentStateKeyFieldDepth === 0 &&
+      typeof child === "string" &&
+      shouldRewriteStateKeyField(currentNodeType, key, child)
+    ) {
+      output[key] = privateKey(instanceId, child);
+      continue;
+    }
+    output[key] = rewriteValue(
+      child,
+      instanceId,
+      currentNodeType,
+      currentStateKeyFieldDepth + 1,
+      CHILD_NODE_FIELDS.has(key),
+      referenceScope,
+    );
   }
   return output;
 }
@@ -108,8 +322,19 @@ async function inlineNode(
       subflows,
     );
     const instanceId = instanceIdFor(node);
+    const referenceScope = collectReferenceScope(nested);
     subflows.push({ flowRef: node.flowRef, instanceId, nodePath: path });
-    return nested.map((child) => rewriteValue(child, instanceId) as FlowNode);
+    return nested.map(
+      (child) =>
+        rewriteValue(
+          child,
+          instanceId,
+          child.type,
+          0,
+          true,
+          referenceScope,
+        ) as FlowNode,
+    );
   }
 
   if (node.type === "sequence") {

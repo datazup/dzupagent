@@ -26,6 +26,7 @@ export interface FragmentExpansionMetadata {
   invocationPath: string;
   expandedPaths: string[];
   exports: Record<string, string>;
+  exportAvailability: Record<string, "success" | "always">;
 }
 
 export interface FragmentInvocationInput {

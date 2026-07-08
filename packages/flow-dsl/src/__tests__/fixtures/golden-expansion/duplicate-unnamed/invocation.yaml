@@ -1,0 +1,10 @@
+dsl: dzupflow/v1
+id: duplicate-unnamed
+version: 1
+steps:
+  - sdlc.validation_gate:
+      cwd: apps/research-app
+      output: apiValidation
+  - sdlc.validation_gate:
+      cwd: apps/website-app
+      output: webValidation

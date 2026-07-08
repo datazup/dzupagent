@@ -1,0 +1,6 @@
+dsl: dzupflow/v1
+id: missing-param
+version: 1
+steps:
+  - sdlc.validation_gate:
+      id: gate

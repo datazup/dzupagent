@@ -1,4 +1,4 @@
-import type { FlowFragmentV1 } from "@dzupagent/flow-ast";
+import type { FlowFragmentV1, FlowNode } from "@dzupagent/flow-ast";
 
 import { createFragmentRegistry } from "./registry.js";
 
@@ -19,9 +19,49 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
       type: "sequence",
       nodes: [
         {
-          type: "set",
-          id: "set_closeout_status",
-          assign: { closeoutStatus: "{{ params.status }}" },
+          type: "validate.schema",
+          id: "classify_closeout_status",
+          source: "{{ params.status }}",
+          schema: "dzup.sdlc.closeout-status@1",
+          output: "closeoutStatus",
+        },
+      ],
+    },
+  },
+  {
+    dsl: "dzupflow/v1",
+    documentType: "fragment",
+    id: "sdlc.batch_validation",
+    version: 1,
+    description: "Validate an ordered batch of SDLC result items and collect their statuses.",
+    params: {
+      itemsKey: { type: "string", required: true },
+    },
+    exports: {
+      statuses: "{{ state.validationStatuses }}",
+    },
+    root: {
+      type: "sequence",
+      nodes: [
+        {
+          type: "for_each",
+          id: "validate_each",
+          source: "{{ params.itemsKey }}",
+          as: "validationItem",
+          collect: {
+            from: "validationStatus",
+            into: "validationStatuses",
+          },
+          body: [
+            {
+              "validate.schema": {
+                id: "classify_validation",
+                source: "{{ state.validationItem.result }}",
+                schema: "dzup.sdlc.validation-result@1",
+                output: "validationStatus",
+              },
+            } as unknown as FlowNode,
+          ],
         },
       ],
     },
@@ -103,6 +143,41 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
           command: "git status --short --branch",
           cwd: "{{ params.cwd }}",
           output: "gitStatus",
+        },
+      ],
+    },
+  },
+  {
+    dsl: "dzupflow/v1",
+    documentType: "fragment",
+    id: "sdlc.packet_fanout",
+    version: 1,
+    description: "Dispatch an ordered batch of SDLC packets and collect their gate statuses.",
+    params: {
+      packetsKey: { type: "string", required: true },
+    },
+    exports: {
+      statuses: "{{ state.packetStatuses }}",
+    },
+    root: {
+      type: "sequence",
+      nodes: [
+        {
+          type: "for_each",
+          id: "dispatch_each_packet",
+          source: "{{ params.packetsKey }}",
+          as: "packetItem",
+          collect: {
+            from: "each_packet__packetStatus",
+            into: "packetStatuses",
+          },
+          body: [
+            {
+              type: "sdlc.gated_packet",
+              id: "each_packet",
+              packetRef: "{{ state.packetItem.ref }}",
+            } as unknown as FlowNode,
+          ],
         },
       ],
     },

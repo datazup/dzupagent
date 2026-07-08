@@ -63,6 +63,32 @@ export function nodeRetryEvent(
   return { type: 'pipeline:node_retry', nodeId, attempt, maxAttempts, error, backoffMs }
 }
 
+export function forEachAggregateEvent(
+  nodeId: string,
+  count: number,
+  empty: boolean,
+  aggregateKeyOrDetails?: string | {
+    aggregateKey?: string
+    aggregateKeys?: string[]
+    source?: string
+    attachAs?: string
+    accumulatorKey?: string
+  },
+): PipelineRuntimeEvent {
+  const details =
+    typeof aggregateKeyOrDetails === 'string'
+      ? { aggregateKey: aggregateKeyOrDetails, aggregateKeys: [aggregateKeyOrDetails] }
+      : aggregateKeyOrDetails
+  return {
+    type: 'pipeline:for_each_aggregate',
+    nodeId,
+    ...(details ?? {}),
+    count,
+    order: 'input',
+    empty,
+  }
+}
+
 export function recoveryAttemptedEvent(
   nodeId: string,
   attempt: number,

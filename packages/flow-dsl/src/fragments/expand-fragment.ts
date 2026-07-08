@@ -2,7 +2,14 @@ import type {
   FragmentInvocationExpansion,
   FragmentInvocationInput,
 } from "./types.js";
-import { privateKey, rewriteFragmentValue } from "./hygiene.js";
+import {
+  CHILD_NODE_FIELDS,
+  type FragmentReferenceScope,
+  hasParentReferenceScope,
+  privateKey,
+  rewriteFragmentNode,
+  rewriteFragmentValue,
+} from "./hygiene.js";
 
 function assertInvocation(raw: unknown): asserts raw is Record<string, unknown> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -20,6 +27,16 @@ function toStepWrapper(node: Record<string, unknown>): Record<string, unknown> {
 
 function invocationControlKeys(): Set<string> {
   return new Set(["id", "type", "output"]);
+}
+
+function sanitizeInstancePart(value: string): string {
+  return value.replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function defaultInstanceId(kind: string, path: string): string {
+  const kindPart = sanitizeInstancePart(kind);
+  const pathPart = sanitizeInstancePart(path);
+  return pathPart.length > 0 ? `${kindPart}_${pathPart}` : kindPart;
 }
 
 function normalizeExportMap(
@@ -42,16 +59,32 @@ function normalizeExportMap(
   );
 }
 
+function normalizeExportAvailability(
+  exports: Record<string, unknown> | undefined,
+): Record<string, "success" | "always"> {
+  return Object.fromEntries(
+    Object.entries(exports ?? {}).map(([name, value]) => {
+      const availability =
+        value &&
+        typeof value === "object" &&
+        (value as { availability?: unknown }).availability === "always"
+          ? "always"
+          : "success";
+      return [name, availability];
+    }),
+  );
+}
+
 function rewriteExportExpression(
   expression: string,
   instanceId: string,
   params: Record<string, unknown>,
 ): string {
-  const substituted = rewriteFragmentValue(expression, instanceId, params);
-  return String(substituted).replace(
-    /\{\{\s*state\.([A-Za-z0-9_]+)\s*\}\}/g,
-    (_match, key) => `{{ state.${privateKey(instanceId, key)} }}`,
-  );
+  const rewritten = rewriteFragmentValue(expression, instanceId, params);
+  if (typeof rewritten !== "string") {
+    throw new Error("fragment export expression must resolve to string");
+  }
+  return rewritten;
 }
 
 function validateParamType(
@@ -160,9 +193,181 @@ function rewriteNestedFragmentOutputMapping(
   };
 }
 
+function collectReferenceScope(
+  nodes: readonly Record<string, unknown>[],
+): FragmentReferenceScope {
+  const nodeIds = new Set<string>();
+  const checkpointLabels = new Set<string>();
+
+  function visit(value: unknown, nodeScopeEligible: boolean): void {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, nodeScopeEligible);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+
+    const objectValue = value as Record<string, unknown>;
+    const isNode = nodeScopeEligible && typeof objectValue.type === "string";
+    if (isNode) {
+      if (typeof objectValue.id === "string") nodeIds.add(objectValue.id);
+      if (
+        !hasParentReferenceScope(objectValue) &&
+        objectValue.type === "checkpoint" &&
+        typeof objectValue.label === "string" &&
+        !objectValue.label.includes("{{")
+      ) {
+        checkpointLabels.add(objectValue.label);
+      }
+    }
+    for (const [key, child] of Object.entries(objectValue)) {
+      visit(child, CHILD_NODE_FIELDS.has(key));
+    }
+  }
+
+  for (const node of nodes) visit(node, true);
+  return { nodeIds, checkpointLabels };
+}
+
+function isLiteralReference(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && !value.includes("{{");
+}
+
+function validateLocalReferences(
+  nodes: readonly Record<string, unknown>[],
+  referenceScope: FragmentReferenceScope,
+): void {
+  const problems: string[] = [];
+
+  function visit(value: unknown, nodeScopeEligible: boolean): void {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, nodeScopeEligible);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+
+    const objectValue = value as Record<string, unknown>;
+    const isNode = nodeScopeEligible && typeof objectValue.type === "string";
+    if (isNode && !hasParentReferenceScope(objectValue)) {
+      const nodeLabel =
+        typeof objectValue.id === "string"
+          ? `${objectValue.type}#${objectValue.id}`
+          : objectValue.type;
+      if (
+        objectValue.type === "checkpoint" &&
+        isLiteralReference(objectValue.captureOutputOf) &&
+        !referenceScope.nodeIds?.has(objectValue.captureOutputOf)
+      ) {
+        problems.push(
+          `${nodeLabel} checkpoint.captureOutputOf="${objectValue.captureOutputOf}"`,
+        );
+      }
+      if (
+        objectValue.type === "return_to" &&
+        isLiteralReference(objectValue.targetId) &&
+        !referenceScope.nodeIds?.has(objectValue.targetId)
+      ) {
+        problems.push(`${nodeLabel} return_to.targetId="${objectValue.targetId}"`);
+      }
+      if (
+        objectValue.type === "restore" &&
+        isLiteralReference(objectValue.checkpointLabel) &&
+        !referenceScope.checkpointLabels?.has(objectValue.checkpointLabel)
+      ) {
+        problems.push(
+          `${nodeLabel} restore.checkpointLabel="${objectValue.checkpointLabel}"`,
+        );
+      }
+    }
+
+    for (const [key, child] of Object.entries(objectValue)) {
+      visit(child, CHILD_NODE_FIELDS.has(key));
+    }
+  }
+
+  for (const node of nodes) visit(node, true);
+  if (problems.length > 0) {
+    throw new Error(`fragment local reference validation failed: ${problems.join("; ")}`);
+  }
+}
+
 interface ExpandedNode {
   steps: Record<string, unknown>[];
   fragmentExpansions: FragmentInvocationExpansion["fragmentExpansions"];
+}
+
+function unwrapStepWrapper(
+  value: Record<string, unknown>,
+): { kind: string; raw: unknown } | undefined {
+  const entries = Object.entries(value);
+  if (entries.length !== 1) return undefined;
+  const [kind, raw] = entries[0]!;
+  return typeof kind === "string" && kind.length > 0 ? { kind, raw } : undefined;
+}
+
+function expandNestedFragmentNodes(
+  value: unknown,
+  input: FragmentInvocationInput,
+  path: string,
+): { value: unknown; fragmentExpansions: FragmentInvocationExpansion["fragmentExpansions"] } {
+  if (Array.isArray(value)) {
+    const values: unknown[] = [];
+    const fragmentExpansions: FragmentInvocationExpansion["fragmentExpansions"] = [];
+    value.forEach((item, index) => {
+      const expanded = expandNestedFragmentNodes(item, input, `${path}[${index}]`);
+      if (Array.isArray(expanded.value)) {
+        values.push(...expanded.value);
+      } else {
+        values.push(expanded.value);
+      }
+      fragmentExpansions.push(...expanded.fragmentExpansions);
+    });
+    return { value: values, fragmentExpansions };
+  }
+
+  if (!value || typeof value !== "object") {
+    return { value, fragmentExpansions: [] };
+  }
+
+  const objectValue = value as Record<string, unknown>;
+  const wrapper = unwrapStepWrapper(objectValue);
+  if (wrapper && input.registry.has(wrapper.kind)) {
+    const expanded = expandFragmentInvocation({
+      registry: input.registry,
+      kind: wrapper.kind,
+      raw: wrapper.raw,
+      path,
+    });
+    return {
+      value: expanded.steps,
+      fragmentExpansions: expanded.fragmentExpansions,
+    };
+  }
+
+  if (typeof objectValue.type === "string" && input.registry.has(objectValue.type)) {
+    const expanded = expandFragmentInvocation({
+      registry: input.registry,
+      kind: objectValue.type,
+      raw: objectValue,
+      path,
+    });
+    return {
+      value: expanded.steps,
+      fragmentExpansions: expanded.fragmentExpansions,
+    };
+  }
+
+  const fragmentExpansions: FragmentInvocationExpansion["fragmentExpansions"] = [];
+  const entries = Object.entries(objectValue).map(([key, child]) => {
+    if (!CHILD_NODE_FIELDS.has(key)) return [key, child] as const;
+    const expanded = expandNestedFragmentNodes(child, input, `${path}.${key}`);
+    fragmentExpansions.push(...expanded.fragmentExpansions);
+    return [key, expanded.value] as const;
+  });
+
+  return {
+    value: fragmentExpansions.length > 0 ? Object.fromEntries(entries) : value,
+    fragmentExpansions,
+  };
 }
 
 function expandNode(
@@ -170,13 +375,15 @@ function expandNode(
   input: FragmentInvocationInput,
   instanceId: string,
   params: Record<string, unknown>,
+  referenceScope: FragmentReferenceScope,
   index: number,
 ): ExpandedNode {
-  const rewritten = rewriteFragmentValue(
+  const rewritten = rewriteFragmentNode(
     node,
     instanceId,
     params,
-  ) as Record<string, unknown>;
+    referenceScope,
+  );
   if (typeof rewritten.type === "string" && input.registry.has(rewritten.type)) {
     const expanded = expandFragmentInvocation({
       registry: input.registry,
@@ -189,7 +396,15 @@ function expandNode(
       fragmentExpansions: expanded.fragmentExpansions,
     };
   }
-  return { steps: [toStepWrapper(rewritten)], fragmentExpansions: [] };
+  const expandedNested = expandNestedFragmentNodes(
+    rewritten,
+    input,
+    `${input.path}.fragment[${index}]`,
+  );
+  return {
+    steps: [toStepWrapper(expandedNested.value as Record<string, unknown>)],
+    fragmentExpansions: expandedNested.fragmentExpansions,
+  };
 }
 
 export function expandFragmentInvocation(
@@ -202,15 +417,24 @@ export function expandFragmentInvocation(
   const instanceId =
     typeof input.raw.id === "string" && input.raw.id.length > 0
       ? input.raw.id
-      : input.kind.replace(/[^A-Za-z0-9_]+/g, "_");
+      : defaultInstanceId(input.kind, input.path);
   const params = resolveParams(input);
   const exports = normalizeExportMap(entry.fragment.exports, instanceId, params);
+  const exportAvailability = normalizeExportAvailability(entry.fragment.exports);
+  const referenceScope = collectReferenceScope(
+    entry.fragment.root.nodes as unknown as Record<string, unknown>[],
+  );
+  validateLocalReferences(
+    entry.fragment.root.nodes as unknown as Record<string, unknown>[],
+    referenceScope,
+  );
   const expandedNodes = entry.fragment.root.nodes.map((node, index) =>
     expandNode(
       node as unknown as Record<string, unknown>,
       input,
       instanceId,
       params,
+      referenceScope,
       index,
     ),
   );
@@ -232,6 +456,7 @@ export function expandFragmentInvocation(
     invocationPath: input.path,
     expandedPaths: sourceMap.map((item) => item.expandedPath),
     exports,
+    exportAvailability,
   };
 
   return {

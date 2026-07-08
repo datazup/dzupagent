@@ -144,6 +144,16 @@ describe('lowerPipelineLoop', () => {
     expect(loopNode.name).toBe('forEach:item')
     expect(loopNode.maxIterations).toBe(1000)
     expect(loopNode.continuePredicateName).toBe('forEach__item__predicate')
+    expect((loopNode as LoopNode & { forEach?: unknown }).forEach).toEqual({
+      source: '$.items',
+      as: 'item',
+      order: 'input',
+      concurrency: 1,
+      empty: {
+        body: 'skip',
+        aggregate: 'empty-array',
+      },
+    })
 
     // ToolNode shape
     expect(bodyNode.type).toBe('tool')
@@ -198,6 +208,52 @@ describe('lowerPipelineLoop', () => {
     })
   })
 
+  it('lowers explicit for_each collection metadata onto the runtime loop', () => {
+    const resolver = makeResolver(['items.process'])
+    const idGen = makeIdGen()
+    const ast: ForEachNode = {
+      type: 'for_each',
+      source: '$.items',
+      as: 'item',
+      collect: { from: 'itemStatus', into: 'itemStatuses' },
+      attachAs: 'status',
+      accumulator: { key: 'loopWindow', window: 5, initialValue: [] },
+      concurrency: 3,
+      body: [action('items.process')],
+    }
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.body[0]', toolRef: 'items.process' },
+    ])
+
+    const { artifact, warnings } = lowerPipelineLoop({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      idGen,
+      name: 'collection-loop',
+    })
+
+    expect(warnings).toEqual([])
+    const loopNode = artifact.nodes[0] as LoopNode
+    expect((loopNode as LoopNode & { forEach?: unknown }).forEach).toEqual({
+      source: '$.items',
+      as: 'item',
+      order: 'input',
+      attachAs: 'status',
+      collect: {
+        from: 'itemStatus',
+        into: 'itemStatuses',
+        order: 'input',
+      },
+      accumulator: { key: 'loopWindow', window: 5, initialValue: [] },
+      concurrency: 3,
+      empty: {
+        body: 'skip',
+        aggregate: 'empty-array',
+      },
+    })
+  })
+
   // ---------------------------------------------------------------------------
   // Test 2: for_each with a multi-action body → edges chain body nodes
   // ---------------------------------------------------------------------------
@@ -243,6 +299,43 @@ describe('lowerPipelineLoop', () => {
       sourceNodeId: fetchNode.id,
       targetNodeId: transformNode.id,
     })
+  })
+
+  it('continues a parent sequence from the for_each loop node, not its body tail', () => {
+    const resolver = makeResolver(['items.process', 'items.closeout'])
+    const idGen = makeIdGen()
+    const ast = sequence(
+      forEach('$.records', 'rec', action('items.process')),
+      action('items.closeout'),
+    )
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.nodes[0].body[0]', toolRef: 'items.process' },
+      { nodePath: 'root.nodes[1]', toolRef: 'items.closeout' },
+    ])
+
+    const { artifact, warnings } = lowerPipelineLoop({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      idGen,
+      name: 'loop-continuation',
+    })
+
+    expect(warnings).toEqual([])
+    const [loopNode, bodyNode, closeoutNode] = artifact.nodes as [
+      LoopNode,
+      ToolNode,
+      ToolNode,
+    ]
+    expect(loopNode.type).toBe('loop')
+    expect(loopNode.bodyNodeIds).toEqual([bodyNode.id])
+    expect(artifact.edges).toEqual([
+      {
+        type: 'sequential',
+        sourceNodeId: loopNode.id,
+        targetNodeId: closeoutNode.id,
+      },
+    ])
   })
 
   // ---------------------------------------------------------------------------

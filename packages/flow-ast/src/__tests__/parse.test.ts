@@ -481,6 +481,40 @@ describe("parseFlow — shape validation", () => {
     ]);
     expect(result.ast).toEqual({ type: "sequence", nodes: [] });
   });
+
+  it("spdd.import_sources requires object sourceRefs items", () => {
+    const result = parseFlow({
+      type: "spdd.import_sources",
+      spddRunId: "spdd-run-1",
+      sourceRefs: [{ repo: "repo-a" }, "not-a-ref"],
+      outputKey: "sourceRefs",
+    });
+
+    expect(result.ast).toBeNull();
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        code: "EXPECTED_OBJECT",
+        pointer: "/sourceRefs/1",
+      }),
+    ]);
+  });
+
+  it("spdd.run_validation reports missing required fields", () => {
+    const result = parseFlow({
+      type: "spdd.run_validation",
+      spddRunId: "spdd-run-1",
+      planRunId: "plan-run-1",
+      outputKey: "validation",
+    });
+
+    expect(result.ast).toBeNull();
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        code: "WRONG_FIELD_TYPE",
+        pointer: "/executionRunId",
+      }),
+    ]);
+  });
 });
 
 describe("parseFlow — node-specific behaviours", () => {

@@ -1,0 +1,6 @@
+dsl: dzupflow/v1
+id: state-reference
+version: 1
+steps:
+  - sdlc.state_reference_gate:
+      id: gate

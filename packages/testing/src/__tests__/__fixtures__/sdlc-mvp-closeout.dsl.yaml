@@ -1,0 +1,22 @@
+dsl: dzupflow/v1
+id: sdlc-mvp-closeout
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.current_truth:
+      id: truth
+      scope: dzupagent
+      output: truth
+  - sdlc.packet_fanout:
+      id: fanout
+      packetsKey: packetItems
+      output: packetStatuses
+  - sdlc.batch_validation:
+      id: batch
+      itemsKey: validationItems
+      output: validationStatuses
+  - sdlc.closeout:
+      id: closeout
+      status: complete
+      output: closeoutStatus

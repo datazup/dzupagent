@@ -84,6 +84,32 @@ describe("fragment expansion", () => {
     });
   });
 
+  it("derives distinct instance ids for unnamed duplicate invocations", () => {
+    const registry = createValidationGateRegistry();
+
+    const first = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.validation_gate",
+      raw: { cwd: "apps/research-app", output: "apiValidation" },
+      path: "root.steps[0]",
+    });
+    const second = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.validation_gate",
+      raw: { cwd: "apps/research-app", output: "webValidation" },
+      path: "root.steps[1]",
+    });
+
+    expect(first.metadata.instanceId).toBe("sdlc_validation_gate_root_steps_0");
+    expect(second.metadata.instanceId).toBe("sdlc_validation_gate_root_steps_1");
+    expect(JSON.stringify(first.steps)).toContain(
+      "sdlc_validation_gate_root_steps_0__",
+    );
+    expect(JSON.stringify(second.steps)).toContain(
+      "sdlc_validation_gate_root_steps_1__",
+    );
+  });
+
   it("applies parameter defaults and rejects missing required params", () => {
     const registry = createFragmentRegistry([
       {
@@ -145,6 +171,930 @@ describe("fragment expansion", () => {
         path: "root.steps[0]",
       }),
     ).toThrow(/unknown fragment param "extra"/i);
+  });
+
+  it("preserves structural non-string params without stringification", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.commands_gate",
+        version: 1,
+        params: {
+          commands: { type: "array", required: true },
+          env: { type: "object", required: true },
+        },
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "shell.run",
+              id: "run_commands",
+              command: "{{ params.commands }}",
+              env: "{{ params.env }}",
+              output: "commandResult",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.commands_gate",
+      raw: {
+        id: "gate",
+        commands: ["yarn typecheck", "yarn test"],
+        env: { CI: "1" },
+      },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toEqual({
+      "shell.run": {
+        id: "gate__run_commands",
+        command: ["yarn typecheck", "yarn test"],
+        env: { CI: "1" },
+        output: "gate__commandResult",
+      },
+    });
+  });
+
+  it("rewrites fragment-local state template references to private keys", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.state_reference_gate",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "shell.run",
+              id: "run_tests",
+              command: "yarn test",
+              output: "testResult",
+            },
+            {
+              type: "evidence.write",
+              id: "write_evidence",
+              source: "{{ state.testResult }}",
+              output: "evidenceRef",
+            },
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.state_reference_gate",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[1]).toEqual({
+      "evidence.write": {
+        id: "gate__write_evidence",
+        source: "{{ state.gate__testResult }}",
+        output: "gate__evidenceRef",
+      },
+    });
+  });
+
+  it("preserves caller-supplied state template params as parent-scoped", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.parent_source_gate",
+        version: 1,
+        params: {
+          parentSource: { type: "string", required: true },
+        },
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "evidence.write",
+              id: "write_evidence",
+              source: "{{ params.parentSource }}",
+              output: "evidenceRef",
+            },
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.parent_source_gate",
+      raw: {
+        id: "gate",
+        parentSource: "{{ state.parentInput }}",
+      },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toEqual({
+      "evidence.write": {
+        id: "gate__write_evidence",
+        source: "{{ state.parentInput }}",
+        output: "gate__evidenceRef",
+      },
+    });
+  });
+
+  it("preserves caller-supplied state templates in interpolated params as parent-scoped", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.parent_message_gate",
+        version: 1,
+        params: {
+          parentSource: { type: "string", required: true },
+        },
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "evidence.write",
+              id: "write_evidence",
+              message: "parent says {{ params.parentSource }}",
+              output: "evidenceRef",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.parent_message_gate",
+      raw: {
+        id: "gate",
+        parentSource: "{{ state.parentInput }}",
+      },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toEqual({
+      "evidence.write": {
+        id: "gate__write_evidence",
+        message: "parent says {{ state.parentInput }}",
+        output: "gate__evidenceRef",
+      },
+    });
+  });
+
+  it("rewrites fragment-local state templates while preserving interpolated parent params", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.mixed_state_gate",
+        version: 1,
+        params: {
+          parentSource: { type: "string", required: true },
+        },
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "shell.run",
+              id: "run_tests",
+              command: "yarn test",
+              output: "testResult",
+            },
+            {
+              type: "evidence.write",
+              id: "write_evidence",
+              message:
+                "local {{ state.testResult }} from {{ params.parentSource }}",
+              output: "evidenceRef",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.mixed_state_gate",
+      raw: {
+        id: "gate",
+        parentSource: "{{ state.parentInput }}",
+      },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[1]).toEqual({
+      "evidence.write": {
+        id: "gate__write_evidence",
+        message: "local {{ state.gate__testResult }} from {{ state.parentInput }}",
+        output: "gate__evidenceRef",
+      },
+    });
+  });
+
+  it("rewrites dotted fragment-local state template paths by prefixing the first segment", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.dotted_state_reference_gate",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "evidence.write",
+              id: "write_evidence",
+              source: "{{ state.testResult.status }}",
+              output: "evidenceRef",
+            },
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.dotted_state_reference_gate",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toEqual({
+      "evidence.write": {
+        id: "gate__write_evidence",
+        source: "{{ state.gate__testResult.status }}",
+        output: "gate__evidenceRef",
+      },
+    });
+  });
+
+  it("does not rewrite generic source fields unless the node type treats source as state", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.source_scope",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "knowledge.search",
+              id: "search_docs",
+              source: "workspace-docs",
+              query: "fragments",
+              output: "searchResult",
+            } as unknown as FlowNode,
+            {
+              type: "evidence.write",
+              id: "write_evidence",
+              source: "searchResult",
+              output: "evidenceRef",
+            },
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.source_scope",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toMatchObject({
+      "knowledge.search": {
+        source: "workspace-docs",
+        output: "gate__searchResult",
+      },
+    });
+    expect(expanded.steps[1]).toMatchObject({
+      "evidence.write": {
+        source: "gate__searchResult",
+        output: "gate__evidenceRef",
+      },
+    });
+  });
+
+  it("does not rewrite nested source metadata inside state-source nodes", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.source_metadata_scope",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "evidence.write",
+              id: "write_evidence",
+              source: "searchResult",
+              meta: { source: "dsl" },
+              output: "evidenceRef",
+            },
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.source_metadata_scope",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toMatchObject({
+      "evidence.write": {
+        source: "gate__searchResult",
+        meta: { source: "dsl" },
+        output: "gate__evidenceRef",
+      },
+    });
+  });
+
+  it("does not rewrite nested output key metadata inside state-source nodes", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.output_metadata_scope",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "evidence.write",
+              id: "write_evidence",
+              source: "searchResult",
+              meta: { output: { key: "documentation" } },
+              output: "evidenceRef",
+            },
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.output_metadata_scope",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toMatchObject({
+      "evidence.write": {
+        source: "gate__searchResult",
+        meta: { output: { key: "documentation" } },
+        output: "gate__evidenceRef",
+      },
+    });
+  });
+
+  it("rewrites loop progressKey as a fragment-local state key", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.loop_progress",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "loop",
+              id: "poll",
+              condition: "{{ state.keepPolling }}",
+              progressKey: "pollProgress",
+              body: [{ type: "complete", id: "done" }],
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.loop_progress",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toMatchObject({
+      loop: {
+        id: "gate__poll",
+        condition: "{{ state.gate__keepPolling }}",
+        progressKey: "gate__pollProgress",
+      },
+    });
+  });
+
+  it("rewrites SPDD state input keys while preserving artifact ids", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.spdd_keys",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "spdd.build_source_pack",
+              id: "build_pack",
+              spddRunId: "run-1",
+              sourceRefsKey: "sourceRefs",
+              outputKey: "sourcePack",
+              featureId: "feature-a",
+            } as unknown as FlowNode,
+            {
+              type: "spdd.create_sync_proposal",
+              id: "sync",
+              spddRunId: "run-1",
+              driftFindingIdsKey: "driftFindingIds",
+              outputKey: "syncProposal",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.spdd_keys",
+      raw: { id: "spdd" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps).toEqual([
+      {
+        "spdd.build_source_pack": expect.objectContaining({
+          id: "spdd__build_pack",
+          spddRunId: "run-1",
+          sourceRefsKey: "spdd__sourceRefs",
+          outputKey: "spdd__sourcePack",
+          featureId: "feature-a",
+        }),
+      },
+      {
+        "spdd.create_sync_proposal": expect.objectContaining({
+          id: "spdd__sync",
+          spddRunId: "run-1",
+          driftFindingIdsKey: "spdd__driftFindingIds",
+          outputKey: "spdd__syncProposal",
+        }),
+      },
+    ]);
+  });
+
+  it("rewrites set assign keys and try_catch errorVar as fragment-local outputs", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.local_mutation",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "set",
+              id: "record",
+              assign: { status: "ready" },
+            },
+            {
+              type: "try_catch",
+              id: "recover",
+              body: [{ type: "complete", id: "attempt" }],
+              catch: [{ type: "complete", id: "caught" }],
+              errorVar: "lastError",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.local_mutation",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toEqual({
+      set: {
+        id: "gate__record",
+        assign: { gate__status: "ready" },
+      },
+    });
+    expect(expanded.steps[1]).toMatchObject({
+      try_catch: {
+        id: "gate__recover",
+        errorVar: "gate__lastError",
+      },
+    });
+  });
+
+  it("does not treat nested typed data payloads as fragment nodes", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.typed_payload",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "adapter.run",
+              id: "summarize",
+              provider: "claude",
+              instructions: "Summarize",
+              input: {
+                payload: {
+                  type: "evidence.write",
+                  id: "external-id",
+                  source: "externalEvidence",
+                  output: "rawArtifact",
+                },
+              },
+              meta: {
+                type: "evidence.write",
+                id: "metadata-id",
+                source: "dsl",
+                output: "metadata",
+              },
+              output: "summary",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.typed_payload",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toMatchObject({
+      "adapter.run": {
+        id: "gate__summarize",
+        input: {
+          payload: {
+            type: "evidence.write",
+            id: "external-id",
+            source: "externalEvidence",
+            output: "rawArtifact",
+          },
+        },
+        meta: {
+          type: "evidence.write",
+          id: "metadata-id",
+          source: "dsl",
+          output: "metadata",
+        },
+        output: "gate__summary",
+      },
+    });
+  });
+
+  it("rewrites fragment-local node id and checkpoint label references", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.reference_hygiene",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "shell.run",
+              id: "run_tests",
+              command: "yarn test",
+              output: "testResult",
+            },
+            {
+              type: "checkpoint",
+              id: "capture_tests",
+              captureOutputOf: "run_tests",
+              label: "after_tests",
+            } as unknown as FlowNode,
+            {
+              type: "restore",
+              id: "restore_tests",
+              checkpointLabel: "after_tests",
+            } as unknown as FlowNode,
+            {
+              type: "return_to",
+              id: "retry_tests",
+              targetId: "run_tests",
+              condition: "{{ state.shouldRetry }}",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.reference_hygiene",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[1]).toEqual({
+      checkpoint: {
+        id: "gate__capture_tests",
+        captureOutputOf: "gate__run_tests",
+        label: "gate__after_tests",
+      },
+    });
+    expect(expanded.steps[2]).toEqual({
+      restore: {
+        id: "gate__restore_tests",
+        checkpointLabel: "gate__after_tests",
+      },
+    });
+    expect(expanded.steps[3]).toEqual({
+      return_to: {
+        id: "gate__retry_tests",
+        targetId: "gate__run_tests",
+        condition: "{{ state.gate__shouldRetry }}",
+      },
+    });
+  });
+
+  it("preserves param-supplied node id and checkpoint label references", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.parent_reference_hygiene",
+        version: 1,
+        params: {
+          targetId: { type: "string", required: true },
+          checkpointLabel: { type: "string", required: true },
+        },
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "checkpoint",
+              id: "capture_parent",
+              captureOutputOf: "{{ params.targetId }}",
+              label: "{{ params.checkpointLabel }}",
+            } as unknown as FlowNode,
+            {
+              type: "restore",
+              id: "restore_parent",
+              checkpointLabel: "{{ params.checkpointLabel }}",
+            } as unknown as FlowNode,
+            {
+              type: "return_to",
+              id: "return_parent",
+              targetId: "{{ params.targetId }}",
+              condition: "{{ state.shouldRetry }}",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.parent_reference_hygiene",
+      raw: {
+        id: "gate",
+        targetId: "parent_node",
+        checkpointLabel: "parent_checkpoint",
+      },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toMatchObject({
+      checkpoint: {
+        captureOutputOf: "parent_node",
+        label: "parent_checkpoint",
+      },
+    });
+    expect(expanded.steps[1]).toMatchObject({
+      restore: { checkpointLabel: "parent_checkpoint" },
+    });
+    expect(expanded.steps[2]).toMatchObject({
+      return_to: {
+        targetId: "parent_node",
+        condition: "{{ state.gate__shouldRetry }}",
+      },
+    });
+  });
+
+  it("rejects missing literal fragment-local node id references", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.missing_node_reference",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "checkpoint",
+              id: "capture_tests",
+              captureOutputOf: "missing_run",
+              label: "after_tests",
+            } as unknown as FlowNode,
+            {
+              type: "return_to",
+              id: "retry_tests",
+              targetId: "missing_run",
+              condition: "{{ state.shouldRetry }}",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    expect(() =>
+      expandFragmentInvocation({
+        registry,
+        kind: "sdlc.missing_node_reference",
+        raw: { id: "gate" },
+        path: "root.steps[0]",
+      }),
+    ).toThrow(
+      /fragment local reference .*captureOutputOf="missing_run".*return_to\.targetId="missing_run"/i,
+    );
+  });
+
+  it("rejects missing literal fragment-local checkpoint labels", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.missing_checkpoint_reference",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "restore",
+              id: "restore_tests",
+              checkpointLabel: "missing_checkpoint",
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    expect(() =>
+      expandFragmentInvocation({
+        registry,
+        kind: "sdlc.missing_checkpoint_reference",
+        raw: { id: "gate" },
+        path: "root.steps[0]",
+      }),
+    ).toThrow(/fragment local reference .*restore\.checkpointLabel="missing_checkpoint"/i);
+  });
+
+  it("allows explicit parent-scope reference opt-out for literal references", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.parent_scope_literal_reference",
+        version: 1,
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "checkpoint",
+              id: "capture_parent",
+              captureOutputOf: "parent_node",
+              label: "parent_checkpoint",
+              meta: { referenceScope: "parent" },
+            } as unknown as FlowNode,
+            {
+              type: "restore",
+              id: "restore_parent",
+              checkpointLabel: "parent_checkpoint",
+              meta: { referenceScope: "parent" },
+            } as unknown as FlowNode,
+            {
+              type: "return_to",
+              id: "return_parent",
+              targetId: "parent_node",
+              condition: "{{ state.shouldRetry }}",
+              meta: { referenceScope: "parent" },
+            } as unknown as FlowNode,
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.parent_scope_literal_reference",
+      raw: { id: "gate" },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.steps[0]).toMatchObject({
+      checkpoint: {
+        captureOutputOf: "parent_node",
+        label: "parent_checkpoint",
+      },
+    });
+    expect(expanded.steps[1]).toMatchObject({
+      restore: { checkpointLabel: "parent_checkpoint" },
+    });
+    expect(expanded.steps[2]).toMatchObject({
+      return_to: { targetId: "parent_node" },
+    });
+  });
+
+  it("rejects non-string params used in interpolation positions", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.bad_interpolation",
+        version: 1,
+        params: {
+          commands: { type: "array", required: true },
+        },
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "shell.run",
+              id: "run_commands",
+              command: "run {{ params.commands }}",
+              output: "commandResult",
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(() =>
+      expandFragmentInvocation({
+        registry,
+        kind: "sdlc.bad_interpolation",
+        raw: { id: "gate", commands: ["yarn test"] },
+        path: "root.steps[0]",
+      }),
+    ).toThrow(/fragment param "commands" must be string for interpolation/i);
+  });
+
+  it("rejects non-string structural params used as export expressions", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.bad_export_expression",
+        version: 1,
+        params: {
+          exportExpression: { type: "array", required: true },
+        },
+        exports: {
+          status: "{{ params.exportExpression }}",
+        },
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "shell.run",
+              id: "run_commands",
+              command: "yarn test",
+              output: "commandResult",
+            },
+          ],
+        },
+      },
+    ]);
+
+    expect(() =>
+      expandFragmentInvocation({
+        registry,
+        kind: "sdlc.bad_export_expression",
+        raw: { id: "gate", exportExpression: ["not", "a", "string"] },
+        path: "root.steps[0]",
+      }),
+    ).toThrow(/fragment export expression must resolve to string/i);
   });
 
   it("binds a single declared export to the parent output key", () => {
@@ -376,6 +1326,54 @@ steps:
         invocationPath: "steps[0].fragment[0]",
       }),
     ]);
+  });
+
+  it("records export availability for failure-shaped fragments", () => {
+    const registry = createFragmentRegistry([
+      {
+        dsl: "dzupflow/v1",
+        documentType: "fragment",
+        id: "sdlc.validation_gate",
+        version: 1,
+        exports: {
+          status: {
+            expression: "{{ state.validationStatus }}",
+            availability: "always",
+          },
+          evidence: {
+            expression: "{{ state.validationEvidence }}",
+            availability: "success",
+          },
+        },
+        root: {
+          type: "sequence",
+          nodes: [
+            {
+              type: "validate.schema",
+              id: "classify",
+              source: "rawResult",
+              schema: "dzup.sdlc.validation-result@1",
+              output: "validationStatus",
+            },
+          ],
+        },
+      },
+    ]);
+
+    const expanded = expandFragmentInvocation({
+      registry,
+      kind: "sdlc.validation_gate",
+      raw: {
+        id: "gate",
+        output: { status: "validationStatus", evidence: "validationEvidence" },
+      },
+      path: "root.steps[0]",
+    });
+
+    expect(expanded.metadata.exportAvailability).toEqual({
+      status: "always",
+      evidence: "success",
+    });
   });
 
   it("expands registered fragment invocations before normalization", () => {

@@ -187,6 +187,18 @@ export type PipelineRuntimeEvent =
       maxIterations: number;
     }
   | {
+      type: "pipeline:for_each_aggregate";
+      nodeId: string;
+      aggregateKey?: string;
+      aggregateKeys?: string[];
+      source?: string;
+      attachAs?: string;
+      accumulatorKey?: string;
+      count: number;
+      order: "input";
+      empty: boolean;
+    }
+  | {
       type: "pipeline:node_retry";
       nodeId: string;
       attempt: number;

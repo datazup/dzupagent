@@ -1,0 +1,23 @@
+dsl: dzupflow/v1
+documentType: fragment
+id: sdlc.batch_validation
+version: 1
+exports:
+  statuses: "{{ state.validationStatuses }}"
+root:
+  type: sequence
+  nodes:
+    -
+      type: for_each
+      id: validate_each
+      source: validationItems
+      as: validationItem
+      collect:
+        from: validationStatus
+        into: validationStatuses
+      body:
+        - validate.schema:
+            id: classify_validation
+            source: "{{ state.validationItem.result }}"
+            schema: dzup.sdlc.validation-result@1
+            output: validationStatus

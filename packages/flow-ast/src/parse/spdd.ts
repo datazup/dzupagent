@@ -135,6 +135,19 @@ export function parseSpddImportSources(
   );
   if (spddRunId === null || sourceRefs === null || outputKey === null)
     return null;
+  for (let i = 0; i < sourceRefs.length; i++) {
+    const item = sourceRefs[i];
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      ctx.errors.push({
+        code: "EXPECTED_OBJECT",
+        message: `spdd.import_sources.sourceRefs items must be objects, received ${describeJsType(
+          item
+        )}`,
+        pointer: joinPointer(joinPointer(pointer, "sourceRefs"), String(i)),
+      });
+      return null;
+    }
+  }
   return {
     type: "spdd.import_sources",
     ...common,

@@ -148,6 +148,32 @@ export interface LoopNode extends PipelineNodeBase {
   continuePredicateName: string;
   /** Whether to throw when maxIterations is reached (default: false) */
   failOnMaxIterations?: boolean;
+  /**
+   * Compile-time contract for a lowered `for_each` flow node. Runtime loop
+   * implementations use this to preserve input order and expose deterministic
+   * empty-collection behavior without re-reading the source AST.
+   */
+  forEach?: {
+    source: string;
+    as: string;
+    order: "input";
+    attachAs?: string;
+    collect?: {
+      from: string;
+      into: string;
+      order: "input";
+    };
+    accumulator?: {
+      key: string;
+      window?: number;
+      initialValue?: unknown;
+    };
+    concurrency: number;
+    empty: {
+      body: "skip";
+      aggregate: "empty-array";
+    };
+  };
 }
 
 export interface SuspendNode extends PipelineNodeBase {

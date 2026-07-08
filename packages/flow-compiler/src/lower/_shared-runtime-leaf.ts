@@ -27,6 +27,7 @@ type RuntimeLeafNode = Extract<
       | "adapter.race"
       | "adapter.parallel"
       | "adapter.supervisor"
+      | "set"
       | "spdd.import_sources"
       | "spdd.build_source_pack"
       | "spdd.run_analysis"
