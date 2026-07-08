@@ -91,9 +91,11 @@ describe("Package exports — @dzupagent/testing", () => {
       "RegexScorer",
       "buildStubAnthropicClient",
       "createDemoEvalSuite",
+      "createSdlcValidationRuntimeToolHandlers",
       "runEvalSuite",
       "runSdlcMvpEvidenceReport",
       "runSecuritySuite",
+      "shapeCommandOutputsForBatchValidation",
       "shapeSdlcMvpEvidenceCommandOutputs",
       "waitForCondition",
       "withRecordedRegistry",
@@ -126,7 +128,10 @@ describe("Package exports — @dzupagent/testing", () => {
   });
 
   it("should emit the documented SDLC MVP evidence binary artifact after build", () => {
-    const artifactUrl = new URL("../../dist/bin/sdlc-mvp-evidence.js", import.meta.url);
+    const artifactUrl = new URL(
+      "../../dist/bin/sdlc-mvp-evidence.js",
+      import.meta.url
+    );
 
     expect(existsSync(artifactUrl)).toBe(true);
   });
