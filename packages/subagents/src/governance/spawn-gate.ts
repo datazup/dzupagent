@@ -82,12 +82,12 @@ export interface ApprovedSpawnBatch {
 export interface SpawnPolicy {
   check(
     spec: SubagentSpec,
-    parentRunId: string,
+    parentRunId: string
   ): Promise<SpawnPolicyDecision> | SpawnPolicyDecision;
   /** Additive opt-in for context-aware (batch/depth-aware) policies. */
   checkWithContext?(
     spec: SubagentSpec,
-    ctx: SpawnContext,
+    ctx: SpawnContext
   ): Promise<SpawnPolicyDecision> | SpawnPolicyDecision;
 }
 
@@ -131,7 +131,7 @@ export const denyAllSpawnPolicy: SpawnPolicy = {
 export interface SpawnApprovalGate {
   waitForInterrupt(
     runId: string,
-    interruptId: string,
+    interruptId: string
   ): Promise<InterruptOutcome>;
 }
 
@@ -143,13 +143,13 @@ export interface SpawnApprovalGate {
 export class SpawnGate {
   constructor(
     private readonly policy: SpawnPolicy,
-    private readonly approvalGate?: SpawnApprovalGate,
+    private readonly approvalGate?: SpawnApprovalGate
   ) {}
 
   async evaluate(
     spec: SubagentSpec,
     parentRunIdOrContext: string | SpawnContext,
-    approvalId: string,
+    approvalId: string
   ): Promise<
     | { outcome: "allowed" }
     | { outcome: "needs_approval" }
@@ -176,7 +176,7 @@ export class SpawnGate {
     if (!decision.allow) {
       return { outcome: "denied", reason: decision.reason };
     }
-    if (decision.requiresApproval) {
+    if (applySpecConstraints(spec, decision).requiresApproval) {
       return { outcome: "needs_approval" };
     }
     return { outcome: "allowed" };
@@ -192,7 +192,7 @@ export class SpawnGate {
    * {@link evaluate} (via {@link validateBatchScope}).
    */
   async evaluateBatch(
-    request: SpawnBatchRequest,
+    request: SpawnBatchRequest
   ): Promise<
     | { outcome: "allowed" }
     | { outcome: "needs_approval" }
@@ -217,7 +217,7 @@ export class SpawnGate {
     if (!decision.allow) {
       return { outcome: "denied", reason: decision.reason };
     }
-    if (decision.requiresApproval) {
+    if (applySpecConstraints(request.template, decision).requiresApproval) {
       return { outcome: "needs_approval" };
     }
     return { outcome: "allowed" };
@@ -226,7 +226,7 @@ export class SpawnGate {
   /** Block on the HITL gate. Returns the resolved InterruptOutcome. */
   async awaitApproval(
     parentRunId: string,
-    approvalId: string,
+    approvalId: string
   ): Promise<InterruptOutcome> {
     if (!this.approvalGate) {
       // No gate wired but policy demanded approval — fail closed.
@@ -237,6 +237,22 @@ export class SpawnGate {
     }
     return this.approvalGate.waitForInterrupt(parentRunId, approvalId);
   }
+}
+
+/**
+ * Persona/inline constraints can escalate governance: a definition carrying
+ * `approvalMode: "required"` forces HITL approval even when the base policy
+ * allowed the spawn outright. Constraints never *relax* the policy decision.
+ */
+function applySpecConstraints(
+  spec: SubagentSpec,
+  decision: Extract<SpawnPolicyDecision, { allow: true }>
+): Extract<SpawnPolicyDecision, { allow: true }> {
+  const constraints = (spec.resolvedDefinition ?? spec.definition)?.constraints;
+  if (constraints?.approvalMode === "required") {
+    return { allow: true, requiresApproval: true };
+  }
+  return decision;
 }
 
 /**
@@ -253,7 +269,7 @@ export class SpawnGate {
  */
 export function validateBatchScope(
   spec: SubagentSpec,
-  template: SubagentSpec,
+  template: SubagentSpec
 ): { allow: true } | { allow: false; reason: string } {
   if (spec.agentId !== template.agentId) {
     return { allow: false, reason: "batch_scope_widened: agentId" };
@@ -269,7 +285,7 @@ export function validateBatchScope(
 
 function isOutboundScopeSubset(
   requested: string[] | undefined,
-  approved: string[] | undefined,
+  approved: string[] | undefined
 ): boolean {
   if (requested === undefined || requested.length === 0) return true;
   if (approved === undefined) return false;
@@ -279,7 +295,7 @@ function isOutboundScopeSubset(
 
 function isMemoryScopeNarrowed(
   requested: SubagentSpec["memoryScope"],
-  approved: SubagentSpec["memoryScope"],
+  approved: SubagentSpec["memoryScope"]
 ): boolean {
   if (requested === undefined || approved === undefined) return true;
   const ranks: Record<NonNullable<SubagentSpec["memoryScope"]>, number> = {

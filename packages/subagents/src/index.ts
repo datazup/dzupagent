@@ -13,6 +13,8 @@
 // Contracts (seams)
 export type {
   BackgroundTask,
+  InlineAgentDefinition,
+  SubagentAuditIdentity,
   SubagentSpec,
   SubagentResult,
   TaskId,
@@ -56,6 +58,8 @@ export {
   BackgroundSubagentRuntime,
   type BackgroundSubagentRuntimeDeps,
   type GovernanceEventSink,
+  type SubagentAdmissionResolution,
+  type SubagentAdmissionResolver,
   type SpawnOutcome,
   type SpawnOptions,
   type SpawnBatchAdmission,
@@ -108,6 +112,11 @@ export { InMemoryTaskStore } from "./store/in-memory-task-store.js";
 export { InMemoryCheckpointer } from "./store/in-memory-checkpointer.js";
 export { InMemoryFanoutBatchStore } from "./store/in-memory-fanout-batch-store.js";
 export {
+  HostFanoutBatchStore,
+  recoverFanoutReport,
+  type HostFanoutBatchStoreOptions,
+} from "./store/host-fanout-batch-store.js";
+export {
   HostTaskStore,
   type HostTaskStoreOptions,
 } from "./store/host-task-store.js";
@@ -143,6 +152,7 @@ export {
 export {
   OrchestratorBackgroundApi,
   TaskHandle,
+  type OrchestratorBackgroundApiOptions,
 } from "./api/orchestrator-background-api.js";
 export {
   createSubagentTools,

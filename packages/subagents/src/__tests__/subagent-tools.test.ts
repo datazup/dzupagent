@@ -8,6 +8,39 @@ import {
   sequentialIds,
   flush,
 } from "./helpers.js";
+import { InMemoryFanoutBatchStore } from "../store/in-memory-fanout-batch-store.js";
+import type { SubagentResult } from "../contracts/background-task.js";
+
+/**
+ * Tool-set bound to an instant executor and an optional durable batch ledger —
+ * used by the `check_fanout` recovery tests. Mirrors the base {@link setup} but
+ * runs fan-out to completion synchronously.
+ */
+function setupInstant(opts?: {
+  fanoutBatchStore?: InMemoryFanoutBatchStore;
+  instantResult?: SubagentResult;
+}) {
+  const events = new RecordingEventSink();
+  const executor = new ControllableExecutor(
+    "instant",
+    opts?.instantResult ?? { output: "ok" }
+  );
+  const runtime = createInProcessSubagentRuntime({
+    executor,
+    events,
+    generateId: sequentialIds(),
+    policy: allowAllSpawnPolicy,
+  });
+  const tools = createSubagentTools({
+    runtime,
+    resolveParentRunId: () => "run-1",
+    ...(opts?.fanoutBatchStore !== undefined
+      ? { fanout: { fanoutBatchStore: opts.fanoutBatchStore } }
+      : {}),
+  });
+  const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+  return { runtime, executor, tools, byName };
+}
 
 function setup() {
   const events = new RecordingEventSink();
@@ -31,7 +64,7 @@ function setup() {
 /** Build a second tool-set bound to a different parent run over the same runtime. */
 function toolsForRun(
   runtime: ReturnType<typeof createInProcessSubagentRuntime>,
-  parentRunId: string,
+  parentRunId: string
 ) {
   const tools = createSubagentTools({
     runtime,
@@ -115,7 +148,7 @@ describe("subagent tools", () => {
 
       // run-2 must not be able to read run-1's task.
       expect(
-        await foreign.check_subagent!.invoke({ taskId: spawned.taskId }),
+        await foreign.check_subagent!.invoke({ taskId: spawned.taskId })
       ).toEqual({ found: false });
 
       // run-2 must not be able to await it (resolves as not-found immediately).
@@ -123,12 +156,12 @@ describe("subagent tools", () => {
         await foreign.await_subagent!.invoke({
           taskId: spawned.taskId,
           timeoutMs: 50,
-        }),
+        })
       ).toEqual({ found: false });
 
       // run-2's cancel must be a no-op — the task keeps running.
       expect(
-        await foreign.cancel_subagent!.invoke({ taskId: spawned.taskId }),
+        await foreign.cancel_subagent!.invoke({ taskId: spawned.taskId })
       ).toEqual({ status: "not_found" });
       const stillOwned = (await byName.check_subagent!.invoke({
         taskId: spawned.taskId,
@@ -144,6 +177,86 @@ describe("subagent tools", () => {
       expect(awaited).toMatchObject({
         status: "succeeded",
         result: { output: "done" },
+      });
+    });
+  });
+
+  describe("check_fanout", () => {
+    it("exposes check_fanout only when a batch store is configured", () => {
+      const withoutStore = setupInstant();
+      expect(withoutStore.tools.map((t) => t.name)).not.toContain(
+        "check_fanout"
+      );
+
+      const fanoutBatchStore = new InMemoryFanoutBatchStore();
+      const { tools } = setupInstant({ fanoutBatchStore });
+      expect(tools.map((t) => t.name).sort()).toEqual([
+        "await_subagent",
+        "cancel_subagent",
+        "check_fanout",
+        "check_subagent",
+        "fanout_template",
+        "spawn_subagent",
+      ]);
+    });
+
+    it("reconstructs a fanout report by batchId, or reports not found", async () => {
+      const fanoutBatchStore = new InMemoryFanoutBatchStore();
+      const { byName } = setupInstant({ fanoutBatchStore });
+
+      const report = (await byName.fanout_template!.invoke({
+        items: [
+          { key: "a", input: "alpha" },
+          { key: "b", input: "beta" },
+        ],
+        spec: { agentId: "x" },
+      })) as { batchId: string };
+
+      await expect(
+        byName.check_fanout!.invoke({ batchId: report.batchId })
+      ).resolves.toMatchObject({
+        found: true,
+        report: {
+          batchId: report.batchId,
+          declared: 2,
+          dispatched: 2,
+          uncovered: [],
+          settled: { succeeded: 2 },
+        },
+      });
+      await expect(
+        byName.check_fanout!.invoke({ batchId: "missing" })
+      ).resolves.toEqual({ found: false });
+    });
+
+    it("includes provider attribution in reconstructed report items", async () => {
+      const fanoutBatchStore = new InMemoryFanoutBatchStore();
+      const { byName } = setupInstant({
+        fanoutBatchStore,
+        instantResult: { output: "done", provider: "codex" },
+      });
+
+      const report = (await byName.fanout_template!.invoke({
+        items: [{ key: "repo-a", input: "audit repo-a" }],
+        spec: { agentId: "codex" },
+      })) as {
+        batchId: string;
+        items: Array<{ key: string; status: string; provider?: string }>;
+      };
+
+      expect(report.items[0]).toMatchObject({
+        key: "repo-a",
+        status: "succeeded",
+        provider: "codex",
+      });
+
+      await expect(
+        byName.check_fanout!.invoke({ batchId: report.batchId })
+      ).resolves.toMatchObject({
+        found: true,
+        report: {
+          items: [{ key: "repo-a", provider: "codex" }],
+        },
       });
     });
   });

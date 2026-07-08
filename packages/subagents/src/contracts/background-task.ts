@@ -40,6 +40,31 @@ export function isTerminalStatus(status: TaskStatus): boolean {
 }
 
 /**
+ * An inline agent persona supplied at spawn time instead of by registry key.
+ * Used when `SubagentSpec.agentId === "inline"` (with the executor's
+ * `allowInline` enabled) or as an admission-time persona snapshot
+ * (`resolvedDefinition`) produced by trusted runtime wiring.
+ */
+export interface InlineAgentDefinition {
+  /** Display/audit label, not a provider registry key. */
+  name: string;
+  /** Persona/system prompt materialized by the injected executor. */
+  personaPrompt: string;
+  /** Optional adapter id hint; executor/router decides fallback behavior. */
+  preferredProvider?: string;
+  /** Optional skill names for executors that can compile local skill bundles. */
+  skillNames?: string[];
+  /** Governance and adapter-policy hints carried with the definition. */
+  constraints?: {
+    maxBudgetUsd?: number;
+    estimatedCostUsd?: number;
+    approvalMode?: "auto" | "required" | "conditional";
+    networkPolicy?: "off" | "restricted" | "on";
+    toolPolicy?: "strict" | "balanced" | "open";
+  };
+}
+
+/**
  * Specification of the subagent to dispatch. Intentionally minimal and
  * governance-aware: the spawn gate inspects `agentId`, `outboundScope`, and
  * `memoryScope` to make a policy decision.
@@ -47,6 +72,12 @@ export function isTerminalStatus(status: TaskStatus): boolean {
 export interface SubagentSpec {
   /** Logical agent identity to dispatch; resolved by the injected executor port. */
   agentId: string;
+  /** Inline definition, required only when agentId is "inline". */
+  definition?: InlineAgentDefinition;
+  /** Admission-time persona snapshot produced by trusted runtime wiring. */
+  resolvedDefinition?: InlineAgentDefinition;
+  /** Display/audit name for an admission-time resolved persona snapshot. */
+  resolvedPersonaName?: string;
   /** Optional per-spawn instruction override. */
   instructions?: string;
   /** The task input handed to the subagent. */
@@ -60,9 +91,12 @@ export interface SubagentSpec {
 /** The result produced by a successful subagent run. */
 export interface SubagentResult {
   output: unknown;
+  /** Provider adapter id that actually executed this task, when known. */
+  provider?: string;
   usage?: {
     inputTokens?: number;
     outputTokens?: number;
+    costUsd?: number;
   };
 }
 
@@ -102,4 +136,16 @@ export interface BackgroundTask {
    * batch remain queryable by `batchId` via the store.
    */
   batchId?: string;
+  /** Persona identity captured at admission for audit events. */
+  audit?: SubagentAuditIdentity;
+}
+
+/**
+ * Persona/inline identity captured at spawn admission and surfaced on the
+ * `subagent:spawned` lifecycle event for audit — without exposing the full
+ * persona prompt on the bus.
+ */
+export interface SubagentAuditIdentity {
+  personaName?: string;
+  inlineDefinitionHash?: string;
 }

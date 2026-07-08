@@ -8,6 +8,9 @@ import type {
   SpawnOutcome,
 } from "../runtime/background-subagent-runtime.js";
 import type { BackgroundSubagentRuntime } from "../runtime/background-subagent-runtime.js";
+import type { FanoutBatchStore } from "../contracts/fanout-batch-store.js";
+import type { FanoutReport } from "../tools/fanout-tool.js";
+import { fanoutBatchRecordToReport } from "../tools/fanout-tool.js";
 
 /** A lightweight handle returned by the programmatic spawn API. */
 export class TaskHandle {
@@ -37,8 +40,15 @@ export class TaskHandle {
  * Programmatic surface over the runtime, for application/orchestration code that
  * coordinates background work directly (as opposed to the LLM-facing tools).
  */
+export interface OrchestratorBackgroundApiOptions {
+  fanoutBatchStore?: FanoutBatchStore;
+}
+
 export class OrchestratorBackgroundApi {
-  constructor(private readonly runtime: BackgroundSubagentRuntime) {}
+  constructor(
+    private readonly runtime: BackgroundSubagentRuntime,
+    private readonly options: OrchestratorBackgroundApiOptions = {}
+  ) {}
 
   async spawn(
     spec: SubagentSpec,
@@ -69,5 +79,12 @@ export class OrchestratorBackgroundApi {
 
   list(parentRunId?: string): Promise<BackgroundTask[]> {
     return this.runtime.list(parentRunId);
+  }
+
+  async getFanoutReport(batchId: string): Promise<FanoutReport | null> {
+    const record = await this.options.fanoutBatchStore?.get(batchId);
+    return record === undefined || record === null
+      ? null
+      : fanoutBatchRecordToReport(record);
   }
 }

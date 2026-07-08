@@ -16,6 +16,7 @@ import { InMemoryTaskStore } from "../store/in-memory-task-store.js";
 import {
   BackgroundSubagentRuntime,
   type GovernanceEventSink,
+  type SubagentAdmissionResolver,
 } from "./background-subagent-runtime.js";
 import type { LifecyclePolicy } from "./runtime-config.js";
 
@@ -41,6 +42,7 @@ export interface CreateInProcessRuntimeOptions {
   policy?: SpawnPolicy;
   approvalGate?: SpawnApprovalGate;
   governance?: GovernanceEventSink;
+  resolveAdmission?: SubagentAdmissionResolver;
   lifecyclePolicy?: Partial<LifecyclePolicy>;
   clock?: Clock;
   generateId?: () => string;
@@ -54,7 +56,7 @@ export interface CreateInProcessRuntimeOptions {
  * a `DurableQueueRunner`, or construct the runtime manually.
  */
 export function createInProcessSubagentRuntime(
-  options: CreateInProcessRuntimeOptions,
+  options: CreateInProcessRuntimeOptions
 ): BackgroundSubagentRuntime {
   const store = options.store ?? new InMemoryTaskStore();
   const clock = options.clock ?? systemClock;
@@ -63,7 +65,7 @@ export function createInProcessSubagentRuntime(
   // allow-all let any consumer of this base runtime spawn with no tenant scope.
   const gate = new SpawnGate(
     options.policy ?? denyAllSpawnPolicy,
-    options.approvalGate,
+    options.approvalGate
   );
 
   const runnerDeps: RunnerFactoryDeps = {
@@ -83,6 +85,9 @@ export function createInProcessSubagentRuntime(
     gate,
     events: options.events,
     ...(options.governance ? { governance: options.governance } : {}),
+    ...(options.resolveAdmission !== undefined
+      ? { resolveAdmission: options.resolveAdmission }
+      : {}),
     ...(options.lifecyclePolicy ? { policy: options.lifecyclePolicy } : {}),
     clock,
     generateId: options.generateId ?? (() => randomUUID()),

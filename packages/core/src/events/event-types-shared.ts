@@ -174,6 +174,10 @@ export type SubagentRuntimeDzupEvent =
       batchId?: string;
       /** Spawn depth (0 = spawned by the top-level run). */
       depth?: number;
+      /** Persona name captured at admission (audit only), when applicable. */
+      personaName?: string | undefined;
+      /** Hash of an inline definition captured at admission, when applicable. */
+      inlineDefinitionHash?: string | undefined;
     }
   | { type: "subagent:admitted"; taskId: string }
   | { type: "subagent:progress"; taskId: string; note: string }

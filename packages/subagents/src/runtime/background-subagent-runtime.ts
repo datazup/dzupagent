@@ -1,5 +1,6 @@
 import type {
   BackgroundTask,
+  SubagentAuditIdentity,
   SubagentResult,
   SubagentSpec,
   TaskId,
@@ -62,6 +63,26 @@ export type SpawnBatchAdmission =
   | { ok: true; batch: ApprovedSpawnBatch; approvalRequired: boolean }
   | { ok: false; reason: "denied"; detail: string };
 
+/**
+ * The outcome of a trusted pre-admission resolver: the (possibly rewritten)
+ * spec to admit, plus an optional persona/inline audit identity captured for
+ * the `subagent:spawned` event.
+ */
+export interface SubagentAdmissionResolution {
+  spec: SubagentSpec;
+  audit?: SubagentAuditIdentity;
+}
+
+/**
+ * A trusted hook run at spawn admission that can materialize a persona snapshot
+ * (`resolvedDefinition`) or attach policy data before governance evaluates the
+ * spec. Runs only when the caller did not already supply a `resolvedDefinition`.
+ */
+export type SubagentAdmissionResolver = (
+  spec: SubagentSpec,
+  parentRunId: string
+) => Promise<SubagentAdmissionResolution> | SubagentAdmissionResolution;
+
 export interface SpawnOptions {
   ttlMs?: number;
   /**
@@ -101,6 +122,8 @@ export interface BackgroundSubagentRuntimeDeps {
   clock?: Clock;
   /** Structured logger seam; defaults to a JSON-to-stderr logger when absent. */
   logger?: SubagentLogger;
+  /** Optional trusted pre-admission resolver for persona snapshots/policy data. */
+  resolveAdmission?: SubagentAdmissionResolver;
   /** Deterministic id generator (no Math.random in core paths). */
   generateId: () => string;
   /** Optional policy for durable runners that should settle stale running work. */
@@ -125,6 +148,7 @@ export class BackgroundSubagentRuntime {
   private readonly clock: Clock;
   private readonly policy: LifecyclePolicy;
   private readonly logger: SubagentLogger;
+  private readonly resolveAdmission?: SubagentAdmissionResolver;
   private readonly generateId: () => string;
   private readonly lifecycle: LifecycleController;
   private readonly controllers = new Map<TaskId, AbortController>();
@@ -142,6 +166,7 @@ export class BackgroundSubagentRuntime {
     this.clock = deps.clock ?? systemClock;
     this.policy = { ...DEFAULT_LIFECYCLE_POLICY, ...deps.policy };
     this.logger = deps.logger ?? defaultSubagentLogger;
+    this.resolveAdmission = deps.resolveAdmission;
     this.generateId = deps.generateId;
     this.staleRunningRecovery = deps.staleRunningRecovery;
     this.lifecycle = new LifecycleController(
@@ -150,7 +175,7 @@ export class BackgroundSubagentRuntime {
       this.clock,
       this.events,
       (taskId) => this.abortController(taskId),
-      this.logger,
+      this.logger
     );
   }
 
@@ -184,7 +209,7 @@ export class BackgroundSubagentRuntime {
   async spawn(
     spec: SubagentSpec,
     parentRunId: string,
-    options: SpawnOptions = {},
+    options: SpawnOptions = {}
   ): Promise<SpawnOutcome> {
     const depth = options.depth ?? 0;
 
@@ -223,16 +248,22 @@ export class BackgroundSubagentRuntime {
       return { ok: false, reason: "queue_full" };
     }
 
+    // Trusted pre-admission: materialize a persona snapshot / attach policy
+    // data before governance sees the spec, and capture an audit identity.
+    const admission = await this.resolveAdmissionSpec(spec, parentRunId);
+    const admittedSpec = admission.spec;
+
     const id = this.generateId();
     const task: BackgroundTask = {
       id,
       parentRunId,
-      spec,
+      spec: admittedSpec,
       status: "queued",
       createdAt: this.clock.now(),
       ttlMs: options.ttlMs ?? this.policy.defaultTtlMs,
       depth,
       ...(options.batchId !== undefined ? { batchId: options.batchId } : {}),
+      ...(admission.audit !== undefined ? { audit: admission.audit } : {}),
     };
     await this.store.put(task);
 
@@ -245,7 +276,7 @@ export class BackgroundSubagentRuntime {
         : {}),
       ...(options.batch !== undefined ? { batch: options.batch } : {}),
     };
-    const decision = await this.gate.evaluate(spec, ctx, approvalId);
+    const decision = await this.gate.evaluate(admittedSpec, ctx, approvalId);
 
     if (decision.outcome === "denied") {
       await this.store.patch(id, {
@@ -286,7 +317,7 @@ export class BackgroundSubagentRuntime {
   private async resolveApprovalThenAdmit(
     id: TaskId,
     parentRunId: string,
-    approvalId: string,
+    approvalId: string
   ): Promise<void> {
     const outcome = await this.gate.awaitApproval(parentRunId, approvalId);
     this.governance.emitGovernance({
@@ -342,6 +373,12 @@ export class BackgroundSubagentRuntime {
       parentRunId,
       agentId: task.spec.agentId,
       depth: task.depth,
+      ...(task.audit?.personaName !== undefined
+        ? { personaName: task.audit.personaName }
+        : {}),
+      ...(task.audit?.inlineDefinitionHash !== undefined
+        ? { inlineDefinitionHash: task.audit.inlineDefinitionHash }
+        : {}),
       ...(task.batchId !== undefined ? { batchId: task.batchId } : {}),
     });
 
@@ -372,7 +409,7 @@ export class BackgroundSubagentRuntime {
    */
   private async resolveOwned(
     taskId: TaskId,
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     const task = await this.store.get(taskId);
     if (!task) return null;
@@ -385,7 +422,7 @@ export class BackgroundSubagentRuntime {
   /** Pull: current task state (ownership-scoped when `scope` is supplied). */
   async check(
     taskId: TaskId,
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     return this.resolveOwned(taskId, scope);
   }
@@ -398,7 +435,7 @@ export class BackgroundSubagentRuntime {
   async await(
     taskId: TaskId,
     options: { timeoutMs?: number; pollIntervalMs?: number } = {},
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     const pollIntervalMs = options.pollIntervalMs ?? 25;
     const deadline =
@@ -424,7 +461,7 @@ export class BackgroundSubagentRuntime {
   /** Cancel a task: abort its run (if running) or mark cancelled (if pending). */
   async cancel(
     taskId: TaskId,
-    scope?: TaskScope,
+    scope?: TaskScope
   ): Promise<BackgroundTask | null> {
     const task = await this.resolveOwned(taskId, scope);
     if (!task || isTerminalStatus(task.status)) {
@@ -461,9 +498,19 @@ export class BackgroundSubagentRuntime {
    * {@link ApprovedSpawnBatch} the coordinator threads into each per-item spawn.
    */
   async evaluateBatch(
-    request: SpawnBatchRequest,
+    request: SpawnBatchRequest
   ): Promise<SpawnBatchAdmission> {
-    const decision = await this.gate.evaluateBatch(request);
+    // Resolve the batch template once so persona snapshots/policy data are
+    // applied uniformly to every per-item spawn derived from it.
+    const admission = await this.resolveAdmissionSpec(
+      request.template,
+      request.parentRunId
+    );
+    const resolvedRequest: SpawnBatchRequest = {
+      ...request,
+      template: admission.spec,
+    };
+    const decision = await this.gate.evaluateBatch(resolvedRequest);
     if (decision.outcome === "denied") {
       this.governance.emitGovernance({
         type: "governance:rule_violation",
@@ -481,7 +528,7 @@ export class BackgroundSubagentRuntime {
       });
       const outcome = await this.gate.awaitApproval(
         request.parentRunId,
-        request.batchId,
+        request.batchId
       );
       this.governance.emitGovernance({
         type: "governance:approval_resolved",
@@ -506,7 +553,7 @@ export class BackgroundSubagentRuntime {
       batch: {
         batchId: request.batchId,
         mode: request.mode,
-        template: request.template,
+        template: admission.spec,
         itemKeys: [...request.itemKeys],
       },
     };
@@ -559,6 +606,38 @@ export class BackgroundSubagentRuntime {
     this.controllers.get(taskId)?.abort();
     this.controllers.delete(taskId);
   }
+
+  /**
+   * Run the trusted pre-admission resolver (when configured) and derive the
+   * persona/inline audit identity. A caller-supplied `resolvedDefinition` is a
+   * trusted snapshot already, so it short-circuits the resolver.
+   */
+  private async resolveAdmissionSpec(
+    spec: SubagentSpec,
+    parentRunId: string
+  ): Promise<SubagentAdmissionResolution> {
+    if (
+      spec.resolvedDefinition !== undefined ||
+      this.resolveAdmission === undefined
+    ) {
+      const audit = defaultAuditForSpec(spec);
+      return audit !== undefined ? { spec, audit } : { spec };
+    }
+    const admission = await this.resolveAdmission(spec, parentRunId);
+    const audit = admission.audit ?? defaultAuditForSpec(admission.spec);
+    return audit !== undefined
+      ? { spec: admission.spec, audit }
+      : { spec: admission.spec };
+  }
+}
+
+function defaultAuditForSpec(
+  spec: SubagentSpec
+): SubagentAuditIdentity | undefined {
+  const definition = spec.resolvedDefinition ?? spec.definition;
+  const personaName = spec.resolvedPersonaName ?? definition?.name;
+  if (personaName === undefined) return undefined;
+  return { personaName };
 }
 
 function sleep(ms: number): Promise<void> {

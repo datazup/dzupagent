@@ -1,6 +1,7 @@
 import type { SubagentSpec, TaskId } from "../contracts/background-task.js";
 import type { BackgroundSubagentRuntime } from "../runtime/background-subagent-runtime.js";
 import { createFanoutTemplateTool } from "./fanout-tool.js";
+import { fanoutBatchRecordToReport } from "./fanout-tool.js";
 import type { FanoutToolConfig } from "./fanout-tool.js";
 
 /**
@@ -11,7 +12,7 @@ import type { FanoutToolConfig } from "./fanout-tool.js";
  */
 export interface SubagentToolDescriptor<
   TArgs = Record<string, unknown>,
-  TResult = unknown,
+  TResult = unknown
 > {
   name: string;
   description: string;
@@ -44,7 +45,7 @@ export interface SubagentToolsConfig {
  * plain serialisable results so the model can reason about them.
  */
 export function createSubagentTools(
-  config: SubagentToolsConfig,
+  config: SubagentToolsConfig
 ): SubagentToolDescriptor[] {
   const { runtime, resolveParentRunId } = config;
 
@@ -84,7 +85,7 @@ export function createSubagentTools(
       const outcome = await runtime.spawn(
         spec,
         resolveParentRunId(),
-        args.ttlMs !== undefined ? { ttlMs: args.ttlMs } : {},
+        args.ttlMs !== undefined ? { ttlMs: args.ttlMs } : {}
       );
       return outcome;
     },
@@ -138,7 +139,7 @@ export function createSubagentTools(
         const task = await runtime.await(
           taskId,
           timeoutMs !== undefined ? { timeoutMs } : {},
-          { parentRunId: resolveParentRunId() },
+          { parentRunId: resolveParentRunId() }
         );
         if (!task) {
           return { found: false };
@@ -175,5 +176,39 @@ export function createSubagentTools(
     ...config.fanout,
   });
 
-  return [spawn, check, await_, cancel, fanout];
+  const tools: SubagentToolDescriptor[] = [
+    spawn,
+    check,
+    await_,
+    cancel,
+    fanout,
+  ];
+
+  // A durable batch ledger unlocks stateless recovery of a fan-out report by
+  // batchId — surfaced as `check_fanout` so a replacement coordinator (or a
+  // supervisor after a restart) can reconstruct "M of N settled" without the
+  // original coordinator being alive.
+  const fanoutBatchStore = config.fanout?.fanoutBatchStore;
+  if (fanoutBatchStore !== undefined) {
+    const checkFanout: SubagentToolDescriptor<{ batchId: string }> = {
+      name: "check_fanout",
+      description:
+        "Check the current reconstructed report for a fanout_template batch by batchId.",
+      parameters: {
+        type: "object",
+        properties: { batchId: { type: "string" } },
+        required: ["batchId"],
+      },
+      invoke: async ({ batchId }) => {
+        const record = await fanoutBatchStore.get(batchId);
+        if (record === null) {
+          return { found: false };
+        }
+        return { found: true, report: fanoutBatchRecordToReport(record) };
+      },
+    };
+    tools.push(checkFanout);
+  }
+
+  return tools;
 }
