@@ -151,7 +151,7 @@ export interface FanoutValidationError {
 }
 
 export function isFanoutValidationError(
-  value: FanoutReport | FanoutValidationError,
+  value: FanoutReport | FanoutValidationError
 ): value is FanoutValidationError {
   return "error" in value;
 }
@@ -173,7 +173,7 @@ function substitutePlaceholders(template: string, item: FanoutItem): string {
  */
 function capResult(
   output: unknown,
-  maxResultBytes: number,
+  maxResultBytes: number
 ): { result?: unknown; resultTruncated?: boolean } {
   if (output === undefined) {
     return {};
@@ -205,7 +205,7 @@ function sleep(ms: number): Promise<void> {
  * `resolveParentRunId` wiring as the four single-task tools.
  */
 export function createFanoutTemplateTool(
-  config: FanoutToolConfig,
+  config: FanoutToolConfig
 ): SubagentToolDescriptor<
   FanoutTemplateArgs,
   FanoutReport | FanoutValidationError
@@ -224,7 +224,7 @@ export function createFanoutTemplateTool(
   const recordItem = async (
     batchId: string,
     itemKey: string,
-    update: FanoutBatchItemUpdate,
+    update: FanoutBatchItemUpdate
   ): Promise<void> => {
     if (store === undefined) return;
     try {
@@ -326,16 +326,13 @@ export function createFanoutTemplateTool(
       const declared = args.items.length;
       const maxWallClockMs = Math.min(
         args.budget?.maxWallClockMs ?? limits.maxWallClockMs,
-        limits.maxWallClockMs,
+        limits.maxWallClockMs
       );
       const maxTotalOutputTokens =
         args.budget?.maxTotalOutputTokens ?? limits.maxTotalOutputTokens;
       const concurrency = Math.max(
         1,
-        Math.min(
-          args.concurrency ?? limits.maxConcurrent,
-          limits.maxConcurrent,
-        ),
+        Math.min(args.concurrency ?? limits.maxConcurrent, limits.maxConcurrent)
       );
       const startedAt = clock.now();
       const deadline = startedAt + maxWallClockMs;
@@ -469,7 +466,7 @@ export function createFanoutTemplateTool(
           ? {
               instructions: substitutePlaceholders(
                 args.spec.instructions,
-                item,
+                item
               ),
             }
           : {}),
@@ -483,7 +480,7 @@ export function createFanoutTemplateTool(
 
       /** Dispatch one item, retrying `queue_full` with backoff inside the wall clock. */
       const dispatchItem = async (
-        item: FanoutItem,
+        item: FanoutItem
       ): Promise<
         | { kind: "dispatched"; taskId: string }
         | { kind: "denied"; detail?: string }
@@ -518,13 +515,13 @@ export function createFanoutTemplateTool(
 
       const settleItem = async (
         item: FanoutItem,
-        taskId: string,
+        taskId: string
       ): Promise<void> => {
         const remaining = deadline - clock.now();
         const task: BackgroundTask | null = await runtime.await(
           taskId,
           { timeoutMs: Math.max(0, remaining), pollIntervalMs: 5 },
-          { parentRunId },
+          { parentRunId }
         );
         if (task && isTerminalStatus(task.status)) {
           const durationMs =
@@ -544,11 +541,13 @@ export function createFanoutTemplateTool(
               abortState.reason = "budget_exceeded";
             }
           }
+          const provider = task.result?.provider;
           const settledRecord: FanoutReportItem = {
             key: item.key,
             taskId,
             status: task.status,
             ...capResult(task.result?.output, limits.maxResultBytes),
+            ...(provider !== undefined ? { provider } : {}),
             ...(task.error !== undefined ? { error: task.error } : {}),
             ...(durationMs !== undefined ? { durationMs } : {}),
             ...(outputTokens !== undefined ? { outputTokens } : {}),
@@ -561,6 +560,7 @@ export function createFanoutTemplateTool(
             ...(settledRecord.resultTruncated !== undefined
               ? { resultTruncated: settledRecord.resultTruncated }
               : {}),
+            ...(provider !== undefined ? { provider } : {}),
             ...(task.error !== undefined ? { error: task.error } : {}),
             ...(durationMs !== undefined ? { durationMs } : {}),
             ...(outputTokens !== undefined ? { outputTokens } : {}),
@@ -675,7 +675,7 @@ export function createFanoutTemplateTool(
         }
       };
       await Promise.all(
-        Array.from({ length: Math.min(concurrency, declared) }, () => worker()),
+        Array.from({ length: Math.min(concurrency, declared) }, () => worker())
       );
 
       // --- Assemble the report: every declared item exactly once (FR3/NFR4). ---
@@ -793,7 +793,7 @@ export function createFanoutTemplateTool(
  * `uncovered` lists any item still `never_dispatched`.
  */
 export function fanoutBatchRecordToReport(
-  record: FanoutBatchRecord,
+  record: FanoutBatchRecord
 ): FanoutReport {
   const items: FanoutReportItem[] = record.items.map((item) => ({
     key: item.key,
@@ -803,6 +803,7 @@ export function fanoutBatchRecordToReport(
     ...(item.resultTruncated !== undefined
       ? { resultTruncated: item.resultTruncated }
       : {}),
+    ...(item.provider !== undefined ? { provider: item.provider } : {}),
     ...(item.error !== undefined ? { error: item.error } : {}),
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
     ...(item.outputTokens !== undefined

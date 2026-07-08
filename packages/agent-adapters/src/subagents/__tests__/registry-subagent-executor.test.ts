@@ -6,7 +6,7 @@ import type { ProviderAdapterRegistry } from "../../registry/adapter-registry.js
 /** Minimal adapter that yields a scripted event stream. */
 function fakeAdapter(
   events: Array<Record<string, unknown>>,
-  capture?: (input: AgentInput) => void,
+  capture?: (input: AgentInput) => void
 ) {
   return {
     providerId: "claude",
@@ -55,9 +55,26 @@ describe("RegistrySubagentExecutor", () => {
     const result = await exec.run({ agentId: "claude", input: "do it" }, ctx());
     expect(result).toEqual({
       output: "final answer",
+      provider: "claude",
       usage: { inputTokens: 3, outputTokens: 10 },
     });
     expect(recordSuccess).toHaveBeenCalledWith("claude");
+  });
+
+  it("returns the provider id that executed the subagent", async () => {
+    const adapter = fakeAdapter([{ type: "adapter:completed", result: "ok" }]);
+    const { registry } = fakeRegistry(adapter);
+    const exec = new RegistrySubagentExecutor(registry);
+
+    const result = await exec.run(
+      { agentId: "claude", input: "audit repo-a" },
+      ctx()
+    );
+
+    expect(result).toMatchObject({
+      output: "ok",
+      provider: "claude",
+    });
   });
 
   it("forwards progress events to onProgress", async () => {
@@ -75,7 +92,7 @@ describe("RegistrySubagentExecutor", () => {
         taskId: "t1",
         signal: new AbortController().signal,
         onProgress: (n) => notes.push(n),
-      },
+      }
     );
     expect(notes).toContain("step 1");
   });
@@ -88,7 +105,7 @@ describe("RegistrySubagentExecutor", () => {
     const exec = new RegistrySubagentExecutor(registry);
 
     await expect(
-      exec.run({ agentId: "claude", input: "x" }, ctx()),
+      exec.run({ agentId: "claude", input: "x" }, ctx())
     ).rejects.toThrow("provider exploded");
     expect(recordFailure).toHaveBeenCalled();
   });
@@ -99,7 +116,7 @@ describe("RegistrySubagentExecutor", () => {
       [{ type: "adapter:completed", result: "ok" }],
       (input) => {
         seen = input;
-      },
+      }
     );
     const { registry } = fakeRegistry(adapter);
     const exec = new RegistrySubagentExecutor(registry);
@@ -115,7 +132,7 @@ describe("RegistrySubagentExecutor", () => {
       [{ type: "adapter:completed", result: "ok" }],
       (input) => {
         seen = input;
-      },
+      }
     );
     const { registry } = fakeRegistry(adapter);
     const exec = new RegistrySubagentExecutor(registry);
@@ -134,7 +151,7 @@ describe("RegistrySubagentExecutor", () => {
     } as unknown as ProviderAdapterRegistry;
     const exec = new RegistrySubagentExecutor(registry);
     await expect(
-      exec.run({ agentId: "ghost", input: "x" }, ctx()),
+      exec.run({ agentId: "ghost", input: "x" }, ctx())
     ).rejects.toThrow(/not registered/);
   });
 
@@ -153,7 +170,7 @@ describe("RegistrySubagentExecutor", () => {
     });
 
     await expect(
-      exec.run({ agentId: "claude", input: "x" }, ctx()),
+      exec.run({ agentId: "claude", input: "x" }, ctx())
     ).rejects.toMatchObject({ code: "TOKEN_LIMIT_EXCEEDED" });
     expect(recordFailure).toHaveBeenCalled();
   });
@@ -194,7 +211,7 @@ describe("RegistrySubagentExecutor", () => {
     const exec = new RegistrySubagentExecutor(registry, { timeoutMs: 20 });
 
     await expect(
-      exec.run({ agentId: "claude", input: "x" }, ctx()),
+      exec.run({ agentId: "claude", input: "x" }, ctx())
     ).rejects.toMatchObject({ code: "ADAPTER_TIMEOUT" });
     expect(recordFailure).toHaveBeenCalled();
   });

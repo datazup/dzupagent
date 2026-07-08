@@ -37,12 +37,12 @@ export interface SubagentExecutorLimits {
 export class RegistrySubagentExecutor implements SubagentExecutorPort {
   constructor(
     private readonly registry: ProviderAdapterRegistry,
-    private readonly limits: SubagentExecutorLimits = {},
+    private readonly limits: SubagentExecutorLimits = {}
   ) {}
 
   async run(
     spec: SubagentSpec,
-    ctx: SubagentExecutionContext,
+    ctx: SubagentExecutionContext
   ): Promise<SubagentResult> {
     const providerId = resolveRegisteredProviderId(this.registry, spec.agentId);
     if (!providerId) {
@@ -135,7 +135,7 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
     } catch (error) {
       this.registry.recordFailure(
         providerId,
-        error instanceof Error ? error : new Error(String(error)),
+        error instanceof Error ? error : new Error(String(error))
       );
       throw error;
     } finally {
@@ -154,8 +154,8 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
 
     this.registry.recordSuccess(providerId);
     return usage !== undefined
-      ? { output: resultText, usage }
-      : { output: resultText };
+      ? { output: resultText, provider: providerId, usage }
+      : { output: resultText, provider: providerId };
   }
 }
 
@@ -166,7 +166,7 @@ export class RegistrySubagentExecutor implements SubagentExecutorPort {
  */
 function withTimeout(
   parent: AbortSignal,
-  timeoutMs: number | undefined,
+  timeoutMs: number | undefined
 ): { signal: AbortSignal; dispose: () => void } {
   if (timeoutMs === undefined) {
     return { signal: parent, dispose: () => {} };
@@ -196,7 +196,7 @@ function withTimeout(
  */
 function abortReason(
   callerSignal: AbortSignal,
-  timeoutMs: number | undefined,
+  timeoutMs: number | undefined
 ): ForgeError {
   if (callerSignal.aborted) {
     return new ForgeError({
@@ -217,7 +217,7 @@ function abortReason(
 
 function resolveRegisteredProviderId(
   registry: ProviderAdapterRegistry,
-  agentId: string,
+  agentId: string
 ): AdapterProviderId | undefined {
   return registry.listAdapters().find((providerId) => providerId === agentId);
 }

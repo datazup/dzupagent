@@ -1,8 +1,4 @@
-import type {
-  SubagentResult,
-  TaskId,
-  TaskStatus,
-} from "./background-task.js";
+import type { SubagentResult, TaskId, TaskStatus } from "./background-task.js";
 
 export type FanoutBatchMode = "template" | "script";
 export type FanoutBatchStatus = "running" | "completed" | "aborted";
@@ -18,6 +14,7 @@ export interface FanoutBatchItemRecord {
   status: FanoutBatchItemStatus;
   result?: SubagentResult;
   resultTruncated?: boolean;
+  provider?: string;
   error?: string;
   durationMs?: number;
   outputTokens?: number;
@@ -53,6 +50,7 @@ export interface FanoutBatchItemUpdate {
   status?: FanoutBatchItemStatus;
   result?: SubagentResult;
   resultTruncated?: boolean;
+  provider?: string;
   error?: string;
   durationMs?: number;
   outputTokens?: number;
@@ -74,10 +72,7 @@ export interface FanoutBatchStore {
   recordItem(
     batchId: string,
     itemKey: string,
-    update: FanoutBatchItemUpdate,
+    update: FanoutBatchItemUpdate
   ): Promise<void>;
-  complete(
-    batchId: string,
-    update: FanoutBatchCompleteUpdate,
-  ): Promise<void>;
+  complete(batchId: string, update: FanoutBatchCompleteUpdate): Promise<void>;
 }

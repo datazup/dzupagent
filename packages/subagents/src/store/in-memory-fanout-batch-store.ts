@@ -44,7 +44,7 @@ export class InMemoryFanoutBatchStore implements FanoutBatchStore {
   async recordItem(
     batchId: string,
     itemKey: string,
-    update: FanoutBatchItemUpdate,
+    update: FanoutBatchItemUpdate
   ): Promise<void> {
     const record = this.requireBatch(batchId);
     const index = record.items.findIndex((item) => item.key === itemKey);
@@ -56,13 +56,16 @@ export class InMemoryFanoutBatchStore implements FanoutBatchStore {
     const next = { ...current, updatedAt: update.updatedAt };
     if (update.taskId !== undefined) next.taskId = update.taskId;
     if (update.status !== undefined) next.status = update.status;
-    if (update.result !== undefined) next.result = structuredClone(update.result);
+    if (update.result !== undefined)
+      next.result = structuredClone(update.result);
     if (update.resultTruncated !== undefined) {
       next.resultTruncated = update.resultTruncated;
     }
+    if (update.provider !== undefined) next.provider = update.provider;
     if (update.error !== undefined) next.error = update.error;
     if (update.durationMs !== undefined) next.durationMs = update.durationMs;
-    if (update.outputTokens !== undefined) next.outputTokens = update.outputTokens;
+    if (update.outputTokens !== undefined)
+      next.outputTokens = update.outputTokens;
 
     record.items[index] = next;
     record.updatedAt = update.updatedAt;
@@ -70,7 +73,7 @@ export class InMemoryFanoutBatchStore implements FanoutBatchStore {
 
   async complete(
     batchId: string,
-    update: FanoutBatchCompleteUpdate,
+    update: FanoutBatchCompleteUpdate
   ): Promise<void> {
     const record = this.requireBatch(batchId);
     record.status = update.status;
@@ -99,7 +102,7 @@ export class InMemoryFanoutBatchStore implements FanoutBatchStore {
 
 function sameBatchIdentity(
   existing: FanoutBatchRecord,
-  next: FanoutBatchCreate,
+  next: FanoutBatchCreate
 ): boolean {
   return (
     existing.parentRunId === next.parentRunId &&

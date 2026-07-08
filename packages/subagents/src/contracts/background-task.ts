@@ -60,6 +60,8 @@ export interface SubagentSpec {
 /** The result produced by a successful subagent run. */
 export interface SubagentResult {
   output: unknown;
+  /** Provider adapter id that actually executed this task, when known. */
+  provider?: string;
   usage?: {
     inputTokens?: number;
     outputTokens?: number;
