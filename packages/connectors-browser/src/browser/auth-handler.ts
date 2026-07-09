@@ -71,7 +71,7 @@ export class AuthHandler {
   private async fillAndSubmitLogin(
     page: Page,
     creds: AuthCredentials
-  ): Promise<void> {
+  ): Promise<boolean> {
     // Wait for SPA hydration — login forms may not be interactive until JS loads
     await this.waitForSpaReady(page);
 
@@ -126,27 +126,38 @@ export class AuthHandler {
     await submitButton.first().click();
 
     // Wait for login to complete — use multiple strategies
-    await this.waitForLoginComplete(page, urlBeforeLogin);
+    const positiveSignal = await this.waitForLoginComplete(
+      page,
+      urlBeforeLogin
+    );
+    return positiveSignal;
   }
 
   /**
    * Wait for login to complete using multiple detection strategies.
    * SPAs may use URL changes, DOM updates, or token storage.
+   *
+   * Returns whether a positive success signal (URL change or a post-login DOM
+   * indicator) actually fired. Absence of a password field alone is NOT proof
+   * of success — interstitials like email verification, CAPTCHA, or an IdP
+   * error page also lack a password field, so callers must combine this with
+   * `isLoginPage`.
    */
   private async waitForLoginComplete(
     page: Page,
     urlBeforeLogin: string
-  ): Promise<void> {
+  ): Promise<boolean> {
+    let sawPositiveSignal = false;
     try {
       // Strategy 1: Wait for URL change (most common for SPAs)
       // Strategy 2: Wait for post-login DOM indicators
-      // Strategy 3: Wait for network idle (fallback)
       await Promise.race([
         // Wait for URL to change (redirect to dashboard/home)
         (async () => {
           await page.waitForURL((url) => url.toString() !== urlBeforeLogin, {
             timeout: LOGIN_TIMEOUT,
           });
+          sawPositiveSignal = true;
         })(),
         // Wait for a post-login indicator to appear
         (async () => {
@@ -154,10 +165,11 @@ export class AuthHandler {
             state: "visible",
             timeout: LOGIN_TIMEOUT,
           });
+          sawPositiveSignal = true;
         })(),
       ]);
     } catch {
-      // Both strategies timed out — fall back to networkidle
+      // Both strategies timed out — no positive signal observed
     }
 
     // Always wait for network to settle after login
@@ -167,6 +179,8 @@ export class AuthHandler {
 
     // Additional wait for SPA re-render after auth state change
     await page.waitForTimeout(1000);
+
+    return sawPositiveSignal;
   }
 
   /**
@@ -314,10 +328,17 @@ export class AuthHandler {
       }
       const loginPageUrl = page.url();
 
-      await this.fillAndSubmitLogin(page, { ...creds, loginUrl: undefined });
+      const sawPositiveSignal = await this.fillAndSubmitLogin(page, {
+        ...creds,
+        loginUrl: undefined,
+      });
       recordOrigin();
 
-      if (!(await this.isLoginPage(page))) {
+      // Success requires BOTH a positive signal (URL change or post-login DOM
+      // indicator) AND the absence of a password field. Absence alone would
+      // misclassify password-field-free interstitials (email verification,
+      // CAPTCHA, IdP error pages) as successful logins.
+      if (sawPositiveSignal && !(await this.isLoginPage(page))) {
         return {
           success: true,
           finalUrl: page.url(),

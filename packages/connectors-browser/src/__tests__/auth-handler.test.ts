@@ -325,6 +325,45 @@ describe("AuthHandler", () => {
       expect(vi.mocked(page.goto)).toHaveBeenCalledTimes(2);
     });
 
+    it("fails with LOGIN_FAILED when a post-submit interstitial has no password field but never signals success (URL unchanged, no post-login indicator)", async () => {
+      const { page, locatorInstance } = makeMockPage();
+      // Page never changes URL after submit, and no post-login indicator ever appears —
+      // waitForURL/waitForSelector in waitForLoginComplete must both time out.
+      vi.mocked(page.waitForURL).mockRejectedValue(new Error("timeout"));
+      vi.mocked(page.waitForSelector).mockImplementation(
+        (selector: unknown, opts?: { timeout?: number }) => {
+          // username/password selectors during fill must resolve; only the
+          // post-login indicator wait (called with no explicit login field name)
+          // should reject to simulate no post-login DOM indicator appearing.
+          if (typeof selector === "string" && selector.includes("nav")) {
+            return Promise.reject(new Error("timeout"));
+          }
+          return Promise.resolve(undefined);
+        }
+      );
+      // isLoginPage at declared loginUrl: form present (1), then post-submit
+      // check on the interstitial: no password field (0) — repeats per attempt.
+      locatorInstance.count.mockImplementation(() =>
+        Promise.resolve(
+          locatorInstance.count.mock.calls.length % 2 === 1 ? 1 : 0
+        )
+      );
+      const handler = new AuthHandler();
+
+      const result = await handler.performLogin(
+        page,
+        "https://app.example.com",
+        creds,
+        {
+          loginUrl: "https://app.example.com/login",
+          maxAttempts: 1,
+        }
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.failureCode).toBe("LOGIN_FAILED");
+    });
+
     it("records traversed origins for audit without exposing them as crawlable", async () => {
       const { page, locatorInstance } = makeMockPage();
       // Simulate SSO: landing check happens on the IdP, final lands back on the app
