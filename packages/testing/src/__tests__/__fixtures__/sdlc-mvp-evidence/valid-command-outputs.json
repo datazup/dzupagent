@@ -1,0 +1,17 @@
+[
+  {
+    "id": "typecheck",
+    "command": "yarn workspace @dzupagent/testing typecheck",
+    "exitCode": 0,
+    "stdout": "ok",
+    "stderr": "",
+    "durationMs": 1200
+  },
+  {
+    "id": "tests",
+    "command": "yarn workspace @dzupagent/testing test",
+    "exitCode": 0,
+    "stdout": "ok",
+    "stderr": ""
+  }
+]

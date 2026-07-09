@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://datazup.dev/schemas/dzupagent/sdlc-mvp-evidence-report.json",
+  "title": "SDLC MVP Evidence Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "parseOk",
+    "compileOk",
+    "runtimeReady",
+    "readinessReport",
+    "checkpointBackend",
+    "backendChecks",
+    "checkpointProof",
+    "execution"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "parseOk": { "type": "boolean" },
+    "compileOk": { "type": "boolean" },
+    "runtimeReady": { "type": "boolean" },
+    "readinessReport": { "type": "string" },
+    "checkpointBackend": { "enum": ["memory", "redis", "postgres"] },
+    "backendChecks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["redisConfigured", "postgresConfigured"],
+      "properties": {
+        "redisConfigured": { "type": "boolean" },
+        "postgresConfigured": { "type": "boolean" }
+      }
+    },
+    "checkpointProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["backend", "status"],
+      "properties": {
+        "backend": { "enum": ["memory", "redis", "postgres"] },
+        "status": { "enum": ["passed", "skipped"] },
+        "reason": { "type": "string" },
+        "checkpointVersion": { "type": "number" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "runId", "exportedState"],
+      "properties": {
+        "state": { "type": "string" },
+        "runId": { "type": "string" },
+        "exportedState": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": [
+            "truth",
+            "packetStatuses",
+            "validationStatuses",
+            "closeoutStatus"
+          ],
+          "properties": {
+            "truth": {},
+            "packetStatuses": { "type": "array" },
+            "validationStatuses": { "type": "array" },
+            "closeoutStatus": {}
+          }
+        }
+      }
+    }
+  }
+}

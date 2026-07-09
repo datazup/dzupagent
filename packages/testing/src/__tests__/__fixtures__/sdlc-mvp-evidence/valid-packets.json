@@ -1,0 +1,4 @@
+[
+  { "ref": "dzupagent/sdlc-evidence-contract" },
+  { "ref": "dzupagent/sdlc-command-capture" }
+]

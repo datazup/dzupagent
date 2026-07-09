@@ -1,6 +1,7 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -9,9 +10,20 @@ import type {
 } from "@dzupagent/agent/pipeline";
 
 import {
+  captureSdlcMvpEvidenceCommandOutput,
   runSdlcMvpEvidenceReport,
   shapeSdlcMvpEvidenceCommandOutputs,
 } from "../sdlc-mvp-evidence.js";
+
+const fixtureDir = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "__fixtures__",
+  "sdlc-mvp-evidence"
+);
+
+async function readFixtureJson(fileName: string): Promise<unknown> {
+  return JSON.parse(await readFile(join(fixtureDir, fileName), "utf8"));
+}
 
 // ---------------------------------------------------------------------------
 // In-memory fakes — no live Redis/Postgres required.
@@ -277,6 +289,24 @@ describe("SDLC MVP evidence report", () => {
             commandCount: 1,
             packetRefs: ["codev/operator-closeout"],
           },
+          packetStatuses: [
+            {
+              packetRef: "codev/operator-closeout",
+              accepted: true,
+              status: "ready",
+            },
+          ],
+          validationStatuses: [
+            {
+              id: "api-typecheck",
+              command: "yarn workspace @codev-app/api typecheck",
+              accepted: true,
+              status: "pass",
+              exitCode: 0,
+              stdout: "ok",
+              stderr: "",
+            },
+          ],
           closeoutStatus: "complete",
         },
       },
@@ -314,6 +344,18 @@ describe("SDLC MVP evidence report", () => {
             packetRefs: [],
             blockedReason: "api-test exited 1",
           },
+          packetStatuses: [],
+          validationStatuses: [
+            {
+              id: "api-test",
+              command: "yarn workspace @codev-app/api test",
+              accepted: false,
+              status: "fail",
+              exitCode: 1,
+              stdout: "",
+              stderr: "failed",
+            },
+          ],
           closeoutStatus: "blocked",
         },
       },
@@ -364,6 +406,141 @@ describe("SDLC MVP evidence report", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it("keeps SDLC MVP evidence JSON fixtures aligned with the parser and report shape", async () => {
+    const commandOutputPath = join(fixtureDir, "valid-command-outputs.json");
+    const packetPath = join(fixtureDir, "valid-packets.json");
+
+    const shaped = await shapeSdlcMvpEvidenceCommandOutputs({
+      commandOutputJsonPath: commandOutputPath,
+      packetJsonPath: packetPath,
+    });
+    const report = await runSdlcMvpEvidenceReport({
+      ...shaped,
+      env: {},
+      runId: "fixture-run",
+    });
+
+    expect(shaped.commandOutputs).toHaveLength(2);
+    expect(shaped.packetItems).toEqual([
+      { ref: "dzupagent/sdlc-evidence-contract" },
+      { ref: "dzupagent/sdlc-command-capture" },
+    ]);
+    expect(report).toMatchObject({
+      schemaVersion: 1,
+      parseOk: true,
+      compileOk: true,
+      runtimeReady: true,
+      execution: {
+        state: "completed",
+        runId: "fixture-run",
+        exportedState: {
+          packetStatuses: [
+            {
+              packetRef: "dzupagent/sdlc-evidence-contract",
+              accepted: true,
+              status: "ready",
+            },
+            {
+              packetRef: "dzupagent/sdlc-command-capture",
+              accepted: true,
+              status: "ready",
+            },
+          ],
+          validationStatuses: [
+            expect.objectContaining({
+              id: "typecheck",
+              accepted: true,
+              status: "pass",
+              exitCode: 0,
+            }),
+            expect.objectContaining({
+              id: "tests",
+              accepted: true,
+              status: "pass",
+              exitCode: 0,
+            }),
+          ],
+          closeoutStatus: "complete",
+        },
+      },
+    });
+  });
+
+  it("documents the required JSON schema fields used by the CLI contract", async () => {
+    const commandSchema = await readFixtureJson("command-output.schema.json");
+    const packetSchema = await readFixtureJson("packet-items.schema.json");
+    const reportSchema = await readFixtureJson("report.schema.json");
+
+    expect(commandSchema).toMatchObject({
+      type: "array",
+      items: {
+        required: ["id", "command", "exitCode", "stdout", "stderr"],
+      },
+    });
+    expect(packetSchema).toMatchObject({
+      type: "array",
+      items: {
+        required: ["ref"],
+      },
+    });
+    expect(reportSchema).toMatchObject({
+      required: [
+        "schemaVersion",
+        "parseOk",
+        "compileOk",
+        "runtimeReady",
+        "readinessReport",
+        "checkpointBackend",
+        "backendChecks",
+        "checkpointProof",
+        "execution",
+      ],
+      properties: {
+        execution: {
+          properties: {
+            exportedState: {
+              required: [
+                "truth",
+                "packetStatuses",
+                "validationStatuses",
+                "closeoutStatus",
+              ],
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("rejects invalid command-output fixtures that omit required fields", async () => {
+    await expect(
+      shapeSdlcMvpEvidenceCommandOutputs({
+        commandOutputJsonPath: join(
+          fixtureDir,
+          "invalid-command-outputs-missing-required.json"
+        ),
+      })
+    ).rejects.toThrow(
+      /command output item must include id, command, exitCode, stdout, and stderr/i
+    );
+  });
+
+  it("captures a real host command into the CLI-compatible command-output shape", async () => {
+    const output = await captureSdlcMvpEvidenceCommandOutput({
+      id: "node-smoke",
+      command: `"${process.execPath}" -e "process.stdout.write('ok')"`,
+    });
+
+    expect(output).toMatchObject({
+      id: "node-smoke",
+      command: `"${process.execPath}" -e "process.stdout.write('ok')"`,
+      exitCode: 0,
+      stdout: "ok",
+      stderr: "",
+    });
+    expect(output.durationMs).toEqual(expect.any(Number));
   });
 
   it("rejects malformed command output JSON", async () => {

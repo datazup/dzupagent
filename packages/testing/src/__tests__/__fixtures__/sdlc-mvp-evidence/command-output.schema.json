@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://datazup.dev/schemas/dzupagent/sdlc-mvp-evidence-command-output.json",
+  "title": "SDLC MVP Evidence Command Output",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["id", "command", "exitCode", "stdout", "stderr"],
+    "properties": {
+      "id": { "type": "string", "minLength": 1 },
+      "command": { "type": "string", "minLength": 1 },
+      "exitCode": { "type": "number" },
+      "stdout": { "type": "string" },
+      "stderr": { "type": "string" },
+      "durationMs": { "type": "number", "minimum": 0 }
+    }
+  }
+}

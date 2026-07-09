@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://datazup.dev/schemas/dzupagent/sdlc-mvp-evidence-packet-items.json",
+  "title": "SDLC MVP Evidence Packet Items",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["ref"],
+    "properties": {
+      "ref": { "type": "string", "minLength": 1 }
+    }
+  }
+}

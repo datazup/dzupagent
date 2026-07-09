@@ -1,0 +1,8 @@
+[
+  {
+    "id": "missing-exit-code",
+    "command": "yarn test",
+    "stdout": "",
+    "stderr": ""
+  }
+]
