@@ -21,7 +21,7 @@ describe("AuthHandler", () => {
 
       expect(vi.mocked(page.goto)).toHaveBeenCalledWith(
         "https://example.com/auth",
-        expect.objectContaining({ waitUntil: "networkidle" })
+        expect.objectContaining({ waitUntil: "networkidle" }),
       );
     });
 
@@ -60,12 +60,12 @@ describe("AuthHandler", () => {
 
       // waitForSelector is called for username and password fields (at least 2 times)
       expect(
-        vi.mocked(page.waitForSelector).mock.calls.length
+        vi.mocked(page.waitForSelector).mock.calls.length,
       ).toBeGreaterThanOrEqual(2);
       // One of the calls should be for the password selector
       expect(vi.mocked(page.waitForSelector)).toHaveBeenCalledWith(
         'input[type="password"]',
-        expect.objectContaining({ state: "visible" })
+        expect.objectContaining({ state: "visible" }),
       );
     });
 
@@ -82,11 +82,11 @@ describe("AuthHandler", () => {
 
       expect(vi.mocked(page.waitForSelector)).toHaveBeenCalledWith(
         "#my-email",
-        expect.objectContaining({ state: "visible" })
+        expect.objectContaining({ state: "visible" }),
       );
       expect(vi.mocked(page.waitForSelector)).toHaveBeenCalledWith(
         "#my-password",
-        expect.objectContaining({ state: "visible" })
+        expect.objectContaining({ state: "visible" }),
       );
     });
 
@@ -177,7 +177,7 @@ describe("AuthHandler", () => {
 
       expect(result).toBe(true);
       expect(vi.mocked(page.locator)).toHaveBeenCalledWith(
-        'input[type="password"]'
+        'input[type="password"]',
       );
     });
 
@@ -234,6 +234,49 @@ describe("AuthHandler", () => {
       expect(found).toBe(false);
       expect(vi.mocked(locatorInstance.click)).not.toHaveBeenCalled();
     });
+
+    it("clicks the higher-priority explicit login link even when a generic auth link appears earlier in DOM order", async () => {
+      const { page } = makeMockPage();
+      const explicitLoginLocator = {
+        first: vi.fn().mockReturnThis(),
+        click: vi.fn().mockResolvedValue(undefined),
+        fill: vi.fn().mockResolvedValue(undefined),
+        count: vi.fn().mockResolvedValue(1),
+      };
+      const genericAuthLocator = {
+        first: vi.fn().mockReturnThis(),
+        click: vi.fn().mockResolvedValue(undefined),
+        fill: vi.fn().mockResolvedValue(undefined),
+        count: vi.fn().mockResolvedValue(1),
+      };
+      const passwordFieldLocator = {
+        first: vi.fn().mockReturnThis(),
+        click: vi.fn().mockResolvedValue(undefined),
+        fill: vi.fn().mockResolvedValue(undefined),
+        // isLoginPage checks: no password field before click (0), present after (1)
+        count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(1),
+      };
+      vi.mocked(page.locator).mockImplementation((selector: unknown) => {
+        if (selector === 'input[type="password"]')
+          return passwordFieldLocator as never;
+        // Both a broad marketing-style auth link and the explicit "Log in"
+        // link exist on the page. The explicit selector has higher priority
+        // in LOGIN_ENTRY_SELECTORS and MUST be preferred regardless of which
+        // one this DOM happens to render first.
+        if (selector === 'a:has-text("Log in")')
+          return explicitLoginLocator as never;
+        if (selector === 'a[href*="auth" i]')
+          return genericAuthLocator as never;
+        return { count: vi.fn().mockResolvedValue(0) } as never;
+      });
+      const handler = new AuthHandler();
+
+      const found = await handler.discoverLoginEntry(page);
+
+      expect(found).toBe(true);
+      expect(explicitLoginLocator.click).toHaveBeenCalled();
+      expect(genericAuthLocator.click).not.toHaveBeenCalled();
+    });
   });
 
   describe("performLogin", () => {
@@ -253,12 +296,12 @@ describe("AuthHandler", () => {
         creds,
         {
           loginUrl: "https://app.example.com/login",
-        }
+        },
       );
 
       expect(vi.mocked(page.goto)).toHaveBeenCalledWith(
         "https://app.example.com/login",
-        expect.objectContaining({ waitUntil: "networkidle" })
+        expect.objectContaining({ waitUntil: "networkidle" }),
       );
       expect(result.success).toBe(true);
       expect(result.finalUrl).toBe("https://app.example.com/dashboard");
@@ -274,12 +317,12 @@ describe("AuthHandler", () => {
       const result = await handler.performLogin(
         page,
         "https://app.example.com",
-        creds
+        creds,
       );
 
       expect(vi.mocked(page.goto)).toHaveBeenCalledWith(
         "https://app.example.com",
-        expect.objectContaining({ waitUntil: "networkidle" })
+        expect.objectContaining({ waitUntil: "networkidle" }),
       );
       expect(result.success).toBe(true);
     });
@@ -294,7 +337,7 @@ describe("AuthHandler", () => {
       const result = await handler.performLogin(
         page,
         "https://app.example.com",
-        creds
+        creds,
       );
 
       expect(result.success).toBe(false);
@@ -315,7 +358,7 @@ describe("AuthHandler", () => {
         creds,
         {
           loginUrl: "https://app.example.com/login",
-        }
+        },
       );
 
       expect(result.success).toBe(false);
@@ -339,14 +382,14 @@ describe("AuthHandler", () => {
             return Promise.reject(new Error("timeout"));
           }
           return Promise.resolve(undefined);
-        }
+        },
       );
       // isLoginPage at declared loginUrl: form present (1), then post-submit
       // check on the interstitial: no password field (0) — repeats per attempt.
       locatorInstance.count.mockImplementation(() =>
         Promise.resolve(
-          locatorInstance.count.mock.calls.length % 2 === 1 ? 1 : 0
-        )
+          locatorInstance.count.mock.calls.length % 2 === 1 ? 1 : 0,
+        ),
       );
       const handler = new AuthHandler();
 
@@ -357,7 +400,7 @@ describe("AuthHandler", () => {
         {
           loginUrl: "https://app.example.com/login",
           maxAttempts: 1,
-        }
+        },
       );
 
       expect(result.success).toBe(false);
@@ -378,12 +421,12 @@ describe("AuthHandler", () => {
       const result = await handler.performLogin(
         page,
         "https://app.example.com",
-        creds
+        creds,
       );
 
       expect(result.success).toBe(true);
       expect(result.traversedOrigins).toContain(
-        "https://auth.sso-provider.test"
+        "https://auth.sso-provider.test",
       );
       expect(result.finalUrl).toBe("https://app.example.com/dashboard");
     });

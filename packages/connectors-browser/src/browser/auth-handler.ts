@@ -26,7 +26,14 @@ const POST_LOGIN_INDICATORS = [
   '[class*="user-info"]',
 ];
 
-/** Selectors used to discover a sign-in entry point on a landing page. */
+/**
+ * Selectors used to discover a sign-in entry point on a landing page, in
+ * priority order (most specific/explicit first). Checked one at a time —
+ * NOT joined into a single combined-selector locator — so that a broad,
+ * generic match (e.g. `a[href*="auth" i]`) can never win over an explicit
+ * "Log in"/"Sign in" link just because it happens to render earlier in the
+ * DOM.
+ */
 const LOGIN_ENTRY_SELECTORS = [
   'a:has-text("Log in")',
   'a:has-text("Login")',
@@ -41,7 +48,7 @@ const LOGIN_ENTRY_SELECTORS = [
   'a[href*="auth" i]',
   '[data-testid*="login" i]',
   '[data-testid*="signin" i]',
-].join(", ");
+];
 
 export class AuthHandler {
   /**
@@ -264,8 +271,15 @@ export class AuthHandler {
   async discoverLoginEntry(page: Page): Promise<boolean> {
     if (await this.isLoginPage(page)) return true;
 
-    const candidate = page.locator(LOGIN_ENTRY_SELECTORS).first();
-    if ((await candidate.count()) === 0) return false;
+    let candidate = null;
+    for (const selector of LOGIN_ENTRY_SELECTORS) {
+      const locator = page.locator(selector).first();
+      if ((await locator.count()) > 0) {
+        candidate = locator;
+        break;
+      }
+    }
+    if (!candidate) return false;
 
     await candidate.click();
     await page.waitForLoadState("networkidle").catch(() => {
