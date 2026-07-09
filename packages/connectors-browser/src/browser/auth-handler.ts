@@ -1,5 +1,9 @@
 import type { Page, BrowserContext } from "playwright";
-import type { AuthCredentials } from "../types.js";
+import type {
+  AuthCredentials,
+  LoginFlowOptions,
+  LoginFlowResult,
+} from "../types.js";
 
 /** Default timeout for login operations (15 seconds). */
 const LOGIN_TIMEOUT = 15_000;
@@ -255,5 +259,83 @@ export class AuthHandler {
     });
     await this.waitForSpaReady(page);
     return this.isLoginPage(page);
+  }
+
+  /**
+   * Full login flow: position on the login page (declared or discovered,
+   * following any SSO redirects the target issues), fill + submit, verify.
+   *
+   * Bounded: at most `maxAttempts` (default 2) full attempts; each attempt is
+   * bounded by the existing navigation/login timeouts. Never loops on failure —
+   * repeated failed logins against shared auth risk lockout/rate-limiting.
+   *
+   * Never throws for login-level failures; returns `success: false` with a
+   * stable failureCode/failureMessage instead. Infra errors still propagate.
+   */
+  async performLogin(
+    page: Page,
+    startUrl: string,
+    creds: AuthCredentials,
+    opts: LoginFlowOptions = {}
+  ): Promise<LoginFlowResult> {
+    const maxAttempts = opts.maxAttempts ?? 2;
+    const traversed = new Set<string>();
+    const recordOrigin = (): void => {
+      try {
+        traversed.add(new URL(page.url()).origin);
+      } catch {
+        // about:blank / invalid — ignore
+      }
+    };
+
+    let lastFailure: LoginFlowResult | null = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const entryUrl = opts.loginUrl ?? startUrl;
+      await page.goto(entryUrl, { waitUntil: "networkidle", timeout: 30_000 });
+      recordOrigin();
+
+      // Declared loginUrl: trust it but confirm a form is present.
+      // No loginUrl: the target may bounce straight to a login/SSO wall
+      // (common SSO case), else discover a sign-in link on the landing page.
+      const onLoginPage = opts.loginUrl
+        ? await this.isLoginPage(page)
+        : await this.discoverLoginEntry(page);
+      recordOrigin();
+
+      if (!onLoginPage) {
+        return {
+          success: false,
+          finalUrl: page.url(),
+          loginPageUrl: null,
+          traversedOrigins: [...traversed],
+          failureCode: "LOGIN_PAGE_NOT_FOUND",
+          failureMessage: `Scanner login page not found: no login form at ${entryUrl} and no sign-in link discovered.`,
+        };
+      }
+      const loginPageUrl = page.url();
+
+      await this.fillAndSubmitLogin(page, { ...creds, loginUrl: undefined });
+      recordOrigin();
+
+      if (!(await this.isLoginPage(page))) {
+        return {
+          success: true,
+          finalUrl: page.url(),
+          loginPageUrl,
+          traversedOrigins: [...traversed],
+        };
+      }
+
+      lastFailure = {
+        success: false,
+        finalUrl: page.url(),
+        loginPageUrl,
+        traversedOrigins: [...traversed],
+        failureCode: "LOGIN_FAILED",
+        failureMessage: `Scanner login failed: still on a login page after submitting credentials (attempt ${attempt}/${maxAttempts}).`,
+      };
+    }
+    // Loop ran at least once (maxAttempts >= 1), so lastFailure is set.
+    return lastFailure as LoginFlowResult;
   }
 }

@@ -167,11 +167,9 @@ describe("AuthHandler", () => {
   describe("isLoginPage", () => {
     it("returns true when password fields exist", async () => {
       const { page } = makeMockPage({
-        locator: vi
-          .fn()
-          .mockReturnValue({
-            count: vi.fn().mockResolvedValue(1),
-          }) as unknown as Page["locator"],
+        locator: vi.fn().mockReturnValue({
+          count: vi.fn().mockResolvedValue(1),
+        }) as unknown as Page["locator"],
       });
 
       const handler = new AuthHandler();
@@ -185,11 +183,9 @@ describe("AuthHandler", () => {
 
     it("returns false when no password fields exist", async () => {
       const { page } = makeMockPage({
-        locator: vi
-          .fn()
-          .mockReturnValue({
-            count: vi.fn().mockResolvedValue(0),
-          }) as unknown as Page["locator"],
+        locator: vi.fn().mockReturnValue({
+          count: vi.fn().mockResolvedValue(0),
+        }) as unknown as Page["locator"],
       });
 
       const handler = new AuthHandler();
@@ -237,6 +233,120 @@ describe("AuthHandler", () => {
 
       expect(found).toBe(false);
       expect(vi.mocked(locatorInstance.click)).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("performLogin", () => {
+    const creds = { username: "user", password: "pass" };
+
+    it("uses the declared loginUrl and succeeds when the login form disappears after submit", async () => {
+      const { page, locatorInstance } = makeMockPage();
+      vi.mocked(page.url).mockReturnValue("https://app.example.com/dashboard");
+      locatorInstance.count
+        .mockResolvedValueOnce(1) // isLoginPage at declared loginUrl: form present
+        .mockResolvedValueOnce(0); // isLoginPage after submit: form gone → success
+      const handler = new AuthHandler();
+
+      const result = await handler.performLogin(
+        page,
+        "https://app.example.com",
+        creds,
+        {
+          loginUrl: "https://app.example.com/login",
+        }
+      );
+
+      expect(vi.mocked(page.goto)).toHaveBeenCalledWith(
+        "https://app.example.com/login",
+        expect.objectContaining({ waitUntil: "networkidle" })
+      );
+      expect(result.success).toBe(true);
+      expect(result.finalUrl).toBe("https://app.example.com/dashboard");
+    });
+
+    it("discovers the login page from startUrl when no loginUrl is declared", async () => {
+      const { page, locatorInstance } = makeMockPage();
+      locatorInstance.count
+        .mockResolvedValueOnce(1) // discoverLoginEntry → isLoginPage: already a login wall (SSO bounce)
+        .mockResolvedValueOnce(0); // isLoginPage after submit: success
+      const handler = new AuthHandler();
+
+      const result = await handler.performLogin(
+        page,
+        "https://app.example.com",
+        creds
+      );
+
+      expect(vi.mocked(page.goto)).toHaveBeenCalledWith(
+        "https://app.example.com",
+        expect.objectContaining({ waitUntil: "networkidle" })
+      );
+      expect(result.success).toBe(true);
+    });
+
+    it("fails with LOGIN_PAGE_NOT_FOUND when no login form or link exists", async () => {
+      const { page, locatorInstance } = makeMockPage();
+      locatorInstance.count
+        .mockResolvedValueOnce(0) // isLoginPage: no
+        .mockResolvedValueOnce(0); // no candidate link
+      const handler = new AuthHandler();
+
+      const result = await handler.performLogin(
+        page,
+        "https://app.example.com",
+        creds
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.failureCode).toBe("LOGIN_PAGE_NOT_FOUND");
+      expect(result.failureMessage).toMatch(/^Scanner login page not found/);
+    });
+
+    it("retries once then fails with LOGIN_FAILED when the login form persists after submit", async () => {
+      const { page, locatorInstance } = makeMockPage();
+      // Attempt 1: login page found (1), still login page after submit (1)
+      // Attempt 2: login page found (1), still login page after submit (1)
+      locatorInstance.count.mockResolvedValue(1);
+      const handler = new AuthHandler();
+
+      const result = await handler.performLogin(
+        page,
+        "https://app.example.com",
+        creds,
+        {
+          loginUrl: "https://app.example.com/login",
+        }
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.failureCode).toBe("LOGIN_FAILED");
+      expect(result.failureMessage).toMatch(/^Scanner login failed/);
+      // exactly 2 attempts — one goto per attempt, never more
+      expect(vi.mocked(page.goto)).toHaveBeenCalledTimes(2);
+    });
+
+    it("records traversed origins for audit without exposing them as crawlable", async () => {
+      const { page, locatorInstance } = makeMockPage();
+      // Simulate SSO: landing check happens on the IdP, final lands back on the app
+      vi.mocked(page.url)
+        .mockReturnValueOnce("https://auth.sso-provider.test/authorize") // after initial goto
+        .mockReturnValue("https://app.example.com/dashboard"); // thereafter
+      locatorInstance.count
+        .mockResolvedValueOnce(1) // isLoginPage on IdP: yes
+        .mockResolvedValueOnce(0); // after submit: success
+      const handler = new AuthHandler();
+
+      const result = await handler.performLogin(
+        page,
+        "https://app.example.com",
+        creds
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.traversedOrigins).toContain(
+        "https://auth.sso-provider.test"
+      );
+      expect(result.finalUrl).toBe("https://app.example.com/dashboard");
     });
   });
 });
