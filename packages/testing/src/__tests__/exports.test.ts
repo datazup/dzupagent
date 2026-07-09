@@ -53,6 +53,13 @@ describe("Package exports — @dzupagent/testing", () => {
     expect(typeof testingPkg.runSdlcMvpEvidenceReport).toBe("function");
   });
 
+  it("should export captureSdlcMvpEvidenceCommandOutput function", () => {
+    expect(testingPkg.captureSdlcMvpEvidenceCommandOutput).toBeDefined();
+    expect(typeof testingPkg.captureSdlcMvpEvidenceCommandOutput).toBe(
+      "function"
+    );
+  });
+
   it("should export INJECTION_SUITE array", () => {
     expect(testingPkg.INJECTION_SUITE).toBeDefined();
     expect(Array.isArray(testingPkg.INJECTION_SUITE)).toBe(true);
@@ -90,6 +97,7 @@ describe("Package exports — @dzupagent/testing", () => {
       "POISONING_SUITE",
       "RegexScorer",
       "buildStubAnthropicClient",
+      "captureSdlcMvpEvidenceCommandOutput",
       "createDemoEvalSuite",
       "createLivePostgresClient",
       "createLiveRedisClient",
