@@ -22,6 +22,23 @@ const POST_LOGIN_INDICATORS = [
   '[class*="user-info"]',
 ];
 
+/** Selectors used to discover a sign-in entry point on a landing page. */
+const LOGIN_ENTRY_SELECTORS = [
+  'a:has-text("Log in")',
+  'a:has-text("Login")',
+  'a:has-text("Sign in")',
+  'a:has-text("Sign In")',
+  'button:has-text("Log in")',
+  'button:has-text("Login")',
+  'button:has-text("Sign in")',
+  'a[href*="login" i]',
+  'a[href*="signin" i]',
+  'a[href*="sign-in" i]',
+  'a[href*="auth" i]',
+  '[data-testid*="login" i]',
+  '[data-testid*="signin" i]',
+].join(", ");
+
 export class AuthHandler {
   /**
    * Login using username/password credentials.
@@ -217,5 +234,26 @@ export class AuthHandler {
   async isLoginPage(page: Page): Promise<boolean> {
     const passwordFields = await page.locator('input[type="password"]').count();
     return passwordFields > 0;
+  }
+
+  /**
+   * Discover the login page starting from the current page.
+   *
+   * If the current page already shows a login form, returns true without
+   * navigating. Otherwise clicks the most likely sign-in link/button and
+   * re-checks. Returns false when no login entry can be found.
+   */
+  async discoverLoginEntry(page: Page): Promise<boolean> {
+    if (await this.isLoginPage(page)) return true;
+
+    const candidate = page.locator(LOGIN_ENTRY_SELECTORS).first();
+    if ((await candidate.count()) === 0) return false;
+
+    await candidate.click();
+    await page.waitForLoadState("networkidle").catch(() => {
+      // persistent connections may prevent networkidle — continue
+    });
+    await this.waitForSpaReady(page);
+    return this.isLoginPage(page);
   }
 }
