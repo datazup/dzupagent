@@ -95,6 +95,26 @@ export interface AuthCredentials {
   passwordSelector?: string | undefined;
 }
 
+export interface LoginFlowOptions {
+  /** Operator-declared login page; skips discovery when set. */
+  loginUrl?: string | undefined;
+  /** Total login attempts (default 2 — one retry; never hammer shared auth). */
+  maxAttempts?: number | undefined;
+}
+
+export interface LoginFlowResult {
+  success: boolean;
+  /** Where the browser landed after the flow (post-login page on success). */
+  finalUrl: string;
+  /** Login page actually used (discovered or declared); null if never found. */
+  loginPageUrl: string | null;
+  /** Origins traversed during the login transaction — logging/audit only.
+   *  MUST NOT be fed into any crawl frontier / allowed-origins set. */
+  traversedOrigins: string[];
+  failureCode?: "LOGIN_PAGE_NOT_FOUND" | "LOGIN_FAILED" | undefined;
+  failureMessage?: string | undefined;
+}
+
 export interface ScreenshotResult {
   buffer: Buffer;
   mimeType: string;

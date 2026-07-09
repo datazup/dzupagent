@@ -50,6 +50,8 @@ export type {
   FormField,
   ElementInfo,
   AuthCredentials,
+  LoginFlowOptions,
+  LoginFlowResult,
   ScreenshotResult,
   BrowserLaunchOptions,
   BrowserNavigationPolicy,
