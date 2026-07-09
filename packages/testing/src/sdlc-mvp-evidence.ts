@@ -3,12 +3,28 @@ import { readFile } from "node:fs/promises";
 import { Socket } from "node:net";
 
 import {
+  createRuntimeToolHandlers,
+  InMemoryPipelineCheckpointStore,
   PostgresPipelineCheckpointStore,
+  PipelineRuntime,
   RedisPipelineCheckpointStore,
   type PostgresClientLike,
   type RedisClientLike,
 } from "@dzupagent/agent/pipeline";
-import type { PipelineCheckpoint } from "@dzupagent/core/pipeline";
+import type {
+  PipelineCheckpoint,
+  PipelineDefinition,
+} from "@dzupagent/core/pipeline";
+import { createFlowCompiler } from "@dzupagent/flow-compiler";
+import {
+  BUILT_IN_FRAGMENT_REGISTRY,
+  parseDslToDocument,
+} from "@dzupagent/flow-dsl";
+
+import {
+  createSdlcValidationRuntimeToolHandlers,
+  shapeCommandOutputsForBatchValidation,
+} from "./sdlc-validation.js";
 
 const SDLC_MVP_EVIDENCE_SCHEMA_VERSION = 1;
 
@@ -50,6 +66,14 @@ export interface SdlcMvpEvidenceReport {
       closeoutStatus?: unknown;
     };
   };
+}
+
+interface SdlcMvpFlowExecution {
+  parseOk: boolean;
+  compileOk: boolean;
+  runtimeReady: boolean;
+  readinessReport: string;
+  execution: SdlcMvpEvidenceReport["execution"];
 }
 
 export interface RunSdlcMvpEvidenceReportInput {
@@ -113,33 +137,204 @@ export async function runSdlcMvpEvidenceReport(
   const failed = commandOutputs.find((item) => item.exitCode !== 0);
   const passed = failed === undefined;
   const runId = input.runId ?? `sdlc-mvp-evidence-${Date.now()}`;
+  const flowExecution = await executeSdlcMvpEvidenceFlow({
+    commandOutputs,
+    packetItems,
+    runId,
+    passed,
+    ...(failed === undefined
+      ? {}
+      : { blockedReason: `${failed.id} exited ${failed.exitCode}` }),
+  });
 
   return {
     schemaVersion: SDLC_MVP_EVIDENCE_SCHEMA_VERSION,
-    parseOk: true,
-    compileOk: passed,
-    runtimeReady: passed,
-    readinessReport: passed
-      ? "Runtime tool readiness: ready"
-      : `Runtime tool readiness: blocked (${failed.id} exited ${failed.exitCode})`,
+    parseOk: flowExecution.parseOk,
+    compileOk: flowExecution.compileOk,
+    runtimeReady: flowExecution.runtimeReady,
+    readinessReport: flowExecution.readinessReport,
     checkpointBackend: backend.backend,
     backendChecks: {
       redisConfigured: backend.redisConfigured,
       postgresConfigured: backend.postgresConfigured,
     },
     checkpointProof: backend.proof,
-    execution: {
-      state: passed ? "completed" : "blocked",
-      runId,
-      exportedState: {
-        truth: {
-          commandCount: commandOutputs.length,
-          packetRefs: packetItems.map((item) => item.ref),
-        },
-        closeoutStatus: passed ? "complete" : "blocked",
+    execution: flowExecution.execution,
+  };
+}
+
+async function executeSdlcMvpEvidenceFlow(input: {
+  commandOutputs: readonly SdlcMvpEvidenceCommandOutput[];
+  packetItems: readonly SdlcMvpEvidencePacketItem[];
+  runId: string;
+  passed: boolean;
+  blockedReason?: string;
+}): Promise<SdlcMvpFlowExecution> {
+  const source = sdlcMvpCloseoutFlowSource(
+    input.passed ? "complete" : "blocked",
+  );
+  const parsed = parseDslToDocument(source, {
+    fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
+    requirePinnedFragmentUses: true,
+  });
+  if (!parsed.ok) {
+    return failedFlowExecution({
+      runId: input.runId,
+      parseOk: false,
+      compileOk: false,
+      runtimeReady: false,
+      readinessReport: `Runtime tool readiness: blocked (parse failed: ${parsed.diagnostics
+        .map((diagnostic) => diagnostic.message)
+        .join("; ")})`,
+    });
+  }
+
+  const compiler = createFlowCompiler({
+    toolResolver: {
+      resolve(ref) {
+        if (ref !== "sdlc.current_truth" && ref !== "validate.schema") {
+          return null;
+        }
+        return {
+          ref,
+          kind: "skill",
+          inputSchema: { type: "object" },
+          handle: { skillId: ref },
+        };
       },
+      listAvailable: () => ["sdlc.current_truth", "validate.schema"],
+    },
+  });
+  const compiled = await compiler.compileDocument(parsed.document);
+  if ("errors" in compiled) {
+    return failedFlowExecution({
+      runId: input.runId,
+      parseOk: true,
+      compileOk: false,
+      runtimeReady: false,
+      readinessReport: `Runtime tool readiness: blocked (compile failed: ${compiled.errors
+        .map((error) => error.message)
+        .join("; ")})`,
+    });
+  }
+
+  const checkpointStore = new InMemoryPipelineCheckpointStore();
+  const runtimeResult = await new PipelineRuntime({
+    definition: {
+      ...(compiled.artifact as PipelineDefinition),
+      checkpointStrategy: "after_each_node",
+    },
+    checkpointStore,
+    runtimeToolHandlers: {
+      ...createRuntimeToolHandlers({
+        workerDispatch: async ({ context }) => {
+          const packet = context.state.packetItem as { ref: string };
+          return {
+            output: {
+              packetRef: packet.ref,
+              accepted: true,
+              status: "ready",
+            },
+          };
+        },
+      }),
+      ...createSdlcValidationRuntimeToolHandlers(),
+    },
+    nodeExecutor: async (nodeId, node) => {
+      if (node.type === "tool" && node.toolName === "sdlc.current_truth") {
+        return {
+          nodeId,
+          output: {
+            scope: "dzupagent",
+            dirty: false,
+            commandCount: input.commandOutputs.length,
+            packetRefs: input.packetItems.map((item) => item.ref),
+            ...(input.blockedReason !== undefined
+              ? { blockedReason: input.blockedReason }
+              : {}),
+          },
+          durationMs: 1,
+        };
+      }
+      return {
+        nodeId,
+        output: null,
+        durationMs: 1,
+        error: `unexpected fallback execution for ${node.type}`,
+      };
+    },
+  }).execute({
+    packetItems: input.packetItems,
+    validationItems: shapeCommandOutputsForBatchValidation(input.commandOutputs),
+  });
+  const finalCheckpoint = await checkpointStore.load(runtimeResult.runId);
+  const exportedState = {
+    truth: finalCheckpoint?.state.truth,
+    closeoutStatus: finalCheckpoint?.state.closeoutStatus,
+  };
+  const runtimeReady =
+    runtimeResult.state === "completed" &&
+    exportedState.closeoutStatus === "complete";
+
+  return {
+    parseOk: true,
+    compileOk: true,
+    runtimeReady,
+    readinessReport: runtimeReady
+      ? "Runtime tool readiness: ready"
+      : `Runtime tool readiness: blocked (${input.blockedReason ?? "closeout status is not complete"})`,
+    execution: {
+      state: runtimeReady ? "completed" : "blocked",
+      runId: input.runId,
+      exportedState,
     },
   };
+}
+
+function failedFlowExecution(input: {
+  runId: string;
+  parseOk: boolean;
+  compileOk: boolean;
+  runtimeReady: boolean;
+  readinessReport: string;
+}): SdlcMvpFlowExecution {
+  return {
+    parseOk: input.parseOk,
+    compileOk: input.compileOk,
+    runtimeReady: input.runtimeReady,
+    readinessReport: input.readinessReport,
+    execution: {
+      state: "blocked",
+      runId: input.runId,
+      exportedState: {},
+    },
+  };
+}
+
+function sdlcMvpCloseoutFlowSource(status: "complete" | "blocked"): string {
+  return `dsl: dzupflow/v1
+id: sdlc-mvp-evidence
+version: 1
+uses:
+  sdlc: dzup.sdlc@1
+steps:
+  - sdlc.current_truth:
+      id: truth
+      scope: dzupagent
+      output: truth
+  - sdlc.packet_fanout:
+      id: fanout
+      packets: packetItems
+      output: packetStatuses
+  - sdlc.batch_validation:
+      id: batch
+      items: validationItems
+      output: validationStatuses
+  - sdlc.closeout:
+      id: closeout
+      status: ${status}
+      output: closeoutStatus
+`;
 }
 
 async function readJson(path: string): Promise<unknown> {
