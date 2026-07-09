@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { Socket } from "node:net";
 
 import {
   createRuntimeToolHandlers,
   InMemoryPipelineCheckpointStore,
+  type NodeExecutor,
   PostgresPipelineCheckpointStore,
   PipelineRuntime,
   RedisPipelineCheckpointStore,
@@ -37,6 +39,14 @@ export interface SdlcMvpEvidenceCommandOutput {
   durationMs?: number;
 }
 
+export interface CaptureSdlcMvpEvidenceCommandOutputInput {
+  id: string;
+  command: string;
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  timeoutMs?: number;
+}
+
 export interface SdlcMvpEvidencePacketItem {
   ref: string;
 }
@@ -63,6 +73,8 @@ export interface SdlcMvpEvidenceReport {
     runId: string;
     exportedState: {
       truth?: unknown;
+      packetStatuses?: unknown;
+      validationStatuses?: unknown;
       closeoutStatus?: unknown;
     };
   };
@@ -163,6 +175,75 @@ export async function runSdlcMvpEvidenceReport(
   };
 }
 
+export async function captureSdlcMvpEvidenceCommandOutput(
+  input: CaptureSdlcMvpEvidenceCommandOutputInput
+): Promise<SdlcMvpEvidenceCommandOutput> {
+  if (input.id.trim().length === 0) {
+    throw new Error("command output id must be a non-empty string");
+  }
+  if (input.command.trim().length === 0) {
+    throw new Error("command must be a non-empty string");
+  }
+
+  const startedAt = Date.now();
+  return new Promise<SdlcMvpEvidenceCommandOutput>((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const child = spawn(input.command, {
+      ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+      env: { ...process.env, ...(input.env ?? {}) },
+      shell: true,
+    });
+    const timeout =
+      input.timeoutMs !== undefined && input.timeoutMs > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            child.kill("SIGTERM");
+          }, input.timeoutMs)
+        : undefined;
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      if (timeout !== undefined) clearTimeout(timeout);
+      resolve({
+        id: input.id,
+        command: input.command,
+        exitCode: 1,
+        stdout,
+        stderr: `${stderr}${stderr.length > 0 ? "\n" : ""}${error.message}`,
+        durationMs: Date.now() - startedAt,
+      });
+    });
+    child.on("close", (code, signal) => {
+      if (timeout !== undefined) clearTimeout(timeout);
+      const exitCode = code ?? 1;
+      const timeoutSuffix = timedOut
+        ? `${stderr.length > 0 ? "\n" : ""}terminated after ${input.timeoutMs}ms`
+        : "";
+      const signalSuffix =
+        signal !== null && !timedOut
+          ? `${stderr.length > 0 ? "\n" : ""}terminated by ${signal}`
+          : "";
+      resolve({
+        id: input.id,
+        command: input.command,
+        exitCode,
+        stdout,
+        stderr: `${stderr}${timeoutSuffix}${signalSuffix}`,
+        durationMs: Date.now() - startedAt,
+      });
+    });
+  });
+}
+
 async function executeSdlcMvpEvidenceFlow(input: {
   commandOutputs: readonly SdlcMvpEvidenceCommandOutput[];
   packetItems: readonly SdlcMvpEvidencePacketItem[];
@@ -191,7 +272,7 @@ async function executeSdlcMvpEvidenceFlow(input: {
 
   const compiler = createFlowCompiler({
     toolResolver: {
-      resolve(ref) {
+      resolve(ref: string) {
         if (ref !== "sdlc.current_truth" && ref !== "validate.schema") {
           return null;
         }
@@ -219,6 +300,29 @@ async function executeSdlcMvpEvidenceFlow(input: {
   }
 
   const checkpointStore = new InMemoryPipelineCheckpointStore();
+  const nodeExecutor: NodeExecutor = async (nodeId, node) => {
+    if (node.type === "tool" && node.toolName === "sdlc.current_truth") {
+      return {
+        nodeId,
+        output: {
+          scope: "dzupagent",
+          dirty: false,
+          commandCount: input.commandOutputs.length,
+          packetRefs: input.packetItems.map((item) => item.ref),
+          ...(input.blockedReason !== undefined
+            ? { blockedReason: input.blockedReason }
+            : {}),
+        },
+        durationMs: 1,
+      };
+    }
+    return {
+      nodeId,
+      output: null,
+      durationMs: 1,
+      error: `unexpected fallback execution for ${node.type}`,
+    };
+  };
   const runtimeResult = await new PipelineRuntime({
     definition: {
       ...(compiled.artifact as PipelineDefinition),
@@ -240,29 +344,7 @@ async function executeSdlcMvpEvidenceFlow(input: {
       }),
       ...createSdlcValidationRuntimeToolHandlers(),
     },
-    nodeExecutor: async (nodeId, node) => {
-      if (node.type === "tool" && node.toolName === "sdlc.current_truth") {
-        return {
-          nodeId,
-          output: {
-            scope: "dzupagent",
-            dirty: false,
-            commandCount: input.commandOutputs.length,
-            packetRefs: input.packetItems.map((item) => item.ref),
-            ...(input.blockedReason !== undefined
-              ? { blockedReason: input.blockedReason }
-              : {}),
-          },
-          durationMs: 1,
-        };
-      }
-      return {
-        nodeId,
-        output: null,
-        durationMs: 1,
-        error: `unexpected fallback execution for ${node.type}`,
-      };
-    },
+    nodeExecutor,
   }).execute({
     packetItems: input.packetItems,
     validationItems: shapeCommandOutputsForBatchValidation(input.commandOutputs),
@@ -270,6 +352,8 @@ async function executeSdlcMvpEvidenceFlow(input: {
   const finalCheckpoint = await checkpointStore.load(runtimeResult.runId);
   const exportedState = {
     truth: finalCheckpoint?.state.truth,
+    packetStatuses: finalCheckpoint?.state.packetStatuses,
+    validationStatuses: finalCheckpoint?.state.validationStatuses,
     closeoutStatus: finalCheckpoint?.state.closeoutStatus,
   };
   const runtimeReady =
