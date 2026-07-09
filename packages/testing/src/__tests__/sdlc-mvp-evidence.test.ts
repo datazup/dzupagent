@@ -272,6 +272,8 @@ describe("SDLC MVP evidence report", () => {
         runId: "run-test",
         exportedState: {
           truth: {
+            scope: "dzupagent",
+            dirty: false,
             commandCount: 1,
             packetRefs: ["codev/operator-closeout"],
           },
@@ -298,13 +300,20 @@ describe("SDLC MVP evidence report", () => {
 
     expect(report).toMatchObject({
       parseOk: true,
-      compileOk: false,
+      compileOk: true,
       runtimeReady: false,
       readinessReport: "Runtime tool readiness: blocked (api-test exited 1)",
       execution: {
         state: "blocked",
         runId: "run-failed",
         exportedState: {
+          truth: {
+            scope: "dzupagent",
+            dirty: false,
+            commandCount: 1,
+            packetRefs: [],
+            blockedReason: "api-test exited 1",
+          },
           closeoutStatus: "blocked",
         },
       },
