@@ -294,6 +294,17 @@ describe("RUNTIME_LEAF routing (MPCO P1)", () => {
     expect(bitmask & FEATURE_BITS.RUNTIME_LEAF).not.toBe(0);
   });
 
+  it.each([
+    { type: "set", assign: { ready: true } },
+    { type: "return_to", targetId: "start", condition: "{{ state.retry }}" },
+  ] as FlowNode[])("routes $type through planning-dag runtime leaves", (node) => {
+    const result = routeTarget(node);
+    expect(result.target).toBe("planning-dag");
+    expect(result.bitmask & FEATURE_BITS.RUNTIME_LEAF).toBe(
+      FEATURE_BITS.RUNTIME_LEAF,
+    );
+  });
+
   it("T4: knowledge.query-only flow stays on skill-chain (not a runtime leaf)", () => {
     const knowledgeQuery = {
       type: "knowledge.query",

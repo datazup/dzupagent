@@ -126,7 +126,7 @@ describe('runtime-only compiler diagnostics', () => {
     ])
   })
 
-  it('lowers prompt nodes but still rejects return_to nodes in deterministic AST order', async () => {
+  it('lowers prompt and return_to nodes as host-required planning-dag leaves', async () => {
     const compiler = createFlowCompiler({ toolResolver: makeResolver(['tasks.run']) })
 
     const result = await compiler.compile({
@@ -138,11 +138,23 @@ describe('runtime-only compiler diagnostics', () => {
       ],
     })
 
-    expect('errors' in result).toBe(true)
-    if (!('errors' in result)) throw new Error('expected compile failure')
-    expect(result.errors.map((error) => [error.nodePath, error.message])).toEqual([
-      ['root.nodes[1]', expect.stringContaining('Node type "return_to"')],
-    ])
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.target).toBe('planning-dag')
+    expect(result.requirements.requiredCapabilities).toContain('flow.runtime.return_to@1')
+    const artifact = result.artifact as PipelineDefinition
+    expect(artifact.nodes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool',
+          toolName: 'dzup.runtime.return_to',
+          arguments: {
+            targetId: 'collect',
+            condition: '{{ state.needsMore }}',
+          },
+        }),
+      ]),
+    )
   })
 
   it('lowers prompt-only flows to planning-dag runtime tool nodes', async () => {

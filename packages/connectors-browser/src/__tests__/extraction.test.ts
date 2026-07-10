@@ -265,7 +265,7 @@ describe('extractInteractiveElements', () => {
 describe('captureScreenshot', () => {
   it('captures viewport-only screenshot when fullPage is false', async () => {
     const screenshotFn = vi.fn(async () => Buffer.from('jpeg'))
-    const { page } = makeMockPage({
+    const { page, locatorInstance } = makeMockPage({
       viewportSize: vi.fn().mockReturnValue({ width: 1280, height: 720 }),
       screenshot: screenshotFn as unknown as Page['screenshot'],
     })
@@ -276,6 +276,8 @@ describe('captureScreenshot', () => {
       fullPage: false,
       type: 'jpeg',
       quality: 80,
+      mask: [locatorInstance],
+      maskColor: '#000000',
     })
     expect(result.mimeType).toBe('image/jpeg')
     expect(result.width).toBe(1280)
@@ -284,7 +286,7 @@ describe('captureScreenshot', () => {
 
   it('clips when page height exceeds 3x viewport', async () => {
     const screenshotFn = vi.fn(async () => Buffer.from('jpeg'))
-    const { page } = makeMockPage({
+    const { page, locatorInstance } = makeMockPage({
       viewportSize: vi.fn().mockReturnValue({ width: 1200, height: 800 }),
       evaluate: vi.fn(async () => 5000), // page is much taller
       screenshot: screenshotFn as unknown as Page['screenshot'],
@@ -296,6 +298,8 @@ describe('captureScreenshot', () => {
       fullPage: false,
       type: 'jpeg',
       quality: 80,
+      mask: [locatorInstance],
+      maskColor: '#000000',
       clip: { x: 0, y: 0, width: 1200, height: 2400 },
     })
     expect(result.height).toBe(2400)
@@ -348,6 +352,7 @@ describe('extractAccessibilityTree', () => {
       },
       hasAttribute: () => false,
       textContent: 'Save',
+      value: 'synthetic-secret-that-must-not-be-captured',
       children: [] as unknown[],
       required: false,
       attributes: [],
@@ -374,6 +379,7 @@ describe('extractAccessibilityTree', () => {
     const btn = tree.find(n => n.role === 'button')
     expect(btn).toBeDefined()
     expect(btn!.name).toBe('Save')
+    expect(btn).not.toHaveProperty('value')
   })
 
   it('returns empty array for a page with no interactive elements', async () => {
