@@ -132,12 +132,6 @@ export async function extractAccessibilityTree(page: Page): Promise<Accessibilit
             depth,
           }
 
-          // Value
-          if ('value' in el && typeof (el as HTMLInputElement).value === 'string') {
-            const val = (el as HTMLInputElement).value
-            if (val) node.value = val
-          }
-
           // Description
           const describedBy = el.getAttribute('aria-describedby')
           if (describedBy) {

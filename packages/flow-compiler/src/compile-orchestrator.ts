@@ -62,6 +62,11 @@ import {
   currentFlowRefFromDocument,
   inlineSubflows,
 } from "./stages/subflow-inline.js";
+import {
+  FLOW_NODE_CAPABILITY_REGISTRY,
+  collectFlowRequirements,
+} from "./capability-manifest.js";
+import type { FlowRequirementSummary } from "./capability-manifest.js";
 
 import type {
   CompilerOptions,
@@ -294,10 +299,9 @@ export async function runCompile(
   // Stage 4: Route + lower
   // -----------------------------------------------------------------------
   const { target, bitmask } = routeTarget(ast);
+  const requirements = collectFlowRequirements(ast);
 
-  // Stage 4: reject unsupported runtime node types before attempting lowering.
-  // Nodes like 'agent', 'validate', 'prompt', and 'return_to' are valid in the
-  // AST but cannot be lowered by the generic compiler targets.
+  // Stage 4: reject runtime leaves that the selected target cannot represent.
   const unsupportedRuntimeNodes = collectUnsupportedRuntimeNodes(ast, target);
   if (unsupportedRuntimeNodes.length > 0) {
     const stage4Errors: CompilationError[] = unsupportedRuntimeNodes.map(
@@ -353,30 +357,63 @@ export async function runCompile(
 
   let artifact: unknown;
   let warnings: string[];
-  if (target === "skill-chain") {
-    const out = lowerSkillChain({ ast, resolved, mode: "executable" });
-    artifact = out.artifact;
-    warnings = out.warnings;
-  } else if (target === "workflow-builder" || target === "planning-dag") {
-    const out = lowerPipelineFlat({
-      ast,
-      resolved,
-      resolvedPersonas,
-      mode: "executable",
+  try {
+    if (target === "skill-chain") {
+      const out = lowerSkillChain({ ast, resolved, mode: "executable" });
+      artifact = out.artifact;
+      warnings = out.warnings;
+    } else if (target === "workflow-builder" || target === "planning-dag") {
+      const out = lowerPipelineFlat({
+        ast,
+        resolved,
+        resolvedPersonas,
+        mode: "executable",
+      });
+      artifact = out.artifact;
+      warnings = out.warnings;
+    } else {
+      // target === 'pipeline'
+      const out = lowerPipelineLoop({
+        ast,
+        resolved,
+        resolvedPersonas,
+        mode: "executable",
+      });
+      artifact = out.artifact;
+      warnings = out.warnings;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const emptyArtifact = /no (?:nodes|action nodes) (?:produced|found)/i.test(
+      message,
+    );
+    const stage4Error: CompilationError = {
+      stage: 4,
+      code: emptyArtifact ? "EMPTY_TARGET_ARTIFACT" : "LOWERING_FAILED",
+      message: emptyArtifact
+        ? `The "${target}" target produced no executable nodes. Add an executable anchor or use a host/runtime that declares the required node capabilities.`
+        : `The "${target}" target failed to lower the flow: ${message}`,
+      nodePath: "root",
+      category: "lowering",
+    };
+    emit({
+      type: "flow:compile_failed",
+      compileId,
+      stage: 4,
+      errorCount: 1,
+      durationMs: Date.now() - startedAt,
     });
-    artifact = out.artifact;
-    warnings = out.warnings;
-  } else {
-    // target === 'pipeline'
-    const out = lowerPipelineLoop({
-      ast,
-      resolved,
-      resolvedPersonas,
-      mode: "executable",
-    });
-    artifact = out.artifact;
-    warnings = out.warnings;
+    return {
+      errors: [stage4Error],
+      compileId,
+      diagnosticCountsByCategory: countDiagnosticsByCategory([stage4Error]),
+    };
   }
+
+  const compilationWarnings = [
+    ...toCompilationWarnings(warnings),
+    ...conformanceWarnings(requirements),
+  ];
 
   // Collect fleet/knowledge steps from the AST and attach to the artifact so
   // runtimes that execute fleet nodes can find them without re-walking the tree.
@@ -395,7 +432,7 @@ export async function runCompile(
     target,
     nodeCount,
     edgeCount,
-    warningCount: warnings.length,
+    warningCount: compilationWarnings.length,
   });
 
   emit({
@@ -408,8 +445,9 @@ export async function runCompile(
   return {
     target,
     artifact,
-    warnings: toCompilationWarnings(warnings),
+    warnings: compilationWarnings,
     reasons: targetReasons(target, bitmask),
+    requirements,
     compileId,
     evidence: buildCompileEvidence({
       ast,
@@ -417,13 +455,12 @@ export async function runCompile(
       target,
       sourceKind,
       sourceHash,
+      semanticHash: requirements.semanticHash,
       correlation: invocationOptions.correlation,
       subflows: subflowEvidence,
       fragments: invocationOptions.fragmentExpansions,
     }),
-    diagnosticCountsByCategory: countDiagnosticsByCategory(
-      toCompilationWarnings(warnings)
-    ),
+    diagnosticCountsByCategory: countDiagnosticsByCategory(compilationWarnings),
   };
 }
 
@@ -589,6 +626,7 @@ function buildCompileEvidence(args: {
   target: CompilationTarget;
   sourceKind: FlowCompileSourceKind;
   sourceHash: string;
+  semanticHash: string;
   correlation?: CompileInvocationOptions["correlation"];
   subflows?: FlowCompileSubflowEvidence[];
   fragments?: FlowCompileFragmentEvidence[];
@@ -614,6 +652,7 @@ function buildCompileEvidence(args: {
     schema: "dzupagent.flowCompileEvidence/v1",
     sourceKind: args.sourceKind,
     sourceHash: args.sourceHash,
+    semanticHash: args.semanticHash,
     compileId: args.compileId,
     canonicalNodeIds: [...canonicalNodeIds].sort(),
     canonicalNodePaths,
@@ -736,6 +775,22 @@ function toCompilationWarnings(warnings: string[]): CompilationWarning[] {
     category: "lowering",
     message,
   }));
+}
+
+function conformanceWarnings(
+  requirements: FlowRequirementSummary,
+): CompilationWarning[] {
+  return requirements.partialNodeKinds.map((kind) => {
+    const descriptor = FLOW_NODE_CAPABILITY_REGISTRY[kind];
+    return {
+      stage: 4,
+      code: "PARTIAL_NODE_SUPPORT",
+      category: "lowering",
+      message:
+        `Node type "${kind}" has ${descriptor.lowering} compiler support and requires ` +
+        `host capability confirmation.${descriptor.notes ? ` ${descriptor.notes}` : ""}`,
+    };
+  });
 }
 
 function targetReasons(

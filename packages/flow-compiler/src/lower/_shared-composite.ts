@@ -124,6 +124,7 @@ export function lowerNodeToPipeline(
     case "adapter.parallel":
     case "adapter.supervisor":
     case "set":
+    case "return_to":
     case "spdd.import_sources":
     case "spdd.build_source_pack":
     case "spdd.run_analysis":
@@ -138,10 +139,6 @@ export function lowerNodeToPipeline(
     case "spdd.create_sync_proposal":
     case "spdd.agent_swarm":
       return lowerRuntimeLeaf(node, ctx, path);
-
-    case "return_to":
-      // Runtime-executed leaf nodes: present in AST but not emitted as graph edges.
-      return { nodes: [], edges: [], warnings: [] };
 
     default: {
       // Exhaustiveness guard — adding a FlowNode variant without a case fails here.

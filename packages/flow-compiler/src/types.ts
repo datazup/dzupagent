@@ -12,6 +12,7 @@ import type { ParseInput } from "@dzupagent/flow-ast";
 import type { DzupEventBus } from "@dzupagent/core/events";
 
 import type { ProfileRegistry } from "./profile-registry.js";
+import type { FlowRequirementSummary } from "./capability-manifest.js";
 
 export interface CompilerOptions {
   toolResolver: ToolResolver | AsyncToolResolver;
@@ -170,6 +171,12 @@ export interface CompileSuccess {
   artifact: unknown;
   warnings: CompilationWarning[];
   reasons: CompilationTargetReason[];
+  /**
+   * Machine-readable target and host capability requirements derived from the
+   * canonical AST. Hosts can pass this directly to `resolveHostReadiness`
+   * before starting execution.
+   */
+  requirements: FlowRequirementSummary;
   evidence: FlowCompileEvidence;
   diagnosticCountsByCategory?: Record<string, number>;
   /**
@@ -215,6 +222,7 @@ export interface FlowCompileEvidence {
   schema: "dzupagent.flowCompileEvidence/v1";
   sourceKind: FlowCompileSourceKind;
   sourceHash: string;
+  semanticHash: string;
   compileId: string;
   canonicalNodeIds: string[];
   canonicalNodePaths: Record<string, FlowCompileEvidenceNode>;

@@ -123,7 +123,6 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "classify":
       case "emit":
       case "memory":
-      case "set":
       case "checkpoint":
       case "restore":
       case "http":
@@ -137,6 +136,8 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
         // Non-runtime leaf nodes — contribute no feature bits (unchanged).
         return;
       case "worker.dispatch":
+      case "set":
+      case "return_to":
       case "shell.run":
       case "evidence.write":
       case "validate.schema":
@@ -176,10 +177,6 @@ export function computeFeatureBitmask(ast: FlowNode): FeatureBitmask {
       case "prompt":
         bits |= FEATURE_BITS.RUNTIME_LEAF;
         return;
-      case "return_to": {
-        bits |= FEATURE_BITS.FOR_EACH;
-        return;
-      }
       case "agent":
       case "validate":
         bits |= FEATURE_BITS.RUNTIME_LEAF;
@@ -259,7 +256,6 @@ export function hasOnError(ast: FlowNode): boolean {
       case "classify":
       case "emit":
       case "memory":
-      case "set":
       case "checkpoint":
       case "restore":
       case "http":
@@ -324,14 +320,13 @@ export interface UnsupportedRuntimeNode {
   path: string;
 }
 
-// Node types that cannot be lowered by any generic compiler target.
-const ALWAYS_UNSUPPORTED_NODE_TYPES = new Set<FlowNode["type"]>(["return_to"]);
-
 // Runtime-executed leaves can be carried inside richer pipeline artifacts, but
 // a flow made only from these leaves would emit an empty generic artifact.
 const RUNTIME_LEAF_NODE_TYPES = new Set<FlowNode["type"]>([
   "agent",
   "validate",
+  "set",
+  "return_to",
   "adapter.run",
   "adapter.race",
   "adapter.parallel",
@@ -361,7 +356,6 @@ function isUnsupportedForTarget(
   target: CompilationTarget,
   hasArtifactAnchor: boolean
 ): boolean {
-  if (ALWAYS_UNSUPPORTED_NODE_TYPES.has(nodeType)) return true;
   if (!RUNTIME_LEAF_NODE_TYPES.has(nodeType)) return false;
   if (target === "skill-chain") return true;
   if (target === "planning-dag") return false;
@@ -443,7 +437,6 @@ export function collectUnsupportedRuntimeNodes(
       case "classify":
       case "emit":
       case "memory":
-      case "set":
       case "checkpoint":
       case "restore":
       case "http":
@@ -529,13 +522,11 @@ function hasGenericArtifactAnchor(
       case "classify":
       case "emit":
       case "memory":
-      case "set":
       case "checkpoint":
       case "restore":
       case "http":
       case "wait":
       case "subflow":
-      case "return_to":
       case "fleet.dispatch":
       case "fleet.gather":
       case "fleet.contract-net":
@@ -545,6 +536,8 @@ function hasGenericArtifactAnchor(
       case "prompt":
       case "agent":
       case "validate":
+      case "set":
+      case "return_to":
       case "worker.dispatch":
       case "shell.run":
       case "evidence.write":

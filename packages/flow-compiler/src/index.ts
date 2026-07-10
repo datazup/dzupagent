@@ -59,6 +59,32 @@ export type {
   FlowArtifactMetadata,
   FlowArtifactNodeMetadata,
 } from "./flow-artifact-metadata.js";
+export {
+  DZUPAGENT_PIPELINE_HOST_MANIFEST,
+  FLOW_NODE_CAPABILITY_REGISTRY,
+  FLOW_VALIDATION_PROFILES,
+  TARGET_CAPABILITY_MANIFESTS,
+  collectFlowRequirements,
+  generateFlowConformanceMatrix,
+  renderFlowConformanceMatrixMarkdown,
+  resolveHostReadiness,
+} from "./capability-manifest.js";
+export type {
+  FlowCapabilityOwner,
+  FlowConformanceMatrix,
+  FlowNodeCapabilityDescriptor,
+  FlowNodeLoweringMode,
+  FlowNodeSupportStatus,
+  FlowRequirementSummary,
+  FlowValidationProfile,
+  FlowValidationProfileId,
+  HostCapabilityManifest,
+  HostReadinessDiagnostic,
+  HostReadinessResult,
+  RecommendedFlowProfile,
+  TargetCapabilityLimitation,
+  TargetCapabilityManifest,
+} from "./capability-manifest.js";
 export { validateShape } from "./stages/shape-validate.js";
 export { semanticResolve } from "./stages/semantic.js";
 export type { SemanticOptions, SemanticResult } from "./stages/semantic.js";
