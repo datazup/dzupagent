@@ -22,7 +22,7 @@ Schema: `dzupagent.flowConformanceMatrix/v1`
 | `classify` | yes | yes | partial | metadata-only | `skill-chain` | `dzup.llm@1` | dzupagent | `flow.runtime.classify@1` | Preserved as artifact metadata; execution remains host-owned. |
 | `emit` | yes | yes | partial | metadata-only | `skill-chain` | `dzup.core@1` | dzupagent | `flow.runtime.emit@1` | Event emission is not represented as an executable generic target node. |
 | `memory` | yes | yes | partial | degraded | `skill-chain` | `dzup.rag@1` | dzupagent | `flow.runtime.memory@1` | Skill-chain has a memory projection; graph targets retain metadata only. |
-| `set` | yes | yes | partial | runtime-leaf | `skill-chain` | `dzup.core@1` | dzupagent | `flow.runtime.set@1` | Current routing classifies set as sequential while graph lowering models it as a runtime leaf. |
+| `set` | yes | yes | supported | runtime-leaf | `planning-dag` | `dzup.core@1` | dzupagent | `flow.runtime.set@1` | Pure state mutation lowers to the DzupAgent pipeline runtime's built-in set handler. |
 | `checkpoint` | yes | yes | partial | metadata-only | `skill-chain` | `dzup.core@1` | dzupagent | `flow.runtime.checkpoint@1` | Checkpoint policy is carried separately; the node is not a generic executable graph node. |
 | `restore` | yes | yes | partial | metadata-only | `skill-chain` | `dzup.core@1` | dzupagent | `flow.runtime.restore@1` | Restore policy is carried separately; the node is not a generic executable graph node. |
 | `try_catch` | yes | yes | partial | degraded | `workflow-builder` | `dzup.core@1` | dzupagent | `flow.runtime.try_catch@1` | The try body lowers; catch-path execution remains runtime-owned. |
@@ -31,7 +31,7 @@ Schema: `dzupagent.flowConformanceMatrix/v1`
 | `wait` | yes | yes | partial | metadata-only | `skill-chain` | `dzup.core@1` | dzupagent | `flow.runtime.wait@1` | Durable timer/event wait semantics are not normalized in generic targets. |
 | `subflow` | yes | yes | partial | metadata-only | `skill-chain` | `dzup.core@1` | dzupagent | `flow.runtime.subflow@1` | Subflows must be inlined before lowering or executed by a host. |
 | `prompt` | yes | yes | host-only | runtime-leaf | `planning-dag` | `dzup.llm@1` | host | `flow.runtime.prompt@1` |  |
-| `return_to` | yes | yes | unsupported | unsupported | `pipeline` | `dzup.core@1` | dzupagent | `flow.runtime.return_to@1` | Accepted by the AST but rejected by every current generic compiler target. |
+| `return_to` | yes | yes | host-only | runtime-leaf | `planning-dag` | `dzup.core@1` | host | `flow.runtime.return_to@1` | Compatibility leaf for hosts with bounded return-region semantics; portable flows should prefer loop. |
 | `agent` | yes | yes | host-only | runtime-leaf | `planning-dag` | `dzup.agent@1` | host | `flow.runtime.agent@1` |  |
 | `validate` | yes | yes | host-only | runtime-leaf | `planning-dag` | `dzup.sdlc@1` | host | `flow.runtime.validate@1` |  |
 | `worker.dispatch` | yes | yes | host-only | runtime-leaf | `planning-dag` | `dzup.fleet@1` | host | `flow.runtime.worker.dispatch@1` |  |
@@ -67,7 +67,7 @@ Schema: `dzupagent.flowConformanceMatrix/v1`
 | --- | --- | --- | --- | --- | --- |
 | `skill-chain` | `flow.target.skill-chain@1` | sequential | inline | volatile | `ACTION_ANCHOR_REQUIRED`: At least one executable action step is required.<br>`NO_RUNTIME_LEAVES`: Runtime leaves route to planning-dag instead. |
 | `workflow-builder` | `flow.target.workflow-builder@1` | branch, parallel, suspend | inline | volatile, checkpointed | `NO_FOR_EACH`: for_each and loop route to pipeline.<br>`NO_RUNTIME_LEAF_ROUTING`: Runtime leaves route to planning-dag. |
-| `pipeline` | `flow.target.pipeline@1` | for_each, loop | hybrid | volatile, checkpointed | `RETURN_TO_UNSUPPORTED`: return_to is accepted by the AST but rejected before lowering. |
+| `pipeline` | `flow.target.pipeline@1` | for_each, loop | hybrid | volatile, checkpointed |  |
 | `planning-dag` | `flow.target.planning-dag@1` | runtime-leaf | hybrid | volatile, checkpointed | `HOST_HANDLERS_REQUIRED`: Runtime leaf tool names require matching host handlers.<br>`NO_FOR_EACH`: for_each and loop take routing precedence and use pipeline. |
 
 ## Validation profiles

@@ -201,9 +201,9 @@
     },
     {
       "kind": "set",
-      "status": "partial",
+      "status": "supported",
       "lowering": "runtime-leaf",
-      "currentRoute": "skill-chain",
+      "currentRoute": "planning-dag",
       "recommendedProfile": "dzup.core@1",
       "owner": "dzupagent",
       "parser": "supported",
@@ -213,7 +213,7 @@
       ],
       "extensionCandidate": false,
       "deprecated": false,
-      "notes": "Current routing classifies set as sequential while graph lowering models it as a runtime leaf."
+      "notes": "Pure state mutation lowers to the DzupAgent pipeline runtime's built-in set handler."
     },
     {
       "kind": "checkpoint",
@@ -344,11 +344,11 @@
     },
     {
       "kind": "return_to",
-      "status": "unsupported",
-      "lowering": "unsupported",
-      "currentRoute": "pipeline",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
       "recommendedProfile": "dzup.core@1",
-      "owner": "dzupagent",
+      "owner": "host",
       "parser": "supported",
       "validator": "supported",
       "runtimeCapabilities": [
@@ -356,7 +356,7 @@
       ],
       "extensionCandidate": false,
       "deprecated": false,
-      "notes": "Accepted by the AST but rejected by every current generic compiler target."
+      "notes": "Compatibility leaf for hosts with bounded return-region semantics; portable flows should prefer loop."
     },
     {
       "kind": "agent",
@@ -848,12 +848,7 @@
         "volatile",
         "checkpointed"
       ],
-      "limitations": [
-        {
-          "code": "RETURN_TO_UNSUPPORTED",
-          "message": "return_to is accepted by the AST but rejected before lowering."
-        }
-      ]
+      "limitations": []
     },
     {
       "schema": "dzupagent.targetCapabilityManifest/v1",

@@ -267,6 +267,7 @@ export function hasOnError(ast: FlowNode): boolean {
       case "knowledge.write":
       case "knowledge.query":
       case "worker.dispatch":
+      case "set":
       case "shell.run":
       case "evidence.write":
       case "validate.schema":
@@ -446,6 +447,7 @@ export function collectUnsupportedRuntimeNodes(
       case "return_to":
       case "agent":
       case "validate":
+      case "set":
       case "fleet.dispatch":
       case "fleet.gather":
       case "fleet.contract-net":
