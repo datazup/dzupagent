@@ -1,5 +1,4 @@
 import {
-  DZUPAGENT_PIPELINE_HOST_MANIFEST,
   FLOW_NODE_KINDS,
   type FlowNode,
   type ResolvedTool,
@@ -8,6 +7,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  DZUPAGENT_PIPELINE_HOST_MANIFEST,
   FLOW_NODE_CAPABILITY_REGISTRY,
   FLOW_VALIDATION_PROFILES,
   TARGET_CAPABILITY_MANIFESTS,

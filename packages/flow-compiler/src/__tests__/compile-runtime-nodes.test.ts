@@ -157,6 +157,109 @@ describe('runtime-only compiler diagnostics', () => {
     )
   })
 
+  it('lowers standalone set nodes to planning-dag runtime leaves', async () => {
+    const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
+
+    const result = await compiler.compile({
+      type: 'set',
+      assign: {
+        ready: true,
+        summary: '{{ state.review.summary }}',
+      },
+    })
+
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.target).toBe('planning-dag')
+    expect(result.requirements.requiredCapabilities).toContain('flow.runtime.set@1')
+    const artifact = result.artifact as PipelineDefinition
+    expect(artifact.nodes).toEqual([
+      expect.objectContaining({
+        type: 'tool',
+        toolName: 'dzup.runtime.set',
+        arguments: {
+          assign: {
+            ready: true,
+            summary: '{{ state.review.summary }}',
+          },
+        },
+      }),
+    ])
+  })
+
+  it('lowers standalone return_to nodes to planning-dag compatibility leaves', async () => {
+    const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
+
+    const result = await compiler.compile({
+      type: 'return_to',
+      targetId: 'collect',
+      condition: '{{ state.needsMore }}',
+      maxIterations: 4,
+    })
+
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.target).toBe('planning-dag')
+    expect(result.requirements.requiredCapabilities).toContain('flow.runtime.return_to@1')
+    const artifact = result.artifact as PipelineDefinition
+    expect(artifact.nodes).toEqual([
+      expect.objectContaining({
+        type: 'tool',
+        toolName: 'dzup.runtime.return_to',
+        arguments: {
+          targetId: 'collect',
+          condition: '{{ state.needsMore }}',
+          maxIterations: 4,
+        },
+      }),
+    ])
+  })
+
+  it('returns a structured empty-artifact failure for metadata-only singletons', async () => {
+    const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
+
+    const result = await compiler.compile({
+      type: 'spawn',
+      templateRef: 'reviewer',
+    })
+
+    expect('errors' in result).toBe(true)
+    if (!('errors' in result)) throw new Error('expected compile failure')
+    expect(result.errors).toEqual([
+      expect.objectContaining({
+        stage: 4,
+        code: 'EMPTY_TARGET_ARTIFACT',
+        nodePath: 'root',
+        category: 'lowering',
+      }),
+    ])
+  })
+
+  it('warns when a partial node is preserved beside an executable node', async () => {
+    const compiler = createFlowCompiler({ toolResolver: makeResolver(['tasks.run']) })
+
+    const result = await compiler.compile({
+      type: 'sequence',
+      nodes: [
+        { type: 'spawn', templateRef: 'reviewer' },
+        { type: 'action', toolRef: 'tasks.run', input: {} },
+      ],
+    })
+
+    expect('errors' in result).toBe(false)
+    if ('errors' in result) throw new Error('expected compile success')
+    expect(result.requirements.partialNodeKinds).toContain('spawn')
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'PARTIAL_NODE_SUPPORT',
+          category: 'lowering',
+          message: expect.stringContaining('Node type "spawn"'),
+        }),
+      ]),
+    )
+  })
+
   it('lowers prompt-only flows to planning-dag runtime tool nodes', async () => {
     const compiler = createFlowCompiler({ toolResolver: makeResolver([]) })
 
