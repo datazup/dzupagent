@@ -1,0 +1,921 @@
+{
+  "schema": "dzupagent.flowConformanceMatrix/v1",
+  "generatedFrom": "FLOW_NODE_KIND_REGISTRY",
+  "nodes": [
+    {
+      "kind": "sequence",
+      "status": "supported",
+      "lowering": "native",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [],
+      "extensionCandidate": false,
+      "deprecated": false
+    },
+    {
+      "kind": "action",
+      "status": "supported",
+      "lowering": "native",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [],
+      "extensionCandidate": false,
+      "deprecated": false
+    },
+    {
+      "kind": "for_each",
+      "status": "supported",
+      "lowering": "native",
+      "currentRoute": "pipeline",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [],
+      "extensionCandidate": false,
+      "deprecated": false
+    },
+    {
+      "kind": "branch",
+      "status": "supported",
+      "lowering": "native",
+      "currentRoute": "workflow-builder",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [],
+      "extensionCandidate": false,
+      "deprecated": false
+    },
+    {
+      "kind": "approval",
+      "status": "supported",
+      "lowering": "native",
+      "currentRoute": "workflow-builder",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [],
+      "extensionCandidate": false,
+      "deprecated": false
+    },
+    {
+      "kind": "clarification",
+      "status": "supported",
+      "lowering": "native",
+      "currentRoute": "workflow-builder",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [],
+      "extensionCandidate": false,
+      "deprecated": false
+    },
+    {
+      "kind": "persona",
+      "status": "supported",
+      "lowering": "native",
+      "currentRoute": "workflow-builder",
+      "recommendedProfile": "dzup.llm@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "route",
+      "status": "supported",
+      "lowering": "native",
+      "currentRoute": "workflow-builder",
+      "recommendedProfile": "dzup.adapters@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "parallel",
+      "status": "supported",
+      "lowering": "native",
+      "currentRoute": "workflow-builder",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [],
+      "extensionCandidate": false,
+      "deprecated": false
+    },
+    {
+      "kind": "complete",
+      "status": "partial",
+      "lowering": "degraded",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.complete@1"
+      ],
+      "extensionCandidate": false,
+      "deprecated": false,
+      "notes": "Terminal semantics are native in pipeline artifacts but need an executable anchor in skill-chain flows."
+    },
+    {
+      "kind": "spawn",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.agent@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spawn@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false,
+      "notes": "Preserved as artifact metadata; execution remains host-owned."
+    },
+    {
+      "kind": "classify",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.llm@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.classify@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false,
+      "notes": "Preserved as artifact metadata; execution remains host-owned."
+    },
+    {
+      "kind": "emit",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.emit@1"
+      ],
+      "extensionCandidate": false,
+      "deprecated": false,
+      "notes": "Event emission is not represented as an executable generic target node."
+    },
+    {
+      "kind": "memory",
+      "status": "partial",
+      "lowering": "degraded",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.rag@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.memory@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false,
+      "notes": "Skill-chain has a memory projection; graph targets retain metadata only."
+    },
+    {
+      "kind": "set",
+      "status": "partial",
+      "lowering": "runtime-leaf",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.set@1"
+      ],
+      "extensionCandidate": false,
+      "deprecated": false,
+      "notes": "Current routing classifies set as sequential while graph lowering models it as a runtime leaf."
+    },
+    {
+      "kind": "checkpoint",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.checkpoint@1"
+      ],
+      "extensionCandidate": false,
+      "deprecated": false,
+      "notes": "Checkpoint policy is carried separately; the node is not a generic executable graph node."
+    },
+    {
+      "kind": "restore",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.restore@1"
+      ],
+      "extensionCandidate": false,
+      "deprecated": false,
+      "notes": "Restore policy is carried separately; the node is not a generic executable graph node."
+    },
+    {
+      "kind": "try_catch",
+      "status": "partial",
+      "lowering": "degraded",
+      "currentRoute": "workflow-builder",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.try_catch@1"
+      ],
+      "extensionCandidate": false,
+      "deprecated": false,
+      "notes": "The try body lowers; catch-path execution remains runtime-owned."
+    },
+    {
+      "kind": "loop",
+      "status": "partial",
+      "lowering": "degraded",
+      "currentRoute": "pipeline",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.loop@1"
+      ],
+      "extensionCandidate": false,
+      "deprecated": false,
+      "notes": "The loop body lowers but the authored condition is runtime-owned."
+    },
+    {
+      "kind": "http",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.http@1"
+      ],
+      "extensionCandidate": false,
+      "deprecated": false,
+      "notes": "HTTP execution requires a host handler and is not emitted as a generic target node."
+    },
+    {
+      "kind": "wait",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.wait@1"
+      ],
+      "extensionCandidate": false,
+      "deprecated": false,
+      "notes": "Durable timer/event wait semantics are not normalized in generic targets."
+    },
+    {
+      "kind": "subflow",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.subflow@1"
+      ],
+      "extensionCandidate": false,
+      "deprecated": false,
+      "notes": "Subflows must be inlined before lowering or executed by a host."
+    },
+    {
+      "kind": "prompt",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "dzup.llm@1",
+      "owner": "host",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.prompt@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "return_to",
+      "status": "unsupported",
+      "lowering": "unsupported",
+      "currentRoute": "pipeline",
+      "recommendedProfile": "dzup.core@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.return_to@1"
+      ],
+      "extensionCandidate": false,
+      "deprecated": false,
+      "notes": "Accepted by the AST but rejected by every current generic compiler target."
+    },
+    {
+      "kind": "agent",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "dzup.agent@1",
+      "owner": "host",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.agent@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "validate",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "dzup.sdlc@1",
+      "owner": "host",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.validate@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "worker.dispatch",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "dzup.fleet@1",
+      "owner": "host",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.worker.dispatch@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "fleet.dispatch",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.fleet@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.fleet.dispatch@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false,
+      "notes": "Collected into fleetSteps side metadata for a host runtime."
+    },
+    {
+      "kind": "fleet.gather",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.fleet@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.fleet.gather@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false,
+      "notes": "Collected into fleetSteps side metadata for a host runtime."
+    },
+    {
+      "kind": "fleet.contract-net",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.fleet@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.fleet.contract-net@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false,
+      "notes": "Collected into fleetSteps side metadata for a host runtime."
+    },
+    {
+      "kind": "knowledge.write",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.rag@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.knowledge.write@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false,
+      "notes": "Knowledge execution is host-owned and not emitted as a generic target node."
+    },
+    {
+      "kind": "knowledge.query",
+      "status": "partial",
+      "lowering": "metadata-only",
+      "currentRoute": "skill-chain",
+      "recommendedProfile": "dzup.rag@1",
+      "owner": "dzupagent",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.knowledge.query@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false,
+      "notes": "Knowledge execution is host-owned and not emitted as a generic target node."
+    },
+    {
+      "kind": "shell.run",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "dzup.sdlc@1",
+      "owner": "host",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.shell.run@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "evidence.write",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "dzup.sdlc@1",
+      "owner": "host",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.evidence.write@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "validate.schema",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "dzup.sdlc@1",
+      "owner": "host",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.validate.schema@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "adapter.run",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "dzup.adapters@1",
+      "owner": "host",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.adapter.run@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "adapter.race",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "dzup.adapters@1",
+      "owner": "host",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.adapter.race@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "adapter.parallel",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "dzup.adapters@1",
+      "owner": "host",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.adapter.parallel@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "adapter.supervisor",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "dzup.adapters@1",
+      "owner": "host",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.adapter.supervisor@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.import_sources",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.import_sources@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.build_source_pack",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.build_source_pack@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.run_analysis",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.run_analysis@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.generate_canvas",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.generate_canvas@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.validate_canvas",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.validate_canvas@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.review_canvas",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.review_canvas@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.project_plan",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.project_plan@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.arm_dispatch",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.arm_dispatch@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.run_validation",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.run_validation@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.collect_proof",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.collect_proof@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.scan_drift",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.scan_drift@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.create_sync_proposal",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.create_sync_proposal@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    },
+    {
+      "kind": "spdd.agent_swarm",
+      "status": "host-only",
+      "lowering": "runtime-leaf",
+      "currentRoute": "planning-dag",
+      "recommendedProfile": "codev.spdd@1",
+      "owner": "codev",
+      "parser": "supported",
+      "validator": "supported",
+      "runtimeCapabilities": [
+        "flow.runtime.spdd.agent_swarm@1"
+      ],
+      "extensionCandidate": true,
+      "deprecated": false
+    }
+  ],
+  "targets": [
+    {
+      "schema": "dzupagent.targetCapabilityManifest/v1",
+      "target": "skill-chain",
+      "version": "0.2.0",
+      "capability": "flow.target.skill-chain@1",
+      "routeFeatures": [
+        "sequential"
+      ],
+      "executionModel": "inline",
+      "durabilityModes": [
+        "volatile"
+      ],
+      "limitations": [
+        {
+          "code": "ACTION_ANCHOR_REQUIRED",
+          "message": "At least one executable action step is required."
+        },
+        {
+          "code": "NO_RUNTIME_LEAVES",
+          "message": "Runtime leaves route to planning-dag instead."
+        }
+      ]
+    },
+    {
+      "schema": "dzupagent.targetCapabilityManifest/v1",
+      "target": "workflow-builder",
+      "version": "0.2.0",
+      "capability": "flow.target.workflow-builder@1",
+      "routeFeatures": [
+        "branch",
+        "parallel",
+        "suspend"
+      ],
+      "executionModel": "inline",
+      "durabilityModes": [
+        "volatile",
+        "checkpointed"
+      ],
+      "limitations": [
+        {
+          "code": "NO_FOR_EACH",
+          "message": "for_each and loop route to pipeline."
+        },
+        {
+          "code": "NO_RUNTIME_LEAF_ROUTING",
+          "message": "Runtime leaves route to planning-dag."
+        }
+      ]
+    },
+    {
+      "schema": "dzupagent.targetCapabilityManifest/v1",
+      "target": "pipeline",
+      "version": "0.2.0",
+      "capability": "flow.target.pipeline@1",
+      "routeFeatures": [
+        "for_each",
+        "loop"
+      ],
+      "executionModel": "hybrid",
+      "durabilityModes": [
+        "volatile",
+        "checkpointed"
+      ],
+      "limitations": [
+        {
+          "code": "RETURN_TO_UNSUPPORTED",
+          "message": "return_to is accepted by the AST but rejected before lowering."
+        }
+      ]
+    },
+    {
+      "schema": "dzupagent.targetCapabilityManifest/v1",
+      "target": "planning-dag",
+      "version": "0.2.0",
+      "capability": "flow.target.planning-dag@1",
+      "routeFeatures": [
+        "runtime-leaf"
+      ],
+      "executionModel": "hybrid",
+      "durabilityModes": [
+        "volatile",
+        "checkpointed"
+      ],
+      "limitations": [
+        {
+          "code": "HOST_HANDLERS_REQUIRED",
+          "message": "Runtime leaf tool names require matching host handlers."
+        },
+        {
+          "code": "NO_FOR_EACH",
+          "message": "for_each and loop take routing precedence and use pipeline."
+        }
+      ]
+    }
+  ],
+  "validationProfiles": [
+    {
+      "id": "authoring-fast",
+      "gates": [
+        "parse",
+        "document-shape",
+        "output-key-uniqueness"
+      ],
+      "requiresHostManifest": false
+    },
+    {
+      "id": "compiler-focused",
+      "gates": [
+        "parse",
+        "document-shape",
+        "output-key-uniqueness",
+        "semantic-resolution",
+        "target-lowering",
+        "requirement-summary"
+      ],
+      "requiresHostManifest": false
+    },
+    {
+      "id": "runtime-fixture",
+      "gates": [
+        "parse",
+        "document-shape",
+        "output-key-uniqueness",
+        "semantic-resolution",
+        "target-lowering",
+        "requirement-summary",
+        "host-readiness",
+        "runtime-fixture",
+        "evidence-assertions"
+      ],
+      "requiresHostManifest": true
+    }
+  ]
+}
