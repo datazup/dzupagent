@@ -46,6 +46,8 @@
     "docs:adapters": "typedoc --options typedoc.adapter-config.json",
     "build:connectors:verified": "yarn build --filter=@dzupagent/core --filter=@dzupagent/flow-ast && yarn workspace @dzupagent/connectors build:verified",
     "docs:capability-matrix": "node scripts/generate-capability-matrix.mjs",
+    "docs:flow-conformance": "node scripts/generate-flow-conformance-matrix.mjs",
+    "check:flow-conformance": "node scripts/generate-flow-conformance-matrix.mjs --check",
     "check:capability-matrix": "node scripts/check-capability-matrix-freshness.mjs",
     "check:circular-deps": "node scripts/check-circular-deps.mjs",
     "check:domain-boundaries": "node scripts/check-domain-boundaries.mjs",
