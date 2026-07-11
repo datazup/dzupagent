@@ -102,6 +102,37 @@ const branch = (condition: string, then_: FlowNode[], else_?: FlowNode[]): Branc
 // ---------------------------------------------------------------------------
 
 describe('lowerPipelineLoop', () => {
+  it('uses semantic-resolver paths for canonical loop action bodies', () => {
+    const resolver = makeResolver(['items.process'])
+    const idGen = makeIdGen()
+    const ast: FlowNode = {
+      type: 'loop',
+      condition: '{{ state.retry }}',
+      maxIterations: 3,
+      body: [action('items.process')],
+    }
+    const resolved = buildResolved(resolver, [
+      { nodePath: 'root.body[0]', toolRef: 'items.process' },
+    ])
+
+    const { artifact, warnings } = lowerPipelineLoop({
+      ast,
+      resolved,
+      resolvedPersonas: new Map(),
+      idGen,
+      name: 'canonical-loop-action-path',
+    })
+
+    expect(warnings).toEqual([])
+    expect(artifact.nodes).toEqual([
+      expect.objectContaining({
+        type: 'tool',
+        toolName: 'items.process',
+        source: expect.objectContaining({ path: 'root.body[0]' }),
+      }),
+    ])
+  })
+
   it('gold-file: for_each with one action body → LoopNode + ToolNode as siblings', () => {
     const resolver = makeResolver(['items.process'])
     const idGen = makeIdGen()

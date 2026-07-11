@@ -29,6 +29,7 @@ import {
 } from "./_shared-control.js";
 import { lowerApproval, lowerPersona, lowerRoute } from "./_shared-suspend.js";
 import { lowerRuntimeLeaf } from "./_shared-runtime-leaf.js";
+import { lowerChildren } from "./_shared-utils.js";
 
 /**
  * Lower a single FlowNode (and its subtree) into a flat list of
@@ -106,11 +107,21 @@ export function lowerNodeToPipeline(
 
     case "try_catch":
       // try_catch body is lowered normally; the catch branch is runtime-only (error path).
-      return lowerSequence(node.body, ctx, `${path}.body`, lowerNodeToPipeline);
+      return lowerChildren(
+        node.body,
+        ctx,
+        (idx) => `${path}.body[${idx}]`,
+        lowerNodeToPipeline,
+      );
 
     case "loop":
       // loop body is lowered as a sequence; condition evaluation is runtime-only.
-      return lowerSequence(node.body, ctx, `${path}.body`, lowerNodeToPipeline);
+      return lowerChildren(
+        node.body,
+        ctx,
+        (idx) => `${path}.body[${idx}]`,
+        lowerNodeToPipeline,
+      );
 
     case "agent":
     case "validate":

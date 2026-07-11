@@ -69,6 +69,25 @@ export {
   renderFlowConformanceMatrixMarkdown,
   resolveHostReadiness,
 } from "./capability-manifest.js";
+export {
+  FLOW_PROFILE_LOCK_JSON_SCHEMA,
+  FLOW_PROFILE_MANIFEST_JSON_SCHEMA,
+  FLOW_PROFILE_MANIFESTS,
+  createFlowProfileLock,
+  hashFlowProfileManifest,
+  validateFlowProfileLock,
+  validateFlowProfileManifest,
+} from "./profile-manifest.js";
+export type {
+  FlowProfileDiagnostic,
+  FlowProfileDiagnosticCode,
+  FlowProfileKind,
+  FlowProfileLock,
+  FlowProfileLockEntry,
+  FlowProfileLowering,
+  FlowProfileManifest,
+  FlowProfileValidationResult,
+} from "./profile-manifest.js";
 export type {
   FlowCapabilityOwner,
   FlowConformanceMatrix,
