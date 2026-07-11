@@ -114,9 +114,29 @@ export interface ExecutionEvidenceRequirement {
 export interface ExecutionRouteCandidate {
   readonly id: string;
   readonly provider?: string;
+  /** How the provider is reached; independent from its logical identity. */
+  readonly backend?: ProviderExecutionBackend;
   readonly model?: string;
   readonly tags?: readonly string[];
+  readonly capabilities?: readonly string[];
 }
+
+/** Physical execution path used to reach a logical provider. */
+export type ProviderExecutionBackend =
+  | "cli"
+  | "local-model"
+  | "sdk"
+  | "api"
+  | "remote";
+
+export type ExecutionRouteRejectionCode =
+  | "PROVIDER_UNAVAILABLE"
+  | "BACKEND_UNAVAILABLE"
+  | "CAPABILITY_MISSING"
+  | "AUTH_SOURCE_UNAVAILABLE"
+  | "POLICY_INCOMPATIBLE"
+  | "MODEL_UNAVAILABLE"
+  | "HEALTH_CHECK_FAILED";
 
 export interface ExecutionRouteConstraint {
   readonly kind: "provider" | "tags" | "capability" | "policy";
@@ -138,6 +158,53 @@ export interface ExecutionRoutePolicy {
 export interface ExecutionRouteRejection {
   readonly candidateId: string;
   readonly reasons: readonly string[];
+  /** Stable machine-readable causes; reasons remain human-readable context. */
+  readonly codes?: readonly ExecutionRouteRejectionCode[];
+}
+
+/** Reference to authentication material. Raw credentials are never represented. */
+export interface ProviderAuthSourceDescriptor {
+  readonly id: string;
+  readonly provider: string;
+  readonly location: "local" | "central";
+  readonly kind:
+    | "cli-session"
+    | "environment-ref"
+    | "secret-ref"
+    | "managed-identity"
+    | "none";
+  readonly ref?: string;
+  readonly scopes?: readonly string[];
+}
+
+export interface McpStdioTransportDescriptor {
+  readonly kind: "stdio";
+  readonly command: string;
+  readonly args?: readonly string[];
+  /** Environment variable names mapped to secret/config references, never values. */
+  readonly envRefs?: Readonly<Record<string, string>>;
+  readonly workingDirectory?: string;
+}
+
+export interface McpHttpTransportDescriptor {
+  readonly kind: "http";
+  readonly url: string;
+  /** Header names mapped to secret/config references, never values. */
+  readonly headerRefs?: Readonly<Record<string, string>>;
+}
+
+/** Neutral per-run MCP projection descriptor. */
+export interface McpServerDescriptor {
+  readonly id: string;
+  readonly transport: McpStdioTransportDescriptor | McpHttpTransportDescriptor;
+  readonly enabledTools?: readonly string[];
+  readonly disabledTools?: readonly string[];
+}
+
+export interface ExecutionCapabilityRequirement {
+  readonly capability: string;
+  readonly required: boolean;
+  readonly minimumVersion?: string;
 }
 
 /** Immutable audit result. Hard constraints, not reasoning text, are authority. */
@@ -188,6 +255,12 @@ export interface ExecutionRequestBase {
   readonly effects: ExecutionEffectPolicy;
   readonly cancellation: ExecutionCancellationPolicy;
   readonly evidenceRequirements: readonly ExecutionEvidenceRequirement[];
+  /** References resolved by the execution host, never credential values. */
+  readonly authSources?: readonly ProviderAuthSourceDescriptor[];
+  /** MCP servers projected by the execution host for this run. */
+  readonly mcpServers?: readonly McpServerDescriptor[];
+  /** Detailed requirements complementing route capability constraints. */
+  readonly capabilityRequirements?: readonly ExecutionCapabilityRequirement[];
 }
 
 export interface PromptExecutionRequest extends ExecutionRequestBase {

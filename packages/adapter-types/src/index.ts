@@ -8,6 +8,7 @@
 export * from "./contracts/provider.js";
 export * from "./contracts/interaction.js";
 export * from "./contracts/execution.js";
+export * from "./contracts/controlled-execution.js";
 export * from "./contracts/events.js";
 export * from "./contracts/routing.js";
 export * from "./contracts/capabilities.js";
