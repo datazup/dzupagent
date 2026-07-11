@@ -235,6 +235,43 @@ describe("AuthHandler", () => {
       expect(vi.mocked(locatorInstance.click)).not.toHaveBeenCalled();
     });
 
+    it("retries after a settle wait when the SPA client-side-redirects to the login route late", async () => {
+      const { page } = makeMockPage();
+      let passwordChecks = 0;
+      const passwordLocator = {
+        first: vi.fn().mockReturnThis(),
+        filter: vi.fn().mockReturnThis(),
+        click: vi.fn().mockResolvedValue(undefined),
+        fill: vi.fn().mockResolvedValue(undefined),
+        // First pass sees the app-shell skeleton (no form); the auth-check
+        // redirect lands the login form by the second pass.
+        count: vi
+          .fn()
+          .mockImplementation(() =>
+            Promise.resolve(passwordChecks++ === 0 ? 0 : 1)
+          ),
+      };
+      const emptyLocator = {
+        first: vi.fn().mockReturnThis(),
+        filter: vi.fn().mockReturnThis(),
+        click: vi.fn().mockResolvedValue(undefined),
+        fill: vi.fn().mockResolvedValue(undefined),
+        count: vi.fn().mockResolvedValue(0),
+      };
+      vi.mocked(page.locator).mockImplementation((selector: unknown) => {
+        if (selector === 'input[type="password"]')
+          return passwordLocator as never;
+        return emptyLocator as never;
+      });
+      const handler = new AuthHandler();
+
+      const found = await handler.discoverLoginEntry(page);
+
+      expect(found).toBe(true);
+      expect(vi.mocked(page.waitForTimeout)).toHaveBeenCalled();
+      expect(emptyLocator.click).not.toHaveBeenCalled();
+    });
+
     it("enters an SSO-only login page via its SSO entry button when no form or sign-in link exists", async () => {
       const { page } = makeMockPage();
       const ssoLocator = {
