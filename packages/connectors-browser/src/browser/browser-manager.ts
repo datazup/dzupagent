@@ -18,6 +18,7 @@ export class BrowserManager {
     return this.browser.newContext({
       viewport: opts?.viewport ?? { width: 1280, height: 720 },
       ...(opts?.proxy ? { proxy: { server: opts.proxy.server } } : {}),
+      ...(opts?.serviceWorkers ? { serviceWorkers: opts.serviceWorkers } : {}),
     })
   }
 

@@ -164,4 +164,9 @@ export interface BrowserLaunchOptions {
   headless?: boolean | undefined;
   viewport?: { width: number; height: number } | undefined;
   proxy?: { server: string } | undefined;
+  /**
+   * Browser-context service-worker policy. Use "block" when request routing
+   * must observe and transform every application request.
+   */
+  serviceWorkers?: "allow" | "block" | undefined;
 }
