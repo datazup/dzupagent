@@ -132,7 +132,7 @@ export interface CodexThreadOptions {
   blockedTools?: string[]
   toolPolicy?: string
   /** Normalized reasoning effort level forwarded to the Codex SDK */
-  reasoningEffort?: string
+  modelReasoningEffort?: string
 }
 
 /** The Codex class from the SDK */

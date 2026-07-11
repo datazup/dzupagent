@@ -297,7 +297,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       opts.skipGitRepoCheck = this.config.skipGitRepoCheck;
     }
 
-    // Normalized reasoning effort → Codex reasoningEffort field.
+    // Normalized reasoning effort → Codex modelReasoningEffort field.
     // Defaults to "medium" when neither the per-call input nor the adapter
     // config specifies one, matching the agent-planning run-layer default.
     const reasoning =
@@ -305,7 +305,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       this.config.reasoning ??
       "medium";
     if (reasoning) {
-      opts.reasoningEffort = reasoning;
+      opts.modelReasoningEffort = reasoning;
     }
 
     const activePolicy = input.policyContext?.activePolicy;
