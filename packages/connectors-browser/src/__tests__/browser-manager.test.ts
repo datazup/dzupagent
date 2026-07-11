@@ -80,6 +80,17 @@ describe('BrowserManager', () => {
     })
   })
 
+  it('creates a context with service workers blocked when requested', async () => {
+    const manager = new BrowserManager()
+    await manager.launch()
+    await manager.newContext({ serviceWorkers: 'block' })
+
+    expect(mockBrowser.newContext).toHaveBeenCalledWith({
+      viewport: { width: 1280, height: 720 },
+      serviceWorkers: 'block',
+    })
+  })
+
   it('throws if newContext is called before launch', async () => {
     const manager = new BrowserManager()
     await expect(manager.newContext()).rejects.toThrow('Browser not launched')
