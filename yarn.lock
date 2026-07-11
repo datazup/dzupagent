@@ -1172,6 +1172,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@dzupagent/adapter-types@workspace:packages/adapter-types"
   dependencies:
+    "@dzupagent/runtime-contracts": "npm:0.2.0"
     eslint: "npm:^10.1.0"
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
@@ -1540,6 +1541,7 @@ __metadata:
     "@dzupagent/core": "npm:0.2.0"
     "@dzupagent/flow-ast": "npm:0.2.0"
     "@dzupagent/flow-dsl": "npm:0.2.0"
+    "@dzupagent/runtime-contracts": "npm:0.2.0"
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
     vitest: "npm:^3.2.4"

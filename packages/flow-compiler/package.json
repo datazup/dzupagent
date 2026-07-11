@@ -29,7 +29,8 @@
     "@dzupagent/flow-ast": "0.2.0"
   },
   "dependencies": {
-    "@dzupagent/flow-dsl": "0.2.0"
+    "@dzupagent/flow-dsl": "0.2.0",
+    "@dzupagent/runtime-contracts": "0.2.0"
   },
   "devDependencies": {
     "@dzupagent/app-tools": "0.2.0",

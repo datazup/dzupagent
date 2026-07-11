@@ -1,4 +1,5 @@
 import type { AdapterProviderId } from "./provider.js";
+import type { SanitizedEvidenceRef } from "@dzupagent/runtime-contracts";
 import type {
   ModelOriginFamily,
   ProviderResolution,
@@ -41,13 +42,7 @@ export interface Finding {
  * may point only to sanitized/redacted artifacts, never to `raw-events.jsonl`
  * or provider-private reasoning.
  */
-export interface EvidenceRef {
-  uri: string;
-  digest: string;
-  digestOf: "sanitized";
-  redactionStatus: string;
-  contentClass: string;
-}
+export type EvidenceRef = SanitizedEvidenceRef;
 
 export type CollabPart =
   | { kind: "verdict"; agree: boolean; confidence: number; findings: Finding[] }
