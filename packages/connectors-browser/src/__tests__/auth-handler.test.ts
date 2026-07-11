@@ -22,7 +22,11 @@ describe("AuthHandler", () => {
 
       expect(vi.mocked(page.goto)).toHaveBeenCalledWith(
         "https://example.com/auth",
-        expect.objectContaining({ waitUntil: "networkidle" })
+        expect.objectContaining({ waitUntil: "domcontentloaded" })
+      );
+      expect(vi.mocked(page.waitForLoadState)).not.toHaveBeenCalledWith(
+        "networkidle",
+        expect.anything()
       );
     });
 
@@ -423,7 +427,7 @@ describe("AuthHandler", () => {
 
       expect(vi.mocked(page.goto)).toHaveBeenCalledWith(
         "https://app.example.com/login",
-        expect.objectContaining({ waitUntil: "networkidle" })
+        expect.objectContaining({ waitUntil: "domcontentloaded" })
       );
       expect(result.success).toBe(true);
       expect(result.finalUrl).toBe("https://app.example.com/dashboard");
@@ -444,9 +448,49 @@ describe("AuthHandler", () => {
 
       expect(vi.mocked(page.goto)).toHaveBeenCalledWith(
         "https://app.example.com",
-        expect.objectContaining({ waitUntil: "networkidle" })
+        expect.objectContaining({ waitUntil: "domcontentloaded" })
       );
       expect(result.success).toBe(true);
+    });
+
+    it("discovers and submits login without waiting for persistent traffic to become idle", async () => {
+      const { page, locatorInstance } = makeMockPage();
+      vi.mocked(page.goto).mockImplementation(
+        async (_url, options) => {
+          if (options?.waitUntil === "networkidle") {
+            throw new Error("polling page never becomes idle");
+          }
+          return null;
+        }
+      );
+      vi.mocked(page.waitForLoadState).mockImplementation(
+        async (state) => {
+          if (state === "networkidle") {
+            throw new Error("polling page never becomes idle");
+          }
+        }
+      );
+      locatorInstance.count
+        .mockResolvedValueOnce(1) // deterministic password-form discovery
+        .mockResolvedValueOnce(0); // form gone after submit
+      const handler = new AuthHandler();
+
+      const result = await handler.performLogin(
+        page,
+        "https://polling.example.com",
+        creds
+      );
+
+      expect(result.success).toBe(true);
+      expect(vi.mocked(page.goto)).toHaveBeenCalledWith(
+        "https://polling.example.com",
+        expect.objectContaining({ waitUntil: "domcontentloaded" })
+      );
+      expect(
+        vi.mocked(page.waitForLoadState).mock.calls.some(
+          ([state]) => state === "networkidle"
+        )
+      ).toBe(false);
     });
 
     it("fails with LOGIN_PAGE_NOT_FOUND when no login form or link exists", async () => {
