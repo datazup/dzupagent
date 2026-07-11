@@ -1,3 +1,5 @@
+import type { Page } from "playwright";
+
 export interface CrawlOptions {
   maxPages: number;
   maxDepth: number;
@@ -95,11 +97,45 @@ export interface AuthCredentials {
   passwordSelector?: string | undefined;
 }
 
+export interface LoginInterstitialContext {
+  /** Zero-based index of the interstitial step being resolved. */
+  stepIndex: number;
+  /** Login page the credentials were submitted on. */
+  loginPageUrl: string;
+  /** Operator hint for account/tenant pickers, when provided. */
+  accountHint?: string | undefined;
+}
+
+/**
+ * Resolver for post-credential interstitial screens (account/tenant pickers,
+ * consent prompts). Returns "acted" after performing exactly one page action
+ * (the flow then re-verifies login), or "skip" to let the built-in
+ * account-picker heuristic try. Must never submit credentials itself.
+ */
+export type LoginInterstitialResolver = (
+  page: Page,
+  ctx: LoginInterstitialContext
+) => Promise<"acted" | "skip">;
+
 export interface LoginFlowOptions {
   /** Operator-declared login page; skips discovery when set. */
   loginUrl?: string | undefined;
   /** Total login attempts (default 2 — one retry; never hammer shared auth). */
   maxAttempts?: number | undefined;
+  /**
+   * Custom resolver consulted first on each post-credential interstitial
+   * (e.g. an LLM-guided navigator). The built-in account-picker heuristic
+   * runs when this is absent or returns "skip".
+   */
+  onInterstitial?: LoginInterstitialResolver | undefined;
+  /** Max interstitial steps resolved after credential submit (default 3). */
+  maxInterstitialSteps?: number | undefined;
+  /**
+   * Text identifying which account/tenant/organisation to pick on an
+   * account-picker interstitial (matched case-insensitively against option
+   * labels; first option is used when absent or unmatched).
+   */
+  accountHint?: string | undefined;
 }
 
 export interface LoginFlowResult {
@@ -113,6 +149,8 @@ export interface LoginFlowResult {
   traversedOrigins: string[];
   failureCode?: "LOGIN_PAGE_NOT_FOUND" | "LOGIN_FAILED" | undefined;
   failureMessage?: string | undefined;
+  /** Post-credential interstitial steps resolved (0 = plain form login). */
+  interstitialStepsTaken?: number | undefined;
 }
 
 export interface ScreenshotResult {

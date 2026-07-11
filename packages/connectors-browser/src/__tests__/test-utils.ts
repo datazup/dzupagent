@@ -8,8 +8,8 @@
  * APIs exercised by the browser connector tests. They are typed using the
  * Playwright types so assignments are checked by TypeScript.
  */
-import { vi } from 'vitest'
-import type { Page, BrowserContext } from 'playwright'
+import { vi } from "vitest";
+import type { Page, BrowserContext } from "playwright";
 
 // ---------------------------------------------------------------------------
 // Page mock helpers
@@ -20,20 +20,24 @@ import type { Page, BrowserContext } from 'playwright'
  * This is the subset the auth-handler and extraction tests exercise.
  */
 export interface MockLocator {
-  first: ReturnType<typeof vi.fn>
-  click: ReturnType<typeof vi.fn>
-  fill: ReturnType<typeof vi.fn>
-  count: ReturnType<typeof vi.fn>
+  first: ReturnType<typeof vi.fn>;
+  filter: ReturnType<typeof vi.fn>;
+  click: ReturnType<typeof vi.fn>;
+  fill: ReturnType<typeof vi.fn>;
+  count: ReturnType<typeof vi.fn>;
+  textContent: ReturnType<typeof vi.fn>;
 }
 
 function makeLocator(overrides: Partial<MockLocator> = {}): MockLocator {
   return {
     first: vi.fn().mockReturnThis(),
+    filter: vi.fn().mockReturnThis(),
     click: vi.fn().mockResolvedValue(undefined),
     fill: vi.fn().mockResolvedValue(undefined),
     count: vi.fn().mockResolvedValue(0),
+    textContent: vi.fn().mockResolvedValue(null),
     ...overrides,
-  }
+  };
 }
 
 /**
@@ -42,13 +46,13 @@ function makeLocator(overrides: Partial<MockLocator> = {}): MockLocator {
  * Typed as `Page` so it can be passed to production functions without casts.
  */
 export function makeMockPage(overrides: Partial<Page> = {}): {
-  page: Page
-  locatorInstance: MockLocator
+  page: Page;
+  locatorInstance: MockLocator;
 } {
-  const locatorInstance = makeLocator()
+  const locatorInstance = makeLocator();
 
   const page = {
-    url: vi.fn().mockReturnValue('https://example.com/login'),
+    url: vi.fn().mockReturnValue("https://example.com/login"),
     goto: vi.fn().mockResolvedValue(undefined),
     waitForSelector: vi.fn().mockResolvedValue(undefined),
     waitForURL: vi.fn().mockResolvedValue(undefined),
@@ -56,13 +60,14 @@ export function makeMockPage(overrides: Partial<Page> = {}): {
     waitForTimeout: vi.fn().mockResolvedValue(undefined),
     waitForFunction: vi.fn().mockResolvedValue(undefined),
     locator: vi.fn().mockReturnValue(locatorInstance),
+    getByRole: vi.fn().mockReturnValue(locatorInstance),
     evaluate: vi.fn(async <T>(fn: () => T | Promise<T>) => fn()),
-    screenshot: vi.fn().mockResolvedValue(Buffer.from('screenshot')),
+    screenshot: vi.fn().mockResolvedValue(Buffer.from("screenshot")),
     viewportSize: vi.fn().mockReturnValue({ width: 1280, height: 720 }),
     ...overrides,
-  } as unknown as Page
+  } as unknown as Page;
 
-  return { page, locatorInstance }
+  return { page, locatorInstance };
 }
 
 // ---------------------------------------------------------------------------
@@ -75,11 +80,13 @@ export function makeMockPage(overrides: Partial<Page> = {}): {
  * Typed as `BrowserContext` so it can be passed to production functions
  * without casts.
  */
-export function makeMockContext(overrides: Partial<BrowserContext> = {}): BrowserContext {
+export function makeMockContext(
+  overrides: Partial<BrowserContext> = {}
+): BrowserContext {
   return {
     addCookies: vi.fn().mockResolvedValue(undefined),
     ...overrides,
-  } as unknown as BrowserContext
+  } as unknown as BrowserContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -93,5 +100,5 @@ export function makeMockContext(overrides: Partial<BrowserContext> = {}): Browse
 export function makeEvaluatePage(): Page {
   return {
     evaluate: vi.fn(async <T>(fn: () => T | Promise<T>) => fn()),
-  } as unknown as Page
+  } as unknown as Page;
 }
