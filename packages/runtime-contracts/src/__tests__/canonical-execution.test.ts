@@ -65,6 +65,24 @@ describe("canonical execution contracts", () => {
     ]);
   });
 
+  it("rejects a decision produced under a different routing strategy", () => {
+    const decision: ExecutionRouteDecision = {
+      id: "decision-strategy-drift",
+      policyId: policy.id,
+      requestId: policy.requestId,
+      eligibleCandidateIds: ["codex"],
+      rejected: [{ candidateId: "claude", reasons: ["lower priority"] }],
+      selectedCandidateId: "codex",
+      fallbackCandidateIds: [],
+      strategy: "fixed",
+      decidedAt: "2026-07-11T00:00:00.000Z",
+    };
+
+    expect(validateExecutionRouteDecision(policy, decision).diagnostics).toEqual([
+      expect.objectContaining({ code: "ROUTE_STRATEGY_MISMATCH", path: "strategy" }),
+    ]);
+  });
+
   it("makes raw evidence references unrepresentable", () => {
     const evidence: SanitizedEvidenceRef = {
       uri: "artifact://run/evidence.json",

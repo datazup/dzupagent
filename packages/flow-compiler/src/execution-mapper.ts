@@ -45,6 +45,7 @@ export interface ExecutionMapperContext {
   readonly nodePath: string;
   readonly profileRef?: string;
   readonly capability?: string;
+  readonly cancellationRef?: string;
   /** Materialized host candidates. Required when the node does not pin a provider. */
   readonly routeCandidates?: readonly ExecutionRouteCandidate[];
   /** Resolved persona/system layer. Used only for prompt nodes; explicit systemPrompt wins. */
@@ -114,6 +115,10 @@ export function mapFlowLeafToExecutionRequest(
     effects: {
       ...(node.effectClass ? { effectClass: node.effectClass } : {}),
       ...(node.idempotency ? { idempotency: node.idempotency } : {}),
+    },
+    cancellation: {
+      mode: "cooperative" as const,
+      ...(context.cancellationRef ? { signalRef: context.cancellationRef } : {}),
     },
     evidenceRequirements: evidenceRequirements(node),
   };
@@ -280,8 +285,21 @@ interface CommonMappedFields {
   };
   readonly route: ExecutionRoutePolicy;
   readonly effects: {
-    readonly effectClass?: string;
+    readonly effectClass?:
+      | "read"
+      | "compute"
+      | "llm"
+      | "file_write"
+      | "code_change"
+      | "network_write"
+      | "db_write"
+      | "human_decision"
+      | "queue_publish";
     readonly idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+  };
+  readonly cancellation: {
+    readonly mode: "cooperative";
+    readonly signalRef?: string;
   };
   readonly evidenceRequirements: readonly ExecutionEvidenceRequirement[];
 }
@@ -294,36 +312,39 @@ function buildRoutePolicy(
   const provider = node.provider;
   const model = node.model;
   const constraints: ExecutionRouteConstraint[] = [];
-  let candidates: ExecutionRouteCandidate[];
+  let candidates = [...(context.routeCandidates ?? [])];
 
+  if (!context.routeCandidates) {
+    diagnostics.push(
+      diagnostic(
+        "ROUTE_CANDIDATES_REQUIRED",
+        context.nodePath,
+        `${node.type} requires a materialized host route candidate set.`,
+      ),
+    );
+  }
   if (provider) {
     constraints.push({ kind: "provider", values: [provider] });
-    candidates = [{ id: model ? `${provider}:${model}` : provider, provider, ...(model ? { model } : {}) }];
-  } else {
-    candidates = [...(context.routeCandidates ?? [])];
-    if (node.type === "adapter.run" && node.tags?.length) {
-      constraints.push({ kind: "tags", values: node.tags });
-      candidates = candidates.filter((candidate) =>
-        node.tags?.every((tag) => candidate.tags?.includes(tag)),
-      );
-    }
-    if (!context.routeCandidates) {
-      diagnostics.push(
-        diagnostic(
-          "ROUTE_CANDIDATES_REQUIRED",
-          context.nodePath,
-          `${node.type} must pin a provider or receive materialized host route candidates.`,
-        ),
-      );
-    } else if (candidates.length === 0) {
-      diagnostics.push(
-        diagnostic(
-          "NO_ELIGIBLE_ROUTE_CANDIDATES",
-          context.nodePath,
-          "No materialized route candidate satisfies the node constraints.",
-        ),
-      );
-    }
+    candidates = candidates.filter(
+      (candidate) =>
+        candidate.provider === provider &&
+        (model === undefined || candidate.model === model),
+    );
+  }
+  if (node.type === "adapter.run" && node.tags?.length) {
+    constraints.push({ kind: "tags", values: node.tags });
+    candidates = candidates.filter((candidate) =>
+      node.tags?.every((tag) => candidate.tags?.includes(tag)),
+    );
+  }
+  if (context.routeCandidates && candidates.length === 0) {
+    diagnostics.push(
+      diagnostic(
+        "NO_ELIGIBLE_ROUTE_CANDIDATES",
+        context.nodePath,
+        "No materialized route candidate satisfies the node constraints.",
+      ),
+    );
   }
 
   const seen = new Set<string>();
@@ -344,7 +365,7 @@ function buildRoutePolicy(
   return {
     id: `${context.requestId}:route`,
     requestId: context.requestId,
-    strategy: provider ? "fixed" : "rule",
+    strategy: candidates.length === 1 ? "fixed" : "rule",
     candidates,
     hardConstraints: constraints,
     preferenceOrder: model ? [model] : [],

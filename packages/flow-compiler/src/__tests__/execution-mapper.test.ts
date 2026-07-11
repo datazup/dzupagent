@@ -29,7 +29,11 @@ describe("canonical execution leaf mapper", () => {
         tools: true,
         effectClass: "llm",
       } as FlowNode,
-      { ...baseContext, resolvedPromptSystemLayer: "Inherited system" },
+      {
+        ...baseContext,
+        resolvedPromptSystemLayer: "Inherited system",
+        routeCandidates: [{ id: "claude:sonnet", provider: "claude", model: "sonnet" }],
+      },
     );
 
     expect(result.ok).toBe(true);
@@ -54,6 +58,14 @@ describe("canonical execution leaf mapper", () => {
       effects: { effectClass: "llm" },
       evidenceRequirements: [],
     });
+    expect(result.request.source).toEqual({
+      flowId: "flow-1",
+      nodeId: "prompt-1",
+      nodePath: "root.nodes[0]",
+      profileRef: "dzup.agent@1",
+      capability: "flow.runtime.agent@1",
+    });
+    expect(result.request.cancellation).toEqual({ mode: "cooperative" });
   });
 
   it("snapshots agent tools, structured output, policies, and evidence", () => {
@@ -164,7 +176,7 @@ describe("canonical execution leaf mapper", () => {
       tools: { mode: "none", grants: [] },
       output: { key: "implementation", format: "json", schema: { type: "object" } },
       route: {
-        strategy: "rule",
+        strategy: "fixed",
         candidates: [{ id: "codex", provider: "codex", tags: ["code", "reasoning"] }],
         hardConstraints: [{ kind: "tags", values: ["code", "reasoning"] }],
       },
@@ -193,7 +205,10 @@ describe("canonical execution leaf mapper", () => {
         effectClass: "code_change",
         idempotency: "at-least-once",
       } as FlowNode,
-      baseContext,
+      {
+        ...baseContext,
+        routeCandidates: [{ id: "codex:gpt-5", provider: "codex", model: "gpt-5" }],
+      },
     );
 
     expect(result.ok).toBe(true);
@@ -248,6 +263,27 @@ describe("canonical execution leaf mapper", () => {
     ]);
     expect(ambiguousSchema.diagnostics.map((item) => item.code)).toEqual([
       "AMBIGUOUS_OUTPUT_SCHEMA",
+    ]);
+  });
+
+  it("never invents a provider-pinned candidate outside the host set", () => {
+    const result = mapFlowLeafToExecutionRequest(
+      {
+        id: "prompt-provider-mismatch",
+        type: "prompt",
+        provider: "claude",
+        model: "sonnet",
+        userPrompt: "Review this change",
+      } as FlowNode,
+      {
+        ...baseContext,
+        routeCandidates: [{ id: "codex", provider: "codex", model: "gpt-5" }],
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((item) => item.code)).toEqual([
+      "NO_ELIGIBLE_ROUTE_CANDIDATES",
     ]);
   });
 });

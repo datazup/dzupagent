@@ -66,9 +66,26 @@ export interface ExecutionPolicy {
   readonly extensions?: Readonly<Record<string, unknown>>;
 }
 
+export type ExecutionEffectClass =
+  | "read"
+  | "compute"
+  | "llm"
+  | "file_write"
+  | "code_change"
+  | "network_write"
+  | "db_write"
+  | "human_decision"
+  | "queue_publish";
+
 export interface ExecutionEffectPolicy {
-  readonly effectClass?: string;
+  readonly effectClass?: ExecutionEffectClass;
   readonly idempotency?: "idempotent" | "at-least-once" | "exactly-once-required";
+}
+
+export interface ExecutionCancellationPolicy {
+  readonly mode: "cooperative";
+  /** Host-resolved cancellation handle; never a persisted platform object. */
+  readonly signalRef?: string;
 }
 
 /** A reference that can only identify sanitized/redacted evidence. */
@@ -140,6 +157,7 @@ export interface ExecutionRouteDecision {
 export type ExecutionRouteDecisionDiagnosticCode =
   | "ROUTE_POLICY_MISMATCH"
   | "ROUTE_REQUEST_MISMATCH"
+  | "ROUTE_STRATEGY_MISMATCH"
   | "DUPLICATE_ROUTE_CANDIDATE"
   | "UNKNOWN_ROUTE_CANDIDATE"
   | "SELECTED_CANDIDATE_NOT_ELIGIBLE";
@@ -168,6 +186,7 @@ export interface ExecutionRequestBase {
   readonly route: ExecutionRoutePolicy;
   readonly policy: ExecutionPolicy;
   readonly effects: ExecutionEffectPolicy;
+  readonly cancellation: ExecutionCancellationPolicy;
   readonly evidenceRequirements: readonly ExecutionEvidenceRequirement[];
 }
 
@@ -239,6 +258,9 @@ export function validateExecutionRouteDecision(
   }
   if (decision.requestId !== policy.requestId) {
     diagnostics.push(diag("ROUTE_REQUEST_MISMATCH", "requestId", "Decision requestId does not match the route policy."));
+  }
+  if (decision.strategy !== policy.strategy) {
+    diagnostics.push(diag("ROUTE_STRATEGY_MISMATCH", "strategy", "Decision strategy does not match the route policy."));
   }
 
   const known = new Set<string>();
