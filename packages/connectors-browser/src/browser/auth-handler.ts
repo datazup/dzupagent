@@ -1,6 +1,7 @@
 import type { Page, BrowserContext } from "playwright";
 import type {
   AuthCredentials,
+  BrowserAuthCookie,
   LoginFlowOptions,
   LoginFlowResult,
 } from "../types.js";
@@ -236,12 +237,7 @@ export class AuthHandler {
    */
   async loginWithCookies(
     context: BrowserContext,
-    cookies: Array<{
-      name: string;
-      value: string;
-      domain: string;
-      path?: string | undefined;
-    }>
+    cookies: BrowserAuthCookie[]
   ): Promise<void> {
     await context.addCookies(
       cookies.map((c) => ({
@@ -249,6 +245,10 @@ export class AuthHandler {
         value: c.value,
         domain: c.domain,
         path: c.path ?? "/",
+        secure: c.secure ?? true,
+        httpOnly: c.httpOnly ?? true,
+        sameSite: c.sameSite ?? "Lax",
+        ...(c.expires !== undefined ? { expires: c.expires } : {}),
       }))
     );
   }

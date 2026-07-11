@@ -97,6 +97,21 @@ export interface AuthCredentials {
   passwordSelector?: string | undefined;
 }
 
+/**
+ * Session cookie injected into a browser context for authenticated access.
+ * `expires` is Unix time in seconds, matching Playwright's cookie contract.
+ */
+export interface BrowserAuthCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path?: string | undefined;
+  secure?: boolean | undefined;
+  httpOnly?: boolean | undefined;
+  sameSite?: "Strict" | "Lax" | "None" | undefined;
+  expires?: number | undefined;
+}
+
 export interface LoginInterstitialContext {
   /** Zero-based index of the interstitial step being resolved. */
   stepIndex: number;
