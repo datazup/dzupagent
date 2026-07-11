@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Page } from "playwright";
 import { AuthHandler } from "../browser/auth-handler.js";
+import type { BrowserAuthCookie } from "../index.js";
 import { makeMockPage, makeMockContext } from "./test-utils.js";
 
 beforeEach(() => {
@@ -132,7 +133,15 @@ describe("AuthHandler", () => {
       ]);
 
       expect(vi.mocked(context.addCookies)).toHaveBeenCalledWith([
-        { name: "session", value: "abc123", domain: "example.com", path: "/" },
+        {
+          name: "session",
+          value: "abc123",
+          domain: "example.com",
+          path: "/",
+          secure: true,
+          httpOnly: true,
+          sameSite: "Lax",
+        },
       ]);
     });
 
@@ -145,7 +154,45 @@ describe("AuthHandler", () => {
       ]);
 
       expect(vi.mocked(context.addCookies)).toHaveBeenCalledWith([
-        { name: "token", value: "xyz", domain: "example.com", path: "/api" },
+        {
+          name: "token",
+          value: "xyz",
+          domain: "example.com",
+          path: "/api",
+          secure: true,
+          httpOnly: true,
+          sameSite: "Lax",
+        },
+      ]);
+    });
+
+    it("preserves explicit cookie security attributes and expiry", async () => {
+      const handler = new AuthHandler();
+      const context = makeMockContext();
+      const cookie: BrowserAuthCookie = {
+        name: "client-session",
+        value: "xyz",
+        domain: "example.com",
+        path: "/app",
+        secure: false,
+        httpOnly: false,
+        sameSite: "None",
+        expires: 1_800_000_000,
+      };
+
+      await handler.loginWithCookies(context, [cookie]);
+
+      expect(vi.mocked(context.addCookies)).toHaveBeenCalledWith([
+        {
+          name: "client-session",
+          value: "xyz",
+          domain: "example.com",
+          path: "/app",
+          secure: false,
+          httpOnly: false,
+          sameSite: "None",
+          expires: 1_800_000_000,
+        },
       ]);
     });
 
