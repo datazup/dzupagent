@@ -605,7 +605,7 @@ describe("CodexAdapter", () => {
       );
     });
 
-    it("defaults reasoning effort to medium when unspecified", async () => {
+    it("passes the default reasoning effort through the Codex SDK option", async () => {
       const thread = createMockThread([
         threadStartedEvent(),
         turnCompletedEvent(),
@@ -614,9 +614,12 @@ describe("CodexAdapter", () => {
 
       await collectEvents(adapter.execute(makeInput()));
 
-      expect(mockStartThread).toHaveBeenCalledWith(
-        expect.objectContaining({ reasoningEffort: "medium" }),
-      );
+      const threadOptions = mockStartThread.mock.calls[0]?.[0] as Record<
+        string,
+        unknown
+      >;
+      expect(threadOptions).toMatchObject({ modelReasoningEffort: "medium" });
+      expect(threadOptions).not.toHaveProperty("reasoningEffort");
     });
 
     it("defaults sandbox mode to workspace-write", async () => {

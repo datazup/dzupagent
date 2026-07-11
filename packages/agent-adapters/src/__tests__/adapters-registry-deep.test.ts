@@ -16,7 +16,7 @@
  * CodexAdapter:
  *   - networkAccessEnabled: true/false threading into startThread
  *   - skipGitRepoCheck from config and from input.options
- *   - reasoningEffort from config, from input.options, default="medium"
+ *   - modelReasoningEffort from config, from input.options, default="medium"
  *   - approvalPolicy override from input.options
  *   - workingDirectory from config when input has none
  *   - model from input.options overrides config model
@@ -701,16 +701,16 @@ describe("CodexAdapter — W30 gap coverage", () => {
     });
   });
 
-  // ── reasoningEffort ────────────────────────────────────────────────────────
+  // ── modelReasoningEffort ───────────────────────────────────────────────────
 
-  describe("reasoningEffort", () => {
+  describe("modelReasoningEffort", () => {
     it('defaults to "medium" when not specified', async () => {
       mockStartThread.mockReturnValue(
         makeCodexThread([codexStarted(), codexTurnCompleted()])
       );
       await collectEvents(adapter.execute({ prompt: "p" }));
       expect(mockStartThread.mock.calls[0]![0]).toMatchObject({
-        reasoningEffort: "medium",
+        modelReasoningEffort: "medium",
       });
     });
 
@@ -721,7 +721,7 @@ describe("CodexAdapter — W30 gap coverage", () => {
       );
       await collectEvents(a.execute({ prompt: "p" }));
       expect(mockStartThread.mock.calls[0]![0]).toMatchObject({
-        reasoningEffort: "high",
+        modelReasoningEffort: "high",
       });
     });
 
@@ -734,7 +734,7 @@ describe("CodexAdapter — W30 gap coverage", () => {
         a.execute({ prompt: "p", options: { reasoning: "low" } })
       );
       expect(mockStartThread.mock.calls[0]![0]).toMatchObject({
-        reasoningEffort: "low",
+        modelReasoningEffort: "low",
       });
     });
   });
