@@ -57,7 +57,7 @@ describe("canonical gate contracts", () => {
       kind: approvalRequest.kind,
       status: "rejected",
       decidedAt: "2026-07-11T00:00:00.000Z",
-      actor: { actorId: "user-1" },
+      actor: { actorId: "user-1", role: "reviewer" },
       reason: "Needs revision",
       evidence: [],
       artifacts: [],
@@ -92,10 +92,19 @@ describe("canonical gate contracts", () => {
     expect(validateGateResult(approvalRequest, failed).diagnostics.map((item) => item.code)).toEqual([
       "MISSING_FAILURE_DIAGNOSTIC",
     ]);
-    expect(validateGateResult(approvalRequest, {
-      ...noActor,
+    const wrongActor: GateResult = {
+      schema: "dzupagent.gateResult/v1",
+      gateId: approvalRequest.gateId,
+      requestId: approvalRequest.requestId,
+      correlationId: approvalRequest.correlationId,
+      kind: approvalRequest.kind,
+      status: "passed",
+      decidedAt: "2026-07-11T00:00:00.000Z",
       actor: { actorId: "user-2", role: "operator" },
-    }).diagnostics.map((item) => item.code)).toEqual([
+      evidence: [],
+      artifacts: [],
+    };
+    expect(validateGateResult(approvalRequest, wrongActor).diagnostics.map((item) => item.code)).toEqual([
       "GATE_ACTOR_MISMATCH",
     ]);
   });
@@ -126,6 +135,24 @@ describe("canonical gate contracts", () => {
     expect(validateGateResult(request, result).diagnostics.map((item) => item.code)).toEqual([
       "INVALID_GATE_STATUS",
     ]);
+  });
+
+  it("keeps timeout as a terminal gate outcome rather than rejection or failure", () => {
+    const result: GateResult = {
+      schema: "dzupagent.gateResult/v1",
+      gateId: approvalRequest.gateId,
+      requestId: approvalRequest.requestId,
+      correlationId: approvalRequest.correlationId,
+      kind: approvalRequest.kind,
+      status: "timed_out",
+      completedAt: "2026-07-11T00:05:00.000Z",
+      reason: "approval deadline elapsed",
+      evidence: [],
+      artifacts: [],
+    };
+
+    expect(validateGateResult(approvalRequest, result).valid).toBe(true);
+    expect(result.status).toBe("timed_out");
   });
 
   it("fails closed for incomplete or raw evidence-shaped data", () => {
