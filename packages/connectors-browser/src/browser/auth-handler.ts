@@ -279,7 +279,12 @@ export class AuthHandler {
         break;
       }
     }
-    if (!candidate) return false;
+    if (!candidate) {
+      // SSO-only login pages expose no password form and no "Log in" link —
+      // just an SSO entry button. Enter SSO and check the IdP for a form.
+      if (await this.enterSsoProvider(page)) return this.isLoginPage(page);
+      return false;
+    }
 
     await candidate.click();
     await page.waitForLoadState("networkidle").catch(() => {
@@ -287,6 +292,193 @@ export class AuthHandler {
     });
     await this.waitForSpaReady(page);
     return this.isLoginPage(page);
+  }
+
+  /**
+   * Built-in resolver for account/tenant-picker interstitials: a group of
+   * radio options plus an explicit Continue/Next-style button (the pattern
+   * IdPs use for "select your organisation" after credential submit).
+   *
+   * Acts only when BOTH the options and the button are present — pages that
+   * merely re-show the login form (wrong credentials) or show an error never
+   * match, so they still fail as LOGIN_FAILED. Picks the option whose
+   * accessible name matches `accountHint` (case-insensitive substring), else
+   * the first option. Returns whether an action was performed.
+   */
+  private async resolveAccountPickerInterstitial(
+    page: Page,
+    accountHint?: string
+  ): Promise<boolean> {
+    const options = page.locator('input[type="radio"], [role="radio"]');
+    if ((await options.count()) === 0) return false;
+
+    // Explicit continue-style button, exact accessible name only — a broad
+    // `:has-text("Continue")` would also match SSO buttons like
+    // "Continue with Google", and a bare `button[type="submit"]` fallback
+    // could re-click the credential submit button and loop.
+    const continueButton = page
+      .getByRole("button", { name: /^(continue|next|proceed|select|choose)$/i })
+      .first();
+    if ((await continueButton.count()) === 0) return false;
+
+    let choice = options.first();
+    if (accountHint) {
+      const hinted = page
+        .getByRole("radio", { name: accountHint, exact: false })
+        .first();
+      if ((await hinted.count()) > 0) choice = hinted;
+    }
+
+    try {
+      await choice.click({ timeout: LOGIN_TIMEOUT });
+      // Pickers commonly enable the button only after selection —
+      // Playwright's click auto-waits for it to become enabled.
+      await continueButton.click({ timeout: LOGIN_TIMEOUT });
+      return true;
+    } catch {
+      // Option or button not actionable (hidden styled input, overlay…) —
+      // report no action so the flow fails with an honest LOGIN_FAILED.
+      return false;
+    }
+  }
+
+  /**
+   * Resolve post-credential interstitial screens until login verifies or no
+   * resolver can act. Consults `opts.onInterstitial` first (custom/LLM-guided
+   * resolver), falling back to the built-in account-picker heuristic.
+   * Bounded by `maxInterstitialSteps` (default 3).
+   */
+  private async resolveInterstitials(
+    page: Page,
+    loginPageUrl: string,
+    opts: LoginFlowOptions,
+    recordOrigin: () => void
+  ): Promise<{ success: boolean; stepsTaken: number }> {
+    const maxSteps = opts.maxInterstitialSteps ?? 3;
+    let stepsTaken = 0;
+
+    for (let step = 0; step < maxSteps; step++) {
+      const urlBeforeStep = page.url();
+
+      let acted = false;
+      if (opts.onInterstitial) {
+        acted =
+          (await opts.onInterstitial(page, {
+            stepIndex: step,
+            loginPageUrl,
+            accountHint: opts.accountHint,
+          })) === "acted";
+      }
+      if (!acted) {
+        acted = await this.resolveAccountPickerInterstitial(
+          page,
+          opts.accountHint
+        );
+      }
+      if (!acted) break;
+
+      stepsTaken++;
+      const sawPositiveSignal = await this.waitForLoginComplete(
+        page,
+        urlBeforeStep
+      );
+      recordOrigin();
+      if (sawPositiveSignal && !(await this.isLoginPage(page))) {
+        return { success: true, stepsTaken };
+      }
+    }
+    return { success: false, stepsTaken };
+  }
+
+  /**
+   * Read the visible error/alert text on the current page, if any — login
+   * pages surface rejection reasons ("wrong password", "verify your email")
+   * in an alert region. Used to enrich failure messages only.
+   */
+  private async readVisibleAlert(page: Page): Promise<string | null> {
+    try {
+      const alert = page
+        .locator('[role="alert"], [aria-live="assertive"]')
+        .first();
+      if ((await alert.count()) === 0) return null;
+      const text = (await alert.textContent())?.trim().replace(/\s+/g, " ");
+      return text ? text.slice(0, 200) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Click an explicit SSO entry ("Continue with single sign-on", an
+   * SSO-marked button/link) on the current login page, if one exists.
+   * Word-bounded matching so "SSO" never matches "lessons"/"associated",
+   * and provider-branded social buttons ("Continue with Google") are
+   * deliberately NOT matched — scanner credentials are first-party.
+   * Returns whether an entry was clicked (page then settled).
+   */
+  private async enterSsoProvider(page: Page): Promise<boolean> {
+    const candidates = [
+      page
+        .locator("button, a")
+        .filter({ hasText: /single sign[- ]?on|\bSSO\b/i })
+        .first(),
+      page.locator('[data-test*="sso" i], [data-testid*="sso" i]').first(),
+    ];
+    for (const candidate of candidates) {
+      if ((await candidate.count()) === 0) continue;
+      try {
+        await candidate.click({ timeout: LOGIN_TIMEOUT });
+      } catch {
+        return false;
+      }
+      await page.waitForLoadState("networkidle").catch(() => {
+        // persistent connections may prevent networkidle — continue
+      });
+      await this.waitForSpaReady(page);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Submit credentials on the current login page and verify the outcome,
+   * resolving any post-credential interstitials. One bounded unit of work —
+   * no navigation back to the entry URL.
+   */
+  private async submitAndVerify(
+    page: Page,
+    creds: AuthCredentials,
+    opts: LoginFlowOptions,
+    recordOrigin: () => void,
+    loginPageUrl: string
+  ): Promise<{ success: boolean; interstitialStepsTaken: number }> {
+    const sawPositiveSignal = await this.fillAndSubmitLogin(page, {
+      ...creds,
+      loginUrl: undefined,
+    });
+    recordOrigin();
+
+    // Success requires BOTH a positive signal (URL change or post-login DOM
+    // indicator) AND the absence of a password field. Absence alone would
+    // misclassify password-field-free interstitials (email verification,
+    // CAPTCHA, IdP error pages) as successful logins.
+    if (sawPositiveSignal && !(await this.isLoginPage(page))) {
+      return { success: true, interstitialStepsTaken: 0 };
+    }
+
+    // No direct success — the IdP may have interposed an interstitial
+    // (account/tenant picker, consent). Try to resolve it before declaring
+    // the attempt failed.
+    const interstitial = await this.resolveInterstitials(
+      page,
+      loginPageUrl,
+      opts,
+      recordOrigin
+    );
+    return {
+      success: interstitial.success,
+      interstitialStepsTaken: interstitial.stepsTaken,
+    };
   }
 
   /**
@@ -317,57 +509,94 @@ export class AuthHandler {
     };
 
     let lastFailure: LoginFlowResult | null = null;
+    // The SSO pivot is tried at most once per flow — if the IdP also rejects
+    // the credentials, retrying the pivot would just hammer shared auth.
+    let ssoPivotUsed = false;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const entryUrl = opts.loginUrl ?? startUrl;
       await page.goto(entryUrl, { waitUntil: "networkidle", timeout: 30_000 });
       recordOrigin();
 
-      // Declared loginUrl: trust it but confirm a form is present.
-      // No loginUrl: the target may bounce straight to a login/SSO wall
-      // (common SSO case), else discover a sign-in link on the landing page.
-      const onLoginPage = opts.loginUrl
-        ? await this.isLoginPage(page)
-        : await this.discoverLoginEntry(page);
+      // Declared or not, `discoverLoginEntry` first checks whether the page
+      // already shows a login form, then falls back to following a sign-in
+      // link. For a declared loginUrl this doubles as recovery when the URL
+      // is wrong/expired (404, error page) but still links to the real form;
+      // without one, the target may bounce straight to a login/SSO wall.
+      const onLoginPage = await this.discoverLoginEntry(page);
       recordOrigin();
 
       if (!onLoginPage) {
+        const declaredHint = opts.loginUrl
+          ? " The declared Login URL did not show a password field — verify it opens the login form directly."
+          : "";
         return {
           success: false,
           finalUrl: page.url(),
           loginPageUrl: null,
           traversedOrigins: [...traversed],
           failureCode: "LOGIN_PAGE_NOT_FOUND",
-          failureMessage: `Scanner login page not found: no login form at ${entryUrl} and no sign-in link discovered.`,
+          failureMessage: `Scanner login page not found: no login form at ${entryUrl} and no sign-in link discovered.${declaredHint}`,
         };
       }
-      const loginPageUrl = page.url();
+      let loginPageUrl = page.url();
 
-      const sawPositiveSignal = await this.fillAndSubmitLogin(page, {
-        ...creds,
-        loginUrl: undefined,
-      });
-      recordOrigin();
+      let outcome = await this.submitAndVerify(
+        page,
+        creds,
+        opts,
+        recordOrigin,
+        loginPageUrl
+      );
 
-      // Success requires BOTH a positive signal (URL change or post-login DOM
-      // indicator) AND the absence of a password field. Absence alone would
-      // misclassify password-field-free interstitials (email verification,
-      // CAPTCHA, IdP error pages) as successful logins.
-      if (sawPositiveSignal && !(await this.isLoginPage(page))) {
+      // SSO pivot: the app's local login form rejected the credentials, but
+      // the login page offers an explicit SSO entry — the credentials likely
+      // belong to the identity provider. Enter SSO and log in there.
+      if (
+        !outcome.success &&
+        !ssoPivotUsed &&
+        (await this.isLoginPage(page)) &&
+        (await this.enterSsoProvider(page))
+      ) {
+        ssoPivotUsed = true;
+        recordOrigin();
+        if (await this.isLoginPage(page)) {
+          loginPageUrl = page.url();
+          outcome = await this.submitAndVerify(
+            page,
+            creds,
+            opts,
+            recordOrigin,
+            loginPageUrl
+          );
+        }
+      }
+
+      if (outcome.success) {
         return {
           success: true,
           finalUrl: page.url(),
           loginPageUrl,
           traversedOrigins: [...traversed],
+          interstitialStepsTaken: outcome.interstitialStepsTaken,
         };
       }
 
+      const visibleAlert = await this.readVisibleAlert(page);
+      const alertSuffix = visibleAlert
+        ? ` The login page reported: "${visibleAlert}"`
+        : "";
       lastFailure = {
         success: false,
         finalUrl: page.url(),
         loginPageUrl,
         traversedOrigins: [...traversed],
         failureCode: "LOGIN_FAILED",
-        failureMessage: `Scanner login failed: still on a login page after submitting credentials (attempt ${attempt}/${maxAttempts}).`,
+        failureMessage:
+          (outcome.interstitialStepsTaken > 0
+            ? `Scanner login failed: credentials were submitted but the flow stalled on an intermediate step after ${outcome.interstitialStepsTaken} resolved interstitial(s) (attempt ${attempt}/${maxAttempts}).`
+            : `Scanner login failed: still on a login page after submitting credentials (attempt ${attempt}/${maxAttempts}).`) +
+          alertSuffix,
+        interstitialStepsTaken: outcome.interstitialStepsTaken,
       };
     }
     // Loop ran at least once (maxAttempts >= 1), so lastFailure is set.
