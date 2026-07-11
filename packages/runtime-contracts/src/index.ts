@@ -10,6 +10,7 @@ export * from "./schedule.js";
 export * from "./script-runs.js";
 export * from "./pipeline.js";
 export * from "./canonical-execution.js";
+export * from "./canonical-gates.js";
 export {
   canonicalInputDigest,
   materializeIdempotencyKey,
