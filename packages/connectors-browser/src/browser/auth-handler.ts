@@ -9,6 +9,14 @@ import type {
 /** Default timeout for login operations (15 seconds). */
 const LOGIN_TIMEOUT = 15_000;
 
+/**
+ * Short post-navigation readiness bound. Login pages commonly keep polling or
+ * websocket connections open, so network-idle is not a usable readiness
+ * signal. DOM readiness plus deterministic login/SSO controls is sufficient
+ * before the normal discovery checks take over.
+ */
+const LOGIN_NAVIGATION_READY_TIMEOUT = 5_000;
+
 /** Common selectors for detecting post-login state. */
 const POST_LOGIN_INDICATORS = [
   // Common dashboard/home page elements
@@ -65,9 +73,10 @@ export class AuthHandler {
   ): Promise<void> {
     if (creds.loginUrl) {
       await page.goto(creds.loginUrl, {
-        waitUntil: "networkidle",
+        waitUntil: "domcontentloaded",
         timeout: 30_000,
       });
+      await this.waitForLoginNavigationReady(page);
     }
     await this.fillAndSubmitLogin(page, creds);
   }
@@ -180,10 +189,9 @@ export class AuthHandler {
       // Both strategies timed out — no positive signal observed
     }
 
-    // Always wait for network to settle after login
-    await page.waitForLoadState("networkidle").catch(() => {
-      // networkidle may not fire if there are persistent connections (websockets, polling)
-    });
+    // Let a cross-document redirect or SPA render expose its controls without
+    // requiring polling/websocket traffic to become idle.
+    await this.waitForLoginNavigationReady(page);
 
     // Additional wait for SPA re-render after auth state change
     await page.waitForTimeout(1000);
@@ -195,7 +203,10 @@ export class AuthHandler {
    * Wait for SPA frameworks to hydrate and become interactive.
    * Detects Vue, React, Angular, and Svelte applications.
    */
-  private async waitForSpaReady(page: Page): Promise<void> {
+  private async waitForSpaReady(
+    page: Page,
+    timeout = 10_000
+  ): Promise<void> {
     try {
       await page.waitForFunction(
         () => {
@@ -225,11 +236,55 @@ export class AuthHandler {
 
           return false;
         },
-        { timeout: 10_000 }
+        undefined,
+        { timeout }
       );
     } catch {
       // Timeout waiting for SPA — continue anyway (might be SSR)
     }
+  }
+
+  /**
+   * Wait briefly for a login navigation to become inspectable. This deliberately
+   * avoids `networkidle`: authentication pages often maintain persistent
+   * traffic. The readiness signals only end the wait; the deterministic form,
+   * login-entry, and SSO selectors still decide what action is allowed.
+   */
+  private async waitForLoginNavigationReady(page: Page): Promise<void> {
+    await page
+      .waitForLoadState("domcontentloaded", {
+        timeout: LOGIN_NAVIGATION_READY_TIMEOUT,
+      })
+      .catch(() => {
+        // Same-document SPA transitions do not emit a new load state.
+      });
+
+    await page
+      .waitForFunction(
+        () => {
+          if (document.readyState === "complete") return true;
+          if (document.querySelector('input[type="password"]')) return true;
+          if (
+            document.querySelector(
+              '[data-test*="login" i], [data-testid*="login" i], [data-test*="signin" i], [data-testid*="signin" i], [data-test*="sso" i], [data-testid*="sso" i]'
+            )
+          ) {
+            return true;
+          }
+
+          return Array.from(document.querySelectorAll("a, button")).some(
+            (element) =>
+              /^(log\s*in|login|sign\s*in|continue with single sign[- ]?on|sso)$/i.test(
+                element.textContent?.trim() ?? ""
+              )
+          );
+        },
+        undefined,
+        { timeout: LOGIN_NAVIGATION_READY_TIMEOUT }
+      )
+      .catch(() => {
+        // Discovery performs a second bounded pass for delayed SPA redirects.
+      });
   }
 
   /**
@@ -269,17 +324,14 @@ export class AuthHandler {
    * re-checks. Returns false when no login entry can be found.
    */
   async discoverLoginEntry(page: Page): Promise<boolean> {
-    // Two passes: SPAs often mount an app shell first (satisfying networkidle
-    // and SPA-ready checks) and only then run an auth check that client-side
+    // Two passes: SPAs often mount an app shell first (satisfying DOM readiness)
+    // and only then run an auth check that client-side
     // redirects to the real login route. A single immediate inspection races
     // that redirect and reports LOGIN_PAGE_NOT_FOUND on a skeleton page.
     for (let pass = 0; pass < 2; pass++) {
       if (pass > 0) {
         await page.waitForTimeout(2_000);
-        await page.waitForLoadState("networkidle").catch(() => {
-          // persistent connections may prevent networkidle — continue
-        });
-        await this.waitForSpaReady(page);
+        await this.waitForLoginNavigationReady(page);
       }
 
       if (await this.isLoginPage(page)) return true;
@@ -300,10 +352,7 @@ export class AuthHandler {
       }
 
       await candidate.click();
-      await page.waitForLoadState("networkidle").catch(() => {
-        // persistent connections may prevent networkidle — continue
-      });
-      await this.waitForSpaReady(page);
+      await this.waitForLoginNavigationReady(page);
       return this.isLoginPage(page);
     }
     return false;
@@ -446,10 +495,7 @@ export class AuthHandler {
       } catch {
         return false;
       }
-      await page.waitForLoadState("networkidle").catch(() => {
-        // persistent connections may prevent networkidle — continue
-      });
-      await this.waitForSpaReady(page);
+      await this.waitForLoginNavigationReady(page);
       return true;
     }
     return false;
@@ -529,7 +575,11 @@ export class AuthHandler {
     let ssoPivotUsed = false;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const entryUrl = opts.loginUrl ?? startUrl;
-      await page.goto(entryUrl, { waitUntil: "networkidle", timeout: 30_000 });
+      await page.goto(entryUrl, {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+      await this.waitForLoginNavigationReady(page);
       recordOrigin();
 
       // Declared or not, `discoverLoginEntry` first checks whether the page
