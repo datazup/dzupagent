@@ -269,29 +269,44 @@ export class AuthHandler {
    * re-checks. Returns false when no login entry can be found.
    */
   async discoverLoginEntry(page: Page): Promise<boolean> {
-    if (await this.isLoginPage(page)) return true;
-
-    let candidate = null;
-    for (const selector of LOGIN_ENTRY_SELECTORS) {
-      const locator = page.locator(selector).first();
-      if ((await locator.count()) > 0) {
-        candidate = locator;
-        break;
+    // Two passes: SPAs often mount an app shell first (satisfying networkidle
+    // and SPA-ready checks) and only then run an auth check that client-side
+    // redirects to the real login route. A single immediate inspection races
+    // that redirect and reports LOGIN_PAGE_NOT_FOUND on a skeleton page.
+    for (let pass = 0; pass < 2; pass++) {
+      if (pass > 0) {
+        await page.waitForTimeout(2_000);
+        await page.waitForLoadState("networkidle").catch(() => {
+          // persistent connections may prevent networkidle — continue
+        });
+        await this.waitForSpaReady(page);
       }
-    }
-    if (!candidate) {
-      // SSO-only login pages expose no password form and no "Log in" link —
-      // just an SSO entry button. Enter SSO and check the IdP for a form.
-      if (await this.enterSsoProvider(page)) return this.isLoginPage(page);
-      return false;
-    }
 
-    await candidate.click();
-    await page.waitForLoadState("networkidle").catch(() => {
-      // persistent connections may prevent networkidle — continue
-    });
-    await this.waitForSpaReady(page);
-    return this.isLoginPage(page);
+      if (await this.isLoginPage(page)) return true;
+
+      let candidate = null;
+      for (const selector of LOGIN_ENTRY_SELECTORS) {
+        const locator = page.locator(selector).first();
+        if ((await locator.count()) > 0) {
+          candidate = locator;
+          break;
+        }
+      }
+      if (!candidate) {
+        // SSO-only login pages expose no password form and no "Log in" link —
+        // just an SSO entry button. Enter SSO and check the IdP for a form.
+        if (await this.enterSsoProvider(page)) return this.isLoginPage(page);
+        continue;
+      }
+
+      await candidate.click();
+      await page.waitForLoadState("networkidle").catch(() => {
+        // persistent connections may prevent networkidle — continue
+      });
+      await this.waitForSpaReady(page);
+      return this.isLoginPage(page);
+    }
+    return false;
   }
 
   /**
