@@ -56,12 +56,19 @@ export type {
 } from "./host-tool-registry.js";
 export { collectFlowArtifactMetadata } from "./flow-artifact-metadata.js";
 export { mapFlowLeafToExecutionRequest } from "./execution-mapper.js";
+export { mapFlowNodeToGateRequests } from "./gate-mapper.js";
 export type {
   ExecutionMapperContext,
   ExecutionMapperDiagnostic,
   ExecutionMapperDiagnosticCode,
   ExecutionRequestMapResult,
 } from "./execution-mapper.js";
+export type {
+  GateMapperContext,
+  GateMapperDiagnostic,
+  GateMapperDiagnosticCode,
+  GateRequestMapResult,
+} from "./gate-mapper.js";
 export type {
   FlowArtifactMetadata,
   FlowArtifactNodeMetadata,
