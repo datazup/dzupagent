@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
 
 import { filterSensitiveEnvVars } from '../base/base-cli-adapter.js'
+import { buildSpawnEnv } from '../base/env-builder.js'
+import { ADAPTER_TRACE_ENV_OPTION } from '../observability/adapter-tracer.js'
 
 describe('Environment Variable Filtering', () => {
   const baseEnv: Record<string, string> = {
@@ -92,5 +94,14 @@ describe('Environment Variable Filtering', () => {
     const original = { ...env }
     filterSensitiveEnvVars(env)
     expect(env).toEqual(original)
+  })
+
+  it('re-filters the final environment after per-run trace overlays', () => {
+    const result = buildSpawnEnv(
+      { env: { SAFE_CONFIG: 'yes' } },
+      { prompt: 'test', options: { [ADAPTER_TRACE_ENV_OPTION]: { TRACEPARENT: '00-safe', LEAKED_TOKEN: 'secret' } } },
+    )
+    expect(result).toHaveProperty('TRACEPARENT', '00-safe')
+    expect(result).not.toHaveProperty('LEAKED_TOKEN')
   })
 })
