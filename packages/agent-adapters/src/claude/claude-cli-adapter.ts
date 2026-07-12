@@ -197,7 +197,16 @@ function buildClaudeMcpConfig(descriptors: readonly McpServerDescriptor[], refs:
     if (transport.kind === 'stdio') {
       servers[descriptor.id] = { type: 'stdio', command: transport.command, args: [...(transport.args ?? [])], env: resolveReferences(transport.envRefs, refs) }
     } else {
-      servers[descriptor.id] = { type: 'http', url: transport.url, headers: resolveReferences(transport.headerRefs, refs) }
+      const headers = resolveReferences(transport.headerRefs, refs)
+      if (transport.bearerTokenEnv) {
+        if (Object.keys(headers).some((name) => name.toLowerCase() === 'authorization')) {
+          throw unsupported(`MCP server ${descriptor.id} declares both Authorization headerRefs and bearerTokenEnv`)
+        }
+        const token = refs[transport.bearerTokenEnv.tokenRef]
+        if (!token || /[\0\r\n]/u.test(token)) throw unsupported(`Unresolved or invalid local MCP reference: ${transport.bearerTokenEnv.tokenRef}`)
+        headers.Authorization = `Bearer ${token}`
+      }
+      servers[descriptor.id] = { type: 'http', url: transport.url, headers }
     }
   }
   return { mcpServers: servers }

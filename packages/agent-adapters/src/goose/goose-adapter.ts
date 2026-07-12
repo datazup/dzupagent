@@ -378,6 +378,7 @@ function validateExtensionInput(input: AgentInput): void {
       resolveReferences(descriptor.transport.envRefs, readReferenceValues(input))
     } else {
       if (descriptor.transport.headerRefs && Object.keys(descriptor.transport.headerRefs).length > 0) throw denied(`Goose CLI cannot project HTTP headers for ${descriptor.id}`, 'mcp_headers')
+      if (descriptor.transport.bearerTokenEnv) throw denied(`Goose CLI cannot project bearer-token authentication for ${descriptor.id}`, 'mcp_bearer')
       let url: URL
       try { url = new URL(descriptor.transport.url) } catch { throw denied(`Invalid Goose MCP URL for ${descriptor.id}`, 'mcp_url') }
       if (url.protocol !== 'https:' && url.protocol !== 'http:') throw denied(`Unsupported Goose MCP URL protocol for ${descriptor.id}`, 'mcp_url')

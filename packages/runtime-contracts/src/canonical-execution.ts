@@ -251,6 +251,11 @@ export interface McpHttpTransportDescriptor {
   readonly url: string;
   /** Header names mapped to secret/config references, never values. */
   readonly headerRefs?: Readonly<Record<string, string>>;
+  /** Reference-backed bearer token projected through a run-local environment variable. */
+  readonly bearerTokenEnv?: {
+    readonly envVar: string;
+    readonly tokenRef: string;
+  };
 }
 
 /** Neutral per-run MCP projection descriptor. */

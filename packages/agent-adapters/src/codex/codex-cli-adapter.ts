@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFile, realpath, stat } from 'node:fs/promises'
+import { isAbsolute, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 import { ForgeError } from '@dzupagent/core/events'
+import type { McpServerDescriptor } from '@dzupagent/runtime-contracts'
 import type {
   AdapterCapabilityProfile,
   AdapterConfig,
@@ -210,22 +211,33 @@ export class CodexCliAdapter implements AgentCLIAdapter {
       throw policyRejected('Codex CLI workspace-write requires an explicit working directory', 'missing_working_directory')
     }
     const outputSchema = input.outputSchema === undefined ? undefined : JSON.stringify(input.outputSchema)
-    const baseProfileInputs = await this.buildBaseProfileInputs()
+    const mcpProjection = projectCodexMcp(input)
+    const baseConfig = mcpProjection ? await this.readApprovedBaseConfig() : ''
+    const baseProfileInputs = await this.buildBaseProfileInputs(mcpProjection ? new Set(['config.toml']) : new Set())
+    const generatedFiles = {
+      ...(outputSchema === undefined ? {} : {
+        outputSchema: { path: 'output-schema.json', content: `${outputSchema}\n` },
+      }),
+      ...(mcpProjection ? {
+        mcpConfig: {
+          path: 'config.toml',
+          content: `${baseConfig.trim()}${baseConfig.trim() ? '\n\n' : ''}${mcpProjection.config}`,
+        },
+      } : {}),
+    }
     const homeProjection = await createCliHomeProjection({
       prefix: 'dzupagent-codex-',
       envVar: 'CODEX_HOME',
       requiredDirectories: ['sessions', 'mcp'],
       approvedBaseProfileRoots: this.config.cliBaseProfileRoot ? [this.config.cliBaseProfileRoot] : [],
       baseProfileInputs,
-      generatedFiles: outputSchema === undefined ? undefined : {
-        outputSchema: { path: 'output-schema.json', content: `${outputSchema}\n` },
-      },
+      generatedFiles: Object.keys(generatedFiles).length > 0 ? generatedFiles : undefined,
     })
     try {
       return {
         args: this.buildArgs(input, homeProjection.generatedPaths['outputSchema']),
         cwd,
-        env: this.buildSpawnEnv(),
+        env: { ...this.buildSpawnEnv(), ...(mcpProjection?.env ?? {}) },
         homeProjection,
       }
     } catch (error) {
@@ -265,9 +277,7 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     if (activePolicy?.allowedTools?.length) {
       throw policyRejected('Codex CLI backend does not strictly enforce tool allowlists', 'unsupported_tool_allowlist')
     }
-    if (readMcpDescriptors(input).length > 0) {
-      throw policyRejected('Codex CLI backend does not accept MCP descriptors through this adapter contract', 'unsupported_mcp')
-    }
+    validateCodexMcpDescriptors(input)
   }
 
   private resolveModel(input: AgentInput): string {
@@ -306,12 +316,13 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     return env
   }
 
-  private async buildBaseProfileInputs(): Promise<Record<string, { sourcePath: string; targetPath: string }>> {
+  private async buildBaseProfileInputs(excluded: ReadonlySet<string>): Promise<Record<string, { sourcePath: string; targetPath: string }>> {
     const root = this.config.cliBaseProfileRoot
     if (!root) return {}
     const files = this.config.cliBaseProfileFiles ?? ['auth.json', 'config.toml', 'installation_id', 'version.json']
     const inputs: Record<string, { sourcePath: string; targetPath: string }> = {}
     for (const [index, relativePath] of files.entries()) {
+      if (excluded.has(relativePath)) continue
       if (!relativePath || relativePath.startsWith('/') || relativePath.split(/[\\/]/u).includes('..')) {
         throw new Error(`Codex base-profile file must be a contained relative path: ${relativePath}`)
       }
@@ -322,6 +333,23 @@ export class CodexCliAdapter implements AgentCLIAdapter {
       inputs[`baseProfile${index}`] = { sourcePath, targetPath: relativePath }
     }
     return inputs
+  }
+
+  private async readApprovedBaseConfig(): Promise<string> {
+    const root = this.config.cliBaseProfileRoot
+    const files = this.config.cliBaseProfileFiles ?? ['auth.json', 'config.toml', 'installation_id', 'version.json']
+    if (!root || !files.includes('config.toml')) return ''
+    const approvedRoot = await realpath(root)
+    const configPath = await realpath(join(approvedRoot, 'config.toml')).catch(() => null)
+    if (!configPath) return ''
+    const fromRoot = relative(approvedRoot, configPath)
+    if (fromRoot.startsWith('..') || isAbsolute(fromRoot)) {
+      throw new Error('Codex base config must remain under the approved profile root')
+    }
+    const info = await stat(configPath)
+    if (!info.isFile()) throw new Error('Codex base config must be a regular file')
+    if (info.size > 1024 * 1024) throw new Error('Codex base config exceeds 1 MiB')
+    return readFile(configPath, 'utf8')
   }
 
   private wrapRaw(record: Record<string, unknown>, sessionId: string, input: AgentInput, ordinal: number): AgentStreamEvent {
@@ -392,9 +420,91 @@ function stringOption(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-function readMcpDescriptors(input: AgentInput): readonly unknown[] {
+function readMcpDescriptors(input: AgentInput): readonly McpServerDescriptor[] {
   const value = input.options?.['mcpServers']
-  return Array.isArray(value) ? value : []
+  return Array.isArray(value) ? value as McpServerDescriptor[] : []
+}
+
+function readMcpReferenceValues(input: AgentInput): Readonly<Record<string, string>> {
+  const value = input.options?.['mcpReferenceValues']
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+}
+
+interface CodexMcpProjection {
+  readonly config: string
+  readonly env: Readonly<Record<string, string>>
+}
+
+function validateCodexMcpDescriptors(input: AgentInput): void {
+  for (const descriptor of readMcpDescriptors(input)) {
+    if (!descriptor || typeof descriptor !== 'object' || !/^[A-Za-z0-9_-]+$/u.test(descriptor.id)) {
+      throw policyRejected('Codex MCP server ids must use letters, digits, underscore, or hyphen', 'invalid_mcp_id')
+    }
+    if (descriptor.transport?.kind !== 'http') {
+      throw policyRejected(`Codex CLI supports only HTTP MCP descriptors: ${descriptor.id}`, 'unsupported_mcp_transport')
+    }
+    const url = parseHttpUrl(descriptor.transport.url, descriptor.id)
+    void url
+    if (descriptor.enabledTools?.length || descriptor.disabledTools?.length) {
+      throw policyRejected(`Codex CLI tool-list projection is not verified for MCP server ${descriptor.id}`, 'unsupported_mcp_tool_filter')
+    }
+    if (descriptor.transport.headerRefs && Object.keys(descriptor.transport.headerRefs).length > 0) {
+      throw policyRejected(`Codex CLI requires bearerTokenEnv instead of materialized HTTP headers for MCP server ${descriptor.id}`, 'unsupported_mcp_headers')
+    }
+    const bearer = descriptor.transport.bearerTokenEnv
+    if (bearer && (
+      !/^[A-Z][A-Z0-9_]*$/u.test(bearer.envVar)
+      || !/(?:TOKEN|AUTH|BEARER)/u.test(bearer.envVar)
+      || ['PATH', 'HOME', 'CODEX_HOME', 'NODE_OPTIONS'].includes(bearer.envVar)
+    )) {
+      throw policyRejected(`Invalid bearer token environment variable for MCP server ${descriptor.id}`, 'invalid_mcp_bearer_env')
+    }
+  }
+}
+
+function projectCodexMcp(input: AgentInput): CodexMcpProjection | null {
+  const descriptors = readMcpDescriptors(input)
+  if (descriptors.length === 0) return null
+  validateCodexMcpDescriptors(input)
+  const refs = readMcpReferenceValues(input)
+  const env: Record<string, string> = {}
+  const blocks: string[] = []
+
+  for (const descriptor of descriptors) {
+    const transport = descriptor.transport
+    if (transport.kind !== 'http') continue
+    const lines = [
+      `[mcp_servers.${JSON.stringify(descriptor.id)}]`,
+      `url = ${JSON.stringify(parseHttpUrl(transport.url, descriptor.id).toString())}`,
+    ]
+    if (transport.bearerTokenEnv) {
+      const { envVar, tokenRef } = transport.bearerTokenEnv
+      const token = refs[tokenRef]
+      if (!token || /[\0\r\n]/u.test(token)) throw policyRejected(`Unresolved or invalid MCP bearer token reference: ${tokenRef}`, 'unresolved_mcp_bearer_ref')
+      if (env[envVar] !== undefined && env[envVar] !== token) {
+        throw policyRejected(`Conflicting MCP bearer token values for environment variable: ${envVar}`, 'conflicting_mcp_bearer_env')
+      }
+      env[envVar] = token
+      lines.push(`bearer_token_env_var = ${JSON.stringify(envVar)}`)
+    }
+    blocks.push(lines.join('\n'))
+  }
+  return { config: `${blocks.join('\n\n')}\n`, env }
+}
+
+function parseHttpUrl(value: string, id: string): URL {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw policyRejected(`Invalid MCP URL for server ${id}`, 'invalid_mcp_url')
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw policyRejected(`MCP URL must use http or https for server ${id}`, 'invalid_mcp_url')
+  }
+  return url
 }
 
 function isSensitiveEnvKey(key: string): boolean {
