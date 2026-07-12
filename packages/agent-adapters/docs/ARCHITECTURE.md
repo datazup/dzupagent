@@ -23,6 +23,7 @@ This document supplements the root `ARCHITECTURE.md` with package-specific detai
 | `./enrichment`      | Task enrichment planning, context enrichment, and execution helpers             |
 | `./fleet-executors` | Fleet executor implementations and registry for multi-repo orchestration runs   |
 | `./subagents`       | Subagent runtime helpers and integration surface                                |
+| `./routing`         | Deterministic candidate materialization, selection, transition, and recovery    |
 
 All subpaths are defined in `package.json` `exports`. New consumers should prefer subpath imports over the root `.` barrel.
 

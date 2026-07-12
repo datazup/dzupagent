@@ -70,6 +70,7 @@ Published package subpaths (`package.json` `exports`):
 - `./enrichment`
 - `./fleet-executors`
 - `./subagents`
+- `./routing`
 
 ## Runtime and Control Flow
 
