@@ -80,7 +80,7 @@ describe('CLI adapter conformance contract', () => {
         cachedInputTokens: 20,
         costCents: 4.5,
       },
-      expectedArgs: ['--output-format', 'jsonl', '--prompt', 'contract'],
+      expectedArgs: ['--bare', '--auth-type', 'openai', '--output-format', 'stream-json', '--model', 'qwen3-coder-plus', '--prompt', 'contract'],
     },
     {
       providerId: 'crush',

@@ -45,7 +45,7 @@ describe('QwenAdapter', () => {
       }
     })
 
-    const adapter = new QwenAdapter({ apiKey: 'k1' })
+    const adapter = new QwenAdapter()
     const events = await collectEvents(adapter.execute({ prompt: 'hello', maxTurns: 2 }))
 
     expect(events.map((e) => e.type)).toEqual([
@@ -86,8 +86,9 @@ describe('QwenAdapter', () => {
     const [, args, opts] = mockSpawnAndStreamJsonl.mock.calls[0]!
     expect(args).toContain('--prompt')
     expect(args).toContain('hello')
-    expect(args).toContain('--max-turns')
-    expect((opts as { env?: Record<string, string> }).env?.['DASHSCOPE_API_KEY']).toBe('k1')
+    expect(args).toContain('--max-session-turns')
+    expect(args).toContain('stream-json')
+    expect((opts as { env?: Record<string, string> }).env?.['DASHSCOPE_API_KEY']).toBeUndefined()
   })
 
   it('ignores malformed records without type or event fields', async () => {
@@ -264,21 +265,25 @@ describe('QwenAdapter', () => {
     ])
   })
 
-  it('maps sandbox mode to --sandbox value', async () => {
+  it('maps workspace-write to boolean sandbox and auto-edit when approvals are disabled', async () => {
     mockIsBinaryAvailable.mockResolvedValue(true)
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
       yield { type: 'completed', result: 'ok' }
     })
 
     const adapter = new QwenAdapter({ sandboxMode: 'workspace-write' })
-    await collectEvents(adapter.execute({ prompt: 'x' }))
+    await collectEvents(adapter.execute({
+      prompt: 'x',
+      workingDirectory: '/workspace',
+      policyContext: { activePolicy: { approvalRequired: false } },
+    }))
 
     const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
     expect(args).toContain('--sandbox')
-    expect(args).toContain('workspace')
+    expect(args).toContain('auto-edit')
   })
 
-  it('maps sandbox read-only mode to sandbox value', async () => {
+  it('maps read-only to boolean sandbox and explicit mutating-tool exclusions', async () => {
     mockIsBinaryAvailable.mockResolvedValue(true)
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
       yield { type: 'completed', result: 'ok' }
@@ -289,21 +294,27 @@ describe('QwenAdapter', () => {
 
     const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
     expect(args).toContain('--sandbox')
-    expect(args).toContain('sandbox')
+    expect(args).toContain('plan')
+    expect(args).toContain('write_file')
+    expect(args).toContain('run_shell_command')
   })
 
-  it('maps sandbox full-access mode to none value', async () => {
+  it('maps explicitly approved full-access to yolo without sandbox', async () => {
     mockIsBinaryAvailable.mockResolvedValue(true)
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
       yield { type: 'completed', result: 'ok' }
     })
 
     const adapter = new QwenAdapter({ sandboxMode: 'full-access' })
-    await collectEvents(adapter.execute({ prompt: 'x' }))
+    await collectEvents(adapter.execute({
+      prompt: 'x',
+      workingDirectory: '/workspace',
+      policyContext: { activePolicy: { approvalRequired: false } },
+    }))
 
     const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-    expect(args).toContain('--sandbox')
-    expect(args).toContain('none')
+    expect(args).not.toContain('--sandbox')
+    expect(args).toContain('yolo')
   })
 
   it('exposes runtime capabilities', () => {
@@ -313,7 +324,8 @@ describe('QwenAdapter', () => {
       supportsFork: false,
       supportsToolCalls: true,
       supportsStreaming: true,
-      supportsCostUsage: false,
+      supportsCostUsage: true,
+      nativeToolControls: { mode: true, allowlist: false, blocklist: true },
     })
   })
 })

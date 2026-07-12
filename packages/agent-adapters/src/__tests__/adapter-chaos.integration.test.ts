@@ -38,7 +38,7 @@ describe('adapter chaos and fault-injection coverage', () => {
   const { mockIsBinaryAvailable, mockSpawnAndStreamJsonl } = getProcessHelperMocks()
 
   const cases: ChaosCase[] = [
-    { name: 'qwen', adapter: new QwenAdapter({ apiKey: 'test-key' }) },
+    { name: 'qwen', adapter: new QwenAdapter() },
     { name: 'crush', adapter: new CrushAdapter() },
   ]
 
