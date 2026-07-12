@@ -12,5 +12,6 @@ export type {
   CliRuntimeDependencies,
   CliRuntimeDiagnostic,
   CliRuntimeLimits,
+  CliStdoutMode,
   MalformedLinePolicy,
 } from './types.js'

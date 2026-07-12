@@ -17,6 +17,7 @@ export const DEFAULT_CLI_RUNTIME_LIMITS: CliRuntimeLimits = Object.freeze({
 })
 
 export type MalformedLinePolicy = 'skip' | 'error'
+export type CliStdoutMode = 'jsonl' | 'text'
 
 export interface CliRunSpecification {
   readonly command: string
@@ -29,6 +30,8 @@ export interface CliRunSpecification {
   readonly terminationGraceMs?: number | undefined
   readonly limits?: Partial<CliRuntimeLimits> | undefined
   readonly malformedLinePolicy?: MalformedLinePolicy | undefined
+  /** Parse newline-delimited JSON or collect bounded terminal text. */
+  readonly stdoutMode?: CliStdoutMode | undefined
   readonly stdinResponder?: ((record: Record<string, unknown>) => Promise<string | null>) | undefined
 }
 

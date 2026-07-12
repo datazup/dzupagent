@@ -15,6 +15,7 @@ export async function* runJsonlProcess(
   specification: CliRunSpecification,
   dependencies: CliRuntimeDependencies = {},
 ): AsyncGenerator<Record<string, unknown>> {
+  const startedAt = Date.now()
   const limits: CliRuntimeLimits = { ...DEFAULT_CLI_RUNTIME_LIMITS, ...specification.limits }
   const spawn = dependencies.spawn ?? ((command, args, options) => nodeSpawn(command, [...args], options))
   const setTimer = dependencies.setTimer ?? setTimeout
@@ -31,6 +32,7 @@ export async function* runJsonlProcess(
   let stdoutBytes = 0
   let recordCount = 0
   let diagnosticCount = 0
+  const textChunks: Buffer[] = []
   const recordMalformedDiagnostic = (message: string): void => {
     if (diagnosticCount < limits.diagnostics) {
       dependencies.onDiagnostic?.({ kind: 'malformed_line', message: message.slice(0, 512) })
@@ -107,6 +109,10 @@ export async function* runJsonlProcess(
         terminate('overflow')
         break
       }
+      if (specification.stdoutMode === 'text') {
+        textChunks.push(bytes)
+        continue
+      }
       buffer = Buffer.concat([buffer, bytes])
       if (buffer.byteLength > limits.lineBytes && !buffer.includes(0x0a)) {
         terminate('overflow')
@@ -137,7 +143,7 @@ export async function* runJsonlProcess(
       if (terminationReason) break
     }
 
-    if (!terminationReason && buffer.byteLength > 0) {
+    if (specification.stdoutMode !== 'text' && !terminationReason && buffer.byteLength > 0) {
       if (buffer.byteLength > limits.lineBytes) terminate('overflow')
       else {
         const record = parseRecord(buffer, specification, recordMalformedDiagnostic)
@@ -161,6 +167,13 @@ export async function* runJsonlProcess(
         recoverable: false,
         context: { command: specification.command, exitCode: code, signal, stderr },
       })
+    }
+    if (specification.stdoutMode === 'text') {
+      yield {
+        type: 'text_result',
+        content: Buffer.concat(textChunks).toString('utf8').trimEnd(),
+        duration_ms: Date.now() - startedAt,
+      }
     }
   } catch (error) {
     if (error instanceof ForgeError) throw error

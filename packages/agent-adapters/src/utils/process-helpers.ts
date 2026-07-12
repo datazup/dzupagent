@@ -10,7 +10,7 @@ import { promisify } from 'node:util'
 import { detectCliInteraction } from '../interaction/interaction-detector.js'
 import type { InteractionKind } from '../interaction/interaction-detector.js'
 import { runJsonlProcess } from '../cli-runtime/run-jsonl-process.js'
-import type { CliRuntimeLimits, MalformedLinePolicy } from '../cli-runtime/types.js'
+import type { CliRuntimeLimits, CliStdoutMode, MalformedLinePolicy } from '../cli-runtime/types.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -41,6 +41,8 @@ export interface SpawnJsonlOptions extends SpawnOptions {
   limits?: Partial<CliRuntimeLimits> | undefined
   /** Compatibility defaults to skip; new strict callers should select error. */
   malformedLinePolicy?: MalformedLinePolicy | undefined
+  /** Defaults to JSONL; text mode yields one bounded terminal text record. */
+  stdoutMode?: CliStdoutMode | undefined
   /** Grace period between cooperative termination and process-tree escalation. */
   terminationGraceMs?: number | undefined
   /**
@@ -78,7 +80,7 @@ export async function* spawnAndStreamJsonl(
   args: string[],
   options: SpawnJsonlOptions = {},
 ): AsyncGenerator<Record<string, unknown>> {
-  const { signal, timeoutMs, stdinResponder, limits, malformedLinePolicy, terminationGraceMs, cwd, env } = options
+  const { signal, timeoutMs, stdinResponder, limits, malformedLinePolicy, stdoutMode, terminationGraceMs, cwd, env } = options
   yield* runJsonlProcess({
     command,
     args,
@@ -88,6 +90,7 @@ export async function* spawnAndStreamJsonl(
     timeoutMs,
     limits,
     malformedLinePolicy,
+    stdoutMode,
     terminationGraceMs,
     stdinResponder: stdinResponder
       ? async (record) => {

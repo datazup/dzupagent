@@ -61,6 +61,7 @@ export interface PreparedCliRun {
   readonly env: Record<string, string>;
   readonly cleanup?: (() => void | Promise<void>) | undefined;
   readonly malformedLinePolicy?: "skip" | "error" | undefined;
+  readonly stdoutMode?: SpawnJsonlOptions["stdoutMode"];
   readonly limits?: SpawnJsonlOptions["limits"];
 }
 
@@ -187,6 +188,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
           signal,
           timeoutMs: adapter.config.timeoutMs,
           malformedLinePolicy: prepared.malformedLinePolicy,
+          stdoutMode: prepared.stdoutMode,
           limits: prepared.limits,
         };
         if (resolver) {
