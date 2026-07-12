@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises'
 import { ForgeError } from '@dzupagent/core/events'
 import {
   DEFAULT_CLI_RUNTIME_LIMITS,
+  type CliHomeProjection,
   type CliRunSpecification,
   type CliRuntimeDependencies,
   type CliRuntimeLimits,
@@ -14,26 +15,15 @@ export async function* runJsonlProcess(
   specification: CliRunSpecification,
   dependencies: CliRuntimeDependencies = {},
 ): AsyncGenerator<Record<string, unknown>> {
-  assertCommand(specification.command)
-  if (specification.cwd) await assertWorkingDirectory(specification.cwd)
-
   const limits: CliRuntimeLimits = { ...DEFAULT_CLI_RUNTIME_LIMITS, ...specification.limits }
-  assertLimits(limits)
   const spawn = dependencies.spawn ?? ((command, args, options) => nodeSpawn(command, [...args], options))
   const setTimer = dependencies.setTimer ?? setTimeout
   const clearTimer = dependencies.clearTimer ?? clearTimeout
   const graceMs = specification.terminationGraceMs ?? 5_000
   const platform = dependencies.platform ?? process.platform
-  const child = spawn(specification.command, specification.args, {
-    cwd: specification.cwd,
-    env: specification.env ? { ...specification.env } : undefined,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    detached: platform !== 'win32',
-    shell: false,
-  })
-
+  let child: ChildProcess | undefined
   let terminationReason: TerminationReason | undefined
-  let closed = child.exitCode !== null
+  let closed = false
   let timeout: ReturnType<typeof setTimeout> | undefined
   let escalation: ReturnType<typeof setTimeout> | undefined
   let stderr = ''
@@ -49,6 +39,7 @@ export async function* runJsonlProcess(
   }
 
   const killTree = (signal: NodeJS.Signals): void => {
+    if (!child) return
     if (closed || child.exitCode !== null) return
     try {
       if (dependencies.killProcessTree) dependencies.killProcessTree(child, signal)
@@ -59,35 +50,50 @@ export async function* runJsonlProcess(
   }
   const terminate = (reason: TerminationReason): void => {
     terminationReason ??= reason
-    if (closed || child.exitCode !== null) return
+    if (!child || closed || child.exitCode !== null) return
     killTree('SIGTERM')
     if (!escalation) {
       escalation = setTimer(() => {
-        if (!closed && child.exitCode === null) killTree('SIGKILL')
+        if (child && !closed && child.exitCode === null) killTree('SIGKILL')
       }, graceMs)
       escalation.unref?.()
     }
   }
   const onAbort = (): void => terminate('abort')
-  specification.signal?.addEventListener('abort', onAbort, { once: true })
-  if (specification.signal?.aborted) terminate('abort')
-  if (specification.timeoutMs && specification.timeoutMs > 0) {
-    timeout = setTimer(() => terminate('timeout'), specification.timeoutMs)
-    timeout.unref?.()
-  }
-
-  const stderrStream = child.stderr
-  stderrStream?.on('data', (chunk: Buffer | string) => {
-    const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-    stderrBytes += value.byteLength
-    if (stderrBytes > limits.stderrBytes) {
-      terminate('overflow')
-      return
-    }
-    stderr += value.toString('utf8')
-  })
 
   try {
+    assertCommand(specification.command)
+    if (specification.cwd) await assertWorkingDirectory(specification.cwd)
+    assertLimits(limits)
+    if (specification.homeProjection) emitHomeProjectionCreated(specification.homeProjection, dependencies)
+
+    child = spawn(specification.command, specification.args, {
+      cwd: specification.cwd,
+      env: projectionEnvironment(specification),
+      stdio: ['pipe', 'pipe', 'pipe'],
+      detached: platform !== 'win32',
+      shell: false,
+    })
+    closed = child.exitCode !== null
+
+    specification.signal?.addEventListener('abort', onAbort, { once: true })
+    if (specification.signal?.aborted) terminate('abort')
+    if (specification.timeoutMs && specification.timeoutMs > 0) {
+      timeout = setTimer(() => terminate('timeout'), specification.timeoutMs)
+      timeout.unref?.()
+    }
+
+    const stderrStream = child.stderr
+    stderrStream?.on('data', (chunk: Buffer | string) => {
+      const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      stderrBytes += value.byteLength
+      if (stderrBytes > limits.stderrBytes) {
+        terminate('overflow')
+        return
+      }
+      stderr += value.toString('utf8')
+    })
+
     const spawnError = await waitForSpawn(child)
     if (spawnError) throw classifySpawnError(specification.command, spawnError)
     const stdout = child.stdout
@@ -168,7 +174,51 @@ export async function* runJsonlProcess(
     if (timeout) clearTimer(timeout)
     if (escalation) clearTimer(escalation)
     specification.signal?.removeEventListener('abort', onAbort)
-    if (!closed && child.exitCode === null) terminate(terminationReason ?? 'abort')
+    if (child && !closed && child.exitCode === null) terminate(terminationReason ?? 'abort')
+    await cleanupHomeProjection(specification.homeProjection, dependencies)
+  }
+}
+
+function projectionEnvironment(specification: CliRunSpecification): Readonly<Record<string, string>> | undefined {
+  const env = { ...(specification.env ?? {}), ...(specification.homeProjection?.env ?? {}) }
+  return Object.keys(env).length > 0 ? env : undefined
+}
+
+function emitHomeProjectionCreated(projection: CliHomeProjection, dependencies: CliRuntimeDependencies): void {
+  dependencies.onDiagnostic?.({
+    kind: 'cli_home_projection_created',
+    message: 'CLI home projection created',
+    metadata: {
+      root: projection.root,
+      generatedFiles: Object.keys(projection.generatedPaths).length,
+      baseProfileInputs: Object.keys(projection.baseProfilePaths).length,
+      requiredDirectories: projection.requiredDirectories.length,
+    },
+  })
+}
+
+async function cleanupHomeProjection(
+  projection: CliHomeProjection | undefined,
+  dependencies: CliRuntimeDependencies,
+): Promise<void> {
+  if (!projection) return
+  try {
+    await projection.cleanup()
+    dependencies.onDiagnostic?.({
+      kind: 'cli_home_projection_cleanup_status',
+      message: 'CLI home projection cleanup completed',
+      metadata: { root: projection.root, status: 'success' },
+    })
+  } catch (error) {
+    dependencies.onDiagnostic?.({
+      kind: 'cli_home_projection_cleanup_status',
+      message: 'CLI home projection cleanup failed',
+      metadata: {
+        root: projection.root,
+        status: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      },
+    })
   }
 }
 

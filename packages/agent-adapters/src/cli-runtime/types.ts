@@ -23,6 +23,7 @@ export interface CliRunSpecification {
   readonly args: readonly string[]
   readonly cwd?: string | undefined
   readonly env?: Readonly<Record<string, string>> | undefined
+  readonly homeProjection?: CliHomeProjection | undefined
   readonly signal?: AbortSignal | undefined
   readonly timeoutMs?: number | undefined
   readonly terminationGraceMs?: number | undefined
@@ -32,8 +33,39 @@ export interface CliRunSpecification {
 }
 
 export interface CliRuntimeDiagnostic {
-  readonly kind: 'malformed_line' | 'stderr'
+  readonly kind: 'malformed_line' | 'stderr' | 'cli_home_projection_created' | 'cli_home_projection_cleanup_status'
   readonly message: string
+  readonly metadata?: Readonly<Record<string, unknown>> | undefined
+}
+
+export interface CliHomeGeneratedFile {
+  readonly path: string
+  readonly content: string
+  readonly mode?: number | undefined
+}
+
+export interface CliHomeBaseProfileInput {
+  readonly sourcePath: string
+  readonly targetPath: string
+  readonly mode?: number | undefined
+}
+
+export interface CliHomeProjectionSpecification {
+  readonly prefix: string
+  readonly envVar?: string | undefined
+  readonly generatedFiles?: Readonly<Record<string, CliHomeGeneratedFile>> | undefined
+  readonly baseProfileInputs?: Readonly<Record<string, CliHomeBaseProfileInput>> | undefined
+  readonly approvedBaseProfileRoots?: readonly string[] | undefined
+  readonly requiredDirectories?: readonly string[] | undefined
+}
+
+export interface CliHomeProjection {
+  readonly root: string
+  readonly env: Readonly<Record<string, string>>
+  readonly generatedPaths: Readonly<Record<string, string>>
+  readonly baseProfilePaths: Readonly<Record<string, string>>
+  readonly requiredDirectories: readonly string[]
+  cleanup(): Promise<void>
 }
 
 export interface CliRuntimeDependencies {
@@ -44,4 +76,3 @@ export interface CliRuntimeDependencies {
   readonly clearTimer?: typeof clearTimeout | undefined
   readonly onDiagnostic?: ((diagnostic: CliRuntimeDiagnostic) => void) | undefined
 }
-

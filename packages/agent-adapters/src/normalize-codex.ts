@@ -19,6 +19,12 @@ export function normalizeCodex(
     getString(record, 'thread_id', 'threadId', 'session_id', 'sessionId') ?? fallbackSessionId
 
   switch (type) {
+    case 'item.started':
+    case 'item.completed': {
+      const item = getObject(record, 'item')
+      return item ? normalizeCodex(item, sessionId) : null
+    }
+
     case 'thread_started':
     case 'thread.started': {
       if (!sessionId) return null
@@ -109,6 +115,7 @@ export function normalizeCodex(
     }
 
     case 'turn_completed':
+    case 'turn.completed':
     case 'run_completed':
     case 'thread.completed': {
       return {
