@@ -1,8 +1,8 @@
 /**
- * Qwen Code CLI adapter for the local qwen-oauth subscription path.
+ * Qwen Code CLI adapter for the Alibaba Cloud Coding Plan subscription path.
  *
  * API-key-backed Qwen models remain an OpenAI-compatible ModelRegistry concern;
- * this adapter never injects or falls back to API credentials.
+ * this adapter never falls back to an arbitrary OpenAI-compatible provider.
  */
 
 import { readFile, stat } from 'node:fs/promises'
@@ -28,11 +28,17 @@ import {
 
 const PROVIDER_ID: AdapterProviderId = 'qwen'
 const QWEN_BINARY = 'qwen'
-const QWEN_AUTH_TYPE = 'qwen-oauth'
+const QWEN_AUTH_TYPE = 'openai'
+const DEFAULT_CODING_PLAN_MODEL = 'qwen3-coder-plus'
+const CODING_PLAN_BASE_URLS = {
+  china: 'https://coding.dashscope.aliyuncs.com/v1',
+  international: 'https://coding-intl.dashscope.aliyuncs.com/v1',
+} as const
 const READ_ONLY_EXCLUSIONS = ['edit', 'write_file', 'run_shell_command', 'notebook_edit'] as const
 const WORKSPACE_WRITE_EXCLUSIONS = ['run_shell_command'] as const
 const API_CREDENTIAL_ENV_PATTERNS = [
   /^(?:DASHSCOPE|QWEN|OPENAI|ANTHROPIC|GEMINI|GOOGLE)_API_KEY$/u,
+  /^BAILIAN_CODING_PLAN_API_KEY$/u,
   /^QWEN_CUSTOM_API_KEY_/u,
   /^OPENAI_(?:BASE_URL|MODEL)$/u,
 ] as const
@@ -44,6 +50,8 @@ export interface QwenCliAdapterConfig extends AdapterConfig {
   cliBaseProfileRoot?: string | undefined
   /** Relative regular files copied from cliBaseProfileRoot. */
   cliBaseProfileFiles?: readonly string[] | undefined
+  /** Alibaba Cloud Coding Plan region; defaults to the international endpoint. */
+  codingPlanRegion?: keyof typeof CODING_PLAN_BASE_URLS | undefined
   /** Strict JSONL is the canonical Qwen CLI backend default. */
   malformedLinePolicy?: 'skip' | 'error' | undefined
   /** Optional bounded-output overrides for deterministic harness tests. */
@@ -124,7 +132,7 @@ export class QwenAdapter extends BaseCliAdapter {
     if (excludedTools.length > 0) args.push('--exclude-tools', ...excludedTools)
     if (input.systemPrompt) args.push('--system-prompt', input.systemPrompt)
     if (input.resumeSessionId) args.push('--resume', input.resumeSessionId)
-    if (this.config.model) args.push('--model', this.config.model)
+    args.push('--model', this.resolveCodingPlanModel())
     if (input.maxTurns !== undefined) args.push('--max-session-turns', String(input.maxTurns))
     if (outputSchemaPath) args.push('--json-schema', `@${outputSchemaPath}`)
     args.push('--prompt', input.prompt)
@@ -138,8 +146,27 @@ export class QwenAdapter extends BaseCliAdapter {
       throw policyRejected('Qwen CLI write access requires an explicit working directory', 'missing_working_directory')
     }
 
+    const profileCredential = await this.readAndValidateBaseProfile()
     const baseProfileInputs = await this.buildBaseProfileInputs()
     const outputSchema = input.outputSchema === undefined ? undefined : JSON.stringify(input.outputSchema)
+    const model = this.resolveCodingPlanModel()
+    const baseUrl = CODING_PLAN_BASE_URLS[this.qwenConfig.codingPlanRegion ?? 'international']
+    const sanitizedSettings = JSON.stringify({
+      security: { auth: { selectedType: QWEN_AUTH_TYPE, enforcedType: QWEN_AUTH_TYPE } },
+      model: { name: model },
+      modelProviders: {
+        openai: {
+          protocol: 'openai',
+          models: [{
+            id: model,
+            name: `${model} (Coding Plan)`,
+            description: `${model} from Alibaba Cloud Coding Plan`,
+            baseUrl,
+            envKey: 'BAILIAN_CODING_PLAN_API_KEY',
+          }],
+        },
+      },
+    })
     const projection = await createCliHomeProjection({
       prefix: 'dzupagent-qwen-',
       envVar: 'QWEN_HOME',
@@ -148,13 +175,16 @@ export class QwenAdapter extends BaseCliAdapter {
         : [],
       baseProfileInputs,
       requiredDirectories: ['tmp', 'todos', 'debug'],
-      generatedFiles: outputSchema === undefined ? undefined : {
-        outputSchema: { path: 'dzupagent/output-schema.json', content: `${outputSchema}\n` },
+      generatedFiles: {
+        settings: { path: 'settings.json', content: `${sanitizedSettings}\n` },
+        ...(outputSchema === undefined ? {} : {
+          outputSchema: { path: 'dzupagent/output-schema.json', content: `${outputSchema}\n` },
+        }),
       },
     })
 
     try {
-      const env = {
+      const env: Record<string, string> = {
         ...this.buildSpawnEnv(input),
         ...projection.env,
         QWEN_RUNTIME_DIR: projection.root,
@@ -165,6 +195,12 @@ export class QwenAdapter extends BaseCliAdapter {
       for (const key of Object.keys(env)) {
         if (API_CREDENTIAL_ENV_PATTERNS.some((pattern) => pattern.test(key))) delete env[key]
       }
+      const codingPlanCredential = this.qwenConfig.env?.['BAILIAN_CODING_PLAN_API_KEY']
+        ?? process.env['BAILIAN_CODING_PLAN_API_KEY']
+        ?? profileCredential
+      if (codingPlanCredential) env['BAILIAN_CODING_PLAN_API_KEY'] = codingPlanCredential
+      env['OPENAI_BASE_URL'] = baseUrl
+      env['OPENAI_MODEL'] = model
       return {
         args: this.buildArgs(input, projection.generatedPaths['outputSchema']),
         cwd,
@@ -181,7 +217,7 @@ export class QwenAdapter extends BaseCliAdapter {
 
   private validateSupportedPolicy(input: AgentInput): void {
     if (this.config.apiKey) {
-      throw policyRejected('Qwen CLI subscription execution does not accept API keys; use an OpenAI-compatible API provider', 'api_key_backend_mismatch')
+      throw policyRejected('Qwen Coding Plan credentials must use BAILIAN_CODING_PLAN_API_KEY, not the generic apiKey field', 'api_key_backend_mismatch')
     }
     const sandbox = this.resolveSandbox(input)
     if (!['read-only', 'workspace-write', 'full-access'].includes(sandbox)) {
@@ -234,9 +270,8 @@ export class QwenAdapter extends BaseCliAdapter {
   private async buildBaseProfileInputs(): Promise<Record<string, { sourcePath: string; targetPath: string }>> {
     const root = this.qwenConfig.cliBaseProfileRoot
     if (!root) return {}
-    await this.assertSubscriptionProfile(root)
     const files = this.qwenConfig.cliBaseProfileFiles
-      ?? ['settings.json', 'oauth_creds.json', 'installation_id', 'output-language.md']
+      ?? ['installation_id', 'output-language.md']
     const inputs: Record<string, { sourcePath: string; targetPath: string }> = {}
     for (const [index, relativePath] of files.entries()) {
       if (!relativePath || relativePath.startsWith('/') || relativePath.split(/[\\/]/u).includes('..')) {
@@ -244,6 +279,9 @@ export class QwenAdapter extends BaseCliAdapter {
       }
       if (relativePath === '.env' || relativePath.endsWith('/.env')) {
         throw policyRejected('Qwen profile .env files cannot enter subscription projections', 'profile_env_forbidden')
+      }
+      if (relativePath === 'settings.json') {
+        throw policyRejected('Qwen profile settings are validated then replaced by a sanitized per-run subscription config', 'profile_settings_generated')
       }
       const sourcePath = join(root, relativePath)
       const info = await stat(sourcePath).catch(() => null)
@@ -254,7 +292,9 @@ export class QwenAdapter extends BaseCliAdapter {
     return inputs
   }
 
-  private async assertSubscriptionProfile(root: string): Promise<void> {
+  private async readAndValidateBaseProfile(): Promise<string | undefined> {
+    const root = this.qwenConfig.cliBaseProfileRoot
+    if (!root) return undefined
     const settingsPath = join(root, 'settings.json')
     const raw = await readFile(settingsPath, 'utf8').catch(() => '')
     if (!raw) throw policyRejected('Qwen subscription profile requires settings.json', 'missing_subscription_settings')
@@ -266,9 +306,23 @@ export class QwenAdapter extends BaseCliAdapter {
     }
     const security = objectValue(settings['security'])
     const auth = objectValue(security?.['auth'])
-    if (auth?.['selectedType'] !== QWEN_AUTH_TYPE) {
-      throw policyRejected(`Qwen CLI profile must select ${QWEN_AUTH_TYPE}`, 'non_subscription_profile')
+    if (auth?.['selectedType'] === 'qwen-oauth') {
+      throw policyRejected('Qwen OAuth was discontinued on 2026-04-15; configure Alibaba Cloud Coding Plan', 'discontinued_qwen_oauth')
     }
+    if (auth?.['selectedType'] !== QWEN_AUTH_TYPE) {
+      throw policyRejected(`Qwen Coding Plan profile must select ${QWEN_AUTH_TYPE}`, 'non_subscription_profile')
+    }
+    const env = settings['env']
+    return env && typeof env === 'object' && !Array.isArray(env)
+      ? stringOption((env as Record<string, unknown>)['BAILIAN_CODING_PLAN_API_KEY'])
+      : undefined
+  }
+
+  private resolveCodingPlanModel(): string {
+    return this.config.model
+      ?? this.qwenConfig.env?.['OPENAI_MODEL']
+      ?? process.env['OPENAI_MODEL']
+      ?? DEFAULT_CODING_PLAN_MODEL
   }
 }
 
