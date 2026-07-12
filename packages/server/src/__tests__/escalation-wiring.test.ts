@@ -162,7 +162,7 @@ describe('escalation policy wiring in run-worker', () => {
 
     // Verify escalation policy was called with correct key format
     expect(policy.calls).toHaveLength(1)
-    expect(policy.calls[0]!.key).toBe('esc-agent-1:generate')
+    expect(policy.calls[0]!.key).toBe('default:esc-agent-1:generate')
     expect(policy.calls[0]!.score).toBeCloseTo(0.3)
     expect(policy.calls[0]!.currentTier).toBe('chat')
 
@@ -313,7 +313,7 @@ describe('escalation policy wiring in run-worker', () => {
     await runQueue.stop(false)
   })
 
-  it('uses correct key format: agentId:intent with fallback to default', async () => {
+  it('uses correct key format: tenantId:agentId:intent with fallback to default', async () => {
     // Test with intent
     const policyWithIntent = createMockEscalationPolicy({
       shouldEscalate: false,
@@ -330,7 +330,7 @@ describe('escalation policy wiring in run-worker', () => {
       reflector: createFixedReflector(0.3),
       escalationPolicy: policyWithIntent,
     })
-    expect(policyWithIntent.calls[0]!.key).toBe('key-agent:codegen')
+    expect(policyWithIntent.calls[0]!.key).toBe('default:key-agent:codegen')
     await result1.runQueue.stop(false)
 
     // Test without intent — should fallback to "default"
@@ -348,7 +348,7 @@ describe('escalation policy wiring in run-worker', () => {
       reflector: createFixedReflector(0.3),
       escalationPolicy: policyNoIntent,
     })
-    expect(policyNoIntent.calls[0]!.key).toBe('key-agent-no-intent:default')
+    expect(policyNoIntent.calls[0]!.key).toBe('default:key-agent-no-intent:default')
     await result2.runQueue.stop(false)
   })
 

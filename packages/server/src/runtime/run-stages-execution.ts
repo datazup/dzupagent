@@ -2,7 +2,7 @@ import type { RunContextTransfer } from "@dzupagent/core/llm";
 import type { AgentExecutionSpec, RunStore } from "@dzupagent/core/persistence";
 import { withForgeContext, type ForgeTraceContext } from "@dzupagent/otel";
 import type { RunJob } from "../queue/run-queue.js";
-import { resolveSessionId, resolveIntent } from "./run-stages-utils.js";
+import { resolveScopedSessionId, resolveIntent } from "./run-stages-utils.js";
 import { isRecord, isStructuredResult } from "./utils.js";
 import type {
   RunExecutionContext,
@@ -65,7 +65,7 @@ export async function dispatchExecutionStage(options: {
     ? execution.metadata
     : undefined;
   const additionalLogs = isStructuredResult(execution)
-    ? (execution.logs ?? [])
+    ? execution.logs ?? []
     : [];
   const compressionLog =
     isStructuredResult(execution) &&
@@ -116,12 +116,12 @@ async function loadPriorContext(options: {
   if (!options.contextTransfer) return enrichedMetadata;
 
   try {
-    const sessionId = resolveSessionId(options.job);
+    const sessionId = resolveScopedSessionId(options.job);
     const currentIntent = resolveIntent(options.job, options.agent);
     if (currentIntent && currentIntent !== "unknown") {
       const priorContext = await options.contextTransfer.loadForIntent(
         sessionId,
-        currentIntent,
+        currentIntent
       );
       if (priorContext) {
         enrichedMetadata = { ...(options.job.metadata ?? {}), priorContext };
@@ -148,7 +148,7 @@ async function loadPriorContext(options: {
       .catch((logErr: unknown) => {
         console.error(
           "[run-stages-execution] addLog failed during context-transfer catch",
-          logErr,
+          logErr
         );
       });
   }
