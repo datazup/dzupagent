@@ -80,7 +80,7 @@ export class InMemoryMcpManager implements McpManager {
    * owning tenant. Resources with no recorded tenant are treated as 'default'.
    */
   private ownedBy(
-    resource: { tenantId?: string } | undefined,
+    resource: { tenantId?: string | undefined } | undefined,
     scope: string | undefined,
   ): boolean {
     if (scope === undefined) return true
