@@ -30,47 +30,39 @@ describe('projectGooseConfig (dedicated)', () => {
     expect(patch).toEqual({})
   })
 
-  it('places model into provider.model when context.model is set', () => {
+  it('places model into the proven GOOSE_MODEL setting', () => {
     const ctx: CompileContext = {
       providerId: 'goose',
       model: 'claude-3-5-sonnet',
     }
     const patch = projectGooseConfig(emptyPlan(), ctx)
-    expect(patch['provider']).toEqual({ model: 'claude-3-5-sonnet' })
     expect(patch['GOOSE_MODEL']).toBe('claude-3-5-sonnet')
   })
 
-  it('sets goose.mode: approve when approval rules are present', () => {
+  it('sets GOOSE_MODE: approve when approval rules are present', () => {
     const patch = projectGooseConfig(
       emptyPlan({ auditFlags: ['approval:bash', 'approval:network'] }),
       { providerId: 'goose' },
     )
-    expect(patch['goose']).toEqual({ mode: 'approve' })
+    expect(patch['GOOSE_MODE']).toBe('approve')
   })
 
-  it('appends watchPaths as extensions entries', () => {
+  it('does not invent watcher extension entries from watchPaths', () => {
     const patch = projectGooseConfig(
       emptyPlan({ watchPaths: ['logs/', 'src/'] }),
       { providerId: 'goose' },
     )
-    expect(patch['extensions']).toEqual([
-      { type: 'watcher', path: 'logs/' },
-      { type: 'watcher', path: 'src/' },
-    ])
+    expect(patch['extensions']).toBeUndefined()
   })
 
-  it('places apiKey into provider.api_key without approval mode when no approval flags', () => {
+  it('projects provider/model but does not invent a generic provider API key', () => {
     const ctx: CompileContext = {
       providerId: 'goose',
       model: 'gpt-4o',
       apiKey: 'sk-oai',
     }
     const patch = projectGooseConfig(emptyPlan(), ctx)
-    expect(patch['provider']).toEqual({
-      model: 'gpt-4o',
-      api_key: 'sk-oai',
-    })
-    expect(patch['goose']).toBeUndefined()
+    expect(patch).toEqual({ GOOSE_MODEL: 'gpt-4o' })
   })
 })
 
@@ -120,12 +112,12 @@ describe('projectProviderConfig dispatch for goose/crush', () => {
   it('routes goose providerId to the goose projector', () => {
     const patch = projectProviderConfig(
       emptyPlan({ auditFlags: ['approval:bash'] }),
-      { providerId: 'goose', model: 'gpt-4o' },
+      { providerId: 'goose', model: 'gpt-4o', providerName: 'openai' },
     )
     expect(patch).toEqual({
-      provider: { model: 'gpt-4o' },
+      GOOSE_PROVIDER: 'openai',
       GOOSE_MODEL: 'gpt-4o',
-      goose: { mode: 'approve' },
+      GOOSE_MODE: 'approve',
     })
   })
 

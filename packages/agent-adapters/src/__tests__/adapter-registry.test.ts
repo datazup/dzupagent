@@ -76,6 +76,7 @@ describe('ProviderAdapterRegistry', () => {
   const task: TaskDescriptor = {
     prompt: 'test task',
     tags: [],
+    approvedFallbackProviders: ['codex'],
   }
   const input: AgentInput = {
     prompt: 'test input',
@@ -345,6 +346,7 @@ describe('RegistryExecutionPort', () => {
   const task: TaskDescriptor = {
     prompt: 'test task',
     tags: [],
+    approvedFallbackProviders: ['codex'],
   }
   const input: AgentInput = {
     prompt: 'test input',

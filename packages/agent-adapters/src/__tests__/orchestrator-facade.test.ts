@@ -980,6 +980,7 @@ describe('OrchestratorFacade', () => {
 
       const seenTypes: string[] = []
       for await (const event of facade.chatWithRaw('Strict policy fallback', {
+        approvedFallbackProviders: ['codex'],
         policy: {
           networkAccess: false,
         },
@@ -1034,6 +1035,7 @@ describe('OrchestratorFacade', () => {
 
       const seenTypes: string[] = []
       for await (const event of facade.chatWithRaw('Strict override policy run', {
+        approvedFallbackProviders: ['codex'],
         policy: { networkAccess: false },
         policyConformanceMode: 'strict',
       })) {
@@ -1063,6 +1065,7 @@ describe('OrchestratorFacade', () => {
       })
 
       for await (const _event of facade.chatWithRaw('Strict policy fallback with audit persistence', {
+        approvedFallbackProviders: ['codex'],
         policy: { networkAccess: false },
         policyConformanceMode: 'strict',
       })) {

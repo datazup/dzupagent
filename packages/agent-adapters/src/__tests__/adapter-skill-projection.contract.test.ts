@@ -275,7 +275,7 @@ describe('ClaudeSkillCompiler', () => {
 // ---------------------------------------------------------------------------
 
 describe('CliSkillCompiler', () => {
-  const cliProviders: AdapterProviderId[] = ['gemini', 'qwen', 'crush', 'goose', 'openrouter']
+  const cliProviders: AdapterProviderId[] = ['gemini', 'qwen', 'crush', 'goose', 'openrouter', 'ollama']
 
   it('throws for non-CLI provider IDs', () => {
     expect(() => new CliSkillCompiler('claude')).toThrow()
@@ -360,7 +360,7 @@ describe('CliSkillCompiler', () => {
 describe('cross-provider hash uniqueness', () => {
   it('all providers produce different hashes for the same bundle', () => {
     const bundle = makeBundle()
-    const allProviders: AdapterProviderId[] = ['claude', 'codex', 'gemini', 'qwen', 'crush', 'goose', 'openrouter']
+    const allProviders: AdapterProviderId[] = ['claude', 'codex', 'gemini', 'qwen', 'crush', 'goose', 'openrouter', 'ollama']
 
     const hashes = allProviders.map((pid) => {
       const registry = createDefaultSkillRegistry()
@@ -392,7 +392,8 @@ describe('AdapterSkillRegistry', () => {
     expect(providers).toContain('crush')
     expect(providers).toContain('goose')
     expect(providers).toContain('openrouter')
-    expect(providers).toHaveLength(7)
+    expect(providers).toContain('ollama')
+    expect(providers).toHaveLength(8)
   })
 
   it('compiles via registry for each registered provider', () => {

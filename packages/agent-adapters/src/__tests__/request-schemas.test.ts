@@ -191,6 +191,7 @@ describe('HTTP provider policy', () => {
       'crush',
       'gemini-sdk',
       'openai',
+      'ollama',
     ])
   })
 
@@ -201,6 +202,8 @@ describe('HTTP provider policy', () => {
     expect(AdapterProviderIdSchema.safeParse(providerId).success).toBe(false)
     expect(RunRequestSchema.safeParse({ prompt: 'Hello', preferredProvider: providerId }).success)
       .toBe(false)
+    expect(getProviderCapabilities('ollama')?.httpAdapterRouting).toBe(false)
+    expect(AdapterProviderIdSchema.safeParse('ollama').success).toBe(false)
   })
 })
 

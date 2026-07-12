@@ -86,7 +86,7 @@ const failEvents = (providerId: AdapterProviderId): AgentEvent[] => [
   },
 ]
 
-const task: TaskDescriptor = { prompt: 'p', tags: [] }
+const task: TaskDescriptor = { prompt: 'p', tags: [], approvedFallbackProviders: ['claude', 'codex'] }
 const input: AgentInput = { prompt: 'p' }
 
 const fixedRouter: TaskRoutingStrategy = {
@@ -197,7 +197,7 @@ describe('AdapterRegistryRouter', () => {
 
     const events = await collectEvents(router.executeWithFallback(policyInput, task))
     expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'codex')).toBe(true)
-    expect(captured.goose?.options?.['permissionMode']).toBe('workspace')
+    expect(captured.goose?.options?.['permissionMode']).toBeUndefined()
     expect(captured.goose?.options?.['sandboxMode']).toBe('workspace-write')
     expect(captured.goose?.policyContext).toBeUndefined()
     expect(captured.codex?.options?.['approvalPolicy']).toBeUndefined()
@@ -220,7 +220,7 @@ describe('AdapterRegistryRouter', () => {
 
     const events = await collectEvents(router.executeWithFallback(legacyPolicyInput, task))
     expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'goose')).toBe(true)
-    expect(captured.goose?.options?.['permissionMode']).toBe('workspace')
+    expect(captured.goose?.options?.['permissionMode']).toBeUndefined()
     expect(captured.goose?.options?.['sandboxMode']).toBe('workspace-write')
     const legacyWarnings = events.filter((event) => (
       event.type === 'adapter:progress' &&
@@ -279,7 +279,7 @@ describe('AdapterRegistryRouter', () => {
     const events = await collectEvents(router.executeWithFallback(mixedPolicyInput, task))
     expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'goose')).toBe(true)
     expect(captured.goose?.options?.['sandboxMode']).toBe('read-only')
-    expect(captured.goose?.options?.['permissionMode']).toBe('read-only')
+    expect(captured.goose?.options?.['permissionMode']).toBeUndefined()
     expect(events.some((event) => (
       event.type === 'adapter:progress' &&
       event.phase === 'policy:legacy_option_deprecated'

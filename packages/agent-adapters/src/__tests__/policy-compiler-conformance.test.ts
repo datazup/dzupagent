@@ -25,6 +25,7 @@ const ALL_PROVIDERS: AdapterProviderId[] = [
   'goose',
   'openrouter',
   'openai',
+  'ollama',
 ]
 
 // ---------------------------------------------------------------------------
@@ -203,20 +204,16 @@ describe('compilePolicyForProvider', () => {
   // -------------------------------------------------------------------------
 
   describe('goose', () => {
-    it('should map sandboxMode into config and goose-specific permissionMode', () => {
-      const modes: Array<{
-        input: AdapterPolicy['sandboxMode']
-        expected: string
-      }> = [
-        { input: 'read-only', expected: 'read-only' },
-        { input: 'workspace-write', expected: 'workspace' },
-        { input: 'full-access', expected: 'full' },
+    it('should preserve sandboxMode without inventing a Goose permission flag', () => {
+      const modes: AdapterPolicy['sandboxMode'][] = [
+        'read-only', 'workspace-write', 'full-access',
       ]
 
-      for (const { input, expected } of modes) {
+      for (const input of modes) {
         const result = compilePolicyForProvider('goose', { sandboxMode: input })
         expect(result.config.sandboxMode).toBe(input)
-        expect(result.inputOptions['permissionMode']).toBe(expected)
+        expect(result.inputOptions['sandboxMode']).toBe(input)
+        expect(result.inputOptions['permissionMode']).toBeUndefined()
       }
     })
 
@@ -295,9 +292,9 @@ describe('compilePolicyForProvider', () => {
 // ---------------------------------------------------------------------------
 
 describe('compilePolicyForAll', () => {
-  it('should return entries for all 9 providers', () => {
+  it('should return entries for all 10 providers', () => {
     const results = compilePolicyForAll({})
-    expect(results.size).toBe(9)
+    expect(results.size).toBe(10)
     for (const provider of ALL_PROVIDERS) {
       expect(results.has(provider)).toBe(true)
     }
@@ -495,7 +492,7 @@ describe('PolicyConformanceChecker', () => {
 
   describe('allowedTools and blockedTools', () => {
     it('should produce a warning for allowedTools on providers without allowlist support', () => {
-      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'openai' && p !== 'codex')) {
+      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'openai' && p !== 'codex' && p !== 'ollama')) {
         const result = compileAndCheck(provider, { allowedTools: ['read', 'write'] })
         const violation = result.violations.find((v) => v.field === 'allowedTools')
         expect(violation).toBeDefined()
@@ -519,8 +516,13 @@ describe('PolicyConformanceChecker', () => {
       expect(result.violations.find((v) => v.field === 'allowedTools')).toBeUndefined()
     })
 
+    it('should not warn for Ollama allowedTools because request tools are filtered natively', () => {
+      const result = compileAndCheck('ollama', { allowedTools: ['lookup'] })
+      expect(result.violations.find((v) => v.field === 'allowedTools')).toBeUndefined()
+    })
+
     it('should produce a warning for blockedTools on providers without blocklist support', () => {
-      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'openai' && p !== 'codex')) {
+      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'openai' && p !== 'codex' && p !== 'ollama')) {
         const result = compileAndCheck(provider, { blockedTools: ['shell'] })
         const violation = result.violations.find((v) => v.field === 'blockedTools')
         expect(violation).toBeDefined()
@@ -544,6 +546,11 @@ describe('PolicyConformanceChecker', () => {
       expect(result.violations.find((v) => v.field === 'blockedTools')).toBeUndefined()
     })
 
+    it('should not warn for Ollama blockedTools because request tools are filtered natively', () => {
+      const result = compileAndCheck('ollama', { blockedTools: ['shell'] })
+      expect(result.violations.find((v) => v.field === 'blockedTools')).toBeUndefined()
+    })
+
     it('should not warn for OpenAI strict toolPolicy because empty exposure can be enforced natively', () => {
       const result = compileAndCheck('openai', { toolPolicy: 'strict' })
       expect(result.violations.find((v) => v.field === 'toolPolicy')).toBeUndefined()
@@ -561,7 +568,7 @@ describe('PolicyConformanceChecker', () => {
 
   describe('maxBudgetUsd', () => {
     it('should produce a warning for providers without budget support', () => {
-      const noBudget: AdapterProviderId[] = ['codex', 'gemini', 'gemini-sdk', 'qwen', 'crush', 'goose', 'openrouter', 'openai']
+      const noBudget: AdapterProviderId[] = ['codex', 'gemini', 'gemini-sdk', 'qwen', 'crush', 'goose', 'openrouter', 'openai', 'ollama']
       for (const provider of noBudget) {
         const result = compileAndCheck(provider, { maxBudgetUsd: 1.0 })
         const violation = result.violations.find((v) => v.field === 'maxBudgetUsd')

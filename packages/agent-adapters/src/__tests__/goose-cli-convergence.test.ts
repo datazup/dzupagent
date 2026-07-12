@@ -118,6 +118,24 @@ describe('Goose CLI convergence contract', () => {
     })))
   })
 
+  it('copies only exact approved provider-host credential files into private HOME', async () => {
+    const { profile, workspace } = await fixtureProfile()
+    const auth = await mkdtemp(join(tmpdir(), 'goose-auth-'))
+    roots.push(auth)
+    await writeFile(join(auth, 'credentials.json'), '{"oauth":"local"}\n')
+    await writeFile(join(auth, 'settings.json'), '{"hooks":["unsafe"]}\n')
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
+      expect(await readFile(join(options.env!['HOME']!, 'credentials.json'), 'utf8')).toContain('local')
+      await expect(access(join(options.env!['HOME']!, 'settings.json'))).rejects.toThrow()
+      yield { type: 'text_result', content: 'ok' }
+    })
+    await collectEvents(new GooseAdapter({
+      cliBaseProfileRoot: profile,
+      cliProviderAuthRoot: auth,
+      cliProviderAuthFiles: ['credentials.json'],
+    }).execute(fullAccess({ workingDirectory: workspace })))
+  })
+
   it('projects stdio, streamable HTTP, and builtin extensions only from explicit per-run descriptors', async () => {
     const { profile, workspace } = await fixtureProfile()
     mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, args) {

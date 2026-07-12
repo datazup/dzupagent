@@ -337,7 +337,7 @@ describe('RuleCompiler', () => {
     expect(plan.providerConfigPatch).toEqual({})
   })
 
-  it('Goose provider config patch sets goose.mode: approve when require_approval present', () => {
+  it('Goose provider config patch sets GOOSE_MODE: approve when require_approval present', () => {
     const plan = new RuleCompiler().compile(
       [
         rule({
@@ -347,7 +347,7 @@ describe('RuleCompiler', () => {
       ],
       gooseCtx,
     )
-    expect(plan.providerConfigPatch).toEqual({ goose: { mode: 'approve' } })
+    expect(plan.providerConfigPatch).toEqual({ GOOSE_MODE: 'approve' })
   })
 
   it('Goose provider config patch is empty when no approval effects are present', () => {

@@ -268,7 +268,7 @@ describe('dzupagent capabilities E2E', () => {
       const builder = new SkillCapabilityMatrixBuilder(registry)
       const matrix = builder.buildForSkill(bundle!)
 
-      // createDefaultSkillRegistry registers: claude, codex, gemini, qwen, crush, goose, openrouter
+      // createDefaultSkillRegistry registers: claude, codex, gemini, qwen, crush, goose, openrouter, ollama
       const providerIds = Object.keys(matrix.providers)
       expect(providerIds).toContain('claude')
       expect(providerIds).toContain('codex')
@@ -277,9 +277,10 @@ describe('dzupagent capabilities E2E', () => {
       expect(providerIds).toContain('crush')
       expect(providerIds).toContain('goose')
       expect(providerIds).toContain('openrouter')
+      expect(providerIds).toContain('ollama')
     })
 
-    it('matrix has exactly 7 provider columns (no extra, no missing)', async () => {
+    it('matrix has exactly 8 provider columns (no extra, no missing)', async () => {
       const loader = new DzupAgentFileLoader({ paths: makePaths(fixtureDir) })
       const bundle = await loader.loadSkill('test-skill')
 
@@ -287,7 +288,7 @@ describe('dzupagent capabilities E2E', () => {
       const builder = new SkillCapabilityMatrixBuilder(registry)
       const matrix = builder.buildForSkill(bundle!)
 
-      expect(Object.keys(matrix.providers)).toHaveLength(7)
+      expect(Object.keys(matrix.providers)).toHaveLength(8)
     })
 
     it('matrix skillId and skillName are derived from the parsed bundle', async () => {
@@ -431,7 +432,7 @@ describe('dzupagent capabilities E2E', () => {
       const matrix = await buildMinimalSkillMatrix()
 
       expect(matrix.skillId).toBe('minimal-skill')
-      expect(Object.keys(matrix.providers)).toHaveLength(7)
+      expect(Object.keys(matrix.providers)).toHaveLength(8)
     })
 
     it('no provider emits a dropped-capability warning (bundle uses no capabilities)', async () => {
@@ -484,7 +485,7 @@ describe('dzupagent capabilities E2E', () => {
       expect(matrixIds).toEqual(bundleIds)
     })
 
-    it('every matrix has 7 provider columns', async () => {
+    it('every matrix has 8 provider columns', async () => {
       const loader = new DzupAgentFileLoader({ paths: makePaths(fixtureDir) })
       const bundles = await loader.loadSkills()
 
@@ -493,7 +494,7 @@ describe('dzupagent capabilities E2E', () => {
       const matrices = builder.buildForAll(bundles)
 
       for (const matrix of matrices) {
-        expect(Object.keys(matrix.providers)).toHaveLength(7)
+        expect(Object.keys(matrix.providers)).toHaveLength(8)
       }
     })
 
@@ -583,7 +584,7 @@ describe('dzupagent capabilities E2E', () => {
         const builder = new SkillCapabilityMatrixBuilder(registry)
         const matrix = builder.buildForSkill(bundles[0]!)
         expect(matrix.skillId).toBe('test-skill')
-        expect(Object.keys(matrix.providers)).toHaveLength(7)
+        expect(Object.keys(matrix.providers)).toHaveLength(8)
       } finally {
         await rm(tierDir, { recursive: true, force: true })
       }

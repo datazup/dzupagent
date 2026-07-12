@@ -175,6 +175,7 @@ describe('runAgentExecution', () => {
   it('preserves failed events when the registry falls back to a later provider', async () => {
     const result = await runAgentExecution({
       providerId: 'codex',
+      approvedFallbackProviders: ['claude'],
       prompt: 'Try fallback',
     }, {
       adapters: [
@@ -205,6 +206,7 @@ describe('runAgentExecution', () => {
   it('returns a structured failure when every adapter fails', async () => {
     const result = await runAgentExecution({
       providerId: 'codex',
+      approvedFallbackProviders: ['claude'],
       prompt: 'Fail all',
       model: 'model-x',
     }, {

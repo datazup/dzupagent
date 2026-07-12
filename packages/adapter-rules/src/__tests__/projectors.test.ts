@@ -181,7 +181,7 @@ describe('projectGooseConfig', () => {
     expect(patch).toEqual({})
   })
 
-  it('emits provider block and legacy GOOSE_MODEL from context', () => {
+  it('emits proven GOOSE_PROVIDER and GOOSE_MODEL settings from context', () => {
     const ctx: CompileContext = {
       providerId: 'goose',
       model: 'claude-3-5-sonnet',
@@ -189,23 +189,20 @@ describe('projectGooseConfig', () => {
     }
     const patch = projectGooseConfig(emptyPlan(), ctx)
     expect(patch).toEqual({
-      provider: {
-        model: 'claude-3-5-sonnet',
-        name: 'anthropic',
-      },
+      GOOSE_PROVIDER: 'anthropic',
       GOOSE_MODEL: 'claude-3-5-sonnet',
     })
   })
 
-  it('emits goose.mode: approve when approval flags are present', () => {
+  it('emits GOOSE_MODE: approve when approval flags are present', () => {
     const patch = projectGooseConfig(
       emptyPlan({ auditFlags: ['approval:bash'] }),
       { providerId: 'goose' },
     )
-    expect(patch).toEqual({ goose: { mode: 'approve' } })
+    expect(patch).toEqual({ GOOSE_MODE: 'approve' })
   })
 
-  it('combines provider, approval mode, and extensions', () => {
+  it('combines proven provider/model/approval settings and omits invented shapes', () => {
     const ctx: CompileContext = {
       providerId: 'goose',
       model: 'gpt-4o',
@@ -220,14 +217,9 @@ describe('projectGooseConfig', () => {
       ctx,
     )
     expect(patch).toEqual({
-      provider: {
-        model: 'gpt-4o',
-        api_key: 'sk-oai',
-        name: 'openai',
-      },
+      GOOSE_PROVIDER: 'openai',
       GOOSE_MODEL: 'gpt-4o',
-      goose: { mode: 'approve' },
-      extensions: [{ type: 'watcher', path: 'logs/' }],
+      GOOSE_MODE: 'approve',
     })
   })
 })

@@ -179,7 +179,11 @@ const FIXED_ROUTER: TaskRoutingStrategy = {
   },
 }
 
-const TASK: TaskDescriptor = { prompt: 'do work', tags: [] }
+const TASK: TaskDescriptor = {
+  prompt: 'do work',
+  tags: [],
+  approvedFallbackProviders: ['claude', 'codex', 'gemini', 'gemini-sdk', 'qwen', 'crush', 'goose', 'ollama', 'openrouter', 'openai'],
+}
 const INPUT: AgentInput = { prompt: 'do work' }
 
 // ---------------------------------------------------------------------------

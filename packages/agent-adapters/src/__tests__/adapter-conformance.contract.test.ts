@@ -34,6 +34,7 @@ vi.mock('@openai/codex-sdk', () => ({
 type CliConformanceCase = {
   providerId: AdapterProviderId
   adapter: AgentCLIAdapter
+  input?: Parameters<AgentCLIAdapter['execute']>[0]
   completedRecord: Record<string, unknown>
   expectedUsage: TokenUsage
   expectedArgs: string[]
@@ -113,14 +114,18 @@ describe('CLI adapter conformance contract', () => {
     },
     {
       providerId: 'goose',
-      adapter: new GooseAdapter(),
+      adapter: new GooseAdapter({ cliProvider: 'ollama', model: 'qwen3' }),
+      input: {
+        prompt: 'contract',
+        policyContext: { activePolicy: { sandboxMode: 'full-access', approvalRequired: false } },
+      },
       completedRecord: {
-        type: 'completed',
-        output: 'goose done',
+        type: 'text_result',
+        content: 'goose done',
         duration_ms: 55,
       },
       expectedUsage: undefined as unknown as TokenUsage,
-      expectedArgs: ['--output-format', 'jsonl', '--prompt', 'contract'],
+      expectedArgs: ['run', '--quiet', '--no-session', '--provider', 'ollama', '--model', 'qwen3', '--text', 'contract'],
     },
   ]
 
@@ -131,7 +136,7 @@ describe('CLI adapter conformance contract', () => {
         yield testCase.completedRecord
       })
 
-      const events = await drainEvents(testCase.adapter.execute({ prompt: 'contract' }))
+      const events = await drainEvents(testCase.adapter.execute(testCase.input ?? { prompt: 'contract' }))
       const terminals = terminalEvents(events)
 
       expect(terminals).toHaveLength(1)
@@ -153,10 +158,21 @@ describe('CLI adapter conformance contract', () => {
 
     it(`${testCase.providerId} treats provider failure as terminal without adding synthetic completion`, async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
+        if (testCase.providerId === 'goose') {
+          throw new ForgeError({ code: 'PROVIDER_ERR', message: 'goose failed', recoverable: false })
+        }
         yield { type: 'error', error: { message: `${testCase.providerId} failed`, code: 'PROVIDER_ERR' } }
       })
 
-      const events = await drainEvents(testCase.adapter.execute({ prompt: 'contract' }))
+      const events: AgentEvent[] = []
+      let thrown: unknown
+      try {
+        for await (const event of testCase.adapter.execute(testCase.input ?? { prompt: 'contract' })) {
+          events.push(event)
+        }
+      } catch (error) {
+        thrown = error
+      }
       const terminals = terminalEvents(events)
 
       expect(events.map((event) => event.type)).toEqual(['adapter:started', 'adapter:failed'])
@@ -168,6 +184,8 @@ describe('CLI adapter conformance contract', () => {
         expect(failed.providerId).toBe(testCase.providerId)
         expect(failed.code).toBe('PROVIDER_ERR')
       }
+      if (testCase.providerId === 'goose') expect(thrown).toMatchObject({ code: 'PROVIDER_ERR' })
+      else expect(thrown).toBeUndefined()
     })
 
     it(`${testCase.providerId} surfaces aborts as adapter:failed before rethrowing`, async () => {
@@ -187,25 +205,33 @@ describe('CLI adapter conformance contract', () => {
         })
       })
 
-      const stream = testCase.adapter.execute({ prompt: 'contract' })
+      const stream = testCase.adapter.execute(testCase.input ?? { prompt: 'contract' })
       const first = await stream.next()
       expect(first.value?.type).toBe('adapter:started')
 
-      const second = await stream.next()
-      expect(second.value?.type).toBe('adapter:message')
-
-      testCase.adapter.interrupt()
-
-      const third = await stream.next()
+      let third
+      if (testCase.providerId === 'goose') {
+        const pending = stream.next()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        testCase.adapter.interrupt()
+        third = await pending
+      } else {
+        const second = await stream.next()
+        expect(second.value?.type).toBe('adapter:message')
+        testCase.adapter.interrupt()
+        third = await stream.next()
+      }
       expect(third.value?.type).toBe('adapter:failed')
       if (third.value?.type === 'adapter:failed') {
         expect(third.value.providerId).toBe(testCase.providerId)
         expect(third.value.code).toBe('AGENT_ABORTED')
       }
 
-      await expect(stream.next()).rejects.toMatchObject({
-        code: 'AGENT_ABORTED',
-      })
+      if (testCase.providerId === 'goose') {
+        await expect(stream.next()).resolves.toMatchObject({ done: true })
+      } else {
+        await expect(stream.next()).rejects.toMatchObject({ code: 'AGENT_ABORTED' })
+      }
     })
   }
 

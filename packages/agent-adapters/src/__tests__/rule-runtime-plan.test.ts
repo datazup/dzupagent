@@ -149,15 +149,16 @@ describe('rule-aware adapter runtime helpers', () => {
     })
   })
 
-  it('projects goose approval mode into input permissionMode when absent', () => {
+  it('projects the proven Goose approval config into gooseMode when absent', () => {
     const plan = makePlan({
       providerId: 'goose',
-      providerConfigPatch: { goose: { mode: 'approve' } },
+      providerConfigPatch: { GOOSE_MODE: 'approve' },
     })
 
     const projection = projectAdapterRuleRuntimePlan({ prompt: 'review' }, plan)
 
-    expect(projection.input.options?.['permissionMode']).toBe('approve')
+    expect(projection.input.options?.['gooseMode']).toBe('approve')
+    expect(projection.input.options?.['permissionMode']).toBeUndefined()
   })
 
   it('loads rules, compiles a runtime plan, and emits governance for load diagnostics', async () => {
