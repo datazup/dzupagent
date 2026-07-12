@@ -56,6 +56,35 @@ describe('Claude local CLI backend', () => {
     await expect(access(secondPath)).rejects.toBeDefined()
   })
 
+  it('projects neutral bearer-token references into an HTTP Authorization header', async () => {
+    const adapter = new InspectableClaudeCliAdapter()
+    const prepared = await adapter.prepare({
+      prompt: 'use http tools',
+      options: {
+        mcpServers: [{
+          id: 'worker',
+          transport: {
+            kind: 'http',
+            url: 'http://127.0.0.1:7821',
+            bearerTokenEnv: { envVar: 'CODEV_MCP_TOKEN', tokenRef: 'worker-token' },
+          },
+        }],
+        mcpReferenceValues: { 'worker-token': 'raw-token' },
+      },
+    })
+    const configPath = prepared.args[prepared.args.indexOf('--mcp-config') + 1]!
+    expect(JSON.parse(await readFile(configPath, 'utf8'))).toEqual({
+      mcpServers: {
+        worker: {
+          type: 'http',
+          url: 'http://127.0.0.1:7821',
+          headers: { Authorization: 'Bearer raw-token' },
+        },
+      },
+    })
+    await prepared.cleanup?.()
+  })
+
   it('maps Claude stream, tool, usage, structured output, and session records', () => {
     const adapter = new InspectableClaudeCliAdapter()
     expect(adapter.map({ type: 'stream_event', event: { type: 'content_block_delta', delta: { text: 'hi' } } })).toMatchObject({ type: 'adapter:stream_delta', content: 'hi' })

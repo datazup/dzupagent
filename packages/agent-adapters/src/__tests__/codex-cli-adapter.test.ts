@@ -187,6 +187,74 @@ describe('Codex explicit CLI backend', () => {
     }
   })
 
+  it('projects authenticated HTTP MCP through private config and a reference-backed bearer environment variable', async () => {
+    let projectedConfig = ''
+    let projectedEnv: NodeJS.ProcessEnv = {}
+    const adapter = new CodexCliAdapter({
+      runtimeDependencies: {
+        spawn: (_command, _args, options) => {
+          const child = createChild()
+          queueMicrotask(async () => {
+            projectedEnv = options.env ?? {}
+            projectedConfig = await readFile(join(String(options.env?.CODEX_HOME), 'config.toml'), 'utf8')
+            child.stdout.write('{"type":"turn_completed","result":"ok"}\n')
+            child.stdout.end()
+            child.stderr.end()
+            child.exitCode = 0
+            child.emit('close', 0, null)
+          })
+          return child
+        },
+      },
+    })
+
+    await collect(adapter.executeWithRaw({
+      prompt: 'use worker tools',
+      options: {
+        mcpServers: [{
+          id: 'codev_worker',
+          transport: {
+            kind: 'http',
+            url: 'http://127.0.0.1:7821',
+            bearerTokenEnv: { envVar: 'CODEV_MCP_TOKEN', tokenRef: 'worker-token' },
+          },
+        }],
+        mcpReferenceValues: { 'worker-token': 'raw-token-value' },
+      },
+    }))
+
+    expect(projectedConfig).toContain('[mcp_servers."codev_worker"]')
+    expect(projectedConfig).toContain('url = "http://127.0.0.1:7821/"')
+    expect(projectedConfig).toContain('bearer_token_env_var = "CODEV_MCP_TOKEN"')
+    expect(projectedConfig).not.toContain('raw-token-value')
+    expect(projectedEnv.CODEV_MCP_TOKEN).toBe('raw-token-value')
+  })
+
+  it('rejects unresolved, materialized-header, and unsafe bearer MCP projections before spawn', async () => {
+    const spawn = vi.fn()
+    const adapter = new CodexCliAdapter({ runtimeDependencies: { spawn } })
+    const base = { id: 'worker', transport: { kind: 'http' as const, url: 'http://127.0.0.1:7821' } }
+
+    await expect(collect(adapter.executeWithRaw({
+      prompt: 'missing ref',
+      options: {
+        mcpServers: [{ ...base, transport: { ...base.transport, bearerTokenEnv: { envVar: 'CODEV_MCP_TOKEN', tokenRef: 'missing' } } }],
+      },
+    }))).rejects.toMatchObject({ code: 'CAPABILITY_DENIED' })
+    await expect(collect(adapter.executeWithRaw({
+      prompt: 'headers',
+      options: { mcpServers: [{ ...base, transport: { ...base.transport, headerRefs: { Authorization: 'secret-ref' } } }] },
+    }))).rejects.toMatchObject({ code: 'CAPABILITY_DENIED' })
+    await expect(collect(adapter.executeWithRaw({
+      prompt: 'unsafe env',
+      options: {
+        mcpServers: [{ ...base, transport: { ...base.transport, bearerTokenEnv: { envVar: 'bad-name', tokenRef: 'token' } } }],
+        mcpReferenceValues: { token: 'value' },
+      },
+    }))).rejects.toMatchObject({ code: 'CAPABILITY_DENIED' })
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
   it('rejects unsupported policy and MCP combinations before spawn after a prior successful run', async () => {
     const spawn = vi.fn((_command: string, _args: readonly string[], _options: SpawnOptions) => {
       const child = createChild()

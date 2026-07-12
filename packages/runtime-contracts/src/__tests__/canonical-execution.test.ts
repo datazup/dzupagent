@@ -126,6 +126,10 @@ describe("canonical execution contracts", () => {
         kind: "http",
         url: "https://gateway.example.test/mcp/research",
         headerRefs: { Authorization: "secret://gateway/research-token" },
+        bearerTokenEnv: {
+          envVar: "DZUP_MCP_BEARER_TOKEN",
+          tokenRef: "secret://gateway/research-token",
+        },
       },
     } satisfies McpServerDescriptor;
 

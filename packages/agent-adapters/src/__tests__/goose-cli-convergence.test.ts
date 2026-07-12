@@ -232,5 +232,22 @@ describe('Goose CLI convergence contract', () => {
       options: { mcpServers: [{ id: 'x', transport: { kind: 'http', url: 'https://example.test' }, disabledTools: ['delete'] }] },
     })))
     expect((mcp.at(-1) as { error?: string }).error).toContain('per-tool controls')
+
+    const bearer = await collectEvents(new GooseAdapter({ cliBaseProfileRoot: profile }).execute(fullAccess({
+      workingDirectory: workspace,
+      options: {
+        gooseHttpTransport: 'streamable-http',
+        mcpReferenceValues: { token: 'secret' },
+        mcpServers: [{
+          id: 'worker',
+          transport: {
+            kind: 'http',
+            url: 'http://127.0.0.1:7821',
+            bearerTokenEnv: { envVar: 'CODEV_MCP_TOKEN', tokenRef: 'token' },
+          },
+        }],
+      },
+    })))
+    expect((bearer.at(-1) as { error?: string }).error).toContain('bearer-token authentication')
   })
 })
