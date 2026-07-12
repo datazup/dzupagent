@@ -6,9 +6,10 @@
  * API credential environment variables are removed before spawn.
  */
 
-import { stat } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ForgeError } from '@dzupagent/core/events'
+import type { McpServerDescriptor } from '@dzupagent/runtime-contracts'
 import type {
   AdapterConfig,
   AdapterCapabilityProfile,
@@ -254,17 +255,22 @@ export class GeminiCLIAdapter extends BaseCliAdapter {
       throw policyRejected('Gemini CLI write access requires an explicit working directory', 'missing_working_directory')
     }
     const baseProfileInputs = await this.buildBaseProfileInputs()
+    const mcpProjection = projectGeminiMcp(input)
+    const settings = mcpProjection ? await this.projectSettings(mcpProjection.servers) : undefined
     const projection = await createCliHomeProjection({
       prefix: 'dzupagent-gemini-',
       envVar: 'GEMINI_CLI_HOME',
       approvedBaseProfileRoots: this.geminiConfig.cliBaseProfileRoot
         ? [this.geminiConfig.cliBaseProfileRoot]
         : [],
-      baseProfileInputs,
+      baseProfileInputs: mcpProjection
+        ? Object.fromEntries(Object.entries(baseProfileInputs).filter(([, value]) => value.targetPath !== '.gemini/settings.json'))
+        : baseProfileInputs,
+      ...(settings ? { generatedFiles: { settings: { path: '.gemini/settings.json', content: settings } } } : {}),
       requiredDirectories: ['.gemini/tmp', '.gemini/history'],
     })
     try {
-      const env = { ...this.buildSpawnEnv(input), ...projection.env }
+      const env = { ...this.buildSpawnEnv(input), ...projection.env, ...(mcpProjection?.env ?? {}) }
       for (const key of API_CREDENTIAL_ENV_KEYS) delete env[key]
       return {
         args: this.buildArgs(input),
@@ -298,9 +304,7 @@ export class GeminiCLIAdapter extends BaseCliAdapter {
     if (policy?.allowedTools?.length || policy?.blockedTools?.length) {
       throw policyRejected('Gemini CLI tool allow/block projection is not proven by this adapter', 'unsupported_tool_policy')
     }
-    if (readMcpDescriptors(input).length > 0) {
-      throw policyRejected('Gemini CLI MCP descriptors are not projected by this adapter', 'unsupported_mcp')
-    }
+    validateGeminiMcpDescriptors(input)
   }
 
   private resolveSandbox(input: AgentInput): 'read-only' | 'workspace-write' | 'full-access' {
@@ -334,6 +338,32 @@ export class GeminiCLIAdapter extends BaseCliAdapter {
     }
     return inputs
   }
+
+  private async projectSettings(
+    servers: Readonly<Record<string, unknown>>,
+  ): Promise<string> {
+    const root = this.geminiConfig.cliBaseProfileRoot
+    const files = this.geminiConfig.cliBaseProfileFiles ?? ['settings.json', 'projects.json', 'installation_id']
+    let settings: Record<string, unknown> = {}
+    if (root && files.includes('settings.json')) {
+      const sourcePath = join(root, 'settings.json')
+      const info = await stat(sourcePath).catch(() => null)
+      if (info) {
+        if (!info.isFile()) throw new Error(`Gemini base-profile input must be a regular file: ${sourcePath}`)
+        if (info.size > 1024 * 1024) throw new Error('Gemini base settings exceed 1 MiB')
+        const parsed = JSON.parse(await readFile(sourcePath, 'utf8')) as unknown
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('Gemini base settings must be a JSON object')
+        }
+        settings = parsed as Record<string, unknown>
+      }
+    }
+    const existing = settings['mcpServers']
+    const existingServers = existing && typeof existing === 'object' && !Array.isArray(existing)
+      ? existing as Record<string, unknown>
+      : {}
+    return `${JSON.stringify({ ...settings, mcpServers: { ...existingServers, ...servers } }, null, 2)}\n`
+  }
 }
 
 export function createGeminiCliAdapter(config: GeminiCliAdapterConfig = {}): GeminiCLIAdapter {
@@ -353,7 +383,87 @@ function stringOption(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-function readMcpDescriptors(input: AgentInput): readonly unknown[] {
+function readMcpDescriptors(input: AgentInput): readonly McpServerDescriptor[] {
   const value = input.options?.['mcpServers']
-  return Array.isArray(value) ? value : []
+  return Array.isArray(value) ? value as McpServerDescriptor[] : []
+}
+
+function readMcpReferenceValues(input: AgentInput): Readonly<Record<string, string>> {
+  const value = input.options?.['mcpReferenceValues']
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+}
+
+interface GeminiMcpProjection {
+  readonly servers: Readonly<Record<string, unknown>>
+  readonly env: Readonly<Record<string, string>>
+}
+
+function validateGeminiMcpDescriptors(input: AgentInput): void {
+  for (const descriptor of readMcpDescriptors(input)) {
+    if (!descriptor || typeof descriptor !== 'object' || !/^[A-Za-z0-9_-]+$/u.test(descriptor.id)) {
+      throw policyRejected('Gemini MCP server ids must use letters, digits, underscore, or hyphen', 'invalid_mcp_id')
+    }
+    if (descriptor.transport?.kind !== 'http') {
+      throw policyRejected(`Gemini CLI supports only HTTP MCP descriptors: ${descriptor.id}`, 'unsupported_mcp_transport')
+    }
+    parseHttpUrl(descriptor.transport.url, descriptor.id)
+    if (descriptor.transport.headerRefs && Object.keys(descriptor.transport.headerRefs).length > 0) {
+      throw policyRejected(`Gemini CLI requires bearerTokenEnv instead of materialized HTTP headers for MCP server ${descriptor.id}`, 'unsupported_mcp_headers')
+    }
+    const bearer = descriptor.transport.bearerTokenEnv
+    if (!bearer) {
+      throw policyRejected(`Gemini authenticated MCP requires bearerTokenEnv for server ${descriptor.id}`, 'missing_mcp_bearer_env')
+    }
+    if (
+      !/^[A-Z][A-Z0-9_]*$/u.test(bearer.envVar)
+      || !/(?:TOKEN|AUTH|BEARER)/u.test(bearer.envVar)
+      || ['PATH', 'HOME', 'GEMINI_CLI_HOME', 'NODE_OPTIONS', ...API_CREDENTIAL_ENV_KEYS].includes(bearer.envVar as never)
+    ) {
+      throw policyRejected(`Invalid bearer token environment variable for MCP server ${descriptor.id}`, 'invalid_mcp_bearer_env')
+    }
+  }
+}
+
+function projectGeminiMcp(input: AgentInput): GeminiMcpProjection | null {
+  const descriptors = readMcpDescriptors(input)
+  if (descriptors.length === 0) return null
+  validateGeminiMcpDescriptors(input)
+  const refs = readMcpReferenceValues(input)
+  const env: Record<string, string> = {}
+  const servers: Record<string, unknown> = {}
+  for (const descriptor of descriptors) {
+    if (descriptor.transport.kind !== 'http' || !descriptor.transport.bearerTokenEnv) continue
+    const { envVar, tokenRef } = descriptor.transport.bearerTokenEnv
+    const token = refs[tokenRef]
+    if (!token || /[\0\r\n]/u.test(token)) {
+      throw policyRejected(`Unresolved or invalid MCP bearer token reference: ${tokenRef}`, 'unresolved_mcp_bearer_ref')
+    }
+    if (env[envVar] !== undefined && env[envVar] !== token) {
+      throw policyRejected(`Conflicting MCP bearer token values for environment variable: ${envVar}`, 'conflicting_mcp_bearer_env')
+    }
+    env[envVar] = token
+    servers[descriptor.id] = {
+      url: parseHttpUrl(descriptor.transport.url, descriptor.id).toString(),
+      type: 'http',
+      headers: { Authorization: `Bearer \${${envVar}}` },
+      ...(descriptor.enabledTools?.length ? { includeTools: [...descriptor.enabledTools] } : {}),
+      ...(descriptor.disabledTools?.length ? { excludeTools: [...descriptor.disabledTools] } : {}),
+    }
+  }
+  return { servers, env }
+}
+
+function parseHttpUrl(value: string, id: string): URL {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw policyRejected(`Invalid MCP URL for server ${id}`, 'invalid_mcp_url')
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw policyRejected(`MCP URL must use http or https for server ${id}`, 'invalid_mcp_url')
+  }
+  return url
 }
