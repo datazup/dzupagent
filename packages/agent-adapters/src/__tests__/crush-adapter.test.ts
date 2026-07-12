@@ -45,15 +45,8 @@ describe('CrushAdapter', () => {
       }
     })
 
-    const adapter = new CrushAdapter({
-      model: 'q4',
-      providerOptions: {
-        quantization: 'q4_k_m',
-        gpuLayers: 24,
-        contextSize: '8192',
-      },
-    })
-    const events = await collectEvents(adapter.execute({ prompt: 'build', maxTurns: 1 }))
+    const adapter = new CrushAdapter()
+    const events = await collectEvents(adapter.execute({ prompt: 'build' }))
 
     expect(events.map((e) => e.type)).toEqual([
       'adapter:started',
@@ -89,14 +82,10 @@ describe('CrushAdapter', () => {
     }
 
     const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-    expect(args).toContain('--model')
-    expect(args).toContain('q4')
-    expect(args).toContain('--quantization')
-    expect(args).toContain('q4_k_m')
-    expect(args).toContain('--gpu-layers')
-    expect(args).toContain('24')
-    expect(args).toContain('--context-size')
-    expect(args).toContain('8192')
+    expect(args).toContain('run')
+    expect(args).toContain('--quiet')
+    expect(args).not.toContain('--output-format')
+    expect(args).not.toContain('--prompt')
   })
 
   it('ignores malformed records without type or event fields', async () => {
@@ -244,7 +233,7 @@ describe('CrushAdapter', () => {
     const adapter = new CrushAdapter()
 
     await expect(collectEvents(adapter.resumeSession('sess', { prompt: 'resume' }))).rejects.toMatchObject({
-      code: 'ADAPTER_SESSION_NOT_FOUND',
+      code: 'CAPABILITY_DENIED',
     })
   })
 
@@ -301,21 +290,19 @@ describe('CrushAdapter', () => {
     ])
   })
 
-  it('maps sandbox mode to --permission value', async () => {
+  it('requires explicit no-approval policy for workspace write', async () => {
     mockIsBinaryAvailable.mockResolvedValue(true)
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
       yield { type: 'completed', result: 'ok' }
     })
 
     const adapter = new CrushAdapter({ sandboxMode: 'workspace-write' })
-    await collectEvents(adapter.execute({ prompt: 'x' }))
-
-    const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-    expect(args).toContain('--permission')
-    expect(args).toContain('workspace')
+    const events = await collectEvents(adapter.execute({ prompt: 'x' }))
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
+    expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
   })
 
-  it('maps sandbox read-only mode to read-only value', async () => {
+  it('uses private config policy rather than invented permission flags', async () => {
     mockIsBinaryAvailable.mockResolvedValue(true)
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
       yield { type: 'completed', result: 'ok' }
@@ -325,22 +312,20 @@ describe('CrushAdapter', () => {
     await collectEvents(adapter.execute({ prompt: 'x' }))
 
     const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-    expect(args).toContain('--permission')
-    expect(args).toContain('read-only')
+    expect(args).not.toContain('--permission')
+    expect(args).toContain('--data-dir')
   })
 
-  it('maps sandbox full-access mode to full value', async () => {
+  it('requires explicit no-approval policy for full access', async () => {
     mockIsBinaryAvailable.mockResolvedValue(true)
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
       yield { type: 'completed', result: 'ok' }
     })
 
     const adapter = new CrushAdapter({ sandboxMode: 'full-access' })
-    await collectEvents(adapter.execute({ prompt: 'x' }))
-
-    const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-    expect(args).toContain('--permission')
-    expect(args).toContain('full')
+    const events = await collectEvents(adapter.execute({ prompt: 'x' }))
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:failed', code: 'CAPABILITY_DENIED' })
+    expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
   })
 
   it('exposes runtime capabilities', () => {
@@ -349,8 +334,9 @@ describe('CrushAdapter', () => {
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
-      supportsStreaming: true,
+      supportsStreaming: false,
       supportsCostUsage: false,
+      nativeToolControls: { mode: true, allowlist: true, blocklist: true },
     })
   })
 })

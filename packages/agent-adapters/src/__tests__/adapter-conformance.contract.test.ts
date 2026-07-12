@@ -98,7 +98,7 @@ describe('CLI adapter conformance contract', () => {
         inputTokens: 77,
         outputTokens: 18,
       },
-      expectedArgs: ['--output-format', 'jsonl', '--prompt', 'contract'],
+      expectedArgs: ['--data-dir', 'run', '--quiet', '--', 'contract'],
     },
     {
       providerId: 'gemini',
@@ -213,7 +213,7 @@ describe('CLI adapter conformance contract', () => {
     const adapter = new CrushAdapter()
 
     await expect(drainEvents(adapter.resumeSession('sess-1', { prompt: 'resume' }))).rejects.toMatchObject({
-      code: 'ADAPTER_SESSION_NOT_FOUND',
+      code: 'CAPABILITY_DENIED',
     })
   })
 })

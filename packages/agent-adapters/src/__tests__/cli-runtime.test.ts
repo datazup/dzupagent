@@ -57,6 +57,17 @@ describe('bounded CLI runtime', () => {
     expect(records).toEqual([{ type: 'ok', value: 1 }])
   })
 
+  it('collects bounded terminal text as one deterministic result record', async () => {
+    const records = await collect(runJsonlProcess({
+      command: process.execPath,
+      args: ['-e', `process.stdout.write('plain ');setTimeout(()=>process.stdout.write('answer\\n'),10)`],
+      stdoutMode: 'text',
+      limits: { stdoutBytes: 1024 },
+    }))
+
+    expect(records).toEqual([expect.objectContaining({ type: 'text_result', content: 'plain answer', duration_ms: expect.any(Number) })])
+  })
+
   it('classifies timeout and terminates the child', async () => {
     const child = createInjectedChild()
     const killed: NodeJS.Signals[] = []
