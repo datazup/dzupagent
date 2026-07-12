@@ -1,11 +1,31 @@
 import type { AdapterProviderId } from "./provider.js";
 
+export type {
+  ExecutionRouteCandidate,
+  ExecutionRouteCandidateHealth,
+  ExecutionRouteCostClass,
+  ExecutionRouteDecision,
+  ExecutionRoutePolicy,
+  ExecutionRoutePrivacyClass,
+  ExecutionRouteRejection,
+  ExecutionRouteRejectionCode,
+  ExecutionRouteRequirements,
+  ExecutionRouteTransitionDecision,
+  ExecutionRouteTransitionKind,
+  ProviderExecutionBackend,
+} from "@dzupagent/runtime-contracts";
+
 /** Task descriptor used by the router to decide which adapter to use */
 export interface TaskDescriptor {
   prompt: string;
   tags: string[];
   budgetConstraint?: "low" | "medium" | "high" | "unlimited" | undefined;
   preferredProvider?: AdapterProviderId | undefined;
+  /**
+   * Explicit authorization for the legacy provider-only fallback path.
+   * Candidate routing should be preferred when cost/privacy/identity matter.
+   */
+  approvedFallbackProviders?: AdapterProviderId[] | undefined;
   requiresExecution?: boolean | undefined;
   requiresReasoning?: boolean | undefined;
   workingDirectory?: string | undefined;
@@ -28,6 +48,15 @@ export interface TaskDescriptor {
    * prompt text — useful when the caller has already run a precise tokenizer.
    */
   estimatedInputTokens?: number | undefined;
+  /**
+   * R3-ISO: owning tenant, for routing-decision audit attribution only.
+   * Mirrors the resolveTenantId convention from packages/server's run
+   * pipeline (tenantId → metadata.tenantId → 'default'). Does not gate
+   * provider selection — providers are shared infrastructure, not
+   * tenant-scoped resources.
+   */
+  tenantId?: string | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 /** Decision made by the task router */

@@ -5,7 +5,7 @@
  * provider registry primitives, and provider adapter factories.
  *
  * This subpath is intended for consumers that only need the bare
- * provider-adapter surface (Claude/Codex/Gemini/Qwen/Crush/Goose/OpenAI/OpenRouter)
+ * provider-adapter surface (Claude/Codex/Gemini/Qwen/Crush/Goose/Ollama/OpenAI/OpenRouter)
  * without orchestration, HTTP, recovery, learning, or workflow planes.
  */
 
@@ -57,6 +57,8 @@ export { QwenAdapter } from './qwen/qwen-adapter.js'
 export { CrushAdapter } from './crush/crush-adapter.js'
 export { GooseAdapter, createGooseCliAdapter } from './goose/goose-adapter.js'
 export type { GooseCliAdapterConfig } from './goose/goose-adapter.js'
+export { OllamaAdapter, createOllamaAdapter, resolveLocalModelEndpoint } from './ollama/ollama-adapter.js'
+export type { OllamaAdapterConfig, LocalModelInspection } from './ollama/ollama-adapter.js'
 export { OpenRouterAdapter } from './openrouter/openrouter-adapter.js'
 export type { OpenRouterConfig } from './openrouter/openrouter-adapter.js'
 export { OpenAIAdapter } from './openai/openai-adapter.js'

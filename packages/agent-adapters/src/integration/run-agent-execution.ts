@@ -21,6 +21,8 @@ export type AgentExecutionSandboxMode = NonNullable<AdapterConfig['sandboxMode']
 
 export interface AgentExecutionRequest {
   providerId?: AgentExecutionProviderId | undefined
+  /** Explicit legacy cross-provider fallback authorization. */
+  approvedFallbackProviders?: AgentExecutionProviderId[] | undefined
   prompt: string
   workingDirectory?: string | undefined
   model?: string | undefined
@@ -125,6 +127,7 @@ function projectTaskDescriptor(request: AgentExecutionRequest): TaskDescriptor {
     prompt: request.prompt,
     tags: ['agent-execution', 'execute', 'code'],
     ...(request.providerId ? { preferredProvider: request.providerId } : {}),
+    ...(request.approvedFallbackProviders ? { approvedFallbackProviders: request.approvedFallbackProviders } : {}),
     requiresExecution: true,
     ...(request.reasoning === 'high' ? { requiresReasoning: true } : {}),
     ...(request.workingDirectory ? { workingDirectory: request.workingDirectory } : {}),

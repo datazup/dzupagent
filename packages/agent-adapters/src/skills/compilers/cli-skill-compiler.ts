@@ -23,6 +23,7 @@ const PROVIDER_FEATURES: Record<string, readonly CliFeature[]> = {
   crush: ['systemPrompt'],
   goose: ['systemPrompt', 'toolBindings'],
   openrouter: ['systemPrompt'],
+  ollama: ['systemPrompt', 'toolBindings'],
 }
 
 /** CLI provider IDs handled by this compiler. */
@@ -32,6 +33,7 @@ const CLI_PROVIDER_IDS: ReadonlySet<AdapterProviderId> = new Set([
   'crush',
   'goose',
   'openrouter',
+  'ollama',
 ])
 
 export function isCliProviderId(id: AdapterProviderId): boolean {

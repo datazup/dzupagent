@@ -11,6 +11,7 @@ export * from "./script-runs.js";
 export * from "./pipeline.js";
 export * from "./canonical-execution.js";
 export * from "./canonical-gates.js";
+export * from "./local-model.js";
 export {
   canonicalInputDigest,
   materializeIdempotencyKey,

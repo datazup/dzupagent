@@ -184,6 +184,7 @@ export class MCPToolSharingBridge {
       case "goose":
       case "openrouter":
       case "openai":
+      case "ollama":
         return this.buildCLIConfig(toolList, providerId);
     }
   }

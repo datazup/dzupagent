@@ -46,6 +46,7 @@ const PROVIDER_RATES: Record<AdapterProviderId, ProviderRates> = {
   goose: { inputCentsPer1M: 0, outputCentsPer1M: 0 },
   openrouter: { inputCentsPer1M: 300, outputCentsPer1M: 1500 },
   openai: { inputCentsPer1M: 150, outputCentsPer1M: 600 },          // gpt-4o-mini (2025-05)
+  ollama: { inputCentsPer1M: 0, outputCentsPer1M: 0 },
 }
 
 // ---------------------------------------------------------------------------

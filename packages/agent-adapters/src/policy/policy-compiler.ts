@@ -286,6 +286,7 @@ const PROVIDER_COMPILERS: Record<AdapterProviderId, ProviderCompiler> = {
   goose: compileForGoose,
   openrouter: compileForOpenRouter,
   openai: compileForOpenAI,
+  ollama: compileForOpenAI,
 }
 
 // ---------------------------------------------------------------------------

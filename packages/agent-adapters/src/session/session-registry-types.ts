@@ -57,6 +57,8 @@ export interface MultiTurnOptions {
   workflowId: string
   /** Which provider to use for the next turn */
   provider?: AdapterProviderId | undefined
+  /** Explicit legacy cross-provider fallback authorization. */
+  approvedFallbackProviders?: AdapterProviderId[] | undefined
   /** Whether to include conversation history as context */
   includeHistory?: boolean | undefined
   /** Max history entries to include in context. Default 10 */

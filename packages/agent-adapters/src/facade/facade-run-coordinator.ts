@@ -182,6 +182,7 @@ export async function* executeChatWithRaw(
     prompt,
     tags: [],
     preferredProvider: options?.provider,
+    approvedFallbackProviders: options?.approvedFallbackProviders,
     workingDirectory: options?.workingDirectory,
   }
   const policyProvider = resolvePolicyProvider({
@@ -201,6 +202,7 @@ export async function* executeChatWithRaw(
   const multiTurnOptions: MultiTurnOptions = {
     workflowId,
     provider: policyProvider ?? options?.provider,
+    approvedFallbackProviders: options?.approvedFallbackProviders,
     includeHistory: options?.includeHistory ?? true,
   }
 

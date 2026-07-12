@@ -41,6 +41,10 @@ export interface GooseCliAdapterConfig extends AdapterConfig {
   cliBaseSecretsFile?: string | undefined
   /** Exact provider-specific environment keys permitted into the isolated run. */
   cliProviderProfileKeys?: readonly string[] | undefined
+  /** Approved root for exact provider-host credential files copied into private HOME. */
+  cliProviderAuthRoot?: string | undefined
+  /** Exact relative credential files copied below the private HOME. */
+  cliProviderAuthFiles?: readonly string[] | undefined
   /** Optional bounded-output overrides for deterministic harness tests. */
   runtimeLimits?: Partial<CliRuntimeLimits> | undefined
 }
@@ -120,6 +124,7 @@ export class GooseAdapter extends BaseCliAdapter {
       this.gooseConfig.env,
     )
     const recipe = await this.readRecipe(input)
+    const authProjection = await this.resolveProviderAuthProjection()
     const generatedFiles: Record<string, { path: string; content: string }> = {
       config: {
         path: 'config/goose/config.yaml',
@@ -135,6 +140,8 @@ export class GooseAdapter extends BaseCliAdapter {
         'data/goose/sessions', 'cache/goose', 'state', 'logs',
       ],
       generatedFiles,
+      approvedBaseProfileRoots: authProjection.root ? [authProjection.root] : [],
+      baseProfileInputs: authProjection.files,
     })
 
     try {
@@ -235,6 +242,30 @@ export class GooseAdapter extends BaseCliAdapter {
     env['GOOSE_TELEMETRY_ENABLED'] = 'false'
     env['DO_NOT_TRACK'] = '1'
     return env
+  }
+
+  private async resolveProviderAuthProjection(): Promise<{
+    root?: string | undefined
+    files: Record<string, { sourcePath: string; targetPath: string }>
+  }> {
+    const requested = this.gooseConfig.cliProviderAuthFiles ?? []
+    if (requested.length === 0) return { files: {} }
+    const root = this.gooseConfig.cliProviderAuthRoot
+    if (!root || !isAbsolute(root)) throw denied('Goose provider auth files require an absolute approved root', 'auth_root')
+    const approvedRoot = await realpath(root).catch(() => '')
+    if (!approvedRoot) throw denied('Goose provider auth root is missing', 'auth_root')
+    const files: Record<string, { sourcePath: string; targetPath: string }> = {}
+    for (const [index, relativeFile] of requested.entries()) {
+      if (!relativeFile || isAbsolute(relativeFile) || relativeFile.split(/[\\/]/u).includes('..')) throw denied('Goose provider auth file must be a contained relative path', 'auth_file')
+      const sourcePath = join(root, relativeFile)
+      const resolvedPath = await realpath(sourcePath).catch(() => '')
+      const fromRoot = resolvedPath ? relative(approvedRoot, resolvedPath) : '..'
+      if (!resolvedPath || fromRoot.startsWith('..') || isAbsolute(fromRoot)) throw denied('Goose provider auth file escapes its approved root or is missing', 'auth_escape')
+      const info = await stat(resolvedPath)
+      if (!info.isFile()) throw denied('Goose provider auth input must be a regular file', 'auth_shape')
+      files[`auth-${index}`] = { sourcePath, targetPath: `home/${relativeFile}` }
+    }
+    return { root, files }
   }
 }
 

@@ -161,6 +161,17 @@ export const PROVIDER_CATALOG = {
     supportsSkillProjection: true,
     toolControlSupport: { mode: 'native', allowlist: 'native', blocklist: 'native' },
   },
+  ollama: {
+    runtimeExecution: true,
+    productIntegrated: false,
+    httpAdapterRouting: false,
+    monitorIntrospection: 'partial',
+    supportsReplay: false,
+    approvalSupport: 'host-gated',
+    supportsPolicyProjection: true,
+    supportsSkillProjection: true,
+    toolControlSupport: { mode: 'native', allowlist: 'native', blocklist: 'native' },
+  },
 } satisfies Record<AdapterProviderId, ProviderCapabilities>
 
 export const HTTP_ROUTABLE_PROVIDER_IDS = Object.freeze(

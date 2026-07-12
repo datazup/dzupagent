@@ -74,6 +74,11 @@ export function normalizeEvent(raw: unknown, provider: Provider): AgentEvent | n
       })
     case 'openai':
       return normalizeOpenAI(record, sessionId)
+    case 'ollama':
+      return normalizeCliWithFallback(record, sessionId, {
+        providerId: 'ollama',
+        defaultErrorMessage: 'Unknown Ollama error',
+      })
     default:
       return null
   }

@@ -121,7 +121,7 @@ export function createDefaultSkillRegistry(): AdapterSkillRegistry {
   registry.register(new ClaudeSkillCompiler())
 
   // CLI-family providers
-  const cliProviders: AdapterProviderId[] = ['gemini', 'qwen', 'crush', 'goose', 'openrouter']
+  const cliProviders: AdapterProviderId[] = ['gemini', 'qwen', 'crush', 'goose', 'openrouter', 'ollama']
   for (const pid of cliProviders) {
     registry.register(new CliSkillCompiler(pid))
   }

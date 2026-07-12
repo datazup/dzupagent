@@ -64,6 +64,8 @@ export interface OrchestratorConfig {
 export interface RunOptions {
   tags?: string[] | undefined
   preferredProvider?: AdapterProviderId | undefined
+  /** Explicit legacy cross-provider fallback authorization. */
+  approvedFallbackProviders?: AdapterProviderId[] | undefined
   signal?: AbortSignal | undefined
   workingDirectory?: string | undefined
   systemPrompt?: string | undefined
@@ -108,6 +110,8 @@ export interface ChatOptions {
   /** Resume existing workflow or create new */
   workflowId?: string | undefined
   provider?: AdapterProviderId | undefined
+  /** Explicit legacy cross-provider fallback authorization. */
+  approvedFallbackProviders?: AdapterProviderId[] | undefined
   /** Default true */
   includeHistory?: boolean | undefined
   workingDirectory?: string | undefined

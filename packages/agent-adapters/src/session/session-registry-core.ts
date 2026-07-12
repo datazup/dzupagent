@@ -130,6 +130,7 @@ export class SessionRegistry extends ProviderAwareWorkflowStore {
       prompt: effectivePrompt,
       tags: [],
       preferredProvider: targetProvider,
+      approvedFallbackProviders: options.approvedFallbackProviders,
     }
 
     const registryWithOptionalRaw = registry as ProviderAdapterRegistry & {
@@ -139,6 +140,7 @@ export class SessionRegistry extends ProviderAwareWorkflowStore {
           prompt: string
           tags: string[]
           preferredProvider: AdapterProviderId | undefined
+          approvedFallbackProviders: AdapterProviderId[] | undefined
         },
       ) => AsyncGenerator<AgentStreamEvent, void, undefined>
     }

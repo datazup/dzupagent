@@ -58,6 +58,10 @@
       "types": "./dist/recovery.d.ts",
       "import": "./dist/recovery.js"
     },
+    "./routing": {
+      "types": "./dist/routing.d.ts",
+      "import": "./dist/routing.js"
+    },
     "./skills": {
       "types": "./dist/skills.d.ts",
       "import": "./dist/skills.js"

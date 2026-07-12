@@ -52,6 +52,7 @@ export function buildRunTask(prompt: string, options: RunOptions | undefined): T
     prompt,
     tags: options?.tags ?? [],
     preferredProvider: options?.preferredProvider,
+    approvedFallbackProviders: options?.approvedFallbackProviders,
     workingDirectory: options?.workingDirectory,
   }
 }

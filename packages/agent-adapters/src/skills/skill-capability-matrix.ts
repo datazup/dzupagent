@@ -49,6 +49,7 @@ const PROVIDER_CAPABILITIES: Record<
   goose: { toolBindings: 'dropped', approvalMode: 'dropped', networkPolicy: 'dropped', budgetLimit: 'dropped' },
   openrouter: { toolBindings: 'dropped', approvalMode: 'dropped', networkPolicy: 'dropped', budgetLimit: 'dropped' },
   openai: { toolBindings: 'dropped', approvalMode: 'dropped', networkPolicy: 'dropped', budgetLimit: 'dropped' },
+  ollama: { toolBindings: 'active', approvalMode: 'dropped', networkPolicy: 'dropped', budgetLimit: 'dropped' },
 }
 
 type CapabilityKey = 'toolBindings' | 'approvalMode' | 'networkPolicy' | 'budgetLimit'

@@ -8,7 +8,7 @@
  * the side-effect surface stays in one place.
  */
 
-import { ForgeError } from '@dzupagent/core/advanced'
+import { ForgeError } from "@dzupagent/core/advanced";
 
 import type {
   AdapterProviderId,
@@ -19,12 +19,13 @@ import type {
   RoutingDecision,
   TaskDescriptor,
   TokenUsage,
-} from '../types.js'
+} from "../types.js";
+import { resolveTaskTenantId } from "./task-router.js";
 
 function isProviderRawStreamEvent(
-  event: AgentStreamEvent,
-): event is Extract<AgentStreamEvent, { type: 'adapter:provider_raw' }> {
-  return event.type === 'adapter:provider_raw'
+  event: AgentStreamEvent
+): event is Extract<AgentStreamEvent, { type: "adapter:provider_raw" }> {
+  return event.type === "adapter:provider_raw";
 }
 
 /**
@@ -34,16 +35,16 @@ function isProviderRawStreamEvent(
  */
 export type AttemptOutcome =
   | {
-      kind: 'success'
-      usage?: TokenUsage | undefined
+      kind: "success";
+      usage?: TokenUsage | undefined;
     }
   | {
-      kind: 'failure'
-      message: string
-      code: string
+      kind: "failure";
+      message: string;
+      code: string;
       /** True if the adapter itself emitted an `adapter:failed` event. */
-      sawFailedEvent: boolean
-    }
+      sawFailedEvent: boolean;
+    };
 
 /**
  * Setup a per-attempt AbortController layered on top of the caller's
@@ -56,32 +57,35 @@ export type AttemptOutcome =
  */
 export function setupAttemptTimeout(
   timeoutMs: number | undefined,
-  baseSignal: AbortSignal | undefined,
+  baseSignal: AbortSignal | undefined
 ): {
-  controller: AbortController
-  timeoutHandle: ReturnType<typeof setTimeout> | null
-  getDidTimeout: () => boolean
+  controller: AbortController;
+  timeoutHandle: ReturnType<typeof setTimeout> | null;
+  getDidTimeout: () => boolean;
 } {
-  const controller = new AbortController()
+  const controller = new AbortController();
   if (baseSignal) {
-    if (baseSignal.aborted) controller.abort()
-    else baseSignal.addEventListener('abort', () => controller.abort(), { once: true })
+    if (baseSignal.aborted) controller.abort();
+    else
+      baseSignal.addEventListener("abort", () => controller.abort(), {
+        once: true,
+      });
   }
 
-  let didTimeout = false
-  const timeoutEnabled = typeof timeoutMs === 'number' && timeoutMs > 0
+  let didTimeout = false;
+  const timeoutEnabled = typeof timeoutMs === "number" && timeoutMs > 0;
   const timeoutHandle = timeoutEnabled
     ? setTimeout(() => {
-        didTimeout = true
-        controller.abort()
+        didTimeout = true;
+        controller.abort();
       }, timeoutMs as number)
-    : null
+    : null;
 
   return {
     controller,
     timeoutHandle,
     getDidTimeout: () => didTimeout,
-  }
+  };
 }
 
 /**
@@ -101,62 +105,64 @@ export async function* runOneAttempt(
   input: AgentInput,
   providerId: AdapterProviderId,
   effectiveTimeoutMs: number | undefined,
-  getDidTimeout: () => boolean,
+  getDidTimeout: () => boolean
 ): AsyncGenerator<AgentStreamEvent, AttemptOutcome, undefined> {
-  let sawCompleted = false
-  let sawFailed = false
-  let lastFailedEvent: Extract<AgentEvent, { type: 'adapter:failed' }> | undefined
-  let completedUsage: TokenUsage | undefined
+  let sawCompleted = false;
+  let sawFailed = false;
+  let lastFailedEvent:
+    | Extract<AgentEvent, { type: "adapter:failed" }>
+    | undefined;
+  let completedUsage: TokenUsage | undefined;
 
-  const gen = adapter.executeWithRaw?.(input) ?? adapter.execute(input)
+  const gen = adapter.executeWithRaw?.(input) ?? adapter.execute(input);
 
   for await (const event of gen) {
     if (isProviderRawStreamEvent(event)) {
-      yield event
-      continue
+      yield event;
+      continue;
     }
-    if (event.type === 'adapter:completed') {
-      sawCompleted = true
+    if (event.type === "adapter:completed") {
+      sawCompleted = true;
       // Preserve token usage surfaced by the adapter so downstream
       // bus listeners (metrics, cost attribution, relay aggregators)
       // can observe real token counts instead of falling back to zero.
-      if (event.usage) completedUsage = event.usage
-    } else if (event.type === 'adapter:failed') {
-      sawFailed = true
-      lastFailedEvent = event
+      if (event.usage) completedUsage = event.usage;
+    } else if (event.type === "adapter:failed") {
+      sawFailed = true;
+      lastFailedEvent = event;
     }
-    yield event
+    yield event;
   }
 
   if (sawCompleted) {
-    return { kind: 'success', usage: completedUsage }
+    return { kind: "success", usage: completedUsage };
   }
 
-  const didTimeout = getDidTimeout()
+  const didTimeout = getDidTimeout();
   const message = didTimeout
     ? `Adapter ${providerId} exceeded registry timeout of ${effectiveTimeoutMs}ms`
     : sawFailed
-      ? (lastFailedEvent?.error ?? 'Adapter emitted failure event without details')
-      : 'Adapter stream ended without terminal adapter:completed event'
+    ? lastFailedEvent?.error ?? "Adapter emitted failure event without details"
+    : "Adapter stream ended without terminal adapter:completed event";
   const code = didTimeout
-    ? 'ADAPTER_TIMEOUT'
+    ? "ADAPTER_TIMEOUT"
     : sawFailed
-      ? (lastFailedEvent?.code ?? 'ADAPTER_EXECUTION_FAILED')
-      : 'ADAPTER_EXECUTION_FAILED'
+    ? lastFailedEvent?.code ?? "ADAPTER_EXECUTION_FAILED"
+    : "ADAPTER_EXECUTION_FAILED";
 
   // Synthesize a terminal failure event when the adapter never emitted one,
   // so downstream observers always receive a terminal signal per provider.
   if (!sawFailed) {
     yield {
-      type: 'adapter:failed',
+      type: "adapter:failed",
       providerId,
       error: message,
       code,
       timestamp: Date.now(),
-    }
+    };
   }
 
-  return { kind: 'failure', message, code, sawFailedEvent: sawFailed }
+  return { kind: "failure", message, code, sawFailedEvent: sawFailed };
 }
 
 /**
@@ -166,19 +172,22 @@ export async function* runOneAttempt(
 export function synthesizeFailureEvents(
   attempts: AdapterProviderId[],
   lastError: Error | undefined,
-  task: TaskDescriptor,
+  task: TaskDescriptor
 ): ForgeError {
   return new ForgeError({
-    code: 'ALL_ADAPTERS_EXHAUSTED',
-    message: `All adapters failed. Last error: ${lastError?.message ?? 'unknown'}`,
+    code: "ALL_ADAPTERS_EXHAUSTED",
+    message: `All adapters failed. Last error: ${
+      lastError?.message ?? "unknown"
+    }`,
     recoverable: false,
     cause: lastError,
-    suggestion: 'Check adapter health and circuit breaker states',
+    suggestion: "Check adapter health and circuit breaker states",
     context: {
       attemptedProviders: attempts,
       taskTags: task.tags,
+      tenantId: resolveTaskTenantId(task),
     },
-  })
+  });
 }
 
 /**
@@ -187,12 +196,13 @@ export function synthesizeFailureEvents(
  */
 export function resolveTimeoutMs(
   input: AgentInput,
-  defaultMs: number | undefined,
+  defaultMs: number | undefined
 ): number | undefined {
-  const perCall = typeof input.options?.['timeoutMs'] === 'number'
-    ? (input.options['timeoutMs'] as number)
-    : undefined
-  return perCall ?? defaultMs
+  const perCall =
+    typeof input.options?.["timeoutMs"] === "number"
+      ? (input.options["timeoutMs"] as number)
+      : undefined;
+  return perCall ?? defaultMs;
 }
 
 /**
@@ -202,23 +212,25 @@ export function resolveTimeoutMs(
  * selected and the full fallback chain.
  */
 export function buildRoutingProgressEvent(args: {
-  providerId: AdapterProviderId | undefined
-  decision: RoutingDecision
-  ordered: AdapterProviderId[]
-  input: AgentInput
-  message: string
-}): Extract<AgentEvent, { type: 'adapter:progress' }> {
-  const providerId = args.providerId ?? (args.ordered[0] as AdapterProviderId)
+  providerId: AdapterProviderId | undefined;
+  decision: RoutingDecision;
+  ordered: AdapterProviderId[];
+  input: AgentInput;
+  message: string;
+}): Extract<AgentEvent, { type: "adapter:progress" }> {
+  const providerId = args.providerId ?? (args.ordered[0] as AdapterProviderId);
   return {
-    type: 'adapter:progress',
+    type: "adapter:progress",
     providerId,
     timestamp: Date.now(),
-    phase: 'registry:routing',
+    phase: "registry:routing",
     message: args.message,
     total: args.ordered.length,
     current: 0,
-    ...(args.input.correlationId ? { correlationId: args.input.correlationId } : {}),
-  }
+    ...(args.input.correlationId
+      ? { correlationId: args.input.correlationId }
+      : {}),
+  };
 }
 
 /**
@@ -226,52 +238,61 @@ export function buildRoutingProgressEvent(args: {
  * `current` is 1-indexed within `total` so progress UIs render correctly.
  */
 export function buildAttemptProgressEvent(args: {
-  providerId: AdapterProviderId
-  attemptIdx: number
-  totalAttempts: number
-  input: AgentInput
-  message: string
-}): Extract<AgentEvent, { type: 'adapter:progress' }> {
+  providerId: AdapterProviderId;
+  attemptIdx: number;
+  totalAttempts: number;
+  input: AgentInput;
+  message: string;
+}): Extract<AgentEvent, { type: "adapter:progress" }> {
   return {
-    type: 'adapter:progress',
+    type: "adapter:progress",
     providerId: args.providerId,
     timestamp: Date.now(),
-    phase: args.attemptIdx === 0 ? 'registry:primary_attempt' : 'registry:fallback_attempt',
+    phase:
+      args.attemptIdx === 0
+        ? "registry:primary_attempt"
+        : "registry:fallback_attempt",
     message: args.message,
     current: args.attemptIdx + 1,
     total: args.totalAttempts,
-    ...(args.input.correlationId ? { correlationId: args.input.correlationId } : {}),
-  }
+    ...(args.input.correlationId
+      ? { correlationId: args.input.correlationId }
+      : {}),
+  };
 }
 
 /**
- * Build the fallback order: primary first, then fallbacks from the decision,
- * then any remaining healthy adapters not already listed.
+ * Build the fallback order from the explicit decision only. Appending every
+ * healthy provider silently widens identity, privacy, and cost boundaries.
  */
 export function buildFallbackOrder(
   decision: RoutingDecision,
   healthyIds: AdapterProviderId[],
+  approvedFallbackProviders: readonly AdapterProviderId[] = []
 ): AdapterProviderId[] {
-  const ordered: AdapterProviderId[] = []
-  const seen = new Set<AdapterProviderId>()
+  const ordered: AdapterProviderId[] = [];
+  const seen = new Set<AdapterProviderId>();
   // Pre-build a healthy-id Set so membership checks in addUnique are O(1)
   // amortized instead of O(n) per call (avoids overall O(n^2) behaviour
   // for large provider rosters during health/fallback pathing).
-  const healthySet = new Set<AdapterProviderId>(healthyIds)
+  const healthySet = new Set<AdapterProviderId>(healthyIds);
 
   const addUnique = (id: AdapterProviderId): void => {
     if (!seen.has(id) && healthySet.has(id)) {
-      seen.add(id)
-      ordered.push(id)
+      seen.add(id);
+      ordered.push(id);
+    }
+  };
+
+  if (decision.provider !== "auto") addUnique(decision.provider);
+  else if (healthyIds[0]) addUnique(healthyIds[0]);
+  const approved = new Set(approvedFallbackProviders);
+  if (decision.fallbackProviders) {
+    for (const fb of decision.fallbackProviders) {
+      if (approved.has(fb)) addUnique(fb);
     }
   }
-
-  if (decision.provider !== 'auto') addUnique(decision.provider)
-  if (decision.fallbackProviders) {
-    for (const fb of decision.fallbackProviders) addUnique(fb)
-  }
-  for (const id of healthyIds) addUnique(id)
-  return ordered
+  return ordered;
 }
 
 /**
@@ -280,8 +301,14 @@ export function buildFallbackOrder(
  * from a caller-initiated abort, not a timeout).
  */
 export type AttemptErrorClassification =
-  | { kind: 'propagate'; error: Error }
-  | { kind: 'recover'; error: Error; code: string; message: string; failedEvent: Extract<AgentEvent, { type: 'adapter:failed' }> }
+  | { kind: "propagate"; error: Error }
+  | {
+      kind: "recover";
+      error: Error;
+      code: string;
+      message: string;
+      failedEvent: Extract<AgentEvent, { type: "adapter:failed" }>;
+    };
 
 /**
  * Classify an error caught during a single adapter attempt.
@@ -293,29 +320,29 @@ export function classifyAttemptError(
   err: unknown,
   providerId: AdapterProviderId,
   effectiveTimeoutMs: number | undefined,
-  didTimeout: boolean,
+  didTimeout: boolean
 ): AttemptErrorClassification {
-  const error = err instanceof Error ? err : new Error(String(err))
-  if (ForgeError.is(err) && err.code === 'AGENT_ABORTED' && !didTimeout) {
-    return { kind: 'propagate', error: err }
+  const error = err instanceof Error ? err : new Error(String(err));
+  if (ForgeError.is(err) && err.code === "AGENT_ABORTED" && !didTimeout) {
+    return { kind: "propagate", error: err };
   }
 
-  const code = didTimeout ? 'ADAPTER_TIMEOUT' : 'ADAPTER_EXECUTION_FAILED'
+  const code = didTimeout ? "ADAPTER_TIMEOUT" : "ADAPTER_EXECUTION_FAILED";
   const message = didTimeout
     ? `Adapter ${providerId} exceeded registry timeout of ${effectiveTimeoutMs}ms`
-    : error.message
+    : error.message;
 
   return {
-    kind: 'recover',
+    kind: "recover",
     error,
     code,
     message,
     failedEvent: {
-      type: 'adapter:failed',
+      type: "adapter:failed",
       providerId,
       error: message,
       code,
       timestamp: Date.now(),
     },
-  }
+  };
 }

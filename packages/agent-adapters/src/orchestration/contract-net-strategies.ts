@@ -50,6 +50,7 @@ const LOCAL_TAGS = new Set([
 
 /** Approximate cost in cents per estimated 10K tokens. */
 const COST_PER_10K_TOKENS: Record<AdapterProviderId, number> = {
+  ollama: 0,
   crush: 1,
   goose: 1,
   qwen: 2,
@@ -63,6 +64,7 @@ const COST_PER_10K_TOKENS: Record<AdapterProviderId, number> = {
 
 /** Default estimated duration in ms for a standard task. */
 const DEFAULT_DURATION_MS: Record<AdapterProviderId, number> = {
+  ollama: 3_000,
   crush: 2_000,
   goose: 3_000,
   qwen: 3_000,

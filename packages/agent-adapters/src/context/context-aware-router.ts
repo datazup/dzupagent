@@ -76,6 +76,7 @@ const DEFAULT_CONTEXT_WINDOWS: Record<AdapterProviderId, number> = {
   goose: 128_000,
   openrouter: 200_000,
   openai: 128_000,
+  ollama: 32_000,
 };
 
 /**
@@ -92,6 +93,7 @@ const PROVIDER_PRIORITY: readonly AdapterProviderId[] = [
   "goose",
   "openrouter",
   "openai",
+  "ollama",
 ];
 
 function getProviderPriority(providerId: AdapterProviderId): number {
@@ -469,6 +471,7 @@ export class ContextInjectionMiddleware {
       goose: 128_000,
       openrouter: 200_000,
       openai: 128_000,
+      ollama: 32_000,
     };
     const rawWindow = contextWindows[providerId] ?? 0;
 

@@ -152,6 +152,16 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
     supportsMaxTurns: true,
     supportsStructuredOutput: false,
   },
+  ollama: {
+    supportsSandbox: false,
+    supportsNetworkToggle: false,
+    supportsToolPolicyMode: true,
+    supportsToolAllowlist: true,
+    supportsToolBlocklist: true,
+    supportsBudget: false,
+    supportsMaxTurns: true,
+    supportsStructuredOutput: true,
+  },
 }
 
 // ---------------------------------------------------------------------------

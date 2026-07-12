@@ -8,6 +8,7 @@
  * - Gemini (via gemini CLI)
  * - Qwen (via OpenAI-compatible API / qwen CLI)
  * - Crush (via crush CLI)
+ * - Ollama (via direct local-model HTTP API)
  */
 
 // --- Core types ---
@@ -68,6 +69,8 @@ export { CrushAdapter, createCrushCliAdapter } from "./crush/crush-adapter.js";
 export type { CrushCliAdapterConfig } from "./crush/crush-adapter.js";
 export { GooseAdapter, createGooseCliAdapter } from "./goose/goose-adapter.js";
 export type { GooseCliAdapterConfig } from "./goose/goose-adapter.js";
+export { OllamaAdapter, createOllamaAdapter, resolveLocalModelEndpoint } from "./ollama/ollama-adapter.js";
+export type { OllamaAdapterConfig, LocalModelInspection } from "./ollama/ollama-adapter.js";
 export { OpenRouterAdapter } from "./openrouter/openrouter-adapter.js";
 export type { OpenRouterConfig } from "./openrouter/openrouter-adapter.js";
 export { OpenAIAdapter } from "./openai/openai-adapter.js";
@@ -101,6 +104,18 @@ export {
   CompositeRouter,
 } from "./registry/task-router.js";
 export type { WeightedStrategy } from "./registry/task-router.js";
+export {
+  classifyRouteTransition,
+  planCandidateRecovery,
+  selectExecutionRoute,
+} from "./registry/deterministic-candidate-selector.js";
+export type {
+  CandidateRecoveryAction,
+  CandidateRecoveryInput,
+  DeterministicRouteSelectionOptions,
+} from "./registry/deterministic-candidate-selector.js";
+export { materializeRoutingCandidates } from "./registry/candidate-materializer.js";
+export type { CandidateMaterializationDescriptor } from "./registry/candidate-materializer.js";
 export { LearningRouter } from "./registry/learning-router.js";
 export type { LearningRouterConfig } from "./registry/learning-router.js";
 

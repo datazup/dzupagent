@@ -116,9 +116,33 @@ export interface ExecutionRouteCandidate {
   readonly provider?: string;
   /** How the provider is reached; independent from its logical identity. */
   readonly backend?: ProviderExecutionBackend;
+  /** Optional agent host wrapping the provider (for example Goose). */
+  readonly agentHost?: string;
   readonly model?: string;
+  /** Operator-owned profile identity. Never contains raw credentials. */
+  readonly profileRef?: string;
+  /** Reference to a ProviderAuthSourceDescriptor. */
+  readonly authSourceRef?: string;
+  readonly authAvailable?: boolean;
+  readonly backendAvailable?: boolean;
+  readonly modelAvailable?: boolean;
+  readonly health?: ExecutionRouteCandidateHealth;
+  readonly costClass?: ExecutionRouteCostClass;
+  readonly privacyClass?: ExecutionRoutePrivacyClass;
+  readonly locality?: "local" | "remote";
+  readonly accessClass?: "local" | "subscription" | "api";
+  readonly policyCompatible?: boolean;
   readonly tags?: readonly string[];
   readonly capabilities?: readonly string[];
+}
+
+export type ExecutionRouteCostClass = "free" | "low" | "medium" | "high";
+export type ExecutionRoutePrivacyClass = "device" | "private-network" | "provider" | "public";
+
+export interface ExecutionRouteCandidateHealth {
+  readonly status: "healthy" | "degraded" | "unhealthy" | "unknown";
+  readonly checkedAt?: string;
+  readonly reason?: string;
 }
 
 /** Physical execution path used to reach a logical provider. */
@@ -136,7 +160,19 @@ export type ExecutionRouteRejectionCode =
   | "AUTH_SOURCE_UNAVAILABLE"
   | "POLICY_INCOMPATIBLE"
   | "MODEL_UNAVAILABLE"
-  | "HEALTH_CHECK_FAILED";
+  | "HEALTH_CHECK_FAILED"
+  | "ENDPOINT_NOT_LOCAL"
+  | "ENDPOINT_NOT_APPROVED"
+  | "COST_LIMIT_EXCEEDED"
+  | "PRIVACY_INCOMPATIBLE"
+  | "TRANSITION_APPROVAL_REQUIRED";
+
+export type ExecutionRouteTransitionKind =
+  | "subscription-to-api"
+  | "local-to-remote"
+  | "identity-change"
+  | "privacy-downgrade"
+  | "higher-cost";
 
 export interface ExecutionRouteConstraint {
   readonly kind: "provider" | "tags" | "capability" | "policy";
@@ -153,6 +189,23 @@ export interface ExecutionRoutePolicy {
   readonly preferenceOrder: readonly string[];
   readonly fallback: "none" | "ordered-compatible";
   readonly maxSelectionLatencyMs: number;
+  /** Candidate whose identity/cost/privacy boundary the request starts from. */
+  readonly originCandidateId?: string;
+  readonly approvedTransitions?: readonly ExecutionRouteTransitionKind[];
+  readonly requirements?: ExecutionRouteRequirements;
+}
+
+export interface ExecutionRouteRequirements {
+  readonly providers?: readonly string[];
+  readonly backends?: readonly ProviderExecutionBackend[];
+  readonly agentHosts?: readonly string[];
+  readonly models?: readonly string[];
+  readonly capabilities?: readonly string[];
+  readonly profileRefs?: readonly string[];
+  readonly authSourceRefs?: readonly string[];
+  readonly maximumCostClass?: ExecutionRouteCostClass;
+  readonly minimumPrivacyClass?: ExecutionRoutePrivacyClass;
+  readonly requireHealthy?: boolean;
 }
 
 export interface ExecutionRouteRejection {
@@ -160,6 +213,13 @@ export interface ExecutionRouteRejection {
   readonly reasons: readonly string[];
   /** Stable machine-readable causes; reasons remain human-readable context. */
   readonly codes?: readonly ExecutionRouteRejectionCode[];
+}
+
+export interface ExecutionRouteTransitionDecision {
+  readonly fromCandidateId: string;
+  readonly toCandidateId: string;
+  readonly kinds: readonly ExecutionRouteTransitionKind[];
+  readonly approved: boolean;
 }
 
 /** Reference to authentication material. Raw credentials are never represented. */
@@ -216,6 +276,7 @@ export interface ExecutionRouteDecision {
   readonly rejected: readonly ExecutionRouteRejection[];
   readonly selectedCandidateId: string | null;
   readonly fallbackCandidateIds: readonly string[];
+  readonly transitions?: readonly ExecutionRouteTransitionDecision[];
   readonly strategy: ExecutionRoutePolicy["strategy"];
   readonly reasoningSummary?: string;
   readonly decidedAt: string;

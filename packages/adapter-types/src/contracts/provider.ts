@@ -7,5 +7,6 @@ export type AdapterProviderId =
   | 'qwen'
   | 'crush'
   | 'goose'
+  | 'ollama'
   | 'openrouter'
   | 'openai'

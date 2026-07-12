@@ -76,6 +76,7 @@ const DEFAULT_PRIORITY: Record<AdapterProviderId, number> = {
   goose: 3,
   qwen: 2,
   crush: 1,
+  ollama: 2,
 }
 
 /** Maximum observations stored per (provider, tagKey) combination */
