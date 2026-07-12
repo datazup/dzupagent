@@ -42,9 +42,8 @@ vi.mock("@openai/codex-sdk", () => ({
 }));
 
 // Must import after mocking
-const { CodexAdapter, applyDynamicWorkflowCodexDefaults } = await import(
-  "../codex/codex-adapter.js"
-);
+const { CodexAdapter, createCodexAdapter, applyDynamicWorkflowCodexDefaults } =
+  await import("../codex/codex-adapter.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -116,6 +115,32 @@ describe("CodexAdapter", () => {
       const gen = adapter.execute(makeInput());
       // Just verify no throw; model propagation checked in dedicated test
       expect(gen).toBeDefined();
+    });
+  });
+
+  describe("SDK default selection", () => {
+    it("creates the SDK-backed adapter by default and does not select a CLI subprocess implicitly", async () => {
+      const factoryAdapter = createCodexAdapter({
+        model: "gpt-5.5",
+        providerOptions: { backend: "cli" },
+      });
+      const thread = createMockThread([
+        threadStartedEvent("thread-sdk-default"),
+        turnCompletedEvent(),
+      ]);
+      mockStartThread.mockReturnValue(thread);
+
+      await collectEvents(factoryAdapter.execute(makeInput()));
+
+      expect(factoryAdapter).toBeInstanceOf(CodexAdapter);
+      expect(mockCodexCtor).toHaveBeenCalledTimes(1);
+      expect(mockStartThread).toHaveBeenCalledWith(
+        expect.objectContaining({ model: "gpt-5.5" }),
+      );
+      expect(mockResumeThread).not.toHaveBeenCalled();
+      expect(mockCodexCtor.mock.calls[0]?.[0]).not.toHaveProperty(
+        "codexPathOverride",
+      );
     });
   });
 
@@ -478,6 +503,54 @@ describe("CodexAdapter", () => {
         outputTokens: 200,
         cachedInputTokens: 25,
       });
+    });
+
+    it("filters provider_raw events from execute while preserving normalized non-raw events", async () => {
+      const thread = createMockThread([
+        threadStartedEvent("thread-filtered-raw"),
+        itemCompletedEvent({
+          type: "agent_message",
+          id: "msg-filtered",
+          text: "visible message",
+        }),
+        turnCompletedEvent(),
+      ]);
+      mockStartThread.mockReturnValue(thread);
+
+      const executeEvents = await collectEvents(adapter.execute(makeInput()));
+      expect(
+        executeEvents.find((event) => event.type === "adapter:provider_raw"),
+      ).toBeUndefined();
+      expect(
+        executeEvents.find(
+          (event) =>
+            event.type === "adapter:message" &&
+            event.content === "visible message",
+        ),
+      ).toBeDefined();
+
+      mockStartThread.mockReturnValue(
+        createMockThread([
+          threadStartedEvent("thread-with-raw"),
+          itemCompletedEvent({
+            type: "agent_message",
+            id: "msg-raw",
+            text: "raw path message",
+          }),
+          turnCompletedEvent(),
+        ]),
+      );
+      const rawEvents = await collectEvents(adapter.executeWithRaw(makeInput()));
+      expect(
+        rawEvents.filter((event) => event.type === "adapter:provider_raw"),
+      ).toHaveLength(3);
+      expect(
+        rawEvents.find(
+          (event) =>
+            event.type === "adapter:message" &&
+            event.content === "raw path message",
+        ),
+      ).toBeDefined();
     });
 
     it("emits failed event when SDK throws during runStreamed", async () => {
