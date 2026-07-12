@@ -44,7 +44,7 @@ const AGENT = {
 };
 
 function makeWorkerOptions(
-  overrides: Partial<StartRunWorkerOptions> = {}
+  overrides: Partial<StartRunWorkerOptions> = {},
 ): StartRunWorkerOptions {
   return {
     runQueue: new InMemoryRunQueue({ concurrency: 1 }),
@@ -219,5 +219,58 @@ describe("model-tier escalation tenant isolation (R3-ISO-04)", () => {
     expect(recordedKeys[0]).not.toBe(recordedKeys[1]);
     expect(recordedKeys[0]).toContain("tenant-A");
     expect(recordedKeys[1]).toContain("tenant-B");
+  });
+});
+
+describe("retrieval feedback tenant isolation (R3-ISO-05)", () => {
+  it("passes the job's tenant to the retrieval feedback sink", async () => {
+    const feedbackCalls: Array<{
+      query: string;
+      intent: string;
+      quality: string;
+      opts?: { tenantId?: string } | undefined;
+    }> = [];
+    const retrievalFeedback = {
+      sink: {
+        reportFeedback(
+          query: string,
+          intent: string,
+          quality: "good" | "bad" | "mixed",
+          opts?: { tenantId?: string },
+        ) {
+          feedbackCalls.push({ query, intent, quality, opts });
+        },
+      },
+    };
+    const reflector = {
+      score: vi.fn(() => ({ overall: 0.9, dimensions: {}, flags: [] })),
+    };
+    const runStore = new InMemoryRunStore();
+    const workerOptions = makeWorkerOptions({
+      runStore,
+      reflector,
+      retrievalFeedback,
+    });
+
+    const run = await runStore.create({ agentId: "agent-x", input: "x" });
+    await runPostRunLearningStage({
+      workerOptions,
+      job: makeJob({
+        runId: run.id,
+        metadata: {
+          tenantId: "tenant-A",
+          intent: "generate_feature",
+          query: "how do I deploy?",
+        },
+      }),
+      agent: AGENT,
+      input: "x",
+      output: "out",
+      additionalLogs: [],
+      durationMs: 10,
+    });
+
+    expect(feedbackCalls).toHaveLength(1);
+    expect(feedbackCalls[0]?.opts?.tenantId).toBe("tenant-A");
   });
 });

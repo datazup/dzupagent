@@ -7,15 +7,15 @@
  */
 
 // --- Store ---
-export { createStore } from './store-factory.js'
-export type { StoreConfig, StoreIndexConfig } from './store-factory.js'
-export type { MemoryStoreCapabilities } from './store-capabilities.js'
+export { createStore } from "./store-factory.js";
+export type { StoreConfig, StoreIndexConfig } from "./store-factory.js";
+export type { MemoryStoreCapabilities } from "./store-capabilities.js";
 
 // --- Core Service ---
-export { MemoryService } from './memory-service.js'
+export { MemoryService } from "./memory-service.js";
 
 // --- MemoryClient implementations (ADR-0005) ---
-export { InMemoryMemoryClient } from './in-memory-client.js'
+export { InMemoryMemoryClient } from "./in-memory-client.js";
 export {
   HttpMemoryClient,
   NotImplementedError,
@@ -23,119 +23,178 @@ export {
   HttpMemoryTimeoutError,
   HttpMemoryAbortError,
   HttpMemoryResponseError,
-} from './http-client.js'
+} from "./http-client.js";
 export type {
   HttpMemoryClientConfig,
   HttpMemoryOperation,
   HttpMemoryRequestResult,
-} from './http-client.js'
-export { memoryServiceToClient } from './memory-service-adapter.js'
-export type { MemoryServiceLike as AdapterMemoryServiceLike } from './memory-service-adapter.js'
+} from "./http-client.js";
+export { memoryServiceToClient } from "./memory-service-adapter.js";
+export type { MemoryServiceLike as AdapterMemoryServiceLike } from "./memory-service-adapter.js";
 
 // --- Types ---
-export type { NamespaceConfig, FormatOptions, DecayConfig, SemanticStoreAdapter } from './memory-types.js'
+export type {
+  NamespaceConfig,
+  FormatOptions,
+  DecayConfig,
+  SemanticStoreAdapter,
+} from "./memory-types.js";
 
 // --- Decay Engine ---
-export { calculateStrength, reinforceMemory, createDecayMetadata, scoreWithDecay, findWeakMemories } from './decay-engine.js'
-export type { DecayMetadata } from './decay-engine.js'
+export {
+  calculateStrength,
+  reinforceMemory,
+  createDecayMetadata,
+  scoreWithDecay,
+  findWeakMemories,
+} from "./decay-engine.js";
+export type { DecayMetadata } from "./decay-engine.js";
 
 // --- Sanitization ---
-export { sanitizeMemoryContent, stripInvisibleUnicode } from './memory-sanitizer.js'
-export type { SanitizeResult } from './memory-sanitizer.js'
+export {
+  sanitizeMemoryContent,
+  stripInvisibleUnicode,
+} from "./memory-sanitizer.js";
+export type { SanitizeResult } from "./memory-sanitizer.js";
 
 // --- Consolidation ---
-export { consolidateNamespace, consolidateAll } from './memory-consolidation.js'
+export {
+  consolidateNamespace,
+  consolidateAll,
+} from "./memory-consolidation.js";
 export type {
   ConsolidationConfig,
   ConsolidationResult as NamespaceConsolidationResult,
-} from './memory-consolidation.js'
+} from "./memory-consolidation.js";
 
 // --- Consolidation Engine (key-prefix clustering, MC-02) ---
-export { ConsolidationEngine } from './consolidation-engine.js'
+export { ConsolidationEngine } from "./consolidation-engine.js";
 export type {
   ConsolidationResult,
   ConsolidationEngineConfig,
   ConsolidationStore,
   ConsolidationStoreItem,
-} from './consolidation-engine.js'
+} from "./consolidation-engine.js";
 
 // --- Memory Pruner (TTL + capacity cap, MC-02) ---
-export { MemoryPruner } from './memory-pruner.js'
+export { MemoryPruner } from "./memory-pruner.js";
 export type {
   PruneOptions,
   PruneResult,
   MemoryStore as PrunerMemoryStore,
   MemoryStoreItem as PrunerMemoryStoreItem,
-} from './memory-pruner.js'
+} from "./memory-pruner.js";
 
 // --- Semantic Consolidation (LLM-powered) ---
-export { SemanticConsolidator, consolidateWithLLM } from './semantic-consolidation.js'
-export type { SemanticConsolidationConfig, SemanticConsolidationResult, ConsolidationAction, ConsolidationDecision } from './semantic-consolidation.js'
+export {
+  SemanticConsolidator,
+  consolidateWithLLM,
+} from "./semantic-consolidation.js";
+export type {
+  SemanticConsolidationConfig,
+  SemanticConsolidationResult,
+  ConsolidationAction,
+  ConsolidationDecision,
+} from "./semantic-consolidation.js";
 
 // --- Healer ---
-export { findDuplicates, findContradictions, findStaleRecords, healMemory } from './memory-healer.js'
-export type { HealingIssue, HealingReport, MemoryHealerConfig } from './memory-healer.js'
+export {
+  findDuplicates,
+  findContradictions,
+  findStaleRecords,
+  healMemory,
+} from "./memory-healer.js";
+export type {
+  HealingIssue,
+  HealingReport,
+  MemoryHealerConfig,
+} from "./memory-healer.js";
 
 // --- Working Memory ---
-export { WorkingMemory } from './working-memory.js'
-export type { WorkingMemoryConfig } from './working-memory.js'
+export { WorkingMemory } from "./working-memory.js";
+export type { WorkingMemoryConfig } from "./working-memory.js";
 
 // --- Versioned Working Memory ---
-export { VersionedWorkingMemory } from './versioned-working-memory.js'
-export type { VersionedWorkingMemoryConfig, WorkingMemoryDiff } from './versioned-working-memory.js'
+export { VersionedWorkingMemory } from "./versioned-working-memory.js";
+export type {
+  VersionedWorkingMemoryConfig,
+  WorkingMemoryDiff,
+} from "./versioned-working-memory.js";
 
 // --- Observation Extractor ---
-export { ObservationExtractor } from './observation-extractor.js'
-export type { ObservationExtractorConfig, Observation, ObservationCategory } from './observation-extractor.js'
+export { ObservationExtractor } from "./observation-extractor.js";
+export type {
+  ObservationExtractorConfig,
+  Observation,
+  ObservationCategory,
+} from "./observation-extractor.js";
 
 // --- Memory-Aware Extractor ---
-export { MemoryAwareExtractor } from './memory-aware-extractor.js'
-export type { MemoryAwareExtractorConfig, ExtractionResult } from './memory-aware-extractor.js'
+export { MemoryAwareExtractor } from "./memory-aware-extractor.js";
+export type {
+  MemoryAwareExtractorConfig,
+  ExtractionResult,
+} from "./memory-aware-extractor.js";
 
 // --- Frozen Snapshot ---
-export { FrozenMemorySnapshot } from './frozen-snapshot.js'
+export { FrozenMemorySnapshot } from "./frozen-snapshot.js";
 
 // --- Session Search (in-memory FTS) ---
-export { SessionSearch } from './session-search.js'
+export { SessionSearch } from "./session-search.js";
 export type {
   SearchQuery,
   SearchResult,
   SessionSearchConfig,
   SessionSearchStore,
-} from './session-search.js'
+} from "./session-search.js";
 
 // --- Staged Writer ---
-export { StagedWriter } from './staged-writer.js'
-export type { StagedRecord, MemoryStage, StagedWriterConfig } from './staged-writer.js'
+export { StagedWriter } from "./staged-writer.js";
+export type {
+  StagedRecord,
+  MemoryStage,
+  StagedWriterConfig,
+} from "./staged-writer.js";
 
 // --- Policy-Aware Staged Writer ---
-export { PolicyAwareStagedWriter } from './policy-aware-staged-writer.js'
-export type { PolicyAwareStagedWriterConfig } from './policy-aware-staged-writer.js'
+export { PolicyAwareStagedWriter } from "./policy-aware-staged-writer.js";
+export type { PolicyAwareStagedWriterConfig } from "./policy-aware-staged-writer.js";
 
 // --- Write Policy ---
-export { defaultWritePolicy, composePolicies } from './write-policy.js'
-export type { WritePolicy, WriteAction } from './write-policy.js'
+export { defaultWritePolicy, composePolicies } from "./write-policy.js";
+export type { WritePolicy, WriteAction } from "./write-policy.js";
 
 // --- Retrieval ---
-export { StoreVectorSearch } from './retrieval/vector-search.js'
-export { VectorStoreSearch } from './retrieval/vector-store-search.js'
-export type { VectorSearchResult, VectorSearchProvider } from './retrieval/vector-search.js'
+export { StoreVectorSearch } from "./retrieval/vector-search.js";
+export { VectorStoreSearch } from "./retrieval/vector-store-search.js";
+export type {
+  VectorSearchResult,
+  VectorSearchProvider,
+} from "./retrieval/vector-search.js";
 
-export { KeywordFTSSearch } from './retrieval/fts-search.js'
-export type { FTSSearchResult } from './retrieval/fts-search.js'
+export { KeywordFTSSearch } from "./retrieval/fts-search.js";
+export type { FTSSearchResult } from "./retrieval/fts-search.js";
 
-export { EntityGraphSearch } from './retrieval/graph-search.js'
-export type { GraphSearchResult } from './retrieval/graph-search.js'
+export { EntityGraphSearch } from "./retrieval/graph-search.js";
+export type { GraphSearchResult } from "./retrieval/graph-search.js";
 
 // --- Persistent Entity Graph ---
-export { PersistentEntityGraph } from './retrieval/persistent-graph.js'
-export type { EntityNode, GraphTraversalResult } from './retrieval/persistent-graph.js'
+export { PersistentEntityGraph } from "./retrieval/persistent-graph.js";
+export type {
+  EntityNode,
+  GraphTraversalResult,
+} from "./retrieval/persistent-graph.js";
 
-export { fusionSearch } from './retrieval/rrf-fusion.js'
-export type { FusedResult } from './retrieval/rrf-fusion.js'
+export { fusionSearch } from "./retrieval/rrf-fusion.js";
+export type { FusedResult } from "./retrieval/rrf-fusion.js";
 
 // --- Adaptive Retrieval ---
-export { AdaptiveRetriever, WeightLearner, DEFAULT_STRATEGIES, classifyIntent } from './retrieval/adaptive-retriever.js'
+export {
+  AdaptiveRetriever,
+  WeightLearner,
+  DEFAULT_STRATEGIES,
+  classifyIntent,
+} from "./retrieval/adaptive-retriever.js";
 export type {
   QueryIntent,
   RetrievalWeights,
@@ -148,62 +207,144 @@ export type {
   ProviderHealthMetrics,
   WeightLearnerConfig,
   FeedbackQuality,
-} from './retrieval/adaptive-retriever.js'
+  RetrievalTenantOptions,
+} from "./retrieval/adaptive-retriever.js";
 
 // --- Temporal Memory ---
-export { TemporalMemoryService, createTemporalMeta, isActive, wasActiveAsOf, wasValidAt, filterByTemporal } from './temporal.js'
-export type { TemporalMetadata, TemporalQuery, TemporalChange } from './temporal.js'
+export {
+  TemporalMemoryService,
+  createTemporalMeta,
+  isActive,
+  wasActiveAsOf,
+  wasValidAt,
+  filterByTemporal,
+} from "./temporal.js";
+export type {
+  TemporalMetadata,
+  TemporalQuery,
+  TemporalChange,
+} from "./temporal.js";
 
 // --- Scoped Memory (Multi-Agent) ---
-export { ScopedMemoryService, createAgentMemories, PolicyTemplates } from './scoped-memory.js'
-export type { MemoryAccessPolicy, NamespaceAccess, AccessViolation } from './scoped-memory.js'
+export {
+  ScopedMemoryService,
+  createAgentMemories,
+  PolicyTemplates,
+} from "./scoped-memory.js";
+export type {
+  MemoryAccessPolicy,
+  NamespaceAccess,
+  AccessViolation,
+} from "./scoped-memory.js";
 
 // --- Void Filter (ternary state filtering) ---
-export { voidFilter } from './retrieval/void-filter.js'
-export type { MemoryState, VoidFilterConfig, VoidFilterResult } from './retrieval/void-filter.js'
+export { voidFilter } from "./retrieval/void-filter.js";
+export type {
+  MemoryState,
+  VoidFilterConfig,
+  VoidFilterResult,
+} from "./retrieval/void-filter.js";
 
 // --- Hub Dampening ---
-export { applyHubDampening, getAccessCount } from './retrieval/hub-dampening.js'
-export type { HubDampenedResult, HubDampeningConfig } from './retrieval/hub-dampening.js'
+export {
+  applyHubDampening,
+  getAccessCount,
+} from "./retrieval/hub-dampening.js";
+export type {
+  HubDampenedResult,
+  HubDampeningConfig,
+} from "./retrieval/hub-dampening.js";
 
 // --- Personalized PageRank ---
-export { computePPR, queryPPR } from './retrieval/pagerank.js'
-export type { PPRConfig, PPRResult } from './retrieval/pagerank.js'
+export { computePPR, queryPPR } from "./retrieval/pagerank.js";
+export type { PPRConfig, PPRResult } from "./retrieval/pagerank.js";
 
 // --- Cross-Encoder Reranking ---
-export { rerank, createLLMReranker } from './retrieval/cross-encoder-rerank.js'
-export type { CrossEncoderProvider, RerankerConfig, RerankedResult } from './retrieval/cross-encoder-rerank.js'
+export { rerank, createLLMReranker } from "./retrieval/cross-encoder-rerank.js";
+export type {
+  CrossEncoderProvider,
+  RerankerConfig,
+  RerankedResult,
+} from "./retrieval/cross-encoder-rerank.js";
 
 // --- Dual-Stream Writer (MAGMA fast/slow path) ---
-export { DualStreamWriter } from './dual-stream-writer.js'
-export type { DualStreamConfig, PendingRecord, IngestResult } from './dual-stream-writer.js'
+export { DualStreamWriter } from "./dual-stream-writer.js";
+export type {
+  DualStreamConfig,
+  PendingRecord,
+  IngestResult,
+} from "./dual-stream-writer.js";
 
 // --- Sleep-Time Consolidation ---
-export { SleepConsolidator, runSleepConsolidation } from './sleep-consolidator.js'
-export type { SleepConsolidationConfig, SleepConsolidationReport, SleepPhase } from './sleep-consolidator.js'
+export {
+  SleepConsolidator,
+  runSleepConsolidation,
+} from "./sleep-consolidator.js";
+export type {
+  SleepConsolidationConfig,
+  SleepConsolidationReport,
+  SleepPhase,
+} from "./sleep-consolidator.js";
 
 // --- Community Detection ---
-export { CommunityDetector } from './retrieval/community-detector.js'
-export type { MemoryCommunity, CommunityDetectorConfig, CommunityDetectionResult } from './retrieval/community-detector.js'
+export { CommunityDetector } from "./retrieval/community-detector.js";
+export type {
+  MemoryCommunity,
+  CommunityDetectorConfig,
+  CommunityDetectionResult,
+} from "./retrieval/community-detector.js";
 
 // --- Observational Memory (Observer/Reflector) ---
-export { ObservationalMemory } from './observational-memory.js'
-export type { ObservationalMemoryConfig, ObservationalMemoryStats, ObserverResult, ReflectorResult } from './observational-memory.js'
+export { ObservationalMemory } from "./observational-memory.js";
+export type {
+  ObservationalMemoryConfig,
+  ObservationalMemoryStats,
+  ObserverResult,
+  ReflectorResult,
+} from "./observational-memory.js";
 
 // --- Relationship Store (Knowledge Graph Edges) ---
-export { RelationshipStore } from './retrieval/relationship-store.js'
-export type { RelationshipType, RelationshipEdge, EdgeMetadata, TraversalResult } from './retrieval/relationship-store.js'
+export { RelationshipStore } from "./retrieval/relationship-store.js";
+export type {
+  RelationshipType,
+  RelationshipEdge,
+  EdgeMetadata,
+  TraversalResult,
+} from "./retrieval/relationship-store.js";
 
 // --- Multi-Network Memory ---
-export { MultiNetworkMemory, DEFAULT_NETWORK_CONFIGS } from './multi-network-memory.js'
-export type { MemoryNetwork, NetworkConfig, NetworkMemoryRecord, MultiNetworkSearchResult, NetworkStats, MultiNetworkMemoryConfig } from './multi-network-memory.js'
+export {
+  MultiNetworkMemory,
+  DEFAULT_NETWORK_CONFIGS,
+} from "./multi-network-memory.js";
+export type {
+  MemoryNetwork,
+  NetworkConfig,
+  NetworkMemoryRecord,
+  MultiNetworkSearchResult,
+  NetworkStats,
+  MultiNetworkMemoryConfig,
+} from "./multi-network-memory.js";
 
 // --- Provenance ---
-export { ProvenanceWriter, createProvenance, extractProvenance, createContentHash } from './provenance/index.js'
-export type { MemoryProvenance, ProvenanceSource, ProvenanceWriteOptions, ProvenanceQuery } from './provenance/index.js'
+export {
+  ProvenanceWriter,
+  createProvenance,
+  extractProvenance,
+  createContentHash,
+} from "./provenance/index.js";
+export type {
+  MemoryProvenance,
+  ProvenanceSource,
+  ProvenanceWriteOptions,
+  ProvenanceQuery,
+} from "./provenance/index.js";
 
 // --- Convention Detection & Conformance ---
-export { ConventionExtractor, ALL_CONVENTION_CATEGORIES } from './convention/index.js'
+export {
+  ConventionExtractor,
+  ALL_CONVENTION_CATEGORIES,
+} from "./convention/index.js";
 export type {
   ConventionCategory,
   DetectedConvention,
@@ -213,30 +354,42 @@ export type {
   ConventionExtractorConfig,
   ConventionFilter,
   ConsolidateOptions,
-} from './convention/index.js'
+} from "./convention/index.js";
 
 // --- Causal Graph ---
-export { CausalGraph } from './causal/index.js'
-export type { CausalRelation, CausalNode, CausalTraversalOptions, CausalGraphResult } from './causal/index.js'
+export { CausalGraph } from "./causal/index.js";
+export type {
+  CausalRelation,
+  CausalNode,
+  CausalTraversalOptions,
+  CausalGraphResult,
+} from "./causal/index.js";
 
 // --- MCP Memory Server ---
-export { MCPMemoryHandler, MCP_MEMORY_TOOLS } from './mcp-memory-server.js'
-export type { MCPToolDefinition, MCPToolResult, MCPMemoryServices } from './mcp-memory-server.js'
+export { MCPMemoryHandler, MCP_MEMORY_TOOLS } from "./mcp-memory-server.js";
+export type {
+  MCPToolDefinition,
+  MCPToolResult,
+  MCPMemoryServices,
+} from "./mcp-memory-server.js";
 
 // --- Encryption ---
-export { EnvKeyProvider, EncryptedMemoryService } from './encryption/index.js'
+export { EnvKeyProvider, EncryptedMemoryService } from "./encryption/index.js";
 export type {
   EncryptedEnvelope,
   EncryptionKeyDescriptor,
   EncryptionKeyProvider,
   EncryptedMemoryServiceConfig,
-} from './encryption/index.js'
+} from "./encryption/index.js";
 
 // --- Agent File (Export/Import) ---
-export { AgentFileExporter } from './agent-file/index.js'
-export type { AgentFileExporterConfig, ExportOptions } from './agent-file/index.js'
-export { AgentFileImporter } from './agent-file/index.js'
-export { AGENT_FILE_SCHEMA, AGENT_FILE_VERSION } from './agent-file/index.js'
+export { AgentFileExporter } from "./agent-file/index.js";
+export type {
+  AgentFileExporterConfig,
+  ExportOptions,
+} from "./agent-file/index.js";
+export { AgentFileImporter } from "./agent-file/index.js";
+export { AGENT_FILE_SCHEMA, AGENT_FILE_VERSION } from "./agent-file/index.js";
 export type {
   AgentFile,
   AgentFileAgentSection,
@@ -246,11 +399,11 @@ export type {
   AgentFileStateSection,
   ImportOptions,
   ImportResult,
-} from './agent-file/index.js'
+} from "./agent-file/index.js";
 
 // --- CRDT (Conflict-Free Replicated Data Types) ---
-export { HLC } from './crdt/index.js'
-export { CRDTResolver } from './crdt/index.js'
+export { HLC } from "./crdt/index.js";
+export { CRDTResolver } from "./crdt/index.js";
 export type {
   HLCTimestamp,
   LWWRegister,
@@ -258,10 +411,10 @@ export type {
   ORSet,
   LWWMap,
   MergeResult,
-} from './crdt/index.js'
+} from "./crdt/index.js";
 
 // --- Shared Memory Spaces ---
-export { MemorySpaceManager } from './sharing/index.js'
+export { MemorySpaceManager } from "./sharing/index.js";
 export type {
   MemorySpaceManagerConfig,
   SpacePermission,
@@ -275,19 +428,23 @@ export type {
   PendingShareRequest,
   TombstoneCompactionMetrics,
   SharedMemoryEvent,
-} from './sharing/index.js'
+} from "./sharing/index.js";
 
 // --- Multi-Modal Memory (ECO-060) ---
-export { MultiModalMemoryService, InMemoryAttachmentStorage, inferAttachmentType } from './multi-modal/index.js'
+export {
+  MultiModalMemoryService,
+  InMemoryAttachmentStorage,
+  inferAttachmentType,
+} from "./multi-modal/index.js";
 export type {
   AttachmentType,
   MemoryAttachment,
   AttachmentStorageProvider,
   MultiModalMemoryServiceConfig,
-} from './multi-modal/index.js'
+} from "./multi-modal/index.js";
 
 // --- M4 Consolidation Types ---
-export { parseMemoryEntry } from './consolidation-types.js'
+export { parseMemoryEntry } from "./consolidation-types.js";
 export type {
   MemoryEntry,
   LessonDedupResult,
@@ -295,20 +452,29 @@ export type {
   StalenessPruneResult,
   ExtractedConvention,
   ConventionExtractionResult,
-} from './consolidation-types.js'
+} from "./consolidation-types.js";
 
 // --- M4 Lesson Deduplication ---
-export { dedupLessons } from './lesson-dedup.js'
+export { dedupLessons } from "./lesson-dedup.js";
 
 // --- M4 Convention Extraction from Memories ---
-export { extractConventions } from './convention/convention-extractor-m4.js'
+export { extractConventions } from "./convention/convention-extractor-m4.js";
 
 // --- M4 Staleness Pruner ---
-export { pruneStaleMemories, pruneStaleMemoriesWithGraph, computeStaleness, StalenessPruner } from './staleness-pruner.js'
-export type { StalenessPrunerOptions, StalenessPrunerConfig, StalenessPruneResultWithCausal } from './staleness-pruner.js'
+export {
+  pruneStaleMemories,
+  pruneStaleMemoriesWithGraph,
+  computeStaleness,
+  StalenessPruner,
+} from "./staleness-pruner.js";
+export type {
+  StalenessPrunerOptions,
+  StalenessPrunerConfig,
+  StalenessPruneResultWithCausal,
+} from "./staleness-pruner.js";
 
 // --- Shared Memory Namespace (Multi-Agent Collaboration) ---
-export { SharedMemoryNamespace } from './shared-namespace.js'
+export { SharedMemoryNamespace } from "./shared-namespace.js";
 export type {
   SharedEntry,
   SharedNamespaceConfig,
@@ -316,18 +482,18 @@ export type {
   SharedNamespaceStats,
   MergeReport,
   ConflictEntry,
-} from './shared-namespace.js'
+} from "./shared-namespace.js";
 
 // --- Vector Clock (Causal Ordering) ---
-export { VectorClock } from './vector-clock.js'
-export type { VectorClockComparison } from './vector-clock.js'
+export { VectorClock } from "./vector-clock.js";
+export type { VectorClockComparison } from "./vector-clock.js";
 
 // --- CRDT Network Sync Protocol ---
-export { MerkleDigest } from './sync/index.js'
-export { SyncProtocol } from './sync/index.js'
-export { SyncSession } from './sync/index.js'
-export { WebSocketSyncTransport } from './sync/index.js'
-export type { WebSocketLike } from './sync/index.js'
+export { MerkleDigest } from "./sync/index.js";
+export { SyncProtocol } from "./sync/index.js";
+export { SyncSession } from "./sync/index.js";
+export { WebSocketSyncTransport } from "./sync/index.js";
+export type { WebSocketLike } from "./sync/index.js";
 export type {
   SyncDigest,
   SyncDelta,
@@ -348,10 +514,10 @@ export type {
   SyncDeltaReceivedEvent,
   SyncErrorEvent,
   SyncStats,
-} from './sync/index.js'
+} from "./sync/index.js";
 
 // --- Dynamic Rule Engine ---
-export { DynamicRuleEngine } from './rule-engine.js'
+export { DynamicRuleEngine } from "./rule-engine.js";
 export type {
   Rule,
   RuleSource,
@@ -359,10 +525,10 @@ export type {
   LearnFromErrorParams,
   AddRuleParams,
   GetRulesParams,
-} from './rule-engine.js'
+} from "./rule-engine.js";
 
 // --- Lesson Pipeline ---
-export { LessonPipeline } from './lesson-pipeline.js'
+export { LessonPipeline } from "./lesson-pipeline.js";
 export type {
   Lesson,
   LessonType,
@@ -371,10 +537,10 @@ export type {
   RecoveryParams,
   SuccessParams,
   RetrieveParams,
-} from './lesson-pipeline.js'
+} from "./lesson-pipeline.js";
 
 // --- Skill Acquisition ---
-export { SkillAcquisitionEngine } from './skill-acquisition.js'
+export { SkillAcquisitionEngine } from "./skill-acquisition.js";
 export type {
   AcquiredSkill,
   SkillApplicationType,
@@ -384,42 +550,48 @@ export type {
   ScanRule,
   ScanParams,
   GetApplicableParams,
-} from './skill-acquisition.js'
+} from "./skill-acquisition.js";
 
 // --- Skill Packs ---
-export { SkillPackLoader, BUILT_IN_PACKS } from './skill-packs.js'
-export type { SkillPack, SkillPackEntry } from './skill-packs.js'
+export { SkillPackLoader, BUILT_IN_PACKS } from "./skill-packs.js";
+export type { SkillPack, SkillPackEntry } from "./skill-packs.js";
 
 // --- Memory Integrator ---
-export { MemoryIntegrator } from './memory-integrator.js'
-export type { MemoryContext, MemoryIntegratorConfig } from './memory-integrator.js'
+export { MemoryIntegrator } from "./memory-integrator.js";
+export type {
+  MemoryContext,
+  MemoryIntegratorConfig,
+} from "./memory-integrator.js";
 
 // --- Tenant-Scoped Store (Multi-Tenant Isolation) ---
-export { TenantScopedStore } from './tenant-scoped-store.js'
-export type { TenantScopedStoreConfig, TenantSearchResult } from './tenant-scoped-store.js'
+export { TenantScopedStore } from "./tenant-scoped-store.js";
+export type {
+  TenantScopedStoreConfig,
+  TenantSearchResult,
+} from "./tenant-scoped-store.js";
 
 // --- In-Memory Reference Tracker (cross-run promotion support) ---
-export { InMemoryReferenceTracker } from './shared/reference-tracker.js'
-export type { ReferenceCountEntry } from './shared/reference-tracker.js'
+export { InMemoryReferenceTracker } from "./shared/reference-tracker.js";
+export type { ReferenceCountEntry } from "./shared/reference-tracker.js";
 
 // --- Redis Reference Tracker ---
 export {
   RedisReferenceTracker,
   createReferenceTracker,
-} from './provenance/redis-reference-tracker.js'
+} from "./provenance/redis-reference-tracker.js";
 export type {
   RedisReferenceTrackerOptions,
   RedisClientLike as ReferenceTrackerRedisClientLike,
   RedisPipelineLike as ReferenceTrackerRedisPipelineLike,
   CreateReferenceTrackerOptions,
   ReferenceTracker,
-} from './provenance/redis-reference-tracker.js'
+} from "./provenance/redis-reference-tracker.js";
 
 // --- Team Memory Graph ---
-export { TeamMemoryGraph } from './graph/index.js'
-export { TrustScorer } from './graph/index.js'
-export { ConflictResolver } from './graph/index.js'
-export { GraphQuery } from './graph/index.js'
+export { TeamMemoryGraph } from "./graph/index.js";
+export { TrustScorer } from "./graph/index.js";
+export { ConflictResolver } from "./graph/index.js";
+export { GraphQuery } from "./graph/index.js";
 export type {
   GraphNode,
   GraphEdge,
@@ -431,4 +603,4 @@ export type {
   GraphConflictStrategy,
   GraphQueryFilter,
   TeamGraphConfig,
-} from './graph/index.js'
+} from "./graph/index.js";

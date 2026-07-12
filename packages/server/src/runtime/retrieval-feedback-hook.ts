@@ -12,15 +12,20 @@
 
 /** Minimal interface matching AdaptiveRetriever.reportFeedback(). */
 export interface RetrievalFeedbackSink {
-  reportFeedback(query: string, intent: string, quality: 'good' | 'bad' | 'mixed'): void
+  reportFeedback(
+    query: string,
+    intent: string,
+    quality: "good" | "bad" | "mixed",
+    opts?: { tenantId?: string | undefined }
+  ): void;
 }
 
 export interface RetrievalFeedbackHookConfig {
-  sink: RetrievalFeedbackSink
+  sink: RetrievalFeedbackSink;
   /** Threshold for 'good' quality (default: 0.7) */
-  goodThreshold?: number
+  goodThreshold?: number;
   /** Threshold for 'bad' quality (default: 0.3) */
-  badThreshold?: number
+  badThreshold?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -33,11 +38,11 @@ export interface RetrievalFeedbackHookConfig {
 export function mapScoreToQuality(
   overall: number,
   goodThreshold: number,
-  badThreshold: number,
-): 'good' | 'bad' | 'mixed' {
-  if (overall >= goodThreshold) return 'good'
-  if (overall <= badThreshold) return 'bad'
-  return 'mixed'
+  badThreshold: number
+): "good" | "bad" | "mixed" {
+  if (overall >= goodThreshold) return "good";
+  if (overall <= badThreshold) return "bad";
+  return "mixed";
 }
 
 /**
@@ -52,27 +57,30 @@ export function mapScoreToQuality(
  */
 function extractQuery(metadata: Record<string, unknown>): string | undefined {
   // Direct query field
-  if (typeof metadata['query'] === 'string' && metadata['query'].length > 0) {
-    return metadata['query']
+  if (typeof metadata["query"] === "string" && metadata["query"].length > 0) {
+    return metadata["query"];
   }
 
   // Nested input.message or input as string
-  const input = metadata['input']
-  if (typeof input === 'string' && input.length > 0) {
-    return input
+  const input = metadata["input"];
+  if (typeof input === "string" && input.length > 0) {
+    return input;
   }
-  if (input !== null && typeof input === 'object') {
-    const inputObj = input as Record<string, unknown>
-    if (typeof inputObj['message'] === 'string' && inputObj['message'].length > 0) {
-      return inputObj['message']
+  if (input !== null && typeof input === "object") {
+    const inputObj = input as Record<string, unknown>;
+    if (
+      typeof inputObj["message"] === "string" &&
+      inputObj["message"].length > 0
+    ) {
+      return inputObj["message"];
     }
     // Fallback: input.query
-    if (typeof inputObj['query'] === 'string' && inputObj['query'].length > 0) {
-      return inputObj['query']
+    if (typeof inputObj["query"] === "string" && inputObj["query"].length > 0) {
+      return inputObj["query"];
     }
   }
 
-  return undefined
+  return undefined;
 }
 
 /**
@@ -81,13 +89,16 @@ function extractQuery(metadata: Record<string, unknown>): string | undefined {
  * Checks: metadata.intent, metadata.routingReason
  */
 function extractIntent(metadata: Record<string, unknown>): string | undefined {
-  if (typeof metadata['intent'] === 'string' && metadata['intent'].length > 0) {
-    return metadata['intent']
+  if (typeof metadata["intent"] === "string" && metadata["intent"].length > 0) {
+    return metadata["intent"];
   }
-  if (typeof metadata['routingReason'] === 'string' && metadata['routingReason'].length > 0) {
-    return metadata['routingReason']
+  if (
+    typeof metadata["routingReason"] === "string" &&
+    metadata["routingReason"].length > 0
+  ) {
+    return metadata["routingReason"];
   }
-  return undefined
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,19 +119,30 @@ export function reportRetrievalFeedback(
   config: RetrievalFeedbackHookConfig,
   runMetadata: Record<string, unknown>,
   reflectionScore: { overall: number },
+  tenantId?: string
 ): void {
   try {
-    const query = extractQuery(runMetadata)
-    if (!query) return // Cannot report feedback without a query
+    const query = extractQuery(runMetadata);
+    if (!query) return; // Cannot report feedback without a query
 
-    const intent = extractIntent(runMetadata)
-    if (!intent) return // Cannot report feedback without an intent
+    const intent = extractIntent(runMetadata);
+    if (!intent) return; // Cannot report feedback without an intent
 
-    const goodThreshold = config.goodThreshold ?? 0.7
-    const badThreshold = config.badThreshold ?? 0.3
+    const goodThreshold = config.goodThreshold ?? 0.7;
+    const badThreshold = config.badThreshold ?? 0.3;
 
-    const quality = mapScoreToQuality(reflectionScore.overall, goodThreshold, badThreshold)
-    config.sink.reportFeedback(query, intent, quality)
+    const quality = mapScoreToQuality(
+      reflectionScore.overall,
+      goodThreshold,
+      badThreshold
+    );
+    // R3-ISO-05: scope learning feedback to the run's tenant so one tenant's
+    // reflection scores never tune another tenant's retrieval weights.
+    if (tenantId !== undefined) {
+      config.sink.reportFeedback(query, intent, quality, { tenantId });
+    } else {
+      config.sink.reportFeedback(query, intent, quality);
+    }
   } catch {
     // Retrieval feedback is best-effort — never throw
   }
