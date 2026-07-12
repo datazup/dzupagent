@@ -13,6 +13,11 @@ export { ForgeContainer, createContainer } from "./config/container.js";
 export { ForgeError } from "./errors/forge-error.js";
 export type { ForgeErrorOptions } from "./errors/forge-error.js";
 export type { ForgeErrorCode } from "./errors/error-codes.js";
+export {
+  classifyProviderError,
+  isRecoverableProviderError,
+  isContextLengthProviderError,
+} from "./errors/classify-provider-error.js";
 
 // --- Events ---
 export { createEventBus, typedEmit } from "./events/event-bus.js";
@@ -618,6 +623,12 @@ export type {
   SecureLogEntry,
   SecureLoggerOptions,
 } from "./logging/secure-logger.js";
+export {
+  withCorrelationContext,
+  currentCorrelationContext,
+  correlationFields,
+} from "./logging/correlation-context.js";
+export type { CorrelationContext } from "./logging/correlation-context.js";
 export { detectPII, redactPII } from "./security/pii-detector.js";
 export type {
   PIIType,

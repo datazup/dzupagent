@@ -8,6 +8,7 @@ export {
   createGitBranchTool,
 } from './git-tools.js'
 export { generateCommitMessage } from './commit-message.js'
+export { handleGitToolError, GitToolError } from './git-errors.js'
 export type {
   GitFileStatus,
   GitFileEntry,

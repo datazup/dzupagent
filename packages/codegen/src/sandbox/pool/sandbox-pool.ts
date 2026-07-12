@@ -107,7 +107,12 @@ export class SandboxPool {
 
     if (this.config.idleEvictionMs > 0) {
       this.evictionTimer = setInterval(() => {
-        void this.evictStale()
+        void this.evictStale().catch((err: unknown) => {
+          // A rejected eviction pass must never escape to unhandledRejection.
+          console.error('[SandboxPool] idle eviction pass failed', {
+            error: err instanceof Error ? err.message : String(err),
+          })
+        })
       }, Math.max(this.config.idleEvictionMs / 2, 5_000))
       // Allow the process to exit even if the timer is running
       if (typeof this.evictionTimer === 'object' && 'unref' in this.evictionTimer) {
@@ -271,6 +276,19 @@ export class SandboxPool {
     this.idle.length = 0
     this.idle.push(...toKeep)
 
-    await Promise.all(toEvict.map((sb) => this.destroySandbox(sb)))
+    // Use allSettled so one failing destroy does not abandon the remaining
+    // evictions. Every sandbox in `toEvict` has already been removed from
+    // `this.idle`, so a failed destroy is logged (not silently leaked) while
+    // the pool proceeds to evict the rest.
+    const results = await Promise.allSettled(toEvict.map((sb) => this.destroySandbox(sb)))
+    for (let i = 0; i < results.length; i++) {
+      const outcome = results[i]
+      if (outcome && outcome.status === 'rejected') {
+        console.error('[SandboxPool] failed to destroy evicted sandbox', {
+          sandboxId: toEvict[i]?.id,
+          error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
+        })
+      }
+    }
   }
 }

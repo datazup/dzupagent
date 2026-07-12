@@ -33,7 +33,12 @@ const { Pool } = pg
 /** Minimal structural interface for a pooled pg client. */
 interface PgPoolClient {
   query(text: string, values?: unknown[]): Promise<PgQueryResult>
-  release(): void
+  /**
+   * Release the client back to the pool. Passing a truthy error (or an Error)
+   * tells pg to destroy the connection instead of returning it to the pool,
+   * ensuring a poisoned connection is never reused.
+   */
+  release(err?: Error | boolean): void
 }
 
 /** Result shape returned by pg client.query(). */
@@ -75,9 +80,30 @@ export class PostgreSQLConnector extends BaseSQLConnector {
 
     // Force every new connection into read-only mode so that
     // user-supplied SQL cannot INSERT/UPDATE/DELETE/DROP.
+    //
+    // If the SET fails we MUST NOT keep the connection: statement_timeout does
+    // not prevent writes, so a session where read-only enforcement silently
+    // failed would run user SQL writable. Log at error level and poison the
+    // connection by releasing it with an error, which evicts it from the pool
+    // so it is never handed out writable.
     this.pool.on('connect', (client: PgPoolClient) => {
-      client.query('SET default_transaction_read_only = ON').catch(() => {
-        // Swallow — worst case we fall back to the statement_timeout guard.
+      client.query('SET default_transaction_read_only = ON').catch((err: unknown) => {
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            component: 'postgresql-connector',
+            operation: 'set_read_only',
+            message:
+              'Failed to enforce read-only mode on new connection; evicting it from the pool',
+            error: {
+              message: err instanceof Error ? err.message : String(err),
+              name: err instanceof Error ? err.constructor.name : typeof err,
+            },
+            timestamp: new Date().toISOString(),
+          }),
+        )
+        // Discard the connection so it can never be reused writable.
+        client.release(err instanceof Error ? err : new Error(String(err)))
       })
     })
   }

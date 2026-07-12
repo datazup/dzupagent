@@ -130,7 +130,17 @@ export class AgentMailboxImpl implements AgentMailbox {
 
     return this.eventBus.on('mail:received', (event) => {
       if (event.message.to === this.agentId) {
-        void handler(event.message as MailMessage)
+        // Capture async handler rejections so they never escape as an
+        // unhandled rejection. Handler failures are non-fatal.
+        void Promise.resolve(handler(event.message as MailMessage)).catch(
+          (err: unknown) => {
+            this.eventBus?.emit({
+              type: 'mail:handler_failed',
+              agentId: this.agentId,
+              error: err instanceof Error ? err.message : String(err),
+            })
+          },
+        )
       }
     })
   }

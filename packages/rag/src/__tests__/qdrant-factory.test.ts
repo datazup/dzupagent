@@ -165,6 +165,20 @@ describe('QdrantRagFactory — ingest + retrieve (mock Qdrant)', () => {
 const QDRANT_URL = process.env['QDRANT_URL']
 const runIntegration = QDRANT_URL !== undefined && QDRANT_URL !== ''
 
+// Fail-closed gate (DZUPAGENT-TEST-H-01): in the required-integration CI lane
+// (RUN_REQUIRED_INTEGRATION=1), a missing QDRANT_URL must fail the suite
+// instead of silently skipping it. `rag` has no dependency on the shared
+// `@dzupagent/test-utils` requireIntegration helper, so this mirrors its
+// policy locally — see packages/test-utils/src/require-integration.ts for
+// the canonical implementation shared by other packages.
+if (!runIntegration && process.env['RUN_REQUIRED_INTEGRATION']) {
+  throw new Error(
+    'QDRANT_URL is required for QdrantRagFactory integration tests but is not set. ' +
+      'Set it to a reachable Qdrant instance URL, or unset RUN_REQUIRED_INTEGRATION ' +
+      'to allow the suite to be skipped.'
+  )
+}
+
 describe.skipIf(!runIntegration)('QdrantRagFactory integration (live Qdrant)', () => {
   const tenantId = `test-${Date.now()}`
 

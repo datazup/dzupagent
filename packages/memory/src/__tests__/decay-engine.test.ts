@@ -68,6 +68,36 @@ describe('decay-engine', () => {
       const meta = makeMeta({ lastAccessedAt: 5000 })
       expect(calculateStrength(meta, 5000)).toBe(1)
     })
+
+    it('falls back to the default half-life when halfLifeMs is 0', () => {
+      const meta = makeMeta({ lastAccessedAt: 0, halfLifeMs: 0 })
+      const strength = calculateStrength(meta, 1000)
+      expect(Number.isFinite(strength)).toBe(true)
+      expect(strength).toBeCloseTo(Math.exp(-1000 / (24 * 60 * 60 * 1000)), 10)
+    })
+
+    it('falls back to the default half-life when halfLifeMs is negative', () => {
+      const meta = makeMeta({ lastAccessedAt: 0, halfLifeMs: -5000 })
+      const strength = calculateStrength(meta, 1000)
+      expect(Number.isFinite(strength)).toBe(true)
+      expect(strength).toBeGreaterThan(0)
+      expect(strength).toBeLessThanOrEqual(1)
+    })
+
+    it('returns a finite strength for NaN/Infinity halfLifeMs', () => {
+      for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+        const meta = makeMeta({ lastAccessedAt: 0, halfLifeMs: bad })
+        const strength = calculateStrength(meta, 1000)
+        expect(Number.isFinite(strength)).toBe(true)
+        expect(strength).toBeGreaterThanOrEqual(0)
+        expect(strength).toBeLessThanOrEqual(1)
+      }
+    })
+
+    it('returns 1 for zero elapsed even with invalid halfLifeMs', () => {
+      const meta = makeMeta({ lastAccessedAt: 1000, halfLifeMs: 0 })
+      expect(calculateStrength(meta, 1000)).toBe(1)
+    })
   })
 
   describe('reinforceMemory', () => {

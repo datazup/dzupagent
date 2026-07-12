@@ -238,6 +238,62 @@ describe('SandboxPool', () => {
     await pool.release(sb)
     await pool.drain()
   })
+
+  it('evictStale() evicts all stale sandboxes even when one destroy rejects', async () => {
+    const idle: PooledSandbox[] = [makeSandbox(), makeSandbox()]
+    const failingId = idle[0]!.id
+    const destroyed: string[] = []
+
+    const pool = new SandboxPool(
+      poolConfig({
+        minIdle: 0,
+        idleEvictionMs: 1_000,
+        createSandbox: async () => idle.shift() ?? makeSandbox(),
+        destroySandbox: async (sb) => {
+          if (sb.id === failingId) throw new Error('destroy failed')
+          destroyed.push(sb.id)
+        },
+      }),
+    )
+
+    // Two idle sandboxes, both stale (lastUsedAt well in the past).
+    await pool.start()
+    const acquired = await Promise.all([pool.acquire(), pool.acquire()])
+    const staleTime = new Date(Date.now() - 10_000)
+    for (const sb of acquired) {
+      sb.lastUsedAt = staleTime
+      await pool.release(sb)
+    }
+    // Force the released sandboxes' idle timestamps into the past.
+    const idlePool = pool as unknown as { idle: PooledSandbox[] }
+    for (const sb of idlePool.idle) sb.lastUsedAt = staleTime
+
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandled)
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      // Invoke the private eviction pass directly.
+      await (pool as unknown as { evictStale: () => Promise<void> }).evictStale()
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      // The healthy sandbox was destroyed; the failing one was still evicted
+      // from idle (not leaked back into the pool).
+      expect(destroyed).toHaveLength(1)
+      expect(pool.metrics().currentIdle).toBe(0)
+      expect(pool.metrics().totalDestroyed).toBe(2)
+      expect(errSpy).toHaveBeenCalledWith(
+        '[SandboxPool] failed to destroy evicted sandbox',
+        expect.objectContaining({ sandboxId: failingId, error: 'destroy failed' }),
+      )
+      expect(unhandled).toHaveLength(0)
+    } finally {
+      errSpy.mockRestore()
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
 })
 
 // ===========================================================================

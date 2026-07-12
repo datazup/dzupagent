@@ -57,15 +57,17 @@ export function checkPtcAccess(
   const caller = opts.runId ?? 'ptc'
 
   if (!access.allowed) {
-    void opts.governance.audit({
-      toolName,
-      input,
-      inputMetadataKeys: Object.keys(input),
-      callerAgent: caller,
-      timestamp: Date.now(),
-      allowed: false,
-      blockedReason: access.reason,
-    })
+    void opts.governance
+      .audit({
+        toolName,
+        input,
+        inputMetadataKeys: Object.keys(input),
+        callerAgent: caller,
+        timestamp: Date.now(),
+        allowed: false,
+        blockedReason: access.reason,
+      })
+      .catch((e: unknown) => reportPtcAuditFailure(toolName, 'blocked', e))
     return { allowed: false, reason: access.reason ?? `Tool '${toolName}' is blocked by policy` }
   }
 
@@ -80,15 +82,17 @@ export function checkPtcAccess(
     } catch {
       // Non-fatal: event emission must not abort the run.
     }
-    void opts.governance.audit({
-      toolName,
-      input,
-      inputMetadataKeys: Object.keys(input),
-      callerAgent: caller,
-      timestamp: Date.now(),
-      allowed: true,
-      blockedReason: 'approval required',
-    })
+    void opts.governance
+      .audit({
+        toolName,
+        input,
+        inputMetadataKeys: Object.keys(input),
+        callerAgent: caller,
+        timestamp: Date.now(),
+        allowed: true,
+        blockedReason: 'approval required',
+      })
+      .catch((e: unknown) => reportPtcAuditFailure(toolName, 'approval', e))
     return {
       allowed: false,
       reason: access.reason ?? 'Approval required before PTC execution',
@@ -96,15 +100,34 @@ export function checkPtcAccess(
     }
   }
 
-  void opts.governance.audit({
-    toolName,
-    input,
-    inputMetadataKeys: Object.keys(input),
-    callerAgent: caller,
-    timestamp: Date.now(),
-    allowed: true,
-  })
+  void opts.governance
+    .audit({
+      toolName,
+      input,
+      inputMetadataKeys: Object.keys(input),
+      callerAgent: caller,
+      timestamp: Date.now(),
+      allowed: true,
+    })
+    .catch((e: unknown) => reportPtcAuditFailure(toolName, 'allowed', e))
   return { allowed: true }
+}
+
+/**
+ * Structured fallback logger for governance audit-write failures in the PTC
+ * path. No event bus is available here, so a rejecting audit sink is surfaced
+ * via `console.error` rather than being silently dropped.
+ */
+function reportPtcAuditFailure(
+  toolName: string,
+  phase: 'blocked' | 'approval' | 'allowed',
+  err: unknown,
+): void {
+  console.error('[ptc-governance-adapter] audit failed', {
+    toolName,
+    phase,
+    error: err instanceof Error ? err.message : String(err),
+  })
 }
 
 /** Build a blocked `PtcResult` for a denied access decision. */

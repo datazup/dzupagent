@@ -180,7 +180,12 @@ describe('run-worker', () => {
     const status = await waitForTerminalStatus(runStore, run.id)
     expect(status).toBe('failed')
     const failed = await runStore.get(run.id)
-    expect(failed?.error).toContain('boom')
+    // DZUPAGENT-ERR-H-02: the client-facing run.error must be the safe, generic
+    // message — the raw executor error text ('boom') must NOT leak here.
+    expect(failed?.error).toBe('Internal server error')
+    expect(failed?.error).not.toContain('boom')
+    // ...but the full detail is retained admin-only on run.metadata.errorDetail.
+    expect((failed?.metadata as { errorDetail?: string } | undefined)?.errorDetail).toContain('boom')
     const trace = await traceStore.getTrace(run.id)
     expect(trace?.completedAt).toBeGreaterThan(0)
     expect(trace?.steps.some(step => step.type === 'system' && (step.content as { status?: string }).status === 'failed')).toBe(true)

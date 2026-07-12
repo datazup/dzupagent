@@ -13,7 +13,32 @@ import type { BaseMessage } from '@langchain/core/messages'
 import { ForgeError } from '../errors/forge-error.js'
 import { invokeWithTimeout, type InvokeOptions } from './invoke.js'
 import type { ModelFallbackCandidate, ModelRegistry } from './model-registry.js'
-import { isTransientError } from './retry.js'
+import { classifyProviderError } from '../errors/classify-provider-error.js'
+import { redactSecrets } from '../security/secrets-scanner.js'
+import { logger } from '../logging/secure-logger.js'
+import { correlationFields } from '../logging/correlation-context.js'
+
+/**
+ * Redact provider SDK error text before it reaches caller-visible surfaces
+ * (the ForgeError message, its `context.errors`, and any downstream logs).
+ *
+ * Raw SDK errors routinely embed request URLs with API keys, internal
+ * endpoints, and host:port pairs. We run the canonical `redactSecrets` helper
+ * (connection strings, bearer/API tokens, JWTs, …) and then strip any residual
+ * absolute URLs and bare host:port authorities so no internal endpoint leaks.
+ */
+function sanitizeProviderError(message: string): string {
+  let out = redactSecrets(message)
+  // Absolute URLs (http/https/ws/wss and provider scheme variants) → placeholder.
+  out = out.replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"'`,)}\]]+/gi, '[REDACTED:url]')
+  // Bare host:port authorities (e.g. "10.0.0.5:5432", "internal-db.svc:8080").
+  out = out.replace(
+    /\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9-]+:\d{2,5}\b/gi,
+    '[REDACTED:host]',
+  )
+  out = out.replace(/\b\d{1,3}(?:\.\d{1,3}){3}:\d{2,5}\b/g, '[REDACTED:host]')
+  return out
+}
 
 export interface ResilientInvokerOptions extends InvokeOptions {
   /**
@@ -102,13 +127,37 @@ export class ResilientModelInvoker {
         return response
       } catch (err: unknown) {
         const error = toError(err)
-        errors.push({ provider: candidate.provider, error: error.message })
+        // Classify into a typed PROVIDER_* / CONTEXT_LENGTH_EXCEEDED code so the
+        // fallback decision below reads the typed code / `recoverable` flag
+        // rather than re-matching the raw message.
+        const classified = classifyProviderError(error)
+        // Redacted summary is what may reach callers/LLM/ForgeError context.
+        // Full detail is logged admin-side only, through SecureLogger (which
+        // redacts secrets) with correlation ids — never propagated: raw SDK
+        // errors embed API-key URLs and internal endpoints.
+        const safeMessage = sanitizeProviderError(error.message)
+        logger.error({
+          level: 'error',
+          component: 'resilient-invoker',
+          operation: 'provider_invoke',
+          provider: candidate.provider,
+          errorCode: classified.code,
+          recoverable: classified.recoverable,
+          error: {
+            message: error.message,
+            name: error.constructor.name,
+            stack: error.stack,
+          },
+          ...correlationFields(),
+          timestamp: new Date().toISOString(),
+        })
+        errors.push({ provider: candidate.provider, error: safeMessage })
 
         // Non-transient errors should NOT trigger fallback. Re-throw immediately
         // so callers can react (compression, model-swap, surface auth error, etc).
         // ForgeError(CONTEXT_LENGTH_EXCEEDED) from invokeWithTimeout falls into
-        // this branch because its message does not match the transient heuristics.
-        if (!isTransientError(error)) {
+        // this branch because it is not classified as recoverable.
+        if (!classified.recoverable) {
           if (updateBreakers && this.registry) {
             this.registry.recordProviderFailure(candidate.provider, error)
           }

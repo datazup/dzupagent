@@ -164,10 +164,21 @@ export class BrowserPool {
         waitForSelector: (selector: string, opts: Record<string, unknown>) => Promise<void>
       }
 
+      // SSRF defense-in-depth: the initial validation above only covers the
+      // first URL. A 3xx redirect or a DNS rebind can steer a subsequent
+      // navigation at an internal service (169.254.169.254, 127.0.0.1,
+      // RFC1918). Enforce the same central policy on every main-frame
+      // navigation request via request interception, aborting disallowed ones.
+      const ssrfBlock = await this.installSsrfInterception(page)
+
       const response = await typedPage.goto(url, {
         waitUntil: 'networkidle2',
         timeout,
       })
+
+      if (ssrfBlock.blocked) {
+        throw new Error(`Outbound URL rejected: ${ssrfBlock.reason ?? 'blocked navigation'}`)
+      }
 
       if (options?.waitFor) {
         await typedPage.waitForSelector(options.waitFor, { timeout: 5000 }).catch(() => {})
@@ -197,6 +208,99 @@ export class BrowserPool {
     } finally {
       await this.release(page)
     }
+  }
+
+  /**
+   * Enable Puppeteer request interception on a page and validate every
+   * main-frame navigation request against the central outbound-URL policy.
+   *
+   * This closes the SSRF gap where only the initial URL was validated: HTTP
+   * 3xx redirects and DNS-rebinding both produce fresh navigation requests
+   * that must be re-checked. Each candidate URL is run through
+   * `validateOutboundUrl` (which resolves DNS and rejects non-public resolved
+   * IPs — the same pinning-aware check used elsewhere), and disallowed
+   * requests are aborted rather than allowed to reach an internal service.
+   *
+   * Non-navigation subresource requests (images, scripts, XHR) are allowed
+   * through unchanged to preserve existing scraper behavior for public pages.
+   *
+   * The returned handle carries the first block reason so the caller can turn
+   * an aborted navigation into a thrown error instead of silently returning a
+   * blank page.
+   */
+  private async installSsrfInterception(
+    page: unknown,
+  ): Promise<{ blocked: boolean; reason?: string }> {
+    const handle: { blocked: boolean; reason?: string } = { blocked: false }
+
+    const typedPage = page as {
+      setRequestInterception: (value: boolean) => Promise<void>
+      on: (event: string, handler: (req: unknown) => void) => void
+    }
+
+    if (
+      typeof typedPage.setRequestInterception !== 'function' ||
+      typeof typedPage.on !== 'function'
+    ) {
+      // Interception unsupported (e.g. a minimal mock) — leave behavior as-is.
+      return handle
+    }
+
+    await typedPage.setRequestInterception(true)
+
+    typedPage.on('request', (request: unknown) => {
+      const typedRequest = request as {
+        url: () => string
+        isNavigationRequest?: () => boolean
+        resourceType?: () => string
+        continue: () => Promise<void>
+        abort: (errorCode?: string) => Promise<void>
+      }
+
+      void this.handleInterceptedRequest(typedRequest, handle)
+    })
+
+    return handle
+  }
+
+  /** Validate a single intercepted request and continue or abort it. */
+  private async handleInterceptedRequest(
+    request: {
+      url: () => string
+      isNavigationRequest?: () => boolean
+      resourceType?: () => string
+      continue: () => Promise<void>
+      abort: (errorCode?: string) => Promise<void>
+    },
+    handle: { blocked: boolean; reason?: string },
+  ): Promise<void> {
+    const requestUrl = request.url()
+
+    // Only main-frame navigations (initial load + redirect targets) can steer
+    // the browser at an internal service in a way the initial check misses.
+    const isNavigation =
+      typeof request.isNavigationRequest === 'function'
+        ? request.isNavigationRequest()
+        : true
+    const resourceType =
+      typeof request.resourceType === 'function' ? request.resourceType() : undefined
+
+    if (!isNavigation && resourceType !== 'document') {
+      await request.continue().catch(() => {})
+      return
+    }
+
+    const validation = await validateOutboundUrl(requestUrl, this.config.urlPolicy)
+    if (validation.ok) {
+      await request.continue().catch(() => {})
+      return
+    }
+
+    if (!handle.blocked) {
+      handle.blocked = true
+      handle.reason = validation.reason
+    }
+    await request.abort('blockedbyclient').catch(() => {})
   }
 
   /** Gracefully shut down all browsers */

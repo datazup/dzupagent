@@ -108,8 +108,24 @@ export function sanitizeRunMetadataForPersistence(
   return result;
 }
 
-export function sanitizeRunForResponse<T extends Run>(run: T): T {
+/**
+ * DZUPAGENT-ERR-H-02: metadata key holding the full, admin-only run-failure
+ * detail. Kept in sync with `RUN_ERROR_DETAIL_METADATA_KEY` in
+ * `routes/route-error.ts` (duplicated here to avoid a routes→security import
+ * cycle). Non-admin REST responses strip this key so raw stack/driver text
+ * never leaks.
+ */
+const RUN_ERROR_DETAIL_METADATA_KEY = "errorDetail";
+
+export function sanitizeRunForResponse<T extends Run>(
+  run: T,
+  opts?: { includeAdminDetail?: boolean }
+): T {
   const metadata = sanitizeRunMetadataForPersistence(run.metadata ?? undefined);
+  // DZUPAGENT-ERR-H-02: drop the admin-only failure detail for normal reads.
+  if (metadata && !opts?.includeAdminDetail) {
+    delete metadata[RUN_ERROR_DETAIL_METADATA_KEY];
+  }
   return {
     ...run,
     ...(metadata !== undefined ? { metadata } : { metadata: undefined }),

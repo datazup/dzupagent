@@ -17,6 +17,8 @@
  * @module recovery/recovery-loop-runner
  */
 
+import { calculateBackoff } from '@dzupagent/core'
+
 export interface RecoveryLoopConfig {
   /** Total number of attempts (including the first). Must be >= 1. */
   maxAttempts: number
@@ -50,13 +52,17 @@ export function computeBackoffDelay(
   config: RecoveryLoopConfig,
 ): number {
   if (attemptNumber <= 1) return 0
-  const base = config.backoffMs ?? 1000
-  const multiplier = config.backoffMultiplier ?? 2
-  const max = config.maxBackoffMs ?? 30_000
-  let delay = base * Math.pow(multiplier, attemptNumber - 1)
-  delay = Math.min(delay, max)
+  // Reuse the canonical exponent+cap math from @dzupagent/core (attempt is
+  // 0-based there; our attemptNumber is 1-based with attempt 1 = no delay).
+  // Jitter stays local: the recovery loop uses a +0–25% shape, distinct from
+  // core's equal-jitter model, so we apply it after the capped base delay.
+  const delay = calculateBackoff(attemptNumber - 1, {
+    initialBackoffMs: config.backoffMs ?? 1000,
+    maxBackoffMs: config.maxBackoffMs ?? 30_000,
+    multiplier: config.backoffMultiplier ?? 2,
+  })
   if (config.backoffJitter !== false) {
-    delay += Math.random() * delay * 0.25
+    return delay + Math.random() * delay * 0.25
   }
   return delay
 }

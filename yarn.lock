@@ -1652,6 +1652,7 @@ __metadata:
   dependencies:
     "@dzupagent/core": "npm:0.2.0"
     "@dzupagent/memory": "npm:0.2.0"
+    "@dzupagent/security": "npm:0.2.0"
     "@langchain/core": "npm:^1.1.39"
     tsup: "npm:*"
     typescript: "npm:^5.8.3"

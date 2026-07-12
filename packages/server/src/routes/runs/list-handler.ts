@@ -85,7 +85,14 @@ export async function handleListRuns(
       })
     : visible.length
 
-  return c.json({ data: visible.map(sanitizeRunForResponse), count: visible.length, total })
+  // DZUPAGENT-ERR-H-02: only admin-scoped reads expose the full failure detail
+  // stashed on run.metadata.errorDetail; normal clients get the safe message.
+  const includeAdminDetail = (c as Context<AppEnv>).get('forgeRole') === 'admin'
+  return c.json({
+    data: visible.map(r => sanitizeRunForResponse(r, { includeAdminDetail })),
+    count: visible.length,
+    total,
+  })
 }
 
 /** GET /api/runs/:id — fetch a single owned run. */
@@ -95,7 +102,9 @@ export async function handleGetRun(
 ): Promise<Response> {
   const run = await loadOwnedRun(c, config)
   if (run instanceof Response) return run
-  return c.json({ data: sanitizeRunForResponse(run) })
+  // DZUPAGENT-ERR-H-02: admin-only failure detail is exposed only to admins.
+  const includeAdminDetail = (c as Context<AppEnv>).get('forgeRole') === 'admin'
+  return c.json({ data: sanitizeRunForResponse(run, { includeAdminDetail }) })
 }
 
 /** GET /api/runs/:id/checkpoints — enumerate journal checkpoints. */

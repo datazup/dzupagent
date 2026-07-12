@@ -15,6 +15,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import type { LogEntry } from '@dzupagent/core'
 import type { Client as PgClient } from 'pg'
 import type { PostgresRunStore } from '../persistence/postgres-stores.js'
+import { requireIntegration } from './helpers/require-integration.js'
 
 // ---------------------------------------------------------------------------
 // Conditional container runtime detection
@@ -61,6 +62,15 @@ try {
 }
 
 const canRun = GenericContainerClass !== undefined && containerRuntimeAvailable
+
+const integrationGate = requireIntegration({
+  name: 'PostgresRunStore integration (testcontainers)',
+  available: canRun,
+  reason:
+    GenericContainerClass === undefined
+      ? 'testcontainers is not installed'
+      : 'Docker (container runtime) is not available',
+})
 
 // ---------------------------------------------------------------------------
 // Helpers — DB initialisation
@@ -137,7 +147,7 @@ async function seedAgent(client: PgClient): Promise<string> {
 // Test suite
 // ---------------------------------------------------------------------------
 
-describe.skipIf(!canRun)('PostgresRunStore integration (testcontainers)', () => {
+describe.skipIf(integrationGate.shouldSkip)('PostgresRunStore integration (testcontainers)', () => {
   const GC = GenericContainerClass!
 
   let container: StartedTestContainer

@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest'
 import type { RunJob, JobProcessor } from '../queue/run-queue.js'
 import { waitForCondition } from '@dzupagent/testing'
+import { requireIntegration } from './helpers/require-integration.js'
 
 // ---------------------------------------------------------------------------
 // Conditional imports — skip the entire suite when deps are missing
@@ -70,6 +71,17 @@ const canRun =
   && BullMQRunQueueClass !== undefined
   && containerRuntimeAvailable
 
+const integrationGate = requireIntegration({
+  name: 'BullMQRunQueue E2E (testcontainers)',
+  available: canRun,
+  reason:
+    GenericContainer === undefined
+      ? 'testcontainers is not installed'
+      : BullMQRunQueueClass === undefined
+        ? 'bullmq is not installed'
+        : 'Docker (container runtime) is not available',
+})
+
 // The first worker can pay BullMQ dynamic import and Redis connection cost
 // inside the test body when the full Turbo matrix is under load.
 const BULLMQ_E2E_TEST_TIMEOUT_MS = 45_000
@@ -108,7 +120,7 @@ function jobInput(overrides: Partial<Omit<RunJob, 'id' | 'createdAt' | 'attempts
 // Test suite
 // ---------------------------------------------------------------------------
 
-describe.skipIf(!canRun)('BullMQRunQueue E2E (testcontainers)', () => {
+describe.skipIf(integrationGate.shouldSkip)('BullMQRunQueue E2E (testcontainers)', () => {
   // Non-null assertions are safe here because the suite is skipped when these
   // are undefined.
   const Container = GenericContainer!

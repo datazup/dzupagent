@@ -11,6 +11,10 @@ import type { RunTraceStore } from "../persistence/run-trace-store.js";
 import type { RunJob } from "../queue/run-queue.js";
 import { reportRetrievalFeedback } from "./retrieval-feedback-hook.js";
 
+import {
+  RUN_ERROR_DETAIL_METADATA_KEY,
+  sanitizeFailureMessage,
+} from "../routes/route-error.js";
 import { stampTenant } from "./tenant-event-stamp.js";
 import type { ExecutionStageResult } from "./run-stages-execution.js";
 import {
@@ -262,13 +266,21 @@ export async function persistFailure(options: {
   error: unknown;
   traceId?: string;
 }): Promise<void> {
-  const message =
-    options.error instanceof Error
-      ? options.error.message
-      : String(options.error);
+  // DZUPAGENT-ERR-H-02: sanitize the raw failure ONCE, here at the point it is
+  // first persisted. The client-safe `safe` message is what flows out through
+  // every read channel (REST run.error, SSE/WS agent:failed.message); the full
+  // `detail` (stack / driver text) is stashed admin-only on run.metadata and
+  // retained in the server-side log + trace, both of which are admin surfaces.
+  const { safe, detail } = sanitizeFailureMessage(options.error);
+  const existing = await options.runStore.get(options.job.runId);
+  const baseMetadata = (existing?.metadata ?? {}) as Record<string, unknown>;
   await options.runStore.update(options.job.runId, {
     status: "failed",
-    error: message,
+    error: safe,
+    metadata: {
+      ...baseMetadata,
+      [RUN_ERROR_DETAIL_METADATA_KEY]: detail,
+    },
     completedAt: new Date(),
   });
   await options.runStore.addLog(options.job.runId, {
@@ -276,7 +288,8 @@ export async function persistFailure(options: {
     phase: "run",
     message: "Run failed",
     data: {
-      error: message,
+      // Server-side log store is an admin-only surface, so it keeps full detail.
+      error: detail,
       ...(options.traceId ? { traceId: options.traceId } : {}),
     },
   });
@@ -287,7 +300,7 @@ export async function persistFailure(options: {
         agentId: options.job.agentId,
         runId: options.job.runId,
         errorCode: "INTERNAL_ERROR",
-        message,
+        message: safe,
       },
       options.job,
     ),
@@ -296,7 +309,8 @@ export async function persistFailure(options: {
     options.traceStore,
     options.job.runId,
     "failed",
-    { error: message },
+    // Trace is an admin/operator surface; retain full detail there.
+    { error: detail },
   );
 }
 
