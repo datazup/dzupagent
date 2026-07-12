@@ -398,10 +398,6 @@ function applyStringInputOptionIfAbsent(
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
 function dedupe(paths: string[]): string[] {
   return [...new Set(paths)]
 }
