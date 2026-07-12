@@ -56,9 +56,12 @@ export { CodexCliAdapter, createCodexCliAdapter } from "./codex/codex-cli-adapte
 export type { CodexCliAdapterConfig } from "./codex/codex-cli-adapter.js";
 export { createCodexBackendAdapter } from "./codex/codex-backend.js";
 export type { CodexBackendConfig } from "./codex/codex-backend.js";
-export { GeminiCLIAdapter } from "./gemini/gemini-adapter.js";
+export { GeminiCLIAdapter, createGeminiCliAdapter } from "./gemini/gemini-adapter.js";
+export type { GeminiCliAdapterConfig } from "./gemini/gemini-adapter.js";
 export { GeminiSDKAdapter } from "./gemini/gemini-sdk-adapter.js";
 export type { GeminiSDKAdapterConfig } from "./gemini/gemini-sdk-adapter.js";
+export { createGeminiBackendAdapter } from "./gemini/gemini-backend.js";
+export type { GeminiBackendConfig } from "./gemini/gemini-backend.js";
 export { QwenAdapter } from "./qwen/qwen-adapter.js";
 export { CrushAdapter } from "./crush/crush-adapter.js";
 export { GooseAdapter } from "./goose/goose-adapter.js";

@@ -61,6 +61,7 @@ export interface PreparedCliRun {
   readonly env: Record<string, string>;
   readonly cleanup?: (() => void | Promise<void>) | undefined;
   readonly malformedLinePolicy?: "skip" | "error" | undefined;
+  readonly limits?: SpawnJsonlOptions["limits"];
 }
 
 /**
@@ -186,6 +187,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
           signal,
           timeoutMs: adapter.config.timeoutMs,
           malformedLinePolicy: prepared.malformedLinePolicy,
+          limits: prepared.limits,
         };
         if (resolver) {
           spawnOpts.stdinResponder = createStdinResponder({
