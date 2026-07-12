@@ -941,19 +941,18 @@ describe("GeminiCLIAdapter — W30 gap coverage", () => {
       });
       const a = new GeminiCLIAdapter({ sandboxMode: "read-only" });
       await collectEvents(
-        a.execute({ prompt: "p", options: { sandboxMode: "full-access" } })
+        a.execute({ prompt: "p", workingDirectory: "/workspace", options: { sandboxMode: "full-access" } })
       );
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!;
-      const idx = args.indexOf("--sandbox");
-      expect(idx).toBeGreaterThanOrEqual(0);
-      expect(args[idx + 1]).toBe("none"); // 'full-access' → 'none'
+      expect(args).not.toContain("--sandbox");
+      expect(args).toContain("yolo");
     });
   });
 
   // ── large prompt ───────────────────────────────────────────────────────────
 
   describe("large prompt handling", () => {
-    it("passes a 64KB+ prompt intact via -p arg", async () => {
+    it("passes a 64KB+ prompt intact via --prompt arg", async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: "completed", result: "ok" };
       });
@@ -962,7 +961,7 @@ describe("GeminiCLIAdapter — W30 gap coverage", () => {
         new GeminiCLIAdapter().execute({ prompt: bigPrompt })
       );
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!;
-      const pIdx = args.indexOf("-p");
+      const pIdx = args.indexOf("--prompt");
       expect(pIdx).toBeGreaterThanOrEqual(0);
       expect(args[pIdx + 1]).toBe(bigPrompt);
       expect(args[pIdx + 1].length).toBe(65_536);

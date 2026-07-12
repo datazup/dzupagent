@@ -26,7 +26,7 @@ describe('GeminiCLIAdapter', () => {
     })
 
     const adapter = new GeminiCLIAdapter({ model: 'gemini-2.5-pro' })
-    const events = await collectEvents(adapter.execute({ prompt: 'hello', maxTurns: 2 }))
+    const events = await collectEvents(adapter.execute({ prompt: 'hello' }))
 
     expect(events.map((e) => e.type)).toEqual([
       'adapter:started',
@@ -63,8 +63,8 @@ describe('GeminiCLIAdapter', () => {
     const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
     expect(args).toContain('--model')
     expect(args).toContain('gemini-2.5-pro')
-    expect(args).toContain('--max-turns')
-    expect(args).toContain('2')
+    expect(args).toContain('stream-json')
+    expect(args).toContain('plan')
   })
 
   it('handles malformed and mixed Gemini records deterministically', async () => {
@@ -148,17 +148,18 @@ describe('GeminiCLIAdapter', () => {
     })
   })
 
-  it('maps sandbox mode to --sandbox value', async () => {
+  it('maps workspace-write to sandboxed auto-edit mode', async () => {
     mockSpawnAndStreamJsonl.mockImplementation(async function* () {
       yield { type: 'completed', result: 'ok' }
     })
 
     const adapter = new GeminiCLIAdapter({ sandboxMode: 'workspace-write' })
-    await collectEvents(adapter.execute({ prompt: 'x' }))
+    await collectEvents(adapter.execute({ prompt: 'x', workingDirectory: '/workspace' }))
 
     const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
     expect(args).toContain('--sandbox')
-    expect(args).toContain('workspace')
+    expect(args).toContain('--approval-mode')
+    expect(args).toContain('auto_edit')
   })
 
   it('emits fallback adapter:completed when provider stream has no completed record', async () => {

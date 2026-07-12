@@ -352,16 +352,14 @@ describe('GeminiCLIAdapter - branch coverage', () => {
       expect(args).not.toContain('--max-turns')
     })
 
-    it('adds --system-prompt when systemPrompt given', async () => {
+    it('refuses unsupported system prompts before spawn', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed', result: 'ok' }
       })
       await collectEvents(
         new GeminiCLIAdapter().execute({ prompt: 'x', systemPrompt: 'sys' }),
       )
-      const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-      expect(args).toContain('--system-prompt')
-      expect(args).toContain('sys')
+      expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
     })
 
     it('maps read-only sandbox mode', async () => {
@@ -375,24 +373,24 @@ describe('GeminiCLIAdapter - branch coverage', () => {
       )
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
       expect(args).toContain('--sandbox')
-      expect(args).toContain('sandbox')
+      expect(args).toContain('plan')
     })
 
-    it('maps full-access sandbox mode', async () => {
+    it('maps full-access to yolo without sandbox', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed', result: 'ok' }
       })
       await collectEvents(
         new GeminiCLIAdapter({ sandboxMode: 'full-access' }).execute({
-          prompt: 'x',
+          prompt: 'x', workingDirectory: '/workspace',
         }),
       )
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-      expect(args).toContain('--sandbox')
-      expect(args).toContain('none')
+      expect(args).not.toContain('--sandbox')
+      expect(args).toContain('yolo')
     })
 
-    it('ignores unmapped sandbox mode', async () => {
+    it('refuses unmapped sandbox mode', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed', result: 'ok' }
       })
@@ -401,11 +399,10 @@ describe('GeminiCLIAdapter - branch coverage', () => {
           sandboxMode: 'bogus' as unknown as 'read-only',
         }).execute({ prompt: 'x' }),
       )
-      const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-      expect(args).not.toContain('--sandbox')
+      expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
     })
 
-    it('adds --session on resume', async () => {
+    it('adds --resume on resume', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed', result: 'ok' }
       })
@@ -413,7 +410,7 @@ describe('GeminiCLIAdapter - branch coverage', () => {
         new GeminiCLIAdapter().resumeSession('session-42', { prompt: 'x' }),
       )
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-      expect(args).toContain('--session')
+      expect(args).toContain('--resume')
       expect(args).toContain('session-42')
     })
 
@@ -438,6 +435,7 @@ describe('GeminiCLIAdapter - branch coverage', () => {
         supportsToolCalls: true,
         supportsStreaming: true,
         supportsCostUsage: true,
+        nativeToolControls: { mode: true, allowlist: false, blocklist: false },
       })
     })
   })

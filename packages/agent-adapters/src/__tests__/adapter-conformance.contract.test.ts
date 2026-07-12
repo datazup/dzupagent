@@ -109,7 +109,7 @@ describe('CLI adapter conformance contract', () => {
         duration_ms: 42,
       },
       expectedUsage: undefined as unknown as TokenUsage,
-      expectedArgs: ['--output-format', 'json', '-p', 'contract'],
+      expectedArgs: ['--output-format', 'stream-json', '--prompt', 'contract', '--approval-mode', 'plan', '--sandbox'],
     },
     {
       providerId: 'goose',

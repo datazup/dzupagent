@@ -4,11 +4,11 @@
  * Focus areas not heavily covered in gemini-adapter.test.ts /
  * gemini-adapter-branches.test.ts / gemini-sdk-adapter.test.ts:
  *   - Function-call/function-response variant payloads
- *   - Multi-turn context (resumeSessionId emits --session arg)
+ *   - Multi-turn context (resumeSessionId emits --resume arg)
  *   - Sandbox mode mappings (read-only, full-access)
  *   - Stream-delta payload variants (content/text/delta)
  *   - Empty/missing fields in tool_call records
- *   - Args order and presence (--output-format json, -p prompt)
+ *   - Args order and presence (--output-format stream-json, --prompt prompt)
  *
  * The gemini binary is mocked through process-helpers.
  */
@@ -207,28 +207,28 @@ describe('GeminiCLIAdapter — deep coverage', () => {
   // ── CLI argument shaping ──────────────────────────────
 
   describe('CLI argument shaping', () => {
-    it('includes --output-format json by default', async () => {
+    it('includes --output-format stream-json by default', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed' }
       })
       await collectEvents(new GeminiCLIAdapter().execute({ prompt: 'p' }))
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
       expect(args).toContain('--output-format')
-      expect(args).toContain('json')
+      expect(args).toContain('stream-json')
     })
 
-    it('includes -p with prompt', async () => {
+    it('includes --prompt with prompt', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed' }
       })
       await collectEvents(new GeminiCLIAdapter().execute({ prompt: 'hello world' }))
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-      const promptIdx = args.indexOf('-p')
+      const promptIdx = args.indexOf('--prompt')
       expect(promptIdx).toBeGreaterThanOrEqual(0)
       expect(args[promptIdx + 1]).toBe('hello world')
     })
 
-    it('passes --session when resumeSessionId provided', async () => {
+    it('passes --resume when resumeSessionId provided', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed' }
       })
@@ -236,34 +236,31 @@ describe('GeminiCLIAdapter — deep coverage', () => {
         new GeminiCLIAdapter().execute({ prompt: 'p', resumeSessionId: 'sess-X' }),
       )
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-      const idx = args.indexOf('--session')
+      const idx = args.indexOf('--resume')
       expect(idx).toBeGreaterThanOrEqual(0)
       expect(args[idx + 1]).toBe('sess-X')
     })
 
-    it('passes --system-prompt when provided', async () => {
+    it('refuses unsupported system prompts before spawn', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed' }
       })
       await collectEvents(
         new GeminiCLIAdapter().execute({ prompt: 'p', systemPrompt: 'Be terse.' }),
       )
-      const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-      const idx = args.indexOf('--system-prompt')
-      expect(idx).toBeGreaterThanOrEqual(0)
-      expect(args[idx + 1]).toBe('Be terse.')
+      expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
     })
 
-    it('omits --session when no resumeSessionId provided', async () => {
+    it('omits --resume when no resumeSessionId provided', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed' }
       })
       await collectEvents(new GeminiCLIAdapter().execute({ prompt: 'p' }))
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-      expect(args).not.toContain('--session')
+      expect(args).not.toContain('--resume')
     })
 
-    it('maps "read-only" sandbox to --sandbox sandbox', async () => {
+    it('maps read-only to boolean --sandbox and plan approval', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed' }
       })
@@ -273,40 +270,38 @@ describe('GeminiCLIAdapter — deep coverage', () => {
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
       const idx = args.indexOf('--sandbox')
       expect(idx).toBeGreaterThanOrEqual(0)
-      expect(args[idx + 1]).toBe('sandbox')
+      expect(args[idx + 1]).not.toBe('sandbox')
+      expect(args).toContain('plan')
     })
 
-    it('maps "full-access" sandbox to --sandbox none', async () => {
+    it('maps explicit full-access to yolo without --sandbox', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed' }
       })
       await collectEvents(
-        new GeminiCLIAdapter({ sandboxMode: 'full-access' }).execute({ prompt: 'p' }),
+        new GeminiCLIAdapter({ sandboxMode: 'full-access' }).execute({ prompt: 'p', workingDirectory: '/workspace' }),
       )
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-      const idx = args.indexOf('--sandbox')
-      expect(idx).toBeGreaterThanOrEqual(0)
-      expect(args[idx + 1]).toBe('none')
+      expect(args).not.toContain('--sandbox')
+      expect(args).toContain('yolo')
     })
 
-    it('omits --sandbox when no sandboxMode is configured', async () => {
+    it('defaults to read-only sandbox when no sandboxMode is configured', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed' }
       })
       await collectEvents(new GeminiCLIAdapter().execute({ prompt: 'p' }))
       const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-      expect(args).not.toContain('--sandbox')
+      expect(args).toContain('--sandbox')
+      expect(args).toContain('plan')
     })
 
-    it('passes --max-turns when input.maxTurns is provided', async () => {
+    it('refuses unsupported max turns before spawn', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(async function* () {
         yield { type: 'completed' }
       })
       await collectEvents(new GeminiCLIAdapter().execute({ prompt: 'p', maxTurns: 8 }))
-      const [, args] = mockSpawnAndStreamJsonl.mock.calls[0]!
-      const idx = args.indexOf('--max-turns')
-      expect(idx).toBeGreaterThanOrEqual(0)
-      expect(args[idx + 1]).toBe('8')
+      expect(mockSpawnAndStreamJsonl).not.toHaveBeenCalled()
     })
   })
 
