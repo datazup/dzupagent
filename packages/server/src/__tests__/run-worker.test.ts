@@ -1462,7 +1462,7 @@ describe('run-worker — escalation policy edge cases', () => {
     expect(escalationLog).toBeDefined()
     const data = escalationLog!.data as Record<string, unknown>
     expect(data['consecutiveLowScores']).toBe(5)
-    expect(data['escalationKey']).toBe('log-data-agent:summarize')
+    expect(data['escalationKey']).toBe('default:log-data-agent:summarize')
     expect(data['fromTier']).toBe('chat')
     expect(data['toTier']).toBe('reasoning')
 
@@ -2021,7 +2021,7 @@ describe('run-worker — escalation policy edge cases', () => {
 
     await waitForTerminalStatus(runStore, run.id)
 
-    expect(policy.calls[0]!.key).toBe('agent-intent-agent:code-review')
+    expect(policy.calls[0]!.key).toBe('default:agent-intent-agent:code-review')
 
     await runQueue.stop(false)
   })
@@ -2281,7 +2281,7 @@ describe('run-worker — escalation policy edge cases', () => {
 
     await waitForTerminalStatus(runStore, run.id)
 
-    expect(policy.calls[0]!.key).toBe('no-intent-agent:default')
+    expect(policy.calls[0]!.key).toBe('default:no-intent-agent:default')
 
     await runQueue.stop(false)
   })
@@ -2418,7 +2418,7 @@ describe('run-worker — escalation policy edge cases', () => {
 
     await waitForTerminalStatus(runStore, run.id)
 
-    expect(policy.calls[0]!.key).toBe('empty-intent-agent:default')
+    expect(policy.calls[0]!.key).toBe('default:empty-intent-agent:default')
 
     await runQueue.stop(false)
   })

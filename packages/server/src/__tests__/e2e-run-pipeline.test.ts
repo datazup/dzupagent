@@ -301,9 +301,7 @@ describe('E2E run pipeline', () => {
       expect(saveLog).toBeDefined()
 
       // Verify the context is persisted in the store
-      const savedContexts = await contextTransfer.listContexts(
-        'session-ctx-transfer',
-      )
+      const savedContexts = await contextTransfer.listContexts('default:session-ctx-transfer')
       expect(savedContexts.length).toBe(1)
       expect(savedContexts[0]!.fromIntent).toBe('generate_feature')
       expect(savedContexts[0]!.decisions).toEqual([

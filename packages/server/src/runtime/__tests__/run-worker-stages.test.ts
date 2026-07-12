@@ -288,7 +288,7 @@ describe('run-worker internal stages', () => {
       input: JSON.stringify({ message: 'learn' }),
       output: JSON.stringify({ summary: 'reviewed output' }),
     })
-    expect(saveContext).toHaveBeenCalledWith('session-2', expect.objectContaining({
+    expect(saveContext).toHaveBeenCalledWith('default:session-2', expect.objectContaining({
       fromIntent: 'review',
       decisions: ['keep'],
       tokenEstimate: 8,

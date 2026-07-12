@@ -16,7 +16,8 @@ import type { ExecutionStageResult } from "./run-stages-execution.js";
 import {
   closeTraceWithTerminalStep,
   resolveIntent,
-  resolveSessionId,
+  resolveScopedSessionId,
+  resolveTenantId,
 } from "./run-stages-utils.js";
 import type {
   ReflectionInput,
@@ -93,7 +94,7 @@ export async function persistTerminalSuccess(options: {
         phase: log.phase,
         message: log.message,
         data: log.data,
-      })),
+      }))
     );
   }
 
@@ -162,8 +163,8 @@ export async function recordTelemetryStage(options: {
       typeof options.job.metadata?.["ownerId"] === "string"
         ? (options.job.metadata["ownerId"] as string)
         : typeof options.job.metadata?.["tenantId"] === "string"
-          ? (options.job.metadata["tenantId"] as string)
-          : undefined;
+        ? (options.job.metadata["tenantId"] as string)
+        : undefined;
     if (keyId && totalTokens > 0) {
       try {
         options.workerOptions.resourceQuota.recordUsage(keyId, totalTokens);
@@ -190,7 +191,7 @@ export async function recordTelemetryStage(options: {
   options.workerOptions.metrics?.observe(
     "forge_run_duration_ms",
     options.durationMs,
-    { tier: tierLabel },
+    { tier: tierLabel }
   );
 }
 
@@ -220,7 +221,7 @@ export async function persistCancellation(options: {
   if (
     run &&
     !["completed", "failed", "cancelled", "rejected", "halted"].includes(
-      run.status,
+      run.status
     )
   ) {
     await options.runStore.update(options.job.runId, {
@@ -242,14 +243,14 @@ export async function persistCancellation(options: {
           errorCode: "AGENT_ABORTED",
           message: "Cancelled by user",
         },
-        options.job,
-      ),
+        options.job
+      )
     );
     await closeTraceWithTerminalStep(
       options.traceStore,
       options.job.runId,
       "cancelled",
-      { reason: "Cancelled by user" },
+      { reason: "Cancelled by user" }
     );
   }
 }
@@ -289,14 +290,14 @@ export async function persistFailure(options: {
         errorCode: "INTERNAL_ERROR",
         message,
       },
-      options.job,
-    ),
+      options.job
+    )
   );
   await closeTraceWithTerminalStep(
     options.traceStore,
     options.job.runId,
     "failed",
-    { error: message },
+    { error: message }
   );
 }
 
@@ -314,14 +315,14 @@ async function scoreRunReflection(options: {
 
   try {
     const errorCount = options.additionalLogs.filter(
-      (l) => l.level === "error",
+      (l) => l.level === "error"
     ).length;
     const retryCount = options.additionalLogs.filter(
-      (l) => l.phase === "retry" || l.message.toLowerCase().includes("retry"),
+      (l) => l.phase === "retry" || l.message.toLowerCase().includes("retry")
     ).length;
     const toolCalls = options.additionalLogs
       .filter(
-        (l) => l.phase === "tool_call" && l.data && typeof l.data === "object",
+        (l) => l.phase === "tool_call" && l.data && typeof l.data === "object"
       )
       .map((l) => {
         const d = l.data as Record<string, unknown>;
@@ -346,7 +347,7 @@ async function scoreRunReflection(options: {
     const reflectionScore =
       options.workerOptions.reflector.score(reflectionInput);
     const existingRun = await options.workerOptions.runStore.get(
-      options.job.runId,
+      options.job.runId
     );
     const existingMeta = (existingRun?.metadata ?? {}) as Record<
       string,
@@ -381,7 +382,7 @@ async function scoreRunReflection(options: {
       reportRetrievalFeedback(
         options.workerOptions.retrievalFeedback,
         (options.job.metadata ?? {}) as Record<string, unknown>,
-        reflectionScore,
+        reflectionScore
       );
     }
 
@@ -421,7 +422,7 @@ async function persistReflectionSummary(options: {
 
   try {
     const toolCallLogs = options.additionalLogs.filter(
-      (l) => l.phase === "tool_call" && l.data && typeof l.data === "object",
+      (l) => l.phase === "tool_call" && l.data && typeof l.data === "object"
     );
     /*
      * RUN-REFLECTION-STORE-WIDEN: stamp tenantId + ownerId so the store can
@@ -481,17 +482,22 @@ async function maybeEscalateModelTier(options: {
 
   const currentTier = (options.job.metadata?.["modelTier"] as string) ?? "chat";
   const intent = resolveIntent(options.job, options.agent);
-  const escalationKey = `${options.job.agentId}:${intent ?? "default"}`;
+  // R3-ISO-04: escalation state is shared process-wide — key it per tenant so
+  // one tenant's consecutive low scores cannot escalate the tier applied to
+  // another tenant's runs of the same agent + intent.
+  const escalationKey = `${resolveTenantId(options.job)}:${
+    options.job.agentId
+  }:${intent ?? "default"}`;
   const escalation = options.workerOptions.escalationPolicy.recordScore(
     escalationKey,
     options.score,
-    currentTier,
+    currentTier
   );
 
   if (escalation.shouldEscalate && options.workerOptions.agentStore.save) {
     try {
       const agentDef = await options.workerOptions.agentStore.get(
-        options.job.agentId,
+        options.job.agentId
       );
       if (agentDef) {
         await options.workerOptions.agentStore.save({
@@ -509,8 +515,8 @@ async function maybeEscalateModelTier(options: {
             agentId: options.job.agentId,
             fields: ["metadata.modelTier"],
           },
-          options.job,
-        ),
+          options.job
+        )
       );
       await options.workerOptions.runStore.addLog(options.job.runId, {
         level: "info",
@@ -555,12 +561,11 @@ async function analyzeRunOutcome(options: {
       typeof options.output === "string"
         ? options.output
         : options.output &&
-            typeof options.output === "object" &&
-            "message" in options.output &&
-            typeof (options.output as { message?: unknown }).message ===
-              "string"
-          ? (options.output as { message: string }).message
-          : JSON.stringify(options.output ?? "");
+          typeof options.output === "object" &&
+          "message" in options.output &&
+          typeof (options.output as { message?: unknown }).message === "string"
+        ? (options.output as { message: string }).message
+        : JSON.stringify(options.output ?? "");
     const inputText =
       typeof options.job.input === "string"
         ? options.job.input
@@ -571,7 +576,7 @@ async function analyzeRunOutcome(options: {
         agentId: options.job.agentId,
         input: inputText,
         output: outputText,
-      },
+      }
     );
     const summary =
       analysis && typeof analysis === "object"
@@ -629,20 +634,20 @@ async function saveCrossIntentContext(options: {
   if (!options.workerOptions.contextTransfer) return;
 
   try {
-    const sessionId = resolveSessionId(options.job);
+    const sessionId = resolveScopedSessionId(options.job);
     const intent = resolveIntent(options.job, options.agent);
     if (intent && intent !== "unknown") {
       const outputSummary =
         typeof options.output === "string"
           ? options.output.slice(0, 500)
           : typeof options.output === "object" &&
-              options.output !== null &&
-              "summary" in options.output
-            ? String((options.output as Record<string, unknown>).summary).slice(
-                0,
-                500,
-              )
-            : "Run completed";
+            options.output !== null &&
+            "summary" in options.output
+          ? String((options.output as Record<string, unknown>).summary).slice(
+              0,
+              500
+            )
+          : "Run completed";
 
       const relevantFiles: string[] =
         (options.metadata?.["relevantFiles"] as string[] | undefined) ??
@@ -672,7 +677,7 @@ async function saveCrossIntentContext(options: {
 
       await options.workerOptions.contextTransfer.save(
         sessionId,
-        persistedContext,
+        persistedContext
       );
       await options.workerOptions.runStore.addLog(options.job.runId, {
         level: "info",
