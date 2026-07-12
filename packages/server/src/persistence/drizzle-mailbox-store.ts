@@ -94,12 +94,16 @@ export class DrizzleMailboxStore implements MailboxStore {
       createdAt: message.createdAt,
       readAt: message.readAt ?? null,
       ttlSeconds: message.ttl ?? null,
+      // MC-S02 / SEC-H-03: record the owning tenant so later reads/acks can be
+      // scoped. Falls back to 'default' for single-tenant / library callers.
+      tenantId: message.tenantId ?? 'default',
     })
   }
 
   async findByRecipient(
     agentId: string,
     query?: MailboxQuery,
+    tenantId?: string,
   ): Promise<MailMessage[]> {
     const now = Date.now()
     const unreadOnly = query?.unreadOnly ?? true
@@ -111,6 +115,12 @@ export class DrizzleMailboxStore implements MailboxStore {
       // Exclude expired: keep messages where ttl is null OR createdAt + ttl*1000 > now
       sql`(${agentMailbox.ttlSeconds} IS NULL OR ${agentMailbox.createdAt} + ${agentMailbox.ttlSeconds} * 1000 > ${now})`,
     ]
+
+    // SEC-H-03: tenant isolation. When a scope is supplied, only return rows
+    // owned by that tenant. Omitted scope => no filter (back-compat).
+    if (tenantId !== undefined) {
+      conditions.push(eq(agentMailbox.tenantId, tenantId))
+    }
 
     if (unreadOnly) {
       conditions.push(isNull(agentMailbox.readAt))
@@ -130,11 +140,18 @@ export class DrizzleMailboxStore implements MailboxStore {
     return rows.map(rowToMessage)
   }
 
-  async markRead(messageId: string): Promise<void> {
-    await this.db
-      .update(agentMailbox)
-      .set({ readAt: Date.now() })
-      .where(eq(agentMailbox.id, messageId))
+  async markRead(messageId: string, tenantId?: string): Promise<void> {
+    // SEC-H-03: a cross-tenant ack must not touch another tenant's row. When a
+    // scope is supplied, gate the update on tenant ownership; omitted scope =>
+    // update by id alone (back-compat).
+    const where =
+      tenantId !== undefined
+        ? and(
+            eq(agentMailbox.id, messageId),
+            eq(agentMailbox.tenantId, tenantId),
+          )
+        : eq(agentMailbox.id, messageId)
+    await this.db.update(agentMailbox).set({ readAt: Date.now() }).where(where)
   }
 
   async deleteExpired(): Promise<number> {

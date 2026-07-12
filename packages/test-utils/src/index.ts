@@ -43,6 +43,16 @@ export {
   waitForCondition,
 } from './test-helpers.js'
 export {
+  requireIntegration,
+  requireIntegrationEnv,
+  isRequiredIntegrationLane,
+  REQUIRED_INTEGRATION_ENV_VAR,
+} from './require-integration.js'
+export type {
+  RequireIntegrationOptions,
+  RequireIntegrationResult,
+} from './require-integration.js'
+export {
   createExpressRouteHarness,
 } from './express-route-harness.js'
 export type {

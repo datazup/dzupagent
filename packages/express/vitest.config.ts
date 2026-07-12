@@ -34,5 +34,18 @@ export default defineConfig({
     fileParallelism: false,
     pool: "forks",
     poolOptions: { forks: { singleFork: true } },
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json-summary"],
+      include: ["src/**/*.ts"],
+      exclude: [
+        "src/**/*.test.ts",
+        "src/**/*.spec.ts",
+        "src/**/__tests__/**",
+        "src/**/__fixtures__/**",
+        "src/**/index.ts",
+      ],
+      // Thresholds managed centrally in coverage-thresholds.json.
+    },
   },
 });

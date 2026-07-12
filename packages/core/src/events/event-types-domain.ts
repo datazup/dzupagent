@@ -172,6 +172,12 @@ export type DomainLifecycleEvent =
         createdAt: number;
       };
     }
+  | {
+      /** A `mail:received` subscriber handler rejected. Non-fatal. */
+      type: "mail:handler_failed";
+      agentId: string;
+      error: string;
+    }
   // --- API Key lifecycle ---
   | { type: "api-key:created"; id: string; ownerId: string; tier: string }
   | { type: "api-key:revoked"; id: string; ownerId: string }

@@ -1,11 +1,31 @@
 /**
- * Helpers for integration-test capability gates (MC-8 / TEST-H-02).
+ * Helpers for integration-test capability gates (MC-8 / TEST-H-02 / DZUPAGENT-TEST-H-01).
  *
  * When `RUN_REQUIRED_INTEGRATION=1` is set (the `test:required-integration`
  * script), tests that would normally skip due to a missing service must
  * instead fail loudly so CI surfaces the missing environment rather than
  * silently reporting a passing (skipped) run.
+ *
+ * This module re-exports the canonical `requireIntegration` gate from
+ * `@dzupagent/test-utils` (single source of truth for the fail-closed
+ * policy) alongside a few server-specific convenience wrappers kept for
+ * backward compatibility with existing call sites.
  */
+import {
+  requireIntegration as sharedRequireIntegration,
+  requireIntegrationEnv as sharedRequireIntegrationEnv,
+} from '@dzupagent/test-utils'
+
+export {
+  requireIntegration,
+  requireIntegrationEnv,
+  isRequiredIntegrationLane,
+  REQUIRED_INTEGRATION_ENV_VAR,
+} from '@dzupagent/test-utils'
+export type {
+  RequireIntegrationOptions,
+  RequireIntegrationResult,
+} from '@dzupagent/test-utils'
 
 /**
  * Returns `true` when the caller should skip a test suite because
@@ -20,17 +40,10 @@
  * ```
  */
 export function skipOrFailIfNoDatabase(): boolean {
-  if (!process.env["TEST_DATABASE_URL"]) {
-    if (process.env["RUN_REQUIRED_INTEGRATION"]) {
-      throw new Error(
-        "TEST_DATABASE_URL is required for integration tests but is not set. " +
-          "Set it to a valid Postgres connection string, or unset " +
-          "RUN_REQUIRED_INTEGRATION to allow the suite to be skipped."
-      );
-    }
-    return true; // skip
-  }
-  return false;
+  return sharedRequireIntegrationEnv(
+    "Postgres integration suite",
+    "TEST_DATABASE_URL"
+  ).shouldSkip;
 }
 
 /**
@@ -41,17 +54,10 @@ export function skipOrFailIfNoDatabase(): boolean {
  * `skipOrFailIfNoDatabase`).
  */
 export function skipOrFailIfNoRedis(): boolean {
-  if (!process.env["TEST_REDIS_URL"]) {
-    if (process.env["RUN_REQUIRED_INTEGRATION"]) {
-      throw new Error(
-        "TEST_REDIS_URL is required for integration tests but is not set. " +
-          "Set it to a valid Redis URL, or unset " +
-          "RUN_REQUIRED_INTEGRATION to allow the suite to be skipped."
-      );
-    }
-    return true; // skip
-  }
-  return false;
+  return sharedRequireIntegrationEnv(
+    "Redis integration suite",
+    "TEST_REDIS_URL"
+  ).shouldSkip;
 }
 
 /**
@@ -63,15 +69,11 @@ export function skipOrFailIfNoRedis(): boolean {
 export function skipOrFailIfNoContainerRuntime(
   containerRuntimeAvailable: boolean
 ): boolean {
-  if (!containerRuntimeAvailable) {
-    if (process.env["RUN_REQUIRED_INTEGRATION"]) {
-      throw new Error(
-        "A container runtime (Docker) is required for this integration test suite " +
-          "but is not available. Start Docker, or unset RUN_REQUIRED_INTEGRATION " +
-          "to allow the suite to be skipped."
-      );
-    }
-    return true; // skip
-  }
-  return false;
+  return sharedRequireIntegration({
+    name: "container-runtime integration suite",
+    available: containerRuntimeAvailable,
+    reason:
+      "A container runtime (Docker) is required for this integration test suite " +
+      "but is not available. Start Docker",
+  }).shouldSkip;
 }

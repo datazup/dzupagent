@@ -437,4 +437,68 @@ describe('FlySandbox', () => {
     await expect(sb.cleanup()).resolves.toBeUndefined()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+
+  // -------------------------------------------------------------------------
+  // Command-injection safety (DZUPAGENT-SEC-H-06 / CWE-78)
+  // -------------------------------------------------------------------------
+
+  it('uploadFiles() treats shell metacharacters in filePath as a literal argv element (no injection)', async () => {
+    fetchSpy.mockResolvedValue(makeOkResponse({ exit_code: 0, stdout: '', stderr: '' }))
+    const sb = new FlySandbox({ apiToken: 'tok', appName: 'app' })
+    ;(sb as unknown as Record<string, unknown>)['machineId'] = 'mach-pre'
+
+    // A malicious path that would break out of naive shell quoting.
+    const evil = "foo; touch /pwned #$(whoami)`id`'\""
+    await sb.uploadFiles({ [evil]: 'content' })
+
+    const execCall = fetchSpy.mock.calls.find((c) => (c[0] as string).includes('/exec'))
+    expect(execCall).toBeDefined()
+    const body = JSON.parse((execCall![1] as { body: string }).body) as { cmd: string[] }
+
+    // The exec is a fixed script + positional args. The path is a DISTINCT argv
+    // element (never spliced into the command string), so the metacharacters
+    // cannot be interpreted by a shell.
+    expect(body.cmd[0]).toBe('sh')
+    expect(body.cmd[1]).toBe('-c')
+    // The script is a compile-time constant and never contains the path.
+    expect(body.cmd[2]).not.toContain('touch /pwned')
+    expect(body.cmd[2]).not.toContain(evil)
+    // The path appears verbatim as its own positional argument ($1).
+    expect(body.cmd[4]).toBe(evil)
+  })
+
+  it('downloadFiles() passes filePath as a distinct argv element to cat', async () => {
+    fetchSpy.mockResolvedValue(makeOkResponse({ exit_code: 0, stdout: 'x', stderr: '' }))
+    const sb = new FlySandbox({ apiToken: 'tok', appName: 'app' })
+    ;(sb as unknown as Record<string, unknown>)['machineId'] = 'mach-pre'
+
+    const evil = "data.json; rm -rf /"
+    await sb.downloadFiles([evil])
+
+    const execCall = fetchSpy.mock.calls.find((c) => (c[0] as string).includes('/exec'))
+    const body = JSON.parse((execCall![1] as { body: string }).body) as { cmd: string[] }
+    // Invoked as `cat <path>` with no `sh -c` wrapper — path is argv[1].
+    expect(body.cmd[0]).toBe('cat')
+    expect(body.cmd[1]).toBe(evil)
+  })
+
+  it('uploadFiles() rejects path traversal and absolute paths without executing', async () => {
+    const sb = new FlySandbox({ apiToken: 'tok', appName: 'app' })
+    ;(sb as unknown as Record<string, unknown>)['machineId'] = 'mach-pre'
+
+    await expect(sb.uploadFiles({ '../../etc/passwd': 'x' })).rejects.toThrow(/traversal/i)
+    await expect(sb.uploadFiles({ '/etc/passwd': 'x' })).rejects.toThrow(/absolute/i)
+    // No exec API call should have been made for a rejected path.
+    const execCalls = fetchSpy.mock.calls.filter((c) => (c[0] as string).includes('/exec'))
+    expect(execCalls.length).toBe(0)
+  })
+
+  it('downloadFiles() rejects path traversal without executing', async () => {
+    const sb = new FlySandbox({ apiToken: 'tok', appName: 'app' })
+    ;(sb as unknown as Record<string, unknown>)['machineId'] = 'mach-pre'
+
+    await expect(sb.downloadFiles(['../secret'])).rejects.toThrow(/traversal/i)
+    const execCalls = fetchSpy.mock.calls.filter((c) => (c[0] as string).includes('/exec'))
+    expect(execCalls.length).toBe(0)
+  })
 })

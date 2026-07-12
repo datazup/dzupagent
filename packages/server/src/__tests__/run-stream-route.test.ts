@@ -5,6 +5,7 @@ import {
   InMemoryAgentStore,
   ModelRegistry,
   createEventBus,
+  secureLogger,
   type DzupEventBus,
 } from '@dzupagent/core'
 
@@ -1040,6 +1041,51 @@ describe('GET /api/runs/:id/stream — SSE integration', () => {
     const initEvent = events.find((e) => e.event === 'init')
     expect(initEvent).toBeDefined()
   })
+
+  // ──────────────────────────────────────────────────────────────────
+  // 22. Poll-loop DB failure is logged and stops the interval (ERR-C-07)
+  // ──────────────────────────────────────────────────────────────────
+
+  it('logs and stops polling when runStore.get rejects during the poll loop', async () => {
+    const { runId } = await setupRunForStream(config, { runStatus: 'running' })
+
+    const errorSpy = vi.spyOn(secureLogger, 'error').mockImplementation(() => {})
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandled)
+
+    // First get() (loadOwnedRun / init) succeeds; subsequent poll get()s reject.
+    const realGet = config.runStore.get.bind(config.runStore)
+    let callCount = 0
+    vi.spyOn(config.runStore, 'get').mockImplementation(async (id: string) => {
+      callCount += 1
+      if (callCount <= 1) return realGet(id)
+      throw new Error('db outage')
+    })
+
+    try {
+      // The run never emits a terminal bus event, so the 2s poll loop runs and
+      // its runStore.get() rejects. readSSELines drains until timeout.
+      const res = await app.request(`/api/runs/${runId}/stream`)
+      await readSSELines(res, 3000)
+
+      // The poll error must be surfaced via secureLogger.error, not swallowed.
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'run_stream_poll_error',
+          runId,
+          error: 'db outage',
+        }),
+      )
+      // And no unhandled rejection escaped from the fire-and-forget IIFE.
+      expect(unhandled).toHaveLength(0)
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+      errorSpy.mockRestore()
+    }
+  }, 10000)
 })
 
 describe('GET /api/runs/:id/stream — keep-alive ping', () => {

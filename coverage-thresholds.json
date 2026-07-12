@@ -471,13 +471,12 @@
     },
     "subagents": {
       "baseline": {
-        "reason": "Package has vitest tests but no published test:coverage script yet.",
-        "since": "2026-06-24",
-        "reviewBy": "2026-07-31",
+        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); staged thresholds pending a verified floor.",
+        "since": "2026-07-12",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -517,13 +516,12 @@
     },
     "express": {
       "baseline": {
-        "reason": "Express compatibility package has tests but no published test:coverage script yet.",
-        "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); staged thresholds pending a verified floor.",
+        "since": "2026-07-12",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -536,13 +534,12 @@
     },
     "flow-ast": {
       "baseline": {
-        "reason": "Flow AST package has tests but no published test:coverage script yet; critical parser and validator files are tracked by file-level inventory.",
-        "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); parse/agent-loop.ts and parse/worker-dispatch.ts backfilled with direct unit tests under DZUPAGENT-CODE-M-05. Critical parser and validator files remain tracked by file-level inventory; staged thresholds pending a verified floor.",
+        "since": "2026-07-12",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -555,13 +552,12 @@
     },
     "flow-compiler": {
       "baseline": {
-        "reason": "Flow compiler package has tests but no published test:coverage script yet; semantic stage is tracked by file-level inventory.",
-        "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); semantic stage remains tracked by file-level inventory. Staged thresholds pending a verified floor.",
+        "since": "2026-07-12",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -574,13 +570,12 @@
     },
     "flow-dsl": {
       "baseline": {
-        "reason": "Flow DSL package has tests but no published test:coverage script yet; normalizer is tracked by file-level inventory.",
-        "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); normalizer remains tracked by file-level inventory. Staged thresholds pending a verified floor.",
+        "since": "2026-07-12",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -593,13 +588,12 @@
     },
     "hitl-kit": {
       "baseline": {
-        "reason": "Type-focused HITL kit has tests but no published test:coverage script yet.",
-        "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); staged thresholds pending a verified floor.",
+        "since": "2026-07-12",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,

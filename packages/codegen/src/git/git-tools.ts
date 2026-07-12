@@ -9,6 +9,7 @@ import { z } from 'zod'
 import { tool } from '@langchain/core/tools'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { GitExecutor } from './git-executor.js'
+import { handleGitToolError } from './git-errors.js'
 
 export interface GitToolPolicy {
   /** Explicit host-side approval/governance decision for mutating Git actions. */
@@ -51,7 +52,7 @@ export function createGitStatusTool(executor: GitExecutor) {
         return JSON.stringify(status)
       } catch (err) {
         return JSON.stringify({
-          error: err instanceof Error ? err.message : String(err),
+          error: handleGitToolError('git_status', err),
         })
       }
     },
@@ -95,7 +96,7 @@ export function createGitDiffTool(executor: GitExecutor) {
         })
       } catch (err) {
         return JSON.stringify({
-          error: err instanceof Error ? err.message : String(err),
+          error: handleGitToolError('git_diff', err),
         })
       }
     },
@@ -154,7 +155,7 @@ export function createGitCommitTool(executor: GitExecutor, policy: GitToolPolicy
         })
       } catch (err) {
         return JSON.stringify({
-          error: err instanceof Error ? err.message : String(err),
+          error: handleGitToolError('git_commit', err),
           success: false,
         })
       }
@@ -189,7 +190,7 @@ export function createGitLogTool(executor: GitExecutor) {
         return JSON.stringify(entries)
       } catch (err) {
         return JSON.stringify({
-          error: err instanceof Error ? err.message : String(err),
+          error: handleGitToolError('git_log', err),
         })
       }
     },
@@ -241,7 +242,7 @@ export function createGitBranchTool(executor: GitExecutor, policy: GitToolPolicy
         }
       } catch (err) {
         return JSON.stringify({
-          error: err instanceof Error ? err.message : String(err),
+          error: handleGitToolError('git_branch', err),
         })
       }
     },

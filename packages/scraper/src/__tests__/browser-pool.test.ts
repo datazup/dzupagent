@@ -314,6 +314,139 @@ describe('BrowserPool', () => {
     })
   })
 
+  describe('SSRF request interception', () => {
+    /**
+     * Build a mock page that supports request interception. `requestUrls` is
+     * the sequence of URLs the browser attempts to navigate to (initial URL
+     * first, then any redirect targets / rebind resolutions). Each is fed to
+     * the registered 'request' handler as an interceptable navigation request.
+     */
+    function createInterceptingPage(requestUrls: string[]) {
+      const requestHandlers: Array<(req: unknown) => void> = []
+      const mockBrowser = { close: vi.fn().mockResolvedValue(undefined) }
+
+      const continued: string[] = []
+      const aborted: string[] = []
+
+      const page = {
+        setRequestInterception: vi.fn().mockResolvedValue(undefined),
+        on: vi.fn((event: string, handler: (req: unknown) => void) => {
+          if (event === 'request') requestHandlers.push(handler)
+        }),
+        goto: vi.fn(async () => {
+          // Simulate the browser issuing each navigation request through the
+          // interception layer, then awaiting the handlers to settle.
+          for (const url of requestUrls) {
+            const request = {
+              url: () => url,
+              isNavigationRequest: () => true,
+              resourceType: () => 'document',
+              continue: vi.fn(async () => {
+                continued.push(url)
+              }),
+              abort: vi.fn(async () => {
+                aborted.push(url)
+              }),
+            }
+            for (const handler of requestHandlers) handler(request)
+          }
+          // Let the async interception handlers run to completion.
+          await new Promise((r) => setTimeout(r, 0))
+          return { status: () => 200 }
+        }),
+        content: vi.fn().mockResolvedValue(
+          '<html><head><title>T</title></head><body><p>' + 'x'.repeat(200) + '</p></body></html>',
+        ),
+        waitForSelector: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        browser: vi.fn(() => mockBrowser),
+        _continued: continued,
+        _aborted: aborted,
+        _mockBrowser: mockBrowser,
+      }
+      return page
+    }
+
+    function mountBrowser(page: ReturnType<typeof createInterceptingPage>) {
+      const browser = {
+        newPage: vi.fn().mockResolvedValue(page),
+        close: vi.fn().mockResolvedValue(undefined),
+      }
+      page.browser = vi.fn(() => browser)
+      return browser
+    }
+
+    it('enables request interception on the page', async () => {
+      pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
+      const page = createInterceptingPage(['https://example.com'])
+      const browser = mountBrowser(page)
+      const puppeteer = await import('puppeteer')
+      ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
+
+      await pool.fetch('https://example.com')
+      expect(page.setRequestInterception).toHaveBeenCalledWith(true)
+    })
+
+    it('blocks a redirect to the cloud metadata endpoint (169.254.169.254)', async () => {
+      pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
+      // Initial public URL, then a 3xx redirect target at the metadata IP.
+      const page = createInterceptingPage([
+        'https://example.com',
+        'http://169.254.169.254/latest/meta-data/',
+      ])
+      const browser = mountBrowser(page)
+      const puppeteer = await import('puppeteer')
+      ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
+
+      await expect(pool.fetch('https://example.com')).rejects.toThrow(/Outbound URL rejected/)
+      expect(page._aborted).toContain('http://169.254.169.254/latest/meta-data/')
+      // The legitimate first hop was allowed through.
+      expect(page._continued).toContain('https://example.com')
+    })
+
+    it('blocks a DNS-rebind to an internal RFC1918 address', async () => {
+      // Deterministic lookup mimicking a rebind: the hostname resolves to a
+      // private 10.x address. The central policy's resolved-IP check must
+      // reject it even though the hostname itself looks public.
+      pool = new BrowserPool({
+        stealth: false,
+        maxConcurrency: 1,
+        urlPolicy: {
+          lookup: async () => [{ address: '10.0.0.5', family: 4 }],
+        },
+      })
+      // Initial hop is a reserved example host (passes the syntax-only path);
+      // the redirect target rebinds to the private IP and must be aborted by
+      // the interception layer.
+      const page = createInterceptingPage([
+        'https://example.com',
+        'https://rebind.evil.test/',
+      ])
+      const browser = mountBrowser(page)
+      const puppeteer = await import('puppeteer')
+      ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
+
+      await expect(pool.fetch('https://example.com')).rejects.toThrow(
+        /Outbound URL rejected/,
+      )
+      expect(page._aborted).toContain('https://rebind.evil.test/')
+      expect(page._continued).toContain('https://example.com')
+    })
+
+    it('allows navigation to a permitted public URL', async () => {
+      pool = new BrowserPool({ stealth: false, maxConcurrency: 1 })
+      const page = createInterceptingPage(['https://example.com'])
+      const browser = mountBrowser(page)
+      const puppeteer = await import('puppeteer')
+      ;(puppeteer.default.launch as ReturnType<typeof vi.fn>).mockResolvedValue(browser)
+
+      const result = await pool.fetch('https://example.com')
+      expect(result.status).toBe(200)
+      expect(page._continued).toContain('https://example.com')
+      expect(page._aborted).toHaveLength(0)
+    })
+  })
+
   describe('destroy', () => {
     it('closes all browsers and clears entries', async () => {
       pool = new BrowserPool({ stealth: false, maxConcurrency: 2 })

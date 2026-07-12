@@ -41,6 +41,11 @@ const DEFAULT_PRUNE_THRESHOLD = 0.1
 export function calculateStrength(meta: DecayMetadata, now?: number): number {
   const currentTime = now ?? Date.now()
   const elapsed = Math.max(0, currentTime - meta.lastAccessedAt)
+  // Mirror columnar-ops-decay: a zero/negative/non-finite half-life would
+  // produce NaN or 0-everywhere strengths and poison eviction ordering.
+  if (!Number.isFinite(meta.halfLifeMs) || meta.halfLifeMs <= 0) {
+    return elapsed <= 0 ? 1 : Math.exp(-elapsed / DEFAULT_HALF_LIFE_MS)
+  }
   return Math.exp(-elapsed / meta.halfLifeMs)
 }
 

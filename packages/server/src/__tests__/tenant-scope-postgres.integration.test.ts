@@ -11,6 +11,7 @@ import type { Client as PgClient } from 'pg'
 import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { DrizzleCatalogStore } from '../marketplace/drizzle-catalog-store.js'
 import { DrizzleClusterStore } from '../persistence/drizzle-cluster-store.js'
+import { requireIntegration } from './helpers/require-integration.js'
 
 interface StartedTestContainer {
   getMappedPort(port: number): number
@@ -56,6 +57,15 @@ try {
 }
 
 const canRun = GenericContainerClass !== undefined && containerRuntimeAvailable
+
+const integrationGate = requireIntegration({
+  name: 'tenant-scope Postgres migration and stores (testcontainers)',
+  available: canRun,
+  reason:
+    GenericContainerClass === undefined
+      ? 'testcontainers is not installed'
+      : 'Docker (container runtime) is not available',
+})
 
 async function createPreTenantSchema(client: PgClient): Promise<void> {
   await client.query(`
@@ -106,7 +116,7 @@ async function applyTenantMigration(client: PgClient): Promise<void> {
   await client.query(migration)
 }
 
-describe.skipIf(!canRun)('tenant-scope Postgres migration and stores (testcontainers)', () => {
+describe.skipIf(integrationGate.shouldSkip)('tenant-scope Postgres migration and stores (testcontainers)', () => {
   const GC = GenericContainerClass!
 
   let container: StartedTestContainer

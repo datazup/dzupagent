@@ -1,7 +1,32 @@
 import { ToolMessage } from '@langchain/core/messages'
+import { PromptInjectionGuard } from '@dzupagent/security'
 import { emitToolError, statusFromError } from '../tool-lifecycle-policy.js'
 import type { ToolLoopConfig } from './types.js'
 import type { StuckStatus } from '../../guardrails/stuck-detector.js'
+
+/**
+ * MC-3 (AGENT-H-06 / SEC-M-06) — process-wide default prompt-injection
+ * guardrail used when a {@link ToolLoopConfig} does not supply its own
+ * {@link ToolLoopConfig.promptInjectionGuard}. Mirrors the default used by
+ * the success path in `policy-enabled-tool-executor.ts`. The guard is
+ * stateless, so a single shared instance is safe and avoids per-call
+ * allocation.
+ */
+const DEFAULT_PROMPT_INJECTION_GUARD = new PromptInjectionGuard()
+
+/**
+ * MC-3 (AGENT-H-06 / SEC-M-06 / QF-04) — wrap untrusted, model-visible text
+ * in the same labelled `<untrusted_content source="tool_result">` delimiter
+ * the success path applies, so an injection payload embedded in the text is
+ * presented as external data rather than authoritative instruction. Honors
+ * the `wrapToolResults === false` opt-out identically to the success path.
+ */
+function wrapModelVisible(text: string, config: ToolLoopConfig): string {
+  if (config.wrapToolResults === false) return text
+  return (config.promptInjectionGuard ?? DEFAULT_PROMPT_INJECTION_GUARD).wrap(text, {
+    label: 'tool_result',
+  })
+}
 
 export type ToolSpan = {
   setAttribute(key: string, value: string | number | boolean): unknown
@@ -234,8 +259,15 @@ export function handleToolError(
 ): { message: ToolMessage; errorMsg: string } {
   const { toolName, toolCallId, validatedKeys, startMs, span, config, stat } = ctx
   const errorMsg = err instanceof Error ? err.message : String(err)
+  // QF-04 (DZUPAGENT-ERR-H-07 / SEC-M-06) — a thrown error message is
+  // attacker-controllable untrusted content. Neutralize the MODEL-VISIBLE
+  // ToolMessage content through the same prompt-injection wrapper the success
+  // path applies, so an injection payload embedded in `error.message` is
+  // presented as external data rather than authoritative instruction. The
+  // observability fields below (`onToolResult`, `emitToolError`, span) keep
+  // the RAW error string, matching the success path's raw-telemetry contract.
   const message = new ToolMessage({
-    content: `Error executing tool "${toolName}": ${errorMsg}`,
+    content: wrapModelVisible(`Error executing tool "${toolName}": ${errorMsg}`, config),
     tool_call_id: toolCallId,
     name: toolName,
   })

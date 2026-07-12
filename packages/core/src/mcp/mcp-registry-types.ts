@@ -31,6 +31,13 @@ export const McpServerDefinitionSchema = z.object({
   riskLevel: McpRiskLevelSchema.optional(),
   headerRef: z.string().optional(),
   envRef: z.string().optional(),
+  /**
+   * Owning tenant scope. Stamped by the server from the authenticated caller's
+   * tenant so cross-tenant reads/updates/deletes can be rejected. `undefined`
+   * (single-tenant / library usage) is treated as the `'default'` tenant by
+   * scoped managers.
+   */
+  tenantId: z.string().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
@@ -40,6 +47,8 @@ export const McpProfileSchema = z.object({
   serverIds: z.array(z.string()),
   toolSelectors: z.array(z.string()).optional(),
   enabled: z.boolean(),
+  /** Owning tenant scope. See {@link McpServerDefinitionSchema.tenantId}. */
+  tenantId: z.string().optional(),
 })
 
 // ---------------------------------------------------------------------------

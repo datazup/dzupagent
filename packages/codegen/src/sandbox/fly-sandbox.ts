@@ -3,6 +3,8 @@
  * Uses Fly Machines REST API directly.
  */
 
+import { posix as posixPath } from 'node:path'
+
 import type { SandboxProtocol, ExecResult, ExecOptions } from './sandbox-protocol.js'
 
 export interface FlySandboxConfig {
@@ -29,6 +31,39 @@ interface FlyExecResponse {
   exit_code: number
   stdout: string
   stderr: string
+}
+
+/**
+ * Constant shell script used to write an uploaded file. All model-controlled
+ * values (file path, file content) are passed as positional arguments — `$1`
+ * (path) and `$2` (base64 content) — so shell metacharacters within them are
+ * never interpreted. Invoked as: sh -c SCRIPT <argv0> <path> <base64>.
+ */
+const WRITE_FILE_SCRIPT =
+  'mkdir -p "$(dirname "$1")" && printf %s "$2" | base64 -d > "$1"'
+
+/**
+ * Reject model-controlled paths that would escape the sandbox workspace before
+ * they are handed to any file operation. Absolute paths and `..` traversal are
+ * refused; the returned value is a normalized, workspace-relative path. This is
+ * defense-in-depth on top of the argv-based exec (which already prevents shell
+ * injection): even without a shell, an unguarded `../../etc/passwd` write would
+ * still touch the host filesystem inside the machine.
+ */
+function assertSafeSandboxPath(filePath: string): string {
+  if (typeof filePath !== 'string' || filePath.length === 0) {
+    throw new Error(`Invalid sandbox path: ${JSON.stringify(filePath)}`)
+  }
+  if (posixPath.isAbsolute(filePath)) {
+    throw new Error(`Absolute paths are not allowed in the sandbox: "${filePath}"`)
+  }
+  // Normalize using POSIX semantics (the sandbox is a Linux machine). A leading
+  // `..` segment after normalization means the path escapes the workspace root.
+  const normalized = posixPath.normalize(filePath)
+  if (normalized === '..' || normalized.startsWith('../')) {
+    throw new Error(`Path traversal detected: "${filePath}" escapes the sandbox workspace`)
+  }
+  return normalized
 }
 
 const DEFAULT_IMAGE = 'node:20-slim'
@@ -72,10 +107,26 @@ export class FlySandbox implements SandboxProtocol {
 
   async uploadFiles(files: Record<string, string>): Promise<void> {
     this.assertReady()
-    // Upload by writing files via exec commands
+    // Write files without ever interpolating the model-controlled path or
+    // content into a shell string. The script below is a compile-time constant;
+    // `filePath` and the base64-encoded content are only ever passed as
+    // positional arguments ($1/$2), so shell metacharacters in them are inert.
     for (const [filePath, content] of Object.entries(files)) {
-      const escaped = content.replace(/'/g, "'\\''")
-      await this.execute(`mkdir -p "$(dirname '${filePath}')" && printf '%s' '${escaped}' > '${filePath}'`)
+      const safePath = assertSafeSandboxPath(filePath)
+      const base64Content = Buffer.from(content, 'utf8').toString('base64')
+      const execResult = await this.execArgv([
+        'sh',
+        '-c',
+        WRITE_FILE_SCRIPT,
+        'write-file',
+        safePath,
+        base64Content,
+      ])
+      if (execResult.exitCode !== 0) {
+        throw new Error(
+          `Fly uploadFiles failed for '${filePath}' (exit ${execResult.exitCode}): ${execResult.stderr}`,
+        )
+      }
     }
   }
 
@@ -83,8 +134,12 @@ export class FlySandbox implements SandboxProtocol {
     this.assertReady()
     const result: Record<string, string> = {}
     for (const filePath of paths) {
-      const execResult = await this.execute(`cat '${filePath}'`)
+      const safePath = assertSafeSandboxPath(filePath)
+      // `cat` is invoked directly as argv; the path is a positional argument,
+      // never spliced into a shell command line.
+      const execResult = await this.execArgv(['cat', safePath])
       if (execResult.exitCode === 0) {
+        // Key results by the caller-supplied path for a stable contract.
         result[filePath] = execResult.stdout
       }
     }
@@ -92,6 +147,20 @@ export class FlySandbox implements SandboxProtocol {
   }
 
   async execute(command: string, options?: ExecOptions): Promise<ExecResult> {
+    // A caller-supplied `command` is an opaque shell command line, so it is
+    // wrapped in `sh -c` by design. File operations (uploadFiles/downloadFiles)
+    // must NOT route through here — they use execArgv() to avoid interpolating
+    // model-controlled paths into a shell string (CWE-78).
+    return this.execArgv(['sh', '-c', command], options)
+  }
+
+  /**
+   * Execute a raw argv array in the sandbox with no shell wrapping added by
+   * this method. The array is sent verbatim to the Fly exec API, so each
+   * element is a distinct argument — path/content values placed as positional
+   * arguments cannot break out into command injection.
+   */
+  private async execArgv(cmd: string[], options?: ExecOptions): Promise<ExecResult> {
     if (!this.machineId) {
       await this.init()
     }
@@ -103,7 +172,7 @@ export class FlySandbox implements SandboxProtocol {
         {
           method: 'POST',
           body: JSON.stringify({
-            cmd: ['sh', '-c', command],
+            cmd,
             timeout: Math.ceil(timeout / 1000),
             ...(options?.cwd ? { working_dir: options.cwd } : {}),
           }),

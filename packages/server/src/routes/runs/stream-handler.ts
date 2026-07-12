@@ -133,7 +133,16 @@ export async function handleStreamRun(
         }
         clearInterval(checkInterval)
       }
-    })() }, 2000)
+    })().catch((err: unknown) => {
+      // A persistent runStore failure must not produce an unhandled
+      // rejection every 2s. Log once and stop polling.
+      secureLogger.error({
+        event: 'run_stream_poll_error',
+        runId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      clearInterval(checkInterval)
+    }) }, 2000)
 
     // Pipe handle events to SSE; adapter handles onAbort → handle.cancel()
     await streamRunHandleToSSE(handle, stream, {

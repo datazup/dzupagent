@@ -8,7 +8,7 @@
  *
  * Uses in-memory mock pg.Pool / pg.PoolClient objects; no real pg import needed.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createPgExecutor } from "../database/db-query.js";
 import { createDatabaseOperations } from "../database/db-operations.js";
 import { createDatabaseConnector } from "../database/db-connector.js";
@@ -961,5 +961,106 @@ describe("Pool configuration edge cases", () => {
     expect(config.user).toBe("analyst");
     expect(config.password).toBe("secret");
     expect(config.database).toBe("analytics");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. Pool 'error' handler — idle client errors must not crash the process
+//     (QF-01 / DZUPAGENT-ERR-C-01)
+// ---------------------------------------------------------------------------
+
+/**
+ * node-postgres emits an 'error' event on idle clients when a pooled
+ * connection drops (network blip, server restart). Node's EventEmitter
+ * re-throws an 'error' event with no listener, which crashes the process.
+ * createPool() must attach a handler that logs and swallows.
+ */
+describe("Pool idle 'error' handler (QF-01)", () => {
+  // A minimal EventEmitter-like fake pg Pool that records listeners and lets
+  // the test synchronously emit 'error'.
+  type Listener = (err: unknown) => void;
+
+  class FakePool {
+    public readonly opts: Record<string, unknown>;
+    private readonly listeners: Record<string, Listener[]> = {};
+    constructor(opts: Record<string, unknown>) {
+      this.opts = opts;
+    }
+    on(event: string, listener: Listener): this {
+      (this.listeners[event] ??= []).push(listener);
+      return this;
+    }
+    /** Mimics EventEmitter: throws if 'error' is emitted with no listener. */
+    emit(event: string, err: unknown): void {
+      const ls = this.listeners[event];
+      if (!ls || ls.length === 0) {
+        if (event === "error") throw err;
+        return;
+      }
+      for (const l of ls) l(err);
+    }
+  }
+
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.doUnmock("pg");
+  });
+
+  async function loadCreatePoolWithFakePg(): Promise<{
+    createPool: (typeof import("../database/db-connection.js"))["createPool"];
+  }> {
+    vi.doMock("pg", () => ({ Pool: FakePool, default: { Pool: FakePool } }));
+    const mod = await import("../database/db-connection.js");
+    return { createPool: mod.createPool };
+  }
+
+  it("attaches an 'error' listener so an idle error does not throw", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { createPool } = await loadCreatePoolWithFakePg();
+
+    const pool = (await createPool({
+      connectionString: "postgres://localhost/test",
+    })) as unknown as FakePool;
+
+    // Emitting 'error' must NOT throw now that a listener is attached.
+    expect(() =>
+      pool.emit("error", new Error("terminating connection due to admin command")),
+    ).not.toThrow();
+
+    errSpy.mockRestore();
+  });
+
+  it("handler logs a structured error with operation + error name/message", async () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { createPool } = await loadCreatePoolWithFakePg();
+
+    const pool = (await createPool({
+      connectionString: "postgres://localhost/test",
+    })) as unknown as FakePool;
+
+    pool.emit("error", new Error("connection reset by peer"));
+
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse(errSpy.mock.calls[0]![0] as string) as {
+      level: string;
+      operation: string;
+      error: { name: string; message: string };
+    };
+    expect(logged.level).toBe("error");
+    expect(logged.operation).toBe("pool_idle_error");
+    expect(logged.error.name).toBe("Error");
+    expect(logged.error.message).toBe("connection reset by peer");
+
+    errSpy.mockRestore();
+  });
+
+  it("without the handler an idle 'error' would throw (fake-pool sanity)", () => {
+    // Guards the test fake itself: a listener-less pool re-throws on 'error'.
+    const bare = new FakePool({});
+    expect(() => bare.emit("error", new Error("boom"))).toThrow("boom");
   });
 });

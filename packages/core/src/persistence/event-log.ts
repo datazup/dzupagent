@@ -191,7 +191,10 @@ interface EventBusLike {
  * Listens to a DzupEventBus and auto-appends every event to an EventLogStore.
  */
 export class EventLogSink {
-  constructor(private readonly log: EventLogStore) {}
+  constructor(
+    private readonly log: EventLogStore,
+    private readonly logger: FrameworkLogger = defaultLogger,
+  ) {}
 
   /**
    * Start capturing events from the bus for a specific run.
@@ -200,8 +203,17 @@ export class EventLogSink {
   attach(eventBus: EventBusLike, runId: string): () => void {
     return eventBus.onAny((event) => {
       const { type, ...rest } = event
-      // Fire-and-forget; errors are silently swallowed to keep non-fatal
-      void this.log.append({ runId, type, payload: rest as Record<string, unknown> })
+      // Fire-and-forget; a rejected append must never escape to
+      // unhandledRejection — log a warning and keep the sink non-fatal.
+      void this.log
+        .append({ runId, type, payload: rest as Record<string, unknown> })
+        .catch((err: unknown) => {
+          this.logger.warn('EventLogSink: failed to append run event', {
+            runId,
+            type,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        })
     })
   }
 }
