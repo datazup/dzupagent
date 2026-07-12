@@ -199,13 +199,6 @@ function compileForGoose(policy: AdapterPolicy): CompiledPolicyOverrides {
   if (policy.sandboxMode !== undefined) {
     config.sandboxMode = policy.sandboxMode
     inputOptions['sandboxMode'] = policy.sandboxMode
-    // Goose uses --permission-mode via input options
-    const gooseModeMap: Record<string, string> = {
-      'read-only': 'read-only',
-      'workspace-write': 'workspace',
-      'full-access': 'full',
-    }
-    inputOptions['permissionMode'] = gooseModeMap[policy.sandboxMode] ?? 'workspace'
   }
 
   if (policy.maxTurns !== undefined) {

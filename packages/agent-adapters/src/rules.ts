@@ -378,10 +378,7 @@ function applyProviderRuntimePatch(
       return
 
     case 'goose': {
-      const gooseConfig = providerConfigPatch['goose']
-      if (isRecord(gooseConfig)) {
-        applyStringInputOptionIfAbsent(inputOptions, 'permissionMode', gooseConfig['mode'])
-      }
+      applyStringInputOptionIfAbsent(inputOptions, 'gooseMode', providerConfigPatch['GOOSE_MODE'])
       return
     }
 
