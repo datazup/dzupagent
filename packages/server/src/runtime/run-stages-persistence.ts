@@ -379,10 +379,12 @@ async function scoreRunReflection(options: {
     });
 
     if (options.workerOptions.retrievalFeedback) {
+      // R3-ISO-05: retrieval weight learning is keyed to the run's tenant.
       reportRetrievalFeedback(
         options.workerOptions.retrievalFeedback,
         (options.job.metadata ?? {}) as Record<string, unknown>,
-        reflectionScore
+        reflectionScore,
+        resolveTenantId(options.job)
       );
     }
 

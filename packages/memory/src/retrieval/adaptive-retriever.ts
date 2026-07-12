@@ -23,22 +23,25 @@ import type {
   RetrievalStrategy,
   RetrievalWeights,
   SourceName,
-} from './adaptive-retriever-types.js';
+} from "./adaptive-retriever-types.js";
 import {
   DEFAULT_STRATEGIES,
   GENERAL_WEIGHTS,
   classifyIntent,
-} from './adaptive-retriever-types.js';
-import { redistributeWeights, weightedFusion } from './adaptive-retriever-fusion.js';
+} from "./adaptive-retriever-types.js";
+import {
+  redistributeWeights,
+  weightedFusion,
+} from "./adaptive-retriever-fusion.js";
 import {
   ProviderHealthTracker,
   type ProviderHealthMetrics,
-} from './adaptive-retriever-health.js';
+} from "./adaptive-retriever-health.js";
 import {
   WeightLearner,
   type FeedbackQuality,
-} from './adaptive-retriever-weight-learner.js';
-import { executeProviderSearches } from './adaptive-retriever-search.js';
+} from "./adaptive-retriever-weight-learner.js";
+import { executeProviderSearches } from "./adaptive-retriever-search.js";
 
 // Re-export public API so existing consumers of this module keep working.
 export type {
@@ -50,13 +53,30 @@ export type {
   RetrievalStrategy,
   RetrievalWarning,
   RetrievalWeights,
-} from './adaptive-retriever-types.js';
-export { DEFAULT_STRATEGIES, classifyIntent } from './adaptive-retriever-types.js';
-export type { ProviderHealthMetrics } from './adaptive-retriever-health.js';
-export type { FeedbackQuality, WeightLearnerConfig } from './adaptive-retriever-weight-learner.js';
-export { WeightLearner } from './adaptive-retriever-weight-learner.js';
+} from "./adaptive-retriever-types.js";
+export {
+  DEFAULT_STRATEGIES,
+  classifyIntent,
+} from "./adaptive-retriever-types.js";
+export type { ProviderHealthMetrics } from "./adaptive-retriever-health.js";
+export type {
+  FeedbackQuality,
+  WeightLearnerConfig,
+} from "./adaptive-retriever-weight-learner.js";
+export { WeightLearner } from "./adaptive-retriever-weight-learner.js";
 
 // ─── Adaptive Retriever ──────────────────────────────────────────────────────
+
+/**
+ * Learner scope used when no tenantId is supplied. Matches the server-side
+ * tenant fallback so tenant-less (single-tenant) deployments keep working.
+ */
+const DEFAULT_LEARNING_TENANT = "default";
+
+/** Optional tenant scope for feedback reporting and search. */
+export interface RetrievalTenantOptions {
+  tenantId?: string | undefined;
+}
 
 export class AdaptiveRetriever {
   private readonly strategies: RetrievalStrategy[];
@@ -65,47 +85,71 @@ export class AdaptiveRetriever {
   private readonly k: number;
   private readonly providers: RetrievalProviders;
   private readonly eventBus?: RetrievalEventEmitter | undefined;
-  private readonly healthTrackers = new Map<SourceName, ProviderHealthTracker>();
+  private readonly healthTrackers = new Map<
+    SourceName,
+    ProviderHealthTracker
+  >();
   private readonly learnFromFeedback: boolean;
-  private readonly weightLearner: WeightLearner;
+  /** Learned weight state, partitioned per tenant so feedback never crosses tenants. */
+  private readonly weightLearners = new Map<string, WeightLearner>();
 
   constructor(config: AdaptiveRetrieverConfig) {
     this.providers = config.providers;
     this.strategies = config.strategies ?? DEFAULT_STRATEGIES;
     this.defaultLimit = config.defaultLimit ?? 10;
-    this.namespace = config.namespace ?? ['memories'];
+    this.namespace = config.namespace ?? ["memories"];
     this.k = config.k ?? 60;
     this.eventBus = config.eventBus;
     this.learnFromFeedback = config.learnFromFeedback ?? false;
-    this.weightLearner = new WeightLearner();
 
-    if (config.providers.vector) this.healthTrackers.set('vector', new ProviderHealthTracker());
-    if (config.providers.fts) this.healthTrackers.set('fts', new ProviderHealthTracker());
-    if (config.providers.graph) this.healthTrackers.set('graph', new ProviderHealthTracker());
+    if (config.providers.vector)
+      this.healthTrackers.set("vector", new ProviderHealthTracker());
+    if (config.providers.fts)
+      this.healthTrackers.set("fts", new ProviderHealthTracker());
+    if (config.providers.graph)
+      this.healthTrackers.set("graph", new ProviderHealthTracker());
   }
 
   /** Health metrics for all configured retrieval providers. */
   health(): ProviderHealthMetrics[] {
-    return Array.from(this.healthTrackers.entries()).map(
-      ([source, tracker]) => tracker.metrics(source),
+    return Array.from(this.healthTrackers.entries()).map(([source, tracker]) =>
+      tracker.metrics(source)
     );
   }
 
   /** Report search quality feedback for learning. No-op when learning is disabled. */
-  reportFeedback(_query: string, intent: QueryIntent, quality: FeedbackQuality): void {
+  reportFeedback(
+    _query: string,
+    intent: QueryIntent,
+    quality: FeedbackQuality,
+    opts?: RetrievalTenantOptions
+  ): void {
     if (!this.learnFromFeedback) return;
-    this.weightLearner.recordFeedback(intent, this.getWeights(intent), quality);
+    const tenantKey = opts?.tenantId ?? DEFAULT_LEARNING_TENANT;
+    let learner = this.weightLearners.get(tenantKey);
+    if (!learner) {
+      learner = new WeightLearner();
+      this.weightLearners.set(tenantKey, learner);
+    }
+    learner.recordFeedback(intent, this.getWeights(intent), quality);
   }
 
-  /** Learned weight adjustments for all intents that have received feedback. */
-  getLearnedAdjustments(): Map<QueryIntent, RetrievalWeights> {
+  /** Learned weight adjustments for all intents that have received feedback from the given tenant. */
+  getLearnedAdjustments(tenantId?: string): Map<QueryIntent, RetrievalWeights> {
     if (!this.learnFromFeedback) return new Map();
-    return this.weightLearner.getAdjustments();
+    const learner = this.weightLearners.get(
+      tenantId ?? DEFAULT_LEARNING_TENANT
+    );
+    return learner ? learner.getAdjustments() : new Map();
   }
 
-  /** Reset all learned weight adjustments. */
-  resetLearning(): void {
-    this.weightLearner.reset();
+  /** Reset learned weight adjustments — for one tenant, or all tenants when omitted. */
+  resetLearning(tenantId?: string): void {
+    if (tenantId === undefined) {
+      this.weightLearners.clear();
+      return;
+    }
+    this.weightLearners.delete(tenantId);
   }
 
   /** Classify query intent against configured strategies. */
@@ -130,34 +174,41 @@ export class AdaptiveRetriever {
     query: string,
     records: Array<{ key: string; value: Record<string, unknown> }>,
     limit?: number,
+    opts?: RetrievalTenantOptions
   ): Promise<AdaptiveSearchResult[]> {
     const effectiveLimit = limit ?? this.defaultLimit;
     const intent = this.classifyIntent(query);
     let rawWeights = this.getWeights(intent);
 
     if (this.learnFromFeedback) {
-      rawWeights = this.weightLearner.blend(rawWeights, intent, this.weightLearner.learningRate);
+      const learner = this.weightLearners.get(
+        opts?.tenantId ?? DEFAULT_LEARNING_TENANT
+      );
+      if (learner) {
+        rawWeights = learner.blend(rawWeights, intent, learner.learningRate);
+      }
     }
 
     const available: SourceName[] = [];
-    if (this.providers.vector) available.push('vector');
-    if (this.providers.fts) available.push('fts');
-    if (this.providers.graph) available.push('graph');
+    if (this.providers.vector) available.push("vector");
+    if (this.providers.fts) available.push("fts");
+    if (this.providers.graph) available.push("graph");
 
     if (available.length === 0) return [];
 
     const weights = redistributeWeights(rawWeights, available);
 
-    const { searchResults, succeededSources, warnings } = await executeProviderSearches({
-      query,
-      records,
-      limit: effectiveLimit,
-      namespace: this.namespace,
-      available,
-      providers: this.providers,
-      healthTrackers: this.healthTrackers,
-      eventBus: this.eventBus,
-    });
+    const { searchResults, succeededSources, warnings } =
+      await executeProviderSearches({
+        query,
+        records,
+        limit: effectiveLimit,
+        namespace: this.namespace,
+        available,
+        providers: this.providers,
+        healthTrackers: this.healthTrackers,
+        eventBus: this.eventBus,
+      });
 
     if (succeededSources.length === 0) return [];
 
