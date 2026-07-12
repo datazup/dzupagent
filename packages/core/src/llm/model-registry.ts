@@ -12,6 +12,8 @@ import type {
 } from "./model-config.js";
 import { CircuitBreaker } from "./circuit-breaker.js";
 import type { CircuitBreakerConfig } from "./circuit-breaker.js";
+import { ProviderHealthTracker } from "./provider-health.js";
+import type { ProviderHealthConfig } from "./provider-health.js";
 import { ForgeError } from "../errors/forge-error.js";
 import { isTransientError } from "./retry.js";
 import { defaultLogger } from "../utils/logger.js";
@@ -53,7 +55,7 @@ export interface FallbackRequirements {
 
 function resolveStructuredOutputCapabilities(
   provider: LLMProviderConfig,
-  spec: ModelSpec
+  spec: ModelSpec,
 ): StructuredOutputModelCapabilities | undefined {
   const capabilities =
     spec.structuredOutput ??
@@ -85,13 +87,25 @@ export interface ModelFallbackCandidate {
 }
 
 /**
+ * Provider selection strategy.
+ *
+ * - `'priority'` (default): providers are tried strictly in ascending static
+ *   `priority` order — the historical, fully deterministic behavior.
+ * - `'weighted'`: identical priority ordering, but eligible candidates
+ *   (breaker closed/half-open) that share the same `priority` value are
+ *   sorted by descending health weight (EMA success rate) as a tie-breaker.
+ *   Weight NEVER overrides the static priority ordering across tiers.
+ */
+export type ProviderSelectionMode = "priority" | "weighted";
+
+/**
  * Default model factory — creates ChatAnthropic or ChatOpenAI instances
  * based on the provider type.
  */
 function defaultModelFactory(
   provider: LLMProviderConfig,
   spec: ModelSpec,
-  overrides?: ModelOverrides
+  overrides?: ModelOverrides,
 ): BaseChatModel {
   const modelName = overrides?.model ?? spec.name;
   const maxTokens = overrides?.maxTokens ?? spec.maxTokens;
@@ -193,17 +207,17 @@ function defaultModelFactory(
     case "bedrock":
     case "custom":
       throw new Error(
-        `Provider "${provider.provider}" requires a custom ModelFactory`
+        `Provider "${provider.provider}" requires a custom ModelFactory`,
       );
 
     default:
       throw new Error(
-        `Provider "${provider.provider}" requires a custom ModelFactory`
+        `Provider "${provider.provider}" requires a custom ModelFactory`,
       );
   }
 
   throw new Error(
-    `Provider "${provider.provider}" requires a custom ModelFactory`
+    `Provider "${provider.provider}" requires a custom ModelFactory`,
   );
 }
 
@@ -232,6 +246,8 @@ export class ModelRegistry {
   private factory: ModelFactory = defaultModelFactory;
   private breakers = new Map<string, CircuitBreaker>();
   private breakerConfig?: Partial<CircuitBreakerConfig>;
+  private health = new ProviderHealthTracker();
+  private selectionMode: ProviderSelectionMode = "priority";
   private middlewares: RegistryMiddleware[] = [];
   private harnessProfileRegistry: HarnessProfileRegistry | undefined;
 
@@ -241,7 +257,7 @@ export class ModelRegistry {
   private decorateStructuredOutputCapabilities(
     model: BaseChatModel,
     provider: LLMProviderConfig,
-    spec: ModelSpec
+    spec: ModelSpec,
   ): BaseChatModel {
     const capabilities = resolveStructuredOutputCapabilities(provider, spec);
     return attachStructuredOutputCapabilities(model, capabilities);
@@ -266,6 +282,26 @@ export class ModelRegistry {
     return this;
   }
 
+  /**
+   * Configure the provider health tracker (EMA success-rate) used for
+   * `'weighted'` selection. Replaces the tracker instance, so call this before
+   * any invocations are recorded if you want a non-default alpha/minSamples.
+   */
+  setProviderHealthConfig(config: ProviderHealthConfig): this {
+    this.health = new ProviderHealthTracker(config);
+    return this;
+  }
+
+  /**
+   * Set the provider selection mode. Defaults to `'priority'` (byte-for-byte
+   * historical behavior). `'weighted'` uses health weight as a within-priority
+   * tie-breaker only — it never reorders across `priority` tiers.
+   */
+  setSelectionMode(mode: ProviderSelectionMode): this {
+    this.selectionMode = mode;
+    return this;
+  }
+
   /** Attach a HarnessProfileRegistry for per-model policy resolution. */
   setHarnessProfileRegistry(registry: HarnessProfileRegistry): this {
     this.harnessProfileRegistry = registry;
@@ -283,6 +319,41 @@ export class ModelRegistry {
     tier?: ModelTier;
   }): ResolvedHarnessOverrides | undefined {
     return this.harnessProfileRegistry?.resolve(params);
+  }
+
+  /**
+   * Produce the provider iteration order for selection-time fallback.
+   *
+   * In `'priority'` mode this returns `this.providers` UNCHANGED (already sorted
+   * ascending by static `priority`) — so callers behave byte-for-byte as before.
+   *
+   * In `'weighted'` mode the list is re-sorted with a STABLE sort that keeps
+   * `priority` ascending as the primary key, and, within a single priority
+   * tier, orders providers by DESCENDING health weight. Ineligible providers
+   * (open breaker) keep their relative position and are still filtered by the
+   * caller's own breaker check — the weighted sort only reshuffles ties, it
+   * never promotes across tiers.
+   */
+  private orderedProviders(): LLMProviderConfig[] {
+    if (this.selectionMode !== "weighted") return this.providers;
+    // Decorate-sort-undecorate for a stable sort keyed on (priority asc, weight
+    // desc). Array.prototype.sort is not guaranteed stable across all inputs on
+    // every engine for large arrays, so we carry the original index as the final
+    // tie-breaker to guarantee determinism for equal (priority, weight) pairs.
+    return this.providers
+      .map((provider, index) => ({
+        provider,
+        index,
+        weight: this.health.getWeight(provider.provider),
+      }))
+      .sort((a, b) => {
+        if (a.provider.priority !== b.provider.priority) {
+          return a.provider.priority - b.provider.priority;
+        }
+        if (a.weight !== b.weight) return b.weight - a.weight;
+        return a.index - b.index;
+      })
+      .map((entry) => entry.provider);
   }
 
   /** Get or create circuit breaker for a provider */
@@ -306,7 +377,7 @@ export class ModelRegistry {
         return this.decorateStructuredOutputCapabilities(
           this.factory(provider, spec, overrides),
           provider,
-          spec
+          spec,
         );
       }
     }
@@ -314,7 +385,7 @@ export class ModelRegistry {
       `No provider configured for tier "${tier}". ` +
         `Registered providers: ${
           this.providers.map((p) => p.provider).join(", ") || "none"
-        }`
+        }`,
     );
   }
 
@@ -325,7 +396,7 @@ export class ModelRegistry {
   getModelFromProvider(
     providerName: LLMProviderConfig["provider"],
     tier: ModelTier,
-    overrides?: ModelOverrides
+    overrides?: ModelOverrides,
   ): BaseChatModel {
     const provider = this.providers.find((p) => p.provider === providerName);
     if (!provider) {
@@ -334,13 +405,13 @@ export class ModelRegistry {
     const spec = provider.models[tier];
     if (!spec) {
       throw new Error(
-        `Provider "${providerName}" has no model for tier "${tier}"`
+        `Provider "${providerName}" has no model for tier "${tier}"`,
       );
     }
     return this.decorateStructuredOutputCapabilities(
       this.factory(provider, spec, overrides),
       provider,
-      spec
+      spec,
     );
   }
 
@@ -355,7 +426,7 @@ export class ModelRegistry {
           return this.decorateStructuredOutputCapabilities(
             this.factory(provider, spec, overrides),
             provider,
-            spec
+            spec,
           );
         }
       }
@@ -367,7 +438,7 @@ export class ModelRegistry {
           return this.decorateStructuredOutputCapabilities(
             this.factory(provider, spec, overrides),
             provider,
-            spec
+            spec,
           );
         }
       }
@@ -392,7 +463,7 @@ export class ModelRegistry {
       if (spec) {
         const capabilities = resolveStructuredOutputCapabilities(
           provider,
-          spec
+          spec,
         );
         return {
           ...spec,
@@ -436,13 +507,14 @@ export class ModelRegistry {
   getModelWithFallback(
     tier: ModelTier,
     overrides?: ModelOverrides,
-    requirements?: FallbackRequirements
+    requirements?: FallbackRequirements,
   ): { model: BaseChatModel; provider: string } {
     const errors: string[] = [];
     let anyProviderFound = false;
     let capabilitySkipCount = 0;
 
-    for (const provider of this.providers) {
+    const ordered = this.orderedProviders();
+    for (const provider of ordered) {
       const spec = provider.models[tier];
       if (!spec) continue;
 
@@ -465,7 +537,7 @@ export class ModelRegistry {
           spec.contextWindow < minContextWindow
         ) {
           errors.push(
-            `${provider.provider}: contextWindow ${spec.contextWindow} < required ${minContextWindow}`
+            `${provider.provider}: contextWindow ${spec.contextWindow} < required ${minContextWindow}`,
           );
           capabilitySkipCount++;
           continue;
@@ -475,13 +547,13 @@ export class ModelRegistry {
         if (requiredCapabilities && requiredCapabilities.length > 0) {
           const modelCaps = spec.capabilities ?? [];
           const missing = requiredCapabilities.filter(
-            (cap) => !modelCaps.includes(cap)
+            (cap) => !modelCaps.includes(cap),
           );
           if (missing.length > 0) {
             errors.push(
               `${provider.provider}: missing capabilities [${missing.join(
-                ", "
-              )}]`
+                ", ",
+              )}]`,
             );
             capabilitySkipCount++;
             continue;
@@ -493,14 +565,16 @@ export class ModelRegistry {
         const model = this.decorateStructuredOutputCapabilities(
           this.factory(provider, spec, overrides),
           provider,
-          spec
+          spec,
         );
 
-        // Emit warning when we are using a non-primary provider as fallback
-        if (provider !== this.providers[0]) {
+        // Emit warning when we are using a non-primary provider as fallback.
+        // "Primary" is the first provider in the effective selection order
+        // (which equals this.providers[0] in 'priority' mode).
+        if (provider !== ordered[0]) {
           defaultLogger.warn(
             `[ModelRegistry] falling back to provider "${provider.provider}" for tier "${tier}"`,
-            { tier, provider: provider.provider, skippedErrors: errors }
+            { tier, provider: provider.provider, skippedErrors: errors },
           );
         }
 
@@ -525,7 +599,7 @@ export class ModelRegistry {
       throw new ForgeError({
         code: "NO_CAPABLE_FALLBACK",
         message: `No provider for tier "${tier}" satisfies the required capabilities/context. Checked: ${errors.join(
-          "; "
+          "; ",
         )}`,
         recoverable: false,
         suggestion:
@@ -537,7 +611,7 @@ export class ModelRegistry {
     throw new ForgeError({
       code: "ALL_PROVIDERS_EXHAUSTED",
       message: `No provider available for tier "${tier}". Tried: ${errors.join(
-        "; "
+        "; ",
       )}`,
       recoverable: false,
       suggestion:
@@ -556,12 +630,12 @@ export class ModelRegistry {
    */
   getModelFallbackCandidates(
     tier: ModelTier,
-    overrides?: ModelOverrides
+    overrides?: ModelOverrides,
   ): ModelFallbackCandidate[] {
     const errors: string[] = [];
     const candidates: ModelFallbackCandidate[] = [];
 
-    for (const provider of this.providers) {
+    for (const provider of this.orderedProviders()) {
       const spec = provider.models[tier];
       if (!spec) continue;
 
@@ -575,7 +649,7 @@ export class ModelRegistry {
         const model = this.decorateStructuredOutputCapabilities(
           this.factory(provider, spec, overrides),
           provider,
-          spec
+          spec,
         );
         candidates.push({
           model,
@@ -594,7 +668,7 @@ export class ModelRegistry {
     throw new ForgeError({
       code: "ALL_PROVIDERS_EXHAUSTED",
       message: `No provider available for tier "${tier}". Tried: ${errors.join(
-        "; "
+        "; ",
       )}`,
       recoverable: false,
       suggestion:
@@ -609,26 +683,60 @@ export class ModelRegistry {
    */
   recordProviderSuccess(provider: string): void {
     this.getBreaker(provider).recordSuccess();
+    this.health.recordSuccess(provider);
   }
 
   /**
-   * Record a failed LLM invocation. If the error is transient, the circuit
-   * breaker tracks it; non-transient errors are ignored by the breaker.
+   * Record a failed LLM invocation.
+   *
+   * Breaker behavior is unchanged: only transient errors trip the circuit
+   * breaker (non-transient errors are ignored by the breaker). The health
+   * tracker, however, records EVERY failure regardless of transient
+   * classification — a non-transient error is still a failed outcome for the
+   * success-rate EMA used by weighted selection.
    */
   recordProviderFailure(provider: string, error: Error): void {
     if (isTransientError(error)) {
       this.getBreaker(provider).recordFailure();
     }
+    this.health.recordFailure(provider);
   }
 
-  /** Get circuit breaker state for diagnostics */
-  getProviderHealth(): Record<string, { state: string; provider: string }> {
-    const health: Record<string, { state: string; provider: string }> = {};
+  /**
+   * Get per-provider health for diagnostics. Combines the binary circuit
+   * breaker `state` with the continuous health signal (`weight`, `successRate`,
+   * `samples`) from the EMA tracker.
+   */
+  getProviderHealth(): Record<
+    string,
+    {
+      state: string;
+      provider: string;
+      weight: number;
+      successRate: number;
+      samples: number;
+    }
+  > {
+    const snapshot = this.health.snapshot();
+    const health: Record<
+      string,
+      {
+        state: string;
+        provider: string;
+        weight: number;
+        successRate: number;
+        samples: number;
+      }
+    > = {};
     for (const provider of this.providers) {
       const breaker = this.breakers.get(provider.provider);
+      const entry = snapshot[provider.provider];
       health[provider.provider] = {
         state: breaker?.getState() ?? "closed",
         provider: provider.provider,
+        weight: this.health.getWeight(provider.provider),
+        successRate: entry?.successRate ?? 1,
+        samples: entry?.samples ?? 0,
       };
     }
     return health;

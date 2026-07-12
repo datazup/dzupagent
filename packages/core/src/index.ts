@@ -75,7 +75,13 @@ export { ModelRegistry } from "./llm/model-registry.js";
 export type {
   ModelFallbackCandidate,
   FallbackRequirements,
+  ProviderSelectionMode,
 } from "./llm/model-registry.js";
+export { ProviderHealthTracker } from "./llm/provider-health.js";
+export type {
+  ProviderHealthConfig,
+  ProviderHealthSnapshotEntry,
+} from "./llm/provider-health.js";
 // Re-export the LangChain model type that ModelRegistry.getModel() returns, so
 // consumers source the SAME type symbol as the registry produces (instead of
 // importing a second copy from @langchain/core and casting across the package
