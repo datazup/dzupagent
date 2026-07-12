@@ -12,6 +12,7 @@ import type {
   HealthStatus,
   AdapterMonitorStatus,
   InteractionPolicy,
+  ControlledExecutionHandle,
 } from "../types.js";
 import { withCorrelationId } from "../types.js";
 import type { RawAgentEvent } from "@dzupagent/adapter-types";
@@ -48,10 +49,19 @@ import type { AdapterStreamSource } from "./stream-runner.js";
 import type { RunEventStore } from "../runs/run-event-store.js";
 import { buildPreflightValidator } from "../guardrails/preflight-validator.js";
 import { ForgeError } from "@dzupagent/core/events";
+import { createControlledExecutionHandle } from "../controlled-execution/create-controlled-handle.js";
 
 // Backward-compat re-exports
 export { filterSensitiveEnvVars };
 export type { ArtifactWatcherHandle };
+
+export interface PreparedCliRun {
+  readonly args: string[];
+  readonly cwd?: string | undefined;
+  readonly env: Record<string, string>;
+  readonly cleanup?: (() => void | Promise<void>) | undefined;
+  readonly malformedLinePolicy?: "skip" | "error" | undefined;
+}
 
 /**
  * Shared base class for CLI-backed adapters (Gemini/Qwen/Crush). Centralizes
@@ -63,7 +73,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   readonly providerId: AdapterProviderId;
 
   protected config: AdapterConfig;
-  private currentAbortController: AbortController | null = null;
+  private readonly activeAbortControllers = new Set<AbortController>();
   private runStore: RunEventStore | null = null;
 
   private readonly governance: GovernanceEmitter;
@@ -169,11 +179,13 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     const source: AdapterStreamSource<Record<string, unknown>> = {
       providerId: this.providerId,
       async *open(_input: AgentInput, signal: AbortSignal) {
+        const prepared = await adapter.prepareCliRun(_input);
         const spawnOpts: SpawnJsonlOptions = {
-          cwd: _input.workingDirectory ?? adapter.config.workingDirectory,
-          env: adapter.buildSpawnEnv(_input),
+          cwd: prepared.cwd,
+          env: prepared.env,
           signal,
           timeoutMs: adapter.config.timeoutMs,
+          malformedLinePolicy: prepared.malformedLinePolicy,
         };
         if (resolver) {
           spawnOpts.stdinResponder = createStdinResponder({
@@ -186,15 +198,16 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
             governance: adapter.governance,
           });
         }
-        const args = adapter.buildArgs(_input);
         try {
-          yield* spawnAndStreamJsonl(adapter.getBinaryName(), args, spawnOpts);
+          yield* spawnAndStreamJsonl(adapter.getBinaryName(), prepared.args, spawnOpts);
         } catch (err: unknown) {
           // Capture for ForgeError rethrow + custom adapter:failed emission;
           // also rethrow so the runner's catch path triggers its lifecycle
           // bookkeeping (abort handling, finally cleanup).
           captured.error = adapter.normalizeError(err);
           throw err;
+        } finally {
+          await prepared.cleanup?.();
         }
       },
       mapRawEvent(
@@ -212,15 +225,19 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
 
         const mapped = adapter.mapProviderEvent(record, sessionId);
         if (mapped) {
-          const event = withCorrelationId(mapped, input.correlationId);
-          if (event.type === "adapter:completed") hasCompleted = true;
-          if (event.type === "adapter:failed") hasFailed = true;
-          events.push(event);
+          const mappedEvents = Array.isArray(mapped) ? mapped : [mapped];
+          for (const mappedEvent of mappedEvents) {
+            const event = withCorrelationId(mappedEvent, input.correlationId);
+            if (event.type === "adapter:completed") hasCompleted = true;
+            if (event.type === "adapter:failed") hasFailed = true;
+            events.push(event);
+          }
         }
         return events.length === 0 ? null : events;
       },
     };
 
+    let runAbortController: AbortController | null = null;
     const runner = new AdapterStreamRunner<Record<string, unknown>>({
       emitStartedImmediately: true,
       emitFailedOnAbort: true,
@@ -234,7 +251,8 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
           : {}),
       },
       onAbortController: (ctrl) => {
-        this.currentAbortController = ctrl;
+        runAbortController = ctrl;
+        this.activeAbortControllers.add(ctrl);
       },
     });
 
@@ -322,7 +340,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       }
     } finally {
       resolver?.dispose();
-      this.currentAbortController = null;
+      if (runAbortController) this.activeAbortControllers.delete(runAbortController);
       this.stopArtifactWatcher();
       this.governance.setRunContext(null);
     }
@@ -342,9 +360,17 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   }
 
   interrupt(): void {
-    if (!this.currentAbortController) return;
-    this.currentAbortController.abort();
-    this.currentAbortController = null;
+    for (const controller of this.activeAbortControllers) controller.abort();
+    this.activeAbortControllers.clear();
+  }
+
+  executeControlled(input: AgentInput): ControlledExecutionHandle {
+    return createControlledExecutionHandle({
+      providerId: this.providerId,
+      backend: "cli",
+      input,
+      execute: (runInput) => this.execute(runInput),
+    });
   }
 
   async healthCheck(): Promise<HealthStatus> {
@@ -410,7 +436,18 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
 
   protected buildSpawnEnv(input: AgentInput): Record<string, string> {
     // Honors subclass overrides of buildEnv (e.g. Qwen sets DASHSCOPE_API_KEY).
-    return applyTraceEnv(this.buildEnv(), input);
+    return filterSensitiveEnvVars(
+      applyTraceEnv(this.buildEnv(), input),
+      this.config.envFilter
+    );
+  }
+
+  protected async prepareCliRun(input: AgentInput): Promise<PreparedCliRun> {
+    return {
+      args: this.buildArgs(input),
+      cwd: input.workingDirectory ?? this.config.workingDirectory,
+      env: this.buildSpawnEnv(input),
+    };
   }
 
   protected normalizeError(err: unknown): NormalizedAdapterError {
@@ -465,5 +502,5 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   protected abstract mapProviderEvent(
     record: Record<string, unknown>,
     sessionId: string
-  ): AgentEvent | undefined;
+  ): AgentEvent | AgentEvent[] | undefined;
 }

@@ -71,7 +71,7 @@ export function buildSpawnEnv(
   config: AdapterConfig,
   input: AgentInput,
 ): Record<string, string> {
-  return applyTraceEnv(buildEnv(config), input)
+  return filterSensitiveEnvVars(applyTraceEnv(buildEnv(config), input), config.envFilter)
 }
 
 /**

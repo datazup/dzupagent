@@ -55,25 +55,16 @@ export interface ClaudeAdapterConfig extends AdapterConfig {
 
 export class ClaudeAgentAdapter
   extends BaseSdkAdapter<ClaudeSDKModule>
-  implements AdapterStreamSource<ClaudeSDKMessage>
 {
   readonly providerId = 'claude' as const
 
   private sdk: ClaudeSDKModule | null = null
-  private activeConversation: ClaudeConversation | null = null
+  private readonly activeConversations = new Set<ClaudeConversation>()
+  private readonly activeControllers = new Set<AbortController>()
+  private readonly activeResolvers = new Set<InteractionResolver>()
 
   /** Audit sink resolved at construction; never read off the shared config. */
   private readonly auditSink?: LlmAuditSink
-
-  // Per-execution state populated by execute() before the runner starts.
-  // mapRawEvent / detectThreadStart / open consume these fields.
-  private currentInput: AgentInput | null = null
-  private currentQueryOptions: Record<string, unknown> | null = null
-  private currentStartTime = 0
-  private readonly toolProgressState: ToolProgressState = {
-    lastToolStartTime: 0,
-    lastToolName: '',
-  }
 
   constructor(config: ClaudeAdapterConfig = {}) {
     const { auditSink, ...rest } = config
@@ -93,110 +84,76 @@ export class ClaudeAgentAdapter
 
   async *execute(input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
     const sdk = await this.loadSdk()
-
     const policy = this.resolveInteractionPolicy(input)
-    this.resolver = policy.mode !== 'auto-approve' ? new InteractionResolver(policy) : null
-
-    this.currentInput = input
-    this.currentStartTime = Date.now()
-    this.currentQueryOptions = buildQueryOptions({
+    const resolver = policy.mode !== 'auto-approve' ? new InteractionResolver(policy) : null
+    if (resolver) this.activeResolvers.add(resolver)
+    const startTime = Date.now()
+    const queryOptions = buildQueryOptions({
       input,
       config: this.config,
       interactionPolicy: policy,
     })
-    this.toolProgressState.lastToolStartTime = 0
-    this.toolProgressState.lastToolName = ''
-    // sdk reference held via this.sdk (loadSdk caches it)
-    this.sdk = sdk
+    const toolProgressState: ToolProgressState = { lastToolStartTime: 0, lastToolName: '' }
+    let activeConversation: ClaudeConversation | null = null
+    let runController: AbortController | null = null
+    const adapter = this
+
+    const source: AdapterStreamSource<ClaudeSDKMessage> = {
+      providerId: 'claude',
+      async *open(runInput: AgentInput, signal: AbortSignal): AsyncIterable<ClaudeSDKMessage> {
+        yield* openClaudeConversation({
+          sdk,
+          queryOptions,
+          signal,
+          errorContext: { model: adapter.config.model, promptLength: runInput.prompt.length },
+          onConversation: (conversation) => {
+            if (activeConversation) adapter.activeConversations.delete(activeConversation)
+            activeConversation = conversation as ClaudeConversation | null
+            if (activeConversation) adapter.activeConversations.add(activeConversation)
+          },
+        })
+      },
+      detectThreadStart(raw: ClaudeSDKMessage): ThreadStartResult | null {
+        if (!isSystemMessage(raw)) return null
+        const resolvedModel = adapter.config.model ?? (typeof raw.model === 'string' ? raw.model : undefined)
+        const resolvedWorkingDirectory = input.workingDirectory ?? adapter.config.workingDirectory
+        return {
+          threadId: raw.session_id,
+          extra: {
+            ...(resolvedModel !== undefined ? { model: resolvedModel } : {}),
+            ...(resolvedWorkingDirectory !== undefined ? { workingDirectory: resolvedWorkingDirectory } : {}),
+          },
+        }
+      },
+      extractUsage(raw: ClaudeSDKMessage): TokenUsage | undefined {
+        return isResultMessage(raw) ? extractTokenUsage(raw.usage) : undefined
+      },
+      mapRawEvent(raw: ClaudeSDKMessage, context: StreamContext): AgentEvent | AgentEvent[] | null {
+        if (isSystemMessage(raw)) { context.sessionId = raw.session_id; return null }
+        if (isAssistantMessage(raw)) return mapAssistantMessage(raw, context.input)
+        if (isToolProgressMessage(raw)) return mapToolProgressMessage(raw, context.input, toolProgressState, resolver, policy)
+        if (isStreamEvent(raw)) return mapStreamEventMessage(raw, context.input)
+        if (isResultMessage(raw)) return mapResultMessage(raw, context.input, context, startTime)
+        return null
+      },
+    }
 
     const runner = new AdapterStreamRunner<ClaudeSDKMessage>({
       onAbortController: (ctrl) => {
-        this.abortController = ctrl
+        runController = ctrl
+        this.activeControllers.add(ctrl)
       },
       ...(this.auditSink ? { auditSink: this.auditSink } : {}),
       ...(this.config.model !== undefined ? { auditModel: this.config.model } : {}),
     })
 
     try {
-      yield* runner.run(this, input, input.signal)
+      yield* runner.run(source, input, input.signal)
     } finally {
-      this.activeConversation = null
-      this.abortController = null
-      this.currentInput = null
-      this.currentQueryOptions = null
-      this.disposeResolver()
+      if (activeConversation) this.activeConversations.delete(activeConversation)
+      if (runController) this.activeControllers.delete(runController)
+      if (resolver) { resolver.dispose(); this.activeResolvers.delete(resolver) }
     }
-  }
-
-  // AdapterStreamSource<ClaudeSDKMessage> implementation ----------------
-
-  async *open(input: AgentInput, signal: AbortSignal): AsyncIterable<ClaudeSDKMessage> {
-    const sdk = this.sdk
-    const queryOptions = this.currentQueryOptions
-    if (!sdk || !queryOptions) {
-      throw new ForgeError({
-        code: 'ADAPTER_EXECUTION_FAILED',
-        message: 'ClaudeAgentAdapter.open invoked outside execute()',
-        recoverable: false,
-      })
-    }
-    yield* openClaudeConversation({
-      sdk,
-      queryOptions,
-      signal,
-      errorContext: { model: this.config.model, promptLength: input.prompt.length },
-      onConversation: (conv) => {
-        this.activeConversation = conv as ClaudeConversation | null
-      },
-    })
-  }
-
-  detectThreadStart(raw: ClaudeSDKMessage): ThreadStartResult | null {
-    if (!isSystemMessage(raw)) return null
-    const input = this.currentInput
-    const resolvedModel = this.config.model ?? (typeof raw.model === 'string' ? raw.model : undefined)
-    const resolvedWorkingDirectory = input?.workingDirectory ?? this.config.workingDirectory
-    return {
-      threadId: raw.session_id,
-      extra: {
-        ...(resolvedModel !== undefined ? { model: resolvedModel } : {}),
-        ...(resolvedWorkingDirectory !== undefined ? { workingDirectory: resolvedWorkingDirectory } : {}),
-      },
-    }
-  }
-
-  extractUsage(raw: ClaudeSDKMessage): TokenUsage | undefined {
-    if (!isResultMessage(raw)) return undefined
-    return extractTokenUsage(raw.usage)
-  }
-
-  mapRawEvent(raw: ClaudeSDKMessage, context: StreamContext): AgentEvent | AgentEvent[] | null {
-    const input = context.input
-
-    if (isSystemMessage(raw)) {
-      // Thread start handled via detectThreadStart; capture session id locally.
-      context.sessionId = raw.session_id
-      return null
-    }
-
-    if (isAssistantMessage(raw)) {
-      return mapAssistantMessage(raw, input)
-    }
-
-    if (isToolProgressMessage(raw)) {
-      const policy = this.resolveInteractionPolicy(input)
-      return mapToolProgressMessage(raw, input, this.toolProgressState, this.resolver, policy)
-    }
-
-    if (isStreamEvent(raw)) {
-      return mapStreamEventMessage(raw, input)
-    }
-
-    if (isResultMessage(raw)) {
-      return mapResultMessage(raw, input, context, this.currentStartTime)
-    }
-
-    return null
   }
 
   async *resumeSession(
@@ -215,7 +172,15 @@ export class ClaudeAgentAdapter
   }
 
   interrupt(): void {
-    interruptClaudeConversation(this.activeConversation, this.abortController)
+    for (const conversation of this.activeConversations) interruptClaudeConversation(conversation, null)
+    for (const controller of this.activeControllers) controller.abort()
+    this.activeConversations.clear()
+    this.activeControllers.clear()
+  }
+
+  override respondInteraction(interactionId: string, answer: string): boolean {
+    for (const resolver of this.activeResolvers) if (resolver.respond(interactionId, answer)) return true
+    return false
   }
 
   async healthCheck(): Promise<HealthStatus> {

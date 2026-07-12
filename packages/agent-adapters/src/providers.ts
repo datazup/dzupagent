@@ -41,6 +41,10 @@ export type {
 
 // --- Adapters ---
 export { ClaudeAgentAdapter } from './claude/claude-adapter.js'
+export { ClaudeCliAdapter, createClaudeCliAdapter, probeClaudeCliAuth } from './claude/claude-cli-adapter.js'
+export type { ClaudeCliAdapterConfig } from './claude/claude-cli-adapter.js'
+export { createClaudeBackendAdapter } from './claude/claude-backend.js'
+export type { ClaudeBackendConfig } from './claude/claude-backend.js'
 export { CodexAdapter } from './codex/codex-adapter.js'
 export { GeminiCLIAdapter } from './gemini/gemini-adapter.js'
 export { GeminiSDKAdapter } from './gemini/gemini-sdk-adapter.js'
@@ -96,6 +100,8 @@ export type { Provider as NormalizeProvider } from './normalize.js'
 // --- Provider Helpers ---
 export { resolveFallbackProviderId, requireFallbackProviderId } from './utils/provider-helpers.js'
 export { isBinaryAvailable, spawnAndStreamJsonl } from './utils/process-helpers.js'
+export * from './cli-runtime/index.js'
+export { createControlledExecutionHandle } from './controlled-execution/create-controlled-handle.js'
 export { filterSensitiveEnvVars } from './base/base-cli-adapter.js'
 
 // --- Errors ---
