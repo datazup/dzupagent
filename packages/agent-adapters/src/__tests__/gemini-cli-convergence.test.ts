@@ -1,4 +1,4 @@
-import { access, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -82,12 +82,55 @@ describe('Gemini CLI convergence contract', () => {
     await expect(access(projectedRoot)).rejects.toThrow()
   })
 
+  it('projects authenticated MCP through an environment placeholder in private settings', async () => {
+    const profile = await mkdtemp(join(tmpdir(), 'gemini-profile-'))
+    roots.push(profile)
+    await writeFile(join(profile, 'settings.json'), '{"selectedAuthType":"oauth-personal"}\n')
+    let projectedRoot = ''
+    mockSpawnAndStreamJsonl.mockImplementation(async function* (_command, _args, options) {
+      projectedRoot = options.env?.['GEMINI_CLI_HOME'] ?? ''
+      expect(options.env?.['GEMINI_CLI_MCP_BEARER_TOKEN']).toBe('opaque-token')
+      const settings = await readFile(join(projectedRoot, '.gemini/settings.json'), 'utf8')
+      expect(settings).toContain('Bearer ${GEMINI_CLI_MCP_BEARER_TOKEN}')
+      expect(settings).not.toContain('opaque-token')
+      expect(JSON.parse(settings)).toMatchObject({
+        selectedAuthType: 'oauth-personal',
+        mcpServers: {
+          codev_worker: {
+            type: 'http',
+            url: 'http://127.0.0.1:1234/mcp',
+            includeTools: ['read_file'],
+          },
+        },
+      })
+      yield { type: 'result', status: 'success' }
+    })
+
+    const events = await collectEvents(new GeminiCLIAdapter({ cliBaseProfileRoot: profile }).execute({
+      prompt: 'x',
+      options: {
+        mcpServers: [{
+          id: 'codev_worker',
+          transport: {
+            kind: 'http',
+            url: 'http://127.0.0.1:1234/mcp',
+            bearerTokenEnv: { envVar: 'GEMINI_CLI_MCP_BEARER_TOKEN', tokenRef: 'worker-token' },
+          },
+          enabledTools: ['read_file'],
+        }],
+        mcpReferenceValues: { 'worker-token': 'opaque-token' },
+      },
+    }))
+    expect(events.at(-1)).toMatchObject({ type: 'adapter:completed' })
+    await expect(access(projectedRoot)).rejects.toThrow()
+  })
+
   it.each([
     [{ systemPrompt: 'system' }, 'system-prompt'],
     [{ maxTurns: 2 }, 'max-turns'],
     [{ outputSchema: { type: 'object' } }, 'structured-output'],
     [{ policyContext: { activePolicy: { allowedTools: ['read_file'] } } }, 'tool allow/block'],
-    [{ options: { mcpServers: [{ name: 'local' }] } }, 'MCP descriptors'],
+    [{ options: { mcpServers: [{ id: 'local', transport: { kind: 'stdio', command: 'x' } }] } }, 'only HTTP MCP'],
   ] as const)('refuses unsupported policy projection before spawn: %s', async (extra, expected) => {
     const events = await collectEvents(new GeminiCLIAdapter().execute({ prompt: 'x', ...extra }))
     expect(events.at(-1)).toMatchObject({ type: 'adapter:failed' })
