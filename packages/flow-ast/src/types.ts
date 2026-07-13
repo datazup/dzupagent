@@ -323,9 +323,18 @@ export type BranchNode = FlowNodeBase & {
   then: FlowNode[];
   else?: FlowNode[];
 };
+export type ApprovalNodeClass =
+  | "read_only"
+  | "local_side_effect"
+  | "destructive_shell"
+  | "network_egress"
+  | "mcp_external_side_effect"
+  | "unknown";
 export type ApprovalNode = FlowNodeBase & {
   type: "approval";
   question: string;
+  /** Optional policy class. Omitted nodes remain explicit human gates. */
+  approvalClass?: ApprovalNodeClass;
   options?: string[];
   onApprove: FlowNode[];
   onReject?: FlowNode[];
@@ -1203,6 +1212,7 @@ export type ValidationErrorCode =
   | "UNRESOLVED_PERSONA_REF"
   | "EMPTY_BODY"
   | "INVALID_CONDITION"
+  | "INVALID_ENUM_VALUE"
   | "MISSING_REQUIRED_FIELD"
   | "DUPLICATE_NODE_ID"
   | "RESOLVER_INFRA_ERROR"

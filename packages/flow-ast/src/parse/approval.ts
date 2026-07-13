@@ -1,4 +1,4 @@
-import type { ApprovalNode, FlowNode } from '../types.js'
+import type { ApprovalNode, ApprovalNodeClass, FlowNode } from '../types.js'
 import {
   type ParseContext,
   describeJsType,
@@ -52,6 +52,20 @@ export function parseApproval(
     }
   }
 
+  let approvalClass: ApprovalNodeClass | undefined
+  if ('approvalClass' in obj) {
+    const approvalClassRaw = obj.approvalClass
+    if (isApprovalNodeClass(approvalClassRaw)) {
+      approvalClass = approvalClassRaw
+    } else {
+      ctx.errors.push({
+        code: 'INVALID_ENUM_VALUE',
+        message: 'approval.approvalClass must be a recognized approval class',
+        pointer: joinPointer(pointer, 'approvalClass'),
+      })
+    }
+  }
+
   if (failed) {
     if (Array.isArray(onApproveRaw)) ctx.parseNodeArray(onApproveRaw, joinPointer(pointer, 'onApprove'), ctx)
     if ('onReject' in obj && Array.isArray(obj.onReject)) {
@@ -82,7 +96,17 @@ export function parseApproval(
     question: questionRaw as string,
     onApprove,
   }
+  if (approvalClass !== undefined) node.approvalClass = approvalClass
   if (options !== undefined) node.options = options
   if (onReject !== undefined) node.onReject = onReject
   return node
+}
+
+function isApprovalNodeClass(value: unknown): value is ApprovalNodeClass {
+  return value === 'read_only'
+    || value === 'local_side_effect'
+    || value === 'destructive_shell'
+    || value === 'network_egress'
+    || value === 'mcp_external_side_effect'
+    || value === 'unknown'
 }

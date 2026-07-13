@@ -61,6 +61,8 @@ const FOR_EACH_KEYS = new Set<string>([
 const APPROVAL_KEYS = new Set<string>([
   ...COMMON_NODE_KEYS,
   'question',
+  'approval_class',
+  'approvalClass',
   'options',
   'on_approve',
   'onApprove',
@@ -348,6 +350,17 @@ export function normalizeApproval(
     question: typeof raw.question === 'string' ? raw.question : '',
     onApprove: normalizeSteps(raw.on_approve ?? raw.onApprove, `${path}.on_approve`, diagnostics),
   }
+  const approvalClass = raw.approval_class ?? raw.approvalClass
+  if (isApprovalNodeClass(approvalClass)) {
+    node.approvalClass = approvalClass
+  } else if (approvalClass !== undefined) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_ENUM_VALUE,
+      message: 'approval.approval_class must be a recognized approval class',
+      path: `${path}.approval_class`,
+    })
+  }
   if (options !== undefined) node.options = options
   if (node.question.length === 0) {
     diagnostics.push({
@@ -377,6 +390,15 @@ export function normalizeApproval(
     }
   }
   return node
+}
+
+function isApprovalNodeClass(value: unknown): value is NonNullable<ApprovalNode['approvalClass']> {
+  return value === 'read_only'
+    || value === 'local_side_effect'
+    || value === 'destructive_shell'
+    || value === 'network_egress'
+    || value === 'mcp_external_side_effect'
+    || value === 'unknown'
 }
 
 export function normalizeClarify(

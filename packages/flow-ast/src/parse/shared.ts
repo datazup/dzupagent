@@ -30,6 +30,7 @@ export type ParseErrorCode =
   | "MISSING_TYPE"
   | "UNKNOWN_NODE_TYPE"
   | "WRONG_FIELD_TYPE"
+  | "INVALID_ENUM_VALUE"
   | "EXPECTED_ARRAY"
   | "EXPECTED_OBJECT";
 

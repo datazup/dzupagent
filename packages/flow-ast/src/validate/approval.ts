@@ -1,4 +1,4 @@
-import type { FlowNode } from '../types.js'
+import type { ApprovalNodeClass, FlowNode } from '../types.js'
 import { joinPath } from '../validation-helpers.js'
 import { validateCommonNodeFields } from './shared.js'
 import type { SchemaIssue, ValidateNodeArray } from './shared.js'
@@ -42,6 +42,20 @@ export function validateApproval(
       })
     }
   }
+  let approvalClass: ApprovalNodeClass | undefined
+  if ('approvalClass' in obj && obj['approvalClass'] !== undefined) {
+    const raw = obj['approvalClass']
+    if (isApprovalNodeClass(raw)) {
+      approvalClass = raw
+    } else {
+      issues.push({
+        path: joinPath(path, 'approvalClass'),
+        code: 'INVALID_ENUM_VALUE',
+        message: 'approval.approvalClass must be a recognized approval class',
+      })
+      ok = false
+    }
+  }
   let onReject: FlowNode[] | undefined
   if ('onReject' in obj && obj['onReject'] !== undefined) {
     const rej = validateNodeArray(obj['onReject'], joinPath(path, 'onReject'), issues)
@@ -54,7 +68,17 @@ export function validateApproval(
     question: question as string,
     onApprove,
   }
+  if (approvalClass !== undefined) node.approvalClass = approvalClass
   if (options !== undefined) node.options = options
   if (onReject !== undefined) node.onReject = onReject
   return node
+}
+
+function isApprovalNodeClass(value: unknown): value is ApprovalNodeClass {
+  return value === 'read_only'
+    || value === 'local_side_effect'
+    || value === 'destructive_shell'
+    || value === 'network_egress'
+    || value === 'mcp_external_side_effect'
+    || value === 'unknown'
 }
