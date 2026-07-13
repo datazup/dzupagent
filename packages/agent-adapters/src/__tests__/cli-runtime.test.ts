@@ -57,6 +57,16 @@ describe('bounded CLI runtime', () => {
     expect(records).toEqual([{ type: 'ok', value: 1 }])
   })
 
+  it('closes unused child stdin so argument-driven CLIs do not wait for appended input', async () => {
+    const records = await collect(runJsonlProcess({
+      command: process.execPath,
+      args: ['-e', `let input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>process.stdout.write(JSON.stringify({stdin:input})+'\\n'))`],
+      timeoutMs: 5_000,
+    }))
+
+    expect(records).toEqual([{ stdin: '' }])
+  })
+
   it('collects bounded terminal text as one deterministic result record', async () => {
     const records = await collect(runJsonlProcess({
       command: process.execPath,

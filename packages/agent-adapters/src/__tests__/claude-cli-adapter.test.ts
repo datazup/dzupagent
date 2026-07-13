@@ -35,6 +35,15 @@ describe('Claude local CLI backend', () => {
     expect(() => new InspectableClaudeCliAdapter().args({ prompt: 'bounded', maxTurns: 2 })).toThrow('max-turns')
   })
 
+  it('projects the execution-request model without mutating shared adapter state', () => {
+    const adapter = new InspectableClaudeCliAdapter({ model: 'configured-model' })
+    expect(adapter.args({ prompt: 'configured' })).toEqual(expect.arrayContaining(['--model', 'configured-model']))
+    expect(adapter.args({ prompt: 'selected', options: { model: 'request-model' } }))
+      .toEqual(expect.arrayContaining(['--model', 'request-model']))
+    expect(adapter.args({ prompt: 'configured-again' }))
+      .toEqual(expect.arrayContaining(['--model', 'configured-model']))
+  })
+
   it('projects MCP references into distinct private files and cleans each run', async () => {
     const adapter = new InspectableClaudeCliAdapter()
     const input: AgentInput = {
