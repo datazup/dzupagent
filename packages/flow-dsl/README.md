@@ -399,12 +399,20 @@ Pause for human approval; branch on the response.
 - approval:
     id: gate
     question: 'Proceed with deploy?'
+    approval_class: destructive_shell # optional; omitted means always-human
     options: [yes, no]
     onApprove:
       - action: { ref: skill:deploy, input: {} }
     onReject:
       - complete: { result: aborted }
 ```
+
+`approval_class` is a typed policy selector. Accepted values are
+`read_only`, `local_side_effect`, `destructive_shell`, `network_egress`,
+`mcp_external_side_effect`, and `unknown`. Runtimes may apply tenant policy
+modes such as auto-approve, require-human, or auto-deny. Omitting the field
+preserves the explicit always-human approval gate. Untyped aliases such as
+`policyRef` are not part of the approval-node DSL contract.
 
 ### `clarify`
 
