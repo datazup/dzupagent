@@ -76,7 +76,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     if (input.workingDirectory) args.push('--add-dir', input.workingDirectory)
     if (input.resumeSessionId) args.push('--resume', input.resumeSessionId)
     if (input.systemPrompt) args.push('--append-system-prompt', input.systemPrompt)
-    if (this.config.model) args.push('--model', this.config.model)
+    const model = stringOption(input.options?.['model']) ?? this.config.model
+    if (model) args.push('--model', model)
     if (this.config.reasoning) args.push('--effort', this.config.reasoning)
     if (input.maxBudgetUsd !== undefined) args.push('--max-budget-usd', String(input.maxBudgetUsd))
     if (input.outputSchema) args.push('--json-schema', JSON.stringify(input.outputSchema))
@@ -232,6 +233,7 @@ function readReferenceValues(input: AgentInput): Readonly<Record<string, string>
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
 }
 function stringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : [] }
+function stringOption(value: unknown): string | undefined { return typeof value === 'string' && value.length > 0 ? value : undefined }
 function objectValue(value: unknown): Record<string, unknown> | undefined { return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined }
 function numberValue(value: unknown): number { return typeof value === 'number' && Number.isFinite(value) ? value : 0 }
 function mapUsage(value: unknown): TokenUsage | undefined {

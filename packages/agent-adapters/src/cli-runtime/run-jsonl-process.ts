@@ -98,6 +98,9 @@ export async function* runJsonlProcess(
 
     const spawnError = await waitForSpawn(child)
     if (spawnError) throw classifySpawnError(specification.command, spawnError)
+    if (!specification.stdinResponder && child.stdin && !child.stdin.destroyed) {
+      child.stdin.end()
+    }
     const stdout = child.stdout
     if (!stdout) throw executionError(specification.command, 'Child stdout is unavailable')
 

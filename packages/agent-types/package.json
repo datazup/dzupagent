@@ -7,16 +7,16 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
     },
     "./fleet": {
-      "import": "./dist/fleet.js",
-      "types": "./dist/fleet.d.ts"
+      "types": "./dist/fleet.d.ts",
+      "import": "./dist/fleet.js"
     },
     "./implementation": {
-      "import": "./dist/implementation.js",
-      "types": "./dist/implementation.d.ts"
+      "types": "./dist/implementation.d.ts",
+      "import": "./dist/implementation.js"
     }
   },
   "files": [
