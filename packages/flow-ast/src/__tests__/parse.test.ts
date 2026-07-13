@@ -553,6 +553,7 @@ describe("parseFlow — node-specific behaviours", () => {
     const result = parseFlow({
       type: "approval",
       question: "go?",
+      approvalClass: "destructive_shell",
       options: ["yes", "no"],
       onApprove: [{ type: "complete", result: "ok" }],
       onReject: [{ type: "complete", result: "no" }],
@@ -561,10 +562,24 @@ describe("parseFlow — node-specific behaviours", () => {
     expect(result.ast).toEqual({
       type: "approval",
       question: "go?",
+      approvalClass: "destructive_shell",
       options: ["yes", "no"],
       onApprove: [{ type: "complete", result: "ok" }],
       onReject: [{ type: "complete", result: "no" }],
     });
+  });
+
+  it("approval rejects an unknown approvalClass", () => {
+    const result = parseFlow({
+      type: "approval",
+      question: "go?",
+      approvalClass: "custom-policy",
+      onApprove: [{ type: "complete", result: "ok" }],
+    });
+    expect(result.errors).toContainEqual(expect.objectContaining({
+      code: "INVALID_ENUM_VALUE",
+      pointer: "/approvalClass",
+    }));
   });
 
   it("clarification with expected/choices", () => {

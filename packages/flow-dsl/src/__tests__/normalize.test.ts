@@ -642,6 +642,43 @@ describe("normalizeSteps — approval", () => {
     expect(approval.options).toEqual(["yes", "no"]);
   });
 
+  it("normalizes typed approval_class", () => {
+    const raw = [
+      {
+        approval: {
+          question: "Proceed?",
+          approval_class: "network_egress",
+          on_approve: [{ action: { ref: "skill:proceed", input: {} } }],
+        },
+      },
+    ];
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+    const nodes = normalizeSteps(raw, "root.steps", diagnostics);
+    expect(nodes[0]).toMatchObject({
+      type: "approval",
+      approvalClass: "network_egress",
+    });
+    expect(diagnostics).toHaveLength(0);
+  });
+
+  it("rejects an unknown approval_class", () => {
+    const raw = [
+      {
+        approval: {
+          question: "Proceed?",
+          approval_class: "custom-policy",
+          on_approve: [{ action: { ref: "skill:proceed", input: {} } }],
+        },
+      },
+    ];
+    const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
+    normalizeSteps(raw, "root.steps", diagnostics);
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      code: "INVALID_ENUM_VALUE",
+      path: "root.steps[0].approval_class",
+    }));
+  });
+
   it("normalizes onApprove camelCase alias", () => {
     const raw = [
       {
