@@ -23,6 +23,13 @@ export interface MailMessage {
   readAt?: number
   /** Time-to-live in seconds. `undefined` means the message never expires. */
   ttl?: number
+  /**
+   * Owning tenant scope. Set by the server route from the authenticated
+   * caller's tenant so cross-tenant reads/writes can be rejected. `undefined`
+   * (single-tenant / library usage) is treated as the `'default'` tenant by
+   * scoped stores.
+   */
+  tenantId?: string
 }
 
 /** Query parameters for retrieving messages from a mailbox. */
@@ -41,12 +48,30 @@ export interface MailboxQuery {
  * Implementations include in-memory (W11-T12) and Drizzle-backed (W11-T15).
  */
 export interface MailboxStore {
-  /** Persist a message. */
+  /** Persist a message. The message's `tenantId` (if set) is recorded so
+   * later reads can be scoped to the owning tenant. */
   save(message: MailMessage): Promise<void>
-  /** Retrieve messages addressed to `agentId`, filtered by `query`. */
-  findByRecipient(agentId: string, query?: MailboxQuery): Promise<MailMessage[]>
-  /** Mark a single message as read (sets `readAt`). */
-  markRead(messageId: string): Promise<void>
+  /**
+   * Retrieve messages addressed to `agentId`, filtered by `query`.
+   *
+   * When `tenantId` is provided, only messages owned by that tenant are
+   * returned — a caller in tenant A never sees tenant B's mail even if the
+   * recipient agent id collides. When omitted (single-tenant / library
+   * usage), no tenant filter is applied (back-compat).
+   */
+  findByRecipient(
+    agentId: string,
+    query?: MailboxQuery,
+    tenantId?: string,
+  ): Promise<MailMessage[]>
+  /**
+   * Mark a single message as read (sets `readAt`).
+   *
+   * When `tenantId` is provided, the update only applies if the message is
+   * owned by that tenant — a cross-tenant ack is a no-op. When omitted, the
+   * message is marked read regardless of tenant (back-compat).
+   */
+  markRead(messageId: string, tenantId?: string): Promise<void>
   /** Delete messages whose TTL has expired. Returns the count of deleted messages. */
   deleteExpired(): Promise<number>
 }

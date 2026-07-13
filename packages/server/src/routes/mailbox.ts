@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto'
 import type { MailboxStore, MailMessage } from '@dzupagent/agent/mailbox'
 import type { DrizzleDlqStore } from '../persistence/drizzle-dlq-store.js'
 import { MailRateLimitError } from '../notifications/mail-rate-limiter.js'
+import { getRequestingTenantId } from './tenant-scope.js'
 
 export interface MailboxRouteConfig {
   mailboxStore: MailboxStore
@@ -25,6 +26,7 @@ export function createMailboxRoutes(config: MailboxRouteConfig): Hono<AppEnv> {
   // POST /:agentId/send — Send a message from this agent
   app.post('/:agentId/send', async (c) => {
     const agentId = c.req.param('agentId')
+    const tenantId = getRequestingTenantId(c)
     const body = await c.req.json<{ to: string; subject: string; body: Record<string, unknown> }>()
 
     if (!body.to || !body.subject || !body.body) {
@@ -34,6 +36,9 @@ export function createMailboxRoutes(config: MailboxRouteConfig): Hono<AppEnv> {
       )
     }
 
+    // SEC-H-03: the `:agentId` sender is client-supplied; stamp the message
+    // with the caller's server-derived tenant so it cannot be read/spoofed by
+    // another tenant. We do not trust the path param to select the tenant.
     const message: MailMessage = {
       id: randomUUID(),
       from: agentId,
@@ -41,6 +46,7 @@ export function createMailboxRoutes(config: MailboxRouteConfig): Hono<AppEnv> {
       subject: body.subject,
       body: body.body,
       createdAt: Date.now(),
+      tenantId,
     }
 
     try {
@@ -86,16 +92,23 @@ export function createMailboxRoutes(config: MailboxRouteConfig): Hono<AppEnv> {
   // GET /:agentId/messages — Retrieve messages for an agent
   app.get('/:agentId/messages', async (c) => {
     const agentId = c.req.param('agentId')
+    const tenantId = getRequestingTenantId(c)
 
     const limitStr = c.req.query('limit')
     const unreadOnlyStr = c.req.query('unreadOnly')
     const sinceStr = c.req.query('since')
 
-    const messages = await mailboxStore.findByRecipient(agentId, {
-      limit: limitStr ? Number(limitStr) : undefined,
-      unreadOnly: unreadOnlyStr !== undefined ? unreadOnlyStr === 'true' : undefined,
-      since: sinceStr ? Number(sinceStr) : undefined,
-    })
+    // SEC-H-03: scope the read to the caller's tenant so tenant A cannot read
+    // tenant B's mail even when the recipient agent id collides.
+    const messages = await mailboxStore.findByRecipient(
+      agentId,
+      {
+        limit: limitStr ? Number(limitStr) : undefined,
+        unreadOnly: unreadOnlyStr !== undefined ? unreadOnlyStr === 'true' : undefined,
+        since: sinceStr ? Number(sinceStr) : undefined,
+      },
+      tenantId,
+    )
 
     return c.json(messages)
   })
@@ -103,7 +116,9 @@ export function createMailboxRoutes(config: MailboxRouteConfig): Hono<AppEnv> {
   // POST /:agentId/messages/:messageId/ack — Acknowledge a message
   app.post('/:agentId/messages/:messageId/ack', async (c) => {
     const messageId = c.req.param('messageId')
-    await mailboxStore.markRead(messageId)
+    const tenantId = getRequestingTenantId(c)
+    // SEC-H-03: a cross-tenant ack is scoped out (no-op) by the store.
+    await mailboxStore.markRead(messageId, tenantId)
     return c.body(null, 204)
   })
 

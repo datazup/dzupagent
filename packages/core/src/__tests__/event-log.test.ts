@@ -182,4 +182,43 @@ describe('EventLogSink', () => {
     // No new events after unsub
     expect(await log.getEvents('run-42')).toHaveLength(2)
   })
+
+  it('logs a warning and does not raise an unhandled rejection when append rejects', async () => {
+    const appendError = new Error('store offline')
+    const rejectingStore = {
+      append: vi.fn().mockRejectedValue(appendError),
+      getEvents: vi.fn().mockResolvedValue([]),
+      getEventsSince: vi.fn().mockResolvedValue([]),
+      getLatest: vi.fn().mockResolvedValue(null),
+    }
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sink = new EventLogSink(rejectingStore as any, logger)
+      const bus = createEventBus()
+      const unsub = sink.attach(bus, 'run-99')
+
+      bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'run-99' } as never)
+
+      // Allow the rejected append + .catch to settle.
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      unsub()
+
+      expect(rejectingStore.append).toHaveBeenCalledTimes(1)
+      expect(logger.warn).toHaveBeenCalledTimes(1)
+      expect(logger.warn).toHaveBeenCalledWith(
+        'EventLogSink: failed to append run event',
+        expect.objectContaining({ runId: 'run-99', type: 'agent:started', error: 'store offline' }),
+      )
+      expect(unhandled).toHaveLength(0)
+    } finally {
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
 })

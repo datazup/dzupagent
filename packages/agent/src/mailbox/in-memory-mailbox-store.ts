@@ -31,6 +31,7 @@ export class InMemoryMailboxStore implements MailboxStore {
   async findByRecipient(
     agentId: string,
     query?: MailboxQuery,
+    tenantId?: string,
   ): Promise<MailMessage[]> {
     const now = Date.now()
     const queue = this.mailboxes.get(agentId)
@@ -49,6 +50,12 @@ export class InMemoryMailboxStore implements MailboxStore {
 
     const results: MailMessage[] = []
     for (const msg of queue) {
+      // Tenant isolation: when a scope is supplied, skip messages owned by a
+      // different tenant. Messages with no recorded tenant are treated as
+      // 'default'. When no scope is supplied, do not filter (back-compat).
+      if (tenantId !== undefined && (msg.tenantId ?? 'default') !== tenantId) {
+        continue
+      }
       if (unreadOnly && msg.readAt !== undefined) continue
       if (since !== undefined && msg.createdAt <= since) continue
       results.push(msg)
@@ -58,10 +65,17 @@ export class InMemoryMailboxStore implements MailboxStore {
     return results
   }
 
-  async markRead(messageId: string): Promise<void> {
+  async markRead(messageId: string, tenantId?: string): Promise<void> {
     for (const queue of this.mailboxes.values()) {
       for (const msg of queue) {
         if (msg.id === messageId) {
+          // Tenant isolation: a cross-tenant ack is a no-op.
+          if (
+            tenantId !== undefined &&
+            (msg.tenantId ?? 'default') !== tenantId
+          ) {
+            return
+          }
           msg.readAt = Date.now()
           return
         }

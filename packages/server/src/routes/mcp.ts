@@ -32,6 +32,7 @@ import { assertMcpCommandAllowed } from "@dzupagent/core/pipeline";
 import { ForgeError } from "@dzupagent/core/events";
 import { secureLogger } from "@dzupagent/core/utils";
 import { getSerializedJsonSizeBytes } from "../validation/route-validator.js";
+import { getRequestingTenantId } from "./tenant-scope.js";
 
 // ---------------------------------------------------------------------------
 // Response redaction (QF-SEC-06)
@@ -154,7 +155,7 @@ export function createMcpRoutes(
 
   // GET /servers — list all servers
   app.get("/servers", async (c) => {
-    const servers = await config.mcpManager!.listServers();
+    const servers = await config.mcpManager!.listServers(getRequestingTenantId(c));
     return c.json({
       data: servers.map(redactMcpDefinition),
       count: servers.length,
@@ -165,7 +166,10 @@ export function createMcpRoutes(
   app.post("/servers", async (c) => {
     const parsed = await validateBodyCompat(c, McpServerSchema);
     if (parsed instanceof Response) return parsed;
-    const body: McpServerInput = parsed;
+    // SEC-H-02: never trust a client-supplied tenantId; ownership is derived
+    // from the authenticated caller and passed to the manager explicitly.
+    const { tenantId: _ignoredTenantId, ...body }: McpServerInput = parsed;
+    const tenantId = getRequestingTenantId(c);
 
     const oversizedServerField = getOversizedMcpServerField(body);
     if (oversizedServerField) {
@@ -215,7 +219,7 @@ export function createMcpRoutes(
     if (urlPolicyError) return urlPolicyError;
 
     try {
-      const server = await config.mcpManager!.addServer(body);
+      const server = await config.mcpManager!.addServer(body, tenantId);
       return c.json({ data: redactMcpDefinition(server) }, 201);
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -233,7 +237,7 @@ export function createMcpRoutes(
   // GET /servers/:id — get a server
   app.get("/servers/:id", async (c) => {
     const id = c.req.param("id");
-    const server = await config.mcpManager!.getServer(id);
+    const server = await config.mcpManager!.getServer(id, getRequestingTenantId(c));
     if (!server) {
       return c.json(
         {
@@ -248,9 +252,13 @@ export function createMcpRoutes(
   // PATCH /servers/:id — update a server
   app.patch("/servers/:id", async (c) => {
     const id = c.req.param("id");
+    const tenantId = getRequestingTenantId(c);
     let patch: McpServerPatch;
     try {
-      patch = await c.req.json<McpServerPatch>();
+      const rawPatch = await c.req.json<McpServerPatch>();
+      // SEC-H-02: a patch must not be able to re-assign tenant ownership.
+      const { tenantId: _ignoredPatchTenant, ...rest } = rawPatch;
+      patch = rest;
     } catch {
       return c.json(
         { error: { code: "VALIDATION_ERROR", message: "Invalid JSON body" } },
@@ -271,7 +279,7 @@ export function createMcpRoutes(
       );
     }
 
-    const existing = await config.mcpManager!.getServer(id);
+    const existing = await config.mcpManager!.getServer(id, tenantId);
     if (!existing) {
       return c.json(
         {
@@ -335,7 +343,7 @@ export function createMcpRoutes(
     }
 
     try {
-      const updated = await config.mcpManager!.updateServer(id, patch);
+      const updated = await config.mcpManager!.updateServer(id, patch, tenantId);
       return c.json({ data: redactMcpDefinition(updated) });
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -349,8 +357,25 @@ export function createMcpRoutes(
 
   // DELETE /servers/:id — remove a server
   app.delete("/servers/:id", async (c) => {
+    const id = c.req.param("id");
+    const tenantId = getRequestingTenantId(c);
     try {
-      await config.mcpManager!.removeServer(c.req.param("id"));
+      // SEC-H-02: only the owning tenant may delete. `removeServer` is a no-op
+      // for a resource the caller does not own, so a cross-tenant delete
+      // resolves to the same 404 as a missing server.
+      const existing = await config.mcpManager!.getServer(id, tenantId);
+      if (!existing) {
+        return c.json(
+          {
+            error: {
+              code: "NOT_FOUND",
+              message: `MCP server "${id}" not found`,
+            },
+          },
+          404
+        );
+      }
+      await config.mcpManager!.removeServer(id, tenantId);
       return c.body(null, 204);
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -362,8 +387,9 @@ export function createMcpRoutes(
   // POST /servers/:id/enable — enable a server
   app.post("/servers/:id/enable", async (c) => {
     const id = c.req.param("id");
+    const tenantId = getRequestingTenantId(c);
     try {
-      const server = await config.mcpManager!.enableServer(id);
+      const server = await config.mcpManager!.enableServer(id, tenantId);
       return c.json({ data: redactMcpDefinition(server) });
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -378,8 +404,9 @@ export function createMcpRoutes(
   // POST /servers/:id/disable — disable a server
   app.post("/servers/:id/disable", async (c) => {
     const id = c.req.param("id");
+    const tenantId = getRequestingTenantId(c);
     try {
-      const server = await config.mcpManager!.disableServer(id);
+      const server = await config.mcpManager!.disableServer(id, tenantId);
       return c.json({ data: redactMcpDefinition(server) });
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -394,8 +421,9 @@ export function createMcpRoutes(
   // POST /servers/:id/test — test connectivity
   app.post("/servers/:id/test", async (c) => {
     const id = c.req.param("id");
+    const tenantId = getRequestingTenantId(c);
     try {
-      const server = await config.mcpManager!.getServer(id);
+      const server = await config.mcpManager!.getServer(id, tenantId);
       if (!server) {
         return c.json(
           {
@@ -411,7 +439,7 @@ export function createMcpRoutes(
       const urlPolicyError = await validateHttpServerInput(server);
       if (urlPolicyError) return urlPolicyError;
 
-      const result = await config.mcpManager!.testServer(id);
+      const result = await config.mcpManager!.testServer(id, tenantId);
       return c.json({ data: result });
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -426,15 +454,22 @@ export function createMcpRoutes(
 
   // GET /profiles — list all profiles
   app.get("/profiles", async (c) => {
-    const profiles = await config.mcpManager!.listProfiles();
+    const profiles = await config.mcpManager!.listProfiles(
+      getRequestingTenantId(c)
+    );
     return c.json({ data: profiles, count: profiles.length });
   });
 
   // POST /profiles — create a profile
   app.post("/profiles", async (c) => {
+    const tenantId = getRequestingTenantId(c);
     let body: McpProfile;
     try {
-      body = await c.req.json<McpProfile>();
+      const raw = await c.req.json<McpProfile>();
+      // SEC-H-02: strip any client-supplied tenantId; ownership is derived
+      // from the authenticated caller.
+      const { tenantId: _ignoredProfileTenant, ...rest } = raw;
+      body = rest as McpProfile;
     } catch {
       return c.json(
         { error: { code: "VALIDATION_ERROR", message: "Invalid JSON body" } },
@@ -467,7 +502,7 @@ export function createMcpRoutes(
     }
 
     try {
-      const profile = await config.mcpManager!.addProfile(body);
+      const profile = await config.mcpManager!.addProfile(body, tenantId);
       return c.json({ data: profile }, 201);
     } catch (err) {
       const { safe, internal } = sanitizeError(err);
@@ -485,7 +520,10 @@ export function createMcpRoutes(
   // GET /profiles/:id — get a profile
   app.get("/profiles/:id", async (c) => {
     const id = c.req.param("id");
-    const profile = await config.mcpManager!.getProfile(id);
+    const profile = await config.mcpManager!.getProfile(
+      id,
+      getRequestingTenantId(c)
+    );
     if (!profile) {
       return c.json(
         {
@@ -502,8 +540,23 @@ export function createMcpRoutes(
 
   // DELETE /profiles/:id — remove a profile
   app.delete("/profiles/:id", async (c) => {
+    const id = c.req.param("id");
+    const tenantId = getRequestingTenantId(c);
     try {
-      await config.mcpManager!.removeProfile(c.req.param("id"));
+      // SEC-H-02: cross-tenant delete resolves to 404 (resource is invisible).
+      const existing = await config.mcpManager!.getProfile(id, tenantId);
+      if (!existing) {
+        return c.json(
+          {
+            error: {
+              code: "NOT_FOUND",
+              message: `MCP profile "${id}" not found`,
+            },
+          },
+          404
+        );
+      }
+      await config.mcpManager!.removeProfile(id, tenantId);
       return c.body(null, 204);
     } catch (err) {
       const { safe, internal } = sanitizeError(err);

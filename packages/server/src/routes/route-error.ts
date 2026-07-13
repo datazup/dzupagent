@@ -52,6 +52,33 @@ export function sanitizeError(err: unknown): {
 }
 
 /**
+ * DZUPAGENT-ERR-H-02: metadata key under which the full, admin-only run-failure
+ * detail (stack trace / driver error text) is stashed on a failed run. Normal
+ * (non-admin) REST reads MUST strip this key; only admin-scoped reads expose it.
+ * SSE/WS channels never surface it because they carry only the safe message.
+ */
+export const RUN_ERROR_DETAIL_METADATA_KEY = "errorDetail";
+
+/**
+ * DZUPAGENT-ERR-H-02: run-failure message sanitization chokepoint.
+ *
+ * A run failure carries raw internal text (stack traces, DB driver messages)
+ * that must never reach clients over REST/SSE/WS. This computes both the
+ * client-safe message (stored on `run.error` and emitted on `agent:failed`)
+ * and the full internal detail (stashed admin-only on `run.metadata`).
+ *
+ * Reuses {@link sanitizeError} so the safe/generic mapping stays consistent
+ * with every other 500 catch site in the server.
+ */
+export function sanitizeFailureMessage(err: unknown): {
+  safe: string;
+  detail: string;
+} {
+  const { safe, internal } = sanitizeError(err);
+  return { safe, detail: internal };
+}
+
+/**
  * Log a route error with structured context and return its sanitized form.
  *
  * Emits a single structured JSON line to `console.error` (stderr) so failures

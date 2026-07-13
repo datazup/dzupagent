@@ -107,16 +107,24 @@ export function createPtcTool(options: CreatePtcToolOptions) {
           blocked: false,
         }
         // Audit the failure
-        void options.governance.auditResult({
-          toolName,
-          callerAgent: options.runId ?? 'ptc',
-          timestamp: Date.now(),
-          durationMs: result.durationMs,
-          success: false,
-          output: `error: ${msg}`,
-          outputMetadata: { outputType: 'string', outputLength: msg.length, outputKeys: [] },
-          resultAuditRetention: 'raw',
-        })
+        void options.governance
+          .auditResult({
+            toolName,
+            callerAgent: options.runId ?? 'ptc',
+            timestamp: Date.now(),
+            durationMs: result.durationMs,
+            success: false,
+            output: `error: ${msg}`,
+            outputMetadata: { outputType: 'string', outputLength: msg.length, outputKeys: [] },
+            resultAuditRetention: 'raw',
+          })
+          .catch((e: unknown) => {
+            console.error('[ptc-tool] auditResult failed', {
+              toolName,
+              phase: 'exec_error',
+              error: e instanceof Error ? e.message : String(e),
+            })
+          })
         return JSON.stringify(result)
       }
 
@@ -128,20 +136,28 @@ export function createPtcTool(options: CreatePtcToolOptions) {
         blocked: false,
       }
 
-      void options.governance.auditResult({
-        toolName,
-        callerAgent: options.runId ?? 'ptc',
-        timestamp: Date.now(),
-        durationMs: execResult.durationMs,
-        success: execResult.exitCode === 0,
-        output: execResult.stdout || execResult.stderr,
-        outputMetadata: {
-          outputType: 'string',
-          outputLength: (execResult.stdout + execResult.stderr).length,
-          outputKeys: [],
-        },
-        resultAuditRetention: 'raw',
-      })
+      void options.governance
+        .auditResult({
+          toolName,
+          callerAgent: options.runId ?? 'ptc',
+          timestamp: Date.now(),
+          durationMs: execResult.durationMs,
+          success: execResult.exitCode === 0,
+          output: execResult.stdout || execResult.stderr,
+          outputMetadata: {
+            outputType: 'string',
+            outputLength: (execResult.stdout + execResult.stderr).length,
+            outputKeys: [],
+          },
+          resultAuditRetention: 'raw',
+        })
+        .catch((e: unknown) => {
+          console.error('[ptc-tool] auditResult failed', {
+            toolName,
+            phase: 'exec_success',
+            error: e instanceof Error ? e.message : String(e),
+          })
+        })
 
       return JSON.stringify(ptcResult)
     },

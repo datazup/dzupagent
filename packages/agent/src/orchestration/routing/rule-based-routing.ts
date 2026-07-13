@@ -64,11 +64,10 @@ export class RuleBasedRouting implements RoutingPolicy {
         (a) => a.id === this.config.fallbackAgentId
       );
       if (fallback) {
-        rejectionReasons[fallback.id] = undefined as unknown as string;
-        const cleanReasons: Record<string, string> = {};
-        for (const [id, reason] of Object.entries(rejectionReasons)) {
-          if (reason !== undefined) cleanReasons[id] = reason;
-        }
+        // The selected fallback is not a rejection — drop it from the map
+        // rather than storing an undefined sentinel behind a cast.
+        delete rejectionReasons[fallback.id];
+        const cleanReasons: Record<string, string> = { ...rejectionReasons };
         const diagnostics: RoutingDiagnostics = {
           candidateIds,
           selectedIds: [fallback.id],

@@ -25,21 +25,33 @@ import type { MCPClient } from './mcp-client.js'
  * Lifecycle manager for MCP server registrations.
  * Implementations persist definitions and emit events for observability.
  */
+/**
+ * Tenant scoping for {@link McpManager} operations.
+ *
+ * Every method accepts an optional trailing `tenantId`. When supplied, the
+ * manager records ownership on writes and enforces it on reads/updates/deletes
+ * — a resource owned by a different tenant is invisible (`getServer`/
+ * `getProfile` return `undefined`; `listServers`/`listProfiles` omit it) and
+ * mutating it behaves as if it does not exist (throws `"... not found"`).
+ *
+ * When `tenantId` is omitted (single-tenant / library usage) no scoping is
+ * applied, preserving the original behaviour for existing callers.
+ */
 export interface McpManager {
-  addServer(input: McpServerInput): Promise<McpServerDefinition>
-  updateServer(id: string, patch: McpServerPatch): Promise<McpServerDefinition>
-  removeServer(id: string): Promise<void>
-  enableServer(id: string): Promise<McpServerDefinition>
-  disableServer(id: string): Promise<McpServerDefinition>
-  testServer(id: string): Promise<McpTestResult>
-  getServer(id: string): Promise<McpServerDefinition | undefined>
-  listServers(): Promise<McpServerDefinition[]>
+  addServer(input: McpServerInput, tenantId?: string): Promise<McpServerDefinition>
+  updateServer(id: string, patch: McpServerPatch, tenantId?: string): Promise<McpServerDefinition>
+  removeServer(id: string, tenantId?: string): Promise<void>
+  enableServer(id: string, tenantId?: string): Promise<McpServerDefinition>
+  disableServer(id: string, tenantId?: string): Promise<McpServerDefinition>
+  testServer(id: string, tenantId?: string): Promise<McpTestResult>
+  getServer(id: string, tenantId?: string): Promise<McpServerDefinition | undefined>
+  listServers(tenantId?: string): Promise<McpServerDefinition[]>
 
   // Profile management
-  addProfile(profile: McpProfile): Promise<McpProfile>
-  removeProfile(id: string): Promise<void>
-  getProfile(id: string): Promise<McpProfile | undefined>
-  listProfiles(): Promise<McpProfile[]>
+  addProfile(profile: McpProfile, tenantId?: string): Promise<McpProfile>
+  removeProfile(id: string, tenantId?: string): Promise<void>
+  getProfile(id: string, tenantId?: string): Promise<McpProfile | undefined>
+  listProfiles(tenantId?: string): Promise<McpProfile[]>
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +75,23 @@ export class InMemoryMcpManager implements McpManager {
     this.mcpClient = options?.mcpClient
   }
 
-  async addServer(input: McpServerInput): Promise<McpServerDefinition> {
+  /**
+   * True when `scope` is undefined (no scoping) or matches the resource's
+   * owning tenant. Resources with no recorded tenant are treated as 'default'.
+   */
+  private ownedBy(
+    resource: { tenantId?: string | undefined } | undefined,
+    scope: string | undefined,
+  ): boolean {
+    if (scope === undefined) return true
+    if (!resource) return false
+    return (resource.tenantId ?? 'default') === scope
+  }
+
+  async addServer(input: McpServerInput, tenantId?: string): Promise<McpServerDefinition> {
+    // Server ids share a single keyspace across tenants; any collision throws
+    // the same generic error regardless of the caller's scope so the existence
+    // of another tenant's server is not disclosed.
     if (this.servers.has(input.id)) {
       throw new Error(`MCP server with id "${input.id}" already exists`)
     }
@@ -71,6 +99,7 @@ export class InMemoryMcpManager implements McpManager {
     const now = new Date().toISOString()
     const definition: McpServerDefinition = {
       ...input,
+      ...(tenantId !== undefined ? { tenantId } : {}),
       createdAt: now,
       updatedAt: now,
     }
@@ -84,9 +113,9 @@ export class InMemoryMcpManager implements McpManager {
     return { ...definition }
   }
 
-  async updateServer(id: string, patch: McpServerPatch): Promise<McpServerDefinition> {
+  async updateServer(id: string, patch: McpServerPatch, tenantId?: string): Promise<McpServerDefinition> {
     const existing = this.servers.get(id)
-    if (!existing) {
+    if (!existing || !this.ownedBy(existing, tenantId)) {
       throw new Error(`MCP server "${id}" not found`)
     }
 
@@ -94,6 +123,7 @@ export class InMemoryMcpManager implements McpManager {
       ...existing,
       ...patch,
       id: existing.id, // id is immutable
+      tenantId: existing.tenantId, // tenant ownership is immutable
       createdAt: existing.createdAt, // createdAt is immutable
       updatedAt: new Date().toISOString(),
     }
@@ -107,29 +137,32 @@ export class InMemoryMcpManager implements McpManager {
     return { ...updated }
   }
 
-  async removeServer(id: string): Promise<void> {
-    const existed = this.servers.has(id)
-    this.servers.delete(id)
+  async removeServer(id: string, tenantId?: string): Promise<void> {
+    const existing = this.servers.get(id)
+    // Only the owning tenant may remove a server. A cross-tenant delete is a
+    // silent no-op (the resource is invisible to the caller).
+    const existed = existing !== undefined && this.ownedBy(existing, tenantId)
     if (existed) {
+      this.servers.delete(id)
       this.eventBus?.emit({ type: 'mcp:server_removed', serverId: id })
     }
   }
 
-  async enableServer(id: string): Promise<McpServerDefinition> {
-    const result = await this.updateServer(id, { enabled: true })
+  async enableServer(id: string, tenantId?: string): Promise<McpServerDefinition> {
+    const result = await this.updateServer(id, { enabled: true }, tenantId)
     this.eventBus?.emit({ type: 'mcp:server_enabled', serverId: id })
     return result
   }
 
-  async disableServer(id: string): Promise<McpServerDefinition> {
-    const result = await this.updateServer(id, { enabled: false })
+  async disableServer(id: string, tenantId?: string): Promise<McpServerDefinition> {
+    const result = await this.updateServer(id, { enabled: false }, tenantId)
     this.eventBus?.emit({ type: 'mcp:server_disabled', serverId: id })
     return result
   }
 
-  async testServer(id: string): Promise<McpTestResult> {
+  async testServer(id: string, tenantId?: string): Promise<McpTestResult> {
     const definition = this.servers.get(id)
-    if (!definition) {
+    if (!definition || !this.ownedBy(definition, tenantId)) {
       return { ok: false, error: `MCP server "${id}" not found` }
     }
 
@@ -174,37 +207,53 @@ export class InMemoryMcpManager implements McpManager {
     }
   }
 
-  async getServer(id: string): Promise<McpServerDefinition | undefined> {
+  async getServer(id: string, tenantId?: string): Promise<McpServerDefinition | undefined> {
     const def = this.servers.get(id)
-    return def ? { ...def } : undefined
+    if (!def || !this.ownedBy(def, tenantId)) return undefined
+    return { ...def }
   }
 
-  async listServers(): Promise<McpServerDefinition[]> {
-    return [...this.servers.values()].map(d => ({ ...d }))
+  async listServers(tenantId?: string): Promise<McpServerDefinition[]> {
+    return [...this.servers.values()]
+      .filter(d => this.ownedBy(d, tenantId))
+      .map(d => ({ ...d }))
   }
 
   // -------------------------------------------------------------------------
   // Profile management
   // -------------------------------------------------------------------------
 
-  async addProfile(profile: McpProfile): Promise<McpProfile> {
+  async addProfile(profile: McpProfile, tenantId?: string): Promise<McpProfile> {
+    // Profile ids share a single keyspace across tenants; any collision throws
+    // the same generic error so another tenant's profile is not disclosed.
     if (this.profiles.has(profile.id)) {
       throw new Error(`MCP profile with id "${profile.id}" already exists`)
     }
-    this.profiles.set(profile.id, { ...profile })
-    return { ...profile }
+    const stored: McpProfile = {
+      ...profile,
+      ...(tenantId !== undefined ? { tenantId } : {}),
+    }
+    this.profiles.set(stored.id, stored)
+    return { ...stored }
   }
 
-  async removeProfile(id: string): Promise<void> {
-    this.profiles.delete(id)
+  async removeProfile(id: string, tenantId?: string): Promise<void> {
+    const existing = this.profiles.get(id)
+    // Cross-tenant delete is a silent no-op.
+    if (existing && this.ownedBy(existing, tenantId)) {
+      this.profiles.delete(id)
+    }
   }
 
-  async getProfile(id: string): Promise<McpProfile | undefined> {
+  async getProfile(id: string, tenantId?: string): Promise<McpProfile | undefined> {
     const p = this.profiles.get(id)
-    return p ? { ...p } : undefined
+    if (!p || !this.ownedBy(p, tenantId)) return undefined
+    return { ...p }
   }
 
-  async listProfiles(): Promise<McpProfile[]> {
-    return [...this.profiles.values()].map(p => ({ ...p }))
+  async listProfiles(tenantId?: string): Promise<McpProfile[]> {
+    return [...this.profiles.values()]
+      .filter(p => this.ownedBy(p, tenantId))
+      .map(p => ({ ...p }))
   }
 }

@@ -109,6 +109,98 @@ describe('PostgreSQLConnector', () => {
       new PostgreSQLConnector(baseConfig)
       expect(mockPoolOn).toHaveBeenCalledWith('connect', expect.any(Function))
     })
+
+    // -----------------------------------------------------------------------
+    // Read-only enforcement failure handling (QF-02 / DZUPAGENT-ERR-C-05)
+    // -----------------------------------------------------------------------
+
+    describe('read-only enforcement on connect', () => {
+      /** Pull the 'connect' handler that the connector registered on the pool. */
+      function getConnectHandler(): (client: {
+        query: (sql: string) => Promise<unknown>
+        release: (err?: Error | boolean) => void
+      }) => void {
+        new PostgreSQLConnector(baseConfig)
+        const call = mockPoolOn.mock.calls.find((c) => c[0] === 'connect')
+        expect(call).toBeDefined()
+        return call![1]
+      }
+
+      it('sets default_transaction_read_only on each new connection', async () => {
+        const handler = getConnectHandler()
+        const query = vi.fn().mockResolvedValue(undefined)
+        const release = vi.fn()
+        handler({ query, release })
+        await Promise.resolve()
+
+        expect(query).toHaveBeenCalledWith('SET default_transaction_read_only = ON')
+        // Success path must NOT evict the connection.
+        expect(release).not.toHaveBeenCalled()
+      })
+
+      it('discards the connection with an error when SET fails', async () => {
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const handler = getConnectHandler()
+        const failure = new Error('permission denied to set parameter')
+        const query = vi.fn().mockRejectedValue(failure)
+        const release = vi.fn()
+
+        handler({ query, release })
+        // allow the rejected promise + .catch handler to run
+        await Promise.resolve()
+        await Promise.resolve()
+
+        // Connection must be released WITH an error so pg destroys it.
+        expect(release).toHaveBeenCalledTimes(1)
+        expect(release.mock.calls[0]![0]).toBeInstanceOf(Error)
+        expect((release.mock.calls[0]![0] as Error).message).toBe(
+          'permission denied to set parameter',
+        )
+
+        errSpy.mockRestore()
+      })
+
+      it('logs the read-only enforcement failure at error level', async () => {
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const handler = getConnectHandler()
+        const query = vi.fn().mockRejectedValue(new Error('SET failed'))
+        const release = vi.fn()
+
+        handler({ query, release })
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(errSpy).toHaveBeenCalledTimes(1)
+        const logged = JSON.parse(errSpy.mock.calls[0]![0] as string) as {
+          level: string
+          operation: string
+          error: { message: string; name: string }
+        }
+        expect(logged.level).toBe('error')
+        expect(logged.operation).toBe('set_read_only')
+        expect(logged.error.message).toBe('SET failed')
+        expect(logged.error.name).toBe('Error')
+
+        errSpy.mockRestore()
+      })
+
+      it('wraps a non-Error rejection before releasing the connection', async () => {
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const handler = getConnectHandler()
+        const query = vi.fn().mockRejectedValue('raw driver failure')
+        const release = vi.fn()
+
+        handler({ query, release })
+        await Promise.resolve()
+        await Promise.resolve()
+
+        expect(release).toHaveBeenCalledTimes(1)
+        expect(release.mock.calls[0]![0]).toBeInstanceOf(Error)
+        expect((release.mock.calls[0]![0] as Error).message).toBe('raw driver failure')
+
+        errSpy.mockRestore()
+      })
+    })
   })
 
   // -------------------------------------------------------------------------

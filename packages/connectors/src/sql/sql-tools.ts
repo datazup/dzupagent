@@ -12,6 +12,7 @@ const { Parser } = nodeSqlParser
 import { z } from 'zod'
 import type { SQLConnector } from './types.js'
 import { filterTools } from '../connector-types.js'
+import { handleDbToolError } from '../database/db-errors.js'
 
 const sqlParser = new Parser()
 
@@ -174,7 +175,7 @@ export function createSQLTools(config: SQLToolsConfig): DynamicStructuredTool[] 
           return JSON.stringify(result)
         } catch (err: unknown) {
           return JSON.stringify({
-            error: err instanceof Error ? err.message : String(err),
+            error: handleDbToolError('sql_query', 'Query error', err),
           })
         }
       },
@@ -202,7 +203,7 @@ export function createSQLTools(config: SQLToolsConfig): DynamicStructuredTool[] 
           return JSON.stringify({ dialect: schema.dialect, tables })
         } catch (err: unknown) {
           return JSON.stringify({
-            error: err instanceof Error ? err.message : String(err),
+            error: handleDbToolError('sql_list_tables', 'Error listing tables', err),
           })
         }
       },
@@ -232,7 +233,7 @@ export function createSQLTools(config: SQLToolsConfig): DynamicStructuredTool[] 
           return JSON.stringify({ ...table, ddl })
         } catch (err: unknown) {
           return JSON.stringify({
-            error: err instanceof Error ? err.message : String(err),
+            error: handleDbToolError('sql_describe_table', 'Error describing table', err),
           })
         }
       },
@@ -259,7 +260,7 @@ export function createSQLTools(config: SQLToolsConfig): DynamicStructuredTool[] 
           return JSON.stringify(schema)
         } catch (err: unknown) {
           return JSON.stringify({
-            error: err instanceof Error ? err.message : String(err),
+            error: handleDbToolError('sql_discover_schema', 'Error discovering schema', err),
           })
         }
       },
@@ -287,7 +288,7 @@ export function createSQLTools(config: SQLToolsConfig): DynamicStructuredTool[] 
           return connector.generateDDL(table)
         } catch (err: unknown) {
           return JSON.stringify({
-            error: err instanceof Error ? err.message : String(err),
+            error: handleDbToolError('sql_generate_ddl', 'Error generating DDL', err),
           })
         }
       },
@@ -304,7 +305,7 @@ export function createSQLTools(config: SQLToolsConfig): DynamicStructuredTool[] 
         } catch (err: unknown) {
           return JSON.stringify({
             ok: false,
-            error: err instanceof Error ? err.message : String(err),
+            error: handleDbToolError('sql_test_connection', 'Connection error', err),
             latencyMs: -1,
           })
         }

@@ -6,5 +6,18 @@ export default defineConfig({
     testTimeout: 30_000,
     passWithNoTests: true,
     include: ["src/**/*.test.ts"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json-summary"],
+      include: ["src/**/*.ts"],
+      exclude: [
+        "src/**/*.test.ts",
+        "src/**/*.spec.ts",
+        "src/**/__tests__/**",
+        "src/**/__fixtures__/**",
+        "src/**/index.ts",
+      ],
+      // Thresholds managed centrally in coverage-thresholds.json.
+    },
   },
 });

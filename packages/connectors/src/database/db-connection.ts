@@ -65,5 +65,30 @@ export async function createPool(config: DatabaseConnectorConfig): Promise<PgPoo
       : { rejectUnauthorized: config.sslAllowSelfSigned !== true }
   }
 
-  return new PgPool(poolConfig)
+  const pool = new PgPool(poolConfig)
+
+  // node-postgres emits 'error' on idle clients (e.g. a network blip drops a
+  // pooled connection). With no listener this error propagates to the process
+  // and crashes the runtime. Attach a handler that logs and swallows so a
+  // single dropped idle connection can never take the process down.
+  if (typeof (pool as { on?: unknown }).on === 'function') {
+    ;(pool as unknown as {
+      on(event: 'error', listener: (err: unknown) => void): void
+    }).on('error', (err: unknown) => {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          component: 'db-connector',
+          operation: 'pool_idle_error',
+          error: {
+            message: err instanceof Error ? err.message : String(err),
+            name: err instanceof Error ? err.constructor.name : typeof err,
+          },
+          timestamp: new Date().toISOString(),
+        }),
+      )
+    })
+  }
+
+  return pool
 }

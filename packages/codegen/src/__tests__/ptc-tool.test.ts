@@ -124,4 +124,70 @@ describe('createPtcTool', () => {
       expect(governance.auditResult).toHaveBeenCalled()
     })
   })
+
+  describe('audit-write failure handling (ERR-C-06)', () => {
+    it('surfaces a rejecting auditResult via console.error without leaking (exec path)', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const unhandled: unknown[] = []
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason)
+      }
+      process.on('unhandledRejection', onUnhandled)
+      try {
+        const governance = makeGovernance({ allowed: true })
+        ;(governance.auditResult as ReturnType<typeof vi.fn>).mockRejectedValue(
+          new Error('audit sink offline'),
+        )
+        const t = createPtcTool({ governance })
+
+        // Invoke must still resolve with a result even though the audit rejects.
+        const raw = await t.invoke({ code: '1 + 1' })
+        expect(raw).toBeDefined()
+
+        // Allow the fire-and-forget auditResult().catch(...) to settle.
+        await new Promise((resolve) => setTimeout(resolve, 10))
+
+        expect(governance.auditResult).toHaveBeenCalled()
+        expect(errorSpy).toHaveBeenCalledWith(
+          '[ptc-tool] auditResult failed',
+          expect.objectContaining({ error: 'audit sink offline' }),
+        )
+        expect(unhandled).toHaveLength(0)
+      } finally {
+        process.off('unhandledRejection', onUnhandled)
+        errorSpy.mockRestore()
+      }
+    })
+
+    it('surfaces a rejecting audit via console.error on the blocked path (adapter)', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const unhandled: unknown[] = []
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason)
+      }
+      process.on('unhandledRejection', onUnhandled)
+      try {
+        const governance = makeGovernance({ allowed: false, reason: 'blocked by policy' })
+        ;(governance.audit as ReturnType<typeof vi.fn>).mockRejectedValue(
+          new Error('audit sink offline'),
+        )
+        const t = createPtcTool({ governance })
+
+        const raw = await t.invoke({ code: 'console.log(1)' })
+        const result = JSON.parse(raw as string) as { blocked: boolean }
+        expect(result.blocked).toBe(true)
+
+        await new Promise((resolve) => setTimeout(resolve, 10))
+
+        expect(errorSpy).toHaveBeenCalledWith(
+          '[ptc-governance-adapter] audit failed',
+          expect.objectContaining({ error: 'audit sink offline' }),
+        )
+        expect(unhandled).toHaveLength(0)
+      } finally {
+        process.off('unhandledRejection', onUnhandled)
+        errorSpy.mockRestore()
+      }
+    })
+  })
 })

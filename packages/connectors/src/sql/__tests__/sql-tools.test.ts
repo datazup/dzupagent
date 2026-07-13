@@ -158,7 +158,9 @@ describe('createSQLTools — sql-list-tables', () => {
     const raw = await listTool.invoke({})
     const result = JSON.parse(raw as string) as { error: string }
 
-    expect(result.error).toContain('DB offline')
+    // DZUPAGENT-ERR-H-08: raw driver text is contained, not echoed to the LLM.
+    expect(result.error).not.toContain('DB offline')
+    expect(result.error).toContain('Error listing tables')
   })
 })
 
@@ -205,7 +207,9 @@ describe('createSQLTools — sql-describe-table', () => {
     const raw = await describeTool.invoke({ tableName: 'users' })
     const result = JSON.parse(raw as string) as { error: string }
 
-    expect(result.error).toContain('timeout')
+    // DZUPAGENT-ERR-H-08: raw driver text is contained; category summary surfaces.
+    expect(result.error).toContain('Error describing table')
+    expect(result.error).toContain('timed out')
   })
 })
 
@@ -255,7 +259,9 @@ describe('createSQLTools — sql-discover-schema', () => {
     const raw = await discoverTool.invoke({})
     const result = JSON.parse(raw as string) as { error: string }
 
-    expect(result.error).toContain('access denied')
+    // DZUPAGENT-ERR-H-08: raw driver text is contained; category summary surfaces.
+    expect(result.error).not.toContain('access denied')
+    expect(result.error).toContain('not permitted')
   })
 })
 
@@ -300,7 +306,9 @@ describe('createSQLTools — sql-generate-ddl', () => {
     const raw = await ddlTool.invoke({ tableName: 'users' })
     const result = JSON.parse(raw as string) as { error: string }
 
-    expect(result.error).toContain('boom')
+    // DZUPAGENT-ERR-H-08: raw driver text is contained; generic summary surfaces.
+    expect(result.error).not.toContain('boom')
+    expect(result.error).toContain('Error generating DDL')
   })
 })
 
@@ -331,7 +339,9 @@ describe('createSQLTools — sql-test-connection', () => {
     const result = JSON.parse(raw as string) as { ok: boolean; error: string }
 
     expect(result.ok).toBe(false)
-    expect(result.error).toContain('refused')
+    // DZUPAGENT-ERR-H-08: raw driver text is contained; generic summary surfaces.
+    expect(result.error).not.toContain('refused')
+    expect(result.error).toContain('Connection error')
   })
 })
 
@@ -381,7 +391,9 @@ describe('createSQLTools — sql-query error handling', () => {
     const raw = await sqlTool.invoke({ sql: 'SELECT 1' })
     const result = JSON.parse(raw as string) as { error: string }
 
-    expect(result.error).toContain('connection lost')
+    // DZUPAGENT-ERR-H-08: raw driver text is contained; category summary surfaces.
+    expect(result.error).not.toContain('connection lost')
+    expect(result.error).toContain('database connection failed')
   })
 
   it('returns error JSON when executeQuery throws non-Error', async () => {
@@ -393,7 +405,9 @@ describe('createSQLTools — sql-query error handling', () => {
     const raw = await sqlTool.invoke({ sql: 'SELECT 1' })
     const result = JSON.parse(raw as string) as { error: string }
 
-    expect(result.error).toBe('raw string')
+    // DZUPAGENT-ERR-H-08: even non-Error throws are contained, not echoed.
+    expect(result.error).not.toContain('raw string')
+    expect(result.error).toContain('Query error')
   })
 
   it('passes maxRows and timeoutMs overrides from input', async () => {

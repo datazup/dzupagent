@@ -34,7 +34,15 @@ const SOURCE_IS_STATE_NODE_TYPES = new Set([
   "memory.write",
 ]);
 
-const STATE_TEMPLATE_RE = /\{\{\s*state\.([A-Za-z0-9_]+)((?:\.[A-Za-z0-9_]+)*)\s*\}\}/g;
+// Matches `{{ state.foo.bar.baz }}` template refs. The dotted path is captured
+// with a SINGLE flat character class `[A-Za-z0-9_.]+` (one linear quantifier,
+// no nesting) to eliminate any ReDoS backtracking risk
+// (security/detect-unsafe-regex). This class is deliberately permissive — it
+// also accepts leading/trailing/doubled dots — so rewriteStateTemplates
+// validates the dotted-identifier shape in JS before rewriting the ref. Refs
+// whose path does not validate are left untouched, matching the old regex's
+// stricter grammar (`ident(.ident)*`).
+const STATE_TEMPLATE_RE = /\{\{\s*state\.([A-Za-z0-9_.]+)\s*\}\}/g;
 const CHILD_NODE_FIELDS = new Set([
   "nodes",
   "body",
@@ -56,10 +64,19 @@ function privateKey(instanceId: string, key: string): string {
 }
 
 function rewriteStateTemplates(value: string, instanceId: string): string {
-  return value.replace(
-    STATE_TEMPLATE_RE,
-    (_match, key: string, pathRest: string) => `{{ state.${privateKey(instanceId, key)}${pathRest} }}`,
-  );
+  return value.replace(STATE_TEMPLATE_RE, (match, path: string) => {
+    // `path` is the full dotted path (e.g. "foo.bar.baz"). The flat character
+    // class in STATE_TEMPLATE_RE also admits malformed paths (leading/trailing/
+    // doubled dots); only rewrite well-formed `ident(.ident)*` paths — anything
+    // else is left exactly as matched, preserving the old grammar's behavior.
+    const segments = path.split(".");
+    if (segments.some((segment) => segment.length === 0)) return match;
+    // Split off the head identifier; the remainder (with its leading dot) is
+    // preserved verbatim.
+    const [key, ...rest] = segments;
+    const pathRest = rest.length > 0 ? `.${rest.join(".")}` : "";
+    return `{{ state.${privateKey(instanceId, key!)}${pathRest} }}`;
+  });
 }
 
 function instanceIdFor(node: FlowNode): string {

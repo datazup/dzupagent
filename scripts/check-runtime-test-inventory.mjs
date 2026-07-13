@@ -102,6 +102,59 @@ const integrationStyleTestPatterns = [
   ...integrationStyleDirectoryPatterns,
 ]
 
+// ---------------------------------------------------------------------------
+// Behavior-based integration detection (DZUPAGENT-TEST-H-02)
+// ---------------------------------------------------------------------------
+//
+// `integrationStyleTestPatterns` above classifies by filename only, which
+// over-counts: most `*.integration.test.ts` / `*e2e*test.ts` files in this
+// repo exercise real cross-module wiring with mocked/in-memory dependencies
+// (vi.fn, InMemoryStore, MockChatModel, ...) rather than a real external
+// service. A suite only actually touches a real external service when it:
+//
+//   1. Calls the shared fail-closed integration gate (`requireIntegration(`,
+//      `requireIntegrationEnv(`, or the server-local `skipOrFailIfNo*(`
+//      wrappers — all of which exist specifically to gate suites that talk
+//      to a real Postgres/Redis/container runtime), or
+//   2. References the `RUN_REQUIRED_INTEGRATION` env var directly (the
+//      inline fail-closed pattern used before/instead of the shared helper,
+//      e.g. packages/subagents postgres-task-store-queue.test.ts).
+//
+// Both signals are narrow and intentional: they only appear in test files
+// that were deliberately written to gate on real-service availability, so
+// they have effectively no false positives (unlike matching on strings like
+// "postgres" or "QDRANT_URL", which also appear in mocked unit tests that
+// merely reference those names as fixture data or env var keys under test).
+const trueIntegrationMarkerPattern =
+  'requireIntegration\\(|requireIntegrationEnv\\(|skipOrFailIfNo(Database|Redis|ContainerRuntime)\\(|RUN_REQUIRED_INTEGRATION'
+
+function countTrueIntegrationTestFiles(srcPath, repoRoot) {
+  if (!existsSync(join(repoRoot, srcPath))) return 0
+  try {
+    const output = execFileSync(
+      'rg',
+      ['-l', '-e', trueIntegrationMarkerPattern, srcPath, '-g', '*test.ts', '-g', '*test.tsx', '-g', '*test.mjs', '-g', '*test.mts'],
+      { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+    const trimmed = output.trim()
+    return trimmed.length === 0 ? 0 : trimmed.split('\n').length
+  } catch (error) {
+    if (error && typeof error === 'object' && 'status' in error && error.status === 1) {
+      return 0
+    }
+    throw error
+  }
+}
+
+/**
+ * Classify a test file as a "true" (behavior-based) integration suite: it
+ * must actually reference the fail-closed integration gate rather than just
+ * matching an integration-flavoured filename. Exported for unit testing.
+ */
+export function isTrueIntegrationTestFile(fileContents) {
+  return new RegExp(trueIntegrationMarkerPattern).test(fileContents)
+}
+
 function createContext(repoRoot) {
   return {
     repoRoot,
@@ -398,11 +451,18 @@ export function runRuntimeTestInventory({
       ['*test.ts', '*test.tsx', '*test.mjs', '*test.mts'],
       context,
     )
+    // Filename-based count — kept for visibility/backward-compat in the
+    // printed report, but no longer used to gate --strict-integration since
+    // it over-counts mocked "integration"-named suites (DZUPAGENT-TEST-H-02).
     const integrationStyleTestCount = countPackageTestFiles(name, integrationStyleTestPatterns, context)
+    // Behavior-based count: suites that actually gate on a real external
+    // service via the shared fail-closed integration helper.
+    const trueIntegrationTestCount = countTrueIntegrationTestFiles(`packages/${name}/src`, context.repoRoot)
     return {
       name,
       testCount,
       integrationStyleTestCount,
+      trueIntegrationTestCount,
       critical: runtimeCriticalPackages.has(name),
     }
   })
@@ -412,7 +472,7 @@ export function runRuntimeTestInventory({
   const criticalSourceFailing = criticalSourceCoverage.filter((entry) => entry.status === 'fail')
   const largeSourceFileRisks = evaluateLargeSourceFileRisk(context, runtimePackages)
   const integrationFailing = strictIntegration
-    ? summary.filter((entry) => entry.critical && entry.integrationStyleTestCount === 0)
+    ? summary.filter((entry) => entry.critical && entry.trueIntegrationTestCount === 0)
     : []
   const exitCode = zeroTestFailing.length > 0 || criticalSourceFailing.length > 0 || integrationFailing.length > 0 ? 1 : 0
 
@@ -433,7 +493,8 @@ function printRuntimeTestInventory(report) {
   for (const entry of report.summary) {
     console.log(
       `- ${entry.name}: ${entry.testCount} test file${entry.testCount === 1 ? '' : 's'}, ` +
-        `${entry.integrationStyleTestCount} integration-style test${entry.integrationStyleTestCount === 1 ? '' : 's'}`,
+        `${entry.integrationStyleTestCount} integration-style (filename) test${entry.integrationStyleTestCount === 1 ? '' : 's'}, ` +
+        `${entry.trueIntegrationTestCount} true integration (real external service) test${entry.trueIntegrationTestCount === 1 ? '' : 's'}`,
     )
   }
 
@@ -480,14 +541,18 @@ function printRuntimeTestInventory(report) {
 
   if (report.strictIntegration) {
     if (report.integrationFailing.length > 0) {
-      console.error('\nRuntime-critical packages without integration-style tests:')
+      console.error(
+        '\nRuntime-critical packages without true integration tests ' +
+          '(no suite references a real external service via the shared ' +
+          'fail-closed gate — requireIntegration/skipOrFailIfNo*/RUN_REQUIRED_INTEGRATION):',
+      )
       for (const entry of report.integrationFailing) {
         console.error(`- ${entry.name}`)
       }
       return
     }
 
-    console.log('Strict integration-style runtime package gate passed.')
+    console.log('Strict true-integration runtime package gate passed.')
   }
 }
 

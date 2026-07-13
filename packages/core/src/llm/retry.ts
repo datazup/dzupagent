@@ -6,6 +6,11 @@
  * backward compatibility.
  */
 
+import {
+  isRecoverableProviderError,
+  isContextLengthProviderError,
+} from '../errors/classify-provider-error.js'
+
 export type { RetryPolicy } from '@dzupagent/agent-types'
 
 /**
@@ -30,24 +35,15 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
 /**
  * Determines if an error is transient and should be retried.
  * Covers: rate limiting, server overload, temporary outages.
+ *
+ * Delegates to the typed classifier ({@link isRecoverableProviderError}),
+ * which maps the error to a `PROVIDER_*` code and reads
+ * {@link ForgeError.recoverable} — the substring heuristics now live in a
+ * single place (`classify-provider-error.ts`) rather than being duplicated
+ * at every retry / fallback / breaker decision site.
  */
 export function isTransientError(error: Error): boolean {
-  const msg = error.message.toLowerCase()
-  return (
-    msg.includes('429') ||
-    msg.includes('503') ||
-    msg.includes('529') ||
-    msg.includes('rate_limit') ||
-    msg.includes('rate limit') ||
-    msg.includes('too many requests') ||
-    msg.includes('overloaded') ||
-    msg.includes('capacity') ||
-    msg.includes('timeout') ||
-    msg.includes('econnreset') ||
-    msg.includes('econnrefused') ||
-    msg.includes('socket hang up') ||
-    msg.includes('fetch failed')
-  )
+  return isRecoverableProviderError(error)
 }
 
 /**
@@ -55,12 +51,10 @@ export function isTransientError(error: Error): boolean {
  * context window. These errors are **not** retryable — a bigger prompt
  * will fail identically. Callers should surface a dedicated error so
  * upstream logic (compression, model swap) can react appropriately.
+ *
+ * Delegates to the typed classifier — a context-length error resolves to the
+ * `CONTEXT_LENGTH_EXCEEDED` code.
  */
 export function isContextLengthError(err: unknown): boolean {
-  const msg = (err instanceof Error ? err.message : String(err ?? '')).toLowerCase()
-  return (
-    msg.includes('context_length_exceeded') ||
-    msg.includes('maximum context') ||
-    msg.includes('prompt is too long')
-  )
+  return isContextLengthProviderError(err)
 }

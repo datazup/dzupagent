@@ -212,5 +212,46 @@ describe('AgentMailboxImpl', () => {
       })
       expect(received).toHaveLength(1)
     })
+
+    it('captures a rejecting async handler and emits mail:handler_failed (no unhandled rejection)', async () => {
+      const handlerFailures: Array<{ type: string; agentId: string; error: string }> = []
+      eventBus.on('mail:handler_failed', (e) => {
+        handlerFailures.push(e as never)
+      })
+
+      const unhandled: unknown[] = []
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason)
+      }
+      process.on('unhandledRejection', onUnhandled)
+      try {
+        mailbox.subscribe(async () => {
+          throw new Error('handler boom')
+        })
+
+        eventBus.emit({
+          type: 'mail:received',
+          message: {
+            id: 'msg-reject',
+            from: 'agent-c',
+            to: 'agent-a',
+            subject: 'Trigger failure',
+            body: {},
+            createdAt: Date.now(),
+          },
+        })
+
+        // Allow the rejected handler promise + .catch to settle.
+        await new Promise((resolve) => setTimeout(resolve, 10))
+
+        expect(handlerFailures).toHaveLength(1)
+        expect(handlerFailures[0]!.type).toBe('mail:handler_failed')
+        expect(handlerFailures[0]!.agentId).toBe('agent-a')
+        expect(handlerFailures[0]!.error).toContain('handler boom')
+        expect(unhandled).toHaveLength(0)
+      } finally {
+        process.off('unhandledRejection', onUnhandled)
+      }
+    })
   })
 })

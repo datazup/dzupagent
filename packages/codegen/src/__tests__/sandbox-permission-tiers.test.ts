@@ -719,6 +719,80 @@ describe("SandboxPool — healthCheck on acquire", () => {
   });
 });
 
+describe("SandboxPool — stale eviction failure isolation (ERR-C-03)", () => {
+  it("one failing destroy does not abandon the remaining evictions", async () => {
+    const destroyed: string[] = [];
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const pool = new SandboxPool({
+      createSandbox: async () => makeSandbox("unused"),
+      destroySandbox: async (sb) => {
+        if (sb.id === "boom") throw new Error("destroy failed");
+        destroyed.push(sb.id);
+      },
+      idleEvictionMs: 10,
+      minIdle: 0,
+    });
+
+    // Park three stale idle sandboxes directly (bypass acquire/release).
+    const stale = new Date(Date.now() - 60_000);
+    const idle = (pool as unknown as { idle: PooledSandbox[] }).idle;
+    idle.push(
+      { id: "a", createdAt: stale, lastUsedAt: stale },
+      { id: "boom", createdAt: stale, lastUsedAt: stale },
+      { id: "b", createdAt: stale, lastUsedAt: stale },
+    );
+
+    // Invoke the private eviction pass; it must resolve (not reject) even
+    // though one destroy rejects, and the other two must still be destroyed.
+    await expect(
+      (pool as unknown as { evictStale: () => Promise<void> }).evictStale(),
+    ).resolves.toBeUndefined();
+
+    expect(destroyed.sort()).toEqual(["a", "b"]);
+    expect(pool.metrics().currentIdle).toBe(0);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("the eviction timer callback never rejects when a destroy fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const pool = new SandboxPool({
+        createSandbox: async () => makeSandbox("unused"),
+        destroySandbox: async () => {
+          throw new Error("destroy failed");
+        },
+        idleEvictionMs: 10, // timer fires every max(5ms floor) => 5_000ms; drive manually
+        minIdle: 0,
+      });
+
+      const stale = new Date(Date.now() - 60_000);
+      const idle = (pool as unknown as { idle: PooledSandbox[] }).idle;
+      idle.push({ id: "x", createdAt: stale, lastUsedAt: stale });
+
+      // Simulate the timer body: evictStale() with the same .catch the timer attaches.
+      await expect(
+        (pool as unknown as { evictStale: () => Promise<void> })
+          .evictStale()
+          .catch(() => {
+            /* timer swallow — must not be reached because evictStale is allSettled */
+          }),
+      ).resolves.toBeUndefined();
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      errorSpy.mockRestore();
+    }
+  });
+});
+
 // ===========================================================================
 // E. DockerResetStrategy / CloudResetStrategy
 // ===========================================================================

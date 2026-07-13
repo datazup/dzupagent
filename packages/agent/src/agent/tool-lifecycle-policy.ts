@@ -137,9 +137,31 @@ export function emitToolCalled(
     }
     void context.toolGovernance
       .audit(auditEntry)
-      .catch(() => {
-        /* non-fatal */
-      })
+      .catch((e: unknown) => emitToolAuditSinkFailure(context, toolName, e))
+  }
+}
+
+/**
+ * Surface a tool-governance audit-write failure via the event bus instead of
+ * silently dropping the audit record. Mirrors the `audit:sink_failure`
+ * mechanism used by run-engine-generate-audit. Non-fatal by contract.
+ */
+function emitToolAuditSinkFailure(
+  context: ToolLifecyclePolicyContext,
+  toolName: string,
+  err: unknown,
+): void {
+  const message = err instanceof Error ? err.message : String(err)
+  try {
+    context.eventBus?.emit({
+      type: 'audit:sink_failure',
+      sink: 'tool-governance',
+      agentId: context.agentId ?? 'unknown',
+      message: `tool '${toolName}': ${message}`,
+      ...(context.runId !== undefined ? { runId: context.runId } : {}),
+    })
+  } catch {
+    // Emitting the failure must itself never abort the loop.
   }
 }
 
@@ -186,9 +208,7 @@ export function emitToolResult(
         success: true,
         timestamp: Date.now(),
       })
-      .catch(() => {
-        /* non-fatal */
-      })
+      .catch((e: unknown) => emitToolAuditSinkFailure(context, toolName, e))
   }
 }
 
@@ -248,9 +268,7 @@ export function emitToolError(
         success: false,
         timestamp: Date.now(),
       })
-      .catch(() => {
-        /* non-fatal */
-      })
+      .catch((e: unknown) => emitToolAuditSinkFailure(context, toolName, e))
   }
 }
 
