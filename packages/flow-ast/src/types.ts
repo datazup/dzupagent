@@ -115,7 +115,7 @@ export const MUTATING_EFFECT_CLASSES: readonly EffectClass[] = [
  * no policy is declared.
  */
 export function effectClassFromMutationPolicy(
-  policy: FlowMutationMetadata["policy"] | undefined
+  policy: FlowMutationMetadata["policy"] | undefined,
 ): EffectClass | undefined {
   switch (policy) {
     case "read-only":
@@ -711,6 +711,9 @@ export type WorkerDispatchNode = FlowNodeBase & {
   /** CLI provider to run on the worker. */
   provider: "claude" | "codex" | "gemini" | "qwen" | "goose" | "crush";
   model?: string;
+  /** Per-run reasoning effort. Adapters that support it (e.g. codex) map this
+   * to their native reasoning option; others ignore it. */
+  reasoningEffort?: "low" | "medium" | "high";
   /** System prompt projected into prompt assembly. */
   systemPrompt?: string;
   /** Operator instructions; template-resolved at runtime. */
@@ -1149,7 +1152,7 @@ export const FLOW_NODE_KIND_REGISTRY = {
 } as const satisfies Record<FlowNodeKind, true>;
 
 export const FLOW_NODE_KINDS = Object.keys(
-  FLOW_NODE_KIND_REGISTRY
+  FLOW_NODE_KIND_REGISTRY,
 ) as FlowNodeKind[];
 
 export function isFlowNodeKind(value: string): value is FlowNodeKind {
