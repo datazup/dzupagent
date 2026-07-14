@@ -13,13 +13,13 @@ export type {
   MetadataFilter,
   VectorStoreHealth,
   VectorStore,
-} from './types.js'
+} from "./types.js";
 
 // --- Embedding types ---
 export type {
   EmbeddingProvider,
   EmbeddingProviderConfig,
-} from './embedding-types.js'
+} from "./embedding-types.js";
 
 // --- Embedding providers ---
 export {
@@ -28,44 +28,60 @@ export {
   createCohereEmbedding,
   createOllamaEmbedding,
   createCustomEmbedding,
-} from './embeddings/index.js'
+  createInternalEmbedding,
+  withRateLimit,
+} from "./embeddings/index.js";
 export type {
   OpenAIEmbeddingConfig,
   VoyageEmbeddingConfig,
   CohereEmbeddingConfig,
   OllamaEmbeddingConfig,
   CustomEmbeddingConfig,
-} from './embeddings/index.js'
+  InternalEmbeddingConfig,
+  RateLimitedEmbeddingConfig,
+} from "./embeddings/index.js";
 
 // --- Filter utilities ---
-export { cosineSimilarity, evaluateFilter } from './filter-utils.js'
+export { cosineSimilarity, evaluateFilter } from "./filter-utils.js";
 
 // --- HTTP error normalization ---
-export { vectorHttpErrorToForgeError } from './http-error.js'
+export { vectorHttpErrorToForgeError } from "./http-error.js";
 
 // --- In-memory vector store ---
-export { InMemoryVectorStore } from './in-memory-vector-store.js'
+export { InMemoryVectorStore } from "./in-memory-vector-store.js";
 
 // --- Semantic store ---
-export { SemanticStore } from './semantic-store.js'
-export type { SemanticStoreConfig, Document, ScoredDocument } from './semantic-store.js'
+export { SemanticStore } from "./semantic-store.js";
+export type {
+  SemanticStoreConfig,
+  Document,
+  ScoredDocument,
+} from "./semantic-store.js";
 
 // --- Auto-detection ---
-export { createAutoEmbeddingProvider, detectVectorProvider, createAutoSemanticStore } from './auto-detect.js'
-export type { AutoDetectResult } from './auto-detect.js'
+export {
+  createAutoEmbeddingProvider,
+  detectVectorProvider,
+  createAutoSemanticStore,
+} from "./auto-detect.js";
+export type { AutoDetectResult } from "./auto-detect.js";
 
 // --- Adapters ---
 export {
-  QdrantAdapter, translateQdrantFilter,
-  PineconeAdapter, translatePineconeFilter,
+  QdrantAdapter,
+  translateQdrantFilter,
+  PineconeAdapter,
+  translatePineconeFilter,
   ChromaDBAdapter,
-  TurbopufferAdapter, translateTurbopufferFilter,
-  LanceDBAdapter, translateLanceDBFilter,
-} from './adapters/index.js'
+  TurbopufferAdapter,
+  translateTurbopufferFilter,
+  LanceDBAdapter,
+  translateLanceDBFilter,
+} from "./adapters/index.js";
 export type {
   QdrantAdapterConfig,
   PineconeAdapterConfig,
   ChromaDBAdapterConfig,
   TurbopufferAdapterConfig,
   LanceDBAdapterConfig,
-} from './adapters/index.js'
+} from "./adapters/index.js";

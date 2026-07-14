@@ -5,57 +5,76 @@
  * falling through a priority chain until one is found.
  */
 
-import type { EmbeddingProvider } from './embedding-types.js'
-import { createVoyageEmbedding } from './embeddings/voyage-embedding.js'
-import { createOpenAIEmbedding } from './embeddings/openai-embedding.js'
-import { createCohereEmbedding } from './embeddings/cohere-embedding.js'
-import { InMemoryVectorStore } from './in-memory-vector-store.js'
-import { SemanticStore } from './semantic-store.js'
+import type { EmbeddingProvider } from "./embedding-types.js";
+import { createVoyageEmbedding } from "./embeddings/voyage-embedding.js";
+import { createOpenAIEmbedding } from "./embeddings/openai-embedding.js";
+import { createCohereEmbedding } from "./embeddings/cohere-embedding.js";
+import { createInternalEmbedding } from "./embeddings/internal-embedding.js";
+import { InMemoryVectorStore } from "./in-memory-vector-store.js";
+import { SemanticStore } from "./semantic-store.js";
 
 /**
  * Auto-detect embedding provider from environment variables.
  *
- * Priority chain: VOYAGE_API_KEY -> OPENAI_API_KEY -> COHERE_API_KEY -> throws
+ * Priority chain: EMBEDDER_INTERNAL_URL -> VOYAGE_API_KEY -> OPENAI_API_KEY -> COHERE_API_KEY -> throws
+ *
+ * EMBEDDER_INTERNAL_URL is checked first: a self-hosted embedder that's
+ * explicitly configured is a deliberate operator choice (cost/latency/data
+ * residency), so it takes priority over hosted providers even when their
+ * API keys are also present.
  *
  * @param env - Optional env object (defaults to process.env)
  */
 export function createAutoEmbeddingProvider(
-  env?: Record<string, string | undefined>,
+  env?: Record<string, string | undefined>
 ): EmbeddingProvider {
-  const e = env ?? process.env
+  const e = env ?? process.env;
 
-  const voyageKey = e['VOYAGE_API_KEY']
+  const internalUrl = e["EMBEDDER_INTERNAL_URL"];
+  if (internalUrl) {
+    const internalModel = e["EMBEDDER_INTERNAL_MODEL"];
+    const internalDimensions = e["EMBEDDER_INTERNAL_DIMENSIONS"];
+    return createInternalEmbedding({
+      baseUrl: internalUrl,
+      ...(internalModel != null ? { model: internalModel } : {}),
+      ...(internalDimensions != null
+        ? { dimensions: Number(internalDimensions) }
+        : {}),
+    });
+  }
+
+  const voyageKey = e["VOYAGE_API_KEY"];
   if (voyageKey) {
-    const voyageModel = e['VOYAGE_MODEL']
+    const voyageModel = e["VOYAGE_MODEL"];
     return createVoyageEmbedding({
       apiKey: voyageKey,
       ...(voyageModel != null ? { model: voyageModel } : {}),
-    })
+    });
   }
 
-  const openaiKey = e['OPENAI_API_KEY']
+  const openaiKey = e["OPENAI_API_KEY"];
   if (openaiKey) {
-    const openaiModel = e['OPENAI_EMBEDDING_MODEL']
-    const openaiBaseUrl = e['OPENAI_BASE_URL']
+    const openaiModel = e["OPENAI_EMBEDDING_MODEL"];
+    const openaiBaseUrl = e["OPENAI_BASE_URL"];
     return createOpenAIEmbedding({
       apiKey: openaiKey,
       ...(openaiModel != null ? { model: openaiModel } : {}),
       ...(openaiBaseUrl != null ? { baseUrl: openaiBaseUrl } : {}),
-    })
+    });
   }
 
-  const cohereKey = e['COHERE_API_KEY']
+  const cohereKey = e["COHERE_API_KEY"];
   if (cohereKey) {
-    const cohereModel = e['COHERE_EMBEDDING_MODEL']
+    const cohereModel = e["COHERE_EMBEDDING_MODEL"];
     return createCohereEmbedding({
       apiKey: cohereKey,
       ...(cohereModel != null ? { model: cohereModel } : {}),
-    })
+    });
   }
 
   throw new Error(
-    'No embedding provider detected. Set one of: VOYAGE_API_KEY, OPENAI_API_KEY, COHERE_API_KEY',
-  )
+    "No embedding provider detected. Set one of: VOYAGE_API_KEY, OPENAI_API_KEY, COHERE_API_KEY"
+  );
 }
 
 /**
@@ -65,8 +84,8 @@ export function createAutoEmbeddingProvider(
  * This function only returns config metadata for the detected provider.
  */
 export interface AutoDetectResult {
-  provider: string
-  config: Record<string, unknown>
+  provider: string;
+  config: Record<string, unknown>;
 }
 
 /**
@@ -83,72 +102,72 @@ export interface AutoDetectResult {
  * @param env - Optional env object (defaults to process.env)
  */
 export function detectVectorProvider(
-  env?: Record<string, string | undefined>,
+  env?: Record<string, string | undefined>
 ): AutoDetectResult {
-  const e = env ?? process.env
+  const e = env ?? process.env;
 
   // Explicit override
-  const explicit = e['VECTOR_PROVIDER']
+  const explicit = e["VECTOR_PROVIDER"];
   if (explicit) {
     return {
       provider: explicit,
-      config: { source: 'VECTOR_PROVIDER' },
-    }
+      config: { source: "VECTOR_PROVIDER" },
+    };
   }
 
   // Qdrant
-  const qdrantUrl = e['QDRANT_URL']
+  const qdrantUrl = e["QDRANT_URL"];
   if (qdrantUrl) {
     return {
-      provider: 'qdrant',
+      provider: "qdrant",
       config: {
         url: qdrantUrl,
-        apiKey: e['QDRANT_API_KEY'],
+        apiKey: e["QDRANT_API_KEY"],
       },
-    }
+    };
   }
 
   // Turbopuffer
-  const turbopufferKey = e['TURBOPUFFER_API_KEY']
+  const turbopufferKey = e["TURBOPUFFER_API_KEY"];
   if (turbopufferKey) {
     return {
-      provider: 'turbopuffer',
+      provider: "turbopuffer",
       config: {
         apiKey: turbopufferKey,
-        baseUrl: e['TURBOPUFFER_BASE_URL'],
-        namespacePrefix: e['TURBOPUFFER_NAMESPACE_PREFIX'],
+        baseUrl: e["TURBOPUFFER_BASE_URL"],
+        namespacePrefix: e["TURBOPUFFER_NAMESPACE_PREFIX"],
       },
-    }
+    };
   }
 
   // Pinecone
-  const pineconeKey = e['PINECONE_API_KEY']
+  const pineconeKey = e["PINECONE_API_KEY"];
   if (pineconeKey) {
     return {
-      provider: 'pinecone',
+      provider: "pinecone",
       config: {
         apiKey: pineconeKey,
-        environment: e['PINECONE_ENVIRONMENT'],
+        environment: e["PINECONE_ENVIRONMENT"],
       },
-    }
+    };
   }
 
   // LanceDB (embedded, persistent)
-  const lancedbUri = e['LANCEDB_URI']
+  const lancedbUri = e["LANCEDB_URI"];
   if (lancedbUri) {
     return {
-      provider: 'lancedb',
+      provider: "lancedb",
       config: {
         uri: lancedbUri,
       },
-    }
+    };
   }
 
   // Fallback: in-memory
   return {
-    provider: 'memory',
+    provider: "memory",
     config: {},
-  }
+  };
 }
 
 /**
@@ -162,13 +181,13 @@ export function detectVectorProvider(
  * @throws if no embedding provider can be detected
  */
 export function createAutoSemanticStore(
-  env?: Record<string, string | undefined>,
+  env?: Record<string, string | undefined>
 ): SemanticStore {
-  const embedding = createAutoEmbeddingProvider(env)
-  const vectorStore = new InMemoryVectorStore()
+  const embedding = createAutoEmbeddingProvider(env);
+  const vectorStore = new InMemoryVectorStore();
 
   return new SemanticStore({
     embedding,
     vectorStore,
-  })
+  });
 }
