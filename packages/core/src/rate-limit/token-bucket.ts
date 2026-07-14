@@ -14,23 +14,23 @@
  * while preserving ForgeError shaping and wait semantics for existing callers.
  */
 
-import { KeyedTokenBucketRateLimiter } from '@dzupagent/security'
-import { ForgeError } from '../errors/forge-error.js'
+import { KeyedTokenBucketRateLimiter } from "@dzupagent/security";
+import { ForgeError } from "../errors/forge-error.js";
 
 /** Configuration for {@link TokenBucket}. */
 export interface TokenBucketConfig {
   /** Max tokens in the bucket. */
-  capacity: number
+  capacity: number;
   /** Refill rate: tokens added per second. */
-  refillPerSecond: number
+  refillPerSecond: number;
   /**
    * Maximum time `waitUntilAvailable()` will sleep before throwing
    * `RATE_LIMIT_EXCEEDED`. Defaults to 30 000 ms.
    */
-  maxWaitMs?: number
+  maxWaitMs?: number;
 }
 
-const DEFAULT_MAX_WAIT_MS = 30_000
+const DEFAULT_MAX_WAIT_MS = 30_000;
 
 /**
  * Continuous-refill token bucket. Safe for use in agent hot paths —
@@ -38,39 +38,47 @@ const DEFAULT_MAX_WAIT_MS = 30_000
  * loop, so the event loop is free during throttling.
  */
 export class TokenBucket {
-  private static readonly DEFAULT_KEY = 'default'
+  private static readonly DEFAULT_KEY = "default";
 
-  private readonly capacity: number
-  private readonly refillPerSecond: number
-  private readonly maxWaitMs: number
-  private readonly limiter: KeyedTokenBucketRateLimiter
+  private readonly _capacity: number;
+  private readonly refillPerSecond: number;
+  private readonly maxWaitMs: number;
+  private readonly limiter: KeyedTokenBucketRateLimiter;
 
   constructor(config: TokenBucketConfig) {
     if (!Number.isFinite(config.capacity) || config.capacity <= 0) {
       throw new ForgeError({
-        code: 'INVALID_CONFIG',
+        code: "INVALID_CONFIG",
         message: `TokenBucket: capacity must be > 0, got ${config.capacity}`,
-      })
+      });
     }
-    if (!Number.isFinite(config.refillPerSecond) || config.refillPerSecond <= 0) {
+    if (
+      !Number.isFinite(config.refillPerSecond) ||
+      config.refillPerSecond <= 0
+    ) {
       throw new ForgeError({
-        code: 'INVALID_CONFIG',
+        code: "INVALID_CONFIG",
         message: `TokenBucket: refillPerSecond must be > 0, got ${config.refillPerSecond}`,
-      })
+      });
     }
 
-    this.capacity = config.capacity
-    this.refillPerSecond = config.refillPerSecond
-    this.maxWaitMs = config.maxWaitMs ?? DEFAULT_MAX_WAIT_MS
+    this._capacity = config.capacity;
+    this.refillPerSecond = config.refillPerSecond;
+    this.maxWaitMs = config.maxWaitMs ?? DEFAULT_MAX_WAIT_MS;
     this.limiter = new KeyedTokenBucketRateLimiter({
       capacity: config.capacity,
       refillPerMs: config.refillPerSecond / 1000,
-    })
+    });
   }
 
   /** Currently available tokens (after refill). */
   get available(): number {
-    return this.limiter.available(TokenBucket.DEFAULT_KEY)
+    return this.limiter.available(TokenBucket.DEFAULT_KEY);
+  }
+
+  /** Max tokens this bucket can hold. */
+  get capacity(): number {
+    return this._capacity;
   }
 
   /**
@@ -80,11 +88,11 @@ export class TokenBucket {
   consume(tokens: number = 1): boolean {
     if (!Number.isFinite(tokens) || tokens <= 0) {
       throw new ForgeError({
-        code: 'INVALID_CONFIG',
+        code: "INVALID_CONFIG",
         message: `TokenBucket.consume: tokens must be > 0, got ${tokens}`,
-      })
+      });
     }
-    return this.limiter.consume(TokenBucket.DEFAULT_KEY, tokens).allowed
+    return this.limiter.consume(TokenBucket.DEFAULT_KEY, tokens).allowed;
   }
 
   /**
@@ -97,48 +105,56 @@ export class TokenBucket {
   async waitUntilAvailable(tokens: number = 1): Promise<void> {
     if (!Number.isFinite(tokens) || tokens <= 0) {
       throw new ForgeError({
-        code: 'INVALID_CONFIG',
+        code: "INVALID_CONFIG",
         message: `TokenBucket.waitUntilAvailable: tokens must be > 0, got ${tokens}`,
-      })
+      });
     }
-    if (tokens > this.capacity) {
+    if (tokens > this._capacity) {
       throw new ForgeError({
-        code: 'RATE_LIMIT_EXCEEDED',
-        message: `TokenBucket: requested ${tokens} tokens exceeds capacity ${this.capacity}`,
-        suggestion: 'Increase TokenBucket capacity or request fewer tokens per call.',
-      })
+        code: "RATE_LIMIT_EXCEEDED",
+        message: `TokenBucket: requested ${tokens} tokens exceeds capacity ${this._capacity}`,
+        suggestion:
+          "Increase TokenBucket capacity or request fewer tokens per call.",
+      });
     }
 
-    const startedAt = Date.now()
+    const startedAt = Date.now();
 
     // Single retry loop. Each iteration computes the wait needed for
     // the requested tokens, sleeps once, and re-checks. The loop
     // terminates either by consuming the tokens or by exceeding
     // maxWaitMs.
     while (true) {
-      const available = this.available
-      if (available >= tokens && this.consume(tokens)) return
+      const available = this.available;
+      if (available >= tokens && this.consume(tokens)) return;
 
-      const deficit = tokens - available
+      const deficit = tokens - available;
       // Time required for `deficit` tokens to accrue, in ms.
-      const waitMs = Math.ceil((deficit / this.refillPerSecond) * 1000)
-      const elapsed = Date.now() - startedAt
+      const waitMs = Math.ceil((deficit / this.refillPerSecond) * 1000);
+      const elapsed = Date.now() - startedAt;
 
       if (elapsed + waitMs > this.maxWaitMs) {
         throw new ForgeError({
-          code: 'RATE_LIMIT_EXCEEDED',
-          message: `TokenBucket: would wait ${elapsed + waitMs}ms (max ${this.maxWaitMs}ms) for ${tokens} token(s)`,
+          code: "RATE_LIMIT_EXCEEDED",
+          message: `TokenBucket: would wait ${elapsed + waitMs}ms (max ${
+            this.maxWaitMs
+          }ms) for ${tokens} token(s)`,
           recoverable: true,
-          suggestion: 'Increase rate-limit capacity, reduce concurrency, or raise maxWaitMs.',
-          context: { tokens, capacity: this.capacity, refillPerSecond: this.refillPerSecond },
-        })
+          suggestion:
+            "Increase rate-limit capacity, reduce concurrency, or raise maxWaitMs.",
+          context: {
+            tokens,
+            capacity: this._capacity,
+            refillPerSecond: this.refillPerSecond,
+          },
+        });
       }
 
-      await sleep(waitMs)
+      await sleep(waitMs);
     }
   }
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, Math.max(0, ms)))
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 }

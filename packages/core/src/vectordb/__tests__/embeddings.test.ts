@@ -4,6 +4,8 @@ import { createVoyageEmbedding } from "../embeddings/voyage-embedding.js";
 import { createCohereEmbedding } from "../embeddings/cohere-embedding.js";
 import { createOllamaEmbedding } from "../embeddings/ollama-embedding.js";
 import { createCustomEmbedding } from "../embeddings/custom-embedding.js";
+import { createInternalEmbedding } from "../embeddings/internal-embedding.js";
+import { withRateLimit } from "../embeddings/rate-limited-embedding.js";
 import {
   createAutoEmbeddingProvider,
   detectVectorProvider,
@@ -393,6 +395,154 @@ describe("Embedding Providers", () => {
     });
   });
 
+  describe("createInternalEmbedding", () => {
+    it("calls local internal embedder endpoint", async () => {
+      mockFetch({ dense: [[0.1, 0.2, 0.3]] });
+
+      const provider = createInternalEmbedding();
+      await provider.embed(["hello"]);
+
+      const fetchMockRef = fetchMock();
+      const [url, options] = fetchMockRef.mock.calls[0]!;
+      expect(url).toBe("http://localhost:8001/embed");
+      expect(options?.method).toBe("POST");
+
+      const body = JSON.parse(options?.body as string) as Record<
+        string,
+        unknown
+      >;
+      expect(body["inputs"]).toEqual(["hello"]);
+
+      // No auth header for local internal embedder
+      const headers = options?.headers as Record<string, string>;
+      expect(headers["Authorization"]).toBeUndefined();
+    });
+
+    it("uses custom baseUrl", async () => {
+      mockFetch({ dense: [[0.1]] });
+
+      const provider = createInternalEmbedding({
+        baseUrl: "http://embedder-host:8001",
+      });
+      await provider.embed(["test"]);
+
+      const fetchMockRef = fetchMock();
+      const [url] = fetchMockRef.mock.calls[0]!;
+      expect(url).toBe("http://embedder-host:8001/embed");
+    });
+
+    it("has correct default modelId and dimensions (BGE-M3)", () => {
+      const provider = createInternalEmbedding();
+      expect(provider.modelId).toBe("bge-m3");
+      expect(provider.dimensions).toBe(1024);
+    });
+
+    it("respects custom model and dimensions", () => {
+      const provider = createInternalEmbedding({
+        model: "custom-embedder",
+        dimensions: 768,
+      });
+      expect(provider.modelId).toBe("custom-embedder");
+      expect(provider.dimensions).toBe(768);
+    });
+
+    it("embedQuery returns a single vector", async () => {
+      mockFetch({ dense: [[0.1, 0.2]] });
+
+      const provider = createInternalEmbedding();
+      const result = await provider.embedQuery("query");
+      expect(result).toEqual([0.1, 0.2]);
+    });
+
+    it("returns empty array for empty input", async () => {
+      const provider = createInternalEmbedding();
+      const result = await provider.embed([]);
+      expect(result).toEqual([]);
+    });
+
+    it("throws a recoverable ForgeError on HTTP 429 after exhausting retries", async () => {
+      mockFetch({ error: "rate limited" }, 429);
+
+      const provider = createInternalEmbedding({ maxRetries: 0 });
+      await expect(provider.embed(["test"])).rejects.toMatchObject({
+        code: "VECTOR_STORE_RATE_LIMITED",
+        recoverable: true,
+      });
+      expect(fetchMock()).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe("withRateLimit", () => {
+    it("delegates to the wrapped provider and preserves modelId/dimensions", async () => {
+      const embedFn = vi.fn().mockResolvedValue([[0.1, 0.2]]);
+      const inner = createCustomEmbedding({
+        embedFn,
+        modelId: "inner-model",
+        dimensions: 2,
+      });
+
+      const limited = withRateLimit(inner, {
+        capacity: 10,
+        refillPerSecond: 10,
+      });
+
+      expect(limited.modelId).toBe("inner-model");
+      expect(limited.dimensions).toBe(2);
+
+      const result = await limited.embed(["a"]);
+      expect(result).toEqual([[0.1, 0.2]]);
+      expect(embedFn).toHaveBeenCalledWith(["a"]);
+    });
+
+    it("throttles concurrent callers against a shared bucket instead of bursting", async () => {
+      const callTimestamps: number[] = [];
+      const embedFn = vi.fn().mockImplementation(async (texts: string[]) => {
+        callTimestamps.push(Date.now());
+        return texts.map(() => [0.1]);
+      });
+      const inner = createCustomEmbedding({
+        embedFn,
+        modelId: "inner",
+        dimensions: 1,
+      });
+
+      // Capacity 1, slow refill: forces the second caller to wait.
+      const limited = withRateLimit(inner, {
+        capacity: 1,
+        refillPerSecond: 20, // 50ms per token
+      });
+
+      await Promise.all([limited.embedQuery("a"), limited.embedQuery("b")]);
+
+      expect(embedFn).toHaveBeenCalledTimes(2);
+      expect(callTimestamps[1]! - callTimestamps[0]!).toBeGreaterThanOrEqual(
+        30
+      );
+    });
+
+    it("splits an oversized batch into sub-batches within bucket capacity", async () => {
+      const embedFn = vi
+        .fn()
+        .mockImplementation(async (texts: string[]) => texts.map(() => [0.1]));
+      const inner = createCustomEmbedding({
+        embedFn,
+        modelId: "inner",
+        dimensions: 1,
+      });
+
+      const limited = withRateLimit(inner, {
+        capacity: 2,
+        refillPerSecond: 100,
+      });
+
+      const result = await limited.embed(["a", "b", "c", "d", "e"]);
+
+      expect(result).toHaveLength(5);
+      // 5 texts / capacity 2 => 3 sub-batch calls (2, 2, 1)
+      expect(embedFn).toHaveBeenCalledTimes(3);
+    });
+  });
+
   describe("Batch embed returns correct number of vectors", () => {
     it("returns one vector per input text", async () => {
       const count = 5;
@@ -475,6 +625,24 @@ describe("Auto-detection", () => {
       });
       expect(provider.modelId).toBe("embed-english-v3.0");
       expect(provider.dimensions).toBe(1024);
+    });
+
+    it("detects from EMBEDDER_INTERNAL_URL", () => {
+      const provider = createAutoEmbeddingProvider({
+        EMBEDDER_INTERNAL_URL: "http://localhost:8001",
+      });
+      expect(provider.modelId).toBe("bge-m3");
+      expect(provider.dimensions).toBe(1024);
+    });
+
+    it("prefers EMBEDDER_INTERNAL_URL over VOYAGE/OPENAI/COHERE when all present", () => {
+      const provider = createAutoEmbeddingProvider({
+        EMBEDDER_INTERNAL_URL: "http://localhost:8001",
+        VOYAGE_API_KEY: "voy-test",
+        OPENAI_API_KEY: "sk-test",
+        COHERE_API_KEY: "co-test",
+      });
+      expect(provider.modelId).toBe("bge-m3");
     });
 
     it("prefers VOYAGE over OPENAI when both present", () => {
