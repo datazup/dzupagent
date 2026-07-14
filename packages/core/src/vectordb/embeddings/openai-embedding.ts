@@ -6,6 +6,7 @@
 import type { EmbeddingProvider } from "../embedding-types.js";
 import { vectorHttpErrorToForgeError } from "../http-error.js";
 import type { ForgeError } from "../../errors/forge-error.js";
+import { calculateBackoff } from "../../utils/backoff.js";
 
 export interface OpenAIEmbeddingConfig {
   apiKey: string;
@@ -92,7 +93,12 @@ export function createOpenAIEmbedding(
         }
 
         const retryAfterMs = parseRetryAfterMs(response);
-        const backoffMs = 2 ** attempt * 1000;
+        const backoffMs = calculateBackoff(attempt, {
+          initialBackoffMs: 1000,
+          maxBackoffMs: MAX_RETRY_DELAY_MS,
+          multiplier: 2,
+          jitter: true,
+        });
         const delayMs = Math.min(
           Math.max(retryAfterMs ?? backoffMs, 0),
           MAX_RETRY_DELAY_MS
