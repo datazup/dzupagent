@@ -230,6 +230,7 @@ describe('Codex explicit CLI backend', () => {
     expect(projectedConfig).toContain('url = "http://127.0.0.1:7821/"')
     expect(projectedConfig).toContain('enabled = true')
     expect(projectedConfig).toContain('required = true')
+    expect(projectedConfig).toContain('default_tools_approval_mode = "writes"')
     expect(projectedConfig).toContain('bearer_token_env_var = "CODEV_MCP_TOKEN"')
     expect(projectedConfig).not.toContain('raw-token-value')
     expect(projectedEnv.CODEV_MCP_TOKEN).toBe('raw-token-value')
