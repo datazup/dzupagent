@@ -120,6 +120,9 @@ describe('Claude local CLI backend', () => {
     const adapter = new InspectableClaudeCliAdapter()
     expect(adapter.map({ type: 'stream_event', event: { type: 'content_block_delta', delta: { text: 'hi' } } })).toMatchObject({ type: 'adapter:stream_delta', content: 'hi' })
     expect(adapter.map({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file: 'a' } }] } })).toEqual([expect.objectContaining({ type: 'adapter:tool_call', toolName: 'Read', toolCallId: 't1' })])
+    expect(adapter.map({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } })).toEqual([
+      expect.objectContaining({ type: 'adapter:tool_result', toolName: 'Read', toolCallId: 't1', output: 'ok' }),
+    ])
     expect(adapter.map({ type: 'result', subtype: 'success', session_id: 's1', structured_output: { ok: true }, usage: { input_tokens: 2, output_tokens: 3 }, duration_ms: 4 })).toMatchObject({ type: 'adapter:completed', sessionId: 's1', result: '{"ok":true}', usage: { inputTokens: 2, outputTokens: 3 } })
   })
 })
