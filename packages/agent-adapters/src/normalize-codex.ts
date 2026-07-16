@@ -81,14 +81,18 @@ export function normalizeCodex(
 
     case 'mcp_tool_call': {
       const tool = getString(record, 'tool', 'toolName') ?? 'unknown'
+      const server = getString(record, 'server', 'serverName')
+      const toolName = server ? `${server}/${tool}` : tool
       const status = getString(record, 'status')
       if (status === 'completed' || status === 'failed') {
         const result = getObject(record, 'result')
-        const output = serializeProviderPayload(result?.['structured_content'] ?? result?.['content'] ?? '') ?? ''
+        const output = status === 'failed'
+          ? `MCP_TOOL_FAILED:${safeMcpFailureCode(readErrorMessage(record['error']))}`
+          : serializeProviderPayload(result?.['structured_content'] ?? result?.['content'] ?? '') ?? ''
         return {
           type: 'adapter:tool_result',
           providerId: 'codex',
-          toolName: tool,
+          toolName,
           output,
           durationMs: getNumber(record, 'duration_ms', 'durationMs') ?? 0,
           timestamp: Date.now(),
@@ -97,7 +101,7 @@ export function normalizeCodex(
       return {
         type: 'adapter:tool_call',
         providerId: 'codex',
-        toolName: tool,
+        toolName,
         input: record['arguments'] ?? {},
         timestamp: Date.now(),
       }
@@ -148,4 +152,9 @@ export function normalizeCodex(
     default:
       return null
   }
+}
+
+function safeMcpFailureCode(value: string | undefined): string {
+  const normalized = value?.toUpperCase().replace(/[^A-Z0-9_:.-]+/gu, '_').slice(0, 96) ?? ''
+  return /^[A-Z0-9_:.-]{3,96}$/u.test(normalized) ? normalized : 'MCP_TOOL_ERROR'
 }
