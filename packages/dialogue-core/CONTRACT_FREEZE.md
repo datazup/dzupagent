@@ -182,6 +182,36 @@ interface HandoffDescriptor {
 
 ## 6. Tests (Run A gate — must stay green)
 
-- `node --test packages/dialogue-core/src/__tests__/dialogue-scheduler.test.mjs` → 11 tests pass
-- `node --test packages/dialogue-core/src/__tests__/run-spec-hash.test.mjs` → passes
-- `node node_modules/.bin/tsc --noEmit --project packages/dialogue-core/tsconfig.json` → exit 0
+- `yarn test` in `packages/dialogue-core` → 15 tests pass
+- `yarn typecheck` in `packages/dialogue-core` → exit 0
+- `yarn build` in `packages/dialogue-core` → exit 0
+
+---
+
+## 7. Additive Agent Run Middleware (2026-07-16)
+
+`DialogueSchedulerOptions.agentRunMiddleware` is an optional provider-neutral
+interception seam around every `AgentPort.run` call:
+
+```typescript
+type DialogueSchedulerAgentRunMiddleware = (
+  context: { request: AgentRunRequest },
+  next: (requestOverride?: AgentRunRequest) => Promise<AgentResult>,
+) => Promise<AgentResult>;
+```
+
+The middleware may call `next()` zero times to reuse a checkpoint, once for
+ordinary policy wrapping, or more than once for a bounded repair/retry policy.
+When performing a repair it may pass an explicit replacement request to
+`next(requestOverride)`; the original request remains the default.
+When omitted, scheduler behavior is unchanged. Flow-specific checkpoint,
+isolation, ledger, repair, and cost policy remains in the consuming adapter;
+it is not embedded in `dialogue-core`.
+
+`DialogueSchedulerOptions.implementationTurnMiddleware` is a second optional,
+provider-neutral seam around the complete implementation turn. Its `next`
+callback accepts an alternate `WorkspacePort`, allowing a consuming adapter to
+bind snapshot and effect capture to an isolated workspace before agent
+execution. The middleware observes the completed/failed result and may perform
+adapter-owned cleanup. When omitted, the scheduler uses its configured
+workspace port exactly as before.
