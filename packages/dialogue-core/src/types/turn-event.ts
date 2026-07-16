@@ -78,8 +78,9 @@ export interface RawTurnEvent extends TurnEventBase {
 
 export interface PersistedTurnEvent extends TurnEventBase {
   visibility: "persisted";
-  input?: Omit<AgentRunInput, "prompt"> & {
+  input?: Omit<AgentRunInput, "prompt" | "systemPrompt"> & {
     promptRedacted?: string;
+    systemPromptRedacted?: string;
   };
   output?: {
     rawRedacted?: string;
@@ -99,8 +100,9 @@ export interface PersistedTurnEvent extends TurnEventBase {
 
 export interface StreamTurnEvent extends TurnEventBase {
   visibility: "stream";
-  input?: Omit<AgentRunInput, "prompt"> & {
+  input?: Omit<AgentRunInput, "prompt" | "systemPrompt"> & {
     promptPreview?: string;
+    systemPromptPreview?: string;
   };
   output?: {
     rawPreview?: string;
