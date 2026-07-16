@@ -84,6 +84,7 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     this.abortControllers.add(controller)
     const signal = combineSignals(input.signal, controller.signal)
 
+    const model = this.resolveModel(input)
     yield this.withCorrelation({
       type: 'adapter:started',
       providerId: 'codex',
@@ -91,7 +92,7 @@ export class CodexCliAdapter implements AgentCLIAdapter {
       timestamp: Date.now(),
       prompt: input.prompt,
       ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
-      model: this.resolveModel(input),
+      ...(model ? { model } : {}),
       workingDirectory: input.workingDirectory ?? this.config.workingDirectory,
       ...({ backend: 'cli', telemetry: { codex_backend_selected: 'cli' } } as Record<string, unknown>),
     } as AgentEvent, input)
@@ -190,8 +191,9 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     const args = [
       '--ask-for-approval', this.resolveApprovalPolicy(input),
       '--sandbox', this.resolveSandbox(input),
-      '--model', this.resolveModel(input),
     ]
+    const model = this.resolveModel(input)
+    if (model) args.push('--model', model)
     const reasoning = this.resolveReasoning(input)
     if (reasoning) args.push('--config', `model_reasoning_effort="${reasoning}"`)
     args.push('exec')
@@ -280,8 +282,8 @@ export class CodexCliAdapter implements AgentCLIAdapter {
     validateCodexMcpDescriptors(input)
   }
 
-  private resolveModel(input: AgentInput): string {
-    return stringOption(input.options?.['model']) ?? this.config.model ?? 'gpt-5.5'
+  private resolveModel(input: AgentInput): string | undefined {
+    return stringOption(input.options?.['model']) ?? this.config.model
   }
 
   private resolveReasoning(input: AgentInput): 'low' | 'medium' | 'high' | undefined {

@@ -264,12 +264,19 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
   /** Build thread options from AgentInput + stored config */
   private buildThreadOptions(input: AgentInput): CodexThreadOptions {
     const opts: CodexThreadOptions = {
-      model: this.config.model ?? "gpt-5.5",
       sandboxMode: toCodexSandboxMode(this.config.sandboxMode),
       approvalPolicy: this.resolveCodexApprovalPolicy(input),
       networkAccessEnabled:
         (this.config as CodexAdapterConfig).networkAccessEnabled ?? true,
     };
+
+    const configuredModel =
+      typeof input.options?.["model"] === "string" && input.options["model"].trim()
+        ? input.options["model"].trim()
+        : this.config.model;
+    if (configuredModel) {
+      opts.model = configuredModel;
+    }
 
     const workDir = input.workingDirectory ?? this.config.workingDirectory;
     if (workDir) {
@@ -278,9 +285,6 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
 
     // Merge adapter-specific thread options from input.options
     const inputOpts = input.options ?? {};
-    if (typeof inputOpts["model"] === "string") {
-      opts.model = inputOpts["model"];
-    }
     if (typeof inputOpts["sandboxMode"] === "string") {
       opts.sandboxMode = inputOpts["sandboxMode"];
     }

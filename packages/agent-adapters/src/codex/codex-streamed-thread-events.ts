@@ -106,13 +106,17 @@ export function buildAdapterStartedEvent(
 ): AgentEvent[] {
   const ts = now();
   const wd = ctx.currentInput?.workingDirectory ?? ctx.config.workingDirectory;
+  const requestedModel = ctx.currentInput?.options?.["model"];
+  const model = typeof requestedModel === "string" && requestedModel.trim()
+    ? requestedModel.trim()
+    : ctx.config.model;
   const started: AgentStartedEvent = makeStartedEvent({
     providerId: ctx.providerId,
     sessionId: event.thread_id ?? sessionId,
     timestamp: ts,
     prompt: ctx.currentInput?.prompt,
     systemPrompt: ctx.currentInput?.systemPrompt,
-    model: ctx.config.model ?? "gpt-5.5",
+    ...(model ? { model } : {}),
     workingDirectory: wd,
     isResume: ctx.isResume,
   });

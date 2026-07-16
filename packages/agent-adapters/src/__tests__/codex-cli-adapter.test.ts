@@ -73,6 +73,7 @@ describe('Codex explicit CLI backend', () => {
     await collect(adapter.executeWithRaw({ prompt: 'inspect', workingDirectory: process.cwd() }))
     const first = spawned[0]!
     expect(first.args).toEqual(expect.arrayContaining(['--ask-for-approval', 'on-request', '--sandbox', 'read-only', 'exec', '--json', '--', 'inspect']))
+    expect(first.args).not.toContain('--model')
     expect(JSON.stringify(first.args)).not.toContain('sk-secret-value')
     expect(JSON.stringify(first.options.env)).not.toContain('sk-secret-value')
     expect(JSON.stringify(first.options.env)).not.toContain('subscription-secret')

@@ -206,7 +206,7 @@ describe("CodexAdapter", () => {
         expect(started.sessionId).toBe("thread-abc");
         expect(started.prompt).toBe("Hello Codex");
         expect(started.systemPrompt).toBe("Be helpful");
-        expect(started.model).toBe("gpt-5.5");
+        expect(started.model).toBeUndefined();
         expect(started.workingDirectory).toBe("/tmp");
         expect(started.isResume).toBe(false);
       }
@@ -664,7 +664,7 @@ describe("CodexAdapter", () => {
       );
     });
 
-    it("defaults model to gpt-5.5", async () => {
+    it("lets the Codex SDK resolve its configured default model", async () => {
       const thread = createMockThread([
         threadStartedEvent(),
         turnCompletedEvent(),
@@ -673,9 +673,7 @@ describe("CodexAdapter", () => {
 
       await collectEvents(adapter.execute(makeInput()));
 
-      expect(mockStartThread).toHaveBeenCalledWith(
-        expect.objectContaining({ model: "gpt-5.5" }),
-      );
+      expect(mockStartThread.mock.calls[0]?.[0]).not.toHaveProperty("model");
     });
 
     it("passes the default reasoning effort through the Codex SDK option", async () => {
@@ -1079,7 +1077,7 @@ describe("CodexAdapter", () => {
 
       expect(mockResumeThread).toHaveBeenCalledWith(
         "thread-resume-456",
-        expect.objectContaining({ model: "gpt-5.5" }),
+        expect.not.objectContaining({ model: expect.anything() }),
       );
 
       const started = events.find((e) => e.type === "adapter:started");
