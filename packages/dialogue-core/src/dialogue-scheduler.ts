@@ -50,8 +50,48 @@ export interface DialogueSchedulerClock {
   now(): Date;
 }
 
+export type DialogueSchedulerAgentRunNext = (
+  requestOverride?: AgentRunRequest,
+) => Promise<AgentResult>;
+
+export interface DialogueSchedulerAgentRunContext {
+  request: AgentRunRequest;
+}
+
+export type DialogueSchedulerAgentRunMiddleware = (
+  context: DialogueSchedulerAgentRunContext,
+  next: DialogueSchedulerAgentRunNext,
+) => Promise<AgentResult>;
+
+export interface DialogueSchedulerImplementationTurnBinding {
+  workspacePort?: WorkspacePort;
+}
+
+export interface DialogueSchedulerImplementationTurnResult {
+  request: AgentRunRequest;
+  snapshot?: WorkspaceSnapshot | undefined;
+  output?: AgentResult | undefined;
+  effect?: WorkspaceEffect | undefined;
+  status: "completed" | "failed";
+}
+
+export interface DialogueSchedulerImplementationTurnContext {
+  request: AgentRunRequest;
+}
+
+export type DialogueSchedulerImplementationTurnNext = (
+  binding?: DialogueSchedulerImplementationTurnBinding,
+) => Promise<DialogueSchedulerImplementationTurnResult>;
+
+export type DialogueSchedulerImplementationTurnMiddleware = (
+  context: DialogueSchedulerImplementationTurnContext,
+  next: DialogueSchedulerImplementationTurnNext,
+) => Promise<DialogueSchedulerImplementationTurnResult>;
+
 export interface DialogueSchedulerOptions {
   clock?: DialogueSchedulerClock;
+  agentRunMiddleware?: DialogueSchedulerAgentRunMiddleware;
+  implementationTurnMiddleware?: DialogueSchedulerImplementationTurnMiddleware;
 }
 
 export interface DialogueSchedulerRunInput {
@@ -117,6 +157,12 @@ export class DialogueScheduler {
   private readonly tracePort: TracePort;
   private readonly redactionPolicy: RedactionPolicy;
   private readonly clock: DialogueSchedulerClock;
+  private readonly agentRunMiddleware:
+    | DialogueSchedulerAgentRunMiddleware
+    | undefined;
+  private readonly implementationTurnMiddleware:
+    | DialogueSchedulerImplementationTurnMiddleware
+    | undefined;
 
   constructor(
     ports: DialogueSchedulerPorts,
@@ -127,6 +173,8 @@ export class DialogueScheduler {
     this.validatorPort = ports.validatorPort;
     this.tracePort = ports.tracePort;
     this.redactionPolicy = ports.redactionPolicy;
+    this.agentRunMiddleware = options.agentRunMiddleware;
+    this.implementationTurnMiddleware = options.implementationTurnMiddleware;
     this.clock = options.clock ?? {
       now: () => new Date(),
     };
@@ -258,7 +306,7 @@ export class DialogueScheduler {
     });
 
     try {
-      const agentResult = await this.agentPort.run(request);
+      const agentResult = await this.runAgent(request);
       this.recordAgentUsage(context, agentResult);
       const decision =
         turn.verb === "review" ? parseDecisionBlock(agentResult.raw) : undefined;
@@ -333,7 +381,7 @@ export class DialogueScheduler {
     });
 
     try {
-      const agentResult = await this.agentPort.run(request);
+      const agentResult = await this.runAgent(request);
       this.recordAgentUsage(context, agentResult);
       const decision = parseDecisionBlock(agentResult.raw);
       const rawEvent = await this.emitRawEvent(context, {
@@ -382,25 +430,20 @@ export class DialogueScheduler {
       prompt: turn.prompt,
       escape: false,
     });
-    let snapshot: WorkspaceSnapshot | undefined;
     let output: AgentResult | undefined;
     let workspace: TurnEventWorkspace | undefined;
     let status: TurnEventStatus = "completed";
 
     try {
-      snapshot = await this.workspacePort.snapshot();
-      output = await this.agentPort.run(request);
-      this.recordAgentUsage(context, output);
-      const effect = await this.workspacePort.captureEffect(snapshot);
-      workspace = toTurnEventWorkspace(snapshot, effect);
-      status = effect.applyStatus === "failed" ? "failed" : "completed";
+      const execution = await this.runImplementationTurn(context, request);
+      output = execution.output;
+      status = execution.status;
+      if (execution.snapshot !== undefined && execution.effect !== undefined) {
+        workspace = toTurnEventWorkspace(execution.snapshot, execution.effect);
+      }
     } catch (error) {
       status = "failed";
-      output = output ?? errorToAgentResult(error);
-
-      if (snapshot !== undefined && workspace === undefined) {
-        workspace = await this.captureWorkspaceEffectAfterFailure(snapshot);
-      }
+      output = errorToAgentResult(error);
     }
 
     const rawEvent = await this.emitRawEvent(context, {
@@ -549,7 +592,7 @@ export class DialogueScheduler {
     }
 
     try {
-      const agentResult = await this.agentPort.run({
+      const agentResult = await this.runAgent({
         ...request,
         runId: context.runId,
         runSpecHash: context.runSpecHash,
@@ -702,13 +745,71 @@ export class DialogueScheduler {
     context.budgetUsage.outputTokens += result.usage?.outputTokens ?? 0;
   }
 
+  private runAgent(request: AgentRunRequest): Promise<AgentResult> {
+    const next = (requestOverride: AgentRunRequest = request) =>
+      this.agentPort.run(requestOverride);
+
+    if (this.agentRunMiddleware === undefined) {
+      return next();
+    }
+
+    return this.agentRunMiddleware({ request }, next);
+  }
+
+  private runImplementationTurn(
+    context: RunContext,
+    request: AgentRunRequest,
+  ): Promise<DialogueSchedulerImplementationTurnResult> {
+    const next: DialogueSchedulerImplementationTurnNext = (binding = {}) =>
+      this.executeBoundImplementationTurn(
+        context,
+        request,
+        binding.workspacePort ?? this.workspacePort,
+      );
+
+    if (this.implementationTurnMiddleware === undefined) {
+      return next();
+    }
+
+    return this.implementationTurnMiddleware({ request }, next);
+  }
+
+  private async executeBoundImplementationTurn(
+    context: RunContext,
+    request: AgentRunRequest,
+    workspacePort: WorkspacePort,
+  ): Promise<DialogueSchedulerImplementationTurnResult> {
+    let snapshot: WorkspaceSnapshot | undefined;
+    let output: AgentResult | undefined;
+    let effect: WorkspaceEffect | undefined;
+    let status: "completed" | "failed" = "completed";
+
+    try {
+      snapshot = await workspacePort.snapshot();
+      output = await this.runAgent(request);
+      this.recordAgentUsage(context, output);
+      effect = await workspacePort.captureEffect(snapshot);
+      status = effect.applyStatus === "failed" ? "failed" : "completed";
+    } catch (error) {
+      status = "failed";
+      output = output ?? errorToAgentResult(error);
+      if (snapshot !== undefined && effect === undefined) {
+        effect = await this.captureWorkspaceEffectAfterFailure(
+          snapshot,
+          workspacePort,
+        );
+      }
+    }
+
+    return { request, snapshot, output, effect, status };
+  }
+
   private async captureWorkspaceEffectAfterFailure(
     snapshot: WorkspaceSnapshot,
-  ): Promise<TurnEventWorkspace | undefined> {
+    workspacePort: WorkspacePort = this.workspacePort,
+  ): Promise<WorkspaceEffect | undefined> {
     try {
-      const effect = await this.workspacePort.captureEffect(snapshot);
-
-      return toTurnEventWorkspace(snapshot, effect);
+      return await workspacePort.captureEffect(snapshot);
     } catch {
       return undefined;
     }

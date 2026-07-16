@@ -69,7 +69,15 @@ export {
 } from "./dialogue-scheduler.js";
 export type {
   DialogueScheduleItem,
+  DialogueSchedulerAgentRunContext,
+  DialogueSchedulerAgentRunMiddleware,
+  DialogueSchedulerAgentRunNext,
   DialogueSchedulerClock,
+  DialogueSchedulerImplementationTurnBinding,
+  DialogueSchedulerImplementationTurnContext,
+  DialogueSchedulerImplementationTurnMiddleware,
+  DialogueSchedulerImplementationTurnNext,
+  DialogueSchedulerImplementationTurnResult,
   DialogueSchedulerOptions,
   DialogueSchedulerPorts,
   DialogueSchedulerResult,
