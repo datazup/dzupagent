@@ -122,13 +122,14 @@ interface AgentRunRequest {
 interface AgentRunInput {
   prompt: string;
   role?: string;
+  systemPrompt?: string;
   scopeFiles?: AgentRunScopeFile[];
 }
 ```
 
 ### `PersistedTurnEvent`
 
-Extends `TurnEventBase` with `visibility: "persisted"`. Fields `input.prompt`, `output.raw`, `workspace.diff`, `validation.output` are OMITTED — replaced by `*Redacted` optional counterparts. This is what `TracePort.emit` should write to NDJSON.
+Extends `TurnEventBase` with `visibility: "persisted"`. Fields `input.prompt`, `input.systemPrompt`, `output.raw`, `workspace.diff`, and `validation.output` are OMITTED — replaced by `*Redacted` optional counterparts. Stream events use the corresponding `*Preview` fields. This is what `TracePort.emit` should write to NDJSON.
 
 ### `RawTurnEvent`
 
@@ -154,13 +155,14 @@ const result: DialogueSchedulerResult = await scheduler.run(runInput);
 
 ## 4. Identity `RedactionPolicy` Contract (Run B)
 
-The `scripts` environment has no tenant secrets. Run B MUST export a named constant `IDENTITY_REDACTION_POLICY` that passes `RawTurnEvent` through as `PersistedTurnEvent` + `StreamTurnEvent` with no field removal, satisfying this checklist:
+The `scripts` environment has no tenant secrets. Run B MUST export a named constant `IDENTITY_REDACTION_POLICY` that preserves values while mapping raw-only fields to the sink-safe `*Redacted` and `*Preview` names, satisfying this checklist:
 
 - [ ] Named export `IDENTITY_REDACTION_POLICY: RedactionPolicy`
 - [ ] `redact(event)` returns `{ persisted, stream }` both derived from `event`
 - [ ] `persisted.visibility === "persisted"`
 - [ ] `stream.visibility === "stream"`
-- [ ] No fields removed (prompt/output/diff copied, redacted fields may be populated with the raw values)
+- [ ] Raw-only field names are omitted from both sink events
+- [ ] Prompt, system-prompt, output, diff, and validation-output values may be preserved under their sink-safe counterparts
 
 ---
 
