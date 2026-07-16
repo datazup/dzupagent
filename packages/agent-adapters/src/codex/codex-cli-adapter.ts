@@ -192,6 +192,12 @@ export class CodexCliAdapter implements AgentCLIAdapter {
       '--ask-for-approval', this.resolveApprovalPolicy(input),
       '--sandbox', this.resolveSandbox(input),
     ]
+    if (readMcpDescriptors(input).length > 0) {
+      // An explicit runtime MCP projection is the complete external-tool
+      // authority for this process. Disable ambient app/plugin tool planes so
+      // a same-named subscription connector cannot bypass the projection.
+      args.push('--disable', 'apps', '--disable', 'plugins', '--disable', 'enable_mcp_apps')
+    }
     const model = this.resolveModel(input)
     if (model) args.push('--model', model)
     const reasoning = this.resolveReasoning(input)

@@ -191,11 +191,13 @@ describe('Codex explicit CLI backend', () => {
   it('projects authenticated HTTP MCP through private config and a reference-backed bearer environment variable', async () => {
     let projectedConfig = ''
     let projectedEnv: NodeJS.ProcessEnv = {}
+    let projectedArgs: readonly string[] = []
     const adapter = new CodexCliAdapter({
       runtimeDependencies: {
-        spawn: (_command, _args, options) => {
+        spawn: (_command, args, options) => {
           const child = createChild()
           queueMicrotask(async () => {
+            projectedArgs = args
             projectedEnv = options.env ?? {}
             projectedConfig = await readFile(join(String(options.env?.CODEX_HOME), 'config.toml'), 'utf8')
             child.stdout.write('{"type":"turn_completed","result":"ok"}\n')
@@ -229,6 +231,9 @@ describe('Codex explicit CLI backend', () => {
     expect(projectedConfig).toContain('bearer_token_env_var = "CODEV_MCP_TOKEN"')
     expect(projectedConfig).not.toContain('raw-token-value')
     expect(projectedEnv.CODEV_MCP_TOKEN).toBe('raw-token-value')
+    expect(projectedArgs).toEqual(expect.arrayContaining([
+      '--disable', 'apps', '--disable', 'plugins', '--disable', 'enable_mcp_apps',
+    ]))
   })
 
   it('rejects unresolved, materialized-header, and unsafe bearer MCP projections before spawn', async () => {
