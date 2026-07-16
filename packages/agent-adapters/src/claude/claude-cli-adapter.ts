@@ -30,6 +30,7 @@ export interface ClaudeCliAdapterConfig extends AdapterConfig {
 export class ClaudeCliAdapter extends BaseCliAdapter {
   private readonly cliPath: string
   private readonly malformedLinePolicy: 'skip' | 'error'
+  private readonly toolNamesByCallId = new Map<string, string>()
 
   constructor(config: ClaudeCliAdapterConfig = {}) {
     super('claude', config)
@@ -114,8 +115,8 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     const sessionId = typeof record['session_id'] === 'string' ? record['session_id'] : fallbackSessionId
     if (eventType === 'system' && record['subtype'] === 'init') return undefined
     if (eventType === 'stream_event') return mapStreamEvent(record)
-    if (eventType === 'assistant') return mapAssistant(record)
-    if (eventType === 'user') return mapToolResults(record)
+    if (eventType === 'assistant') return mapAssistant(record, this.toolNamesByCallId)
+    if (eventType === 'user') return mapToolResults(record, this.toolNamesByCallId)
     if (eventType === 'result') {
       const failed = record['is_error'] === true || record['subtype'] === 'error'
       if (failed) return { type: 'adapter:failed', providerId: 'claude', sessionId, error: String(record['result'] ?? record['error'] ?? 'Claude CLI execution failed'), code: classifyClaudeError(record), timestamp: Date.now() }
@@ -162,25 +163,45 @@ export async function probeClaudeCliAuth(cliPath = 'claude', timeoutMs = 5_000):
   }
 }
 
-function mapAssistant(record: Record<string, unknown>): AgentEvent[] | undefined {
+function mapAssistant(
+  record: Record<string, unknown>,
+  toolNamesByCallId: Map<string, string>,
+): AgentEvent[] | undefined {
   const message = objectValue(record['message'])
   const content = Array.isArray(message?.['content']) ? message['content'] : []
   const events: AgentEvent[] = []
   for (const item of content) {
     const part = objectValue(item)
     if (part?.['type'] === 'text' && typeof part['text'] === 'string') events.push({ type: 'adapter:message', providerId: 'claude', content: part['text'], role: 'assistant', timestamp: Date.now() })
-    if (part?.['type'] === 'tool_use') events.push({ type: 'adapter:tool_call', providerId: 'claude', toolName: String(part['name'] ?? 'unknown'), toolCallId: typeof part['id'] === 'string' ? part['id'] : undefined, input: part['input'] ?? {}, timestamp: Date.now() })
+    if (part?.['type'] === 'tool_use') {
+      const toolName = String(part['name'] ?? 'unknown')
+      const toolCallId = typeof part['id'] === 'string' ? part['id'] : undefined
+      if (toolCallId) toolNamesByCallId.set(toolCallId, toolName)
+      events.push({ type: 'adapter:tool_call', providerId: 'claude', toolName, toolCallId, input: part['input'] ?? {}, timestamp: Date.now() })
+    }
   }
   return events.length > 0 ? events : undefined
 }
 
-function mapToolResults(record: Record<string, unknown>): AgentEvent[] | undefined {
+function mapToolResults(
+  record: Record<string, unknown>,
+  toolNamesByCallId: Map<string, string>,
+): AgentEvent[] | undefined {
   const message = objectValue(record['message'])
   const content = Array.isArray(message?.['content']) ? message['content'] : []
   const events: AgentEvent[] = []
   for (const item of content) {
     const part = objectValue(item)
-    if (part?.['type'] === 'tool_result') events.push({ type: 'adapter:tool_result', providerId: 'claude', toolName: String(part['tool_name'] ?? 'unknown'), toolCallId: typeof part['tool_use_id'] === 'string' ? part['tool_use_id'] : undefined, output: serializeProviderPayload(part['content']) ?? '', durationMs: 0, timestamp: Date.now() })
+    if (part?.['type'] === 'tool_result') {
+      const toolCallId = typeof part['tool_use_id'] === 'string' ? part['tool_use_id'] : undefined
+      const toolName = typeof part['tool_name'] === 'string'
+        ? part['tool_name']
+        : toolCallId
+          ? toolNamesByCallId.get(toolCallId) ?? 'unknown'
+          : 'unknown'
+      if (toolCallId) toolNamesByCallId.delete(toolCallId)
+      events.push({ type: 'adapter:tool_result', providerId: 'claude', toolName, toolCallId, output: serializeProviderPayload(part['content']) ?? '', durationMs: 0, timestamp: Date.now() })
+    }
   }
   return events.length > 0 ? events : undefined
 }
