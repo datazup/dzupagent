@@ -24,6 +24,28 @@ describe('Claude local CLI backend', () => {
     expect(args.slice(-2)).toEqual(['--', 'inspect'])
   })
 
+  it('auto-approves only explicitly projected read-only tools', () => {
+    const args = new InspectableClaudeCliAdapter().args({
+      prompt: 'inspect',
+      policyContext: {
+        conformanceMode: 'warn-only',
+        activePolicy: {
+          sandboxMode: 'read-only',
+          allowedTools: ['mcp__execution_gateway__*'],
+        },
+      },
+    })
+    expect(args).toEqual(expect.arrayContaining([
+      '--allowedTools',
+      'mcp__execution_gateway__*',
+      '--disallowedTools',
+      'Write',
+      'Edit',
+      'Bash',
+      'NotebookEdit',
+    ]))
+  })
+
   it('rejects strict workspace-write allowlist projection', () => {
     expect(() => new InspectableClaudeCliAdapter().args({
       prompt: 'edit',
