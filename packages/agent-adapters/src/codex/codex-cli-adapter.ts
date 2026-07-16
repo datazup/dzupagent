@@ -488,6 +488,7 @@ function projectCodexMcp(input: AgentInput): CodexMcpProjection | null {
       `url = ${JSON.stringify(parseHttpUrl(transport.url, descriptor.id).toString())}`,
       'enabled = true',
       'required = true',
+      'default_tools_approval_mode = "writes"',
     ]
     if (transport.bearerTokenEnv) {
       const { envVar, tokenRef } = transport.bearerTokenEnv
