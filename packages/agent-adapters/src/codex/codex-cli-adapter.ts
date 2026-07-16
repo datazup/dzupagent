@@ -486,6 +486,8 @@ function projectCodexMcp(input: AgentInput): CodexMcpProjection | null {
     const lines = [
       `[mcp_servers.${JSON.stringify(descriptor.id)}]`,
       `url = ${JSON.stringify(parseHttpUrl(transport.url, descriptor.id).toString())}`,
+      'enabled = true',
+      'required = true',
     ]
     if (transport.bearerTokenEnv) {
       const { envVar, tokenRef } = transport.bearerTokenEnv
