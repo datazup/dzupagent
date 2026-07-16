@@ -11,6 +11,157 @@ import {
 } from "./fakes.mjs";
 
 describe("DialogueScheduler", () => {
+  it("routes every agent call through optional middleware that can retry or transform", async () => {
+    const { DialogueScheduler } = await loadDialogueCore();
+    const ports = createPorts({
+      agent: {
+        responses: [
+          { raw: "repair-me", usage: { inputTokens: 2, outputTokens: 1 } },
+          { raw: "accepted", usage: { inputTokens: 3, outputTokens: 2 } },
+        ],
+      },
+    });
+    const observed = [];
+    const scheduler = new DialogueScheduler(ports, {
+      clock: fixedClock(),
+      async agentRunMiddleware(context, next) {
+        observed.push({
+          runId: context.request.runId,
+          turnIndex: context.request.turnIndex,
+          turnType: context.request.turnType,
+        });
+        const first = await next();
+        return first.raw === "repair-me"
+          ? next({
+              ...context.request,
+              input: {
+                ...context.request.input,
+                prompt: "bounded repair request",
+              },
+            })
+          : first;
+      },
+    });
+
+    const result = await scheduler.run({
+      runId: "middleware-retry",
+      runSpec: baseRunSpec({
+        turns: [
+          {
+            id: "deliberate-with-repair",
+            verb: "deliberate",
+            participantId: "planner",
+            prompt: "Return an accepted response.",
+          },
+        ],
+      }),
+    });
+
+    expect(result.turnsCompleted).toBe(1);
+    expect(observed).toEqual([
+      { runId: "middleware-retry", turnIndex: 0, turnType: "deliberate" },
+    ]);
+    expect(ports.agentPort.calls).toHaveLength(2);
+    expect(ports.agentPort.calls[1].input.prompt).toBe("bounded repair request");
+    expect(ports.tracePort.byVisibility("persisted")[0].output.rawRedacted).toBe(
+      "accepted",
+    );
+  });
+
+  it("allows middleware to short-circuit an agent call without touching the port", async () => {
+    const { DialogueScheduler } = await loadDialogueCore();
+    const ports = createPorts();
+    const scheduler = new DialogueScheduler(ports, {
+      clock: fixedClock(),
+      async agentRunMiddleware(context) {
+        return {
+          raw: `checkpoint:${context.request.participantId}`,
+          usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        };
+      },
+    });
+
+    const result = await scheduler.run({
+      runId: "middleware-checkpoint",
+      runSpec: baseRunSpec({
+        turns: [
+          {
+            id: "checkpointed",
+            verb: "deliberate",
+            participantId: "planner",
+            prompt: "This call should be checkpointed.",
+          },
+        ],
+      }),
+    });
+
+    expect(result.turnsCompleted).toBe(1);
+    expect(ports.agentPort.calls).toHaveLength(0);
+    expect(ports.tracePort.byVisibility("persisted")[0].output.rawRedacted).toBe(
+      "checkpoint:planner",
+    );
+  });
+
+  it("allows implementation middleware to bind snapshot and capture to an alternate workspace", async () => {
+    const { DialogueScheduler } = await loadDialogueCore();
+    const ports = createPorts();
+    const isolatedPorts = createPorts({
+      workspace: {
+        snapshots: [{ baseRevision: "isolated-base", treeHash: "isolated-tree" }],
+        effects: [
+          {
+            diff: "isolated-diff",
+            changedFiles: ["isolated.ts"],
+            postRevision: "isolated-post",
+            treeHash: "isolated-post-tree",
+            applyStatus: "partial",
+          },
+        ],
+      },
+    });
+    const observed = [];
+    const scheduler = new DialogueScheduler(ports, {
+      clock: fixedClock(),
+      async implementationTurnMiddleware(context, next) {
+        observed.push(`before:${context.request.participantId}`);
+        const result = await next({
+          workspacePort: isolatedPorts.workspacePort,
+        });
+        observed.push(`after:${result.status}`);
+        return result;
+      },
+    });
+
+    const result = await scheduler.run({
+      runId: "implementation-workspace-binding",
+      runSpec: baseRunSpec({
+        turns: [
+          {
+            id: "isolated-implement",
+            verb: "implement",
+            participantId: "builder",
+            prompt: "Implement in the isolated workspace.",
+          },
+        ],
+      }),
+    });
+
+    expect(result.turnsCompleted).toBe(1);
+    expect(observed).toEqual(["before:builder", "after:completed"]);
+    expect(ports.workspacePort.snapshotCalls).toHaveLength(0);
+    expect(ports.workspacePort.captureEffectCalls).toHaveLength(0);
+    expect(isolatedPorts.workspacePort.snapshotCalls).toHaveLength(1);
+    expect(isolatedPorts.workspacePort.captureEffectCalls).toEqual([
+      { baseRevision: "isolated-base", treeHash: "isolated-tree" },
+    ]);
+    expect(ports.tracePort.byVisibility("persisted")[0].workspace).toMatchObject({
+      baseRevision: "isolated-base",
+      postRevision: "isolated-post",
+      changedFiles: ["isolated.ts"],
+      applyStatus: "partial",
+    });
+  });
+
   it("deliberate mode skips implement and validate after prior build port calls", async () => {
     const { DialogueScheduler } = await loadDialogueCore();
     const ports = createPorts();
