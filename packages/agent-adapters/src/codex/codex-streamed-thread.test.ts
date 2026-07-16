@@ -35,6 +35,7 @@ import {
 import type { RunStreamedThreadContext } from './codex-streamed-thread-types.js'
 import type { CodexStreamEvent, CodexInstance } from './codex-types.js'
 import type { AgentInput, AgentStreamEvent } from '../types.js'
+import { normalizeCodex } from '../normalize-codex.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -654,6 +655,22 @@ describe('mapItemCompleted', () => {
     expect(result[1]?.type).toBe('adapter:tool_result')
     const tc = result[0] as { type: string; toolName?: string }
     expect(tc.toolName).toBe('my-server/my-tool')
+  })
+
+  it('preserves a failed MCP item as a bounded failure result', () => {
+    const result = normalizeCodex({
+      type: 'mcp_tool_call',
+      server: 'codev_execution_gateway',
+      tool: 'get_codev_capability_manifest',
+      status: 'failed',
+      error: { message: 'HTTP client error: unauthorized token value redacted' },
+    }, 'session-1')
+
+    expect(result).toMatchObject({
+      type: 'adapter:tool_result',
+      toolName: 'codev_execution_gateway/get_codev_capability_manifest',
+      output: 'MCP_TOOL_FAILED:HTTP_CLIENT_ERROR:_UNAUTHORIZED_TOKEN_VALUE_REDACTED',
+    })
   })
 
   it('maps web_search to adapter:tool_call', () => {
