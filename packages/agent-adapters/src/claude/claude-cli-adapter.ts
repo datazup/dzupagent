@@ -62,7 +62,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
     )
     if (input.maxTurns !== undefined) throw unsupported('Claude CLI does not expose a deterministic max-turns flag')
 
-    if (sandbox === 'read-only') args.push('--disallowedTools', ...new Set([...MUTATING_TOOLS, ...blockedTools, ...blockedMcpTools]))
+    if (sandbox === 'read-only') {
+      args.push('--disallowedTools', ...new Set([...MUTATING_TOOLS, ...blockedTools, ...blockedMcpTools]))
+      if (allowedTools.length > 0) args.push('--allowedTools', ...allowedTools)
+    }
     else if (sandbox === 'workspace-write') {
       if (allowedTools.length > 0 && input.policyContext?.conformanceMode === 'strict') {
         throw unsupported('Claude --allowedTools auto-approves tools but does not enforce a strict allowlist')
