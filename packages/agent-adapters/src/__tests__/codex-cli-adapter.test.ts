@@ -128,6 +128,41 @@ describe('Codex explicit CLI backend', () => {
     expect(args.slice(-3)).toEqual(['--', 'session-1', 'continue'])
   })
 
+  it('reuses a worker-owned private session home across provider restart', async () => {
+    const workingDirectory = await mkdtemp(join(tmpdir(), 'dzupagent-codex-session-'))
+    const homes: string[] = []
+    const adapter = new CodexCliAdapter({
+      persistentSessionHome: true,
+      runtimeDependencies: {
+        spawn: (_command, _args, options) => {
+          homes.push(String(options.env?.CODEX_HOME))
+          const child = createChild()
+          queueMicrotask(() => {
+            child.stdout.write('{"type":"turn.completed"}\n')
+            child.stdout.end()
+            child.stderr.end()
+            child.exitCode = 0
+            child.emit('close', 0, null)
+          })
+          return child
+        },
+      },
+    })
+    try {
+      await collect(adapter.executeWithRaw({ prompt: 'pause', workingDirectory }))
+      const sessionPath = join(homes[0]!, 'sessions', 'resume.jsonl')
+      await writeFile(sessionPath, '{"thread":"session-1"}\n', { mode: 0o600 })
+      await collect(adapter.executeWithRaw({
+        prompt: 'continue', workingDirectory, resumeSessionId: 'session-1',
+      }))
+
+      expect(homes[1]).toBe(homes[0])
+      await expect(readFile(sessionPath, 'utf8')).resolves.toContain('session-1')
+    } finally {
+      await rm(workingDirectory, { recursive: true, force: true })
+    }
+  })
+
   it('normalizes installed CLI dotted envelopes and carries the final assistant message into completion', async () => {
     const adapter = new CodexCliAdapter({
       runtimeDependencies: {
@@ -230,7 +265,7 @@ describe('Codex explicit CLI backend', () => {
     expect(projectedConfig).toContain('url = "http://127.0.0.1:7821/"')
     expect(projectedConfig).toContain('enabled = true')
     expect(projectedConfig).toContain('required = true')
-    expect(projectedConfig).toContain('default_tools_approval_mode = "writes"')
+    expect(projectedConfig).toContain('default_tools_approval_mode = "auto"')
     expect(projectedConfig).toContain('bearer_token_env_var = "CODEV_MCP_TOKEN"')
     expect(projectedConfig).not.toContain('raw-token-value')
     expect(projectedEnv.CODEV_MCP_TOKEN).toBe('raw-token-value')

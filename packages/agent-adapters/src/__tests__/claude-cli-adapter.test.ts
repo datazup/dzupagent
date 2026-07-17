@@ -4,12 +4,15 @@ import { ClaudeCliAdapter } from '../claude/claude-cli-adapter.js'
 import { createClaudeBackendAdapter } from '../claude/claude-backend.js'
 import { ClaudeAgentAdapter } from '../claude/claude-adapter.js'
 import type { PreparedCliRun } from '../base/base-cli-adapter.js'
+import type { ThreadStartResult } from '../base/stream-runner.js'
 import type { AgentEvent, AgentInput } from '../types.js'
 
 class InspectableClaudeCliAdapter extends ClaudeCliAdapter {
   args(input: AgentInput): string[] { return this.buildArgs(input) }
   prepare(input: AgentInput): Promise<PreparedCliRun> { return this.prepareCliRun(input) }
   map(record: Record<string, unknown>, sessionId = 'fallback'): AgentEvent | AgentEvent[] | undefined { return this.mapProviderEvent(record, sessionId) }
+  startsImmediately(): boolean { return this.shouldEmitStartedImmediately() }
+  threadStart(record: Record<string, unknown>): ThreadStartResult | null { return this.detectProviderThreadStart(record) }
 }
 
 describe('Claude local CLI backend', () => {
@@ -124,5 +127,13 @@ describe('Claude local CLI backend', () => {
       expect.objectContaining({ type: 'adapter:tool_result', toolName: 'Read', toolCallId: 't1', output: 'ok' }),
     ])
     expect(adapter.map({ type: 'result', subtype: 'success', session_id: 's1', structured_output: { ok: true }, usage: { input_tokens: 2, output_tokens: 3 }, duration_ms: 4 })).toMatchObject({ type: 'adapter:completed', sessionId: 's1', result: '{"ok":true}', usage: { inputTokens: 2, outputTokens: 3 } })
+  })
+
+  it('uses the native init session as the first started identity', () => {
+    const adapter = new InspectableClaudeCliAdapter()
+    expect(adapter.startsImmediately()).toBe(false)
+    expect(adapter.threadStart({ type: 'system', subtype: 'init', session_id: 'native-session-1' }))
+      .toEqual({ threadId: 'native-session-1' })
+    expect(adapter.threadStart({ type: 'assistant', session_id: 'native-session-1' })).toBeNull()
   })
 })
