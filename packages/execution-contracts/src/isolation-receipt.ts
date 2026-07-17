@@ -18,6 +18,10 @@ export interface IsolationReceiptSummary {
   sealedAt: string
   /** Policy ID from the applied ResourcePolicy. */
   policyId: string
+  /** SHA-256 signature of the signed execution policy (from SignedExecutionPolicy.signature). */
+  policySignature: string
+  /** SHA-256 digest of the command catalog (from CommandCatalog.digest). */
+  catalogDigest: string
   /** Wall-time budget in seconds from the policy. */
   wallTimeSec: number
   /** Capabilities that were available on this host. */
@@ -50,6 +54,8 @@ function stableJson(value: unknown): string {
 export interface SealIsolationReceiptParams {
   executionId: string
   policy: ResourcePolicy
+  policySignature: string
+  catalogDigest: string
   hostCapabilities: HostCapabilities
   limitsApplied: string[]
   limitsUnavailable: string[]
@@ -59,12 +65,18 @@ export interface SealIsolationReceiptParams {
   sealedAt?: string
 }
 
-export function sealIsolationReceipt(params: SealIsolationReceiptParams): IsolationReceiptSummary {
+export function sealIsolationReceipt(
+  params: SealIsolationReceiptParams,
+): IsolationReceiptSummary {
+  assertSha256Hex(params.policySignature, 'policySignature')
+  assertSha256Hex(params.catalogDigest, 'catalogDigest')
   const sealedAt = params.sealedAt ?? new Date().toISOString()
   const unsealedFields = {
     executionId: params.executionId,
     sealedAt,
     policyId: params.policy.policyId,
+    policySignature: params.policySignature,
+    catalogDigest: params.catalogDigest,
     wallTimeSec: params.policy.wallTimeSec,
     hostCapabilities: params.hostCapabilities,
     limitsApplied: params.limitsApplied,
@@ -73,15 +85,33 @@ export function sealIsolationReceipt(params: SealIsolationReceiptParams): Isolat
     forciblyTerminated: params.forciblyTerminated,
     sessionStatePreserved: params.sessionStatePreserved,
   }
-  const seal = createHash('sha256').update(stableJson(unsealedFields), 'utf8').digest('hex')
+  const seal = createHash('sha256')
+    .update(stableJson(unsealedFields), 'utf8')
+    .digest('hex')
   return { ...unsealedFields, seal }
 }
 
 /**
  * Verify that a receipt's seal matches its content.
  */
-export function verifyIsolationReceipt(receipt: IsolationReceiptSummary): boolean {
+export function verifyIsolationReceipt(
+  receipt: IsolationReceiptSummary,
+): boolean {
+  if (!isSha256Hex(receipt.policySignature) || !isSha256Hex(receipt.catalogDigest)) return false
   const { seal, ...fields } = receipt
-  const expected = createHash('sha256').update(stableJson(fields), 'utf8').digest('hex')
+  const expected = createHash('sha256')
+    .update(stableJson(fields), 'utf8')
+    .digest('hex')
   return expected === seal
+}
+
+function assertSha256Hex(value: string, field: 'policySignature' | 'catalogDigest'): void {
+  if (!isSha256Hex(value)) {
+    const code = field === 'policySignature' ? 'POLICY_SIGNATURE' : 'CATALOG_DIGEST'
+    throw new Error(`ISOLATION_RECEIPT_${code}_INVALID`)
+  }
+}
+
+function isSha256Hex(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value)
 }
