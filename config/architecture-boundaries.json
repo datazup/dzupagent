@@ -901,6 +901,7 @@
         "packages": [
           "adapter-types",
           "agent-types",
+          "execution-contracts",
           "runtime-contracts",
           "eval-contracts",
           "cache",

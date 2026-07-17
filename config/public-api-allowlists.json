@@ -489,6 +489,22 @@
       "migrationWindow": "Runtime contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules."
     },
     {
+      "packageName": "@dzupagent/execution-contracts",
+      "packageDir": "packages/execution-contracts",
+      "rootIndex": "packages/execution-contracts/src/index.ts",
+      "stableRoot": [
+        { "match": "exact", "pattern": "./resource-policy.js" },
+        { "match": "exact", "pattern": "./command-catalog.js" },
+        { "match": "exact", "pattern": "./egress-policy.js" },
+        { "match": "exact", "pattern": "./host-capabilities.js" },
+        { "match": "exact", "pattern": "./isolation-receipt.js" },
+        { "match": "exact", "pattern": "./fleet-qualification.js" }
+      ],
+      "transitionalRoot": [],
+      "subpaths": {},
+      "migrationWindow": "Execution isolation and qualification contracts are stable at the package root; product identities remain in consuming applications."
+    },
+    {
       "packageName": "@dzupagent/dialogue-core",
       "packageDir": "packages/dialogue-core",
       "rootIndex": "packages/dialogue-core/src/index.ts",

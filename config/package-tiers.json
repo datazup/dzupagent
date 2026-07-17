@@ -128,6 +128,13 @@
       "apps/testman-app"
     ]
   },
+  "@dzupagent/execution-contracts": {
+    "tier": 1,
+    "status": "supported",
+    "architectureRole": "Layer-0 neutral execution isolation policies, validators, and qualification receipts with no DzupAgent runtime dependencies.",
+    "roadmapDriver": true,
+    "owners": ["apps/codev-app", "apps/worker-app"]
+  },
   "@dzupagent/agent-types": {
     "tier": 1,
     "status": "supported",

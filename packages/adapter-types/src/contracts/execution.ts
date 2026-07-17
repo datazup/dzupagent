@@ -27,12 +27,43 @@ export interface AgentPolicyGuardrailHints {
   blockedTools?: string[] | undefined
 }
 
+/**
+ * Structural adapter transport for the canonical
+ * `@dzupagent/execution-contracts` SignedExecutionPolicy. Adapter types remain
+ * a layer-0 leaf and deliberately do not construct or validate this envelope.
+ */
+export interface AgentSignedExecutionPolicy {
+  policy: {
+    version: string
+    policyId: string
+    cpuShares?: number | undefined
+    memoryMb?: number | undefined
+    pidLimit?: number | undefined
+    wallTimeSec: number
+    scratchMb?: number | undefined
+    egressGrants: readonly { provider: string; label: string }[]
+  }
+  catalog: {
+    version: string
+    digest: string
+    entries: readonly {
+      binary: string
+      allowedArgs?: readonly string[] | undefined
+      workdirPolicy: 'checkout-only' | 'any'
+      envAllowlist?: readonly string[] | undefined
+    }[]
+  }
+  signature: string
+}
+
 /** Typed per-run policy metadata transport for execution routing. */
 export interface AgentPolicyExecutionContext {
   activePolicy?: AgentInputPolicy | undefined
   conformanceMode?: AgentPolicyConformanceMode | undefined
   projectedGuardrails?: AgentPolicyGuardrailHints | undefined
   conformanceWarnings?: string[] | undefined
+  /** Digest-sealed host resource policy carried unchanged through the adapter boundary. */
+  executionPolicy?: AgentSignedExecutionPolicy | undefined
 }
 
 /** Runtime capability declaration for adapter behavior. */
