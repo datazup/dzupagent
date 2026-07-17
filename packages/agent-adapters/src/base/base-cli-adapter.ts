@@ -76,6 +76,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
 
   protected config: AdapterConfig;
   private readonly activeAbortControllers = new Set<AbortController>();
+  private readonly activeInteractionResolvers = new Set<InteractionResolver>();
   private runStore: RunEventStore | null = null;
 
   private readonly governance: GovernanceEmitter;
@@ -165,6 +166,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     const policy = this.resolveInteractionPolicy(input);
     const resolver =
       policy.mode !== "auto-approve" ? new InteractionResolver(policy) : null;
+    if (resolver) this.activeInteractionResolvers.add(resolver);
     const pendingEvents: AgentEvent[] = [];
 
     // Per-run mutable state consumed by the AdapterStreamSource methods.
@@ -344,6 +346,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       }
     } finally {
       resolver?.dispose();
+      if (resolver) this.activeInteractionResolvers.delete(resolver);
       if (runAbortController) this.activeAbortControllers.delete(runAbortController);
       this.stopArtifactWatcher();
       this.governance.setRunContext(null);
@@ -361,6 +364,13 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     input: AgentInput
   ): AsyncGenerator<AgentEvent, void, undefined> {
     yield* this.execute({ ...input, resumeSessionId: sessionId });
+  }
+
+  respondInteraction(interactionId: string, answer: string): boolean {
+    for (const resolver of this.activeInteractionResolvers) {
+      if (resolver.respond(interactionId, answer)) return true;
+    }
+    return false;
   }
 
   interrupt(): void {

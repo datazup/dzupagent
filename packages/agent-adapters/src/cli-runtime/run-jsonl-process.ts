@@ -137,9 +137,21 @@ export async function* runJsonlProcess(
             terminate('overflow')
             break
           }
-          const answer = await specification.stdinResponder?.(record)
-          if (answer !== undefined && answer !== null && child.stdin && !child.stdin.destroyed) child.stdin.write(`${answer}\n`)
+          // Start interaction resolution before yielding so the adapter can
+          // project the question to its caller. Awaiting the responder first
+          // deadlocks ask-caller mode: the caller cannot see the interaction
+          // id needed to resolve the pending response.
+          const pendingAnswer = specification.stdinResponder
+            ? specification.stdinResponder(record).then(
+                (answer) => ({ answer }),
+                (error: unknown) => ({ error }),
+              )
+            : undefined
           yield record
+          const settledAnswer = await pendingAnswer
+          if (settledAnswer && 'error' in settledAnswer) throw settledAnswer.error
+          const answer = settledAnswer?.answer
+          if (answer !== undefined && answer !== null && child.stdin && !child.stdin.destroyed) child.stdin.write(`${answer}\n`)
         }
         newline = buffer.indexOf(0x0a)
       }
