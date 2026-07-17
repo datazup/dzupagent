@@ -1504,6 +1504,17 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@dzupagent/execution-contracts@workspace:packages/execution-contracts":
+  version: 0.0.0-use.local
+  resolution: "@dzupagent/execution-contracts@workspace:packages/execution-contracts"
+  dependencies:
+    "@types/node": "npm:^20.0.0"
+    tsup: "npm:*"
+    typescript: "npm:^5.8.3"
+    vitest: "npm:^3.2.4"
+  languageName: unknown
+  linkType: soft
+
 "@dzupagent/express@workspace:packages/express":
   version: 0.0.0-use.local
   resolution: "@dzupagent/express@workspace:packages/express"
