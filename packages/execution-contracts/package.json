@@ -15,7 +15,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
+    "build": "tsup",
     "lint": "eslint src/",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
