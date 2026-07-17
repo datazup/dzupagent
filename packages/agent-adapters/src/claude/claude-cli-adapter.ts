@@ -12,6 +12,7 @@ import type {
   TokenUsage,
 } from '../types.js'
 import { BaseCliAdapter, type PreparedCliRun } from '../base/base-cli-adapter.js'
+import type { ThreadStartResult } from '../base/stream-runner.js'
 import { createTemporaryProjection } from '../cli-runtime/temporary-projection.js'
 import { getDefaultMonitorStatus } from '../provider-catalog.js'
 import { serializeProviderPayload } from '../utils/provider-event-normalization.js'
@@ -39,6 +40,16 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
   }
 
   protected getBinaryName(): string { return this.cliPath }
+
+  protected override shouldEmitStartedImmediately(): boolean { return false }
+
+  protected override detectProviderThreadStart(record: Record<string, unknown>): ThreadStartResult | null {
+    if (record['type'] !== 'system' || record['subtype'] !== 'init') return null
+    const sessionId = record['session_id']
+    return typeof sessionId === 'string' && sessionId.length > 0
+      ? { threadId: sessionId }
+      : null
+  }
 
   getCapabilities(): AdapterCapabilityProfile {
     return {

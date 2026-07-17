@@ -45,7 +45,7 @@ import {
 } from "./adapter-error-normalizer.js";
 import { createStdinResponder } from "./stdin-responder.js";
 import { AdapterStreamRunner } from "./stream-runner.js";
-import type { AdapterStreamSource } from "./stream-runner.js";
+import type { AdapterStreamSource, ThreadStartResult } from "./stream-runner.js";
 import type { RunEventStore } from "../runs/run-event-store.js";
 import { buildPreflightValidator } from "../guardrails/preflight-validator.js";
 import { ForgeError } from "@dzupagent/core/events";
@@ -241,11 +241,14 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         }
         return events.length === 0 ? null : events;
       },
+      detectThreadStart(record: Record<string, unknown>): ThreadStartResult | null {
+        return adapter.detectProviderThreadStart(record);
+      },
     };
 
     let runAbortController: AbortController | null = null;
     const runner = new AdapterStreamRunner<Record<string, unknown>>({
-      emitStartedImmediately: true,
+      emitStartedImmediately: this.shouldEmitStartedImmediately(),
       emitFailedOnAbort: true,
       initialSessionId: sessionId,
       startedExtra: {
@@ -364,6 +367,16 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     input: AgentInput
   ): AsyncGenerator<AgentEvent, void, undefined> {
     yield* this.execute({ ...input, resumeSessionId: sessionId });
+  }
+
+  /** Providers with a native init record can delay startup until its session id is known. */
+  protected shouldEmitStartedImmediately(): boolean {
+    return true;
+  }
+
+  /** Extract a provider-native thread/session identity from one raw record. */
+  protected detectProviderThreadStart(_record: Record<string, unknown>): ThreadStartResult | null {
+    return null;
   }
 
   respondInteraction(interactionId: string, answer: string): boolean {

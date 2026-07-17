@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { lstat, mkdir, open, readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, join, relative } from 'node:path'
 import { promisify } from 'node:util'
 import { ForgeError } from '@dzupagent/core/events'
@@ -30,6 +31,8 @@ export interface CodexCliAdapterConfig extends AdapterConfig {
   cliBaseProfileRoot?: string | undefined
   /** Relative regular files copied from cliBaseProfileRoot. */
   cliBaseProfileFiles?: readonly string[] | undefined
+  /** Keep Codex thread state inside the worker-owned working directory for crash recovery. */
+  persistentSessionHome?: boolean | undefined
   /** Strict JSONL is the canonical Codex CLI backend default. */
   malformedLinePolicy?: 'skip' | 'error' | undefined
   /** Test/runtime injection point; not forwarded to the subprocess. */
@@ -233,14 +236,16 @@ export class CodexCliAdapter implements AgentCLIAdapter {
         },
       } : {}),
     }
-    const homeProjection = await createCliHomeProjection({
-      prefix: 'dzupagent-codex-',
-      envVar: 'CODEX_HOME',
-      requiredDirectories: ['sessions', 'mcp'],
-      approvedBaseProfileRoots: this.config.cliBaseProfileRoot ? [this.config.cliBaseProfileRoot] : [],
-      baseProfileInputs,
-      generatedFiles: Object.keys(generatedFiles).length > 0 ? generatedFiles : undefined,
-    })
+    const homeProjection = this.config.persistentSessionHome
+      ? await createPersistentCodexHome(cwd, baseProfileInputs, generatedFiles)
+      : await createCliHomeProjection({
+          prefix: 'dzupagent-codex-',
+          envVar: 'CODEX_HOME',
+          requiredDirectories: ['sessions', 'mcp'],
+          approvedBaseProfileRoots: this.config.cliBaseProfileRoot ? [this.config.cliBaseProfileRoot] : [],
+          baseProfileInputs,
+          generatedFiles: Object.keys(generatedFiles).length > 0 ? generatedFiles : undefined,
+        })
     try {
       return {
         args: this.buildArgs(input, homeProjection.generatedPaths['outputSchema']),
@@ -395,6 +400,75 @@ export class CodexCliAdapter implements AgentCLIAdapter {
   }
 }
 
+async function createPersistentCodexHome(
+  workingDirectory: string | undefined,
+  baseProfileInputs: Readonly<Record<string, { sourcePath: string; targetPath: string }>>,
+  generatedFiles: Readonly<Record<string, { path: string; content: string; mode?: number }>>,
+): Promise<CliHomeProjection> {
+  if (!workingDirectory || !isAbsolute(workingDirectory)) {
+    throw policyRejected('Persistent Codex sessions require an absolute worker-owned working directory', 'missing_working_directory')
+  }
+  const realWorkingDirectory = await realpath(workingDirectory)
+  const root = join(realWorkingDirectory, '.dzupagent-codex-home')
+  await mkdir(root, { recursive: true, mode: 0o700 })
+  await requirePrivateDirectory(root)
+
+  const requiredDirectories: string[] = []
+  for (const relativePath of ['sessions', 'mcp']) {
+    const target = join(root, relativePath)
+    await mkdir(target, { recursive: true, mode: 0o700 })
+    await requirePrivateDirectory(target)
+    requiredDirectories.push(target)
+  }
+
+  const baseProfilePaths: Record<string, string> = {}
+  for (const [id, input] of Object.entries(baseProfileInputs)) {
+    const target = join(root, input.targetPath)
+    await writePrivateRegularFile(target, await readFile(input.sourcePath))
+    baseProfilePaths[id] = target
+  }
+
+  const generatedPaths: Record<string, string> = {}
+  for (const [id, file] of Object.entries(generatedFiles)) {
+    const target = join(root, file.path)
+    await writePrivateRegularFile(target, file.content)
+    generatedPaths[id] = target
+  }
+
+  return {
+    root,
+    env: Object.freeze({ CODEX_HOME: root }),
+    generatedPaths: Object.freeze(generatedPaths),
+    baseProfilePaths: Object.freeze(baseProfilePaths),
+    requiredDirectories: Object.freeze(requiredDirectories),
+    cleanup: async () => undefined,
+  }
+}
+
+async function requirePrivateDirectory(path: string): Promise<void> {
+  const info = await lstat(path)
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw policyRejected('Persistent Codex session path must be a private directory', 'unsafe_session_home')
+  }
+}
+
+async function writePrivateRegularFile(path: string, content: string | Buffer): Promise<void> {
+  const existing = await lstat(path).catch(() => null)
+  if (existing && (!existing.isFile() || existing.isSymbolicLink())) {
+    throw policyRejected('Persistent Codex session file must be regular', 'unsafe_session_home')
+  }
+  const handle = await open(
+    path,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+    0o600,
+  )
+  try {
+    await handle.writeFile(content)
+  } finally {
+    await handle.close()
+  }
+}
+
 export function createCodexCliAdapter(config: CodexCliAdapterConfig = {}): CodexCliAdapter {
   return new CodexCliAdapter(config)
 }
@@ -488,7 +562,7 @@ function projectCodexMcp(input: AgentInput): CodexMcpProjection | null {
       `url = ${JSON.stringify(parseHttpUrl(transport.url, descriptor.id).toString())}`,
       'enabled = true',
       'required = true',
-      'default_tools_approval_mode = "writes"',
+      'default_tools_approval_mode = "auto"',
     ]
     if (transport.bearerTokenEnv) {
       const { envVar, tokenRef } = transport.bearerTokenEnv
