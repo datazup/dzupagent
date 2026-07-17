@@ -67,6 +67,38 @@ describe('bounded CLI runtime', () => {
     expect(records).toEqual([{ stdin: '' }])
   })
 
+  it('yields an interactive record before waiting for and writing the caller response', async () => {
+    let resolveResponse: ((answer: string) => void) | undefined
+    const response = new Promise<string>((resolve) => {
+      resolveResponse = resolve
+    })
+    const generator = runJsonlProcess({
+      command: process.execPath,
+      args: ['-e', [
+        "const readline=require('node:readline')",
+        "process.stdout.write(JSON.stringify({type:'question',message:'Which environment?'})+'\\n')",
+        "readline.createInterface({input:process.stdin}).once('line',answer=>{",
+        "process.stdout.write(JSON.stringify({type:'answer',answer})+'\\n')",
+        "process.exit(0)",
+        '})',
+      ].join(';')],
+      timeoutMs: 5_000,
+      stdinResponder: async (record) => record['type'] === 'question' ? response : null,
+    })
+
+    await expect(generator.next()).resolves.toEqual({
+      done: false,
+      value: { type: 'question', message: 'Which environment?' },
+    })
+
+    resolveResponse?.('staging')
+    await expect(generator.next()).resolves.toEqual({
+      done: false,
+      value: { type: 'answer', answer: 'staging' },
+    })
+    await expect(generator.next()).resolves.toEqual({ done: true, value: undefined })
+  })
+
   it('collects bounded terminal text as one deterministic result record', async () => {
     const records = await collect(runJsonlProcess({
       command: process.execPath,

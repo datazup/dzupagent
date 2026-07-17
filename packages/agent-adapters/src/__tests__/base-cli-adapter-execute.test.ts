@@ -439,6 +439,38 @@ describe('BaseCliAdapter.execute() — path-level tests', () => {
   // -------------------------------------------------------------------------
 
   describe('interaction detection (ask-caller policy)', () => {
+    it('exposes the active resolver through respondInteraction', async () => {
+      mockSpawnAndStreamJsonl.mockImplementation(
+        async function* (_binary, _args, opts) {
+          if (opts.stdinResponder) {
+            await opts.stdinResponder({}, 'Which environment?', 'clarification')
+          }
+          yield { type: 'completed', result: 'resumed' }
+        },
+      )
+      const adapter = new TestCliAdapter()
+      adapter.configure({
+        interactionPolicy: {
+          mode: 'ask-caller',
+          askCaller: { timeoutMs: 5_000, timeoutFallback: 'auto-deny' },
+        },
+      })
+      let interactionId = ''
+      adapter.onGovernanceEvent((event) => {
+        if (event.type === 'governance:approval_requested') interactionId = event.interactionId
+      })
+
+      const execution = collectEvents(adapter.execute({ prompt: 'inspect' }))
+      await vi.waitFor(() => expect(interactionId).not.toBe(''))
+      expect(adapter.respondInteraction(interactionId, 'staging')).toBe(true)
+      const events = await execution
+
+      expect(events).toContainEqual(expect.objectContaining({
+        type: 'adapter:interaction_resolved', answer: 'staging', resolvedBy: 'caller',
+      }))
+      expect(adapter.respondInteraction(interactionId, 'duplicate')).toBe(false)
+    })
+
     it('emits adapter:interaction_required and adapter:interaction_resolved when resolver handles a question', async () => {
       mockSpawnAndStreamJsonl.mockImplementation(
         async function* (_binary, _args, opts) {
