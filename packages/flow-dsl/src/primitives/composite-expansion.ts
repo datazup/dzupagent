@@ -1,5 +1,5 @@
 import { DEFAULT_PRIMITIVE_REGISTRY } from "./built-ins.js";
-import type { PrimitiveRegistry } from "./types.js";
+import type { PrimitiveDefinition, PrimitiveRegistry } from "./types.js";
 import { expandFragmentInvocation } from "../fragments/expand-fragment.js";
 import type {
   FragmentExpansionMetadata,
@@ -30,6 +30,7 @@ interface ResolvedCompositeExpansionOptions {
   primitiveRegistry: PrimitiveRegistry;
   fragmentRegistry?: FragmentRegistry;
   requirePinnedFragmentUses: boolean;
+  pinnedPrimitiveUses: Record<string, string>;
   pinnedFragmentUses: Record<string, string>;
 }
 
@@ -57,13 +58,43 @@ function isPrimitiveRegistry(value: unknown): value is PrimitiveRegistry {
   );
 }
 
-function normalizePinnedFragmentUses(raw: unknown): Record<string, string> {
+function normalizePinnedUses(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   return Object.fromEntries(
     Object.entries(raw as Record<string, unknown>).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
     ),
   );
+}
+
+function pinnedPrimitiveVersion(
+  namespace: string,
+  options: ResolvedCompositeExpansionOptions,
+): string | undefined {
+  const reference = options.pinnedPrimitiveUses[namespace];
+  if (!reference) return undefined;
+  const match = /^dzup\.([A-Za-z][A-Za-z0-9_.-]*)@([0-9]+)$/.exec(reference);
+  return match?.[1] === namespace ? match[2] : undefined;
+}
+
+function resolvePrimitiveDefinition(
+  kind: string,
+  options: ResolvedCompositeExpansionOptions,
+): PrimitiveDefinition | undefined {
+  const latest = options.primitiveRegistry.get(kind);
+  if (!latest || latest.category !== "composite") return latest;
+
+  const pinnedVersion = pinnedPrimitiveVersion(latest.namespace, options);
+  if (pinnedVersion === undefined) return latest;
+
+  const pinned = options.primitiveRegistry.get(kind, pinnedVersion);
+  if (!pinned || pinned.category !== "composite") {
+    const reference = options.pinnedPrimitiveUses[latest.namespace];
+    throw new Error(
+      `composite primitive ${kind} is pinned by uses.${latest.namespace} to ${reference}, but ${kind}@${pinnedVersion} is not registered as a composite`,
+    );
+  }
+  return pinned;
 }
 
 function assertPinnedFragmentUse(
@@ -174,7 +205,7 @@ function expandStepArray(
     }
 
     const kind = keys[0]!;
-    const definition = options.primitiveRegistry.get(kind);
+    const definition = resolvePrimitiveDefinition(kind, options);
     if (definition?.category !== "composite") {
       const fragmentRegistry = options.fragmentRegistry;
       const fragmentEntry = fragmentRegistry?.get(kind);
@@ -250,6 +281,7 @@ export function expandRegisteredCompositesDetailed(
     ? {
         primitiveRegistry: registryOrOptions,
         requirePinnedFragmentUses: false,
+        pinnedPrimitiveUses: {},
         pinnedFragmentUses: {},
       }
     : {
@@ -257,13 +289,15 @@ export function expandRegisteredCompositesDetailed(
           registryOrOptions.primitiveRegistry ?? DEFAULT_PRIMITIVE_REGISTRY,
         requirePinnedFragmentUses:
           registryOrOptions.requirePinnedFragmentUses ?? false,
+        pinnedPrimitiveUses: {},
         pinnedFragmentUses: {},
         ...(registryOrOptions.fragmentRegistry
           ? { fragmentRegistry: registryOrOptions.fragmentRegistry }
           : {}),
       };
   const doc = raw as Record<string, unknown>;
-  options.pinnedFragmentUses = normalizePinnedFragmentUses(doc.uses);
+  options.pinnedPrimitiveUses = normalizePinnedUses(doc.uses);
+  options.pinnedFragmentUses = options.pinnedPrimitiveUses;
   const arrayKey = isStepWrapperArray(doc.steps)
     ? "steps"
     : isStepWrapperArray(doc.nodes)
