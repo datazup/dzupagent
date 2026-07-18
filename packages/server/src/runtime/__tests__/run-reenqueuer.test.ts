@@ -17,6 +17,7 @@ function makeRun(
     status: RunStatus
     input: unknown
     metadata?: Record<string, unknown>
+    tenantId?: string | null
   }> = {}
 ) {
   return {
@@ -25,6 +26,7 @@ function makeRun(
     status: overrides.status ?? ('running' as RunStatus),
     input: overrides.input ?? { foo: 'bar' },
     metadata: overrides.metadata,
+    tenantId: overrides.tenantId,
     startedAt: new Date(),
   }
 }
@@ -55,6 +57,35 @@ describe('buildRunReEnqueuer', () => {
       agentId: 'agent-7',
       input: { task: 'resume me' },
       metadata: { tenant: 't1' },
+      priority: 0,
+    })
+  })
+
+  it('preserves queue-level tenant scope when re-enqueuing a stale running run', async () => {
+    const run = makeRun({
+      id: 'run-tenant',
+      agentId: 'agent-tenant',
+      status: 'running',
+      input: { task: 'resume tenant run' },
+      metadata: { tenantId: 'tenant-a' },
+      tenantId: 'tenant-a',
+    })
+    const get = vi.fn().mockResolvedValue(run)
+    const enqueue = vi.fn().mockResolvedValue(undefined)
+
+    const reEnqueue = buildRunReEnqueuer({
+      runStore: { get },
+      runQueue: { enqueue },
+    })
+
+    await reEnqueue('run-tenant')
+
+    expect(enqueue).toHaveBeenCalledWith({
+      runId: 'run-tenant',
+      agentId: 'agent-tenant',
+      input: { task: 'resume tenant run' },
+      metadata: { tenantId: 'tenant-a' },
+      tenantId: 'tenant-a',
       priority: 0,
     })
   })

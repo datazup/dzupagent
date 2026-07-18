@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { PipelineCheckpoint, PipelineDefinition } from "@dzupagent/core";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
+import type { PostgresClientLike } from "../pipeline/postgres-checkpoint-store.js";
+import type { RedisClientLike } from "../pipeline/redis-checkpoint-store.js";
 import type {
   NodeExecutor,
   PipelineExecutionLogEntry,
@@ -40,6 +42,30 @@ function executorWithRuns(runs: string[] = []): NodeExecutor {
   };
 }
 
+function makePgClient(): PostgresClientLike {
+  return {
+    query: vi.fn().mockResolvedValue({ rows: [] }),
+  };
+}
+
+function makeRedisClient(): RedisClientLike {
+  return {
+    set: vi.fn().mockResolvedValue("OK"),
+    get: vi.fn().mockResolvedValue(null),
+    del: vi.fn().mockResolvedValue(0),
+    zadd: vi.fn().mockResolvedValue(0),
+    zrange: vi.fn().mockResolvedValue([]),
+    zrevrange: vi.fn().mockResolvedValue([]),
+    zscore: vi.fn().mockResolvedValue(null),
+    zrem: vi.fn().mockResolvedValue(0),
+    sadd: vi.fn().mockResolvedValue(0),
+    srem: vi.fn().mockResolvedValue(0),
+    smembers: vi.fn().mockResolvedValue([]),
+    exists: vi.fn().mockResolvedValue(0),
+    expire: vi.fn().mockResolvedValue(0),
+  } as unknown as RedisClientLike;
+}
+
 describe("PipelineRuntime W1 durability policy", () => {
   it("resolves checkpoint.storeRef from the runtime checkpointStores registry", async () => {
     const selected = new InMemoryPipelineCheckpointStore();
@@ -57,6 +83,105 @@ describe("PipelineRuntime W1 durability policy", () => {
 
     expect(await selected.load(result.runId)).toBeDefined();
     expect(await fallback.load(result.runId)).toBeUndefined();
+  });
+
+  it("resolves pg URI checkpoint.storeRef through the configured pgClient", async () => {
+    const pgClient = makePgClient();
+    const fallback = new InMemoryPipelineCheckpointStore();
+    const runtime = new PipelineRuntime({
+      definition: linearPipeline({
+        checkpoint: { storeRef: "pg://ck" },
+      }),
+      nodeExecutor: executorWithRuns(),
+      checkpointStore: fallback,
+      pgClient,
+    });
+
+    const result = await runtime.execute();
+
+    expect(result.state).toBe("completed");
+    expect(pgClient.query as ReturnType<typeof vi.fn>).toHaveBeenCalled();
+    expect(
+      (pgClient.query as ReturnType<typeof vi.fn>).mock.calls.some(([text]) =>
+        String(text).includes("INSERT INTO pipeline_checkpoints"),
+      ),
+    ).toBe(true);
+    expect(await fallback.load(result.runId)).toBeUndefined();
+  });
+
+  it("resolves redis URI checkpoint.storeRef through the configured redisClient", async () => {
+    const redisClient = makeRedisClient();
+    const fallback = new InMemoryPipelineCheckpointStore();
+    const runtime = new PipelineRuntime({
+      definition: linearPipeline({
+        checkpoint: { storeRef: "redis://ck" },
+      }),
+      nodeExecutor: executorWithRuns(),
+      checkpointStore: fallback,
+      redisClient,
+    });
+
+    const result = await runtime.execute();
+
+    expect(result.state).toBe("completed");
+    expect(redisClient.set as ReturnType<typeof vi.fn>).toHaveBeenCalled();
+    expect(await fallback.load(result.runId)).toBeUndefined();
+  });
+
+  it("keeps exact checkpointStores precedence for URI-shaped storeRefs", async () => {
+    const selected = new InMemoryPipelineCheckpointStore();
+    const pgClient = makePgClient();
+    const runtime = new PipelineRuntime({
+      definition: linearPipeline({
+        checkpoint: { storeRef: "pg://ck" },
+      }),
+      nodeExecutor: executorWithRuns(),
+      checkpointStores: { "pg://ck": selected },
+      pgClient,
+    });
+
+    const result = await runtime.execute();
+
+    expect(await selected.load(result.runId)).toBeDefined();
+    expect(pgClient.query as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for unsupported checkpoint.storeRef URI schemes", () => {
+    expect(
+      () =>
+        new PipelineRuntime({
+          definition: linearPipeline({
+            checkpoint: { storeRef: "s3://ck" },
+          }),
+          nodeExecutor: executorWithRuns(),
+        }),
+    ).toThrow(/Unsupported checkpoint\.storeRef URI scheme "s3"/);
+  });
+
+  it("fails closed for malformed checkpoint.storeRef URIs", () => {
+    expect(
+      () =>
+        new PipelineRuntime({
+          definition: linearPipeline({
+            checkpoint: { storeRef: "pg:ck" },
+          }),
+          nodeExecutor: executorWithRuns(),
+          pgClient: makePgClient(),
+        }),
+    ).toThrow(/Malformed checkpoint\.storeRef URI/);
+  });
+
+  it("fails closed when a supported checkpoint.storeRef URI has no matching client", () => {
+    expect(
+      () =>
+        new PipelineRuntime({
+          definition: linearPipeline({
+            checkpoint: { storeRef: "pg://ck" },
+          }),
+          nodeExecutor: executorWithRuns(),
+          checkpointStore: new InMemoryPipelineCheckpointStore(),
+        }),
+    ).toThrow(/requires PipelineRuntimeConfig\.pgClient/);
   });
 
   it("enforces checkpoint.retention.maxVersions after each save", async () => {
