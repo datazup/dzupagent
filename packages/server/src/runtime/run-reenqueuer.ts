@@ -86,6 +86,9 @@ export function buildRunReEnqueuer(
       agentId: run.agentId,
       input: run.input,
       metadata: run.metadata,
+      ...(typeof run.tenantId === 'string' && run.tenantId.length > 0
+        ? { tenantId: run.tenantId }
+        : {}),
       priority,
     })
   }

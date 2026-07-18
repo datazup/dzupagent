@@ -750,7 +750,61 @@ function resolveCheckpointStore(
   if (storeRef && config.checkpointStores?.[storeRef]) {
     return config.checkpointStores[storeRef];
   }
+  if (storeRef && isCheckpointStoreUriRef(storeRef)) {
+    return resolveCheckpointStoreUri(storeRef, config);
+  }
   return config.checkpointStore;
+}
+
+function isCheckpointStoreUriRef(storeRef: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(storeRef);
+}
+
+function resolveCheckpointStoreUri(
+  storeRef: string,
+  config: PipelineRuntimeConfig,
+): PipelineCheckpointStore {
+  if (!storeRef.includes("://")) {
+    throw new Error(
+      `Malformed checkpoint.storeRef URI "${storeRef}": expected "scheme://...".`,
+    );
+  }
+
+  let uri: URL;
+  try {
+    uri = new URL(storeRef);
+  } catch {
+    throw new Error(`Malformed checkpoint.storeRef URI "${storeRef}".`);
+  }
+
+  const scheme = uri.protocol.slice(0, -1).toLowerCase();
+  switch (scheme) {
+    case "pg":
+    case "postgres":
+    case "postgresql":
+      if (!config.pgClient) {
+        throw new Error(
+          `checkpoint.storeRef URI "${storeRef}" requires PipelineRuntimeConfig.pgClient.`,
+        );
+      }
+      return new PostgresPipelineCheckpointStore({
+        client: config.pgClient,
+      });
+    case "redis":
+    case "rediss":
+      if (!config.redisClient) {
+        throw new Error(
+          `checkpoint.storeRef URI "${storeRef}" requires PipelineRuntimeConfig.redisClient.`,
+        );
+      }
+      return new RedisPipelineCheckpointStore({
+        client: config.redisClient,
+      });
+    default:
+      throw new Error(
+        `Unsupported checkpoint.storeRef URI scheme "${scheme}" in "${storeRef}".`,
+      );
+  }
 }
 
 function shouldCaptureRuntimeEvents(
