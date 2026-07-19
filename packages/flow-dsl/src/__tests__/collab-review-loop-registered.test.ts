@@ -4,22 +4,15 @@ import { parseDslToDocument } from "../parse-dsl.js";
 import {
   BUILT_IN_PRIMITIVES,
   createPrimitiveRegistry,
-  type PrimitiveDefinition,
 } from "../primitives/index.js";
 
-const syntheticV2: PrimitiveDefinition = {
-  kind: "collab.review_loop",
-  version: "2",
-  namespace: "collab",
-  category: "composite",
-  schema: { type: "object" },
-  expandsTo: ["complete"],
-  expand: () => [{ complete: { id: "synthetic_v2", result: "v2" } }],
-};
-const registryWithSyntheticV2 = createPrimitiveRegistry([
-  ...BUILT_IN_PRIMITIVES,
-  syntheticV2,
-]);
+const registryWithV2 = createPrimitiveRegistry(BUILT_IN_PRIMITIVES);
+const registryWithoutV2 = createPrimitiveRegistry(
+  BUILT_IN_PRIMITIVES.filter(
+    (definition) =>
+      definition.kind !== "collab.review_loop" || definition.version !== "2",
+  ),
+);
 
 const WITH_GATES = `
 dsl: dzupflow/v1
@@ -76,8 +69,10 @@ steps:
 
 function expectPinnedV1Golden(source: string): void {
   expect(
-    parseDslToDocument(source, { primitiveRegistry: registryWithSyntheticV2 }),
-  ).toEqual(parseDslToDocument(source));
+    parseDslToDocument(source, { primitiveRegistry: registryWithV2 }),
+  ).toEqual(
+    parseDslToDocument(source, { primitiveRegistry: registryWithoutV2 }),
+  );
 }
 
 describe("registered collab.review_loop expansion", () => {
@@ -125,7 +120,7 @@ describe("registered collab.review_loop expansion", () => {
   it("reports an unknown pinned composite version before normalization", () => {
     const result = parseDslToDocument(
       WITH_GATES.replace("dzup.collab@1", "dzup.collab@3"),
-      { primitiveRegistry: registryWithSyntheticV2 },
+      { primitiveRegistry: registryWithV2 },
     );
 
     expect(result.ok).toBe(false);
