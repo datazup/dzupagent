@@ -4,4 +4,5 @@ export * from "./built-ins.js";
 export * from "./catalog.js";
 export * from "./imports.js";
 export * from "./collab-review-loop.js";
+export * from "./collab-review-loop-v2.js";
 export * from "./composite-expansion.js";

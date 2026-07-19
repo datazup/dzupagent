@@ -1,5 +1,9 @@
 import type { PrimitiveDefinition } from "./types.js";
 import { expandCollabReviewLoop } from "./collab-review-loop.js";
+import {
+  COLLAB_REVIEW_LOOP_V2_SCHEMA,
+  expandCollabReviewLoopV2,
+} from "./collab-review-loop-v2.js";
 import { createPrimitiveRegistry } from "./registry.js";
 
 export const BUILT_IN_PRIMITIVES: readonly PrimitiveDefinition[] =
@@ -45,6 +49,27 @@ export const BUILT_IN_PRIMITIVES: readonly PrimitiveDefinition[] =
       idempotency: "exactly-once-required",
       schema: { type: "object" },
       executesWith: "approval",
+    },
+    {
+      kind: "collab.review_loop",
+      version: "2",
+      namespace: "collab",
+      category: "composite",
+      description:
+        "Implement, validate, review, and reconcile one identity-bound packet.",
+      effectClass: "llm",
+      idempotency: "at-least-once",
+      schema: COLLAB_REVIEW_LOOP_V2_SCHEMA,
+      expandsTo: [
+        "adapter.run",
+        "evidence.write",
+        "validate",
+        "validate.schema",
+        "if",
+        "return_to",
+        "complete",
+      ],
+      expand: expandCollabReviewLoopV2,
     },
     {
       kind: "collab.review_loop",
