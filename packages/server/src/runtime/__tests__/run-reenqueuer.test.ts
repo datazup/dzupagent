@@ -67,8 +67,8 @@ describe('buildRunReEnqueuer', () => {
       agentId: 'agent-tenant',
       status: 'running',
       input: { task: 'resume tenant run' },
-      metadata: { tenantId: 'tenant-a' },
-      tenantId: 'tenant-a',
+      metadata: { tenantId: 'metadata-tenant' },
+      tenantId: 'queue-tenant',
     })
     const get = vi.fn().mockResolvedValue(run)
     const enqueue = vi.fn().mockResolvedValue(undefined)
@@ -84,10 +84,56 @@ describe('buildRunReEnqueuer', () => {
       runId: 'run-tenant',
       agentId: 'agent-tenant',
       input: { task: 'resume tenant run' },
-      metadata: { tenantId: 'tenant-a' },
-      tenantId: 'tenant-a',
+      metadata: { tenantId: 'metadata-tenant' },
+      tenantId: 'queue-tenant',
       priority: 0,
     })
+  })
+
+  it.each([
+    ['absent', undefined],
+    ['null', null],
+    ['empty', ''],
+  ] as const)('omits an %s top-level tenant from the queued job', async (_label, tenantId) => {
+    const run = makeRun({
+      id: 'run-without-tenant',
+      metadata: { tenantId: 'metadata-tenant' },
+      tenantId,
+    })
+    const get = vi.fn().mockResolvedValue(run)
+    const enqueue = vi.fn().mockResolvedValue(undefined)
+
+    const reEnqueue = buildRunReEnqueuer({
+      runStore: { get },
+      runQueue: { enqueue },
+    })
+
+    await reEnqueue('run-without-tenant')
+
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    expect(enqueue).toHaveBeenCalledWith({
+      runId: 'run-without-tenant',
+      agentId: 'agent-1',
+      input: { foo: 'bar' },
+      metadata: { tenantId: 'metadata-tenant' },
+      priority: 0,
+    })
+    expect(enqueue.mock.calls[0]?.[0]).not.toHaveProperty('tenantId')
+  })
+
+  it('propagates queue rejection to the reclaimer error boundary', async () => {
+    const queueError = new Error('queue unavailable')
+    const run = makeRun({ id: 'run-queue-error', tenantId: 'queue-tenant' })
+    const get = vi.fn().mockResolvedValue(run)
+    const enqueue = vi.fn().mockRejectedValue(queueError)
+
+    const reEnqueue = buildRunReEnqueuer({
+      runStore: { get },
+      runQueue: { enqueue },
+    })
+
+    await expect(reEnqueue('run-queue-error')).rejects.toBe(queueError)
+    expect(enqueue).toHaveBeenCalledTimes(1)
   })
 
   it('skips (no enqueue, no throw) when the run is not found', async () => {
