@@ -137,7 +137,7 @@ export const COLLAB_REVIEW_LOOP_V2_SCHEMA: Record<string, unknown> = {
     "terminals",
   ],
   properties: {
-    id: { type: "string", pattern: IDENTIFIER.source },
+    id: { type: "string", pattern: STATE_KEY.source },
     identity: {
       type: "object",
       additionalProperties: false,
@@ -440,7 +440,7 @@ function assertReviewLoopV2(raw: unknown): asserts raw is ReviewLoopV2Input {
     ],
     "input",
   );
-  requiredString(raw, "id", "input", IDENTIFIER);
+  requiredString(raw, "id", "input", STATE_KEY);
   assertIdentity(raw.identity);
   assertActor(raw.implementer, "implementer");
   assertActor(raw.reviewer, "reviewer");

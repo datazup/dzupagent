@@ -1,5 +1,7 @@
 import {
   checkOutputKeyUniqueness,
+  resolveFlowConditionExpression,
+  resolveFlowTemplateExpression,
   type FlowNode,
 } from "@dzupagent/flow-ast";
 import { describe, expect, it } from "vitest";
@@ -225,6 +227,67 @@ describe("collab.review_loop@2", () => {
     expect(new Set(outputKeys).size).toBe(outputKeys.length);
   });
 
+  it("keeps every generated state key inside the runtime-resolvable expression subset", () => {
+    const parsed = parseDslToDocument(VALID_V2);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+
+    const nodes = flattenNodes(parsed.document.root);
+    const outputNodes = nodes.filter((node) =>
+      node.type === "adapter.run" ||
+      node.type === "evidence.write" ||
+      node.type === "validate.schema"
+    );
+    const outputKeys = outputNodes.map((node) => node.output);
+    expect(outputKeys).toEqual([
+      "packet_implementer_output",
+      "packet_candidate_evidence",
+      "packet_reviewer_output",
+      "packet_reviewer_schema_validation",
+    ]);
+    expect(outputKeys.every((key) => /^[A-Za-z][A-Za-z0-9_]*$/.test(key))).toBe(true);
+
+    const implementerOutput = { result: "candidate_submitted" };
+    const candidateEvidence = { digest: "candidate-digest" };
+    const reviewerOutput = { verdict: "accept" };
+    const state = {
+      packet_implementer_output: implementerOutput,
+      packet_candidate_evidence: candidateEvidence,
+      packet_reviewer_output: reviewerOutput,
+      packet_reviewer_schema_validation: { valid: true },
+    };
+
+    const evidenceWrite = nodes.find((node) => node.type === "evidence.write");
+    expect(evidenceWrite?.source).toBe("{{ state.packet_implementer_output }}");
+    expect(resolveFlowTemplateExpression(evidenceWrite?.source ?? "", state)).toBe(
+      implementerOutput,
+    );
+
+    const reviewer = nodes.filter((node) => node.type === "adapter.run")[1];
+    const reviewerInput = reviewer?.input as Record<string, unknown> | undefined;
+    const reviewerEvidence = reviewerInput?.evidence as
+      | Record<string, unknown>
+      | undefined;
+    const reviewerCandidate = reviewerEvidence?.candidate;
+    expect(reviewerCandidate).toBe("{{ state.packet_candidate_evidence }}");
+    expect(resolveFlowTemplateExpression(String(reviewerCandidate), state)).toBe(
+      candidateEvidence,
+    );
+
+    const schemaValidation = nodes.find((node) => node.type === "validate.schema");
+    expect(schemaValidation?.source).toBe("{{ state.packet_reviewer_output }}");
+    expect(resolveFlowTemplateExpression(schemaValidation?.source ?? "", state)).toBe(
+      reviewerOutput,
+    );
+
+    const conditions = nodes
+      .filter((node) => node.type === "branch" || node.type === "return_to")
+      .map((node) => node.condition);
+    expect(conditions.map((condition) =>
+      resolveFlowConditionExpression(condition, state)
+    )).toEqual([true, false, false, false, false, false]);
+  });
+
   it("binds explicit actors, schemas, evidence, validation, and bounded revision", () => {
     const parsed = parseDslToDocument(VALID_V2);
     expect(parsed.ok).toBe(true);
@@ -312,6 +375,11 @@ describe("collab.review_loop@2", () => {
   });
 
   it.each([
+    [
+      "dotted macro id that would create ambiguous state paths",
+      () => ({ ...validInput(), id: "packet.review" }),
+      /input\.id is invalid/,
+    ],
     [
       "malformed identity",
       () => ({
