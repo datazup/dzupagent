@@ -8,6 +8,9 @@ import { createHash } from 'node:crypto'
 export const RESOURCE_POLICY_VERSION = 'v1' as const
 export type ResourcePolicyVersion = typeof RESOURCE_POLICY_VERSION
 
+/** Canonical UTC ISO 8601 timestamp with exactly millisecond precision. */
+export type UtcTimestamp = string
+
 /**
  * Provider endpoint grant — label only, no raw URLs or credentials.
  */
@@ -24,6 +27,16 @@ export interface EgressGrant {
 export interface ResourcePolicy {
   version: ResourcePolicyVersion
   policyId: string
+  /**
+   * Time at which this policy was issued, in canonical UTC ISO 8601 form
+   * (`YYYY-MM-DDTHH:mm:ss.sssZ`). Must be paired with `expiresAt`.
+   */
+  issuedAt?: UtcTimestamp
+  /**
+   * Exclusive policy expiration time, in canonical UTC ISO 8601 form.
+   * Must be paired with `issuedAt` and later than it.
+   */
+  expiresAt?: UtcTimestamp
   /** CPU shares relative to 1024 (Linux cgroups cpu.shares). Absent = uncapped. */
   cpuShares?: number
   /** Memory limit in MiB. Absent = uncapped. */
@@ -139,6 +152,20 @@ export interface PolicyValidationResult {
   errors: string[]
 }
 
+/** Deterministic time input for strict policy validation at claim time. */
+export interface PolicyClaimValidationInput {
+  claimedAt: UtcTimestamp
+}
+
+const CANONICAL_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+
+function parseCanonicalUtcTimestamp(value: unknown): number | undefined {
+  if (typeof value !== 'string' || !CANONICAL_UTC_TIMESTAMP.test(value)) return undefined
+  const timestamp = Date.parse(value)
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString() !== value) return undefined
+  return timestamp
+}
+
 export function validateResourcePolicy(value: unknown): PolicyValidationResult {
   const errors: string[] = []
   if (value === null || typeof value !== 'object') {
@@ -148,6 +175,24 @@ export function validateResourcePolicy(value: unknown): PolicyValidationResult {
   if (p['version'] !== RESOURCE_POLICY_VERSION) errors.push(`version must be "${RESOURCE_POLICY_VERSION}"`)
   if (typeof p['policyId'] !== 'string' || p['policyId'].length === 0)
     errors.push('policyId must be a non-empty string')
+
+  const hasIssuedAt = p['issuedAt'] !== undefined
+  const hasExpiresAt = p['expiresAt'] !== undefined
+  const issuedAt = hasIssuedAt ? parseCanonicalUtcTimestamp(p['issuedAt']) : undefined
+  const expiresAt = hasExpiresAt ? parseCanonicalUtcTimestamp(p['expiresAt']) : undefined
+  if (hasIssuedAt !== hasExpiresAt) {
+    errors.push('issuedAt and expiresAt must either both be present or both be absent')
+  }
+  if (hasIssuedAt && issuedAt === undefined) {
+    errors.push('issuedAt must be a canonical UTC timestamp (YYYY-MM-DDTHH:mm:ss.sssZ)')
+  }
+  if (hasExpiresAt && expiresAt === undefined) {
+    errors.push('expiresAt must be a canonical UTC timestamp (YYYY-MM-DDTHH:mm:ss.sssZ)')
+  }
+  if (issuedAt !== undefined && expiresAt !== undefined && expiresAt <= issuedAt) {
+    errors.push('policy validity must be positive: expiresAt must be later than issuedAt')
+  }
+
   if (typeof p['wallTimeSec'] !== 'number' || !Number.isFinite(p['wallTimeSec']) || p['wallTimeSec'] <= 0) {
     errors.push('wallTimeSec must be a positive finite number')
   }
@@ -212,6 +257,48 @@ export function validateSignedExecutionPolicy(value: unknown): PolicyValidationR
       errors.push('signature verification failed')
     }
   }
+  return { valid: errors.length === 0, errors }
+}
+
+/**
+ * Strictly validates a signed policy for a claim made at a caller-supplied time.
+ *
+ * Unlike structural validation, this fails closed when a legacy v1 policy has
+ * no temporal fields. `expiresAt` is exclusive: a claim exactly at expiration
+ * is rejected.
+ */
+export function validateSignedExecutionPolicyForClaim(
+  value: unknown,
+  input: PolicyClaimValidationInput,
+): PolicyValidationResult {
+  const signedResult = validateSignedExecutionPolicy(value)
+  const errors = [...signedResult.errors]
+  const claimedAt = parseCanonicalUtcTimestamp(input.claimedAt)
+
+  if (claimedAt === undefined) {
+    errors.push('claimedAt must be a canonical UTC timestamp (YYYY-MM-DDTHH:mm:ss.sssZ)')
+  }
+
+  if (value !== null && typeof value === 'object') {
+    const policy = (value as Record<string, unknown>)['policy']
+    if (policy !== null && typeof policy === 'object') {
+      const resourcePolicy = policy as Record<string, unknown>
+      const issuedAt = parseCanonicalUtcTimestamp(resourcePolicy['issuedAt'])
+      const expiresAt = parseCanonicalUtcTimestamp(resourcePolicy['expiresAt'])
+
+      if (resourcePolicy['issuedAt'] === undefined || resourcePolicy['expiresAt'] === undefined) {
+        errors.push('issuedAt and expiresAt are required for claim-time validation')
+      } else if (claimedAt !== undefined && issuedAt !== undefined && expiresAt !== undefined) {
+        if (claimedAt < issuedAt) {
+          errors.push('policy is not valid before issuedAt')
+        }
+        if (claimedAt >= expiresAt) {
+          errors.push('policy is expired at claimedAt (expiresAt is exclusive)')
+        }
+      }
+    }
+  }
+
   return { valid: errors.length === 0, errors }
 }
 
