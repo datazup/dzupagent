@@ -102,6 +102,44 @@ export const DEFAULT_CHUNKING_CONFIG: ChunkingConfig = {
   respectBoundaries: true,
 };
 
+const DEFAULT_MAX_SECTION_LINES = 120;
+const DEFAULT_WINDOW_OVERLAP_LINES = 12;
+const DEFAULT_MAX_CHUNK_CHARS = 7_000;
+
+interface HeadingSection {
+  heading: string | null;
+  lines: HeadingSectionLine[];
+}
+
+interface HeadingSectionLine {
+  text: string;
+  number: number;
+}
+
+/** Split markdown into sections at ATX headings (#, ##, ...). */
+function splitByHeadings(content: string): HeadingSection[] {
+  const lines = content.split("\n");
+  const sections: HeadingSection[] = [];
+  let current: HeadingSection = { heading: null, lines: [] };
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    const lineNumber = index + 1;
+    const m = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (m) {
+      if (current.lines.length > 0 || current.heading !== null) {
+        sections.push(current);
+      }
+      current = { heading: m[2]!.trim(), lines: [] };
+    } else {
+      current.lines.push({ text: line, number: lineNumber });
+    }
+  }
+  if (current.lines.length > 0 || current.heading !== null) {
+    sections.push(current);
+  }
+  return sections.length > 0 ? sections : [{ heading: null, lines: [] }];
+}
+
 // ---------------------------------------------------------------------------
 // SmartChunker
 // ---------------------------------------------------------------------------
@@ -126,6 +164,10 @@ export class SmartChunker {
    */
   chunkText(text: string, sourceId: string): ChunkResult[] {
     if (!text || text.trim().length === 0) return [];
+
+    if (this.config.splitStrategy === "markdown-heading") {
+      return this.chunkByHeadings(text, sourceId);
+    }
 
     const { targetTokens, overlapFraction, respectBoundaries } = this.config;
     const targetChars = targetTokens * 4;
@@ -364,5 +406,146 @@ export class SmartChunker {
       position: bestBreak,
       boundaryType: bestBreak > 0 ? "sentence" : "token",
     };
+  }
+
+  /**
+   * Markdown-heading-primary strategy: split into heading-bounded sections
+   * (natural doc structure) first, then window any section that overflows
+   * `maxSectionLines`/`maxChunkChars`. Each chunk is optionally prefixed with
+   * a context line via `config.contextPrefix`. Mirrors the line-tracking,
+   * empty-section-drop, and long-line-splitting behavior a docs corpus needs.
+   */
+  private chunkByHeadings(text: string, sourceId: string): ChunkResult[] {
+    const maxSectionLines =
+      this.config.maxSectionLines ?? DEFAULT_MAX_SECTION_LINES;
+    const windowOverlapLines =
+      this.config.windowOverlapLines ?? DEFAULT_WINDOW_OVERLAP_LINES;
+    const maxChunkChars = this.config.maxChunkChars ?? DEFAULT_MAX_CHUNK_CHARS;
+
+    const sections = splitByHeadings(text);
+    const results: ChunkResult[] = [];
+    let chunkIndex = 0;
+    let charOffset = 0;
+
+    // First pass: materialize raw chunks so we know totalChunks for quality
+    // scoring (position penalty looks at the last chunk overall).
+    const raw: Array<{
+      heading: string | null;
+      body: string;
+      lineStart: number;
+      lineEnd: number;
+      startOffset: number;
+      endOffset: number;
+    }> = [];
+
+    for (const section of sections) {
+      for (const window of this.windowLines(
+        section.lines,
+        maxSectionLines,
+        windowOverlapLines,
+        maxChunkChars
+      )) {
+        const body = window
+          .map((line) => line.text)
+          .join("\n")
+          .trim();
+        if (body.length === 0) continue;
+        const contentLines = window.filter(
+          (line) => line.text.trim().length > 0
+        );
+        const firstLine = contentLines[0] ?? window[0];
+        const lastLine = contentLines[contentLines.length - 1] ?? window.at(-1);
+        const startOffset = charOffset;
+        const endOffset = startOffset + body.length;
+        charOffset = endOffset;
+        raw.push({
+          heading: section.heading,
+          body,
+          lineStart: firstLine?.number ?? 1,
+          lineEnd: lastLine?.number ?? firstLine?.number ?? 1,
+          startOffset,
+          endOffset,
+        });
+      }
+    }
+
+    const totalChunks = raw.length;
+    for (const entry of raw) {
+      const contextPrefix = this.config.contextPrefix
+        ? this.config.contextPrefix(entry.heading)
+        : "";
+      const chunkText = `${contextPrefix}${entry.body}`;
+      const quality = this.computeChunkQuality(
+        entry.body,
+        chunkIndex,
+        totalChunks
+      );
+      results.push({
+        id: uuidFromSeed(`${sourceId}:${chunkIndex}`),
+        text: chunkText,
+        rawBody: entry.body,
+        tokenCount: estimateTokens(chunkText),
+        quality: quality.overallScore,
+        metadata: {
+          sourceId,
+          chunkIndex,
+          startOffset: entry.startOffset,
+          endOffset: entry.endOffset,
+          boundaryType: "header",
+          heading: entry.heading,
+          lineStart: entry.lineStart,
+          lineEnd: entry.lineEnd,
+        },
+      });
+      chunkIndex += 1;
+    }
+
+    return results;
+  }
+
+  /** Window a long section into overlapping line ranges. */
+  private windowLines(
+    lines: HeadingSectionLine[],
+    maxSectionLines: number,
+    windowOverlapLines: number,
+    maxChunkChars: number
+  ): HeadingSectionLine[][] {
+    const boundedLines = lines.flatMap((line) => {
+      if (line.text.length <= maxChunkChars) return [line];
+      const segments: HeadingSectionLine[] = [];
+      for (let offset = 0; offset < line.text.length; offset += maxChunkChars) {
+        segments.push({
+          text: line.text.slice(offset, offset + maxChunkChars),
+          number: line.number,
+        });
+      }
+      return segments;
+    });
+
+    const out: HeadingSectionLine[][] = [];
+    let start = 0;
+    while (start < boundedLines.length) {
+      const window: HeadingSectionLine[] = [];
+      let bodyChars = 0;
+      while (start + window.length < boundedLines.length) {
+        const line = boundedLines[start + window.length]!;
+        const separatorChars = window.length === 0 ? 0 : 1;
+        if (
+          window.length > 0 &&
+          (window.length >= maxSectionLines ||
+            bodyChars + separatorChars + line.text.length > maxChunkChars)
+        ) {
+          break;
+        }
+        window.push(line);
+        bodyChars += separatorChars + line.text.length;
+      }
+      out.push(window);
+      const endedAtLineLimit = window.length >= maxSectionLines;
+      start += endedAtLineLimit
+        ? Math.max(1, window.length - windowOverlapLines)
+        : window.length;
+    }
+    return out;
   }
 }

@@ -35,6 +35,27 @@ export interface ChunkingConfig {
   overlapFraction: number
   /** Respect markdown headers and paragraph boundaries (default true) */
   respectBoundaries: boolean
+  /**
+   * Splitting strategy (default 'token'):
+   * - 'token': sliding token-window with boundary snapping (original behavior)
+   * - 'markdown-heading': split primarily on ATX headings (#, ##, ...), then
+   *   window any section that exceeds `maxSectionLines`/`maxChunkChars`. Each
+   *   resulting chunk's `metadata.heading`/`lineStart`/`lineEnd` are populated.
+   */
+  splitStrategy?: 'token' | 'markdown-heading'
+  /** Max lines per heading section before windowing (markdown-heading only, default 120) */
+  maxSectionLines?: number
+  /** Overlap lines between windows once a section exceeds maxSectionLines (default 12) */
+  windowOverlapLines?: number
+  /** Max characters per chunk body, reserving room for the context prefix (markdown-heading only, default 7000) */
+  maxChunkChars?: number
+  /**
+   * Optional context-prefix builder (markdown-heading only). Given the
+   * resolved heading (or `null`), returns a line prepended to the chunk's
+   * embedding text — e.g. `// <repo> › <heading>\n`. The raw, unprefixed body
+   * is still available via `ChunkResult.rawBody`.
+   */
+  contextPrefix?: (heading: string | null) => string
 }
 
 /** Configuration for the embedding provider */
@@ -83,8 +104,13 @@ export interface RetrievalConfig {
 export interface ChunkResult {
   /** Unique chunk identifier */
   id: string
-  /** The chunk text content */
+  /** The chunk text content (includes the context prefix, if configured) */
   text: string
+  /**
+   * Raw chunk body without the context prefix (markdown-heading strategy
+   * only). Equal to `text` when no `contextPrefix` is configured.
+   */
+  rawBody?: string
   /** Estimated token count */
   tokenCount: number
   /** Quality score from 0 to 1 */
@@ -105,6 +131,12 @@ export interface ChunkMetadata {
   endOffset: number
   /** Type of boundary used to split at this point */
   boundaryType: 'header' | 'paragraph' | 'sentence' | 'token'
+  /** Resolved markdown heading for this chunk (markdown-heading strategy only) */
+  heading?: string | null
+  /** 1-based source line where this chunk starts (markdown-heading strategy only) */
+  lineStart?: number
+  /** 1-based source line where this chunk ends (markdown-heading strategy only) */
+  lineEnd?: number
 }
 
 // ---------------------------------------------------------------------------
