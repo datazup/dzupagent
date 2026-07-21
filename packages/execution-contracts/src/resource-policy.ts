@@ -6,7 +6,10 @@ import { createHash } from 'node:crypto'
  */
 
 export const RESOURCE_POLICY_VERSION = 'v1' as const
-export type ResourcePolicyVersion = typeof RESOURCE_POLICY_VERSION
+export const TEMPORAL_RESOURCE_POLICY_VERSION = 'v2' as const
+export type ResourcePolicyVersion =
+  | typeof RESOURCE_POLICY_VERSION
+  | typeof TEMPORAL_RESOURCE_POLICY_VERSION
 
 /**
  * Provider endpoint grant — label only, no raw URLs or credentials.
@@ -21,8 +24,7 @@ export interface EgressGrant {
 /**
  * Versioned resource quota and egress grants for one execution scope.
  */
-export interface ResourcePolicy {
-  version: ResourcePolicyVersion
+interface ResourcePolicyBase {
   policyId: string
   /** CPU shares relative to 1024 (Linux cgroups cpu.shares). Absent = uncapped. */
   cpuShares?: number
@@ -37,6 +39,24 @@ export interface ResourcePolicy {
   /** Explicit egress grants; all other traffic is denied. */
   egressGrants: EgressGrant[]
 }
+
+/** Original resource policy. Its structural and integrity behavior is retained. */
+export interface ResourcePolicyV1 extends ResourcePolicyBase {
+  version: typeof RESOURCE_POLICY_VERSION
+}
+
+/**
+ * Resource policy with signed temporal validity.
+ * Timestamps are canonical UTC RFC 3339 strings and are independent of the
+ * execution quota in wallTimeSec.
+ */
+export interface ResourcePolicyV2 extends ResourcePolicyBase {
+  version: typeof TEMPORAL_RESOURCE_POLICY_VERSION
+  issuedAt: string
+  expiresAt: string
+}
+
+export type ResourcePolicy = ResourcePolicyV1 | ResourcePolicyV2
 
 export interface CatalogEntry {
   /** Absolute binary name or path (e.g. 'git', 'node', 'yarn'). */
@@ -139,13 +159,33 @@ export interface PolicyValidationResult {
   errors: string[]
 }
 
+export interface TemporalPolicyValidationOptions {
+  /** Trusted caller-owned clock value; dispatch metadata is not time authority. */
+  trustedNowMs: number
+  /** Explicit non-negative clock-skew allowance. */
+  clockSkewMs: number
+}
+
+function parseCanonicalUtcTimestamp(value: unknown): number | undefined {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    return undefined
+  }
+  const timestampMs = Date.parse(value)
+  if (!Number.isFinite(timestampMs)) return undefined
+  return new Date(timestampMs).toISOString() === value ? timestampMs : undefined
+}
+
 export function validateResourcePolicy(value: unknown): PolicyValidationResult {
   const errors: string[] = []
   if (value === null || typeof value !== 'object') {
     return { valid: false, errors: ['ResourcePolicy must be an object'] }
   }
   const p = value as Record<string, unknown>
-  if (p['version'] !== RESOURCE_POLICY_VERSION) errors.push(`version must be "${RESOURCE_POLICY_VERSION}"`)
+  const isV1 = p['version'] === RESOURCE_POLICY_VERSION
+  const isV2 = p['version'] === TEMPORAL_RESOURCE_POLICY_VERSION
+  if (!isV1 && !isV2) {
+    errors.push(`version must be "${RESOURCE_POLICY_VERSION}" or "${TEMPORAL_RESOURCE_POLICY_VERSION}"`)
+  }
   if (typeof p['policyId'] !== 'string' || p['policyId'].length === 0)
     errors.push('policyId must be a non-empty string')
   if (typeof p['wallTimeSec'] !== 'number' || !Number.isFinite(p['wallTimeSec']) || p['wallTimeSec'] <= 0) {
@@ -187,6 +227,15 @@ export function validateResourcePolicy(value: unknown): PolicyValidationResult {
       }
     }
   }
+  if (isV2) {
+    const issuedAtMs = parseCanonicalUtcTimestamp(p['issuedAt'])
+    const expiresAtMs = parseCanonicalUtcTimestamp(p['expiresAt'])
+    if (issuedAtMs === undefined) errors.push('issuedAt must be a canonical UTC RFC 3339 timestamp')
+    if (expiresAtMs === undefined) errors.push('expiresAt must be a canonical UTC RFC 3339 timestamp')
+    if (issuedAtMs !== undefined && expiresAtMs !== undefined && expiresAtMs <= issuedAtMs) {
+      errors.push('expiresAt must be later than issuedAt')
+    }
+  }
   return { valid: errors.length === 0, errors }
 }
 
@@ -215,16 +264,79 @@ export function validateSignedExecutionPolicy(value: unknown): PolicyValidationR
   return { valid: errors.length === 0, errors }
 }
 
+/**
+ * Validate a v2 signed policy against a caller-supplied trusted clock.
+ * The adjusted expiry boundary is exclusive: equality is expired.
+ */
+export function validateTemporallyValidSignedExecutionPolicy(
+  value: unknown,
+  options: TemporalPolicyValidationOptions,
+): PolicyValidationResult {
+  const signedResult = validateSignedExecutionPolicy(value)
+  const errors = [...signedResult.errors]
+  const record = value !== null && typeof value === 'object' ? (value as Record<string, unknown>) : undefined
+  const policy = record?.['policy']
+  const policyRecord = policy !== null && typeof policy === 'object' ? (policy as Record<string, unknown>) : undefined
+
+  if (policyRecord?.['version'] !== TEMPORAL_RESOURCE_POLICY_VERSION) {
+    errors.push(`temporal validation requires policy version "${TEMPORAL_RESOURCE_POLICY_VERSION}"`)
+  }
+
+  const trustedNowMs = options?.trustedNowMs
+  const clockSkewMs = options?.clockSkewMs
+  if (typeof trustedNowMs !== 'number' || !Number.isFinite(trustedNowMs)) {
+    errors.push('trustedNowMs must be a finite number')
+  }
+  if (typeof clockSkewMs !== 'number' || !Number.isFinite(clockSkewMs) || clockSkewMs < 0) {
+    errors.push('clockSkewMs must be a non-negative finite number')
+  }
+
+  const issuedAtMs = parseCanonicalUtcTimestamp(policyRecord?.['issuedAt'])
+  const expiresAtMs = parseCanonicalUtcTimestamp(policyRecord?.['expiresAt'])
+  if (
+    issuedAtMs !== undefined &&
+    expiresAtMs !== undefined &&
+    typeof trustedNowMs === 'number' &&
+    Number.isFinite(trustedNowMs) &&
+    typeof clockSkewMs === 'number' &&
+    Number.isFinite(clockSkewMs) &&
+    clockSkewMs >= 0
+  ) {
+    if (issuedAtMs > trustedNowMs + clockSkewMs) {
+      errors.push('policy is not yet valid')
+    }
+    if (expiresAtMs <= trustedNowMs - clockSkewMs) {
+      errors.push('policy is expired')
+    }
+  }
+
+  return { valid: errors.length === 0, errors }
+}
+
 // ---------------------------------------------------------------------------
 // Default minimal policy (permissive, for bootstrapping)
 // ---------------------------------------------------------------------------
 
-export function createDefaultResourcePolicy(overrides?: Partial<ResourcePolicy>): ResourcePolicy {
+export function createDefaultResourcePolicy(overrides?: Partial<ResourcePolicyV1>): ResourcePolicyV1 {
   return {
     version: RESOURCE_POLICY_VERSION,
     policyId: 'default',
     wallTimeSec: 3600,
     egressGrants: [],
+    ...overrides,
+  }
+}
+
+export function createTemporalResourcePolicy(
+  validity: Pick<ResourcePolicyV2, 'issuedAt' | 'expiresAt'>,
+  overrides?: Partial<Omit<ResourcePolicyV2, 'version' | 'issuedAt' | 'expiresAt'>>,
+): ResourcePolicyV2 {
+  return {
+    version: TEMPORAL_RESOURCE_POLICY_VERSION,
+    policyId: 'default',
+    wallTimeSec: 3600,
+    egressGrants: [],
+    ...validity,
     ...overrides,
   }
 }
