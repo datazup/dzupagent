@@ -7,14 +7,14 @@ import {
   validateResourcePolicy,
   validateSignedExecutionPolicy,
   validateSignedExecutionPolicyForClaim,
-  type ResourcePolicy,
+  type ResourcePolicyV1,
 } from "../index.js";
 
 const ISSUED_AT = "2026-07-19T10:00:00.000Z";
 const EXPIRES_AT = "2026-07-19T10:05:00.000Z";
 const CLAIMED_AT = "2026-07-19T10:02:00.000Z";
 
-function temporalPolicy(overrides: Partial<ResourcePolicy> = {}) {
+function temporalPolicy(overrides: Partial<ResourcePolicyV1> = {}) {
   const catalog = buildCommandCatalog([
     { binary: "node", workdirPolicy: "checkout-only" },
   ]);
