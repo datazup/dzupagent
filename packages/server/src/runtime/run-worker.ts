@@ -35,6 +35,32 @@ export type {
 import type { StartRunWorkerOptions } from "./run-worker-types.js";
 
 /**
+ * DZUPAGENT-ERR-M-09: structured warn logger for the worker-fleet lifecycle
+ * (register / heartbeat / reap). These calls are intentionally non-fatal —
+ * the worker keeps processing jobs even when the registry is unreachable — but
+ * silent failure is dangerous: a missed heartbeat lets peer reapers mark this
+ * live node expired and redistribute its in-flight jobs (double execution), a
+ * failed reap lets dead workers accumulate and stall the queue, and a failed
+ * registration leaves the node invisible in the fleet. Emit a single-line
+ * structured JSON to stderr (same shape as `logRouteError` in
+ * `routes/route-error.ts`) so on-call log shippers surface these events.
+ */
+function logFleetWarn(
+  operation: "fleet.register" | "fleet.heartbeat" | "fleet.reap",
+  workerId: string,
+  err: unknown
+): void {
+  const entry = {
+    level: "warn",
+    operation,
+    workerId,
+    error: err instanceof Error ? err.message : String(err),
+    timestamp: new Date().toISOString(),
+  };
+  console.error(JSON.stringify(entry));
+}
+
+/**
  * Start the queue worker that transitions queued runs to terminal states.
  */
 export function startRunWorker(options: StartRunWorkerOptions): void {
@@ -81,13 +107,18 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
           tenantScope,
         });
       })
-      .catch(() => {
-        // Registration failure is non-fatal — the worker still processes jobs.
+      .catch((err) => {
+        // Registration failure is non-fatal — the worker still processes jobs
+        // — but must be observable: an unregistered node is invisible to the
+        // fleet while it silently pulls jobs.
+        logFleetWarn("fleet.register", fleet.workerId, err);
       });
     heartbeatTimer = setInterval(() => {
       void fleet.store
         .heartbeat(fleet.workerId, inFlight, Date.now())
-        .catch(() => {});
+        .catch((err) => {
+          logFleetWarn("fleet.heartbeat", fleet.workerId, err);
+        });
     }, fleet.heartbeatMs ?? 5_000);
     if (typeof heartbeatTimer.unref === "function") heartbeatTimer.unref();
     reaperTimer = setInterval(() => {
@@ -102,7 +133,9 @@ export function startRunWorker(options: StartRunWorkerOptions): void {
             });
           }
         })
-        .catch(() => {});
+        .catch((err) => {
+          logFleetWarn("fleet.reap", fleet.workerId, err);
+        });
     }, fleet.reaperMs ?? 30_000);
     if (typeof reaperTimer.unref === "function") reaperTimer.unref();
     fleet.onStop?.(async () => {

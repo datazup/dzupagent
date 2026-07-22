@@ -9,6 +9,7 @@
  */
 
 import type { PipelineNode, PipelineEdge } from "@dzupagent/core/pipeline";
+import { defaultLogger } from "@dzupagent/core/utils";
 import type {
   NodeResult,
   PipelineRunResult,
@@ -74,7 +75,7 @@ export interface StandardNodeDispatchInput {
 }
 
 export async function dispatchStandardNode(
-  input: StandardNodeDispatchInput,
+  input: StandardNodeDispatchInput
 ): Promise<StandardNodeOutcome> {
   const {
     config,
@@ -135,10 +136,21 @@ export async function dispatchStandardNode(
         node.id,
         idempotencyKey,
         runId,
-        Date.now(),
+        Date.now()
       );
-    } catch {
-      // Ledger unavailability is non-fatal: fall through to normal execution.
+    } catch (err) {
+      // Ledger unavailability is non-fatal for liveness, but it disables the
+      // exactly-once safety net for this node: a retried run can now
+      // double-execute a side-effecting node (duplicate payment/email). Surface
+      // the degradation loudly BEFORE falling through so it is diagnosable in
+      // real time rather than only after the fact.
+      defaultLogger.warn("[pipeline] node ledger begin failed — degrading", {
+        operation: "node.ledger.begin",
+        runId,
+        nodeId: node.id,
+        error: String(err),
+        effect: "idempotency_disabled_for_node",
+      });
       begin = { kind: "lease", lease: { owner: runId, fenceToken: 0 } };
     }
     if (begin.kind === "replay") {
@@ -158,7 +170,7 @@ export async function dispatchStandardNode(
         node.id,
         outgoingEdges,
         config.predicates,
-        runState,
+        runState
       );
       return { kind: "continue", nextNodeId: nextIds[0] };
     }
@@ -183,7 +195,7 @@ export async function dispatchStandardNode(
       node.id,
       ledgerLease.owner,
       ledgerLease.fenceToken,
-      config.signal,
+      config.signal
     );
     nodeSignal = heartbeat.signal;
   }
@@ -211,7 +223,7 @@ export async function dispatchStandardNode(
           idempotencyKey,
           ledgerLease,
           finalResult.error,
-          true,
+          true
         );
       }
       if (span) config.tracer?.endSpanWithError(span, finalResult.error);
@@ -223,14 +235,14 @@ export async function dispatchStandardNode(
         emit,
         node.id,
         finalResult.error,
-        context,
+        context
       );
       if (stuckAbort) return fail(stuckAbort);
 
       const errorNext = getErrorTarget(
         node.id,
         errorEdges,
-        extractErrorCode(finalResult.error),
+        extractErrorCode(finalResult.error)
       );
       if (errorNext) return { kind: "continue", nextNodeId: errorNext };
 
@@ -241,7 +253,7 @@ export async function dispatchStandardNode(
         node.id,
         node.type,
         finalResult.error,
-        runId,
+        runId
       );
       if (recovered) {
         nodeResults.delete(node.id);
@@ -267,11 +279,11 @@ export async function dispatchStandardNode(
         idempotencyKey,
         ledgerLease,
         finalResult.output,
-        finalResult.durationMs,
+        finalResult.durationMs
       );
       if (!committed) {
         return fail(
-          `node "${node.id}" lease lost during execution (fenced out)`,
+          `node "${node.id}" lease lost during execution (fenced out)`
         );
       }
     }
@@ -290,7 +302,7 @@ export async function dispatchStandardNode(
       emit,
       node.id,
       finalResult,
-      context,
+      context
     );
     if (stuckAbort) return fail(stuckAbort);
 
@@ -301,7 +313,7 @@ export async function dispatchStandardNode(
       budgetTracker,
       node.id,
       finalResult,
-      completedNodeIds.length,
+      completedNodeIds.length
     );
 
     completedNodeIds.push(node.id);
@@ -312,7 +324,7 @@ export async function dispatchStandardNode(
       node.id,
       outgoingEdges,
       config.predicates,
-      runState,
+      runState
     );
     return { kind: "continue", nextNodeId: nextIds[0] };
   } catch (err) {
@@ -330,7 +342,7 @@ export async function dispatchStandardNode(
     const errorNext = getErrorTarget(
       node.id,
       errorEdges,
-      extractErrorCode(err),
+      extractErrorCode(err)
     );
     if (errorNext) return { kind: "continue", nextNodeId: errorNext };
 
@@ -341,7 +353,7 @@ export async function dispatchStandardNode(
       node.id,
       node.type,
       errorMessage,
-      runId,
+      runId
     );
     if (recovered) {
       nodeResults.delete(node.id);
