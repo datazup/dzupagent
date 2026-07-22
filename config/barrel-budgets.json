@@ -259,7 +259,6 @@
       "maxRootIndexLines": 12,
       "maxFileLines": 500,
       "fileLineAllowlist": [
-        "src/format-dsl.ts",
         "src/normalize-nodes-agent.ts",
         "src/normalize-nodes-spawn-emit-memory.ts",
         "src/primitives/collab-review-loop-v2.ts"

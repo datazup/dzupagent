@@ -1,4 +1,15 @@
 import type { FlowDocumentV1, FlowNode } from "@dzupagent/flow-ast";
+import {
+  formatScalar,
+  pushField,
+  quote,
+  type FormatContext,
+} from "./format-nodes/format-helpers.js";
+import { formatStructuralNode } from "./format-nodes/format-structural-nodes.js";
+import { formatInteractionNode } from "./format-nodes/format-interaction-nodes.js";
+import { formatAgentNode } from "./format-nodes/format-agent-nodes.js";
+import { formatFleetNode } from "./format-nodes/format-fleet-nodes.js";
+import { formatSpddNode } from "./format-nodes/format-spdd-nodes.js";
 
 export function formatDocumentToDsl(document: FlowDocumentV1): string {
   const lines: string[] = [];
@@ -68,680 +79,83 @@ export function formatDocumentToDsl(document: FlowDocumentV1): string {
   return lines.join("\n");
 }
 
+/**
+ * Route a single flow node to the formatter for its category. Recursion into
+ * child nodes is threaded through the {@link FormatContext} so leaf modules do
+ * not import this coordinator (avoiding a circular import).
+ */
 function formatNode(
   lines: string[],
   node: FlowNode,
   indentLevel: number
 ): void {
-  const indent = "  ".repeat(indentLevel);
-  const childIndent = "  ".repeat(indentLevel + 2);
+  const ctx: FormatContext = { lines, formatNode };
   switch (node.type) {
     case "action":
-      lines.push(`${indent}- action:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}ref: ${node.toolRef}`);
-      if (node.personaRef)
-        lines.push(`${childIndent}persona: ${node.personaRef}`);
-      lines.push(`${childIndent}input:`);
-      for (const [key, value] of Object.entries(node.input)) {
-        lines.push(`${childIndent}  ${key}: ${formatScalar(value)}`);
-      }
-      return;
     case "branch":
-      lines.push(`${indent}- if:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}condition: ${quote(node.condition)}`);
-      lines.push(`${childIndent}then:`);
-      for (const child of node.then) formatNode(lines, child, indentLevel + 3);
-      if (node.else && node.else.length > 0) {
-        lines.push(`${childIndent}else:`);
-        for (const child of node.else)
-          formatNode(lines, child, indentLevel + 3);
-      }
-      return;
-    case "parallel": {
-      lines.push(`${indent}- parallel:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}branches:`);
-      const branchNames = Array.isArray(node.meta?.["branchNames"])
-        ? node.meta!["branchNames"].filter(
-            (value): value is string => typeof value === "string"
-          )
-        : [];
-      node.branches.forEach((branch, index) => {
-        const name = branchNames[index] ?? `branch_${index + 1}`;
-        lines.push(`${childIndent}  ${name}:`);
-        for (const child of branch) formatNode(lines, child, indentLevel + 4);
-      });
-      return;
-    }
+    case "parallel":
     case "for_each":
-      lines.push(`${indent}- for_each:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}source: ${quote(node.source)}`);
-      lines.push(`${childIndent}as: ${node.as}`);
-      lines.push(`${childIndent}body:`);
-      for (const child of node.body) formatNode(lines, child, indentLevel + 3);
+    case "sequence":
+    case "loop":
+    case "try_catch":
+    case "wait":
+    case "return_to":
+      formatStructuralNode(ctx, node, indentLevel);
       return;
     case "approval":
-      lines.push(`${indent}- approval:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}question: ${quote(node.question)}`);
-      if (node.options && node.options.length > 0) {
-        lines.push(
-          `${childIndent}options: [${node.options.map(quote).join(", ")}]`
-        );
-      }
-      lines.push(`${childIndent}on_approve:`);
-      for (const child of node.onApprove)
-        formatNode(lines, child, indentLevel + 3);
-      if (node.onReject && node.onReject.length > 0) {
-        lines.push(`${childIndent}on_reject:`);
-        for (const child of node.onReject)
-          formatNode(lines, child, indentLevel + 3);
-      }
-      return;
     case "clarification":
-      lines.push(`${indent}- clarify:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}question: ${quote(node.question)}`);
-      if (node.expected) lines.push(`${childIndent}expected: ${node.expected}`);
-      if (node.choices && node.choices.length > 0) {
-        lines.push(
-          `${childIndent}choices: [${node.choices.map(quote).join(", ")}]`
-        );
-      }
-      return;
     case "persona":
-      lines.push(`${indent}- persona:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}ref: ${node.personaId}`);
-      lines.push(`${childIndent}body:`);
-      for (const child of node.body) formatNode(lines, child, indentLevel + 3);
-      return;
     case "route":
-      lines.push(`${indent}- route:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}strategy: ${node.strategy}`);
-      if (node.provider) lines.push(`${childIndent}provider: ${node.provider}`);
-      if (node.tags && node.tags.length > 0) {
-        lines.push(`${childIndent}tags: [${node.tags.map(quote).join(", ")}]`);
-      }
-      lines.push(`${childIndent}body:`);
-      for (const child of node.body) formatNode(lines, child, indentLevel + 3);
-      return;
     case "complete":
-      lines.push(`${indent}- complete:`);
-      pushCommon(lines, node, indentLevel + 2);
-      if (node.result !== undefined)
-        lines.push(`${childIndent}result: ${quote(node.result)}`);
-      return;
-    case "sequence":
-      for (const child of node.nodes) formatNode(lines, child, indentLevel);
-      return;
     case "spawn":
-      lines.push(`${indent}- spawn:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}template: ${node.templateRef}`);
-      if (node.waitForCompletion !== undefined)
-        lines.push(`${childIndent}wait: ${node.waitForCompletion}`);
-      return;
     case "classify":
-      lines.push(`${indent}- classify:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}prompt: ${quote(node.prompt)}`);
-      lines.push(
-        `${childIndent}choices: [${node.choices.map(quote).join(", ")}]`
-      );
-      lines.push(`${childIndent}output: ${node.outputKey}`);
-      if (node.defaultChoice)
-        lines.push(`${childIndent}default: ${quote(node.defaultChoice)}`);
-      return;
     case "emit":
-      lines.push(`${indent}- emit:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}event: ${quote(node.event)}`);
-      if (node.payload && Object.keys(node.payload).length > 0) {
-        lines.push(`${childIndent}payload:`);
-        for (const [key, value] of Object.entries(node.payload)) {
-          lines.push(`${childIndent}  ${key}: ${formatScalar(value)}`);
-        }
-      }
-      return;
     case "memory":
-      lines.push(`${indent}- memory:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}operation: ${node.operation}`);
-      lines.push(`${childIndent}tier: ${node.tier}`);
-      if (node.key) lines.push(`${childIndent}key: ${quote(node.key)}`);
-      if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`);
-      return;
     case "set":
-      lines.push(`${indent}- set:`);
-      pushCommon(lines, node, indentLevel + 2);
-      if (Object.keys(node.assign).length > 0) {
-        lines.push(`${childIndent}assign:`);
-        for (const [key, value] of Object.entries(node.assign)) {
-          lines.push(`${childIndent}  ${key}: ${formatScalar(value)}`);
-        }
-      } else {
-        lines.push(`${childIndent}assign: {}`);
-      }
-      return;
     case "checkpoint":
-      lines.push(`${indent}- checkpoint:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(
-        `${childIndent}captureOutputOf: ${quote(node.captureOutputOf)}`
-      );
-      if (node.label !== undefined)
-        lines.push(`${childIndent}label: ${quote(node.label)}`);
-      return;
     case "restore":
-      lines.push(`${indent}- restore:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(
-        `${childIndent}checkpointLabel: ${quote(node.checkpointLabel)}`
-      );
-      if (node.onNotFound !== undefined)
-        lines.push(`${childIndent}onNotFound: ${node.onNotFound}`);
-      return;
-    case "try_catch":
-      lines.push(`${indent}- try_catch:`);
-      pushCommon(lines, node, indentLevel + 2);
-      if (node.errorVar)
-        lines.push(`${childIndent}error_var: ${node.errorVar}`);
-      lines.push(`${childIndent}body:`);
-      for (const child of node.body) formatNode(lines, child, indentLevel + 3);
-      lines.push(`${childIndent}catch:`);
-      for (const child of node.catch) formatNode(lines, child, indentLevel + 3);
-      return;
-    case "loop":
-      lines.push(`${indent}- loop:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}condition: ${quote(node.condition)}`);
-      if (node.maxIterations !== undefined)
-        lines.push(`${childIndent}max_iterations: ${node.maxIterations}`);
-      lines.push(`${childIndent}body:`);
-      for (const child of node.body) formatNode(lines, child, indentLevel + 3);
-      return;
     case "http":
-      lines.push(`${indent}- http:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}url: ${quote(node.url)}`);
-      if (node.method) lines.push(`${childIndent}method: ${node.method}`);
-      if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`);
-      return;
-    case "wait":
-      lines.push(`${indent}- wait:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}durationMs: ${node.durationMs}`);
-      return;
     case "subflow":
-      lines.push(`${indent}- subflow:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}flowRef: ${quote(node.flowRef)}`);
-      if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`);
-      return;
     case "prompt":
-      lines.push(`${indent}- prompt:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}userPrompt: ${quote(node.userPrompt)}`);
-      if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
-      if (node.outputKey)
-        lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      if (node.provider) lines.push(`${childIndent}provider: ${node.provider}`);
-      if (node.model) lines.push(`${childIndent}model: ${node.model}`);
-      if (node.tools) lines.push(`${childIndent}tools: true`);
-      return;
-    case "return_to":
-      lines.push(`${indent}- return_to:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}targetId: ${node.targetId}`);
-      lines.push(`${childIndent}condition: ${quote(node.condition)}`);
-      if (node.maxIterations !== undefined)
-        lines.push(`${childIndent}maxIterations: ${node.maxIterations}`);
+      formatInteractionNode(ctx, node, indentLevel);
       return;
     case "agent":
-      lines.push(`${indent}- agent:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}agentId: ${node.agentId}`);
-      if (node.profile) lines.push(`${childIndent}profile: ${node.profile}`);
-      if (node.toolset) lines.push(`${childIndent}toolset: ${node.toolset}`);
-      if (node.model) lines.push(`${childIndent}model: ${node.model}`);
-      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
-      lines.push(`${childIndent}output:`);
-      lines.push(`${childIndent}  key: ${node.output.key}`);
-      if (node.output.schemaRef)
-        lines.push(`${childIndent}  schemaRef: ${node.output.schemaRef}`);
-      return;
     case "validate":
-      lines.push(`${indent}- validate:`);
-      pushCommon(lines, node, indentLevel + 2);
-      if (node.ref) lines.push(`${childIndent}ref: ${node.ref}`);
-      if (node.commands && node.commands.length > 0) {
-        lines.push(`${childIndent}commands:`);
-        for (const cmd of node.commands) {
-          lines.push(`${childIndent}  - command: ${quote(cmd.command)}`);
-          if (cmd.id) lines.push(`${childIndent}    id: ${cmd.id}`);
-        }
-      }
-      if (node.repair) {
-        lines.push(`${childIndent}repair:`);
-        lines.push(`${childIndent}  maxAttempts: ${node.repair.maxAttempts}`);
-        if (node.repair.onFailure)
-          lines.push(`${childIndent}  onFailure: ${node.repair.onFailure}`);
-      }
+    case "adapter.run":
+    case "adapter.race":
+    case "adapter.parallel":
+    case "adapter.supervisor":
+      formatAgentNode(ctx, node, indentLevel);
       return;
     case "worker.dispatch":
-      lines.push(`${indent}- worker.dispatch:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}dispatchId: ${node.dispatchId}`);
-      lines.push(`${childIndent}provider: ${node.provider}`);
-      if (node.model) lines.push(`${childIndent}model: ${node.model}`);
-      if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
-      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
-      if (node.input)
-        lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
-      if (node.commandSurface)
-        lines.push(`${childIndent}commandSurface: ${node.commandSurface}`);
-      if (node.commandAllowlist && node.commandAllowlist.length > 0) {
-        lines.push(
-          `${childIndent}commandAllowlist: [${node.commandAllowlist
-            .map(quote)
-            .join(", ")}]`
-        );
-      }
-      if (node.validationCommand)
-        lines.push(
-          `${childIndent}validationCommand: ${quote(node.validationCommand)}`
-        );
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      if (node.resultFormat)
-        lines.push(`${childIndent}resultFormat: ${node.resultFormat}`);
-      if (node.resultSchema)
-        lines.push(`${childIndent}resultSchema: ${quote(node.resultSchema)}`);
-      return;
     case "fleet.dispatch":
-      lines.push(`${indent}- fleet.dispatch:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}mode: ${node.mode}`);
-      lines.push(`${childIndent}repos: ${formatScalar(node.repos)}`);
-      lines.push(`${childIndent}task: ${formatScalar(node.task)}`);
-      if (node.on_contract_change)
-        lines.push(
-          `${childIndent}on_contract_change: ${node.on_contract_change}`
-        );
-      if (node.output) lines.push(`${childIndent}output: ${node.output}`);
-      return;
     case "fleet.gather":
-      lines.push(`${indent}- fleet.gather:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}source: ${node.source}`);
-      if (node.strategy) lines.push(`${childIndent}strategy: ${node.strategy}`);
-      if (node.output) lines.push(`${childIndent}output: ${node.output}`);
-      return;
     case "fleet.contract-net":
-      lines.push(`${indent}- fleet.contract-net:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}repos: ${formatScalar(node.repos)}`);
-      lines.push(`${childIndent}task: ${formatScalar(node.task)}`);
-      if (node.output) lines.push(`${childIndent}output: ${node.output}`);
-      return;
     case "knowledge.write":
-      lines.push(`${indent}- knowledge.write:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}scope: ${node.scope}`);
-      lines.push(`${childIndent}entry: ${formatScalar(node.entry)}`);
-      return;
     case "knowledge.query":
-      lines.push(`${indent}- knowledge.query:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}filter: ${formatScalar(node.filter)}`);
-      lines.push(`${childIndent}output: ${node.output}`);
-      return;
     case "shell.run":
-      lines.push(`${indent}- shell.run:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}command: ${quote(node.command)}`);
-      if (node.cwd) lines.push(`${childIndent}cwd: ${quote(node.cwd)}`);
-      if (node.timeoutMs !== undefined)
-        lines.push(`${childIndent}timeoutMs: ${node.timeoutMs}`);
-      if (node.required !== undefined)
-        lines.push(`${childIndent}required: ${String(node.required)}`);
-      if (node.allowFailure !== undefined)
-        lines.push(`${childIndent}allowFailure: ${String(node.allowFailure)}`);
-      lines.push(`${childIndent}output: ${node.output}`);
-      if (node.effectClass)
-        lines.push(`${childIndent}effectClass: ${node.effectClass}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
-      return;
     case "evidence.write":
-      lines.push(`${indent}- evidence.write:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}source: ${quote(node.source)}`);
-      lines.push(`${childIndent}output: ${node.output}`);
-      if (node.redact !== undefined)
-        lines.push(`${childIndent}redact: ${String(node.redact)}`);
-      if (node.effectClass)
-        lines.push(`${childIndent}effectClass: ${node.effectClass}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
-      return;
     case "validate.schema":
-      lines.push(`${indent}- validate.schema:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}source: ${quote(node.source)}`);
-      lines.push(`${childIndent}schema: ${formatScalar(node.schema)}`);
-      lines.push(`${childIndent}output: ${node.output}`);
-      if (node.effectClass)
-        lines.push(`${childIndent}effectClass: ${node.effectClass}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
-      return;
-    case "adapter.run":
-      lines.push(`${indent}- adapter.run:`);
-      pushCommon(lines, node, indentLevel + 2);
-      if (node.provider) lines.push(`${childIndent}provider: ${node.provider}`);
-      if (node.tags && node.tags.length > 0) {
-        lines.push(`${childIndent}tags: [${node.tags.map(quote).join(", ")}]`);
-      }
-      if (node.model) lines.push(`${childIndent}model: ${node.model}`);
-      if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
-      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
-      if (node.input)
-        lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
-      if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
-      if (node.reasoning)
-        lines.push(`${childIndent}reasoning: ${node.reasoning}`);
-      if (node.outputSchema !== undefined)
-        lines.push(
-          `${childIndent}outputSchema: ${
-            typeof node.outputSchema === "string"
-              ? node.outputSchema
-              : formatScalar(node.outputSchema)
-          }`
-        );
-      if (node.promptPrep)
-        lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
-      if (node.policy)
-        lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
-      lines.push(`${childIndent}output: ${node.output}`);
-      return;
-    case "adapter.race":
-      lines.push(`${indent}- adapter.race:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(
-        `${childIndent}providers: [${node.providers.map(quote).join(", ")}]`
-      );
-      if (node.model) lines.push(`${childIndent}model: ${node.model}`);
-      if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
-      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
-      if (node.input)
-        lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
-      if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
-      if (node.reasoning)
-        lines.push(`${childIndent}reasoning: ${node.reasoning}`);
-      if (node.outputSchema !== undefined)
-        lines.push(
-          `${childIndent}outputSchema: ${
-            typeof node.outputSchema === "string"
-              ? node.outputSchema
-              : formatScalar(node.outputSchema)
-          }`
-        );
-      if (node.promptPrep)
-        lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
-      if (node.policy)
-        lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
-      lines.push(`${childIndent}output: ${node.output}`);
-      return;
-    case "adapter.parallel":
-      lines.push(`${indent}- adapter.parallel:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(
-        `${childIndent}providers: [${node.providers.map(quote).join(", ")}]`
-      );
-      if (node.merge) lines.push(`${childIndent}merge: ${node.merge}`);
-      if (node.model) lines.push(`${childIndent}model: ${node.model}`);
-      if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
-      lines.push(`${childIndent}instructions: ${quote(node.instructions)}`);
-      if (node.input)
-        lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
-      if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
-      if (node.reasoning)
-        lines.push(`${childIndent}reasoning: ${node.reasoning}`);
-      if (node.outputSchema !== undefined)
-        lines.push(
-          `${childIndent}outputSchema: ${
-            typeof node.outputSchema === "string"
-              ? node.outputSchema
-              : formatScalar(node.outputSchema)
-          }`
-        );
-      if (node.promptPrep)
-        lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
-      if (node.policy)
-        lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
-      lines.push(`${childIndent}output: ${node.output}`);
-      return;
-    case "adapter.supervisor":
-      lines.push(`${indent}- adapter.supervisor:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}goal: ${quote(node.goal)}`);
-      if (node.specialists && node.specialists.length > 0) {
-        lines.push(
-          `${childIndent}specialists: [${node.specialists
-            .map(quote)
-            .join(", ")}]`
-        );
-      }
-      if (node.model) lines.push(`${childIndent}model: ${node.model}`);
-      if (node.systemPrompt)
-        lines.push(`${childIndent}systemPrompt: ${quote(node.systemPrompt)}`);
-      if (node.input)
-        lines.push(`${childIndent}input: ${formatScalar(node.input)}`);
-      if (node.persona) lines.push(`${childIndent}persona: ${node.persona}`);
-      if (node.reasoning)
-        lines.push(`${childIndent}reasoning: ${node.reasoning}`);
-      if (node.outputSchema !== undefined)
-        lines.push(
-          `${childIndent}outputSchema: ${
-            typeof node.outputSchema === "string"
-              ? node.outputSchema
-              : formatScalar(node.outputSchema)
-          }`
-        );
-      if (node.promptPrep)
-        lines.push(`${childIndent}promptPrep: ${node.promptPrep}`);
-      if (node.idempotency)
-        lines.push(`${childIndent}idempotency: ${node.idempotency}`);
-      if (node.policy)
-        lines.push(`${childIndent}policy: ${formatScalar(node.policy)}`);
-      lines.push(`${childIndent}output: ${node.output}`);
+      formatFleetNode(ctx, node, indentLevel);
       return;
     case "spdd.import_sources":
-      lines.push(`${indent}- spdd.import_sources:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(`${childIndent}sourceRefs: ${formatScalar(node.sourceRefs)}`);
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.build_source_pack":
-      lines.push(`${indent}- spdd.build_source_pack:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(`${childIndent}sourceRefsKey: ${node.sourceRefsKey}`);
-      if (node.featureId)
-        lines.push(`${childIndent}featureId: ${node.featureId}`);
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.run_analysis":
-      lines.push(`${indent}- spdd.run_analysis:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(`${childIndent}planArtifactId: ${node.planArtifactId}`);
-      if (node.sourceArtifactIds && node.sourceArtifactIds.length > 0) {
-        lines.push(
-          `${childIndent}sourceArtifactIds: [${node.sourceArtifactIds
-            .map(quote)
-            .join(", ")}]`
-        );
-      }
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.generate_canvas":
-      lines.push(`${indent}- spdd.generate_canvas:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(
-        `${childIndent}promptAssetVersionId: ${node.promptAssetVersionId}`
-      );
-      if (node.title) lines.push(`${childIndent}title: ${quote(node.title)}`);
-      if (node.objective)
-        lines.push(`${childIndent}objective: ${quote(node.objective)}`);
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.validate_canvas":
-      lines.push(`${indent}- spdd.validate_canvas:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(
-        `${childIndent}promptAssetVersionId: ${node.promptAssetVersionId}`
-      );
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.review_canvas":
-      lines.push(`${indent}- spdd.review_canvas:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(
-        `${childIndent}promptAssetVersionId: ${node.promptAssetVersionId}`
-      );
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.project_plan":
-      lines.push(`${indent}- spdd.project_plan:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(
-        `${childIndent}promptAssetVersionId: ${node.promptAssetVersionId}`
-      );
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.arm_dispatch":
-      lines.push(`${indent}- spdd.arm_dispatch:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(`${childIndent}planRunId: ${node.planRunId}`);
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.run_validation":
-      lines.push(`${indent}- spdd.run_validation:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(`${childIndent}planRunId: ${node.planRunId}`);
-      lines.push(`${childIndent}executionRunId: ${node.executionRunId}`);
-      if (node.reviewerId)
-        lines.push(`${childIndent}reviewerId: ${node.reviewerId}`);
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.collect_proof":
-      lines.push(`${indent}- spdd.collect_proof:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(`${childIndent}planRunId: ${node.planRunId}`);
-      if (node.taskId) lines.push(`${childIndent}taskId: ${node.taskId}`);
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.scan_drift":
-      lines.push(`${indent}- spdd.scan_drift:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(
-        `${childIndent}promptAssetVersionId: ${node.promptAssetVersionId}`
-      );
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.create_sync_proposal":
-      lines.push(`${indent}- spdd.create_sync_proposal:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(
-        `${childIndent}driftFindingIdsKey: ${node.driftFindingIdsKey}`
-      );
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
-      return;
     case "spdd.agent_swarm":
-      lines.push(`${indent}- spdd.agent_swarm:`);
-      pushCommon(lines, node, indentLevel + 2);
-      lines.push(`${childIndent}spddRunId: ${node.spddRunId}`);
-      lines.push(`${childIndent}subTasks: ${formatScalar(node.subTasks)}`);
-      lines.push(`${childIndent}outputKey: ${node.outputKey}`);
+      formatSpddNode(ctx, node, indentLevel);
       return;
     default: {
       const _exhaustive: never = node;
       void _exhaustive;
     }
   }
-}
-
-function pushCommon(
-  lines: string[],
-  node: FlowNode,
-  indentLevel: number
-): void {
-  const indent = "  ".repeat(indentLevel);
-  if (node.id) lines.push(`${indent}id: ${node.id}`);
-  if (node.name) lines.push(`${indent}name: ${quote(node.name)}`);
-  if (node.description)
-    lines.push(`${indent}description: ${quote(node.description)}`);
-  if (
-    node.meta &&
-    Object.keys(node.meta).length > 0 &&
-    !(node.type === "parallel" && node.meta.branchNames)
-  ) {
-    lines.push(`${indent}meta:`);
-    for (const [key, value] of Object.entries(node.meta)) {
-      lines.push(`${indent}  ${key}: ${formatScalar(value)}`);
-    }
-  }
-}
-
-function pushField(
-  lines: string[],
-  indentLevel: number,
-  key: string,
-  value: string | number
-): void {
-  const indent = "  ".repeat(indentLevel);
-  lines.push(
-    `${indent}${key}: ${typeof value === "string" ? quote(value) : value}`
-  );
-}
-
-function quote(value: string): string {
-  if (/^[A-Za-z0-9_.\/:-]+$/.test(value)) return value;
-  return JSON.stringify(value);
-}
-
-function formatScalar(value: unknown): string {
-  if (typeof value === "string") return quote(value);
-  if (typeof value === "number" || typeof value === "boolean")
-    return String(value);
-  if (value === null) return "null";
-  if (Array.isArray(value)) return `[${value.map(formatScalar).join(", ")}]`;
-  return JSON.stringify(value);
 }
