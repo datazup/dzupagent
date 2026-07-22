@@ -19,21 +19,34 @@
  * ```
  *
  * Non-core concerns live in dedicated modules so this class stays small:
+ *   - `dzip-agent-run-coordinator.ts` — generate / stream / structured / model-invoke deps
+ *   - `dzip-agent-message-context.ts` — prepareMessages / maybeUpdateSummary binders
+ *   - `dzip-agent-resolvers.ts` — tool + memory-run resolution
  *   - `streaming-run.ts`       — streaming ReAct loop
  *   - `structured-generate.ts` — `generateStructured` + `extractJsonFromText`
  *   - `daemon-launcher.ts`     — background launch + RunHandle wiring
  *   - `../tools/agent-as-tool.ts` — wrap an agent as a LangChain tool
+ *
+ * ## Provider fallback semantics (applies to {@link DzupAgent.generate} and
+ * {@link DzupAgent.stream})
+ *
+ * When constructed with a tier-based model (e.g. `model: 'codegen'`), the
+ * agent resolves a provider once via `ModelRegistry.getModelWithFallback`;
+ * open-circuit providers are skipped at that selection step. The chosen
+ * provider is then fixed for the run: per-call success/failure (including
+ * native-stream outcomes) is recorded against the same circuit breaker, so
+ * breaker state stays consistent across `generate` and `stream` and
+ * subsequent constructions skip a degraded provider. Same-run provider
+ * retry/failover is a separate opt-in wrapper controlled by
+ * `providerFailover`; it retries only per that policy and blocks retry after
+ * tool results (and, for streaming, after the first yielded chunk) unless the
+ * host declares that phase retry-safe.
  */
 import type { ZodType } from "zod";
 import type { BaseMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import type {
-  TokenBucket,
-  ModelTier,
-  StructuredOutputModelCapabilities,
-  Tokenizer,
-} from "@dzupagent/core/llm";
+import type { TokenBucket, ModelTier, Tokenizer } from "@dzupagent/core/llm";
 import type { PermissionTier } from "@dzupagent/core/tools";
 import type { DistributedRateLimiter } from "../guardrails/distributed-rate-limiter.js";
 import type { DistributedCostLedger } from "../guardrails/distributed-budget.js";
@@ -50,25 +63,30 @@ import type { AgentInstructionResolver } from "./instruction-resolution.js";
 import type { AgentMemoryContextLoader } from "./memory-context-loader.js";
 import type { AgentMiddlewareRuntime } from "./middleware-runtime.js";
 import { installEventBus } from "./event-bus-installer.js";
+import type { ConversationSummaryAccessor } from "./message-preparation.js";
 import {
-  prepareMessages as prepareMessagesCoord,
-  maybeUpdateSummary as maybeUpdateSummaryCoord,
-  type ConversationSummaryAccessor,
-} from "./message-preparation.js";
+  prepareMessages as prepareMessagesRun,
+  maybeUpdateSummary as maybeUpdateSummaryRun,
+} from "./dzip-agent-message-context.js";
 import type { RunHandle, LaunchOptions } from "./run-handle-types.js";
 import { launchDaemon } from "./daemon-launcher.js";
 import { agentAsTool } from "../tools/agent-as-tool.js";
-import { filterToolsByTier } from "../tools/tool-tier-registry.js";
+import { extractJsonFromText } from "./structured-generate.js";
 import {
-  generateStructured as generateStructuredRun,
-  extractJsonFromText,
-} from "./structured-generate.js";
+  getTools as getToolsResolver,
+  resolveAvailableTools as resolveAvailableToolsResolver,
+  resolveMemoryReadContext as resolveMemoryReadContextResolver,
+  resolveMemoryRunId as resolveMemoryRunIdResolver,
+  type ToolResolutionInput,
+} from "./dzip-agent-resolvers.js";
 import { maybeWriteBackMemory as maybeWriteBackMemoryFinalizer } from "./agent-finalizers.js";
 import { runConsolidation } from "./consolidation-coordinator.js";
 import {
   runGenerate as runGenerateRun,
   runStream as runStreamRun,
+  runGenerateStructured as runGenerateStructuredRun,
   invokeModelWithMiddleware as invokeModelWithMiddlewareRun,
+  type RunGenerateDeps,
 } from "./dzip-agent-run-coordinator.js";
 import {
   emitToolFilterAudit,
@@ -86,16 +104,6 @@ import {
 // import `extractJsonFromText` from `dzip-agent.js`.
 export { extractJsonFromText };
 
-function resolveStructuredOutputCapabilities(
-  model: BaseChatModel
-): StructuredOutputModelCapabilities | undefined {
-  return (
-    model as BaseChatModel & {
-      structuredOutputCapabilities?: StructuredOutputModelCapabilities;
-    }
-  ).structuredOutputCapabilities;
-}
-
 export class DzupAgent {
   readonly id: string;
   readonly name: string;
@@ -104,9 +112,8 @@ export class DzupAgent {
   readonly mailbox?: AgentMailbox;
   private readonly config: DzupAgentConfig;
   private readonly resolvedModel: BaseChatModel;
-  /** Provider name returned by the registry when tier-based fallback was
-   *  used. `undefined` when the caller supplied a concrete model or when
-   *  a model was resolved by name (no fallback chain in play). */
+  /** Provider from the registry when tier-based fallback was used; `undefined`
+   *  for a concrete model or a model resolved by name (no fallback chain). */
   private readonly resolvedProvider: string | undefined;
   private readonly resolvedTier: ModelTier | undefined;
   private readonly instructionResolver: AgentInstructionResolver;
@@ -118,27 +125,16 @@ export class DzupAgent {
   private readonly distributedCostLedger: DistributedCostLedger | undefined;
   private readonly tenantId: string;
   private readonly tokenizer: Tokenizer;
-  /**
-   * Effective permission tier for this agent (MC-AGT-05). Resolved from
-   * `config.permissionTier` with a `'read-only'` default. Tools tagged
-   * with a more permissive tier are filtered out before being passed to
-   * the model — see {@link filterToolsByTier}.
-   */
+  /** Effective permission tier (MC-AGT-05); `'read-only'` default. Tools of a
+   *  more permissive tier are filtered out — see `dzip-agent-resolvers.ts`. */
   private readonly permissionTier: PermissionTier;
   private conversationSummary: string | null = null;
-  /**
-   * Live cross-agent `asTool` recursion depth for the current run
-   * (AGENT-M-14). Set by {@link generate} from `options._agentToolDepth` and
-   * read by the tool produced by {@link asTool} so nested `asTool`
-   * invocations (including direct self-reference) accumulate depth and are
-   * bounded by the configured ceiling rather than recursing unbounded.
-   */
+  /** Live cross-agent `asTool` recursion depth for the current run
+   *  (AGENT-M-14). Set by {@link generate}, read by {@link asTool}, so nested
+   *  `asTool` invocations accumulate depth and are bounded by the ceiling. */
   private currentAgentToolDepth = 0;
-  /**
-   * Mutable accessor wrapping {@link conversationSummary} so the
-   * `message-preparation` coordinators can read / update it without
-   * exposing the underlying field. Bound once in the constructor.
-   */
+  /** Mutable accessor over {@link conversationSummary} for the
+   *  `message-preparation` coordinators. Bound once in the constructor. */
   private readonly summaryAccessor: ConversationSummaryAccessor = {
     get: () => this.conversationSummary,
     set: (value) => {
@@ -182,11 +178,9 @@ export class DzupAgent {
     this.memoryContextLoader = wiring.memoryContextLoader;
     this.middlewareRuntime = wiring.middlewareRuntime;
 
-    // MC-AGT-05 — resolve the effective permission tier and emit the
-    // one-shot `agent:tools-filtered` event so operators can audit which
-    // tools the model will (or will not) see for this agent. Filtering
-    // itself happens lazily inside `getTools()` so middleware-resolved
-    // tools are also constrained.
+    // MC-AGT-05 — resolve the effective permission tier and emit the one-shot
+    // `agent:tools-filtered` audit event. Filtering itself happens lazily in
+    // `getTools()` so middleware-resolved tools are also constrained.
     this.permissionTier = config.permissionTier ?? "read-only";
     emitToolFilterAudit({
       agentId: this.id,
@@ -197,8 +191,8 @@ export class DzupAgent {
   }
 
   /**
-   * Expose the agent configuration (read-only copy) so orchestrators
-   * can derive new agents with modified settings (e.g., additional tools).
+   * Expose the agent configuration (read-only) so orchestrators can derive
+   * new agents with modified settings (e.g. additional tools).
    */
   get agentConfig(): Readonly<DzupAgentConfig> {
     return this.config;
@@ -208,26 +202,8 @@ export class DzupAgent {
    * Generate a response from the agent.
    *
    * Runs the full ReAct tool-calling loop with guardrails, context
-   * compression, and middleware hooks.
-   *
-   * ## Provider fallback semantics
-   *
-   * When constructed with a tier-based model (e.g. `model: 'codegen'`),
-   * the agent resolves a provider once via
-   * `ModelRegistry.getModelWithFallback`. Open-circuit providers are
-   * skipped at that selection step. After that, the chosen provider is
-   * fixed for the default path: per-call success/failure is recorded
-   * against the same circuit breaker so subsequent agent constructions
-   * skip a degraded provider.
-   *
-   * Same-run provider retry/failover is a separate opt-in wrapper
-   * controlled by `providerFailover`. It retries only according to that
-   * explicit policy, and it blocks retry after tool results unless the
-   * host declares that phase retry-safe.
-   *
-   * The same model applies to {@link stream}: native streaming records
-   * outcomes against the same circuit breaker as `generate`, keeping
-   * breaker state consistent across modes.
+   * compression, and middleware hooks. See the module header for provider
+   * fallback semantics (shared with {@link stream}).
    */
   async generate(
     messages: BaseMessage[],
@@ -242,37 +218,34 @@ export class DzupAgent {
     const previousAgentToolDepth = this.currentAgentToolDepth;
     this.currentAgentToolDepth = options?._agentToolDepth ?? 0;
     try {
-      return await this.runGenerate(messages, options);
+      return await runGenerateRun(
+        this.runGenerateDeps(options),
+        messages,
+        options
+      );
     } finally {
       this.currentAgentToolDepth = previousAgentToolDepth;
     }
   }
 
-  private async runGenerate(
-    messages: BaseMessage[],
-    options?: GenerateOptions
-  ): Promise<GenerateResult> {
-    return runGenerateRun(
-      {
-        agentId: this.id,
-        config: this.config,
-        resolvedModel: this.resolvedModel,
-        middlewareRuntime: this.middlewareRuntime,
-        prepareMessages: (inputMessages) =>
-          this.prepareMessages(
-            inputMessages,
-            this.resolveMemoryReadContext(options)
-          ),
-        getTools: () => this.getTools(),
-        invokeModel: (model, preparedMessages, tools) =>
-          this.invokeModelWithMiddleware(model, preparedMessages, tools),
-        maybeUpdateSummary: (allMessages, memoryFrame) =>
-          this.maybeUpdateSummary(allMessages, memoryFrame),
-        resolveMemoryRunId: () => this.resolveMemoryRunId(options),
-      },
-      messages,
-      options
-    );
+  private runGenerateDeps(options?: GenerateOptions): RunGenerateDeps {
+    return {
+      agentId: this.id,
+      config: this.config,
+      resolvedModel: this.resolvedModel,
+      middlewareRuntime: this.middlewareRuntime,
+      prepareMessages: (inputMessages) =>
+        this.prepareMessages(
+          inputMessages,
+          this.resolveMemoryReadContext(options)
+        ),
+      getTools: () => this.getTools(),
+      invokeModel: (model, preparedMessages, tools) =>
+        this.invokeModelWithMiddleware(model, preparedMessages, tools),
+      maybeUpdateSummary: (allMessages, memoryFrame) =>
+        this.maybeUpdateSummary(allMessages, memoryFrame),
+      resolveMemoryRunId: () => this.resolveMemoryRunId(options),
+    };
   }
 
   /**
@@ -286,7 +259,7 @@ export class DzupAgent {
     schema: ZodType<T>,
     options?: GenerateOptions
   ): Promise<{ data: T; usage: GenerateResult["usage"] }> {
-    return generateStructuredRun(
+    return runGenerateStructuredRun(
       {
         agentId: this.id,
         config: this.config,
@@ -297,7 +270,6 @@ export class DzupAgent {
             this.resolveMemoryReadContext(options)
           ),
         generate: (msgs, opts) => this.generate(msgs, opts),
-        resolveStructuredOutputCapabilities,
       },
       messages,
       schema,
@@ -308,21 +280,9 @@ export class DzupAgent {
   /**
    * Stream agent events as an async iterator.
    *
-   * Yields text chunks, tool calls/results, budget warnings, and done/error events.
-   *
-   * ## Provider fallback semantics
-   *
-   * Mirrors {@link generate}: the provider is fixed at agent construction
-   * via `ModelRegistry.getModelWithFallback` (open-circuit providers are
-   * skipped at that selection step). Native streaming success/failure is
-   * recorded against the **same** circuit breaker the non-streaming path
-   * uses, so breaker state stays consistent between `generate` and
-   * `stream`. Same-run stream retry/failover is only attempted when
-   * `providerFailover` is enabled, before any stream chunk has been
-   * yielded, and before tool results unless the host declares the phase
-   * retry-safe.
-   *
-   * Thin wrapper over {@link streamRun} — see `streaming-run.ts`.
+   * Yields text chunks, tool calls/results, budget warnings, and done/error
+   * events. See the module header for provider fallback semantics (shared with
+   * {@link generate}). Thin wrapper over `streaming-run.ts`.
    */
   stream(
     messages: BaseMessage[],
@@ -366,18 +326,15 @@ export class DzupAgent {
   }
 
   /**
-   * Wrap this agent as a LangChain StructuredTool so it can be used
-   * as a tool by a parent agent.
-   *
-   * Thin wrapper over {@link agentAsTool} — see `tools/agent-as-tool.ts`.
+   * Wrap this agent as a LangChain StructuredTool so it can be used as a tool
+   * by a parent agent. Thin wrapper over {@link agentAsTool}.
    *
    * AGENT-M-14 — threads a live cross-agent `asTool` depth supplier (reading
-   * {@link currentAgentToolDepth}, set by {@link generate} from
-   * `options._agentToolDepth`) so that nested `asTool` invocations — including
-   * an agent exposed as a tool of itself, or a mutually-referential A↔B pair —
-   * accumulate depth and are rejected once `maxAgentToolDepth` is reached
-   * instead of recursing without bound. This bounds the in-process `asTool`
-   * path, which the subagent-runtime `maxSpawnDepth` guard does not cover.
+   * {@link currentAgentToolDepth}, set by {@link generate}) so nested `asTool`
+   * invocations — including self- or mutually-referential pairs — accumulate
+   * depth and are rejected once `maxAgentToolDepth` is reached instead of
+   * recursing without bound (the subagent `maxSpawnDepth` guard does not cover
+   * this in-process path).
    */
   async asTool(options?: {
     maxAgentToolDepth?: number;
@@ -425,25 +382,28 @@ export class DzupAgent {
 
   // ---------- Internal helpers --------------------------------------------------
 
+  private get toolResolutionInput(): ToolResolutionInput {
+    return {
+      config: this.config,
+      middlewareRuntime: this.middlewareRuntime,
+      mailboxTools: this.mailboxTools,
+      permissionTier: this.permissionTier,
+    };
+  }
+
   private getTools(): StructuredToolInterface[] {
-    // MC-AGT-05 — apply the permission-tier filter on every read so
-    // middleware-resolved tools (added dynamically) are also gated.
-    return filterToolsByTier(this.resolveAvailableTools(), this.permissionTier);
+    return getToolsResolver(this.toolResolutionInput);
   }
 
   private resolveAvailableTools(): StructuredToolInterface[] {
-    const configTools = this.config.tools ?? [];
-    return this.middlewareRuntime.resolveTools([
-      ...configTools,
-      ...this.mailboxTools,
-    ]);
+    return resolveAvailableToolsResolver(this.toolResolutionInput);
   }
 
   private async prepareMessages(
     messages: BaseMessage[],
     memoryReadContext?: { runId: string }
   ): Promise<{ messages: BaseMessage[]; memoryFrame?: unknown }> {
-    return prepareMessagesCoord(
+    return prepareMessagesRun(
       {
         agentId: this.id,
         config: this.config,
@@ -460,19 +420,18 @@ export class DzupAgent {
   private resolveMemoryReadContext(
     options?: GenerateOptions
   ): { runId: string } | undefined {
-    const runId = this.resolveMemoryRunId(options);
-    return runId ? { runId } : undefined;
+    return resolveMemoryReadContextResolver(this.config, options);
   }
 
   private resolveMemoryRunId(options?: GenerateOptions): string | undefined {
-    return options?.runId ?? this.config.toolExecution?.runId;
+    return resolveMemoryRunIdResolver(this.config, options);
   }
 
   private async maybeUpdateSummary(
     messages: BaseMessage[],
     memoryFrame?: unknown
   ): Promise<void> {
-    return maybeUpdateSummaryCoord(
+    return maybeUpdateSummaryRun(
       {
         agentId: this.id,
         config: this.config,
@@ -486,11 +445,10 @@ export class DzupAgent {
   }
 
   /**
-   * Dispatch a model call through the middleware runtime, applying
-   * rate-limit gating, breaker accounting, distributed cost recording,
-   * and same-run provider failover (when enabled). The dependency
-   * bundle is recomputed per-call so failover policy closes over the
-   * current tool-message list and candidate set.
+   * Dispatch a model call through the middleware runtime (rate-limit gating,
+   * breaker accounting, distributed cost recording, and same-run provider
+   * failover when enabled). The deps bundle is recomputed per-call so failover
+   * policy closes over the current tool-message list and candidate set.
    */
   private async invokeModelWithMiddleware(
     model: BaseChatModel,
@@ -524,15 +482,10 @@ export class DzupAgent {
 
   /**
    * Manually trigger a consolidation sweep on this agent's memory namespace.
-   *
-   * Clusters semantically related entries and summarises each cluster into
-   * a single record with low-strength children (pruned on the next decay
-   * sweep). Safe to call from any async context; returns a summary of what
-   * was consolidated.
-   *
-   * Requires `config.memory` to expose a `getStore()` method (all
-   * {@link MemoryService}-backed instances do). Returns `{ summarized: 0 }`
-   * silently when the store is unavailable.
+   * Clusters semantically related entries and summarises each cluster into a
+   * single record with low-strength children (pruned on the next decay sweep).
+   * Safe from any async context. Requires `config.memory` to expose
+   * `getStore()`; returns `{ summarized: 0 }` silently when unavailable.
    */
   async consolidate(): Promise<{ summarized: number; summaries: string[] }> {
     return runConsolidation({ agentId: this.id, config: this.config });

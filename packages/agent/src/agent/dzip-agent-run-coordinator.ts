@@ -7,10 +7,14 @@
  * owning {@link DzupAgent} instance rather than closing over `this`, so the
  * behaviour is identical to the previous private-method implementation.
  */
+import type { ZodType } from "zod";
 import type { BaseMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import type { TokenBucket } from "@dzupagent/core/llm";
+import type {
+  TokenBucket,
+  StructuredOutputModelCapabilities,
+} from "@dzupagent/core/llm";
 import type { DistributedRateLimiter } from "../guardrails/distributed-rate-limiter.js";
 import type { DistributedCostLedger } from "../guardrails/distributed-budget.js";
 import type {
@@ -34,8 +38,24 @@ import {
   type ModelInvocationDeps,
   type ProviderAttempt,
 } from "./model-invocation.js";
+import { generateStructured as generateStructuredRun } from "./structured-generate.js";
 import { omitUndefined } from "../utils/exact-optional.js";
 import { bindTools as bindToolsHelper } from "./provider-selection.js";
+
+/**
+ * Read the optional per-model structured-output capability descriptor.
+ *
+ * Moved verbatim from `dzip-agent.ts` alongside {@link runGenerateStructured}.
+ */
+function resolveStructuredOutputCapabilities(
+  model: BaseChatModel
+): StructuredOutputModelCapabilities | undefined {
+  return (
+    model as BaseChatModel & {
+      structuredOutputCapabilities?: StructuredOutputModelCapabilities;
+    }
+  ).structuredOutputCapabilities;
+}
 
 /**
  * Dependency bundle for {@link runGenerate}, sourced from the owning
@@ -117,6 +137,49 @@ export async function runGenerate(
   }
 
   return result;
+}
+
+/**
+ * Dependency bundle for {@link runGenerateStructured}, sourced from the
+ * owning {@link DzupAgent} instance.
+ */
+export interface RunGenerateStructuredDeps {
+  agentId: string;
+  config: DzupAgentConfig;
+  resolvedModel: BaseChatModel;
+  prepareMessages: (
+    messages: BaseMessage[]
+  ) => Promise<{ messages: BaseMessage[]; memoryFrame?: unknown }>;
+  generate: (
+    messages: BaseMessage[],
+    options?: GenerateOptions
+  ) => Promise<GenerateResult>;
+}
+
+/**
+ * Generate a response with structured output validated against a Zod schema.
+ *
+ * Extracted verbatim from `DzupAgent#generateStructured`.
+ */
+export async function runGenerateStructured<T>(
+  deps: RunGenerateStructuredDeps,
+  messages: BaseMessage[],
+  schema: ZodType<T>,
+  options?: GenerateOptions
+): Promise<{ data: T; usage: GenerateResult["usage"] }> {
+  return generateStructuredRun(
+    {
+      agentId: deps.agentId,
+      config: deps.config,
+      resolvedModel: deps.resolvedModel,
+      prepareMessages: (inputMessages) => deps.prepareMessages(inputMessages),
+      generate: (msgs, opts) => deps.generate(msgs, opts),
+      resolveStructuredOutputCapabilities,
+    },
+    messages,
+    schema,
+    options
+  );
 }
 
 /**
