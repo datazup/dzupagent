@@ -1,128 +1,32 @@
 import { DzupAgent } from "@dzupagent/agent/runtime";
-import type {
-  AuditRedactionPolicy,
-  GuardrailConfig,
-  LlmCallAuditSink,
-  ProviderFailoverPolicy,
-  ToolExecutionConfig,
-} from "@dzupagent/agent/runtime";
 import { HumanMessage } from "@langchain/core/messages";
 import { requireTerminalToolExecutionRunId } from "@dzupagent/core/advanced";
 import { calculateCostCents } from "@dzupagent/core/llm";
-import type { TokenUsage, ModelRegistry } from "@dzupagent/core/quick-start";
+import type { TokenUsage } from "@dzupagent/core/quick-start";
 import { TokenLifecycleManager, createTokenBudget } from "@dzupagent/context";
 import type { RunExecutor, RunExecutorResult } from "./run-worker.js";
-import {
-  resolveAgentTools,
-  type CustomToolResolver,
-  type ConnectorTokenProfile,
-  type GitWorkspaceProfile,
-  type HttpConnectorProfile,
-  type ToolResolverOptions,
-} from "./tool-resolver.js";
+import { resolveAgentTools } from "./tool-resolver.js";
 import { isStructuredResult } from "./utils.js";
-import type { TokenLifecycleLike } from "../routes/run-context.js";
+import type { DzupAgentRunExecutorOptions } from "./dzip-agent-run-executor/options.js";
+import {
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
+  DEFAULT_RESERVED_OUTPUT_TOKENS,
+  resolveModelName,
+  toPrompt,
+} from "./dzip-agent-run-executor/helpers.js";
+import { buildToolResolverContext } from "./dzip-agent-run-executor/tool-resolver-input.js";
+import {
+  buildAgentPolicyConfig,
+  resolveMemoryScope,
+} from "./dzip-agent-run-executor/agent-config.js";
 
-const DEFAULT_CONTEXT_WINDOW_TOKENS = 200_000;
-const DEFAULT_RESERVED_OUTPUT_TOKENS = 4_096;
-
-function resolveModelName(modelTier: string, registry: ModelRegistry): string {
-  try {
-    const model = registry.getModel(
-      modelTier as "chat" | "reasoning" | "codegen" | "embedding",
-    );
-    return (model as unknown as { model?: string }).model ?? modelTier;
-  } catch {
-    return modelTier;
-  }
-}
-
-function toPrompt(input: unknown): string {
-  if (typeof input === "string" && input.trim()) return input;
-  if (input && typeof input === "object" && !Array.isArray(input)) {
-    const record = input as Record<string, unknown>;
-    const direct = ["message", "content", "prompt"]
-      .map((key) => record[key])
-      .find(
-        (value): value is string =>
-          typeof value === "string" && value.trim().length > 0,
-      );
-    if (direct) return direct;
-    return JSON.stringify(input, null, 2);
-  }
-  if (input == null) return "";
-  return String(input);
-}
-
-export interface DzupAgentRunExecutorOptions {
-  fallback?: RunExecutor;
-  toolResolver?: CustomToolResolver;
-  /** 'strict' throws if any tools remain unresolved; 'lenient' warns (default). */
-  resolvePolicy?: ToolResolverOptions["resolvePolicy"];
-  /** Optional registry to register the per-run TokenLifecycleManager into. */
-  tokenLifecycleRegistry?: Map<string, TokenLifecycleLike>;
-  /** Server-owned HTTP connector profiles keyed by profile name. */
-  httpConnectorProfiles?: Record<string, HttpConnectorProfile>;
-  /** Default HTTP connector profile name. */
-  defaultHttpConnectorProfile?: string;
-  /** Server-owned GitHub connector token profiles keyed by profile name. */
-  githubConnectorProfiles?: Record<string, ConnectorTokenProfile>;
-  /** Default GitHub connector profile name. */
-  defaultGithubConnectorProfile?: string;
-  /** Server-owned Slack connector token profiles keyed by profile name. */
-  slackConnectorProfiles?: Record<string, ConnectorTokenProfile>;
-  /** Default Slack connector profile name. */
-  defaultSlackConnectorProfile?: string;
-  /** Server-owned Git workspace profiles keyed by profile name. */
-  gitWorkspaceProfiles?: Record<string, GitWorkspaceProfile>;
-  /** Default Git workspace profile name. */
-  defaultGitWorkspaceProfile?: string;
-  /** Unsafe legacy compatibility for metadata.httpBaseUrl/httpHeaders. */
-  allowUnsafeMetadataHttpConnector?: boolean;
-  /** Unsafe legacy compatibility for metadata.cwd, root-contained by selected workspace. */
-  allowUnsafeMetadataGitCwd?: boolean;
-  /** Model context window size (tokens). Default: 200_000 */
-  contextWindowTokens?: number;
-  /** Reserved output tokens. Default: 4_096 */
-  reservedOutputTokens?: number;
-  /**
-   * AGENT-H-01: Safety guardrails forwarded into DzupAgent on every run.
-   * Enables input/output filtering and policy enforcement at the framework level.
-   */
-  guardrails?: GuardrailConfig;
-  /**
-   * AGENT-H-01: LLM-call audit sink forwarded into DzupAgent on every run.
-   * Records every model invocation for compliance traceability (RF-12).
-   */
-  auditStore?: LlmCallAuditSink;
-  /**
-   * AGENT-H-01: Redaction policy for audit entries. Defaults to secrets-and-pii
-   * when auditStore is set.
-   */
-  auditRedaction?: AuditRedactionPolicy;
-  /**
-   * AGENT-H-01: Tool execution configuration (per-tool timeouts, retries, argument
-   * validation). Forwarded into DzupAgent to enforce server-side tool governance.
-   */
-  toolExecution?: ToolExecutionConfig;
-  /**
-   * AGENT-H-01: Provider failover policy forwarded into DzupAgent. Enables
-   * cross-provider retry/fallback on model API failures.
-   */
-  providerFailover?: ProviderFailoverPolicy;
-  /**
-   * AGENT-H-01: Memory scope keys forwarded into DzupAgent. Typically carries
-   * tenantId so memory isolation is enforced at the framework level in addition
-   * to the server-side tenant stamp on events.
-   */
-  memoryScope?: Record<string, string>;
-}
+export type { DzupAgentRunExecutorOptions } from "./dzip-agent-run-executor/options.js";
 
 /**
  * RunExecutor that executes runs through @dzupagent/agent DzupAgent.
  */
 export function createDzupAgentRunExecutor(
-  options?: DzupAgentRunExecutorOptions,
+  options?: DzupAgentRunExecutorOptions
 ): RunExecutor {
   return async (ctx): Promise<RunExecutorResult> => {
     const prompt = toPrompt(ctx.input) || "Proceed with the requested task.";
@@ -139,7 +43,7 @@ export function createDzupAgentRunExecutor(
         ? (ctx.metadata["tenantId"] as string)
         : undefined;
     const withTenant = <T extends object>(
-      event: T,
+      event: T
     ): T & { tenantId?: string } =>
       tenantId !== undefined ? { ...event, tenantId } : event;
 
@@ -149,7 +53,7 @@ export function createDzupAgentRunExecutor(
     const manager = new TokenLifecycleManager({
       budget: createTokenBudget(
         options?.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
-        options?.reservedOutputTokens ?? DEFAULT_RESERVED_OUTPUT_TOKENS,
+        options?.reservedOutputTokens ?? DEFAULT_RESERVED_OUTPUT_TOKENS
       ),
     });
     options?.tokenLifecycleRegistry?.set(ctx.runId, manager);
@@ -181,55 +85,12 @@ export function createDzupAgentRunExecutor(
 
     try {
       const resolvedTools = await resolveAgentTools(
-        {
-          toolNames: ctx.agent.tools,
-          metadata: ctx.metadata,
-          env: process.env,
-          ...(options?.httpConnectorProfiles
-            ? { httpConnectorProfiles: options.httpConnectorProfiles }
-            : {}),
-          ...(options?.defaultHttpConnectorProfile
-            ? {
-                defaultHttpConnectorProfile:
-                  options.defaultHttpConnectorProfile,
-              }
-            : {}),
-          ...(options?.githubConnectorProfiles
-            ? { githubConnectorProfiles: options.githubConnectorProfiles }
-            : {}),
-          ...(options?.defaultGithubConnectorProfile
-            ? {
-                defaultGithubConnectorProfile:
-                  options.defaultGithubConnectorProfile,
-              }
-            : {}),
-          ...(options?.slackConnectorProfiles
-            ? { slackConnectorProfiles: options.slackConnectorProfiles }
-            : {}),
-          ...(options?.defaultSlackConnectorProfile
-            ? {
-                defaultSlackConnectorProfile:
-                  options.defaultSlackConnectorProfile,
-              }
-            : {}),
-          ...(options?.allowUnsafeMetadataHttpConnector !== undefined
-            ? {
-                allowUnsafeMetadataHttpConnector:
-                  options.allowUnsafeMetadataHttpConnector,
-              }
-            : {}),
-          ...(options?.gitWorkspaceProfiles
-            ? { gitWorkspaceProfiles: options.gitWorkspaceProfiles }
-            : {}),
-          ...(options?.defaultGitWorkspaceProfile
-            ? { defaultGitWorkspaceProfile: options.defaultGitWorkspaceProfile }
-            : {}),
-          ...(options?.allowUnsafeMetadataGitCwd !== undefined
-            ? { allowUnsafeMetadataGitCwd: options.allowUnsafeMetadataGitCwd }
-            : {}),
-        },
+        buildToolResolverContext(
+          { toolNames: ctx.agent.tools, metadata: ctx.metadata },
+          options
+        ),
         options?.toolResolver,
-        { resolvePolicy: options?.resolvePolicy },
+        { resolvePolicy: options?.resolvePolicy }
       );
       toolCleanup = resolvedTools.cleanup;
 
@@ -243,12 +104,7 @@ export function createDzupAgentRunExecutor(
       // AGENT-H-01: forward all policy/observability/context surfaces so
       // the framework-level guardrails, audit sink, tool governance, failover,
       // and memory scope are active on every server-dispatched run.
-      const memoryScope: Record<string, string> | undefined =
-        options?.memoryScope !== undefined
-          ? options.memoryScope
-          : tenantId !== undefined
-            ? { tenantId }
-            : undefined;
+      const memoryScope = resolveMemoryScope(options, tenantId);
       const agent = new DzupAgent({
         id: ctx.agent.id,
         name: ctx.agent.name,
@@ -258,22 +114,7 @@ export function createDzupAgentRunExecutor(
         registry: ctx.modelRegistry,
         tools: resolvedTools.tools,
         eventBus: ctx.eventBus,
-        ...(options?.guardrails !== undefined
-          ? { guardrails: options.guardrails }
-          : {}),
-        ...(options?.auditStore !== undefined
-          ? { auditStore: options.auditStore }
-          : {}),
-        ...(options?.auditRedaction !== undefined
-          ? { auditRedaction: options.auditRedaction }
-          : {}),
-        ...(options?.toolExecution !== undefined
-          ? { toolExecution: options.toolExecution }
-          : {}),
-        ...(options?.providerFailover !== undefined
-          ? { providerFailover: options.providerFailover }
-          : {}),
-        ...(memoryScope !== undefined ? { memoryScope } : {}),
+        ...buildAgentPolicyConfig(options, memoryScope),
       });
 
       const chunks: string[] = [];
@@ -326,7 +167,7 @@ export function createDzupAgentRunExecutor(
                 agentId: ctx.agentId,
                 runId: ctx.runId,
                 content,
-              }),
+              })
             );
             const now = Date.now();
             if (now - lastFlushAt > 250) {
@@ -358,7 +199,7 @@ export function createDzupAgentRunExecutor(
               toolName,
               input: input ?? {},
               executionRunId: ctx.runId,
-            }) as Parameters<typeof ctx.eventBus.emit>[0],
+            }) as Parameters<typeof ctx.eventBus.emit>[0]
           );
           continue;
         }
@@ -394,7 +235,7 @@ export function createDzupAgentRunExecutor(
               toolName,
               durationMs: 0,
               executionRunId,
-            }) as Parameters<typeof ctx.eventBus.emit>[0],
+            }) as Parameters<typeof ctx.eventBus.emit>[0]
           );
           continue;
         }
@@ -430,7 +271,7 @@ export function createDzupAgentRunExecutor(
                 errorCode: "TOOL_EXECUTION_FAILED",
                 message,
                 executionRunId,
-              }) as Parameters<typeof ctx.eventBus.emit>[0],
+              }) as Parameters<typeof ctx.eventBus.emit>[0]
             );
             activeToolName = undefined;
           }
@@ -469,7 +310,7 @@ export function createDzupAgentRunExecutor(
                 runId: ctx.runId,
                 iterations: tokenExhaustedIterations,
                 reason: "token_exhausted" as const,
-              }),
+              })
             );
           }
           const doneContent =
@@ -489,7 +330,7 @@ export function createDzupAgentRunExecutor(
           agentId: ctx.agentId,
           runId: ctx.runId,
           finalContent: content,
-        }),
+        })
       );
 
       // Estimate token usage from content length (~4 chars per token)
@@ -577,7 +418,7 @@ export function createDzupAgentRunExecutor(
               cleanupErr instanceof Error
                 ? cleanupErr.message
                 : String(cleanupErr),
-          },
+          }
         );
       }
       // Deregister the per-run manager from the registry on both success and
