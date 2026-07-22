@@ -156,8 +156,7 @@
         "src/base/stream-runner.ts",
         "src/codex/codex-cli-adapter.ts",
         "src/context/context-aware-router.ts",
-        "src/http/adapter-http-handler.ts",
-        "src/registry/registry-router.ts"
+        "src/http/adapter-http-handler.ts"
       ]
     },
     "@dzupagent/otel": {
