@@ -21,10 +21,10 @@
  * same rule set without duplicating arrays in test code.
  */
 
-import { describe, it, expect } from 'vitest';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { describe, it, expect } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // ---------------------------------------------------------------------------
 // Locate the monorepo root
@@ -32,12 +32,20 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // packages/testing/src/__tests__/boundary/ → five levels up → dzupagent/
-const MONOREPO_ROOT = path.resolve(__dirname, '../../../../..');
+const MONOREPO_ROOT = path.resolve(__dirname, "../../../../..");
 // The apps/ directory lives one level above dzupagent/ in the outer monorepo.
-const APPS_ROOT = path.resolve(MONOREPO_ROOT, '../apps');
-const BOUNDARY_CONFIG_PATH = path.join(MONOREPO_ROOT, 'config', 'architecture-boundaries.json');
-const PACKAGE_TIERS_PATH = path.join(MONOREPO_ROOT, 'config', 'package-tiers.json');
-const PACKAGES_ROOT = path.join(MONOREPO_ROOT, 'packages');
+const APPS_ROOT = path.resolve(MONOREPO_ROOT, "../apps");
+const BOUNDARY_CONFIG_PATH = path.join(
+  MONOREPO_ROOT,
+  "config",
+  "architecture-boundaries.json"
+);
+const PACKAGE_TIERS_PATH = path.join(
+  MONOREPO_ROOT,
+  "config",
+  "package-tiers.json"
+);
+const PACKAGES_ROOT = path.join(MONOREPO_ROOT, "packages");
 
 interface ForbiddenRule {
   /**
@@ -65,11 +73,25 @@ interface LayerEntry {
   packages: string[];
 }
 
+/**
+ * A single reviewed exception to the strict lower-layer rule. Both endpoints
+ * are short package names (after "@dzupagent/"). An edge listed here is a
+ * governance-approved same-/cross-layer dependency and is excluded from the
+ * layer-dep and static-sweep violation sets.
+ */
+interface AllowedLayerEdge {
+  from: string;
+  to: string;
+  reason?: string;
+  reviewedBy?: string;
+}
+
 interface LayerGraph {
   description?: string;
   layers: LayerEntry[];
   rules?: {
     allowSameLayerEdges?: boolean;
+    allowedLayerEdges?: AllowedLayerEdge[];
     toolingMayBeUpstreamOfSupported?: boolean;
     toolingLayerId?: number;
     supportedTiers?: number[];
@@ -83,10 +105,14 @@ interface ArchitectureBoundaryConfig {
 }
 
 function loadBoundaryConfig(configPath: string): ArchitectureBoundaryConfig {
-  const raw = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Partial<ArchitectureBoundaryConfig>;
+  const raw = JSON.parse(
+    fs.readFileSync(configPath, "utf8")
+  ) as Partial<ArchitectureBoundaryConfig>;
 
   return {
-    packageBoundaryRules: Array.isArray(raw.packageBoundaryRules) ? raw.packageBoundaryRules : [],
+    packageBoundaryRules: Array.isArray(raw.packageBoundaryRules)
+      ? raw.packageBoundaryRules
+      : [],
     appWorkspaces: Array.isArray(raw.appWorkspaces) ? raw.appWorkspaces : [],
     layerGraph: raw.layerGraph,
   };
@@ -97,6 +123,37 @@ const PACKAGE_BOUNDARY_RULES = BOUNDARY_CONFIG.packageBoundaryRules;
 const APP_WORKSPACES = BOUNDARY_CONFIG.appWorkspaces;
 const LAYER_GRAPH = BOUNDARY_CONFIG.layerGraph;
 
+/**
+ * Governance-approved same-/cross-layer edges from
+ * layerGraph.rules.allowedLayerEdges, keyed by "<from>->|<to>" using short
+ * package names. An edge present here is excluded from both the layer-dep and
+ * static-sweep violation sets. Kept deliberately narrow: each entry is a
+ * reviewed exception (see the manifest's `reason`/`reviewedBy`).
+ */
+function buildAllowedLayerEdgeSet(graph: LayerGraph | undefined): Set<string> {
+  const out = new Set<string>();
+  const edges = graph?.rules?.allowedLayerEdges;
+  if (!Array.isArray(edges)) return out;
+  for (const edge of edges) {
+    if (typeof edge?.from === "string" && typeof edge?.to === "string") {
+      out.add(`${shortNameOf(edge.from)}->|${shortNameOf(edge.to)}`);
+    }
+  }
+  return out;
+}
+
+const ALLOWED_LAYER_EDGES = buildAllowedLayerEdgeSet(LAYER_GRAPH);
+
+/**
+ * True when the importer→dep edge is an explicitly reviewed exception in the
+ * manifest allowlist. Accepts full or short package names for either endpoint.
+ */
+function isAllowedLayerEdge(importer: string, dep: string): boolean {
+  return ALLOWED_LAYER_EDGES.has(
+    `${shortNameOf(importer)}->|${shortNameOf(dep)}`
+  );
+}
+
 interface TierEntry {
   tier: number;
   status: string;
@@ -105,7 +162,10 @@ interface TierEntry {
 }
 
 function loadTiersConfig(): Record<string, TierEntry> {
-  return JSON.parse(fs.readFileSync(PACKAGE_TIERS_PATH, 'utf8')) as Record<string, TierEntry>;
+  return JSON.parse(fs.readFileSync(PACKAGE_TIERS_PATH, "utf8")) as Record<
+    string,
+    TierEntry
+  >;
 }
 
 const TIERS_CONFIG = loadTiersConfig();
@@ -118,11 +178,13 @@ function listWorkspacePackageNames(): string[] {
   const out: string[] = [];
   for (const entry of fs.readdirSync(PACKAGES_ROOT, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, 'package.json');
+    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, "package.json");
     if (!fs.existsSync(pkgJsonPath)) continue;
     try {
-      const json = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8')) as { name?: string };
-      if (typeof json.name === 'string' && json.name.length > 0) {
+      const json = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8")) as {
+        name?: string;
+      };
+      if (typeof json.name === "string" && json.name.length > 0) {
         out.push(json.name);
       }
     } catch {
@@ -133,11 +195,14 @@ function listWorkspacePackageNames(): string[] {
 }
 
 function shortNameOf(pkgName: string): string {
-  if (pkgName.startsWith('@dzupagent/')) return pkgName.slice('@dzupagent/'.length);
+  if (pkgName.startsWith("@dzupagent/"))
+    return pkgName.slice("@dzupagent/".length);
   return pkgName;
 }
 
-function flattenLayerGraphPackageShortNames(graph: LayerGraph | undefined): Set<string> {
+function flattenLayerGraphPackageShortNames(
+  graph: LayerGraph | undefined
+): Set<string> {
   const out = new Set<string>();
   if (!graph) return out;
   for (const layer of graph.layers) {
@@ -158,20 +223,20 @@ function flattenLayerGraphPackageShortNames(graph: LayerGraph | undefined): Set<
  * ends with .test.ts or .spec.ts — so only production source is scanned.
  */
 const IGNORED_SOURCE_DIRS = new Set([
-  '.cache',
-  '.claude',
-  '.next',
-  '.nuxt',
-  '.output',
-  '.turbo',
-  'build',
-  'coverage',
-  'dist',
-  'node_modules',
-  'out',
-  'storybook-static',
-  '__fixtures__',
-  '__tests__',
+  ".cache",
+  ".claude",
+  ".next",
+  ".nuxt",
+  ".output",
+  ".turbo",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  "out",
+  "storybook-static",
+  "__fixtures__",
+  "__tests__",
 ]);
 
 function collectSourceFiles(dir: string): string[] {
@@ -191,10 +256,10 @@ function collectSourceFiles(dir: string): string[] {
       results.push(...collectSourceFiles(full));
     } else if (entry.isFile()) {
       const isTs =
-        entry.name.endsWith('.ts') &&
-        !entry.name.endsWith('.test.ts') &&
-        !entry.name.endsWith('.spec.ts');
-      const isVue = entry.name.endsWith('.vue');
+        entry.name.endsWith(".ts") &&
+        !entry.name.endsWith(".test.ts") &&
+        !entry.name.endsWith(".spec.ts");
+      const isVue = entry.name.endsWith(".vue");
       if (isTs || isVue) {
         results.push(full);
       }
@@ -217,7 +282,7 @@ function collectSourceFiles(dir: string): string[] {
  * (i.e. "@dzupagent/core" even if the specifier was "@dzupagent/core/stable").
  */
 function extractDzupagentImports(filePath: string): Set<string> {
-  const source = fs.readFileSync(filePath, 'utf8');
+  const source = fs.readFileSync(filePath, "utf8");
   const found = new Set<string>();
 
   // Matches both single and double-quoted specifiers.
@@ -230,7 +295,7 @@ function extractDzupagentImports(filePath: string): Set<string> {
     const specifier = match[1] ?? match[2];
     if (specifier) {
       // Normalise "@dzupagent/core/stable" → "@dzupagent/core"
-      const parts = specifier.split('/');
+      const parts = specifier.split("/");
       // @dzupagent/<name> — always two parts for the package name
       const pkgName = `${parts[0]}/${parts[1]}`;
       found.add(pkgName);
@@ -254,7 +319,7 @@ function collectViolations(): Violation[] {
   const violations: Violation[] = [];
 
   for (const rule of PACKAGE_BOUNDARY_RULES) {
-    const srcDir = path.join(MONOREPO_ROOT, 'packages', rule.importer, 'src');
+    const srcDir = path.join(MONOREPO_ROOT, "packages", rule.importer, "src");
     const files = collectSourceFiles(srcDir);
 
     for (const file of files) {
@@ -284,8 +349,11 @@ function collectViolations(): Violation[] {
  * Covers static imports, re-exports, dynamic imports, and require() calls.
  * Normalises sub-path imports ("pkg/sub") to just "pkg".
  */
-function extractAppImports(filePath: string, targets: Set<string>): Set<string> {
-  const source = fs.readFileSync(filePath, 'utf8');
+function extractAppImports(
+  filePath: string,
+  targets: Set<string>
+): Set<string> {
+  const source = fs.readFileSync(filePath, "utf8");
   const found = new Set<string>();
 
   // Match any quoted specifier after from / import( / require(
@@ -298,8 +366,10 @@ function extractAppImports(filePath: string, targets: Set<string>): Set<string> 
     if (!specifier) continue;
     // Normalise scoped packages: "@scope/name/sub" → "@scope/name"
     // Normalise plain packages:  "name/sub" → "name"
-    const parts = specifier.split('/');
-    const pkgName = specifier.startsWith('@') ? `${parts[0]}/${parts[1]}` : parts[0];
+    const parts = specifier.split("/");
+    const pkgName = specifier.startsWith("@")
+      ? `${parts[0]}/${parts[1]}`
+      : parts[0];
     if (targets.has(pkgName)) {
       found.add(pkgName);
     }
@@ -340,7 +410,9 @@ function collectAppViolations(): AppViolation[] {
 
     // Forbidden targets = all OTHER apps' package names
     const forbiddenTargets = new Set(
-      APP_WORKSPACES.filter((a) => a.packageName !== app.packageName).map((a) => a.packageName),
+      APP_WORKSPACES.filter((a) => a.packageName !== app.packageName).map(
+        (a) => a.packageName
+      )
     );
 
     for (const file of files) {
@@ -363,45 +435,45 @@ function collectAppViolations(): AppViolation[] {
 }
 
 function formatAppViolations(violations: AppViolation[]): string {
-  if (violations.length === 0) return '';
+  if (violations.length === 0) return "";
   const lines = violations.map(
     (v) =>
-      `  FORBIDDEN: ${v.importerPkg} -> ${v.forbiddenPkg}\n  FILE:      apps/${v.file}`,
+      `  FORBIDDEN: ${v.importerPkg} -> ${v.forbiddenPkg}\n  FILE:      apps/${v.file}`
   );
-  return `\nCross-app boundary violations detected:\n\n${lines.join('\n\n')}`;
+  return `\nCross-app boundary violations detected:\n\n${lines.join("\n\n")}`;
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Architecture boundary rules — policy completeness', () => {
-  it('loads a machine-readable boundary config from config/architecture-boundaries.json', () => {
+describe("Architecture boundary rules — policy completeness", () => {
+  it("loads a machine-readable boundary config from config/architecture-boundaries.json", () => {
     expect(fs.existsSync(BOUNDARY_CONFIG_PATH)).toBe(true);
     expect(PACKAGE_BOUNDARY_RULES.length).toBeGreaterThan(0);
     expect(APP_WORKSPACES.length).toBeGreaterThan(0);
   });
 
-  it('uses unique importer package entries', () => {
+  it("uses unique importer package entries", () => {
     const importers = PACKAGE_BOUNDARY_RULES.map((r) => r.importer);
     expect(new Set(importers).size).toBe(importers.length);
   });
 
-  it('every rule has at least one forbidden target', () => {
+  it("every rule has at least one forbidden target", () => {
     for (const rule of PACKAGE_BOUNDARY_RULES) {
       expect(
         rule.importer.length,
-        'Each package boundary rule must define a non-empty importer name',
+        "Each package boundary rule must define a non-empty importer name"
       ).toBeGreaterThan(0);
       expect(
         rule.forbidden.length,
-        `Rule for "${rule.importer}" must list at least one forbidden package`,
+        `Rule for "${rule.importer}" must list at least one forbidden package`
       ).toBeGreaterThan(0);
       expect(new Set(rule.forbidden).size).toBe(rule.forbidden.length);
     }
   });
 
-  it('uses unique app workspace directory and package name entries', () => {
+  it("uses unique app workspace directory and package name entries", () => {
     const dirs = APP_WORKSPACES.map((app) => app.dirName);
     const packageNames = APP_WORKSPACES.map((app) => app.packageName);
     expect(new Set(dirs).size).toBe(dirs.length);
@@ -413,41 +485,50 @@ describe('Architecture boundary rules — policy completeness', () => {
 // Package classification policy completeness
 // ---------------------------------------------------------------------------
 
-describe('Package classification policy completeness', () => {
+describe("Package classification policy completeness", () => {
   const workspacePackages = listWorkspacePackageNames();
 
-  it('has at least one workspace package to classify', () => {
+  it("has at least one workspace package to classify", () => {
     expect(workspacePackages.length).toBeGreaterThan(0);
   });
 
-  it('declares a layerGraph with at least one layer', () => {
-    expect(LAYER_GRAPH, 'config/architecture-boundaries.json must define a layerGraph').toBeDefined();
+  it("declares a layerGraph with at least one layer", () => {
+    expect(
+      LAYER_GRAPH,
+      "config/architecture-boundaries.json must define a layerGraph"
+    ).toBeDefined();
     expect(LAYER_GRAPH!.layers.length).toBeGreaterThan(0);
   });
 
-  it('every workspace package is classified in config/package-tiers.json', () => {
+  it("every workspace package is classified in config/package-tiers.json", () => {
     const missing = workspacePackages.filter(
-      (name) => !Object.prototype.hasOwnProperty.call(TIERS_CONFIG, name),
+      (name) => !Object.prototype.hasOwnProperty.call(TIERS_CONFIG, name)
     );
     expect(
       missing,
-      `The following packages are missing from config/package-tiers.json:\n  - ${missing.join('\n  - ')}\n\n` +
-        'Add a tier entry for each new package. Tier metadata is the single source of truth for ' +
-        'package status and ownership.',
+      `The following packages are missing from config/package-tiers.json:\n  - ${missing.join(
+        "\n  - "
+      )}\n\n` +
+        "Add a tier entry for each new package. Tier metadata is the single source of truth for " +
+        "package status and ownership."
     ).toEqual([]);
   });
 
-  it('every workspace package is classified in the architecture layer graph', () => {
+  it("every workspace package is classified in the architecture layer graph", () => {
     const layerShortNames = flattenLayerGraphPackageShortNames(LAYER_GRAPH);
-    const missing = workspacePackages.filter((name) => !layerShortNames.has(shortNameOf(name)));
+    const missing = workspacePackages.filter(
+      (name) => !layerShortNames.has(shortNameOf(name))
+    );
     expect(
       missing,
-      `The following packages are missing from layerGraph in config/architecture-boundaries.json:\n  - ${missing.join('\n  - ')}\n\n` +
-        'Add each package to the lowest layer that contains all of its runtime dependencies.',
+      `The following packages are missing from layerGraph in config/architecture-boundaries.json:\n  - ${missing.join(
+        "\n  - "
+      )}\n\n` +
+        "Add each package to the lowest layer that contains all of its runtime dependencies."
     ).toEqual([]);
   });
 
-  it('layer graph does not list a package in more than one layer', () => {
+  it("layer graph does not list a package in more than one layer", () => {
     const seen = new Map<string, number>();
     const duplicates: string[] = [];
     for (const layer of LAYER_GRAPH?.layers ?? []) {
@@ -462,7 +543,7 @@ describe('Package classification policy completeness', () => {
     expect(duplicates).toEqual([]);
   });
 
-  it('layer graph only references real workspace packages', () => {
+  it("layer graph only references real workspace packages", () => {
     const workspaceShortNames = new Set(workspacePackages.map(shortNameOf));
     const phantom: string[] = [];
     for (const layer of LAYER_GRAPH?.layers ?? []) {
@@ -474,7 +555,9 @@ describe('Package classification policy completeness', () => {
     }
     expect(
       phantom,
-      `layerGraph references packages that do not exist under packages/:\n  - ${phantom.join('\n  - ')}`,
+      `layerGraph references packages that do not exist under packages/:\n  - ${phantom.join(
+        "\n  - "
+      )}`
     ).toEqual([]);
   });
 });
@@ -485,7 +568,9 @@ describe('Package classification policy completeness', () => {
  */
 for (const rule of PACKAGE_BOUNDARY_RULES) {
   describe(`Architecture boundary enforcement — @dzupagent/${rule.importer}`, () => {
-    const violations = collectViolations().filter((v) => v.importer === rule.importer);
+    const violations = collectViolations().filter(
+      (v) => v.importer === rule.importer
+    );
 
     for (const forbidden of rule.forbidden) {
       it(`must not import @dzupagent/${forbidden}`, () => {
@@ -500,16 +585,16 @@ for (const rule of PACKAGE_BOUNDARY_RULES) {
 // App-to-app boundary rules — policy completeness
 // ---------------------------------------------------------------------------
 
-describe('Apps boundary rules — policy completeness', () => {
-  it('every app workspace entry has a non-empty packageName', () => {
+describe("Apps boundary rules — policy completeness", () => {
+  it("every app workspace entry has a non-empty packageName", () => {
     for (const app of APP_WORKSPACES) {
       expect(
         app.dirName.length,
-        'Each app workspace entry must define a non-empty directory name',
+        "Each app workspace entry must define a non-empty directory name"
       ).toBeGreaterThan(0);
       expect(
         app.packageName.length,
-        `APP_WORKSPACES entry for "${app.dirName}" must have a non-empty packageName`,
+        `APP_WORKSPACES entry for "${app.dirName}" must have a non-empty packageName`
       ).toBeGreaterThan(0);
     }
   });
@@ -523,11 +608,13 @@ describe('Apps boundary rules — policy completeness', () => {
  * One describe block per app so CI output clearly identifies which app
  * introduced a cross-app import violation.
  */
-describe('Apps must not import each other', () => {
+describe("Apps must not import each other", () => {
   const allAppViolations = collectAppViolations();
 
   for (const app of APP_WORKSPACES) {
-    const appViolations = allAppViolations.filter((v) => v.importerDir === app.dirName);
+    const appViolations = allAppViolations.filter(
+      (v) => v.importerDir === app.dirName
+    );
 
     it(`${app.packageName} must not import any sibling app package`, () => {
       expect(appViolations, formatAppViolations(appViolations)).toHaveLength(0);
@@ -539,13 +626,13 @@ describe('Apps must not import each other', () => {
 // Omnibus assertion — single test that reports ALL violations at once
 // ---------------------------------------------------------------------------
 
-describe('Architecture boundary enforcement — omnibus', () => {
-  it('has zero forbidden cross-package edges across all scanned packages', () => {
+describe("Architecture boundary enforcement — omnibus", () => {
+  it("has zero forbidden cross-package edges across all scanned packages", () => {
     const all = collectViolations();
     expect(all, formatViolations(all)).toHaveLength(0);
   });
 
-  it('has zero forbidden cross-app edges across all scanned app workspaces', () => {
+  it("has zero forbidden cross-app edges across all scanned app workspaces", () => {
     const all = collectAppViolations();
     expect(all, formatAppViolations(all)).toHaveLength(0);
   }, 300_000);
@@ -556,12 +643,12 @@ describe('Architecture boundary enforcement — omnibus', () => {
 // ---------------------------------------------------------------------------
 
 function formatViolations(violations: Violation[]): string {
-  if (violations.length === 0) return '';
+  if (violations.length === 0) return "";
   const lines = violations.map(
     (v) =>
-      `  FORBIDDEN: @dzupagent/${v.importer} -> @dzupagent/${v.forbidden}\n  FILE:      ${v.file}`,
+      `  FORBIDDEN: @dzupagent/${v.importer} -> @dzupagent/${v.forbidden}\n  FILE:      ${v.file}`
   );
-  return `\nBoundary violations detected:\n\n${lines.join('\n\n')}`;
+  return `\nBoundary violations detected:\n\n${lines.join("\n\n")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -589,7 +676,7 @@ function buildPackageLayerMap(): Map<string, number> {
   for (const layer of LAYER_GRAPH?.layers ?? []) {
     for (const pkg of layer.packages) {
       map.set(pkg, layer.id);
-      if (pkg !== 'create-dzupagent') {
+      if (pkg !== "create-dzupagent") {
         map.set(`@dzupagent/${pkg}`, layer.id);
       }
     }
@@ -608,23 +695,23 @@ function buildPackageDepMap(): Map<string, string[]> {
 
   for (const entry of fs.readdirSync(PACKAGES_ROOT, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, 'package.json');
+    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, "package.json");
     if (!fs.existsSync(pkgJsonPath)) continue;
     try {
-      const json = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8')) as {
+      const json = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8")) as {
         name?: string;
         dependencies?: Record<string, string>;
         peerDependencies?: Record<string, string>;
         optionalDependencies?: Record<string, string>;
       };
-      if (typeof json.name !== 'string' || json.name.length === 0) continue;
+      if (typeof json.name !== "string" || json.name.length === 0) continue;
       const combined = {
         ...json.dependencies,
         ...json.peerDependencies,
         ...json.optionalDependencies,
       };
       const localDeps = Object.keys(combined).filter(
-        (k) => k.startsWith('@dzupagent/') || k === 'create-dzupagent',
+        (k) => k.startsWith("@dzupagent/") || k === "create-dzupagent"
       );
       map.set(json.name, localDeps);
     } catch {
@@ -647,8 +734,9 @@ function collectLayerDepViolations(): LayerDepViolation[] {
       const depLayer = packageLayers.get(dep);
       if (depLayer === undefined) continue;
 
-      // Enforcement: packages may depend only on lower-numbered layers.
-      if (depLayer >= pkgLayer) {
+      // Enforcement: packages may depend only on lower-numbered layers,
+      // unless the edge is an explicitly reviewed allowlist exception.
+      if (depLayer >= pkgLayer && !isAllowedLayerEdge(pkgName, dep)) {
         violations.push({
           importer: pkgName,
           importerLayer: pkgLayer,
@@ -663,15 +751,17 @@ function collectLayerDepViolations(): LayerDepViolation[] {
 }
 
 function formatLayerDepViolations(violations: LayerDepViolation[]): string {
-  if (violations.length === 0) return '';
+  if (violations.length === 0) return "";
   const lines = violations.map(
     (v) =>
       `  LAYER VIOLATION: ${v.importer} (layer ${v.importerLayer}) -> ${v.dep} (layer ${v.depLayer})` +
-      `\n    Packages may depend only on lower-numbered layers.`,
+      `\n    Packages may depend only on lower-numbered layers.`
   );
-  return `\nLayer dependency violations detected:\n\n${lines.join('\n\n')}\n\n` +
-    'Rule: dep.layer < importer.layer\n' +
-    'Layer metadata comes from config/architecture-boundaries.json.';
+  return (
+    `\nLayer dependency violations detected:\n\n${lines.join("\n\n")}\n\n` +
+    "Rule: dep.layer < importer.layer\n" +
+    "Layer metadata comes from config/architecture-boundaries.json."
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -701,13 +791,15 @@ function buildImportGraph(): Map<string, Set<string>> {
 
   for (const entry of fs.readdirSync(PACKAGES_ROOT, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, 'package.json');
+    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, "package.json");
     if (!fs.existsSync(pkgJsonPath)) continue;
 
     let pkgName: string;
     try {
-      const json = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8')) as { name?: string };
-      if (typeof json.name !== 'string' || json.name.length === 0) continue;
+      const json = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8")) as {
+        name?: string;
+      };
+      if (typeof json.name !== "string" || json.name.length === 0) continue;
       pkgName = json.name;
     } catch {
       continue;
@@ -717,7 +809,7 @@ function buildImportGraph(): Map<string, Set<string>> {
       graph.set(pkgName, new Set<string>());
     }
 
-    const srcDir = path.join(PACKAGES_ROOT, entry.name, 'src');
+    const srcDir = path.join(PACKAGES_ROOT, entry.name, "src");
     const files = collectSourceFiles(srcDir);
 
     for (const file of files) {
@@ -748,7 +840,9 @@ interface Cycle {
  *   black = fully processed
  */
 function detectCycles(graph: Map<string, Set<string>>): Cycle[] {
-  const WHITE = 0, GREY = 1, BLACK = 2;
+  const WHITE = 0,
+    GREY = 1,
+    BLACK = 2;
   const colour = new Map<string, number>();
   const cycles: Cycle[] = [];
   const reportedCycles = new Set<string>();
@@ -774,7 +868,7 @@ function detectCycles(graph: Map<string, Set<string>>): Cycle[] {
         const cycleStart = stack.indexOf(neighbour);
         const cyclePath = [...stack.slice(cycleStart), neighbour];
         // Normalise to a canonical string to deduplicate rotations.
-        const canonical = [...cyclePath].sort().join('|');
+        const canonical = [...cyclePath].sort().join("|");
         if (!reportedCycles.has(canonical)) {
           reportedCycles.add(canonical);
           cycles.push({ path: cyclePath });
@@ -798,11 +892,15 @@ function detectCycles(graph: Map<string, Set<string>>): Cycle[] {
 }
 
 function formatCycles(cycles: Cycle[]): string {
-  if (cycles.length === 0) return '';
-  const lines = cycles.map((c) => `  CYCLE: ${c.path.join(' -> ')}`);
-  return `\nCircular dependencies detected in source import graph:\n\n${lines.join('\n')}\n\n` +
-    'Tip: the cache -> memory case: @dzupagent/memory already depends on @dzupagent/cache;\n' +
-    'if cache imports memory the DFS detects cache -> memory -> cache.';
+  if (cycles.length === 0) return "";
+  const lines = cycles.map((c) => `  CYCLE: ${c.path.join(" -> ")}`);
+  return (
+    `\nCircular dependencies detected in source import graph:\n\n${lines.join(
+      "\n"
+    )}\n\n` +
+    "Tip: the cache -> memory case: @dzupagent/memory already depends on @dzupagent/cache;\n" +
+    "if cache imports memory the DFS detects cache -> memory -> cache."
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -832,13 +930,15 @@ function collectStaticSweepViolations(): StaticSweepViolation[] {
 
   for (const entry of fs.readdirSync(PACKAGES_ROOT, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, 'package.json');
+    const pkgJsonPath = path.join(PACKAGES_ROOT, entry.name, "package.json");
     if (!fs.existsSync(pkgJsonPath)) continue;
 
     let pkgName: string;
     try {
-      const json = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8')) as { name?: string };
-      if (typeof json.name !== 'string' || json.name.length === 0) continue;
+      const json = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8")) as {
+        name?: string;
+      };
+      if (typeof json.name !== "string" || json.name.length === 0) continue;
       pkgName = json.name;
     } catch {
       continue;
@@ -847,7 +947,7 @@ function collectStaticSweepViolations(): StaticSweepViolation[] {
     const pkgLayer = packageLayers.get(pkgName);
     if (pkgLayer === undefined) continue;
 
-    const srcDir = path.join(PACKAGES_ROOT, entry.name, 'src');
+    const srcDir = path.join(PACKAGES_ROOT, entry.name, "src");
     const files = collectSourceFiles(srcDir);
 
     for (const file of files) {
@@ -859,8 +959,9 @@ function collectStaticSweepViolations(): StaticSweepViolation[] {
         const impLayer = packageLayers.get(imp);
         if (impLayer === undefined) continue;
 
-        // Enforcement: packages may depend only on lower-numbered layers.
-        if (impLayer >= pkgLayer) {
+        // Enforcement: packages may depend only on lower-numbered layers,
+        // unless the edge is an explicitly reviewed allowlist exception.
+        if (impLayer >= pkgLayer && !isAllowedLayerEdge(pkgName, imp)) {
           violations.push({
             importerPkg: pkgName,
             importerLayer: pkgLayer,
@@ -876,21 +977,25 @@ function collectStaticSweepViolations(): StaticSweepViolation[] {
   return violations;
 }
 
-function formatStaticSweepViolations(violations: StaticSweepViolation[]): string {
-  if (violations.length === 0) return '';
+function formatStaticSweepViolations(
+  violations: StaticSweepViolation[]
+): string {
+  if (violations.length === 0) return "";
   const lines = violations.map(
     (v) =>
-      `  STATIC SWEEP VIOLATION: ${v.importerPkg} (layer ${v.importerLayer}) imports ${v.importedPkg} (layer ${v.importedLayer})\n  FILE: ${v.file}`,
+      `  STATIC SWEEP VIOLATION: ${v.importerPkg} (layer ${v.importerLayer}) imports ${v.importedPkg} (layer ${v.importedLayer})\n  FILE: ${v.file}`
   );
-  return `\nStatic @dzupagent/ import sweep violations:\n\n${lines.join('\n\n')}`;
+  return `\nStatic @dzupagent/ import sweep violations:\n\n${lines.join(
+    "\n\n"
+  )}`;
 }
 
 // ---------------------------------------------------------------------------
 // RF-13 / ARCH-08 test suite
 // ---------------------------------------------------------------------------
 
-describe('Layer-driven dependency validation', () => {
-  it('every local package dep targets a lower architecture layer', () => {
+describe("Layer-driven dependency validation", () => {
+  it("every local package dep targets a lower architecture layer", () => {
     // Rule: a package may depend only on packages in lower-numbered layers.
     //
     // Example that would fail:
@@ -899,7 +1004,7 @@ describe('Layer-driven dependency validation', () => {
     expect(violations, formatLayerDepViolations(violations)).toHaveLength(0);
   });
 
-  it('import graph has no circular dependencies (DFS)', () => {
+  it("import graph has no circular dependencies (DFS)", () => {
     // Walks every production TypeScript source file under packages/*/src/,
     // builds an import edge graph for @dzupagent/* packages, and runs a
     // full-graph DFS cycle detection.
@@ -912,7 +1017,7 @@ describe('Layer-driven dependency validation', () => {
     expect(cycles, formatCycles(cycles)).toHaveLength(0);
   }, 180_000);
 
-  it('static @dzupagent/ import sweep: no forbidden cross-layer imports in source files', () => {
+  it("static @dzupagent/ import sweep: no forbidden cross-layer imports in source files", () => {
     // Performs a regex sweep over every production TypeScript file looking
     // for  from '@dzupagent/…'  patterns, then asserts the layer ordering
     // rule on each discovered edge.
