@@ -132,10 +132,9 @@ export async function recordDistributedCost(options: {
     return;
   }
 
-  const tenantId =
-    typeof options.job.metadata?.["tenantId"] === "string"
-      ? (options.job.metadata["tenantId"] as string)
-      : "default";
+  // CODE-M-04: reuse the shared resolver (queue tenant → metadata.tenantId →
+  // 'default') instead of an inline metadata derivation.
+  const tenantId = resolveTenantId(options.job);
 
   try {
     const ledger = new DistributedCostLedger({ client: guardrailClient });
