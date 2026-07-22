@@ -117,6 +117,131 @@ function buildInvalidStateError(message: string) {
   return { code: "INVALID_STATE", message };
 }
 
+/**
+ * CODE-M-05: extracted pure validators/mappers.
+ *
+ * Each handler in `createEvalRoutes` previously inlined its body validation,
+ * filter construction, and response mapping. Those pure steps are hoisted here
+ * as module-level functions so they can be unit-tested in isolation, without
+ * standing up a Hono app or a store. The route wiring calls them; observable
+ * HTTP behaviour (status codes, response shapes, checks) is unchanged.
+ */
+
+/** Discriminated result of a request-body validator. */
+type ValidationResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: { code: string; message: string } };
+
+/**
+ * Validates the `GET /runs` query string. Returns the parsed filter inputs, or
+ * an error when `status` is present but not a recognized run status.
+ */
+export function validateRunListQuery(query: {
+  suiteId?: string;
+  status?: string;
+  limit?: string;
+}): ValidationResult<{
+  suiteId: string | undefined;
+  status: EvalRunStatus | null;
+  limit: number;
+}> {
+  const suiteId = query.suiteId || undefined;
+  const status = parseRunStatus(query.status || undefined);
+  const limit = parseLimit(query.limit || undefined);
+
+  if (query.status && status === null) {
+    return {
+      ok: false,
+      error: buildValidationError(
+        "status must be one of queued, running, completed, failed, or cancelled"
+      ),
+    };
+  }
+
+  return { ok: true, value: { suiteId, status, limit } };
+}
+
+/**
+ * Builds the store-level `listRuns` filter. SEC-M-06: the tenant filter is only
+ * applied when the requester carries an authenticated tenant; otherwise it is
+ * omitted so legacy un-scoped listing behaviour is preserved.
+ */
+export function buildRunListFilter(inputs: {
+  suiteId: string | undefined;
+  status: EvalRunStatus | null;
+  limit: number;
+  requesterTenantId: string | undefined;
+}): {
+  suiteId: string | undefined;
+  status?: EvalRunStatus;
+  limit: number;
+  tenantId?: string;
+} {
+  return {
+    suiteId: inputs.suiteId,
+    status: inputs.status ?? undefined,
+    limit: inputs.limit,
+    ...(inputs.requesterTenantId !== undefined
+      ? { tenantId: inputs.requesterTenantId }
+      : {}),
+  };
+}
+
+/** Builds the `meta` block returned by `GET /runs`. */
+export function buildRunListMeta(inputs: {
+  service: string;
+  mode: "active" | "read-only";
+  writable: boolean;
+  suiteId: string | undefined;
+  status: EvalRunStatus | null;
+  limit: number;
+}): EvalRunListMeta {
+  return {
+    service: inputs.service,
+    mode: inputs.mode,
+    writable: inputs.writable,
+    filters: {
+      ...(inputs.suiteId ? { suiteId: inputs.suiteId } : {}),
+      ...(inputs.status ? { status: inputs.status } : {}),
+      limit: inputs.limit,
+    },
+  };
+}
+
+/**
+ * Validates the `POST /runs` body's `metadata` field. `resolveSuite` is kept as
+ * a closure inside `createEvalRoutes` because it reads the injected `suites`
+ * registry; this validator covers the pure, registry-independent metadata rule.
+ */
+export function validateCreateRunMetadata(
+  body: EvalRunCreateRequest
+): ValidationResult<Record<string, unknown> | undefined> {
+  if (body.metadata !== undefined && !isPlainObject(body.metadata)) {
+    return {
+      ok: false,
+      error: buildValidationError(
+        "metadata must be a plain object when provided"
+      ),
+    };
+  }
+  return { ok: true, value: body.metadata };
+}
+
+/**
+ * State predicate: a run may be cancelled unless it has reached a terminal
+ * state (`completed`, `failed`, or `cancelled`).
+ */
+export function canCancelRun(status: EvalRunStatus): boolean {
+  return (
+    status !== "completed" && status !== "failed" && status !== "cancelled"
+  );
+}
+
+/** State predicate: only `failed` runs may be retried. */
+export function canRetryRun(status: EvalRunStatus): boolean {
+  return status === "failed";
+}
+
 interface EvalRouteErrorResponse {
   status: ContentfulStatusCode;
   error: { code: string; message: string };
@@ -335,21 +460,17 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
   });
 
   app.get("/runs", async (c) => {
-    const suiteId = c.req.query("suiteId") || undefined;
-    const status = parseRunStatus(c.req.query("status") || undefined);
-    const limit = parseLimit(c.req.query("limit") || undefined);
+    const validated = validateRunListQuery({
+      suiteId: c.req.query("suiteId"),
+      status: c.req.query("status"),
+      limit: c.req.query("limit"),
+    });
 
-    if (c.req.query("status") && status === null) {
-      return c.json(
-        {
-          success: false,
-          error: buildValidationError(
-            "status must be one of queued, running, completed, failed, or cancelled"
-          ),
-        },
-        400
-      );
+    if (!validated.ok) {
+      return c.json({ success: false, error: validated.error }, 400);
     }
+
+    const { suiteId, status, limit } = validated.value;
 
     // SEC-M-06: scope list results to the authenticated tenant (default-deny).
     // When an apiKey is present, runs owned by other tenants — and legacy runs
@@ -357,24 +478,17 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
     // (`auth.mode="none"` legacy mode) the filter is omitted so existing
     // un-scoped listing behaviour is preserved.
     const requesterTenantId = getOptionalRequestingTenantId(c);
-    const runs = await orchestrator.listRuns({
-      suiteId,
-      status: status ?? undefined,
-      limit,
-      ...(requesterTenantId !== undefined
-        ? { tenantId: requesterTenantId }
-        : {}),
-    });
-    const meta: EvalRunListMeta = {
+    const runs = await orchestrator.listRuns(
+      buildRunListFilter({ suiteId, status, limit, requesterTenantId })
+    );
+    const meta = buildRunListMeta({
       service: serviceName,
       mode,
       writable: orchestrator.canExecute(),
-      filters: {
-        ...(suiteId ? { suiteId } : {}),
-        ...(status ? { status } : {}),
-        limit,
-      },
-    };
+      suiteId,
+      status,
+      limit,
+    });
 
     return c.json({
       success: true,
@@ -415,16 +529,9 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
       );
     }
 
-    if (body.metadata !== undefined && !isPlainObject(body.metadata)) {
-      return c.json(
-        {
-          success: false,
-          error: buildValidationError(
-            "metadata must be a plain object when provided"
-          ),
-        },
-        400
-      );
+    const metadataResult = validateCreateRunMetadata(body);
+    if (!metadataResult.ok) {
+      return c.json({ success: false, error: metadataResult.error }, 400);
     }
 
     let suite: EvalSuite | null;
@@ -505,11 +612,7 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
       );
     }
 
-    if (
-      run.status === "completed" ||
-      run.status === "failed" ||
-      run.status === "cancelled"
-    ) {
+    if (!canCancelRun(run.status)) {
       return c.json(
         {
           success: false,
@@ -552,7 +655,7 @@ export function createEvalRoutes(config: EvalRouteConfig = {}): Hono<AppEnv> {
       );
     }
 
-    if (run.status !== "failed") {
+    if (!canRetryRun(run.status)) {
       return c.json(
         {
           success: false,
