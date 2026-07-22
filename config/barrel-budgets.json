@@ -114,7 +114,6 @@
         "src/pipeline/loop-executor.ts",
         "src/pipeline/pipeline-executor.ts",
         "src/pipeline/pipeline-runtime.ts",
-        "src/pipeline/runtime-tool-handlers.ts",
         "src/reflection/run-reflector.ts",
         "src/security/agent-auth.ts",
         "src/self-correction/post-run-analyzer.ts",
