@@ -43,7 +43,12 @@ export interface TenantSearchResult {
 export class TenantScopedStore {
   private readonly store: BaseStore
   private readonly _tenantId: string
-  private readonly _namespacePrefix: string[]
+  /**
+   * Not `readonly`: {@link setPrefix} is the single authorised in-class
+   * write-path (used by {@link scope}). `private` already blocks external
+   * mutation, so it can be assigned directly without a type-defeating cast.
+   */
+  private _namespacePrefix: string[]
   private readonly capabilities: MemoryStoreCapabilities
 
   constructor(config: TenantScopedStoreConfig) {
@@ -202,9 +207,9 @@ export class TenantScopedStore {
 
   /** Overwrite the namespace prefix — used only by {@link scope} to extend a parent prefix. */
   private setPrefix(prefix: string[]): void {
-    // _namespacePrefix is declared `readonly` to prevent accidental external
-    // mutation; this method is the single authorised write-path within the class.
-    (this as unknown as { _namespacePrefix: string[] })._namespacePrefix = prefix
+    // Single authorised write-path for the `private` (non-readonly) field;
+    // direct assignment keeps the field name under compiler tracking.
+    this._namespacePrefix = prefix
   }
 
   /** Prepend the tenant namespace prefix to a namespace */

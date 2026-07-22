@@ -88,6 +88,19 @@ export class MemoryService {
     this.agentId = options?.agentId
   }
 
+  // ---------- Introspection ---------------------------------------------------
+
+  /**
+   * Names of all configured namespaces, in insertion order.
+   *
+   * Narrow public accessor over the private {@link nsMap}: lets collaborators
+   * (e.g. the agent-file exporter) enumerate namespaces without reaching into
+   * the field via a type-defeating cast, so a future rename stays compiler-checked.
+   */
+  getNamespaceNames(): string[] {
+    return Array.from(this.nsMap.keys())
+  }
+
   // ---------- Write -----------------------------------------------------------
 
   /**

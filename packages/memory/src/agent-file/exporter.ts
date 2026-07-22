@@ -132,22 +132,11 @@ export class AgentFileExporter {
   // ---------------------------------------------------------------------------
 
   /**
-   * Get all namespace names from the MemoryService.
-   * Accesses the private nsMap via the public getNamespaceNames method if
-   * available, otherwise falls back to the internal map.
+   * Get all namespace names from the MemoryService via its public accessor,
+   * so enumeration stays under compiler tracking (no reach into private state).
    */
   private getNamespaceNames(): string[] {
-    const svc = this.config.memoryService
-    // Use getNamespaceNames() if available on the service
-    if ('getNamespaceNames' in svc && typeof svc.getNamespaceNames === 'function') {
-      return (svc as MemoryService & { getNamespaceNames(): string[] }).getNamespaceNames()
-    }
-    // Fallback: access nsMap directly (works with the current MemoryService implementation)
-    const nsMap = (svc as unknown as { nsMap: Map<string, unknown> }).nsMap
-    if (nsMap instanceof Map) {
-      return Array.from(nsMap.keys())
-    }
-    return []
+    return this.config.memoryService.getNamespaceNames()
   }
 
   /**
