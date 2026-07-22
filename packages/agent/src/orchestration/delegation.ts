@@ -9,10 +9,10 @@
  * It does NOT import from `@dzupagent/server` or any other sibling package.
  */
 
-import type { RunStore } from '@dzupagent/core/persistence'
-import type { DzupEventBus } from '@dzupagent/core/events'
-import { OrchestrationError } from './orchestration-error.js'
-import { omitUndefined } from '../utils/exact-optional.js'
+import type { RunStore } from "@dzupagent/core/persistence";
+import type { DzupEventBus } from "@dzupagent/core/events";
+import { OrchestrationError } from "./orchestration-error.js";
+import { omitUndefined } from "../utils/exact-optional.js";
 
 // ---------------------------------------------------------------------------
 // Contracts
@@ -21,57 +21,57 @@ import { omitUndefined } from '../utils/exact-optional.js'
 /** Typed contract for delegating work to a specialist agent. */
 export interface DelegationRequest {
   /** ID of the specialist agent to delegate to */
-  targetAgentId: string
+  targetAgentId: string;
   /** The task to delegate */
-  task: string
+  task: string;
   /** Structured input for the specialist */
-  input: Record<string, unknown>
+  input: Record<string, unknown>;
   /** Context from the supervisor (prior decisions, constraints) */
-  context?: DelegationContext
+  context?: DelegationContext;
   /** Max time to wait for specialist completion (ms, default: 300_000) */
-  timeoutMs?: number
+  timeoutMs?: number;
   /** Priority (lower = higher, default: 5) */
-  priority?: number
+  priority?: number;
 }
 
 /** Contextual information passed from supervisor to specialist. */
 export interface DelegationContext {
-  parentRunId: string
-  decisions: string[]
-  constraints: string[]
-  relevantFiles: string[]
+  parentRunId: string;
+  decisions: string[];
+  constraints: string[];
+  relevantFiles: string[];
 }
 
 /** Result returned from a completed delegation. */
 export interface DelegationResult {
   /** Whether the delegation succeeded */
-  success: boolean
+  success: boolean;
   /** Output from the specialist */
-  output: unknown
+  output: unknown;
   /** Structured metadata from the specialist */
-  metadata?: DelegationMetadata
+  metadata?: DelegationMetadata;
   /** Error if delegation failed */
-  error?: string
+  error?: string;
 }
 
 /** Metadata about a completed delegation. */
 export interface DelegationMetadata {
   /** Stable assignment/node key used to aggregate batch delegation results. */
-  assignmentId?: string
+  assignmentId?: string;
   /** Specialist agent that executed this delegation. */
-  specialistId?: string
+  specialistId?: string;
   /** Provider that completed provider-port execution. */
-  providerId?: string
+  providerId?: string;
   /** Providers attempted during provider-port execution. */
-  attemptedProviders?: string[]
+  attemptedProviders?: string[];
   /** Number of provider fallback attempts before success. */
-  fallbackAttempts?: number
+  fallbackAttempts?: number;
   /** Additional provider-port metadata that is not part of the core contract. */
-  providerMetadata?: Record<string, unknown>
-  modelTier?: string
-  tokenUsage?: { input: number; output: number }
-  durationMs: number
-  filesModified?: string[]
+  providerMetadata?: Record<string, unknown>;
+  modelTier?: string;
+  tokenUsage?: { input: number; output: number };
+  durationMs: number;
+  filesModified?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -79,15 +79,20 @@ export interface DelegationMetadata {
 // ---------------------------------------------------------------------------
 
 /** Delegation lifecycle status. */
-export type DelegationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'timeout'
+export type DelegationStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "timeout";
 
 /** An in-flight delegation entry visible via `getActiveDelegations()`. */
 export interface ActiveDelegation {
-  delegationId: string
-  runId: string
-  request: DelegationRequest
-  status: DelegationStatus
-  startedAt: Date
+  delegationId: string;
+  runId: string;
+  request: DelegationRequest;
+  status: DelegationStatus;
+  startedAt: Date;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,11 +102,11 @@ export interface ActiveDelegation {
 /** Tracks and executes delegations from a supervisor to specialist agents. */
 export interface DelegationTracker {
   /** Delegate work to a specialist. Resolves when the specialist finishes. */
-  delegate(request: DelegationRequest): Promise<DelegationResult>
+  delegate(request: DelegationRequest): Promise<DelegationResult>;
   /** Return all currently active (pending/running) delegations. */
-  getActiveDelegations(): ActiveDelegation[]
+  getActiveDelegations(): ActiveDelegation[];
   /** Cancel an active delegation by target agent ID. Returns true if cancelled. */
-  cancel(targetAgentId: string): boolean
+  cancel(targetAgentId: string): boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,8 +130,8 @@ export type DelegationExecutor = (
   runId: string,
   agentId: string,
   input: unknown,
-  signal: AbortSignal,
-) => Promise<void>
+  signal: AbortSignal
+) => Promise<void>;
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -134,15 +139,15 @@ export type DelegationExecutor = (
 
 export interface SimpleDelegationTrackerConfig {
   /** Persistence store for run records. */
-  runStore: RunStore
+  runStore: RunStore;
   /** Event bus for delegation lifecycle events. */
-  eventBus?: DzupEventBus
+  eventBus?: DzupEventBus;
   /** Callback that executes the delegated run. */
-  executor: DelegationExecutor
+  executor: DelegationExecutor;
   /** Polling interval for checking run completion (ms, default: 100). */
-  pollIntervalMs?: number
+  pollIntervalMs?: number;
   /** Default timeout for delegations (ms, default: 300_000). */
-  defaultTimeoutMs?: number
+  defaultTimeoutMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,27 +159,108 @@ export interface SimpleDelegationTrackerConfig {
  * for completion. Supports timeout via AbortController and cancellation.
  */
 export class SimpleDelegationTracker implements DelegationTracker {
-  private readonly runStore: RunStore
-  private readonly eventBus: DzupEventBus | undefined
-  private readonly executor: DelegationExecutor
-  private readonly defaultTimeoutMs: number
+  private readonly runStore: RunStore;
+  private readonly eventBus: DzupEventBus | undefined;
+  private readonly executor: DelegationExecutor;
+  private readonly defaultTimeoutMs: number;
 
   /** Map of delegationId -> active delegation state */
-  private readonly active = new Map<string, ActiveDelegation & { abort: AbortController }>()
+  private readonly active = new Map<
+    string,
+    ActiveDelegation & { abort: AbortController }
+  >();
 
   constructor(config: SimpleDelegationTrackerConfig) {
-    this.runStore = config.runStore
-    this.eventBus = config.eventBus
-    this.executor = config.executor
-    this.defaultTimeoutMs = config.defaultTimeoutMs ?? 300_000
+    this.runStore = config.runStore;
+    this.eventBus = config.eventBus;
+    this.executor = config.executor;
+    this.defaultTimeoutMs = config.defaultTimeoutMs ?? 300_000;
   }
 
   async delegate(request: DelegationRequest): Promise<DelegationResult> {
-    const timeoutMs = request.timeoutMs ?? this.defaultTimeoutMs
-    const delegationId = crypto.randomUUID()
-    const parentRunId = request.context?.parentRunId ?? 'unknown'
-    const startTime = Date.now()
+    const timeoutMs = request.timeoutMs ?? this.defaultTimeoutMs;
+    const delegationId = crypto.randomUUID();
+    const parentRunId = request.context?.parentRunId ?? "unknown";
+    const startTime = Date.now();
 
+    // Create the run record and register the active delegation entry.
+    const { run, entry } = await this.startDelegation(
+      request,
+      delegationId,
+      parentRunId
+    );
+    const abortController = entry.abort;
+
+    // Set up timeout
+    const timeoutHandle = setTimeout(() => {
+      abortController.abort(
+        new Error(`Delegation timeout after ${timeoutMs}ms`)
+      );
+    }, timeoutMs);
+
+    try {
+      // Update status to running
+      entry.status = "running";
+      await this.runStore.update(run.id, { status: "running" });
+
+      // Execute the delegation (non-blocking — executor runs in background)
+      const executorPromise = this.executor(
+        run.id,
+        request.targetAgentId,
+        {
+          task: request.task,
+          ...request.input,
+          delegationContext: request.context,
+        },
+        abortController.signal
+      );
+
+      // Wait for either executor completion or abort
+      const result = await this.waitForCompletion(
+        run.id,
+        executorPromise,
+        abortController.signal
+      );
+
+      return await this.finalizeSuccess({
+        request,
+        entry,
+        run,
+        result,
+        delegationId,
+        parentRunId,
+        startTime,
+      });
+    } catch (err: unknown) {
+      return await this.finalizeFailure({
+        err,
+        request,
+        entry,
+        run,
+        abortController,
+        delegationId,
+        parentRunId,
+        timeoutMs,
+        startTime,
+      });
+    } finally {
+      clearTimeout(timeoutHandle);
+      this.active.delete(delegationId);
+    }
+  }
+
+  /**
+   * Create the run record, register the active-delegation entry, and emit the
+   * `delegation:started` event. Returns the run and its tracking entry.
+   */
+  private async startDelegation(
+    request: DelegationRequest,
+    delegationId: string,
+    parentRunId: string
+  ): Promise<{
+    run: Awaited<ReturnType<RunStore["create"]>>;
+    entry: ActiveDelegation & { abort: AbortController };
+  }> {
     // Create a run record in the store
     const run = await this.runStore.create({
       agentId: request.targetAgentId,
@@ -188,188 +274,213 @@ export class SimpleDelegationTracker implements DelegationTracker {
         parentRunId,
         priority: request.priority ?? 5,
       },
-    })
+    });
 
     // Set up abort controller for timeout and cancellation
-    const abortController = new AbortController()
+    const abortController = new AbortController();
 
     // Track the active delegation
     const entry: ActiveDelegation & { abort: AbortController } = {
       delegationId,
       runId: run.id,
       request,
-      status: 'pending',
+      status: "pending",
       startedAt: new Date(),
       abort: abortController,
-    }
-    this.active.set(delegationId, entry)
+    };
+    this.active.set(delegationId, entry);
 
     // Emit started event
     this.eventBus?.emit({
-      type: 'delegation:started',
+      type: "delegation:started",
       parentRunId,
       targetAgentId: request.targetAgentId,
       delegationId,
-    })
+    });
 
-    // Set up timeout
-    const timeoutHandle = setTimeout(() => {
-      abortController.abort(new Error(`Delegation timeout after ${timeoutMs}ms`))
-    }, timeoutMs)
+    return { run, entry };
+  }
 
-    try {
-      // Update status to running
-      entry.status = 'running'
-      await this.runStore.update(run.id, { status: 'running' })
+  /**
+   * Persist the terminal run state for a completed executor, emit the
+   * `delegation:completed` event, and assemble the final {@link DelegationResult}
+   * with duration metadata attached.
+   */
+  private async finalizeSuccess(args: {
+    request: DelegationRequest;
+    entry: ActiveDelegation;
+    run: { id: string };
+    result: DelegationResult;
+    delegationId: string;
+    parentRunId: string;
+    startTime: number;
+  }): Promise<DelegationResult> {
+    const {
+      request,
+      entry,
+      run,
+      result,
+      delegationId,
+      parentRunId,
+      startTime,
+    } = args;
+    const durationMs = Date.now() - startTime;
+    entry.status = result.success ? "completed" : "failed";
 
-      // Execute the delegation (non-blocking — executor runs in background)
-      const executorPromise = this.executor(
-        run.id,
-        request.targetAgentId,
-        {
-          task: request.task,
-          ...request.input,
-          delegationContext: request.context,
-        },
-        abortController.signal,
-      )
+    // Attach duration to metadata
+    const metadata: DelegationMetadata = {
+      ...result.metadata,
+      durationMs,
+    };
 
-      // Wait for either executor completion or abort
-      const result = await this.waitForCompletion(
-        run.id,
-        executorPromise,
-        abortController.signal,
-      )
-
-      const durationMs = Date.now() - startTime
-      entry.status = result.success ? 'completed' : 'failed'
-
-      // Attach duration to metadata
-      const metadata: DelegationMetadata = {
-        ...result.metadata,
-        durationMs,
-      }
-
-      // Update run store
-      await this.runStore.update(run.id, omitUndefined({
-        status: result.success ? 'completed' : 'failed',
+    // Update run store
+    await this.runStore.update(
+      run.id,
+      omitUndefined({
+        status: result.success ? "completed" : "failed",
         output: result.output,
         completedAt: new Date(),
         error: result.error,
         tokenUsage: metadata.tokenUsage,
-      }))
-
-      // Emit completed event
-      this.eventBus?.emit({
-        type: 'delegation:completed',
-        parentRunId,
-        targetAgentId: request.targetAgentId,
-        delegationId,
-        durationMs,
-        success: result.success,
       })
+    );
 
-      return { ...result, metadata }
-    } catch (err: unknown) {
-      const durationMs = Date.now() - startTime
-      const isAbort = err instanceof Error && err.name === 'AbortError'
-      const isTimeout = abortController.signal.aborted &&
-        abortController.signal.reason instanceof Error &&
-        abortController.signal.reason.message.includes('timeout')
+    // Emit completed event
+    this.eventBus?.emit({
+      type: "delegation:completed",
+      parentRunId,
+      targetAgentId: request.targetAgentId,
+      delegationId,
+      durationMs,
+      success: result.success,
+    });
 
-      if (isTimeout || (isAbort && !this.wasCancelledByUser(delegationId))) {
-        entry.status = 'timeout'
+    return { ...result, metadata };
+  }
 
-        await this.runStore.update(run.id, {
-          status: 'failed',
-          error: `Delegation timed out after ${timeoutMs}ms`,
-          completedAt: new Date(),
-        })
+  /**
+   * Classify a thrown error into timeout / explicit-cancellation / generic
+   * failure, persist the matching terminal run state, emit the corresponding
+   * lifecycle event, and return the failed {@link DelegationResult}.
+   */
+  private async finalizeFailure(args: {
+    err: unknown;
+    request: DelegationRequest;
+    entry: ActiveDelegation;
+    run: { id: string };
+    abortController: AbortController;
+    delegationId: string;
+    parentRunId: string;
+    timeoutMs: number;
+    startTime: number;
+  }): Promise<DelegationResult> {
+    const {
+      err,
+      request,
+      entry,
+      run,
+      abortController,
+      delegationId,
+      parentRunId,
+      timeoutMs,
+      startTime,
+    } = args;
+    const durationMs = Date.now() - startTime;
+    const isAbort = err instanceof Error && err.name === "AbortError";
+    const isTimeout =
+      abortController.signal.aborted &&
+      abortController.signal.reason instanceof Error &&
+      abortController.signal.reason.message.includes("timeout");
 
-        this.eventBus?.emit({
-          type: 'delegation:timeout',
-          parentRunId,
-          targetAgentId: request.targetAgentId,
-          delegationId,
-          timeoutMs,
-        })
-
-        return {
-          success: false,
-          output: null,
-          error: `Delegation timed out after ${timeoutMs}ms`,
-          metadata: { durationMs },
-        }
-      }
-
-      // Explicit cancellation
-      if (isAbort) {
-        entry.status = 'failed'
-
-        await this.runStore.update(run.id, {
-          status: 'cancelled',
-          error: 'Delegation cancelled',
-          completedAt: new Date(),
-        })
-
-        this.eventBus?.emit({
-          type: 'delegation:cancelled',
-          parentRunId,
-          targetAgentId: request.targetAgentId,
-          delegationId,
-        })
-
-        return {
-          success: false,
-          output: null,
-          error: 'Delegation cancelled',
-          metadata: { durationMs },
-        }
-      }
-
-      // Generic failure
-      const errorMsg = err instanceof Error ? err.message : String(err)
-      entry.status = 'failed'
+    if (isTimeout || (isAbort && !this.wasCancelledByUser(delegationId))) {
+      entry.status = "timeout";
 
       await this.runStore.update(run.id, {
-        status: 'failed',
-        error: errorMsg,
+        status: "failed",
+        error: `Delegation timed out after ${timeoutMs}ms`,
         completedAt: new Date(),
-      })
+      });
 
       this.eventBus?.emit({
-        type: 'delegation:failed',
+        type: "delegation:timeout",
         parentRunId,
         targetAgentId: request.targetAgentId,
         delegationId,
-        error: errorMsg,
-      })
+        timeoutMs,
+      });
 
       return {
         success: false,
         output: null,
-        error: errorMsg,
+        error: `Delegation timed out after ${timeoutMs}ms`,
         metadata: { durationMs },
-      }
-    } finally {
-      clearTimeout(timeoutHandle)
-      this.active.delete(delegationId)
+      };
     }
+
+    // Explicit cancellation
+    if (isAbort) {
+      entry.status = "failed";
+
+      await this.runStore.update(run.id, {
+        status: "cancelled",
+        error: "Delegation cancelled",
+        completedAt: new Date(),
+      });
+
+      this.eventBus?.emit({
+        type: "delegation:cancelled",
+        parentRunId,
+        targetAgentId: request.targetAgentId,
+        delegationId,
+      });
+
+      return {
+        success: false,
+        output: null,
+        error: "Delegation cancelled",
+        metadata: { durationMs },
+      };
+    }
+
+    // Generic failure
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    entry.status = "failed";
+
+    await this.runStore.update(run.id, {
+      status: "failed",
+      error: errorMsg,
+      completedAt: new Date(),
+    });
+
+    this.eventBus?.emit({
+      type: "delegation:failed",
+      parentRunId,
+      targetAgentId: request.targetAgentId,
+      delegationId,
+      error: errorMsg,
+    });
+
+    return {
+      success: false,
+      output: null,
+      error: errorMsg,
+      metadata: { durationMs },
+    };
   }
 
   getActiveDelegations(): ActiveDelegation[] {
-    return [...this.active.values()].map(({ abort: _abort, ...rest }) => rest)
+    return [...this.active.values()].map(({ abort: _abort, ...rest }) => rest);
   }
 
   cancel(targetAgentId: string): boolean {
     for (const [id, entry] of this.active) {
       if (entry.request.targetAgentId === targetAgentId) {
-        this.cancelledByUser.add(id)
-        entry.abort.abort(new Error('Delegation cancelled by user'))
-        return true
+        this.cancelledByUser.add(id);
+        entry.abort.abort(new Error("Delegation cancelled by user"));
+        return true;
       }
     }
-    return false
+    return false;
   }
 
   // ---------------------------------------------------------------------------
@@ -377,12 +488,12 @@ export class SimpleDelegationTracker implements DelegationTracker {
   // ---------------------------------------------------------------------------
 
   /** Track which delegations were cancelled explicitly (vs timeout). */
-  private readonly cancelledByUser = new Set<string>()
+  private readonly cancelledByUser = new Set<string>();
 
   private wasCancelledByUser(delegationId: string): boolean {
-    const was = this.cancelledByUser.has(delegationId)
-    this.cancelledByUser.delete(delegationId)
-    return was
+    const was = this.cancelledByUser.has(delegationId);
+    this.cancelledByUser.delete(delegationId);
+    return was;
   }
 
   /**
@@ -393,25 +504,22 @@ export class SimpleDelegationTracker implements DelegationTracker {
   private async waitForCompletion(
     runId: string,
     executorPromise: Promise<void>,
-    signal: AbortSignal,
+    signal: AbortSignal
   ): Promise<DelegationResult> {
     // Wait for executor, but throw on abort
-    await Promise.race([
-      executorPromise,
-      this.waitForAbort(signal),
-    ])
+    await Promise.race([executorPromise, this.waitForAbort(signal)]);
 
     // Read final state from run store
-    const run = await this.runStore.get(runId)
+    const run = await this.runStore.get(runId);
     if (!run) {
       throw new OrchestrationError(
         `Run ${runId} not found after execution`,
-        'delegation',
-        { runId },
-      )
+        "delegation",
+        { runId }
+      );
     }
 
-    const success = run.status === 'completed'
+    const success = run.status === "completed";
     return omitUndefined({
       success,
       output: run.output ?? null,
@@ -422,7 +530,7 @@ export class SimpleDelegationTracker implements DelegationTracker {
             tokenUsage: run.tokenUsage,
           }
         : undefined,
-    })
+    });
   }
 
   /**
@@ -432,12 +540,16 @@ export class SimpleDelegationTracker implements DelegationTracker {
   private waitForAbort(signal: AbortSignal): Promise<never> {
     return new Promise((_resolve, reject) => {
       if (signal.aborted) {
-        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
-        return
+        reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+        return;
       }
-      signal.addEventListener('abort', () => {
-        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
-      }, { once: true })
-    })
+      signal.addEventListener(
+        "abort",
+        () => {
+          reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+        },
+        { once: true }
+      );
+    });
   }
 }
