@@ -147,6 +147,7 @@
           "packages/server/src/routes/compile-result-event.ts",
           "packages/server/src/routes/compile.ts",
           "packages/server/src/routes/mcp.ts",
+          "packages/server/src/routes/mcp-handlers.ts",
           "packages/server/src/routes/skills.ts",
           "packages/server/src/routes/spawn-compiler-bridge.ts",
           "packages/server/src/routes/workflows-handlers.ts",
@@ -169,6 +170,7 @@
           "packages/server/src/routes/evals-types.ts",
           "packages/server/src/routes/learning-schemas.ts",
           "packages/server/src/routes/learning-types.ts",
+          "packages/server/src/routes/mcp-helpers.ts",
           "packages/server/src/routes/memory-health-types.ts",
           "packages/server/src/routes/workflows-streaming.ts",
           "packages/server/src/routes/workflows-types.ts",
@@ -482,7 +484,7 @@
             "POST /api/marketplace/catalog"
           ]
         },
-        "packages/server/src/routes/mcp.ts": {
+        "packages/server/src/routes/mcp-handlers.ts": {
           "category": "route-plugin-host-seam",
           "mounts": ["/api/mcp"],
           "endpoints": [
