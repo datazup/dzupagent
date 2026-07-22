@@ -9,10 +9,7 @@
  * @module self-correction/post-run-analyzer/serialization
  */
 
-import type {
-  AnalysisResult,
-  AnalysisHistoryEntry,
-} from "../post-run-analyzer.js";
+import type { AnalysisResult, AnalysisHistoryEntry } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Constants

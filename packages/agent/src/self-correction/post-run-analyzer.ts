@@ -25,66 +25,22 @@ import {
 } from "./post-run-analyzer/serialization.js";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (re-exported from the leaf to preserve the public surface)
 // ---------------------------------------------------------------------------
 
-/** Analysis of a completed pipeline run. */
-export interface RunAnalysis {
-  runId: string;
-  /** Per-node quality scores */
-  nodeScores: Map<string, number>;
-  /** Errors that occurred and their resolutions */
-  errors: Array<{
-    nodeId: string;
-    error: string;
-    resolved: boolean;
-    resolution?: string;
-    fixAttempt?: number;
-  }>;
-  /** Overall quality score (0-1) */
-  overallScore: number;
-  /** Total cost in cents */
-  totalCostCents: number;
-  /** Total duration in ms */
-  totalDurationMs: number;
-  /** Task type (e.g., 'crud', 'auth', 'dashboard') */
-  taskType: string;
-  /** Risk class */
-  riskClass: "critical" | "sensitive" | "standard" | "cosmetic";
-  /** Whether the run was approved by user */
-  approved: boolean;
-  /** User feedback (if rejected) */
-  feedback?: string;
-}
+export type {
+  RunAnalysis,
+  AnalysisResult,
+  PostRunAnalyzerConfig,
+  AnalysisHistoryEntry,
+} from "./post-run-analyzer/types.js";
 
-/** Result of analyzing a pipeline run. */
-export interface AnalysisResult {
-  /** Lessons extracted from this run */
-  lessonsCreated: number;
-  /** Rules generated from errors */
-  rulesCreated: number;
-  /** Whether trajectory was stored (only for high-quality runs) */
-  trajectoryStored: boolean;
-  /** Suboptimal nodes detected */
-  suboptimalNodes: string[];
-  /** Summary for logging */
-  summary: string;
-}
-
-/** Configuration for the PostRunAnalyzer. */
-export interface PostRunAnalyzerConfig {
-  /** Store for persisting analysis data and lessons */
-  store: BaseStore;
-  /** Namespace prefix (default: ['post_run']) */
-  namespace?: string[];
-}
-
-/** A persisted analysis history entry. */
-export interface AnalysisHistoryEntry {
-  runId: string;
-  result: AnalysisResult;
-  timestamp: Date;
-}
+import type {
+  RunAnalysis,
+  AnalysisResult,
+  PostRunAnalyzerConfig,
+  AnalysisHistoryEntry,
+} from "./post-run-analyzer/types.js";
 
 // ---------------------------------------------------------------------------
 // PostRunAnalyzer
