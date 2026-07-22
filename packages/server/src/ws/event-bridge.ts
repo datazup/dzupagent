@@ -79,6 +79,12 @@ export interface EventBridgeConfig {
    * Default `false` preserves legacy single-tenant fan-out: anonymous clients
    * are accepted and a caller-supplied `filter.tenantId` takes precedence over
    * the resolver (developer/test convenience).
+   *
+   * NOTE (DZUPAGENT-SEC-M-01): in production (`NODE_ENV === 'production'`) the
+   * constructor throws if a `tenantResolver` is configured but this flag is left
+   * unset — a multi-tenant host must not silently run fail-open. Pass `true`
+   * (or use {@link EventBridge.tenantScoped}) for fail-closed scoping, or pass
+   * an explicit `false` to deliberately accept single-tenant mode in production.
    */
   requireTenantScope?: boolean;
   /**
@@ -89,6 +95,16 @@ export interface EventBridgeConfig {
 }
 
 const WS_OPEN = 1;
+
+/**
+ * Whether the process is running in a production deployment. Used to fail loudly
+ * on unsafe fail-open multi-tenant EventBridge construction. (DZUPAGENT-SEC-M-01)
+ */
+function isProductionEnv(): boolean {
+  return (
+    typeof process !== "undefined" && process.env?.NODE_ENV === "production"
+  );
+}
 
 function isEventGateway(
   input: DzupEventBus | EventGateway
@@ -113,6 +129,37 @@ export class EventBridge {
     this.tenantResolver = config?.tenantResolver;
     this.requireTenantScope = config?.requireTenantScope ?? false;
     this.logger = config?.logger ?? console;
+
+    // SEC-M-01: fail loudly in production when a tenant resolver is configured
+    // (i.e. this is a multi-tenant deployment) but the caller did NOT explicitly
+    // opt into fail-closed scoping. Silently running such a bridge fail-open
+    // gives every WS client wildcard fan-out across tenants — the exact hole
+    // this finding closes. Use `EventBridge.tenantScoped()` (or pass
+    // `requireTenantScope: true`) for multi-tenant hosts.
+    //
+    // Guard scope is deliberately narrow:
+    // - Only fires when a resolver IS configured — the legacy single-tenant /
+    //   no-resolver fan-out remains intentionally unaffected.
+    // - Only fires in production — dev/test keep the fail-open default-mode
+    //   convenience (caller-set `filter.tenantId` precedence, etc.).
+    // - Only fires when the caller left `requireTenantScope` unset — an explicit
+    //   `requireTenantScope: false` is a deliberate single-tenant choice and is
+    //   honoured even in production.
+    const explicitlyOptedOut = config?.requireTenantScope === false;
+    if (
+      this.tenantResolver !== undefined &&
+      !this.requireTenantScope &&
+      !explicitlyOptedOut &&
+      isProductionEnv()
+    ) {
+      throw new Error(
+        "EventBridge: a tenantResolver is configured but requireTenantScope is not set in production. " +
+          "Fail-open multi-tenant fan-out is unsafe — construct via EventBridge.tenantScoped() or pass " +
+          "requireTenantScope:true (or requireTenantScope:false to intentionally accept single-tenant mode). " +
+          "(DZUPAGENT-SEC-M-01)"
+      );
+    }
+
     if (isEventGateway(input)) {
       this.gateway = input;
       this.ownsGateway = false;
