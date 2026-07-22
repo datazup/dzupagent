@@ -280,7 +280,6 @@
         "src/composition/middleware.ts",
         "src/composition/optional-routes.ts",
         "src/composition/types.ts",
-        "src/persistence/drizzle-schema.ts",
         "src/routes/evals.ts",
         "src/routes/mcp.ts",
         "src/runtime/dzip-agent-run-executor.ts",

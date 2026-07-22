@@ -29,7 +29,7 @@
         "expiryVersion": "0.x"
       },
       {
-        "file": "packages/flow-compiler/src/compile-orchestrator.ts",
+        "file": "packages/flow-compiler/src/compile-orchestrator/pipeline.ts",
         "specifier": "@dzupagent/core",
         "owner": "dzupagent-core-dev",
         "expiryVersion": "0.x"
