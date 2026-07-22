@@ -14,8 +14,8 @@
     "rag"
   ],
   "largeSourceFileRisk": {
-    "minLines": 900,
-    "excludedPackages": ["server"]
+    "minLines": 700,
+    "excludedPackages": []
   },
   "criticalSourceFiles": [
     {
