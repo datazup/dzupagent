@@ -32,19 +32,19 @@ describe("createPostgresSubagentSchemaSql", () => {
     expect(ddl).toContain("PRIMARY KEY");
     expect(ddl).toContain("lease_until");
     expect(ddl).toContain(
-      "CREATE INDEX IF NOT EXISTS subagent_task_queue_claim_idx",
+      "CREATE INDEX IF NOT EXISTS subagent_task_queue_claim_idx"
     );
   });
 
   it("keeps the packaged migration aligned with the subagent Postgres tables", async () => {
     const migration = await readFile(
       join(process.cwd(), "migrations", "0001_postgres_subagent_tasks.sql"),
-      "utf8",
+      "utf8"
     );
 
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS subagent_tasks");
     expect(migration).toContain(
-      "CREATE TABLE IF NOT EXISTS subagent_task_queue",
+      "CREATE TABLE IF NOT EXISTS subagent_task_queue"
     );
     expect(migration).toContain("subagent_task_queue_claim_idx");
   });
@@ -52,7 +52,7 @@ describe("createPostgresSubagentSchemaSql", () => {
 
 function task(
   id: string,
-  status: BackgroundTask["status"] = "queued",
+  status: BackgroundTask["status"] = "queued"
 ): BackgroundTask {
   return {
     id,
@@ -82,7 +82,7 @@ class MemoryPostgresClient implements PostgresQueryClient {
 
   async query(
     text: string,
-    values: readonly unknown[] = [],
+    values: readonly unknown[] = []
   ): Promise<{ rows: Record<string, unknown>[] }> {
     this.sql.push(text);
     const normalized = text.replace(/\s+/g, " ").trim();
@@ -98,7 +98,7 @@ class MemoryPostgresClient implements PostgresQueryClient {
 
     if (
       normalized.startsWith(
-        "SELECT task_json, version FROM subagent_tasks WHERE id =",
+        "SELECT task_json, version FROM subagent_tasks WHERE id ="
       )
     ) {
       const found = this.tasks.get(values[0] as string);
@@ -111,7 +111,7 @@ class MemoryPostgresClient implements PostgresQueryClient {
 
     if (
       normalized.startsWith(
-        "SELECT task_json, version FROM subagent_tasks WHERE",
+        "SELECT task_json, version FROM subagent_tasks WHERE"
       )
     ) {
       const rows = [...this.tasks.values()]
@@ -193,7 +193,7 @@ class MemoryPostgresClient implements PostgresQueryClient {
         .filter(
           (row) =>
             row.available_at <= now &&
-            (row.lease_until === null || row.lease_until <= now),
+            (row.lease_until === null || row.lease_until <= now)
         )
         .sort((a, b) => a.enqueued_at - b.enqueued_at)[0];
       if (!next) return { rows: [] };
@@ -203,9 +203,7 @@ class MemoryPostgresClient implements PostgresQueryClient {
       return { rows: [structuredClone(next)] };
     }
 
-    if (
-      normalized.startsWith("UPDATE subagent_task_queue SET lease_until =")
-    ) {
+    if (normalized.startsWith("UPDATE subagent_task_queue SET lease_until =")) {
       const taskId = values[0] as string;
       const leaseUntil = values[1] as number;
       const workerId = values[2] as string;
@@ -246,7 +244,7 @@ class OnceThenDuplicateQueue implements TaskQueue {
 async function waitForStatus(
   store: PostgresTaskStore,
   id: string,
-  status: BackgroundTask["status"],
+  status: BackgroundTask["status"]
 ): Promise<void> {
   for (let i = 0; i < 50; i++) {
     if ((await store.get(id))?.status === status) return;
@@ -315,7 +313,7 @@ describe("PostgresTaskStore", () => {
         taskId: "cas-miss",
         code: "TASK_STORE_CAS_MISS",
         expectedStatus: "queued",
-      }),
+      })
     );
   });
 });
@@ -351,7 +349,62 @@ describe("PostgresTaskQueue", () => {
         taskId: "queued-once",
         code: "TASK_QUEUE_CLAIMED",
         workerId: "worker-a",
-      }),
+      })
+    );
+  });
+
+  it("dead-letters a poisoned task after maxAttempts instead of re-claiming it forever", async () => {
+    const client = new MemoryPostgresClient();
+    const logger = new RecordingLogger();
+    const store = new PostgresTaskStore({ client });
+    await store.put(task("poison"));
+
+    const maxAttempts = 3;
+    let now = 100;
+    const queue = new PostgresTaskQueue({
+      client,
+      workerId: "worker-dlq",
+      clock: () => now,
+      leaseMs: 10,
+      autoDrain: false,
+      maxAttempts,
+      store,
+      logger,
+    });
+    await queue.enqueue("poison");
+
+    let handled = 0;
+    queue.consume(async () => {
+      handled += 1;
+      throw new Error("always throws");
+    });
+
+    // Each drain claims the row (attempts++) then the handler throws. Because
+    // the lease lapses (advance the clock past lease_until) the row is
+    // re-claimable on the next drain — this is exactly the infinite loop the
+    // cap must terminate. Run more drains than the cap to prove it stops.
+    for (let i = 0; i < maxAttempts + 4; i++) {
+      await queue.drainAvailable();
+      now += 1_000; // lapse the lease so the row would be re-claimable
+    }
+
+    // The handler ran at most `maxAttempts` times, not forever.
+    expect(handled).toBe(maxAttempts);
+    // The queue row is gone: no worker can re-claim it.
+    expect(client.queue.has("poison")).toBe(false);
+    // The backing task is moved to a terminal dead-letter state.
+    expect(await store.get("poison")).toMatchObject({
+      status: "failed",
+      error: "max_attempts_exceeded",
+    });
+    // A governance event is emitted for operator visibility.
+    expect(logger.at("error")).toContainEqual(
+      expect.objectContaining({
+        taskId: "poison",
+        code: "MAX_ATTEMPTS_EXCEEDED",
+        workerId: "worker-dlq",
+        attempts: maxAttempts,
+      })
     );
   });
 
@@ -429,7 +482,7 @@ const databaseUrl =
   process.env["TEST_DATABASE_URL"];
 if (!databaseUrl && process.env["RUN_REQUIRED_INTEGRATION"]) {
   throw new Error(
-    "SUBAGENTS_POSTGRES_TEST_URL or TEST_DATABASE_URL is required when RUN_REQUIRED_INTEGRATION=1",
+    "SUBAGENTS_POSTGRES_TEST_URL or TEST_DATABASE_URL is required when RUN_REQUIRED_INTEGRATION=1"
   );
 }
 
@@ -550,10 +603,10 @@ describe.skipIf(!databaseUrl)(
 
       expect(secondHandled).toHaveLength(1);
       expect(["pg-concurrent-a", "pg-concurrent-b"]).toContain(
-        secondHandled[0],
+        secondHandled[0]
       );
     });
-  },
+  }
 );
 
 describe("DurableQueueRunner CAS integration", () => {
@@ -642,7 +695,7 @@ describe("recoverStaleRunningTasks", () => {
         taskId: "stale-log",
         code: "STALE_RUNNING_TASK_RECOVERED",
         action: "fail",
-      }),
+      })
     );
   });
 });

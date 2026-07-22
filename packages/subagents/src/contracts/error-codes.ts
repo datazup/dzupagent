@@ -19,6 +19,11 @@ export const SubagentErrorCode = {
   ORPHANED_BY_PROCESS_RESTART: "ORPHANED_BY_PROCESS_RESTART",
   /** Task exceeded its TTL before reaching a terminal state. */
   TTL_EXPIRED: "TTL_EXPIRED",
+  /**
+   * A queued task threw on every delivery up to `maxAttempts` and was moved to
+   * a dead-letter terminal state instead of being re-claimed forever.
+   */
+  MAX_ATTEMPTS_EXCEEDED: "MAX_ATTEMPTS_EXCEEDED",
 } as const;
 
 export type SubagentErrorCode =
