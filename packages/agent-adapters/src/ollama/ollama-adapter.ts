@@ -60,6 +60,10 @@ export class OllamaAdapter implements AgentCLIAdapter {
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
+      // Fetch adapter: surfaces tool_call deltas but does not execute tools
+      // nor re-invoke the model. Not autonomous for tool-using tasks.
+      emitsToolCalls: true,
+      executesToolLoop: false,
       supportsStreaming: true,
       supportsCostUsage: false,
       nativeToolControls: { mode: true, allowlist: true, blocklist: true },

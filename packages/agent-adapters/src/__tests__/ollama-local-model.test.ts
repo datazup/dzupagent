@@ -83,10 +83,18 @@ describe('direct Ollama local-model backend', () => {
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
+      emitsToolCalls: true,
+      executesToolLoop: false,
       supportsStreaming: true,
       supportsCostUsage: false,
       nativeToolControls: { mode: true, allowlist: true, blocklist: true },
     })
+  })
+
+  it('emitsToolCalls but does NOT execute an autonomous tool loop (AGENT-H-04)', () => {
+    const caps = new OllamaAdapter().getCapabilities()
+    expect(caps.emitsToolCalls).toBe(true)
+    expect(caps.executesToolLoop).toBe(false)
   })
 
   it('accepts loopback and exact approved-local endpoints', () => {

@@ -63,9 +63,17 @@ describe('OpenRouterAdapter', () => {
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
+      emitsToolCalls: true,
+      executesToolLoop: false,
       supportsStreaming: true,
       supportsCostUsage: true,
     })
+  })
+
+  it('emitsToolCalls but does NOT execute an autonomous tool loop (AGENT-H-04)', () => {
+    const caps = new OpenRouterAdapter().getCapabilities()
+    expect(caps.emitsToolCalls).toBe(true)
+    expect(caps.executesToolLoop).toBe(false)
   })
 
   it('throws when no API key is configured', async () => {

@@ -88,6 +88,8 @@ describe("CodexAdapter", () => {
         supportsResume: true,
         supportsFork: false,
         supportsToolCalls: true,
+        emitsToolCalls: true,
+        executesToolLoop: true,
         supportsStreaming: true,
         supportsCostUsage: true,
         nativeToolControls: {

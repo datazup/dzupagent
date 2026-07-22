@@ -139,9 +139,17 @@ describe('ClaudeAgentAdapter', () => {
         supportsResume: true,
         supportsFork: true,
         supportsToolCalls: true,
+        emitsToolCalls: true,
+        executesToolLoop: true,
         supportsStreaming: true,
         supportsCostUsage: true,
       })
+    })
+
+    it('executesToolLoop=true -- runs its own autonomous tool loop (AGENT-H-04)', () => {
+      const caps = adapter.getCapabilities()
+      expect(caps.emitsToolCalls).toBe(true)
+      expect(caps.executesToolLoop).toBe(true)
     })
   })
 

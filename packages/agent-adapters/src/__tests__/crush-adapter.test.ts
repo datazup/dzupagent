@@ -334,6 +334,8 @@ describe('CrushAdapter', () => {
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
+      emitsToolCalls: true,
+      executesToolLoop: true,
       supportsStreaming: false,
       supportsCostUsage: false,
       nativeToolControls: { mode: true, allowlist: true, blocklist: true },

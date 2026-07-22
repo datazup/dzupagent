@@ -55,6 +55,8 @@ describe("OpenAIAdapter", () => {
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
+      emitsToolCalls: true,
+      executesToolLoop: false,
       supportsStreaming: true,
       supportsCostUsage: true,
       nativeToolControls: {
@@ -63,6 +65,15 @@ describe("OpenAIAdapter", () => {
         blocklist: true,
       },
     });
+  });
+
+  it("emitsToolCalls but does NOT execute an autonomous tool loop (AGENT-H-04)", () => {
+    // Fetch-based adapter: surfaces tool_call deltas but stops at the first
+    // tool_call with no result. A router must NOT select it for autonomous
+    // tool-using work based on supportsToolCalls alone.
+    const caps = new OpenAIAdapter().getCapabilities();
+    expect(caps.emitsToolCalls).toBe(true);
+    expect(caps.executesToolLoop).toBe(false);
   });
 
   it("throws when no API key is configured", async () => {

@@ -87,6 +87,9 @@ export class GooseAdapter extends BaseCliAdapter {
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
+      // CLI/SDK adapter: runs its own in-subprocess/agentic tool loop.
+      emitsToolCalls: true,
+      executesToolLoop: true,
       supportsStreaming: false,
       supportsCostUsage: false,
       nativeToolControls: { mode: false, allowlist: false, blocklist: false },

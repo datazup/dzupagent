@@ -448,6 +448,9 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       supportsResume: true,
       supportsFork: false,
       supportsToolCalls: true,
+      // CLI/SDK adapter: runs its own in-subprocess/agentic tool loop.
+      emitsToolCalls: true,
+      executesToolLoop: true,
       supportsStreaming: true,
       supportsCostUsage: true,
     };

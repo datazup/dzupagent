@@ -433,6 +433,8 @@ describe('GeminiCLIAdapter - branch coverage', () => {
         supportsResume: true,
         supportsFork: false,
         supportsToolCalls: true,
+        emitsToolCalls: true,
+        executesToolLoop: true,
         supportsStreaming: true,
         supportsCostUsage: true,
         nativeToolControls: { mode: true, allowlist: false, blocklist: false },
