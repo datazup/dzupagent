@@ -30,7 +30,7 @@ import type { AgentAsToolContext } from "../tools/agent-as-tool.js";
 // ---------------------------------------------------------------------------
 
 function makeContext(
-  overrides: Partial<AgentAsToolContext> & { content?: string } = {},
+  overrides: Partial<AgentAsToolContext> & { content?: string } = {}
 ): AgentAsToolContext {
   const {
     content = "done",
@@ -64,7 +64,7 @@ describe("agentAsTool – tool registration", () => {
 
   it("tool description matches context.description", async () => {
     const t = await agentAsTool(
-      makeContext({ description: "Summarises long documents" }),
+      makeContext({ description: "Summarises long documents" })
     );
     expect(t.description).toBe("Summarises long documents");
   });
@@ -79,7 +79,7 @@ describe("agentAsTool – tool registration", () => {
     const t = await agentAsTool(makeContext());
     // providing context should not throw
     await expect(
-      t.invoke({ task: "do it", context: "extra info" }),
+      t.invoke({ task: "do it", context: "extra info" })
     ).resolves.toBeDefined();
   });
 
@@ -256,7 +256,7 @@ describe("agentAsTool – error propagation", () => {
     };
     const t = await agentAsTool(ctx);
     await expect(t.invoke({ task: "anything" })).rejects.toThrow(
-      "agent exploded",
+      "agent exploded"
     );
   });
 
@@ -270,7 +270,7 @@ describe("agentAsTool – error propagation", () => {
     };
     const t = await agentAsTool(ctx);
     await expect(t.invoke({ task: "anything" })).rejects.toThrow(
-      "specific error message",
+      "specific error message"
     );
   });
 
@@ -333,7 +333,7 @@ describe("agentAsTool – timeout simulation", () => {
     };
     const t = await agentAsTool(ctx);
     await expect(t.invoke({ task: "run slow" })).rejects.toThrow(
-      "TimeoutError",
+      "TimeoutError"
     );
   });
 
@@ -492,12 +492,12 @@ describe("agentAsTool – parallel dispatch", () => {
     const results = ["res-0", "res-1", "res-2", "res-3", "res-4"];
     const tools = await Promise.all(
       results.map((content, i) =>
-        agentAsTool(makeContext({ id: `par-${i}`, content })),
-      ),
+        agentAsTool(makeContext({ id: `par-${i}`, content }))
+      )
     );
 
     const outputs = await Promise.all(
-      tools.map((t) => t.invoke({ task: "task" })),
+      tools.map((t) => t.invoke({ task: "task" }))
     );
     expect(outputs).toEqual(results);
   });
@@ -642,7 +642,7 @@ describe("agentAsTool – tool name collision", () => {
   it("agents with different ids produce different tool names", async () => {
     const ids = ["search", "summarise", "translate", "classify"];
     const tools = await Promise.all(
-      ids.map((id) => agentAsTool(makeContext({ id }))),
+      ids.map((id) => agentAsTool(makeContext({ id })))
     );
     const names = tools.map((t) => t.name);
     const unique = new Set(names);
@@ -651,10 +651,10 @@ describe("agentAsTool – tool name collision", () => {
 
   it("same id always produces same tool name regardless of description", async () => {
     const t1 = await agentAsTool(
-      makeContext({ id: "same", description: "desc A" }),
+      makeContext({ id: "same", description: "desc A" })
     );
     const t2 = await agentAsTool(
-      makeContext({ id: "same", description: "desc B" }),
+      makeContext({ id: "same", description: "desc B" })
     );
     expect(t1.name).toBe(t2.name);
     expect(t1.name).toBe("agent-same");
@@ -796,5 +796,96 @@ describe("agentAsTool – tool list integration", () => {
     const tool = tools.find((t) => t.name === "agent-lookup")!;
     const result = await tool.invoke({ task: "find me" });
     expect(result).toBe("lookup result");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. AGENT-M-14 — cross-agent asTool recursion depth guard
+// ---------------------------------------------------------------------------
+
+describe("agentAsTool – recursion depth guard (AGENT-M-14)", () => {
+  it("propagates an incremented _agentToolDepth into the wrapped generate", async () => {
+    const seen: (number | undefined)[] = [];
+    const ctx: AgentAsToolContext = {
+      id: "depth-prop",
+      description: "records depth",
+      generate: vi.fn(async (_msgs, opts) => {
+        seen.push(opts?._agentToolDepth);
+        return { content: "ok" };
+      }),
+      depth: { current: () => 0 },
+    };
+    const t = await agentAsTool(ctx);
+    await t.invoke({ task: "go" });
+    // depth 0 in → depth 0 + 1 = 1 propagated to the child run
+    expect(seen).toEqual([1]);
+  });
+
+  it("short-circuits without calling generate once the ceiling is reached", async () => {
+    const ctx: AgentAsToolContext = {
+      id: "at-ceiling",
+      description: "already at ceiling",
+      generate: vi.fn(async () => ({ content: "should not run" })),
+      // current depth already equals the default ceiling (3)
+      depth: { current: () => 3 },
+    };
+    const t = await agentAsTool(ctx);
+    const result = (await t.invoke({ task: "go" })) as string;
+    expect(ctx.generate).not.toHaveBeenCalled();
+    expect(result).toContain("max agent-as-tool recursion depth");
+    expect(result).toContain("(3)");
+  });
+
+  it("honours a caller-supplied maxAgentToolDepth override", async () => {
+    const ctx: AgentAsToolContext = {
+      id: "custom-ceiling",
+      description: "custom ceiling",
+      generate: vi.fn(async () => ({ content: "should not run" })),
+      depth: { current: () => 1, maxAgentToolDepth: 1 },
+    };
+    const t = await agentAsTool(ctx);
+    const result = (await t.invoke({ task: "go" })) as string;
+    expect(ctx.generate).not.toHaveBeenCalled();
+    expect(result).toContain("(1)");
+  });
+
+  it("an agent exposed as a tool of itself stops at the ceiling instead of recursing unbounded", async () => {
+    // Simulate the in-process self-reference loop: the agent's own generate
+    // re-invokes the same asTool wrapper. A shared depth counter models the
+    // agent recording `options._agentToolDepth` on each nested run (as
+    // DzupAgent.generate does), and the tool reads it back via `current()`.
+    let sharedDepth = 0;
+    let generateCalls = 0;
+
+    // Late-bound reference to the self tool so `generate` can re-invoke it.
+    let selfTool: Awaited<ReturnType<typeof agentAsTool>> | undefined;
+
+    const ctx: AgentAsToolContext = {
+      id: "self",
+      description: "an agent that can call itself",
+      generate: vi.fn(async (_msgs, opts) => {
+        generateCalls++;
+        const previous = sharedDepth;
+        // Mirror DzupAgent.generate: record incoming depth, restore on exit.
+        sharedDepth = opts?._agentToolDepth ?? 0;
+        try {
+          // The run always tries to call itself again (the pathological loop).
+          return { content: String(await selfTool!.invoke({ task: "again" })) };
+        } finally {
+          sharedDepth = previous;
+        }
+      }),
+      depth: { current: () => sharedDepth },
+    };
+
+    selfTool = await agentAsTool(ctx);
+
+    const result = (await selfTool.invoke({ task: "start" })) as string;
+
+    // With default ceiling 3, the loop must terminate — NOT recurse unbounded.
+    expect(result).toContain("max agent-as-tool recursion depth");
+    // Bounded: a handful of generate calls, not an unbounded/stack-overflow run.
+    expect(generateCalls).toBeGreaterThan(0);
+    expect(generateCalls).toBeLessThanOrEqual(3);
   });
 });
