@@ -31,6 +31,29 @@ export interface GenerateOptions {
   /** Current intent for per-intent tool ranking (passed to ToolStatsTracker) */
   intent?: string;
   /**
+   * Sampling temperature for this call (DZUPAGENT-CODE-H-02).
+   *
+   * When set, bound onto the resolved model before invocation so OpenAI-compat
+   * callers (and any other host) can control sampling per request instead of
+   * being silently pinned to the model's construction-time default.
+   */
+  temperature?: number;
+  /**
+   * Maximum output tokens for this call (DZUPAGENT-CODE-H-02).
+   *
+   * Bound onto the resolved model as `maxTokens` before invocation. This caps
+   * the provider's generated-token budget for this call; it is distinct from
+   * the agent's iteration/cost `guardrails`.
+   */
+  maxTokens?: number;
+  /**
+   * Stop sequence(s) for this call (DZUPAGENT-CODE-H-02).
+   *
+   * Bound onto the resolved model so generation halts at the given sequence(s),
+   * matching the OpenAI `stop` parameter.
+   */
+  stop?: string | string[];
+  /**
    * Optional structured-output schema name override.
    *
    * Used by `generateStructured()` for schema hashing, telemetry, and provider

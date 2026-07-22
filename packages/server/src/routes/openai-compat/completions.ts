@@ -162,7 +162,8 @@ export function createOpenAICompatCompletionsRoute(
         });
 
         try {
-          const iter = agent.stream([promptMessage]);
+          // CODE-H-02: forward OpenAI sampling options into generation.
+          const iter = agent.stream([promptMessage], mapped.options);
 
           for await (const event of iter) {
             if (abortController.signal.aborted) break;
@@ -313,7 +314,8 @@ export function createOpenAICompatCompletionsRoute(
 
     // --- Non-streaming mode ---
     try {
-      const result = await agent.generate([promptMessage]);
+      // CODE-H-02: forward OpenAI sampling options into generation.
+      const result = await agent.generate([promptMessage], mapped.options);
 
       // GAP-3: Use mapResponseWithTools to include tool_calls in response
       const response = mapResponseWithTools(

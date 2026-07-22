@@ -1,4 +1,5 @@
 import type { BaseMessage } from '@langchain/core/messages'
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { runBeforeModelCall } from '@dzupagent/core/orchestration'
 import type { DzupEventBus } from '@dzupagent/core/events'
 import {
@@ -8,6 +9,7 @@ import {
 import { defaultLogger, type FrameworkLogger } from '@dzupagent/core/utils'
 import type {
   DzupAgentConfig,
+  GenerateOptions,
   GenerateResult,
 } from './agent-types.js'
 import { IterationBudget } from '../guardrails/iteration-budget.js'
@@ -76,6 +78,45 @@ export type {
   ToolStatTracker,
 } from './streaming-tool-types.js'
 export type * from './run-engine/types.js'
+
+/**
+ * Bind per-call sampling options (DZUPAGENT-CODE-H-02) onto the resolved model.
+ *
+ * OpenAI-compat (and any other) callers pass `temperature`, `maxTokens`, and
+ * `stop` through {@link GenerateOptions}; historically these were validated then
+ * dropped, so generation silently ignored them. We now thread them to the single
+ * seam every invocation path (generate, stream, failover) flows through — the
+ * bound model built here in `prepareRunState`.
+ *
+ * Capability-detects `.bind()` (the Runnable API) exactly the way `bindTools`
+ * detects `.bindTools`. `.bind()` returns a wrapper that merges these kwargs
+ * into the model's invocation params; the run engine only ever calls
+ * `.invoke()`/`.stream()` on the result, both of which the wrapper preserves.
+ * When no options are set (the common path) this is an identity return. When the
+ * resolved model does not expose `.bind()` (e.g. a stub test model), the options
+ * are a documented no-op rather than a throw.
+ *
+ * `stop` is a first-class LangChain call option; `temperature`/`maxTokens` are
+ * forwarded as bound kwargs, which the LangChain chat integrations honour when
+ * the underlying provider supports them (unsupported providers ignore them).
+ */
+export function applySamplingOptions(
+  model: BaseChatModel,
+  options?: GenerateOptions,
+): BaseChatModel {
+  if (!options) return model
+  const bound: Record<string, unknown> = {}
+  if (options.temperature !== undefined) bound['temperature'] = options.temperature
+  if (options.maxTokens !== undefined) bound['maxTokens'] = options.maxTokens
+  if (options.stop !== undefined) bound['stop'] = options.stop
+  if (Object.keys(bound).length === 0) return model
+  if ('bind' in model && typeof model.bind === 'function') {
+    return (model as BaseChatModel & {
+      bind: (kwargs: Record<string, unknown>) => BaseChatModel
+    }).bind(bound) as BaseChatModel
+  }
+  return model
+}
 
 export async function prepareRunState(
   params: PrepareRunStateParams,
@@ -223,7 +264,10 @@ export async function prepareRunState(
   const tools = issuancePolicy && issuanceAgentId
     ? tierFilteredTools.filter((tool) => issuancePolicy.hasPermission(issuanceAgentId, tool.name))
     : tierFilteredTools
-  const model = params.bindTools(params.resolvedModel, tools)
+  const model = applySamplingOptions(
+    params.bindTools(params.resolvedModel, tools),
+    params.options,
+  )
 
   // Charge the prompt-build phase to the token lifecycle plugin (if any)
   // so per-phase token breakdowns appear in lifecycle reports. This runs
