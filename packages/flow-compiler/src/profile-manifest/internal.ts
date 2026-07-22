@@ -9,8 +9,13 @@ import {
 export const PROFILE_NAMESPACE_PATTERN = /^[a-z][a-z0-9-]*$/;
 export const PROFILE_REF_PATTERN =
   /^([a-z][a-z0-9-]*)\.([a-z][a-z0-9-]*)@([1-9][0-9]*)$/;
+/* eslint-disable security/detect-unsafe-regex */
+// Anchored, fully-separated groups (each `.`/`-` separator is mandatory, so
+// the nested quantifier has no ambiguous overlap) — linear-time, no ReDoS.
+// The detect-unsafe-regex heuristic over-flags the standard semver pattern.
 export const EXACT_SEMVER_PATTERN =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+/* eslint-enable security/detect-unsafe-regex */
 export const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
 
 export function parseProfileRef(

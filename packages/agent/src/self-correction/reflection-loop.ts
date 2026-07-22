@@ -110,11 +110,16 @@ export function parseCriticResponse(response: string): ScoreResult {
   const scoreMatch = response.match(/SCORE:\s*(\d+(?:\.\d+)?)/i); // eslint-disable-line security/detect-unsafe-regex -- fixed literal extracting a bounded numeric score from LLM critic output
   let rawScore = scoreMatch ? parseFloat(scoreMatch[1]!) : NaN;
 
-  // Fallback: look for any standalone number 0-10 near the start
+  // Fallback: look for any standalone number 0-10 near the start.
+  // Fixed literal, only optional groups with mandatory separators — linear-time,
+  // no ReDoS. Block-disable (not inline) so the guard survives formatter reflow
+  // of the multi-line match call.
   if (Number.isNaN(rawScore)) {
+    /* eslint-disable security/detect-unsafe-regex */
     const numberMatch = response.match(
       /\b(\d+(?:\.\d+)?)\s*(?:\/\s*10|out of 10)?\b/
-    ); // eslint-disable-line security/detect-unsafe-regex -- fixed literal extracting a bounded numeric score from LLM critic output
+    );
+    /* eslint-enable security/detect-unsafe-regex */
     rawScore = numberMatch ? parseFloat(numberMatch[1]!) : 5;
   }
 

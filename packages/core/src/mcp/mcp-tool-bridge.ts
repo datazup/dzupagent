@@ -5,7 +5,7 @@
  * and vice versa. Enables MCP tools to be used seamlessly in LangGraph
  * agent loops.
  */
-import { z } from "zod";
+import { type z } from "zod";
 import { tool } from "@langchain/core/tools";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { PromptInjectionGuard } from "@dzupagent/security";

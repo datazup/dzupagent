@@ -17,6 +17,11 @@ import type {
   PgPoolClient,
   DatabaseConnectorConfig,
 } from "../database/db-types.js";
+// Type-only import (erased at runtime, so it does not eagerly load the module
+// the test mocks via a later dynamic import) — lets the fake-pg loader type its
+// return without an inline `typeof import()` annotation, which
+// consistent-type-imports forbids.
+import type { createPool as CreatePoolFn } from "../database/db-connection.js";
 
 // ---------------------------------------------------------------------------
 // Mock builder helpers
@@ -30,7 +35,7 @@ type PgQueryResult = {
 
 function makePoolResult(
   rows: Record<string, unknown>[] = [{ ok: 1 }],
-  rowCount: number | null = null,
+  rowCount: number | null = null
 ): PgQueryResult {
   return { rows, rowCount: rowCount ?? rows.length, fields: [] };
 }
@@ -39,17 +44,17 @@ function makePoolResult(
 function makeMockClient(
   queryImpl: (
     text: string,
-    values?: unknown[],
-  ) => Promise<PgQueryResult> = () => Promise.resolve(makePoolResult()),
+    values?: unknown[]
+  ) => Promise<PgQueryResult> = () => Promise.resolve(makePoolResult())
 ): PgPoolClient & { _released: boolean } {
   const client = {
     _released: false,
     query: vi.fn().mockImplementation(queryImpl),
-    release: vi.fn().mockImplementation(function (this: {
-      _released: boolean;
-    }) {
-      this._released = true;
-    }),
+    release: vi
+      .fn()
+      .mockImplementation(function (this: { _released: boolean }) {
+        this._released = true;
+      }),
   } as unknown as PgPoolClient & { _released: boolean };
   return client;
 }
@@ -58,8 +63,8 @@ function makeMockClient(
 function makeDirectPool(
   queryImpl: (
     text: string,
-    values?: unknown[],
-  ) => Promise<PgQueryResult> = () => Promise.resolve(makePoolResult()),
+    values?: unknown[]
+  ) => Promise<PgQueryResult> = () => Promise.resolve(makePoolResult())
 ): PgPool {
   return {
     query: vi.fn().mockImplementation(queryImpl),
@@ -69,7 +74,7 @@ function makeDirectPool(
 
 /** Build a mock PgPool WITH connect() (transaction / read-only path). */
 function makeConnectPool(
-  clients: Array<PgPoolClient & { _released: boolean }>,
+  clients: Array<PgPoolClient & { _released: boolean }>
 ): PgPool & { _endCalled: boolean } {
   let idx = 0;
   const pool = {
@@ -90,7 +95,7 @@ function makeConnectPool(
 
 /** Convenience: wrap a query function into a minimal executor-compatible pool. */
 function makeConfig(
-  overrides: Partial<DatabaseConnectorConfig> = {},
+  overrides: Partial<DatabaseConnectorConfig> = {}
 ): DatabaseConnectorConfig {
   return {
     query: vi.fn().mockResolvedValue({ rows: [{ ok: 1 }], rowCount: 1 }),
@@ -160,7 +165,7 @@ describe("Acquire connection — direct pool.query path", () => {
 
   it("execute() returns rows from pool.query", async () => {
     const pool = makeDirectPool(() =>
-      Promise.resolve(makePoolResult([{ id: 1, name: "Alice" }])),
+      Promise.resolve(makePoolResult([{ id: 1, name: "Alice" }]))
     );
     const executor = createPgExecutor(pool);
     const result = await executor.execute("SELECT * FROM users");
@@ -181,7 +186,7 @@ describe("Acquire connection — direct pool.query path", () => {
         rows: [{ id: 1 }],
         rowCount: 1,
         fields: [{ name: "id", dataTypeID: 23 }],
-      }),
+      })
     );
     const executor = createPgExecutor(pool);
     const result = await executor.execute("SELECT 1 AS id");
@@ -194,7 +199,7 @@ describe("Acquire connection — direct pool.query path", () => {
         rows: [{ x: "val" }],
         rowCount: 1,
         fields: [{ name: "x", dataTypeID: 99999 }],
-      }),
+      })
     );
     const executor = createPgExecutor(pool);
     const result = await executor.execute("SELECT 1 AS x");
@@ -207,7 +212,7 @@ describe("Acquire connection — direct pool.query path", () => {
         rows: [{ a: 1 }, { a: 2 }],
         rowCount: null,
         fields: [],
-      }),
+      })
     );
     const executor = createPgExecutor(pool);
     const result = await executor.execute("SELECT a FROM t");
@@ -216,7 +221,7 @@ describe("Acquire connection — direct pool.query path", () => {
 
   it("execute() returns empty rows when result set is empty", async () => {
     const pool = makeDirectPool(() =>
-      Promise.resolve({ rows: [], rowCount: 0, fields: [] }),
+      Promise.resolve({ rows: [], rowCount: 0, fields: [] })
     );
     const executor = createPgExecutor(pool);
     const result = await executor.execute("SELECT * FROM empty");
@@ -274,7 +279,7 @@ describe("Acquire / release — executeReadOnly client checkout", () => {
     const executor = createPgExecutor(pool);
 
     await expect(executor.executeReadOnly!("SELECT boom")).rejects.toThrow(
-      "query error",
+      "query error"
     );
     // release() MUST be called even on failure (finally block)
     expect(client.release).toHaveBeenCalledOnce();
@@ -291,7 +296,7 @@ describe("Acquire / release — executeReadOnly client checkout", () => {
     const executor = createPgExecutor(pool);
 
     await expect(executor.executeReadOnly!("SELECT fail")).rejects.toThrow(
-      "fail",
+      "fail"
     );
     expect(callLog).toContain("ROLLBACK");
     expect(callLog).not.toContain("COMMIT");
@@ -300,7 +305,7 @@ describe("Acquire / release — executeReadOnly client checkout", () => {
   it("executeReadOnly falls back to execute() when pool has no connect()", async () => {
     // A pool without connect() should use the direct query path
     const pool = makeDirectPool(() =>
-      Promise.resolve(makePoolResult([{ n: 7 }])),
+      Promise.resolve(makePoolResult([{ n: 7 }]))
     );
     const executor = createPgExecutor(pool);
     const result = await executor.executeReadOnly!("SELECT 7 AS n");
@@ -319,7 +324,7 @@ describe("Acquire / release — executeReadOnly client checkout", () => {
     const executor = createPgExecutor(pool);
 
     await expect(executor.executeReadOnly!("SELECT 1")).rejects.toThrow(
-      "original error",
+      "original error"
     );
     expect(client.release).toHaveBeenCalledOnce();
   });
@@ -352,7 +357,7 @@ describe("Pool shutdown and drain", () => {
 
   it("close() after multiple queries still drains cleanly", async () => {
     const pool = makeDirectPool(() =>
-      Promise.resolve(makePoolResult([{ n: 1 }])),
+      Promise.resolve(makePoolResult([{ n: 1 }]))
     );
     const executor = createPgExecutor(pool);
     await executor.execute("SELECT 1 AS n");
@@ -377,7 +382,7 @@ describe("Pool shutdown and drain", () => {
           setTimeout(() => {
             drainResolved = true;
             res();
-          }, 1),
+          }, 1)
         );
       }),
     };
@@ -394,17 +399,15 @@ describe("Pool shutdown and drain", () => {
     // We cannot call executor.close() directly here; test that ops.close succeeds
     const ops = createDatabaseOperations(
       {
-        execute: vi
-          .fn()
-          .mockResolvedValue({
-            rows: [],
-            rowCount: 0,
-            fields: [],
-            duration: 0,
-          }),
+        execute: vi.fn().mockResolvedValue({
+          rows: [],
+          rowCount: 0,
+          fields: [],
+          duration: 0,
+        }),
         close: vi.fn().mockResolvedValue(undefined),
       },
-      {},
+      {}
     );
     await expect(ops.close()).resolves.toBeUndefined();
   });
@@ -417,7 +420,7 @@ describe("Pool shutdown and drain", () => {
 describe("Health check — connection validation", () => {
   it("healthCheck returns true when pool.query SELECT 1 succeeds", async () => {
     const executor = createPgExecutor(
-      makeDirectPool(() => Promise.resolve(makePoolResult([{ ok: 1 }]))),
+      makeDirectPool(() => Promise.resolve(makePoolResult([{ ok: 1 }])))
     );
     const ops = createDatabaseOperations(executor, {});
     expect(await ops.healthCheck()).toBe(true);
@@ -425,7 +428,7 @@ describe("Health check — connection validation", () => {
 
   it("healthCheck returns false when pool.query throws connection refused", async () => {
     const executor = createPgExecutor(
-      makeDirectPool(() => Promise.reject(new Error("connect ECONNREFUSED"))),
+      makeDirectPool(() => Promise.reject(new Error("connect ECONNREFUSED")))
     );
     const ops = createDatabaseOperations(executor, {});
     expect(await ops.healthCheck()).toBe(false);
@@ -433,7 +436,7 @@ describe("Health check — connection validation", () => {
 
   it("healthCheck returns false when pool.query throws timeout", async () => {
     const executor = createPgExecutor(
-      makeDirectPool(() => Promise.reject(new Error("query timed out"))),
+      makeDirectPool(() => Promise.reject(new Error("query timed out")))
     );
     const ops = createDatabaseOperations(executor, {});
     expect(await ops.healthCheck()).toBe(false);
@@ -442,8 +445,8 @@ describe("Health check — connection validation", () => {
   it("healthCheck returns false on auth failure", async () => {
     const executor = createPgExecutor(
       makeDirectPool(() =>
-        Promise.reject(new Error("password authentication failed")),
-      ),
+        Promise.reject(new Error("password authentication failed"))
+      )
     );
     const ops = createDatabaseOperations(executor, {});
     expect(await ops.healthCheck()).toBe(false);
@@ -451,7 +454,7 @@ describe("Health check — connection validation", () => {
 
   it("healthCheck returns false on SSL error", async () => {
     const executor = createPgExecutor(
-      makeDirectPool(() => Promise.reject(new Error("SSL connection error"))),
+      makeDirectPool(() => Promise.reject(new Error("SSL connection error")))
     );
     const ops = createDatabaseOperations(executor, {});
     expect(await ops.healthCheck()).toBe(false);
@@ -460,8 +463,8 @@ describe("Health check — connection validation", () => {
   it("healthCheck returns true with multiple columns (pool.query returns full row)", async () => {
     const executor = createPgExecutor(
       makeDirectPool(() =>
-        Promise.resolve(makePoolResult([{ ok: 1, ts: "2026-01-01" }])),
-      ),
+        Promise.resolve(makePoolResult([{ ok: 1, ts: "2026-01-01" }]))
+      )
     );
     const ops = createDatabaseOperations(executor, {});
     expect(await ops.healthCheck()).toBe(true);
@@ -527,9 +530,9 @@ describe("Pool exhaustion", () => {
     const executor = createPgExecutor(
       makeDirectPool(() =>
         Promise.reject(
-          new Error("connection pool exhausted — no free connections"),
-        ),
-      ),
+          new Error("connection pool exhausted — no free connections")
+        )
+      )
     );
     const ops = createDatabaseOperations(executor, {});
     expect(await ops.healthCheck()).toBe(false);
@@ -547,8 +550,8 @@ describe("Pool exhaustion", () => {
 
     const results = await Promise.all(
       Array.from({ length: 5 }, (_, i) =>
-        dbQuery.invoke({ sql: `SELECT ${i + 1} AS id` }),
-      ),
+        dbQuery.invoke({ sql: `SELECT ${i + 1} AS id` })
+      )
     );
 
     expect(results).toHaveLength(5);
@@ -563,7 +566,7 @@ describe("Pool exhaustion", () => {
       .fn()
       .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1 })
       .mockRejectedValueOnce(
-        new Error("timeout exceeded when trying to connect"),
+        new Error("timeout exceeded when trying to connect")
       )
       .mockResolvedValueOnce({ rows: [{ id: 3 }], rowCount: 1 });
 
@@ -653,8 +656,8 @@ describe("Idle timeout and stale connections", () => {
   it("healthCheck detects stale connection (returns false)", async () => {
     const executor = createPgExecutor(
       makeDirectPool(() =>
-        Promise.reject(new Error("server closed the connection unexpectedly")),
-      ),
+        Promise.reject(new Error("server closed the connection unexpectedly"))
+      )
     );
     const ops = createDatabaseOperations(executor, {});
     expect(await ops.healthCheck()).toBe(false);
@@ -707,7 +710,7 @@ describe("Concurrent acquires", () => {
     const dbQuery = tools.find((t) => t.name === "db-query")!;
 
     const results = await Promise.all(
-      Array.from({ length: 5 }, () => dbQuery.invoke({ sql: "SELECT 1" })),
+      Array.from({ length: 5 }, () => dbQuery.invoke({ sql: "SELECT 1" }))
     );
 
     expect(results).toHaveLength(5);
@@ -719,7 +722,7 @@ describe("Concurrent acquires", () => {
     const ops = createDatabaseOperations(executor, {});
 
     const results = await Promise.all(
-      Array.from({ length: 10 }, () => ops.healthCheck()),
+      Array.from({ length: 10 }, () => ops.healthCheck())
     );
 
     expect(results.every(Boolean)).toBe(true);
@@ -746,12 +749,10 @@ describe("Concurrent acquires", () => {
   });
 
   it("concurrent read + list-tables operations share single executor", async () => {
-    const query = vi
-      .fn()
-      .mockResolvedValue({
-        rows: [{ table_name: "t", table_schema: "public" }],
-        rowCount: 1,
-      });
+    const query = vi.fn().mockResolvedValue({
+      rows: [{ table_name: "t", table_schema: "public" }],
+      rowCount: 1,
+    });
     const tools = createDatabaseConnector(makeConfig({ query }));
     const dbQuery = tools.find((t) => t.name === "db-query")!;
     const listTool = tools.find((t) => t.name === "db-list-tables")!;
@@ -772,7 +773,7 @@ describe("Concurrent acquires", () => {
     // Each client needs BEGIN / SET LOCAL / query / COMMIT
     const setupClient = (
       c: ReturnType<typeof makeMockClient>,
-      row: Record<string, unknown>,
+      row: Record<string, unknown>
     ) => {
       c.query
         .mockResolvedValueOnce(makePoolResult([], 0))
@@ -811,7 +812,7 @@ describe("Connection error during acquire", () => {
     };
     const executor = createPgExecutor(pool);
     await expect(executor.executeReadOnly!("SELECT 1")).rejects.toThrow(
-      "pool connect failed",
+      "pool connect failed"
     );
   });
 
@@ -887,20 +888,20 @@ describe("Connection error during acquire", () => {
     };
     const executor = createPgExecutor(pool);
     await expect(executor.executeReadOnly!("SELECT 1 AS n")).rejects.toThrow(
-      "broken pool factory",
+      "broken pool factory"
     );
   });
 
   it("BEGIN failure during executeReadOnly causes error propagation and release", async () => {
     const client = makeMockClient();
     client.query.mockRejectedValueOnce(
-      new Error("BEGIN failed — connection broken"),
+      new Error("BEGIN failed — connection broken")
     );
     const pool = makeConnectPool([client]);
     const executor = createPgExecutor(pool);
 
     await expect(executor.executeReadOnly!("SELECT 1")).rejects.toThrow(
-      "BEGIN failed",
+      "BEGIN failed"
     );
     // Client must still be released in the finally block
     expect(client.release).toHaveBeenCalledOnce();
@@ -931,7 +932,7 @@ describe("Pool configuration edge cases", () => {
       ssl: { rejectUnauthorized: false },
     };
     expect(
-      (config.ssl as { rejectUnauthorized: boolean }).rejectUnauthorized,
+      (config.ssl as { rejectUnauthorized: boolean }).rejectUnauthorized
     ).toBe(false);
   });
 
@@ -1011,7 +1012,7 @@ describe("Pool idle 'error' handler (QF-01)", () => {
   });
 
   async function loadCreatePoolWithFakePg(): Promise<{
-    createPool: (typeof import("../database/db-connection.js"))["createPool"];
+    createPool: typeof CreatePoolFn;
   }> {
     vi.doMock("pg", () => ({ Pool: FakePool, default: { Pool: FakePool } }));
     const mod = await import("../database/db-connection.js");
@@ -1028,7 +1029,10 @@ describe("Pool idle 'error' handler (QF-01)", () => {
 
     // Emitting 'error' must NOT throw now that a listener is attached.
     expect(() =>
-      pool.emit("error", new Error("terminating connection due to admin command")),
+      pool.emit(
+        "error",
+        new Error("terminating connection due to admin command")
+      )
     ).not.toThrow();
 
     errSpy.mockRestore();
