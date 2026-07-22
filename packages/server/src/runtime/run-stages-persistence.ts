@@ -1,4 +1,5 @@
 import type { DzupEventBus } from "@dzupagent/core/events";
+import { defaultLogger } from "@dzupagent/core/utils";
 import type { PersistedIntentContext } from "@dzupagent/core/llm";
 import type { AgentExecutionSpec, RunStore } from "@dzupagent/core/persistence";
 import type { CostLedgerClient } from "@dzupagent/agent/runtime";
@@ -31,6 +32,24 @@ import type {
 
 export interface TerminalPersistenceResult {
   durationMs: number;
+}
+
+/**
+ * DZUPAGENT-CODE-L-01 — single best-effort logger for the swallowed nested
+ * failures in this file's telemetry/persistence catch blocks.
+ *
+ * The outer catch blocks already record a warn log via `runStore.addLog`. When
+ * that *addLog itself* fails, the error was previously discarded by an
+ * anonymous `.catch(() => {})`, so a broken run-store was completely invisible.
+ * Routing every such swallow through here keeps the happy path unchanged (still
+ * best-effort, never throws) while making the store failure observable at warn
+ * level through the framework logger.
+ */
+function logBestEffortFailure(operation: string, error: unknown): void {
+  defaultLogger.warn(
+    `[ForgeServer] best-effort persistence step "${operation}" failed and was swallowed`,
+    { error: error instanceof Error ? error.message : String(error) }
+  );
 }
 
 export async function persistTerminalSuccess(options: {
@@ -147,8 +166,10 @@ export async function recordDistributedCost(options: {
         message: "Failed to record run cost against distributed cost ledger",
         data: { error: err instanceof Error ? err.message : String(err) },
       })
-      .catch(() => {
-        /* swallow nested failure */
+      .catch((logErr) => {
+        // CODE-L-01: surface a failing best-effort addLog instead of
+        // dropping it silently.
+        logBestEffortFailure("recordDistributedCost.addLog", logErr);
       });
   }
 }
@@ -179,9 +200,11 @@ export async function recordTelemetryStage(options: {
             message: "Failed to record token usage against quota manager",
             data: { error: err instanceof Error ? err.message : String(err) },
           })
-          .catch(() => {
-            /* swallow */
-          });
+          .catch((logErr) => {
+        // CODE-L-01: surface a failing best-effort addLog instead of
+        // dropping it silently.
+        logBestEffortFailure("recordTelemetry.addLog", logErr);
+      });
       }
     }
   }
@@ -418,8 +441,10 @@ async function scoreRunReflection(options: {
             _reflErr instanceof Error ? _reflErr.message : String(_reflErr),
         },
       })
-      .catch(() => {
-        /* swallow nested failure */
+      .catch((logErr) => {
+        // CODE-L-01: surface a failing best-effort addLog instead of
+        // dropping it silently.
+        logBestEffortFailure("scoreRunReflection.addLog", logErr);
       });
   }
 }
@@ -481,8 +506,10 @@ async function persistReflectionSummary(options: {
             _saveErr instanceof Error ? _saveErr.message : String(_saveErr),
         },
       })
-      .catch(() => {
-        /* swallow nested failure */
+      .catch((logErr) => {
+        // CODE-L-01: surface a failing best-effort addLog instead of
+        // dropping it silently.
+        logBestEffortFailure("persistReflectionSummary.addLog", logErr);
       });
   }
 }
@@ -557,9 +584,11 @@ async function maybeEscalateModelTier(options: {
                 : String(escalationError),
           },
         })
-        .catch(() => {
-          /* swallow nested failure */
-        });
+        .catch((logErr) => {
+        // CODE-L-01: surface a failing best-effort addLog instead of
+        // dropping it silently.
+        logBestEffortFailure("maybeEscalateModelTier.addLog", logErr);
+      });
     }
   }
 }
@@ -616,8 +645,10 @@ async function analyzeRunOutcome(options: {
           ...(passed !== undefined ? { passed } : {}),
         },
       })
-      .catch(() => {
-        /* swallow nested failure */
+      .catch((logErr) => {
+        // CODE-L-01: surface a failing best-effort addLog instead of
+        // dropping it silently.
+        logBestEffortFailure("analyzeRunOutcome.infoLog", logErr);
       });
   } catch (_analyzerErr) {
     await options.workerOptions.runStore
@@ -632,8 +663,10 @@ async function analyzeRunOutcome(options: {
               : String(_analyzerErr),
         },
       })
-      .catch(() => {
-        /* swallow nested failure */
+      .catch((logErr) => {
+        // CODE-L-01: surface a failing best-effort addLog instead of
+        // dropping it silently.
+        logBestEffortFailure("analyzeRunOutcome.addLog", logErr);
       });
   }
 }
@@ -709,8 +742,10 @@ async function saveCrossIntentContext(options: {
         message: "Failed to save context after run",
         data: { error: _err instanceof Error ? _err.message : String(_err) },
       })
-      .catch(() => {
-        /* swallow nested failure */
+      .catch((logErr) => {
+        // CODE-L-01: surface a failing best-effort addLog instead of
+        // dropping it silently.
+        logBestEffortFailure("saveCrossIntentContext.addLog", logErr);
       });
   }
 }

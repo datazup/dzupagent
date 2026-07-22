@@ -6,6 +6,7 @@ import {
   ModelRegistry,
   type DzupEvent,
 } from '@dzupagent/core'
+import { defaultLogger } from '@dzupagent/core/utils'
 import type { RunJob } from '../queue/run-queue.js'
 import {
   persistCancellation,
@@ -331,5 +332,86 @@ describe('run-stages-persistence reflection stamping (RUN-REFLECTION-STORE-WIDEN
     expect(captured).toHaveLength(1)
     expect('tenantId' in captured[0]!).toBe(false)
     expect('ownerId' in captured[0]!).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// DZUPAGENT-CODE-L-01: swallowed best-effort persistence failures are surfaced
+// through the framework logger rather than dropped silently.
+// ---------------------------------------------------------------------------
+describe('run-stages-persistence best-effort logging (CODE-L-01)', () => {
+  it('logs a warning (and does not throw) when the reflection addLog persistence rejects', async () => {
+    const agentStore = new InMemoryAgentStore()
+    const eventBus = createEventBus()
+    const modelRegistry = new ModelRegistry()
+    const runQueue = new InMemoryRunQueue({ concurrency: 1 })
+
+    await agentStore.save({
+      id: 'agent-logfail',
+      name: 'Log-failing Agent',
+      instructions: 'be concise',
+      modelTier: 'chat',
+      active: true,
+    })
+
+    const reflector = {
+      score: vi.fn(() => ({ overall: 0.9, dimensions: {}, flags: [] })),
+    }
+
+    // A run store whose telemetry writes always reject. This drives the run
+    // through scoreRunReflection's happy path (score succeeds) but makes the
+    // best-effort addLog inside the catch/telemetry path fail, exercising the
+    // nested swallow that CODE-L-01 now routes through logBestEffortFailure.
+    const boom = new Error('run store offline')
+    const runStore = new InMemoryRunStore()
+    vi.spyOn(runStore, 'addLog').mockRejectedValue(boom)
+    // get()/update() still succeed so the reflection score path proceeds.
+
+    const workerOptions: StartRunWorkerOptions = {
+      runQueue,
+      runStore,
+      agentStore,
+      eventBus,
+      modelRegistry,
+      reflector,
+      runExecutor: async () => ({ content: 'ok' }),
+    }
+
+    const warnSpy = vi.spyOn(defaultLogger, 'warn').mockImplementation(() => {})
+
+    const run = await runStore.create({ agentId: 'agent-logfail', input: { message: 'hi' } })
+    const job = makeJob({
+      agentId: 'agent-logfail',
+      runId: run.id,
+      metadata: { tenantId: 'tenant-L', modelTier: 'chat' },
+    })
+
+    // Must resolve — the run completes even though every telemetry write failed.
+    await expect(
+      runPostRunLearningStage({
+        workerOptions,
+        job,
+        agent: {
+          id: 'agent-logfail',
+          name: 'Log-failing Agent',
+          instructions: 'be concise',
+          modelTier: 'chat',
+        },
+        input: job.input,
+        output: { message: 'final' },
+        additionalLogs: [],
+        durationMs: 42,
+      }),
+    ).resolves.toBeUndefined()
+
+    // The swallowed store failure is now observable at warn level rather than
+    // dropped by an anonymous `.catch(() => {})`.
+    expect(warnSpy).toHaveBeenCalled()
+    const loggedBestEffort = warnSpy.mock.calls.some(
+      ([msg]) => typeof msg === 'string' && msg.includes('best-effort persistence step'),
+    )
+    expect(loggedBestEffort, 'expected a logBestEffortFailure warn line').toBe(true)
+
+    warnSpy.mockRestore()
   })
 })
