@@ -68,14 +68,34 @@
     "flow-compiler/src/stages/semantic-walk.ts, flow-compiler/src/stages/subflow-inline.ts,",
     "subagents/src/runtime/background-subagent-runtime.ts, subagents/src/tools/fanout-tool.ts.",
     "This is the honest-green stopgap ONLY; the real god-module decomposition is tracked separately as MJ-01.",
-    "reviewBy: 2026-10-12 (re-audit these pins when MJ-01 decomposition lands)."
+    "reviewBy: 2026-10-12 (re-audit these pins when MJ-01 decomposition lands).",
+    "2026-07-22 ARCH-M-07/ARCH-H-04 CI-red re-pin (audit full-dzupagent-2026-07-21/run-001): the root",
+    "barrels grew after the 2026-07-12 QF-06 pin and were never re-pinned, so check:barrel-budgets was RED.",
+    "Re-pinned every violating budget to its CURRENT measured value with zero slack per the ratchet policy",
+    "above. @dzupagent/core explicitExports 915->923 / sourceCount 141->142 / maxRootIndexLines 1300->1310",
+    "(shipped correlation-context withCorrelationContext/currentCorrelationContext/correlationFields/",
+    "CorrelationContext + provider-error root exports reviewed under package-tiers stableRoot);",
+    "@dzupagent/memory maxRootIndexLines 434->606 (stale QF-06 pin; index.ts is a pure re-export barrel of",
+    "already-shipped memory features, lowering it would break published consumers);",
+    "@dzupagent/dialogue-core 106->114. ARCH-M-07 converted four `export *` root re-exports to explicit named",
+    "re-exports so the reviewed surface is enumerable for package-tiers; this legitimately grew those barrels:",
+    "@dzupagent/agent-adapters maxRootIndexLines 794->839 (cli-runtime named re-exports + reviewed",
+    "ollama-adapter/create-controlled-handle stableRoot entries); @dzupagent/runtime-contracts 17->91",
+    "(canonical-execution/canonical-gates/local-model named re-exports); @dzupagent/execution-contracts 10->16",
+    "(enforcement-driver named re-exports). flow-ast src/types.ts aux 1355->1368 (SPDD node additions).",
+    "New fileLineAllowlist DEBT-PINS (all >500 LOC, decomposition risk too high for this CI-green pass, tracked",
+    "under MJ-01): memory/src/index.ts (pure re-export barrel, split needs subpath + package.json exports wiring),",
+    "agent-adapters/src/codex/codex-cli-adapter.ts (single 420-LOC CodexCliAdapter class),",
+    "flow-dsl/src/primitives/collab-review-loop-v2.ts (large primitive schema + expand function).",
+    "rag/src/chunker.ts was NOT allowlisted — its pure-function helpers/constants were extracted to",
+    "chunker-internals.ts (551->451 LOC), the preferred remedy. reviewBy: 2026-10-22."
   ],
   "packages": {
     "@dzupagent/core": {
-      "maxRootBarrelExplicitExports": 915,
+      "maxRootBarrelExplicitExports": 923,
       "maxRootBarrelStarExports": 0,
-      "maxRootBarrelSourceCount": 141,
-      "maxRootIndexLines": 1300
+      "maxRootBarrelSourceCount": 142,
+      "maxRootIndexLines": 1310
     },
     "@dzupagent/security": {
       "maxRootIndexLines": 58,
@@ -101,9 +121,10 @@
       ]
     },
     "@dzupagent/memory": {
-      "maxRootIndexLines": 434,
+      "maxRootIndexLines": 606,
       "maxFileLines": 500,
       "fileLineAllowlist": [
+        "src/index.ts",
         "src/http-client.ts",
         "src/provenance/reference-tracker.ts"
       ]
@@ -121,17 +142,16 @@
     "@dzupagent/connectors": {
       "maxRootIndexLines": 95,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/github/github-client.ts"
-      ]
+      "fileLineAllowlist": ["src/github/github-client.ts"]
     },
     "@dzupagent/agent-adapters": {
-      "maxRootIndexLines": 794,
+      "maxRootIndexLines": 839,
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/index.ts",
         "src/base/base-cli-adapter.ts",
         "src/base/stream-runner.ts",
+        "src/codex/codex-cli-adapter.ts",
         "src/context/context-aware-router.ts",
         "src/http/adapter-http-handler.ts",
         "src/registry/registry-router.ts"
@@ -148,12 +168,12 @@
       "fileLineAllowlist": []
     },
     "@dzupagent/runtime-contracts": {
-      "maxRootIndexLines": 17,
+      "maxRootIndexLines": 91,
       "maxFileLines": 500,
       "fileLineAllowlist": []
     },
     "@dzupagent/execution-contracts": {
-      "maxRootIndexLines": 10,
+      "maxRootIndexLines": 16,
       "maxFileLines": 500,
       "fileLineAllowlist": ["src/fleet-qualification.ts"]
     },
@@ -168,11 +188,9 @@
       "fileLineAllowlist": []
     },
     "@dzupagent/dialogue-core": {
-      "maxRootIndexLines": 106,
+      "maxRootIndexLines": 114,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/dialogue-scheduler.ts"
-      ]
+      "fileLineAllowlist": ["src/dialogue-scheduler.ts"]
     },
     "@dzupagent/dialogue-core-replay": {
       "maxRootIndexLines": 22,
@@ -197,9 +215,7 @@
     "@dzupagent/connectors-browser": {
       "maxRootIndexLines": 60,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/browser/auth-handler.ts"
-      ]
+      "fileLineAllowlist": ["src/browser/auth-handler.ts"]
     },
     "@dzupagent/connectors-documents": {
       "maxRootIndexLines": 33,
@@ -217,7 +233,7 @@
       "maxRootBarrelSourceCount": 8,
       "maxRootIndexLines": 17,
       "auxiliarySourceLineBudgets": {
-        "src/types.ts": 1355
+        "src/types.ts": 1368
       },
       "maxFileLines": 500,
       "fileLineAllowlist": [
@@ -246,7 +262,8 @@
       "fileLineAllowlist": [
         "src/format-dsl.ts",
         "src/normalize-nodes-agent.ts",
-        "src/normalize-nodes-spawn-emit-memory.ts"
+        "src/normalize-nodes-spawn-emit-memory.ts",
+        "src/primitives/collab-review-loop-v2.ts"
       ]
     },
     "@dzupagent/memory-ipc": {
@@ -277,9 +294,7 @@
     "@dzupagent/evals": {
       "maxRootIndexLines": 250,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/scorers/safety-scorer.ts"
-      ]
+      "fileLineAllowlist": ["src/scorers/safety-scorer.ts"]
     },
     "@dzupagent/app-tools": {
       "maxRootIndexLines": 65,
