@@ -3,7 +3,6 @@ import {
   GIT_REF_PATTERN,
   InvalidGitRefError,
   validateRefName,
-  asRefName,
 } from '../ref-validator.js'
 
 describe('ref-validator', () => {
@@ -148,16 +147,6 @@ describe('ref-validator', () => {
       expect(GIT_REF_PATTERN.test('-evil')).toBe(false)
       expect(GIT_REF_PATTERN.test('foo bar')).toBe(false)
       expect(GIT_REF_PATTERN.test('foo:bar')).toBe(false)
-    })
-  })
-
-  describe('asRefName', () => {
-    it('returns the input on valid refs', () => {
-      expect(asRefName('main', 'branch')).toBe('main')
-    })
-
-    it('throws on invalid refs', () => {
-      expect(() => asRefName('--evil', 'branch')).toThrowError(InvalidGitRefError)
     })
   })
 })

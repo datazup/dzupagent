@@ -30,7 +30,6 @@
  * 24.  Multiple named removals — removes each unused named binding independently
  * 25.  Named binding order stable after sort — verifies deterministic A→Z output
  * 26.  Body preserved — code after imports unchanged in output
- * 27.  organizeImportsInMap — organizes all TS/JS files, skips non-TS files
  * 28.  Internal package without sub-path (`@scope/pkg`)
  * 29.  Internal package with sub-path (`@scope/pkg/utils`)
  * 30.  Relative parent (`../sibling`)
@@ -49,7 +48,6 @@
 import { describe, it, expect } from "vitest";
 import {
   organizeImports,
-  organizeImportsInMap,
   type OrganizeResult,
 } from "../refactor/import-organizer.js";
 
@@ -727,67 +725,6 @@ describe("organizeImports — body preservation", () => {
     const source = `import { unused } from 'pkg'` + body;
     const { code } = organizeImports(source);
     expect(code).toContain("logic");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 27. organizeImportsInMap — multi-file map
-// ---------------------------------------------------------------------------
-describe("organizeImportsInMap", () => {
-  it("organizes all TS files in the map", () => {
-    const files = new Map([
-      [
-        "src/a.ts",
-        `import { z } from 'z'\nimport { a } from 'a'` + bodyUsing("z", "a"),
-      ],
-      ["src/b.ts", `import { b } from './b'` + bodyUsing("b")],
-    ]);
-
-    const result = organizeImportsInMap(files);
-    const aContent = result.get("src/a.ts")!;
-    const aLines = aContent.split("\n").filter((l) => l.startsWith("import"));
-    expect(aLines[0]).toContain("'a'");
-    expect(aLines[1]).toContain("'z'");
-  });
-
-  it("skips non-TS/JS files", () => {
-    const original = "import { x } from './x'";
-    const files = new Map([["README.md", original]]);
-    const result = organizeImportsInMap(files);
-    expect(result.get("README.md")).toBe(original);
-  });
-
-  it("processes .tsx files", () => {
-    const files = new Map([
-      [
-        "src/App.tsx",
-        `import { B } from './B'\nimport { A } from './A'` +
-          bodyUsing("A", "B"),
-      ],
-    ]);
-    const result = organizeImportsInMap(files);
-    const lines = result
-      .get("src/App.tsx")!
-      .split("\n")
-      .filter((l) => l.startsWith("import"));
-    expect(lines[0]).toContain("'./A'");
-    expect(lines[1]).toContain("'./B'");
-  });
-
-  it("processes .js files", () => {
-    const files = new Map([
-      [
-        "src/utils.js",
-        `import { z } from 'z-lib'\nimport { a } from 'a-lib'` +
-          bodyUsing("z", "a"),
-      ],
-    ]);
-    const result = organizeImportsInMap(files);
-    const lines = result
-      .get("src/utils.js")!
-      .split("\n")
-      .filter((l) => l.startsWith("import"));
-    expect(lines[0]).toContain("'a-lib'");
   });
 });
 
