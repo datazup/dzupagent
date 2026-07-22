@@ -319,9 +319,9 @@ Auto-generated on 2026-07-22. Do not edit manually — run `yarn docs:capability
 
 **Classes:** PromptInjectionDetector, PromptInjectionBlockedError, PiiDetector, FixedWindowRateLimiter, KeyedTokenBucketRateLimiter, PromptInjectionGuard, ContentScanner
 
-**Constants:** INJECTION_PATTERNS, INJECTION_REDACTION, PII_PATTERNS
+**Constants:** INJECTION_PATTERNS, INJECTION_REDACTION, PII_PATTERNS, SANITIZER_INJECTION_PATTERNS, SANITIZER_EXFILTRATION_PATTERNS, SANITIZER_INVISIBLE_UNICODE_PATTERN, SANITIZER_INVISIBLE_UNICODE_STRIP_PATTERN
 
-**Types:** InjectionFinding, InjectionScanResult, InjectionVerdict, PiiCanonicalType, PiiDetailedScanResult, PiiMatch, PiiScanResult, FixedWindowRateLimiterConfig, KeyedTokenBucketConfig, TokenBucketConsumeResult, GuardOptions, ScreenResult, ContentScannerConfig, ContentScanResult, ContentScanVerdict, PromptInjectionMode, PiiMode, SecurityPolicyConfig
+**Types:** InjectionFinding, InjectionScanResult, InjectionVerdict, PiiCanonicalType, PiiDetailedScanResult, PiiMatch, PiiScanResult, FixedWindowRateLimiterConfig, KeyedTokenBucketConfig, TokenBucketConsumeResult, GuardOptions, ScreenResult, ContentScannerConfig, ContentScanResult, ContentScanVerdict, PromptInjectionMode, PiiMode, SecurityPolicyConfig, LabeledPattern
 
 ### @dzupagent/server
 

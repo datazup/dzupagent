@@ -16,10 +16,10 @@ Generated from package root facades plus `config/public-api-allowlists.json` and
 
 Root index: `packages/security/src/index.ts`
 
-- Stable root sources: `6`
+- Stable root sources: `7`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
-- Migration window: Security package root exports are the primary consumption surface; all exports are stable from initial release.
+- Migration window: Security package root exports are the primary consumption surface; all exports are stable from initial release. sanitizer-patterns.js is the single shared sanitizer pattern source consumed by core and memory (CODE-H-03 dedup) — intentionally root-exported as the canonical data surface both layers depend on.
 
 ### Stable Subpaths
 
@@ -35,6 +35,7 @@ No stable subpaths configured.
 | `stable` | `./guardrails/index.js` | 3 | `exact:./guardrails/index.js` | `PromptInjectionGuard`, `GuardOptions`, `ScreenResult` |
 | `stable` | `./content-scanner.js` | 6 | `exact:./content-scanner.js` | `ContentScanner`, `ContentScannerConfig`, `ContentScanResult`, `ContentScanVerdict` |
 | `stable` | `./policy-config.js` | 1 | `exact:./policy-config.js` | `SecurityPolicyConfig` |
+| `stable` | `./sanitizer-patterns.js` | 5 | `exact:./sanitizer-patterns.js` | `SANITIZER_INJECTION_PATTERNS`, `SANITIZER_EXFILTRATION_PATTERNS`, `SANITIZER_INVISIBLE_UNICODE_PATTERN`, `SANITIZER_INVISIBLE_UNICODE_STRIP_PATTERN` |
 
 ## @dzupagent/core
 
@@ -55,6 +56,7 @@ Root index: `packages/core/src/index.ts`
 | `@dzupagent/core/orchestration` | workflow and orchestration facade |
 | `@dzupagent/core/security` | security facade |
 | `@dzupagent/core/facades` | namespace facade index |
+| `@dzupagent/core/middleware` | cost/rate middleware facade (canonical model pricing, ARCH-M-08) |
 
 ### Root Allowlist
 
