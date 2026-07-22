@@ -1,6 +1,6 @@
-import { ForgeError } from '@dzupagent/core/events'
+import { ForgeError } from "@dzupagent/core/events";
 
-import type { ProviderAdapterRegistry } from '../registry/adapter-registry.js'
+import type { ProviderAdapterRegistry } from "../registry/adapter-registry.js";
 import type {
   AdapterProviderId,
   AgentCompletedEvent,
@@ -8,81 +8,99 @@ import type {
   AgentFailedEvent,
   AgentInput,
   TaskDescriptor,
-} from '../types.js'
-import { WorkflowStepResolver, type TemplateContext } from './template-resolver.js'
+} from "../types.js";
+import {
+  WorkflowStepResolver,
+  type TemplateContext,
+} from "./template-resolver.js";
 import type {
   AdapterStepConfig,
   AdapterStepResult,
   AdapterWorkflowEvent,
   LoopConfig,
   ParallelMergeStrategy,
-} from './adapter-workflow-types.js'
+} from "./adapter-workflow-types.js";
 
-export const sharedTemplateResolver = new WorkflowStepResolver()
+export const sharedTemplateResolver = new WorkflowStepResolver();
 
 /**
  * State key reserved by the adapter workflow runtime for storing the most
  * recent step result. Exposed so that the pipeline assembler and execution
  * helpers can share the same key without duplicating the literal.
  */
-export const PREV_RESULT_STATE_KEY = '__adapter_workflow_internal_prev_result'
+export const PREV_RESULT_STATE_KEY = "__adapter_workflow_internal_prev_result";
 
 export function resolveFallbackProviderId(
   registry: ProviderAdapterRegistry,
-  preferredProvider?: AdapterProviderId,
+  preferredProvider?: AdapterProviderId
 ): AdapterProviderId {
-  return preferredProvider ?? registry.listAdapters()[0] ?? ('unknown' as AdapterProviderId)
+  return (
+    preferredProvider ??
+    registry.listAdapters()[0] ??
+    ("unknown" as AdapterProviderId)
+  );
 }
 
+/**
+ * Resolve a workflow step's `{{prev}}` / `{{state.*}}` markers.
+ *
+ * `prevResult` is the previous step's output (untrusted LLM/tool content
+ * threaded via PREV_RESULT_STATE_KEY). `WorkflowStepResolver.resolve`
+ * neutralises any `{{`/`}}` delimiters inside substituted values so a
+ * compromised step result cannot inject new template markers (e.g. its own
+ * `{{state.secret}}`) into the next step's task prompt.
+ */
 export function resolveTemplate(
   template: string,
   state: Record<string, unknown>,
-  prevResult?: string,
+  prevResult?: string
 ): string {
-  const context: TemplateContext = { prev: prevResult, state }
-  return sharedTemplateResolver.resolve(template, context)
+  const context: TemplateContext = { prev: prevResult, state };
+  return sharedTemplateResolver.resolve(template, context);
 }
 
-export function isCompletedEvent(event: AgentEvent): event is AgentCompletedEvent {
-  return event.type === 'adapter:completed'
+export function isCompletedEvent(
+  event: AgentEvent
+): event is AgentCompletedEvent {
+  return event.type === "adapter:completed";
 }
 
 export function isFailedEvent(event: AgentEvent): event is AgentFailedEvent {
-  return event.type === 'adapter:failed'
+  return event.type === "adapter:failed";
 }
 
 export function mergeParallelResults(
   state: Record<string, unknown>,
   results: AdapterStepResult[],
-  strategy: ParallelMergeStrategy,
+  strategy: ParallelMergeStrategy
 ): void {
   switch (strategy) {
-    case 'merge': {
+    case "merge": {
       for (const result of results) {
-        state[result.stepId] = result.result
+        state[result.stepId] = result.result;
       }
-      break
+      break;
     }
-    case 'concat': {
-      state['parallelResults'] = results.map((r) => ({
+    case "concat": {
+      state["parallelResults"] = results.map((r) => ({
         stepId: r.stepId,
         result: r.result,
         success: r.success,
-      }))
+      }));
       for (const result of results) {
-        state[result.stepId] = result.result
+        state[result.stepId] = result.result;
       }
-      break
+      break;
     }
-    case 'last-wins': {
-      const lastSuccess = [...results].reverse().find((r) => r.success)
+    case "last-wins": {
+      const lastSuccess = [...results].reverse().find((r) => r.success);
       if (lastSuccess) {
-        state['lastResult'] = lastSuccess.result
+        state["lastResult"] = lastSuccess.result;
       }
       for (const result of results) {
-        state[result.stepId] = result.result
+        state[result.stepId] = result.result;
       }
-      break
+      break;
     }
   }
 }
@@ -103,25 +121,26 @@ export async function executeLoop(
   state: Record<string, unknown>,
   emit: (event: AdapterWorkflowEvent) => void,
   stepResults: AdapterStepResult[],
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<Record<string, unknown>> {
-  const currentState = { ...state }
+  const currentState = { ...state };
   for (let i = 0; i < loopConfig.maxIterations; i++) {
     if (signal?.aborted) {
       throw new ForgeError({
-        code: 'AGENT_ABORTED',
-        message: 'Workflow execution was aborted',
+        code: "AGENT_ABORTED",
+        message: "Workflow execution was aborted",
         recoverable: false,
-      })
+      });
     }
-    if (!loopConfig.condition(currentState)) break
+    if (!loopConfig.condition(currentState)) break;
 
-    currentState[`${loopConfig.id}_iteration`] = i + 1
+    currentState[`${loopConfig.id}_iteration`] = i + 1;
 
     for (const step of loopConfig.steps) {
-      const prevResult = typeof currentState[PREV_RESULT_STATE_KEY] === 'string'
-        ? (currentState[PREV_RESULT_STATE_KEY] as string)
-        : undefined
+      const prevResult =
+        typeof currentState[PREV_RESULT_STATE_KEY] === "string"
+          ? (currentState[PREV_RESULT_STATE_KEY] as string)
+          : undefined;
       const result = await executeAdapterStep(
         registry,
         workflowId,
@@ -129,27 +148,32 @@ export async function executeLoop(
         currentState,
         prevResult,
         emit,
-        signal,
-      )
-      stepResults.push(result)
-      currentState[step.id] = result.result
+        signal
+      );
+      stepResults.push(result);
+      currentState[step.id] = result.result;
       if (result.success) {
-        currentState[PREV_RESULT_STATE_KEY] = result.result
+        currentState[PREV_RESULT_STATE_KEY] = result.result;
       }
       if (!result.success) {
-        throw new Error(`Loop step "${step.id}" failed: ${result.error ?? 'unknown error'}`)
+        throw new Error(
+          `Loop step "${step.id}" failed: ${result.error ?? "unknown error"}`
+        );
       }
     }
   }
 
-  if (loopConfig.condition(currentState) && loopConfig.onMaxIterations === 'fail') {
+  if (
+    loopConfig.condition(currentState) &&
+    loopConfig.onMaxIterations === "fail"
+  ) {
     throw new ForgeError({
-      code: 'ITERATION_LIMIT_EXCEEDED',
+      code: "ITERATION_LIMIT_EXCEEDED",
       message: `Loop ${loopConfig.id} exceeded ${loopConfig.maxIterations} iterations`,
-    })
+    });
   }
 
-  return currentState
+  return currentState;
 }
 
 /**
@@ -163,12 +187,12 @@ export async function executeAdapterStep(
   state: Record<string, unknown>,
   prevResult: string | undefined,
   emit: (event: AdapterWorkflowEvent) => void,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<AdapterStepResult> {
   // Check skip condition before executing the step
   if (config.skipIf?.(state)) {
-    const skipResult = config.skipDefault ?? ''
-    emit({ type: 'step:skipped', workflowId, stepId: config.id })
+    const skipResult = config.skipDefault ?? "";
+    emit({ type: "step:skipped", workflowId, stepId: config.id });
     return {
       stepId: config.id,
       result: skipResult,
@@ -176,51 +200,54 @@ export async function executeAdapterStep(
       success: true,
       durationMs: 0,
       retries: 0,
-    }
+    };
   }
 
-  const maxRetries = config.maxRetries ?? 0
-  let lastError: string | undefined
-  let attempt = 0
+  const maxRetries = config.maxRetries ?? 0;
+  let lastError: string | undefined;
+  let attempt = 0;
 
   while (attempt <= maxRetries) {
     if (signal?.aborted) {
       throw new ForgeError({
-        code: 'AGENT_ABORTED',
-        message: 'Workflow execution was aborted',
+        code: "AGENT_ABORTED",
+        message: "Workflow execution was aborted",
         recoverable: false,
-      })
+      });
     }
 
     if (attempt > 0) {
       emit({
-        type: 'step:retrying',
+        type: "step:retrying",
         workflowId,
         stepId: config.id,
         attempt,
         maxRetries,
-      })
+      });
     }
 
-    emit({ type: 'step:started', workflowId, stepId: config.id })
-    const stepStart = Date.now()
+    emit({ type: "step:started", workflowId, stepId: config.id });
+    const stepStart = Date.now();
 
     // Derive a combined signal that respects both caller abort and per-step timeout
-    let effectiveSignal = signal
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+    let effectiveSignal = signal;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     if (config.timeoutMs != null) {
-      const timeoutController = new AbortController()
-      timeoutHandle = setTimeout(() => timeoutController.abort(), config.timeoutMs)
-      if (typeof timeoutHandle.unref === 'function') timeoutHandle.unref()
+      const timeoutController = new AbortController();
+      timeoutHandle = setTimeout(
+        () => timeoutController.abort(),
+        config.timeoutMs
+      );
+      if (typeof timeoutHandle.unref === "function") timeoutHandle.unref();
       effectiveSignal = signal
         ? AbortSignal.any([signal, timeoutController.signal])
-        : timeoutController.signal
+        : timeoutController.signal;
     }
 
     try {
       const resolvedPrompt = config.promptFn
         ? config.promptFn(state)
-        : resolveTemplate(config.prompt, state, prevResult)
+        : resolveTemplate(config.prompt, state, prevResult);
 
       const task: TaskDescriptor = {
         prompt: resolvedPrompt,
@@ -229,7 +256,7 @@ export async function executeAdapterStep(
         requiresReasoning: config.requiresReasoning,
         requiresExecution: config.requiresExecution,
         workingDirectory: config.workingDirectory,
-      }
+      };
 
       const input: AgentInput = {
         prompt: resolvedPrompt,
@@ -237,18 +264,23 @@ export async function executeAdapterStep(
         workingDirectory: config.workingDirectory,
         maxTurns: config.maxTurns,
         signal: effectiveSignal,
-      }
+      };
 
-      const { resultText, providerId } = await consumeAdapterEvents(registry, input, task, effectiveSignal)
-      const durationMs = Date.now() - stepStart
+      const { resultText, providerId } = await consumeAdapterEvents(
+        registry,
+        input,
+        task,
+        effectiveSignal
+      );
+      const durationMs = Date.now() - stepStart;
 
       emit({
-        type: 'step:completed',
+        type: "step:completed",
         workflowId,
         stepId: config.id,
         durationMs,
         providerId,
-      })
+      });
 
       return {
         stepId: config.id,
@@ -257,51 +289,54 @@ export async function executeAdapterStep(
         success: true,
         durationMs,
         retries: attempt,
-      }
+      };
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err)
-      if (ForgeError.is(err) && err.code === 'AGENT_ABORTED') {
-        throw err
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (ForgeError.is(err) && err.code === "AGENT_ABORTED") {
+        throw err;
       }
-      lastError = errorMessage
-      const durationMs = Date.now() - stepStart
+      lastError = errorMessage;
+      const durationMs = Date.now() - stepStart;
 
       emit({
-        type: 'step:failed',
+        type: "step:failed",
         workflowId,
         stepId: config.id,
         error: errorMessage,
         retryCount: attempt,
-      })
+      });
 
       if (attempt < maxRetries) {
-        attempt++
-        continue
+        attempt++;
+        continue;
       }
 
       return {
         stepId: config.id,
-        result: '',
-        providerId: resolveFallbackProviderId(registry, config.preferredProvider),
+        result: "",
+        providerId: resolveFallbackProviderId(
+          registry,
+          config.preferredProvider
+        ),
         success: false,
         durationMs,
         retries: attempt,
         error: lastError,
-      }
+      };
     } finally {
-      if (timeoutHandle != null) clearTimeout(timeoutHandle)
+      if (timeoutHandle != null) clearTimeout(timeoutHandle);
     }
   }
 
   return {
     stepId: config.id,
-    result: '',
+    result: "",
     providerId: resolveFallbackProviderId(registry, config.preferredProvider),
     success: false,
     durationMs: 0,
     retries: attempt,
-    error: lastError ?? 'Unknown error',
-  }
+    error: lastError ?? "Unknown error",
+  };
 }
 
 /**
@@ -313,37 +348,42 @@ export async function consumeAdapterEvents(
   registry: ProviderAdapterRegistry,
   input: AgentInput,
   task: TaskDescriptor,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<{ resultText: string; providerId: AdapterProviderId }> {
-  const generator = registry.executeWithFallback(input, task)
+  const generator = registry.executeWithFallback(input, task);
 
-  let resultText = ''
-  let resultProviderId = resolveFallbackProviderId(registry, task.preferredProvider)
-  let completed = false
-  let lastError: string | undefined
+  let resultText = "";
+  let resultProviderId = resolveFallbackProviderId(
+    registry,
+    task.preferredProvider
+  );
+  let completed = false;
+  let lastError: string | undefined;
 
   for await (const event of generator) {
     if (signal?.aborted) {
       throw new ForgeError({
-        code: 'AGENT_ABORTED',
-        message: 'Workflow execution was aborted',
+        code: "AGENT_ABORTED",
+        message: "Workflow execution was aborted",
         recoverable: false,
-      })
+      });
     }
 
     if (isCompletedEvent(event)) {
-      resultText = event.result
-      resultProviderId = event.providerId
-      completed = true
+      resultText = event.result;
+      resultProviderId = event.providerId;
+      completed = true;
     } else if (isFailedEvent(event)) {
-      lastError = event.error
-      resultProviderId = event.providerId
+      lastError = event.error;
+      resultProviderId = event.providerId;
     }
   }
 
   if (!completed) {
-    throw new Error(lastError ?? 'Adapter completed without producing a result')
+    throw new Error(
+      lastError ?? "Adapter completed without producing a result"
+    );
   }
 
-  return { resultText, providerId: resultProviderId }
+  return { resultText, providerId: resultProviderId };
 }

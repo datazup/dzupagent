@@ -10,26 +10,43 @@
 // ---------------------------------------------------------------------------
 
 export interface TemplateContext {
-  prev?: string | undefined
-  state: Record<string, unknown>
+  prev?: string | undefined;
+  state: Record<string, unknown>;
 }
 
 export interface TemplateReference {
   /** The raw matched string, e.g. "{{state.research}}" */
-  raw: string
+  raw: string;
   /** Parsed path segments, e.g. ["state", "research"] */
-  path: string[]
+  path: string[];
   /** Start index in the template string */
-  startIndex: number
+  startIndex: number;
   /** End index (exclusive) in the template string */
-  endIndex: number
+  endIndex: number;
 }
 
 // ---------------------------------------------------------------------------
 // Patterns
 // ---------------------------------------------------------------------------
 
-const TEMPLATE_PATTERN = /\{\{([a-zA-Z0-9_.]+)\}\}/g
+const TEMPLATE_PATTERN = /\{\{([a-zA-Z0-9_.]+)\}\}/g;
+
+/**
+ * Escape `{{` / `}}` delimiters in a *substituted value* so that template
+ * markers embedded in untrusted step output (`{{prev}}` / `{{state.*}}`
+ * values, which are LLM/tool results threaded via PREV_RESULT_STATE_KEY)
+ * cannot introduce new template variables or be re-expanded by a later
+ * substitution pass.
+ *
+ * This mirrors the private `escapeTemplateDelimiters` in
+ * `@dzupagent/core` (prompt/template-engine), which is not exported from
+ * core's public surface, so the same neutralisation is reimplemented here.
+ * Only VALUES are escaped — the workflow-definition markers themselves are
+ * still resolved normally.
+ */
+function escapeTemplateDelimiters(value: string): string {
+  return value.replace(/\{\{/g, "{{_ESC_").replace(/\}\}/g, "_ESC_}}");
+}
 
 // ---------------------------------------------------------------------------
 // WorkflowStepResolver
@@ -49,44 +66,52 @@ export class WorkflowStepResolver {
    * - Unresolvable references are replaced with an empty string.
    */
   resolve(template: string, context: TemplateContext): string {
-    let resolved = template
+    let resolved = template;
 
-    // Replace {{prev}}
-    resolved = resolved.replace(/\{\{prev\}\}/g, context.prev ?? '')
+    // Replace {{prev}}. The substituted value is untrusted step output
+    // (previous LLM/tool result), so escape any `{{`/`}}` it contains so it
+    // cannot introduce new template markers or be re-expanded by the state
+    // substitution pass below.
+    resolved = resolved.replace(/\{\{prev\}\}/g, () =>
+      escapeTemplateDelimiters(context.prev ?? "")
+    );
 
-    // Replace {{state.x.y.z}} with dotted path resolution
+    // Replace {{state.x.y.z}} with dotted path resolution. State values are
+    // likewise untrusted (prior step results are threaded through state), so
+    // their `{{`/`}}` delimiters are escaped before injection.
     resolved = resolved.replace(
       /\{\{state\.([a-zA-Z0-9_.]+)\}\}/g,
       (_match: string, key: string) => {
-        const value = this.resolveStatePath(context.state, key)
-        if (value === undefined) return ''
-        return typeof value === 'string' ? value : JSON.stringify(value)
-      },
-    )
+        const value = this.resolveStatePath(context.state, key);
+        if (value === undefined) return "";
+        const str = typeof value === "string" ? value : JSON.stringify(value);
+        return escapeTemplateDelimiters(str);
+      }
+    );
 
-    return resolved
+    return resolved;
   }
 
   /**
    * Extract all variable references from a template string.
    */
   extractReferences(template: string): TemplateReference[] {
-    const refs: TemplateReference[] = []
-    const pattern = new RegExp(TEMPLATE_PATTERN.source, 'g')
-    let match: RegExpExecArray | null
+    const refs: TemplateReference[] = [];
+    const pattern = new RegExp(TEMPLATE_PATTERN.source, "g");
+    let match: RegExpExecArray | null;
 
     while ((match = pattern.exec(template)) !== null) {
-      const raw = match[0]!
-      const inner = match[1]!
+      const raw = match[0]!;
+      const inner = match[1]!;
       refs.push({
         raw,
-        path: inner.split('.'),
+        path: inner.split("."),
         startIndex: match.index,
         endIndex: match.index + raw.length,
-      })
+      });
     }
 
-    return refs
+    return refs;
   }
 
   /**
@@ -94,45 +119,48 @@ export class WorkflowStepResolver {
    * Returns an array of unresolvable references.
    */
   validate(template: string, availableKeys: string[]): TemplateReference[] {
-    const refs = this.extractReferences(template)
-    const unresolvable: TemplateReference[] = []
+    const refs = this.extractReferences(template);
+    const unresolvable: TemplateReference[] = [];
 
     for (const ref of refs) {
-      if (ref.path[0] === 'prev') {
+      if (ref.path[0] === "prev") {
         // {{prev}} is always available
-        continue
+        continue;
       }
 
-      if (ref.path[0] === 'state' && ref.path.length >= 2) {
+      if (ref.path[0] === "state" && ref.path.length >= 2) {
         // Check if the top-level state key is available
-        const stateKey = ref.path[1]!
+        const stateKey = ref.path[1]!;
         if (!availableKeys.includes(stateKey)) {
-          unresolvable.push(ref)
+          unresolvable.push(ref);
         }
-        continue
+        continue;
       }
 
       // Unknown pattern
-      unresolvable.push(ref)
+      unresolvable.push(ref);
     }
 
-    return unresolvable
+    return unresolvable;
   }
 
   /**
    * Resolve a dotted path against a state object.
    * E.g. "foo.bar" resolves state.foo.bar.
    */
-  private resolveStatePath(state: Record<string, unknown>, path: string): unknown {
-    const parts = path.split('.')
-    let current: unknown = state
+  private resolveStatePath(
+    state: Record<string, unknown>,
+    path: string
+  ): unknown {
+    const parts = path.split(".");
+    let current: unknown = state;
 
     for (const part of parts) {
-      if (current === null || current === undefined) return undefined
-      if (typeof current !== 'object') return undefined
-      current = (current as Record<string, unknown>)[part]
+      if (current === null || current === undefined) return undefined;
+      if (typeof current !== "object") return undefined;
+      current = (current as Record<string, unknown>)[part];
     }
 
-    return current
+    return current;
   }
 }
