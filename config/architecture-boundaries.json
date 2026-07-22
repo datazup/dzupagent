@@ -975,6 +975,14 @@
     ],
     "rules": {
       "allowSameLayerEdges": false,
+      "allowedLayerEdges": [
+        {
+          "from": "adapter-types",
+          "to": "runtime-contracts",
+          "reason": "ARCH-M-04: adapter-types type-imports the SanitizedEvidenceRef / routing / controlled-execution contracts from runtime-contracts. Both are layer-0 leaf primitives and runtime-contracts has zero @dzupagent runtime deps, so the edge is acyclic and stays inside the leaf tier. Promoting adapter-types to layer 1 would cascade adapter-rules/hitl-kit/subagents, so this single reviewed same-layer edge is the minimal correct fix.",
+          "reviewedBy": "audit/full-dzupagent-2026-07-21 ARCH-M-04"
+        }
+      ],
       "layerZeroRuntimeProfile": "leaf-runtime-primitives",
       "layerZeroMayHaveExternalRuntimeDeps": true,
       "toolingMayBeUpstreamOfSupported": false,

@@ -33,7 +33,17 @@ export type { AgentMessage, AgentMessageHandler } from '../events/agent-bus.js'
 // Hooks
 // ---------------------------------------------------------------------------
 export type { AgentHooks, HookContext } from '../hooks/hook-types.js'
-export { runHooks, runModifierHook, mergeHooks } from '../hooks/hook-runner.js'
+export {
+  runHooks,
+  runModifierHook,
+  mergeHooks,
+  // Model-call lifecycle hooks — consumed by @dzupagent/agent's run engine
+  // (audit ARCH-M-04) via the governed /orchestration subpath instead of the
+  // broad @dzupagent/core root.
+  runBeforeModelCall,
+  runAfterModelCall,
+  runOnModelError,
+} from '../hooks/hook-runner.js'
 
 // ---------------------------------------------------------------------------
 // Plugin system

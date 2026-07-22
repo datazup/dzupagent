@@ -5,6 +5,7 @@ import type {
   FlowDocumentV1,
   FlowDocumentPolicy,
   FlowDurabilityPolicy,
+  FlowNodeKind,
   ToolResolver,
   ToolsetResolver,
 } from "@dzupagent/flow-ast";
@@ -12,7 +13,6 @@ import type { ParseInput } from "@dzupagent/flow-ast";
 import type { DzupEventBus } from "@dzupagent/core/events";
 
 import type { ProfileRegistry } from "./profile-registry.js";
-import type { FlowRequirementSummary } from "./capability-manifest.js";
 
 export interface CompilerOptions {
   toolResolver: ToolResolver | AsyncToolResolver;
@@ -85,7 +85,9 @@ export interface CompilerOptions {
 }
 
 export interface FlowDocumentResolver {
-  resolve(flowRef: string): FlowDocumentV1 | null | Promise<FlowDocumentV1 | null>;
+  resolve(
+    flowRef: string
+  ): FlowDocumentV1 | null | Promise<FlowDocumentV1 | null>;
 }
 
 export interface PersonaResolver {
@@ -105,6 +107,25 @@ export type CompilationTarget =
   | "workflow-builder"
   | "pipeline"
   | "planning-dag";
+
+/**
+ * Structural summary of what a flow requires from a compilation target.
+ *
+ * Defined here (a leaf type module) rather than in `capability-manifest.ts` so
+ * that `types.ts` does not depend on `capability-manifest.ts` — both modules
+ * import this type from `types.js` in a single direction, keeping the module
+ * graph acyclic. The public re-export is preserved from `capability-manifest.ts`
+ * and the package barrel.
+ */
+export interface FlowRequirementSummary {
+  schema: "dzupagent.flowRequirements/v1";
+  target: CompilationTarget;
+  semanticHash: string;
+  nodeKinds: FlowNodeKind[];
+  requiredCapabilities: string[];
+  partialNodeKinds: FlowNodeKind[];
+  unsupportedNodeKinds: FlowNodeKind[];
+}
 
 export type CompilationStage = 1 | 2 | 3 | 4;
 
@@ -207,7 +228,7 @@ export type CompileResult = CompileSuccess | CompileFailure;
 export interface FlowCompiler {
   compile(
     input: ParseInput,
-    options?: CompileInvocationOptions,
+    options?: CompileInvocationOptions
   ): Promise<CompileSuccess | CompileFailure>;
   compileDocument(document: unknown): Promise<CompileSuccess | CompileFailure>;
   compileDsl(source: unknown): Promise<CompileSuccess | CompileFailure>;

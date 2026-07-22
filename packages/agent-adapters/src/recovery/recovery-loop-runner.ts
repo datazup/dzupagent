@@ -17,7 +17,7 @@
  * @module recovery/recovery-loop-runner
  */
 
-import { calculateBackoff } from '@dzupagent/core'
+import { calculateBackoff } from '@dzupagent/core/utils'
 
 export interface RecoveryLoopConfig {
   /** Total number of attempts (including the first). Must be >= 1. */

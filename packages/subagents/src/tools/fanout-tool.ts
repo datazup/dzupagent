@@ -14,7 +14,7 @@ import type {
   FanoutBatchStore,
 } from "../contracts/fanout-batch-store.js";
 import type { BackgroundSubagentRuntime } from "../runtime/background-subagent-runtime.js";
-import type { SubagentToolDescriptor } from "./subagent-tools.js";
+import type { SubagentToolDescriptor } from "./types.js";
 
 /**
  * `fanout_template` — v1 (template-only) batch fan-out tool

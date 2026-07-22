@@ -317,6 +317,23 @@ for (const pkg of workspacePackages) {
 
 const layerViolations = []
 
+// Explicit, reviewed same-/upward-layer edge exceptions. Each entry documents a
+// genuinely-leaf contract→contract edge that would otherwise be forbidden by the
+// numeric layer ordering. Keyed by short package name so the checker can permit
+// a single named edge without renumbering (and cascading) the whole graph.
+// ARCH-M-04: `adapter-types` type-imports SanitizedEvidenceRef/routing/
+// controlled-execution contracts from `runtime-contracts`. Both are layer-0
+// leaf primitives; `runtime-contracts` has zero @dzupagent deps, so the edge is
+// acyclic and stays inside the leaf tier. Promoting `adapter-types` to layer 1
+// instead would force adapter-rules/hitl-kit up and cascade through subagents,
+// so this single reviewed exception is the minimal correct fix.
+const allowedLayerEdges = new Set(
+  (Array.isArray(layerGraph.rules?.allowedLayerEdges)
+    ? layerGraph.rules.allowedLayerEdges
+    : []
+  ).map((edge) => `${edge.from}->${edge.to}`),
+)
+
 for (const pkg of workspacePackages) {
   if (!pkg.name) continue
   const shortName = shortNameOf(pkg.name)
@@ -330,6 +347,8 @@ for (const pkg of workspacePackages) {
     const depShort = shortNameOf(depName)
     const depLayer = shortNameToLayerId.get(depShort)
     if (depLayer === undefined) continue // missing-from-policy already reported
+
+    if (allowedLayerEdges.has(`${shortName}->${depShort}`)) continue
 
     const allowSame = layerGraph.rules?.allowSameLayerEdges === true
     if (depLayer > importerLayer || (depLayer === importerLayer && !allowSame)) {

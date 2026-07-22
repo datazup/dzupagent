@@ -20,7 +20,7 @@
  */
 
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import type { AgentHooks, HookContext } from "@dzupagent/core";
+import type { AgentHooks, HookContext } from "@dzupagent/core/orchestration";
 import type { DzupEventBus } from "@dzupagent/core/events";
 
 /**

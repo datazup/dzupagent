@@ -7,7 +7,9 @@ import {
 } from "@dzupagent/flow-ast";
 
 import { routeTarget } from "./route-target.js";
-import type { CompilationTarget } from "./types.js";
+import type { CompilationTarget, FlowRequirementSummary } from "./types.js";
+
+export type { FlowRequirementSummary } from "./types.js";
 
 export type FlowNodeSupportStatus =
   | "supported"
@@ -65,16 +67,6 @@ export interface TargetCapabilityManifest {
   limitations: TargetCapabilityLimitation[];
 }
 
-export interface FlowRequirementSummary {
-  schema: "dzupagent.flowRequirements/v1";
-  target: CompilationTarget;
-  semanticHash: string;
-  nodeKinds: FlowNodeKind[];
-  requiredCapabilities: string[];
-  partialNodeKinds: FlowNodeKind[];
-  unsupportedNodeKinds: FlowNodeKind[];
-}
-
 export interface HostCapabilityManifest {
   schema: "dzupagent.hostCapabilityManifest/v1";
   host: string;
@@ -130,7 +122,7 @@ interface DescriptorOptions {
 
 function descriptor(
   kind: FlowNodeKind,
-  options: DescriptorOptions,
+  options: DescriptorOptions
 ): FlowNodeCapabilityDescriptor {
   return {
     kind,
@@ -156,7 +148,7 @@ const native = (
   kind: FlowNodeKind,
   currentRoute: CompilationTarget,
   recommendedProfile: RecommendedFlowProfile = "dzup.core@1",
-  notes?: string,
+  notes?: string
 ): FlowNodeCapabilityDescriptor =>
   descriptor(kind, {
     status: "supported",
@@ -171,7 +163,7 @@ const partial = (
   currentRoute: CompilationTarget,
   recommendedProfile: RecommendedFlowProfile,
   lowering: Exclude<FlowNodeLoweringMode, "native" | "unsupported">,
-  notes: string,
+  notes: string
 ): FlowNodeCapabilityDescriptor =>
   descriptor(kind, {
     status: "partial",
@@ -186,7 +178,7 @@ const hostOnly = (
   kind: FlowNodeKind,
   recommendedProfile: RecommendedFlowProfile,
   owner: FlowCapabilityOwner = "host",
-  notes?: string,
+  notes?: string
 ): FlowNodeCapabilityDescriptor =>
   descriptor(kind, {
     status: "host-only",
@@ -220,35 +212,35 @@ export const FLOW_NODE_CAPABILITY_REGISTRY = {
     "skill-chain",
     "dzup.core@1",
     "degraded",
-    "Terminal semantics are native in pipeline artifacts but need an executable anchor in skill-chain flows.",
+    "Terminal semantics are native in pipeline artifacts but need an executable anchor in skill-chain flows."
   ),
   spawn: partial(
     "spawn",
     "skill-chain",
     "dzup.agent@1",
     "metadata-only",
-    "Preserved as artifact metadata; execution remains host-owned.",
+    "Preserved as artifact metadata; execution remains host-owned."
   ),
   classify: partial(
     "classify",
     "skill-chain",
     "dzup.llm@1",
     "metadata-only",
-    "Preserved as artifact metadata; execution remains host-owned.",
+    "Preserved as artifact metadata; execution remains host-owned."
   ),
   emit: partial(
     "emit",
     "skill-chain",
     "dzup.core@1",
     "metadata-only",
-    "Event emission is not represented as an executable generic target node.",
+    "Event emission is not represented as an executable generic target node."
   ),
   memory: partial(
     "memory",
     "skill-chain",
     "dzup.rag@1",
     "degraded",
-    "Skill-chain has a memory projection; graph targets retain metadata only.",
+    "Skill-chain has a memory projection; graph targets retain metadata only."
   ),
   set: descriptor("set", {
     status: "supported",
@@ -256,63 +248,64 @@ export const FLOW_NODE_CAPABILITY_REGISTRY = {
     currentRoute: "planning-dag",
     recommendedProfile: "dzup.core@1",
     runtimeCapabilities: runtimeCapability("set"),
-    notes: "Pure state mutation lowers to the DzupAgent pipeline runtime's built-in set handler.",
+    notes:
+      "Pure state mutation lowers to the DzupAgent pipeline runtime's built-in set handler.",
   }),
   checkpoint: partial(
     "checkpoint",
     "skill-chain",
     "dzup.core@1",
     "metadata-only",
-    "Checkpoint policy is carried separately; the node is not a generic executable graph node.",
+    "Checkpoint policy is carried separately; the node is not a generic executable graph node."
   ),
   restore: partial(
     "restore",
     "skill-chain",
     "dzup.core@1",
     "metadata-only",
-    "Restore policy is carried separately; the node is not a generic executable graph node.",
+    "Restore policy is carried separately; the node is not a generic executable graph node."
   ),
   try_catch: partial(
     "try_catch",
     "workflow-builder",
     "dzup.core@1",
     "degraded",
-    "The try body lowers; catch-path execution remains runtime-owned.",
+    "The try body lowers; catch-path execution remains runtime-owned."
   ),
   loop: partial(
     "loop",
     "pipeline",
     "dzup.core@1",
     "degraded",
-    "The loop body lowers but the authored condition is runtime-owned.",
+    "The loop body lowers but the authored condition is runtime-owned."
   ),
   http: partial(
     "http",
     "skill-chain",
     "dzup.core@1",
     "metadata-only",
-    "HTTP execution requires a host handler and is not emitted as a generic target node.",
+    "HTTP execution requires a host handler and is not emitted as a generic target node."
   ),
   wait: partial(
     "wait",
     "skill-chain",
     "dzup.core@1",
     "metadata-only",
-    "Durable timer/event wait semantics are not normalized in generic targets.",
+    "Durable timer/event wait semantics are not normalized in generic targets."
   ),
   subflow: partial(
     "subflow",
     "skill-chain",
     "dzup.core@1",
     "metadata-only",
-    "Subflows must be inlined before lowering or executed by a host.",
+    "Subflows must be inlined before lowering or executed by a host."
   ),
   prompt: hostOnly("prompt", "dzup.llm@1"),
   return_to: hostOnly(
     "return_to",
     "dzup.core@1",
     "host",
-    "Compatibility leaf for hosts with bounded return-region semantics; portable flows should prefer loop.",
+    "Compatibility leaf for hosts with bounded return-region semantics; portable flows should prefer loop."
   ),
   agent: hostOnly("agent", "dzup.agent@1"),
   validate: hostOnly("validate", "dzup.sdlc@1"),
@@ -322,35 +315,35 @@ export const FLOW_NODE_CAPABILITY_REGISTRY = {
     "skill-chain",
     "dzup.fleet@1",
     "metadata-only",
-    "Collected into fleetSteps side metadata for a host runtime.",
+    "Collected into fleetSteps side metadata for a host runtime."
   ),
   "fleet.gather": partial(
     "fleet.gather",
     "skill-chain",
     "dzup.fleet@1",
     "metadata-only",
-    "Collected into fleetSteps side metadata for a host runtime.",
+    "Collected into fleetSteps side metadata for a host runtime."
   ),
   "fleet.contract-net": partial(
     "fleet.contract-net",
     "skill-chain",
     "dzup.fleet@1",
     "metadata-only",
-    "Collected into fleetSteps side metadata for a host runtime.",
+    "Collected into fleetSteps side metadata for a host runtime."
   ),
   "knowledge.write": partial(
     "knowledge.write",
     "skill-chain",
     "dzup.rag@1",
     "metadata-only",
-    "Knowledge execution is host-owned and not emitted as a generic target node.",
+    "Knowledge execution is host-owned and not emitted as a generic target node."
   ),
   "knowledge.query": partial(
     "knowledge.query",
     "skill-chain",
     "dzup.rag@1",
     "metadata-only",
-    "Knowledge execution is host-owned and not emitted as a generic target node.",
+    "Knowledge execution is host-owned and not emitted as a generic target node."
   ),
   "shell.run": hostOnly("shell.run", "dzup.sdlc@1"),
   "evidence.write": hostOnly("evidence.write", "dzup.sdlc@1"),
@@ -359,21 +352,41 @@ export const FLOW_NODE_CAPABILITY_REGISTRY = {
   "adapter.race": hostOnly("adapter.race", "dzup.adapters@1"),
   "adapter.parallel": hostOnly("adapter.parallel", "dzup.adapters@1"),
   "adapter.supervisor": hostOnly("adapter.supervisor", "dzup.adapters@1"),
-  "spdd.import_sources": hostOnly("spdd.import_sources", "codev.spdd@1", "codev"),
-  "spdd.build_source_pack": hostOnly("spdd.build_source_pack", "codev.spdd@1", "codev"),
+  "spdd.import_sources": hostOnly(
+    "spdd.import_sources",
+    "codev.spdd@1",
+    "codev"
+  ),
+  "spdd.build_source_pack": hostOnly(
+    "spdd.build_source_pack",
+    "codev.spdd@1",
+    "codev"
+  ),
   "spdd.run_analysis": hostOnly("spdd.run_analysis", "codev.spdd@1", "codev"),
-  "spdd.generate_canvas": hostOnly("spdd.generate_canvas", "codev.spdd@1", "codev"),
-  "spdd.validate_canvas": hostOnly("spdd.validate_canvas", "codev.spdd@1", "codev"),
+  "spdd.generate_canvas": hostOnly(
+    "spdd.generate_canvas",
+    "codev.spdd@1",
+    "codev"
+  ),
+  "spdd.validate_canvas": hostOnly(
+    "spdd.validate_canvas",
+    "codev.spdd@1",
+    "codev"
+  ),
   "spdd.review_canvas": hostOnly("spdd.review_canvas", "codev.spdd@1", "codev"),
   "spdd.project_plan": hostOnly("spdd.project_plan", "codev.spdd@1", "codev"),
   "spdd.arm_dispatch": hostOnly("spdd.arm_dispatch", "codev.spdd@1", "codev"),
-  "spdd.run_validation": hostOnly("spdd.run_validation", "codev.spdd@1", "codev"),
+  "spdd.run_validation": hostOnly(
+    "spdd.run_validation",
+    "codev.spdd@1",
+    "codev"
+  ),
   "spdd.collect_proof": hostOnly("spdd.collect_proof", "codev.spdd@1", "codev"),
   "spdd.scan_drift": hostOnly("spdd.scan_drift", "codev.spdd@1", "codev"),
   "spdd.create_sync_proposal": hostOnly(
     "spdd.create_sync_proposal",
     "codev.spdd@1",
-    "codev",
+    "codev"
   ),
   "spdd.agent_swarm": hostOnly("spdd.agent_swarm", "codev.spdd@1", "codev"),
 } as const satisfies Record<FlowNodeKind, FlowNodeCapabilityDescriptor>;
@@ -507,7 +520,7 @@ export function collectFlowRequirements(ast: FlowNode): FlowRequirementSummary {
 
   const target = routeTarget(ast).target;
   const descriptors = [...nodeKinds].map(
-    (kind) => FLOW_NODE_CAPABILITY_REGISTRY[kind],
+    (kind) => FLOW_NODE_CAPABILITY_REGISTRY[kind]
   );
   const requiredCapabilities = new Set<string>([
     TARGET_CAPABILITY_MANIFESTS[target].capability,
@@ -537,7 +550,7 @@ export function collectFlowRequirements(ast: FlowNode): FlowRequirementSummary {
 
 export function resolveHostReadiness(
   requirements: FlowRequirementSummary,
-  host: HostCapabilityManifest,
+  host: HostCapabilityManifest
 ): HostReadinessResult {
   const diagnostics: HostReadinessDiagnostic[] = [];
 
@@ -588,7 +601,7 @@ export function generateFlowConformanceMatrix(): FlowConformanceMatrix {
 }
 
 export function renderFlowConformanceMatrixMarkdown(
-  matrix: FlowConformanceMatrix = generateFlowConformanceMatrix(),
+  matrix: FlowConformanceMatrix = generateFlowConformanceMatrix()
 ): string {
   const lines = [
     "# Flow Node And Target Conformance Matrix",
@@ -605,29 +618,42 @@ export function renderFlowConformanceMatrixMarkdown(
 
   for (const node of matrix.nodes) {
     lines.push(
-      `| \`${node.kind}\` | yes | yes | ${node.status} | ${node.lowering} | \`${node.currentRoute}\` | \`${node.recommendedProfile}\` | ${node.owner} | ${node.runtimeCapabilities.map((item) => `\`${item}\``).join("<br>") || "none"} | ${escapeTableCell(node.notes ?? "")} |`,
+      `| \`${node.kind}\` | yes | yes | ${node.status} | ${node.lowering} | \`${
+        node.currentRoute
+      }\` | \`${node.recommendedProfile}\` | ${node.owner} | ${
+        node.runtimeCapabilities.map((item) => `\`${item}\``).join("<br>") ||
+        "none"
+      } | ${escapeTableCell(node.notes ?? "")} |`
     );
   }
 
   lines.push("", "## Targets", "");
   lines.push(
     "| Target | Capability | Route features | Execution | Durability | Limitations |",
-    "| --- | --- | --- | --- | --- | --- |",
+    "| --- | --- | --- | --- | --- | --- |"
   );
   for (const target of matrix.targets) {
     lines.push(
-      `| \`${target.target}\` | \`${target.capability}\` | ${target.routeFeatures.join(", ")} | ${target.executionModel} | ${target.durabilityModes.join(", ")} | ${target.limitations.map((item) => `\`${item.code}\`: ${escapeTableCell(item.message)}`).join("<br>")} |`,
+      `| \`${target.target}\` | \`${
+        target.capability
+      }\` | ${target.routeFeatures.join(", ")} | ${
+        target.executionModel
+      } | ${target.durabilityModes.join(", ")} | ${target.limitations
+        .map((item) => `\`${item.code}\`: ${escapeTableCell(item.message)}`)
+        .join("<br>")} |`
     );
   }
 
   lines.push("", "## Validation profiles", "");
   lines.push(
     "| Profile | Gates | Host manifest required |",
-    "| --- | --- | --- |",
+    "| --- | --- | --- |"
   );
   for (const profile of matrix.validationProfiles) {
     lines.push(
-      `| \`${profile.id}\` | ${profile.gates.map((gate) => `\`${gate}\``).join(" → ")} | ${profile.requiresHostManifest ? "yes" : "no"} |`,
+      `| \`${profile.id}\` | ${profile.gates
+        .map((gate) => `\`${gate}\``)
+        .join(" → ")} | ${profile.requiresHostManifest ? "yes" : "no"} |`
     );
   }
 
@@ -657,7 +683,7 @@ function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
   const entries = Object.keys(record)
     .sort()
     .map(
-      (key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`,
+      (key) => `${JSON.stringify(key)}:${stableStringify(record[key], seen)}`
     );
   return `{${entries.join(",")}}`;
 }
@@ -684,7 +710,7 @@ function visitFlow(node: FlowNode, visit: (node: FlowNode) => void): void {
       return;
     case "parallel":
       node.branches.forEach((branch) =>
-        branch.forEach((child) => visitFlow(child, visit)),
+        branch.forEach((child) => visitFlow(child, visit))
       );
       return;
     case "approval":

@@ -1,5 +1,5 @@
 import type { BaseMessage } from '@langchain/core/messages'
-import { runBeforeModelCall } from '@dzupagent/core'
+import { runBeforeModelCall } from '@dzupagent/core/orchestration'
 import type { DzupEventBus } from '@dzupagent/core/events'
 import {
   buildModelHookContext,
