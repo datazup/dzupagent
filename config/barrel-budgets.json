@@ -87,8 +87,9 @@
     "under MJ-01): memory/src/index.ts (pure re-export barrel, split needs subpath + package.json exports wiring),",
     "agent-adapters/src/codex/codex-cli-adapter.ts (single 420-LOC CodexCliAdapter class),",
     "flow-dsl/src/primitives/collab-review-loop-v2.ts (large primitive schema + expand function).",
-    "rag/src/chunker.ts was NOT allowlisted — its pure-function helpers/constants were extracted to",
-    "chunker-internals.ts (551->451 LOC), the preferred remedy. reviewBy: 2026-10-22."
+    "rag/src/chunker.ts was NOT allowlisted \u2014 its pure-function helpers/constants were extracted to",
+    "chunker-internals.ts (551->451 LOC), the preferred remedy. reviewBy: 2026-10-22.",
+    "2026-07-22 Medium-remediation re-pin (audit full-dzupagent-2026-07-21/run-001, Session 3): @dzupagent/security maxRootIndexLines 58->69 for the reviewed CODE-H-03 sanitizer-patterns.js root re-export (the canonical shared sanitizer data source consumed by core + memory). fileLineAllowlist DEBT-PINS added for files that crossed 500 LOC due to audit guardrail/decomposition work and whose full decomposition is deferred to ARCH-M-06/CODE-L-04: agent/src/agent/dzip-agent.ts (491->587; AGENT-H-04 capability split + AGENT-M-14 asTool depth guard), agent/src/orchestration/delegation.ts (443->555; CODE-M-11 extracted finalize seams \u2014 method body shrank 187->62 LOC but the file's helper count grew), subagents/src/store/postgres-task-store.ts (451->568; AGENT-H-08 lease heartbeat + AGENT-M-15 dead-letter). Shrink these when the deferred decomposition lands."
   ],
   "packages": {
     "@dzupagent/core": {
@@ -98,7 +99,7 @@
       "maxRootIndexLines": 1310
     },
     "@dzupagent/security": {
-      "maxRootIndexLines": 58,
+      "maxRootIndexLines": 69,
       "maxFileLines": 500,
       "fileLineAllowlist": []
     },
@@ -117,7 +118,9 @@
         "src/security/agent-auth.ts",
         "src/self-correction/post-run-analyzer.ts",
         "src/self-correction/recovery-feedback.ts",
-        "src/workflow/compiled-workflow.ts"
+        "src/workflow/compiled-workflow.ts",
+        "src/agent/dzip-agent.ts",
+        "src/orchestration/delegation.ts"
       ]
     },
     "@dzupagent/memory": {
@@ -142,7 +145,9 @@
     "@dzupagent/connectors": {
       "maxRootIndexLines": 95,
       "maxFileLines": 500,
-      "fileLineAllowlist": ["src/github/github-client.ts"]
+      "fileLineAllowlist": [
+        "src/github/github-client.ts"
+      ]
     },
     "@dzupagent/agent-adapters": {
       "maxRootIndexLines": 839,
@@ -175,7 +180,9 @@
     "@dzupagent/execution-contracts": {
       "maxRootIndexLines": 16,
       "maxFileLines": 500,
-      "fileLineAllowlist": ["src/fleet-qualification.ts"]
+      "fileLineAllowlist": [
+        "src/fleet-qualification.ts"
+      ]
     },
     "@dzupagent/agent-types": {
       "maxRootIndexLines": 53,
@@ -190,7 +197,9 @@
     "@dzupagent/dialogue-core": {
       "maxRootIndexLines": 114,
       "maxFileLines": 500,
-      "fileLineAllowlist": ["src/dialogue-scheduler.ts"]
+      "fileLineAllowlist": [
+        "src/dialogue-scheduler.ts"
+      ]
     },
     "@dzupagent/dialogue-core-replay": {
       "maxRootIndexLines": 22,
@@ -215,7 +224,9 @@
     "@dzupagent/connectors-browser": {
       "maxRootIndexLines": 60,
       "maxFileLines": 500,
-      "fileLineAllowlist": ["src/browser/auth-handler.ts"]
+      "fileLineAllowlist": [
+        "src/browser/auth-handler.ts"
+      ]
     },
     "@dzupagent/connectors-documents": {
       "maxRootIndexLines": 33,
@@ -294,7 +305,9 @@
     "@dzupagent/evals": {
       "maxRootIndexLines": 250,
       "maxFileLines": 500,
-      "fileLineAllowlist": ["src/scorers/safety-scorer.ts"]
+      "fileLineAllowlist": [
+        "src/scorers/safety-scorer.ts"
+      ]
     },
     "@dzupagent/app-tools": {
       "maxRootIndexLines": 65,
@@ -316,7 +329,8 @@
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/runtime/background-subagent-runtime.ts",
-        "src/tools/fanout-tool.ts"
+        "src/tools/fanout-tool.ts",
+        "src/store/postgres-task-store.ts"
       ]
     }
   }
