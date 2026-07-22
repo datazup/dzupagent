@@ -13,10 +13,19 @@ import type { MCPToolDescriptor } from "@dzupagent/core/pipeline";
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * AGENT-M-16 — successful MCP server text is fenced at the source in an
+ * <untrusted_content source="tool_result"> boundary by the resolver. Mirror
+ * that transform so assertions read against the expected fenced value.
+ */
+function fence(text: string): string {
+  return `<untrusted_content source="tool_result">\n${text}\n</untrusted_content>`;
+}
+
 function makeTool(
   name: string,
   serverId = "server-1",
-  overrides?: Partial<MCPToolDescriptor>,
+  overrides?: Partial<MCPToolDescriptor>
 ): MCPToolDescriptor {
   return {
     name,
@@ -35,7 +44,7 @@ function makeTool(
 
 function makeToolComplex(
   name: string,
-  serverId = "server-1",
+  serverId = "server-1"
 ): MCPToolDescriptor {
   return {
     name,
@@ -323,7 +332,7 @@ describe("MCPAsyncToolResolver — tool invocation", () => {
     const resolved = await resolver.resolve("server-1/search");
     const handle = resolved!.handle as {
       invoke: (
-        input: unknown,
+        input: unknown
       ) => Promise<{ content: unknown[]; isError: boolean }>;
     };
     const result = await handle.invoke({ input: "hello" });
@@ -331,7 +340,7 @@ describe("MCPAsyncToolResolver — tool invocation", () => {
     expect(result.content).toBeInstanceOf(Array);
     expect(result.content[0]).toMatchObject({
       type: "text",
-      value: "found it",
+      value: fence("found it"),
     });
     expect(result.isError).toBe(false);
   });
@@ -350,7 +359,7 @@ describe("MCPAsyncToolResolver — tool invocation", () => {
     const resolved = await resolver.resolve("server-1/search");
     const handle = resolved!.handle as {
       invoke: (
-        input: unknown,
+        input: unknown
       ) => Promise<{ content: unknown[]; isError: boolean }>;
     };
     const result = await handle.invoke({ input: "fail" });
@@ -490,14 +499,20 @@ describe("MCPAsyncToolResolver — tool result format", () => {
     const resolved = await resolver.resolve("server-1/read");
     const handle = resolved!.handle as {
       invoke: (
-        input: unknown,
+        input: unknown
       ) => Promise<{ content: Array<{ type: string; value: unknown }> }>;
     };
     const result = await handle.invoke({ input: "test" });
 
     expect(result.content).toHaveLength(2);
-    expect(result.content[0]).toEqual({ type: "text", value: "first line" });
-    expect(result.content[1]).toEqual({ type: "text", value: "second line" });
+    expect(result.content[0]).toEqual({
+      type: "text",
+      value: fence("first line"),
+    });
+    expect(result.content[1]).toEqual({
+      type: "text",
+      value: fence("second line"),
+    });
   });
 
   it("maps image content parts correctly", async () => {
@@ -514,7 +529,7 @@ describe("MCPAsyncToolResolver — tool result format", () => {
     const resolved = await resolver.resolve("server-1/screenshot");
     const handle = resolved!.handle as {
       invoke: (
-        input: unknown,
+        input: unknown
       ) => Promise<{ content: Array<{ type: string; value: unknown }> }>;
     };
     const result = await handle.invoke({ input: "page" });
@@ -544,7 +559,7 @@ describe("MCPAsyncToolResolver — tool result format", () => {
     const resolved = await resolver.resolve("server-1/raw-data");
     const handle = resolved!.handle as {
       invoke: (
-        input: unknown,
+        input: unknown
       ) => Promise<{ content: Array<{ type: string; value: unknown }> }>;
     };
     const result = await handle.invoke({ input: "x" });
@@ -606,12 +621,12 @@ describe("MCPAsyncToolResolver — tool result format", () => {
     const resolved = await resolver.resolve("server-1/sparse-tool");
     const handle = resolved!.handle as {
       invoke: (
-        input: unknown,
+        input: unknown
       ) => Promise<{ content: Array<{ type: string; value: unknown }> }>;
     };
     const result = await handle.invoke({});
 
-    expect(result.content[0]).toEqual({ type: "text", value: "" });
+    expect(result.content[0]).toEqual({ type: "text", value: fence("") });
   });
 });
 
@@ -634,7 +649,7 @@ describe("MCPAsyncToolResolver — error handling", () => {
     };
 
     await expect(handle.invoke({ input: "x" })).rejects.toThrow(
-      "network timeout",
+      "network timeout"
     );
   });
 
@@ -652,7 +667,7 @@ describe("MCPAsyncToolResolver — error handling", () => {
     };
 
     await expect(handle.invoke({ input: "x" })).rejects.toThrow(
-      "string error from server",
+      "string error from server"
     );
   });
 
@@ -705,8 +720,12 @@ describe("MCPAsyncToolResolver — multiple tools sequential invocation", () => 
     const resultA = await handleA.invoke({ input: "x" });
     const resultB = await handleB.invoke({ input: "y" });
 
-    expect(resultA.content[0]).toMatchObject({ value: "result from tool-a" });
-    expect(resultB.content[0]).toMatchObject({ value: "result from tool-b" });
+    expect(resultA.content[0]).toMatchObject({
+      value: fence("result from tool-a"),
+    });
+    expect(resultB.content[0]).toMatchObject({
+      value: fence("result from tool-b"),
+    });
   });
 
   it("can resolve and invoke tools from different servers", async () => {

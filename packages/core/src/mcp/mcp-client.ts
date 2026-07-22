@@ -22,6 +22,7 @@ import {
 } from "./mcp-security.js";
 import { assertCommandNotDestructive } from "../security/destructive-command-guard.js";
 import { fetchWithOutboundUrlPolicy } from "../security/outbound-url-policy.js";
+import { buildInputSchema } from "./mcp-input-schema.js";
 import {
   getMcpTransportCapability,
   listMcpTransportCapabilities,
@@ -294,8 +295,45 @@ export class MCPClient {
       }
     }
 
+    // AGENT-H-07 — validate the model-emitted args against the tool's own
+    // declared inputSchema BEFORE they reach the transport. Both direct
+    // callers (mcp-tool-bridge tool() callback, connectors mcp-tool-resolver)
+    // route through this method, so validating here closes the gap for every
+    // path — a model emitting wrong-typed / missing-required arguments is
+    // rejected with a structured tool-error instead of corrupting the
+    // downstream MCP server.
+    //
+    // Only enforce when the descriptor actually declares properties. A tool
+    // that ships no inputSchema (or an empty one) makes no claim about its
+    // arguments, so there is nothing to validate against and args are passed
+    // through unchanged — matching prior behaviour for schemaless tools.
+    const declaredProps = descriptor.inputSchema?.properties;
+    let argsToForward: Record<string, unknown> = args;
+    if (declaredProps && Object.keys(declaredProps).length > 0) {
+      const parsed = buildInputSchema(descriptor).safeParse(args);
+      if (!parsed.success) {
+        const issues = parsed.error.issues
+          .map((i) => {
+            const path = i.path.length > 0 ? i.path.join(".") : "(root)";
+            return `${path}: ${i.message}`;
+          })
+          .join("; ");
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `MCP_ARG_VALIDATION_FAILED: arguments for tool "${toolName}" do not match its inputSchema: ${issues}`,
+            },
+          ],
+          isError: true,
+          errorCode: "MCP_ARG_VALIDATION_FAILED",
+        };
+      }
+      argsToForward = parsed.data;
+    }
+
     try {
-      return await this.executeToolCall(conn, toolName, args);
+      return await this.executeToolCall(conn, toolName, argsToForward);
     } catch (err) {
       return {
         content: [
