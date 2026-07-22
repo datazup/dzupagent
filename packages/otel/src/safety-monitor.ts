@@ -16,45 +16,46 @@
  * ```
  */
 
-import type { DzupEventBus } from '@dzupagent/core/events'
+import type { DzupEventBus } from "@dzupagent/core/events";
+import { defaultLogger } from "@dzupagent/core/utils";
 
 // ------------------------------------------------------------------ Types
 
 export type SafetyCategory =
-  | 'prompt_injection_input'
-  | 'prompt_injection_output'
-  | 'tool_misuse'
-  | 'memory_poisoning'
-  | 'data_exfiltration'
-  | 'excessive_resource_usage'
+  | "prompt_injection_input"
+  | "prompt_injection_output"
+  | "tool_misuse"
+  | "memory_poisoning"
+  | "data_exfiltration"
+  | "excessive_resource_usage";
 
-export type SafetySeverity = 'info' | 'warning' | 'critical'
+export type SafetySeverity = "info" | "warning" | "critical";
 
 export interface SafetyEvent {
-  category: SafetyCategory
-  severity: SafetySeverity
-  message: string
-  confidence: number // 0.0 - 1.0
-  agentId?: string | undefined
-  details?: Record<string, unknown> | undefined
-  timestamp: Date
+  category: SafetyCategory;
+  severity: SafetySeverity;
+  message: string;
+  confidence: number; // 0.0 - 1.0
+  agentId?: string | undefined;
+  details?: Record<string, unknown> | undefined;
+  timestamp: Date;
 }
 
 export interface SafetyPatternRule {
-  pattern: RegExp
-  category: SafetyCategory
-  severity: SafetySeverity
+  pattern: RegExp;
+  category: SafetyCategory;
+  severity: SafetySeverity;
 }
 
 export interface SafetyMonitorConfig {
   /** Patterns to detect in inputs (regex) */
-  inputPatterns?: SafetyPatternRule[]
+  inputPatterns?: SafetyPatternRule[];
   /** Patterns to detect in outputs (regex) */
-  outputPatterns?: SafetyPatternRule[]
+  outputPatterns?: SafetyPatternRule[];
   /** Consecutive tool failure threshold before alerting (default: 3) */
-  toolFailureThreshold?: number
+  toolFailureThreshold?: number;
   /** Event bus for emitting safety events */
-  eventBus?: DzupEventBus
+  eventBus?: DzupEventBus;
 }
 
 // ------------------------------------------------------- Default patterns
@@ -62,82 +63,82 @@ export interface SafetyMonitorConfig {
 const DEFAULT_INPUT_PATTERNS: SafetyPatternRule[] = [
   {
     pattern: /ignore\s+(?:all\s)?previous\s+instructions/i,
-    category: 'prompt_injection_input',
-    severity: 'critical',
+    category: "prompt_injection_input",
+    severity: "critical",
   },
   {
     pattern: /system\s+prompt\s*:/i,
-    category: 'prompt_injection_input',
-    severity: 'critical',
+    category: "prompt_injection_input",
+    severity: "critical",
   },
   {
     pattern: /<\|im_start\|>system/i,
-    category: 'prompt_injection_input',
-    severity: 'critical',
+    category: "prompt_injection_input",
+    severity: "critical",
   },
   {
     pattern: /you\s+are\s+now\b/i,
-    category: 'prompt_injection_input',
-    severity: 'warning',
+    category: "prompt_injection_input",
+    severity: "warning",
   },
   {
     pattern: /disregard\s+all\b/i,
-    category: 'prompt_injection_input',
-    severity: 'critical',
+    category: "prompt_injection_input",
+    severity: "critical",
   },
   {
     pattern: /forget\s+(?:all\s)?(?:your\s)?(?:previous\s)?instructions/i,
-    category: 'prompt_injection_input',
-    severity: 'critical',
+    category: "prompt_injection_input",
+    severity: "critical",
   },
-]
+];
 
 const DEFAULT_OUTPUT_PATTERNS: SafetyPatternRule[] = [
   {
     // URLs with long base64-encoded query params (potential data exfiltration)
     pattern: /https?:\/\/[^\s]+\?[^\s]*[A-Za-z0-9+/=]{64,}/i,
-    category: 'data_exfiltration',
-    severity: 'warning',
+    category: "data_exfiltration",
+    severity: "warning",
   },
   {
     // data: URIs in outputs
     pattern: /data:[a-z]+\/[a-z0-9.+-]+;base64,/i,
-    category: 'data_exfiltration',
-    severity: 'warning',
+    category: "data_exfiltration",
+    severity: "warning",
   },
   {
     // Markdown image injection with external URL
     pattern: /!\[[^\]]*\]\(https?:\/\/[^\s)]+\)/i,
-    category: 'data_exfiltration',
-    severity: 'info',
+    category: "data_exfiltration",
+    severity: "info",
   },
-]
+];
 
 // -------------------------------------------------------------- Class
 
 export class SafetyMonitor {
-  private readonly _inputPatterns: SafetyPatternRule[]
-  private readonly _outputPatterns: SafetyPatternRule[]
-  private readonly _toolFailureThreshold: number
-  private readonly _events: SafetyEvent[] = []
-  private _unsubscribes: Array<() => void> = []
+  private readonly _inputPatterns: SafetyPatternRule[];
+  private readonly _outputPatterns: SafetyPatternRule[];
+  private readonly _toolFailureThreshold: number;
+  private readonly _events: SafetyEvent[] = [];
+  private _unsubscribes: Array<() => void> = [];
 
   /** Tracks consecutive failures per tool */
-  private readonly _toolFailures = new Map<string, number>()
+  private readonly _toolFailures = new Map<string, number>();
 
   constructor(config?: SafetyMonitorConfig) {
     this._inputPatterns = [
       ...DEFAULT_INPUT_PATTERNS,
       ...(config?.inputPatterns ?? []),
-    ]
+    ];
     this._outputPatterns = [
       ...DEFAULT_OUTPUT_PATTERNS,
       ...(config?.outputPatterns ?? []),
-    ]
-    this._toolFailureThreshold = config?.toolFailureThreshold ?? 3
+    ];
+    this._toolFailureThreshold = config?.toolFailureThreshold ?? 3;
 
     if (config?.eventBus) {
-      this.attach(config.eventBus)
+      this.attach(config.eventBus);
     }
   }
 
@@ -149,33 +150,47 @@ export class SafetyMonitor {
    * and tool:error (track consecutive failures).
    */
   attach(eventBus: DzupEventBus): void {
-    this.detach()
+    this.detach();
 
     this._unsubscribes.push(
-      eventBus.on('tool:called', (e) => {
+      eventBus.on("tool:called", (e) => {
         try {
-          const inputStr = typeof e.input === 'string'
-            ? e.input
-            : JSON.stringify(e.input)
-          this.scanInput(inputStr)
-        } catch {
-          // Non-blocking — swallow errors
+          const inputStr =
+            typeof e.input === "string" ? e.input : JSON.stringify(e.input);
+          this.scanInput(inputStr);
+        } catch (err) {
+          // Non-blocking — a scan failure must not break the event bus, but a
+          // silently failing input scan means safety checks stop running.
+          defaultLogger.warn("[otel] safety-monitor input scan failed", {
+            operation: "safetyMonitor.scanInput",
+            toolName: e.toolName,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       }),
 
-      eventBus.on('tool:error', (e) => {
+      eventBus.on("tool:error", (e) => {
         try {
-          this._trackToolFailure(e.toolName, e.message)
-        } catch {
-          // Non-blocking
+          this._trackToolFailure(e.toolName, e.message);
+        } catch (err) {
+          // Non-blocking — but a failure here means consecutive-failure safety
+          // tracking silently stops emitting safety events.
+          defaultLogger.warn(
+            "[otel] safety-monitor tool-failure tracking failed",
+            {
+              operation: "safetyMonitor.trackToolFailure",
+              toolName: e.toolName,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          );
         }
       }),
 
-      eventBus.on('tool:result', (e) => {
+      eventBus.on("tool:result", (e) => {
         // Reset consecutive failure counter on success
-        this._toolFailures.set(e.toolName, 0)
+        this._toolFailures.set(e.toolName, 0);
       }),
-    )
+    );
   }
 
   /**
@@ -183,9 +198,9 @@ export class SafetyMonitor {
    */
   detach(): void {
     for (const unsub of this._unsubscribes) {
-      unsub()
+      unsub();
     }
-    this._unsubscribes = []
+    this._unsubscribes = [];
   }
 
   // --------------------------------------------------- Scanning
@@ -195,7 +210,7 @@ export class SafetyMonitor {
    * Returns any detected safety events.
    */
   scanInput(text: string, agentId?: string): SafetyEvent[] {
-    return this._scan(text, this._inputPatterns, agentId)
+    return this._scan(text, this._inputPatterns, agentId);
   }
 
   /**
@@ -203,22 +218,22 @@ export class SafetyMonitor {
    * Returns any detected safety events.
    */
   scanOutput(text: string, agentId?: string): SafetyEvent[] {
-    return this._scan(text, this._outputPatterns, agentId)
+    return this._scan(text, this._outputPatterns, agentId);
   }
 
   /**
    * Get all recorded safety events.
    */
   getEvents(): SafetyEvent[] {
-    return [...this._events]
+    return [...this._events];
   }
 
   /**
    * Clear all recorded events and failure counters.
    */
   reset(): void {
-    this._events.length = 0
-    this._toolFailures.clear()
+    this._events.length = 0;
+    this._toolFailures.clear();
   }
 
   // --------------------------------------------------- Internal
@@ -228,7 +243,7 @@ export class SafetyMonitor {
     patterns: SafetyPatternRule[],
     agentId?: string,
   ): SafetyEvent[] {
-    const detected: SafetyEvent[] = []
+    const detected: SafetyEvent[] = [];
 
     for (const rule of patterns) {
       if (rule.pattern.test(text)) {
@@ -236,33 +251,33 @@ export class SafetyMonitor {
           category: rule.category,
           severity: rule.severity,
           message: `Pattern detected: ${rule.pattern.source}`,
-          confidence: rule.severity === 'critical' ? 0.9 : 0.7,
+          confidence: rule.severity === "critical" ? 0.9 : 0.7,
           agentId,
           details: { pattern: rule.pattern.source },
           timestamp: new Date(),
-        }
-        detected.push(event)
-        this._events.push(event)
+        };
+        detected.push(event);
+        this._events.push(event);
       }
     }
 
-    return detected
+    return detected;
   }
 
   private _trackToolFailure(toolName: string, message: string): void {
-    const count = (this._toolFailures.get(toolName) ?? 0) + 1
-    this._toolFailures.set(toolName, count)
+    const count = (this._toolFailures.get(toolName) ?? 0) + 1;
+    this._toolFailures.set(toolName, count);
 
     if (count >= this._toolFailureThreshold) {
       const event: SafetyEvent = {
-        category: 'tool_misuse',
-        severity: 'warning',
+        category: "tool_misuse",
+        severity: "warning",
         message: `Tool "${toolName}" failed ${count} consecutive times: ${message}`,
         confidence: 0.8,
         details: { toolName, consecutiveFailures: count },
         timestamp: new Date(),
-      }
-      this._events.push(event)
+      };
+      this._events.push(event);
     }
   }
 }
