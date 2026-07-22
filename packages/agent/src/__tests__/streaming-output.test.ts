@@ -29,7 +29,7 @@ import type { StreamEvent } from "../streaming/streaming-types.js";
 
 function makeTool(
   name: string,
-  impl: (args: Record<string, unknown>) => Promise<unknown> = async () => "ok"
+  impl: (args: Record<string, unknown>) => Promise<unknown> = async () => "ok",
 ): StructuredToolInterface {
   return {
     name,
@@ -203,7 +203,7 @@ describe("StreamingRunHandle — backpressure and slow consumer", () => {
     expect(events).toHaveLength(10);
     for (let i = 0; i < 10; i++) {
       expect((events[i] as { type: string; content: string }).content).toBe(
-        `chunk-${i}`
+        `chunk-${i}`,
       );
     }
   });
@@ -280,7 +280,7 @@ describe("StreamingRunHandle — backpressure and slow consumer", () => {
     const result = await nextPromise;
     expect(result.done).toBe(false);
     expect((result.value as { type: string; content: string }).content).toBe(
-      "late arrival"
+      "late arrival",
     );
 
     handle.complete();
@@ -337,7 +337,7 @@ describe("StreamingRunHandle — abort / cancel mid-flight", () => {
     const handle = new StreamingRunHandle();
     handle.cancel();
     expect(() =>
-      handle.push({ type: "text_delta", content: "too late" })
+      handle.push({ type: "text_delta", content: "too late" }),
     ).toThrow("cancelled");
   });
 
@@ -420,7 +420,7 @@ describe("StreamingRunHandle — error mid-stream", () => {
     const handle = new StreamingRunHandle();
     handle.fail(new Error("gone"));
     expect(() =>
-      handle.push({ type: "text_delta", content: "too late" })
+      handle.push({ type: "text_delta", content: "too late" }),
     ).toThrow("failed");
   });
 
@@ -738,7 +738,10 @@ describe("StreamActionParser — error in stream mid-way", () => {
 
     const err = events.find((e) => e.type === "error");
     expect(err).toBeDefined();
-    expect(err!.data.error).toBe("tool crashed");
+    // ERR-L-07: bounded client message + code; raw detail on internalError.
+    expect(err!.data.error).toBe("Tool execution failed");
+    expect(err!.data.code).toBe("TOOL_EXECUTION_FAILED");
+    expect(err!.data.internalError).toBe("tool crashed");
     expect(err!.data.toolCall?.name).toBe("crasher");
   });
 
@@ -772,7 +775,10 @@ describe("StreamActionParser — error in stream mid-way", () => {
     });
 
     const err = events.find((e) => e.type === "error");
-    expect(err!.data.error).toBe("42");
+    // ERR-L-07: bounded client message; stringified raw value on internalError.
+    expect(err!.data.error).toBe("Tool execution failed");
+    expect(err!.data.code).toBe("TOOL_EXECUTION_FAILED");
+    expect(err!.data.internalError).toBe("42");
   });
 
   it("unknown tool in a multi-tool chunk returns error only for the unknown one", async () => {
@@ -847,7 +853,7 @@ describe("StreamActionParser — stream completion and flush behaviour", () => {
     allEvents.push(
       ...(await parser.processChunk({
         tool_calls: [{ id: "c1", name: "counter", args: {} }],
-      }))
+      })),
     );
     allEvents.push(...(await parser.flush()));
 
