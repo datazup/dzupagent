@@ -71,6 +71,23 @@ const runtimeCriticalPackages = new Set([
   'server',
 ])
 
+// DZUPAGENT-TEST-C-13: the `--strict-integration` gate previously required a
+// real-external-service integration suite from EVERY runtimeCriticalPackage,
+// but "runtime-critical" (must not ship with zero unit tests / uncovered
+// critical source) is a different property from "talks to a real external
+// service over the network". Only these packages have an external-service
+// code path that a true-integration suite (requireIntegration/skipOrFailIfNo*)
+// can exercise:
+//   - server: Postgres run store, Redis/BullMQ queue, tenant-scope Postgres
+//   - rag:    Qdrant vector store factory
+// Gating the strict requirement on the full critical set made it
+// unsatisfiable by design (11 packages with no external surface can never
+// grow a true-integration test), so it exited 1 on clean main and, chained
+// first with `&&` in verify:strict:ci, short-circuited the entire CI job.
+// Keep runtimeCriticalPackages for the zero-test / critical-source gates;
+// gate --strict-integration on externalServicePackages alone.
+const externalServicePackages = new Set(['server', 'rag'])
+
 const strictIntegrationGateEnabled =
   process.argv.includes('--strict-integration') ||
   process.env.DZUPAGENT_RUNTIME_INTEGRATION_STRICT === '1' ||
@@ -471,8 +488,14 @@ export function runRuntimeTestInventory({
   const criticalSourceCoverage = evaluateCriticalSourceCoverage(context)
   const criticalSourceFailing = criticalSourceCoverage.filter((entry) => entry.status === 'fail')
   const largeSourceFileRisks = evaluateLargeSourceFileRisk(context, runtimePackages)
+  // DZUPAGENT-TEST-C-13: require a true (real-external-service) integration
+  // suite only from packages that actually have an external-service surface,
+  // not from every runtime-critical package (see externalServicePackages).
   const integrationFailing = strictIntegration
-    ? summary.filter((entry) => entry.critical && entry.trueIntegrationTestCount === 0)
+    ? summary.filter(
+        (entry) =>
+          externalServicePackages.has(entry.name) && entry.trueIntegrationTestCount === 0,
+      )
     : []
   const exitCode = zeroTestFailing.length > 0 || criticalSourceFailing.length > 0 || integrationFailing.length > 0 ? 1 : 0
 
