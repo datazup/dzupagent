@@ -3,11 +3,11 @@
     "@dzupagent/agent": {
       "minDeclarationFiles": 260,
       "minDeclarationBytes": 600000,
-      "maxDeclarationFiles": 381,
+      "maxDeclarationFiles": 384,
       "maxDeclarationBytes": 850000,
       "maxDeclarationMapFiles": 0,
       "maxDeclarationMapBytes": 0,
-      "$comment": "maxDeclarationFiles re-pinned 360->375 and maxDeclarationBytes 800000->850000 on 2026-07-22 (DZUPAGENT-ARCH-M-06 god-module decomposition, combined-batch verification): the loop-executor.ts (717->24 LOC, commit 1980cee9) and compiled-workflow.ts (685->435 LOC, commit 015febfc) decompositions each split a god-module into per-concern leaf modules, and the earlier pipeline-runtime split (11867db7) landed on the same branch; together they emit more .d.ts leaf files (measured 366 files / 809.4 KiB vs prior 360/781.3 pin). Small headroom above the measured post-decomposition surface; this reflects file-count redistribution from a single large module into leaves, not net new public API. Not a growth license. Re-pinned 375->381 on 2026-07-22 (same ARCH-M-06 track): the delegation.ts (555->178 LOC root) split added src/orchestration/delegation/types.d.ts + lifecycle.d.ts leaf files (measured 379). Same file-count redistribution rationale; not net new public API."
+      "$comment": "maxDeclarationFiles re-pinned 360->375 and maxDeclarationBytes 800000->850000 on 2026-07-22 (DZUPAGENT-ARCH-M-06 god-module decomposition, combined-batch verification): the loop-executor.ts (717->24 LOC, commit 1980cee9) and compiled-workflow.ts (685->435 LOC, commit 015febfc) decompositions each split a god-module into per-concern leaf modules, and the earlier pipeline-runtime split (11867db7) landed on the same branch; together they emit more .d.ts leaf files (measured 366 files / 809.4 KiB vs prior 360/781.3 pin). Small headroom above the measured post-decomposition surface; this reflects file-count redistribution from a single large module into leaves, not net new public API. Not a growth license. Re-pinned 375->381 on 2026-07-22 (same ARCH-M-06 track): the delegation.ts (555->178 LOC root) split added src/orchestration/delegation/types.d.ts + lifecycle.d.ts leaf files (measured 379). Same file-count redistribution rationale; not net new public API. Re-pinned 381->384 on 2026-07-22 (same ARCH-M-06 track): the tool-loop/types.ts (535->24 LOC barrel) split added src/agent/tool-loop/types/tracer.d.ts + retry.d.ts + result.d.ts + config.d.ts leaf files (measured 383). Same file-count redistribution rationale; not net new public API."
     },
     "@dzupagent/agent-adapters": {
       "minDeclarationFiles": 200,
