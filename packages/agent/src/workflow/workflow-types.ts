@@ -52,4 +52,9 @@ export type WorkflowEvent =
     }
   | { type: "workflow:completed"; durationMs: number }
   | { type: "workflow:failed"; error: string }
-  | { type: "workflow:stuck"; nodeId: string; reason: string };
+  | { type: "workflow:stuck"; nodeId: string; reason: string }
+  // ERR-H-10: the durable run journal underpins replay/resume/audit. When a
+  // journal write fails (backend down) the entry is lost; this event surfaces
+  // that degradation on the caller's own event channel so it is observable
+  // instead of silently dropped. It is NOT itself written to the journal.
+  | { type: "workflow:journal_degraded"; error: string };

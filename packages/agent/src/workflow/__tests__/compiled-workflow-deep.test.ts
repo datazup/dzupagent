@@ -20,6 +20,7 @@ import {
   type WorkflowContext,
 } from "../index.js";
 import { InMemoryRunJournal, InMemoryRunStore } from "@dzupagent/core";
+import type { RunJournal } from "@dzupagent/core/persistence";
 import { InMemoryPipelineCheckpointStore } from "../../pipeline/in-memory-checkpoint-store.js";
 
 // ---------------------------------------------------------------------------
@@ -30,8 +31,8 @@ function step(
   id: string,
   fn: (
     state: Record<string, unknown>,
-    ctx: WorkflowContext
-  ) => Record<string, unknown> | void | Promise<Record<string, unknown> | void>
+    ctx: WorkflowContext,
+  ) => Record<string, unknown> | void | Promise<Record<string, unknown> | void>,
 ): WorkflowStep {
   return {
     id,
@@ -46,7 +47,7 @@ function step(
 function collectEvents(
   workflow: CompiledWorkflow,
   initialState: Record<string, unknown> = {},
-  options?: { signal?: AbortSignal; runId?: string }
+  options?: { signal?: AbortSignal; runId?: string },
 ): Promise<{
   result: Record<string, unknown> | null;
   events: WorkflowEvent[];
@@ -64,7 +65,7 @@ function makeCheckpoint(
   pipelineId: string,
   completedNodeIds: string[],
   state: Record<string, unknown>,
-  suspendedAtNodeId?: string
+  suspendedAtNodeId?: string,
 ) {
   return {
     pipelineRunId,
@@ -208,7 +209,7 @@ describe("CompiledWorkflow — compile-time structure", () => {
     let builder = createWorkflow({ id: "large" });
     for (let i = 0; i < 32; i++) {
       builder = builder.then(
-        step(`s${i}`, (s) => ({ [`step_${i}`]: true, ...s }))
+        step(`s${i}`, (s) => ({ [`step_${i}`]: true, ...s })),
       );
     }
     const def = builder.build().toPipelineDefinition();
@@ -315,7 +316,7 @@ describe("CompiledWorkflow — run() basic execution", () => {
       .then(
         step("boom", () => {
           throw new Error("step-exploded");
-        })
+        }),
       )
       .build();
 
@@ -331,7 +332,7 @@ describe("CompiledWorkflow — run() basic execution", () => {
     await wf.run({}, { onEvent: (e) => events.push(e) });
     const types = events.map((e) => e.type);
     expect(types.indexOf("step:started")).toBeLessThan(
-      types.indexOf("step:completed")
+      types.indexOf("step:completed"),
     );
   });
 
@@ -339,7 +340,7 @@ describe("CompiledWorkflow — run() basic execution", () => {
     const { events } = await collectEvents(
       createWorkflow({ id: "complete-ev" })
         .then(step("s", () => ({})))
-        .build()
+        .build(),
     );
     expect(events.some((e) => e.type === "workflow:completed")).toBe(true);
   });
@@ -350,9 +351,9 @@ describe("CompiledWorkflow — run() basic execution", () => {
         .then(
           step("bad", () => {
             throw new Error("err");
-          })
+          }),
         )
-        .build()
+        .build(),
     );
     expect(events.some((e) => e.type === "workflow:failed")).toBe(true);
   });
@@ -370,14 +371,14 @@ describe("CompiledWorkflow — run() suspend handling", () => {
         step("before", () => {
           executed.push("before");
           return {};
-        })
+        }),
       )
       .suspend("approval")
       .then(
         step("after", () => {
           executed.push("after");
           return {};
-        })
+        }),
       )
       .build();
 
@@ -389,7 +390,7 @@ describe("CompiledWorkflow — run() suspend handling", () => {
     const { events } = await collectEvents(
       createWorkflow({ id: "sus-reason" })
         .suspend("human_review_required")
-        .build()
+        .build(),
     );
     const suspended = events.find((e) => e.type === "suspended") as
       | { type: string; reason: string }
@@ -412,7 +413,7 @@ describe("CompiledWorkflow — run() suspend handling", () => {
       createWorkflow({ id: "multi-sus" })
         .suspend("first")
         .suspend("second")
-        .build()
+        .build(),
     );
     const suspends = events.filter((e) => e.type === "suspended") as {
       type: string;
@@ -447,7 +448,7 @@ describe("CompiledWorkflow — stream()", () => {
       .then(
         step("bad", () => {
           throw new Error("stream-err");
-        })
+        }),
       )
       .build();
 
@@ -490,10 +491,10 @@ describe("CompiledWorkflow — stream()", () => {
     const types = events.map((e) => e.type);
     // At minimum: step:started × 2, step:completed × 2, workflow:completed
     expect(
-      types.filter((t) => t === "step:started").length
+      types.filter((t) => t === "step:started").length,
     ).toBeGreaterThanOrEqual(2);
     expect(
-      types.filter((t) => t === "step:completed").length
+      types.filter((t) => t === "step:completed").length,
     ).toBeGreaterThanOrEqual(2);
     expect(types[types.length - 1]).toBe("workflow:completed");
   });
@@ -542,7 +543,7 @@ describe("CompiledWorkflow — withJournal()", () => {
     const entries = await journal.getAll("r3");
     const types = entries.map((e) => e.type);
     expect(types.indexOf("run_started")).toBeLessThan(
-      types.indexOf("run_completed")
+      types.indexOf("run_completed"),
     );
   });
 
@@ -556,10 +557,10 @@ describe("CompiledWorkflow — withJournal()", () => {
     await wf.run({}, { runId: "r4" });
     const entries = await journal.getAll("r4");
     expect(
-      entries.filter((e) => e.type === "step_started").length
+      entries.filter((e) => e.type === "step_started").length,
     ).toBeGreaterThanOrEqual(2);
     expect(
-      entries.filter((e) => e.type === "step_completed").length
+      entries.filter((e) => e.type === "step_completed").length,
     ).toBeGreaterThanOrEqual(2);
   });
 
@@ -568,7 +569,7 @@ describe("CompiledWorkflow — withJournal()", () => {
       .then(
         step("bad", () => {
           throw new Error("journal-fail");
-        })
+        }),
       )
       .build()
       .withJournal(journal);
@@ -576,7 +577,7 @@ describe("CompiledWorkflow — withJournal()", () => {
     await wf.run({}, { runId: "r5" }).catch(() => {});
     const entries = await journal.getAll("r5");
     expect(
-      entries.filter((e) => e.type === "step_failed").length
+      entries.filter((e) => e.type === "step_failed").length,
     ).toBeGreaterThanOrEqual(1);
   });
 
@@ -585,7 +586,7 @@ describe("CompiledWorkflow — withJournal()", () => {
       .then(
         step("bad", () => {
           throw new Error("run-fail");
-        })
+        }),
       )
       .build()
       .withJournal(journal);
@@ -618,7 +619,7 @@ describe("CompiledWorkflow — withJournal()", () => {
     expect(
       (started?.data as { input?: Record<string, unknown> })?.input?.[
         "initialKey"
-      ]
+      ],
     ).toBe("hello");
   });
 
@@ -666,7 +667,7 @@ describe("CompiledWorkflow — withCheckpointStore() and resume()", () => {
       def.id,
       [],
       { before: true },
-      suspendNode!.id
+      suspendNode!.id,
     );
 
     // Resume continues after the suspend node
@@ -712,7 +713,7 @@ describe("CompiledWorkflow — withCheckpointStore() and resume()", () => {
     // No withCheckpointStore
 
     await expect(wf.resume("ghost-run-id")).rejects.toThrow(
-      "no checkpoint store configured"
+      "no checkpoint store configured",
     );
   });
 
@@ -724,7 +725,7 @@ describe("CompiledWorkflow — withCheckpointStore() and resume()", () => {
       .withCheckpointStore(checkpointStore);
 
     await expect(wf.resume("nonexistent-run")).rejects.toThrow(
-      "No checkpoint found"
+      "No checkpoint found",
     );
   });
 
@@ -747,7 +748,7 @@ describe("CompiledWorkflow — getHandle()", () => {
       .build();
 
     await expect(wf.getHandle("any-id")).rejects.toThrow(
-      "no journal configured"
+      "no journal configured",
     );
   });
 
@@ -823,13 +824,13 @@ describe("CompiledWorkflow — crash recovery (workflowRunId)", () => {
         step("node-a", () => {
           executed.push("a");
           return { a: true };
-        })
+        }),
       )
       .then(
         step("node-b", () => {
           executed.push("b");
           return { b: true };
-        })
+        }),
       )
       .build()
       .withCheckpointStore(checkpointStore);
@@ -857,7 +858,7 @@ describe("CompiledWorkflow — crash recovery (workflowRunId)", () => {
         step("step-x", () => {
           executed.push("x");
           return { x: 1 };
-        })
+        }),
       )
       .build()
       .withCheckpointStore(checkpointStore);
@@ -876,7 +877,7 @@ describe("CompiledWorkflow — crash recovery (workflowRunId)", () => {
 describe("CompiledWorkflow — fluent API", () => {
   it("WorkflowBuilder.build() returns an instance of CompiledWorkflow", () => {
     expect(createWorkflow({ id: "check" }).build()).toBeInstanceOf(
-      CompiledWorkflow
+      CompiledWorkflow,
     );
   });
 
@@ -956,7 +957,7 @@ describe("CompiledWorkflow — edge cases", () => {
           const arr = (s["deep"] as { nested: { value: number[] } }).nested
             .value;
           return { sum: arr.reduce((a, b) => a + b, 0) };
-        })
+        }),
       )
       .build();
 
@@ -1020,12 +1021,84 @@ describe("CompiledWorkflow — edge cases", () => {
     for (let i = 0; i < 50; i++) {
       const idx = i;
       builder = builder.then(
-        step(`s${idx}`, (s) => ({ [`n${idx}`]: true, ...s }))
+        step(`s${idx}`, (s) => ({ [`n${idx}`]: true, ...s })),
       );
     }
     const wf = builder.build();
     const result = await wf.run({});
     expect(result["n0"]).toBe(true);
     expect(result["n49"]).toBe(true);
+  });
+});
+
+// ===========================================================================
+// ERR-H-10: run-journal write failures are surfaced, not silently swallowed
+// ===========================================================================
+
+describe("CompiledWorkflow — journal degradation observability (ERR-H-10)", () => {
+  /**
+   * A journal that delegates to a real InMemoryRunJournal for reads/lifecycle
+   * but makes every step-level append() reject, simulating a journal backend
+   * that is unavailable mid-run.
+   */
+  function makeFailingJournal(): InMemoryRunJournal {
+    const real = new InMemoryRunJournal();
+    const failing = Object.create(real) as InMemoryRunJournal;
+    (failing as unknown as { append: RunJournal["append"] }).append = () =>
+      Promise.reject(new Error("journal backend unavailable"));
+    return failing;
+  }
+
+  it("emits workflow:journal_degraded and logs when a journal write fails, without breaking the run", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const wf = createWorkflow({ id: "journal-degraded-wf" })
+      .then(step("a", () => ({ ranA: true })))
+      .build()
+      .withJournal(makeFailingJournal());
+
+    const events: WorkflowEvent[] = [];
+    const result = await wf.run({}, { onEvent: (e) => events.push(e) });
+
+    // The run itself still completes despite the journal being down.
+    expect(result["ranA"]).toBe(true);
+
+    // Degradation is surfaced on the caller's event channel...
+    const degraded = events.filter(
+      (e) => e.type === "workflow:journal_degraded",
+    );
+    expect(degraded.length).toBeGreaterThan(0);
+
+    // ...and logged as a structured line.
+    expect(errorSpy).toHaveBeenCalled();
+    const flat = JSON.stringify(errorSpy.mock.calls);
+    expect(flat).toContain("workflow.journal.write");
+    expect(flat).toContain("journal backend unavailable");
+
+    errorSpy.mockRestore();
+  });
+
+  it("does NOT re-append the failure to the same (failed) journal", async () => {
+    // If the fix regressed to re-appending a __journal_write_error__ entry to
+    // the dead journal, that append would itself reject and could recurse /
+    // vanish. We assert the degradation is observable purely via onEvent/log,
+    // and the run completes cleanly.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const wf = createWorkflow({ id: "journal-no-reappend-wf" })
+      .then(step("a", () => ({ ok: true })))
+      .build()
+      .withJournal(makeFailingJournal());
+
+    const events: WorkflowEvent[] = [];
+    await expect(
+      wf.run({}, { onEvent: (e) => events.push(e) }),
+    ).resolves.toMatchObject({ ok: true });
+
+    expect(events.some((e) => e.type === "workflow:journal_degraded")).toBe(
+      true,
+    );
+
+    errorSpy.mockRestore();
   });
 });

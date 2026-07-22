@@ -22,6 +22,7 @@ import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import type { PipelineRuntimeEvent } from "../pipeline/pipeline-runtime-types.js";
 import { PipelineStuckDetector } from "../self-correction/pipeline-stuck-detector.js";
 import type { PipelineStuckConfig } from "../self-correction/pipeline-stuck-detector.js";
+import { defaultLogger } from "@dzupagent/core/utils";
 import { randomUUID } from "node:crypto";
 import { omitUndefined } from "../utils/exact-optional.js";
 import type {
@@ -192,7 +193,20 @@ export class CompiledWorkflow {
     const journalEmit: (event: WorkflowEvent) => void = journal
       ? (event) => {
           emit(event);
-          this.journalWrite(journal, runId, event).catch(() => {});
+          this.journalWrite(journal, runId, event, emit).catch(
+            (err: unknown) => {
+              // journalWrite handles its own failures; this guards against an
+              // unexpected rejection so a journal issue never crashes the run.
+              defaultLogger.error(
+                "[compiled-workflow] unexpected journal-write rejection",
+                {
+                  operation: "workflow.journal.write",
+                  runId,
+                  error: err instanceof Error ? err.message : String(err),
+                }
+              );
+            }
+          );
         }
       : emit;
 
@@ -246,10 +260,15 @@ export class CompiledWorkflow {
 
     // Journal: run_started
     if (journal) {
-      await journal.append(runId, {
-        type: "run_started",
-        data: { input: initialState, agentId: `workflow:${this.config.id}` },
-      });
+      await this.journalAppendGuarded(
+        journal,
+        runId,
+        {
+          type: "run_started",
+          data: { input: initialState, agentId: `workflow:${this.config.id}` },
+        },
+        emit
+      );
     }
 
     const runtime = new PipelineRuntime(
@@ -286,10 +305,12 @@ export class CompiledWorkflow {
           "Workflow execution failed";
         // Journal: run_failed (pipeline-level failure that didn't throw)
         if (journal) {
-          await journal.append(runId, {
-            type: "run_failed",
-            data: { error: errorMsg },
-          });
+          await this.journalAppendGuarded(
+            journal,
+            runId,
+            { type: "run_failed", data: { error: errorMsg } },
+            emit
+          );
         }
         throw new Error(errorMsg);
       }
@@ -301,10 +322,12 @@ export class CompiledWorkflow {
       }
       // Journal: run_completed
       if (journal) {
-        await journal.append(runId, {
-          type: "run_completed",
-          data: { output: latestObservedState },
-        });
+        await this.journalAppendGuarded(
+          journal,
+          runId,
+          { type: "run_completed", data: { output: latestObservedState } },
+          emit
+        );
       }
       return { ...latestObservedState };
     } catch (err) {
@@ -402,7 +425,20 @@ export class CompiledWorkflow {
     const journalEmit: (event: WorkflowEvent) => void = journal
       ? (event) => {
           emit(event);
-          this.journalWrite(journal, runId, event).catch(() => {});
+          this.journalWrite(journal, runId, event, emit).catch(
+            (err: unknown) => {
+              // journalWrite handles its own failures; this guards against an
+              // unexpected rejection so a journal issue never crashes the run.
+              defaultLogger.error(
+                "[compiled-workflow] unexpected journal-write rejection",
+                {
+                  operation: "workflow.journal.write",
+                  runId,
+                  error: err instanceof Error ? err.message : String(err),
+                }
+              );
+            }
+          );
         }
       : emit;
 
@@ -413,13 +449,18 @@ export class CompiledWorkflow {
     let pipelineFailure: string | null = null;
 
     if (journal) {
-      await journal.append(runId, {
-        type: "run_resumed",
-        data: {
-          resumeToken: `pipeline:${checkpoint.version}`,
-          input: additionalState,
+      await this.journalAppendGuarded(
+        journal,
+        runId,
+        {
+          type: "run_resumed",
+          data: {
+            resumeToken: `pipeline:${checkpoint.version}`,
+            input: additionalState,
+          },
         },
-      });
+        emit
+      );
     }
 
     const runtime = new PipelineRuntime(
@@ -452,10 +493,12 @@ export class CompiledWorkflow {
           this.extractFailure(result.nodeResults) ??
           "Workflow resume failed";
         if (journal) {
-          await journal.append(runId, {
-            type: "run_failed",
-            data: { error: errorMsg },
-          });
+          await this.journalAppendGuarded(
+            journal,
+            runId,
+            { type: "run_failed", data: { error: errorMsg } },
+            emit
+          );
         }
         throw new Error(errorMsg);
       }
@@ -463,10 +506,12 @@ export class CompiledWorkflow {
         return { ...latestObservedState };
       }
       if (journal) {
-        await journal.append(runId, {
-          type: "run_completed",
-          data: { output: latestObservedState },
-        });
+        await this.journalAppendGuarded(
+          journal,
+          runId,
+          { type: "run_completed", data: { output: latestObservedState } },
+          emit
+        );
       }
       return { ...latestObservedState };
     } catch (err) {
@@ -501,14 +546,46 @@ export class CompiledWorkflow {
   }
 
   /**
+   * ERR-H-10: append a run-lifecycle entry (run_started/completed/failed/
+   * resumed) directly, but treat the journal as best-effort: a journal-backend
+   * outage must NOT crash the run or mask the real run outcome. On failure we
+   * surface `workflow:journal_degraded` on the caller's event channel and log a
+   * structured line — we never re-append to the same (failed) journal.
+   */
+  private async journalAppendGuarded(
+    journal: RunJournal,
+    runId: string,
+    entry: Parameters<RunJournal["append"]>[1],
+    emit: (event: WorkflowEvent) => void
+  ): Promise<void> {
+    try {
+      await journal.append(runId, entry);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      defaultLogger.error("[compiled-workflow] run journal write failed", {
+        operation: "workflow.journal.write",
+        runId,
+        eventType: entry.type,
+        error: msg,
+      });
+      try {
+        emit({ type: "workflow:journal_degraded", error: msg });
+      } catch {
+        // A throwing consumer channel must not escalate a journal degradation.
+      }
+    }
+  }
+
+  /**
    * Map a WorkflowEvent to a RunJournal entry append.
-   * Fires asynchronously — errors are silently swallowed to avoid
-   * disrupting the workflow execution itself.
+   * Fires asynchronously — errors are surfaced via `workflow:journal_degraded`
+   * (ERR-H-10) rather than swallowed, but never break workflow execution.
    */
   private async journalWrite(
     journal: RunJournal,
     runId: string,
-    event: WorkflowEvent
+    event: WorkflowEvent,
+    emit: (event: WorkflowEvent) => void
   ): Promise<void> {
     try {
       switch (event.type) {
@@ -542,20 +619,22 @@ export class CompiledWorkflow {
           break;
       }
     } catch (err) {
-      // Journal writes must not break the workflow; surface via options.onEvent if available
-      // so callers can observe journal degradation without losing the run.
+      // ERR-H-10: journal writes must not break the workflow, but the failure
+      // must be OBSERVABLE. Surface degradation on the caller's own event
+      // channel (never re-append to the same journal that just failed — the
+      // one failure mode that matters is the backend being unavailable, where
+      // the error record would vanish too) and log a structured line.
       const msg = err instanceof Error ? err.message : String(err);
+      defaultLogger.error("[compiled-workflow] run journal write failed", {
+        operation: "workflow.journal.write",
+        runId,
+        eventType: event.type,
+        error: msg,
+      });
       try {
-        // Re-use the same event channel if available (journalEmit not in scope here;
-        // we only have access to the raw journal — just swallow but tag for diagnostics)
-        void journal
-          .append(runId, {
-            type: "step_failed",
-            data: { stepId: "__journal_write_error__", error: msg },
-          })
-          .catch(() => {});
+        emit({ type: "workflow:journal_degraded", error: msg });
       } catch {
-        // Ignore secondary failure
+        // A throwing consumer channel must not escalate a journal degradation.
       }
     }
   }
