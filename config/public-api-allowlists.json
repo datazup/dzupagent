@@ -41,6 +41,24 @@
         "expiryVersion": "0.x"
       },
       {
+        "file": "packages/agent/src/agent/structured-generate.ts",
+        "specifier": "@dzupagent/core",
+        "owner": "dzupagent-agent-dev",
+        "expiryVersion": "0.x"
+      },
+      {
+        "file": "packages/agent/src/structured/structured-output-engine.ts",
+        "specifier": "@dzupagent/core",
+        "owner": "dzupagent-agent-dev",
+        "expiryVersion": "0.x"
+      },
+      {
+        "file": "packages/agent-adapters/src/observability/adapter-tracer.ts",
+        "specifier": "@dzupagent/core",
+        "owner": "dzupagent-connectors-dev",
+        "expiryVersion": "0.x"
+      },
+      {
         "file": "packages/server/src/composition/config-runtime.ts",
         "specifier": "@dzupagent/agent",
         "owner": "dzupagent-server-dev",

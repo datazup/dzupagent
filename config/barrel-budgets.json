@@ -89,14 +89,15 @@
     "flow-dsl/src/primitives/collab-review-loop-v2.ts (large primitive schema + expand function).",
     "rag/src/chunker.ts was NOT allowlisted \u2014 its pure-function helpers/constants were extracted to",
     "chunker-internals.ts (551->451 LOC), the preferred remedy. reviewBy: 2026-10-22.",
-    "2026-07-22 Medium-remediation re-pin (audit full-dzupagent-2026-07-21/run-001, Session 3): @dzupagent/security maxRootIndexLines 58->69 for the reviewed CODE-H-03 sanitizer-patterns.js root re-export (the canonical shared sanitizer data source consumed by core + memory). fileLineAllowlist DEBT-PINS added for files that crossed 500 LOC due to audit guardrail/decomposition work and whose full decomposition is deferred to ARCH-M-06/CODE-L-04: agent/src/agent/dzip-agent.ts (491->587; AGENT-H-04 capability split + AGENT-M-14 asTool depth guard), agent/src/orchestration/delegation.ts (443->555; CODE-M-11 extracted finalize seams \u2014 method body shrank 187->62 LOC but the file's helper count grew), subagents/src/store/postgres-task-store.ts (451->568; AGENT-H-08 lease heartbeat + AGENT-M-15 dead-letter). Shrink these when the deferred decomposition lands."
+    "2026-07-22 Medium-remediation re-pin (audit full-dzupagent-2026-07-21/run-001, Session 3): @dzupagent/security maxRootIndexLines 58->69 for the reviewed CODE-H-03 sanitizer-patterns.js root re-export (the canonical shared sanitizer data source consumed by core + memory). fileLineAllowlist DEBT-PINS added for files that crossed 500 LOC due to audit guardrail/decomposition work and whose full decomposition is deferred to ARCH-M-06/CODE-L-04: agent/src/agent/dzip-agent.ts (491->587; AGENT-H-04 capability split + AGENT-M-14 asTool depth guard), agent/src/orchestration/delegation.ts (443->555; CODE-M-11 extracted finalize seams \u2014 method body shrank 187->62 LOC but the file's helper count grew), subagents/src/store/postgres-task-store.ts (451->568; AGENT-H-08 lease heartbeat + AGENT-M-15 dead-letter). Shrink these when the deferred decomposition lands.",
+    "2026-07-22 Low-remediation re-pin (audit full-dzupagent-2026-07-21/run-001, Session 4): @dzupagent/core maxRootBarrelExplicitExports 923->926 / maxRootIndexLines 1310->1313 for ARCH-L-03's reviewed promotion of extractJsonFromText + generateTraceId/generateSpanId re-exports to the root barrel (dedup target for agent + agent-adapters call sites) plus ERR-M-07's ForgeError-conversion touching the same file set."
   ],
   "packages": {
     "@dzupagent/core": {
-      "maxRootBarrelExplicitExports": 923,
+      "maxRootBarrelExplicitExports": 926,
       "maxRootBarrelStarExports": 0,
       "maxRootBarrelSourceCount": 142,
-      "maxRootIndexLines": 1310
+      "maxRootIndexLines": 1313
     },
     "@dzupagent/security": {
       "maxRootIndexLines": 69,
@@ -145,9 +146,7 @@
     "@dzupagent/connectors": {
       "maxRootIndexLines": 95,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/github/github-client.ts"
-      ]
+      "fileLineAllowlist": ["src/github/github-client.ts"]
     },
     "@dzupagent/agent-adapters": {
       "maxRootIndexLines": 839,
@@ -180,9 +179,7 @@
     "@dzupagent/execution-contracts": {
       "maxRootIndexLines": 16,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/fleet-qualification.ts"
-      ]
+      "fileLineAllowlist": ["src/fleet-qualification.ts"]
     },
     "@dzupagent/agent-types": {
       "maxRootIndexLines": 53,
@@ -197,9 +194,7 @@
     "@dzupagent/dialogue-core": {
       "maxRootIndexLines": 114,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/dialogue-scheduler.ts"
-      ]
+      "fileLineAllowlist": ["src/dialogue-scheduler.ts"]
     },
     "@dzupagent/dialogue-core-replay": {
       "maxRootIndexLines": 22,
@@ -224,9 +219,7 @@
     "@dzupagent/connectors-browser": {
       "maxRootIndexLines": 60,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/browser/auth-handler.ts"
-      ]
+      "fileLineAllowlist": ["src/browser/auth-handler.ts"]
     },
     "@dzupagent/connectors-documents": {
       "maxRootIndexLines": 33,
@@ -305,9 +298,7 @@
     "@dzupagent/evals": {
       "maxRootIndexLines": 250,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/scorers/safety-scorer.ts"
-      ]
+      "fileLineAllowlist": ["src/scorers/safety-scorer.ts"]
     },
     "@dzupagent/app-tools": {
       "maxRootIndexLines": 65,

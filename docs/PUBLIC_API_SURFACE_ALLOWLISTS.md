@@ -190,7 +190,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./formats/index.js` | 62 | `prefix:./formats/` | `// Agent Card V2
   AgentCardV2Schema`, `validateAgentCard`, `// Tool Format Adapters
   zodToJsonSchema`, `jsonSchemaToZod` |
-| `deprecated-transitional` | `./structured/index.js` | 7 | `prefix:./structured/` | `JsonOutputSchema`, `RegexOutputSchema`, `extractJsonFromMarkdown`, `toSchemaRef` |
+| `deprecated-transitional` | `./structured/index.js` | 8 | `prefix:./structured/` | `JsonOutputSchema`, `RegexOutputSchema`, `extractJsonFromMarkdown`, `extractJsonFromText` |
 | `deprecated-transitional` | `./vectordb/index.js` | 47 | `prefix:./vectordb/` | `DistanceMetric`, `CollectionConfig`, `VectorEntry`, `VectorQuery` |
 | `deprecated-transitional` | `./tools/connector-contract.js` | 5 | `prefix:./tools/` | `BaseConnectorTool`, `BaseConnectorToolLike`, `isBaseConnectorTool`, `normalizeBaseConnectorTool` |
 | `deprecated-transitional` | `./tools/create-tool.js` | 2 | `prefix:./tools/` | `createForgeTool`, `ForgeToolConfig` |
@@ -198,7 +198,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./tools/tool-stats-tracker.js` | 5 | `prefix:./tools/` | `ToolStatsTracker`, `ToolCallRecord`, `ToolStats`, `ToolRanking` |
 | `deprecated-transitional` | `./tools/tool-governance.js` | 9 | `prefix:./tools/` | `ToolGovernance`, `ToolGovernanceConfig`, `ToolValidationResult`, `ToolAuditHandler` |
 | `deprecated-transitional` | `./tools/human-contact-types.js` | 17 | `prefix:./tools/` | `ContactType`, `ContactChannel`, `ApprovalRequest`, `ClarificationRequest` |
-| `deprecated-transitional` | `./telemetry/trace-propagation.js` | 5 | `prefix:./telemetry/` | `injectTraceContext`, `extractTraceContext`, `formatTraceparent`, `parseTraceparent` |
+| `deprecated-transitional` | `./telemetry/trace-propagation.js` | 7 | `prefix:./telemetry/` | `injectTraceContext`, `extractTraceContext`, `formatTraceparent`, `parseTraceparent` |
 | `deprecated-transitional` | `./utils/logger.js` | 3 | `prefix:./utils/` | `defaultLogger`, `noopLogger`, `FrameworkLogger` |
 | `deprecated-transitional` | `./utils/backoff.js` | 2 | `prefix:./utils/` | `calculateBackoff`, `BackoffConfig` |
 | `deprecated-transitional` | `./utils/hash.js` | 1 | `prefix:./utils/` | `hashToolInput` |
