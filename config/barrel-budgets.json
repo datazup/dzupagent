@@ -274,10 +274,7 @@
     "@dzupagent/server": {
       "maxRootIndexLines": 269,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/composition/optional-routes.ts",
-        "src/runtime/dzip-agent-run-executor.ts"
-      ]
+      "fileLineAllowlist": ["src/composition/optional-routes.ts"]
     },
     "@dzupagent/evals": {
       "maxRootIndexLines": 250,
