@@ -235,12 +235,8 @@
       "maxRootBarrelStarExports": 6,
       "maxRootBarrelSourceCount": 8,
       "maxRootIndexLines": 17,
-      "auxiliarySourceLineBudgets": {
-        "src/types.ts": 1368
-      },
       "maxFileLines": 500,
       "fileLineAllowlist": [
-        "src/types.ts",
         "src/validate/document.ts",
         "src/parse/spdd.ts",
         "src/validate/spdd.ts"
@@ -319,7 +315,6 @@
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/runtime/background-subagent-runtime.ts",
-        "src/tools/fanout-tool.ts",
         "src/store/postgres-task-store.ts"
       ]
     }
