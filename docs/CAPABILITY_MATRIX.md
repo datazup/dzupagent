@@ -29,7 +29,7 @@ Auto-generated on 2026-07-22. Do not edit manually — run `yarn docs:capability
 | @dzupagent/express | Express adapter: SSE streaming, agent router | Alpha | SSEHandler, SSEWriter, SSEProjectionRouter, withProjection, createAgentRouter, createMcpRequestContextAuth, ... |
 | @dzupagent/flow-ast | Flow AST contracts plus local parser and validator helpers for DzupAgent flow compiler stages | Alpha | resolveFlowTemplateExpression, resolveFlowConditionExpression, validateFlowConditionExpression, ... |
 | @dzupagent/flow-compiler | Flow compiler for DzupAgent — compiles flow-ast into skill-chain, workflow-builder, or pipeline artifacts | Alpha | createFlowCompiler, prepareFlowInputFromDocument, prepareFlowInputFromDsl, ... |
-| @dzupagent/flow-dsl | Textual dzupflow/v1 DSL parser, formatter, validator, and graph projection for DzupAgent | Alpha | CollabMacroError, CollabReviewLoopV2Error, canonicalizeDsl, parseDslToDocument, formatDocumentToDsl, ... |
+| @dzupagent/flow-dsl | Textual dzupflow/v1 DSL parser, formatter, validator, and graph projection for DzupAgent | Alpha | CollabMacroError, canonicalizeDsl, parseDslToDocument, formatDocumentToDsl, ... |
 | @dzupagent/hitl-kit | Human-in-the-loop payload and response types for DzupAgent — clarification and approval primitives shared across adapters | Alpha | ApprovalTimeoutError, DuplicateApprovalError, UnknownApprovalError, InMemoryApprovalStateStore, PostgresApprovalStateStore, ... |
 | @dzupagent/memory | Memory: decay, consolidation, retrieval, store factory | Stable | MemoryService, InMemoryMemoryClient, HttpMemoryClient, NotImplementedError, HttpMemoryError, createStore, memoryServiceToClient, calculateStrength, ... |
 | @dzupagent/memory-ipc | Arrow frame contracts, IPC serialization, and memory exchange runtime primitives for DzupAgent | Stable | FrameBuilder, FrameReader, TokenBudgetAllocator, SharedMemoryChannel, IpcMemoryClient, serializeToIPC, deserializeFromIPC, ipcToBase64, ... |
@@ -247,11 +247,11 @@ Auto-generated on 2026-07-22. Do not edit manually — run `yarn docs:capability
 
 ### @dzupagent/flow-dsl
 
-**Classes:** CollabMacroError, CollabReviewLoopV2Error
+**Classes:** CollabMacroError
 
-**Functions:** canonicalizeDsl, parseDslToDocument, formatDocumentToDsl, normalizeDslDocument, normalizeSteps, validateDocument, documentToGraph, parseTemplate, parseYamlSubset, createPrimitiveRegistry, exportPrimitiveCatalog, normalizePrimitiveImports, expandCollabReviewLoop, expandCollabReviewLoopV2, expandRegisteredComposites, expandRegisteredCompositesDetailed, expandFragmentInvocation, createFragmentRegistry
+**Functions:** canonicalizeDsl, parseDslToDocument, formatDocumentToDsl, normalizeDslDocument, normalizeSteps, validateDocument, documentToGraph, parseTemplate, parseYamlSubset, createPrimitiveRegistry, exportPrimitiveCatalog, normalizePrimitiveImports, expandCollabReviewLoop, expandRegisteredComposites, expandRegisteredCompositesDetailed, expandFragmentInvocation, createFragmentRegistry
 
-**Constants:** DSL_ERROR, TEMPLATE_ERROR, BUILT_IN_PRIMITIVES, DEFAULT_PRIMITIVE_REGISTRY, COLLAB_REVIEW_LOOP_V2_SCHEMA, BUILT_IN_FRAGMENT_REGISTRY, BUILT_IN_SDL_FRAGMENT_DEFINITIONS
+**Constants:** DSL_ERROR, TEMPLATE_ERROR, BUILT_IN_PRIMITIVES, DEFAULT_PRIMITIVE_REGISTRY, BUILT_IN_FRAGMENT_REGISTRY, BUILT_IN_SDL_FRAGMENT_DEFINITIONS
 
 **Types:** SourceSpan, DslDiagnostic, NormalizeDslSuccess, NormalizeDslFailure, ParseDslSuccess, ParseDslFailure, CanonicalizeDslSuccess, CanonicalizeDslFailure, ValidateDocumentResult, DerivedGraphNode, DerivedGraphEdge, DerivedGraph, NormalizeDslResult, ParseDslResult, CanonicalizeDslResult, DslErrorCode, ParseDslToDocumentOptions, NormalizeDslDocumentOptions, TemplateDiagnostic, ParsedTemplate, TemplateErrorCode, ParseTemplateResult, YamlParseError, YamlParseResult, PrimitivePolicyDefaults, PrimitiveExpansionContext, PrimitiveDefinition, PrimitiveRegistry, PrimitiveCategory, PrimitiveExpansionHandler, PrimitiveCatalogEntry, PrimitiveCatalog, NormalizedImports, PrimitiveImports, CompositeExpansionOptions, CompositeExpansionResult, FragmentDefinitionInput, FragmentInvocationExpansion, FragmentInvocationInput, FragmentRegistry
 
