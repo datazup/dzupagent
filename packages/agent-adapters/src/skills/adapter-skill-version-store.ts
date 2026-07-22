@@ -9,37 +9,51 @@
  *   - FileAdapterSkillVersionStore — persists to .dzupagent/state.json
  */
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
-import { dirname } from 'node:path'
-import type { AdapterProviderId } from '../types.js'
-import type { CompiledAdapterSkill } from './adapter-skill-types.js'
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { dirname } from "node:path";
+import type { AdapterProviderId } from "../types.js";
+import type { CompiledAdapterSkill } from "./adapter-skill-types.js";
 
 /** A compiled projection tagged with version metadata. */
 export interface VersionedProjection {
-  projectionId: string
-  bundleId: string
-  providerId: AdapterProviderId
-  version: number
-  compiled: CompiledAdapterSkill
-  hash: string
-  createdAt: string
-  supersededAt?: string
-  supersededBy?: string
+  projectionId: string;
+  bundleId: string;
+  providerId: AdapterProviderId;
+  version: number;
+  compiled: CompiledAdapterSkill;
+  hash: string;
+  createdAt: string;
+  supersededAt?: string;
+  supersededBy?: string;
 }
 
 /** Storage interface for versioned projections. */
 export interface AdapterSkillVersionStore {
-  save(projection: VersionedProjection): void
-  getLatest(bundleId: string, providerId: AdapterProviderId): VersionedProjection | undefined
-  getVersion(bundleId: string, providerId: AdapterProviderId, version: number): VersionedProjection | undefined
-  listVersions(bundleId: string, providerId: AdapterProviderId): VersionedProjection[]
-  rollback(bundleId: string, providerId: AdapterProviderId, targetVersion: number): VersionedProjection
+  save(projection: VersionedProjection): void;
+  getLatest(
+    bundleId: string,
+    providerId: AdapterProviderId
+  ): VersionedProjection | undefined;
+  getVersion(
+    bundleId: string,
+    providerId: AdapterProviderId,
+    version: number
+  ): VersionedProjection | undefined;
+  listVersions(
+    bundleId: string,
+    providerId: AdapterProviderId
+  ): VersionedProjection[];
+  rollback(
+    bundleId: string,
+    providerId: AdapterProviderId,
+    targetVersion: number
+  ): VersionedProjection;
 }
 
 /** Composite key for the version map. */
 function storeKey(bundleId: string, providerId: AdapterProviderId): string {
-  return `${bundleId}::${providerId}`
+  return `${bundleId}::${providerId}`;
 }
 
 /**
@@ -48,59 +62,67 @@ function storeKey(bundleId: string, providerId: AdapterProviderId): string {
  * Versions are stored per (bundleId, providerId) pair and ordered
  * by ascending version number.
  */
-export class InMemoryAdapterSkillVersionStore implements AdapterSkillVersionStore {
-  private store = new Map<string, VersionedProjection[]>()
+export class InMemoryAdapterSkillVersionStore
+  implements AdapterSkillVersionStore
+{
+  private store = new Map<string, VersionedProjection[]>();
 
   save(projection: VersionedProjection): void {
-    const key = storeKey(projection.bundleId, projection.providerId)
-    let versions = this.store.get(key)
+    const key = storeKey(projection.bundleId, projection.providerId);
+    let versions = this.store.get(key);
     if (!versions) {
-      versions = []
-      this.store.set(key, versions)
+      versions = [];
+      this.store.set(key, versions);
     }
-    versions.push(projection)
+    versions.push(projection);
   }
 
-  getLatest(bundleId: string, providerId: AdapterProviderId): VersionedProjection | undefined {
-    const versions = this.store.get(storeKey(bundleId, providerId))
-    if (!versions || versions.length === 0) return undefined
-    return versions[versions.length - 1]
+  getLatest(
+    bundleId: string,
+    providerId: AdapterProviderId
+  ): VersionedProjection | undefined {
+    const versions = this.store.get(storeKey(bundleId, providerId));
+    if (!versions || versions.length === 0) return undefined;
+    return versions[versions.length - 1];
   }
 
   getVersion(
     bundleId: string,
     providerId: AdapterProviderId,
-    version: number,
+    version: number
   ): VersionedProjection | undefined {
-    const versions = this.store.get(storeKey(bundleId, providerId))
-    if (!versions) return undefined
-    return versions.find((v) => v.version === version)
+    const versions = this.store.get(storeKey(bundleId, providerId));
+    if (!versions) return undefined;
+    return versions.find((v) => v.version === version);
   }
 
-  listVersions(bundleId: string, providerId: AdapterProviderId): VersionedProjection[] {
-    return this.store.get(storeKey(bundleId, providerId)) ?? []
+  listVersions(
+    bundleId: string,
+    providerId: AdapterProviderId
+  ): VersionedProjection[] {
+    return this.store.get(storeKey(bundleId, providerId)) ?? [];
   }
 
   rollback(
     bundleId: string,
     providerId: AdapterProviderId,
-    targetVersion: number,
+    targetVersion: number
   ): VersionedProjection {
-    const target = this.getVersion(bundleId, providerId, targetVersion)
+    const target = this.getVersion(bundleId, providerId, targetVersion);
     if (!target) {
       throw new Error(
-        `Version ${targetVersion} not found for bundle '${bundleId}' / provider '${providerId}'`,
-      )
+        `Version ${targetVersion} not found for bundle '${bundleId}' / provider '${providerId}'`
+      );
     }
 
-    const latest = this.getLatest(bundleId, providerId)
-    const now = new Date().toISOString()
-    const newVersion = (latest?.version ?? 0) + 1
+    const latest = this.getLatest(bundleId, providerId);
+    const now = new Date().toISOString();
+    const newVersion = (latest?.version ?? 0) + 1;
 
     // Mark the current latest as superseded
     if (latest) {
-      latest.supersededAt = now
-      latest.supersededBy = `v${newVersion}`
+      latest.supersededAt = now;
+      latest.supersededBy = `v${newVersion}`;
     }
 
     // Create a new version entry from the target's compiled output
@@ -112,10 +134,10 @@ export class InMemoryAdapterSkillVersionStore implements AdapterSkillVersionStor
       compiled: target.compiled,
       hash: target.hash,
       createdAt: now,
-    }
+    };
 
-    this.save(rolled)
-    return rolled
+    this.save(rolled);
+    return rolled;
   }
 }
 
@@ -125,16 +147,30 @@ export class InMemoryAdapterSkillVersionStore implements AdapterSkillVersionStor
 
 /** Shape of the projections section in state.json */
 interface StateJson {
-  version: 1
-  projections: Record<string, VersionedProjection[]>
-  files: Record<string, unknown>
+  version: 1;
+  projections: Record<string, VersionedProjection[]>;
+  files: Record<string, unknown>;
+}
+
+/**
+ * Minimal structured logger used to surface persistence failures.
+ * Compatible with pino/console-style loggers that accept an object payload.
+ */
+export interface FileAdapterSkillVersionStoreLogger {
+  error?: (payload: Record<string, unknown>) => void;
 }
 
 export interface FileAdapterSkillVersionStoreOptions {
   /** Absolute path to state.json (e.g. <project>/.dzupagent/state.json) */
-  stateFilePath: string
+  stateFilePath: string;
   /** Debounce writes by this many ms. Default: 100 */
-  writeDebounceMs?: number
+  writeDebounceMs?: number;
+  /**
+   * Optional structured logger. Used to surface debounced-persist failures so a
+   * rejected background write becomes observable instead of an unguarded
+   * unhandledRejection (which the runtime can escalate to shutdown).
+   */
+  logger?: FileAdapterSkillVersionStoreLogger;
 }
 
 /**
@@ -147,17 +183,19 @@ export interface FileAdapterSkillVersionStoreOptions {
  * batch compile operations.
  */
 export class FileAdapterSkillVersionStore implements AdapterSkillVersionStore {
-  private readonly stateFilePath: string
-  private readonly writeDebounceMs: number
+  private readonly stateFilePath: string;
+  private readonly writeDebounceMs: number;
+  private readonly logger?: FileAdapterSkillVersionStoreLogger;
 
   /** In-memory copy of projections (loaded lazily on first access) */
-  private projections: Map<string, VersionedProjection[]> | null = null
-  private dirty = false
-  private flushTimer: ReturnType<typeof setTimeout> | null = null
+  private projections: Map<string, VersionedProjection[]> | null = null;
+  private dirty = false;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(options: FileAdapterSkillVersionStoreOptions) {
-    this.stateFilePath = options.stateFilePath
-    this.writeDebounceMs = options.writeDebounceMs ?? 100
+    this.stateFilePath = options.stateFilePath;
+    this.writeDebounceMs = options.writeDebounceMs ?? 100;
+    this.logger = options.logger;
   }
 
   // -----------------------------------------------------------------------
@@ -165,56 +203,62 @@ export class FileAdapterSkillVersionStore implements AdapterSkillVersionStore {
   // -----------------------------------------------------------------------
 
   save(projection: VersionedProjection): void {
-    const store = this.getStore()
-    const key = storeKey(projection.bundleId, projection.providerId)
-    let versions = store.get(key)
+    const store = this.getStore();
+    const key = storeKey(projection.bundleId, projection.providerId);
+    let versions = store.get(key);
     if (!versions) {
-      versions = []
-      store.set(key, versions)
+      versions = [];
+      store.set(key, versions);
     }
-    versions.push(projection)
-    this.schedulePersist()
+    versions.push(projection);
+    this.schedulePersist();
   }
 
-  getLatest(bundleId: string, providerId: AdapterProviderId): VersionedProjection | undefined {
-    const versions = this.getStore().get(storeKey(bundleId, providerId))
-    if (!versions || versions.length === 0) return undefined
-    return versions[versions.length - 1]
+  getLatest(
+    bundleId: string,
+    providerId: AdapterProviderId
+  ): VersionedProjection | undefined {
+    const versions = this.getStore().get(storeKey(bundleId, providerId));
+    if (!versions || versions.length === 0) return undefined;
+    return versions[versions.length - 1];
   }
 
   getVersion(
     bundleId: string,
     providerId: AdapterProviderId,
-    version: number,
+    version: number
   ): VersionedProjection | undefined {
-    const versions = this.getStore().get(storeKey(bundleId, providerId))
-    if (!versions) return undefined
-    return versions.find((v) => v.version === version)
+    const versions = this.getStore().get(storeKey(bundleId, providerId));
+    if (!versions) return undefined;
+    return versions.find((v) => v.version === version);
   }
 
-  listVersions(bundleId: string, providerId: AdapterProviderId): VersionedProjection[] {
-    return this.getStore().get(storeKey(bundleId, providerId)) ?? []
+  listVersions(
+    bundleId: string,
+    providerId: AdapterProviderId
+  ): VersionedProjection[] {
+    return this.getStore().get(storeKey(bundleId, providerId)) ?? [];
   }
 
   rollback(
     bundleId: string,
     providerId: AdapterProviderId,
-    targetVersion: number,
+    targetVersion: number
   ): VersionedProjection {
-    const target = this.getVersion(bundleId, providerId, targetVersion)
+    const target = this.getVersion(bundleId, providerId, targetVersion);
     if (!target) {
       throw new Error(
-        `Version ${targetVersion} not found for bundle '${bundleId}' / provider '${providerId}'`,
-      )
+        `Version ${targetVersion} not found for bundle '${bundleId}' / provider '${providerId}'`
+      );
     }
 
-    const latest = this.getLatest(bundleId, providerId)
-    const now = new Date().toISOString()
-    const newVersion = (latest?.version ?? 0) + 1
+    const latest = this.getLatest(bundleId, providerId);
+    const now = new Date().toISOString();
+    const newVersion = (latest?.version ?? 0) + 1;
 
     if (latest) {
-      latest.supersededAt = now
-      latest.supersededBy = `v${newVersion}`
+      latest.supersededAt = now;
+      latest.supersededBy = `v${newVersion}`;
     }
 
     const rolled: VersionedProjection = {
@@ -225,10 +269,10 @@ export class FileAdapterSkillVersionStore implements AdapterSkillVersionStore {
       compiled: target.compiled,
       hash: target.hash,
       createdAt: now,
-    }
+    };
 
-    this.save(rolled)
-    return rolled
+    this.save(rolled);
+    return rolled;
   }
 
   // -----------------------------------------------------------------------
@@ -238,11 +282,11 @@ export class FileAdapterSkillVersionStore implements AdapterSkillVersionStore {
   /** Flush any pending debounced writes immediately. */
   async flush(): Promise<void> {
     if (this.flushTimer !== null) {
-      clearTimeout(this.flushTimer)
-      this.flushTimer = null
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
     }
     if (this.dirty) {
-      await this.persist()
+      await this.persist();
     }
   }
 
@@ -256,17 +300,17 @@ export class FileAdapterSkillVersionStore implements AdapterSkillVersionStore {
    * are synchronous in the base interface). The file is small so sync read is fine.
    */
   private getStore(): Map<string, VersionedProjection[]> {
-    if (this.projections !== null) return this.projections
+    if (this.projections !== null) return this.projections;
 
-    this.projections = new Map()
+    this.projections = new Map();
     try {
       // Synchronous read — intentional for interface compatibility
-      const raw = readFileSync(this.stateFilePath, 'utf-8')
-      const state = JSON.parse(raw) as Partial<StateJson>
-      if (state.projections && typeof state.projections === 'object') {
+      const raw = readFileSync(this.stateFilePath, "utf-8");
+      const state = JSON.parse(raw) as Partial<StateJson>;
+      if (state.projections && typeof state.projections === "object") {
         for (const [key, versions] of Object.entries(state.projections)) {
           if (Array.isArray(versions)) {
-            this.projections.set(key, versions as VersionedProjection[])
+            this.projections.set(key, versions as VersionedProjection[]);
           }
         }
       }
@@ -274,43 +318,61 @@ export class FileAdapterSkillVersionStore implements AdapterSkillVersionStore {
       // File does not exist or is malformed — start fresh
     }
 
-    return this.projections
+    return this.projections;
   }
 
   private schedulePersist(): void {
-    this.dirty = true
-    if (this.flushTimer !== null) clearTimeout(this.flushTimer)
+    this.dirty = true;
+    if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.flushTimer = setTimeout(() => {
-      this.flushTimer = null
-      void this.persist()
-    }, this.writeDebounceMs)
+      this.flushTimer = null;
+      // Guard the background write: a rejected persist() must not become an
+      // unhandledRejection (which the runtime can escalate to shutdown). Surface
+      // it via the injected logger, falling back to a structured console line.
+      this.persist().catch((err: unknown) => {
+        const payload = {
+          operation: "skill.version.persist",
+          stateFilePath: this.stateFilePath,
+          error: err instanceof Error ? err.message : String(err),
+        };
+        if (this.logger?.error) {
+          this.logger.error(payload);
+        } else {
+          console.error(JSON.stringify(payload));
+        }
+      });
+    }, this.writeDebounceMs);
   }
 
   private async persist(): Promise<void> {
-    if (!this.dirty || this.projections === null) return
+    if (!this.dirty || this.projections === null) return;
 
     // Read current state.json to preserve the `files` section
-    let existingState: Partial<StateJson> = {}
+    let existingState: Partial<StateJson> = {};
     try {
-      const raw = await readFile(this.stateFilePath, 'utf-8')
-      existingState = JSON.parse(raw) as Partial<StateJson>
+      const raw = await readFile(this.stateFilePath, "utf-8");
+      existingState = JSON.parse(raw) as Partial<StateJson>;
     } catch {
       // File missing — will create
     }
 
-    const projectionsObj: Record<string, VersionedProjection[]> = {}
+    const projectionsObj: Record<string, VersionedProjection[]> = {};
     for (const [key, versions] of this.projections) {
-      projectionsObj[key] = versions
+      projectionsObj[key] = versions;
     }
 
     const newState: StateJson = {
       version: 1,
       projections: projectionsObj,
       files: existingState.files ?? {},
-    }
+    };
 
-    await mkdir(dirname(this.stateFilePath), { recursive: true })
-    await writeFile(this.stateFilePath, JSON.stringify(newState, null, 2), 'utf-8')
-    this.dirty = false
+    await mkdir(dirname(this.stateFilePath), { recursive: true });
+    await writeFile(
+      this.stateFilePath,
+      JSON.stringify(newState, null, 2),
+      "utf-8"
+    );
+    this.dirty = false;
   }
 }
