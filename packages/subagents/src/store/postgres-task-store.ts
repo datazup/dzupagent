@@ -8,67 +8,34 @@ import { SubagentErrorCode } from "../contracts/error-codes.js";
 import type { SubagentLogger } from "../contracts/logger.js";
 import { defaultSubagentLogger } from "../contracts/logger.js";
 import type { TaskQueue } from "../runner/durable-queue-runner.js";
+import {
+  normaliseStatuses,
+  rowToVersionedTask,
+  sanitizeIdentifier,
+  toRows,
+} from "./postgres-task-store/sql-helpers.js";
+import type {
+  PostgresQueryClient,
+  VersionedTask,
+} from "./postgres-task-store/sql-helpers.js";
 
-export interface PostgresQueryClient {
-  query(
-    text: string,
-    values?: readonly unknown[]
-  ): Promise<{ rows?: Record<string, unknown>[] } | Record<string, unknown>[]>;
-}
+export type {
+  PostgresQueryClient,
+  VersionedTask,
+} from "./postgres-task-store/sql-helpers.js";
+export {
+  createPostgresSubagentSchemaSql,
+  type PostgresSubagentSchemaSqlOptions,
+} from "./postgres-task-store/schema-sql.js";
+export {
+  recoverStaleRunningTasks,
+  type RecoverStaleRunningTasksOptions,
+} from "./postgres-task-store/recover-stale-tasks.js";
 
 export interface PostgresTaskStoreOptions {
   client: PostgresQueryClient;
   tableName?: string;
   logger?: SubagentLogger;
-}
-
-export interface PostgresSubagentSchemaSqlOptions {
-  taskTableName?: string;
-  queueTableName?: string;
-}
-
-export function createPostgresSubagentSchemaSql(
-  options: PostgresSubagentSchemaSqlOptions = {}
-): string[] {
-  const taskTable = sanitizeIdentifier(
-    options.taskTableName ?? "subagent_tasks"
-  );
-  const queueTable = sanitizeIdentifier(
-    options.queueTableName ?? "subagent_task_queue"
-  );
-  return [
-    `CREATE TABLE IF NOT EXISTS ${taskTable} (
-  id text PRIMARY KEY,
-  task_json jsonb NOT NULL,
-  status text NOT NULL,
-  parent_run_id text NOT NULL,
-  ended_at bigint,
-  version integer NOT NULL DEFAULT 1,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-)`,
-    `CREATE INDEX IF NOT EXISTS ${taskTable}_parent_status_idx
-  ON ${taskTable} (parent_run_id, status)`,
-    `CREATE INDEX IF NOT EXISTS ${taskTable}_ended_at_idx
-  ON ${taskTable} (ended_at)
-  WHERE ended_at IS NOT NULL`,
-    `CREATE TABLE IF NOT EXISTS ${queueTable} (
-  task_id text PRIMARY KEY,
-  enqueued_at bigint NOT NULL,
-  available_at bigint NOT NULL,
-  attempts integer NOT NULL DEFAULT 0,
-  leased_by text,
-  lease_until bigint,
-  last_claimed_at bigint
-)`,
-    `CREATE INDEX IF NOT EXISTS ${queueTable}_claim_idx
-  ON ${queueTable} (available_at, lease_until, enqueued_at)`,
-  ];
-}
-
-export interface VersionedTask {
-  task: BackgroundTask;
-  version: number;
 }
 
 export class PostgresTaskStore implements TaskStore {
@@ -473,96 +440,4 @@ export class PostgresTaskQueue implements TaskQueue {
       detail: "postgres_queue_task_dead_lettered",
     });
   }
-}
-
-export interface RecoverStaleRunningTasksOptions {
-  store: TaskStore;
-  now: number;
-  runningTimeoutMs: number;
-  action?: "fail" | "requeue";
-  enqueue?: (taskId: TaskId) => Promise<void>;
-  logger?: SubagentLogger;
-}
-
-export async function recoverStaleRunningTasks(
-  options: RecoverStaleRunningTasksOptions
-): Promise<TaskId[]> {
-  const action = options.action ?? "fail";
-  const cutoff = options.now - options.runningTimeoutMs;
-  const running = await options.store.list({ status: "running" });
-  const recovered: TaskId[] = [];
-  for (const task of running) {
-    if (task.startedAt === undefined || task.startedAt > cutoff) continue;
-    const patch: Partial<BackgroundTask> =
-      action === "requeue"
-        ? {
-            status: "queued",
-            startedAt: undefined,
-            error: "stale_running_task_recovered",
-          }
-        : {
-            status: "failed",
-            error: "stale_running_task_recovered",
-            endedAt: options.now,
-          };
-    const applied = options.store.patchIfStatus
-      ? await options.store.patchIfStatus(task.id, "running", patch)
-      : await patchIfStillRunning(options.store, task.id, patch);
-    if (!applied) continue;
-    if (action === "requeue") {
-      await options.enqueue?.(task.id);
-    }
-    options.logger?.info({
-      taskId: task.id,
-      code: "STALE_RUNNING_TASK_RECOVERED",
-      action,
-      runningTimeoutMs: options.runningTimeoutMs,
-    });
-    recovered.push(task.id);
-  }
-  return recovered;
-}
-
-async function patchIfStillRunning(
-  store: TaskStore,
-  id: TaskId,
-  patch: Partial<BackgroundTask>
-): Promise<boolean> {
-  const current = await store.get(id);
-  if (!current || current.status !== "running") return false;
-  await store.patch(id, patch);
-  return true;
-}
-
-function rowToVersionedTask(
-  row: Record<string, unknown> | undefined
-): VersionedTask | null {
-  if (!row) return null;
-  const taskJson = row.task_json;
-  if (!taskJson || typeof taskJson !== "object") return null;
-  return {
-    task: structuredClone(taskJson) as BackgroundTask,
-    version: Number(row.version ?? 0),
-  };
-}
-
-function toRows(
-  result: { rows?: Record<string, unknown>[] } | Record<string, unknown>[]
-): Record<string, unknown>[] {
-  if (Array.isArray(result)) return result;
-  return Array.isArray(result.rows) ? result.rows : [];
-}
-
-function normaliseStatuses(
-  status: TaskStatus | TaskStatus[] | undefined
-): TaskStatus[] | undefined {
-  if (status === undefined) return undefined;
-  return Array.isArray(status) ? status : [status];
-}
-
-function sanitizeIdentifier(identifier: string): string {
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier)) {
-    throw new Error(`Invalid Postgres identifier: ${identifier}`);
-  }
-  return identifier;
 }
