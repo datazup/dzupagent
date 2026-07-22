@@ -5,49 +5,45 @@
  * emit budget warnings via DzupEventBus, and throw when budgets are exceeded.
  */
 
-import { ForgeError } from '@dzupagent/core/events'
-import type { DzupEventBus } from '@dzupagent/core/events'
-import type { AgentStreamEvent, AdapterProviderId, TokenUsage } from '../types.js'
+import { ForgeError } from "@dzupagent/core/events";
+import type { DzupEventBus } from "@dzupagent/core/events";
+import { getModelRate } from "@dzupagent/core/middleware";
+import type { ModelRate } from "@dzupagent/core/middleware";
+import type {
+  AgentStreamEvent,
+  AdapterProviderId,
+  TokenUsage,
+} from "../types.js";
 
 function isProviderRawStreamEvent(
-  event: AgentStreamEvent,
-): event is Extract<AgentStreamEvent, { type: 'adapter:provider_raw' }> {
-  return event.type === 'adapter:provider_raw'
+  event: AgentStreamEvent
+): event is Extract<AgentStreamEvent, { type: "adapter:provider_raw" }> {
+  return event.type === "adapter:provider_raw";
 }
 
 // ---------------------------------------------------------------------------
-// Cost estimation tables (cents per 1M tokens)
+// Cost estimation table (cents per 1M tokens)
 // ---------------------------------------------------------------------------
+//
+// ARCH-M-08: rates are no longer hand-maintained here. They project the
+// canonical `PROVIDER_RATE_TABLE` from `@dzupagent/core/middleware` via
+// `getModelRate`, so adapter costs can never drift from core cost tracking.
+// `AdapterProviderId` is a subset of the canonical provider-family keys.
 
-interface ProviderRates {
-  inputCentsPer1M: number
-  outputCentsPer1M: number
-  /** Cache read price (prompt-cache hit). Defaults to inputCentsPer1M if absent. */
-  cachedInputCentsPer1M?: number
-  /** Cache write price (prompt-cache write). Defaults to 0 if absent. */
-  cacheWriteCentsPer1M?: number
-}
+type ProviderRates = ModelRate;
 
-// Rates last updated 2025-05 (cents per 1M tokens).
-// Claude: claude-sonnet-4 pricing; Codex: o4-mini pricing; Gemini: Flash 2.0 pricing.
-// Cached-token pricing reflects Anthropic prompt-cache hit / write tiers.
 const PROVIDER_RATES: Record<AdapterProviderId, ProviderRates> = {
-  claude: {
-    inputCentsPer1M: 300,
-    outputCentsPer1M: 1500,
-    cachedInputCentsPer1M: 30,   // Anthropic cache-read: ~0.1× base input price
-    cacheWriteCentsPer1M: 375,   // Anthropic cache-write: ~1.25× base input price
-  },
-  codex: { inputCentsPer1M: 110, outputCentsPer1M: 440 },          // o4-mini (2025-05)
-  gemini: { inputCentsPer1M: 10, outputCentsPer1M: 40 },            // Gemini Flash 2.0
-  'gemini-sdk': { inputCentsPer1M: 10, outputCentsPer1M: 40 },
-  qwen: { inputCentsPer1M: 50, outputCentsPer1M: 200 },
-  crush: { inputCentsPer1M: 0, outputCentsPer1M: 0 },
-  goose: { inputCentsPer1M: 0, outputCentsPer1M: 0 },
-  openrouter: { inputCentsPer1M: 300, outputCentsPer1M: 1500 },
-  openai: { inputCentsPer1M: 150, outputCentsPer1M: 600 },          // gpt-4o-mini (2025-05)
-  ollama: { inputCentsPer1M: 0, outputCentsPer1M: 0 },
-}
+  claude: getModelRate("claude"),
+  codex: getModelRate("codex"),
+  gemini: getModelRate("gemini"),
+  "gemini-sdk": getModelRate("gemini-sdk"),
+  qwen: getModelRate("qwen"),
+  crush: getModelRate("crush"),
+  goose: getModelRate("goose"),
+  openrouter: getModelRate("openrouter"),
+  openai: getModelRate("openai"),
+  ollama: getModelRate("ollama"),
+};
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -55,38 +51,38 @@ const PROVIDER_RATES: Record<AdapterProviderId, ProviderRates> = {
 
 export interface CostTrackingConfig {
   /** Total budget across all providers (in cents). */
-  maxBudgetCents?: number
+  maxBudgetCents?: number;
   /** Per-provider budget overrides (in cents). */
-  perProviderBudgetCents?: Partial<Record<AdapterProviderId, number>>
+  perProviderBudgetCents?: Partial<Record<AdapterProviderId, number>>;
   /** Emit a "warn" budget event at this percentage. Default 80. */
-  warningThresholdPercent?: number
+  warningThresholdPercent?: number;
   /** Emit a "critical" budget event at this percentage. Default 95. */
-  criticalThresholdPercent?: number
+  criticalThresholdPercent?: number;
   /** Event bus for budget notifications. */
-  eventBus?: DzupEventBus
+  eventBus?: DzupEventBus;
 }
 
 export interface CostReport {
-  totalCostCents: number
+  totalCostCents: number;
   totalTokens: {
-    input: number
-    output: number
+    input: number;
+    output: number;
     /** Cache-read tokens (billed at ~10% of input price). */
-    cacheRead: number
+    cacheRead: number;
     /** Cache-write tokens (billed at ~125% of input price). */
-    cacheWrite: number
-  }
+    cacheWrite: number;
+  };
   perProvider: Record<
     string,
     {
-      costCents: number
-      inputTokens: number
-      outputTokens: number
-      cacheReadTokens: number
-      cacheWriteTokens: number
-      invocations: number
+      costCents: number;
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheWriteTokens: number;
+      invocations: number;
     }
-  >
+  >;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,16 +90,23 @@ export interface CostReport {
 // ---------------------------------------------------------------------------
 
 interface ProviderAccumulator {
-  costCents: number
-  inputTokens: number
-  outputTokens: number
-  cacheReadTokens: number
-  cacheWriteTokens: number
-  invocations: number
+  costCents: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  invocations: number;
 }
 
 function emptyAccumulator(): ProviderAccumulator {
-  return { costCents: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, invocations: 0 }
+  return {
+    costCents: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    invocations: 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -111,25 +114,27 @@ function emptyAccumulator(): ProviderAccumulator {
 // ---------------------------------------------------------------------------
 
 export class CostTrackingMiddleware {
-  private readonly maxBudgetCents: number | undefined
-  private readonly perProviderBudgetCents: Partial<Record<AdapterProviderId, number>>
-  private readonly warningThreshold: number
-  private readonly criticalThreshold: number
-  private readonly eventBus: DzupEventBus | undefined
+  private readonly maxBudgetCents: number | undefined;
+  private readonly perProviderBudgetCents: Partial<
+    Record<AdapterProviderId, number>
+  >;
+  private readonly warningThreshold: number;
+  private readonly criticalThreshold: number;
+  private readonly eventBus: DzupEventBus | undefined;
 
-  private accumulators = new Map<AdapterProviderId, ProviderAccumulator>()
-  private totalCostCents = 0
+  private accumulators = new Map<AdapterProviderId, ProviderAccumulator>();
+  private totalCostCents = 0;
 
   /** Tracks whether each threshold has already been emitted to avoid duplicates. */
-  private warningEmitted = false
-  private criticalEmitted = false
+  private warningEmitted = false;
+  private criticalEmitted = false;
 
   constructor(config: CostTrackingConfig) {
-    this.maxBudgetCents = config.maxBudgetCents
-    this.perProviderBudgetCents = config.perProviderBudgetCents ?? {}
-    this.warningThreshold = config.warningThresholdPercent ?? 80
-    this.criticalThreshold = config.criticalThresholdPercent ?? 95
-    this.eventBus = config.eventBus
+    this.maxBudgetCents = config.maxBudgetCents;
+    this.perProviderBudgetCents = config.perProviderBudgetCents ?? {};
+    this.warningThreshold = config.warningThresholdPercent ?? 80;
+    this.criticalThreshold = config.criticalThresholdPercent ?? 95;
+    this.eventBus = config.eventBus;
   }
 
   // -----------------------------------------------------------------------
@@ -142,31 +147,33 @@ export class CostTrackingMiddleware {
    * All events are yielded unchanged. On `adapter:completed` events that
    * carry `usage`, cost is accumulated and budget checks are performed.
    */
-  async *wrap<T extends AgentStreamEvent>(source: AsyncGenerator<T>): AsyncGenerator<T> {
+  async *wrap<T extends AgentStreamEvent>(
+    source: AsyncGenerator<T>
+  ): AsyncGenerator<T> {
     for await (const event of source) {
       if (isProviderRawStreamEvent(event)) {
-        yield event
-        continue
+        yield event;
+        continue;
       }
 
-      if (event.type === 'adapter:completed' && event.usage) {
-        this.recordUsage(event.providerId, event.usage)
+      if (event.type === "adapter:completed" && event.usage) {
+        this.recordUsage(event.providerId, event.usage);
       }
 
-      yield event
+      yield event;
     }
   }
 
   /** Return a snapshot of accumulated costs. */
   getUsage(): CostReport {
-    const totalTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
-    const perProvider: CostReport['perProvider'] = {}
+    const totalTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const perProvider: CostReport["perProvider"] = {};
 
     for (const [providerId, acc] of this.accumulators) {
-      totalTokens.input += acc.inputTokens
-      totalTokens.output += acc.outputTokens
-      totalTokens.cacheRead += acc.cacheReadTokens
-      totalTokens.cacheWrite += acc.cacheWriteTokens
+      totalTokens.input += acc.inputTokens;
+      totalTokens.output += acc.outputTokens;
+      totalTokens.cacheRead += acc.cacheReadTokens;
+      totalTokens.cacheWrite += acc.cacheWriteTokens;
       perProvider[providerId] = {
         costCents: acc.costCents,
         inputTokens: acc.inputTokens,
@@ -174,22 +181,22 @@ export class CostTrackingMiddleware {
         cacheReadTokens: acc.cacheReadTokens,
         cacheWriteTokens: acc.cacheWriteTokens,
         invocations: acc.invocations,
-      }
+      };
     }
 
     return {
       totalCostCents: this.totalCostCents,
       totalTokens,
       perProvider,
-    }
+    };
   }
 
   /** Reset all accumulated costs and thresholds. */
   reset(): void {
-    this.accumulators.clear()
-    this.totalCostCents = 0
-    this.warningEmitted = false
-    this.criticalEmitted = false
+    this.accumulators.clear();
+    this.totalCostCents = 0;
+    this.warningEmitted = false;
+    this.criticalEmitted = false;
   }
 
   // -----------------------------------------------------------------------
@@ -197,94 +204,117 @@ export class CostTrackingMiddleware {
   // -----------------------------------------------------------------------
 
   private getAccumulator(providerId: AdapterProviderId): ProviderAccumulator {
-    let acc = this.accumulators.get(providerId)
+    let acc = this.accumulators.get(providerId);
     if (!acc) {
-      acc = emptyAccumulator()
-      this.accumulators.set(providerId, acc)
+      acc = emptyAccumulator();
+      this.accumulators.set(providerId, acc);
     }
-    return acc
+    return acc;
   }
 
   private recordUsage(providerId: AdapterProviderId, usage: TokenUsage): void {
-    const acc = this.getAccumulator(providerId)
+    const acc = this.getAccumulator(providerId);
 
-    acc.inputTokens += usage.inputTokens
-    acc.outputTokens += usage.outputTokens
-    acc.cacheReadTokens += usage.cachedInputTokens ?? 0
-    acc.cacheWriteTokens += usage.cacheWriteTokens ?? 0
-    acc.invocations += 1
+    acc.inputTokens += usage.inputTokens;
+    acc.outputTokens += usage.outputTokens;
+    acc.cacheReadTokens += usage.cachedInputTokens ?? 0;
+    acc.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
+    acc.invocations += 1;
 
-    const costCents = usage.costCents ?? this.estimateCost(providerId, usage)
-    acc.costCents += costCents
-    this.totalCostCents += costCents
+    const costCents = usage.costCents ?? this.estimateCost(providerId, usage);
+    acc.costCents += costCents;
+    this.totalCostCents += costCents;
 
     // Check per-provider budget first
-    const providerLimit = this.perProviderBudgetCents[providerId]
+    const providerLimit = this.perProviderBudgetCents[providerId];
     if (providerLimit !== undefined && acc.costCents > providerLimit) {
       throw new ForgeError({
-        code: 'BUDGET_EXCEEDED',
-        message: `Provider "${providerId}" budget exceeded: ${acc.costCents.toFixed(2)}c / ${providerLimit}c`,
+        code: "BUDGET_EXCEEDED",
+        message: `Provider "${providerId}" budget exceeded: ${acc.costCents.toFixed(
+          2
+        )}c / ${providerLimit}c`,
         recoverable: false,
-        context: { providerId, costCents: acc.costCents, limitCents: providerLimit },
-      })
+        context: {
+          providerId,
+          costCents: acc.costCents,
+          limitCents: providerLimit,
+        },
+      });
     }
 
     // Check global budget
     if (this.maxBudgetCents !== undefined) {
-      const percent = (this.totalCostCents / this.maxBudgetCents) * 100
+      const percent = (this.totalCostCents / this.maxBudgetCents) * 100;
 
       if (this.totalCostCents > this.maxBudgetCents) {
-        const budgetUsage = this.buildBudgetUsage(percent)
+        const budgetUsage = this.buildBudgetUsage(percent);
         this.eventBus?.emit({
-          type: 'budget:exceeded',
-          reason: `Total budget exceeded: ${this.totalCostCents.toFixed(2)}c / ${this.maxBudgetCents}c`,
+          type: "budget:exceeded",
+          reason: `Total budget exceeded: ${this.totalCostCents.toFixed(
+            2
+          )}c / ${this.maxBudgetCents}c`,
           usage: budgetUsage,
-        })
+        });
         throw new ForgeError({
-          code: 'BUDGET_EXCEEDED',
-          message: `Total budget exceeded: ${this.totalCostCents.toFixed(2)}c / ${this.maxBudgetCents}c`,
+          code: "BUDGET_EXCEEDED",
+          message: `Total budget exceeded: ${this.totalCostCents.toFixed(
+            2
+          )}c / ${this.maxBudgetCents}c`,
           recoverable: false,
-          context: { totalCostCents: this.totalCostCents, limitCents: this.maxBudgetCents },
-        })
+          context: {
+            totalCostCents: this.totalCostCents,
+            limitCents: this.maxBudgetCents,
+          },
+        });
       }
 
       if (!this.criticalEmitted && percent >= this.criticalThreshold) {
-        this.criticalEmitted = true
-        this.warningEmitted = true // skip warn if we jump straight to critical
+        this.criticalEmitted = true;
+        this.warningEmitted = true; // skip warn if we jump straight to critical
         this.eventBus?.emit({
-          type: 'budget:warning',
-          level: 'critical',
+          type: "budget:warning",
+          level: "critical",
           usage: this.buildBudgetUsage(percent),
-        })
+        });
       } else if (!this.warningEmitted && percent >= this.warningThreshold) {
-        this.warningEmitted = true
+        this.warningEmitted = true;
         this.eventBus?.emit({
-          type: 'budget:warning',
-          level: 'warn',
+          type: "budget:warning",
+          level: "warn",
           usage: this.buildBudgetUsage(percent),
-        })
+        });
       }
     }
   }
 
-  private estimateCost(providerId: AdapterProviderId, usage: TokenUsage): number {
-    const rates = PROVIDER_RATES[providerId]
-    if (!rates) return 0
+  private estimateCost(
+    providerId: AdapterProviderId,
+    usage: TokenUsage
+  ): number {
+    const rates = PROVIDER_RATES[providerId];
+    if (!rates) return 0;
 
-    const cacheReadTokens = usage.cachedInputTokens ?? 0
-    const cacheWriteTokens = usage.cacheWriteTokens ?? 0
-    const cachedTotal = cacheReadTokens + cacheWriteTokens
-    const uncachedInputTokens = Math.max(0, usage.inputTokens - cachedTotal)
+    const cacheReadTokens = usage.cachedInputTokens ?? 0;
+    const cacheWriteTokens = usage.cacheWriteTokens ?? 0;
+    const cachedTotal = cacheReadTokens + cacheWriteTokens;
+    const uncachedInputTokens = Math.max(0, usage.inputTokens - cachedTotal);
 
-    const inputCost = (uncachedInputTokens * rates.inputCentsPer1M) / 1_000_000
-    const cacheReadCost = (cacheReadTokens * (rates.cachedInputCentsPer1M ?? rates.inputCentsPer1M)) / 1_000_000
-    const cacheWriteCost = (cacheWriteTokens * (rates.cacheWriteCentsPer1M ?? rates.inputCentsPer1M)) / 1_000_000
-    const outputCost = (usage.outputTokens * rates.outputCentsPer1M) / 1_000_000
-    return inputCost + cacheReadCost + cacheWriteCost + outputCost
+    const inputCost = (uncachedInputTokens * rates.inputCentsPer1M) / 1_000_000;
+    const cacheReadCost =
+      (cacheReadTokens *
+        (rates.cachedInputCentsPer1M ?? rates.inputCentsPer1M)) /
+      1_000_000;
+    const cacheWriteCost =
+      (cacheWriteTokens *
+        (rates.cacheWriteCentsPer1M ?? rates.inputCentsPer1M)) /
+      1_000_000;
+    const outputCost =
+      (usage.outputTokens * rates.outputCentsPer1M) / 1_000_000;
+    return inputCost + cacheReadCost + cacheWriteCost + outputCost;
   }
 
   private buildBudgetUsage(percent: number) {
-    const totalTokens = this.getTotalTokenCount()
+    const totalTokens = this.getTotalTokenCount();
     return {
       tokensUsed: totalTokens,
       tokensLimit: 0, // token limit is not tracked by this middleware
@@ -293,22 +323,22 @@ export class CostTrackingMiddleware {
       iterations: this.getTotalInvocations(),
       iterationsLimit: 0,
       percent,
-    }
+    };
   }
 
   private getTotalTokenCount(): number {
-    let total = 0
+    let total = 0;
     for (const acc of this.accumulators.values()) {
-      total += acc.inputTokens + acc.outputTokens
+      total += acc.inputTokens + acc.outputTokens;
     }
-    return total
+    return total;
   }
 
   private getTotalInvocations(): number {
-    let total = 0
+    let total = 0;
     for (const acc of this.accumulators.values()) {
-      total += acc.invocations
+      total += acc.invocations;
     }
-    return total
+    return total;
   }
 }

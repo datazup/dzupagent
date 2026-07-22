@@ -155,7 +155,8 @@
         "./quick-start": "stable quick-start facade",
         "./orchestration": "workflow and orchestration facade",
         "./security": "security facade",
-        "./facades": "namespace facade index"
+        "./facades": "namespace facade index",
+        "./middleware": "cost/rate middleware facade (canonical model pricing, ARCH-M-08)"
       },
       "migrationWindow": "Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction."
     },

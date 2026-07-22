@@ -6,6 +6,7 @@
  * middleware for injecting contextual data into prompts.
  */
 
+import { estimateTokens } from "@dzupagent/core/llm";
 import type {
   AdapterProviderId,
   AgentInput,
@@ -106,11 +107,12 @@ function getProviderPriority(providerId: AdapterProviderId): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Simple heuristic: ~4 characters per token (average for GPT/Claude tokenizers).
- * Override via config.tokenEstimator for more accurate estimation.
+ * Default token estimator: routes through core's canonical `estimateTokens`
+ * (tokenizer-aware when the optional backend is installed, chars/4 heuristic
+ * otherwise). Override via `config.tokenEstimator` to inject a custom estimator.
  */
 function defaultTokenEstimator(text: string): number {
-  return Math.ceil(text.length / 4);
+  return estimateTokens(text);
 }
 
 // ---------------------------------------------------------------------------
