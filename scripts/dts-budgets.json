@@ -11,10 +11,11 @@
     "@dzupagent/agent-adapters": {
       "minDeclarationFiles": 200,
       "minDeclarationBytes": 450000,
-      "maxDeclarationFiles": 275,
+      "maxDeclarationFiles": 290,
       "maxDeclarationBytes": 650000,
       "maxDeclarationMapFiles": 0,
-      "maxDeclarationMapBytes": 0
+      "maxDeclarationMapBytes": 0,
+      "$comment": "maxDeclarationFiles re-pinned 275->290 on 2026-07-22 (audit CI-green pass): agent-adapters source grew to 284 .d.ts files via prior merges (CLI backend adapters, controlled-execution, ollama) after the budget was last pinned \u2014 the overage predates and is independent of the audit-ci-red-fixes branch (284 source files at both a647707a and this branch). Small headroom added; not a growth license."
     },
     "@dzupagent/codegen": {
       "minDeclarationFiles": 120,
