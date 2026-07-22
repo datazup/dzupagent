@@ -291,11 +291,23 @@ function directTestCandidates(sourcePath) {
   const withoutSrcPrefix = sourcePath.startsWith('src/') ? sourcePath.slice('src/'.length) : sourcePath
   const withoutSrcExtension = withoutSrcPrefix.slice(0, -extname(withoutSrcPrefix).length)
 
-  return [...new Set([
-    `${sourceWithoutExtension}.test${extension}`,
-    join(sourceDir, '__tests__', `${sourceBase}.test${extension}`),
-    join('src', '__tests__', `${withoutSrcExtension}.test${extension}`),
-  ])]
+  // DZUPAGENT-TEST-M-14: also match node:test `.mjs`/`.mts` sibling/__tests__
+  // suites (e.g. dialogue-core runs `node --test src/__tests__/*.test.mjs`),
+  // consistent with the TEST-H-07 fix on the testCount path. A `.ts` source's
+  // real coverage may live in a `.test.mjs` file, so probe every test ext —
+  // the source's own plus the node:test module extensions.
+  const testExtensions = [...new Set([extension, '.ts', '.tsx', '.mjs', '.mts'])]
+
+  const candidates = []
+  for (const testExtension of testExtensions) {
+    candidates.push(
+      `${sourceWithoutExtension}.test${testExtension}`,
+      join(sourceDir, '__tests__', `${sourceBase}.test${testExtension}`),
+      join('src', '__tests__', `${withoutSrcExtension}.test${testExtension}`),
+    )
+  }
+
+  return [...new Set(candidates)]
 }
 
 function listProductionSourceFiles(directory) {
