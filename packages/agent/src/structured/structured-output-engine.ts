@@ -6,6 +6,7 @@
  */
 import { attachStructuredOutputErrorContext, executeStructuredParseLoop, buildStructuredOutputCorrectionPrompt, buildStructuredOutputExhaustedError, detectStructuredOutputStrategy, isStructuredOutputExhaustedErrorMessage, prepareStructuredOutputSchemaContract, resolveStructuredOutputCapabilities, resolveStructuredOutputSchemaProvider, unwrapStructuredEnvelope } from '@dzupagent/core/pipeline'
 import { omitUndefined } from '../utils/exact-optional.js'
+import { extractJsonFromText } from '@dzupagent/core'
 import type { StructuredOutputFailureCategory } from '@dzupagent/core/pipeline'
 import type {
   StructuredOutputCapabilities,
@@ -32,40 +33,6 @@ export interface StructuredLLMWithMeta extends StructuredLLM {
   structuredOutputCapabilities?: StructuredOutputCapabilities
 }
 
-/**
- * Extract JSON from a raw LLM response string.
- *
- * Handles:
- * - Raw JSON
- * - JSON wrapped in ```json ... ``` code blocks
- * - JSON wrapped in ``` ... ``` code blocks
- */
-function extractJson(raw: string): string {
-  const trimmed = raw.trim()
-
-  // Try code block extraction first
-  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (codeBlockMatch?.[1]) {
-    return codeBlockMatch[1].trim()
-  }
-
-  // Try raw JSON (starts with { or [)
-  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    return trimmed
-  }
-
-  // Last resort: find the first { ... } or [ ... ] block
-  const objMatch = trimmed.match(/(\{[\s\S]*\})/)
-  if (objMatch?.[1]) {
-    return objMatch[1]
-  }
-  const arrMatch = trimmed.match(/(\[[\s\S]*\])/)
-  if (arrMatch?.[1]) {
-    return arrMatch[1]
-  }
-
-  return trimmed
-}
 
 /**
  * Build a schema description string from a Zod schema for the fallback-prompt strategy.
@@ -97,7 +64,7 @@ function tryParse<T>(
   contract: ReturnType<typeof prepareStructuredOutputSchemaContract>,
 ): { success: true; data: T } | { success: false; error: string } {
   try {
-    const jsonStr = extractJson(raw)
+    const jsonStr = extractJsonFromText(raw)
     const parsed: unknown = JSON.parse(jsonStr)
     const result = contract.responseSchema.safeParse(parsed)
     if (result.success) {

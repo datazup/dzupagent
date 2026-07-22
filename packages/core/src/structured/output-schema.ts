@@ -89,6 +89,60 @@ export function extractJsonFromMarkdown(text: string): string | null {
 }
 
 /**
+ * Extract the first plausible JSON value from an LLM text response.
+ *
+ * Unlike {@link extractJsonFromMarkdown} (which only handles fenced blocks and
+ * returns `null` on a miss), this always returns a string for the caller to
+ * `JSON.parse`, and additionally handles:
+ *   - fenced ```json / ``` blocks
+ *   - bare JSON objects/arrays surrounded by preamble/trailing prose
+ *
+ * It never throws itself; if no JSON-looking region is found it returns the
+ * trimmed input so the caller's `JSON.parse` surfaces the SyntaxError.
+ *
+ * Canonical implementation shared by the `@dzupagent/agent` structured-output
+ * paths (`structured-generate.ts`, `structured-output-engine.ts`).
+ */
+export function extractJsonFromText(text: string): string {
+  const trimmed = text.trim()
+
+  // 1. Try fenced block: ```json ... ``` or ``` ... ```
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fenced?.[1]) {
+    return fenced[1].trim()
+  }
+
+  // 2. Try to find the first { or [ and extract a balanced JSON value
+  const firstBrace = trimmed.indexOf('{')
+  const firstBracket = trimmed.indexOf('[')
+  const start =
+    firstBrace === -1 ? firstBracket
+    : firstBracket === -1 ? firstBrace
+    : Math.min(firstBrace, firstBracket)
+
+  if (start !== -1) {
+    // Walk forward to find the matching close, trying progressively longer slices
+    const slice = trimmed.slice(start)
+    // Try the full slice first (common case: response is pure JSON after preamble)
+    try {
+      JSON.parse(slice)
+      return slice
+    } catch {
+      // Find the last } or ] and try that boundary
+      const lastClose = Math.max(slice.lastIndexOf('}'), slice.lastIndexOf(']'))
+      if (lastClose > 0) {
+        const candidate = slice.slice(0, lastClose + 1)
+        JSON.parse(candidate) // let it throw if still invalid
+        return candidate
+      }
+    }
+  }
+
+  // 3. Last resort — return the trimmed text and let JSON.parse throw
+  return trimmed
+}
+
+/**
  * Convert a structured-output schema descriptor to an error-friendly schema ref.
  */
 export function toSchemaRef(

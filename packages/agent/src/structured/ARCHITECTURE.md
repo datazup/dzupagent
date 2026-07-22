@@ -1,6 +1,7 @@
 # Structured Output Architecture (`packages/agent/src/structured`)
 
 ## Scope
+
 This document covers the structured-output engine implemented in:
 
 - `src/structured/index.ts`
@@ -15,6 +16,7 @@ Out of scope:
 - Provider SDK internals outside this package
 
 ## Responsibilities
+
 `src/structured` is a small, dependency-focused extraction layer that converts LLM responses into validated typed results.
 
 Responsibilities implemented today:
@@ -27,6 +29,7 @@ Responsibilities implemented today:
 - Attach structured diagnostics to terminal failures using `attachStructuredOutputErrorContext(...)`.
 
 ## Structure
+
 - `index.ts`
 - Barrel for the module.
 - Re-exports:
@@ -49,12 +52,13 @@ Responsibilities implemented today:
 - `resolveStructuredOutputCapabilities`
 - `StructuredLLM` / `StructuredLLMWithMeta`
 - Internal helpers:
-- `extractJson(...)`
+- `extractJsonFromText(...)` (imported from `@dzupagent/core`; formerly a local `extractJson`)
 - `buildSchemaPrompt(...)`
 - `tryParse(...)`
 - `tryStrategy(...)`
 
 ## Runtime and Control Flow
+
 1. `generateStructured(...)` receives an LLM-like object (`invoke(messages)`), message list, and typed config.
 2. Capabilities resolve in precedence order:
 3. `config.capabilities`
@@ -79,6 +83,7 @@ Responsibilities implemented today:
 22. throw the enriched error
 
 ## Key APIs and Types
+
 - `generateStructured<T>(llm, messages, config): Promise<StructuredOutputResult<T>>`
 - Main structured extraction entrypoint for this module.
 
@@ -115,6 +120,7 @@ Responsibilities implemented today:
 - Success payload including parsed `data`, selected `strategy`, retry count, raw output, and stable schema identifiers.
 
 ## Dependencies
+
 Direct imports used by this subsystem:
 
 - `@dzupagent/core/pipeline`
@@ -141,6 +147,7 @@ Package-level context (`packages/agent/package.json`):
 - Peer deps include `zod`, `@langchain/core`, and `@langchain/langgraph`.
 
 ## Integration Points
+
 - `src/orchestration/planning-decomposition.ts`
 - Primary runtime consumer of `generateStructured(...)`.
 - `decomposeGoal(...)` calls this engine with:
@@ -167,6 +174,7 @@ Package-level context (`packages/agent/package.json`):
 - Does not call `src/structured/structured-output-engine.ts`.
 
 ## Testing and Observability
+
 Test coverage in `packages/agent/src/__tests__` includes:
 
 - `structured-output.test.ts`
@@ -193,11 +201,12 @@ Observability behavior in this module:
 - `structuredOutputMaxRetriesPerStrategy`
 
 ## Risks and TODOs
+
 - Strategy labels such as `openai-json-schema` and `anthropic-tool-use` are selection semantics in this module, but execution still flows through generic `llm.invoke(...)` parsing loops.
 - JSON extraction is regex/string-heuristic based (`extractJson`) and can still be brittle with mixed natural-language output.
 - This module has no explicit cancellation path (`AbortSignal` is not part of `StructuredLLM` contract or `generateStructured(...)` config).
 - If callers do not provide explicit capabilities, behavior depends on model-name heuristics; deterministic environments should prefer explicit capability metadata.
 
 ## Changelog
-- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js
 
+- 2026-05-17: automated refresh via scripts/refresh-architecture-docs.js

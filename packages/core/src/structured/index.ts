@@ -5,6 +5,7 @@ export {
   JsonOutputSchema,
   RegexOutputSchema,
   extractJsonFromMarkdown,
+  extractJsonFromText,
   toSchemaRef,
   createZodStructuredValidator,
 } from './output-schema.js'
