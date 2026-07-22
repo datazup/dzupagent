@@ -24,13 +24,17 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts", "src/**/*.spec.ts"],
     exclude: ["**/node_modules/**", "**/dist/**"],
-    // singleFork + fileParallelism:false: retained — express production code
-    // imports @langchain/core/messages and @dzupagent/core (which transitively
-    // pulls @modelcontextprotocol) at module-load time. Under full-Turbo
-    // concurrency these heavy module inits cause Vitest RPC resolveId/
-    // onTaskUpdate timeouts observed on NTFS-3g and slow CI hosts. isolate:true
-    // (default) is kept so each test file gets a fresh module registry
-    // (TEST-M-08 compliance); the single fork serialises that cost.
+    // TEST-M-09: singleFork + fileParallelism:false retained — now MEASURED, not
+    // merely asserted. express is a tiny suite (7 files / 75 tests): parallelism
+    // yields no meaningful speedup because per-fork init of @langchain/core and
+    // @dzupagent/core (transitively @modelcontextprotocol) cancels the gain.
+    // Benchmarks (INDICATIVE — dev workstation, Linux 6.17 / Node v22.17, NOT a
+    // CI host; relative, not CI-authoritative):
+    //   - singleFork (this):   3.09s  EXIT 0
+    //   - parallel forks:      3.12s  EXIT 0  (statistical tie — no benefit)
+    // Serial also keeps the original RPC-timeout hedge for slow/NTFS CI hosts at
+    // zero cost. isolate:true (default) gives each test file a fresh module
+    // registry (TEST-M-08 compliance); the single fork serialises that cost.
     fileParallelism: false,
     pool: "forks",
     poolOptions: { forks: { singleFork: true } },

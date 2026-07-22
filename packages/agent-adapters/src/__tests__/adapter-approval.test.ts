@@ -482,4 +482,62 @@ describe("AdapterApprovalGate", () => {
       expect(result).toBe("timeout");
     });
   });
+
+  // -------------------------------------------------------------------------
+  // ERR-H-09 / ERR-M-11: failure-path observability
+  // -------------------------------------------------------------------------
+  describe("failure-path observability", () => {
+    it("ERR-H-09: logs (does not swallow) an audit-store write failure", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      // An audit store whose record() always throws (DB down / disk full).
+      const throwingAuditStore = {
+        record: vi.fn(() => {
+          throw new Error("audit DB unavailable");
+        }),
+        query: vi.fn(() => []),
+        clear: vi.fn(),
+      };
+
+      const gate = new AdapterApprovalGate({
+        mode: "auto",
+        auditStore: throwingAuditStore,
+      });
+
+      // Must NOT throw even though the audit write fails.
+      const result = await gate.requestApproval(createContext());
+      expect(result).toBe("approved");
+
+      // The failure must be observable, not silent.
+      expect(throwingAuditStore.record).toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalled();
+      const loggedArgs = errorSpy.mock.calls[0] ?? [];
+      const flat = JSON.stringify(loggedArgs);
+      expect(flat).toContain("approval.audit.record");
+      expect(flat).toContain("audit DB unavailable");
+    });
+
+    it("ERR-M-11: logs (does not swallow) a webhook notification failure", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(
+        new Error("webhook host unreachable")
+      );
+
+      const gate = new AdapterApprovalGate({
+        mode: "required",
+        timeoutMs: 30,
+        webhookUrl: "https://hooks.example.com/approve",
+      });
+
+      const result = await gate.requestApproval(createContext());
+      expect(result).toBe("timeout");
+
+      // Give the fire-and-forget webhook catch a tick to run.
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(warnSpy).toHaveBeenCalled();
+      const flat = JSON.stringify(warnSpy.mock.calls);
+      expect(flat).toContain("approval.webhook");
+    });
+  });
 });

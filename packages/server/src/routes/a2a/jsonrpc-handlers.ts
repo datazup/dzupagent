@@ -6,16 +6,21 @@
  * owner reads return TASK_NOT_FOUND (the JSON-RPC analogue of HTTP 404)
  * instead of a permission error so existence cannot be enumerated.
  */
-import type { A2ATaskState, A2ATaskMessage } from '../../a2a/task-handler.js'
-import { JSON_RPC_ERRORS, A2A_ERRORS, createJsonRpcError, createJsonRpcSuccess } from '@dzupagent/core/identity'
-import type { JsonRpcRequest, JsonRpcResponse } from '@dzupagent/core/identity'
-import type { A2ACallerScope, A2ARoutesConfig } from './helpers.js'
-import { callerOwnsTask } from './helpers.js'
+import type { A2ATaskState, A2ATaskMessage } from "../../a2a/task-handler.js";
+import {
+  JSON_RPC_ERRORS,
+  A2A_ERRORS,
+  createJsonRpcError,
+  createJsonRpcSuccess,
+} from "@dzupagent/core/identity";
+import type { JsonRpcRequest, JsonRpcResponse } from "@dzupagent/core/identity";
+import type { A2ACallerScope, A2ARoutesConfig } from "./helpers.js";
+import { callerOwnsTask } from "./helpers.js";
 import {
   assertA2APushCallbackUrlAllowed,
   redactA2APushConfig,
   redactA2ATaskPushConfig,
-} from '../../a2a/push-notifications.js'
+} from "../../a2a/push-notifications.js";
 
 // ---------------------------------------------------------------------------
 // tasks/send — create or continue a task
@@ -24,105 +29,141 @@ import {
 export async function handleTasksSend(
   req: JsonRpcRequest,
   config: A2ARoutesConfig,
-  scope: A2ACallerScope,
+  scope: A2ACallerScope
 ): Promise<JsonRpcResponse> {
-  const params = req.params
+  const params = req.params;
   if (!params) {
-    return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, 'Missing params')
+    return createJsonRpcError(
+      req.id,
+      JSON_RPC_ERRORS.INVALID_PARAMS,
+      "Missing params"
+    );
   }
 
-  const taskId = params['id'] as string | undefined
-  const message = params['message'] as A2ATaskMessage | undefined
+  const taskId = params["id"] as string | undefined;
+  const message = params["message"] as A2ATaskMessage | undefined;
 
-  if (!message || typeof message !== 'object' || !message.role || !Array.isArray(message.parts)) {
-    return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, 'params.message is required and must have role and parts')
+  if (
+    !message ||
+    typeof message !== "object" ||
+    !message.role ||
+    !Array.isArray(message.parts)
+  ) {
+    return createJsonRpcError(
+      req.id,
+      JSON_RPC_ERRORS.INVALID_PARAMS,
+      "params.message is required and must have role and parts"
+    );
   }
 
   // --- Multi-turn: continue existing task ---
   if (taskId) {
-    const existing = await config.taskStore.get(taskId)
+    const existing = await config.taskStore.get(taskId);
     // RF-SEC-05: cross-owner continuation looks like TASK_NOT_FOUND so the
     // attacker cannot tell whether the id exists.
     if (existing && !callerOwnsTask(scope, existing)) {
-      return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
+      return createJsonRpcError(
+        req.id,
+        A2A_ERRORS.TASK_NOT_FOUND,
+        `Task ${taskId} not found`
+      );
     }
     if (existing) {
       // Only tasks in input-required state can accept more input
-      if (existing.state === 'input-required') {
-        const updated = await config.taskStore.appendMessage(taskId, message)
+      if (existing.state === "input-required") {
+        const updated = await config.taskStore.appendMessage(taskId, message);
         if (!updated) {
-          return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
+          return createJsonRpcError(
+            req.id,
+            A2A_ERRORS.TASK_NOT_FOUND,
+            `Task ${taskId} not found`
+          );
         }
 
         // Transition back to working
-        const continued = await config.taskStore.update(taskId, { state: 'working' })
+        const continued = await config.taskStore.update(taskId, {
+          state: "working",
+        });
 
         if (config.onTaskContinued && continued) {
           config.onTaskContinued(continued).catch(() => {
             void config.taskStore.update(taskId, {
-              state: 'failed',
-              error: 'Task continuation callback failed',
-            })
-          })
+              state: "failed",
+              error: "Task continuation callback failed",
+            });
+          });
         }
 
-        return createJsonRpcSuccess(req.id, continued ? redactA2ATaskPushConfig(continued) : continued)
+        return createJsonRpcSuccess(
+          req.id,
+          continued ? redactA2ATaskPushConfig(continued) : continued
+        );
       }
 
       // Task exists but is not in input-required state — error
-      const terminal: A2ATaskState[] = ['completed', 'failed', 'cancelled']
+      const terminal: A2ATaskState[] = ["completed", "failed", "cancelled"];
       if (terminal.includes(existing.state)) {
         return createJsonRpcError(
           req.id,
           A2A_ERRORS.TASK_NOT_CANCELABLE,
-          `Task ${taskId} is in terminal state: ${existing.state}`,
-        )
+          `Task ${taskId} is in terminal state: ${existing.state}`
+        );
       }
 
       // Task is still working/submitted — append message anyway
-      const updated = await config.taskStore.appendMessage(taskId, message)
-      return createJsonRpcSuccess(req.id, updated ? redactA2ATaskPushConfig(updated) : updated)
+      const updated = await config.taskStore.appendMessage(taskId, message);
+      return createJsonRpcSuccess(
+        req.id,
+        updated ? redactA2ATaskPushConfig(updated) : updated
+      );
     }
   }
 
   // --- New task ---
   // Extract agentName from metadata or params
-  const agentName = (params['agentName'] as string | undefined)
-    ?? (params['metadata'] as Record<string, unknown> | undefined)?.['agentName'] as string | undefined
+  const agentName =
+    (params["agentName"] as string | undefined) ??
+    ((params["metadata"] as Record<string, unknown> | undefined)?.[
+      "agentName"
+    ] as string | undefined);
 
   // If no agentName, use the first capability on the card
-  const resolvedAgentName = agentName ?? config.agentCard.capabilities[0]?.name ?? 'default'
+  const resolvedAgentName =
+    agentName ?? config.agentCard.capabilities[0]?.name ?? "default";
 
   // Build text input from message parts for backward compat
   const textParts = message.parts
-    .filter((p): p is { type: string; text: string } => p.type === 'text' && typeof p.text === 'string')
-    .map((p) => p.text)
-  const inputText = textParts.join('\n') || JSON.stringify(message.parts)
+    .filter(
+      (p): p is { type: string; text: string } =>
+        p.type === "text" && typeof p.text === "string"
+    )
+    .map((p) => p.text);
+  const inputText = textParts.join("\n") || JSON.stringify(message.parts);
 
   const task = await config.taskStore.create({
     agentName: resolvedAgentName,
     input: inputText,
-    state: 'submitted',
-    metadata: params['metadata'] as Record<string, unknown> | undefined,
+    state: "submitted",
+    metadata: params["metadata"] as Record<string, unknown> | undefined,
     // RF-SEC-05: stamp owner + tenant from the JSON-RPC caller's scope so
     // tasks/get and tasks/cancel can reject cross-owner access.
     ownerId: scope.ownerId ?? null,
     tenantId: scope.tenantId ?? null,
-  })
+  });
 
   // Store the initial message
-  await config.taskStore.appendMessage(task.id, message)
+  await config.taskStore.appendMessage(task.id, message);
 
   if (config.onTaskSubmitted) {
     config.onTaskSubmitted(task).catch(() => {
       void config.taskStore.update(task.id, {
-        state: 'failed',
-        error: 'Task execution callback failed',
-      })
-    })
+        state: "failed",
+        error: "Task execution callback failed",
+      });
+    });
   }
 
-  return createJsonRpcSuccess(req.id, redactA2ATaskPushConfig(task))
+  return createJsonRpcSuccess(req.id, redactA2ATaskPushConfig(task));
 }
 
 // ---------------------------------------------------------------------------
@@ -132,20 +173,28 @@ export async function handleTasksSend(
 export async function handleTasksGet(
   req: JsonRpcRequest,
   config: A2ARoutesConfig,
-  scope: A2ACallerScope,
+  scope: A2ACallerScope
 ): Promise<JsonRpcResponse> {
-  const taskId = req.params?.['id'] as string | undefined
+  const taskId = req.params?.["id"] as string | undefined;
   if (!taskId) {
-    return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, 'params.id is required')
+    return createJsonRpcError(
+      req.id,
+      JSON_RPC_ERRORS.INVALID_PARAMS,
+      "params.id is required"
+    );
   }
 
-  const task = await config.taskStore.get(taskId)
+  const task = await config.taskStore.get(taskId);
   // RF-SEC-05: missing record and cross-owner record share the same response.
   if (!task || !callerOwnsTask(scope, task)) {
-    return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
+    return createJsonRpcError(
+      req.id,
+      A2A_ERRORS.TASK_NOT_FOUND,
+      `Task ${taskId} not found`
+    );
   }
 
-  return createJsonRpcSuccess(req.id, redactA2ATaskPushConfig(task))
+  return createJsonRpcSuccess(req.id, redactA2ATaskPushConfig(task));
 }
 
 // ---------------------------------------------------------------------------
@@ -155,31 +204,44 @@ export async function handleTasksGet(
 export async function handleTasksCancel(
   req: JsonRpcRequest,
   config: A2ARoutesConfig,
-  scope: A2ACallerScope,
+  scope: A2ACallerScope
 ): Promise<JsonRpcResponse> {
-  const taskId = req.params?.['id'] as string | undefined
+  const taskId = req.params?.["id"] as string | undefined;
   if (!taskId) {
-    return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, 'params.id is required')
+    return createJsonRpcError(
+      req.id,
+      JSON_RPC_ERRORS.INVALID_PARAMS,
+      "params.id is required"
+    );
   }
 
-  const task = await config.taskStore.get(taskId)
+  const task = await config.taskStore.get(taskId);
   // RF-SEC-05: same NOT_FOUND shape for missing and cross-owner records so
   // the cancellation surface cannot be used to enumerate task ids.
   if (!task || !callerOwnsTask(scope, task)) {
-    return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
+    return createJsonRpcError(
+      req.id,
+      A2A_ERRORS.TASK_NOT_FOUND,
+      `Task ${taskId} not found`
+    );
   }
 
-  const terminal: A2ATaskState[] = ['completed', 'failed', 'cancelled']
+  const terminal: A2ATaskState[] = ["completed", "failed", "cancelled"];
   if (terminal.includes(task.state)) {
     return createJsonRpcError(
       req.id,
       A2A_ERRORS.TASK_NOT_CANCELABLE,
-      `Task ${taskId} already in terminal state: ${task.state}`,
-    )
+      `Task ${taskId} already in terminal state: ${task.state}`
+    );
   }
 
-  const updated = await config.taskStore.update(task.id, { state: 'cancelled' })
-  return createJsonRpcSuccess(req.id, updated ? redactA2ATaskPushConfig(updated) : updated)
+  const updated = await config.taskStore.update(task.id, {
+    state: "cancelled",
+  });
+  return createJsonRpcSuccess(
+    req.id,
+    updated ? redactA2ATaskPushConfig(updated) : updated
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -189,31 +251,65 @@ export async function handleTasksCancel(
 export async function handlePushNotificationSet(
   req: JsonRpcRequest,
   config: A2ARoutesConfig,
-  scope: A2ACallerScope,
+  scope: A2ACallerScope
 ): Promise<JsonRpcResponse> {
-  const taskId = req.params?.['id'] as string | undefined
+  const taskId = req.params?.["id"] as string | undefined;
   if (!taskId) {
-    return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, 'params.id is required')
+    return createJsonRpcError(
+      req.id,
+      JSON_RPC_ERRORS.INVALID_PARAMS,
+      "params.id is required"
+    );
   }
 
-  const pushConfig = req.params?.['pushNotificationConfig'] as { url: string; token?: string; events?: string[] } | undefined
-  if (!pushConfig || typeof pushConfig.url !== 'string') {
-    return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, 'params.pushNotificationConfig.url is required')
+  const pushConfig = req.params?.["pushNotificationConfig"] as
+    | { url: string; token?: string; events?: string[] }
+    | undefined;
+  if (!pushConfig || typeof pushConfig.url !== "string") {
+    return createJsonRpcError(
+      req.id,
+      JSON_RPC_ERRORS.INVALID_PARAMS,
+      "params.pushNotificationConfig.url is required"
+    );
   }
   try {
-    await assertA2APushCallbackUrlAllowed(pushConfig.url, config.pushNotificationUrlPolicy)
+    await assertA2APushCallbackUrlAllowed(
+      pushConfig.url,
+      config.pushNotificationUrlPolicy
+    );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, message)
+    // ERR-H-11: do not forward the raw rejection reason to the external A2A
+    // client; log the detail server-side and return a fixed generic message.
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(
+      JSON.stringify({
+        level: "warn",
+        operation: "a2a.jsonrpc.tasks/pushNotification/set",
+        error: detail,
+        timestamp: new Date().toISOString(),
+      })
+    );
+    return createJsonRpcError(
+      req.id,
+      JSON_RPC_ERRORS.INVALID_PARAMS,
+      "Invalid push notification config"
+    );
   }
 
-  const task = await config.taskStore.get(taskId)
+  const task = await config.taskStore.get(taskId);
   if (!task || !callerOwnsTask(scope, task)) {
-    return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
+    return createJsonRpcError(
+      req.id,
+      A2A_ERRORS.TASK_NOT_FOUND,
+      `Task ${taskId} not found`
+    );
   }
 
-  const updated = await config.taskStore.setPushConfig(taskId, pushConfig)
-  return createJsonRpcSuccess(req.id, updated ? redactA2ATaskPushConfig(updated) : updated)
+  const updated = await config.taskStore.setPushConfig(taskId, pushConfig);
+  return createJsonRpcSuccess(
+    req.id,
+    updated ? redactA2ATaskPushConfig(updated) : updated
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -223,17 +319,28 @@ export async function handlePushNotificationSet(
 export async function handlePushNotificationGet(
   req: JsonRpcRequest,
   config: A2ARoutesConfig,
-  scope: A2ACallerScope,
+  scope: A2ACallerScope
 ): Promise<JsonRpcResponse> {
-  const taskId = req.params?.['id'] as string | undefined
+  const taskId = req.params?.["id"] as string | undefined;
   if (!taskId) {
-    return createJsonRpcError(req.id, JSON_RPC_ERRORS.INVALID_PARAMS, 'params.id is required')
+    return createJsonRpcError(
+      req.id,
+      JSON_RPC_ERRORS.INVALID_PARAMS,
+      "params.id is required"
+    );
   }
 
-  const task = await config.taskStore.get(taskId)
+  const task = await config.taskStore.get(taskId);
   if (!task || !callerOwnsTask(scope, task)) {
-    return createJsonRpcError(req.id, A2A_ERRORS.TASK_NOT_FOUND, `Task ${taskId} not found`)
+    return createJsonRpcError(
+      req.id,
+      A2A_ERRORS.TASK_NOT_FOUND,
+      `Task ${taskId} not found`
+    );
   }
 
-  return createJsonRpcSuccess(req.id, redactA2APushConfig(task.pushNotificationConfig) ?? null)
+  return createJsonRpcSuccess(
+    req.id,
+    redactA2APushConfig(task.pushNotificationConfig) ?? null
+  );
 }

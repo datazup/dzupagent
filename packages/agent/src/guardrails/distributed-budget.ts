@@ -20,6 +20,7 @@
  */
 
 import type { RateLimiterClient } from './distributed-rate-limiter.js'
+import { defaultLogger, type FrameworkLogger } from '@dzupagent/core/utils'
 
 /**
  * Redis-shaped client extended with `incrByFloat` for accumulating
@@ -44,6 +45,14 @@ export interface DistributedCostLedgerConfig {
   fallbackToLocal?: boolean
   /** Key TTL in milliseconds. Defaults to 24 hours. */
   ttlMs?: number
+  /**
+   * Structured logger. On a Redis error the ledger degrades to a
+   * per-process running total, so the fleet-wide `maxCostUsd` cap is no
+   * longer enforced (N workers each count independently). Every such
+   * degradation is logged at `warn` so an operator can alert before the
+   * global cap is silently blown. Defaults to {@link defaultLogger}.
+   */
+  logger?: FrameworkLogger
 }
 
 const DEFAULT_KEY_PREFIX = 'dzupagent:cost'
@@ -69,6 +78,7 @@ export class DistributedCostLedger {
   private readonly fallbackToLocal: boolean
   private readonly ttlSeconds: number
   private readonly localTotals = new Map<string, number>()
+  private readonly logger: FrameworkLogger
 
   constructor(config: DistributedCostLedgerConfig) {
     this.client = config.client
@@ -77,6 +87,7 @@ export class DistributedCostLedger {
     this.fallbackToLocal = config.fallbackToLocal ?? true
     const ttlMs = config.ttlMs ?? DEFAULT_TTL_MS
     this.ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000))
+    this.logger = config.logger ?? defaultLogger
   }
 
   /**
@@ -103,8 +114,14 @@ export class DistributedCostLedger {
       // Best-effort TTL refresh; failures are logged via fall-through.
       try {
         await this.client.expire(key, this.ttlSeconds)
-      } catch {
-        // ignore
+      } catch (err) {
+        // Best-effort TTL refresh; the total is already recorded.
+        this.logger.debug('[budget] TTL refresh failed', {
+          operation: 'budget.redis.expire',
+          tenantId,
+          agentId,
+          error: String(err),
+        })
       }
       // Mirror the running total locally so a future Redis outage
       // continues from a sane baseline rather than zero.
@@ -112,7 +129,18 @@ export class DistributedCostLedger {
         this.localTotals.set(key, total)
       }
       return { allowed: total < this.maxCostUsd, totalCostUsd: total }
-    } catch {
+    } catch (err) {
+      // Redis is unreachable: fall back to a per-process total. In a
+      // multi-worker deployment the fleet-wide maxCostUsd cap is NO LONGER
+      // enforced — surface it so alerting can fire before spend overruns.
+      this.logger.warn('[budget] Redis error — degrading to per-process total', {
+        operation: 'budget.redis.incrByFloat',
+        tenantId,
+        agentId,
+        degradedToLocal: this.fallbackToLocal,
+        capEnforced: false,
+        error: String(err),
+      })
       return this.recordLocally(key, costUsd)
     }
   }
@@ -125,7 +153,13 @@ export class DistributedCostLedger {
       if (raw === null) return this.localTotals.get(key) ?? 0
       const parsed = Number(raw)
       return Number.isFinite(parsed) ? parsed : 0
-    } catch {
+    } catch (err) {
+      this.logger.debug('[budget] read failed — using local total', {
+        operation: 'budget.redis.get',
+        tenantId,
+        agentId,
+        error: String(err),
+      })
       return this.localTotals.get(key) ?? 0
     }
   }
@@ -136,8 +170,13 @@ export class DistributedCostLedger {
     this.localTotals.delete(key)
     try {
       await this.client.del(key)
-    } catch {
-      // best-effort
+    } catch (err) {
+      this.logger.warn('[budget] reset failed', {
+        operation: 'budget.redis.del',
+        tenantId,
+        agentId,
+        error: String(err),
+      })
     }
   }
 

@@ -231,6 +231,9 @@ export class GeminiCLIAdapter extends BaseCliAdapter {
       supportsResume: true,
       supportsFork: false,
       supportsToolCalls: true,
+      // CLI/SDK adapter: runs its own in-subprocess/agentic tool loop.
+      emitsToolCalls: true,
+      executesToolLoop: true,
       supportsStreaming: true,
       supportsCostUsage: true,
       nativeToolControls: { mode: true, allowlist: false, blocklist: false },

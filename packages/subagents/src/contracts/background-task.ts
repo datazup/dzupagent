@@ -5,6 +5,8 @@
  * the runtime lifecycle: spawn → governance → admission → run → deliver → GC.
  */
 
+import type { SubagentErrorCode } from "./error-codes.js";
+
 export type TaskId = string;
 
 /**
@@ -111,7 +113,20 @@ export interface BackgroundTask {
   spec: SubagentSpec;
   status: TaskStatus;
   result?: SubagentResult;
+  /**
+   * Human-readable failure message. Kept for display/debugging; hosts MUST NOT
+   * string-prefix-match this to classify a failure — branch on {@link errorCode}
+   * instead (DZUPAGENT-ERR-M-06).
+   */
   error?: string;
+  /**
+   * Structured failure classification (DZUPAGENT-ERR-M-06). Set alongside
+   * `error` whenever the runtime moves a task to a terminal failure/cancelled
+   * state for a known reason (policy denial, approval rejection, orphan
+   * reconciliation, executor failure, …). Lets a host branch on a stable
+   * machine code rather than parsing the free-text `error` prefix.
+   */
+  errorCode?: SubagentErrorCode;
   /** Epoch-ms timestamps — supplied by an injected clock, never `Date.now()` in core paths. */
   createdAt: number;
   admittedAt?: number;

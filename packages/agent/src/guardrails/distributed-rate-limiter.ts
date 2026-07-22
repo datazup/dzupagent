@@ -23,6 +23,7 @@
  */
 
 import type { TokenBucket } from '@dzupagent/core/llm'
+import { defaultLogger, type FrameworkLogger } from '@dzupagent/core/utils'
 
 /**
  * Minimal Redis-shaped client used by {@link DistributedRateLimiter}.
@@ -65,6 +66,13 @@ export interface DistributedRateLimiterConfig {
    * supplied) or fail open. Defaults to `true`.
    */
   fallbackToLocal?: boolean
+  /**
+   * Structured logger used to surface Redis degradation. When the store
+   * throws, distributed throttling silently stops enforcing (fail-open),
+   * so every degradation is logged at `warn` to make the outage observable
+   * to on-call. Defaults to {@link defaultLogger} (console).
+   */
+  logger?: FrameworkLogger
 }
 
 const DEFAULT_KEY_PREFIX = 'dzupagent:rl'
@@ -85,6 +93,7 @@ export class DistributedRateLimiter {
   private readonly maxRequests: number
   private readonly fallbackToLocal: boolean
   private readonly localFallback: LocalRateLimiter | undefined
+  private readonly logger: FrameworkLogger
 
   constructor(
     config: DistributedRateLimiterConfig,
@@ -96,6 +105,7 @@ export class DistributedRateLimiter {
     this.maxRequests = config.maxRequests ?? DEFAULT_MAX_REQUESTS
     this.fallbackToLocal = config.fallbackToLocal ?? true
     this.localFallback = localFallback as LocalRateLimiter | undefined
+    this.logger = config.logger ?? defaultLogger
   }
 
   /**
@@ -117,13 +127,27 @@ export class DistributedRateLimiter {
         // the TTL set fails (the next window will simply be longer).
         try {
           await this.client.expire(key, ttlSeconds)
-        } catch {
-          // best-effort
+        } catch (err) {
+          // Best-effort: the counter still ticks; surface the failure so a
+          // Redis outage is visible rather than silently widening the window.
+          this.logger.warn('[ratelimit] TTL set failed', {
+            operation: 'ratelimit.redis.expire',
+            tenantId,
+            agentId,
+            error: String(err),
+          })
         }
       }
       return count <= this.maxRequests
-    } catch {
-      return this.handleClientFailure()
+    } catch (err) {
+      this.logger.warn('[ratelimit] Redis error — degrading', {
+        operation: 'ratelimit.redis.incr',
+        tenantId,
+        agentId,
+        failOpen: !(this.fallbackToLocal && this.localFallback),
+        error: String(err),
+      })
+      return this.handleClientFailure(tenantId, agentId)
     }
   }
 
@@ -132,9 +156,15 @@ export class DistributedRateLimiter {
     const key = this.buildKey(tenantId, agentId)
     try {
       await this.client.del(key)
-    } catch {
+    } catch (err) {
       // Reset is best-effort — if Redis is unavailable the window will
-      // expire on its own.
+      // expire on its own — but log so the failure is observable.
+      this.logger.warn('[ratelimit] reset failed', {
+        operation: 'ratelimit.redis.del',
+        tenantId,
+        agentId,
+        error: String(err),
+      })
     }
   }
 
@@ -142,7 +172,10 @@ export class DistributedRateLimiter {
     return `${this.keyPrefix}:${tenantId}:${agentId}`
   }
 
-  private async handleClientFailure(): Promise<boolean> {
+  private async handleClientFailure(
+    tenantId: string,
+    agentId: string,
+  ): Promise<boolean> {
     if (this.fallbackToLocal && this.localFallback) {
       try {
         if (this.localFallback.waitUntilAvailable) {
@@ -154,7 +187,13 @@ export class DistributedRateLimiter {
         return false
       }
     }
-    // Fail open by default — see file header.
+    // Fail open by default — see file header. Logged at the call site
+    // (tryConsume catch) so an operator can alert on the degradation.
+    this.logger.warn('[ratelimit] failing open — throttling not enforced', {
+      operation: 'ratelimit.failOpen',
+      tenantId,
+      agentId,
+    })
     return true
   }
 }

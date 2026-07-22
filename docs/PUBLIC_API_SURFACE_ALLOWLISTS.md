@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-07-04
+Date: 2026-07-22
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -16,10 +16,10 @@ Generated from package root facades plus `config/public-api-allowlists.json` and
 
 Root index: `packages/security/src/index.ts`
 
-- Stable root sources: `6`
+- Stable root sources: `7`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
-- Migration window: Security package root exports are the primary consumption surface; all exports are stable from initial release.
+- Migration window: Security package root exports are the primary consumption surface; all exports are stable from initial release. sanitizer-patterns.js is the single shared sanitizer pattern source consumed by core and memory (CODE-H-03 dedup) — intentionally root-exported as the canonical data surface both layers depend on.
 
 ### Stable Subpaths
 
@@ -35,12 +35,13 @@ No stable subpaths configured.
 | `stable` | `./guardrails/index.js` | 3 | `exact:./guardrails/index.js` | `PromptInjectionGuard`, `GuardOptions`, `ScreenResult` |
 | `stable` | `./content-scanner.js` | 6 | `exact:./content-scanner.js` | `ContentScanner`, `ContentScannerConfig`, `ContentScanResult`, `ContentScanVerdict` |
 | `stable` | `./policy-config.js` | 1 | `exact:./policy-config.js` | `SecurityPolicyConfig` |
+| `stable` | `./sanitizer-patterns.js` | 5 | `exact:./sanitizer-patterns.js` | `SANITIZER_INJECTION_PATTERNS`, `SANITIZER_EXFILTRATION_PATTERNS`, `SANITIZER_INVISIBLE_UNICODE_PATTERN`, `SANITIZER_INVISIBLE_UNICODE_STRIP_PATTERN` |
 
 ## @dzupagent/core
 
 Root index: `packages/core/src/index.ts`
 
-- Stable root sources: `51`
+- Stable root sources: `54`
 - Deprecated transitional root sources: `89`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
@@ -55,6 +56,7 @@ Root index: `packages/core/src/index.ts`
 | `@dzupagent/core/orchestration` | workflow and orchestration facade |
 | `@dzupagent/core/security` | security facade |
 | `@dzupagent/core/facades` | namespace facade index |
+| `@dzupagent/core/middleware` | cost/rate middleware facade (canonical model pricing, ARCH-M-08) |
 
 ### Root Allowlist
 
@@ -63,6 +65,7 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./config/container.js` | 2 | `prefix:./config/` | `ForgeContainer`, `createContainer` |
 | `stable` | `./errors/forge-error.js` | 2 | `prefix:./errors/` | `ForgeError`, `ForgeErrorOptions` |
 | `stable` | `./errors/error-codes.js` | 1 | `prefix:./errors/` | `ForgeErrorCode` |
+| `stable` | `./errors/classify-provider-error.js` | 3 | `prefix:./errors/` | `classifyProviderError`, `isRecoverableProviderError`, `isContextLengthProviderError` |
 | `stable` | `./events/event-bus.js` | 3 | `prefix:./events/` | `createEventBus`, `typedEmit`, `DzupEventBus` |
 | `stable` | `./events/event-types.js` | 14 | `prefix:./events/` | `AdapterProgressDzupEvent`, `AdapterRuntimeDzupEvent`, `DzupEvent`, `DzupEventOf` |
 | `stable` | `./events/llm-audit-bridge.js` | 2 | `prefix:./events/` | `attachLlmAuditEventBridge`, `LlmAuditSink` |
@@ -75,7 +78,8 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./plugin/plugin-registry.js` | 1 | `prefix:./plugin/` | `PluginRegistry` |
 | `stable` | `./plugin/plugin-discovery.js` | 6 | `prefix:./plugin/` | `discoverPlugins`, `validateManifest`, `resolvePluginOrder`, `PluginManifest` |
 | `stable` | `./plugin/plugin-manifest.js` | 2 | `prefix:./plugin/` | `createManifest`, `serializeManifest` |
-| `stable` | `./llm/model-registry.js` | 3 | `prefix:./llm/` | `ModelRegistry`, `ModelFallbackCandidate`, `FallbackRequirements` |
+| `stable` | `./llm/model-registry.js` | 4 | `prefix:./llm/` | `ModelRegistry`, `ModelFallbackCandidate`, `FallbackRequirements`, `ProviderSelectionMode` |
+| `stable` | `./llm/provider-health.js` | 3 | `prefix:./llm/` | `ProviderHealthTracker`, `ProviderHealthConfig`, `ProviderHealthSnapshotEntry` |
 | `stable` | `@langchain/core/language_models/chat_models` | 1 | `exact:@langchain/core/language_models/chat_models` | `BaseChatModel` |
 | `stable` | `./llm/harness-profile.js` | 7 | `prefix:./llm/` | `HarnessProfileRegistry`, `HarnessProfile`, `ResolvedHarnessOverrides`, `SystemPromptOverride` |
 | `stable` | `./llm/model-config.js` | 10 | `prefix:./llm/` | `KnownLLMProvider`, `LLMProviderConfig`, `LLMProviderName`, `ModelCapability` |
@@ -161,6 +165,7 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./security/tool-permission-tiers.js` | 3 | `prefix:./security/` | `DEFAULT_AUTO_APPROVE_TOOLS`, `DEFAULT_LOG_TOOLS`, `DEFAULT_REQUIRE_APPROVAL_TOOLS` |
 | `stable` | `./security/secrets-scanner.js` | 4 | `prefix:./security/` | `scanForSecrets`, `redactSecrets`, `SecretMatch`, `ScanResult` |
 | `stable` | `./logging/secure-logger.js` | 5 | `exact:./logging/secure-logger.js` | `createSecureLogger`, `logger`, `SecureLogger`, `SecureLogEntry` |
+| `stable` | `./logging/correlation-context.js` | 4 | `exact:./logging/correlation-context.js` | `withCorrelationContext`, `currentCorrelationContext`, `correlationFields`, `CorrelationContext` |
 | `stable` | `./security/pii-detector.js` | 5 | `prefix:./security/` | `detectPII`, `redactPII`, `PIIType`, `PIIMatch` |
 | `stable` | `./security/output-pipeline.js` | 5 | `prefix:./security/` | `OutputPipeline`, `createDefaultPipeline`, `SanitizationStage`, `OutputPipelineConfig` |
 | `stable` | `./security/audit/index.js` | 11 | `prefix:./security/` | `InMemoryAuditStore`, `ComplianceAuditLogger`, `AuditActorType`, `AuditActor` |
@@ -185,15 +190,15 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./formats/index.js` | 62 | `prefix:./formats/` | `// Agent Card V2
   AgentCardV2Schema`, `validateAgentCard`, `// Tool Format Adapters
   zodToJsonSchema`, `jsonSchemaToZod` |
-| `deprecated-transitional` | `./structured/index.js` | 7 | `prefix:./structured/` | `JsonOutputSchema`, `RegexOutputSchema`, `extractJsonFromMarkdown`, `toSchemaRef` |
-| `deprecated-transitional` | `./vectordb/index.js` | 43 | `prefix:./vectordb/` | `DistanceMetric`, `CollectionConfig`, `VectorEntry`, `VectorQuery` |
+| `deprecated-transitional` | `./structured/index.js` | 8 | `prefix:./structured/` | `JsonOutputSchema`, `RegexOutputSchema`, `extractJsonFromMarkdown`, `extractJsonFromText` |
+| `deprecated-transitional` | `./vectordb/index.js` | 47 | `prefix:./vectordb/` | `DistanceMetric`, `CollectionConfig`, `VectorEntry`, `VectorQuery` |
 | `deprecated-transitional` | `./tools/connector-contract.js` | 5 | `prefix:./tools/` | `BaseConnectorTool`, `BaseConnectorToolLike`, `isBaseConnectorTool`, `normalizeBaseConnectorTool` |
 | `deprecated-transitional` | `./tools/create-tool.js` | 2 | `prefix:./tools/` | `createForgeTool`, `ForgeToolConfig` |
 | `deprecated-transitional` | `./tools/permission-tier.js` | 2 | `prefix:./tools/` | `tierSatisfies`, `PermissionTier` |
 | `deprecated-transitional` | `./tools/tool-stats-tracker.js` | 5 | `prefix:./tools/` | `ToolStatsTracker`, `ToolCallRecord`, `ToolStats`, `ToolRanking` |
 | `deprecated-transitional` | `./tools/tool-governance.js` | 9 | `prefix:./tools/` | `ToolGovernance`, `ToolGovernanceConfig`, `ToolValidationResult`, `ToolAuditHandler` |
 | `deprecated-transitional` | `./tools/human-contact-types.js` | 17 | `prefix:./tools/` | `ContactType`, `ContactChannel`, `ApprovalRequest`, `ClarificationRequest` |
-| `deprecated-transitional` | `./telemetry/trace-propagation.js` | 5 | `prefix:./telemetry/` | `injectTraceContext`, `extractTraceContext`, `formatTraceparent`, `parseTraceparent` |
+| `deprecated-transitional` | `./telemetry/trace-propagation.js` | 7 | `prefix:./telemetry/` | `injectTraceContext`, `extractTraceContext`, `formatTraceparent`, `parseTraceparent` |
 | `deprecated-transitional` | `./utils/logger.js` | 3 | `prefix:./utils/` | `defaultLogger`, `noopLogger`, `FrameworkLogger` |
 | `deprecated-transitional` | `./utils/backoff.js` | 2 | `prefix:./utils/` | `calculateBackoff`, `BackoffConfig` |
 | `deprecated-transitional` | `./utils/hash.js` | 1 | `prefix:./utils/` | `hashToolInput` |
@@ -501,7 +506,7 @@ No stable subpaths configured.
 | `stable` | `./retrieval/graph-search.js` | 2 | `prefix:./retrieval/` | `EntityGraphSearch`, `GraphSearchResult` |
 | `stable` | `./retrieval/persistent-graph.js` | 3 | `prefix:./retrieval/` | `PersistentEntityGraph`, `EntityNode`, `GraphTraversalResult` |
 | `stable` | `./retrieval/rrf-fusion.js` | 2 | `prefix:./retrieval/` | `fusionSearch`, `FusedResult` |
-| `stable` | `./retrieval/adaptive-retriever.js` | 15 | `prefix:./retrieval/` | `AdaptiveRetriever`, `WeightLearner`, `DEFAULT_STRATEGIES`, `classifyIntent` |
+| `stable` | `./retrieval/adaptive-retriever.js` | 16 | `prefix:./retrieval/` | `AdaptiveRetriever`, `WeightLearner`, `DEFAULT_STRATEGIES`, `classifyIntent` |
 | `stable` | `./temporal.js` | 9 | `exact:./temporal.js` | `TemporalMemoryService`, `createTemporalMeta`, `isActive`, `wasActiveAsOf` |
 | `stable` | `./scoped-memory.js` | 6 | `exact:./scoped-memory.js` | `ScopedMemoryService`, `createAgentMemories`, `PolicyTemplates`, `MemoryAccessPolicy` |
 | `stable` | `./retrieval/void-filter.js` | 4 | `prefix:./retrieval/` | `voidFilter`, `MemoryState`, `VoidFilterConfig`, `VoidFilterResult` |
@@ -633,8 +638,8 @@ No stable subpaths configured.
 
 Root index: `packages/agent-adapters/src/index.ts`
 
-- Stable root sources: `15`
-- Deprecated transitional root sources: `87`
+- Stable root sources: `17`
+- Deprecated transitional root sources: `95`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
 
@@ -659,18 +664,26 @@ Root index: `packages/agent-adapters/src/index.ts`
 | --- | --- | ---: | --- | --- |
 | `stable` | `./types.js` | 28 | `exact:./types.js` | `AdapterProviderId`, `AdapterCapabilityProfile`, `AgentInput`, `AgentEvent` |
 | `deprecated-transitional` | `./claude/claude-adapter.js` | 2 | `prefix:./claude/` | `ClaudeAgentAdapter`, `createClaudeAdapter` |
+| `deprecated-transitional` | `./claude/claude-cli-adapter.js` | 4 | `prefix:./claude/` | `ClaudeCliAdapter`, `createClaudeCliAdapter`, `probeClaudeCliAuth`, `ClaudeCliAdapterConfig` |
+| `deprecated-transitional` | `./claude/claude-backend.js` | 2 | `prefix:./claude/` | `createClaudeBackendAdapter`, `ClaudeBackendConfig` |
 | `deprecated-transitional` | `./codex/codex-adapter.js` | 2 | `prefix:./codex/` | `CodexAdapter`, `createCodexAdapter` |
-| `deprecated-transitional` | `./gemini/gemini-adapter.js` | 1 | `prefix:./gemini/` | `GeminiCLIAdapter` |
+| `deprecated-transitional` | `./codex/codex-cli-adapter.js` | 3 | `prefix:./codex/` | `CodexCliAdapter`, `createCodexCliAdapter`, `CodexCliAdapterConfig` |
+| `deprecated-transitional` | `./codex/codex-backend.js` | 2 | `prefix:./codex/` | `createCodexBackendAdapter`, `CodexBackendConfig` |
+| `deprecated-transitional` | `./gemini/gemini-adapter.js` | 3 | `prefix:./gemini/` | `GeminiCLIAdapter`, `createGeminiCliAdapter`, `GeminiCliAdapterConfig` |
 | `deprecated-transitional` | `./gemini/gemini-sdk-adapter.js` | 2 | `prefix:./gemini/` | `GeminiSDKAdapter`, `GeminiSDKAdapterConfig` |
-| `deprecated-transitional` | `./qwen/qwen-adapter.js` | 1 | `prefix:./qwen/` | `QwenAdapter` |
-| `deprecated-transitional` | `./crush/crush-adapter.js` | 1 | `prefix:./crush/` | `CrushAdapter` |
-| `deprecated-transitional` | `./goose/goose-adapter.js` | 1 | `prefix:./goose/` | `GooseAdapter` |
+| `deprecated-transitional` | `./gemini/gemini-backend.js` | 2 | `prefix:./gemini/` | `createGeminiBackendAdapter`, `GeminiBackendConfig` |
+| `deprecated-transitional` | `./qwen/qwen-adapter.js` | 3 | `prefix:./qwen/` | `QwenAdapter`, `createQwenCliAdapter`, `QwenCliAdapterConfig` |
+| `deprecated-transitional` | `./crush/crush-adapter.js` | 3 | `prefix:./crush/` | `CrushAdapter`, `createCrushCliAdapter`, `CrushCliAdapterConfig` |
+| `deprecated-transitional` | `./goose/goose-adapter.js` | 3 | `prefix:./goose/` | `GooseAdapter`, `createGooseCliAdapter`, `GooseCliAdapterConfig` |
+| `deprecated-transitional` | `./ollama/ollama-adapter.js` | 5 | `exact:./ollama/ollama-adapter.js` | `OllamaAdapter`, `createOllamaAdapter`, `resolveLocalModelEndpoint`, `OllamaAdapterConfig` |
 | `deprecated-transitional` | `./openrouter/openrouter-adapter.js` | 2 | `prefix:./openrouter/` | `OpenRouterAdapter`, `OpenRouterConfig` |
 | `deprecated-transitional` | `./openai/openai-adapter.js` | 3 | `prefix:./openai/` | `OpenAIAdapter`, `OpenAIConfig`, `OpenAIRunResult` |
 | `deprecated-transitional` | `./prompts/system-prompt-builder.js` | 9 | `prefix:./prompts/` | `SystemPromptBuilder`, `SystemPromptPayload`, `ClaudeAppendPayload`, `ClaudeReplacePayload` |
 | `deprecated-transitional` | `./prompts/thinking-history.js` | 1 | `prefix:./prompts/` | `stripThinkingBlocks` |
 | `stable` | `./registry/adapter-registry.js` | 4 | `prefix:./registry/` | `ProviderAdapterRegistry`, `ProviderAdapterRegistryConfig`, `ProviderAdapterRegistryHealthStatus`, `ProviderAdapterHealthDetail` |
 | `stable` | `./registry/task-router.js` | 5 | `prefix:./registry/` | `TagBasedRouter`, `CostOptimizedRouter`, `RoundRobinRouter`, `CompositeRouter` |
+| `stable` | `./registry/deterministic-candidate-selector.js` | 6 | `prefix:./registry/` | `classifyRouteTransition`, `planCandidateRecovery`, `selectExecutionRoute`, `CandidateRecoveryAction` |
+| `stable` | `./registry/candidate-materializer.js` | 2 | `prefix:./registry/` | `materializeRoutingCandidates`, `CandidateMaterializationDescriptor` |
 | `stable` | `./registry/learning-router.js` | 2 | `prefix:./registry/` | `LearningRouter`, `LearningRouterConfig` |
 | `stable` | `./registry/event-bus-bridge.js` | 1 | `prefix:./registry/` | `EventBusBridge` |
 | `deprecated-transitional` | `./middleware/memory-enrichment.js` | 7 | `prefix:./middleware/` | `withMemoryEnrichment`, `withHierarchicalMemoryEnrichment`, `MemoryServiceLike`, `MemoryEnrichmentOptions` |
@@ -732,6 +745,8 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./learning/learning-store.js` | 4 | `prefix:./learning/` | `LearningStore`, `LearningSnapshot`, `LearningSnapshotV2`, `migrateLearningSnapshotV1toV2` |
 | `deprecated-transitional` | `./utils/errors.js` | 2 | `prefix:./utils/` | `DzupError`, `DzupErrorOptions` |
 | `deprecated-transitional` | `./utils/process-helpers.js` | 2 | `prefix:./utils/` | `isBinaryAvailable`, `spawnAndStreamJsonl` |
+| `deprecated-transitional` | `./cli-runtime/index.js` | 17 | `exact:./cli-runtime/index.js` | `CleanupRegistry`, `createCliHomeProjection`, `createTemporaryProjection`, `runJsonlProcess` |
+| `deprecated-transitional` | `./controlled-execution/create-controlled-handle.js` | 1 | `exact:./controlled-execution/create-controlled-handle.js` | `createControlledExecutionHandle` |
 | `deprecated-transitional` | `./base/base-cli-adapter.js` | 1 | `prefix:./base/` | `filterSensitiveEnvVars` |
 | `deprecated-transitional` | `./base/stream-runner.js` | 5 | `prefix:./base/` | `AdapterStreamRunner`, `AdapterStreamSource`, `AdapterStreamRunnerConfig`, `StreamContext` |
 | `deprecated-transitional` | `./base/cli-stream-source.js` | 1 | `prefix:./base/` | `CliAdapterStreamSource` |
@@ -795,7 +810,7 @@ No stable subpaths configured.
 
 Root index: `packages/runtime-contracts/src/index.ts`
 
-- Stable root sources: `1`
+- Stable root sources: `4`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Runtime contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules.
@@ -808,7 +823,29 @@ No stable subpaths configured.
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
+| `stable` | `./canonical-execution.js` | 45 | `exact:./canonical-execution.js` | `validateExecutionRouteDecision`, `AdapterRunExecutionRequest`, `AgentExecutionRequest`, `ExecutionArtifactRef` |
+| `stable` | `./canonical-gates.js` | 16 | `exact:./canonical-gates.js` | `validateGateResult`, `GateActor`, `GateActorRequirement`, `GateCheck` |
+| `stable` | `./local-model.js` | 6 | `exact:./local-model.js` | `LocalModelCapabilityProfile`, `LocalModelEndpointDescriptor`, `LocalModelEndpointRejectionCode`, `LocalModelHealthSnapshot` |
 | `stable` | `./idempotency.js` | 2 | `exact:./idempotency.js` | `canonicalInputDigest`, `materializeIdempotencyKey` |
+
+## @dzupagent/execution-contracts
+
+Root index: `packages/execution-contracts/src/index.ts`
+
+- Stable root sources: `1`
+- Deprecated transitional root sources: `0`
+- Internal-only root candidates: `0`
+- Migration window: Execution isolation and qualification contracts are stable at the package root; product identities remain in consuming applications.
+
+### Stable Subpaths
+
+No stable subpaths configured.
+
+### Root Allowlist
+
+| Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
+| --- | --- | ---: | --- | --- |
+| `stable` | `./enforcement-driver.js` | 6 | `exact:./enforcement-driver.js` | `UnsupportedEnforcementDriver`, `ApplyEnforcementParams`, `EnforcementOutcome`, `EnforcementResult` |
 
 ## @dzupagent/dialogue-core
 
@@ -840,7 +877,7 @@ No stable subpaths configured.
 | `stable` | `./types/turn-verb.js` | 2 | `prefix:./types/` | `TURN_VERBS`, `TurnVerb` |
 | `stable` | `./types/validation-spec.js` | 2 | `prefix:./types/` | `SandboxPolicy`, `ValidationSpec` |
 | `stable` | `./run-spec-hash.js` | 4 | `exact:./run-spec-hash.js` | `assertValidRunSpec`, `canonicalizeRunSpec`, `hashRunSpec`, `normalizeRunSpecForHash` |
-| `stable` | `./dialogue-scheduler.js` | 8 | `exact:./dialogue-scheduler.js` | `DialogueScheduler`, `DialogueScheduleItem`, `DialogueSchedulerClock`, `DialogueSchedulerOptions` |
+| `stable` | `./dialogue-scheduler.js` | 16 | `exact:./dialogue-scheduler.js` | `DialogueScheduler`, `DialogueScheduleItem`, `DialogueSchedulerAgentRunContext`, `DialogueSchedulerAgentRunMiddleware` |
 | `stable` | `./scheduler/branch-state.js` | 2 | `prefix:./scheduler/` | `selectBranchPath`, `BranchSelection` |
 | `stable` | `./scheduler/loop-state.js` | 6 | `prefix:./scheduler/` | `advanceLoopState`, `createLoopState`, `evaluateConditionExpression`, `evaluateLoopAdvance` |
 | `stable` | `./scheduler/mode-gate.js` | 3 | `prefix:./scheduler/` | `DELIBERATE_MODE_SKIP_REASON`, `evaluateModeGate`, `ModeGateDecision` |

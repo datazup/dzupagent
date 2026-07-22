@@ -157,6 +157,8 @@ describe("GeminiSDKAdapter", () => {
       supportsResume: false,
       supportsFork: false,
       supportsToolCalls: true,
+      emitsToolCalls: true,
+      executesToolLoop: true,
       supportsStreaming: true,
       supportsCostUsage: true,
       maxContextTokens: 1_000_000,

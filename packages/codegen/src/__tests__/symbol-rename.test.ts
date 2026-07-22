@@ -20,7 +20,7 @@
  * 14. No-op rename — rename to same name → no changes
  * 15. Rename collision — new name already exists → RenameCollisionError
  * 16. Rename report — result includes files changed and per-file count
- * 17. VFSLike wrapper — renameSymbolInVFS mutates vfs in place
+ * 17. renameSymbol paths option — restrict rename to specified files
  * 18. Template literal preservation — name inside `` ` `` not renamed
  * 19. Partial-word preservation — substrings of the name not renamed
  * 20. Edge cases — empty file, single occurrence, identifier at line start
@@ -29,10 +29,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   renameSymbol,
-  renameSymbolInVFS,
   RenameCollisionError,
   type RenameResult,
-  type VFSLike,
 } from "../refactor/symbol-rename.js";
 
 // ---------------------------------------------------------------------------
@@ -41,21 +39,6 @@ import {
 
 function makeFiles(entries: Record<string, string>): Map<string, string> {
   return new Map(Object.entries(entries));
-}
-
-/** Minimal in-memory VFSLike implementation for wrapper tests. */
-function makeVFS(
-  entries: Record<string, string>
-): VFSLike & { snapshot(): Record<string, string> } {
-  const store = new Map(Object.entries(entries));
-  return {
-    list: () => [...store.keys()],
-    read: (p: string) => store.get(p) ?? null,
-    write: (p: string, c: string) => {
-      store.set(p, c);
-    },
-    snapshot: () => Object.fromEntries(store),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -726,39 +709,10 @@ describe("rename report — result structure", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 17. VFSLike wrapper — renameSymbolInVFS
+// 17. renameSymbol paths option — restrict rename to specified files
 // ---------------------------------------------------------------------------
 
-describe("renameSymbolInVFS — in-place mutation", () => {
-  it("mutates the vfs in place and returns report", () => {
-    const vfs = makeVFS({
-      "src/lib.ts": "export function doTask() { return 1; }\n",
-      "src/main.ts": "import { doTask } from './lib';\ndoTask();\n",
-    });
-
-    const result = renameSymbolInVFS(vfs, "doTask", "executeTask");
-    expect(result.filesChanged).toBe(2);
-    expect(vfs.read("src/lib.ts")).toContain("function executeTask");
-    expect(vfs.read("src/main.ts")).toContain("executeTask");
-  });
-
-  it("does not write files that were not changed", () => {
-    const vfs = makeVFS({
-      "src/a.ts": "export function target() {}\n",
-      "src/b.ts": "export const unrelated = 1;\n",
-    });
-
-    const originalB = vfs.read("src/b.ts");
-    renameSymbolInVFS(vfs, "target", "goal");
-    expect(vfs.read("src/b.ts")).toBe(originalB);
-  });
-
-  it("returns filesChanged=0 on no-op rename", () => {
-    const vfs = makeVFS({ "src/x.ts": "export const val = 1;\n" });
-    const result = renameSymbolInVFS(vfs, "val", "val");
-    expect(result.filesChanged).toBe(0);
-  });
-
+describe("renameSymbol — paths restriction", () => {
   it("restricts rename to specified paths option", () => {
     const files = makeFiles({
       "src/a.ts": "export function helper() {}\n",

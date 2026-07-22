@@ -9,6 +9,7 @@
 import type { ComplianceAuditStore } from "@dzupagent/core/security";
 
 import type { ResourceQuotaManager } from "../security/resource-quota.js";
+import type { TenantRunQuota } from "../security/tenant-run-quota.js";
 import type { InputGuardConfig } from "../security/input-guard.js";
 
 /**
@@ -25,6 +26,8 @@ export interface ForgeSecurityConfig {
   disableSafetyMonitor?: boolean;
   /** Per-key resource quota manager (MC-S01). */
   resourceQuota?: ResourceQuotaManager;
+  /** Per-tenant concurrent-run cap. When set, each run-creation request checks the tenant's active count. */
+  tenantRunQuota?: TenantRunQuota;
   /** MC-S03 input guard configuration. Pass `false` to opt out. */
   security?: {
     inputGuard?: InputGuardConfig | false;

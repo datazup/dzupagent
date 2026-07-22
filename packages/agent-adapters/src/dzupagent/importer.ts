@@ -7,6 +7,7 @@
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { reportLoaderFileError } from './loader-error-utils.js'
 import { join } from 'node:path'
 import type { DzupAgentPaths } from '@dzupagent/adapter-types'
 import { sha256 } from './hash-utils.js'
@@ -197,7 +198,12 @@ export class DzupAgentImporter {
         projections: parsed.projections ?? {},
         files: (parsed.files ?? {}) as Record<string, ImportedFileEntry>,
       }
-    } catch {
+    } catch (err) {
+      // ERR-L-05: an absent state file is the normal first-run case (skip to
+      // an empty state), but a CORRUPT state.json (JSON.parse throw) was
+      // previously indistinguishable from absent — log it so the reset is
+      // observable rather than a silent data-loss.
+      reportLoaderFileError('dzupagent-importer', this.paths.stateFile, err)
       return { version: 1, projections: {}, files: {} }
     }
   }

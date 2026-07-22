@@ -403,22 +403,3 @@ export function organizeImports(
 
   return { code: newSource, changed, removed };
 }
-
-/**
- * Organize imports for all TS/JS files in a VFS-like map.
- */
-export function organizeImportsInMap(
-  files: Map<string, string>,
-  options?: OrganizeOptions
-): Map<string, string> {
-  const result = new Map(files);
-  const TS_JS = /\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$/;
-
-  for (const [path, content] of files) {
-    if (!TS_JS.test(path)) continue;
-    const { code } = organizeImports(content, options);
-    result.set(path, code);
-  }
-
-  return result;
-}

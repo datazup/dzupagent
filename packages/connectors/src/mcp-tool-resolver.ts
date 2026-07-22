@@ -10,10 +10,29 @@
  *    refreshed out-of-band via TTL (default 60s) or an explicit
  *    `refreshCatalogue()` call.
  */
-import type { AsyncToolResolver, ResolvedTool } from '@dzupagent/flow-ast'
-import type { MCPClient } from '@dzupagent/core/pipeline'
-import type { McpToolHandle, McpInvocationResult } from '@dzupagent/core/pipeline'
-import type { JSONSchema7 } from 'json-schema'
+import type { AsyncToolResolver, ResolvedTool } from "@dzupagent/flow-ast";
+import type { MCPClient } from "@dzupagent/core/pipeline";
+import type {
+  McpToolHandle,
+  McpInvocationResult,
+} from "@dzupagent/core/pipeline";
+import type { JSONSchema7 } from "json-schema";
+import { PromptInjectionGuard } from "@dzupagent/security";
+
+/**
+ * AGENT-M-16 — shared guard used to fence untrusted MCP server text at the
+ * source. This resolver is a direct-invoke path that bypasses the agent tool
+ * loop's AGENT-H-06 wrap, so without this the injected instructions of a
+ * compromised MCP server would reach the model unmarked. The guard is
+ * stateless; one shared instance is safe. Double-fencing (if the same text
+ * also flows through the tool loop) is idempotent-harmless.
+ *
+ * AGENT-H-07 (arg validation) is enforced centrally in
+ * `MCPClient.invokeTool`, which every path below routes through, so a
+ * schema-mismatched arg is already rejected as an `isError` result before the
+ * transport — the resolver inherits that guarantee.
+ */
+const MCP_RESULT_GUARD = new PromptInjectionGuard();
 
 /** Options for the MCPAsyncToolResolver. */
 export interface MCPAsyncToolResolverOptions {
@@ -22,7 +41,7 @@ export interface MCPAsyncToolResolverOptions {
    * `listAvailable()` is considered stale after this interval and refreshed
    * lazily on the next `resolve()` call. Default: 60_000ms.
    */
-  ttlMs?: number
+  ttlMs?: number;
 }
 
 /**
@@ -34,18 +53,18 @@ export interface MCPAsyncToolResolverOptions {
  * for "did you mean ..." diagnostics do not incur round-trips.
  */
 export class MCPAsyncToolResolver implements AsyncToolResolver {
-  private readonly client: MCPClient
-  private readonly ttlMs: number
-  private cachedRefs: string[] = []
-  private lastRefreshAt = 0
+  private readonly client: MCPClient;
+  private readonly ttlMs: number;
+  private cachedRefs: string[] = [];
+  private lastRefreshAt = 0;
 
   constructor(client: MCPClient, options: MCPAsyncToolResolverOptions = {}) {
-    this.client = client
-    this.ttlMs = options.ttlMs ?? 60_000
+    this.client = client;
+    this.ttlMs = options.ttlMs ?? 60_000;
     // Populate initial catalogue synchronously from whatever the client
     // already has loaded (eager + deferred). Connection / discovery is the
     // caller's responsibility — we never initiate it.
-    this.refreshCatalogue()
+    this.refreshCatalogue();
   }
 
   /**
@@ -54,19 +73,19 @@ export class MCPAsyncToolResolver implements AsyncToolResolver {
    * `connectAll()` when the caller knows new tools are available.
    */
   refreshCatalogue(): void {
-    const refs = new Set<string>()
+    const refs = new Set<string>();
     for (const tool of this.client.getEagerTools()) {
-      refs.add(this.makeRef(tool.serverId, tool.name))
+      refs.add(this.makeRef(tool.serverId, tool.name));
     }
     for (const tool of this.client.getDeferredToolNames()) {
-      refs.add(this.makeRef(tool.serverId, tool.name))
+      refs.add(this.makeRef(tool.serverId, tool.name));
     }
-    this.cachedRefs = Array.from(refs).sort()
-    this.lastRefreshAt = Date.now()
+    this.cachedRefs = Array.from(refs).sort();
+    this.lastRefreshAt = Date.now();
   }
 
   listAvailable(): string[] {
-    return this.cachedRefs.slice()
+    return this.cachedRefs.slice();
   }
 
   async resolve(ref: string): Promise<ResolvedTool | null> {
@@ -74,70 +93,90 @@ export class MCPAsyncToolResolver implements AsyncToolResolver {
     // wire up a background timer.
     if (Date.now() - this.lastRefreshAt >= this.ttlMs) {
       try {
-        this.refreshCatalogue()
+        this.refreshCatalogue();
       } catch (err) {
         // refreshCatalogue itself only reads local state, but surface any
         // unexpected failure as an infra error so the compiler can emit
         // RESOLVER_INFRA_ERROR instead of silently proceeding with stale
         // data.
         throw new Error(
-          `MCPAsyncToolResolver catalogue refresh failed: ${err instanceof Error ? err.message : String(err)}`,
-        )
+          `MCPAsyncToolResolver catalogue refresh failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
       }
     }
 
-    const parsed = this.parseRef(ref)
-    if (!parsed) return null
+    const parsed = this.parseRef(ref);
+    if (!parsed) return null;
 
     // Prefer an exact findTool lookup — it also resolves unqualified names
     // when the MCP catalogue has a single matching tool.
-    const descriptor = this.client.findTool(parsed.toolName)
-    if (!descriptor) return null
-    if (parsed.serverId !== undefined && descriptor.serverId !== parsed.serverId) {
+    const descriptor = this.client.findTool(parsed.toolName);
+    if (!descriptor) return null;
+    if (
+      parsed.serverId !== undefined &&
+      descriptor.serverId !== parsed.serverId
+    ) {
       // Ref qualified a server that does not own this tool — treat as
       // unknown rather than silently collapsing.
-      return null
+      return null;
     }
 
     const handle: McpToolHandle = {
-      kind: 'mcp-tool',
+      kind: "mcp-tool",
       id: this.makeRef(descriptor.serverId, descriptor.name),
       serverId: descriptor.serverId,
       toolName: descriptor.name,
       inputSchema: descriptor.inputSchema as unknown as JSONSchema7,
       invoke: async (input: unknown): Promise<McpInvocationResult> => {
-        const args = (input ?? {}) as Record<string, unknown>
-        let result
+        const args = (input ?? {}) as Record<string, unknown>;
+        let result;
         try {
-          result = await this.client.invokeTool(descriptor.name, args)
+          result = await this.client.invokeTool(descriptor.name, args);
         } catch (err) {
           // MCPClient.invokeTool is documented non-throwing, but we guard
           // anyway so handle consumers get a consistent shape.
           throw new Error(
-            `MCP tool invocation failed: ${err instanceof Error ? err.message : String(err)}`,
-          )
+            `MCP tool invocation failed: ${
+              err instanceof Error ? err.message : String(err)
+            }`
+          );
         }
+        const isError = result.isError === true;
         return {
           content: (result.content ?? []).map((part) => {
-            if (part.type === 'text') {
-              return { type: 'text' as const, value: part.text ?? '' }
+            if (part.type === "text") {
+              const text = part.text ?? "";
+              // AGENT-M-16 — fence untrusted server text so direct-invoke
+              // consumers inherit the same <untrusted_content source=
+              // "tool_result"> boundary the agent tool loop applies via
+              // AGENT-H-06. Error text (framework-generated: validation,
+              // path-escape, transport failure) is surfaced unfenced so
+              // callers can read the structured reason cleanly.
+              return {
+                type: "text" as const,
+                value: isError
+                  ? text
+                  : MCP_RESULT_GUARD.wrap(text, { label: "tool_result" }),
+              };
             }
-            if (part.type === 'image') {
-              return { type: 'image' as const, value: part.data ?? '' }
+            if (part.type === "image") {
+              return { type: "image" as const, value: part.data ?? "" };
             }
-            return { type: 'json' as const, value: part }
+            return { type: "json" as const, value: part };
           }),
-          isError: result.isError === true,
-        }
+          isError,
+        };
       },
-    }
+    };
 
     return {
       ref,
-      kind: 'mcp-tool',
+      kind: "mcp-tool",
       inputSchema: descriptor.inputSchema,
       handle,
-    }
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -145,18 +184,20 @@ export class MCPAsyncToolResolver implements AsyncToolResolver {
   // -------------------------------------------------------------------------
 
   private makeRef(serverId: string, toolName: string): string {
-    return `${serverId}/${toolName}`
+    return `${serverId}/${toolName}`;
   }
 
-  private parseRef(ref: string): { serverId?: string; toolName: string } | null {
-    if (!ref) return null
-    const slash = ref.indexOf('/')
+  private parseRef(
+    ref: string
+  ): { serverId?: string; toolName: string } | null {
+    if (!ref) return null;
+    const slash = ref.indexOf("/");
     if (slash === -1) {
-      return { toolName: ref }
+      return { toolName: ref };
     }
-    const serverId = ref.slice(0, slash)
-    const toolName = ref.slice(slash + 1)
-    if (!serverId || !toolName) return null
-    return { serverId, toolName }
+    const serverId = ref.slice(0, slash);
+    const toolName = ref.slice(slash + 1);
+    if (!serverId || !toolName) return null;
+    return { serverId, toolName };
   }
 }

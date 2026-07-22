@@ -6,13 +6,16 @@ export default defineConfig({
     environment: "node",
     testTimeout: 300_000,
     hookTimeout: 300_000,
-    // singleFork: retained — evals contract tests spin up real in-process
-    // adapters (MockSandbox, InMemoryVectorStore) whose dynamic imports each
-    // take 10-30 s; running N forks in parallel exhausts CI memory and causes
-    // Vitest RPC timeouts observed at >4 parallel workers. Sequential execution
-    // in one fork keeps total wall-clock cost predictable (~90 s max).
+    // TEST-M-09: parallel fork pool (fast unit lane), measured — the previously
+    // asserted singleFork rationale (10-30s dynamic adapter imports exhausting CI
+    // memory / RPC timeouts >4 workers) did NOT reproduce.
+    // Benchmarks (INDICATIVE — dev workstation, Linux 6.17 / Node v22.17, NOT a
+    // CI host; relative, not CI-authoritative), 53 files / 2828 tests:
+    //   - singleFork (old):        10.55s  EXIT 0
+    //   - parallel forks (this):    5.89s  EXIT 0  (~44% faster, all green)
+    // isolate:true (default) still gives each file a fresh module registry, so
+    // cross-file state bleed is not a risk under parallelism.
     pool: "forks",
-    poolOptions: { forks: { singleFork: true } },
     include: ["src/**/*.test.ts", "src/**/*.spec.ts"],
     coverage: {
       provider: "v8",

@@ -72,6 +72,39 @@ test('counts top-level test directory files toward runtime package inventory', (
 });
 
 test('strict mode counts integration-style files under top-level test directories (filename tally only)', () => {
+  // DZUPAGENT-TEST-C-13: the strict-integration gate now applies only to
+  // externalServicePackages (server, rag), so this fixture uses `server`.
+  const repoRoot = makeRepo({
+    packages: {
+      server: {
+        testFiles: ['test/integration/runtime.integration.test.ts'],
+      },
+    },
+  });
+
+  try {
+    const report = runRuntimeTestInventory({ repoRoot, strictIntegration: true });
+    const entry = report.summary.find((row) => row.name === 'server');
+
+    assert.equal(entry?.testCount, 1);
+    assert.equal(entry?.integrationStyleTestCount, 1);
+    // DZUPAGENT-TEST-H-02: an integration-flavoured filename with no real
+    // external-service marker in its contents must NOT count as a true
+    // integration suite, and the strict gate must fail for this
+    // external-service package as a result.
+    assert.equal(entry?.trueIntegrationTestCount, 0);
+    assert.equal(report.exitCode, 1);
+    assert.equal(report.integrationFailing.length, 1);
+    assert.equal(report.integrationFailing[0].name, 'server');
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test('strict mode ignores a runtime-critical package with no external-service surface', () => {
+  // DZUPAGENT-TEST-C-13: `core` is runtime-critical but has no external
+  // service, so a merely integration-flavoured filename must NOT fail the
+  // strict gate (this is the exact case that made the gate unsatisfiable).
   const repoRoot = makeRepo({
     packages: {
       core: {
@@ -84,16 +117,10 @@ test('strict mode counts integration-style files under top-level test directorie
     const report = runRuntimeTestInventory({ repoRoot, strictIntegration: true });
     const entry = report.summary.find((row) => row.name === 'core');
 
-    assert.equal(entry?.testCount, 1);
-    assert.equal(entry?.integrationStyleTestCount, 1);
-    // DZUPAGENT-TEST-H-02: an integration-flavoured filename with no real
-    // external-service marker in its contents must NOT count as a true
-    // integration suite, and the strict gate must fail for this
-    // runtime-critical package as a result.
+    assert.equal(entry?.critical, true);
     assert.equal(entry?.trueIntegrationTestCount, 0);
-    assert.equal(report.exitCode, 1);
-    assert.equal(report.integrationFailing.length, 1);
-    assert.equal(report.integrationFailing[0].name, 'core');
+    assert.equal(report.integrationFailing.length, 0);
+    assert.equal(report.exitCode, 0);
   } finally {
     rmSync(repoRoot, { recursive: true, force: true });
   }
@@ -102,7 +129,7 @@ test('strict mode counts integration-style files under top-level test directorie
 test('strict mode passes when a suite actually references the fail-closed integration gate', () => {
   const repoRoot = makeRepo({
     packages: {
-      core: {
+      server: {
         testFileContents: {
           'src/__tests__/postgres.integration.test.ts': [
             "import { requireIntegration } from '@dzupagent/test-utils'",
@@ -116,7 +143,7 @@ test('strict mode passes when a suite actually references the fail-closed integr
 
   try {
     const report = runRuntimeTestInventory({ repoRoot, strictIntegration: true });
-    const entry = report.summary.find((row) => row.name === 'core');
+    const entry = report.summary.find((row) => row.name === 'server');
 
     assert.equal(entry?.trueIntegrationTestCount, 1);
     assert.equal(report.exitCode, 0);
@@ -129,7 +156,7 @@ test('strict mode passes when a suite actually references the fail-closed integr
 test('strict mode does not count a mocked suite that merely mentions a service name in its filename', () => {
   const repoRoot = makeRepo({
     packages: {
-      core: {
+      server: {
         testFileContents: {
           // Filename looks like a real Postgres integration suite, but the
           // body only uses in-memory/mock fixtures — no fail-closed gate.
@@ -145,7 +172,7 @@ test('strict mode does not count a mocked suite that merely mentions a service n
 
   try {
     const report = runRuntimeTestInventory({ repoRoot, strictIntegration: true });
-    const entry = report.summary.find((row) => row.name === 'core');
+    const entry = report.summary.find((row) => row.name === 'server');
 
     assert.equal(entry?.integrationStyleTestCount, 1, 'filename-based tally still counts it');
     assert.equal(entry?.trueIntegrationTestCount, 0, 'behavior-based tally excludes the mocked suite');

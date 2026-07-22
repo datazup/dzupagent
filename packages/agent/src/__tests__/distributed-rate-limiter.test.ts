@@ -75,6 +75,16 @@ class WaitingLocal implements LocalRateLimiter {
   }
 }
 
+class CapturingLogger {
+  warns: Array<{ message: string; meta: unknown }> = []
+  debug(): void {}
+  info(): void {}
+  warn(message: string, meta?: unknown): void {
+    this.warns.push({ message, meta })
+  }
+  error(): void {}
+}
+
 describe('DistributedRateLimiter', () => {
   let client: MockClient
 
@@ -224,4 +234,40 @@ describe('DistributedRateLimiter', () => {
     client.failAll = true
     await expect(limiter.reset('t', 'a')).resolves.toBeUndefined()
   })
+  it('logs a warn when Redis fails and the limiter fails open (ERR-H-07)', async () => {
+    const logger = new CapturingLogger()
+    const limiter = new DistributedRateLimiter({
+      client,
+      maxRequests: 1,
+      fallbackToLocal: false,
+      logger,
+    })
+    client.failAll = true
+
+    // Fail-open: request still allowed...
+    expect(await limiter.tryConsume('t', 'a')).toBe(true)
+    // ...but the degradation must be observable.
+    const incrWarn = logger.warns.find(
+      (w) => (w.meta as { operation?: string })?.operation === 'ratelimit.redis.incr',
+    )
+    expect(incrWarn).toBeDefined()
+    expect((incrWarn?.meta as { failOpen?: boolean })?.failOpen).toBe(true)
+    const failOpenWarn = logger.warns.find(
+      (w) => (w.meta as { operation?: string })?.operation === 'ratelimit.failOpen',
+    )
+    expect(failOpenWarn).toBeDefined()
+  })
+
+  it('logs a warn when reset() hits a Redis error (ERR-H-07)', async () => {
+    const logger = new CapturingLogger()
+    const limiter = new DistributedRateLimiter({ client, maxRequests: 1, logger })
+    client.failAll = true
+    await limiter.reset('t', 'a')
+    expect(
+      logger.warns.some(
+        (w) => (w.meta as { operation?: string })?.operation === 'ratelimit.redis.del',
+      ),
+    ).toBe(true)
+  })
+
 })

@@ -13,6 +13,7 @@ import {
   flush,
   sequentialIds,
 } from "./helpers.js";
+import { SubagentErrorCode } from "../contracts/error-codes.js";
 
 function setup(
   opts: {
@@ -93,10 +94,16 @@ describe("runtime governance", () => {
     const policy: SpawnPolicy = {
       check: () => ({ allow: false, reason: "nope" }),
     };
-    const { runtime, governance } = setup({ policy });
+    const { runtime, governance, store } = setup({ policy });
     const out = await runtime.spawn({ agentId: "x", input: "go" }, "run-1");
     expect(out).toEqual({ ok: false, reason: "denied", detail: "nope" });
     expect(governance.types()).toContain("governance:rule_violation");
+
+    // ERR-M-06: the persisted record carries a STRUCTURED errorCode, not
+    // just a free-text "policy_denied: ..." prefix a host must parse.
+    const failed = (await store.list({})).find((t) => t.status === "failed");
+    expect(failed?.errorCode).toBe(SubagentErrorCode.POLICY_DENIED);
+    expect(failed?.error).toContain("policy_denied");
   });
 
   it("blocks on approval then admits after grant", async () => {
@@ -144,6 +151,9 @@ describe("runtime governance", () => {
     await flush(10);
     const final = await runtime.check(out.taskId);
     expect(final?.status).toBe("cancelled");
+    // ERR-M-06: structured code so a host branches on errorCode, not the
+    // "approval_rejected: ..." string prefix.
+    expect(final?.errorCode).toBe(SubagentErrorCode.APPROVAL_REJECTED);
   });
 
   it("forces approval when admission-resolved persona constraints require it", async () => {
@@ -324,9 +334,13 @@ describe("runtime orphan reconciliation", () => {
     });
     const reconciled = await runtime.reconcileOrphans();
     expect(reconciled).toEqual(["orphan"]);
-    expect((await store.get("orphan"))?.status).toBe("failed");
-    expect((await store.get("orphan"))?.error).toBe(
-      "orphaned_by_process_restart"
+    const orphan = await store.get("orphan");
+    expect(orphan?.status).toBe("failed");
+    expect(orphan?.error).toBe("orphaned_by_process_restart");
+    // ERR-M-06: reconciled orphans carry a structured errorCode a host can
+    // branch on rather than matching the free-text error string.
+    expect(orphan?.errorCode).toBe(
+      SubagentErrorCode.ORPHANED_BY_PROCESS_RESTART
     );
   });
 });

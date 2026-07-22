@@ -13,6 +13,7 @@
 
 import crypto from 'node:crypto'
 
+import { ForgeError } from '@dzupagent/core/events'
 import type { DzupEvent, DzupEventBus } from '@dzupagent/core/events'
 
 import type { AdapterProviderId } from '../types.js'
@@ -213,7 +214,11 @@ export class WorkflowCheckpointer {
   ): Promise<WorkflowCheckpoint> {
     const workflow = this.workflows.get(workflowId)
     if (!workflow) {
-      throw new Error(`Workflow "${workflowId}" not found. Create it first or resume from a checkpoint.`)
+      throw new ForgeError({
+        code: 'ADAPTER_SESSION_NOT_FOUND',
+        message: `Workflow "${workflowId}" not found. Create it first or resume from a checkpoint.`,
+        context: { workflowId },
+      })
     }
 
     // Build the full step result
@@ -245,7 +250,11 @@ export class WorkflowCheckpointer {
   async checkpoint(workflowId: string): Promise<WorkflowCheckpoint> {
     const workflow = this.workflows.get(workflowId)
     if (!workflow) {
-      throw new Error(`Workflow "${workflowId}" not found.`)
+      throw new ForgeError({
+        code: 'ADAPTER_SESSION_NOT_FOUND',
+        message: `Workflow "${workflowId}" not found.`,
+        context: { workflowId },
+      })
     }
 
     workflow.version += 1
@@ -281,11 +290,14 @@ export class WorkflowCheckpointer {
   async resume(workflowId: string, version?: number): Promise<WorkflowCheckpoint> {
     const checkpoint = await this.store.load(workflowId, version)
     if (!checkpoint) {
-      throw new Error(
-        version !== undefined
-          ? `Checkpoint v${String(version)} not found for workflow "${workflowId}".`
-          : `No checkpoints found for workflow "${workflowId}".`,
-      )
+      throw new ForgeError({
+        code: 'ADAPTER_SESSION_NOT_FOUND',
+        message:
+          version !== undefined
+            ? `Checkpoint v${String(version)} not found for workflow "${workflowId}".`
+            : `No checkpoints found for workflow "${workflowId}".`,
+        context: { workflowId, version },
+      })
     }
 
     this.workflows.set(workflowId, checkpoint)
@@ -310,7 +322,11 @@ export class WorkflowCheckpointer {
   updateState(workflowId: string, state: Record<string, unknown>): void {
     const workflow = this.workflows.get(workflowId)
     if (!workflow) {
-      throw new Error(`Workflow "${workflowId}" not found.`)
+      throw new ForgeError({
+        code: 'ADAPTER_SESSION_NOT_FOUND',
+        message: `Workflow "${workflowId}" not found.`,
+        context: { workflowId },
+      })
     }
     Object.assign(workflow.state, state)
   }

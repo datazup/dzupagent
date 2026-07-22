@@ -279,7 +279,9 @@ async function main() {
       console.error(`  @dzupagent/${result.pkg}:`)
       for (const cycle of result.unexpected) console.error(`    ${cycle}`)
     }
-    console.error('\nBreak the new cycles or add an intentional baseline entry with review context.\n')
+    console.error('\nZero cycles is a HARD invariant — break the new cycles.')
+    console.error('If a cycle is genuinely unavoidable, a baseline entry requires an accepted ADR AND an expiry date (see config/circular-deps-baseline.json $policy).')
+    console.error('Note: `.d.ts` cycles under a package dist/ are reflections of an upstream SOURCE cycle — fix them at the source package, not the consumer.\n')
     process.exit(1)
   }
 

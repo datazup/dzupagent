@@ -27,7 +27,94 @@
  *   const fallbackInput = CrossProviderHandoff.enrichInput(originalInput, partialEvents)
  */
 
+import { PiiDetector } from "@dzupagent/security";
 import type { AgentEvent, AgentInput } from "../types.js";
+
+// ---------------------------------------------------------------------------
+// Sanitization constants (AGENT-M-07)
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum bytes captured per handoff item. A single huge tool result would
+ * otherwise flood the fallback provider's system prompt (cost + context
+ * overflow). ~4KB ≈ ~1000 tokens per item. Content beyond this is truncated
+ * with an explicit `…[truncated N bytes]` marker.
+ */
+const MAX_ITEM_BYTES = 4096;
+
+/**
+ * Canonical secret/PII redactor. `@dzupagent/security`'s `PiiDetector`
+ * (already a direct dependency of this package) covers `sk-…`, JWTs, generic
+ * `api-key`/`token`/`secret`-prefixed values, emails, SSNs, cards, etc. via
+ * `[REDACTED-<TAG>]` markers.
+ */
+const piiDetector = new PiiDetector();
+
+/**
+ * Supplemental secret shapes the security `PiiDetector` does not cover.
+ * Kept in sync with the canonical superset in
+ * `packages/memory/src/write-policy.ts` (`SECRET_PATTERNS`) — memory is NOT a
+ * dependency of agent-adapters, so these few patterns are mirrored locally
+ * rather than imported. If the canonical list grows, mirror it here.
+ */
+const SUPPLEMENTAL_SECRET_PATTERNS: ReadonlyArray<{
+  pattern: RegExp;
+  tag: string;
+}> = [
+  // github personal access token (ghp_… / gho_… / ghs_… etc.)
+  { pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, tag: "GITHUB-TOKEN" },
+  // `api_key = "…"` / `secret-key: …` assignment forms with a long value
+  {
+    pattern:
+      /(?:api[_-]?key|apikey|secret[_-]?key|access[_-]?token)\s*[:=]\s*['"]?[A-Za-z0-9_\-/.]{20,}/gi,
+    tag: "SECRET-ASSIGNMENT",
+  },
+  // PEM private key headers
+  {
+    pattern: /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/g,
+    tag: "PRIVATE-KEY",
+  },
+];
+
+/**
+ * Redact secret-like values from captured content before it is folded into
+ * the fallback provider's prompt. Runs the canonical `PiiDetector` first, then
+ * the supplemental patterns above.
+ */
+function redactSecrets(text: string): string {
+  let out = piiDetector.sanitize(text);
+  for (const { pattern, tag } of SUPPLEMENTAL_SECRET_PATTERNS) {
+    pattern.lastIndex = 0;
+    out = out.replace(pattern, `[REDACTED-${tag}]`);
+  }
+  return out;
+}
+
+/**
+ * Cap a captured item's content to {@link MAX_ITEM_BYTES}, appending an
+ * explicit marker recording how many bytes were dropped.
+ */
+function capBytes(text: string): string {
+  const byteLength = Buffer.byteLength(text, "utf8");
+  if (byteLength <= MAX_ITEM_BYTES) return text;
+  // Truncate on a UTF-8 byte boundary, then note the dropped byte count.
+  const buf = Buffer.from(text, "utf8");
+  let end = MAX_ITEM_BYTES;
+  // Back off so we do not split a multi-byte character (continuation bytes
+  // have the form 10xxxxxx == 0x80..0xBF).
+  while (end > 0 && ((buf[end] ?? 0) & 0xc0) === 0x80) end--;
+  const head = buf.subarray(0, end).toString("utf8");
+  const dropped = byteLength - Buffer.byteLength(head, "utf8");
+  return `${head}…[truncated ${dropped} bytes]`;
+}
+
+/**
+ * Sanitize a captured content string: redact secrets first (so truncation can
+ * never split a redaction marker mid-token), then cap its size.
+ */
+function sanitizeContent(text: string): string {
+  return capBytes(redactSecrets(text));
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,7 +175,11 @@ export class CrossProviderHandoff {
       case "adapter:message": {
         const content = String(event.content ?? "");
         if (content.trim()) {
-          this.items.push({ kind: "message", content });
+          // AGENT-M-07: redact secrets + cap size before storing.
+          this.items.push({
+            kind: "message",
+            content: sanitizeContent(content),
+          });
         }
         break;
       }
@@ -99,7 +190,8 @@ export class CrossProviderHandoff {
           : event.toolName;
         this.items.push({
           kind: "tool_call",
-          content,
+          // AGENT-M-07: tool args may carry secrets / be oversized.
+          content: sanitizeContent(content),
           toolName: event.toolName,
         });
         break;
@@ -110,7 +202,9 @@ export class CrossProviderHandoff {
         if (outputStr.trim()) {
           this.items.push({
             kind: "tool_result",
-            content: outputStr,
+            // AGENT-M-07: a single huge/secret-bearing tool result must not
+            // flood or leak into the fallback provider's system prompt.
+            content: sanitizeContent(outputStr),
             toolName: event.toolName ?? label,
           });
         }
@@ -165,7 +259,7 @@ export class CrossProviderHandoff {
   static enrichInput(
     originalInput: AgentInput,
     events: AgentEvent[],
-    opts?: CrossProviderHandoffOptions,
+    opts?: CrossProviderHandoffOptions
   ): AgentInput {
     const handoff = new CrossProviderHandoff(opts);
     handoff.recordEvents(events);

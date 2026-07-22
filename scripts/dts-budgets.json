@@ -3,18 +3,20 @@
     "@dzupagent/agent": {
       "minDeclarationFiles": 260,
       "minDeclarationBytes": 600000,
-      "maxDeclarationFiles": 360,
-      "maxDeclarationBytes": 800000,
+      "maxDeclarationFiles": 396,
+      "maxDeclarationBytes": 880000,
       "maxDeclarationMapFiles": 0,
-      "maxDeclarationMapBytes": 0
+      "maxDeclarationMapBytes": 0,
+      "$comment": "maxDeclarationFiles re-pinned 360->375 and maxDeclarationBytes 800000->850000 on 2026-07-22 (DZUPAGENT-ARCH-M-06 god-module decomposition, combined-batch verification): the loop-executor.ts (717->24 LOC, commit 1980cee9) and compiled-workflow.ts (685->435 LOC, commit 015febfc) decompositions each split a god-module into per-concern leaf modules, and the earlier pipeline-runtime split (11867db7) landed on the same branch; together they emit more .d.ts leaf files (measured 366 files / 809.4 KiB vs prior 360/781.3 pin). Small headroom above the measured post-decomposition surface; this reflects file-count redistribution from a single large module into leaves, not net new public API. Not a growth license. Re-pinned 375->381 on 2026-07-22 (same ARCH-M-06 track): the delegation.ts (555->178 LOC root) split added src/orchestration/delegation/types.d.ts + lifecycle.d.ts leaf files (measured 379). Same file-count redistribution rationale; not net new public API. Re-pinned 381->384 on 2026-07-22 (same ARCH-M-06 track): the tool-loop/types.ts (535->24 LOC barrel) split added src/agent/tool-loop/types/tracer.d.ts + retry.d.ts + result.d.ts + config.d.ts leaf files (measured 383). Same file-count redistribution rationale; not net new public API. Re-pinned 384->396 files and 850000->880000 bytes on 2026-07-22 (same ARCH-M-06 track, FINAL agent batch — consolidated bump for three concurrent same-package splits): run-reflector.ts (505->174 LOC) added reflection/run-reflector/{types,constants,text-helpers,heuristic-scorers,llm-reflection}.d.ts; recovery-feedback.ts (524->453 LOC) added self-correction/recovery-feedback/{recovery-feedback-types,recovery-feedback-serialization}.d.ts; post-run-analyzer.ts (502->425 LOC) added self-correction/post-run-analyzer/{types,serialization}.d.ts (measured 392 files / 833.9 KiB). Same file-count redistribution rationale; not net new public API. Not a growth license."
     },
     "@dzupagent/agent-adapters": {
       "minDeclarationFiles": 200,
       "minDeclarationBytes": 450000,
-      "maxDeclarationFiles": 275,
+      "maxDeclarationFiles": 310,
       "maxDeclarationBytes": 650000,
       "maxDeclarationMapFiles": 0,
-      "maxDeclarationMapBytes": 0
+      "maxDeclarationMapBytes": 0,
+      "$comment": "maxDeclarationFiles re-pinned 275->290 on 2026-07-22 (audit CI-green pass): agent-adapters source grew to 284 .d.ts files via prior merges (CLI backend adapters, controlled-execution, ollama) after the budget was last pinned \u2014 the overage predates and is independent of the audit-ci-red-fixes branch (284 source files at both a647707a and this branch). Small headroom added; not a growth license. Re-pinned 290->310 on 2026-07-22 (DZUPAGENT-ARCH-M-06, FINAL agent-adapters batch): the src/base/stream-runner.ts (559->314 LOC root) god-module split added three per-concern leaf .d.ts files (base/stream-runner/types.d.ts + audit.d.ts + events.d.ts); a fresh `yarn workspace @dzupagent/agent-adapters build` measured 305 declaration files / 618.9 KiB (the prior 290 pin was measured against a stale dist that predated several already-merged same-day agent-adapters god-module splits, so the true post-split count was ~302 before this batch's +3). File-count redistribution from single large modules into per-concern leaves, not net new public API; bytes stay under the 650000 pin. Not a growth license."
     },
     "@dzupagent/codegen": {
       "minDeclarationFiles": 120,
@@ -27,10 +29,11 @@
     "@dzupagent/server": {
       "minDeclarationFiles": 220,
       "minDeclarationBytes": 450000,
-      "maxDeclarationFiles": 320,
+      "maxDeclarationFiles": 340,
       "maxDeclarationBytes": 760000,
       "maxDeclarationMapFiles": 0,
-      "maxDeclarationMapBytes": 0
+      "maxDeclarationMapBytes": 0,
+      "$comment": "maxDeclarationFiles re-pinned 320->340 on 2026-07-22 (DZUPAGENT-ARCH-M-06 god-module decomposition, FINAL @dzupagent/server batch): the composition/optional-routes.ts (562->172 LOC root) split added six src/composition/optional-routes/*.d.ts leaf files (context/data-routes/evaluation-routes/config-store-routes/messaging-routes/compat-routes), and the same-day sibling composition/middleware.ts, composition/types.ts, schedules/schedule-store.ts, and runtime/dzip-agent-run-executor.ts splits on this branch each emitted their own per-concern leaf .d.ts files (measured 336 files). Small headroom above the measured post-decomposition surface; this reflects file-count redistribution from large modules into leaves, not net new public API. Not a growth license."
     }
   }
 }

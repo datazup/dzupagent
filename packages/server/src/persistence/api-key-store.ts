@@ -8,13 +8,13 @@
  * Validation hashes the submitted key and looks up the row by `key_hash`,
  * rejecting revoked/expired rows and updating `last_used_at` on success.
  */
-import { createHash, randomBytes } from 'node:crypto'
-import { and, desc, eq, isNull } from 'drizzle-orm'
-import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
-import type { DzupEventBus } from '@dzupagent/core/events'
-import { apiKeys } from './drizzle-schema.js'
+import { createHash, randomBytes } from "node:crypto";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { DzupEventBus } from "@dzupagent/core/events";
+import { apiKeys } from "./drizzle-schema.js";
 
-type DB = PostgresJsDatabase<Record<string, never>>
+type DB = PostgresJsDatabase<Record<string, never>>;
 
 /**
  * Public representation of an API key record.
@@ -23,26 +23,26 @@ type DB = PostgresJsDatabase<Record<string, never>>
  * what API key management endpoints return.
  */
 export interface ApiKeyRecord {
-  id: string
-  ownerId: string
-  name: string | null
-  rateLimitTier: string
-  /** MC-S02: RBAC role. Defaults to `'user'`. */
-  role: string
+  id: string;
+  ownerId: string;
+  name: string | null;
+  rateLimitTier: string;
+  /** MC-S02: RBAC role (a valid ForgeRole). Defaults to `'viewer'` (SEC-H-01). */
+  role: string;
   /** MC-S02: Tenant scope. Defaults to `'default'`. */
-  tenantId: string
-  createdAt: Date
-  expiresAt: Date | null
-  revokedAt: Date | null
-  lastUsedAt: Date | null
-  metadata: Record<string, unknown>
+  tenantId: string;
+  createdAt: Date;
+  expiresAt: Date | null;
+  revokedAt: Date | null;
+  lastUsedAt: Date | null;
+  metadata: Record<string, unknown>;
 }
 
 /** Result returned by `create()` — the raw key is shown exactly once. */
 export interface CreateApiKeyResult {
   /** Raw API key (hex, 64 chars). Shown exactly once. */
-  key: string
-  record: ApiKeyRecord
+  key: string;
+  record: ApiKeyRecord;
 }
 
 /**
@@ -51,14 +51,14 @@ export interface CreateApiKeyResult {
  * Exported for testing — production callers should not need it directly.
  */
 export function hashApiKey(rawKey: string): string {
-  return createHash('sha256').update(rawKey).digest('hex')
+  return createHash("sha256").update(rawKey).digest("hex");
 }
 
 /**
  * Generate a cryptographically-random 32-byte API key encoded as hex (64 chars).
  */
 export function generateRawApiKey(): string {
-  return randomBytes(32).toString('hex')
+  return randomBytes(32).toString("hex");
 }
 
 /**
@@ -67,7 +67,7 @@ export function generateRawApiKey(): string {
 export class PostgresApiKeyStore {
   constructor(
     private readonly db: DB,
-    private readonly eventBus?: DzupEventBus,
+    private readonly eventBus?: DzupEventBus
   ) {}
 
   /**
@@ -79,23 +79,23 @@ export class PostgresApiKeyStore {
   async create(
     ownerId: string,
     name: string,
-    tier: string = 'standard',
+    tier: string = "standard",
     options?: {
-      expiresAt?: Date | null
-      expiresIn?: number
-      metadata?: Record<string, unknown>
-      /** MC-S02: RBAC role for this key. Defaults to `'user'`. */
-      role?: string
+      expiresAt?: Date | null;
+      expiresIn?: number;
+      metadata?: Record<string, unknown>;
+      /** MC-S02: RBAC role for this key (should be a valid ForgeRole). Defaults to `'viewer'` (SEC-H-01). */
+      role?: string;
       /** MC-S02: Tenant scope. Defaults to `'default'`. */
-      tenantId?: string
-    },
+      tenantId?: string;
+    }
   ): Promise<CreateApiKeyResult> {
-    const rawKey = generateRawApiKey()
-    const keyHash = hashApiKey(rawKey)
+    const rawKey = generateRawApiKey();
+    const keyHash = hashApiKey(rawKey);
 
-    let expiresAt = options?.expiresAt ?? null
+    let expiresAt = options?.expiresAt ?? null;
     if (expiresAt === null && options?.expiresIn != null) {
-      expiresAt = new Date(Date.now() + options.expiresIn * 1000)
+      expiresAt = new Date(Date.now() + options.expiresIn * 1000);
     }
 
     const rows = await this.db
@@ -105,21 +105,30 @@ export class PostgresApiKeyStore {
         ownerId,
         name,
         rateLimitTier: tier,
-        role: options?.role ?? 'user',
-        tenantId: options?.tenantId ?? 'default',
+        // SEC-H-01: default to the least-privileged VALID ForgeRole. 'user' is
+        // NOT a ForgeRole ('admin'|'operator'|'viewer'|'agent'), so it produced
+        // undefined RBAC behaviour. Callers that need a different role must pass
+        // an explicit, validated ForgeRole.
+        role: options?.role ?? "viewer",
+        tenantId: options?.tenantId ?? "default",
         expiresAt,
         metadata: options?.metadata ?? {},
       })
-      .returning()
+      .returning();
 
-    const row = rows[0]
+    const row = rows[0];
     if (!row) {
-      throw new Error('Failed to create API key: no row returned')
+      throw new Error("Failed to create API key: no row returned");
     }
 
-    const record = this.toRecord(row)
-    this.eventBus?.emit({ type: 'api-key:created', id: record.id, ownerId, tier })
-    return { key: rawKey, record }
+    const record = this.toRecord(row);
+    this.eventBus?.emit({
+      type: "api-key:created",
+      id: record.id,
+      ownerId,
+      tier,
+    });
+    return { key: rawKey, record };
   }
 
   /**
@@ -129,23 +138,23 @@ export class PostgresApiKeyStore {
    * revoked, or expired. Updates `lastUsedAt` on successful validation.
    */
   async validate(rawKey: string): Promise<ApiKeyRecord | null> {
-    if (!rawKey) return null
-    const keyHash = hashApiKey(rawKey)
+    if (!rawKey) return null;
+    const keyHash = hashApiKey(rawKey);
 
     const rows = await this.db
       .select()
       .from(apiKeys)
       .where(eq(apiKeys.keyHash, keyHash))
-      .limit(1)
+      .limit(1);
 
-    const row = rows[0]
-    if (!row) return null
+    const row = rows[0];
+    if (!row) return null;
 
-    if (row.revokedAt) return null
+    if (row.revokedAt) return null;
 
-    const now = new Date()
+    const now = new Date();
     if (row.expiresAt && row.expiresAt.getTime() <= now.getTime()) {
-      return null
+      return null;
     }
 
     // Update lastUsedAt — non-critical; swallow errors silently so a failing
@@ -154,14 +163,19 @@ export class PostgresApiKeyStore {
       await this.db
         .update(apiKeys)
         .set({ lastUsedAt: now })
-        .where(eq(apiKeys.id, row.id))
+        .where(eq(apiKeys.id, row.id));
     } catch {
       // ignore
     }
 
-    const record = this.toRecord({ ...row, lastUsedAt: now })
-    this.eventBus?.emit({ type: 'api-key:validated', id: record.id, ownerId: record.ownerId, tier: record.rateLimitTier })
-    return record
+    const record = this.toRecord({ ...row, lastUsedAt: now });
+    this.eventBus?.emit({
+      type: "api-key:validated",
+      id: record.id,
+      ownerId: record.ownerId,
+      tier: record.rateLimitTier,
+    });
+    return record;
   }
 
   /**
@@ -173,10 +187,14 @@ export class PostgresApiKeyStore {
       .update(apiKeys)
       .set({ revokedAt: new Date() })
       .where(and(eq(apiKeys.id, id), isNull(apiKeys.revokedAt)))
-      .returning({ id: apiKeys.id, ownerId: apiKeys.ownerId })
-    const row = rows[0]
+      .returning({ id: apiKeys.id, ownerId: apiKeys.ownerId });
+    const row = rows[0];
     if (row) {
-      this.eventBus?.emit({ type: 'api-key:revoked', id: row.id, ownerId: row.ownerId })
+      this.eventBus?.emit({
+        type: "api-key:revoked",
+        id: row.id,
+        ownerId: row.ownerId,
+      });
     }
   }
 
@@ -188,9 +206,9 @@ export class PostgresApiKeyStore {
       .select()
       .from(apiKeys)
       .where(eq(apiKeys.ownerId, ownerId))
-      .orderBy(desc(apiKeys.createdAt))
+      .orderBy(desc(apiKeys.createdAt));
 
-    return rows.map((row) => this.toRecord(row))
+    return rows.map((row) => this.toRecord(row));
   }
 
   /**
@@ -201,9 +219,9 @@ export class PostgresApiKeyStore {
       .select()
       .from(apiKeys)
       .where(eq(apiKeys.id, id))
-      .limit(1)
-    const row = rows[0]
-    return row ? this.toRecord(row) : null
+      .limit(1);
+    const row = rows[0];
+    return row ? this.toRecord(row) : null;
   }
 
   private toRecord(row: typeof apiKeys.$inferSelect): ApiKeyRecord {
@@ -212,13 +230,13 @@ export class PostgresApiKeyStore {
       ownerId: row.ownerId,
       name: row.name,
       rateLimitTier: row.rateLimitTier,
-      role: (row as unknown as { role?: string }).role ?? 'user',
-      tenantId: (row as unknown as { tenantId?: string }).tenantId ?? 'default',
+      role: (row as unknown as { role?: string }).role ?? "viewer",
+      tenantId: (row as unknown as { tenantId?: string }).tenantId ?? "default",
       createdAt: row.createdAt,
       expiresAt: row.expiresAt,
       revokedAt: row.revokedAt,
       lastUsedAt: row.lastUsedAt,
       metadata: (row.metadata as Record<string, unknown>) ?? {},
-    }
+    };
   }
 }

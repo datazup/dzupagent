@@ -619,7 +619,27 @@ export {
   isBinaryAvailable,
   spawnAndStreamJsonl,
 } from "./utils/process-helpers.js";
-export * from "./cli-runtime/index.js";
+export {
+  CleanupRegistry,
+  createCliHomeProjection,
+  createTemporaryProjection,
+  runJsonlProcess,
+  DEFAULT_CLI_RUNTIME_LIMITS,
+} from "./cli-runtime/index.js";
+export type {
+  TemporaryProjection,
+  TemporaryProjectionFile,
+  CliHomeBaseProfileInput,
+  CliHomeGeneratedFile,
+  CliHomeProjection,
+  CliHomeProjectionSpecification,
+  CliRunSpecification,
+  CliRuntimeDependencies,
+  CliRuntimeDiagnostic,
+  CliRuntimeLimits,
+  CliStdoutMode,
+  MalformedLinePolicy,
+} from "./cli-runtime/index.js";
 export { createControlledExecutionHandle } from "./controlled-execution/create-controlled-handle.js";
 export { filterSensitiveEnvVars } from "./base/base-cli-adapter.js";
 export { AdapterStreamRunner } from "./base/stream-runner.js";

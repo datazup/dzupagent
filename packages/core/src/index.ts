@@ -1105,6 +1105,7 @@ export {
   JsonOutputSchema,
   RegexOutputSchema,
   extractJsonFromMarkdown,
+  extractJsonFromText,
   toSchemaRef,
   createZodStructuredValidator,
 } from "./structured/index.js";
@@ -1276,6 +1277,8 @@ export {
   extractTraceContext,
   formatTraceparent,
   parseTraceparent,
+  generateTraceId,
+  generateSpanId,
 } from "./telemetry/trace-propagation.js";
 export type { TraceContext } from "./telemetry/trace-propagation.js";
 

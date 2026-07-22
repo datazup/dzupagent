@@ -52,6 +52,16 @@ class MockClient implements CostLedgerClient {
   }
 }
 
+class CapturingLogger {
+  warns: Array<{ message: string; meta: unknown }> = []
+  debug(): void {}
+  info(): void {}
+  warn(message: string, meta?: unknown): void {
+    this.warns.push({ message, meta })
+  }
+  error(): void {}
+}
+
 describe('DistributedCostLedger', () => {
   let client: MockClient
 
@@ -188,4 +198,37 @@ describe('DistributedCostLedger', () => {
     // Local mirror should still report the last-known total.
     expect(await ledger.read('t', 'a')).toBeCloseTo(0.5)
   })
+  it('warns and reports the LOCAL total when Redis fails on record (ERR-H-08)', async () => {
+    const logger = new CapturingLogger()
+    const ledger = new DistributedCostLedger({
+      client,
+      maxCostUsd: 10,
+      fallbackToLocal: true,
+      logger,
+    })
+    client.failAll = true
+
+    const result = await ledger.record('t', 'a', 2.5)
+    // Degraded to per-process local total (not zero, not Redis).
+    expect(result.totalCostUsd).toBe(2.5)
+    const warn = logger.warns.find(
+      (w) => (w.meta as { operation?: string })?.operation === 'budget.redis.incrByFloat',
+    )
+    expect(warn).toBeDefined()
+    expect((warn?.meta as { capEnforced?: boolean })?.capEnforced).toBe(false)
+    expect((warn?.meta as { degradedToLocal?: boolean })?.degradedToLocal).toBe(true)
+  })
+
+  it('warns when reset() hits a Redis error (ERR-H-08)', async () => {
+    const logger = new CapturingLogger()
+    const ledger = new DistributedCostLedger({ client, maxCostUsd: 10, logger })
+    client.failAll = true
+    await ledger.reset('t', 'a')
+    expect(
+      logger.warns.some(
+        (w) => (w.meta as { operation?: string })?.operation === 'budget.redis.del',
+      ),
+    ).toBe(true)
+  })
+
 })

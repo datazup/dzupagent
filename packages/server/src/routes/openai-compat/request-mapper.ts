@@ -24,7 +24,6 @@
  *   `mapResponseWithTools()` builder.
  */
 import { z } from "zod";
-import { defaultLogger } from "@dzupagent/core/utils";
 import type { BaseMessage } from "@langchain/core/messages";
 import type {
   ChatCompletionRequest,
@@ -306,18 +305,17 @@ export function serverError(message: string): OpenAIErrorResponse {
 }
 
 // ---------------------------------------------------------------------------
-// RF-4 (CODE-H-01/H-02, SEC-L-01): Zod schema for the OpenAI Chat Completions
+// RF-4 (CODE-H-01/H-02): Zod schema for the OpenAI Chat Completions
 // request. Replaces the hand-rolled validator with a single declarative parse
 // that covers content (string|null), tool_calls structure, and the sampling
 // option bounds (temperature 0-2, max_tokens > 0, stop bounds).
 //
-// Sampling-options decision (SEC-L-01): `temperature`, `max_tokens`, and `stop`
-// are accepted and bounds-validated, but they are NOT yet threaded into the
-// agent's GenerateOptions (that is RF-2a scope). To avoid silently breaking
-// OpenAI clients that always send these fields, we take the SIMPLER PATH and
-// STRIP them with a one-line warning log rather than rejecting with a 400.
-// `mapRequest` still surfaces them on `options` for forward-compatibility, but
-// the completions route does not act on them today.
+// Sampling-options decision (RF-2a / CODE-H-02): `temperature`, `max_tokens`,
+// and `stop` are accepted, bounds-validated, and now THREADED into the agent's
+// `GenerateOptions` — `mapRequest` surfaces them on `options` and the
+// completions route forwards them to `agent.generate`/`agent.stream`, where the
+// run engine binds them onto the model before invocation. They are no longer
+// stripped with a warning.
 // ---------------------------------------------------------------------------
 
 const toolCallSchema = z.object({
@@ -348,20 +346,6 @@ const chatCompletionRequestSchema = z.object({
   // OpenAI caps `stop` at 4 sequences; each must be a non-empty-ish string.
   stop: z.union([z.string(), z.array(z.string()).min(1).max(4)]).optional(),
 });
-
-const SAMPLING_OPTION_KEYS = ["temperature", "max_tokens", "stop"] as const;
-
-/** Sampling fields are validated then stripped with a warning. See decision above. */
-function warnIfSamplingOptionsPresent(req: ChatCompletionRequest): void {
-  const present = SAMPLING_OPTION_KEYS.filter((k) => req[k] !== undefined);
-  if (present.length > 0) {
-    defaultLogger.warn(
-      `[ForgeServer] OpenAI-compat: sampling option(s) ${present.join(
-        ", "
-      )} are accepted and validated but not yet applied to generation (stripped); see RF-2a.`
-    );
-  }
-}
 
 /**
  * Map a single Zod issue to the OpenAI `param` path string.
@@ -438,8 +422,7 @@ export function validateCompletionRequest(
   }
 
   const request = parsed.data as ChatCompletionRequest;
-  // SEC-L-01: validated above; not applied to generation yet — warn + strip.
-  warnIfSamplingOptionsPresent(request);
-
+  // CODE-H-02: sampling options are validated above and threaded through to
+  // generation by the completions route — no longer stripped.
   return { ok: true, request };
 }

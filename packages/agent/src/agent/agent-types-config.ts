@@ -21,7 +21,7 @@ import type {
   TokenBucketConfig,
 } from '@dzupagent/core/llm'
 import type { DzupEventBus } from '@dzupagent/core/events'
-import type { AgentHooks } from '@dzupagent/core'
+import type { AgentHooks } from '@dzupagent/core/orchestration'
 import type { DzupRunStateStore } from '@dzupagent/core/persistence'
 import type { PermissionTier } from '@dzupagent/core/tools'
 import type { MessageManagerConfig, ConversationPhase } from '@dzupagent/context'

@@ -3,7 +3,7 @@
  *
  * The existing agent-file/__tests__/agent-file.test.ts covers basic happy-path
  * scenarios. This file targets:
- *   - Exporter edge cases (empty stores, getNamespaceNames fallback to nsMap,
+ *   - Exporter edge cases (empty stores, namespace discovery via getNamespaceNames,
  *     state-only exports, prompts-only exports, signature determinism)
  *   - Importer validation edge cases (signature when no signature supplied,
  *     deep-merge corner cases, namespace filter excluding all)
@@ -28,7 +28,7 @@ import type { MemoryProvenance } from '../provenance/types.js'
 
 type RecordStore = Map<string, Map<string, Record<string, unknown>>>
 
-function createMock(namespaces: string[], opts?: { useGetNamespaceNames?: boolean }): {
+function createMock(namespaces: string[]): {
   service: MemoryService
   records: RecordStore
 } {
@@ -64,10 +64,7 @@ function createMock(namespaces: string[], opts?: { useGetNamespaceNames?: boolea
     ),
     search: vi.fn().mockResolvedValue([]),
     formatForPrompt: vi.fn().mockReturnValue(''),
-  }
-
-  if (opts?.useGetNamespaceNames !== false) {
-    base['getNamespaceNames'] = vi.fn().mockImplementation(() => Array.from(nsMap.keys()))
+    getNamespaceNames: vi.fn().mockImplementation(() => Array.from(nsMap.keys())),
   }
 
   return { service: base as unknown as MemoryService, records }
@@ -117,8 +114,8 @@ function validFile(overrides: Partial<AgentFile> = {}): AgentFile {
 // ===========================================================================
 
 describe('AgentFileExporter — namespace discovery', () => {
-  it('falls back to nsMap when getNamespaceNames is absent', async () => {
-    const mock = createMock(['decisions', 'lessons'], { useGetNamespaceNames: false })
+  it('discovers namespaces via the getNamespaceNames accessor', async () => {
+    const mock = createMock(['decisions', 'lessons'])
     seed(mock.records, 'decisions', SCOPE, 'd1', { _key: 'd1', text: 'A' })
 
     const exp = new AgentFileExporter({
@@ -154,24 +151,6 @@ describe('AgentFileExporter — namespace discovery', () => {
     })
     const file = await exp.export()
     // No records seeded => no entries
-    expect(file.memory.namespaces).toEqual({})
-  })
-
-  it('returns empty namespaces array when nsMap is not a Map and no getNamespaceNames', async () => {
-    const svc = {
-      put: vi.fn(),
-      get: vi.fn().mockResolvedValue([]),
-      search: vi.fn(),
-      formatForPrompt: vi.fn().mockReturnValue(''),
-      // intentionally no nsMap, no getNamespaceNames
-    } as unknown as MemoryService
-    const exp = new AgentFileExporter({
-      memoryService: svc,
-      agentName: AGENT_NAME,
-      agentUri: AGENT_URI,
-      scope: SCOPE,
-    })
-    const file = await exp.export()
     expect(file.memory.namespaces).toEqual({})
   })
 })

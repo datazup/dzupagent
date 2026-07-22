@@ -16,7 +16,8 @@
  * @module self-correction/adaptive-prompt-enricher
  */
 
-import type { BaseStore } from '@langchain/langgraph'
+import type { BaseStore } from "@langchain/langgraph";
+import { CHARS_PER_TOKEN, estimateTokens } from "./cost.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,46 +26,46 @@ import type { BaseStore } from '@langchain/langgraph'
 /** Formatted enrichment result ready to prepend to a system prompt. */
 export interface PromptEnrichment {
   /** Formatted prompt section to prepend to system prompt */
-  content: string
+  content: string;
   /** Number of items injected */
-  itemCount: number
+  itemCount: number;
   /** Sources used */
-  sources: string[]
+  sources: string[];
   /** Estimated token count (chars/4) */
-  estimatedTokens: number
+  estimatedTokens: number;
 }
 
 /** Configuration for the AdaptivePromptEnricher. */
 export interface EnricherConfig {
   /** Store for reading enrichment data */
-  store: BaseStore
+  store: BaseStore;
   /** Max total tokens for enrichment (default: 1000) */
-  maxTokenBudget?: number
+  maxTokenBudget?: number;
   /** Namespaces for different data sources */
   namespaces?: {
-    lessons?: string[]
-    rules?: string[]
-    trajectories?: string[]
-    errors?: string[]
-  }
+    lessons?: string[];
+    rules?: string[];
+    trajectories?: string[];
+    errors?: string[];
+  };
   /** Max items per source (default: 5) */
-  maxItemsPerSource?: number
+  maxItemsPerSource?: number;
 }
 
 /** Parameters for the enrich method. */
 export interface EnrichParams {
-  nodeId: string
-  taskType?: string
-  riskClass?: string
+  nodeId: string;
+  taskType?: string;
+  riskClass?: string;
   /** Current run context (e.g., feature name, tech stack) */
-  context?: Record<string, string>
+  context?: Record<string, string>;
 }
 
 /** Parameters for the enrichWithBudget method. */
 export interface EnrichWithBudgetParams {
-  nodeId: string
-  taskType?: string
-  tokenBudget: number
+  nodeId: string;
+  taskType?: string;
+  tokenBudget: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,23 +73,19 @@ export interface EnrichWithBudgetParams {
 // ---------------------------------------------------------------------------
 
 interface EnrichmentSection {
-  heading: string
-  items: string[]
-  source: string
+  heading: string;
+  items: string[];
+  source: string;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4)
-}
-
 function truncateToTokenBudget(text: string, maxTokens: number): string {
-  const maxChars = maxTokens * 4
-  if (text.length <= maxChars) return text
-  return text.slice(0, maxChars).trimEnd()
+  const maxChars = maxTokens * CHARS_PER_TOKEN;
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars).trimEnd();
 }
 
 // ---------------------------------------------------------------------------
@@ -100,26 +97,26 @@ function truncateToTokenBudget(text: string, maxTokens: number): string {
  * it into a markdown prompt enrichment section for a specific pipeline node.
  */
 export class AdaptivePromptEnricher {
-  private readonly store: BaseStore
-  private readonly maxTokenBudget: number
-  private readonly maxItemsPerSource: number
+  private readonly store: BaseStore;
+  private readonly maxTokenBudget: number;
+  private readonly maxItemsPerSource: number;
   private readonly namespaces: {
-    lessons: string[]
-    rules: string[]
-    trajectories: string[]
-    errors: string[]
-  }
+    lessons: string[];
+    rules: string[];
+    trajectories: string[];
+    errors: string[];
+  };
 
   constructor(config: EnricherConfig) {
-    this.store = config.store
-    this.maxTokenBudget = config.maxTokenBudget ?? 1000
-    this.maxItemsPerSource = config.maxItemsPerSource ?? 5
+    this.store = config.store;
+    this.maxTokenBudget = config.maxTokenBudget ?? 1000;
+    this.maxItemsPerSource = config.maxItemsPerSource ?? 5;
     this.namespaces = {
-      lessons: config.namespaces?.lessons ?? ['lessons'],
-      rules: config.namespaces?.rules ?? ['rules'],
-      trajectories: config.namespaces?.trajectories ?? ['trajectories'],
-      errors: config.namespaces?.errors ?? ['errors'],
-    }
+      lessons: config.namespaces?.lessons ?? ["lessons"],
+      rules: config.namespaces?.rules ?? ["rules"],
+      trajectories: config.namespaces?.trajectories ?? ["trajectories"],
+      errors: config.namespaces?.errors ?? ["errors"],
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -131,15 +128,27 @@ export class AdaptivePromptEnricher {
    * Combines lessons, rules, baselines, and warnings.
    */
   async enrich(params: EnrichParams): Promise<PromptEnrichment> {
-    return this.buildEnrichment(params.nodeId, params.taskType, this.maxTokenBudget, params.riskClass, params.context)
+    return this.buildEnrichment(
+      params.nodeId,
+      params.taskType,
+      this.maxTokenBudget,
+      params.riskClass,
+      params.context
+    );
   }
 
   /**
    * Build enrichment for a node, respecting an explicit token budget.
    * Prioritizes: rules > warnings > lessons > baselines
    */
-  async enrichWithBudget(params: EnrichWithBudgetParams): Promise<PromptEnrichment> {
-    return this.buildEnrichment(params.nodeId, params.taskType, params.tokenBudget)
+  async enrichWithBudget(
+    params: EnrichWithBudgetParams
+  ): Promise<PromptEnrichment> {
+    return this.buildEnrichment(
+      params.nodeId,
+      params.taskType,
+      params.tokenBudget
+    );
   }
 
   // -------------------------------------------------------------------------
@@ -151,7 +160,7 @@ export class AdaptivePromptEnricher {
     taskType: string | undefined,
     tokenBudget: number,
     riskClass?: string,
-    context?: Record<string, string>,
+    context?: Record<string, string>
   ): Promise<PromptEnrichment> {
     // Gather all sections in parallel
     const [rules, errors, lessons, baselines] = await Promise.all([
@@ -159,45 +168,45 @@ export class AdaptivePromptEnricher {
       this.fetchErrors(nodeId),
       this.fetchLessons(nodeId, taskType, riskClass, context),
       this.fetchBaselines(nodeId, taskType),
-    ])
+    ]);
 
     // Priority ordering: rules > warnings > lessons > baselines
-    const sections: EnrichmentSection[] = []
-    if (rules.items.length > 0) sections.push(rules)
-    if (errors.items.length > 0) sections.push(errors)
-    if (lessons.items.length > 0) sections.push(lessons)
-    if (baselines.items.length > 0) sections.push(baselines)
+    const sections: EnrichmentSection[] = [];
+    if (rules.items.length > 0) sections.push(rules);
+    if (errors.items.length > 0) sections.push(errors);
+    if (lessons.items.length > 0) sections.push(lessons);
+    if (baselines.items.length > 0) sections.push(baselines);
 
     if (sections.length === 0) {
-      return { content: '', itemCount: 0, sources: [], estimatedTokens: 0 }
+      return { content: "", itemCount: 0, sources: [], estimatedTokens: 0 };
     }
 
     // Build markdown
-    const parts: string[] = ['## Generation Context (from past runs)', '']
-    let totalItems = 0
-    const sources: string[] = []
+    const parts: string[] = ["## Generation Context (from past runs)", ""];
+    let totalItems = 0;
+    const sources: string[] = [];
 
     for (const section of sections) {
-      parts.push(`### ${section.heading}`)
+      parts.push(`### ${section.heading}`);
       for (const item of section.items) {
-        parts.push(`- ${item}`)
-        totalItems++
+        parts.push(`- ${item}`);
+        totalItems++;
       }
-      parts.push('')
-      sources.push(section.source)
+      parts.push("");
+      sources.push(section.source);
     }
 
-    let content = parts.join('\n').trimEnd()
+    let content = parts.join("\n").trimEnd();
 
     // Truncate if exceeding budget
-    content = truncateToTokenBudget(content, tokenBudget)
+    content = truncateToTokenBudget(content, tokenBudget);
 
     return {
       content,
       itemCount: totalItems,
       sources,
-      estimatedTokens: estimateTokens(content),
-    }
+      estimatedTokens: estimateTokens(content.length),
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -206,161 +215,186 @@ export class AdaptivePromptEnricher {
 
   private async fetchRules(
     nodeId: string,
-    taskType?: string,
+    taskType?: string
   ): Promise<EnrichmentSection> {
-    const items: string[] = []
+    const items: string[] = [];
     try {
       const results = await this.store.search(this.namespaces.rules, {
         limit: this.maxItemsPerSource * 3,
-      })
+      });
 
       for (const item of results) {
-        if (items.length >= this.maxItemsPerSource) break
-        const value = item.value as Record<string, unknown>
+        if (items.length >= this.maxItemsPerSource) break;
+        const value = item.value as Record<string, unknown>;
 
         // Filter: rule must apply to this node (scope contains nodeId or is global)
-        const scope = value['scope']
+        const scope = value["scope"];
         if (scope !== undefined && scope !== null) {
-          if (typeof scope === 'string' && !scope.includes(nodeId) && scope !== '*') continue
-          if (Array.isArray(scope) && !(scope as string[]).includes(nodeId) && !(scope as string[]).includes('*')) continue
+          if (
+            typeof scope === "string" &&
+            !scope.includes(nodeId) &&
+            scope !== "*"
+          )
+            continue;
+          if (
+            Array.isArray(scope) &&
+            !(scope as string[]).includes(nodeId) &&
+            !(scope as string[]).includes("*")
+          )
+            continue;
         }
 
         // Optionally filter by taskType
-        if (taskType && value['taskType'] && value['taskType'] !== taskType) continue
+        if (taskType && value["taskType"] && value["taskType"] !== taskType)
+          continue;
 
-        const text = typeof value['text'] === 'string'
-          ? value['text']
-          : typeof value['content'] === 'string'
-            ? value['content']
-            : typeof value['rule'] === 'string'
-              ? value['rule']
-              : null
+        const text =
+          typeof value["text"] === "string"
+            ? value["text"]
+            : typeof value["content"] === "string"
+            ? value["content"]
+            : typeof value["rule"] === "string"
+            ? value["rule"]
+            : null;
 
-        if (text) items.push(text)
+        if (text) items.push(text);
       }
     } catch {
       // Store may be empty or unavailable
     }
 
-    return { heading: 'Rules (must follow)', items, source: 'rules' }
+    return { heading: "Rules (must follow)", items, source: "rules" };
   }
 
   private async fetchErrors(nodeId: string): Promise<EnrichmentSection> {
-    const items: string[] = []
+    const items: string[] = [];
     try {
       const results = await this.store.search(this.namespaces.errors, {
         limit: this.maxItemsPerSource * 3,
-      })
+      });
 
       for (const item of results) {
-        if (items.length >= this.maxItemsPerSource) break
-        const value = item.value as Record<string, unknown>
+        if (items.length >= this.maxItemsPerSource) break;
+        const value = item.value as Record<string, unknown>;
 
         // Filter: error must be for this node
-        if (value['nodeId'] && value['nodeId'] !== nodeId) continue
+        if (value["nodeId"] && value["nodeId"] !== nodeId) continue;
 
-        const text = typeof value['text'] === 'string'
-          ? value['text']
-          : typeof value['summary'] === 'string'
-            ? value['summary']
-            : typeof value['message'] === 'string'
-              ? value['message']
-              : null
+        const text =
+          typeof value["text"] === "string"
+            ? value["text"]
+            : typeof value["summary"] === "string"
+            ? value["summary"]
+            : typeof value["message"] === "string"
+            ? value["message"]
+            : null;
 
-        if (text) items.push(text)
+        if (text) items.push(text);
       }
     } catch {
       // Store may be empty or unavailable
     }
 
-    return { heading: 'Warnings (avoid past mistakes)', items, source: 'errors' }
+    return {
+      heading: "Warnings (avoid past mistakes)",
+      items,
+      source: "errors",
+    };
   }
 
   private async fetchLessons(
     nodeId: string,
     taskType?: string,
     _riskClass?: string,
-    _context?: Record<string, string>,
+    _context?: Record<string, string>
   ): Promise<EnrichmentSection> {
-    const items: string[] = []
+    const items: string[] = [];
     try {
       const results = await this.store.search(this.namespaces.lessons, {
         limit: this.maxItemsPerSource * 3,
-      })
+      });
 
       for (const item of results) {
-        if (items.length >= this.maxItemsPerSource) break
-        const value = item.value as Record<string, unknown>
+        if (items.length >= this.maxItemsPerSource) break;
+        const value = item.value as Record<string, unknown>;
 
         // Filter by nodeId if present
-        if (value['nodeId'] && value['nodeId'] !== nodeId) continue
+        if (value["nodeId"] && value["nodeId"] !== nodeId) continue;
 
         // Filter by taskType if present
-        if (taskType && value['taskType'] && value['taskType'] !== taskType) continue
+        if (taskType && value["taskType"] && value["taskType"] !== taskType)
+          continue;
 
-        const text = typeof value['text'] === 'string'
-          ? value['text']
-          : typeof value['summary'] === 'string'
-            ? value['summary']
-            : typeof value['content'] === 'string'
-              ? value['content']
-              : null
+        const text =
+          typeof value["text"] === "string"
+            ? value["text"]
+            : typeof value["summary"] === "string"
+            ? value["summary"]
+            : typeof value["content"] === "string"
+            ? value["content"]
+            : null;
 
-        if (!text) continue
+        if (!text) continue;
 
         // Include confidence if available
-        const confidence = typeof value['confidence'] === 'number'
-          ? value['confidence']
-          : null
+        const confidence =
+          typeof value["confidence"] === "number" ? value["confidence"] : null;
 
         if (confidence !== null) {
-          items.push(`[${Math.round(confidence * 100)}%] ${text}`)
+          items.push(`[${Math.round(confidence * 100)}%] ${text}`);
         } else {
-          items.push(text)
+          items.push(text);
         }
       }
     } catch {
       // Store may be empty or unavailable
     }
 
-    return { heading: 'Lessons (guidance)', items, source: 'lessons' }
+    return { heading: "Lessons (guidance)", items, source: "lessons" };
   }
 
   private async fetchBaselines(
     nodeId: string,
-    _taskType?: string,
+    _taskType?: string
   ): Promise<EnrichmentSection> {
-    const items: string[] = []
+    const items: string[] = [];
     try {
-      const ns = [...this.namespaces.trajectories, 'steps', nodeId]
+      const ns = [...this.namespaces.trajectories, "steps", nodeId];
       const results = await this.store.search(ns, {
         limit: 100,
-      })
+      });
 
       if (results.length === 0) {
-        return { heading: 'Quality Expectations', items: [], source: 'trajectories' }
+        return {
+          heading: "Quality Expectations",
+          items: [],
+          source: "trajectories",
+        };
       }
 
       // Compute average quality score
-      const scores: number[] = []
+      const scores: number[] = [];
       for (const item of results) {
-        const value = item.value as Record<string, unknown>
+        const value = item.value as Record<string, unknown>;
         // Optionally filter by taskType via runId cross-reference — skip for now
         // since trajectory steps don't always carry taskType
-        const score = typeof value['qualityScore'] === 'number'
-          ? value['qualityScore']
-          : null
-        if (score !== null) scores.push(score)
+        const score =
+          typeof value["qualityScore"] === "number"
+            ? value["qualityScore"]
+            : null;
+        if (score !== null) scores.push(score);
       }
 
       if (scores.length > 0) {
-        const avg = scores.reduce((a, b) => a + b, 0) / scores.length
-        items.push(`Historical average score for this node: ${avg.toFixed(2)}/1.0`)
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        items.push(
+          `Historical average score for this node: ${avg.toFixed(2)}/1.0`
+        );
       }
     } catch {
       // Store may be empty or unavailable
     }
 
-    return { heading: 'Quality Expectations', items, source: 'trajectories' }
+    return { heading: "Quality Expectations", items, source: "trajectories" };
   }
 }

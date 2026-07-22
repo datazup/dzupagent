@@ -296,11 +296,34 @@ export class AdapterRecoveryCopilot {
       const partialEvents: AgentEvent[] = []
       try {
         const { adapter } = this.handler.routeForAttempt(trace.traceId, attempt, state, effectiveTask)
+        // Mirror the non-stream guard in `collectAdapterOutput`: a generator that
+        // completes without throwing is NOT necessarily a success. Track whether a
+        // terminal event (adapter:completed / assistant message) was seen and
+        // whether the adapter emitted `adapter:failed` mid-stream.
+        let didComplete = false
+        let didFail = false
         for await (const event of adapter.execute(state.currentInput)) {
           partialEvents.push(event)
           this._traceCapture.recordEvent(trace.traceId, event)
+          if (event.type === 'adapter:completed') didComplete = true
+          if (event.type === 'adapter:message' && event.role === 'assistant') didComplete = true
+          if (event.type === 'adapter:failed') didFail = true
           yield event
         }
+
+        // A generator that signalled failure (or never produced a terminal event)
+        // must NOT record provider success — that corrupts the circuit-breaker/
+        // health EMA and routes future traffic to a broken provider. Throw so the
+        // failure path below advances the recovery strategy / throws
+        // ALL_ADAPTERS_EXHAUSTED, exactly as a thrown adapter error would.
+        if (didFail || !didComplete) {
+          throw new Error(
+            didFail
+              ? 'Adapter emitted adapter:failed without throwing — treating as failure'
+              : 'Adapter completed without emitting a terminal event (adapter:completed or assistant message)',
+          )
+        }
+
         this.registry.recordSuccess(adapter.providerId)
         this._traceCapture.completeTrace(trace.traceId)
         return

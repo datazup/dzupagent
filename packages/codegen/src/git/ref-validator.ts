@@ -129,11 +129,3 @@ export function validateRefName(
     )
   }
 }
-
-/**
- * Convenience wrapper that returns the branded value rather than asserting.
- */
-export function asRefName(name: string, kind: GitRefKind): GitRefName {
-  validateRefName(name, kind)
-  return name
-}

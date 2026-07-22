@@ -11,7 +11,10 @@
  * The heavier sub-routines (retry/backoff, fork/branch fan-out, loop
  * handling, side-effect bookkeeping, standard-node dispatch) live in the
  * `pipeline-runtime/` subdirectory so this file stays focused on the
- * dispatch flow.
+ * dispatch flow. Checkpoint writing (the version-bump → build → save →
+ * snapshot → retention → emit sequence) lives in
+ * `pipeline-runtime/checkpoint-writer.ts`; the pure event/state serialization
+ * helpers it uses live in `pipeline-runtime/checkpoint-serialization.ts`.
  *
  * @module pipeline/pipeline-executor
  */
@@ -19,12 +22,6 @@
 import type {
   PipelineNode,
   PipelineEdge,
-  PipelineCheckpoint,
-  PipelineCheckpointEventRecord,
-  PipelineCheckpointExecutionLog,
-  PipelineCheckpointProviderSessionRef,
-  PipelineCheckpointRetentionPolicy,
-  PipelineCheckpointStore,
   ForkNode,
   JoinNode,
   LoopNode,
@@ -38,9 +35,7 @@ import type {
 } from "./pipeline-runtime-types.js";
 import {
   pipelineCompletedEvent,
-  pipelineFailedEvent,
   pipelineSuspendedEvent,
-  checkpointSavedEvent,
 } from "./pipeline-runtime/runtime-events.js";
 import {
   getNextNodeIds,
@@ -48,16 +43,18 @@ import {
   findJoinNode,
 } from "./pipeline-runtime/edge-resolution.js";
 import { extractErrorCode } from "./pipeline-runtime/error-classification.js";
-import { createPipelineCheckpoint } from "./pipeline-runtime/checkpoint-helpers.js";
+import { writeCheckpoint } from "./pipeline-runtime/checkpoint-writer.js";
+import {
+  dispatchForkStage,
+  dispatchLoopStage,
+  type StageContext,
+  type RunFrame,
+} from "./pipeline-runtime/stage-dispatch.js";
 import {
   nodeIdempotencyKey,
   nodeIdempotencyContext,
 } from "./pipeline-runtime/idempotency.js";
 import { type BudgetTrackerState } from "./pipeline-runtime/iteration-budget-tracker.js";
-import { handleFork as handleForkNode } from "./pipeline-runtime/fork-branch-executor.js";
-import type { BranchExecutionResult } from "./pipeline-runtime/branch-merge.js";
-import { handleLoop as handleLoopNode } from "./pipeline-runtime/loop-node-handler.js";
-import type { LoopResumeOptions } from "./loop-executor.js";
 import { type RecoveryCounter } from "./pipeline-runtime/node-side-effects.js";
 import {
   dispatchStandardNode,
@@ -86,35 +83,11 @@ export interface PipelineExecutorCoordinator {
 /**
  * Inputs threaded through the executor for a single run. Mirrors the
  * private state previously held inline on `PipelineRuntime`'s
- * `executeFromNode`.
+ * `executeFromNode`. Extends the per-run {@link RunFrame} with the entry
+ * node id.
  */
-export interface ExecuteFromNodeInput {
+export interface ExecuteFromNodeInput extends RunFrame {
   startNodeId: string;
-  runId: string;
-  runState: Record<string, unknown>;
-  nodeResults: Map<string, NodeResult>;
-  completedNodeIds: string[];
-  /** Stable `nodeId` → idempotency key map for completed nodes (W5). */
-  nodeIdempotencyKeys: Record<string, string>;
-  /** Per-loop-node iteration cursor for durable loop resume (W3). */
-  loopState: Record<string, { iteration: number }>;
-  /** Per-fork branch progress for durable fork/branch resume (W4). */
-  forkState: Record<
-    string,
-    {
-      branches: Record<
-        string,
-        {
-          stateDelta: Record<string, unknown>;
-          nodeResults: Record<string, unknown>;
-        }
-      >;
-    }
-  >;
-  /** Runtime events captured by PipelineRuntime when checkpoint/log policy asks for them. */
-  eventLog: PipelineRuntimeEvent[];
-  versionTracker: { version: number };
-  startTime: number;
 }
 
 export class PipelineExecutor {
@@ -140,18 +113,10 @@ export class PipelineExecutor {
   async executeFromNode(
     input: ExecuteFromNodeInput
   ): Promise<PipelineRunResult> {
-    const {
-      runId,
-      runState,
-      nodeResults,
-      completedNodeIds,
-      nodeIdempotencyKeys,
-      loopState,
-      forkState,
-      eventLog,
-      versionTracker,
-      startTime,
-    } = input;
+    // `ExecuteFromNodeInput extends RunFrame`, so the input already carries
+    // the per-run frame (all fields are references, as before).
+    const frame: RunFrame = input;
+    const { runId, runState, nodeResults, forkState, startTime } = frame;
     let currentNodeId: string | undefined = input.startNodeId;
 
     while (currentNodeId) {
@@ -176,12 +141,12 @@ export class PipelineExecutor {
       // Skip already-completed nodes (for resume) — EXCEPT a fork node that is
       // still mid-flight (its forkState entry survives). Such a fork was pushed
       // to completedNodeIds when it first started, but on resume it must re-enter
-      // dispatchFork to restore completed branches and re-run unfinished ones.
-      // dispatchFork clears forkState[forkId] once the fork+join complete, so
-      // later passes over the fork node skip normally.
+      // dispatchForkStage to restore completed branches and re-run unfinished
+      // ones. dispatchForkStage clears forkState[forkId] once the fork+join
+      // complete, so later passes over the fork node skip normally.
       const isMidFlightFork =
         node.type === "fork" && forkState[node.forkId] !== undefined;
-      if (completedNodeIds.includes(currentNodeId) && !isMidFlightFork) {
+      if (frame.completedNodeIds.includes(currentNodeId) && !isMidFlightFork) {
         currentNodeId = this.next(currentNodeId, runState);
         continue;
       }
@@ -191,34 +156,15 @@ export class PipelineExecutor {
         node.type === "suspend" ||
         (node.type === "gate" && node.gateType === "approval")
       ) {
-        return this.handleSuspend(
-          node.id,
-          runId,
-          runState,
-          nodeResults,
-          completedNodeIds,
-          nodeIdempotencyKeys,
-          loopState,
-          forkState,
-          eventLog,
-          versionTracker,
-          startTime
-        );
+        return this.handleSuspend(node.id, frame);
       }
 
       // Fork: execute branches in parallel, then continue from join
       if (node.type === "fork") {
-        const forkOutcome = await this.dispatchFork(
+        const forkOutcome = await dispatchForkStage(
+          this.stageContext(),
           node as ForkNode,
-          runId,
-          runState,
-          nodeResults,
-          completedNodeIds,
-          nodeIdempotencyKeys,
-          loopState,
-          forkState,
-          eventLog,
-          versionTracker
+          frame
         );
         currentNodeId = forkOutcome.nextNodeId;
         continue;
@@ -226,18 +172,10 @@ export class PipelineExecutor {
 
       // Loop: delegate to loop handler, then route success/error
       if (node.type === "loop") {
-        const loopOutcome = await this.dispatchLoop(
+        const loopOutcome = await dispatchLoopStage(
+          this.stageContext(),
           node as LoopNode,
-          runId,
-          runState,
-          nodeResults,
-          completedNodeIds,
-          nodeIdempotencyKeys,
-          loopState,
-          forkState,
-          eventLog,
-          versionTracker,
-          startTime
+          frame
         );
         if (loopOutcome.kind === "return") return loopOutcome.value;
         currentNodeId = loopOutcome.nextNodeId;
@@ -245,19 +183,7 @@ export class PipelineExecutor {
       }
 
       // Standard node — full retry/recovery/side-effect dispatch
-      const outcome = await this.dispatchNode(
-        node,
-        runId,
-        runState,
-        nodeResults,
-        completedNodeIds,
-        nodeIdempotencyKeys,
-        loopState,
-        forkState,
-        eventLog,
-        versionTracker,
-        startTime
-      );
+      const outcome = await this.dispatchNode(node, frame);
       if (outcome.kind === "return") return outcome.value;
       if (outcome.kind === "rethrow") throw outcome.error;
       currentNodeId = outcome.nextNodeId;
@@ -274,30 +200,32 @@ export class PipelineExecutor {
   // Per-node-type dispatch
   // ---------------------------------------------------------------------------
 
+  /**
+   * Build the dependency bag that the extracted fork/loop stage executors use
+   * to reach back into this executor's private helpers.
+   */
+  private stageContext(): StageContext {
+    return {
+      config: this.config,
+      nodeMap: this.nodeMap,
+      saveCheckpoint: (frame) => this.saveCheckpoint(frame),
+      next: (nodeId, runState) => this.next(nodeId, runState),
+      recordIdempotencyKey: (keys, runId, node) =>
+        this.recordIdempotencyKey(keys, runId, node),
+      errorEdgeFor: (nodeId, error) => this.errorEdgeFor(nodeId, error),
+      forkDeps: (runId) => this.forkDeps(runId),
+      emit: this.emit.bind(this),
+      setState: (next) => this.coordinator.setState(next),
+      runResult: (runId, state, nodeResults, totalDurationMs) =>
+        this.runResult(runId, state, nodeResults, totalDurationMs),
+    };
+  }
+
   private dispatchNode(
     node: PipelineNode,
-    runId: string,
-    runState: Record<string, unknown>,
-    nodeResults: Map<string, NodeResult>,
-    completedNodeIds: string[],
-    nodeIdempotencyKeys: Record<string, string>,
-    loopState: Record<string, { iteration: number }>,
-    forkState: Record<
-      string,
-      {
-        branches: Record<
-          string,
-          {
-            stateDelta: Record<string, unknown>;
-            nodeResults: Record<string, unknown>;
-          }
-        >;
-      }
-    >,
-    eventLog: PipelineRuntimeEvent[],
-    versionTracker: { version: number },
-    startTime: number
+    frame: RunFrame
   ): Promise<StandardNodeOutcome> {
+    const { runId, runState, nodeResults, completedNodeIds } = frame;
     // Compute the canonical key ONCE per dispatch (N3b): the same value is
     // exposed to the node via context and recorded on completion. Recomputing
     // at record time would risk drift if the node mutated state, so the
@@ -320,211 +248,11 @@ export class PipelineExecutor {
       // Stable idempotency key exposed to the node + recorded on completion.
       idempotencyKey,
       onCompleted: () => {
-        nodeIdempotencyKeys[node.id] = idempotencyKey;
+        frame.nodeIdempotencyKeys[node.id] = idempotencyKey;
       },
-      startTime,
-      saveCheckpoint: () =>
-        this.saveCheckpoint(
-          runId,
-          runState,
-          nodeResults,
-          completedNodeIds,
-          nodeIdempotencyKeys,
-          loopState,
-          forkState,
-          eventLog,
-          versionTracker
-        ),
+      startTime: frame.startTime,
+      saveCheckpoint: () => this.saveCheckpoint(frame),
     });
-  }
-
-  private async dispatchFork(
-    forkNode: ForkNode,
-    runId: string,
-    runState: Record<string, unknown>,
-    nodeResults: Map<string, NodeResult>,
-    completedNodeIds: string[],
-    nodeIdempotencyKeys: Record<string, string>,
-    loopState: Record<string, { iteration: number }>,
-    forkState: Record<
-      string,
-      {
-        branches: Record<
-          string,
-          {
-            stateDelta: Record<string, unknown>;
-            nodeResults: Record<string, unknown>;
-          }
-        >;
-      }
-    >,
-    eventLog: PipelineRuntimeEvent[],
-    versionTracker: { version: number }
-  ): Promise<{ nextNodeId: string | undefined }> {
-    const forkId = forkNode.forkId;
-
-    // Restore branches that completed before a crash (W4): rehydrate each saved
-    // nodeResults object back into a Map for the merge.
-    const saved = forkState[forkId]?.branches ?? {};
-    const completedBranches: Record<string, BranchExecutionResult> = {};
-    for (const [branchStartId, entry] of Object.entries(saved)) {
-      completedBranches[branchStartId] = {
-        state: "completed",
-        stateDelta: entry.stateDelta,
-        nodeResults: new Map(
-          Object.entries(entry.nodeResults) as [string, NodeResult][]
-        ),
-        completedNodeIds: [],
-      };
-    }
-
-    await handleForkNode(
-      this.forkDeps(runId),
-      forkNode,
-      runState,
-      nodeResults,
-      completedNodeIds,
-      {
-        completedBranches,
-        onBranchComplete: async (branchStartId, result) => {
-          const bucket = (forkState[forkId] ??= { branches: {} });
-          bucket.branches[branchStartId] = {
-            stateDelta: result.stateDelta,
-            nodeResults: Object.fromEntries(result.nodeResults),
-          };
-          await this.saveCheckpoint(
-            runId,
-            runState,
-            nodeResults,
-            completedNodeIds,
-            nodeIdempotencyKeys,
-            loopState,
-            forkState,
-            eventLog,
-            versionTracker
-          );
-        },
-      }
-    );
-
-    delete forkState[forkId];
-    const joinNode = findJoinNode(forkId, this.config.definition.nodes);
-    if (joinNode) {
-      completedNodeIds.push(joinNode.id);
-      this.recordIdempotencyKey(nodeIdempotencyKeys, runId, joinNode);
-      await this.saveCheckpoint(
-        runId,
-        runState,
-        nodeResults,
-        completedNodeIds,
-        nodeIdempotencyKeys,
-        loopState,
-        forkState,
-        eventLog,
-        versionTracker
-      );
-      return { nextNodeId: this.next(joinNode.id, runState) };
-    }
-    return { nextNodeId: undefined };
-  }
-
-  private async dispatchLoop(
-    loopNode: LoopNode,
-    runId: string,
-    runState: Record<string, unknown>,
-    nodeResults: Map<string, NodeResult>,
-    completedNodeIds: string[],
-    nodeIdempotencyKeys: Record<string, string>,
-    loopState: Record<string, { iteration: number }>,
-    forkState: Record<
-      string,
-      {
-        branches: Record<
-          string,
-          {
-            stateDelta: Record<string, unknown>;
-            nodeResults: Record<string, unknown>;
-          }
-        >;
-      }
-    >,
-    eventLog: PipelineRuntimeEvent[],
-    versionTracker: { version: number },
-    startTime: number
-  ): Promise<
-    | { kind: "continue"; nextNodeId: string | undefined }
-    | { kind: "return"; value: PipelineRunResult }
-  > {
-    // Durable loop resume (W3): start from the persisted cursor (if any) and
-    // checkpoint the cursor + accumulated state after every iteration so a
-    // crash resumes mid-loop instead of restarting at iteration 0.
-    const resumeFrom = loopState[loopNode.id]?.iteration ?? 0;
-    const loopResume: LoopResumeOptions = {
-      startIteration: resumeFrom,
-      onIterationComplete: async (completedIterations) => {
-        loopState[loopNode.id] = { iteration: completedIterations };
-        await this.saveCheckpoint(
-          runId,
-          runState,
-          nodeResults,
-          completedNodeIds,
-          nodeIdempotencyKeys,
-          loopState,
-          forkState,
-          eventLog,
-          versionTracker
-        );
-      },
-    };
-
-    const loopResult = await handleLoopNode(
-      {
-        config: this.config,
-        nodeMap: this.nodeMap,
-        emit: this.emit.bind(this),
-      },
-      loopNode,
-      runState,
-      nodeResults,
-      loopResume
-    );
-
-    if (loopResult.error) {
-      const errorNext = this.errorEdgeFor(loopNode.id, loopResult.error);
-      if (errorNext) {
-        nodeResults.set(loopNode.id, loopResult);
-        return { kind: "continue", nextNodeId: errorNext };
-      }
-      this.coordinator.setState("failed");
-      nodeResults.set(loopNode.id, loopResult);
-      this.emit(pipelineFailedEvent(runId, loopResult.error));
-      return {
-        kind: "return",
-        value: this.runResult(
-          runId,
-          "failed",
-          nodeResults,
-          Date.now() - startTime
-        ),
-      };
-    }
-    // Loop finished — clear its cursor so resume does not treat it as mid-flight.
-    delete loopState[loopNode.id];
-    nodeResults.set(loopNode.id, loopResult);
-    completedNodeIds.push(loopNode.id);
-    this.recordIdempotencyKey(nodeIdempotencyKeys, runId, loopNode);
-    await this.saveCheckpoint(
-      runId,
-      runState,
-      nodeResults,
-      completedNodeIds,
-      nodeIdempotencyKeys,
-      loopState,
-      forkState,
-      eventLog,
-      versionTracker
-    );
-    return { kind: "continue", nextNodeId: this.next(loopNode.id, runState) };
   }
 
   // ---------------------------------------------------------------------------
@@ -533,72 +261,34 @@ export class PipelineExecutor {
 
   async handleSuspend(
     nodeId: string,
-    runId: string,
-    runState: Record<string, unknown>,
-    nodeResults: Map<string, NodeResult>,
-    completedNodeIds: string[],
-    nodeIdempotencyKeys: Record<string, string>,
-    loopState: Record<string, { iteration: number }>,
-    forkState: Record<
-      string,
-      {
-        branches: Record<
-          string,
-          {
-            stateDelta: Record<string, unknown>;
-            nodeResults: Record<string, unknown>;
-          }
-        >;
-      }
-    >,
-    eventLog: PipelineRuntimeEvent[],
-    versionTracker: { version: number },
-    startTime: number
+    frame: RunFrame
   ): Promise<PipelineRunResult> {
     this.coordinator.setState("suspended");
     this.emit(pipelineSuspendedEvent(nodeId));
 
     if (this.config.checkpointStore) {
-      versionTracker.version++;
-      const savedEvent = checkpointSavedEvent(runId, versionTracker.version);
-      const executionLog = checkpointExecutionLog(
-        this.config,
-        eventLog,
-        savedEvent,
-      );
-      const checkpoint: PipelineCheckpoint = createPipelineCheckpoint({
-        pipelineRunId: runId,
-        pipelineId: this.config.definition.id,
-        version: versionTracker.version,
-        completedNodeIds,
-        nodeIdempotencyKeys,
-        loopState,
-        forkState,
-        events: checkpointEvents(this.config, eventLog, savedEvent),
-        executionLog,
-        providerSessionRefs: checkpointProviderSessionRefs(
-          this.config,
-          nodeResults,
-        ),
-        state: runState,
-        suspendedAtNodeId: nodeId,
+      await writeCheckpoint({
+        config: this.config,
+        runId: frame.runId,
+        runState: frame.runState,
+        nodeResults: frame.nodeResults,
+        completedNodeIds: frame.completedNodeIds,
+        nodeIdempotencyKeys: frame.nodeIdempotencyKeys,
+        loopState: frame.loopState,
+        forkState: frame.forkState,
+        eventLog: frame.eventLog,
+        versionTracker: frame.versionTracker,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
+        suspendedAtNodeId: nodeId,
+        emit: this.emit.bind(this),
       });
-      await this.config.checkpointStore.save(checkpoint);
-      await appendExecutionLogSnapshot(this.config, checkpoint);
-      await applyCheckpointRetention(
-        this.config.checkpointStore,
-        runId,
-        this.config.definition.checkpoint?.retention,
-      );
-      this.emit(savedEvent);
     }
 
     return this.runResult(
-      runId,
+      frame.runId,
       "suspended",
-      nodeResults,
-      Date.now() - startTime
+      frame.nodeResults,
+      Date.now() - frame.startTime
     );
   }
 
@@ -651,28 +341,7 @@ export class PipelineExecutor {
     };
   }
 
-  private async saveCheckpoint(
-    runId: string,
-    runState: Record<string, unknown>,
-    nodeResults: Map<string, NodeResult>,
-    completedNodeIds: string[],
-    nodeIdempotencyKeys: Record<string, string>,
-    loopState: Record<string, { iteration: number }>,
-    forkState: Record<
-      string,
-      {
-        branches: Record<
-          string,
-          {
-            stateDelta: Record<string, unknown>;
-            nodeResults: Record<string, unknown>;
-          }
-        >;
-      }
-    >,
-    eventLog: PipelineRuntimeEvent[],
-    versionTracker: { version: number }
-  ): Promise<void> {
+  private async saveCheckpoint(frame: RunFrame): Promise<void> {
     const strategy = this.config.definition.checkpointStrategy;
     if (
       !this.config.checkpointStore ||
@@ -684,38 +353,20 @@ export class PipelineExecutor {
     }
 
     if (strategy === "after_each_node") {
-      versionTracker.version++;
-      const savedEvent = checkpointSavedEvent(runId, versionTracker.version);
-      const executionLog = checkpointExecutionLog(
-        this.config,
-        eventLog,
-        savedEvent,
-      );
-      const checkpoint: PipelineCheckpoint = createPipelineCheckpoint({
-        pipelineRunId: runId,
-        pipelineId: this.config.definition.id,
-        version: versionTracker.version,
-        completedNodeIds,
-        nodeIdempotencyKeys,
-        loopState,
-        forkState,
-        events: checkpointEvents(this.config, eventLog, savedEvent),
-        executionLog,
-        providerSessionRefs: checkpointProviderSessionRefs(
-          this.config,
-          nodeResults,
-        ),
-        state: runState,
+      await writeCheckpoint({
+        config: this.config,
+        runId: frame.runId,
+        runState: frame.runState,
+        nodeResults: frame.nodeResults,
+        completedNodeIds: frame.completedNodeIds,
+        nodeIdempotencyKeys: frame.nodeIdempotencyKeys,
+        loopState: frame.loopState,
+        forkState: frame.forkState,
+        eventLog: frame.eventLog,
+        versionTracker: frame.versionTracker,
         recoveryAttemptsUsed: this.coordinator.getRecoveryAttemptsUsed(),
+        emit: this.emit.bind(this),
       });
-      await this.config.checkpointStore.save(checkpoint);
-      await appendExecutionLogSnapshot(this.config, checkpoint);
-      await applyCheckpointRetention(
-        this.config.checkpointStore,
-        runId,
-        this.config.definition.checkpoint?.retention,
-      );
-      this.emit(savedEvent);
     }
   }
 
@@ -748,111 +399,5 @@ export class PipelineExecutor {
 
   private emit(event: PipelineRuntimeEvent): void {
     this.config.onEvent?.(event);
-  }
-}
-
-function checkpointEvents(
-  config: PipelineRuntimeConfig,
-  eventLog: PipelineRuntimeEvent[],
-  savedEvent: PipelineRuntimeEvent,
-): PipelineCheckpointEventRecord[] | undefined {
-  if (config.definition.checkpoint?.includeEvents !== true) return undefined;
-  return [...eventLog, savedEvent].map(toCheckpointEventRecord);
-}
-
-function checkpointExecutionLog(
-  config: PipelineRuntimeConfig,
-  eventLog: PipelineRuntimeEvent[],
-  savedEvent: PipelineRuntimeEvent,
-): PipelineCheckpointExecutionLog | undefined {
-  const policy = config.definition.executionLog;
-  if (!policy?.eventHistory || policy.eventHistory === "none") return undefined;
-
-  const checkpointLog = [...eventLog, savedEvent];
-  const events =
-    policy.eventHistory === "compact"
-      ? checkpointLog.filter(isCompactExecutionLogEvent)
-      : checkpointLog;
-
-  return {
-    ...(policy.storeRef !== undefined ? { storeRef: policy.storeRef } : {}),
-    eventHistory: policy.eventHistory,
-    events: events.map(toCheckpointEventRecord),
-  };
-}
-
-function checkpointProviderSessionRefs(
-  config: PipelineRuntimeConfig,
-  nodeResults: Map<string, NodeResult>,
-): PipelineCheckpointProviderSessionRef[] | undefined {
-  if (config.definition.checkpoint?.includeProviderSessionRefs !== true) {
-    return undefined;
-  }
-
-  const refs: PipelineCheckpointProviderSessionRef[] = [];
-  for (const result of nodeResults.values()) {
-    for (const ref of result.providerSessionRefs ?? []) {
-      refs.push({
-        nodeId: result.nodeId,
-        provider: ref.provider,
-        sessionId: ref.sessionId,
-        ...(ref.label !== undefined ? { label: ref.label } : {}),
-        ...(ref.metadata !== undefined
-          ? { metadata: structuredClone(ref.metadata) }
-          : {}),
-      });
-    }
-  }
-
-  return refs.length > 0 ? refs : undefined;
-}
-
-function toCheckpointEventRecord(
-  event: PipelineRuntimeEvent,
-): PipelineCheckpointEventRecord {
-  return structuredClone(event) as PipelineCheckpointEventRecord;
-}
-
-function isCompactExecutionLogEvent(event: PipelineRuntimeEvent): boolean {
-  return (
-    event.type === "pipeline:started" ||
-    event.type === "pipeline:suspended" ||
-    event.type === "pipeline:completed" ||
-    event.type === "pipeline:failed" ||
-    event.type === "pipeline:node_completed" ||
-    event.type === "pipeline:checkpoint_saved"
-  );
-}
-
-async function appendExecutionLogSnapshot(
-  config: PipelineRuntimeConfig,
-  checkpoint: PipelineCheckpoint,
-): Promise<void> {
-  const executionLog = checkpoint.executionLog;
-  if (!executionLog?.storeRef) return;
-  const store = config.executionLogStores?.[executionLog.storeRef];
-  if (!store) return;
-  await store.append({
-    pipelineRunId: checkpoint.pipelineRunId,
-    pipelineId: checkpoint.pipelineId,
-    checkpointVersion: checkpoint.version,
-    ...executionLog,
-    ...(checkpoint.providerSessionRefs !== undefined
-      ? { providerSessionRefs: checkpoint.providerSessionRefs }
-      : {}),
-  });
-}
-
-async function applyCheckpointRetention(
-  store: PipelineCheckpointStore,
-  runId: string,
-  retention: PipelineCheckpointRetentionPolicy | undefined,
-): Promise<void> {
-  if (!retention) return;
-  if (retention.ttlMs !== undefined) {
-    await store.prune(retention.ttlMs);
-  }
-  if (retention.maxVersions !== undefined) {
-    await store.pruneVersions?.(runId, retention.maxVersions);
   }
 }

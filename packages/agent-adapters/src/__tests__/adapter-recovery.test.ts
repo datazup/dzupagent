@@ -103,6 +103,74 @@ function createAbortingAdapter(
   }
 }
 
+/**
+ * Adapter that emits an `adapter:failed` event mid-stream and then returns
+ * from the generator WITHOUT throwing. A naive stream path would treat the
+ * clean generator return as success; the recovery guard must instead treat
+ * the `adapter:failed` marker as a failure.
+ */
+function createFailedThenReturnAdapter(
+  providerId: AdapterProviderId,
+  errorMsg = 'mid-stream failure',
+): AgentCLIAdapter {
+  return {
+    providerId,
+    async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+      yield {
+        type: 'adapter:started',
+        providerId,
+        sessionId: 'sess-failed-return',
+        timestamp: Date.now(),
+      }
+      yield {
+        type: 'adapter:failed',
+        providerId,
+        error: errorMsg,
+        code: 'PROVIDER_ERROR',
+        timestamp: Date.now(),
+      }
+      // Generator returns cleanly — no throw, no terminal success event.
+    },
+    async *resumeSession(_id: string, _input: AgentInput) {
+      /* noop */
+    },
+    interrupt() {},
+    async healthCheck() {
+      return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
+    },
+    configure() {},
+  }
+}
+
+/**
+ * Adapter whose stream completes cleanly with NO terminal event at all
+ * (no `adapter:completed`, no assistant message, no `adapter:failed`). The
+ * recovery guard must treat a missing terminal event as a failure rather
+ * than recording provider success.
+ */
+function createNoTerminalAdapter(providerId: AdapterProviderId): AgentCLIAdapter {
+  return {
+    providerId,
+    async *execute(_input: AgentInput): AsyncGenerator<AgentEvent, void, undefined> {
+      yield {
+        type: 'adapter:started',
+        providerId,
+        sessionId: 'sess-no-terminal',
+        timestamp: Date.now(),
+      }
+      // Returns without ever emitting a terminal event.
+    },
+    async *resumeSession(_id: string, _input: AgentInput) {
+      /* noop */
+    },
+    interrupt() {},
+    async healthCheck() {
+      return { healthy: true, providerId, sdkInstalled: true, cliAvailable: true }
+    },
+    configure() {},
+  }
+}
+
 /** Create a registry that returns successes from the given adapter. */
 function createMockRegistry(
   adapter: AgentCLIAdapter,
@@ -749,6 +817,95 @@ describe('AdapterRecoveryCopilot', () => {
         durationMs: expect.any(Number),
         reason: 'cancelled',
       })
+    })
+
+    it('does NOT record success when the stream emits adapter:failed then returns without throwing', async () => {
+      // First attempt: adapter emits `adapter:failed` mid-stream and returns
+      // cleanly (no throw). Second attempt: a different provider succeeds.
+      const failedProviderId: AdapterProviderId = 'codex'
+      const successProviderId: AdapterProviderId = 'claude'
+      const failedAdapter = createFailedThenReturnAdapter(failedProviderId)
+      const successAdapter = createMockAdapter(successProviderId, [
+        {
+          type: 'adapter:completed',
+          providerId: successProviderId,
+          sessionId: 'sess-ok',
+          result: 'recovered',
+          durationMs: 20,
+          timestamp: Date.now(),
+        },
+      ])
+
+      const recordSuccess = vi.fn()
+      const recordFailure = vi.fn()
+      let callCount = 0
+      const registry = {
+        getForTask(_task: TaskDescriptor) {
+          callCount++
+          const adapter = callCount === 1 ? failedAdapter : successAdapter
+          return {
+            adapter,
+            decision: { provider: adapter.providerId, reason: 'mock', confidence: 1 },
+          }
+        },
+        listAdapters() {
+          return [failedProviderId, successProviderId]
+        },
+        recordSuccess,
+        recordFailure,
+      } as unknown as ProviderAdapterRegistry
+
+      const copilot = new AdapterRecoveryCopilot(registry, { maxAttempts: 3 })
+
+      const events = await collectEvents(
+        copilot.executeWithRecoveryStream({ prompt: 'do it' }),
+      )
+
+      // The broken provider must never be recorded as a success.
+      const successProviders = recordSuccess.mock.calls.map((c) => c[0])
+      expect(successProviders).not.toContain(failedProviderId)
+      // Recovery advanced to a healthy provider and recorded ITS success.
+      expect(successProviders).toContain(successProviderId)
+
+      // The synthesized recovery-failure event for the broken attempt was yielded,
+      // followed by the successful completion from the recovered provider.
+      expect(
+        events.some(
+          (e) => e.type === 'adapter:failed' && e.code === 'RECOVERY_ATTEMPT_FAILED',
+        ),
+      ).toBe(true)
+      expect(events.some((e) => e.type === 'adapter:completed')).toBe(true)
+    })
+
+    it('treats a stream that completes with NO terminal event as a failure, not a success', async () => {
+      const providerId: AdapterProviderId = 'claude'
+      const noTerminalAdapter = createNoTerminalAdapter(providerId)
+
+      const recordSuccess = vi.fn()
+      const recordFailure = vi.fn()
+      const registry = {
+        getForTask(_task: TaskDescriptor) {
+          return {
+            adapter: noTerminalAdapter,
+            decision: { provider: providerId, reason: 'mock', confidence: 1 },
+          }
+        },
+        listAdapters() {
+          return [providerId]
+        },
+        recordSuccess,
+        recordFailure,
+      } as unknown as ProviderAdapterRegistry
+
+      const copilot = new AdapterRecoveryCopilot(registry, { maxAttempts: 2 })
+
+      // No terminal event on either attempt -> recovery exhausts and throws.
+      await expect(
+        collectEvents(copilot.executeWithRecoveryStream({ prompt: 'do it' })),
+      ).rejects.toThrow('Recovery exhausted')
+
+      // The provider must NEVER be recorded as a success for a no-terminal stream.
+      expect(recordSuccess).not.toHaveBeenCalled()
     })
   })
 

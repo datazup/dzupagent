@@ -6,7 +6,7 @@
  * the gateway's fail-closed `matchesFilter` enforces strict per-tenant
  * isolation. Mirrors the SSE wiring tested in `event-gateway.tenant.test.ts`.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { createEventBus } from "@dzupagent/core";
 import { EventBridge, type WSClient } from "../ws/event-bridge.js";
 
@@ -337,5 +337,79 @@ describe("EventBridge requireTenantScope (prod mode, SEC-M-01)", () => {
     await flushMicrotasks();
 
     expect(ws.sent).toHaveLength(0);
+  });
+});
+
+/**
+ * Safe-by-default construction guard (DZUPAGENT-SEC-M-01). In production a
+ * multi-tenant host (one that configures a `tenantResolver`) must not silently
+ * run fail-open: the plain constructor must throw unless the caller explicitly
+ * opts into a scoping decision. The legacy no-resolver single-tenant path stays
+ * unaffected, and dev/test keep the fail-open default-mode convenience.
+ */
+describe("EventBridge production fail-loud guard (SEC-M-01)", () => {
+  const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+
+  afterEach(() => {
+    process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+  });
+
+  it("throws in production when a tenantResolver is set but requireTenantScope is left unset", () => {
+    process.env.NODE_ENV = "production";
+    const bus = createEventBus();
+    expect(
+      () =>
+        new EventBridge(bus, {
+          tenantResolver: () => "tenant-A",
+        })
+    ).toThrow(/DZUPAGENT-SEC-M-01/);
+  });
+
+  it("does NOT throw in production when no tenantResolver is configured (legacy single-tenant fan-out)", () => {
+    process.env.NODE_ENV = "production";
+    const bus = createEventBus();
+    expect(() => new EventBridge(bus)).not.toThrow();
+    expect(() => new EventBridge(bus, { maxQueueSize: 8 })).not.toThrow();
+  });
+
+  it("does NOT throw in production when requireTenantScope is explicitly true (fail-closed opt-in)", () => {
+    process.env.NODE_ENV = "production";
+    const bus = createEventBus();
+    expect(
+      () =>
+        new EventBridge(bus, {
+          tenantResolver: () => "tenant-A",
+          requireTenantScope: true,
+        })
+    ).not.toThrow();
+  });
+
+  it("does NOT throw in production when requireTenantScope is explicitly false (deliberate single-tenant)", () => {
+    process.env.NODE_ENV = "production";
+    const bus = createEventBus();
+    expect(
+      () =>
+        new EventBridge(bus, {
+          tenantResolver: () => "tenant-A",
+          requireTenantScope: false,
+        })
+    ).not.toThrow();
+  });
+
+  it("EventBridge.tenantScoped() is safe to construct in production", () => {
+    process.env.NODE_ENV = "production";
+    const bus = createEventBus();
+    expect(() => EventBridge.tenantScoped(bus, () => "tenant-A")).not.toThrow();
+  });
+
+  it("does NOT throw outside production even with a resolver and no requireTenantScope (dev/test convenience)", () => {
+    process.env.NODE_ENV = "development";
+    const bus = createEventBus();
+    expect(
+      () =>
+        new EventBridge(bus, {
+          tenantResolver: () => "tenant-A",
+        })
+    ).not.toThrow();
   });
 });

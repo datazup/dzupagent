@@ -16,11 +16,7 @@ import type {
 } from "../types.js";
 import { withCorrelationId } from "../types.js";
 import type { RawAgentEvent } from "@dzupagent/adapter-types";
-import {
-  isBinaryAvailable,
-  spawnAndStreamJsonl,
-} from "../utils/process-helpers.js";
-import type { SpawnJsonlOptions } from "../utils/process-helpers.js";
+import { isBinaryAvailable } from "../utils/process-helpers.js";
 import { InteractionResolver } from "../interaction/interaction-resolver.js";
 import {
   GovernanceEmitter,
@@ -43,27 +39,19 @@ import {
   shouldRethrowAdapterError,
   type NormalizedAdapterError,
 } from "./adapter-error-normalizer.js";
-import { createStdinResponder } from "./stdin-responder.js";
 import { AdapterStreamRunner } from "./stream-runner.js";
-import type { AdapterStreamSource, ThreadStartResult } from "./stream-runner.js";
+import type { ThreadStartResult } from "./stream-runner.js";
 import type { RunEventStore } from "../runs/run-event-store.js";
 import { buildPreflightValidator } from "../guardrails/preflight-validator.js";
 import { ForgeError } from "@dzupagent/core/events";
 import { createControlledExecutionHandle } from "../controlled-execution/create-controlled-handle.js";
+import type { PreparedCliRun } from "./prepared-cli-run.js";
+import { buildCliStreamSource } from "./base-cli-adapter-stream-source.js";
 
 // Backward-compat re-exports
 export { filterSensitiveEnvVars };
 export type { ArtifactWatcherHandle };
-
-export interface PreparedCliRun {
-  readonly args: string[];
-  readonly cwd?: string | undefined;
-  readonly env: Record<string, string>;
-  readonly cleanup?: (() => void | Promise<void>) | undefined;
-  readonly malformedLinePolicy?: "skip" | "error" | undefined;
-  readonly stdoutMode?: SpawnJsonlOptions["stdoutMode"];
-  readonly limits?: SpawnJsonlOptions["limits"];
-}
+export type { PreparedCliRun };
 
 /**
  * Shared base class for CLI-backed adapters (Gemini/Qwen/Crush). Centralizes
@@ -170,81 +158,36 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     const pendingEvents: AgentEvent[] = [];
 
     // Per-run mutable state consumed by the AdapterStreamSource methods.
-    let hasCompleted = false;
-    let hasFailed = false;
-    let rawOrdinal = 0;
+    const flags = { hasCompleted: false, hasFailed: false, rawOrdinal: 0 };
     const captured: { error: NormalizedAdapterError | null } = { error: null };
 
     // Codex has its own raw channel — skip CLI raw emission for it.
     const emitRaw = this.providerId !== "codex";
-    const store = this.runStore;
+    const rawQueue: RawAgentEvent[] = [];
 
-    const adapter = this;
-    const source: AdapterStreamSource<Record<string, unknown>> = {
-      providerId: this.providerId,
-      async *open(_input: AgentInput, signal: AbortSignal) {
-        const prepared = await adapter.prepareCliRun(_input);
-        const spawnOpts: SpawnJsonlOptions = {
-          cwd: prepared.cwd,
-          env: prepared.env,
-          signal,
-          timeoutMs: adapter.config.timeoutMs,
-          malformedLinePolicy: prepared.malformedLinePolicy,
-          stdoutMode: prepared.stdoutMode,
-          limits: prepared.limits,
-        };
-        if (resolver) {
-          spawnOpts.stdinResponder = createStdinResponder({
-            providerId: adapter.providerId,
-            resolver,
-            policy,
-            input: _input,
-            sessionId,
-            pendingEvents,
-            governance: adapter.governance,
-          });
-        }
-        try {
-          yield* spawnAndStreamJsonl(adapter.getBinaryName(), prepared.args, spawnOpts);
-        } catch (err: unknown) {
-          // Capture for ForgeError rethrow + custom adapter:failed emission;
-          // also rethrow so the runner's catch path triggers its lifecycle
-          // bookkeeping (abort handling, finally cleanup).
-          captured.error = adapter.normalizeError(err);
-          throw err;
-        } finally {
-          await prepared.cleanup?.();
-        }
+    const source = buildCliStreamSource({
+      adapter: {
+        providerId: this.providerId,
+        governance: this.governance,
+        getBinaryName: () => this.getBinaryName(),
+        prepareCliRun: (runInput) => this.prepareCliRun(runInput),
+        mapProviderEvent: (record, sid) => this.mapProviderEvent(record, sid),
+        detectProviderThreadStart: (record) =>
+          this.detectProviderThreadStart(record),
+        normalizeError: (err) => this.normalizeError(err),
       },
-      mapRawEvent(
-        record: Record<string, unknown>,
-        _context: import("./stream-runner.js").StreamContext
-      ): AgentEvent | AgentEvent[] | null {
-        const events: AgentEvent[] = [];
-        for (const evt of pendingEvents.splice(0)) events.push(evt);
-
-        // Emit governance:hook_executed for recognized hook records.
-        adapter.governance.emitHookExecutedIfRecognized(record, {
-          runId: input.correlationId ?? sessionId,
-          sessionId,
-        });
-
-        const mapped = adapter.mapProviderEvent(record, sessionId);
-        if (mapped) {
-          const mappedEvents = Array.isArray(mapped) ? mapped : [mapped];
-          for (const mappedEvent of mappedEvents) {
-            const event = withCorrelationId(mappedEvent, input.correlationId);
-            if (event.type === "adapter:completed") hasCompleted = true;
-            if (event.type === "adapter:failed") hasFailed = true;
-            events.push(event);
-          }
-        }
-        return events.length === 0 ? null : events;
-      },
-      detectThreadStart(record: Record<string, unknown>): ThreadStartResult | null {
-        return adapter.detectProviderThreadStart(record);
-      },
-    };
+      input,
+      sessionId,
+      policy,
+      resolver,
+      pendingEvents,
+      captured,
+      flags,
+      emitRaw,
+      store: this.runStore,
+      timeoutMs: this.config.timeoutMs,
+      rawQueue,
+    });
 
     let runAbortController: AbortController | null = null;
     const runner = new AdapterStreamRunner<Record<string, unknown>>({
@@ -265,40 +208,6 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       },
     });
 
-    // Intercept the runner so we can inject raw events before each batch.
-    // We do this by hooking into the source's mapRawEvent indirectly: we
-    // override source.mapRawEvent to also capture the raw record, then emit
-    // the ProviderRawStreamEvent before the normalized events below.
-    const rawQueue: RawAgentEvent[] = [];
-    const originalMapRawEvent = source.mapRawEvent!.bind(source);
-    source.mapRawEvent = (
-      record: Record<string, unknown>,
-      context: import("./stream-runner.js").StreamContext
-    ) => {
-      if (emitRaw) {
-        rawOrdinal += 1;
-        const providerEventId = `${adapter.providerId}-raw-${rawOrdinal}`;
-        const rawEvent: RawAgentEvent = {
-          providerId: adapter.providerId,
-          runId: input.correlationId ?? sessionId,
-          sessionId,
-          providerEventId,
-          timestamp: Date.now(),
-          source: "stdout",
-          payload: record,
-          ...(input.correlationId !== undefined
-            ? { correlationId: input.correlationId }
-            : {}),
-        };
-        rawQueue.push(rawEvent);
-        // Fire-and-forget persistence — errors are swallowed by RunEventStore
-        if (store) {
-          void store.appendRaw(rawEvent);
-        }
-      }
-      return originalMapRawEvent(record, context);
-    };
-
     try {
       // Track whether the runner emitted its own adapter:failed (from its
       // catch path) so we can suppress the synthetic adapter:completed.
@@ -309,14 +218,14 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         }
 
         if (event.type === "adapter:failed") {
-          hasFailed = true;
+          flags.hasFailed = true;
           // Re-emit the runner's adapter:failed but normalize the error code
           // back to the captured original (legacy preserves spawn error code).
           if (captured.error) {
             yield withCorrelationId(
               {
                 type: "adapter:failed",
-                providerId: adapter.providerId,
+                providerId: this.providerId,
                 sessionId,
                 error: captured.error.message,
                 code: captured.error.code,
@@ -334,7 +243,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       for (const evt of pendingEvents.splice(0)) yield evt;
 
       // Synthesise adapter:completed when the stream ended without a terminal.
-      if (!hasCompleted && !hasFailed) {
+      if (!flags.hasCompleted && !flags.hasFailed) {
         yield withCorrelationId(
           {
             type: "adapter:completed",
@@ -350,7 +259,8 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     } finally {
       resolver?.dispose();
       if (resolver) this.activeInteractionResolvers.delete(resolver);
-      if (runAbortController) this.activeAbortControllers.delete(runAbortController);
+      if (runAbortController)
+        this.activeAbortControllers.delete(runAbortController);
       this.stopArtifactWatcher();
       this.governance.setRunContext(null);
     }
@@ -375,7 +285,9 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
   }
 
   /** Extract a provider-native thread/session identity from one raw record. */
-  protected detectProviderThreadStart(_record: Record<string, unknown>): ThreadStartResult | null {
+  protected detectProviderThreadStart(
+    _record: Record<string, unknown>
+  ): ThreadStartResult | null {
     return null;
   }
 
@@ -448,6 +360,9 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       supportsResume: true,
       supportsFork: false,
       supportsToolCalls: true,
+      // CLI/SDK adapter: runs its own in-subprocess/agentic tool loop.
+      emitsToolCalls: true,
+      executesToolLoop: true,
       supportsStreaming: true,
       supportsCostUsage: true,
     };

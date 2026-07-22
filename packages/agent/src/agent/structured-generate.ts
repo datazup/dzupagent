@@ -36,13 +36,14 @@ import {
   runBeforeModelCall,
   runAfterModelCall,
   runOnModelError,
-} from '@dzupagent/core'
+} from '@dzupagent/core/orchestration'
 import {
   buildModelHookContext,
   resolveModelIdForHooks,
 } from './model-hooks.js'
 import { extractTokenUsage, type StructuredOutputModelCapabilities } from '@dzupagent/core/llm'
 import { defaultLogger } from '@dzupagent/core/utils'
+import { extractJsonFromText } from '@dzupagent/core'
 import type { AIMessage as AIMessageType } from '@langchain/core/messages'
 import type {
   DzupAgentConfig,
@@ -337,47 +338,13 @@ export async function generateStructured<T>(
 
 /**
  * Extract the first valid JSON value from an LLM text response.
- * Handles code-fenced JSON blocks, bare JSON objects, and bare JSON arrays.
- * Throws SyntaxError if no valid JSON is found.
+ *
+ * Canonical implementation lives in `@dzupagent/core` (`extractJsonFromText`);
+ * re-exported here to preserve the public `structured-generate` / `dzip-agent`
+ * surface. Handles code-fenced JSON, bare objects/arrays, and returns the
+ * trimmed input as a last resort so the caller's `JSON.parse` throws.
  */
-export function extractJsonFromText(text: string): string {
-  const trimmed = text.trim()
-
-  // 1. Try fenced block: ```json ... ``` or ``` ... ```
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (fenced?.[1]) {
-    return fenced[1].trim()
-  }
-
-  // 2. Try to find the first { or [ and extract a balanced JSON value
-  const firstBrace = trimmed.indexOf('{')
-  const firstBracket = trimmed.indexOf('[')
-  const start =
-    firstBrace === -1 ? firstBracket
-    : firstBracket === -1 ? firstBrace
-    : Math.min(firstBrace, firstBracket)
-
-  if (start !== -1) {
-    // Walk forward to find the matching close, trying progressively longer slices
-    const slice = trimmed.slice(start)
-    // Try the full slice first (common case: response is pure JSON after preamble)
-    try {
-      JSON.parse(slice)
-      return slice
-    } catch {
-      // Find the last } or ] and try that boundary
-      const lastClose = Math.max(slice.lastIndexOf('}'), slice.lastIndexOf(']'))
-      if (lastClose > 0) {
-        const candidate = slice.slice(0, lastClose + 1)
-        JSON.parse(candidate) // let it throw if still invalid
-        return candidate
-      }
-    }
-  }
-
-  // 3. Last resort — return the trimmed text and let JSON.parse throw
-  return trimmed
-}
+export { extractJsonFromText }
 
 /**
  * Unpack the response from `withStructuredOutput(schema, { includeRaw: true })`.

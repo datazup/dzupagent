@@ -11,6 +11,7 @@
 
 import { readdir, readFile, stat, watch as fsWatch } from 'node:fs/promises'
 import { join, basename, extname } from 'node:path'
+import { reportLoaderFileError } from './loader-error-utils.js'
 import type { AdapterSkillBundle } from '../skills/adapter-skill-types.js'
 import type { DzupAgentPaths } from '../types.js'
 import { derivePathsFromProjectDir } from './derive-paths.js'
@@ -355,8 +356,11 @@ export class DzupAgentFileLoader {
       const result: ParsedSkillFile = { filePath, bundle, source, mtime }
       this.cache.set(filePath, { mtime, result })
       return result
-    } catch {
-      return undefined // file disappeared or unreadable — skip silently
+    } catch (err) {
+      // ERR-L-05: distinguish a genuinely absent file (skip silently) from a
+      // malformed/invalid skill definition (log so the corrupt file surfaces).
+      reportLoaderFileError('file-loader', filePath, err)
+      return undefined
     }
   }
 }

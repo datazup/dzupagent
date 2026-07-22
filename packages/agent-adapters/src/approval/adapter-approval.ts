@@ -31,6 +31,7 @@
  */
 
 import { fetchWithOutboundUrlPolicy } from "@dzupagent/core/security";
+import { defaultLogger } from "@dzupagent/core/utils";
 import type { DzupEvent } from "@dzupagent/core/events";
 import type { OutboundUrlSecurityPolicy } from "@dzupagent/core/security";
 
@@ -192,8 +193,18 @@ export class AdapterApprovalGate {
 
     // 6. Fire-and-forget webhook notification
     if (this.config.webhookUrl) {
-      this.notifyWebhook(requestId, context).catch(() => {
-        // Non-critical -- webhook failure must not block approval flow
+      this.notifyWebhook(requestId, context).catch((err: unknown) => {
+        // ERR-M-11: webhook delivery is how a human is told a gate is pending.
+        // Non-critical (must not block the approval flow), but a silent drop
+        // means the gate stalls until TTL expiry with no signal to anyone.
+        defaultLogger.warn(
+          "[AdapterApprovalGate] approval webhook notification failed",
+          {
+            operation: "approval.webhook",
+            requestId,
+            error: err instanceof Error ? err.message : String(err),
+          }
+        );
       });
     }
 
@@ -397,8 +408,18 @@ export class AdapterApprovalGate {
   private recordAudit(entry: ApprovalAuditEntry): void {
     try {
       this.auditStore.record(entry);
-    } catch {
-      // Audit recording must never throw — it is non-critical.
+    } catch (err) {
+      // ERR-H-09: the audit store IS the governance record of who
+      // approved/rejected a gated action. A silent swallow means an
+      // audit-store outage is invisible exactly when it matters. Recording
+      // must remain non-fatal (never throw), but the failure must be
+      // observable so an outage alerts.
+      defaultLogger.error("[AdapterApprovalGate] approval audit write failed", {
+        operation: "approval.audit.record",
+        requestId: entry.requestId,
+        action: entry.action,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

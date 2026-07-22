@@ -19,7 +19,7 @@ import {
   runBeforeModelCall,
   runAfterModelCall,
   runOnModelError,
-} from '@dzupagent/core'
+} from '@dzupagent/core/orchestration'
 import type {
   AgentStreamEvent,
   GenerateOptions,

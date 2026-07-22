@@ -7,13 +7,21 @@ import type {
   WorkspaceSnapshot,
 } from "./ports/workspace-port.js";
 import { assertValidRunSpec, hashRunSpec } from "./run-spec-hash.js";
-import { selectBranchPath } from "./scheduler/branch-state.js";
 import {
-  advanceLoopState,
-  createLoopState,
-  evaluateLoopAdvance,
-} from "./scheduler/loop-state.js";
+  evaluateRuleDecision,
+  parseDecisionBlock,
+  shouldStopAfterDecision,
+} from "./scheduler/decision-block.js";
 import { evaluateModeGate } from "./scheduler/mode-gate.js";
+import { expandRunSpecSchedule } from "./scheduler/schedule-expansion.js";
+import {
+  errorToAgentResult,
+  errorToMessage,
+  getTurnBoundaryStopReason,
+  isAgentRunRequest,
+  toTurnEventWorkspace,
+  type BudgetUsage,
+} from "./scheduler/turn-guards.js";
 import {
   buildAgentRunRequest,
   buildRawTurnEvent,
@@ -22,9 +30,7 @@ import {
 import type { AgentRunRequest } from "./types/agent-run-request.js";
 import type { RedactionPolicy } from "./types/redaction-policy.js";
 import type {
-  BudgetSpec,
   ParticipantSpec,
-  RunLoopSpec,
   RunSpec,
   RunSpecHash,
   RunTurnSpec,
@@ -51,7 +57,7 @@ export interface DialogueSchedulerClock {
 }
 
 export type DialogueSchedulerAgentRunNext = (
-  requestOverride?: AgentRunRequest,
+  requestOverride?: AgentRunRequest
 ) => Promise<AgentResult>;
 
 export interface DialogueSchedulerAgentRunContext {
@@ -60,7 +66,7 @@ export interface DialogueSchedulerAgentRunContext {
 
 export type DialogueSchedulerAgentRunMiddleware = (
   context: DialogueSchedulerAgentRunContext,
-  next: DialogueSchedulerAgentRunNext,
+  next: DialogueSchedulerAgentRunNext
 ) => Promise<AgentResult>;
 
 export interface DialogueSchedulerImplementationTurnBinding {
@@ -80,12 +86,12 @@ export interface DialogueSchedulerImplementationTurnContext {
 }
 
 export type DialogueSchedulerImplementationTurnNext = (
-  binding?: DialogueSchedulerImplementationTurnBinding,
+  binding?: DialogueSchedulerImplementationTurnBinding
 ) => Promise<DialogueSchedulerImplementationTurnResult>;
 
 export type DialogueSchedulerImplementationTurnMiddleware = (
   context: DialogueSchedulerImplementationTurnContext,
-  next: DialogueSchedulerImplementationTurnNext,
+  next: DialogueSchedulerImplementationTurnNext
 ) => Promise<DialogueSchedulerImplementationTurnResult>;
 
 export interface DialogueSchedulerOptions {
@@ -129,19 +135,9 @@ interface RunContext {
   result: DialogueSchedulerResult;
 }
 
-interface BudgetUsage {
-  inputTokens: number;
-  outputTokens: number;
-}
-
 interface ExecutedTurn {
   rawEvent: RawTurnEvent;
   decision?: DecisionBlock | undefined;
-}
-
-interface SchedulePlan {
-  items: DialogueScheduleItem[];
-  stopReason?: string | undefined;
 }
 
 const SYSTEM_PARTICIPANT: ParticipantSpec = {
@@ -166,7 +162,7 @@ export class DialogueScheduler {
 
   constructor(
     ports: DialogueSchedulerPorts,
-    options: DialogueSchedulerOptions = {},
+    options: DialogueSchedulerOptions = {}
   ) {
     this.agentPort = ports.agentPort;
     this.workspacePort = ports.workspacePort;
@@ -180,17 +176,26 @@ export class DialogueScheduler {
     };
   }
 
-  async run(input: DialogueSchedulerRunInput): Promise<DialogueSchedulerResult> {
+  async run(
+    input: DialogueSchedulerRunInput
+  ): Promise<DialogueSchedulerResult> {
     assertValidRunSpec(input.runSpec);
 
     const context = this.createRunContext(input);
-    const schedulePlan =
+    const schedulePlan: {
+      items: DialogueScheduleItem[];
+      stopReason?: string | undefined;
+    } =
       input.schedule === undefined
         ? expandRunSpecSchedule(input.runSpec)
         : { items: input.schedule };
 
     for (const item of schedulePlan.items) {
-      const turnBoundaryStop = getTurnBoundaryStopReason(context);
+      const turnBoundaryStop = getTurnBoundaryStopReason(
+        context.runSpec,
+        context.turnIndex,
+        context.budgetUsage
+      );
 
       if (turnBoundaryStop !== undefined) {
         await this.emitBoundarySkippedEvent(context, item, turnBoundaryStop);
@@ -220,7 +225,10 @@ export class DialogueScheduler {
 
   private createRunContext(input: DialogueSchedulerRunInput): RunContext {
     const participantsById = new Map<string, ParticipantSpec>(
-      input.runSpec.participants.map((participant) => [participant.id, participant]),
+      input.runSpec.participants.map((participant) => [
+        participant.id,
+        participant,
+      ])
     );
     const runSpecHash = hashRunSpec(input.runSpec);
 
@@ -253,7 +261,7 @@ export class DialogueScheduler {
 
   private async executeTurn(
     context: RunContext,
-    turn: RunTurnSpec,
+    turn: RunTurnSpec
   ): Promise<ExecutedTurn> {
     const modeGateDecision = evaluateModeGate(context.runSpec.mode, turn.verb);
     const participant = this.resolveParticipant(context, turn.participantId);
@@ -291,7 +299,7 @@ export class DialogueScheduler {
   private async executeAgentTurn(
     context: RunContext,
     turn: RunTurnSpec,
-    participant: ParticipantSpec,
+    participant: ParticipantSpec
   ): Promise<ExecutedTurn> {
     const startedAt = this.clock.now();
     const request = buildAgentRunRequest({
@@ -309,7 +317,9 @@ export class DialogueScheduler {
       const agentResult = await this.runAgent(request);
       this.recordAgentUsage(context, agentResult);
       const decision =
-        turn.verb === "review" ? parseDecisionBlock(agentResult.raw) : undefined;
+        turn.verb === "review"
+          ? parseDecisionBlock(agentResult.raw)
+          : undefined;
       const rawEvent = await this.emitRawEvent(context, {
         turn,
         participant,
@@ -343,10 +353,12 @@ export class DialogueScheduler {
   private async executeDecideTurn(
     context: RunContext,
     turn: RunTurnSpec,
-    participant: ParticipantSpec,
+    participant: ParticipantSpec
   ): Promise<ExecutedTurn> {
     if (context.runSpec.decidePolicy?.kind === "rule") {
-      const decision = evaluateRuleDecision(context.runSpec.decidePolicy.ruleId);
+      const decision = evaluateRuleDecision(
+        context.runSpec.decidePolicy.ruleId
+      );
       const rawEvent = await this.emitRawEvent(context, {
         turn,
         participant: SYSTEM_PARTICIPANT,
@@ -365,7 +377,10 @@ export class DialogueScheduler {
 
     const decideParticipant =
       context.runSpec.decidePolicy?.kind === "agent"
-        ? this.resolveParticipant(context, context.runSpec.decidePolicy.participantId)
+        ? this.resolveParticipant(
+            context,
+            context.runSpec.decidePolicy.participantId
+          )
         : participant;
 
     const startedAt = this.clock.now();
@@ -417,7 +432,7 @@ export class DialogueScheduler {
   private async executeImplementTurn(
     context: RunContext,
     turn: RunTurnSpec,
-    participant: ParticipantSpec,
+    participant: ParticipantSpec
   ): Promise<ExecutedTurn> {
     const startedAt = this.clock.now();
     const request = buildAgentRunRequest({
@@ -464,7 +479,7 @@ export class DialogueScheduler {
   private async executeValidateTurn(
     context: RunContext,
     turn: RunTurnSpec,
-    participant: ParticipantSpec,
+    participant: ParticipantSpec
   ): Promise<ExecutedTurn> {
     if (turn.validation === undefined) {
       const rawEvent = await this.emitRawEvent(context, {
@@ -519,7 +534,7 @@ export class DialogueScheduler {
 
   private async executeHandoffTurn(
     context: RunContext,
-    turn: RunTurnSpec,
+    turn: RunTurnSpec
   ): Promise<ExecutedTurn> {
     const handoff = turn.handoff;
 
@@ -536,9 +551,12 @@ export class DialogueScheduler {
       };
     }
 
-    const targetParticipant = context.participantsById.get(handoff.toParticipantId);
+    const targetParticipant = context.participantsById.get(
+      handoff.toParticipantId
+    );
     const sourceParticipant =
-      context.participantsById.get(handoff.fromParticipantId) ?? SYSTEM_PARTICIPANT;
+      context.participantsById.get(handoff.fromParticipantId) ??
+      SYSTEM_PARTICIPANT;
     const status: TurnEventStatus =
       targetParticipant === undefined ? "failed" : "completed";
     const rawEvent = await this.emitRawEvent(context, {
@@ -546,7 +564,9 @@ export class DialogueScheduler {
       participant: sourceParticipant,
       status,
       skipReason:
-        targetParticipant === undefined ? "handoff=unknown-participant" : undefined,
+        targetParticipant === undefined
+          ? "handoff=unknown-participant"
+          : undefined,
       output: {
         raw: JSON.stringify(handoff),
       },
@@ -563,7 +583,7 @@ export class DialogueScheduler {
 
   private async executeEscapeRequest(
     context: RunContext,
-    request: AgentRunRequest,
+    request: AgentRunRequest
   ): Promise<ExecutedTurn> {
     const participant = this.resolveParticipant(context, request.participantId);
     const startedAt = this.clock.now();
@@ -633,7 +653,7 @@ export class DialogueScheduler {
   private async emitBoundarySkippedEvent(
     context: RunContext,
     item: DialogueScheduleItem,
-    skipReason: string,
+    skipReason: string
   ): Promise<void> {
     const turn = isAgentRunRequest(item)
       ? {
@@ -673,7 +693,7 @@ export class DialogueScheduler {
       decision?: DecisionBlock | undefined;
       skipReason?: string | undefined;
       escape?: boolean | undefined;
-    },
+    }
   ): Promise<RawTurnEvent> {
     const startedAt = input.startedAt ?? this.clock.now();
     const endedAt = this.clock.now();
@@ -696,7 +716,11 @@ export class DialogueScheduler {
       skipReason: input.skipReason,
     });
 
-    await redactAndEmitTurnEvent(this.tracePort, this.redactionPolicy, rawEvent);
+    await redactAndEmitTurnEvent(
+      this.tracePort,
+      this.redactionPolicy,
+      rawEvent
+    );
 
     context.result.telemetry.dialogue_core_turn_event_emitted += 1;
     context.result.traceEmits += 2;
@@ -706,7 +730,7 @@ export class DialogueScheduler {
 
   private applyExecutedTurn(
     context: RunContext,
-    executedTurn: ExecutedTurn,
+    executedTurn: ExecutedTurn
   ): void {
     switch (executedTurn.rawEvent.status) {
       case "completed":
@@ -725,7 +749,7 @@ export class DialogueScheduler {
 
   private resolveParticipant(
     context: RunContext,
-    participantId?: string,
+    participantId?: string
   ): ParticipantSpec {
     const resolvedId = participantId ?? context.activeParticipantId;
 
@@ -758,13 +782,13 @@ export class DialogueScheduler {
 
   private runImplementationTurn(
     context: RunContext,
-    request: AgentRunRequest,
+    request: AgentRunRequest
   ): Promise<DialogueSchedulerImplementationTurnResult> {
     const next: DialogueSchedulerImplementationTurnNext = (binding = {}) =>
       this.executeBoundImplementationTurn(
         context,
         request,
-        binding.workspacePort ?? this.workspacePort,
+        binding.workspacePort ?? this.workspacePort
       );
 
     if (this.implementationTurnMiddleware === undefined) {
@@ -777,7 +801,7 @@ export class DialogueScheduler {
   private async executeBoundImplementationTurn(
     context: RunContext,
     request: AgentRunRequest,
-    workspacePort: WorkspacePort,
+    workspacePort: WorkspacePort
   ): Promise<DialogueSchedulerImplementationTurnResult> {
     let snapshot: WorkspaceSnapshot | undefined;
     let output: AgentResult | undefined;
@@ -796,7 +820,7 @@ export class DialogueScheduler {
       if (snapshot !== undefined && effect === undefined) {
         effect = await this.captureWorkspaceEffectAfterFailure(
           snapshot,
-          workspacePort,
+          workspacePort
         );
       }
     }
@@ -806,7 +830,7 @@ export class DialogueScheduler {
 
   private async captureWorkspaceEffectAfterFailure(
     snapshot: WorkspaceSnapshot,
-    workspacePort: WorkspacePort = this.workspacePort,
+    workspacePort: WorkspacePort = this.workspacePort
   ): Promise<WorkspaceEffect | undefined> {
     try {
       return await workspacePort.captureEffect(snapshot);
@@ -814,311 +838,4 @@ export class DialogueScheduler {
       return undefined;
     }
   }
-}
-
-function expandRunSpecSchedule(runSpec: RunSpec): SchedulePlan {
-  const turnsById = new Map<string, RunTurnSpec>(
-    runSpec.turns.map((turn) => [turn.id, turn]),
-  );
-  const branchPathTurnIds = collectBranchPathTurnIds(runSpec.turns);
-  const loopMemberIds = collectLoopMemberTurnIds(runSpec.loops ?? []);
-  const loopsByFirstTurnId = new Map<string, RunLoopSpec>();
-
-  for (const loop of runSpec.loops ?? []) {
-    const firstTurnId = loop.turnIds[0];
-
-    if (firstTurnId !== undefined) {
-      loopsByFirstTurnId.set(firstTurnId, loop);
-    }
-  }
-
-  const expandedTurns: RunTurnSpec[] = [];
-  const consumedLoopIds = new Set<string>();
-  let stopReason: string | undefined;
-
-  for (const turn of runSpec.turns) {
-    if (branchPathTurnIds.has(turn.id)) {
-      continue;
-    }
-
-    const loop = loopsByFirstTurnId.get(turn.id);
-
-    if (loop !== undefined && !consumedLoopIds.has(loop.id)) {
-      consumedLoopIds.add(loop.id);
-      stopReason ??= expandLoop(loop, turnsById, expandedTurns);
-      continue;
-    }
-
-    if (loopMemberIds.has(turn.id)) {
-      continue;
-    }
-
-    appendTurnWithBranch(turn, turnsById, expandedTurns, new Set<string>());
-  }
-
-  return {
-    items: expandedTurns,
-    stopReason,
-  };
-}
-
-function expandLoop(
-  loop: RunLoopSpec,
-  turnsById: Map<string, RunTurnSpec>,
-  expandedTurns: RunTurnSpec[],
-): string | undefined {
-  let loopState = createLoopState(loop.id, loop.maxIterations);
-  let advanceDecision = evaluateLoopAdvance(loopState, loop.condition);
-
-  while (advanceDecision.shouldEnter) {
-    for (const turnId of loop.turnIds) {
-      const turn = turnsById.get(turnId);
-
-      if (turn !== undefined) {
-        appendTurnWithBranch(turn, turnsById, expandedTurns, new Set<string>());
-      }
-    }
-
-    loopState = advanceLoopState(loopState);
-    advanceDecision = evaluateLoopAdvance(loopState, loop.condition);
-  }
-
-  return advanceDecision.stopReason === "loop=maxIterations"
-    ? advanceDecision.stopReason
-    : undefined;
-}
-
-function appendTurnWithBranch(
-  turn: RunTurnSpec,
-  turnsById: Map<string, RunTurnSpec>,
-  expandedTurns: RunTurnSpec[],
-  branchStack: Set<string>,
-): void {
-  expandedTurns.push(turn);
-
-  if (turn.branch === undefined || branchStack.has(turn.branch.id)) {
-    return;
-  }
-
-  branchStack.add(turn.branch.id);
-
-  for (const turnId of selectBranchPath(turn.branch).turnIds) {
-    const branchTurn = turnsById.get(turnId);
-
-    if (branchTurn !== undefined) {
-      appendTurnWithBranch(branchTurn, turnsById, expandedTurns, branchStack);
-    }
-  }
-
-  branchStack.delete(turn.branch.id);
-}
-
-function collectBranchPathTurnIds(turns: RunTurnSpec[]): Set<string> {
-  const turnIds = new Set<string>();
-
-  for (const turn of turns) {
-    for (const path of turn.branch?.paths ?? []) {
-      for (const turnId of path.turnIds) {
-        turnIds.add(turnId);
-      }
-    }
-  }
-
-  return turnIds;
-}
-
-function collectLoopMemberTurnIds(loops: RunLoopSpec[]): Set<string> {
-  const turnIds = new Set<string>();
-
-  for (const loop of loops) {
-    for (const turnId of loop.turnIds) {
-      turnIds.add(turnId);
-    }
-  }
-
-  return turnIds;
-}
-
-function getTurnBoundaryStopReason(context: RunContext): string | undefined {
-  if (
-    context.runSpec.maxIterations !== undefined &&
-    context.turnIndex >= context.runSpec.maxIterations
-  ) {
-    return "maxIterations";
-  }
-
-  return getBudgetStopReason(context.runSpec.budget, context.budgetUsage);
-}
-
-function getBudgetStopReason(
-  budget: BudgetSpec | undefined,
-  usage: BudgetUsage,
-): string | undefined {
-  if (budget?.maxUsd !== undefined && budget.maxUsd <= 0) {
-    return "budget=maxUsd";
-  }
-
-  if (budget?.maxInputTokens !== undefined && usage.inputTokens >= budget.maxInputTokens) {
-    return "budget=maxInputTokens";
-  }
-
-  if (
-    budget?.maxOutputTokens !== undefined &&
-    usage.outputTokens >= budget.maxOutputTokens
-  ) {
-    return "budget=maxOutputTokens";
-  }
-
-  return undefined;
-}
-
-function toTurnEventWorkspace(
-  snapshot: WorkspaceSnapshot,
-  effect: WorkspaceEffect,
-): TurnEventWorkspace {
-  return {
-    baseRevision: snapshot.baseRevision,
-    postRevision: effect.postRevision,
-    baseTreeHash: snapshot.treeHash,
-    postTreeHash: effect.treeHash,
-    changedFiles: effect.changedFiles,
-    diff: effect.diff,
-    applyStatus: effect.applyStatus,
-  };
-}
-
-function isAgentRunRequest(item: DialogueScheduleItem): item is AgentRunRequest {
-  return "input" in item && "turnType" in item;
-}
-
-function errorToAgentResult(error: unknown): AgentResult {
-  return {
-    raw: errorToMessage(error),
-  };
-}
-
-function errorToMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
-}
-
-function parseDecisionBlock(raw: string): DecisionBlock {
-  const parsed = parseJsonObject(raw);
-  const candidate = getNestedDecisionCandidate(parsed);
-  const wouldFlipIf =
-    typeof candidate.wouldFlipIf === "string" ? candidate.wouldFlipIf : undefined;
-
-  return {
-    verdict: parseVerdict(candidate.verdict),
-    criteria: parseCriteria(candidate.criteria),
-    rationale: parseString(candidate.rationale, raw),
-    ...(wouldFlipIf !== undefined ? { wouldFlipIf } : {}),
-  };
-}
-
-function getNestedDecisionCandidate(
-  parsed: Record<string, unknown>,
-): Record<string, unknown> {
-  const nestedDecision = parsed.decision;
-
-  if (
-    nestedDecision !== undefined &&
-    nestedDecision !== null &&
-    typeof nestedDecision === "object"
-  ) {
-    return nestedDecision as Record<string, unknown>;
-  }
-
-  return parsed;
-}
-
-function parseJsonObject(raw: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-
-    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    return {};
-  }
-
-  return {};
-}
-
-function parseVerdict(value: unknown): DecisionBlock["verdict"] {
-  switch (value) {
-    case "stop":
-    case "branch":
-    case "accept":
-    case "reject":
-      return value;
-    case "continue":
-    default:
-      return "continue";
-  }
-}
-
-function parseCriteria(value: unknown): DecisionBlock["criteria"] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.flatMap((item) => {
-    if (item === null || typeof item !== "object") {
-      return [];
-    }
-
-    const candidate = item as Record<string, unknown>;
-    const name = typeof candidate.name === "string" ? candidate.name : undefined;
-    const met = typeof candidate.met === "boolean" ? candidate.met : undefined;
-
-    if (name === undefined || met === undefined) {
-      return [];
-    }
-
-    return [
-      {
-        name,
-        met,
-        ...(typeof candidate.weight === "number"
-          ? { weight: candidate.weight }
-          : {}),
-      },
-    ];
-  });
-}
-
-function parseString(value: unknown, fallback: string): string {
-  if (typeof value === "string") {
-    return value;
-  }
-
-  return fallback;
-}
-
-function evaluateRuleDecision(ruleId: string): DecisionBlock {
-  return {
-    verdict: "continue",
-    criteria: [
-      {
-        name: ruleId,
-        met: true,
-      },
-    ],
-    rationale: `Rule ${ruleId} evaluated by dialogue-core.`,
-  };
-}
-
-function shouldStopAfterDecision(
-  decision: DecisionBlock | undefined,
-): decision is DecisionBlock {
-  return (
-    decision?.verdict === "stop" ||
-    decision?.verdict === "accept" ||
-    decision?.verdict === "reject"
-  );
 }

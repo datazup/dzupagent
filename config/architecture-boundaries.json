@@ -117,6 +117,7 @@
           "packages/server/src/routes/clusters.ts",
           "packages/server/src/routes/deploy.ts",
           "packages/server/src/routes/evals.ts",
+          "packages/server/src/routes/evals-handlers.ts",
           "packages/server/src/routes/learning-handlers-content.ts",
           "packages/server/src/routes/learning-handlers-dashboard.ts",
           "packages/server/src/routes/learning-handlers-feedback.ts",
@@ -146,6 +147,7 @@
           "packages/server/src/routes/compile-result-event.ts",
           "packages/server/src/routes/compile.ts",
           "packages/server/src/routes/mcp.ts",
+          "packages/server/src/routes/mcp-handlers.ts",
           "packages/server/src/routes/skills.ts",
           "packages/server/src/routes/spawn-compiler-bridge.ts",
           "packages/server/src/routes/workflows-handlers.ts",
@@ -164,9 +166,11 @@
           "packages/server/src/routes/compile/sse-handler.ts",
           "packages/server/src/routes/compile/stage-stream-handler.ts",
           "packages/server/src/routes/deploy-types.ts",
+          "packages/server/src/routes/evals-helpers.ts",
           "packages/server/src/routes/evals-types.ts",
           "packages/server/src/routes/learning-schemas.ts",
           "packages/server/src/routes/learning-types.ts",
+          "packages/server/src/routes/mcp-helpers.ts",
           "packages/server/src/routes/memory-health-types.ts",
           "packages/server/src/routes/workflows-streaming.ts",
           "packages/server/src/routes/workflows-types.ts",
@@ -354,7 +358,7 @@
           "endpoints": ["GET /:id/enrichment-metrics"],
           "mountedEndpoints": ["GET /api/runs/:id/enrichment-metrics"]
         },
-        "packages/server/src/routes/evals.ts": {
+        "packages/server/src/routes/evals-handlers.ts": {
           "category": "compatibility-maintenance",
           "mounts": ["/api/evals"],
           "endpoints": [
@@ -480,7 +484,7 @@
             "POST /api/marketplace/catalog"
           ]
         },
-        "packages/server/src/routes/mcp.ts": {
+        "packages/server/src/routes/mcp-handlers.ts": {
           "category": "route-plugin-host-seam",
           "mounts": ["/api/mcp"],
           "endpoints": [
@@ -799,7 +803,7 @@
       }
     },
     "forgeServerConfigRouteFamilies": {
-      "sourceFile": "packages/server/src/composition/types.ts",
+      "sourceFile": "packages/server/src/composition/config-route-families.ts",
       "interfaces": {
         "ForgeMemoryRouteFamilyConfig": [
           "memoryService",
@@ -869,7 +873,7 @@
       "description": "MC-5 (ARCH-H-01) hard freeze for the ForgeControlPlaneRouteFamilyConfig injection surface. This interface is a frozen compatibility surface: its field set may only shrink as families contract per packages/server/src/composition/CONTROL-PLANE-CONTRACTION.md. Adding a field requires an approved RFC plus updates to this baseline and the contraction schedule. Enforced by scripts/check-control-plane-freeze.mjs (wired into verify:strict).",
       "interface": "ForgeControlPlaneRouteFamilyConfig",
       "sourceFiles": [
-        "packages/server/src/composition/types.ts",
+        "packages/server/src/composition/config-route-families.ts",
         "packages/server/src/composition/control-plane-types.ts"
       ],
       "contractionSchedule": "packages/server/src/composition/CONTROL-PLANE-CONTRACTION.md",
@@ -975,6 +979,14 @@
     ],
     "rules": {
       "allowSameLayerEdges": false,
+      "allowedLayerEdges": [
+        {
+          "from": "adapter-types",
+          "to": "runtime-contracts",
+          "reason": "ARCH-M-04: adapter-types type-imports the SanitizedEvidenceRef / routing / controlled-execution contracts from runtime-contracts. Both are layer-0 leaf primitives and runtime-contracts has zero @dzupagent runtime deps, so the edge is acyclic and stays inside the leaf tier. Promoting adapter-types to layer 1 would cascade adapter-rules/hitl-kit/subagents, so this single reviewed same-layer edge is the minimal correct fix.",
+          "reviewedBy": "audit/full-dzupagent-2026-07-21 ARCH-M-04"
+        }
+      ],
       "layerZeroRuntimeProfile": "leaf-runtime-primitives",
       "layerZeroMayHaveExternalRuntimeDeps": true,
       "toolingMayBeUpstreamOfSupported": false,

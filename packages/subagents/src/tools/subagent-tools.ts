@@ -3,23 +3,9 @@ import type { BackgroundSubagentRuntime } from "../runtime/background-subagent-r
 import { createFanoutTemplateTool } from "./fanout-tool.js";
 import { fanoutBatchRecordToReport } from "./fanout-tool.js";
 import type { FanoutToolConfig } from "./fanout-tool.js";
+import type { SubagentToolDescriptor } from "./types.js";
 
-/**
- * Provider-neutral tool descriptor. Hosts adapt these to their concrete tool
- * type (`StructuredToolInterface`, `DomainToolDefinition`, …). Keeping the shape
- * minimal preserves the package's layer-2 portability — it does not depend on any
- * particular tool framework.
- */
-export interface SubagentToolDescriptor<
-  TArgs = Record<string, unknown>,
-  TResult = unknown
-> {
-  name: string;
-  description: string;
-  /** JSON-schema-ish parameter description for host binding/validation. */
-  parameters: Record<string, unknown>;
-  invoke(args: TArgs): Promise<TResult>;
-}
+export type { SubagentToolDescriptor } from "./types.js";
 
 export interface SubagentToolsConfig {
   runtime: BackgroundSubagentRuntime;

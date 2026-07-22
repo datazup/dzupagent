@@ -15,6 +15,7 @@
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "NODE_OPTIONS='--max-old-space-size=4096' vitest run",
+    "test:integration": "NODE_OPTIONS='--max-old-space-size=4096' vitest run src/__tests__/qdrant-factory.test.ts",
     "test:watch": "vitest",
     "lint": "eslint src/",
     "test:coverage": "NODE_OPTIONS='--max-old-space-size=4096' vitest run --coverage"

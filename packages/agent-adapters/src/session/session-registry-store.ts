@@ -10,7 +10,7 @@
 import { randomUUID } from 'node:crypto'
 
 import type { DzupEventBus } from '@dzupagent/core/events'
-import { typedEmit } from '@dzupagent/core/events'
+import { ForgeError, typedEmit } from '@dzupagent/core/events'
 
 import { ConversationCompressor } from './conversation-compressor.js'
 import type { ConversationCompressorOptions } from './conversation-compressor.js'
@@ -193,9 +193,11 @@ export class WorkflowStore {
   protected requireWorkflow(workflowId: string): WorkflowSession {
     const workflow = this.workflows.get(workflowId)
     if (!workflow) {
-      throw new Error(
-        `Workflow "${workflowId}" not found. Create it first with createWorkflow().`,
-      )
+      throw new ForgeError({
+        code: 'ADAPTER_SESSION_NOT_FOUND',
+        message: `Workflow "${workflowId}" not found. Create it first with createWorkflow().`,
+        context: { workflowId },
+      })
     }
     return workflow
   }

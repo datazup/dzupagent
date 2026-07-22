@@ -143,6 +143,27 @@ describe("OpenAI-compat completions route", () => {
       expect((body["id"] as string).startsWith("chatcmpl-")).toBe(true);
     });
 
+    // CODE-H-02: sampling options are threaded into generation, not stripped.
+    it("threads temperature/max_tokens/stop into agent.generate()", async () => {
+      const res = await app.request("/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          makeBody({ temperature: 0.3, max_tokens: 128, stop: ["\n\n"] }),
+        ),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockGenerate).toHaveBeenCalledTimes(1);
+      const options = mockGenerate.mock.calls[0]?.[1] as
+        | Record<string, unknown>
+        | undefined;
+      expect(options).toBeDefined();
+      expect(options?.["temperature"]).toBe(0.3);
+      expect(options?.["maxTokens"]).toBe(128);
+      expect(options?.["stop"]).toEqual(["\n\n"]);
+    });
+
     it("returns 404 when agent not found", async () => {
       const res = await app.request("/", {
         method: "POST",
@@ -356,6 +377,36 @@ describe("OpenAI-compat completions route", () => {
       }
       return chunks;
     }
+
+    // CODE-H-02: sampling options are threaded into the streaming path too.
+    it("threads temperature/max_tokens/stop into agent.stream()", async () => {
+      mockStream.mockImplementation(async function* () {
+        yield { type: "text", data: { content: "Hello" } };
+        yield {
+          type: "done",
+          data: { stopReason: "end_turn", hitIterationLimit: false },
+        };
+      });
+
+      const res = await app.request("/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          makeBody({ stream: true, temperature: 0.9, max_tokens: 64, stop: "STOP" }),
+        ),
+      });
+
+      expect(res.status).toBe(200);
+      await res.text();
+      expect(mockStream).toHaveBeenCalledTimes(1);
+      const options = mockStream.mock.calls[0]?.[1] as
+        | Record<string, unknown>
+        | undefined;
+      expect(options).toBeDefined();
+      expect(options?.["temperature"]).toBe(0.9);
+      expect(options?.["maxTokens"]).toBe(64);
+      expect(options?.["stop"]).toBe("STOP");
+    });
 
     it("emits finish_reason=stop for a normal done event", async () => {
       mockStream.mockImplementation(async function* () {

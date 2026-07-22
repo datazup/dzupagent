@@ -7,6 +7,8 @@
  * custom audit entries.
  */
 
+import { randomUUID } from 'node:crypto'
+
 import type { DzupEventBus } from '../../events/event-bus.js'
 import type { ComplianceAuditStore } from './audit-store.js'
 import type { ComplianceAuditEntry, AuditResult } from './audit-types.js'
@@ -21,11 +23,15 @@ export interface AuditLoggerConfig {
   onError?: (error: unknown) => void
 }
 
-/** Generate a simple unique ID (no external deps). */
+/**
+ * Generate a unique, unpredictable ID for a compliance audit entry.
+ *
+ * Uses a cryptographically strong UUID so audit-log IDs cannot be guessed or
+ * pre-computed, preserving the tamper-evidence properties of the log. Do not
+ * substitute `Math.random()` here (predictable IDs weaken the audit trail).
+ */
 function generateId(): string {
-  const timestamp = Date.now().toString(36)
-  const random = Math.random().toString(36).substring(2, 10)
-  return `audit_${timestamp}_${random}`
+  return `audit_${randomUUID()}`
 }
 
 /**

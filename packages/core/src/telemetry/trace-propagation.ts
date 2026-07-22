@@ -40,14 +40,14 @@ const TRACE_KEY = '_trace' as const
  * Generate a 32-char lowercase hex trace ID from crypto.randomUUID().
  * UUID v4 is 32 hex chars when dashes are stripped — perfect for W3C trace IDs.
  */
-function generateTraceId(): string {
+export function generateTraceId(): string {
   return randomUUID().replace(/-/g, '')
 }
 
 /**
  * Generate a 16-char lowercase hex span ID from the last 16 hex chars of a UUID.
  */
-function generateSpanId(): string {
+export function generateSpanId(): string {
   return randomUUID().replace(/-/g, '').slice(0, 16)
 }
 

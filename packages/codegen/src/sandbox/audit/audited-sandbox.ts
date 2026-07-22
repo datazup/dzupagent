@@ -14,6 +14,13 @@ import type { SandboxAuditStore, SandboxAuditEntry } from './audit-types.js'
 // ---------------------------------------------------------------------------
 // Secret redaction
 // ---------------------------------------------------------------------------
+//
+// NOTE (ARCH-L-03): This is deliberately NOT `@dzupagent/core`'s `redactSecrets`.
+// core's scanner targets QUOTED secrets in source code and emits
+// `[REDACTED:<type>]` markers; this one redacts UNQUOTED secrets in shell
+// command strings (e.g. `export api_key=...`) to `[REDACTED]` for the audit log.
+// The two serve different domains — swapping to core's scanner leaves most
+// shell-form secrets un-redacted in the audit trail, so it stays local.
 
 const SECRET_PATTERNS: RegExp[] = [
   // API keys and tokens

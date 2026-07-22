@@ -406,8 +406,23 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
     })
 
     it('covers timeout status shaping in stream and generate modes', async () => {
-      const slow = () =>
-        new Promise<string>((resolve) => setTimeout(() => resolve('done'), 1000))
+      // Cooperative: never resolves on its own, only rejects once the
+      // per-tool deadline aborts it. This makes the framework's own
+      // ToolTimeoutError the only possible outcome of the race, so the
+      // test is deterministic under full-suite event-loop load (no
+      // 5ms-vs-1000ms coin flip between the deadline and the tool).
+      const slow = async (
+        _args: Record<string, unknown>,
+        context?: { signal?: AbortSignal },
+      ): Promise<string> => {
+        const signal = context?.signal
+        if (!signal) throw new Error('missing AbortSignal')
+        if (signal.aborted) throw signal.reason
+        await new Promise<never>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+        throw new Error('unreachable')
+      }
       const { tool: streamTool } = mockTool('slowTool', slow)
       const { tool: generateTool } = mockTool('slowTool', slow)
 
@@ -436,8 +451,13 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
       const generateResult = await generateAgent.generate([new HumanMessage('go')])
 
       expect(firstStreamToolResult(streamEvents)).toMatch(/^\[error: .*timed out after \d+ms\]$/)
+      // MC-3 (AGENT-H-06): generate-mode ToolMessage content is wrapped in
+      // <untrusted_content source="tool_result"> (see the "covers success
+      // shaping" and "surfaces a timeout error in stream mode" tests in this
+      // file for the same contract) — so match the error line as a substring
+      // of the wrapped block rather than anchoring ^ to the raw message.
       expect(generatedToolContents(generateResult).some((content) =>
-        /^Error executing tool "slowTool": .*timed out after \d+ms$/.test(content),
+        /Error executing tool "slowTool": .*timed out after \d+ms/.test(content),
       )).toBe(true)
     })
 

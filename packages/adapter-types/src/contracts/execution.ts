@@ -70,7 +70,30 @@ export interface AgentPolicyExecutionContext {
 export interface AdapterCapabilityProfile {
   supportsResume: boolean
   supportsFork: boolean
+  /**
+   * @deprecated Ambiguous -- split into {@link emitsToolCalls} and
+   * {@link executesToolLoop}. Retained for backwards compatibility. Reading
+   * this flag to decide whether an adapter can *autonomously complete* a
+   * tool-using task is incorrect for fetch-based adapters (openai, openrouter,
+   * ollama), which surface tool_call deltas but do not execute tools or
+   * re-invoke the model. Use {@link executesToolLoop} for that decision.
+   */
   supportsToolCalls: boolean
+  /**
+   * The adapter surfaces provider tool_call deltas/events to the host. True for
+   * fetch adapters (openai, openrouter, ollama) and for CLI/SDK adapters that
+   * expose tool activity. Does NOT imply the adapter executes those tools.
+   */
+  emitsToolCalls?: boolean | undefined
+  /**
+   * The adapter itself executes tools and re-invokes the model until the task
+   * completes (an autonomous tool-use loop). True for CLI/SDK adapters that run
+   * their own in-subprocess/agentic loops (Claude, Codex, Gemini, Crush, Goose,
+   * Qwen). FALSE for fetch-based adapters (openai, openrouter, ollama), which
+   * stop at the first tool_call with no result. Routers selecting an adapter for
+   * autonomous agentic work MUST key on this flag, not {@link supportsToolCalls}.
+   */
+  executesToolLoop?: boolean | undefined
   supportsStreaming: boolean
   supportsCostUsage: boolean
   nativeToolControls?: {

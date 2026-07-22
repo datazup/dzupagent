@@ -14,16 +14,16 @@
  *   POST /approve/:id  — approve/reject a pending request
  *   GET  /health       — adapter health status
  *   GET  /cost         — cost report
+ *
+ * This module is a thin composition root: request parsing, auth, per-route
+ * handlers, validation and error mapping live in sibling leaf modules
+ * (adapter-http-handler-*.ts). See DZUPAGENT-ARCH-M-06.
  */
 
-import { ForgeError } from "@dzupagent/core/events";
 import type { DzupEventBus } from "@dzupagent/core/events";
-import { defaultLogger } from "@dzupagent/core/utils";
-import type { z } from "zod";
 
 import type { OrchestratorFacade } from "../facade/orchestrator-facade.js";
 import { SlidingWindowRateLimiter } from "./rate-limiter.js";
-import type { AgentInput } from "../types.js";
 import {
   RunRequestSchema,
   SupervisorRequestSchema,
@@ -37,21 +37,29 @@ import {
   jsonResponse,
   matchPathParam,
 } from "./http-helpers.js";
+import { checkAuth } from "./adapter-http-handler-auth.js";
 import {
-  streamParallel,
-  streamRun,
-  streamSupervisor,
-} from "./http-streaming.js";
+  validateBody,
+  type HandlerContext,
+} from "./adapter-http-handler-context.js";
+import {
+  handleApproval,
+  handleBid,
+  handleCostReport,
+  handleDetailedHealth,
+  handleHealth,
+  handleParallel,
+  handleRun,
+  handleSupervisor,
+} from "./adapter-http-handler-routes.js";
 import type {
   AdapterApprovalGate,
   AdapterHttpConfig,
   ApprovalRequestBody,
   BidRequestBody,
-  HealthResponse,
   HttpRequest,
   HttpResponse,
   HttpResult,
-  HttpStreamResponse,
   ParallelRequestBody,
   RunRequestBody,
   SupervisorRequestBody,
@@ -83,12 +91,12 @@ export { resolveRuntimeFallbackProviderId } from "./http-helpers.js";
 // AdapterHttpHandler
 // ---------------------------------------------------------------------------
 
-export class AdapterHttpHandler {
-  private readonly orchestrator: OrchestratorFacade;
-  private readonly approvalGate: AdapterApprovalGate | undefined;
-  private readonly eventBus: DzupEventBus | undefined;
-  private readonly config: AdapterHttpConfig;
-  private readonly validateApiKey:
+export class AdapterHttpHandler implements HandlerContext {
+  readonly orchestrator: OrchestratorFacade;
+  readonly approvalGate: AdapterApprovalGate | undefined;
+  readonly eventBus: DzupEventBus | undefined;
+  readonly config: AdapterHttpConfig;
+  readonly validateApiKey:
     | ((key: string) => boolean | Promise<boolean>)
     | undefined;
   private readonly rateLimiter?: SlidingWindowRateLimiter;
@@ -114,7 +122,7 @@ export class AdapterHttpHandler {
    */
   async handle(request: HttpRequest): Promise<HttpResult> {
     // --- Auth check ---
-    const authResult = await this.checkAuth(request);
+    const authResult = await checkAuth(this, request);
     if (authResult) return authResult;
 
     // --- Rate limit check ---
@@ -137,28 +145,25 @@ export class AdapterHttpHandler {
 
     // --- Route matching ---
     if (method === "POST" && path === "/run") {
-      const validation = this.validateBody(request.body, RunRequestSchema);
+      const validation = validateBody(request.body, RunRequestSchema);
       if ("error" in validation) return validation.error;
       return this.handleRun(validation.body, correlationId);
     }
 
     if (method === "POST" && path === "/supervisor") {
-      const validation = this.validateBody(
-        request.body,
-        SupervisorRequestSchema,
-      );
+      const validation = validateBody(request.body, SupervisorRequestSchema);
       if ("error" in validation) return validation.error;
       return this.handleSupervisor(validation.body, correlationId);
     }
 
     if (method === "POST" && path === "/parallel") {
-      const validation = this.validateBody(request.body, ParallelRequestSchema);
+      const validation = validateBody(request.body, ParallelRequestSchema);
       if ("error" in validation) return validation.error;
       return this.handleParallel(validation.body, correlationId);
     }
 
     if (method === "POST" && path === "/bid") {
-      const validation = this.validateBody(request.body, BidRequestSchema);
+      const validation = validateBody(request.body, BidRequestSchema);
       if ("error" in validation) return validation.error;
       return this.handleBid(validation.body, correlationId);
     }
@@ -166,10 +171,7 @@ export class AdapterHttpHandler {
     if (method === "POST") {
       const requestId = matchPathParam(path, "/approve");
       if (requestId !== undefined) {
-        const validation = this.validateBody(
-          request.body,
-          ApproveRequestSchema,
-        );
+        const validation = validateBody(request.body, ApproveRequestSchema);
         if ("error" in validation) return validation.error;
         return this.handleApproval(requestId, validation.body);
       }
@@ -190,373 +192,60 @@ export class AdapterHttpHandler {
     return errorResponse(
       404,
       `Route not found: ${method} ${path}`,
-      "NOT_FOUND",
+      "NOT_FOUND"
     );
   }
 
   // -------------------------------------------------------------------------
-  // Individual route handlers
+  // Individual route handlers (thin delegations to leaf modules)
   // -------------------------------------------------------------------------
 
   /** POST /run -- execute with auto-routing */
-  async handleRun(
-    body: RunRequestBody,
-    correlationId?: string,
-  ): Promise<HttpResult> {
-    const input: AgentInput = {
-      prompt: body.prompt,
-      workingDirectory: body.workingDirectory,
-      systemPrompt: body.systemPrompt,
-      maxTurns: body.maxTurns,
-      correlationId,
-    };
-
-    if (body.stream) {
-      return this.streamRun(input, body);
-    }
-
-    try {
-      const result = await this.orchestrator.run(body.prompt, {
-        tags: body.tags,
-        preferredProvider: body.preferredProvider,
-        workingDirectory: body.workingDirectory,
-        systemPrompt: body.systemPrompt,
-        maxTurns: body.maxTurns,
-        policyConformanceMode: body.policyConformanceMode,
-      });
-
-      return jsonResponse(200, result);
-    } catch (err) {
-      return this.handleError(err, "run");
-    }
+  handleRun(body: RunRequestBody, correlationId?: string): Promise<HttpResult> {
+    return handleRun(this, body, correlationId);
   }
 
   /** POST /supervisor -- supervisor pattern */
-  async handleSupervisor(
+  handleSupervisor(
     body: SupervisorRequestBody,
-    _correlationId?: string,
+    correlationId?: string
   ): Promise<HttpResult> {
-    if (body.stream) {
-      return this.streamSupervisor(body);
-    }
-
-    try {
-      const result = await this.orchestrator.supervisor(body.goal, {
-        maxConcurrentDelegations: body.maxConcurrentDelegations,
-      });
-
-      return jsonResponse(200, result);
-    } catch (err) {
-      return this.handleError(err, "supervisor");
-    }
+    return handleSupervisor(this, body, correlationId);
   }
 
   /** POST /parallel -- parallel execution */
-  async handleParallel(
+  handleParallel(
     body: ParallelRequestBody,
-    _correlationId?: string,
+    correlationId?: string
   ): Promise<HttpResult> {
-    if (body.stream) {
-      return this.streamParallel(body);
-    }
-
-    try {
-      const mergeStrategy = body.strategy ?? "all";
-
-      const result = await this.orchestrator.parallel(body.prompt, {
-        providers: body.providers,
-        mergeStrategy,
-      });
-
-      return jsonResponse(200, result);
-    } catch (err) {
-      return this.handleError(err, "parallel");
-    }
+    return handleParallel(this, body, correlationId);
   }
 
   /** POST /bid -- contract-net bidding */
-  async handleBid(
-    body: BidRequestBody,
-    _correlationId?: string,
-  ): Promise<HttpResult> {
-    try {
-      const result = await this.orchestrator.bid(body.prompt);
-      return jsonResponse(200, result);
-    } catch (err) {
-      return this.handleError(err, "bid");
-    }
+  handleBid(body: BidRequestBody, correlationId?: string): Promise<HttpResult> {
+    return handleBid(this, body, correlationId);
   }
 
   /** POST /approve/:requestId -- approve/reject a pending request */
-  async handleApproval(
+  handleApproval(
     requestId: string,
-    body: ApprovalRequestBody,
+    body: ApprovalRequestBody
   ): Promise<HttpResponse> {
-    if (!this.approvalGate) {
-      return errorResponse(
-        501,
-        "Approval gate not configured",
-        "NO_APPROVAL_GATE",
-      );
-    }
-
-    try {
-      let found: boolean;
-      if (body.approved) {
-        found = await this.approvalGate.grant(
-          requestId,
-          body.approvedBy,
-          body.reason,
-        );
-      } else {
-        found = await this.approvalGate.reject(requestId, body.reason);
-      }
-
-      if (!found) {
-        return errorResponse(
-          404,
-          `Pending request not found: ${requestId}`,
-          "REQUEST_NOT_FOUND",
-        );
-      }
-
-      return jsonResponse(200, {
-        requestId,
-        status: body.approved ? "approved" : "rejected",
-      });
-    } catch (err) {
-      return this.handleError(err, "approval") as HttpResponse;
-    }
+    return handleApproval(this, requestId, body);
   }
 
   /** GET /health -- adapter health status */
-  async handleHealth(): Promise<HttpResponse> {
-    try {
-      const healthStatuses = await this.orchestrator.registry.getHealthStatus();
-      const costReport = this.orchestrator.getCostReport();
-
-      const adapters: HealthResponse["adapters"] = {};
-      let allHealthy = true;
-      let anyHealthy = false;
-
-      for (const [id, hs] of Object.entries(healthStatuses)) {
-        adapters[id] = { healthy: hs.healthy };
-        if (hs.healthy) {
-          anyHealthy = true;
-        } else {
-          allHealthy = false;
-        }
-      }
-
-      const adapterCount = Object.keys(adapters).length;
-      let overallStatus: HealthResponse["status"];
-      if (adapterCount === 0 || !anyHealthy) {
-        overallStatus = "down";
-      } else if (allHealthy) {
-        overallStatus = "ok";
-      } else {
-        overallStatus = "degraded";
-      }
-
-      const response: HealthResponse = {
-        status: overallStatus,
-        adapters,
-        costReport,
-      };
-
-      return jsonResponse(200, response);
-    } catch (err) {
-      return this.handleError(err, "health") as HttpResponse;
-    }
+  handleHealth(): Promise<HttpResponse> {
+    return handleHealth(this);
   }
 
   /** GET /health/detailed -- detailed adapter health with circuit breaker state */
-  async handleDetailedHealth(): Promise<HttpResponse> {
-    const registry = this.orchestrator.registry;
-    if ("getDetailedHealth" in registry) {
-      try {
-        const health = await (
-          registry as { getDetailedHealth(): Promise<unknown> }
-        ).getDetailedHealth();
-        return jsonResponse(200, health);
-      } catch (err) {
-        return this.handleError(err, "health/detailed") as HttpResponse;
-      }
-    }
-    // Fallback to basic health
-    return this.handleHealth();
+  handleDetailedHealth(): Promise<HttpResponse> {
+    return handleDetailedHealth(this);
   }
 
   /** GET /cost -- cost report */
   handleCostReport(): HttpResponse {
-    const report = this.orchestrator.getCostReport();
-    if (!report) {
-      return errorResponse(
-        404,
-        "Cost tracking not enabled",
-        "COST_TRACKING_DISABLED",
-      );
-    }
-    return jsonResponse(200, report);
-  }
-
-  // -------------------------------------------------------------------------
-  // Streaming dispatchers
-  // -------------------------------------------------------------------------
-
-  private streamRun(
-    input: AgentInput,
-    body: RunRequestBody,
-  ): HttpStreamResponse {
-    return streamRun(
-      { orchestrator: this.orchestrator, eventBus: this.eventBus },
-      input,
-      body,
-    );
-  }
-
-  private streamSupervisor(body: SupervisorRequestBody): HttpStreamResponse {
-    return streamSupervisor(
-      { orchestrator: this.orchestrator, eventBus: this.eventBus },
-      body,
-    );
-  }
-
-  private streamParallel(body: ParallelRequestBody): HttpStreamResponse {
-    return streamParallel(
-      { orchestrator: this.orchestrator, eventBus: this.eventBus },
-      body,
-    );
-  }
-
-  // -------------------------------------------------------------------------
-  // Auth
-  // -------------------------------------------------------------------------
-
-  private async checkAuth(
-    request: HttpRequest,
-  ): Promise<HttpResponse | undefined> {
-    // Check if this is a public endpoint
-    if (this.config.publicEndpoints?.includes(request.path)) {
-      return undefined;
-    }
-
-    // If no auth configured, pass through
-    if (!this.validateApiKey && !this.config.tokenValidator) {
-      return undefined;
-    }
-
-    const authHeader =
-      request.headers["authorization"] ?? request.headers["Authorization"];
-    if (!authHeader) {
-      return errorResponse(
-        401,
-        "Missing Authorization header",
-        "AUTH_REQUIRED",
-      );
-    }
-
-    const match = /^Bearer\s+(.+)$/i.exec(authHeader);
-    if (!match?.[1]) {
-      return errorResponse(
-        401,
-        "Invalid Authorization format. Expected: Bearer <token>",
-        "AUTH_INVALID_FORMAT",
-      );
-    }
-
-    const token = match[1];
-
-    // Custom token validator takes precedence
-    if (this.config.tokenValidator) {
-      try {
-        const result = await this.config.tokenValidator(token);
-        if (!result.valid) {
-          return errorResponse(
-            401,
-            "Token validation failed",
-            "AUTH_TOKEN_INVALID",
-          );
-        }
-        return undefined;
-      } catch {
-        return errorResponse(
-          500,
-          "Token validation error",
-          "AUTH_VALIDATION_ERROR",
-        );
-      }
-    }
-
-    // Legacy simple API key check
-    if (this.validateApiKey) {
-      const isValid = await this.validateApiKey(token);
-      if (!isValid) {
-        return errorResponse(401, "Invalid API key", "AUTH_INVALID_KEY");
-      }
-    }
-
-    return undefined;
-  }
-
-  // -------------------------------------------------------------------------
-  // Validation
-  // -------------------------------------------------------------------------
-
-  private validateBody<T>(
-    body: unknown,
-    schema: z.ZodType<T>,
-  ): { body: T } | { error: HttpResponse } {
-    const result = schema.safeParse(body);
-    if (!result.success) {
-      return {
-        error: jsonResponse(400, {
-          error: "Validation failed",
-          details: result.error.issues.map((i) => ({
-            path: i.path.join("."),
-            message: i.message,
-          })),
-        }),
-      };
-    }
-    return { body: result.data };
-  }
-
-  // -------------------------------------------------------------------------
-  // Error handling
-  // -------------------------------------------------------------------------
-
-  private handleError(err: unknown, operation: string): HttpResponse {
-    // ERR-C-02: never forward raw err.message to the client or the event bus.
-    // Log full detail (type + stack) server-side; return a stable code + a
-    // client-safe message. A ForgeError exposes its curated code/suggestion only.
-    const internalMessage = err instanceof Error ? err.message : String(err);
-    defaultLogger.error("[AdapterHttpHandler] operation failed", {
-      operation,
-      error: internalMessage,
-      name: err instanceof Error ? err.constructor.name : typeof err,
-      stack: err instanceof Error ? err.stack : undefined,
-    });
-
-    const code = err instanceof ForgeError ? err.code : "INTERNAL_ERROR";
-    const clientMessage =
-      err instanceof ForgeError && err.suggestion
-        ? err.suggestion
-        : `Operation "${operation}" failed`;
-
-    if (this.eventBus) {
-      try {
-        this.eventBus.emit({
-          type: "agent:stream_delta",
-          agentId: "http-handler",
-          runId: operation,
-          content: `[error] ${code}`,
-        });
-      } catch {
-        // Event bus failure is non-fatal
-      }
-    }
-
-    return errorResponse(500, clientMessage, code);
+    return handleCostReport(this);
   }
 }

@@ -8,67 +8,34 @@ import { SubagentErrorCode } from "../contracts/error-codes.js";
 import type { SubagentLogger } from "../contracts/logger.js";
 import { defaultSubagentLogger } from "../contracts/logger.js";
 import type { TaskQueue } from "../runner/durable-queue-runner.js";
+import {
+  normaliseStatuses,
+  rowToVersionedTask,
+  sanitizeIdentifier,
+  toRows,
+} from "./postgres-task-store/sql-helpers.js";
+import type {
+  PostgresQueryClient,
+  VersionedTask,
+} from "./postgres-task-store/sql-helpers.js";
 
-export interface PostgresQueryClient {
-  query(
-    text: string,
-    values?: readonly unknown[],
-  ): Promise<{ rows?: Record<string, unknown>[] } | Record<string, unknown>[]>;
-}
+export type {
+  PostgresQueryClient,
+  VersionedTask,
+} from "./postgres-task-store/sql-helpers.js";
+export {
+  createPostgresSubagentSchemaSql,
+  type PostgresSubagentSchemaSqlOptions,
+} from "./postgres-task-store/schema-sql.js";
+export {
+  recoverStaleRunningTasks,
+  type RecoverStaleRunningTasksOptions,
+} from "./postgres-task-store/recover-stale-tasks.js";
 
 export interface PostgresTaskStoreOptions {
   client: PostgresQueryClient;
   tableName?: string;
   logger?: SubagentLogger;
-}
-
-export interface PostgresSubagentSchemaSqlOptions {
-  taskTableName?: string;
-  queueTableName?: string;
-}
-
-export function createPostgresSubagentSchemaSql(
-  options: PostgresSubagentSchemaSqlOptions = {},
-): string[] {
-  const taskTable = sanitizeIdentifier(
-    options.taskTableName ?? "subagent_tasks",
-  );
-  const queueTable = sanitizeIdentifier(
-    options.queueTableName ?? "subagent_task_queue",
-  );
-  return [
-    `CREATE TABLE IF NOT EXISTS ${taskTable} (
-  id text PRIMARY KEY,
-  task_json jsonb NOT NULL,
-  status text NOT NULL,
-  parent_run_id text NOT NULL,
-  ended_at bigint,
-  version integer NOT NULL DEFAULT 1,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-)`,
-    `CREATE INDEX IF NOT EXISTS ${taskTable}_parent_status_idx
-  ON ${taskTable} (parent_run_id, status)`,
-    `CREATE INDEX IF NOT EXISTS ${taskTable}_ended_at_idx
-  ON ${taskTable} (ended_at)
-  WHERE ended_at IS NOT NULL`,
-    `CREATE TABLE IF NOT EXISTS ${queueTable} (
-  task_id text PRIMARY KEY,
-  enqueued_at bigint NOT NULL,
-  available_at bigint NOT NULL,
-  attempts integer NOT NULL DEFAULT 0,
-  leased_by text,
-  lease_until bigint,
-  last_claimed_at bigint
-)`,
-    `CREATE INDEX IF NOT EXISTS ${queueTable}_claim_idx
-  ON ${queueTable} (available_at, lease_until, enqueued_at)`,
-  ];
-}
-
-export interface VersionedTask {
-  task: BackgroundTask;
-  version: number;
 }
 
 export class PostgresTaskStore implements TaskStore {
@@ -98,7 +65,7 @@ export class PostgresTaskStore implements TaskStore {
         task.status,
         task.parentRunId,
         task.endedAt ?? null,
-      ],
+      ]
     );
   }
 
@@ -111,8 +78,8 @@ export class PostgresTaskStore implements TaskStore {
     const rows = toRows(
       await this.client.query(
         `SELECT task_json, version FROM ${this.tableName} WHERE id = $1`,
-        [id],
-      ),
+        [id]
+      )
     );
     return rowToVersionedTask(rows[0]);
   }
@@ -132,8 +99,8 @@ export class PostgresTaskStore implements TaskStore {
             statuses,
             endedBefore: filter.endedBefore,
           },
-        ],
-      ),
+        ]
+      )
     );
     return rows
       .map(rowToVersionedTask)
@@ -148,7 +115,7 @@ export class PostgresTaskStore implements TaskStore {
   async patchIfVersion(
     id: TaskId,
     expectedVersion: number,
-    patch: Partial<BackgroundTask>,
+    patch: Partial<BackgroundTask>
   ): Promise<boolean> {
     return this.patchWhere(id, patch, expectedVersion, null);
   }
@@ -156,7 +123,7 @@ export class PostgresTaskStore implements TaskStore {
   async patchIfStatus(
     id: TaskId,
     expectedStatus: TaskStatus,
-    patch: Partial<BackgroundTask>,
+    patch: Partial<BackgroundTask>
   ): Promise<boolean> {
     return this.patchWhere(id, patch, null, expectedStatus);
   }
@@ -165,7 +132,7 @@ export class PostgresTaskStore implements TaskStore {
     id: TaskId,
     patch: Partial<BackgroundTask>,
     expectedVersion: number | null,
-    expectedStatus: TaskStatus | null,
+    expectedStatus: TaskStatus | null
   ): Promise<boolean> {
     const rows = toRows(
       await this.client.query(
@@ -185,8 +152,8 @@ export class PostgresTaskStore implements TaskStore {
           expectedStatus,
           patch.status ?? null,
           patch.endedAt ?? null,
-        ],
-      ),
+        ]
+      )
     );
     const applied = rows.length > 0;
     if (!applied && (expectedVersion !== null || expectedStatus !== null)) {
@@ -210,11 +177,27 @@ export interface PostgresTaskQueueOptions {
   clock?: () => number;
   autoDrain?: boolean;
   logger?: SubagentLogger;
+  /**
+   * Maximum number of delivery attempts before a repeatedly-failing (poisoned)
+   * task is dead-lettered instead of being re-claimed. Each `claimNext`
+   * increments the row's `attempts`; once it reaches this cap and the handler
+   * throws again, the queue row is removed (stopping the infinite
+   * claim→throw→re-claim loop) and — when a {@link store} is supplied — the
+   * backing task is moved to a `failed` terminal state. Defaults to `5`.
+   */
+  maxAttempts?: number;
+  /**
+   * Optional backing task store. When provided, a dead-lettered task is also
+   * transitioned to `status: "failed"` with `error: "max_attempts_exceeded"`
+   * so callers observe a terminal outcome rather than a silently-dropped task.
+   */
+  store?: TaskStore;
 }
 
 interface QueueRow {
   task_id: string;
   leased_by: string | null;
+  attempts: number;
 }
 
 export class PostgresTaskQueue implements TaskQueue {
@@ -226,6 +209,8 @@ export class PostgresTaskQueue implements TaskQueue {
   private readonly clock: () => number;
   private readonly autoDrain: boolean;
   private readonly logger: SubagentLogger;
+  private readonly maxAttempts: number;
+  private readonly store: TaskStore | undefined;
   private handler: ((taskId: TaskId) => Promise<void>) | undefined;
   private draining = false;
   private stopped = false;
@@ -234,7 +219,7 @@ export class PostgresTaskQueue implements TaskQueue {
   constructor(options: PostgresTaskQueueOptions) {
     this.client = options.client;
     this.tableName = sanitizeIdentifier(
-      options.tableName ?? "subagent_task_queue",
+      options.tableName ?? "subagent_task_queue"
     );
     this.workerId =
       options.workerId ??
@@ -244,6 +229,8 @@ export class PostgresTaskQueue implements TaskQueue {
     this.clock = options.clock ?? Date.now;
     this.autoDrain = options.autoDrain ?? true;
     this.logger = options.logger ?? defaultSubagentLogger;
+    this.maxAttempts = Math.max(1, Math.floor(options.maxAttempts ?? 5));
+    this.store = options.store;
   }
 
   async enqueue(taskId: TaskId): Promise<void> {
@@ -252,7 +239,7 @@ export class PostgresTaskQueue implements TaskQueue {
       `INSERT INTO ${this.tableName} (task_id, enqueued_at, available_at, attempts)
        VALUES ($1, $2, $2, 0)
        ON CONFLICT (task_id) DO NOTHING`,
-      [taskId, now],
+      [taskId, now]
     );
     this.kick();
   }
@@ -278,6 +265,7 @@ export class PostgresTaskQueue implements TaskQueue {
       for (;;) {
         const row = await this.claimNext();
         if (!row || !this.handler || this.stopped) return;
+        const stopHeartbeat = this.startLeaseHeartbeat(row.task_id);
         try {
           await this.handler(row.task_id);
           await this.ack(row.task_id);
@@ -290,6 +278,16 @@ export class PostgresTaskQueue implements TaskQueue {
             message,
             detail: "postgres_queue_handler_threw",
           });
+          // Cap re-delivery: `claimNext` incremented `attempts` for this
+          // delivery, so once it reaches `maxAttempts` a permanently-failing
+          // (poisoned) task must be dead-lettered instead of being left for
+          // its lease to lapse and re-claimed forever, which would pin a
+          // worker in an infinite claim→throw→re-claim loop.
+          if (row.attempts >= this.maxAttempts) {
+            await this.deadLetter(row.task_id, row.attempts, message);
+          }
+        } finally {
+          stopHeartbeat();
         }
       }
     } finally {
@@ -308,6 +306,50 @@ export class PostgresTaskQueue implements TaskQueue {
       }, this.pollIntervalMs);
       this.pollTimer.unref?.();
     });
+  }
+
+  /**
+   * Keeps the lease alive while the handler runs so a task that legitimately
+   * outlives the fixed lease window is not re-claimed and double-executed by a
+   * second worker. The renewal UPDATE is scoped to this worker's ownership
+   * (`leased_by = workerId`) so a lease that was legitimately lost is never
+   * "renewed" back. Returns a function that stops the heartbeat.
+   */
+  private startLeaseHeartbeat(taskId: TaskId): () => void {
+    const intervalMs = Math.max(1, Math.floor(this.leaseMs / 3));
+    let renewing = false;
+    const timer: ReturnType<typeof setInterval> = setInterval(() => {
+      if (renewing) return;
+      renewing = true;
+      void this.renewLease(taskId).finally(() => {
+        renewing = false;
+      });
+    }, intervalMs);
+    timer.unref?.();
+    return () => {
+      clearInterval(timer);
+    };
+  }
+
+  private async renewLease(taskId: TaskId): Promise<void> {
+    const now = this.clock();
+    try {
+      await this.client.query(
+        `UPDATE ${this.tableName}
+         SET lease_until = $2
+         WHERE task_id = $1
+           AND leased_by = $3`,
+        [taskId, now + this.leaseMs, this.workerId]
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn({
+        taskId,
+        code: "TASK_QUEUE_LEASE_RENEW_FAILED",
+        workerId: this.workerId,
+        message,
+      });
+    }
   }
 
   private async claimNext(): Promise<QueueRow | null> {
@@ -331,8 +373,8 @@ export class PostgresTaskQueue implements TaskQueue {
          FROM next_task
          WHERE q.task_id = next_task.task_id
          RETURNING q.task_id, q.leased_by, q.attempts`,
-        [now, now + this.leaseMs, this.workerId],
-      ),
+        [now, now + this.leaseMs, this.workerId]
+      )
     );
     const row = rows[0];
     if (!row || typeof row.task_id !== "string") return null;
@@ -345,6 +387,7 @@ export class PostgresTaskQueue implements TaskQueue {
     return {
       task_id: row.task_id,
       leased_by: typeof row.leased_by === "string" ? row.leased_by : null,
+      attempts: row.attempts !== undefined ? Number(row.attempts) : 0,
     };
   }
 
@@ -353,99 +396,48 @@ export class PostgresTaskQueue implements TaskQueue {
       `DELETE FROM ${this.tableName}
        WHERE task_id = $1
          AND leased_by = $2`,
-      [taskId, this.workerId],
+      [taskId, this.workerId]
     );
   }
-}
 
-export interface RecoverStaleRunningTasksOptions {
-  store: TaskStore;
-  now: number;
-  runningTimeoutMs: number;
-  action?: "fail" | "requeue";
-  enqueue?: (taskId: TaskId) => Promise<void>;
-  logger?: SubagentLogger;
-}
-
-export async function recoverStaleRunningTasks(
-  options: RecoverStaleRunningTasksOptions,
-): Promise<TaskId[]> {
-  const action = options.action ?? "fail";
-  const cutoff = options.now - options.runningTimeoutMs;
-  const running = await options.store.list({ status: "running" });
-  const recovered: TaskId[] = [];
-  for (const task of running) {
-    if (task.startedAt === undefined || task.startedAt > cutoff) continue;
-    const patch: Partial<BackgroundTask> =
-      action === "requeue"
-        ? {
-            status: "queued",
-            startedAt: undefined,
-            error: "stale_running_task_recovered",
-          }
-        : {
-            status: "failed",
-            error: "stale_running_task_recovered",
-            endedAt: options.now,
-          };
-    const applied = options.store.patchIfStatus
-      ? await options.store.patchIfStatus(task.id, "running", patch)
-      : await patchIfStillRunning(options.store, task.id, patch);
-    if (!applied) continue;
-    if (action === "requeue") {
-      await options.enqueue?.(task.id);
+  /**
+   * Moves a poisoned task to a terminal state after it has exhausted its
+   * delivery budget. Removes the queue row (scoped to this worker's lease so a
+   * legitimately-lost lease is never dead-lettered) so it is never re-claimed,
+   * marks the backing task `failed` when a store is available, and emits a
+   * governance event for operator visibility.
+   */
+  private async deadLetter(
+    taskId: TaskId,
+    attempts: number,
+    lastMessage: string
+  ): Promise<void> {
+    await this.ack(taskId);
+    if (this.store) {
+      try {
+        await this.store.patch(taskId, {
+          status: "failed",
+          error: "max_attempts_exceeded",
+          endedAt: this.clock(),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn({
+          taskId,
+          code: "TASK_QUEUE_DEAD_LETTER_STORE_FAILED",
+          workerId: this.workerId,
+          message,
+        });
+      }
     }
-    options.logger?.info({
-      taskId: task.id,
-      code: "STALE_RUNNING_TASK_RECOVERED",
-      action,
-      runningTimeoutMs: options.runningTimeoutMs,
+    this.logger.error({
+      taskId,
+      code: SubagentErrorCode.MAX_ATTEMPTS_EXCEEDED,
+      workerId: this.workerId,
+      attempts,
+      maxAttempts: this.maxAttempts,
+      message: lastMessage,
+      detail: "postgres_queue_task_dead_lettered",
     });
-    recovered.push(task.id);
   }
-  return recovered;
-}
-
-async function patchIfStillRunning(
-  store: TaskStore,
-  id: TaskId,
-  patch: Partial<BackgroundTask>,
-): Promise<boolean> {
-  const current = await store.get(id);
-  if (!current || current.status !== "running") return false;
-  await store.patch(id, patch);
-  return true;
-}
-
-function rowToVersionedTask(
-  row: Record<string, unknown> | undefined,
-): VersionedTask | null {
-  if (!row) return null;
-  const taskJson = row.task_json;
-  if (!taskJson || typeof taskJson !== "object") return null;
-  return {
-    task: structuredClone(taskJson) as BackgroundTask,
-    version: Number(row.version ?? 0),
-  };
-}
-
-function toRows(
-  result: { rows?: Record<string, unknown>[] } | Record<string, unknown>[],
-): Record<string, unknown>[] {
-  if (Array.isArray(result)) return result;
-  return Array.isArray(result.rows) ? result.rows : [];
-}
-
-function normaliseStatuses(
-  status: TaskStatus | TaskStatus[] | undefined,
-): TaskStatus[] | undefined {
-  if (status === undefined) return undefined;
-  return Array.isArray(status) ? status : [status];
-}
-
-function sanitizeIdentifier(identifier: string): string {
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(identifier)) {
-    throw new Error(`Invalid Postgres identifier: ${identifier}`);
-  }
-  return identifier;
 }

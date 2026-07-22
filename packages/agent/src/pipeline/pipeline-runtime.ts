@@ -16,18 +16,16 @@ import type {
   PipelineEdge,
   PipelineCheckpoint,
   PipelineCheckpointProviderSessionRef,
-  PipelineCheckpointStore,
 } from "@dzupagent/core/pipeline";
 import { validatePipeline } from "./pipeline-validator.js";
-import { InMemoryPipelineCheckpointStore } from "./in-memory-checkpoint-store.js";
-import { PostgresPipelineCheckpointStore } from "./postgres-checkpoint-store.js";
-import { RedisPipelineCheckpointStore } from "./redis-checkpoint-store.js";
 import type {
   PipelineState,
   NodeResult,
   PipelineRunResult,
   PipelineRuntimeConfig,
   PipelineRuntimeEvent,
+  ForkRuntimeState,
+  PipelineRunContext,
 } from "./pipeline-runtime-types.js";
 import { generateRunId } from "./pipeline-runtime/run-id.js";
 import {
@@ -45,10 +43,25 @@ import {
   type PipelineExecutorCoordinator,
 } from "./pipeline-executor.js";
 import {
-  createRuntimeToolNodeExecutor,
   formatRuntimeToolReadinessError,
   getRuntimeToolReadiness,
 } from "./runtime-tool-handlers.js";
+import {
+  normalizeRuntimeConfig,
+  buildNodeIndex,
+} from "./pipeline-runtime-lifecycle/runtime-init.js";
+import {
+  countReplayNodesFrom,
+  findMidFlightForkNodeId,
+  findMidFlightLoopNodeId,
+  findRestartNodeId,
+  type ResumePlannerCtx,
+} from "./pipeline-runtime-lifecycle/resume-planner.js";
+import {
+  resumeFromCheckpoint,
+  redeliverFromCheckpoint as redeliverFromCheckpointOrchestrator,
+  type ResumeHost,
+} from "./pipeline-runtime-lifecycle/resume-orchestrator.js";
 
 // ---------------------------------------------------------------------------
 // Pipeline Runtime
@@ -71,69 +84,30 @@ export class PipelineRuntime {
   private budgetTracker: BudgetTrackerState = createBudgetTrackerState();
   private readonly executor: PipelineExecutor;
   private readonly eventLog: PipelineRuntimeEvent[];
+  /**
+   * Read-only view handed to the resume/recovery graph planners. Built once
+   * in the constructor; its `getNextNodeIds` closure delegates back to the
+   * runtime's own edge resolution so resume walks stay identical to traversal.
+   */
+  private readonly resumePlannerCtx: ResumePlannerCtx;
+  /**
+   * Facade handed to the resume/redeliver orchestrator. Bound once in the
+   * constructor to this runtime's state mutations, event emission, executor
+   * hand-off, and resume-planner helpers.
+   */
+  private readonly resumeHost: ResumeHost;
 
   constructor(config: PipelineRuntimeConfig) {
-    const eventLog: PipelineRuntimeEvent[] = [];
-    const downstreamOnEvent = config.onEvent;
-    const captureEvents = shouldCaptureRuntimeEvents(config.definition);
-    const resolvedCheckpointStore = resolveCheckpointStore(config);
-    config = {
-      ...config,
-      nodeExecutor: createRuntimeToolNodeExecutor(
-        config.nodeExecutor,
-        config.runtimeToolHandlers,
-      ),
-      ...(resolvedCheckpointStore !== undefined
-        ? { checkpointStore: resolvedCheckpointStore }
-        : {}),
-      onEvent: (event) => {
-        if (captureEvents) eventLog.push(structuredClone(event));
-        downstreamOnEvent?.(event);
-      },
-    };
-
-    // Auto-wire checkpoint store when not explicitly provided.
-    if (!config.checkpointStore) {
-      if (config.redisClient) {
-        config = {
-          ...config,
-          checkpointStore: new RedisPipelineCheckpointStore({
-            client: config.redisClient,
-          }),
-        };
-      } else if (config.pgClient) {
-        config = {
-          ...config,
-          checkpointStore: new PostgresPipelineCheckpointStore({
-            client: config.pgClient,
-          }),
-        };
-      } else {
-        config = {
-          ...config,
-          checkpointStore: new InMemoryPipelineCheckpointStore(),
-        };
-      }
-    }
-    this.config = config;
+    const { config: normalized, eventLog } = normalizeRuntimeConfig(config);
+    this.config = normalized;
     this.eventLog = eventLog;
-    this.nodeMap = new Map();
-    this.outgoingEdges = new Map();
-    this.errorEdges = new Map();
 
-    for (const node of config.definition.nodes) {
-      this.nodeMap.set(node.id, node);
-      this.outgoingEdges.set(node.id, []);
-      this.errorEdges.set(node.id, []);
-    }
-
-    for (const edge of config.definition.edges) {
-      if (edge.type === "error") {
-        this.errorEdges.get(edge.sourceNodeId)?.push(edge);
-      } else {
-        this.outgoingEdges.get(edge.sourceNodeId)?.push(edge);
-      }
-    }
+    const { nodeMap, outgoingEdges, errorEdges } = buildNodeIndex(
+      normalized.definition
+    );
+    this.nodeMap = nodeMap;
+    this.outgoingEdges = outgoingEdges;
+    this.errorEdges = errorEdges;
 
     const coordinator: PipelineExecutorCoordinator = {
       getState: () => this.state,
@@ -149,13 +123,48 @@ export class PipelineRuntime {
       this.nodeMap,
       this.outgoingEdges,
       this.errorEdges,
-      coordinator,
+      coordinator
     );
+    this.resumePlannerCtx = {
+      nodeMap: this.nodeMap,
+      definition: this.config.definition,
+      getNextNodeIds: (nodeId, runState) =>
+        this.getNextNodeIdsForResume(nodeId, runState),
+    };
+    this.resumeHost = {
+      config: this.config,
+      eventLog: this.eventLog,
+      assertRuntimeToolReadiness: () => this.assertRuntimeToolReadiness(),
+      setState: (next) => {
+        this.state = next;
+      },
+      setRecoveryAttemptsUsed: (count) => {
+        this.recoveryAttemptsUsed = count;
+      },
+      emitStarted: (runId) =>
+        this.emit(pipelineStartedEvent(this.config.definition.id, runId)),
+      emitCompleted: (runId, durationMs) =>
+        this.emit(pipelineCompletedEvent(runId, durationMs)),
+      emitFailed: (runId, message) =>
+        this.emit(pipelineFailedEvent(runId, message)),
+      runFromNode: (ctx) => this.runFromNode(ctx),
+      hasNode: (nodeId) => this.nodeMap.has(nodeId),
+      getNextNodeIds: (nodeId, runState) =>
+        this.getNextNodeIdsForResume(nodeId, runState),
+      findMidFlightLoopNodeId: (loopState, completedNodeIds) =>
+        this.findMidFlightLoopNodeId(loopState, completedNodeIds),
+      findMidFlightForkNodeId: (forkState) =>
+        this.findMidFlightForkNodeId(forkState),
+      findRestartNodeId: (completedNodeIds, runState) =>
+        this.findRestartNodeId(completedNodeIds, runState),
+      countReplayNodesFrom: (startNodeId, runState, completedNodeIds) =>
+        this.countReplayNodesFrom(startNodeId, runState, completedNodeIds),
+    };
   }
 
   /** Execute the pipeline from the entry node. */
   async execute(
-    initialState?: Record<string, unknown>,
+    initialState?: Record<string, unknown>
   ): Promise<PipelineRunResult> {
     // Validate first
     const validation = validatePipeline(this.config.definition);
@@ -171,18 +180,7 @@ export class PipelineRuntime {
     const completedNodeIds: string[] = [];
     const nodeIdempotencyKeys: Record<string, string> = {};
     const loopState: Record<string, { iteration: number }> = {};
-    const forkState: Record<
-      string,
-      {
-        branches: Record<
-          string,
-          {
-            stateDelta: Record<string, unknown>;
-            nodeResults: Record<string, unknown>;
-          }
-        >;
-      }
-    > = {};
+    const forkState: ForkRuntimeState = {};
     const versionTracker = { version: 0 };
 
     this.state = "running";
@@ -210,224 +208,14 @@ export class PipelineRuntime {
   /** Resume execution from a checkpoint. */
   async resume(
     checkpoint: PipelineCheckpoint,
-    additionalState?: Record<string, unknown>,
+    additionalState?: Record<string, unknown>
   ): Promise<PipelineRunResult> {
-    this.assertRuntimeToolReadiness();
-
-    const runId = checkpoint.pipelineRunId;
-    const runState: Record<string, unknown> = {
-      ...checkpoint.state,
-      ...additionalState,
-    };
-    const nodeResults = new Map<string, NodeResult>();
-    const completedNodeIds = [...checkpoint.completedNodeIds];
-    // Restore recorded idempotency keys so resumed runs keep stable keys.
-    const nodeIdempotencyKeys: Record<string, string> = {
-      ...checkpoint.nodeIdempotencyKeys,
-    };
-    // Restore the loop iteration cursor so a mid-loop crash resumes from the
-    // next iteration rather than restarting the loop (W3).
-    const loopState: Record<string, { iteration: number }> = {
-      ...checkpoint.loopState,
-    };
-    // Restore per-fork branch progress so a mid-fork crash re-runs only
-    // unfinished branches rather than the whole fork (W4).
-    const forkState: Record<
-      string,
-      {
-        branches: Record<
-          string,
-          {
-            stateDelta: Record<string, unknown>;
-            nodeResults: Record<string, unknown>;
-          }
-        >;
-      }
-    > = structuredClone(checkpoint.forkState ?? {});
-
-    // Mark completed nodes in results (with placeholder results)
-    for (const nodeId of completedNodeIds) {
-      nodeResults.set(nodeId, {
-        nodeId,
-        output: null,
-        durationMs: 0,
-      });
-    }
-
-    this.state = "running";
-    // Restore recovery budget so limits are enforced across process restarts
-    this.recoveryAttemptsUsed = checkpoint.recoveryAttemptsUsed ?? 0;
-    this.emit(pipelineStartedEvent(this.config.definition.id, runId));
-
-    const startTime = Date.now();
-
-    // Mid-loop crash (W3): no suspend point, but a loop cursor is in flight.
-    // Re-enter at that loop node; `dispatchLoop` reads the cursor and resumes
-    // from the next iteration. The loop node is not in `completedNodeIds`
-    // (only added when the loop finishes), so it will not be skipped.
-    const midFlightLoopId = this.findMidFlightLoopNodeId(
-      loopState,
-      completedNodeIds,
-    );
-    if (!checkpoint.suspendedAtNodeId && midFlightLoopId) {
-      const versionTracker = { version: checkpoint.version };
-      return this.runFromNode({
-        startNodeId: midFlightLoopId,
-        runId,
-        runState,
-        nodeResults,
-        completedNodeIds,
-        nodeIdempotencyKeys,
-        loopState,
-        forkState,
-        eventLog: this.eventLog,
-        versionTracker,
-        startTime,
-      });
-    }
-
-    // Mid-fork crash (W4): no suspend point, but a fork has surviving branch
-    // progress. Re-enter at that fork node; dispatchFork restores completed
-    // branches and re-runs only the unfinished ones. The fork node is not in
-    // completedNodeIds until the join completes, so it is not skipped.
-    const midFlightForkId = this.findMidFlightForkNodeId(forkState);
-    if (!checkpoint.suspendedAtNodeId && !midFlightLoopId && midFlightForkId) {
-      const versionTracker = { version: checkpoint.version };
-      return this.runFromNode({
-        startNodeId: midFlightForkId,
-        runId,
-        runState,
-        nodeResults,
-        completedNodeIds,
-        nodeIdempotencyKeys,
-        loopState,
-        forkState,
-        eventLog: this.eventLog,
-        versionTracker,
-        startTime,
-      });
-    }
-
-    if (!checkpoint.suspendedAtNodeId) {
-      const restartNodeId = this.findRestartNodeId(completedNodeIds, runState);
-      const restartPolicy = this.config.definition.resume?.onProcessRestart;
-      if (
-        restartNodeId &&
-        (restartPolicy === "resume_from_checkpoint" ||
-          restartPolicy === "redeliver_running")
-      ) {
-        const maxReplayNodes = this.config.definition.resume?.maxReplayNodes;
-        if (maxReplayNodes !== undefined) {
-          const replayNodeCount = this.countReplayNodesFrom(
-            restartNodeId,
-            runState,
-            completedNodeIds,
-          );
-          if (replayNodeCount > maxReplayNodes) {
-            return this.failReplayBudgetExceeded({
-              runId,
-              nodeResults,
-              replayNodeCount,
-              maxReplayNodes,
-              startTime,
-            });
-          }
-        }
-        const versionTracker = { version: checkpoint.version };
-        return this.runFromNode({
-          startNodeId: restartNodeId,
-          runId,
-          runState,
-          nodeResults,
-          completedNodeIds,
-          nodeIdempotencyKeys,
-          loopState,
-          forkState,
-          eventLog: this.eventLog,
-          versionTracker,
-          startTime,
-        });
-      }
-      // No suspension point and no mid-flight loop — nothing to resume
-      this.state = "completed";
-      this.emit(pipelineCompletedEvent(runId, 0));
-      return {
-        pipelineId: this.config.definition.id,
-        runId,
-        state: "completed",
-        nodeResults,
-        totalDurationMs: 0,
-      };
-    }
-
-    // Find the node after the suspend point
-    const suspendedNode = this.nodeMap.get(checkpoint.suspendedAtNodeId);
-    if (!suspendedNode) {
-      throw new Error(
-        `Suspended node "${checkpoint.suspendedAtNodeId}" not found`,
-      );
-    }
-
-    // Get next node(s) after the suspended node
-    const nextNodeIds = this.getNextNodeIdsForResume(
-      checkpoint.suspendedAtNodeId,
-      runState,
-    );
-
-    if (nextNodeIds.length === 0) {
-      // Suspend was terminal
-      this.state = "completed";
-      const totalMs = Date.now() - startTime;
-      this.emit(pipelineCompletedEvent(runId, totalMs));
-      return {
-        pipelineId: this.config.definition.id,
-        runId,
-        state: "completed",
-        nodeResults,
-        totalDurationMs: totalMs,
-      };
-    }
-
-    const versionTracker = { version: checkpoint.version };
-    const maxReplayNodes = this.config.definition.resume?.maxReplayNodes;
-    if (maxReplayNodes !== undefined) {
-      const replayNodeCount = this.countReplayNodesFrom(
-        nextNodeIds[0]!,
-        runState,
-        completedNodeIds,
-      );
-      if (replayNodeCount > maxReplayNodes) {
-        return this.failReplayBudgetExceeded({
-          runId,
-          nodeResults,
-          replayNodeCount,
-          maxReplayNodes,
-          startTime,
-        });
-      }
-    }
-
-    // Continue from the first next node — `runFromNode` translates any
-    // executor-thrown error into a failed run result, matching the
-    // original outer try/catch semantics.
-    return this.runFromNode({
-      startNodeId: nextNodeIds[0]!,
-      runId,
-      runState,
-      nodeResults,
-      completedNodeIds,
-      nodeIdempotencyKeys,
-      loopState,
-      forkState,
-      eventLog: this.eventLog,
-      versionTracker,
-      startTime,
-    });
+    return resumeFromCheckpoint(this.resumeHost, checkpoint, additionalState);
   }
 
   async recoverAfterProcessRestart(
     pipelineRunId: string,
-    additionalState?: Record<string, unknown>,
+    additionalState?: Record<string, unknown>
   ): Promise<PipelineRunResult> {
     const policy =
       this.config.definition.resume?.onProcessRestart ??
@@ -435,14 +223,14 @@ export class PipelineRuntime {
     const store = this.config.checkpointStore;
     if (!store) {
       throw new Error(
-        `Cannot recover run '${pipelineRunId}': no checkpoint store configured.`,
+        `Cannot recover run '${pipelineRunId}': no checkpoint store configured.`
       );
     }
 
     const checkpoint = await store.load(pipelineRunId);
     if (!checkpoint) {
       throw new Error(
-        `Cannot recover run '${pipelineRunId}': no checkpoint found.`,
+        `Cannot recover run '${pipelineRunId}': no checkpoint found.`
       );
     }
 
@@ -451,8 +239,8 @@ export class PipelineRuntime {
       this.emit(
         pipelineFailedEvent(
           pipelineRunId,
-          "Run marked failed after process restart by resume.onProcessRestart=fail_running",
-        ),
+          "Run marked failed after process restart by resume.onProcessRestart=fail_running"
+        )
       );
       return {
         pipelineId: this.config.definition.id,
@@ -472,165 +260,50 @@ export class PipelineRuntime {
 
   private async redeliverFromCheckpoint(
     checkpoint: PipelineCheckpoint,
-    additionalState?: Record<string, unknown>,
+    additionalState?: Record<string, unknown>
   ): Promise<PipelineRunResult> {
-    this.assertRuntimeToolReadiness();
-
-    const runId = checkpoint.pipelineRunId;
-    const runState: Record<string, unknown> = {
-      ...checkpoint.state,
-      ...additionalState,
-    };
-    const nodeResults = new Map<string, NodeResult>();
-    const completedNodeIds: string[] = [];
-    const nodeIdempotencyKeys: Record<string, string> = {
-      ...checkpoint.nodeIdempotencyKeys,
-    };
-    const loopState: Record<string, { iteration: number }> = {};
-    const forkState: Record<
-      string,
-      {
-        branches: Record<
-          string,
-          {
-            stateDelta: Record<string, unknown>;
-            nodeResults: Record<string, unknown>;
-          }
-        >;
-      }
-    > = {};
-    const startNodeId = this.config.definition.entryNodeId;
-    const startTime = Date.now();
-
-    const maxReplayNodes = this.config.definition.resume?.maxReplayNodes;
-    if (maxReplayNodes !== undefined) {
-      const replayNodeCount = this.countReplayNodesFrom(
-        startNodeId,
-        runState,
-        completedNodeIds,
-      );
-      if (replayNodeCount > maxReplayNodes) {
-        return this.failReplayBudgetExceeded({
-          runId,
-          nodeResults,
-          replayNodeCount,
-          maxReplayNodes,
-          startTime,
-        });
-      }
-    }
-
-    this.state = "running";
-    this.recoveryAttemptsUsed = checkpoint.recoveryAttemptsUsed ?? 0;
-    this.emit(pipelineStartedEvent(this.config.definition.id, runId));
-
-    return this.runFromNode({
-      startNodeId,
-      runId,
-      runState,
-      nodeResults,
-      completedNodeIds,
-      nodeIdempotencyKeys,
-      loopState,
-      forkState,
-      eventLog: this.eventLog,
-      versionTracker: { version: checkpoint.version },
-      startTime,
-    });
+    return redeliverFromCheckpointOrchestrator(
+      this.resumeHost,
+      checkpoint,
+      additionalState
+    );
   }
 
-  /**
-   * Find a loop node that was mid-flight when the checkpoint was written: it
-   * has a recorded iteration cursor but is not yet in `completedNodeIds`
-   * (the loop node is only marked complete when the whole loop finishes).
-   * Returns its node ID, or undefined when no loop is mid-flight.
-   */
   private findMidFlightLoopNodeId(
     loopState: Record<string, { iteration: number }>,
-    completedNodeIds: string[],
+    completedNodeIds: string[]
   ): string | undefined {
-    const completed = new Set(completedNodeIds);
-    for (const nodeId of Object.keys(loopState)) {
-      const node = this.nodeMap.get(nodeId);
-      if (node?.type === "loop" && !completed.has(nodeId)) return nodeId;
-    }
-    return undefined;
+    return findMidFlightLoopNodeId(
+      this.resumePlannerCtx,
+      loopState,
+      completedNodeIds
+    );
   }
 
-  /**
-   * Find a fork node that was mid-flight when the checkpoint was written: its
-   * `forkState` entry survived (the fork clears it only after the join
-   * completes). Returns the fork node's ID, or undefined when no fork is
-   * mid-flight. Mirrors `findMidFlightLoopNodeId` (W3).
-   */
   private findMidFlightForkNodeId(
-    forkState: Record<string, { branches: Record<string, unknown> }>,
+    forkState: Record<string, { branches: Record<string, unknown> }>
   ): string | undefined {
-    for (const node of this.config.definition.nodes) {
-      if (node.type !== "fork") continue;
-      if (forkState[node.forkId]) return node.id;
-    }
-    return undefined;
+    return findMidFlightForkNodeId(this.resumePlannerCtx, forkState);
   }
 
   private findRestartNodeId(
     completedNodeIds: string[],
-    runState: Record<string, unknown>,
+    runState: Record<string, unknown>
   ): string | undefined {
-    const completed = new Set(completedNodeIds);
-    let candidate: string | undefined = this.config.definition.entryNodeId;
-    const visited = new Set<string>();
-
-    while (candidate && completed.has(candidate) && !visited.has(candidate)) {
-      visited.add(candidate);
-      candidate = this.getNextNodeIdsForResume(candidate, runState)[0];
-    }
-
-    return candidate && !completed.has(candidate) ? candidate : undefined;
+    return findRestartNodeId(this.resumePlannerCtx, completedNodeIds, runState);
   }
 
   private countReplayNodesFrom(
     startNodeId: string,
     runState: Record<string, unknown>,
-    completedNodeIds: string[],
+    completedNodeIds: string[]
   ): number {
-    const completed = new Set(completedNodeIds);
-    const visited = new Set<string>();
-    const stack = [startNodeId];
-    let count = 0;
-
-    while (stack.length > 0) {
-      const nodeId = stack.pop()!;
-      if (visited.has(nodeId)) continue;
-      visited.add(nodeId);
-      if (completed.has(nodeId)) continue;
-
-      count += 1;
-      stack.push(...this.getNextNodeIdsForResume(nodeId, runState));
-    }
-
-    return count;
-  }
-
-  private failReplayBudgetExceeded(args: {
-    runId: string;
-    nodeResults: Map<string, NodeResult>;
-    replayNodeCount: number;
-    maxReplayNodes: number;
-    startTime: number;
-  }): PipelineRunResult {
-    const errorMessage =
-      `Resume replay budget exceeded: ${args.replayNodeCount} nodes would replay, ` +
-      `maxReplayNodes is ${args.maxReplayNodes}.`;
-    this.state = "failed";
-    this.emit(pipelineFailedEvent(args.runId, errorMessage));
-    return {
-      pipelineId: this.config.definition.id,
-      runId: args.runId,
-      state: "failed",
-      nodeResults: args.nodeResults,
-      totalDurationMs: Date.now() - args.startTime,
-    };
+    return countReplayNodesFrom(
+      this.resumePlannerCtx,
+      startNodeId,
+      runState,
+      completedNodeIds
+    );
   }
 
   /** Cancel execution. */
@@ -650,7 +323,7 @@ export class PipelineRuntime {
    * them to load or parse raw checkpoint records.
    */
   async getProviderSessionRefs(
-    pipelineRunId: string,
+    pipelineRunId: string
   ): Promise<PipelineCheckpointProviderSessionRef[]> {
     const checkpoint = await this.config.checkpointStore?.load(pipelineRunId);
     return structuredClone(checkpoint?.providerSessionRefs ?? []);
@@ -667,30 +340,9 @@ export class PipelineRuntime {
    * entry points (state transition to `failed`, `pipeline:failed` event,
    * structured `PipelineRunResult`) without duplicating the catch block.
    */
-  private async runFromNode(args: {
-    startNodeId: string;
-    runId: string;
-    runState: Record<string, unknown>;
-    nodeResults: Map<string, NodeResult>;
-    completedNodeIds: string[];
-    nodeIdempotencyKeys: Record<string, string>;
-    loopState: Record<string, { iteration: number }>;
-    forkState: Record<
-      string,
-      {
-        branches: Record<
-          string,
-          {
-            stateDelta: Record<string, unknown>;
-            nodeResults: Record<string, unknown>;
-          }
-        >;
-      }
-    >;
-    eventLog: PipelineRuntimeEvent[];
-    versionTracker: { version: number };
-    startTime: number;
-  }): Promise<PipelineRunResult> {
+  private async runFromNode(
+    args: PipelineRunContext
+  ): Promise<PipelineRunResult> {
     try {
       return await this.executor.executeFromNode(args);
     } catch (err) {
@@ -716,13 +368,13 @@ export class PipelineRuntime {
    */
   private getNextNodeIdsForResume(
     nodeId: string,
-    runState: Record<string, unknown>,
+    runState: Record<string, unknown>
   ): string[] {
     return getNextNodeIds(
       nodeId,
       this.outgoingEdges,
       this.config.predicates,
-      runState,
+      runState
     );
   }
 
@@ -735,84 +387,10 @@ export class PipelineRuntime {
 
     const readiness = getRuntimeToolReadiness(
       this.config.definition,
-      this.config.runtimeToolHandlers,
+      this.config.runtimeToolHandlers
     );
     if (!readiness.ready) {
       throw new Error(formatRuntimeToolReadinessError(readiness));
     }
   }
-}
-
-function resolveCheckpointStore(
-  config: PipelineRuntimeConfig,
-): PipelineCheckpointStore | undefined {
-  const storeRef = config.definition.checkpoint?.storeRef;
-  if (storeRef && config.checkpointStores?.[storeRef]) {
-    return config.checkpointStores[storeRef];
-  }
-  if (storeRef && isCheckpointStoreUriRef(storeRef)) {
-    return resolveCheckpointStoreUri(storeRef, config);
-  }
-  return config.checkpointStore;
-}
-
-function isCheckpointStoreUriRef(storeRef: string): boolean {
-  return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(storeRef);
-}
-
-function resolveCheckpointStoreUri(
-  storeRef: string,
-  config: PipelineRuntimeConfig,
-): PipelineCheckpointStore {
-  if (!storeRef.includes("://")) {
-    throw new Error(
-      `Malformed checkpoint.storeRef URI "${storeRef}": expected "scheme://...".`,
-    );
-  }
-
-  let uri: URL;
-  try {
-    uri = new URL(storeRef);
-  } catch {
-    throw new Error(`Malformed checkpoint.storeRef URI "${storeRef}".`);
-  }
-
-  const scheme = uri.protocol.slice(0, -1).toLowerCase();
-  switch (scheme) {
-    case "pg":
-    case "postgres":
-    case "postgresql":
-      if (!config.pgClient) {
-        throw new Error(
-          `checkpoint.storeRef URI "${storeRef}" requires PipelineRuntimeConfig.pgClient.`,
-        );
-      }
-      return new PostgresPipelineCheckpointStore({
-        client: config.pgClient,
-      });
-    case "redis":
-    case "rediss":
-      if (!config.redisClient) {
-        throw new Error(
-          `checkpoint.storeRef URI "${storeRef}" requires PipelineRuntimeConfig.redisClient.`,
-        );
-      }
-      return new RedisPipelineCheckpointStore({
-        client: config.redisClient,
-      });
-    default:
-      throw new Error(
-        `Unsupported checkpoint.storeRef URI scheme "${scheme}" in "${storeRef}".`,
-      );
-  }
-}
-
-function shouldCaptureRuntimeEvents(
-  definition: PipelineRuntimeConfig["definition"],
-): boolean {
-  return (
-    definition.checkpoint?.includeEvents === true ||
-    (definition.executionLog?.eventHistory !== undefined &&
-      definition.executionLog.eventHistory !== "none")
-  );
 }

@@ -3,34 +3,34 @@ name: Verify Strict
 on:
   pull_request:
     paths:
-      - 'packages/**'
-      - 'scripts/**'
-      - 'docs/**'
-      - 'README.md'
-      - 'AGENTS.md'
-      - 'CLAUDE.md'
-      - 'turbo.json'
-      - 'typedoc.json'
-      - 'tsconfig.docs.json'
-      - 'package.json'
-      - 'yarn.lock'
-      - '.github/workflows/verify-strict.yml'
+      - "packages/**"
+      - "scripts/**"
+      - "docs/**"
+      - "README.md"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "turbo.json"
+      - "typedoc.json"
+      - "tsconfig.docs.json"
+      - "package.json"
+      - "yarn.lock"
+      - ".github/workflows/verify-strict.yml"
   push:
     branches:
       - main
     paths:
-      - 'packages/**'
-      - 'scripts/**'
-      - 'docs/**'
-      - 'README.md'
-      - 'AGENTS.md'
-      - 'CLAUDE.md'
-      - 'turbo.json'
-      - 'typedoc.json'
-      - 'tsconfig.docs.json'
-      - 'package.json'
-      - 'yarn.lock'
-      - '.github/workflows/verify-strict.yml'
+      - "packages/**"
+      - "scripts/**"
+      - "docs/**"
+      - "README.md"
+      - "AGENTS.md"
+      - "CLAUDE.md"
+      - "turbo.json"
+      - "typedoc.json"
+      - "tsconfig.docs.json"
+      - "package.json"
+      - "yarn.lock"
+      - ".github/workflows/verify-strict.yml"
 
 permissions:
   contents: read
@@ -56,7 +56,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: yarn
           cache-dependency-path: yarn.lock
 
@@ -80,7 +80,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: yarn
           cache-dependency-path: yarn.lock
 
@@ -98,3 +98,79 @@ jobs:
 
       - name: Run strict verification without circular imports
         run: yarn verify:strict:ci:no-circular
+
+  # TEST-H-02: fail-closed integration lane. The fail-closed helpers
+  # (requireIntegration / requireIntegrationEnv, RUN_REQUIRED_INTEGRATION=1)
+  # already exist; before this job, no workflow provisioned services or set the
+  # env var, so every real DB/Redis/Qdrant suite silently `describe.skipIf`'d to
+  # green and a real regression could ship. This job provisions the services and
+  # runs the suites fail-closed so an unreachable dependency fails the build.
+  integration-lane:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dzupagent
+          POSTGRES_PASSWORD: dzupagent
+          POSTGRES_DB: dzupagent_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dzupagent"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+
+    env:
+      RUN_REQUIRED_INTEGRATION: "1"
+      # Postgres URL consumed by the server + subagents integration suites.
+      TEST_DATABASE_URL: postgres://dzupagent:dzupagent@localhost:5432/dzupagent_test
+      SUBAGENTS_POSTGRES_TEST_URL: postgres://dzupagent:dzupagent@localhost:5432/dzupagent_test
+      # Redis URL for the bullmq e2e suite.
+      REDIS_URL: redis://localhost:6379
+      TEST_REDIS_URL: redis://localhost:6379
+      # Qdrant URL for the rag qdrant-factory integration suite.
+      QDRANT_URL: http://localhost:6333
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: yarn
+          cache-dependency-path: yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Wait for Qdrant readiness
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:6333/readyz >/dev/null; then
+              echo "Qdrant ready"; exit 0
+            fi
+            echo "waiting for qdrant ($i)"; sleep 2
+          done
+          echo "Qdrant did not become ready" >&2; exit 1
+
+      - name: Run required integration suites (fail-closed)
+        run: yarn test:required-integration

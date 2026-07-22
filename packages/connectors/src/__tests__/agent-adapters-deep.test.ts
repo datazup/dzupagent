@@ -67,6 +67,15 @@ import {
 } from "../agent-registry-resolver.js";
 import { MCPAsyncToolResolver } from "../mcp-tool-resolver.js";
 
+/**
+ * AGENT-M-16 — successful MCP server text is fenced at the source in an
+ * <untrusted_content source="tool_result"> boundary by the resolver. Mirror
+ * that transform so assertions read against the expected fenced value.
+ */
+function fence(text: string): string {
+  return `<untrusted_content source="tool_result">\n${text}\n</untrusted_content>`;
+}
+
 // ============================================================================
 // Shared fetch helpers
 // ============================================================================
@@ -843,7 +852,9 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/t");
     const inv = await (result!.handle as InvokableHandle).invoke({});
-    expect(inv.content).toEqual([{ type: "text", value: "hello world" }]);
+    expect(inv.content).toEqual([
+      { type: "text", value: fence("hello world") },
+    ]);
   });
 
   it("maps image part correctly", async () => {
@@ -925,7 +936,7 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     const resolver = new MCPAsyncToolResolver(client);
     const result = await resolver.resolve("srv/blank");
     const inv = await (result!.handle as InvokableHandle).invoke({});
-    expect(inv.content[0]).toEqual({ type: "text", value: "" });
+    expect(inv.content[0]).toEqual({ type: "text", value: fence("") });
   });
 
   it("maps image part with undefined data to empty string", async () => {
@@ -958,9 +969,9 @@ describe("MCPAsyncToolResolver — content part mapping", () => {
     const result = await resolver.resolve("srv/multi");
     const inv = await (result!.handle as InvokableHandle).invoke({});
     expect(inv.content).toEqual([
-      { type: "text", value: "first" },
+      { type: "text", value: fence("first") },
       { type: "image", value: "imgdata" },
-      { type: "text", value: "last" },
+      { type: "text", value: fence("last") },
     ]);
   });
 });

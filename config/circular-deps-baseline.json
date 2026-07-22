@@ -1,4 +1,7 @@
 {
-  "description": "Known circular imports accepted temporarily by scripts/check-circular-deps.mjs. Remove entries as cycles are fixed.",
+  "$invariant": "ZERO accepted cycles is a HARD invariant, not a soft baseline. An empty `packages` map is the intended, enforced steady state — NOT a placeholder awaiting fixes.",
+  "$policy": "Adding ANY non-empty entry to `packages` requires (1) an accepted ADR justifying the cycle, and (2) an explicit expiry date after which the entry must be removed and the cycle broken. Reviewers MUST reject a baseline addition that lacks both.",
+  "$dist-triage-note": "`.d.ts` cycles reported under a package's dist/ (seen historically in agent-adapters, server, testing) are REFLECTIONS of an upstream SOURCE package's cycle, not independent defects. Triage and fix them at the source package that owns the cyclic src/ modules — never chase the duplicated dist/.d.ts reflection in the consumer. The gate scans src/ by default precisely to avoid this duplicate-chasing.",
+  "description": "Known circular imports accepted temporarily by scripts/check-circular-deps.mjs. Steady state is empty (see $invariant); any addition requires an ADR + expiry date (see $policy).",
   "packages": {}
 }

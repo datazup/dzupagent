@@ -8,8 +8,7 @@
  * environment variables when `propagateContext` is enabled (default).
  */
 
-import { randomUUID } from 'node:crypto'
-
+import { generateTraceId, generateSpanId } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core/events'
 
 import type { AgentEvent } from '../types.js'
@@ -24,15 +23,8 @@ export const ADAPTER_TRACE_ENV_OPTION = 'adapterTraceEnv'
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Generate a 32-char hex trace ID from a UUID. */
-function generateTraceId(): string {
-  return randomUUID().replace(/-/g, '')
-}
-
-/** Generate a 16-char hex span ID from a UUID (first 16 hex chars). */
-function generateSpanId(): string {
-  return randomUUID().replace(/-/g, '').slice(0, 16)
-}
+// Trace/span ID generators are the canonical implementations from
+// `@dzupagent/core` (imported above) — W3C-hex from crypto.randomUUID().
 
 // ---------------------------------------------------------------------------
 // AdapterTracer
