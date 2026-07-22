@@ -1,7 +1,5 @@
 import type {
   BackgroundTask,
-  SubagentAuditIdentity,
-  SubagentResult,
   SubagentSpec,
   TaskId,
 } from "../contracts/background-task.js";
@@ -9,129 +7,50 @@ import { isTerminalStatus } from "../contracts/background-task.js";
 import type { Clock } from "../contracts/clock.js";
 import { systemClock } from "../contracts/clock.js";
 import { SubagentErrorCode } from "../contracts/error-codes.js";
-import type {
-  SubagentEventSink,
-  SubagentRuntimeEvent,
-} from "../contracts/events.js";
+import type { SubagentEventSink } from "../contracts/events.js";
 import type { SubagentLogger } from "../contracts/logger.js";
 import { defaultSubagentLogger } from "../contracts/logger.js";
 import type { TaskRunner } from "../contracts/task-runner.js";
 import type { TaskStore } from "../contracts/task-store.js";
 import { LifecycleController } from "../lifecycle/lifecycle-controller.js";
 import type {
-  ApprovedSpawnBatch,
   SpawnBatchRequest,
   SpawnContext,
   SpawnGate,
 } from "../governance/spawn-gate.js";
 import type { LifecyclePolicy } from "./runtime-config.js";
 import { DEFAULT_LIFECYCLE_POLICY } from "./runtime-config.js";
-import {
-  recoverStaleRunningTasks,
-  type RecoverStaleRunningTasksOptions,
-} from "../store/postgres-task-store.js";
+import type { RecoverStaleRunningTasksOptions } from "../store/postgres-task-store.js";
+import type {
+  BackgroundSubagentRuntimeDeps,
+  GovernanceEventSink,
+  SpawnBatchAdmission,
+  SpawnOptions,
+  SpawnOutcome,
+  SubagentAdmissionResolution,
+  SubagentAdmissionResolver,
+  TaskScope,
+} from "./background-subagent-runtime/contracts.js";
+import { noopGovernanceSink } from "./background-subagent-runtime/contracts.js";
+import { defaultAuditForSpec } from "./background-subagent-runtime/admission-audit.js";
+import { sleep } from "./background-subagent-runtime/sleep.js";
+import { reconcileOrphans } from "./background-subagent-runtime/orphan-reconciler.js";
+import { AdmissionPipeline } from "./background-subagent-runtime/admission-pipeline.js";
 
-/** Governance event side-channel — structurally compatible with `GovernanceEvent`. */
-export interface GovernanceEventSink {
-  emitGovernance(event: {
-    type:
-      | "governance:approval_requested"
-      | "governance:approval_resolved"
-      | "governance:rule_violation";
-    runId: string;
-    approvalId?: string;
-    detail?: string;
-  }): void;
-}
-
-const noopGovernanceSink: GovernanceEventSink = { emitGovernance: () => {} };
-
-/** Result of a spawn request handed back to tool/programmatic callers. */
-export type SpawnOutcome =
-  | { ok: true; taskId: TaskId; status: BackgroundTask["status"] }
-  | { ok: false; reason: "queue_full" | "denied"; detail?: string };
-
-/**
- * Result of a batch-level gate evaluation (Phase B hardening). A fan-out
- * coordinator calls {@link BackgroundSubagentRuntime.evaluateBatch} ONCE before
- * dispatching items; on `ok` it threads the returned {@link ApprovedSpawnBatch}
- * into each per-item `spawn(...)` via `options.batch`. A `needs_approval`
- * decision is resolved inside `evaluateBatch` (a single batch-level HITL wait
- * keyed by `batchId`), so callers only ever see allowed-or-denied.
- */
-export type SpawnBatchAdmission =
-  | { ok: true; batch: ApprovedSpawnBatch; approvalRequired: boolean }
-  | { ok: false; reason: "denied"; detail: string };
-
-/**
- * The outcome of a trusted pre-admission resolver: the (possibly rewritten)
- * spec to admit, plus an optional persona/inline audit identity captured for
- * the `subagent:spawned` event.
- */
-export interface SubagentAdmissionResolution {
-  spec: SubagentSpec;
-  audit?: SubagentAuditIdentity;
-}
-
-/**
- * A trusted hook run at spawn admission that can materialize a persona snapshot
- * (`resolvedDefinition`) or attach policy data before governance evaluates the
- * spec. Runs only when the caller did not already supply a `resolvedDefinition`.
- */
-export type SubagentAdmissionResolver = (
-  spec: SubagentSpec,
-  parentRunId: string
-) => Promise<SubagentAdmissionResolution> | SubagentAdmissionResolution;
-
-export interface SpawnOptions {
-  ttlMs?: number;
-  /**
-   * Spawn depth (0 = spawned by the top-level run; defaults to 0). Spawns
-   * performed from inside a task must pass the parent task's `depth + 1`.
-   * Requests at `depth >= LifecyclePolicy.maxSpawnDepth` are rejected
-   * structurally, before any policy call.
-   */
-  depth?: number;
-  /** Fan-out batch id this spawn belongs to; persisted on the task. */
-  batchId?: string;
-  /** Task whose execution requested this spawn (nested spawns). */
-  originTaskId?: string;
-  /** Full batch context handed to context-aware policies (Spec 03 §2). */
-  batch?: SpawnContext["batch"];
-}
-
-/**
- * Ownership scope for pull/cancel operations (SEC-M-04). When supplied, the
- * runtime only acts on a task whose `parentRunId` matches `scope.parentRunId`;
- * a mismatch is treated as not-found (returns `null`) so a caller cannot probe
- * for, read, or cancel another run's tasks by guessing a `taskId`. Omit the
- * scope only for trusted in-process callers (e.g. the runtime's own
- * cancel→await self-call) that have already established ownership.
- */
-export interface TaskScope {
-  parentRunId: string;
-}
-
-export interface BackgroundSubagentRuntimeDeps {
-  store: TaskStore;
-  runner: TaskRunner;
-  gate: SpawnGate;
-  events: SubagentEventSink;
-  governance?: GovernanceEventSink;
-  policy?: Partial<LifecyclePolicy>;
-  clock?: Clock;
-  /** Structured logger seam; defaults to a JSON-to-stderr logger when absent. */
-  logger?: SubagentLogger;
-  /** Optional trusted pre-admission resolver for persona snapshots/policy data. */
-  resolveAdmission?: SubagentAdmissionResolver;
-  /** Deterministic id generator (no Math.random in core paths). */
-  generateId: () => string;
-  /** Optional policy for durable runners that should settle stale running work. */
-  staleRunningRecovery?: Pick<
-    RecoverStaleRunningTasksOptions,
-    "runningTimeoutMs" | "action" | "enqueue"
-  >;
-}
+// Re-export the public contract surface from the composition root so the
+// `./runtime/background-subagent-runtime.js` import path is unchanged for every
+// consumer (index.ts, create-runtime.ts, orchestrator-background-api.ts, the
+// fanout tool, and the test helpers).
+export type {
+  BackgroundSubagentRuntimeDeps,
+  GovernanceEventSink,
+  SpawnBatchAdmission,
+  SpawnOptions,
+  SpawnOutcome,
+  SubagentAdmissionResolution,
+  SubagentAdmissionResolver,
+  TaskScope,
+} from "./background-subagent-runtime/contracts.js";
 
 /**
  * Coordinates the full background-subagent lifecycle: spawn → governance →
@@ -151,7 +70,7 @@ export class BackgroundSubagentRuntime {
   private readonly resolveAdmission?: SubagentAdmissionResolver;
   private readonly generateId: () => string;
   private readonly lifecycle: LifecycleController;
-  private readonly controllers = new Map<TaskId, AbortController>();
+  private readonly pipeline: AdmissionPipeline;
   private readonly staleRunningRecovery?: Pick<
     RecoverStaleRunningTasksOptions,
     "runningTimeoutMs" | "action" | "enqueue"
@@ -174,9 +93,21 @@ export class BackgroundSubagentRuntime {
       this.policy,
       this.clock,
       this.events,
-      (taskId) => this.abortController(taskId),
+      // The pipeline owns the AbortController registry; the closure resolves it
+      // lazily so the sweep-triggered abort reaches the live controller map.
+      (taskId) => this.pipeline.abort(taskId),
       this.logger
     );
+    this.pipeline = new AdmissionPipeline({
+      store: this.store,
+      runner: this.runner,
+      gate: this.gate,
+      events: this.events,
+      clock: this.clock,
+      logger: this.logger,
+      lifecycle: this.lifecycle,
+      emitGovernance: (event) => this.governance.emitGovernance(event),
+    });
   }
 
   /**
@@ -309,102 +240,12 @@ export class BackgroundSubagentRuntime {
         approvalId,
       });
       // Resolve approval asynchronously, then admit.
-      void this.resolveApprovalThenAdmit(id, parentRunId, approvalId);
+      void this.pipeline.resolveApprovalThenAdmit(id, parentRunId, approvalId);
       return { ok: true, taskId: id, status: "awaiting_approval" };
     }
 
-    const admitted = await this.tryAdmit(id, parentRunId);
+    const admitted = await this.pipeline.tryAdmit(id, parentRunId);
     return { ok: true, taskId: id, status: admitted ? "running" : "queued" };
-  }
-
-  private async resolveApprovalThenAdmit(
-    id: TaskId,
-    parentRunId: string,
-    approvalId: string
-  ): Promise<void> {
-    const outcome = await this.gate.awaitApproval(parentRunId, approvalId);
-    this.governance.emitGovernance({
-      type: "governance:approval_resolved",
-      runId: parentRunId,
-      approvalId,
-      detail: outcome.decision === "granted" ? "approved" : outcome.reason,
-    });
-    if (outcome.decision !== "granted") {
-      await this.store.patch(id, {
-        status: "cancelled",
-        // ERR-M-06: structured code alongside the human-readable message.
-        errorCode: SubagentErrorCode.APPROVAL_REJECTED,
-        error: `approval_rejected: ${outcome.reason}`,
-        endedAt: this.clock.now(),
-      });
-      this.logger.warn({
-        taskId: id,
-        code: SubagentErrorCode.APPROVAL_REJECTED,
-        reason: outcome.reason,
-        parentRunId,
-        approvalId,
-      });
-      this.events.emit({ type: "subagent:cancelled", taskId: id });
-      return;
-    }
-    await this.tryAdmit(id, parentRunId);
-  }
-
-  private async tryAdmit(id: TaskId, parentRunId: string): Promise<boolean> {
-    const queued = await this.store.list({ parentRunId, status: "queued" });
-    const decision = this.lifecycle.admit(queued.length);
-    if (!decision.admitted) {
-      // Stays queued; a later settle or sweep retry will admit it.
-      return false;
-    }
-
-    const task = await this.store.get(id);
-    if (!task) {
-      this.lifecycle.release();
-      return false;
-    }
-
-    await this.store.patch(id, { admittedAt: this.clock.now() });
-    const controller = new AbortController();
-    this.controllers.set(id, controller);
-
-    this.events.emit({
-      type: "subagent:admitted",
-      taskId: id,
-    } satisfies SubagentRuntimeEvent);
-    this.events.emit({
-      type: "subagent:spawned",
-      taskId: id,
-      parentRunId,
-      agentId: task.spec.agentId,
-      depth: task.depth,
-      ...(task.audit?.personaName !== undefined
-        ? { personaName: task.audit.personaName }
-        : {}),
-      ...(task.audit?.inlineDefinitionHash !== undefined
-        ? { inlineDefinitionHash: task.audit.inlineDefinitionHash }
-        : {}),
-      ...(task.batchId !== undefined ? { batchId: task.batchId } : {}),
-    });
-
-    // Fire-and-forget execution; runner persists terminal state + events.
-    // The runtime (not the runner) owns concurrency accounting: release the
-    // admitted slot here once the run settles, then admit the next queued task.
-    void this.runner.start(id, controller.signal).finally(() => {
-      this.controllers.delete(id);
-      this.lifecycle.release();
-      void this.drainQueue(parentRunId);
-    });
-    return true;
-  }
-
-  /** After a slot frees, admit the next queued task for this parent run. */
-  private async drainQueue(parentRunId: string): Promise<void> {
-    const queued = await this.store.list({ parentRunId, status: "queued" });
-    const next = queued[0];
-    if (next) {
-      await this.tryAdmit(next.id, parentRunId);
-    }
   }
 
   /**
@@ -472,9 +313,8 @@ export class BackgroundSubagentRuntime {
     if (!task || isTerminalStatus(task.status)) {
       return task;
     }
-    const controller = this.controllers.get(taskId);
-    if (controller) {
-      controller.abort();
+    if (this.pipeline.hasController(taskId)) {
+      this.pipeline.abort(taskId);
       // The runner observes the signal and persists the terminal state + emits
       // asynchronously; wait for it to settle so callers see the final status.
       // Ownership is already verified above, so the self-await is unscoped.
@@ -567,51 +407,25 @@ export class BackgroundSubagentRuntime {
   /**
    * Reconcile orphaned `running` tasks left by a crashed process. In-process
    * (non-durable) runs are marked `failed` with their `checkpointRef` preserved
-   * for later resumption; durable runners may instead resume.
+   * for later resumption; durable runners may instead resume. Delegates the
+   * recovery routine to the {@link reconcileOrphans} leaf (crash-recovery
+   * concern kept separable from the spawn/admit lifecycle loop).
    */
   async reconcileOrphans(): Promise<TaskId[]> {
     const orphans = await this.lifecycle.findOrphans();
-    const reconciled: TaskId[] = [];
-    const durable = this.runner.capabilities().durable;
-    if (durable && this.staleRunningRecovery !== undefined) {
-      return recoverStaleRunningTasks({
+    return reconcileOrphans(
+      {
         store: this.store,
-        now: this.clock.now(),
-        ...this.staleRunningRecovery,
-      });
-    }
-    for (const task of orphans) {
-      if (durable) {
-        // Durable runner is expected to resume; leave state for it to pick up.
-        continue;
-      }
-      await this.store.patch(task.id, {
-        status: "failed",
-        // ERR-M-06: structured code so orphan-reconciled tasks are branchable.
-        errorCode: SubagentErrorCode.ORPHANED_BY_PROCESS_RESTART,
-        error: "orphaned_by_process_restart",
-        endedAt: this.clock.now(),
-      });
-      this.logger.warn({
-        taskId: task.id,
-        code: SubagentErrorCode.ORPHANED_BY_PROCESS_RESTART,
-        reason: "orphaned_by_process_restart",
-        parentRunId: task.parentRunId,
-      });
-      this.events.emit({
-        type: "subagent:failed",
-        taskId: task.id,
-        error: "orphaned_by_process_restart",
-        durationMs: 0,
-      });
-      reconciled.push(task.id);
-    }
-    return reconciled;
-  }
-
-  private abortController(taskId: TaskId): void {
-    this.controllers.get(taskId)?.abort();
-    this.controllers.delete(taskId);
+        runner: this.runner,
+        events: this.events,
+        clock: this.clock,
+        logger: this.logger,
+        ...(this.staleRunningRecovery !== undefined
+          ? { staleRunningRecovery: this.staleRunningRecovery }
+          : {}),
+      },
+      orphans
+    );
   }
 
   /**
@@ -636,20 +450,4 @@ export class BackgroundSubagentRuntime {
       ? { spec: admission.spec, audit }
       : { spec: admission.spec };
   }
-}
-
-function defaultAuditForSpec(
-  spec: SubagentSpec
-): SubagentAuditIdentity | undefined {
-  const definition = spec.resolvedDefinition ?? spec.definition;
-  const personaName = spec.resolvedPersonaName ?? definition?.name;
-  if (personaName === undefined) return undefined;
-  return { personaName };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
-  });
 }
