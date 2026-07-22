@@ -113,7 +113,6 @@
         "src/agent/run-engine.ts",
         "src/agent/tool-loop/types.ts",
         "src/pipeline/loop-executor.ts",
-        "src/pipeline/pipeline-executor.ts",
         "src/pipeline/pipeline-runtime.ts",
         "src/reflection/run-reflector.ts",
         "src/security/agent-auth.ts",
