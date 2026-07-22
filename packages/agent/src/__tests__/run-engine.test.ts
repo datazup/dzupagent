@@ -54,6 +54,7 @@ import {
   emitStopReasonTelemetry,
   createToolStatTracker,
   executeStreamingToolCall,
+  applySamplingOptions,
   type PreparedRunState,
 } from '../agent/run-engine.js'
 import { IterationBudget } from '../guardrails/iteration-budget.js'
@@ -380,6 +381,63 @@ describe('prepareRunState', () => {
       const state = await prepareRunState(params)
       expect(params.bindTools).toHaveBeenCalledWith(resolvedModel, tools)
       expect(state.model).toBe(boundModel)
+    })
+  })
+
+  // CODE-H-02 — sampling options are bound onto the resolved model.
+  describe('applySamplingOptions', () => {
+    function bindableModel(): { model: BaseChatModel; bind: ReturnType<typeof vi.fn> } {
+      const bound = { __bound: true } as unknown as BaseChatModel
+      const bind = vi.fn(() => bound)
+      const model = { invoke: vi.fn(), bind } as unknown as BaseChatModel
+      return { model, bind }
+    }
+
+    it('binds temperature/maxTokens/stop onto the model', () => {
+      const { model, bind } = bindableModel()
+      const result = applySamplingOptions(model, {
+        temperature: 0.3,
+        maxTokens: 128,
+        stop: ['\n\n'],
+      })
+      expect(bind).toHaveBeenCalledWith({
+        temperature: 0.3,
+        maxTokens: 128,
+        stop: ['\n\n'],
+      })
+      expect(result).not.toBe(model)
+    })
+
+    it('is an identity return when no sampling options are set', () => {
+      const { model, bind } = bindableModel()
+      expect(applySamplingOptions(model, { intent: 'chat' })).toBe(model)
+      expect(applySamplingOptions(model, undefined)).toBe(model)
+      expect(bind).not.toHaveBeenCalled()
+    })
+
+    it('only binds the fields that are provided', () => {
+      const { model, bind } = bindableModel()
+      applySamplingOptions(model, { temperature: 1.1 })
+      expect(bind).toHaveBeenCalledWith({ temperature: 1.1 })
+    })
+
+    it('is a no-op (returns model) when the model cannot bind', () => {
+      const noBind = { invoke: vi.fn() } as unknown as BaseChatModel
+      expect(applySamplingOptions(noBind, { temperature: 0.5 })).toBe(noBind)
+    })
+
+    it('threads options through prepareRunState onto state.model', async () => {
+      const bound = { __bound: true } as unknown as BaseChatModel
+      const boundBase = {
+        invoke: vi.fn(),
+        bind: vi.fn(() => bound),
+      } as unknown as BaseChatModel
+      const params = basePrepareParams({
+        bindTools: vi.fn(() => boundBase),
+        options: { temperature: 0.7 } as GenerateOptions,
+      })
+      const state = await prepareRunState(params)
+      expect(state.model).toBe(bound)
     })
   })
 
