@@ -90,7 +90,8 @@
     "rag/src/chunker.ts was NOT allowlisted \u2014 its pure-function helpers/constants were extracted to",
     "chunker-internals.ts (551->451 LOC), the preferred remedy. reviewBy: 2026-10-22.",
     "2026-07-22 Medium-remediation re-pin (audit full-dzupagent-2026-07-21/run-001, Session 3): @dzupagent/security maxRootIndexLines 58->69 for the reviewed CODE-H-03 sanitizer-patterns.js root re-export (the canonical shared sanitizer data source consumed by core + memory). fileLineAllowlist DEBT-PINS added for files that crossed 500 LOC due to audit guardrail/decomposition work and whose full decomposition is deferred to ARCH-M-06/CODE-L-04: agent/src/agent/dzip-agent.ts (491->587; AGENT-H-04 capability split + AGENT-M-14 asTool depth guard), agent/src/orchestration/delegation.ts (443->555; CODE-M-11 extracted finalize seams \u2014 method body shrank 187->62 LOC but the file's helper count grew), subagents/src/store/postgres-task-store.ts (451->568; AGENT-H-08 lease heartbeat + AGENT-M-15 dead-letter). Shrink these when the deferred decomposition lands.",
-    "2026-07-22 Low-remediation re-pin (audit full-dzupagent-2026-07-21/run-001, Session 4): @dzupagent/core maxRootBarrelExplicitExports 923->926 / maxRootIndexLines 1310->1313 for ARCH-L-03's reviewed promotion of extractJsonFromText + generateTraceId/generateSpanId re-exports to the root barrel (dedup target for agent + agent-adapters call sites) plus ERR-M-07's ForgeError-conversion touching the same file set."
+    "2026-07-22 Low-remediation re-pin (audit full-dzupagent-2026-07-21/run-001, Session 4): @dzupagent/core maxRootBarrelExplicitExports 923->926 / maxRootIndexLines 1310->1313 for ARCH-L-03's reviewed promotion of extractJsonFromText + generateTraceId/generateSpanId re-exports to the root barrel (dedup target for agent + agent-adapters call sites) plus ERR-M-07's ForgeError-conversion touching the same file set.",
+    "2026-07-22 ARCH-M-06 / MJ-01 assessment (audit full-dzupagent-2026-07-21/run-001): @dzupagent/agent-adapters src/index.ts (839 LOC, in fileLineAllowlist + maxRootIndexLines:839) was reviewed as the next debt-pinned oversized file after the 4 largest god-modules were decomposed. VERDICT: NO SPLIT. The file is a PURE re-export barrel -- every line 14-839 is an export / export type / export * statement re-exporting from ~80 leaf modules, with ZERO embedded implementation logic (no functions, classes, or business logic). It does not fuse construction/dispatch/runtime concerns (the MJ-01 god-module criterion); it only widens the public surface. Per the ratchet policy above a root export cannot be removed without breaking published consumers, and relocating clusters to sub-barrels leaves maxRootIndexLines flat while adding indirection and re-export-alias risk (e.g. `StuckDetectorConfig as AdapterStuckDetectorConfig`). This mirrors the memory/src/index.ts precedent (also a pure re-export barrel, debt-pinned not split, same date). The 839 baseline was itself deliberately reviewed and pinned in the 2026-07-22 ARCH-M-07 entry above. Leaving the allowlist entry and maxRootIndexLines pin in place is the honest outcome: a wide barrel is governed-and-frozen public surface, not a god-module. reviewBy: 2026-10-22."
   ],
   "packages": {
     "@dzupagent/core": {
@@ -246,7 +247,6 @@
       "maxFileLines": 500,
       "fileLineAllowlist": [
         "src/capability-manifest.ts",
-        "src/compile-orchestrator.ts",
         "src/lower/lower-skill-chain.ts",
         "src/profile-manifest.ts",
         "src/route-target.ts",
