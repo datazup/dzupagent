@@ -8,6 +8,12 @@
  *
  * Split out of `workflow-builder.ts` to keep the builder file focused on the
  * fluent surface area and stay under the per-file LOC ceiling.
+ *
+ * This file is the composition root: the cross-cutting concerns it used to
+ * inline — best-effort journal recording, pipeline→workflow event translation,
+ * and checkpoint resolution — now live in per-concern leaf modules under
+ * `./compiled-workflow/` (DZUPAGENT-ARCH-M-06). Public surface (the
+ * `CompiledWorkflow` class and its methods) is unchanged.
  */
 import type {
   PipelineCheckpoint,
@@ -18,11 +24,8 @@ import type { WorkflowNode, WorkflowEvent } from "./workflow-types.js";
 import type { RunHandle } from "../agent/run-handle-types.js";
 import { RunNotFoundError } from "../agent/run-handle-types.js";
 import { ConcreteRunHandle } from "../agent/run-handle.js";
-import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
-import type { PipelineRuntimeEvent } from "../pipeline/pipeline-runtime-types.js";
 import { PipelineStuckDetector } from "../self-correction/pipeline-stuck-detector.js";
 import type { PipelineStuckConfig } from "../self-correction/pipeline-stuck-detector.js";
-import { defaultLogger } from "@dzupagent/core/utils";
 import { randomUUID } from "node:crypto";
 import { omitUndefined } from "../utils/exact-optional.js";
 import type {
@@ -31,6 +34,15 @@ import type {
 } from "./workflow-builder-types.js";
 import { compileWorkflow } from "./workflow-compiler.js";
 import type { WorkflowCompilation } from "./workflow-compiler.js";
+import {
+  journalAppendGuarded,
+  makeJournalEmit,
+} from "./compiled-workflow/journal-recorder.js";
+import { loadCheckpoint } from "./compiled-workflow/checkpoint-resolver.js";
+import {
+  buildRuntime,
+  driveToTerminal,
+} from "./compiled-workflow/execution-driver.js";
 
 /**
  * Compiled workflow — ready for execution.
@@ -190,25 +202,7 @@ export class CompiledWorkflow {
     this.activeRuns.set(runId, omitUndefined({ store: this.store, journal }));
 
     // Wrap the caller's emit to also write journal entries
-    const journalEmit: (event: WorkflowEvent) => void = journal
-      ? (event) => {
-          emit(event);
-          this.journalWrite(journal, runId, event, emit).catch(
-            (err: unknown) => {
-              // journalWrite handles its own failures; this guards against an
-              // unexpected rejection so a journal issue never crashes the run.
-              defaultLogger.error(
-                "[compiled-workflow] unexpected journal-write rejection",
-                {
-                  operation: "workflow.journal.write",
-                  runId,
-                  error: err instanceof Error ? err.message : String(err),
-                }
-              );
-            }
-          );
-        }
-      : emit;
+    const journalEmit = makeJournalEmit(journal, runId, emit);
 
     // Auto-wire stuck detector (one per run, unless explicitly disabled)
     const stuckDetector =
@@ -260,7 +254,7 @@ export class CompiledWorkflow {
 
     // Journal: run_started
     if (journal) {
-      await this.journalAppendGuarded(
+      await journalAppendGuarded(
         journal,
         runId,
         {
@@ -271,74 +265,35 @@ export class CompiledWorkflow {
       );
     }
 
-    const runtime = new PipelineRuntime(
-      omitUndefined({
-        definition: this.compilation.definition,
-        nodeExecutor: this.compilation.createNodeExecutor(
-          journalEmit,
-          (state) => {
-            latestObservedState = state;
-          }
-        ),
-        // Runtime implementation supports non-boolean branch keys, but the public
-        // config type currently narrows predicates to boolean.
-        predicates: this.compilation.predicates as Record<
-          string,
-          (state: Record<string, unknown>) => boolean
-        >,
-        signal: options?.signal,
-        checkpointStore: this.checkpointStore,
-        stuckDetector,
-        onEvent: (event: PipelineRuntimeEvent) =>
-          this.handleRuntimeEvent(event, journalEmit, (err) => {
-            pipelineFailure = err;
-          }),
-      })
-    );
+    const runtime = buildRuntime({
+      compilation: this.compilation,
+      checkpointStore: this.checkpointStore,
+      journalEmit,
+      onLatestState: (state) => {
+        latestObservedState = state;
+      },
+      onFailure: (err) => {
+        pipelineFailure = err;
+      },
+      signal: options?.signal,
+      stuckDetector,
+    });
 
-    try {
-      const result = await runtime.execute(initialState);
-      if (result.state === "failed") {
-        const errorMsg =
-          pipelineFailure ??
-          this.extractFailure(result.nodeResults) ??
-          "Workflow execution failed";
-        // Journal: run_failed (pipeline-level failure that didn't throw)
-        if (journal) {
-          await this.journalAppendGuarded(
-            journal,
-            runId,
-            { type: "run_failed", data: { error: errorMsg } },
-            emit
-          );
-        }
-        throw new Error(errorMsg);
-      }
-      if (result.state === "suspended") {
-        // Journal entry for suspension is already written via journalEmit
-        // when the runtime emits the 'pipeline:suspended' event handler
-        // → 'suspended' workflow event → journal 'run_suspended' append.
-        return { ...latestObservedState };
-      }
-      // Journal: run_completed
-      if (journal) {
-        await this.journalAppendGuarded(
-          journal,
-          runId,
-          { type: "run_completed", data: { output: latestObservedState } },
-          emit
-        );
-      }
-      return { ...latestObservedState };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!pipelineFailure) {
-        journalEmit({ type: "workflow:failed", error: message });
-      }
-      throw err;
-    } finally {
-      this.activeRuns.delete(runId);
-    }
+    return driveToTerminal(
+      {
+        compilation: this.compilation,
+        journal,
+        checkpointStore: this.checkpointStore,
+        runId,
+        emit,
+        journalEmit,
+        getLatestState: () => latestObservedState,
+      },
+      () => runtime.execute(initialState),
+      () => pipelineFailure,
+      "Workflow execution failed",
+      () => this.activeRuns.delete(runId)
+    );
   }
 
   /** Stream workflow events as an async generator */
@@ -414,7 +369,10 @@ export class CompiledWorkflow {
     additionalState?: Record<string, unknown>,
     options?: { signal?: AbortSignal; onEvent?: (event: WorkflowEvent) => void }
   ): Promise<Record<string, unknown>> {
-    const checkpoint = await this.loadCheckpoint(checkpointOrRunId);
+    const checkpoint = await loadCheckpoint(
+      checkpointOrRunId,
+      this.checkpointStore
+    );
 
     const journal = this.journal;
     const runId = checkpoint.pipelineRunId;
@@ -422,25 +380,7 @@ export class CompiledWorkflow {
 
     this.activeRuns.set(runId, omitUndefined({ store: this.store, journal }));
 
-    const journalEmit: (event: WorkflowEvent) => void = journal
-      ? (event) => {
-          emit(event);
-          this.journalWrite(journal, runId, event, emit).catch(
-            (err: unknown) => {
-              // journalWrite handles its own failures; this guards against an
-              // unexpected rejection so a journal issue never crashes the run.
-              defaultLogger.error(
-                "[compiled-workflow] unexpected journal-write rejection",
-                {
-                  operation: "workflow.journal.write",
-                  runId,
-                  error: err instanceof Error ? err.message : String(err),
-                }
-              );
-            }
-          );
-        }
-      : emit;
+    const journalEmit = makeJournalEmit(journal, runId, emit);
 
     let latestObservedState: Record<string, unknown> = {
       ...checkpoint.state,
@@ -449,7 +389,7 @@ export class CompiledWorkflow {
     let pipelineFailure: string | null = null;
 
     if (journal) {
-      await this.journalAppendGuarded(
+      await journalAppendGuarded(
         journal,
         runId,
         {
@@ -463,223 +403,33 @@ export class CompiledWorkflow {
       );
     }
 
-    const runtime = new PipelineRuntime(
-      omitUndefined({
-        definition: this.compilation.definition,
-        nodeExecutor: this.compilation.createNodeExecutor(
-          journalEmit,
-          (state) => {
-            latestObservedState = state;
-          }
-        ),
-        predicates: this.compilation.predicates as Record<
-          string,
-          (state: Record<string, unknown>) => boolean
-        >,
-        signal: options?.signal,
+    const runtime = buildRuntime({
+      compilation: this.compilation,
+      checkpointStore: this.checkpointStore,
+      journalEmit,
+      onLatestState: (state) => {
+        latestObservedState = state;
+      },
+      onFailure: (err) => {
+        pipelineFailure = err;
+      },
+      signal: options?.signal,
+    });
+
+    return driveToTerminal(
+      {
+        compilation: this.compilation,
+        journal,
         checkpointStore: this.checkpointStore,
-        onEvent: (event: PipelineRuntimeEvent) =>
-          this.handleRuntimeEvent(event, journalEmit, (err) => {
-            pipelineFailure = err;
-          }),
-      })
+        runId,
+        emit,
+        journalEmit,
+        getLatestState: () => latestObservedState,
+      },
+      () => runtime.resume(checkpoint, additionalState),
+      () => pipelineFailure,
+      "Workflow resume failed",
+      () => this.activeRuns.delete(runId)
     );
-
-    try {
-      const result = await runtime.resume(checkpoint, additionalState);
-      if (result.state === "failed") {
-        const errorMsg =
-          pipelineFailure ??
-          this.extractFailure(result.nodeResults) ??
-          "Workflow resume failed";
-        if (journal) {
-          await this.journalAppendGuarded(
-            journal,
-            runId,
-            { type: "run_failed", data: { error: errorMsg } },
-            emit
-          );
-        }
-        throw new Error(errorMsg);
-      }
-      if (result.state === "suspended") {
-        return { ...latestObservedState };
-      }
-      if (journal) {
-        await this.journalAppendGuarded(
-          journal,
-          runId,
-          { type: "run_completed", data: { output: latestObservedState } },
-          emit
-        );
-      }
-      return { ...latestObservedState };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!pipelineFailure) {
-        journalEmit({ type: "workflow:failed", error: message });
-      }
-      throw err;
-    } finally {
-      this.activeRuns.delete(runId);
-    }
-  }
-
-  private async loadCheckpoint(
-    checkpointOrRunId: PipelineCheckpoint | string
-  ): Promise<PipelineCheckpoint> {
-    if (typeof checkpointOrRunId !== "string") {
-      return checkpointOrRunId;
-    }
-    if (!this.checkpointStore) {
-      throw new Error(
-        `Cannot resume by runId '${checkpointOrRunId}': no checkpoint store configured. Use withCheckpointStore() or pass a PipelineCheckpoint directly.`
-      );
-    }
-    const checkpoint = await this.checkpointStore.load(checkpointOrRunId);
-    if (!checkpoint) {
-      throw new Error(
-        `No checkpoint found for pipelineRunId '${checkpointOrRunId}'`
-      );
-    }
-    return checkpoint;
-  }
-
-  /**
-   * ERR-H-10: append a run-lifecycle entry (run_started/completed/failed/
-   * resumed) directly, but treat the journal as best-effort: a journal-backend
-   * outage must NOT crash the run or mask the real run outcome. On failure we
-   * surface `workflow:journal_degraded` on the caller's event channel and log a
-   * structured line — we never re-append to the same (failed) journal.
-   */
-  private async journalAppendGuarded(
-    journal: RunJournal,
-    runId: string,
-    entry: Parameters<RunJournal["append"]>[1],
-    emit: (event: WorkflowEvent) => void
-  ): Promise<void> {
-    try {
-      await journal.append(runId, entry);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      defaultLogger.error("[compiled-workflow] run journal write failed", {
-        operation: "workflow.journal.write",
-        runId,
-        eventType: entry.type,
-        error: msg,
-      });
-      try {
-        emit({ type: "workflow:journal_degraded", error: msg });
-      } catch {
-        // A throwing consumer channel must not escalate a journal degradation.
-      }
-    }
-  }
-
-  /**
-   * Map a WorkflowEvent to a RunJournal entry append.
-   * Fires asynchronously — errors are surfaced via `workflow:journal_degraded`
-   * (ERR-H-10) rather than swallowed, but never break workflow execution.
-   */
-  private async journalWrite(
-    journal: RunJournal,
-    runId: string,
-    event: WorkflowEvent,
-    emit: (event: WorkflowEvent) => void
-  ): Promise<void> {
-    try {
-      switch (event.type) {
-        case "step:started":
-          await journal.append(runId, {
-            type: "step_started",
-            data: { stepId: event.stepId },
-          });
-          break;
-        case "step:completed":
-          await journal.append(runId, {
-            type: "step_completed",
-            data: { stepId: event.stepId, durationMs: event.durationMs },
-          });
-          break;
-        case "step:failed":
-          await journal.append(runId, {
-            type: "step_failed",
-            data: { stepId: event.stepId, error: event.error },
-          });
-          break;
-        case "suspended":
-          await journal.append(runId, {
-            type: "run_suspended",
-            data: { stepId: "suspend", reason: event.reason },
-          });
-          break;
-        // run_started, run_completed, run_failed are written directly in run()
-        // to ensure correct ordering — skip them here.
-        default:
-          break;
-      }
-    } catch (err) {
-      // ERR-H-10: journal writes must not break the workflow, but the failure
-      // must be OBSERVABLE. Surface degradation on the caller's own event
-      // channel (never re-append to the same journal that just failed — the
-      // one failure mode that matters is the backend being unavailable, where
-      // the error record would vanish too) and log a structured line.
-      const msg = err instanceof Error ? err.message : String(err);
-      defaultLogger.error("[compiled-workflow] run journal write failed", {
-        operation: "workflow.journal.write",
-        runId,
-        eventType: event.type,
-        error: msg,
-      });
-      try {
-        emit({ type: "workflow:journal_degraded", error: msg });
-      } catch {
-        // A throwing consumer channel must not escalate a journal degradation.
-      }
-    }
-  }
-
-  private handleRuntimeEvent(
-    event: PipelineRuntimeEvent,
-    emit: (event: WorkflowEvent) => void,
-    onFailure: (error: string) => void
-  ): void {
-    switch (event.type) {
-      case "pipeline:completed":
-        emit({ type: "workflow:completed", durationMs: event.totalDurationMs });
-        break;
-      case "pipeline:failed":
-        onFailure(event.error);
-        emit({ type: "workflow:failed", error: event.error });
-        break;
-      case "pipeline:suspended": {
-        const reason =
-          this.compilation.suspendReasons.get(event.nodeId) ?? "suspended";
-        emit({ type: "suspended", reason });
-        break;
-      }
-      case "pipeline:stuck_detected":
-        // Translate the pipeline-level stuck event into a workflow-level warning.
-        // The executor will also abort the run via a pipeline:failed event when
-        // suggestedAction === 'abort', so this event is informational (emit before
-        // the failure lands so subscribers can react with context).
-        emit({
-          type: "workflow:stuck",
-          nodeId: event.nodeId,
-          reason: event.reason,
-        });
-        break;
-      default:
-        break;
-    }
-  }
-
-  private extractFailure(
-    nodeResults: Map<string, { error?: string }>
-  ): string | null {
-    for (const result of nodeResults.values()) {
-      if (result.error) return result.error;
-    }
-    return null;
   }
 }
