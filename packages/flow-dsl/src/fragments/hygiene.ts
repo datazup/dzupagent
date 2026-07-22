@@ -17,8 +17,15 @@ const SOURCE_IS_STATE_NODE_TYPES = new Set([
 ]);
 const STRUCTURAL_PARAM_RE = /^\{\{\s*params\.([A-Za-z0-9_]+)\s*\}\}$/;
 const PARAM_RE = /\{\{\s*params\.([A-Za-z0-9_]+)\s*\}\}/g;
+// Linear-time: the two adjacent groups match over disjoint alphabets — the
+// second only starts on a literal `.` that the first (`[A-Za-z0-9_]+`) can
+// never consume — so there is no ambiguous overlap and no catastrophic
+// backtracking. The `detect-unsafe-regex` heuristic over-flags the nested
+// quantifier; disable it here (matches the convention used across the repo).
+/* eslint-disable security/detect-unsafe-regex */
 const STATE_TEMPLATE_RE =
   /\{\{\s*state\.([A-Za-z0-9_]+)((?:\.[A-Za-z0-9_]+)*)\s*\}\}/g;
+/* eslint-enable security/detect-unsafe-regex */
 export const CHILD_NODE_FIELDS = new Set([
   "nodes",
   "body",
@@ -36,14 +43,14 @@ export interface FragmentReferenceScope {
 }
 
 export function hasParentReferenceScope(
-  node: Record<string, unknown>,
+  node: Record<string, unknown>
 ): boolean {
   const meta = node.meta;
   return Boolean(
     meta &&
       typeof meta === "object" &&
       !Array.isArray(meta) &&
-      (meta as { referenceScope?: unknown }).referenceScope === "parent",
+      (meta as { referenceScope?: unknown }).referenceScope === "parent"
   );
 }
 
@@ -51,7 +58,10 @@ export function privateKey(instanceId: string, key: string): string {
   return `${instanceId}__${key}`;
 }
 
-function substituteParams(value: string, params: Record<string, unknown>): unknown {
+function substituteParams(
+  value: string,
+  params: Record<string, unknown>
+): unknown {
   const structuralMatch = STRUCTURAL_PARAM_RE.exec(value);
   if (structuralMatch) {
     const key = structuralMatch[1]!;
@@ -63,7 +73,9 @@ function substituteParams(value: string, params: Record<string, unknown>): unkno
     if (!(key in params)) throw new Error(`unbound fragment param "${key}"`);
     const replacement = params[key];
     if (typeof replacement !== "string") {
-      throw new Error(`fragment param "${key}" must be string for interpolation`);
+      throw new Error(
+        `fragment param "${key}" must be string for interpolation`
+      );
     }
     return replacement;
   });
@@ -72,21 +84,21 @@ function substituteParams(value: string, params: Record<string, unknown>): unkno
 function rewriteStateTemplates(
   value: string,
   instanceId: string,
-  localStateKeys: ReadonlySet<string>,
+  localStateKeys: ReadonlySet<string>
 ): string {
   return value.replace(
     STATE_TEMPLATE_RE,
     (_match, key: string, pathRest: string) =>
       localStateKeys.has(key)
         ? `{{ state.${key}${pathRest} }}`
-        : `{{ state.${privateKey(instanceId, key)}${pathRest} }}`,
+        : `{{ state.${privateKey(instanceId, key)}${pathRest} }}`
   );
 }
 
 function shouldRewriteStateKeyField(
   nodeType: string | undefined,
   key: string,
-  value: string,
+  value: string
 ): boolean {
   if (value.includes("{{")) return false;
   if (key === "source") {
@@ -99,7 +111,7 @@ function shouldRewriteNodeReferenceField(
   nodeType: string | undefined,
   key: string,
   value: string,
-  referenceScope: FragmentReferenceScope,
+  referenceScope: FragmentReferenceScope
 ): boolean {
   if (value.includes("{{")) return false;
   if (
@@ -126,12 +138,12 @@ function shouldRewriteNodeReferenceField(
   return Boolean(
     nodeType === "restore" &&
       key === "checkpointLabel" &&
-      referenceScope.checkpointLabels?.has(value),
+      referenceScope.checkpointLabels?.has(value)
   );
 }
 
 function unwrapNodeWrapper(
-  value: Record<string, unknown>,
+  value: Record<string, unknown>
 ): { type: string; body: Record<string, unknown> } | undefined {
   const entries = Object.entries(value);
   if (entries.length !== 1) return undefined;
@@ -156,13 +168,13 @@ export function rewriteFragmentValue(
   stateKeyFieldDepth = 0,
   nodeScopeEligible = false,
   referenceScope: FragmentReferenceScope = {},
-  localStateKeys: ReadonlySet<string> = new Set(),
+  localStateKeys: ReadonlySet<string> = new Set()
 ): unknown {
   if (typeof value === "string") {
     if (STRUCTURAL_PARAM_RE.test(value)) return substituteParams(value, params);
     return substituteParams(
       rewriteStateTemplates(value, instanceId, localStateKeys),
-      params,
+      params
     );
   }
   if (Array.isArray(value)) {
@@ -175,14 +187,16 @@ export function rewriteFragmentValue(
         stateKeyFieldDepth + 1,
         nodeScopeEligible,
         referenceScope,
-        localStateKeys,
-      ),
+        localStateKeys
+      )
     );
   }
   if (!value || typeof value !== "object") return value;
 
   const objectValue = value as Record<string, unknown>;
-  const wrappedNode = nodeScopeEligible ? unwrapNodeWrapper(objectValue) : undefined;
+  const wrappedNode = nodeScopeEligible
+    ? unwrapNodeWrapper(objectValue)
+    : undefined;
   if (wrappedNode !== undefined) {
     const rewritten = rewriteFragmentValue(
       { type: wrappedNode.type, ...wrappedNode.body },
@@ -192,7 +206,7 @@ export function rewriteFragmentValue(
       0,
       true,
       referenceScope,
-      localStateKeys,
+      localStateKeys
     ) as Record<string, unknown>;
     const { type, ...body } = rewritten;
     return { [String(type)]: body };
@@ -237,10 +251,10 @@ export function rewriteFragmentValue(
                   currentStateKeyFieldDepth + 1,
                   false,
                   referenceScope,
-                  localStateKeys,
+                  localStateKeys
                 ),
-          ],
-        ),
+          ]
+        )
       );
       continue;
     }
@@ -264,10 +278,10 @@ export function rewriteFragmentValue(
               currentStateKeyFieldDepth + 1,
               false,
               referenceScope,
-              localStateKeys,
+              localStateKeys
             ),
-          ],
-        ),
+          ]
+        )
       );
       continue;
     }
@@ -287,7 +301,7 @@ export function rewriteFragmentValue(
         currentNodeType,
         key,
         child,
-        referenceScope,
+        referenceScope
       )
     ) {
       output[key] = privateKey(instanceId, child);
@@ -312,7 +326,7 @@ export function rewriteFragmentValue(
               currentStateKeyFieldDepth + 1,
               false,
               referenceScope,
-              localStateKeys,
+              localStateKeys
             );
       continue;
     }
@@ -330,7 +344,7 @@ export function rewriteFragmentValue(
       currentStateKeyFieldDepth + 1,
       CHILD_NODE_FIELDS.has(key),
       referenceScope,
-      nextLocalStateKeys,
+      nextLocalStateKeys
     );
   }
   return output;
@@ -340,7 +354,7 @@ export function rewriteFragmentNode(
   node: Record<string, unknown>,
   instanceId: string,
   params: Record<string, unknown> = {},
-  referenceScope: FragmentReferenceScope = {},
+  referenceScope: FragmentReferenceScope = {}
 ): Record<string, unknown> {
   const nodeType = typeof node.type === "string" ? node.type : undefined;
   return rewriteFragmentValue(
@@ -350,6 +364,6 @@ export function rewriteFragmentNode(
     nodeType,
     0,
     true,
-    referenceScope,
+    referenceScope
   ) as Record<string, unknown>;
 }
