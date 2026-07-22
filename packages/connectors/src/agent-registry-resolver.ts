@@ -17,6 +17,10 @@
 import type { AsyncToolResolver, ResolvedTool } from '@dzupagent/flow-ast'
 import type { AgentHandle, AgentInvocation, AgentInvocationResult } from '@dzupagent/core/pipeline'
 import type { JSONSchema7 } from 'json-schema'
+import {
+  fetchWithOutboundUrlPolicy,
+  type OutboundUrlSecurityPolicy,
+} from '@dzupagent/core/security'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,6 +54,13 @@ export interface AgentRegistryAsyncToolResolverOptions {
   timeoutMs?: number
   /** Injectable fetch for tests; defaults to global fetch. */
   fetch?: FetchLike
+  /**
+   * Outbound-URL SSRF policy applied to every registry request. Defaults to a
+   * resolver-scoped policy that allowlists the configured `baseUrl` host (and
+   * permits plain HTTP only when `baseUrl` itself is http). Override to widen
+   * or tighten the allowlist for a specific deployment.
+   */
+  outboundUrlPolicy?: OutboundUrlSecurityPolicy
 }
 
 /** Shape of a single agent entry returned by the registry. */
@@ -71,6 +82,7 @@ export class AgentRegistryAsyncToolResolver implements AsyncToolResolver {
   private readonly ttlMs: number
   private readonly timeoutMs: number
   private readonly fetchFn: FetchLike
+  private readonly outboundUrlPolicy: OutboundUrlSecurityPolicy | undefined
 
   private cachedRefs: string[] = []
   private cachedAgents = new Map<string, RemoteAgentDescriptor>()
@@ -92,6 +104,8 @@ export class AgentRegistryAsyncToolResolver implements AsyncToolResolver {
         'AgentRegistryAsyncToolResolver requires a fetch implementation; pass options.fetch or run on Node.js 20+',
       )
     }
+    this.outboundUrlPolicy =
+      options.outboundUrlPolicy ?? defaultRegistryOutboundPolicy(this.baseUrl)
   }
 
   /**
@@ -230,7 +244,14 @@ export class AgentRegistryAsyncToolResolver implements AsyncToolResolver {
       if (body !== undefined) {
         init.body = body
       }
-      const response = await this.fetchFn(url, init)
+      // Route every registry request through the central outbound-URL SSRF
+      // policy (matching the slack/webhook/github/http connectors) so a
+      // malicious or misconfigured `baseUrl` cannot be used to reach internal
+      // hosts. The injected `fetchFn` is used as the underlying transport.
+      const response = await fetchWithOutboundUrlPolicy(url, init as RequestInit, {
+        policy: this.outboundUrlPolicy,
+        fetchImpl: this.fetchFn as unknown as typeof fetch,
+      })
       if (response.status === 404) {
         throw new NotFoundError(url)
       }
@@ -281,6 +302,32 @@ export class AgentRegistryAsyncToolResolver implements AsyncToolResolver {
     if (obj.inputSchema !== undefined) descriptor.inputSchema = obj.inputSchema
     if (obj.outputSchema !== undefined) descriptor.outputSchema = obj.outputSchema
     return descriptor
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Outbound-URL policy
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a resolver-scoped outbound-URL policy from the configured `baseUrl`.
+ *
+ * The registry is a deployment-owned endpoint whose host is often internal, so
+ * we allowlist exactly that host and permit plain HTTP only when `baseUrl`
+ * itself is http. Returns `undefined` if `baseUrl` cannot be parsed, in which
+ * case `fetchWithOutboundUrlPolicy` applies its default (public-only) checks.
+ */
+function defaultRegistryOutboundPolicy(
+  baseUrl: string,
+): OutboundUrlSecurityPolicy | undefined {
+  try {
+    const parsed = new URL(baseUrl)
+    return {
+      allowedHosts: [parsed.host],
+      allowHttp: parsed.protocol === 'http:',
+    }
+  } catch {
+    return undefined
   }
 }
 
