@@ -281,6 +281,9 @@ export class BackgroundSubagentRuntime {
     if (decision.outcome === "denied") {
       await this.store.patch(id, {
         status: "failed",
+        // ERR-M-06: persist the structured code so hosts branch on `errorCode`
+        // rather than string-prefix-matching the human-readable `error`.
+        errorCode: SubagentErrorCode.POLICY_DENIED,
         error: `policy_denied: ${decision.reason}`,
         endedAt: this.clock.now(),
       });
@@ -329,6 +332,8 @@ export class BackgroundSubagentRuntime {
     if (outcome.decision !== "granted") {
       await this.store.patch(id, {
         status: "cancelled",
+        // ERR-M-06: structured code alongside the human-readable message.
+        errorCode: SubagentErrorCode.APPROVAL_REJECTED,
         error: `approval_rejected: ${outcome.reason}`,
         endedAt: this.clock.now(),
       });
@@ -582,6 +587,8 @@ export class BackgroundSubagentRuntime {
       }
       await this.store.patch(task.id, {
         status: "failed",
+        // ERR-M-06: structured code so orphan-reconciled tasks are branchable.
+        errorCode: SubagentErrorCode.ORPHANED_BY_PROCESS_RESTART,
         error: "orphaned_by_process_restart",
         endedAt: this.clock.now(),
       });
