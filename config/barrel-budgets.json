@@ -121,7 +121,6 @@
         "src/security/agent-auth.ts",
         "src/self-correction/post-run-analyzer.ts",
         "src/self-correction/recovery-feedback.ts",
-        "src/workflow/compiled-workflow.ts",
         "src/agent/dzip-agent.ts",
         "src/orchestration/delegation.ts"
       ]
@@ -276,7 +275,6 @@
         "src/composition/middleware.ts",
         "src/composition/optional-routes.ts",
         "src/composition/types.ts",
-        "src/routes/evals.ts",
         "src/routes/mcp.ts",
         "src/runtime/dzip-agent-run-executor.ts",
         "src/schedules/schedule-store.ts"
