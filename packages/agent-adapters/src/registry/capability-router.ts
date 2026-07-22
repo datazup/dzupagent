@@ -6,6 +6,7 @@
  * code execution, speed, cost, and special capabilities.
  */
 
+import { ForgeError } from '@dzupagent/core/events'
 import type {
   AdapterProviderId,
   RoutingDecision,
@@ -384,7 +385,11 @@ export class CapabilityRouter implements TaskRoutingStrategy {
   getCapabilities(providerId: AdapterProviderId): ProviderCapability {
     const cap = this.capabilities.get(providerId)
     if (!cap) {
-      throw new Error(`No capability profile for provider "${providerId}"`)
+      throw new ForgeError({
+        code: 'CAPABILITY_NOT_FOUND',
+        message: `No capability profile for provider "${providerId}"`,
+        context: { providerId },
+      })
     }
     // Return a copy to prevent external mutation
     return {
@@ -397,7 +402,11 @@ export class CapabilityRouter implements TaskRoutingStrategy {
   updateCapabilities(providerId: AdapterProviderId, updates: Partial<ProviderCapability>): void {
     const existing = this.capabilities.get(providerId)
     if (!existing) {
-      throw new Error(`No capability profile for provider "${providerId}"`)
+      throw new ForgeError({
+        code: 'CAPABILITY_NOT_FOUND',
+        message: `No capability profile for provider "${providerId}"`,
+        context: { providerId },
+      })
     }
     this.capabilities.set(providerId, mergeCapability(existing, updates))
   }

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import type { ExecFileException } from "node:child_process";
+import { ForgeError } from "@dzupagent/core/events";
 import type {
   PipelineDefinition,
   PipelineNode,
@@ -1315,7 +1316,11 @@ function buildValidateSchemaRequest(
   const args = input.arguments;
   const schema = optionalSchema(args, "schema");
   if (schema === undefined) {
-    throw new Error(`${RUNTIME_TOOL_NAMES.validateSchema}.schema must be a schema ref string or object`);
+    throw new ForgeError({
+      code: "VALIDATION_FAILED",
+      message: `${RUNTIME_TOOL_NAMES.validateSchema}.schema must be a schema ref string or object`,
+      context: { tool: RUNTIME_TOOL_NAMES.validateSchema, argument: "schema" },
+    });
   }
   return compactRuntimeToolResult({
     nodeId: input.nodeId,
@@ -1537,7 +1542,11 @@ function requiredString(
 ): string {
   const value = args[key];
   if (typeof value === "string" && value.length > 0) return value;
-  throw new Error(`${toolName}.${key} must be a non-empty string`);
+  throw new ForgeError({
+    code: "VALIDATION_FAILED",
+    message: `${toolName}.${key} must be a non-empty string`,
+    context: { tool: toolName, argument: key },
+  });
 }
 
 function optionalString(
@@ -1591,7 +1600,11 @@ function requiredStringArray(
 ): string[] {
   const value = optionalStringArray(args, key);
   if (value !== undefined && value.length > 0) return value;
-  throw new Error(`${toolName}.${key} must be a non-empty string array`);
+  throw new ForgeError({
+    code: "VALIDATION_FAILED",
+    message: `${toolName}.${key} must be a non-empty string array`,
+    context: { tool: toolName, argument: key },
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
