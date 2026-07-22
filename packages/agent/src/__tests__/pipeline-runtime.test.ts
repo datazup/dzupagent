@@ -1371,3 +1371,72 @@ describe("Built-in predicate helpers", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stuck-detector abort path (AGENT-L-18)
+// ---------------------------------------------------------------------------
+
+describe("PipelineRuntime — stuck-detector abort", () => {
+  it("terminates via pipeline:failed when a node trips the stuck detector with suggestedAction:abort", async () => {
+    const events: PipelineRuntimeEvent[] = [];
+    let bAttempts = 0;
+
+    // A single-node graph whose only node (B) always errors. A recovery copilot
+    // that always "recovers" re-dispatches B after each failure (no static edge
+    // — a self-loop edge would fail cycle validation). Each re-dispatch records
+    // a failure with the stuck detector; on the 3rd failure recordNodeFailure
+    // escalates to suggestedAction:'abort', which fires BEFORE the recovery
+    // attempt, so the run terminates deterministically at 3 dispatches.
+    const definition = makePipeline({
+      entryNodeId: "B",
+      nodes: [{ id: "B", type: "agent", agentId: "a2", timeoutMs: 5000 }],
+      edges: [],
+    });
+
+    const executor: NodeExecutor = async (nodeId) => {
+      bAttempts++;
+      return { nodeId, output: null, durationMs: 1, error: "boom" };
+    };
+
+    // Minimal fake recovery copilot: attemptRecovery() only reads
+    // result.success and result.summary, so a narrow cast is sufficient.
+    const alwaysRecovers = {
+      recover: async () => ({ success: true, summary: "retry" }),
+    } as unknown as NonNullable<
+      ConstructorParameters<typeof PipelineRuntime>[0]["recoveryCopilot"]
+    >["copilot"];
+
+    const runtime = new PipelineRuntime({
+      definition,
+      nodeExecutor: executor,
+      // Default maxNodeFailures=3 → the 3rd failure escalates to 'abort'.
+      stuckDetector: new PipelineStuckDetector(),
+      recoveryCopilot: { copilot: alwaysRecovers, maxRecoveryAttempts: 5 },
+      onEvent: collectEvents(events),
+    });
+
+    const result = await runtime.execute();
+
+    // The run terminates in a failed state via the abort path.
+    expect(result.state).toBe("failed");
+    expect(runtime.getRunState()).toBe("failed");
+
+    // A stuck_detected event with suggestedAction:'abort' was emitted, followed
+    // by the terminal pipeline:failed carrying the stuck reason.
+    const stuck = events.find((e) => e.type === "pipeline:stuck_detected") as
+      | Extract<PipelineRuntimeEvent, { type: "pipeline:stuck_detected" }>
+      | undefined;
+    expect(stuck).toBeDefined();
+    expect(stuck?.suggestedAction).toBe("abort");
+
+    const failed = events.find((e) => e.type === "pipeline:failed") as
+      | Extract<PipelineRuntimeEvent, { type: "pipeline:failed" }>
+      | undefined;
+    expect(failed).toBeDefined();
+    expect(failed?.error).toContain("Pipeline stuck");
+
+    // The self-loop is bounded by the abort — B is re-dispatched exactly the
+    // number of times needed to reach the failure threshold, not infinitely.
+    expect(bAttempts).toBe(3);
+  });
+});
