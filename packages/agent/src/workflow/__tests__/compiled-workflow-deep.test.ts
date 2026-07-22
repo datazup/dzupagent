@@ -868,6 +868,60 @@ describe("CompiledWorkflow — crash recovery (workflowRunId)", () => {
     expect(executed).toContain("x");
     expect(result["x"]).toBe(1);
   });
+
+  it("resumes from the last completed node after a crash and does NOT re-execute it (AGENT-L-18)", async () => {
+    const checkpointStore = new InMemoryPipelineCheckpointStore();
+    const executed: string[] = [];
+
+    const wf = createWorkflow({ id: "crash-resume" })
+      .then(
+        step("first", () => {
+          executed.push("first");
+          return { first: true };
+        }),
+      )
+      .then(
+        step("second", () => {
+          executed.push("second");
+          return { second: true };
+        }),
+      )
+      .build()
+      .withCheckpointStore(checkpointStore);
+
+    // Read the REAL auto-generated node ids from the compiled definition — the
+    // compiler renames step("first") → "step_0" etc., so a hardcoded id would
+    // never match completedNodeIds.
+    const def = wf.toPipelineDefinition();
+    const firstNodeId = def.entryNodeId;
+
+    // Simulate a crash that landed AFTER "first" completed but BEFORE "second":
+    // a checkpoint that records the first node as completed and carries NO
+    // suspendedAtNodeId (an ungraceful crash, not a suspend gate). The recovery
+    // branch in run() must synthesise the resume point from the last completed
+    // node and skip re-running it.
+    const crashedCheckpoint = makeCheckpoint(
+      "crash-run-1",
+      def.id,
+      [firstNodeId],
+      { first: true },
+      // no suspendedAtNodeId — this is the crash (not suspend) path
+    );
+    await checkpointStore.save(crashedCheckpoint);
+
+    const events: WorkflowEvent[] = [];
+    const result = await wf.run(
+      {},
+      { workflowRunId: "crash-run-1", onEvent: (e) => events.push(e) },
+    );
+
+    // The already-completed first node must NOT re-execute; only "second" runs.
+    expect(executed).not.toContain("first");
+    expect(executed).toContain("second");
+    // The resumed run reaches a terminal (completed) state.
+    expect(result["second"]).toBe(true);
+    expect(events.some((e) => e.type === "workflow:completed")).toBe(true);
+  });
 });
 
 // ===========================================================================
