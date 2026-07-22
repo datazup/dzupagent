@@ -11,14 +11,19 @@
  * @module self-correction/self-correcting-node
  */
 
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { PipelineNode } from '@dzupagent/core/pipeline'
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { PipelineNode } from "@dzupagent/core/pipeline";
 
-import type { NodeExecutor, NodeResult, NodeExecutionContext } from '../pipeline/pipeline-runtime-types.js'
-import { ReflectionLoop } from './reflection-loop.js'
-import type { ScoreResult } from './reflection-loop.js'
-import { AdaptiveIterationController } from './iteration-controller.js'
-import { omitUndefined } from '../utils/exact-optional.js'
+import type {
+  NodeExecutor,
+  NodeResult,
+  NodeExecutionContext,
+} from "../pipeline/pipeline-runtime-types.js";
+import { ReflectionLoop } from "./reflection-loop.js";
+import type { ScoreResult } from "./reflection-loop.js";
+import { AdaptiveIterationController } from "./iteration-controller.js";
+import { estimateCostCentsFromChars } from "./cost.js";
+import { omitUndefined } from "../utils/exact-optional.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,61 +32,49 @@ import { omitUndefined } from '../utils/exact-optional.js'
 /** Configuration for the self-correcting node wrapper. */
 export interface SelfCorrectingConfig {
   /** Critic model for evaluating node outputs */
-  critic: BaseChatModel
+  critic: BaseChatModel;
   /** Target quality score (0-1, default: 0.8) */
-  qualityThreshold?: number
+  qualityThreshold?: number;
   /** Max refinement iterations (default: 3) */
-  maxIterations?: number
+  maxIterations?: number;
   /** Max cost for refinement in cents (default: 50) */
-  costBudgetCents?: number
+  costBudgetCents?: number;
   /** Custom scoring function (overrides critic LLM scoring) */
-  scoreFn?: (output: string, task: string) => Promise<{ score: number; feedback: string }>
+  scoreFn?: (
+    output: string,
+    task: string
+  ) => Promise<{ score: number; feedback: string }>;
   /** Optional prompt for what to evaluate */
-  evaluationCriteria?: string
+  evaluationCriteria?: string;
   /** Minimum score improvement per iteration (default: 0.02) */
-  minImprovement?: number
+  minImprovement?: number;
 }
 
 /** Extended NodeResult with self-correction metadata. */
 export interface SelfCorrectingResult extends NodeResult {
-  nodeId: string
-  output: unknown
-  durationMs: number
-  error?: string
+  nodeId: string;
+  output: unknown;
+  durationMs: number;
+  error?: string;
   /** Number of refinement iterations used */
-  refinementIterations: number
+  refinementIterations: number;
   /** Score history across iterations */
-  scoreHistory: number[]
+  scoreHistory: number[];
   /** Why refinement stopped */
-  exitReason: string
+  exitReason: string;
   /** Total refinement cost in cents */
-  refinementCostCents: number
+  refinementCostCents: number;
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Rough chars-per-token ratio for cost estimation. */
-const CHARS_PER_TOKEN = 4
-
-/** Default cost per 1K input tokens in cents (Haiku-class). */
-const INPUT_COST_PER_1K_CENTS = 0.025
-
-/** Default cost per 1K output tokens in cents (Haiku-class). */
-const OUTPUT_COST_PER_1K_CENTS = 0.125
-
-function estimateCostCents(inputChars: number, outputChars: number): number {
-  const inputTokens = Math.ceil(inputChars / CHARS_PER_TOKEN)
-  const outputTokens = Math.ceil(outputChars / CHARS_PER_TOKEN)
-  return (inputTokens / 1000) * INPUT_COST_PER_1K_CENTS + (outputTokens / 1000) * OUTPUT_COST_PER_1K_CENTS
-}
-
 /** Convert an arbitrary output value to a string. */
 function outputToString(output: unknown): string {
-  if (typeof output === 'string') return output
-  if (output === null || output === undefined) return ''
-  return JSON.stringify(output)
+  if (typeof output === "string") return output;
+  if (output === null || output === undefined) return "";
+  return JSON.stringify(output);
 }
 
 // ---------------------------------------------------------------------------
@@ -107,22 +100,22 @@ function outputToString(output: unknown): string {
 export function createSelfCorrectingExecutor(
   originalExecutor: NodeExecutor,
   drafter: BaseChatModel,
-  config: SelfCorrectingConfig,
+  config: SelfCorrectingConfig
 ): NodeExecutor {
-  const qualityThreshold = config.qualityThreshold ?? 0.8
-  const maxIterations = config.maxIterations ?? 3
-  const costBudgetCents = config.costBudgetCents ?? 50
-  const minImprovement = config.minImprovement ?? 0.02
+  const qualityThreshold = config.qualityThreshold ?? 0.8;
+  const maxIterations = config.maxIterations ?? 3;
+  const costBudgetCents = config.costBudgetCents ?? 50;
+  const minImprovement = config.minImprovement ?? 0.02;
 
   return async (
     nodeId: string,
     node: PipelineNode,
-    context: NodeExecutionContext,
+    context: NodeExecutionContext
   ): Promise<SelfCorrectingResult> => {
-    const startTime = Date.now()
+    const startTime = Date.now();
 
     // Step 1: Run the original executor
-    const initialResult = await originalExecutor(nodeId, node, context)
+    const initialResult = await originalExecutor(nodeId, node, context);
 
     // Step 2: If error, return immediately without refinement
     if (initialResult.error) {
@@ -130,12 +123,12 @@ export function createSelfCorrectingExecutor(
         ...initialResult,
         refinementIterations: 0,
         scoreHistory: [],
-        exitReason: 'error_passthrough',
+        exitReason: "error_passthrough",
         refinementCostCents: 0,
-      }
+      };
     }
 
-    const initialOutput = outputToString(initialResult.output)
+    const initialOutput = outputToString(initialResult.output);
 
     // If there is no output to refine, return as-is
     if (!initialOutput) {
@@ -143,16 +136,14 @@ export function createSelfCorrectingExecutor(
         ...initialResult,
         refinementIterations: 0,
         scoreHistory: [],
-        exitReason: 'empty_output',
+        exitReason: "empty_output",
         refinementCostCents: 0,
-      }
+      };
     }
 
     // Step 3: Build the task description from node metadata
-    const taskDescription = config.evaluationCriteria
-      ?? node.description
-      ?? node.name
-      ?? nodeId
+    const taskDescription =
+      config.evaluationCriteria ?? node.description ?? node.name ?? nodeId;
 
     // Step 4: Create the AdaptiveIterationController for monitoring
     const controller = new AdaptiveIterationController({
@@ -160,46 +151,50 @@ export function createSelfCorrectingExecutor(
       maxIterations,
       costBudgetCents,
       minImprovement,
-    })
+    });
 
     // Step 5: Build a scoreFn that integrates the controller
     // We wrap the user-provided scoreFn (or default critic) and feed decisions
     // through the controller for cost/improvement tracking.
     const wrappedScoreFn = config.scoreFn
       ? async (output: string, task: string): Promise<ScoreResult> => {
-          const raw = await config.scoreFn!(output, task)
-          return { score: raw.score, feedback: raw.feedback }
+          const raw = await config.scoreFn!(output, task);
+          return { score: raw.score, feedback: raw.feedback };
         }
-      : undefined
+      : undefined;
 
     // Step 6: Create and run the ReflectionLoop
-    const reflectionLoop = new ReflectionLoop(drafter, config.critic, omitUndefined({
-      maxIterations,
-      qualityThreshold,
-      criticPrompt: config.evaluationCriteria
-        ? `You are an expert reviewer. Evaluate the following output against these criteria:\n\n${config.evaluationCriteria}\n\nRate on a scale of 0-10.\n\nProvide your response in this exact format:\nSCORE: <number 0-10>\nFEEDBACK: <specific, actionable feedback>`
-        : undefined,
-      costBudgetCents,
-    }))
+    const reflectionLoop = new ReflectionLoop(
+      drafter,
+      config.critic,
+      omitUndefined({
+        maxIterations,
+        qualityThreshold,
+        criticPrompt: config.evaluationCriteria
+          ? `You are an expert reviewer. Evaluate the following output against these criteria:\n\n${config.evaluationCriteria}\n\nRate on a scale of 0-10.\n\nProvide your response in this exact format:\nSCORE: <number 0-10>\nFEEDBACK: <specific, actionable feedback>`
+          : undefined,
+        costBudgetCents,
+      })
+    );
 
     const reflectionResult = await reflectionLoop.execute(
       taskDescription,
       initialOutput,
-      wrappedScoreFn,
-    )
+      wrappedScoreFn
+    );
 
     // Step 7: Feed iteration results into the controller for metadata
     // (retrospective — we use controller.decide for each iteration to get
     // the final state and score history tracking)
     for (const iteration of reflectionResult.history) {
-      const iterCost = estimateCostCents(
+      const iterCost = estimateCostCentsFromChars(
         taskDescription.length + iteration.draftLength,
-        iteration.feedback.length,
-      )
-      controller.decide(iteration.score, iterCost)
+        iteration.feedback.length
+      );
+      controller.decide(iteration.score, iterCost);
     }
 
-    const totalDurationMs = Date.now() - startTime
+    const totalDurationMs = Date.now() - startTime;
 
     // Step 8: Build the enhanced result
     return {
@@ -210,6 +205,6 @@ export function createSelfCorrectingExecutor(
       scoreHistory: reflectionResult.history.map((h) => h.score),
       exitReason: reflectionResult.exitReason,
       refinementCostCents: controller.totalCostCents,
-    }
-  }
+    };
+  };
 }
