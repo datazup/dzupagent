@@ -40,7 +40,7 @@ async function collect(gen: AsyncGenerator<AgentEvent>): Promise<AgentEvent[]> {
 
 /** Build a minimal source that replays a fixed list of pre-built AgentEvents. */
 function makeEventSource(
-  events: AgentEvent[]
+  events: AgentEvent[],
 ): AdapterStreamSource<AgentEvent> {
   return {
     providerId: "claude",
@@ -57,7 +57,7 @@ function makeEventSource(
 function toolCall(
   toolName: string,
   toolCallId: string,
-  input: unknown = { arg: "x" }
+  input: unknown = { arg: "x" },
 ): AgentEvent {
   return {
     type: "adapter:tool_call",
@@ -73,7 +73,7 @@ function toolCall(
 function toolResult(
   toolName: string,
   toolCallId: string,
-  output = "ok"
+  output = "ok",
 ): AgentEvent {
   return {
     type: "adapter:tool_result",
@@ -81,6 +81,24 @@ function toolResult(
     toolName,
     toolCallId,
     output,
+    durationMs: 5,
+    timestamp: Date.now(),
+  };
+}
+
+/** Convenience: build an error-carrying adapter:tool_result event. */
+function toolResultError(
+  toolName: string,
+  toolCallId: string,
+  output = "boom",
+): AgentEvent {
+  return {
+    type: "adapter:tool_result",
+    providerId: "claude",
+    toolName,
+    toolCallId,
+    output,
+    isError: true,
     durationMs: 5,
     timestamp: Date.now(),
   };
@@ -172,6 +190,31 @@ describe("AdapterStreamRunner — tool-call audit (M-12)", () => {
     expect(flushedRecord?.argsHash).not.toBe("<stream-error>");
   });
 
+  it("audits resultStatus:error for a non-throwing tool_result carrying an error marker (AGENT-L-17)", async () => {
+    const sink = vi.fn<[ToolCallAuditRecord], void>();
+    const runner = new AdapterStreamRunner({ toolCallAuditSink: sink });
+
+    const source = makeEventSource([
+      toolCall("failing_tool", "tc-fail"),
+      // Result event arrives normally (no thrown error) but signals failure.
+      toolResultError("failing_tool", "tc-fail", "permission denied"),
+      completed(),
+    ]);
+
+    const events = await collect(runner.run(source, makeInput()));
+
+    // Stream completed normally — no adapter:failed was produced.
+    expect(events.some((e) => e.type === "adapter:failed")).toBe(false);
+
+    expect(sink).toHaveBeenCalledTimes(1);
+    const record = sink.mock.calls[0]?.[0];
+    expect(record).toMatchObject({
+      type: "tool_call",
+      toolName: "failing_tool",
+      resultStatus: "error",
+    });
+  });
+
   it("does not emit any records when toolCallAuditSink is not configured", async () => {
     // No toolCallAuditSink → should not crash, no records
     const runner = new AdapterStreamRunner();
@@ -184,7 +227,7 @@ describe("AdapterStreamRunner — tool-call audit (M-12)", () => {
 
     // Should complete without throwing
     await expect(
-      collect(runner.run(source, makeInput()))
+      collect(runner.run(source, makeInput())),
     ).resolves.toHaveLength(3);
   });
 
@@ -194,7 +237,7 @@ describe("AdapterStreamRunner — tool-call audit (M-12)", () => {
     });
     const runner = new AdapterStreamRunner({
       toolCallAuditSink: throwingSink as unknown as (
-        r: ToolCallAuditRecord
+        r: ToolCallAuditRecord,
       ) => void,
     });
 

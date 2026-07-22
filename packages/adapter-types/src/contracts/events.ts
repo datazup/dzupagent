@@ -67,6 +67,13 @@ export interface AgentToolResultEvent {
   output: string;
   durationMs: number;
   timestamp: number;
+  /**
+   * True when the tool invocation failed (provider `is_error`/failed status).
+   * Optional and defaults to a successful result when omitted. Consumers such
+   * as the per-tool-call audit sink use this to set `resultStatus` accurately
+   * instead of assuming success on every non-throwing result event.
+   */
+  isError?: boolean | undefined;
   /** Correlation ID from the originating request */
   correlationId?: string | undefined;
 }

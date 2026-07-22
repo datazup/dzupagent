@@ -77,11 +77,11 @@ export class OpenAIToolCallAccumulator {
    */
   flush(
     providerId: AdapterProviderId,
-    correlationId: string | undefined
+    correlationId: string | undefined,
   ): AgentEvent[] {
     const events: AgentEvent[] = [];
     const ordered = [...this.pending.values()].sort(
-      (a, b) => a.index - b.index
+      (a, b) => a.index - b.index,
     );
     for (const call of ordered) {
       if (call.emitted) continue;
@@ -109,7 +109,7 @@ export class OpenAIToolCallAccumulator {
   processSseChoice(
     choice: SSEChunkChoice,
     providerId: AdapterProviderId,
-    correlationId: string | undefined
+    correlationId: string | undefined,
   ): SseChoiceProcessResult {
     const events: AgentEvent[] = [];
     let appendedContent = "";
@@ -142,16 +142,82 @@ export class OpenAIToolCallAccumulator {
 
 /**
  * Parse the accumulated `function.arguments` JSON string. Returns `{}` when
- * the buffer is empty and falls back to the raw string when JSON parsing
- * fails so consumers still receive the model output for diagnostics.
+ * the buffer is empty. On a direct `JSON.parse` failure it attempts a best-effort
+ * repair (strip trailing commas, close unbalanced braces/brackets, terminate a
+ * dangling string) — truncated streaming buffers are the common failure mode —
+ * and only falls back to the raw string when the repaired candidate is still
+ * unparseable, so consumers still receive the model output for diagnostics.
  */
 export function parseToolArguments(buffer: string): unknown {
   if (buffer.length === 0) return {};
   try {
     return JSON.parse(buffer) as unknown;
   } catch {
+    const repaired = repairJson(buffer);
+    if (repaired !== undefined) {
+      try {
+        return JSON.parse(repaired) as unknown;
+      } catch {
+        // fall through to raw fallback
+      }
+    }
     return buffer;
   }
+}
+
+/**
+ * Best-effort structural repair of a truncated/lightly-malformed JSON buffer.
+ * Handles the failure modes typical of interrupted streaming tool-call
+ * arguments: trailing commas, a string left open at EOF, and unclosed
+ * object/array brackets. Returns the repaired candidate string, or `undefined`
+ * when the buffer does not look like structured JSON (e.g. a bare token like
+ * `not-json`) and therefore cannot be meaningfully repaired.
+ */
+function repairJson(buffer: string): string | undefined {
+  const trimmed = buffer.trim();
+  // Only attempt repair on inputs that begin as a JSON object/array; bare
+  // scalars/tokens are genuinely unrepairable and should hit the raw fallback.
+  if (trimmed.length === 0) return undefined;
+  const first = trimmed[0];
+  if (first !== "{" && first !== "[") return undefined;
+
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i]!;
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === "{") {
+      stack.push("}");
+    } else if (ch === "[") {
+      stack.push("]");
+    } else if (ch === "}" || ch === "]") {
+      stack.pop();
+    }
+  }
+
+  let repaired = trimmed;
+  // Close a string left open at EOF (unterminated due to truncation).
+  if (inString) repaired += '"';
+  // Strip a dangling trailing comma (optionally followed by whitespace) so the
+  // subsequently appended closers produce valid JSON.
+  repaired = repaired.replace(/,\s*$/, "");
+  // Close any still-open brackets in reverse (LIFO) order.
+  while (stack.length > 0) {
+    repaired += stack.pop();
+  }
+  return repaired;
 }
 
 /**
@@ -163,7 +229,7 @@ export function parseToolArguments(buffer: string): unknown {
  * Invalid entries are silently skipped to keep parity with other adapters.
  */
 export function resolveOpenAITools(
-  input: AgentInput
+  input: AgentInput,
 ): OpenAIToolWire[] | undefined {
   const raw = input.options?.["tools"];
   if (!Array.isArray(raw)) return undefined;
@@ -232,7 +298,7 @@ export function resolveOpenAITools(
 
 function filterOpenAIToolsByPolicy(
   tools: OpenAIToolWire[],
-  input: AgentInput
+  input: AgentInput,
 ): OpenAIToolWire[] | undefined {
   const policy = input.policyContext?.activePolicy;
   if (policy === undefined) return tools.length > 0 ? tools : undefined;
