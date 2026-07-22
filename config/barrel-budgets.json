@@ -19,8 +19,10 @@
     "2026-06-23 Phase-0 re-pin (audit full-dzupagent-2026-06-23/run-001): @dzupagent/core budgets ratcheted",
     "876->885/136->138/1238->1256 for intentional shipped root exports (BaseChatModel re-export 5620e656,",
     "MCP stdio hardening, runtime primitives); relocating them now would break consumers per the rule above.",
-    "flow-ast/types.ts aux budget 828->1174 and the flow-ast validate/document.ts fileLineAllowlist entry are",
-    "DEBT-PINNED pending the MC-5 sub-module extraction (DZUPAGENT-CODE-M-08) \u2014 shrink them when that lands.",
+    "flow-ast/types.ts aux budget 828->1174 is DEBT-PINNED pending the MC-5 sub-module extraction",
+    "(DZUPAGENT-CODE-M-08) \u2014 shrink it when that lands. flow-ast validate/document.ts was DEBT-PINNED under the",
+    "same track until ARCH-M-06 decomposed it (682->125 LOC) into validate/document/ leaf modules",
+    "(durability/policy/inputs/defaults), so its fileLineAllowlist entry was removed.",
     "flow-compiler stages/shape-validate.ts was DEBT-PINNED until the RF-9 refactor (see below) removed it.",
     "2026-06-24 RF-7 (ARCH-H-02): extended barrel governance to every uncovered Tier-1/2 package.",
     "Each newly-added package gets maxRootIndexLines pinned at its current src/index.ts line count and a",
@@ -91,7 +93,9 @@
     "chunker-internals.ts (551->451 LOC), the preferred remedy. reviewBy: 2026-10-22.",
     "2026-07-22 Medium-remediation re-pin (audit full-dzupagent-2026-07-21/run-001, Session 3): @dzupagent/security maxRootIndexLines 58->69 for the reviewed CODE-H-03 sanitizer-patterns.js root re-export (the canonical shared sanitizer data source consumed by core + memory). fileLineAllowlist DEBT-PINS added for files that crossed 500 LOC due to audit guardrail/decomposition work and whose full decomposition is deferred to ARCH-M-06/CODE-L-04: agent/src/agent/dzip-agent.ts (491->587; AGENT-H-04 capability split + AGENT-M-14 asTool depth guard), agent/src/orchestration/delegation.ts (443->555; CODE-M-11 extracted finalize seams \u2014 method body shrank 187->62 LOC but the file's helper count grew), subagents/src/store/postgres-task-store.ts (451->568; AGENT-H-08 lease heartbeat + AGENT-M-15 dead-letter). Shrink these when the deferred decomposition lands.",
     "2026-07-22 Low-remediation re-pin (audit full-dzupagent-2026-07-21/run-001, Session 4): @dzupagent/core maxRootBarrelExplicitExports 923->926 / maxRootIndexLines 1310->1313 for ARCH-L-03's reviewed promotion of extractJsonFromText + generateTraceId/generateSpanId re-exports to the root barrel (dedup target for agent + agent-adapters call sites) plus ERR-M-07's ForgeError-conversion touching the same file set.",
-    "2026-07-22 ARCH-M-06 / MJ-01 assessment (audit full-dzupagent-2026-07-21/run-001): @dzupagent/agent-adapters src/index.ts (839 LOC, in fileLineAllowlist + maxRootIndexLines:839) was reviewed as the next debt-pinned oversized file after the 4 largest god-modules were decomposed. VERDICT: NO SPLIT. The file is a PURE re-export barrel -- every line 14-839 is an export / export type / export * statement re-exporting from ~80 leaf modules, with ZERO embedded implementation logic (no functions, classes, or business logic). It does not fuse construction/dispatch/runtime concerns (the MJ-01 god-module criterion); it only widens the public surface. Per the ratchet policy above a root export cannot be removed without breaking published consumers, and relocating clusters to sub-barrels leaves maxRootIndexLines flat while adding indirection and re-export-alias risk (e.g. `StuckDetectorConfig as AdapterStuckDetectorConfig`). This mirrors the memory/src/index.ts precedent (also a pure re-export barrel, debt-pinned not split, same date). The 839 baseline was itself deliberately reviewed and pinned in the 2026-07-22 ARCH-M-07 entry above. Leaving the allowlist entry and maxRootIndexLines pin in place is the honest outcome: a wide barrel is governed-and-frozen public surface, not a god-module. reviewBy: 2026-10-22."
+    "2026-07-22 ARCH-M-06 / MJ-01 assessment (audit full-dzupagent-2026-07-21/run-001): @dzupagent/agent-adapters src/index.ts (839 LOC, in fileLineAllowlist + maxRootIndexLines:839) was reviewed as the next debt-pinned oversized file after the 4 largest god-modules were decomposed. VERDICT: NO SPLIT. The file is a PURE re-export barrel -- every line 14-839 is an export / export type / export * statement re-exporting from ~80 leaf modules, with ZERO embedded implementation logic (no functions, classes, or business logic). It does not fuse construction/dispatch/runtime concerns (the MJ-01 god-module criterion); it only widens the public surface. Per the ratchet policy above a root export cannot be removed without breaking published consumers, and relocating clusters to sub-barrels leaves maxRootIndexLines flat while adding indirection and re-export-alias risk (e.g. `StuckDetectorConfig as AdapterStuckDetectorConfig`). This mirrors the memory/src/index.ts precedent (also a pure re-export barrel, debt-pinned not split, same date). The 839 baseline was itself deliberately reviewed and pinned in the 2026-07-22 ARCH-M-07 entry above. Leaving the allowlist entry and maxRootIndexLines pin in place is the honest outcome: a wide barrel is governed-and-frozen public surface, not a god-module. reviewBy: 2026-10-22.",
+    "2026-07-22 ARCH-M-06 / MJ-01 decomposition (audit full-dzupagent-2026-07-21/run-001): @dzupagent/agent src/pipeline/loop-executor.ts (717 LOC, debt-pinned 2026-06-24 RF-6) SPLIT and its fileLineAllowlist entry REMOVED. VERDICT: GOD-MODULE, split. The file fused four distinct concerns per the MJ-01 criterion (construction/dispatch/runtime logic mixed together): the predicate-based iteration algorithm (executeLoop), the bounded-concurrency for_each algorithm with ordered-prefix flushing (executeForEachLoop + 7 aggregation helpers), JSON-path state read/write utilities (resolveStatePath/setStatePath), and the built-in continue-predicate factories (stateFieldTruthy/qualityBelow/hasErrors). Decomposed into src/pipeline/loop-executor/ leaf modules (types.ts=LoopResumeOptions, state-path.ts, for-each-loop.ts, predicate-loop.ts, predicates.ts), mirroring the sibling pipeline-runtime-lifecycle/ and tool-handlers/ conventions. The original loop-executor.ts is now a thin barrel (~25 LOC) preserving the EXACT public surface (executeLoop, LoopResumeOptions, stateFieldTruthy, qualityBelow, hasErrors) with zero signature or behavior changes; all internal consumers (pipeline-runtime/loop-node-handler.ts, stage-dispatch.ts) and the src/index.ts / src/pipeline.ts / src/pipeline/index.ts re-export chains resolve unchanged. Every extracted leaf is under the 500-LOC maxFileLines ceiling.",
+    "2026-07-22 ARCH-M-06 / MJ-01 decomposition (audit full-dzupagent-2026-07-21/run-001): @dzupagent/flow-compiler src/stages/semantic-walk.ts (677 LOC, debt-pinned in the 2026-07-12 QF-06 batch) SPLIT and its fileLineAllowlist entry REMOVED. VERDICT: GOD-MODULE, split. Unlike the pure-barrel NO-SPLIT verdicts above, this file fused TWO independent Stage-3 semantic passes into one module (the MJ-01 god-module criterion): (1) the recursive AST traversal `visit` that dispatches each FlowNode variant to its resolver/validator sub-pass, plus a self-contained for_each scalar-export check (validateForEachScalarExports + collectScalarOutputPaths); and (2) a wholly separate two-pass checkpoint/restore cross-node validator `validateCheckpointRestore` with its own recursion and label/id collection (collectCheckpointLabels + walkCheckpointRestore). Decomposed into src/stages/semantic-walk/ leaf modules (dispatch.ts=411 LOC, checkpoint-restore.ts=267 LOC), mirroring the sibling compile-orchestrator/ convention. The original semantic-walk.ts is now a 12-LOC thin re-export composition root preserving the EXACT public surface (visit, validateCheckpointRestore) consumed by stages/semantic.ts, with zero signature or behavior changes. Both extracted leaves are under the 500-LOC maxFileLines ceiling."
   ],
   "packages": {
     "@dzupagent/core": {
@@ -112,7 +116,6 @@
         "src/index.ts",
         "src/agent/run-engine.ts",
         "src/agent/tool-loop/types.ts",
-        "src/pipeline/loop-executor.ts",
         "src/reflection/run-reflector.ts",
         "src/security/agent-auth.ts",
         "src/self-correction/post-run-analyzer.ts",
@@ -234,11 +237,7 @@
       "maxRootBarrelSourceCount": 8,
       "maxRootIndexLines": 17,
       "maxFileLines": 500,
-      "fileLineAllowlist": [
-        "src/validate/document.ts",
-        "src/parse/spdd.ts",
-        "src/validate/spdd.ts"
-      ]
+      "fileLineAllowlist": ["src/parse/spdd.ts", "src/validate/spdd.ts"]
     },
     "@dzupagent/flow-compiler": {
       "maxFileLines": 500,
@@ -246,7 +245,6 @@
         "src/lower/lower-skill-chain.ts",
         "src/profile-manifest.ts",
         "src/route-target.ts",
-        "src/stages/semantic-walk.ts",
         "src/stages/shape-validate-rules.ts",
         "src/stages/subflow-inline.ts"
       ]
