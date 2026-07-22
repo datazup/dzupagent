@@ -100,7 +100,7 @@ export type RuntimeToolHandlerResult =
   | RuntimeToolHandlerFailureResult;
 
 export type RuntimeToolHandler = (
-  input: RuntimeToolHandlerInput,
+  input: RuntimeToolHandlerInput
 ) => Promise<unknown | RuntimeToolHandlerResult>;
 
 export type RuntimeToolHandlers = Record<string, RuntimeToolHandler>;
@@ -136,10 +136,11 @@ import type { RetryPolicy as CanonicalRetryPolicy } from "@dzupagent/agent-types
  * (`initialBackoffMs`, `maxBackoffMs`, `multiplier`, `backoffMultiplier`,
  * `jitter`) come from the canonical shape.
  */
-export interface RetryPolicy extends Omit<
-  CanonicalRetryPolicy,
-  "initialBackoffMs" | "maxBackoffMs" | "jitter"
-> {
+export interface RetryPolicy
+  extends Omit<
+    CanonicalRetryPolicy,
+    "initialBackoffMs" | "maxBackoffMs" | "jitter"
+  > {
   /** Initial backoff delay in ms (default: 1000) */
   initialBackoffMs?: number;
   /** Maximum backoff delay in ms (default: 30000) */
@@ -177,7 +178,7 @@ export interface OTelSpanLike {
 export interface PipelineTracer {
   startPhaseSpan(
     phase: string,
-    options?: { attributes?: Record<string, string | number> },
+    options?: { attributes?: Record<string, string | number> }
   ): OTelSpanLike;
   endSpanOk(span: OTelSpanLike): void;
   endSpanWithError(span: OTelSpanLike, error: unknown): void;
@@ -309,7 +310,7 @@ export interface NodeLedgerLike {
     idempotencyKey: string,
     owner: string,
     ttlMs: number,
-    now: number,
+    now: number
   ): Promise<unknown | null>;
   heartbeat(
     runId: string,
@@ -317,7 +318,7 @@ export interface NodeLedgerLike {
     owner: string,
     fenceToken: number,
     ttlMs: number,
-    now: number,
+    now: number
   ): Promise<boolean>;
   complete(record: {
     runId: string;
@@ -336,7 +337,7 @@ export interface NodeLedgerLike {
     retryable: boolean;
   }): Promise<void>;
   getByIdempotencyKey(
-    idempotencyKey: string,
+    idempotencyKey: string
   ): Promise<{ output?: unknown } | undefined>;
 }
 
@@ -344,4 +345,41 @@ export interface NodeLedgerLike {
 export interface NodeLeaseLike {
   owner: string;
   fenceToken: number;
+}
+
+/**
+ * Per-fork branch progress carried across a checkpoint. Each fork records, per
+ * branch, its accumulated state delta and node results so a mid-fork crash
+ * re-runs only unfinished branches (W4). Previously an inline literal repeated
+ * across the runtime; named here so the resume/redeliver paths share one shape.
+ */
+export interface ForkRuntimeState {
+  [forkId: string]: {
+    branches: {
+      [branchId: string]: {
+        stateDelta: Record<string, unknown>;
+        nodeResults: Record<string, unknown>;
+      };
+    };
+  };
+}
+
+/**
+ * Mutable execution context threaded from an entry point (`execute`, `resume`,
+ * `redeliverFromCheckpoint`) into the executor's graph walk. Groups the run
+ * identity, restored/accumulated run state, and the per-node bookkeeping maps
+ * so the runtime and executor pass one object instead of a long argument list.
+ */
+export interface PipelineRunContext {
+  startNodeId: string;
+  runId: string;
+  runState: Record<string, unknown>;
+  nodeResults: Map<string, NodeResult>;
+  completedNodeIds: string[];
+  nodeIdempotencyKeys: Record<string, string>;
+  loopState: Record<string, { iteration: number }>;
+  forkState: ForkRuntimeState;
+  eventLog: PipelineRuntimeEvent[];
+  versionTracker: { version: number };
+  startTime: number;
 }
