@@ -1,10 +1,11 @@
-import { describe, expect, it, beforeEach, afterEach } from 'vitest'
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { mkdir, writeFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomBytes } from 'node:crypto'
 import { DzupAgentFileLoader } from '../dzupagent/file-loader.js'
 import type { DzupAgentPaths } from '../types.js'
+import { defaultLogger } from '@dzupagent/core/utils'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -79,6 +80,32 @@ describe('DzupAgentFileLoader', () => {
   it('returns empty array when skills directory does not exist', async () => {
     const bundles = await loader.loadSkills()
     expect(bundles).toHaveLength(0)
+  })
+
+  // ERR-L-05 — unreadable skill definitions are logged (skipped), not silently
+  // treated as absent.
+  it('logs a warning and skips an unreadable skill without throwing', async () => {
+    const skillsDir = join(paths.projectDir, 'skills')
+    await mkdir(skillsDir, { recursive: true })
+    await writeFile(join(skillsDir, 'code-reviewer.md'), SKILL_CONTENT)
+    // A .md path that is actually a directory → readFile throws EISDIR (non-ENOENT).
+    await mkdir(join(skillsDir, 'broken-skill.md'), { recursive: true })
+
+    const warnSpy = vi.spyOn(defaultLogger, 'warn').mockImplementation(() => {})
+
+    const bundles = await loader.loadSkills()
+
+    // The good skill still loads.
+    expect(bundles.length).toBeGreaterThanOrEqual(1)
+    const loggedUnreadable = warnSpy.mock.calls.some(
+      ([msg]) =>
+        typeof msg === 'string' &&
+        msg.includes('file-loader') &&
+        msg.includes('unreadable or invalid'),
+    )
+    expect(loggedUnreadable, 'expected an ERR-L-05 warn for the unreadable skill').toBe(true)
+
+    warnSpy.mockRestore()
   })
 
   it('loads skills from project directory', async () => {

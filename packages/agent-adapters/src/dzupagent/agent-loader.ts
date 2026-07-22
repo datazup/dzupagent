@@ -12,6 +12,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, basename, extname } from 'node:path'
 import { defaultLogger } from '@dzupagent/core/utils'
+import { reportLoaderFileError } from './loader-error-utils.js'
 import type { AdapterProviderId, DzupAgentPaths } from '../types.js'
 import type { AdapterSkillBundle } from '../skills/adapter-skill-types.js'
 import { AdapterSkillRegistry } from '../skills/adapter-skill-registry.js'
@@ -293,8 +294,11 @@ export class DzupAgentAgentLoader {
       const result = buildAgentDefinition(filePath, content)
       this.cache.set(filePath, { mtime, result })
       return result
-    } catch {
-      return undefined // file disappeared or unreadable -- skip silently
+    } catch (err) {
+      // ERR-L-05: distinguish a genuinely absent file (skip silently) from a
+      // malformed/invalid agent definition (log so the corrupt file surfaces).
+      reportLoaderFileError('agent-loader', filePath, err)
+      return undefined
     }
   }
 }

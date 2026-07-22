@@ -7,6 +7,7 @@ import { DzupAgentMemoryLoader } from '../dzupagent/memory-loader.js'
 import type { DzupAgentMemoryLoaderOptions, MemoryFileEntry } from '../dzupagent/memory-loader.js'
 import type { DzupAgentPaths } from '../types.js'
 import type { AgentMemoryRecalledEvent } from '../types.js'
+import { defaultLogger } from '@dzupagent/core/utils'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -341,6 +342,33 @@ describe('DzupAgentMemoryLoader', () => {
 
     expect(entries).toHaveLength(1)
     expect(entries[0]!.name).toBe('project-context')
+  })
+
+  // ERR-L-05 — unreadable memory definitions are logged (skipped), not silently
+  // treated as absent.
+  it('logs a warning and skips an unreadable memory entry without throwing', async () => {
+    const projectMemDir = join(paths.projectDir, 'memory')
+    await mkdir(projectMemDir, { recursive: true })
+    await writeFile(join(projectMemDir, 'real-entry.md'), MEMORY_PROJECT)
+    // A .md path that is a directory → readFile throws EISDIR (non-ENOENT).
+    await mkdir(join(projectMemDir, 'broken-entry.md'), { recursive: true })
+
+    const warnSpy = vi.spyOn(defaultLogger, 'warn').mockImplementation(() => {})
+
+    const loader = makeLoader(paths)
+    const entries = await loader.loadEntries()
+
+    // The good entry still loads.
+    expect(entries.map((e) => e.name)).toContain('project-context')
+    const loggedUnreadable = warnSpy.mock.calls.some(
+      ([msg]) =>
+        typeof msg === 'string' &&
+        msg.includes('memory-loader') &&
+        msg.includes('unreadable or invalid'),
+    )
+    expect(loggedUnreadable, 'expected an ERR-L-05 warn for the unreadable entry').toBe(true)
+
+    warnSpy.mockRestore()
   })
 
   // -------------------------------------------------------------------------

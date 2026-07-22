@@ -25,6 +25,7 @@ import type { MemoryServiceLike } from "../middleware/memory-enrichment.js";
 import type { AgentMemoryRecalledEvent } from "../types.js";
 import { derivePathsFromProjectDir } from "./derive-paths.js";
 import { parseMarkdownFile } from "./md-frontmatter-parser.js";
+import { reportLoaderFileError } from "./loader-error-utils.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -325,8 +326,11 @@ export class DzupAgentMemoryLoader implements MemoryServiceLike {
       }
       this.cache.set(filePath, { mtime, entry });
       return entry;
-    } catch {
-      return undefined; // file disappeared or unreadable — skip silently
+    } catch (err) {
+      // ERR-L-05: distinguish a genuinely absent file (skip silently) from a
+      // malformed/invalid memory definition (log so the corrupt file surfaces).
+      reportLoaderFileError("memory-loader", filePath, err);
+      return undefined;
     }
   }
 

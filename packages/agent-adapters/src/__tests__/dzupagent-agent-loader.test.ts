@@ -8,6 +8,7 @@ import { DzupAgentFileLoader } from '../dzupagent/file-loader.js'
 import { AdapterSkillRegistry } from '../skills/adapter-skill-registry.js'
 import { ClaudeSkillCompiler } from '../skills/compilers/claude-skill-compiler.js'
 import type { DzupAgentPaths } from '../types.js'
+import { defaultLogger } from '@dzupagent/core/utils'
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -247,6 +248,51 @@ describe('DzupAgentAgentLoader', () => {
   it('loadAgents() returns empty array when agents directory does not exist', async () => {
     const agents = await loader.loadAgents()
     expect(agents).toHaveLength(0)
+  })
+
+  // ERR-L-05 — a corrupt/unreadable definition must be logged (skipped), and a
+  // genuinely absent file must stay silent, so the two are distinguishable.
+  describe('corrupt vs absent definition (ERR-L-05)', () => {
+    it('logs a warning and skips an unreadable definition without throwing', async () => {
+      const agentsDir = join(paths.projectDir, 'agents')
+      await mkdir(agentsDir, { recursive: true })
+      // A good agent that must still load...
+      await writeFile(join(agentsDir, 'simple-agent.md'), AGENT_MINIMAL)
+      // ...alongside a path that ends in .md but is a DIRECTORY, so readFile
+      // throws EISDIR (a non-ENOENT "unreadable" error) — the exact corrupt/
+      // unreadable case that was previously swallowed as if the file were absent.
+      await mkdir(join(agentsDir, 'broken-agent.md'), { recursive: true })
+
+      const warnSpy = vi.spyOn(defaultLogger, 'warn').mockImplementation(() => {})
+
+      const agents = await loader.loadAgents()
+
+      // The good agent still loads (resilient skip of the bad one).
+      expect(agents.map((a) => a.name)).toContain('simple-agent')
+      // The unreadable definition surfaced a warning instead of vanishing.
+      expect(warnSpy).toHaveBeenCalled()
+      const loggedUnreadable = warnSpy.mock.calls.some(
+        ([msg]) =>
+          typeof msg === 'string' &&
+          msg.includes('agent-loader') &&
+          msg.includes('unreadable or invalid'),
+      )
+      expect(loggedUnreadable, 'expected an ERR-L-05 warn for the unreadable file').toBe(true)
+
+      warnSpy.mockRestore()
+    })
+
+    it('does NOT warn when the agents directory is simply absent', async () => {
+      const warnSpy = vi.spyOn(defaultLogger, 'warn').mockImplementation(() => {})
+      const agents = await loader.loadAgents()
+      expect(agents).toHaveLength(0)
+      // Absent file/dir is the benign ENOENT path — must be silent.
+      const loggedUnreadable = warnSpy.mock.calls.some(
+        ([msg]) => typeof msg === 'string' && msg.includes('unreadable or invalid'),
+      )
+      expect(loggedUnreadable).toBe(false)
+      warnSpy.mockRestore()
+    })
   })
 
   it('uses default values for optional frontmatter fields', async () => {
