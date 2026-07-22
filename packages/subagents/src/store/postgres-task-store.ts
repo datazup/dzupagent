@@ -278,6 +278,7 @@ export class PostgresTaskQueue implements TaskQueue {
       for (;;) {
         const row = await this.claimNext();
         if (!row || !this.handler || this.stopped) return;
+        const stopHeartbeat = this.startLeaseHeartbeat(row.task_id);
         try {
           await this.handler(row.task_id);
           await this.ack(row.task_id);
@@ -290,6 +291,8 @@ export class PostgresTaskQueue implements TaskQueue {
             message,
             detail: "postgres_queue_handler_threw",
           });
+        } finally {
+          stopHeartbeat();
         }
       }
     } finally {
@@ -308,6 +311,50 @@ export class PostgresTaskQueue implements TaskQueue {
       }, this.pollIntervalMs);
       this.pollTimer.unref?.();
     });
+  }
+
+  /**
+   * Keeps the lease alive while the handler runs so a task that legitimately
+   * outlives the fixed lease window is not re-claimed and double-executed by a
+   * second worker. The renewal UPDATE is scoped to this worker's ownership
+   * (`leased_by = workerId`) so a lease that was legitimately lost is never
+   * "renewed" back. Returns a function that stops the heartbeat.
+   */
+  private startLeaseHeartbeat(taskId: TaskId): () => void {
+    const intervalMs = Math.max(1, Math.floor(this.leaseMs / 3));
+    let renewing = false;
+    const timer: ReturnType<typeof setInterval> = setInterval(() => {
+      if (renewing) return;
+      renewing = true;
+      void this.renewLease(taskId).finally(() => {
+        renewing = false;
+      });
+    }, intervalMs);
+    timer.unref?.();
+    return () => {
+      clearInterval(timer);
+    };
+  }
+
+  private async renewLease(taskId: TaskId): Promise<void> {
+    const now = this.clock();
+    try {
+      await this.client.query(
+        `UPDATE ${this.tableName}
+         SET lease_until = $2
+         WHERE task_id = $1
+           AND leased_by = $3`,
+        [taskId, now + this.leaseMs, this.workerId],
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn({
+        taskId,
+        code: "TASK_QUEUE_LEASE_RENEW_FAILED",
+        workerId: this.workerId,
+        message,
+      });
+    }
   }
 
   private async claimNext(): Promise<QueueRow | null> {

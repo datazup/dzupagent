@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Client } from "pg";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -203,6 +203,19 @@ class MemoryPostgresClient implements PostgresQueryClient {
       return { rows: [structuredClone(next)] };
     }
 
+    if (
+      normalized.startsWith("UPDATE subagent_task_queue SET lease_until =")
+    ) {
+      const taskId = values[0] as string;
+      const leaseUntil = values[1] as number;
+      const workerId = values[2] as string;
+      const found = this.queue.get(taskId);
+      if (found && found.leased_by === workerId) {
+        found.lease_until = leaseUntil;
+      }
+      return { rows: [] };
+    }
+
     if (normalized.startsWith("DELETE FROM subagent_task_queue")) {
       const taskId = values[0] as string;
       const workerId = values[1] as string;
@@ -340,6 +353,74 @@ describe("PostgresTaskQueue", () => {
         workerId: "worker-a",
       }),
     );
+  });
+
+  it("renews the lease while a long handler runs so a second worker cannot re-claim it", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new MemoryPostgresClient();
+      let now = 1_000;
+      const clock = () => now;
+      const leaseMs = 30;
+
+      const worker = new PostgresTaskQueue({
+        client,
+        workerId: "long-worker",
+        clock,
+        leaseMs,
+        autoDrain: false,
+      });
+      await worker.enqueue("long-task");
+
+      let releaseHandler: (() => void) | undefined;
+      const handlerStarted = new Promise<void>((resolveStarted) => {
+        worker.consume(async () => {
+          resolveStarted();
+          await new Promise<void>((release) => {
+            releaseHandler = release;
+          });
+        });
+      });
+
+      const drain = worker.drainAvailable();
+      await handlerStarted;
+
+      const initialLeaseUntil = client.queue.get("long-task")?.lease_until;
+      expect(initialLeaseUntil).toBe(1_000 + leaseMs);
+
+      // Advance real time PAST the original lease window; the heartbeat
+      // (interval leaseMs/3 = 10ms) fires and keeps renewing the lease.
+      now = 1_000 + leaseMs + 25;
+      await vi.advanceTimersByTimeAsync(leaseMs);
+
+      const renewedLeaseUntil = client.queue.get("long-task")?.lease_until;
+      expect(renewedLeaseUntil).toBe(now + leaseMs);
+      expect(renewedLeaseUntil).toBeGreaterThan(now);
+
+      // A second worker tries to claim at the current time. Because the
+      // heartbeat kept lease_until in the future, the row is NOT re-claimable.
+      const secondHandled: string[] = [];
+      const secondWorker = new PostgresTaskQueue({
+        client,
+        workerId: "steal-worker",
+        clock,
+        leaseMs,
+        autoDrain: false,
+      });
+      secondWorker.consume(async (taskId) => {
+        secondHandled.push(taskId);
+      });
+      await secondWorker.drainAvailable();
+      expect(secondHandled).toEqual([]);
+      expect(client.queue.get("long-task")?.leased_by).toBe("long-worker");
+
+      // Handler completes -> heartbeat stops, ack removes the row.
+      releaseHandler?.();
+      await drain;
+      expect(client.queue.has("long-task")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
