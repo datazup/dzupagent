@@ -89,11 +89,12 @@
         { "match": "exact", "pattern": "./rate-limit/index.js" },
         { "match": "exact", "pattern": "./content-scanner.js" },
         { "match": "exact", "pattern": "./policy-config.js" },
-        { "match": "exact", "pattern": "./guardrails/index.js" }
+        { "match": "exact", "pattern": "./guardrails/index.js" },
+        { "match": "exact", "pattern": "./sanitizer-patterns.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {},
-      "migrationWindow": "Security package root exports are the primary consumption surface; all exports are stable from initial release."
+      "migrationWindow": "Security package root exports are the primary consumption surface; all exports are stable from initial release. sanitizer-patterns.js is the single shared sanitizer pattern source consumed by core and memory (CODE-H-03 dedup) — intentionally root-exported as the canonical data surface both layers depend on."
     },
     {
       "packageName": "@dzupagent/core",
