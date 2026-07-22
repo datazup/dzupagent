@@ -29,6 +29,14 @@ export interface ForgeTransportConfig {
    * development or legacy compatibility opt-out and emits a startup warning.
    */
   auth?: AuthConfig;
+  /**
+   * SEC-M-02 escape hatch. By default `auth.mode === 'none'` in production
+   * (`NODE_ENV === 'production'`) is refused at startup. Set this to `true` to
+   * deliberately run unauthenticated framework `/api/*` routes in production —
+   * only for an intentional, reviewed compatibility deployment. Has no effect
+   * outside production.
+   */
+  allowUnsafeNoAuthInProduction?: boolean;
   /** Optional RBAC config (MC-S02). Defaults to API-key role extraction; pass `false` to disable. */
   rbac?: RBACConfig | false;
   /** Optional Postgres API key store. When provided alongside auth.mode='api-key', validate is wired automatically. */

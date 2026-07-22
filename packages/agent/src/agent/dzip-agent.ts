@@ -55,14 +55,7 @@ import {
   maybeUpdateSummary as maybeUpdateSummaryCoord,
   type ConversationSummaryAccessor,
 } from "./message-preparation.js";
-import {
-  executeGenerateRun,
-  prepareRunState,
-  type ExecuteGenerateRunParams,
-  type PrepareRunStateParams,
-} from "./run-engine.js";
 import type { RunHandle, LaunchOptions } from "./run-handle-types.js";
-import { streamRun } from "./streaming-run.js";
 import { launchDaemon } from "./daemon-launcher.js";
 import { agentAsTool } from "../tools/agent-as-tool.js";
 import { filterToolsByTier } from "../tools/tool-tier-registry.js";
@@ -71,13 +64,12 @@ import {
   extractJsonFromText,
 } from "./structured-generate.js";
 import { maybeWriteBackMemory as maybeWriteBackMemoryFinalizer } from "./agent-finalizers.js";
-import {
-  invokeModelWithMiddleware as invokeModelWithMiddlewareCoord,
-  transformToolResultWithMiddleware as transformToolResultWithMiddlewareCoord,
-  type ModelInvocationDeps,
-} from "./model-invocation.js";
 import { runConsolidation } from "./consolidation-coordinator.js";
-import { omitUndefined } from "../utils/exact-optional.js";
+import {
+  runGenerate as runGenerateRun,
+  runStream as runStreamRun,
+  invokeModelWithMiddleware as invokeModelWithMiddlewareRun,
+} from "./dzip-agent-run-coordinator.js";
 import {
   emitToolFilterAudit,
   resolveTokenizer,
@@ -86,7 +78,6 @@ import {
 } from "./agent-construction.js";
 import {
   resolveModel,
-  bindTools as bindToolsHelper,
   getProviderAttempts as getProviderAttemptsHelper,
   shouldRunFailover as shouldRunFailoverHelper,
 } from "./provider-selection.js";
@@ -261,59 +252,27 @@ export class DzupAgent {
     messages: BaseMessage[],
     options?: GenerateOptions
   ): Promise<GenerateResult> {
-    const runState = await prepareRunState(
-      omitUndefined<PrepareRunStateParams>({
+    return runGenerateRun(
+      {
+        agentId: this.id,
         config: this.config,
         resolvedModel: this.resolvedModel,
-        messages,
-        options,
+        middlewareRuntime: this.middlewareRuntime,
         prepareMessages: (inputMessages) =>
           this.prepareMessages(
             inputMessages,
             this.resolveMemoryReadContext(options)
           ),
         getTools: () => this.getTools(),
-        bindTools: bindToolsHelper,
-        runBeforeAgentHooks: () => this.middlewareRuntime.runBeforeAgentHooks(),
-      })
-    );
-
-    const result = await executeGenerateRun(
-      omitUndefined<ExecuteGenerateRunParams>({
-        agentId: this.id,
-        config: this.config,
-        options,
-        runState,
-        invokeModel: (model, preparedMessages) =>
-          this.invokeModelWithMiddleware(
-            model,
-            preparedMessages,
-            runState.tools
-          ),
-        transformToolResult: (toolName, input, result) =>
-          transformToolResultWithMiddlewareCoord(
-            this.middlewareRuntime,
-            toolName,
-            input,
-            result
-          ),
+        invokeModel: (model, preparedMessages, tools) =>
+          this.invokeModelWithMiddleware(model, preparedMessages, tools),
         maybeUpdateSummary: (allMessages, memoryFrame) =>
           this.maybeUpdateSummary(allMessages, memoryFrame),
-      })
+        resolveMemoryRunId: () => this.resolveMemoryRunId(options),
+      },
+      messages,
+      options
     );
-
-    if ((result.stopReason as string) !== "failed") {
-      await maybeWriteBackMemoryFinalizer({
-        agentId: this.id,
-        ...(this.resolveMemoryRunId(options) !== undefined
-          ? { runId: this.resolveMemoryRunId(options)! }
-          : {}),
-        config: this.config,
-        content: result.content,
-      });
-    }
-
-    return result;
   }
 
   /**
@@ -369,14 +328,14 @@ export class DzupAgent {
     messages: BaseMessage[],
     options?: GenerateOptions
   ): AsyncGenerator<AgentStreamEvent> {
-    return streamRun(
+    return runStreamRun(
       {
         agentId: this.id,
         config: this.config,
         resolvedModel: this.resolvedModel,
         resolvedProvider: this.resolvedProvider,
         resolvedTier: this.resolvedTier,
-        registry: this.config.registry,
+        middlewareRuntime: this.middlewareRuntime,
         getProviderAttempts: (tools) =>
           getProviderAttemptsHelper({
             config: this.config,
@@ -389,17 +348,8 @@ export class DzupAgent {
             this.resolveMemoryReadContext(options)
           ),
         getTools: () => this.getTools(),
-        bindTools: bindToolsHelper,
-        runBeforeAgentHooks: () => this.middlewareRuntime.runBeforeAgentHooks(),
-        invokeModelWithMiddleware: (model, preparedMessages) =>
+        invokeModel: (model, preparedMessages) =>
           this.invokeModelWithMiddleware(model, preparedMessages),
-        transformToolResultWithMiddleware: (toolName, input, result) =>
-          transformToolResultWithMiddlewareCoord(
-            this.middlewareRuntime,
-            toolName,
-            input,
-            result
-          ),
         maybeUpdateSummary: (allMessages, memoryFrame) =>
           this.maybeUpdateSummary(allMessages, memoryFrame),
         maybeWriteBackMemory: (content, runId) =>
@@ -547,26 +497,29 @@ export class DzupAgent {
     messages: BaseMessage[],
     tools: StructuredToolInterface[] = []
   ): Promise<BaseMessage> {
-    const deps: ModelInvocationDeps = {
-      agentId: this.id,
-      tenantId: this.tenantId,
-      rateLimiter: this.rateLimiter,
-      distributedRateLimiter: this.distributedRateLimiter,
-      distributedCostLedger: this.distributedCostLedger,
-      eventBus: this.config.eventBus,
-      middlewareRuntime: this.middlewareRuntime,
-      registry: this.config.registry,
-      resolvedProvider: this.resolvedProvider,
-      getProviderAttempts: () =>
-        getProviderAttemptsHelper({
-          config: this.config,
-          resolvedTier: this.resolvedTier,
-          tools,
-        }),
-      shouldRunFailover: (err) =>
-        shouldRunFailoverHelper(this.config, err, messages),
-    };
-    return invokeModelWithMiddlewareCoord(deps, model, messages);
+    return invokeModelWithMiddlewareRun(
+      {
+        agentId: this.id,
+        tenantId: this.tenantId,
+        config: this.config,
+        resolvedProvider: this.resolvedProvider,
+        rateLimiter: this.rateLimiter,
+        distributedRateLimiter: this.distributedRateLimiter,
+        distributedCostLedger: this.distributedCostLedger,
+        middlewareRuntime: this.middlewareRuntime,
+        getProviderAttempts: (attemptTools) =>
+          getProviderAttemptsHelper({
+            config: this.config,
+            resolvedTier: this.resolvedTier,
+            tools: attemptTools,
+          }),
+        shouldRunFailover: (err, failoverMessages) =>
+          shouldRunFailoverHelper(this.config, err, failoverMessages),
+      },
+      model,
+      messages,
+      tools
+    );
   }
 
   /**
