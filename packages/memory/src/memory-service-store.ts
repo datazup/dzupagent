@@ -147,12 +147,47 @@ export async function putMemoryRecord(
             metadata: { namespace: ns.name, ...scope },
           },
         ])
-        .catch(() => {
-          // Non-fatal — vector indexing failures should not break pipelines
+        .catch((err: unknown) => {
+          // Non-fatal — vector indexing failures should not break pipelines.
+          // But they MUST NOT be silent: a swallowed upsert leaves the
+          // semantic index drifting out of sync with the primary store even
+          // though the primary write (and any `memory:written` event) already
+          // succeeded. Surface via structured log + telemetry event so the
+          // drift is observable.
+          const message = err instanceof Error ? err.message : String(err);
+          // eslint-disable-next-line no-console
+          console.error("[memory] semantic index upsert failed", {
+            namespace: ns.name,
+            key,
+            error: message,
+          });
+          deps.eventBus?.emit({
+            type: "memory:error",
+            namespace: ns.name,
+            key,
+            message,
+            agentId: deps.agentId ?? "unknown",
+          });
         });
     }
-  } catch {
-    // Non-fatal — memory write failures should not break pipelines
+  } catch (err: unknown) {
+    // Non-fatal — memory write failures should not break pipelines. But a
+    // fully swallowed primary write is a data-loss hazard, so log + emit a
+    // failure event rather than dropping it silently.
+    const message = err instanceof Error ? err.message : String(err);
+    // eslint-disable-next-line no-console
+    console.error("[memory] primary store write failed", {
+      namespace: ns.name,
+      key,
+      error: message,
+    });
+    deps.eventBus?.emit({
+      type: "memory:put_failed",
+      namespace: ns.name,
+      key,
+      message,
+      agentId: deps.agentId ?? "unknown",
+    });
   }
 }
 
