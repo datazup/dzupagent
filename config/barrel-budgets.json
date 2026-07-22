@@ -177,7 +177,7 @@
     "@dzupagent/execution-contracts": {
       "maxRootIndexLines": 16,
       "maxFileLines": 500,
-      "fileLineAllowlist": ["src/fleet-qualification.ts"]
+      "fileLineAllowlist": []
     },
     "@dzupagent/agent-types": {
       "maxRootIndexLines": 53,
