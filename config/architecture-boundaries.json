@@ -117,6 +117,7 @@
           "packages/server/src/routes/clusters.ts",
           "packages/server/src/routes/deploy.ts",
           "packages/server/src/routes/evals.ts",
+          "packages/server/src/routes/evals-handlers.ts",
           "packages/server/src/routes/learning-handlers-content.ts",
           "packages/server/src/routes/learning-handlers-dashboard.ts",
           "packages/server/src/routes/learning-handlers-feedback.ts",
@@ -164,6 +165,7 @@
           "packages/server/src/routes/compile/sse-handler.ts",
           "packages/server/src/routes/compile/stage-stream-handler.ts",
           "packages/server/src/routes/deploy-types.ts",
+          "packages/server/src/routes/evals-helpers.ts",
           "packages/server/src/routes/evals-types.ts",
           "packages/server/src/routes/learning-schemas.ts",
           "packages/server/src/routes/learning-types.ts",
@@ -354,7 +356,7 @@
           "endpoints": ["GET /:id/enrichment-metrics"],
           "mountedEndpoints": ["GET /api/runs/:id/enrichment-metrics"]
         },
-        "packages/server/src/routes/evals.ts": {
+        "packages/server/src/routes/evals-handlers.ts": {
           "category": "compatibility-maintenance",
           "mounts": ["/api/evals"],
           "endpoints": [
