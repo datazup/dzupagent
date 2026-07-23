@@ -142,6 +142,38 @@ export class StagedWriter {
     return this.pending.get(key)
   }
 
+  /**
+   * Restore a previously persisted staged record without replaying automatic
+   * promotion or confirmation rules.
+   *
+   * The caller is responsible for validating the record's storage envelope
+   * and scope before restoration.
+   */
+  restore(record: StagedRecord): StagedRecord {
+    this.pruneIfNeeded()
+    const restored: StagedRecord = {
+      ...record,
+      scope: { ...record.scope },
+      value: { ...record.value },
+    }
+    this.pending.set(restored.key, restored)
+    return restored
+  }
+
+  /** Remove one record after durable promotion or retention cleanup. */
+  remove(key: string): boolean {
+    return this.pending.delete(key)
+  }
+
+  /** Return a defensive snapshot of every staged record. */
+  getAll(): StagedRecord[] {
+    return [...this.pending.values()].map(record => ({
+      ...record,
+      scope: { ...record.scope },
+      value: { ...record.value },
+    }))
+  }
+
   // --- Internals ---
 
   /** Remove oldest non-terminal records when capacity is exceeded. */

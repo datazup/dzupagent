@@ -160,6 +160,20 @@ export type {
 export { PolicyAwareStagedWriter } from "./policy-aware-staged-writer.js";
 export type { PolicyAwareStagedWriterConfig } from "./policy-aware-staged-writer.js";
 
+// --- Observation Candidate Store ---
+export {
+  MemoryServiceObservationCandidateStore,
+  OBSERVATION_CANDIDATE_SCHEMA,
+  OBSERVATION_CONFIRMATION_RECEIPT_SCHEMA,
+  createObservationConfirmationReceipt,
+  observationCandidateValueDigest,
+} from "./observation-candidate-store.js";
+export type {
+  ObservationCandidateRetention,
+  ObservationCandidateStore,
+  ObservationConfirmationReceipt,
+} from "./observation-candidate-store.js";
+
 // --- Write Policy ---
 export { defaultWritePolicy, composePolicies } from "./write-policy.js";
 export type { WritePolicy, WriteAction } from "./write-policy.js";

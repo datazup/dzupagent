@@ -1,9 +1,11 @@
-import {
-  flowReference,
-  type FlowFragmentV1,
-} from "@dzupagent/flow-ast";
+import type { FlowFragmentV1 } from "@dzupagent/flow-ast";
+import type { FlowReferenceValue } from "@dzupagent/flow-ast/expressions";
 
 import { createFragmentRegistry } from "./registry.js";
+
+function fragmentParamReference<T>(name: string): FlowReferenceValue<T> {
+  return { kind: "flow-reference", source: `params.${name}` };
+}
 
 export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
   {
@@ -53,8 +55,8 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
           id: "validate_each",
           source: "{{ params.items }}",
           as: "validationItem",
-          concurrency: flowReference<number>("params.concurrency"),
-          failFast: flowReference<boolean>("params.failFast"),
+          concurrency: fragmentParamReference<number>("concurrency"),
+          failFast: fragmentParamReference<boolean>("failFast"),
           collect: {
             from: "validationStatus",
             into: "validationStatuses",
@@ -176,8 +178,8 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
           id: "dispatch_each_packet",
           source: "{{ params.packets }}",
           as: "packetItem",
-          concurrency: flowReference<number>("params.concurrency"),
-          failFast: flowReference<boolean>("params.failFast"),
+          concurrency: fragmentParamReference<number>("concurrency"),
+          failFast: fragmentParamReference<boolean>("failFast"),
           collect: {
             from: "each_packet__packetStatus",
             into: "packetStatuses",

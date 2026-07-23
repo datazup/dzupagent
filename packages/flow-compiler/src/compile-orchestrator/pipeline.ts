@@ -28,6 +28,7 @@
 
 import { parseFlow } from "@dzupagent/flow-ast";
 import type { ParseInput } from "@dzupagent/flow-ast";
+import type { FlowReferenceBindings } from "@dzupagent/flow-ast/expressions";
 import type { DzupEvent } from "@dzupagent/core";
 
 import { validateShape } from "../stages/shape-validate.js";
@@ -44,6 +45,10 @@ import { collectFleetSteps } from "../lower/lower-fleet-nodes.js";
 import type { LoweredFleetStep } from "../lower/lower-fleet-nodes.js";
 import { inlineSubflows } from "../stages/subflow-inline.js";
 import { collectFlowRequirements } from "../capability-manifest.js";
+import {
+  deriveNodeReferenceBindings,
+  mergeReferenceBindings,
+} from "../stages/reference-symbols.js";
 
 import type {
   CompilerOptions,
@@ -117,7 +122,8 @@ export interface CompileOrchestratorDeps {
 export async function runCompile(
   deps: CompileOrchestratorDeps,
   input: ParseInput,
-  invocationOptions: CompileInvocationOptions = {}
+  invocationOptions: CompileInvocationOptions = {},
+  sourceReferenceBindings?: FlowReferenceBindings,
 ): Promise<CompileSuccess | CompileFailure> {
   const { opts, emit } = deps;
   const compileId = crypto.randomUUID();
@@ -239,6 +245,11 @@ export async function runCompile(
   // -----------------------------------------------------------------------
   // Stage 3: Semantic resolution — halts on any error
   // -----------------------------------------------------------------------
+  const referenceBindings = mergeReferenceBindings(
+    deriveNodeReferenceBindings(ast),
+    sourceReferenceBindings,
+    opts.referenceBindings,
+  );
   const semanticResult = await semanticResolve(ast, {
     toolResolver: opts.toolResolver,
     personaResolver: opts.personaResolver,
@@ -252,9 +263,7 @@ export async function runCompile(
     ...(opts.referencePolicy !== undefined
       ? { referencePolicy: opts.referencePolicy }
       : {}),
-    ...(opts.referenceBindings !== undefined
-      ? { referenceBindings: opts.referenceBindings }
-      : {}),
+    referenceBindings,
   });
 
   emit({

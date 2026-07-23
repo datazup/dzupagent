@@ -2,12 +2,14 @@ import type {
   AsyncToolResolver,
   AsyncToolsetResolver,
   ResolvedTool,
-  FlowReferenceBindings,
-  FlowReferencePolicy,
   ToolResolver,
   ToolsetResolver,
   ValidationError,
 } from '@dzupagent/flow-ast'
+import type {
+  FlowReferenceBindings,
+  FlowReferencePolicy,
+} from '@dzupagent/flow-ast/expressions'
 
 import type { ProfileRegistry, ResolvedProfile } from '../profile-registry.js'
 import type { AsyncPersonaResolver, PersonaResolver } from '../types.js'

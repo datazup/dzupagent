@@ -6,11 +6,13 @@ import type {
   FlowDocumentPolicy,
   FlowDurabilityPolicy,
   FlowNodeKind,
-  FlowReferenceBindings,
-  FlowReferencePolicy,
   ToolResolver,
   ToolsetResolver,
 } from "@dzupagent/flow-ast";
+import type {
+  FlowReferenceBindings,
+  FlowReferencePolicy,
+} from "@dzupagent/flow-ast/expressions";
 import type { ParseInput } from "@dzupagent/flow-ast";
 import type { DzupEventBus } from "@dzupagent/core/events";
 
@@ -91,8 +93,10 @@ export interface CompilerOptions {
    */
   referencePolicy?: FlowReferencePolicy;
   /**
-   * Optional declared binding names by reference root. Strict analysis uses
-   * this snapshot to fail missing input/state/step references before lowering.
+   * Additional host/late-bound names by reference root. The compiler derives
+   * ordinary document inputs, state outputs, step ids, and loop symbols, then
+   * unions this snapshot for host-owned context, secret, artifact, or external
+   * state names before strict analysis.
    */
   referenceBindings?: FlowReferenceBindings;
 }

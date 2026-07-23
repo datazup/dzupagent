@@ -94,7 +94,8 @@ export class ObservationExtractor {
     this.debounceMs = config.debounceMs ?? 30_000
     this.maxObservations = config.maxObservations ?? 50
     this.prompt = config.prompt ?? EXTRACTION_PROMPT
-    this.promptVersion = config.promptVersion ?? DEFAULT_EXTRACTION_PROMPT_VERSION
+    this.promptVersion = config.promptVersion
+      ?? (config.prompt ? 'custom/unversioned' : DEFAULT_EXTRACTION_PROMPT_VERSION)
   }
 
   /** Check if extraction should be triggered */

@@ -39,6 +39,18 @@ import type { MemoryService } from './memory-service.js'
 import type { Observation } from './observation-extractor.js'
 import { ObservationExtractor } from './observation-extractor.js'
 import { SemanticConsolidator } from './semantic-consolidation.js'
+import type { StagedRecord, StagedWriter } from './staged-writer.js'
+import { PolicyAwareStagedWriter } from './policy-aware-staged-writer.js'
+import { defaultWritePolicy } from './write-policy.js'
+import { ProvenanceWriter } from './provenance/provenance-writer.js'
+import type {
+  ObservationCandidateRetention,
+  ObservationCandidateStore,
+} from './observation-candidate-store.js'
+import {
+  createObservationConfirmationReceipt,
+  observationCandidateValueDigest,
+} from './observation-candidate-store.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -65,6 +77,39 @@ export interface ObservationalMemoryConfig {
   observerDebounceMs?: number | undefined
   /** Max LLM calls per Reflector run (default: 15) */
   reflectorMaxLLMCalls?: number | undefined
+  /** Optional model-facing observation extraction prompt override. */
+  observationPrompt?: string | undefined
+  /** Version recorded on observations produced by `observationPrompt`. */
+  observationPromptVersion?: string | undefined
+  /**
+   * Persistence policy for model-written observations.
+   *
+   * - `direct` preserves the historical behavior and writes accepted
+   *   observations immediately.
+   * - `candidate-first` stages observations for explicit confirmation before
+   *   they become durable long-term memory.
+   *
+   * Default: `direct` for backwards compatibility.
+   */
+  observationWriteMode?: 'direct' | 'candidate-first' | undefined
+  /**
+   * Optional staged writer used by `candidate-first` mode. When omitted, a
+   * policy-aware writer is created that can auto-promote high-confidence
+   * records to candidates but never auto-confirms model output.
+   */
+  stagedWriter?: StagedWriter | undefined
+  /**
+   * Optional restart-safe store for candidate-first records and confirmation
+   * receipts. The store must be scoped separately from confirmed memory.
+   */
+  candidateStore?: ObservationCandidateStore | undefined
+  /** Retention policy applied when a persistent candidate store is loaded. */
+  candidateRetention?: ObservationCandidateRetention | undefined
+  /**
+   * Agent URI recorded as the creator of persisted observations.
+   * Default: `forge://dzupagent/observer`.
+   */
+  observerAgentUri?: string | undefined
 }
 
 export interface ObservationalMemoryStats {
@@ -76,7 +121,14 @@ export interface ObservationalMemoryStats {
 }
 
 export interface ObserverResult {
+  /** Accepted non-duplicate observations, whether persisted or staged. */
   extracted: Observation[]
+  /** Observations persisted to durable memory during this observer run. */
+  persisted: Observation[]
+  /** Reviewable records awaiting promotion/confirmation. */
+  staged: StagedRecord[]
+  /** Observations rejected by the configured staged write policy. */
+  rejected: Observation[]
   skippedDuplicates: number
   triggeredReflector: boolean
 }
@@ -131,6 +183,14 @@ export class ObservationalMemory {
   private readonly reflectorTargetCount: number
   private readonly observerDebounceMs: number
   private readonly reflectorMaxLLMCalls: number
+  private readonly observationWriteMode: 'direct' | 'candidate-first'
+  private readonly stagedWriter: StagedWriter | null
+  private readonly provenanceWriter: ProvenanceWriter
+  private readonly observerAgentUri: string
+  private readonly candidateStore: ObservationCandidateStore | null
+  private candidatesInitialized = false
+  private candidateInitialization: Promise<void> | null = null
+  private observationSequence = 0
 
   constructor(private readonly config: ObservationalMemoryConfig) {
     this.observerThreshold = config.observerThreshold ?? 15
@@ -138,6 +198,23 @@ export class ObservationalMemory {
     this.reflectorTargetCount = config.reflectorTargetCount ?? 30
     this.observerDebounceMs = config.observerDebounceMs ?? 30_000
     this.reflectorMaxLLMCalls = config.reflectorMaxLLMCalls ?? 15
+    this.observationWriteMode = config.observationWriteMode ?? 'direct'
+    this.provenanceWriter = new ProvenanceWriter(config.memoryService)
+    this.observerAgentUri = config.observerAgentUri ?? 'forge://dzupagent/observer'
+    this.candidateStore = this.observationWriteMode === 'candidate-first'
+      ? config.candidateStore ?? null
+      : null
+    this.stagedWriter = this.observationWriteMode === 'candidate-first'
+      ? config.stagedWriter ?? new PolicyAwareStagedWriter({
+          autoPromoteThreshold: 0.7,
+          // Extractor confidence is clamped to 0..1. Keeping this threshold
+          // above 1 guarantees that model self-confidence cannot bypass the
+          // explicit confirmation gate.
+          autoConfirmThreshold: 1.01,
+          maxPending: 100,
+          policies: [defaultWritePolicy],
+        })
+      : null
   }
 
   /**
@@ -195,6 +272,153 @@ export class ObservationalMemory {
     return { ...this.stats }
   }
 
+  /**
+   * Return reviewable observations that have not yet been confirmed or
+   * rejected. Empty in direct-write mode.
+   */
+  getPendingObservationCandidates(): StagedRecord[] {
+    if (!this.stagedWriter) return []
+    return [
+      ...this.stagedWriter.getPending(),
+      // A confirmed record remains reviewable when durable persistence could
+      // not be verified and the record was restored for retry.
+      ...this.stagedWriter.getByStage('confirmed'),
+    ]
+  }
+
+  /**
+   * Load restart-safe candidates before returning the review queue.
+   * Prefer this method at process/session startup.
+   */
+  async listPendingObservationCandidates(): Promise<StagedRecord[]> {
+    await this.initializeObservationCandidates()
+    return this.getPendingObservationCandidates()
+  }
+
+  /**
+   * Restore persisted candidate state and reconcile completed promotion
+   * receipts. Safe to call repeatedly.
+   */
+  async initializeObservationCandidates(): Promise<void> {
+    if (this.candidatesInitialized || !this.stagedWriter) return
+    if (this.candidateInitialization) return this.candidateInitialization
+
+    this.candidateInitialization = this.loadPersistedCandidates()
+    try {
+      await this.candidateInitialization
+      this.candidatesInitialized = true
+    } finally {
+      this.candidateInitialization = null
+    }
+  }
+
+  /**
+   * Explicitly confirm one staged observation and persist all records that
+   * are now confirmed. Returns true when the requested key was persisted.
+   */
+  async confirmObservation(key: string): Promise<boolean> {
+    await this.initializeObservationCandidates()
+    const writer = this.stagedWriter
+    if (!writer) return false
+
+    let record = writer.get(key)
+    const priorReceipt = await this.candidateStore?.getReceipt(
+      this.config.namespace,
+      this.config.scope,
+      key,
+    )
+    if (
+      priorReceipt
+      && (
+        !record
+        || priorReceipt.valueDigest === observationCandidateValueDigest(record)
+      )
+    ) {
+      return true
+    }
+    if (!record) return false
+
+    if (record.stage === 'captured') {
+      writer.promote(key)
+      record = writer.get(key)
+    }
+    if (record?.stage === 'candidate') {
+      writer.confirm(key)
+    }
+    const confirmed = writer.get(key)
+    if (confirmed?.stage !== 'confirmed') return false
+    if (this.candidateStore && !await this.candidateStore.put(confirmed)) {
+      return false
+    }
+
+    const persisted = await this.flushConfirmedObservations()
+    return persisted.some(item => item.key === key)
+  }
+
+  /** Reject one staged observation so it cannot be promoted later. */
+  async rejectObservation(key: string): Promise<boolean> {
+    await this.initializeObservationCandidates()
+    const writer = this.stagedWriter
+    const prior = writer?.get(key)
+    if (!writer || !prior) return false
+    const rejected = writer.reject(key)
+    if (!rejected) return false
+    if (this.candidateStore && !await this.candidateStore.put(rejected)) {
+      writer.restore(prior)
+      return false
+    }
+    return true
+  }
+
+  /**
+   * Persist and remove all confirmed observation records.
+   *
+   * This also supports custom staged writers that deliberately opt into
+   * confidence-based auto-confirmation.
+   */
+  async flushConfirmedObservations(): Promise<StagedRecord[]> {
+    await this.initializeObservationCandidates()
+    const confirmed = this.stagedWriter?.flushConfirmed() ?? []
+    const persisted: StagedRecord[] = []
+    for (const record of confirmed) {
+      const priorReceipt = await this.candidateStore?.getReceipt(
+        record.namespace,
+        record.scope,
+        record.key,
+      )
+      if (
+        priorReceipt
+        && priorReceipt.valueDigest === observationCandidateValueDigest(record)
+      ) {
+        persisted.push(record)
+        await this.candidateStore?.remove(record)
+        continue
+      }
+
+      const stored = await this.persistObservation(
+        record.key,
+        record.value,
+        record.confidence,
+        true,
+      )
+      if (stored) {
+        if (this.candidateStore) {
+          const receipt = createObservationConfirmationReceipt(record)
+          if (!await this.candidateStore.putReceipt(receipt)) {
+            await this.restoreConfirmedObservation(record)
+            continue
+          }
+          await this.candidateStore.remove(record)
+        }
+        persisted.push(record)
+      } else {
+        await this.restoreConfirmedObservation(record)
+      }
+    }
+    this.stats.totalObservations += persisted.length
+    return persisted
+  }
+
   /** Get all stored observations */
   async getObservations(): Promise<Record<string, unknown>[]> {
     try {
@@ -246,10 +470,17 @@ export class ObservationalMemory {
   // ---------- Private --------------------------------------------------------
 
   private async runObserver(messages: BaseMessage[]): Promise<ObserverResult> {
+    await this.initializeObservationCandidates()
     const extractor = new ObservationExtractor({
       model: this.config.model,
       minMessages: 1,
       debounceMs: 0,
+      ...(this.config.observationPrompt
+        ? { prompt: this.config.observationPrompt }
+        : {}),
+      ...(this.config.observationPromptVersion
+        ? { promptVersion: this.config.observationPromptVersion }
+        : {}),
     })
 
     const observations = await extractor.extract(messages)
@@ -263,8 +494,17 @@ export class ObservationalMemory {
     const existingTexts = existing
       .map(r => (typeof r['text'] === 'string' ? r['text'] : ''))
       .filter(Boolean)
+    for (const record of this.stagedWriter?.getPending() ?? []) {
+      if (typeof record.value['text'] === 'string') {
+        existingTexts.push(record.value['text'])
+      }
+    }
 
     const added: Observation[] = []
+    const persisted: Observation[] = []
+    const staged: StagedRecord[] = []
+    const rejected: Observation[] = []
+    const observationByKey = new Map<string, Observation>()
     let skipped = 0
 
     for (const obs of observations) {
@@ -288,26 +528,56 @@ export class ObservationalMemory {
         continue
       }
 
-      const key = `obs-${Date.now()}-${added.length}`
-      await this.config.memoryService.put(
-        this.config.namespace,
-        this.config.scope,
-        key,
-        {
-          text: obs.text,
-          category: obs.category,
+      const key = `obs-${Date.now()}-${this.observationSequence++}`
+      const value = {
+        text: obs.text,
+        category: obs.category,
+        confidence: obs.confidence,
+        source: 'observer' as const,
+        createdAt: obs.createdAt,
+        modelGenerated: true,
+        promptVersion: obs.promptVersion,
+        sourceMessageCount: obs.sourceMessageCount,
+      }
+
+      if (this.observationWriteMode === 'candidate-first') {
+        const candidate = this.stagedWriter!.capture({
+          key,
+          namespace: this.config.namespace,
+          scope: this.config.scope,
+          value,
           confidence: obs.confidence,
-          source: 'observer' as const,
-          createdAt: Date.now(),
-        },
-      )
+          captureReason: 'model-extracted observation awaiting long-term-memory confirmation',
+        })
+        if (candidate.stage === 'rejected') {
+          rejected.push(obs)
+          continue
+        }
+        await this.candidateStore?.put(candidate)
+        observationByKey.set(key, obs)
+        if (candidate.stage !== 'confirmed') {
+          staged.push(candidate)
+        }
+      } else {
+        await this.persistObservation(key, value, obs.confidence)
+        persisted.push(obs)
+      }
       added.push(obs)
+    }
+
+    if (this.observationWriteMode === 'candidate-first') {
+      const autoConfirmed = await this.flushConfirmedObservations()
+      for (const record of autoConfirmed) {
+        const observation = observationByKey.get(record.key)
+        if (observation) persisted.push(observation)
+      }
+    } else {
+      this.stats.totalObservations += persisted.length
     }
 
     this.messagesSinceLastRun = 0
     this.stats.lastObserverRun = Date.now()
     this.stats.observerRuns++
-    this.stats.totalObservations += added.length
 
     // Check if reflector should run
     let triggeredReflector = false
@@ -320,7 +590,82 @@ export class ObservationalMemory {
       }
     }
 
-    return { extracted: added, skippedDuplicates: skipped, triggeredReflector }
+    return {
+      extracted: added,
+      persisted,
+      staged,
+      rejected,
+      skippedDuplicates: skipped,
+      triggeredReflector,
+    }
+  }
+
+  private async persistObservation(
+    key: string,
+    value: Record<string, unknown>,
+    confidence: number,
+    verify = false,
+  ): Promise<boolean> {
+    await this.provenanceWriter.put(
+      this.config.namespace,
+      this.config.scope,
+      key,
+      value,
+      {
+        agentUri: this.observerAgentUri,
+        source: 'derived',
+        confidence,
+      },
+    )
+
+    if (!verify) return true
+
+    try {
+      const stored = await this.config.memoryService.get(
+        this.config.namespace,
+        this.config.scope,
+        key,
+      )
+      return stored.length > 0
+    } catch {
+      return false
+    }
+  }
+
+  private async restoreConfirmedObservation(record: StagedRecord): Promise<void> {
+    const writer = this.stagedWriter
+    if (!writer) return
+
+    writer.restore(record)
+    await this.candidateStore?.put(record)
+  }
+
+  private async loadPersistedCandidates(): Promise<void> {
+    const writer = this.stagedWriter
+    const store = this.candidateStore
+    if (!writer || !store) return
+
+    await store.prune(
+      this.config.namespace,
+      this.config.scope,
+      this.config.candidateRetention,
+    )
+    const records = await store.load(this.config.namespace, this.config.scope)
+    for (const record of records) {
+      const receipt = await store.getReceipt(
+        record.namespace,
+        record.scope,
+        record.key,
+      )
+      if (
+        receipt
+        && receipt.valueDigest === observationCandidateValueDigest(record)
+      ) {
+        await store.remove(record)
+        continue
+      }
+      writer.restore(record)
+    }
   }
 
   private async runReflector(): Promise<ReflectorResult> {

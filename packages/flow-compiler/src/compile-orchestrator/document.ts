@@ -10,6 +10,7 @@
  */
 
 import type {
+  FlowDocumentV1,
   FlowDocumentPolicy,
   FlowDurabilityPolicy,
 } from "@dzupagent/flow-ast";
@@ -28,6 +29,7 @@ import {
   prepareFlowInputFromDocument,
   prepareFlowInputFromDsl,
 } from "../authoring-input.js";
+import { deriveDocumentReferenceBindings } from "../stages/reference-symbols.js";
 import { currentFlowRefFromDocument } from "../stages/subflow-inline.js";
 
 import type { CompileSuccess, CompileFailure } from "../types.js";
@@ -75,12 +77,17 @@ export async function runCompileDocument(
     };
   }
 
-  const result = await runCompile(deps, prepared.flowInput, {
-    sourceKind: "flow-document",
-    source: document,
-    currentFlowRef: currentFlowRefFromDocument(document),
-    fragmentExpansions: extractFragmentExpansions(document),
-  });
+  const result = await runCompile(
+    deps,
+    prepared.flowInput,
+    {
+      sourceKind: "flow-document",
+      source: document,
+      currentFlowRef: currentFlowRefFromDocument(document),
+      fragmentExpansions: extractFragmentExpansions(document),
+    },
+    deriveDocumentReferenceBindings(document as FlowDocumentV1),
+  );
 
   if ("errors" in result) return result;
 
@@ -152,10 +159,17 @@ export async function runCompileDsl(
       diagnosticCountsByCategory: countDiagnosticsByCategory(prepared.errors),
     };
   }
-  return runCompile(deps, prepared.flowInput, {
-    sourceKind: "dzupflow-dsl",
-    source,
-  });
+  return runCompile(
+    deps,
+    prepared.flowInput,
+    {
+      sourceKind: "dzupflow-dsl",
+      source,
+    },
+    prepared.document !== undefined
+      ? deriveDocumentReferenceBindings(prepared.document)
+      : undefined,
+  );
 }
 
 // ---------------------------------------------------------------------------

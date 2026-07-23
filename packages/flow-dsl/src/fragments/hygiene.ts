@@ -1,7 +1,7 @@
 import {
   isFlowReferenceValue,
   parseFlowReferenceExpression,
-} from "@dzupagent/flow-ast";
+} from "@dzupagent/flow-ast/expressions";
 
 const STATE_KEY_FIELDS = new Set([
   "output",

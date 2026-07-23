@@ -1,4 +1,7 @@
-import { validateFlowDocumentShape } from '@dzupagent/flow-ast'
+import {
+  validateFlowDocumentShape,
+  type FlowDocumentV1,
+} from '@dzupagent/flow-ast'
 import { canonicalizeDsl } from '@dzupagent/flow-dsl'
 
 import type { CompilationDiagnostic } from './types.js'
@@ -32,7 +35,9 @@ export function prepareFlowInputFromDocument(
 
 export function prepareFlowInputFromDsl(
   source: unknown,
-): { ok: true; flowInput: object } | { ok: false; errors: CompilationDiagnostic[] } {
+):
+  | { ok: true; flowInput: object; document?: FlowDocumentV1 }
+  | { ok: false; errors: CompilationDiagnostic[] } {
   if (typeof source !== 'string' || source.trim().length === 0) {
     return {
       ok: false,
@@ -58,6 +63,7 @@ export function prepareFlowInputFromDsl(
   return {
     ok: true,
     flowInput: canonicalized.flowInput,
+    document: canonicalized.document,
   }
 }
 

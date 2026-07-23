@@ -6,6 +6,7 @@ import type {
 
 import { validateConditionExpr } from "../semantic-condition.js";
 import type { WalkContext } from "../semantic-context.js";
+import { validateNodeTemplateReferences } from "../semantic-reference-values.js";
 import { resolvePersonaNode } from "../semantic-persona-resolver.js";
 import { resolveAgentProfile } from "../semantic-profile-resolver.js";
 import { resolveAction } from "../semantic-tool-resolver.js";
@@ -21,6 +22,8 @@ export async function visit(
   path: string,
   ctx: WalkContext
 ): Promise<void> {
+  validateNodeTemplateReferences(node, path, ctx);
+
   switch (node.type) {
     case "sequence": {
       for (let idx = 0; idx < node.nodes.length; idx++) {

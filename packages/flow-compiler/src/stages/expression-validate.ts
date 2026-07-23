@@ -1,9 +1,11 @@
 import type {
   FlowExpression,
   FlowExpressionAnalysis,
-  FlowReferenceAnalysisOptions,
 } from "@dzupagent/flow-ast";
-import { parseFlowReferenceExpression } from "@dzupagent/flow-ast";
+import {
+  parseFlowReferenceExpression,
+  type FlowReferenceAnalysisOptions,
+} from "@dzupagent/flow-ast/expressions";
 
 function isFlowExpression(value: unknown): value is FlowExpression {
   if (!value || typeof value !== "object") return false;
