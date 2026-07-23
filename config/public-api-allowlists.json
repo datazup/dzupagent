@@ -515,7 +515,9 @@
         { "match": "exact", "pattern": "./idempotency.js" }
       ],
       "transitionalRoot": [],
-      "subpaths": {},
+      "subpaths": {
+        "./orchestration": "primitive invocation, durable runtime task, continuation, and execution-leaf catalog contracts"
+      },
       "migrationWindow": "Runtime contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules."
     },
     {
