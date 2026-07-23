@@ -11,7 +11,10 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 function createMockModel(observations: Array<{ text: string; category: string; confidence: number }>): BaseChatModel {
   return {
     invoke: vi.fn().mockResolvedValue({
-      content: JSON.stringify(observations),
+      content: JSON.stringify(observations.map(observation => ({
+        ...observation,
+        evidenceRefs: ['m1'],
+      }))),
     }),
   } as unknown as BaseChatModel
 }
@@ -101,6 +104,14 @@ describe('MemoryAwareExtractor', () => {
         category: 'fact',
         confidence: 0.95,
         source: 'extracted',
+        promptVersion: 'observation-extraction/v3',
+        sourceMessageCount: 4,
+        evidenceReferences: [
+          expect.objectContaining({
+            ref: expect.stringMatching(/^observation-message:/),
+            excerpt: 'We should use PostgreSQL for the database',
+          }),
+        ],
       })
       expect(putCalls[0].key).toMatch(/^obs-\d+-0$/)
       expect(putCalls[1].key).toMatch(/^obs-\d+-1$/)

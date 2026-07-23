@@ -637,6 +637,9 @@ describe("createFlowCompiler — stage 3 errors", () => {
     const compiler = createFlowCompiler({
       toolResolver: resolver,
       referencePolicy: "strict",
+      referencePortBindings: {
+        prepare: { result: "object" },
+      },
     });
 
     const result = await compiler.compileDocument({
@@ -751,6 +754,313 @@ describe("createFlowCompiler — stage 3 errors", () => {
     });
 
     expect("errors" in result).toBe(false);
+  });
+
+  it("fails closed when a strict step reference has no canonical port contract", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver([]),
+      referencePolicy: "strict",
+    });
+
+    const result = await compiler.compile({
+      type: "sequence",
+      id: "root",
+      nodes: [
+        { type: "set", id: "prepare", assign: { ready: true } },
+        {
+          type: "complete",
+          id: "done",
+          result: "{{ steps.prepare.result }}",
+        },
+      ],
+    });
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) throw new Error("expected port failure");
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        stage: 3,
+        code: "INVALID_REFERENCE",
+        nodePath: "root.nodes[1].result",
+        message: expect.stringContaining("[MISSING_REFERENCE_PORT]"),
+      }),
+    );
+  });
+
+  it("accepts an available step only when its reviewed port is declared", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver([]),
+      referencePolicy: "strict",
+      referencePortBindings: {
+        prepare: { result: "object" },
+      },
+    });
+
+    const result = await compiler.compile({
+      type: "sequence",
+      id: "root",
+      nodes: [
+        { type: "set", id: "prepare", assign: { ready: true } },
+        {
+          type: "complete",
+          id: "done",
+          result: "{{ steps.prepare.result }}",
+        },
+      ],
+    });
+
+    expect("errors" in result).toBe(false);
+  });
+
+  it("rejects a declared state value referenced before its producing node", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver([]),
+      referencePolicy: "strict",
+    });
+
+    const result = await compiler.compile({
+      type: "sequence",
+      id: "root",
+      nodes: [
+        {
+          type: "set",
+          id: "consume",
+          assign: { copied: "{{ state.later }}" },
+        },
+        { type: "set", id: "produce", assign: { later: true } },
+      ],
+    });
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) throw new Error("expected availability failure");
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        code: "INVALID_REFERENCE",
+        nodePath: "root.nodes[0].assign.copied",
+        message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
+      }),
+    );
+  });
+
+  it("requires branch-produced state on every continuing path", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver([]),
+      referencePolicy: "strict",
+      referenceBindings: { state: ["chooseThen"] },
+    });
+
+    const result = await compiler.compile({
+      type: "sequence",
+      id: "root",
+      nodes: [
+        {
+          type: "branch",
+          id: "choose",
+          condition: "state.chooseThen === true",
+          then: [
+            {
+              type: "set",
+              id: "then_value",
+              assign: { branchValue: "then" },
+            },
+          ],
+        },
+        {
+          type: "complete",
+          id: "done",
+          result: "{{ state.branchValue }}",
+        },
+      ],
+    });
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) throw new Error("expected dominance failure");
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        nodePath: "root.nodes[1].result",
+        message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
+      }),
+    );
+  });
+
+  it("makes all parallel branch outputs available after the join but not across siblings", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver([]),
+      referencePolicy: "strict",
+    });
+
+    const invalid = await compiler.compile({
+      type: "parallel",
+      id: "parallel_root",
+      branches: [
+        [{ type: "set", id: "left", assign: { leftValue: true } }],
+        [
+          {
+            type: "set",
+            id: "right",
+            assign: { copied: "{{ state.leftValue }}" },
+          },
+        ],
+      ],
+    });
+    expect("errors" in invalid).toBe(true);
+    if (!("errors" in invalid)) throw new Error("expected cross-branch failure");
+    expect(invalid.errors[0]?.message).toContain("[REFERENCE_NOT_AVAILABLE]");
+
+    const valid = await compiler.compile({
+      type: "sequence",
+      id: "root",
+      nodes: [
+        {
+          type: "parallel",
+          id: "fan_out",
+          branches: [
+            [{ type: "set", id: "left", assign: { leftValue: true } }],
+            [{ type: "set", id: "right", assign: { rightValue: true } }],
+          ],
+        },
+        {
+          type: "complete",
+          id: "done",
+          result: "{{ state.leftValue }} + {{ state.rightValue }}",
+        },
+      ],
+    });
+    expect("errors" in valid).toBe(false);
+  });
+
+  it("rejects collection interpolation while preserving whole-value references", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver([]),
+      referencePolicy: "strict",
+    });
+    const base = {
+      dsl: "dzupflow/v1" as const,
+      id: "typed_inputs",
+      version: 1,
+      inputs: {
+        payload: { type: "object" as const, required: true },
+      },
+    };
+
+    const invalid = await compiler.compileDocument({
+      ...base,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "complete",
+            id: "done",
+            result: "Payload: {{ inputs.payload }}",
+          },
+        ],
+      },
+    });
+    expect("errors" in invalid).toBe(true);
+    if (!("errors" in invalid)) throw new Error("expected type failure");
+    expect(invalid.errors[0]?.message).toContain("[REFERENCE_TYPE_MISMATCH]");
+
+    const valid = await compiler.compileDocument({
+      ...base,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "set",
+            id: "copy",
+            assign: { payloadCopy: "{{ inputs.payload }}" },
+          },
+        ],
+      },
+    });
+    expect("errors" in valid).toBe(false);
+  });
+
+  it("checks for_each collection types and keeps aliases lexical", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver([]),
+      referencePolicy: "strict",
+    });
+
+    const wrongSource = await compiler.compileDocument({
+      dsl: "dzupflow/v1",
+      id: "wrong_loop_source",
+      version: 1,
+      inputs: {
+        items: { type: "string", required: true },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "for_each",
+            id: "each",
+            source: "{{ inputs.items }}",
+            as: "item",
+            collect: { from: "item", into: "itemsOut" },
+            body: [{ type: "wait", id: "pause", durationMs: 1 }],
+          },
+        ],
+      },
+    });
+    expect("errors" in wrongSource).toBe(true);
+    if (!("errors" in wrongSource)) throw new Error("expected loop type failure");
+    expect(wrongSource.errors).toContainEqual(
+      expect.objectContaining({
+        nodePath: "root.nodes[0].source",
+        message: expect.stringContaining("iteration requires an array"),
+      }),
+    );
+
+    const leakedAlias = await compiler.compileDocument({
+      dsl: "dzupflow/v1",
+      id: "loop_alias_scope",
+      version: 1,
+      inputs: {
+        items: { type: "array", required: true },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "for_each",
+            id: "each",
+            source: "{{ inputs.items }}",
+            as: "item",
+            collect: { from: "item", into: "itemsOut" },
+            body: [
+              {
+                type: "set",
+                id: "inside",
+                assign: { itemCopy: "{{ state.item }}" },
+              },
+            ],
+          },
+          {
+            type: "complete",
+            id: "done",
+            result: "{{ state.item }}",
+          },
+        ],
+      },
+    });
+    expect("errors" in leakedAlias).toBe(true);
+    if (!("errors" in leakedAlias)) throw new Error("expected lexical scope failure");
+    expect(leakedAlias.errors).toContainEqual(
+      expect.objectContaining({
+        nodePath: "root.nodes[1].result",
+        message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
+      }),
+    );
+    expect(
+      leakedAlias.errors.filter(
+        (error) => error.nodePath === "root.nodes[0].body[0].assign.itemCopy",
+      ),
+    ).toEqual([]);
   });
 });
 

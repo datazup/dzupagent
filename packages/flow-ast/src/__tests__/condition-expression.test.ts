@@ -74,4 +74,13 @@ describe("flow condition expressions", () => {
       reason: expect.stringContaining("MISSING_REFERENCE"),
     });
   });
+
+  it("validates a strict whole-template reference only once", () => {
+    expect(
+      validateFlowConditionExpression("{{ inputs.ready }}", {
+        referencePolicy: "strict",
+        knownBindings: { inputs: ["ready"] },
+      }),
+    ).toEqual({ valid: true });
+  });
 });

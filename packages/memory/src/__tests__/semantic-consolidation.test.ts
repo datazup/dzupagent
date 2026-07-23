@@ -131,6 +131,31 @@ describe('SemanticConsolidator', () => {
       // rec-1 should be deleted
       expect(store.delete).toHaveBeenCalledWith(namespace, 'rec-1')
     })
+
+    it('preserves source evidence from both records', async () => {
+      const firstEvidence = { ref: 'observation-message:run:m1', excerpt: 'A' }
+      const secondEvidence = { ref: 'observation-message:run:m2', excerpt: 'B' }
+      const store = createMockStore([
+        {
+          key: 'rec-1',
+          value: { text: 'Use Prisma', evidenceReferences: [firstEvidence] },
+        },
+        {
+          key: 'rec-2',
+          value: { text: 'Use strict Prisma', evidenceReferences: [secondEvidence] },
+        },
+      ])
+      const model = createMockModel([
+        jsonResp('merge', 'Combine the compatible records', 'Use strict Prisma'),
+      ])
+
+      await new SemanticConsolidator({ model }).consolidate(store, namespace)
+
+      expect(store._data.get('rec-2')?.['evidenceReferences']).toEqual([
+        secondEvidence,
+        firstEvidence,
+      ])
+    })
   })
 
   describe('UPDATE action', () => {

@@ -33,7 +33,10 @@ function createThrowingModel(error: Error): { model: BaseChatModel; invokeMock: 
 }
 
 function jsonResponse(observations: Array<Partial<Observation> & { text?: string; category?: string }>): string {
-  return JSON.stringify(observations)
+  return JSON.stringify(observations.map(observation => ({
+    evidenceRefs: ['m1'],
+    ...observation,
+  })))
 }
 
 const sampleMessages = (): BaseMessage[] => [
@@ -261,8 +264,9 @@ describe('ObservationExtractor', () => {
       expect(observations[0]!.text).toBe('Project uses PostgreSQL')
       expect(observations[0]!.category).toBe('fact')
       expect(observations[0]!.confidence).toBe(0.95)
-      expect(observations[0]!.promptVersion).toBe('observation-extraction/v2')
+      expect(observations[0]!.promptVersion).toBe('observation-extraction/v3')
       expect(observations[0]!.sourceMessageCount).toBe(sampleMessages().length)
+      expect(observations[0]!.evidenceReferences).toHaveLength(1)
       expect(observations[1]!.text).toBe('Dark mode preferred')
       expect(observations[1]!.category).toBe('preference')
     })
@@ -290,7 +294,7 @@ describe('ObservationExtractor', () => {
 
     it('extracts JSON array even when surrounded by other text', async () => {
       const { model } = createMockModel(
-        'Here are the observations:\n[{"text": "Use ESM", "category": "convention", "confidence": 0.9}]\nThanks.',
+        'Here are the observations:\n[{"text": "Use ESM", "category": "convention", "confidence": 0.9, "evidenceRefs": ["m1"]}]\nThanks.',
       )
       const extractor = new ObservationExtractor({ model, minMessages: 1, debounceMs: 0 })
       const observations = await extractor.extract(sampleMessages())
@@ -409,7 +413,11 @@ describe('ObservationExtractor', () => {
     })
 
     it('defaults confidence to 0.5 when undefined', async () => {
-      const { model } = createMockModel(JSON.stringify([{ text: 'X', category: 'fact' }]))
+      const { model } = createMockModel(JSON.stringify([{
+        text: 'X',
+        category: 'fact',
+        evidenceRefs: ['m1'],
+      }]))
       const extractor = new ObservationExtractor({ model, minMessages: 1, debounceMs: 0 })
       const observations = await extractor.extract(sampleMessages())
       expect(observations[0]!.confidence).toBe(0.5)
@@ -432,6 +440,79 @@ describe('ObservationExtractor', () => {
   })
 
   describe('extract — metadata fields', () => {
+    it('resolves only valid source labels into stable evidence references', async () => {
+      const messages = [
+        new HumanMessage({ id: 'msg-user-1', content: 'Use strict TypeScript.' }),
+        new AIMessage({ id: 'msg-agent-1', content: 'Confirmed.' }),
+      ]
+      const { model } = createMockModel(JSON.stringify([{
+        text: 'The project uses strict TypeScript.',
+        category: 'convention',
+        confidence: 0.9,
+        evidenceRefs: ['m1', 'm1', 'missing'],
+      }]))
+      const extractor = new ObservationExtractor({
+        model,
+        minMessages: 1,
+        debounceMs: 0,
+        runId: 'run-123',
+      })
+
+      const observations = await extractor.extract(messages)
+
+      expect(observations).toHaveLength(1)
+      expect(observations[0]!.evidenceReferences).toEqual([
+        expect.objectContaining({
+          ref: 'observation-message:run-123:msg-user-1',
+          messageId: 'msg-user-1',
+          runId: 'run-123',
+          role: 'human',
+          excerpt: 'Use strict TypeScript.',
+        }),
+      ])
+      expect(observations[0]!.evidenceReferences[0]!.contentDigest).toMatch(/^[a-f0-9]{64}$/)
+    })
+
+    it('rejects observations without at least one valid evidence label', async () => {
+      const { model } = createMockModel(JSON.stringify([
+        {
+          text: 'Uncited',
+          category: 'fact',
+          confidence: 0.9,
+          evidenceRefs: [],
+        },
+        {
+          text: 'Invented citation',
+          category: 'fact',
+          confidence: 0.9,
+          evidenceRefs: ['m99'],
+        },
+      ]))
+      const extractor = new ObservationExtractor({ model, minMessages: 1, debounceMs: 0 })
+
+      await expect(extractor.extract(sampleMessages())).resolves.toEqual([])
+    })
+
+    it('falls back to a content reference when the host resolver fails', async () => {
+      const { model } = createMockModel(jsonResponse([
+        { text: 'Strict mode is required.', category: 'constraint', confidence: 0.9 },
+      ]))
+      const extractor = new ObservationExtractor({
+        model,
+        minMessages: 1,
+        debounceMs: 0,
+        messageReferenceResolver: () => {
+          throw new Error('host reference store unavailable')
+        },
+      })
+
+      const observations = await extractor.extract(sampleMessages())
+
+      expect(observations[0]!.evidenceReferences[0]!.ref).toMatch(
+        /^observation-message:unscoped:[a-f0-9]{64}$/,
+      )
+    })
+
     it('sets source to "extracted" on all observations', async () => {
       const { model } = createMockModel(
         jsonResponse([

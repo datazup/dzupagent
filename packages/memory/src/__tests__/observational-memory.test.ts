@@ -5,6 +5,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseStore } from '@langchain/langgraph'
 import { MemoryService } from '../memory-service.js'
 import { MemoryServiceObservationCandidateStore } from '../observation-candidate-store.js'
+import type { ObservationCandidateStore } from '../observation-candidate-store.js'
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import type { BaseMessage } from '@langchain/core/messages'
 
@@ -107,7 +108,10 @@ function makeMessages(count: number): BaseMessage[] {
 
 /** LLM response that returns observations as JSON */
 function observationResponse(observations: Array<{ text: string; category: string; confidence: number }>): string {
-  return JSON.stringify(observations)
+  return JSON.stringify(observations.map(observation => ({
+    ...observation,
+    evidenceRefs: ['m1'],
+  })))
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +187,14 @@ describe('ObservationalMemory', () => {
 
       const storedValue = memoryService.put.mock.calls[0]![3] as Record<string, unknown>
       expect(storedValue['modelGenerated']).toBe(true)
-      expect(storedValue['promptVersion']).toBe('observation-extraction/v2')
+      expect(storedValue['promptVersion']).toBe('observation-extraction/v3')
+      expect(storedValue['evidenceReferences']).toEqual([
+        expect.objectContaining({
+          ref: expect.stringMatching(/^observation-message:/),
+          role: 'human',
+          excerpt: 'Message 0',
+        }),
+      ])
       expect(storedValue['_provenance']).toMatchObject({
         createdBy: 'forge://dzupagent/observer',
         source: 'derived',
@@ -217,6 +228,58 @@ describe('ObservationalMemory', () => {
   // -----------------------------------------------------------------------
 
   describe('candidate-first persistence', () => {
+    it('emits non-sensitive candidate lifecycle events for host adapters', async () => {
+      const events: Array<Record<string, unknown>> = []
+      sut = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+        observationRunId: 'run-events',
+        onObservationLifecycleEvent: event => events.push(event),
+      })
+
+      const result = await sut.observe(makeMessages(2))
+      const candidate = result!.staged[0]!
+      await sut.confirmObservation(candidate.key)
+      await sut.rejectObservation(result!.staged[1]!.key)
+
+      expect(events.map(event => event['type'])).toEqual(
+        expect.arrayContaining([
+          'observation:candidate:captured',
+          'observation:candidate:promoted',
+          'observation:candidate:confirmed',
+          'observation:candidate:rejected',
+        ]),
+      )
+      const captured = events.find(event =>
+        event['type'] === 'observation:candidate:captured'
+        && event['candidateKey'] === candidate.key)
+      expect(captured).toMatchObject({
+        schema: 'dzupagent/observation-lifecycle-event/v1',
+        namespace: 'observations',
+        scope: defaultScope,
+        stage: 'captured',
+        evidenceRefs: [
+          expect.stringMatching(/^observation-message:run-events:/),
+        ],
+      })
+      expect(captured).not.toHaveProperty('value')
+      expect(captured).not.toHaveProperty('excerpt')
+    })
+
+    it('keeps lifecycle handler failures non-fatal', async () => {
+      sut = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+        onObservationLifecycleEvent: () => {
+          throw new Error('telemetry unavailable')
+        },
+      })
+
+      const result = await sut.observe(makeMessages(2))
+
+      expect(result?.staged).toHaveLength(2)
+    })
+
     it('stages model-written observations without writing long-term memory', async () => {
       sut = createOM({
         observerThreshold: 1,
@@ -258,6 +321,19 @@ describe('ObservationalMemory', () => {
       })
     })
 
+    it('refuses promotion when candidate evidence is missing or invalid', async () => {
+      sut = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+      })
+      const result = await sut.observe(makeMessages(2))
+      const candidate = result!.staged[0]!
+      candidate.value['evidenceReferences'] = []
+
+      await expect(sut.confirmObservation(candidate.key)).resolves.toBe(false)
+      expect(memoryService.put).not.toHaveBeenCalled()
+    })
+
     it('allows a staged candidate to be rejected without persistence', async () => {
       sut = createOM({
         observerThreshold: 1,
@@ -272,9 +348,11 @@ describe('ObservationalMemory', () => {
     })
 
     it('restores a confirmed candidate when durable persistence cannot be verified', async () => {
+      const events: string[] = []
       sut = createOM({
         observerThreshold: 1,
         observationWriteMode: 'candidate-first',
+        onObservationLifecycleEvent: event => events.push(event.type),
       })
       const result = await sut.observe(makeMessages(2))
       const candidate = result!.staged[0]!
@@ -289,6 +367,10 @@ describe('ObservationalMemory', () => {
         ]),
       )
       expect(sut.getStats().totalObservations).toBe(0)
+      expect(events).toEqual(expect.arrayContaining([
+        'observation:candidate:persistence-failed',
+        'observation:candidate:restored',
+      ]))
     })
 
     it('rejects model output containing a secret before it reaches staging', async () => {
@@ -335,16 +417,19 @@ describe('ObservationalMemory', () => {
       const result = await sut.observe(makeMessages(2))
       const candidate = result!.staged[0]!
 
+      const restartEvents: string[] = []
       const restarted = createOM({
         observerThreshold: 1,
         observationWriteMode: 'candidate-first',
         candidateStore,
+        onObservationLifecycleEvent: event => restartEvents.push(event.type),
       })
       expect(await restarted.listPendingObservationCandidates()).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ key: candidate.key, stage: 'candidate' }),
         ]),
       )
+      expect(restartEvents).toContain('observation:candidate:restored')
 
       expect(await restarted.confirmObservation(candidate.key)).toBe(true)
       expect(memoryService.put).toHaveBeenCalledTimes(1)
@@ -357,6 +442,54 @@ describe('ObservationalMemory', () => {
       expect(await restartedAgain.listPendingObservationCandidates()).toHaveLength(1)
       expect(await restartedAgain.confirmObservation(candidate.key)).toBe(true)
       expect(memoryService.put).toHaveBeenCalledTimes(1)
+    })
+
+    it('emits the count removed by persistent retention pruning', async () => {
+      const events: Array<Record<string, unknown>> = []
+      const candidateStore: ObservationCandidateStore = {
+        load: vi.fn().mockResolvedValue([]),
+        put: vi.fn().mockResolvedValue(true),
+        remove: vi.fn().mockResolvedValue(true),
+        getReceipt: vi.fn().mockResolvedValue(null),
+        putReceipt: vi.fn().mockResolvedValue(true),
+        prune: vi.fn().mockResolvedValue(3),
+      }
+      sut = createOM({
+        observationWriteMode: 'candidate-first',
+        candidateStore,
+        onObservationLifecycleEvent: event => events.push(event),
+      })
+
+      await sut.initializeObservationCandidates()
+
+      expect(events).toContainEqual(expect.objectContaining({
+        type: 'observation:candidate:pruned',
+        count: 3,
+        reason: 'candidate retention policy',
+      }))
+    })
+
+    it('keeps capture usable and emits persistence failure when the store throws', async () => {
+      const events: string[] = []
+      const candidateStore: ObservationCandidateStore = {
+        load: vi.fn().mockResolvedValue([]),
+        put: vi.fn().mockRejectedValue(new Error('candidate database down')),
+        remove: vi.fn().mockResolvedValue(true),
+        getReceipt: vi.fn().mockResolvedValue(null),
+        putReceipt: vi.fn().mockResolvedValue(true),
+        prune: vi.fn().mockResolvedValue(0),
+      }
+      sut = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+        candidateStore,
+        onObservationLifecycleEvent: event => events.push(event.type),
+      })
+
+      const result = await sut.observe(makeMessages(2))
+
+      expect(result?.staged).toHaveLength(2)
+      expect(events).toContain('observation:candidate:persistence-failed')
     })
   })
 

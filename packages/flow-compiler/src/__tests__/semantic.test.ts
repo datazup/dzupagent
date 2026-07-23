@@ -407,7 +407,14 @@ describe("semanticResolve — condition expression validation", () => {
       category: "resolution",
     });
     expect(error?.message).toContain("[MISSING_REFERENCE]");
-    expect(error?.message).toContain("offsets");
+    expect(error?.message).not.toContain("offsets");
+    expect(error?.span).toEqual(
+      expect.objectContaining({
+        kind: "node-field-offsets",
+        start: expect.any(Number),
+        end: expect.any(Number),
+      }),
+    );
   });
 
   it("keeps value-reference diagnostics non-fatal under compat-v1", async () => {

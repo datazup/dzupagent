@@ -12,6 +12,8 @@ import {
   pruneToolResults,
   repairOrphanedToolPairs,
   summarizeAndTrim,
+  validateSummaryAgainstProfile,
+  STRUCTURED_SUMMARY_PROFILE_V1,
   formatSummaryContext,
   type MessageManagerConfig,
 } from '../message-manager.js'
@@ -51,6 +53,29 @@ function makeAIWithToolCalls(content: string, ...callIds: string[]): AIMessage {
 function makeToolMessage(callId: string, content: string): ToolMessage {
   return new ToolMessage({ content, tool_call_id: callId, name: 'test_tool' })
 }
+
+const VALID_STRUCTURED_SUMMARY = `## Goal
+Ship the context change
+
+## Constraints
+- Keep compatibility
+
+## Progress
+### Done
+- Inspected current behavior
+### In Progress
+- Adding validation
+### Blocked
+None
+
+## Key Decisions
+- Validate semantic sections
+
+## Relevant Files
+- packages/context/src/message-manager.ts
+
+## Next Steps
+- Run tests`
 
 // ---------------------------------------------------------------------------
 // shouldSummarize
@@ -347,6 +372,87 @@ describe('repairOrphanedToolPairs', () => {
 // ---------------------------------------------------------------------------
 
 describe('summarizeAndTrim', () => {
+  it('validates required sections without requiring exact heading levels or case', () => {
+    const result = validateSummaryAgainstProfile(
+      VALID_STRUCTURED_SUMMARY.replace('## Goal', '### GOAL'),
+      STRUCTURED_SUMMARY_PROFILE_V1,
+    )
+
+    expect(result).toEqual({ valid: true, missingSections: [] })
+  })
+
+  it('records prompt/model metadata for an accepted required summary', async () => {
+    const model = createMockModel(VALID_STRUCTURED_SUMMARY)
+    const msgs = makeConversation(10)
+
+    const result = await summarizeAndTrim(msgs, null, model, {
+      summaryValidation: 'required',
+      summaryModelId: 'host-summary-model',
+    })
+
+    expect(result.summary).toBe(VALID_STRUCTURED_SUMMARY)
+    expect(result.summaryMetadata).toMatchObject({
+      promptVersion: 'structured-summary/v1',
+      modelId: 'host-summary-model',
+      validation: 'passed',
+      missingSections: [],
+    })
+    expect(result.summaryMetadata?.sourceMessageCount).toBeGreaterThan(0)
+  })
+
+  it('preserves the prior summary and emits a non-fatal event when validation fails', async () => {
+    const model = createMockModel('Goal: incomplete prose')
+    const eventBus = { emit: vi.fn() }
+    const msgs = makeConversation(10)
+
+    const result = await summarizeAndTrim(msgs, 'prior safe summary', model, {
+      summaryValidation: 'required',
+      summaryModelId: 'summary-model',
+      eventBus,
+    })
+
+    expect(result.summary).toBe('prior safe summary')
+    expect(result.summaryMetadata?.validation).toBe('failed')
+    expect(result.summaryMetadata?.missingSections).toContain('Goal')
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'context:summary_validation_failed',
+        promptVersion: 'structured-summary/v1',
+        modelId: 'summary-model',
+      }),
+    )
+  })
+
+  it('keeps validation telemetry non-fatal when the event bus throws', async () => {
+    const model = createMockModel('incomplete')
+    const msgs = makeConversation(10)
+
+    const result = await summarizeAndTrim(msgs, 'prior', model, {
+      summaryValidation: 'required',
+      eventBus: {
+        emit: vi.fn(() => {
+          throw new Error('telemetry unavailable')
+        }),
+      },
+    })
+
+    expect(result.summary).toBe('prior')
+    expect(result.summaryMetadata?.validation).toBe('failed')
+  })
+
+  it('keeps legacy acceptance by default while recording the profile boundary', async () => {
+    const model = createMockModel('legacy unstructured summary')
+    const msgs = makeConversation(10)
+
+    const result = await summarizeAndTrim(msgs, null, model)
+
+    expect(result.summary).toBe('legacy unstructured summary')
+    expect(result.summaryMetadata).toMatchObject({
+      promptVersion: 'structured-summary/v1',
+      validation: 'not-required',
+    })
+  })
+
   it('returns messages unchanged when count <= keepRecentMessages', async () => {
     const msgs = makeConversation(3) // 6 messages, default keep=10
     const model = createMockModel('should not be called')

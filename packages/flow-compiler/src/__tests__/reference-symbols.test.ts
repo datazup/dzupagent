@@ -9,6 +9,13 @@ import {
   deriveNodeReferenceBindings,
   mergeReferenceBindings,
 } from "../stages/reference-symbols.js";
+import {
+  deriveDocumentReferenceTypeBindings,
+  deriveNodeReferencePortBindings,
+  deriveNodeReferenceTypeBindings,
+  mergeReferencePortBindings,
+  mergeReferenceTypeBindings,
+} from "../stages/reference-symbol-contracts.js";
 
 describe("reference symbol derivation", () => {
   it("derives canonical document inputs without inventing host state", () => {
@@ -102,6 +109,87 @@ describe("reference symbol derivation", () => {
       inputs: ["cwd", "goal"],
       secrets: ["apiKey"],
       state: ["external", "goal", "summary"],
+    });
+  });
+
+  it("derives document and explicit node value types without resolving opaque schemas", () => {
+    const document: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "typed_symbols",
+      version: 1,
+      inputs: {
+        payload: { type: "object" },
+        enabled: { type: "boolean" },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          { type: "set", id: "seed", assign: { attempts: 0, tags: [] } },
+          {
+            type: "agent",
+            id: "review",
+            agentId: "reviewer",
+            instructions: "Review",
+            output: {
+              key: "reviewResult",
+              schema: { type: "object" },
+            },
+          },
+          {
+            type: "worker.dispatch",
+            id: "worker",
+            dispatchId: "worker-1",
+            provider: "codex",
+            instructions: "Run",
+            outputKey: "workerText",
+          },
+        ],
+      },
+    };
+
+    expect(deriveDocumentReferenceTypeBindings(document)).toEqual({
+      inputs: { enabled: "boolean", payload: "object" },
+    });
+    expect(deriveNodeReferenceTypeBindings(document.root)).toEqual({
+      state: {
+        attempts: "number",
+        reviewResult: "object",
+        tags: "array",
+        workerText: "string",
+      },
+    });
+  });
+
+  it("declares step ids with empty ports and merges reviewed host contracts", () => {
+    const root: FlowNode = {
+      type: "sequence",
+      id: "root",
+      nodes: [{ type: "set", id: "prepare", assign: { ready: true } }],
+    };
+
+    expect(deriveNodeReferencePortBindings(root)).toEqual({
+      prepare: {},
+      root: {},
+    });
+    expect(
+      mergeReferencePortBindings(
+        deriveNodeReferencePortBindings(root),
+        { prepare: { result: "object" } },
+      ),
+    ).toEqual({
+      prepare: { result: "object" },
+      root: {},
+    });
+    expect(
+      mergeReferenceTypeBindings(
+        { inputs: { goal: "string" }, state: { count: "number" } },
+        { context: { tenant: "string" }, state: { count: "unknown" } },
+      ),
+    ).toEqual({
+      context: { tenant: "string" },
+      inputs: { goal: "string" },
+      state: { count: "number" },
     });
   });
 });
