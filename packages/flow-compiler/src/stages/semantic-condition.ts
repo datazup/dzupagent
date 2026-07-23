@@ -1,6 +1,7 @@
 import { validateFlowConditionExpression, type FlowNode } from '@dzupagent/flow-ast'
 
 import type { WalkContext } from './semantic-context.js'
+import { nodeFieldSpan } from './semantic-diagnostic.js'
 
 // ---------------------------------------------------------------------------
 // Condition expression validation (Stage 3 / R3)
@@ -35,6 +36,7 @@ export function validateConditionExpr(
       : {}),
   })
   if (validation.valid) return
+  const span = conditionDiagnosticSpan(validation.reason)
 
   if (validation.reason.includes('disallowed construct')) {
     ctx.errors.push({
@@ -43,6 +45,7 @@ export function validateConditionExpr(
       code: 'INVALID_CONDITION',
       category: 'shape',
       message: `${fieldLabel} contains a disallowed construct (eval, dynamic Function, or import): "${expr}".`,
+      ...(span !== undefined ? { span } : {}),
     })
     return
   }
@@ -53,7 +56,20 @@ export function validateConditionExpr(
     code: 'INVALID_CONDITION',
     category: 'shape',
     message: `${fieldLabel} is not a valid expression in the runtime-supported expression subset: ${validation.reason}`,
+    ...(span !== undefined ? { span } : {}),
   })
+}
+
+function conditionDiagnosticSpan(
+  reason: string,
+): ReturnType<typeof nodeFieldSpan> | undefined {
+  const match = /\bat (\d+)-(\d+):/.exec(reason)
+  if (match === null) return undefined
+  const start = Number(match[1])
+  const end = Number(match[2])
+  return Number.isFinite(start) && Number.isFinite(end)
+    ? nodeFieldSpan(start, end)
+    : undefined
 }
 
 // ---------------------------------------------------------------------------

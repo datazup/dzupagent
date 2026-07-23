@@ -28,6 +28,7 @@ import type {
   CompilationWarning,
   FlowCompileSourceKind,
 } from "../types.js";
+import type { SemanticDiagnostic } from "../stages/semantic-diagnostic.js";
 
 export function defaultSourceKind(input: ParseInput): FlowCompileSourceKind {
   return typeof input === "string" ? "flow-json-string" : "flow-object";
@@ -102,6 +103,20 @@ export function toCompilationWarnings(
     code: "LOWERING_WARNING",
     category: "lowering",
     message,
+  }));
+}
+
+export function toSemanticWarnings(
+  warnings: readonly SemanticDiagnostic[]
+): CompilationWarning[] {
+  return warnings.map((warning) => ({
+    stage: 3,
+    code: warning.code,
+    message: warning.message,
+    nodePath: warning.nodePath,
+    category: warning.category ?? "resolution",
+    ...extractSuggestionFromMessage(warning.message),
+    ...(warning.span !== undefined ? { span: warning.span } : {}),
   }));
 }
 

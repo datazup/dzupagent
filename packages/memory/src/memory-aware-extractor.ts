@@ -140,6 +140,9 @@ export class MemoryAwareExtractor {
           confidence: obs.confidence,
           source: obs.source,
           createdAt: obs.createdAt,
+          promptVersion: obs.promptVersion,
+          sourceMessageCount: obs.sourceMessageCount,
+          evidenceReferences: obs.evidenceReferences,
         })
         result.added.push(obs)
       } catch {

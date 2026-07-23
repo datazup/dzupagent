@@ -127,6 +127,7 @@ export type {
   ObservationExtractorConfig,
   Observation,
   ObservationCategory,
+  ObservationEvidenceReference,
 } from "./observation-extractor.js";
 
 // --- Memory-Aware Extractor ---
@@ -313,6 +314,8 @@ export { ObservationalMemory } from "./observational-memory.js";
 export type {
   ObservationalMemoryConfig,
   ObservationalMemoryStats,
+  ObservationLifecycleEvent,
+  ObservationLifecycleEventType,
   ObserverResult,
   ReflectorResult,
 } from "./observational-memory.js";

@@ -49,6 +49,12 @@ import {
   deriveNodeReferenceBindings,
   mergeReferenceBindings,
 } from "../stages/reference-symbols.js";
+import {
+  deriveNodeReferencePortBindings,
+  deriveNodeReferenceTypeBindings,
+  mergeReferencePortBindings,
+  mergeReferenceTypeBindings,
+} from "../stages/reference-symbol-contracts.js";
 
 import type {
   CompilerOptions,
@@ -58,6 +64,7 @@ import type {
   FlowCompileSourceKind,
   CompileSuccess,
   FlowCompileSubflowEvidence,
+  FlowReferenceTypeBindings,
 } from "../types.js";
 
 import {
@@ -74,6 +81,7 @@ import {
   jsonPointerToNodePath,
   targetReasons,
   toCompilationWarnings,
+  toSemanticWarnings,
 } from "./diagnostics.js";
 
 // Flow compiler event shapes are part of the canonical `DzupEvent` union in
@@ -107,6 +115,11 @@ export interface CompileOrchestratorDeps {
   readonly emit: (e: FlowCompileEvent) => void;
 }
 
+export interface SourceReferenceSnapshot {
+  readonly bindings?: FlowReferenceBindings;
+  readonly types?: FlowReferenceTypeBindings;
+}
+
 /**
  * Run the four-stage compile pipeline for a parsed flow input.
  *
@@ -123,7 +136,7 @@ export async function runCompile(
   deps: CompileOrchestratorDeps,
   input: ParseInput,
   invocationOptions: CompileInvocationOptions = {},
-  sourceReferenceBindings?: FlowReferenceBindings,
+  sourceReferences: SourceReferenceSnapshot = {},
 ): Promise<CompileSuccess | CompileFailure> {
   const { opts, emit } = deps;
   const compileId = crypto.randomUUID();
@@ -247,8 +260,21 @@ export async function runCompile(
   // -----------------------------------------------------------------------
   const referenceBindings = mergeReferenceBindings(
     deriveNodeReferenceBindings(ast),
-    sourceReferenceBindings,
+    sourceReferences.bindings,
     opts.referenceBindings,
+  );
+  const referenceAvailabilityBindings = mergeReferenceBindings(
+    sourceReferences.bindings,
+    opts.referenceBindings,
+  );
+  const referenceTypeBindings = mergeReferenceTypeBindings(
+    deriveNodeReferenceTypeBindings(ast),
+    sourceReferences.types,
+    opts.referenceTypeBindings,
+  );
+  const referencePortBindings = mergeReferencePortBindings(
+    deriveNodeReferencePortBindings(ast),
+    opts.referencePortBindings,
   );
   const semanticResult = await semanticResolve(ast, {
     toolResolver: opts.toolResolver,
@@ -264,6 +290,9 @@ export async function runCompile(
       ? { referencePolicy: opts.referencePolicy }
       : {}),
     referenceBindings,
+    referenceAvailabilityBindings,
+    referenceTypeBindings,
+    referencePortBindings,
   });
 
   emit({
@@ -282,6 +311,7 @@ export async function runCompile(
       nodePath: e.nodePath,
       category: e.category ?? "resolution",
       ...extractSuggestionFromMessage(e.message),
+      ...(e.span !== undefined ? { span: e.span } : {}),
     }));
     emit({
       type: "flow:compile_failed",
@@ -298,6 +328,7 @@ export async function runCompile(
   }
 
   const { resolved, resolvedPersonas } = semanticResult;
+  const semanticWarnings = toSemanticWarnings(semanticResult.warnings);
 
   // -----------------------------------------------------------------------
   // Stage 4: Route + lower
@@ -415,6 +446,7 @@ export async function runCompile(
   }
 
   const compilationWarnings = [
+    ...semanticWarnings,
     ...toCompilationWarnings(warnings),
     ...conformanceWarnings(requirements),
   ];

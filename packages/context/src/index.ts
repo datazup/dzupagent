@@ -10,11 +10,19 @@
 export {
   shouldSummarize,
   summarizeAndTrim,
+  validateSummaryAgainstProfile,
+  STRUCTURED_SUMMARY_PROFILE_V1,
   formatSummaryContext,
   pruneToolResults,
   repairOrphanedToolPairs,
 } from "./message-manager.js";
-export type { MessageManagerConfig } from "./message-manager.js";
+export type {
+  MessageManagerConfig,
+  SummaryProfile,
+  SummaryValidationResult,
+  SummaryMetadata,
+  SummarizeAndTrimResult,
+} from "./message-manager.js";
 
 // --- Auto-Compression Pipeline ---
 export { autoCompress, FrozenSnapshot } from "./auto-compress.js";

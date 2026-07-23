@@ -18,6 +18,46 @@ import type { DzupEventBus } from "@dzupagent/core/events";
 
 import type { ProfileRegistry } from "./profile-registry.js";
 
+/**
+ * Compile-time value categories used by strict reference analysis.
+ *
+ * This is intentionally smaller than JSON Schema. It is sufficient for
+ * scalar-vs-collection checks without pretending that opaque schema refs have
+ * been resolved. `unknown` means no sound type is available; `any` preserves
+ * an explicitly untyped authored input.
+ */
+export type FlowReferenceValueType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "object"
+  | "array"
+  | "null"
+  | "any"
+  | "unknown";
+
+/** Types for the first declared name below each reference root. */
+export type FlowReferenceTypeBindings = Readonly<
+  Record<
+    string,
+    Readonly<Record<string, FlowReferenceValueType | undefined>> | undefined
+  >
+>;
+
+/**
+ * Explicit output-port contracts by stable step id.
+ *
+ * The current v1 AST declares state destinations but not canonical step-port
+ * names. Hosts therefore supply port names deliberately instead of the
+ * compiler guessing that a state key is also a portable step port.
+ */
+export type FlowReferencePortBindings = Readonly<
+  Record<
+    string,
+    Readonly<Record<string, FlowReferenceValueType | undefined>> | undefined
+  >
+>;
+
 export interface CompilerOptions {
   toolResolver: ToolResolver | AsyncToolResolver;
   flowDocumentResolver?: FlowDocumentResolver;
@@ -99,6 +139,19 @@ export interface CompilerOptions {
    * state names before strict analysis.
    */
   referenceBindings?: FlowReferenceBindings;
+  /**
+   * Optional host types for late-bound context, state, secret, artifact, or
+   * external step symbols. The compiler unions these with document input types
+   * and types inferred from explicit node outputs.
+   */
+  referenceTypeBindings?: FlowReferenceTypeBindings;
+  /**
+   * Canonical output ports for stable step ids. Required for strict
+   * `steps.<id>.<port>` references because the v1 AST does not yet define
+   * portable port names. Supplying a port contract does not make the step
+   * initially available; execution order is analyzed separately.
+   */
+  referencePortBindings?: FlowReferencePortBindings;
 }
 
 export interface FlowDocumentResolver {
@@ -172,14 +225,46 @@ export interface CompilationDiagnostic {
   nodePath?: string;
   suggestion?: string;
   category?: FlowDiagnosticCategory;
+  /**
+   * Stable editor-facing location. DSL parse diagnostics use source lines;
+   * semantic reference diagnostics use UTF-16 offsets relative to nodePath.
+   */
+  span?: CompilationSourceSpan;
 }
 
 export interface CompilationWarning {
-  stage: 4;
+  stage: CompilationStage;
   code: string;
   message: string;
   nodePath?: string;
+  suggestion?: string;
   category?: FlowDiagnosticCategory;
+  span?: CompilationSourceSpan;
+}
+
+export type CompilationSourceSpan =
+  | {
+      kind: "source-lines";
+      lineStart: number;
+      columnStart: number;
+      lineEnd: number;
+      columnEnd: number;
+    }
+  | {
+      kind: "node-field-offsets";
+      start: number;
+      end: number;
+    };
+
+export interface FlowEditorDiagnostic {
+  severity: "error" | "warning";
+  stage: CompilationStage;
+  code: string;
+  message: string;
+  nodePath?: string;
+  suggestion?: string;
+  category?: FlowDiagnosticCategory;
+  span?: CompilationSourceSpan;
 }
 
 export interface CompilationTargetReason {
@@ -249,6 +334,68 @@ export interface FlowCompiler {
   ): Promise<CompileSuccess | CompileFailure>;
   compileDocument(document: unknown): Promise<CompileSuccess | CompileFailure>;
   compileDsl(source: unknown): Promise<CompileSuccess | CompileFailure>;
+  analyzeStrictReferenceMigration(
+    sources: readonly StrictReferenceMigrationSource[]
+  ): Promise<StrictReferenceMigrationReport>;
+}
+
+export interface FlowReferenceCompletion {
+  kind: "binding" | "step-port";
+  label: string;
+  insertText: string;
+  root: string;
+  name: string;
+  stepId?: string;
+  valueType: FlowReferenceValueType;
+}
+
+export interface FlowReferenceAuthoringSnapshot {
+  schema: "dzupagent.flowReferenceAuthoring/v1";
+  bindings: FlowReferenceBindings;
+  types: FlowReferenceTypeBindings;
+  ports: FlowReferencePortBindings;
+  completions: FlowReferenceCompletion[];
+}
+
+export interface FlowReferenceAuthoringOptions {
+  referenceBindings?: FlowReferenceBindings;
+  referenceTypeBindings?: FlowReferenceTypeBindings;
+  referencePortBindings?: FlowReferencePortBindings;
+}
+
+export type StrictReferenceMigrationSource =
+  | { id: string; kind: "flow"; input: ParseInput }
+  | { id: string; kind: "document"; input: unknown }
+  | { id: string; kind: "dsl"; input: unknown };
+
+export type StrictReferenceMigrationStatus =
+  | "ready"
+  | "changes-required"
+  | "invalid";
+
+export interface StrictReferenceMigrationItem {
+  id: string;
+  kind: StrictReferenceMigrationSource["kind"];
+  status: StrictReferenceMigrationStatus;
+  compatibilityDiagnostics: CompilationDiagnostic[];
+  compatibilityWarnings: CompilationWarning[];
+  strictDiagnostics: CompilationDiagnostic[];
+  blockingReferenceCodes: string[];
+}
+
+export interface StrictReferenceMigrationSummary {
+  total: number;
+  ready: number;
+  changesRequired: number;
+  invalid: number;
+  diagnosticsByCode: Record<string, number>;
+  compilerDiagnosticsByCode: Record<string, number>;
+}
+
+export interface StrictReferenceMigrationReport {
+  schema: "dzupagent.strictReferenceMigration/v1";
+  summary: StrictReferenceMigrationSummary;
+  items: StrictReferenceMigrationItem[];
 }
 
 export interface FlowCompileEvidenceNode {

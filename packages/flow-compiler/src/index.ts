@@ -25,6 +25,7 @@
  */
 
 import type { DzupEventBus } from "@dzupagent/core";
+import type { ParseInput } from "@dzupagent/flow-ast";
 
 import {
   runCompile,
@@ -35,8 +36,14 @@ import type {
   CompileOrchestratorDeps,
   FlowCompileEvent,
 } from "./compile-orchestrator.js";
+import { analyzeStrictReferenceMigrationSources } from "./strict-reference-migration.js";
 
-import type { CompilerOptions, FlowCompiler } from "./types.js";
+import type {
+  CompilerOptions,
+  CompileResult,
+  FlowCompiler,
+  StrictReferenceMigrationSource,
+} from "./types.js";
 
 export * from "./types.js";
 export {
@@ -55,6 +62,10 @@ export type {
   ToolsetCatalogValidationResult,
 } from "./host-tool-registry.js";
 export { collectFlowArtifactMetadata } from "./flow-artifact-metadata.js";
+export { projectCompilationDiagnostics } from "./diagnostic-projection.js";
+export { createFlowReferenceAuthoringSnapshot } from "./reference-authoring.js";
+export { analyzeStrictReferenceMigrationSources } from "./strict-reference-migration.js";
+export type { StrictReferenceMigrationRunners } from "./strict-reference-migration.js";
 export { mapFlowLeafToExecutionRequest } from "./execution-mapper.js";
 export { mapFlowNodeToGateRequests } from "./gate-mapper.js";
 export type {
@@ -234,11 +245,50 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
   // orchestration. The pipeline body and its private helpers live in
   // `./compile-orchestrator.ts`; this façade only wires dependencies.
   const deps: CompileOrchestratorDeps = { opts, emit };
+  const compatibilityDeps: CompileOrchestratorDeps = {
+    opts: { ...opts, referencePolicy: "compat-v1" },
+    emit: NOOP_EMIT,
+  };
+  const strictDeps: CompileOrchestratorDeps = {
+    opts: { ...opts, referencePolicy: "strict" },
+    emit: NOOP_EMIT,
+  };
 
   return {
     compile: (input, invocationOptions) =>
       runCompile(deps, input, invocationOptions),
     compileDocument: (document) => runCompileDocument(deps, document),
     compileDsl: (source) => runCompileDsl(deps, source),
+    analyzeStrictReferenceMigration: (sources) =>
+      analyzeStrictReferenceMigrationSources(sources, {
+        compileCompatibility: (source) =>
+          compileMigrationSource(compatibilityDeps, source),
+        compileStrict: (source) =>
+          compileMigrationSource(strictDeps, source),
+      }),
   };
+}
+
+function compileMigrationSource(
+  deps: CompileOrchestratorDeps,
+  source: StrictReferenceMigrationSource,
+): Promise<CompileResult> {
+  const input = cloneMigrationInput(source.input);
+  switch (source.kind) {
+    case "dsl":
+      return runCompileDsl(deps, input);
+    case "document":
+      return runCompileDocument(deps, input);
+    case "flow":
+      return runCompile(deps, input as ParseInput);
+  }
+}
+
+function cloneMigrationInput(input: unknown): unknown {
+  if (input === null || typeof input !== "object") return input;
+  try {
+    return structuredClone(input);
+  } catch {
+    return input;
+  }
 }

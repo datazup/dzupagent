@@ -56,6 +56,17 @@ export function prepareFlowInputFromDsl(
         nodePath: diagnostic.path,
         category: 'shape' as const,
         ...(diagnostic.suggestion ? { suggestion: diagnostic.suggestion } : {}),
+        ...(diagnostic.span
+          ? {
+              span: {
+                kind: 'source-lines' as const,
+                lineStart: diagnostic.span.lineStart,
+                columnStart: diagnostic.span.columnStart,
+                lineEnd: diagnostic.span.lineEnd,
+                columnEnd: diagnostic.span.columnEnd,
+              },
+            }
+          : {}),
       })),
     }
   }

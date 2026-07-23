@@ -5,7 +5,6 @@ import type {
   ResolvedTool,
   ToolResolver,
   ToolsetResolver,
-  ValidationError,
 } from '@dzupagent/flow-ast'
 import { flowNodeSchema } from '@dzupagent/flow-ast'
 import type {
@@ -14,10 +13,17 @@ import type {
 } from '@dzupagent/flow-ast/expressions'
 
 import type { ProfileRegistry, ResolvedProfile } from '../profile-registry.js'
-import type { AsyncPersonaResolver, PersonaResolver } from '../types.js'
+import type {
+  AsyncPersonaResolver,
+  FlowReferencePortBindings,
+  FlowReferenceTypeBindings,
+  PersonaResolver,
+} from '../types.js'
 
 import type { WalkContext } from './semantic-context.js'
+import type { SemanticDiagnostic } from './semantic-diagnostic.js'
 import { validateCheckpointRestore, visit } from './semantic-walk.js'
+import { analyzeReferenceFlow } from './reference-flow-analysis.js'
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -57,19 +63,25 @@ export interface SemanticOptions {
   referencePolicy?: FlowReferencePolicy
   /** Declared names by reference root for strict missing-reference checks. */
   referenceBindings?: FlowReferenceBindings
+  /** Names available before the first node executes. */
+  referenceAvailabilityBindings?: FlowReferenceBindings
+  /** Compiler- and host-derived first-segment value types. */
+  referenceTypeBindings?: FlowReferenceTypeBindings
+  /** Explicit canonical output ports by stable step id. */
+  referencePortBindings?: FlowReferencePortBindings
 }
 
 export interface SemanticResult {
   /** The same AST passed in (object identity preserved). */
   ast: FlowNode
   /** Aggregated unresolved-ref errors and close-miss diagnostics. */
-  errors: ValidationError[]
+  errors: SemanticDiagnostic[]
   /**
    * Non-fatal diagnostics. Currently used for forward-reference advisories on
    * `checkpoint.captureOutputOf` (the node id may resolve at runtime, so it is
    * not a hard error). Always present; empty array when no warnings.
    */
-  warnings: ValidationError[]
+  warnings: SemanticDiagnostic[]
   /** Map from dot-notation node path to resolved tool metadata. */
   resolved: Map<string, ResolvedTool>
   /** Map from dot-notation node path to the persona ref that was confirmed. */
@@ -121,8 +133,8 @@ export async function semanticResolve(
   ast: FlowNode,
   opts: SemanticOptions,
 ): Promise<SemanticResult> {
-  const errors: ValidationError[] = []
-  const warnings: ValidationError[] = []
+  const errors: SemanticDiagnostic[] = []
+  const warnings: SemanticDiagnostic[] = []
   const resolved = new Map<string, ResolvedTool>()
   const resolvedPersonas = new Map<string, string>()
   const expandedAgentTools = new Map<string, readonly string[]>()
@@ -193,7 +205,29 @@ export async function semanticResolve(
     target: opts.target,
     referencePolicy: opts.referencePolicy ?? 'compat-v1',
     referenceBindings: opts.referenceBindings,
+    referenceAvailabilityBindings:
+      opts.referenceAvailabilityBindings ?? opts.referenceBindings,
+    referenceTypeBindings: opts.referenceTypeBindings,
+    referencePortBindings: opts.referencePortBindings,
   }
+
+  const referenceFlow = analyzeReferenceFlow(ast, {
+    policy: ctx.referencePolicy,
+    ...(ctx.referenceBindings !== undefined
+      ? { declarationBindings: ctx.referenceBindings }
+      : {}),
+    ...(ctx.referenceAvailabilityBindings !== undefined
+      ? { initialBindings: ctx.referenceAvailabilityBindings }
+      : {}),
+    ...(ctx.referenceTypeBindings !== undefined
+      ? { typeBindings: ctx.referenceTypeBindings }
+      : {}),
+    ...(ctx.referencePortBindings !== undefined
+      ? { portBindings: ctx.referencePortBindings }
+      : {}),
+  })
+  errors.push(...referenceFlow.errors)
+  warnings.push(...referenceFlow.warnings)
 
   await visit(ast, ROOT_PATH, ctx)
 

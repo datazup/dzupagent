@@ -81,6 +81,13 @@ export interface ObservationalMemoryConfig {
   observationPrompt?: string | undefined
   /** Version recorded on observations produced by `observationPrompt`. */
   observationPromptVersion?: string | undefined
+  /** Stable host run identifier included in extracted evidence references. */
+  observationRunId?: string | undefined
+  /** Optional host resolver for stable source-message identifiers. */
+  observationMessageReferenceResolver?:
+    ((message: BaseMessage, index: number) => string | undefined) | undefined
+  /** Maximum characters retained in each source excerpt (default: 240). */
+  observationEvidenceExcerptMaxChars?: number | undefined
   /**
    * Persistence policy for model-written observations.
    *
@@ -110,6 +117,34 @@ export interface ObservationalMemoryConfig {
    * Default: `forge://dzupagent/observer`.
    */
   observerAgentUri?: string | undefined
+  /**
+   * Narrow host adapter for candidate lifecycle telemetry and approval UX.
+   * Handler failures are non-fatal and never alter memory state.
+   */
+  onObservationLifecycleEvent?:
+    ((event: ObservationLifecycleEvent) => void) | undefined
+}
+
+export type ObservationLifecycleEventType =
+  | 'observation:candidate:captured'
+  | 'observation:candidate:promoted'
+  | 'observation:candidate:confirmed'
+  | 'observation:candidate:rejected'
+  | 'observation:candidate:restored'
+  | 'observation:candidate:pruned'
+  | 'observation:candidate:persistence-failed'
+
+export interface ObservationLifecycleEvent {
+  schema: 'dzupagent/observation-lifecycle-event/v1'
+  type: ObservationLifecycleEventType
+  timestamp: number
+  namespace: string
+  scope: Record<string, string>
+  candidateKey?: string | undefined
+  stage?: StagedRecord['stage'] | undefined
+  count?: number | undefined
+  reason?: string | undefined
+  evidenceRefs?: string[] | undefined
 }
 
 export interface ObservationalMemoryStats {
@@ -158,6 +193,23 @@ function jaccardSimilarity(a: string, b: string): number {
   }
   const union = setA.size + setB.size - intersection
   return union === 0 ? 0 : intersection / union
+}
+
+function hasValidObservationEvidence(value: Record<string, unknown>): boolean {
+  const references = value['evidenceReferences']
+  return Array.isArray(references)
+    && references.length > 0
+    && references.every(reference => {
+      if (!reference || typeof reference !== 'object') return false
+      const item = reference as Record<string, unknown>
+      return typeof item['ref'] === 'string'
+        && item['ref'].startsWith('observation-message:')
+        && typeof item['role'] === 'string'
+        && typeof item['contentDigest'] === 'string'
+        && /^[a-f0-9]{64}$/.test(item['contentDigest'])
+        && typeof item['excerpt'] === 'string'
+        && item['excerpt'].length > 0
+    })
 }
 
 /** Jaccard threshold above which we consider two observations duplicates */
@@ -341,13 +393,35 @@ export class ObservationalMemory {
     if (record.stage === 'captured') {
       writer.promote(key)
       record = writer.get(key)
+      if (record) this.emitLifecycle('observation:candidate:promoted', record)
     }
     if (record?.stage === 'candidate') {
       writer.confirm(key)
+      const confirmedRecord = writer.get(key)
+      if (confirmedRecord) {
+        this.emitLifecycle('observation:candidate:confirmed', confirmedRecord)
+      }
     }
     const confirmed = writer.get(key)
     if (confirmed?.stage !== 'confirmed') return false
-    if (this.candidateStore && !await this.candidateStore.put(confirmed)) {
+    if (!hasValidObservationEvidence(confirmed.value)) {
+      writer.reject(key)
+      const rejected = writer.get(key)!
+      this.emitLifecycle(
+        'observation:candidate:rejected',
+        rejected,
+        'invalid or missing evidence references',
+      )
+      await this.putCandidateState(
+        rejected,
+        'candidate rejection could not be persisted',
+      )
+      return false
+    }
+    if (!await this.putCandidateState(
+      confirmed,
+      'confirmed candidate state could not be persisted',
+    )) {
       return false
     }
 
@@ -363,8 +437,17 @@ export class ObservationalMemory {
     if (!writer || !prior) return false
     const rejected = writer.reject(key)
     if (!rejected) return false
-    if (this.candidateStore && !await this.candidateStore.put(rejected)) {
+    this.emitLifecycle('observation:candidate:rejected', rejected)
+    if (!await this.putCandidateState(
+      rejected,
+      'candidate rejection could not be persisted',
+    )) {
       writer.restore(prior)
+      this.emitLifecycle(
+        'observation:candidate:restored',
+        prior,
+        'rejection persistence failed',
+      )
       return false
     }
     return true
@@ -395,16 +478,26 @@ export class ObservationalMemory {
         continue
       }
 
-      const stored = await this.persistObservation(
-        record.key,
-        record.value,
-        record.confidence,
-        true,
-      )
+      let stored = false
+      try {
+        stored = await this.persistObservation(
+          record.key,
+          record.value,
+          record.confidence,
+          true,
+        )
+      } catch {
+        // Reported below through the same verified-persistence failure path.
+      }
       if (stored) {
         if (this.candidateStore) {
           const receipt = createObservationConfirmationReceipt(record)
-          if (!await this.candidateStore.putReceipt(receipt)) {
+          if (!await this.putConfirmationReceipt(receipt)) {
+            this.emitLifecycle(
+              'observation:candidate:persistence-failed',
+              record,
+              'confirmation receipt could not be persisted',
+            )
             await this.restoreConfirmedObservation(record)
             continue
           }
@@ -412,6 +505,11 @@ export class ObservationalMemory {
         }
         persisted.push(record)
       } else {
+        this.emitLifecycle(
+          'observation:candidate:persistence-failed',
+          record,
+          'confirmed observation write could not be verified',
+        )
         await this.restoreConfirmedObservation(record)
       }
     }
@@ -481,6 +579,15 @@ export class ObservationalMemory {
       ...(this.config.observationPromptVersion
         ? { promptVersion: this.config.observationPromptVersion }
         : {}),
+      ...(this.config.observationRunId
+        ? { runId: this.config.observationRunId }
+        : {}),
+      ...(this.config.observationMessageReferenceResolver
+        ? { messageReferenceResolver: this.config.observationMessageReferenceResolver }
+        : {}),
+      ...(this.config.observationEvidenceExcerptMaxChars !== undefined
+        ? { evidenceExcerptMaxChars: this.config.observationEvidenceExcerptMaxChars }
+        : {}),
     })
 
     const observations = await extractor.extract(messages)
@@ -538,6 +645,7 @@ export class ObservationalMemory {
         modelGenerated: true,
         promptVersion: obs.promptVersion,
         sourceMessageCount: obs.sourceMessageCount,
+        evidenceReferences: obs.evidenceReferences,
       }
 
       if (this.observationWriteMode === 'candidate-first') {
@@ -549,11 +657,25 @@ export class ObservationalMemory {
           confidence: obs.confidence,
           captureReason: 'model-extracted observation awaiting long-term-memory confirmation',
         })
+        this.emitLifecycle(
+          'observation:candidate:captured',
+          { ...candidate, stage: 'captured' },
+        )
         if (candidate.stage === 'rejected') {
+          this.emitLifecycle('observation:candidate:rejected', candidate)
           rejected.push(obs)
           continue
         }
-        await this.candidateStore?.put(candidate)
+        if (candidate.stage === 'candidate' || candidate.stage === 'confirmed') {
+          this.emitLifecycle('observation:candidate:promoted', candidate)
+        }
+        if (candidate.stage === 'confirmed') {
+          this.emitLifecycle('observation:candidate:confirmed', candidate)
+        }
+        await this.putCandidateState(
+          candidate,
+          'captured candidate state could not be persisted',
+        )
         observationByKey.set(key, obs)
         if (candidate.stage !== 'confirmed') {
           staged.push(candidate)
@@ -637,7 +759,15 @@ export class ObservationalMemory {
     if (!writer) return
 
     writer.restore(record)
-    await this.candidateStore?.put(record)
+    this.emitLifecycle(
+      'observation:candidate:restored',
+      record,
+      'confirmed observation persistence will be retried',
+    )
+    await this.putCandidateState(
+      record,
+      'restored candidate state could not be persisted',
+    )
   }
 
   private async loadPersistedCandidates(): Promise<void> {
@@ -645,11 +775,18 @@ export class ObservationalMemory {
     const store = this.candidateStore
     if (!writer || !store) return
 
-    await store.prune(
+    const pruned = await store.prune(
       this.config.namespace,
       this.config.scope,
       this.config.candidateRetention,
     )
+    if (pruned > 0) {
+      this.emitLifecycleCount(
+        'observation:candidate:pruned',
+        pruned,
+        'candidate retention policy',
+      )
+    }
     const records = await store.load(this.config.namespace, this.config.scope)
     for (const record of records) {
       const receipt = await store.getReceipt(
@@ -665,6 +802,92 @@ export class ObservationalMemory {
         continue
       }
       writer.restore(record)
+      this.emitLifecycle(
+        'observation:candidate:restored',
+        record,
+        'restored from persistent candidate storage',
+      )
+    }
+  }
+
+  private emitLifecycle(
+    type: ObservationLifecycleEventType,
+    record: StagedRecord,
+    reason?: string,
+  ): void {
+    const references = record.value['evidenceReferences']
+    const evidenceRefs = Array.isArray(references)
+      ? references
+          .map(reference => (
+            reference && typeof reference === 'object'
+              ? (reference as Record<string, unknown>)['ref']
+              : undefined
+          ))
+          .filter((ref): ref is string => typeof ref === 'string')
+      : []
+    this.emitLifecycleEvent({
+      schema: 'dzupagent/observation-lifecycle-event/v1',
+      type,
+      timestamp: Date.now(),
+      namespace: record.namespace,
+      scope: { ...record.scope },
+      candidateKey: record.key,
+      stage: record.stage,
+      ...(reason ? { reason } : {}),
+      ...(evidenceRefs.length > 0 ? { evidenceRefs } : {}),
+    })
+  }
+
+  private emitLifecycleCount(
+    type: ObservationLifecycleEventType,
+    count: number,
+    reason?: string,
+  ): void {
+    this.emitLifecycleEvent({
+      schema: 'dzupagent/observation-lifecycle-event/v1',
+      type,
+      timestamp: Date.now(),
+      namespace: this.config.namespace,
+      scope: { ...this.config.scope },
+      count,
+      ...(reason ? { reason } : {}),
+    })
+  }
+
+  private emitLifecycleEvent(event: ObservationLifecycleEvent): void {
+    try {
+      this.config.onObservationLifecycleEvent?.(event)
+    } catch {
+      // Lifecycle telemetry is deliberately non-fatal.
+    }
+  }
+
+  private async putCandidateState(
+    record: StagedRecord,
+    failureReason: string,
+  ): Promise<boolean> {
+    if (!this.candidateStore) return true
+    try {
+      if (await this.candidateStore.put(record)) return true
+    } catch {
+      // Converted to a lifecycle failure below.
+    }
+    this.emitLifecycle(
+      'observation:candidate:persistence-failed',
+      record,
+      failureReason,
+    )
+    return false
+  }
+
+  private async putConfirmationReceipt(
+    receipt: ReturnType<typeof createObservationConfirmationReceipt>,
+  ): Promise<boolean> {
+    if (!this.candidateStore) return true
+    try {
+      return await this.candidateStore.putReceipt(receipt)
+    } catch {
+      return false
     }
   }
 

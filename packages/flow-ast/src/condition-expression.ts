@@ -242,7 +242,10 @@ function normalizeTemplatesForValidation(
     } else if (!isPathExpression(path)) {
       return { valid: false, reason: `unsupported template path "${path}"` }
     }
-    output += "__template_value__"
+    // The template path was already validated above. Substitute a literal so
+    // strict validation does not parse a synthetic identifier as a second,
+    // disallowed reference root.
+    output += "true"
     cursor = close + 2
   }
   return { valid: true, source: output }

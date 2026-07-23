@@ -85,6 +85,22 @@ function extractText(value: Record<string, unknown>): string {
   return typeof value['text'] === 'string' ? value['text'] : JSON.stringify(value)
 }
 
+function mergeEvidenceReferences(
+  ...values: Array<Record<string, unknown>>
+): unknown[] | undefined {
+  const merged = new Map<string, unknown>()
+  for (const value of values) {
+    const references = value['evidenceReferences']
+    if (!Array.isArray(references)) continue
+    for (const reference of references) {
+      if (!reference || typeof reference !== 'object') continue
+      const ref = (reference as Record<string, unknown>)['ref']
+      if (typeof ref === 'string' && ref) merged.set(ref, reference)
+    }
+  }
+  return merged.size > 0 ? [...merged.values()] : undefined
+}
+
 /**
  * Parse a JSON response from the LLM. Handles markdown code blocks and
  * other common wrappers that models sometimes add.
@@ -306,6 +322,15 @@ export class SemanticConsolidator {
 
       case 'noop':
         // Records are essentially the same — remove A, keep B
+        {
+          const evidenceReferences = mergeEvidenceReferences(itemB.value, itemA.value)
+          if (evidenceReferences) {
+            await store.put(namespace, itemB.key, {
+              ...itemB.value,
+              evidenceReferences,
+            })
+          }
+        }
         await store.delete(namespace, itemA.key)
         deletedKeys.add(itemA.key)
         break
@@ -322,6 +347,7 @@ export class SemanticConsolidator {
           const updatedValue = {
             ...(itemB.value as Record<string, unknown>),
             text: decision.mergedContent,
+            evidenceReferences: mergeEvidenceReferences(itemB.value, itemA.value),
             consolidatedAt: new Date().toISOString(),
           }
           await store.put(namespace, itemB.key, updatedValue)
@@ -337,6 +363,7 @@ export class SemanticConsolidator {
           const mergedValue = {
             ...(itemB.value as Record<string, unknown>),
             text: decision.mergedContent,
+            evidenceReferences: mergeEvidenceReferences(itemB.value, itemA.value),
             consolidatedAt: new Date().toISOString(),
           }
           await store.put(namespace, itemB.key, mergedValue)

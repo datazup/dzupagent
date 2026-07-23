@@ -30,6 +30,7 @@ import {
   prepareFlowInputFromDsl,
 } from "../authoring-input.js";
 import { deriveDocumentReferenceBindings } from "../stages/reference-symbols.js";
+import { deriveDocumentReferenceTypeBindings } from "../stages/reference-symbol-contracts.js";
 import { currentFlowRefFromDocument } from "../stages/subflow-inline.js";
 
 import type { CompileSuccess, CompileFailure } from "../types.js";
@@ -86,7 +87,10 @@ export async function runCompileDocument(
       currentFlowRef: currentFlowRefFromDocument(document),
       fragmentExpansions: extractFragmentExpansions(document),
     },
-    deriveDocumentReferenceBindings(document as FlowDocumentV1),
+    {
+      bindings: deriveDocumentReferenceBindings(document as FlowDocumentV1),
+      types: deriveDocumentReferenceTypeBindings(document as FlowDocumentV1),
+    },
   );
 
   if ("errors" in result) return result;
@@ -167,8 +171,11 @@ export async function runCompileDsl(
       source,
     },
     prepared.document !== undefined
-      ? deriveDocumentReferenceBindings(prepared.document)
-      : undefined,
+      ? {
+          bindings: deriveDocumentReferenceBindings(prepared.document),
+          types: deriveDocumentReferenceTypeBindings(prepared.document),
+        }
+      : {},
   );
 }
 

@@ -4,7 +4,6 @@ import type {
   ResolvedTool,
   ToolResolver,
   ToolsetResolver,
-  ValidationError,
 } from '@dzupagent/flow-ast'
 import type {
   FlowReferenceBindings,
@@ -12,7 +11,13 @@ import type {
 } from '@dzupagent/flow-ast/expressions'
 
 import type { ProfileRegistry, ResolvedProfile } from '../profile-registry.js'
-import type { AsyncPersonaResolver, PersonaResolver } from '../types.js'
+import type {
+  AsyncPersonaResolver,
+  FlowReferencePortBindings,
+  FlowReferenceTypeBindings,
+  PersonaResolver,
+} from '../types.js'
+import type { SemanticDiagnostic } from './semantic-diagnostic.js'
 
 /**
  * Mutable context threaded through the semantic AST walk. Sub-passes mutate
@@ -20,8 +25,8 @@ import type { AsyncPersonaResolver, PersonaResolver } from '../types.js'
  * orchestrator can return them without a final merge step.
  */
 export interface WalkContext {
-  errors: ValidationError[]
-  warnings: ValidationError[]
+  errors: SemanticDiagnostic[]
+  warnings: SemanticDiagnostic[]
   resolved: Map<string, ResolvedTool>
   resolvedPersonas: Map<string, string>
   /**
@@ -57,4 +62,10 @@ export interface WalkContext {
   target: 'codev-runtime' | undefined
   referencePolicy: FlowReferencePolicy
   referenceBindings: FlowReferenceBindings | undefined
+  /** Names available at flow entry, before compiler-owned node writes. */
+  referenceAvailabilityBindings: FlowReferenceBindings | undefined
+  /** First-segment value types from document, nodes, and host declarations. */
+  referenceTypeBindings: FlowReferenceTypeBindings | undefined
+  /** Explicit canonical output ports for stable step ids. */
+  referencePortBindings: FlowReferencePortBindings | undefined
 }

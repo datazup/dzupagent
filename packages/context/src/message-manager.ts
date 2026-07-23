@@ -20,6 +20,36 @@ import {
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { TokenCounter } from './token-lifecycle.js'
 import { CharEstimateCounter } from './char-estimate-counter.js'
+import { resolveModelId } from './prompt-cache-injector.js'
+
+export interface SummaryProfile {
+  /** Stable prompt/validation contract identifier. */
+  version: string
+  /** System instruction sent to the summarization model. */
+  systemPrompt: string
+  /** Markdown section names required when validation is enabled. */
+  requiredSections: readonly string[]
+}
+
+export interface SummaryValidationResult {
+  valid: boolean
+  missingSections: string[]
+}
+
+export interface SummaryMetadata {
+  promptVersion: string
+  modelId: string
+  sourceMessageCount: number
+  validation: 'not-required' | 'passed' | 'failed'
+  missingSections: string[]
+}
+
+export interface SummarizeAndTrimResult {
+  summary: string
+  trimmedMessages: BaseMessage[]
+  /** Present only when a model summarization call was attempted. */
+  summaryMetadata?: SummaryMetadata
+}
 
 export interface MessageManagerConfig {
   /** Maximum message count before triggering summarization (default 30) */
@@ -73,11 +103,27 @@ export interface MessageManagerConfig {
    * discarded. Hook failures are non-fatal and never block compression.
    */
   onBeforeSummarize?: (messages: BaseMessage[]) => Promise<void> | void
+  /** Versioned summarization and validation contract. */
+  summaryProfile?: SummaryProfile
+  /**
+   * Required validation is opt-in for compatibility. When enabled, a model
+   * response missing profile sections is rejected and the prior summary is
+   * preserved.
+   */
+  summaryValidation?: 'off' | 'required'
+  /** Stable host model identifier when the model object cannot expose one. */
+  summaryModelId?: string
 }
 
 const DEFAULTS: Omit<
   Required<MessageManagerConfig>,
-  'onFallback' | 'memoryFrame' | 'eventBus' | 'tokenCounter' | 'onBeforeSummarize'
+  | 'onFallback'
+  | 'memoryFrame'
+  | 'eventBus'
+  | 'tokenCounter'
+  | 'onBeforeSummarize'
+  | 'summaryProfile'
+  | 'summaryModelId'
 > = {
   maxMessages: 30,
   keepRecentMessages: 10,
@@ -85,6 +131,7 @@ const DEFAULTS: Omit<
   charsPerToken: 4,
   preserveRecentToolResults: 6,
   prunedToolResultMaxChars: 120,
+  summaryValidation: 'off',
 }
 
 /** Shared default. Constructed once so callers that don't inject a counter
@@ -130,10 +177,67 @@ Produce a structured summary using EXACTLY this template. Be factual, specific, 
 ## Next Steps
 <What should happen next — bullet list>`
 
+export const STRUCTURED_SUMMARY_PROFILE_V1: SummaryProfile = {
+  version: 'structured-summary/v1',
+  systemPrompt: STRUCTURED_SUMMARY_SYSTEM,
+  requiredSections: [
+    'Goal',
+    'Constraints',
+    'Progress',
+    'Done',
+    'In Progress',
+    'Blocked',
+    'Key Decisions',
+    'Relevant Files',
+    'Next Steps',
+  ],
+}
+
 // ---------- Helpers ----------------------------------------------------------
 
 function getMessageContent(m: BaseMessage): string {
   return typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+}
+
+function normalizeSectionName(value: string): string {
+  return value
+    .trim()
+    .replace(/[*_`:#]+/g, '')
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('en-US')
+}
+
+/**
+ * Validate section presence without requiring exact JSON, heading levels, or
+ * punctuation. This keeps model formatting flexible while preserving the
+ * profile's semantic contract.
+ */
+export function validateSummaryAgainstProfile(
+  summary: string,
+  profile: SummaryProfile,
+): SummaryValidationResult {
+  const headings = new Set(
+    summary
+      .split(/\r?\n/)
+      .map(line => line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*$/)?.[1])
+      .filter((heading): heading is string => typeof heading === 'string')
+      .map(normalizeSectionName),
+  )
+  const missingSections = profile.requiredSections.filter(
+    section => !headings.has(normalizeSectionName(section)),
+  )
+  return { valid: missingSections.length === 0, missingSections }
+}
+
+function emitContextEvent(
+  eventBus: MessageManagerConfig['eventBus'],
+  event: { type: string } & Record<string, unknown>,
+): void {
+  try {
+    eventBus?.emit(event)
+  } catch {
+    // Observability must never make compression fatal.
+  }
 }
 
 /**
@@ -366,9 +470,11 @@ export async function summarizeAndTrim(
   existingSummary: string | null,
   model: BaseChatModel,
   config?: MessageManagerConfig,
-): Promise<{ summary: string; trimmedMessages: BaseMessage[] }> {
+): Promise<SummarizeAndTrimResult> {
   const cfg = { ...DEFAULTS, ...config }
   const keep = cfg.keepRecentMessages
+  const profile = config?.summaryProfile ?? STRUCTURED_SUMMARY_PROFILE_V1
+  const modelId = config?.summaryModelId?.trim() || resolveModelId(model) || 'unknown'
 
   if (messages.length <= keep) {
     return { summary: existingSummary ?? '', trimmedMessages: messages }
@@ -425,22 +531,52 @@ export async function summarizeAndTrim(
 
   try {
     const response = await model.invoke([
-      new SystemMessage(STRUCTURED_SUMMARY_SYSTEM),
+      new SystemMessage(profile.systemPrompt),
       new HumanMessage(userPrompt),
     ])
     const summary =
       typeof response.content === 'string'
         ? response.content
         : JSON.stringify(response.content)
+    const validation = validateSummaryAgainstProfile(summary, profile)
+    const summaryMetadata: SummaryMetadata = {
+      promptVersion: profile.version,
+      modelId,
+      sourceMessageCount: oldMessages.length,
+      validation:
+        cfg.summaryValidation === 'required'
+          ? validation.valid
+            ? 'passed'
+            : 'failed'
+          : 'not-required',
+      missingSections: validation.missingSections,
+    }
 
-    return { summary, trimmedMessages: repairedRecent }
+    if (cfg.summaryValidation === 'required' && !validation.valid) {
+      emitContextEvent(config?.eventBus, {
+        type: 'context:summary_validation_failed',
+        promptVersion: profile.version,
+        modelId,
+        sourceMessageCount: oldMessages.length,
+        missingSections: validation.missingSections,
+      })
+      return {
+        summary: existingSummary ?? '',
+        trimmedMessages: repairedRecent,
+        summaryMetadata,
+      }
+    }
+
+    return { summary, trimmedMessages: repairedRecent, summaryMetadata }
   } catch (err) {
     // Compression failures must never abort a run. Surface via the event
     // bus so telemetry/observability picks it up and fall back to trim.
-    config?.eventBus?.emit({
+    emitContextEvent(config?.eventBus, {
       type: 'context:compress_failed',
       error: err instanceof Error ? err.message : String(err),
       phase: 'summarize',
+      promptVersion: profile.version,
+      modelId,
     })
     return { summary: existingSummary ?? '', trimmedMessages: repairedRecent }
   }
