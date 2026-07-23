@@ -161,6 +161,39 @@ steps:
     expect(result.evidence.canonicalNodeIds).toContain("step-create");
   });
 
+  it("derives strict input bindings from compileDsl source", async () => {
+    const resolver = makeResolver(["pm.create_task"]);
+    const compiler = createFlowCompiler({
+      toolResolver: resolver,
+      referencePolicy: "strict",
+    });
+
+    const result = await compiler.compileDsl(`
+dsl: dzupflow/v1
+id: strict_dsl_inputs
+version: 1
+inputs:
+  goal: string
+steps:
+  - action:
+      id: step-create
+      ref: pm.create_task
+      input:
+        prompt: "Implement {{ inputs.missing }}"
+`);
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) throw new Error("expected strict compile failure");
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        stage: 3,
+        code: "INVALID_REFERENCE",
+        nodePath: "root.nodes[0].input.prompt",
+        message: expect.stringContaining("[MISSING_REFERENCE]"),
+      }),
+    );
+  });
+
   it("compiles a 2-action sequence to a SkillChain artifact", async () => {
     const resolver = makeResolver(["pm.create_task", "pm.update_task"]);
     const compiler = createFlowCompiler({ toolResolver: resolver });
@@ -550,6 +583,174 @@ describe("createFlowCompiler — stage 3 errors", () => {
         message: expect.stringContaining("MISSING_REFERENCE"),
       }),
     );
+  });
+
+  it("derives strict input bindings from compileDocument without a caller snapshot", async () => {
+    const resolver = makeResolver(["known.tool"]);
+    const compiler = createFlowCompiler({
+      toolResolver: resolver,
+      referencePolicy: "strict",
+    });
+
+    const result = await compiler.compileDocument({
+      dsl: "dzupflow/v1",
+      id: "strict_inputs",
+      version: 1,
+      inputs: {
+        ready: { type: "boolean", required: true },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "branch",
+            id: "gate",
+            condition: "inputs.missing === true",
+            then: [
+              {
+                type: "action",
+                id: "run",
+                toolRef: "known.tool",
+                input: {},
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) throw new Error("expected strict compile failure");
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        stage: 3,
+        code: "INVALID_CONDITION",
+        nodePath: "root.nodes[0].condition",
+        message: expect.stringContaining("MISSING_REFERENCE"),
+      }),
+    );
+  });
+
+  it("derives state and step symbols from the compiled node graph", async () => {
+    const resolver = makeResolver(["known.tool"]);
+    const compiler = createFlowCompiler({
+      toolResolver: resolver,
+      referencePolicy: "strict",
+    });
+
+    const result = await compiler.compileDocument({
+      dsl: "dzupflow/v1",
+      id: "strict_graph_symbols",
+      version: 1,
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "set",
+            id: "prepare",
+            assign: { ready: true },
+          },
+          {
+            type: "branch",
+            id: "gate",
+            condition:
+              "state.ready === true && steps.prepare.result !== null",
+            then: [
+              {
+                type: "action",
+                id: "run",
+                toolRef: "known.tool",
+                input: {},
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect("errors" in result).toBe(false);
+  });
+
+  it("applies automatic document bindings to strict value templates", async () => {
+    const resolver = makeResolver(["known.tool"]);
+    const compiler = createFlowCompiler({
+      toolResolver: resolver,
+      referencePolicy: "strict",
+    });
+
+    const result = await compiler.compileDocument({
+      dsl: "dzupflow/v1",
+      id: "strict_values",
+      version: 1,
+      inputs: {
+        goal: { type: "string", required: true },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "action",
+            id: "run",
+            toolRef: "known.tool",
+            input: {
+              prompt: "Implement {{ inputs.missing }}",
+            },
+          },
+        ],
+      },
+    });
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) throw new Error("expected strict compile failure");
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        stage: 3,
+        code: "INVALID_REFERENCE",
+        nodePath: "root.nodes[0].input.prompt",
+        message: expect.stringContaining("[MISSING_REFERENCE]"),
+      }),
+    );
+  });
+
+  it("unions document symbols with host-declared strict bindings", async () => {
+    const resolver = makeResolver(["known.tool"]);
+    const compiler = createFlowCompiler({
+      toolResolver: resolver,
+      referencePolicy: "strict",
+      referenceBindings: {
+        context: ["tenantId"],
+        secrets: ["apiKey"],
+      },
+    });
+
+    const result = await compiler.compileDocument({
+      dsl: "dzupflow/v1",
+      id: "strict_host_bindings",
+      version: 1,
+      inputs: {
+        goal: { type: "string", required: true },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "action",
+            id: "run",
+            toolRef: "known.tool",
+            input: {
+              prompt:
+                "Implement {{ inputs.goal }} for {{ context.tenantId }} with {{ secrets.apiKey }}",
+            },
+          },
+        ],
+      },
+    });
+
+    expect("errors" in result).toBe(false);
   });
 });
 

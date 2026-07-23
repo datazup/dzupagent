@@ -3,7 +3,8 @@ import { ObservationalMemory } from '../observational-memory.js'
 import type { ObservationalMemoryConfig } from '../observational-memory.js'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseStore } from '@langchain/langgraph'
-import type { MemoryService } from '../memory-service.js'
+import { MemoryService } from '../memory-service.js'
+import { MemoryServiceObservationCandidateStore } from '../observation-candidate-store.js'
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import type { BaseMessage } from '@langchain/core/messages'
 
@@ -64,9 +65,25 @@ function createMockMemoryService(
   search: ReturnType<typeof vi.fn>
   formatForPrompt: ReturnType<typeof vi.fn>
 } {
+  const data = new Map(
+    existingRecords.map((record, index) => [`existing-${index}`, record] as const),
+  )
   return {
-    put: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockResolvedValue(existingRecords),
+    put: vi.fn().mockImplementation(
+      (_namespace: string, _scope: Record<string, string>, key: string, value: Record<string, unknown>) => {
+        data.set(key, value)
+        return Promise.resolve()
+      },
+    ),
+    get: vi.fn().mockImplementation(
+      (_namespace: string, _scope: Record<string, string>, key?: string) => {
+        if (key !== undefined) {
+          const value = data.get(key)
+          return Promise.resolve(value ? [value] : [])
+        }
+        return Promise.resolve([...data.values()])
+      },
+    ),
     search: vi.fn().mockResolvedValue(existingRecords),
     formatForPrompt: vi.fn().mockReturnValue('## Relevant Observations\n\nSome observation'),
   } as unknown as MemoryService & {
@@ -160,6 +177,17 @@ describe('ObservationalMemory', () => {
       expect(result).not.toBeNull()
       expect(result!.extracted.length).toBeGreaterThan(0)
       expect(memoryService.put).toHaveBeenCalled()
+      expect(result!.persisted).toHaveLength(result!.extracted.length)
+      expect(result!.staged).toEqual([])
+      expect(result!.rejected).toEqual([])
+
+      const storedValue = memoryService.put.mock.calls[0]![3] as Record<string, unknown>
+      expect(storedValue['modelGenerated']).toBe(true)
+      expect(storedValue['promptVersion']).toBe('observation-extraction/v2')
+      expect(storedValue['_provenance']).toMatchObject({
+        createdBy: 'forge://dzupagent/observer',
+        source: 'derived',
+      })
     })
 
     it('should accumulate message count across multiple observe() calls', async () => {
@@ -181,6 +209,154 @@ describe('ObservationalMemory', () => {
       // Second call with just 2 messages (below threshold after reset)
       const result2 = await sut.observe(makeMessages(2))
       expect(result2).toBeNull()
+    })
+  })
+
+  // -----------------------------------------------------------------------
+  // observe() — governed candidate-first persistence
+  // -----------------------------------------------------------------------
+
+  describe('candidate-first persistence', () => {
+    it('stages model-written observations without writing long-term memory', async () => {
+      sut = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+      })
+
+      const result = await sut.observe(makeMessages(2))
+
+      expect(result).not.toBeNull()
+      expect(result!.extracted).toHaveLength(2)
+      expect(result!.persisted).toEqual([])
+      expect(result!.staged).toHaveLength(2)
+      expect(memoryService.put).not.toHaveBeenCalled()
+      expect(sut.getPendingObservationCandidates()).toHaveLength(2)
+      expect(sut.getStats().totalObservations).toBe(0)
+    })
+
+    it('persists a confirmed candidate with model-derived provenance', async () => {
+      sut = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+        observerAgentUri: 'forge://acme/memory-observer',
+      })
+      const result = await sut.observe(makeMessages(2))
+      const candidate = result!.staged[0]!
+
+      const persisted = await sut.confirmObservation(candidate.key)
+
+      expect(persisted).toBe(true)
+      expect(memoryService.put).toHaveBeenCalledTimes(1)
+      expect(sut.getPendingObservationCandidates()).toHaveLength(1)
+      expect(sut.getStats().totalObservations).toBe(1)
+
+      const storedValue = memoryService.put.mock.calls[0]![3] as Record<string, unknown>
+      expect(storedValue['_provenance']).toMatchObject({
+        createdBy: 'forge://acme/memory-observer',
+        source: 'derived',
+        confidence: candidate.confidence,
+      })
+    })
+
+    it('allows a staged candidate to be rejected without persistence', async () => {
+      sut = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+      })
+      const result = await sut.observe(makeMessages(2))
+      const candidate = result!.staged[0]!
+
+      expect(await sut.rejectObservation(candidate.key)).toBe(true)
+      expect(await sut.confirmObservation(candidate.key)).toBe(false)
+      expect(memoryService.put).not.toHaveBeenCalled()
+    })
+
+    it('restores a confirmed candidate when durable persistence cannot be verified', async () => {
+      sut = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+      })
+      const result = await sut.observe(makeMessages(2))
+      const candidate = result!.staged[0]!
+      memoryService.get.mockResolvedValue([])
+
+      const persisted = await sut.confirmObservation(candidate.key)
+
+      expect(persisted).toBe(false)
+      expect(sut.getPendingObservationCandidates()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ key: candidate.key, stage: 'confirmed' }),
+        ]),
+      )
+      expect(sut.getStats().totalObservations).toBe(0)
+    })
+
+    it('rejects model output containing a secret before it reaches staging', async () => {
+      model = createMockModel([
+        observationResponse([
+          {
+            text: 'api_key=abcdefghijklmnopqrstuvwxyz123456',
+            category: 'fact',
+            confidence: 0.99,
+          },
+        ]),
+      ])
+      sut = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+      })
+
+      const result = await sut.observe(makeMessages(2))
+
+      expect(result!.extracted).toEqual([])
+      expect(result!.rejected).toHaveLength(1)
+      expect(result!.staged).toEqual([])
+      expect(memoryService.put).not.toHaveBeenCalled()
+    })
+
+    it('restores candidates after restart and makes confirmation idempotent', async () => {
+      const candidateMemory = new MemoryService(
+        createMockStore(),
+        [{
+          name: 'observation-candidates',
+          scopeKeys: ['tenantId', 'observations'],
+          searchable: false,
+        }],
+      )
+      const candidateStore = new MemoryServiceObservationCandidateStore(
+        candidateMemory,
+        'observation-candidates',
+      )
+      sut = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+        candidateStore,
+      })
+      const result = await sut.observe(makeMessages(2))
+      const candidate = result!.staged[0]!
+
+      const restarted = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+        candidateStore,
+      })
+      expect(await restarted.listPendingObservationCandidates()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ key: candidate.key, stage: 'candidate' }),
+        ]),
+      )
+
+      expect(await restarted.confirmObservation(candidate.key)).toBe(true)
+      expect(memoryService.put).toHaveBeenCalledTimes(1)
+
+      const restartedAgain = createOM({
+        observerThreshold: 1,
+        observationWriteMode: 'candidate-first',
+        candidateStore,
+      })
+      expect(await restartedAgain.listPendingObservationCandidates()).toHaveLength(1)
+      expect(await restartedAgain.confirmObservation(candidate.key)).toBe(true)
+      expect(memoryService.put).toHaveBeenCalledTimes(1)
     })
   })
 

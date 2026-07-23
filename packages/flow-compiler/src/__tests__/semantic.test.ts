@@ -383,6 +383,111 @@ describe("semanticResolve — condition expression validation", () => {
     expect(error?.message).toContain("MISSING_REFERENCE");
   });
 
+  it("validates strict references in nested value-bearing fields", async () => {
+    const resolver = makeResolver(["pm.task"]);
+    const ast = sequence({
+      type: "action",
+      toolRef: "pm.task",
+      input: {
+        request: {
+          prompt: "Review {{ inputs.missing }}",
+        },
+      },
+    });
+    const result = await semanticResolve(ast, {
+      toolResolver: resolver,
+      referencePolicy: "strict",
+      referenceBindings: { inputs: ["goal"] },
+    });
+    const error = result.errors.find((entry) => entry.code === "INVALID_REFERENCE");
+
+    expect(error).toMatchObject({
+      nodeType: "action",
+      nodePath: "root.nodes[0].input.request.prompt",
+      category: "resolution",
+    });
+    expect(error?.message).toContain("[MISSING_REFERENCE]");
+    expect(error?.message).toContain("offsets");
+  });
+
+  it("keeps value-reference diagnostics non-fatal under compat-v1", async () => {
+    const resolver = makeResolver(["pm.task"]);
+    const ast = sequence({
+      type: "action",
+      toolRef: "pm.task",
+      input: { prompt: "Review {{ inputs.missing }}" },
+    });
+    const result = await semanticResolve(ast, {
+      toolResolver: resolver,
+      referenceBindings: { inputs: ["goal"] },
+    });
+
+    expect(result.errors.filter((entry) => entry.code === "INVALID_REFERENCE")).toEqual([]);
+    expect(result.warnings).toContainEqual(
+      expect.objectContaining({
+        code: "INVALID_REFERENCE",
+        nodePath: "root.nodes[0].input.prompt",
+        message: expect.stringContaining("[MISSING_REFERENCE]"),
+      }),
+    );
+  });
+
+  it("validates known governance metadata without scanning opaque metadata", async () => {
+    const resolver = makeResolver(["pm.task"]);
+    const ast = sequence({
+      type: "action",
+      toolRef: "pm.task",
+      input: {},
+      meta: {
+        evidence: {
+          source: "{{ artifacts.missing }}",
+        },
+        fragmentExpansions: {
+          authored: "{{ inputs.ignoredOpaqueMetadata }}",
+        },
+      },
+    });
+    const result = await semanticResolve(ast, {
+      toolResolver: resolver,
+      referencePolicy: "strict",
+      referenceBindings: {
+        artifacts: ["report"],
+        inputs: [],
+      },
+    });
+
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]).toMatchObject({
+      code: "INVALID_REFERENCE",
+      nodePath: "root.nodes[0].meta.evidence.source",
+      category: "policy",
+    });
+    expect(result.errors[0]?.message).toContain("[MISSING_REFERENCE]");
+  });
+
+  it("does not interpret inline schema annotations as runtime templates", async () => {
+    const resolver = makeResolver([]);
+    const ast = sequence({
+      type: "agent",
+      agentId: "reviewer",
+      instructions: "Review {{ inputs.goal }}",
+      output: {
+        key: "review",
+        schema: {
+          type: "object",
+          description: "Literal schema example: {{ not.a.runtime.reference }}",
+        },
+      },
+    });
+    const result = await semanticResolve(ast, {
+      toolResolver: resolver,
+      referencePolicy: "strict",
+      referenceBindings: { inputs: ["goal"] },
+    });
+
+    expect(result.errors.filter((entry) => entry.code === "INVALID_REFERENCE")).toEqual([]);
+  });
+
   it("passes simple identifier conditions", async () => {
     const resolver = makeResolver(["pm.task"]);
     const ast = sequence(branch("isReady", [action("pm.task")]));

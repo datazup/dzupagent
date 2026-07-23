@@ -208,6 +208,39 @@ describe('StagedWriter', () => {
     })
   })
 
+  describe('restore / remove / getAll', () => {
+    it('restores the exact persisted lifecycle without replaying thresholds', () => {
+      const w = new StagedWriter({
+        autoPromoteThreshold: 0,
+        autoConfirmThreshold: 0,
+      })
+      const record: StagedRecord = {
+        ...baseRecord({ key: 'restored', confidence: 1 }),
+        stage: 'candidate',
+        createdAt: 100,
+        promotedAt: 110,
+      }
+
+      w.restore(record)
+
+      expect(w.get('restored')).toEqual(record)
+      expect(w.get('restored')).not.toBe(record)
+    })
+
+    it('returns defensive snapshots and removes exact keys', () => {
+      const w = new StagedWriter({ autoPromoteThreshold: 2 })
+      w.capture(baseRecord({ key: 'snapshot', confidence: 0.1 }))
+
+      const snapshot = w.getAll()
+      snapshot[0]!.value['text'] = 'changed outside'
+
+      expect(w.get('snapshot')?.value['text']).toBe('observation')
+      expect(w.remove('snapshot')).toBe(true)
+      expect(w.remove('snapshot')).toBe(false)
+      expect(w.getAll()).toEqual([])
+    })
+  })
+
   describe('pruneIfNeeded (capacity enforcement)', () => {
     it('does not prune when capacity not reached', () => {
       const w = new StagedWriter({ maxPending: 100, autoPromoteThreshold: 2 })
