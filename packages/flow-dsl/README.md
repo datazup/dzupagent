@@ -104,6 +104,10 @@ and a deterministic SHA-256 semantic hash.
 Credential-capable primitives additionally declare exact
 `credentialInputPaths`; wildcards are limited to a final path segment. A
 primitive that forbids credentials cannot declare credential paths.
+Definitions requiring redaction evidence must bind
+`dzupagent.flowRedactionReceipt/v1` and a versioned policy reference.
+`evidence.write@1` now carries that canonical receipt requirement in its
+semantic hash.
 
 `BUILT_IN_PRIMITIVES` remains the compatible v1 registry view and is generated
 from those V2 definitions. Composite expansion functions are attached through

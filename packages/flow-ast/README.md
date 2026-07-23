@@ -28,6 +28,24 @@ nodes, or loop/persona bodies. It also does not inspect non-agent output fields
 such as `prompt.outputKey`. Promoting these warnings to hard validation errors
 requires a breaking migration after surveying real flows.
 
+## Credential and redaction contracts
+
+The public AST surface includes dependency-neutral runtime contracts for:
+
+- nominal, host-created `FlowCredentialHandle` objects containing routing
+  metadata but never raw credential material;
+- lease-only `FlowCredentialHandleResolver` results, so portable consumers do
+  not receive resolved secret values;
+- deterministic `FlowRedactionOperation`, result, and receipt shapes;
+- monotonic classification checks, SHA-256 content identities, versioned
+  transform/policy authority, and Ed25519 receipt attestations;
+- runtime validators that reject result/receipt drift and unexpected receipt
+  fields such as raw content.
+
+These are contracts only. Hosts still own credential lease dereferencing,
+transform execution, receipt signing and verification, secure persistence, and
+terminal-result conflict handling.
+
 ## License
 
 MIT

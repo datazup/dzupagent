@@ -1,11 +1,18 @@
 # @dzupagent/dialogue-core — Contract Freeze (Run A)
 
-**Package version:** 0.2.0  
+**Frozen scheduler package version:** 0.2.0
+**Current source package version:** 0.2.0
+**Next release:** 0.3.0 through the continuation-v1 minor changeset
 **Git commit:** 1f41b140 (dzupagent)  
 **Frozen:** 2026-06-05  
 **Status:** FROZEN — Run B/C/D may now consume these interfaces.
 
 Any breaking change to the interfaces below requires a new Run A patch and a new CONTRACT_FREEZE.md entry before downstream runs may proceed.
+
+The staged 0.3.0 release adds
+`@dzupagent/dialogue-core/continuation/v1` as a separate, additive,
+fail-closed continuation contract. It does not change the v0.2 scheduler
+interfaces or the legacy internal `parseDecisionBlock()` fallback behavior.
 
 ---
 
@@ -215,3 +222,26 @@ bind snapshot and effect capture to an isolated workspace before agent
 execution. The middleware observes the completed/failed result and may perform
 adapter-owned cleanup. When omitted, the scheduler uses its configured
 workspace port exactly as before.
+
+---
+
+## 8. Additive continuation v1 subpath (2026-07-23)
+
+`@dzupagent/dialogue-core/continuation/v1` owns a provider-neutral,
+deterministic continuation boundary:
+
+- strict proposal normalization for `continue`, `complete`, and `blocked`;
+- portable evidence, policy, and host-control inputs;
+- host stop/suspend precedence;
+- verified-blocker and validation-aware completion admission;
+- a versioned repeated-task key;
+- JSON-safe canonicalization and SHA-256 hashing; and
+- stable transition diagnostics.
+
+Malformed JSON, unknown verdicts, blank continuation tasks, unverified blocked
+claims, and insufficient completion evidence never default to `continue` or
+`complete`. The subpath performs no provider, database, filesystem, Git,
+network, environment, or clock access.
+
+This addition does not make the continuation kernel authoritative in any host.
+Scripts and Codev adoption remain comparison-gated.
