@@ -7,6 +7,7 @@ import {
 } from "../stages/reference-symbols.js";
 import {
   deriveNodeReferencePortBindings,
+  deriveNodeCredentialTypeBindings,
   deriveNodeReferenceTypeBindings,
   mergeReferencePortBindings,
   mergeReferenceTypeBindings,
@@ -17,6 +18,7 @@ import {
   mergeReferenceClassificationBindings,
   mergeReferencePortClassificationBindings,
 } from "../stages/reference-classifications.js";
+import { derivePrimitiveReferencePortClassificationBindings } from "../stages/primitive-reference-ports.js";
 import type {
   CompilerOptions,
   FlowReferenceClassificationBindings,
@@ -45,6 +47,49 @@ export function createSemanticReferenceSnapshot(
     options.referenceClassificationBindings,
     deriveSecretReferenceClassificationBindings(referenceBindings),
   );
+  const referencePortBindings = mergeReferencePortBindings(
+    deriveNodeReferencePortBindings(ast),
+    options.referencePortBindings,
+  );
+  const initialTypes = mergeReferenceTypeBindings(
+    deriveNodeReferenceTypeBindings(ast),
+    source.types,
+    options.referenceTypeBindings,
+  );
+  const referenceTypeBindings = mergeReferenceTypeBindings(
+    initialTypes,
+    deriveNodeCredentialTypeBindings(ast, initialTypes, referencePortBindings),
+  );
+  const initialPortClassifications =
+    mergeReferencePortClassificationBindings(
+      derivePrimitiveReferencePortClassificationBindings(ast),
+      options.referencePortClassificationBindings,
+    );
+  const derivedClassifications = deriveNodeReferenceClassificationBindings(
+    ast,
+    initialClassifications,
+    initialPortClassifications,
+  );
+  const referencePortClassificationBindings =
+    mergeReferencePortClassificationBindings(
+      initialPortClassifications,
+      derivePrimitiveReferencePortClassificationBindings(
+        ast,
+        derivedClassifications,
+      ),
+    );
+  const referenceClassificationBindings = mergeReferenceClassificationBindings(
+    initialClassifications,
+    derivedClassifications,
+    deriveNodeReferenceClassificationBindings(
+      ast,
+      mergeReferenceClassificationBindings(
+        initialClassifications,
+        derivedClassifications,
+      ),
+      referencePortClassificationBindings,
+    ),
+  );
 
   return {
     referenceBindings,
@@ -52,26 +97,9 @@ export function createSemanticReferenceSnapshot(
       source.bindings,
       options.referenceBindings,
     ),
-    referenceTypeBindings: mergeReferenceTypeBindings(
-      deriveNodeReferenceTypeBindings(ast),
-      source.types,
-      options.referenceTypeBindings,
-    ),
-    referencePortBindings: mergeReferencePortBindings(
-      deriveNodeReferencePortBindings(ast),
-      options.referencePortBindings,
-    ),
-    referenceClassificationBindings: mergeReferenceClassificationBindings(
-      initialClassifications,
-      deriveNodeReferenceClassificationBindings(
-        ast,
-        initialClassifications,
-        options.referencePortClassificationBindings,
-      ),
-    ),
-    referencePortClassificationBindings:
-      mergeReferencePortClassificationBindings(
-        options.referencePortClassificationBindings,
-      ),
+    referenceTypeBindings,
+    referencePortBindings,
+    referenceClassificationBindings,
+    referencePortClassificationBindings,
   };
 }

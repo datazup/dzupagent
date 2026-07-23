@@ -1,4 +1,5 @@
 export * from "./types.js";
+export * from "./definition-v2.js";
 export * from "./registry.js";
 export * from "./built-ins.js";
 export * from "./catalog.js";

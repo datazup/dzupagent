@@ -19,6 +19,7 @@ import type {
   FlowReferenceClassificationBindings,
   FlowReferencePortClassificationBindings,
   FlowReferenceTypeBindings,
+  FlowAdmissionProfile,
   PersonaResolver,
 } from '../types.js'
 
@@ -63,6 +64,8 @@ export interface SemanticOptions {
   target?: 'codev-runtime'
   /** Compatibility-preserving default; opt into strict reference validation. */
   referencePolicy?: FlowReferencePolicy
+  /** Fail-closed compile admission for unattended execution. */
+  admissionProfile?: FlowAdmissionProfile
   /** Declared names by reference root for strict missing-reference checks. */
   referenceBindings?: FlowReferenceBindings
   /** Names available before the first node executes. */
@@ -220,6 +223,8 @@ export async function semanticResolve(
       opts.referencePortClassificationBindings,
   }
 
+  validateAdmissionProfile(ast, opts, ctx.referencePolicy, errors)
+
   const referenceFlow = analyzeReferenceFlow(ast, {
     policy: ctx.referencePolicy,
     ...(ctx.referenceBindings !== undefined
@@ -248,4 +253,35 @@ export async function semanticResolve(
   validateCheckpointRestore(ast, errors, warnings)
 
   return { ast, errors, warnings, resolved, resolvedPersonas, expandedAgentTools, expandedAgentProfiles }
+}
+
+function validateAdmissionProfile(
+  ast: FlowNode,
+  opts: SemanticOptions,
+  referencePolicy: FlowReferencePolicy,
+  errors: SemanticDiagnostic[],
+): void {
+  if (opts.admissionProfile !== "unattended") return
+  if (referencePolicy !== "strict") {
+    errors.push({
+      nodeType: ast.type,
+      nodePath: "root",
+      code: "UNATTENDED_STRICT_ADMISSION_REQUIRED",
+      category: "policy",
+      message:
+        'unattended admission requires referencePolicy "strict"; compatibility warnings are not sufficient for autonomous execution',
+    })
+  }
+  for (const input of opts.referenceBindings?.["inputs"] ?? []) {
+    if (opts.referenceClassificationBindings?.["inputs"]?.[input] !== undefined) {
+      continue
+    }
+    errors.push({
+      nodeType: ast.type,
+      nodePath: `root.inputs.${input}.classification`,
+      code: "UNATTENDED_INPUT_CLASSIFICATION_REQUIRED",
+      category: "policy",
+      message: `unattended admission requires an explicit classification for input "${input}"`,
+    })
+  }
 }

@@ -43,13 +43,14 @@ export function validateOptionalInputs(
       type !== "boolean" &&
       type !== "object" &&
       type !== "array" &&
+      type !== "credential" &&
       type !== "any"
     ) {
       issues.push({
         path: joinPath(joinPath(joinPath(path, "inputs"), key), "type"),
         code: "MISSING_REQUIRED_FIELD",
         message:
-          "input spec.type must be one of string|number|boolean|object|array|any",
+          "input spec.type must be one of string|number|boolean|object|array|credential|any",
       });
       continue;
     }
@@ -81,7 +82,14 @@ export function validateOptionalInputs(
       }
     }
     if ("default" in rawSpec && rawSpec["default"] !== undefined) {
-      if (isFlowValue(rawSpec["default"])) {
+      if (type === "credential") {
+        issues.push({
+          path: joinPath(joinPath(joinPath(path, "inputs"), key), "default"),
+          code: "MISSING_REQUIRED_FIELD",
+          message:
+            "credential inputs cannot declare defaults; hosts must supply opaque handles",
+        });
+      } else if (isFlowValue(rawSpec["default"])) {
         spec.default = rawSpec["default"];
       } else {
         issues.push({
@@ -114,6 +122,21 @@ export function validateOptionalInputs(
             "input spec.classification must be one of public|internal|sensitive|secret",
         });
       }
+    }
+    if (
+      type === "credential" &&
+      spec.classification !== undefined &&
+      spec.classification !== "secret"
+    ) {
+      issues.push({
+        path: joinPath(
+          joinPath(joinPath(path, "inputs"), key),
+          "classification"
+        ),
+        code: "MISSING_REQUIRED_FIELD",
+        message: "credential inputs are always secret and cannot be downgraded",
+      });
+      delete spec.classification;
     }
     inputs[key] = spec;
   }

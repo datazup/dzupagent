@@ -10,6 +10,7 @@ import {
 } from "./stages/reference-symbols.js";
 import {
   deriveDocumentReferenceTypeBindings,
+  deriveNodeCredentialTypeBindings,
   deriveNodeReferencePortBindings,
   deriveNodeReferenceTypeBindings,
   mergeReferencePortBindings,
@@ -22,6 +23,7 @@ import {
   mergeReferenceClassificationBindings,
   mergeReferencePortClassificationBindings,
 } from "./stages/reference-classifications.js";
+import { derivePrimitiveReferencePortClassificationBindings } from "./stages/primitive-reference-ports.js";
 import type {
   FlowReferenceAuthoringOptions,
   FlowReferenceAuthoringSnapshot,
@@ -61,6 +63,8 @@ export function createFlowReferenceAuthoringSnapshot(
     deriveNodeReferencePortBindings(root),
     options.referencePortBindings,
   );
+  const credentialTypes = deriveNodeCredentialTypeBindings(root, types, ports);
+  const resolvedTypes = mergeReferenceTypeBindings(types, credentialTypes);
   const initialClassifications = mergeReferenceClassificationBindings(
     document !== undefined
       ? deriveDocumentReferenceClassificationBindings(document)
@@ -68,28 +72,46 @@ export function createFlowReferenceAuthoringSnapshot(
     options.referenceClassificationBindings,
     deriveSecretReferenceClassificationBindings(bindings),
   );
-  const classifications = mergeReferenceClassificationBindings(
-    initialClassifications,
-    deriveNodeReferenceClassificationBindings(
-      root,
-      initialClassifications,
+  const initialPortClassifications =
+    mergeReferencePortClassificationBindings(
+      derivePrimitiveReferencePortClassificationBindings(root),
       options.referencePortClassificationBindings,
-    ),
+    );
+  const derivedClassifications = deriveNodeReferenceClassificationBindings(
+    root,
+    initialClassifications,
+    initialPortClassifications,
   );
   const portClassifications = mergeReferencePortClassificationBindings(
-    options.referencePortClassificationBindings,
+    initialPortClassifications,
+    derivePrimitiveReferencePortClassificationBindings(
+      root,
+      derivedClassifications,
+    ),
+  );
+  const classifications = mergeReferenceClassificationBindings(
+    initialClassifications,
+    derivedClassifications,
+    deriveNodeReferenceClassificationBindings(
+      root,
+      mergeReferenceClassificationBindings(
+        initialClassifications,
+        derivedClassifications,
+      ),
+      portClassifications,
+    ),
   );
 
   return {
     schema: "dzupagent.flowReferenceAuthoring/v1",
     bindings,
-    types,
+    types: resolvedTypes,
     ports,
     classifications,
     portClassifications,
     completions: buildCompletions(
       bindings,
-      types,
+      resolvedTypes,
       ports,
       classifications,
       portClassifications,

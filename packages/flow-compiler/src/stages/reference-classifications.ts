@@ -33,8 +33,10 @@ export function deriveDocumentReferenceClassificationBindings(
   for (const [name, spec] of Object.entries(document.inputs ?? {}).sort(
     ([left], [right]) => left.localeCompare(right),
   )) {
-    if (spec.classification !== undefined) {
-      inputs[name] = spec.classification;
+    const classification =
+      spec.type === "credential" ? "secret" : spec.classification;
+    if (classification !== undefined) {
+      inputs[name] = classification;
     }
   }
   return Object.keys(inputs).length > 0 ? { inputs } : {};
@@ -218,7 +220,7 @@ function outputClassifications(
     return outputs;
   }
 
-  const output = stateOutputKey(node);
+  const output = stateOutputKeyForClassification(node);
   if (output === undefined) return [];
   let classification =
     node.type === "evidence.write" || node.type === "validate.schema"
@@ -230,7 +232,9 @@ function outputClassifications(
   return classification === undefined ? [] : [[output, classification]];
 }
 
-function stateOutputKey(node: FlowNode): string | undefined {
+export function stateOutputKeyForClassification(
+  node: FlowNode,
+): string | undefined {
   switch (node.type) {
     case "classify":
       return node.outputKey;
@@ -472,6 +476,6 @@ function countOutputKeys(nodes: readonly FlowNode[]): number {
         (node.accumulator === undefined ? 0 : 1)
       );
     }
-    return count + (stateOutputKey(node) === undefined ? 0 : 1);
+    return count + (stateOutputKeyForClassification(node) === undefined ? 0 : 1);
   }, 0);
 }

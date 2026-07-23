@@ -1,6 +1,7 @@
 import type { FlowNode } from "@dzupagent/flow-ast";
 import {
   analyzeFlowTemplateReferences,
+  parseFlowReferenceExpression,
   type FlowReferenceUseSite,
   type ParsedFlowReference,
 } from "@dzupagent/flow-ast/expressions";
@@ -12,6 +13,7 @@ import {
 } from "./semantic-diagnostic.js";
 import { analyzeReferenceContract } from "./reference-contracts.js";
 import { classificationForReference } from "./reference-classifications.js";
+import { validatePrimitiveReferenceAdmission } from "./primitive-admission.js";
 
 const CHILD_NODE_FIELDS = new Set([
   "nodes",
@@ -91,7 +93,7 @@ export function validateNodeTemplateReferences(
   ctx: WalkContext,
 ): void {
   for (const site of collectNodeTemplateReferenceSites(node, path)) {
-    validateTemplateSource(node, site, ctx);
+    validateTemplateSource(node, path, site, ctx);
   }
 }
 
@@ -187,11 +189,12 @@ function collectTemplateValues(
 
 function validateTemplateSource(
   node: FlowNode,
+  nodePath: string,
   site: NodeTemplateReferenceSite,
   ctx: WalkContext,
 ): void {
   if (site.syntax === "state-key") {
-    validateDirectStateKeyFlow(node, site, ctx);
+    validateDirectStateKeyFlow(node, nodePath, site, ctx);
     return;
   }
   const analysis = analyzeFlowTemplateReferences(site.source, {
@@ -239,7 +242,18 @@ function validateTemplateSource(
         span,
       );
     }
-    validateClassifiedFlow(node, site, reference, span, ctx);
+    const admission = validatePrimitiveReferenceAdmission(
+      node,
+      nodePath,
+      site.path,
+      reference,
+      analysis.form,
+      span,
+      ctx,
+    );
+    if (!admission.authorizedCredentialHandle) {
+      validateClassifiedFlow(node, site, reference, span, ctx);
+    }
   }
 }
 
@@ -261,9 +275,26 @@ function validateClassifiedFlow(
 
 function validateDirectStateKeyFlow(
   node: FlowNode,
+  nodePath: string,
   site: NodeTemplateReferenceSite,
   ctx: WalkContext,
 ): void {
+  const parsed = parseFlowReferenceExpression(
+    `{{ state.${site.source} }}`,
+  ).reference;
+  if (parsed !== undefined) {
+    const span = nodeFieldSpan(0, site.source.length);
+    const admission = validatePrimitiveReferenceAdmission(
+      node,
+      nodePath,
+      site.path,
+      parsed,
+      "whole-value",
+      span,
+      ctx,
+    );
+    if (admission.authorizedCredentialHandle) return;
+  }
   pushUnsafeDataFlow(
     node,
     site,

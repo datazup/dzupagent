@@ -142,14 +142,23 @@ export function normalizeInputs(
       type: value.type,
       ...(typeof value.required === 'boolean' ? { required: value.required } : {}),
       ...(typeof value.description === 'string' ? { description: value.description } : {}),
-      ...(value.default !== undefined && isFlowValue(value.default)
+      ...(value.type !== 'credential'
+        && value.default !== undefined
+        && isFlowValue(value.default)
         ? { default: value.default }
         : {}),
       ...(isInputClassification(value.classification)
         ? { classification: value.classification }
         : {}),
     }
-    if (value.default !== undefined && !isFlowValue(value.default)) {
+    if (value.type === 'credential' && value.default !== undefined) {
+      diagnostics.push({
+        phase: 'normalize',
+        code: DSL_ERROR.INVALID_INPUT_SPEC,
+        message: 'credential inputs cannot declare defaults; hosts must supply opaque handles',
+        path: `root.inputs.${key}.default`,
+      })
+    } else if (value.default !== undefined && !isFlowValue(value.default)) {
       diagnostics.push({
         phase: 'normalize',
         code: DSL_ERROR.INVALID_INPUT_SPEC,
@@ -167,6 +176,19 @@ export function normalizeInputs(
         message: 'input spec.classification must be one of public|internal|sensitive|secret',
         path: `root.inputs.${key}.classification`,
       })
+    }
+    if (
+      value.type === 'credential'
+      && value.classification !== undefined
+      && value.classification !== 'secret'
+    ) {
+      diagnostics.push({
+        phase: 'normalize',
+        code: DSL_ERROR.INVALID_INPUT_SPEC,
+        message: 'credential inputs are always secret and cannot be downgraded',
+        path: `root.inputs.${key}.classification`,
+      })
+      delete inputs[key]?.classification
     }
   }
   return inputs
@@ -247,6 +269,7 @@ export function isInputType(value: unknown): value is FlowInputSpec['type'] {
     || value === 'boolean'
     || value === 'object'
     || value === 'array'
+    || value === 'credential'
     || value === 'any'
 }
 

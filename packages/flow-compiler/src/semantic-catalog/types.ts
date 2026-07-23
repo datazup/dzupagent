@@ -1,5 +1,6 @@
 import type { FlowNodeKind } from "@dzupagent/flow-ast";
 import type { ExecutionLeafKind } from "@dzupagent/runtime-contracts/orchestration";
+import type { PrimitiveDefinitionV2 } from "@dzupagent/flow-dsl";
 
 import type {
   FlowCapabilityOwner,
@@ -54,6 +55,7 @@ export interface FlowSemanticPrimitiveEntry {
   readonly outputSchema?: Readonly<Record<string, unknown>>;
   readonly effectClass?: string;
   readonly idempotency?: string;
+  readonly contract: PrimitiveDefinitionV2;
   readonly execution: {
     readonly mode: PrimitiveSemanticExecutionMode;
     readonly target?: string;
@@ -99,7 +101,7 @@ export interface FlowSemanticCatalog {
   readonly generatedFrom: readonly [
     "FLOW_NODE_KIND_REGISTRY",
     "FLOW_NODE_CAPABILITY_REGISTRY",
-    "BUILT_IN_PRIMITIVES",
+    "BUILT_IN_PRIMITIVE_DEFINITIONS_V2",
     "BUILT_IN_SDL_FRAGMENT_DEFINITIONS",
     "EXECUTION_LEAF_KINDS",
   ];

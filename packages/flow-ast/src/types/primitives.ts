@@ -235,7 +235,14 @@ export interface FlowNodeBase {
 }
 
 export interface FlowInputSpec {
-  type: "string" | "number" | "boolean" | "object" | "array" | "any";
+  type:
+    | "string"
+    | "number"
+    | "boolean"
+    | "object"
+    | "array"
+    | "credential"
+    | "any";
   required?: boolean;
   description?: string;
   default?: FlowValue;

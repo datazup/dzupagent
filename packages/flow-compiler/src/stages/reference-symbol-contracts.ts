@@ -2,12 +2,15 @@ import type {
   FlowDocumentV1,
   FlowNode,
 } from "@dzupagent/flow-ast";
+import { analyzeFlowTemplateReferences } from "@dzupagent/flow-ast/expressions";
 
 import type {
   FlowReferencePortBindings,
   FlowReferenceTypeBindings,
   FlowReferenceValueType,
 } from "../types.js";
+import { derivePrimitiveReferencePortBindings } from "./primitive-reference-ports.js";
+import { resolveReferenceValueType } from "./reference-contracts.js";
 
 /** Derive first-segment input types from an authored document. */
 export function deriveDocumentReferenceTypeBindings(
@@ -39,6 +42,60 @@ export function deriveNodeReferenceTypeBindings(
 }
 
 /**
+ * Preserve opaque credential-handle identity through whole-value `set`
+ * assignments. This is deliberately narrow: string interpolation, filters,
+ * and arbitrary transforms never produce a credential handle.
+ */
+export function deriveNodeCredentialTypeBindings(
+  root: FlowNode,
+  seed: FlowReferenceTypeBindings,
+  ports: FlowReferencePortBindings,
+): FlowReferenceTypeBindings {
+  let types = mergeReferenceTypeBindings(seed);
+  const nodes: FlowNode[] = [];
+  collectNodes(root, nodes);
+  const iterationLimit = Math.max(1, nodes.length + 1);
+
+  for (let iteration = 0; iteration < iterationLimit; iteration += 1) {
+    const candidates = new Map<string, boolean>();
+    const credentialState: Record<string, FlowReferenceValueType> = {};
+    for (const node of nodes) {
+      if (node.type === "set") {
+        for (const [name, value] of Object.entries(node.assign)) {
+          recordCredentialCandidate(
+            candidates,
+            name,
+            wholeReferenceType(value, types, ports) === "credential",
+          );
+        }
+        continue;
+      }
+      const otherState = new Map<string, FlowReferenceValueType>();
+      collectNodeStateTypes(node, otherState);
+      for (const name of otherState.keys()) {
+        recordCredentialCandidate(candidates, name, false);
+      }
+    }
+    for (const [name, isCredential] of candidates) {
+      if (isCredential) credentialState[name] = "credential";
+    }
+    if (Object.keys(credentialState).length === 0) break;
+    const next = mergeReferenceTypeBindings(types, { state: credentialState });
+    if (JSON.stringify(next) === JSON.stringify(types)) break;
+    types = next;
+  }
+  return types["state"] === undefined ? {} : { state: types["state"] };
+}
+
+function recordCredentialCandidate(
+  candidates: Map<string, boolean>,
+  name: string,
+  isCredential: boolean,
+): void {
+  candidates.set(name, (candidates.get(name) ?? true) && isCredential);
+}
+
+/**
  * Declare every AST step with no guessed ports.
  *
  * An empty contract is deliberate: v1 state destinations are not portable
@@ -49,8 +106,12 @@ export function deriveNodeReferencePortBindings(
 ): FlowReferencePortBindings {
   const ports = new Map<string, Record<string, FlowReferenceValueType>>();
   visitNodePorts(root, ports);
-  return Object.fromEntries(
+  const declared = Object.fromEntries(
     [...ports.entries()].sort(([left], [right]) => left.localeCompare(right)),
+  );
+  return mergeReferencePortBindings(
+    declared,
+    derivePrimitiveReferencePortBindings(root),
   );
 }
 
@@ -125,6 +186,32 @@ function visitNodeTypes(
 ): void {
   collectNodeStateTypes(node, state);
   for (const child of childNodes(node)) visitNodeTypes(child, state);
+}
+
+function collectNodes(node: FlowNode, nodes: FlowNode[]): void {
+  nodes.push(node);
+  for (const child of childNodes(node)) collectNodes(child, nodes);
+}
+
+function wholeReferenceType(
+  value: unknown,
+  types: FlowReferenceTypeBindings,
+  ports: FlowReferencePortBindings,
+): FlowReferenceValueType {
+  if (typeof value !== "string") return "unknown";
+  const parsed = analyzeFlowTemplateReferences(value);
+  const reference = parsed.references[0];
+  if (
+    parsed.form !== "whole-value" ||
+    reference === undefined ||
+    reference.filters.length > 0
+  ) {
+    return "unknown";
+  }
+  return resolveReferenceValueType(reference, {
+    typeBindings: types,
+    portBindings: ports,
+  });
 }
 
 function visitNodePorts(

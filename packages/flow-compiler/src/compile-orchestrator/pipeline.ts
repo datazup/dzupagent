@@ -263,6 +263,9 @@ export async function runCompile(
     ...(opts.referencePolicy !== undefined
       ? { referencePolicy: opts.referencePolicy }
       : {}),
+    ...(opts.admissionProfile !== undefined
+      ? { admissionProfile: opts.admissionProfile }
+      : {}),
     ...referenceSnapshot,
   });
 

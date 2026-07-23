@@ -35,8 +35,8 @@ export function renderFlowSemanticCatalogMarkdown(
     "",
     "## Primitives",
     "",
-    "| Primitive | Category | Execution | Target | Effect | Idempotency | Expands to |",
-    "| --- | --- | --- | --- | --- | --- | --- |",
+    "| Primitive | Category | Execution | Target | Ports | Effect | Idempotency | Semantic hash | Expands to |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
   );
   for (const primitive of catalog.primitives) {
     lines.push(
@@ -46,9 +46,16 @@ export function renderFlowSemanticCatalogMarkdown(
         primitive.execution.target === undefined
           ? "none"
           : code(primitive.execution.target)
+      } | ${
+        Object.entries(primitive.contract.outputPorts)
+          .map(
+            ([name, port]) =>
+              `${code(name)} (${port.classification}, ${port.persistence})`,
+          )
+          .join("<br>") || "none"
       } | ${primitive.effectClass ?? "unspecified"} | ${
         primitive.idempotency ?? "unspecified"
-      } | ${
+      } | ${code(primitive.contract.compatibility.semanticHash)} | ${
         primitive.expandsTo.map((target) => code(target.authored)).join("<br>") ||
         "none"
       } |`,

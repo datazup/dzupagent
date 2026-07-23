@@ -36,8 +36,22 @@ export function analyzeReferenceContract(
 ): ReferenceContractIssue[] {
   const issues: ReferenceContractIssue[] = [];
   const type = resolveReferenceValueType(reference, options, issues);
+  if (type === "credential" && reference.filters.length > 0) {
+    issues.push({
+      code: "REFERENCE_TYPE_MISMATCH",
+      message:
+        `credential handle "${reference.source}" is opaque and cannot use filters or transforms`,
+    });
+  }
   const filteredType = applyFilterTypes(reference.filters, type, issues);
 
+  if (form === "interpolation" && type === "credential") {
+    issues.push({
+      code: "REFERENCE_TYPE_MISMATCH",
+      message:
+        `credential handle "${reference.source}" must remain a whole value and cannot be interpolated into text`,
+    });
+  }
   if (
     form === "interpolation" &&
     (filteredType === "object" || filteredType === "array")

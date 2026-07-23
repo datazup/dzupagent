@@ -4,9 +4,10 @@ import {
   type FlowNodeKind,
 } from "@dzupagent/flow-ast";
 import {
-  BUILT_IN_PRIMITIVES,
+  BUILT_IN_PRIMITIVE_DEFINITIONS_V2,
   BUILT_IN_SDL_FRAGMENT_DEFINITIONS,
-  type PrimitiveDefinition,
+  primitiveKind,
+  type PrimitiveDefinitionV2,
 } from "@dzupagent/flow-dsl";
 import {
   EXECUTION_LEAF_KINDS,
@@ -28,7 +29,7 @@ import type {
 const GENERATED_FROM = [
   "FLOW_NODE_KIND_REGISTRY",
   "FLOW_NODE_CAPABILITY_REGISTRY",
-  "BUILT_IN_PRIMITIVES",
+  "BUILT_IN_PRIMITIVE_DEFINITIONS_V2",
   "BUILT_IN_SDL_FRAGMENT_DEFINITIONS",
   "EXECUTION_LEAF_KINDS",
 ] as const;
@@ -40,7 +41,9 @@ const EXPANSION_NODE_ALIASES: Readonly<Record<string, FlowNodeKind>> =
 
 export function generateFlowSemanticCatalog(): FlowSemanticCatalog {
   const diagnostics: FlowSemanticCatalogDiagnostic[] = [];
-  const primitiveRefsByKind = indexPrimitiveRefs(BUILT_IN_PRIMITIVES);
+  const primitiveRefsByKind = indexPrimitiveRefs(
+    BUILT_IN_PRIMITIVE_DEFINITIONS_V2,
+  );
   const fragmentRefsById = indexFragmentRefs();
   const executionLeafSet = new Set<string>(EXECUTION_LEAF_KINDS);
 
@@ -48,7 +51,7 @@ export function generateFlowSemanticCatalog(): FlowSemanticCatalog {
     createNodeEntry(kind, primitiveRefsByKind, executionLeafSet),
   ).sort(compareByIdentity);
 
-  const primitives = BUILT_IN_PRIMITIVES.map((definition, index) =>
+  const primitives = BUILT_IN_PRIMITIVE_DEFINITIONS_V2.map((definition, index) =>
     createPrimitiveEntry(
       definition,
       index,
@@ -177,14 +180,15 @@ function classifyNode(
 }
 
 function createPrimitiveEntry(
-  definition: PrimitiveDefinition,
+  definition: PrimitiveDefinitionV2,
   index: number,
   primitiveRefsByKind: ReadonlyMap<string, readonly string[]>,
   executionLeafSet: ReadonlySet<string>,
   diagnostics: FlowSemanticCatalogDiagnostic[],
 ): FlowSemanticPrimitiveEntry {
   const path = `primitives[${index}]`;
-  const expandsTo = (definition.expandsTo ?? []).map((target, targetIndex) =>
+  const kind = primitiveKind(definition);
+  const expandsTo = (definition.execution.expandsTo ?? []).map((target, targetIndex) =>
     resolveExpansionTarget(
       target,
       `${path}.expandsTo[${targetIndex}]`,
@@ -194,11 +198,11 @@ function createPrimitiveEntry(
   );
 
   let mode: FlowSemanticPrimitiveEntry["execution"]["mode"];
-  if (definition.expand !== undefined) {
+  if (definition.execution.kind === "expand") {
     mode = "macro";
   } else if (
-    definition.executesWith !== undefined &&
-    executionLeafSet.has(definition.executesWith)
+    definition.execution.handlerRef !== undefined &&
+    executionLeafSet.has(definition.execution.handlerRef)
   ) {
     mode = "execution-leaf";
   } else {
@@ -206,41 +210,47 @@ function createPrimitiveEntry(
   }
 
   if (
-    definition.expand === undefined &&
-    (definition.executesWith === undefined ||
-      (!isFlowNodeKind(definition.executesWith) &&
-        !executionLeafSet.has(definition.executesWith)))
+    definition.execution.kind !== "expand" &&
+    (definition.execution.handlerRef === undefined ||
+      (!isFlowNodeKind(definition.execution.handlerRef) &&
+        !executionLeafSet.has(definition.execution.handlerRef)))
   ) {
     diagnostics.push({
       code: "UNRESOLVED_PRIMITIVE_EXECUTOR",
-      path: `${path}.executesWith`,
-      message: `Primitive "${definition.kind}@${definition.version}" has no resolvable node or execution-leaf target.`,
+      path: `${path}.execution.handlerRef`,
+      message: `Primitive "${kind}@${definition.version}" has no resolvable node or execution-leaf target.`,
     });
   }
 
   return {
-    identity: `primitive:${definition.kind}@${definition.version}`,
-    kind: definition.kind,
+    identity: `primitive:${kind}@${definition.version}`,
+    kind,
     version: definition.version,
     namespace: definition.namespace,
     category: definition.category,
     ...(definition.description !== undefined
       ? { description: definition.description }
       : {}),
-    schema: definition.schema,
-    ...(definition.outputSchema !== undefined
-      ? { outputSchema: definition.outputSchema }
-      : {}),
-    ...(definition.effectClass !== undefined
-      ? { effectClass: definition.effectClass }
-      : {}),
-    ...(definition.idempotency !== undefined
-      ? { idempotency: definition.idempotency }
-      : {}),
+    schema:
+      typeof definition.inputSchema === "string"
+        ? { $ref: definition.inputSchema }
+        : definition.inputSchema,
+    outputSchema: {
+      type: "object",
+      properties: Object.fromEntries(
+        Object.entries(definition.outputPorts).map(([name, port]) => [
+          name,
+          typeof port.schema === "string" ? { $ref: port.schema } : port.schema,
+        ]),
+      ),
+    },
+    effectClass: definition.effect.classes[0],
+    idempotency: definition.effect.idempotency,
+    contract: definition,
     execution: {
       mode,
-      ...(definition.executesWith !== undefined
-        ? { target: definition.executesWith }
+      ...(definition.execution.handlerRef !== undefined
+        ? { target: definition.execution.handlerRef }
         : {}),
     },
     expandsTo,
@@ -273,13 +283,14 @@ function resolveExpansionTarget(
 }
 
 function indexPrimitiveRefs(
-  definitions: readonly PrimitiveDefinition[],
+  definitions: readonly PrimitiveDefinitionV2[],
 ): ReadonlyMap<string, readonly string[]> {
   const mutable = new Map<string, string[]>();
   for (const definition of definitions) {
-    const refs = mutable.get(definition.kind) ?? [];
-    refs.push(`${definition.kind}@${definition.version}`);
-    mutable.set(definition.kind, refs);
+    const kind = primitiveKind(definition);
+    const refs = mutable.get(kind) ?? [];
+    refs.push(`${kind}@${definition.version}`);
+    mutable.set(kind, refs);
   }
   return new Map(
     [...mutable.entries()].map(([kind, refs]) => [kind, refs.sort()]),

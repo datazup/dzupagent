@@ -33,9 +33,13 @@ export type FlowReferenceValueType =
   | "boolean"
   | "object"
   | "array"
+  | "credential"
   | "null"
   | "any"
   | "unknown";
+
+/** Compile-time admission posture; unattended flows fail closed. */
+export type FlowAdmissionProfile = "interactive" | "unattended";
 
 /** Types for the first declared name below each reference root. */
 export type FlowReferenceTypeBindings = Readonly<
@@ -149,6 +153,12 @@ export interface CompilerOptions {
    * analysis without changing v1 runtime evaluation.
    */
   referencePolicy?: FlowReferencePolicy;
+  /**
+   * `interactive` preserves compatibility defaults. `unattended` requires
+   * strict reference analysis and explicit classification for every document
+   * input before compilation can succeed.
+   */
+  admissionProfile?: FlowAdmissionProfile;
   /**
    * Additional host/late-bound names by reference root. The compiler derives
    * ordinary document inputs, state outputs, step ids, and loop symbols, then
