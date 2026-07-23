@@ -3,6 +3,7 @@ import type {
   ResolvedTool,
   ToolResolver,
 } from "@dzupagent/flow-ast";
+import { defineFlowToolSecurityPolicy } from "@dzupagent/flow-ast";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -25,6 +26,22 @@ const TOOL: ResolvedTool = {
     sideEffects: [],
     namespace: "known",
   },
+  securityPolicy: defineFlowToolSecurityPolicy({
+    acceptedInputClassifications: ["public", "internal"],
+    credential: {
+      mode: "forbidden",
+      inputPaths: [],
+      allowedProviders: [],
+      requiredScopes: [],
+    },
+    outputClassification: "internal",
+    effectClasses: ["read"],
+    evidence: {
+      required: [],
+      classification: "internal",
+      rawContent: "forbidden",
+    },
+  }),
 };
 
 const resolver: ToolResolver = {

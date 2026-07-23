@@ -10,7 +10,7 @@ import {
 
 describe("PrimitiveDefinitionV2", () => {
   it("is complete and deterministically hashed for every built-in", () => {
-    expect(BUILT_IN_PRIMITIVE_DEFINITIONS_V2).toHaveLength(8);
+    expect(BUILT_IN_PRIMITIVE_DEFINITIONS_V2).toHaveLength(9);
     for (const definition of BUILT_IN_PRIMITIVE_DEFINITIONS_V2) {
       expect(definition.schema).toBe("dzupagent.primitiveDefinition/v2");
       expect(definition.compatibility.semanticHash).toMatch(
@@ -114,5 +114,25 @@ describe("PrimitiveDefinitionV2", () => {
         credentialResolverCapabilityRef: undefined,
       }),
     ).toThrow(/credential resolver capability/);
+  });
+
+  it("declares HTTP auth as one opaque handle slot with classified output", () => {
+    const http = BUILT_IN_PRIMITIVE_DEFINITIONS_V2.find(
+      (definition) => primitiveKind(definition) === "http",
+    )!;
+    expect(http).toEqual(
+      expect.objectContaining({
+        credentialInputs: "handle-only",
+        credentialInputPaths: ["auth.credential"],
+        credentialResolverCapabilityRef:
+          "flow.runtime.credential.resolve@1",
+        acceptedInputClassifications: ["public", "internal"],
+        outputPorts: {
+          response: expect.objectContaining({
+            classification: "sensitive",
+          }),
+        },
+      }),
+    );
   });
 });
