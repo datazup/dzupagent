@@ -87,6 +87,16 @@ export interface PrimitiveDefinitionV2 {
 
   inputSchema: PrimitiveSchema;
   acceptedInputClassifications: readonly FlowDataClassification[];
+  /**
+   * Reviewed classifications for exact or wildcard input-schema paths.
+   *
+   * Paths use dot notation and `*` for array/object items, for example
+   * `request.customer.email` or `records.*.token`. Credential paths are
+   * always projected as `secret` even when this map omits them.
+   */
+  inputPathClassifications?: Readonly<
+    Record<string, FlowDataClassification>
+  >;
   credentialInputs: "forbidden" | "handle-only" | "raw-by-policy";
   credentialInputPaths: readonly string[];
   credentialResolverCapabilityRef?: string;
@@ -149,6 +159,67 @@ export type PrimitiveDefinitionV2Input = Omit<
 export type PrimitiveExpansionHandlers = Readonly<
   Record<string, PrimitiveExpansionHandler | undefined>
 >;
+
+export interface PrimitiveRegistryV2 {
+  readonly schema: "dzupagent.primitiveRegistry/v2";
+  readonly registryHash: `sha256:${string}`;
+  get(ref: `primitive://${string}@${string}`): PrimitiveDefinitionV2 | undefined;
+  resolve(kind: string, version?: string): PrimitiveDefinitionV2 | undefined;
+  resolveAlias(alias: string): PrimitiveDefinitionV2 | undefined;
+  list(namespace?: string): readonly PrimitiveDefinitionV2[];
+  has(ref: `primitive://${string}@${string}`): boolean;
+}
+
+export interface PrimitiveRegistryV2Options {
+  /**
+   * Fail registry construction when an inline-schema leaf has no reviewed
+   * classification. Credential leaves are classified as secret implicitly.
+   */
+  requireClassifiedLeafInputs?: boolean;
+}
+
+export type PrimitiveAuthoringValueType =
+  | "string"
+  | "number"
+  | "integer"
+  | "boolean"
+  | "object"
+  | "array"
+  | "null"
+  | "credential"
+  | "unknown";
+
+export interface PrimitiveAuthoringField {
+  readonly path: string;
+  readonly jsonPointer: string;
+  readonly valueType: PrimitiveAuthoringValueType;
+  readonly required: boolean;
+  readonly leaf: boolean;
+  readonly classification: FlowDataClassification | "unclassified";
+  readonly credential: boolean;
+  readonly title?: string;
+  readonly description?: string;
+  readonly enum?: readonly unknown[];
+}
+
+export interface PrimitiveOutputAuthoringField {
+  readonly path: string;
+  readonly valueType: PrimitiveAuthoringValueType;
+  readonly classification: FlowDataClassification;
+  readonly cardinality: PrimitiveOutputPortDefinition["cardinality"];
+  readonly persistence: PrimitiveOutputPortDefinition["persistence"];
+}
+
+export interface PrimitiveAuthoringMetadata {
+  readonly schema: "dzupagent.primitiveAuthoringMetadata/v1";
+  readonly primitiveRef: PrimitiveDefinitionV2["ref"];
+  readonly semanticHash: PrimitiveDefinitionV2["compatibility"]["semanticHash"];
+  readonly inputSchema: PrimitiveSchema;
+  readonly inputFields: readonly PrimitiveAuthoringField[];
+  readonly outputFields: readonly PrimitiveOutputAuthoringField[];
+  readonly unclassifiedLeafPaths: readonly string[];
+  readonly classificationComplete: boolean;
+}
 
 export interface PrimitiveRegistry {
   get(kind: string, version?: string): PrimitiveDefinition | undefined;

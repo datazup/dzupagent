@@ -16,12 +16,25 @@ import type {
 } from "@dzupagent/flow-ast/expressions";
 import type { ParseInput } from "@dzupagent/flow-ast";
 import type { DzupEventBus } from "@dzupagent/core/events";
+import type {
+  PrimitiveDefinitionV2,
+  PrimitiveRegistryV2,
+} from "@dzupagent/flow-dsl";
 
 import type { ProfileRegistry } from "./profile-registry.js";
 import type { FlowCompiledClassificationEnvelope } from "./classification-envelope-types.js";
 import type { FlowReferenceValueType } from "./reference-value-types.js";
 
 export type { FlowReferenceValueType } from "./reference-value-types.js";
+
+export interface FlowPrimitiveBinding {
+  readonly ref: PrimitiveDefinitionV2["ref"];
+  readonly semanticHash: PrimitiveDefinitionV2["compatibility"]["semanticHash"];
+}
+
+export type FlowPrimitiveBindings = Readonly<
+  Record<string, FlowPrimitiveBinding | undefined>
+>;
 
 /** Compile-time admission posture; unattended flows fail closed. */
 export type FlowAdmissionProfile = "interactive" | "unattended";
@@ -66,6 +79,16 @@ export type FlowReferencePortClassificationBindings = Readonly<
 
 export interface CompilerOptions {
   toolResolver: ToolResolver | AsyncToolResolver;
+  /**
+   * Immutable V2 registry used for explicitly pinned external primitive
+   * contracts. It must retain every built-in definition unchanged.
+   */
+  primitiveRegistry?: PrimitiveRegistryV2;
+  /**
+   * Exact kind-to-ref/hash bindings. External definitions are never selected
+   * merely because they are the latest version in a supplied registry.
+   */
+  primitiveBindings?: FlowPrimitiveBindings;
   flowDocumentResolver?: FlowDocumentResolver;
   personaResolver?: PersonaResolver | AsyncPersonaResolver;
   /**

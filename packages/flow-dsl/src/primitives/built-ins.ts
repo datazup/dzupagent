@@ -3,6 +3,7 @@ import { expandCollabReviewLoopV2 } from "./collab-review-loop-v2.js";
 import { BUILT_IN_PRIMITIVE_DEFINITIONS_V2 } from "./built-ins-v2.js";
 import { toPrimitiveDefinitionV1 } from "./definition-v2.js";
 import { createPrimitiveRegistry } from "./registry.js";
+import { createPrimitiveRegistryV2 } from "./registry-v2.js";
 import type { PrimitiveDefinition } from "./types.js";
 
 export const BUILT_IN_PRIMITIVES: readonly PrimitiveDefinition[] =
@@ -16,6 +17,10 @@ export const BUILT_IN_PRIMITIVES: readonly PrimitiveDefinition[] =
   );
 
 export { BUILT_IN_PRIMITIVE_DEFINITIONS_V2 } from "./built-ins-v2.js";
+
+export const BUILT_IN_PRIMITIVE_REGISTRY_V2 = createPrimitiveRegistryV2(
+  BUILT_IN_PRIMITIVE_DEFINITIONS_V2,
+);
 
 export const DEFAULT_PRIMITIVE_REGISTRY =
   createPrimitiveRegistry(BUILT_IN_PRIMITIVES);

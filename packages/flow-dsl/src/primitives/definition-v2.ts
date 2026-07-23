@@ -7,7 +7,12 @@ import type {
   PrimitiveExpansionHandlers,
   PrimitiveJsonSchema,
   PrimitiveOutputPortDefinition,
+  PrimitiveSchema,
 } from "./types.js";
+import {
+  validatePrimitiveAuthoringSchema,
+  validatePrimitiveSchema,
+} from "./authoring-metadata.js";
 
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const INPUT_PATH_PATTERN =
@@ -25,8 +30,21 @@ export function definePrimitiveV2(
     acceptedInputClassifications: Object.freeze([
       ...input.acceptedInputClassifications,
     ]),
+    inputSchema: freezeSchema(input.inputSchema),
+    ...(input.inputPathClassifications === undefined
+      ? {}
+      : {
+          inputPathClassifications: Object.freeze(
+            Object.fromEntries(
+              Object.entries(input.inputPathClassifications).sort(
+                ([left], [right]) => left.localeCompare(right),
+              ),
+            ),
+          ),
+        }),
     credentialInputPaths: Object.freeze([...input.credentialInputPaths]),
     outputPorts: freezeOutputPorts(input.outputPorts),
+    errorSchema: freezeSchema(input.errorSchema),
     errors: Object.freeze(input.errors.map((error) => Object.freeze({ ...error }))),
     effect: Object.freeze({
       ...input.effect,
@@ -159,6 +177,61 @@ export function validatePrimitiveDefinitionV2(
       `primitive ${identity} repeats an accepted input classification`,
     );
   }
+  validateUniqueNonEmpty(
+    definition.requiresProfiles,
+    `primitive ${identity} profile requirements`,
+  );
+  validateUniqueNonEmpty(
+    definition.requiresCapabilities,
+    `primitive ${identity} capability requirements`,
+  );
+  validateUniqueNonEmpty(
+    definition.effect.classes,
+    `primitive ${identity} effect classes`,
+  );
+  validateUniqueNonEmpty(
+    definition.execution.delivery,
+    `primitive ${identity} delivery modes`,
+  );
+  validateUniqueNonEmpty(
+    definition.execution.durability,
+    `primitive ${identity} durability modes`,
+  );
+  validateUniqueNonEmpty(
+    definition.policy.allowedOverrides,
+    `primitive ${identity} policy overrides`,
+  );
+  validateUniqueNonEmpty(
+    definition.policy.requiredApprovalClasses,
+    `primitive ${identity} approval classes`,
+  );
+  validateUniqueNonEmpty(
+    definition.evidence.required,
+    `primitive ${identity} evidence requirements`,
+  );
+  validateUniqueNonEmpty(
+    definition.compatibility.supersedes,
+    `primitive ${identity} supersession refs`,
+  );
+  validateUniqueNonEmpty(
+    definition.compatibility.deprecatedAliases,
+    `primitive ${identity} deprecated aliases`,
+  );
+  validateUniqueNonEmpty(
+    definition.errors.map((error) => error.code),
+    `primitive ${identity} error codes`,
+  );
+  validatePrimitiveAuthoringSchema(definition);
+  validatePrimitiveSchema(definition.errorSchema, `${identity}.errorSchema`);
+  for (const [port, contract] of Object.entries(definition.outputPorts)) {
+    if (port.length === 0) {
+      throw new Error(`primitive ${identity} output port name must not be empty`);
+    }
+    validatePrimitiveSchema(
+      contract.schema,
+      `${identity}.outputPorts.${port}.schema`,
+    );
+  }
   if (
     new Set(definition.credentialInputPaths).size !==
     definition.credentialInputPaths.length
@@ -167,9 +240,7 @@ export function validatePrimitiveDefinitionV2(
   }
   if (
     definition.credentialInputPaths.some(
-      (path) =>
-        !INPUT_PATH_PATTERN.test(path) ||
-        (path.includes("*") && !path.endsWith(".*")),
+      (path) => !INPUT_PATH_PATTERN.test(path),
     )
   ) {
     throw new Error(
@@ -317,10 +388,48 @@ function freezeOutputPorts(
     Object.fromEntries(
       Object.entries(ports).map(([name, port]) => [
         name,
-        Object.freeze({ ...port }),
+        Object.freeze({ ...port, schema: freezeSchema(port.schema) }),
       ]),
     ),
   );
+}
+
+function freezeSchema<T extends PrimitiveSchema>(schema: T): T {
+  return (typeof schema === "string"
+    ? schema
+    : freezeJson(schema, new WeakSet())) as T;
+}
+
+function freezeJson(value: unknown, seen: WeakSet<object>): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) throw new TypeError("cannot freeze cyclic primitive schema");
+  seen.add(value);
+  if (Array.isArray(value)) {
+    const array = value.map((item) => freezeJson(item, seen));
+    seen.delete(value);
+    return Object.freeze(array);
+  }
+  const record = value as Readonly<Record<string, unknown>>;
+  const frozen = Object.fromEntries(
+    Object.entries(record).map(([key, nested]) => [
+      key,
+      freezeJson(nested, seen),
+    ]),
+  );
+  seen.delete(value);
+  return Object.freeze(frozen);
+}
+
+function validateUniqueNonEmpty(
+  values: readonly string[],
+  label: string,
+): void {
+  if (values.some((value) => value.length === 0)) {
+    throw new Error(`${label} must not contain empty values`);
+  }
+  if (new Set(values).size !== values.length) {
+    throw new Error(`${label} must not contain duplicates`);
+  }
 }
 
 function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
