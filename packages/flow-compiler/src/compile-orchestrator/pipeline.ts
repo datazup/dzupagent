@@ -329,7 +329,6 @@ export async function runCompile(
 
   const { resolved, resolvedPersonas } = semanticResult;
   const semanticWarnings = toSemanticWarnings(semanticResult.warnings);
-
   // -----------------------------------------------------------------------
   // Stage 4: Route + lower
   // -----------------------------------------------------------------------
