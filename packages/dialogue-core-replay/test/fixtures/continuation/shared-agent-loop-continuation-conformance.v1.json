@@ -1,0 +1,3490 @@
+{
+  "schema": "dzupagent/continuation-conformance-fixture-set/v1",
+  "fixtureSetId": "shared-agent-loop-continuation-conformance-2026-07-23",
+  "contractVersion": "continuation/v1",
+  "sources": [
+    {
+      "sourceId": "adversarial-contract-v1",
+      "family": "adversarial",
+      "sourceSchema": "dzupagent/continuation-adversarial-vectors/v1",
+      "sourceDigest": "sha256:b9926518e29bc802c89845ef75b6089439ebee4faa7984e45f957b09cc8d6f6b",
+      "sourceCaseCount": 16,
+      "reductionProcedureVersion": "dzupagent/adversarial-continuation-authoring/v1"
+    },
+    {
+      "sourceId": "codev-continuation-contract-v1",
+      "family": "codev",
+      "sourceSchema": "codev/agent-loop-continuation-contract-sources/v1",
+      "sourceDigest": "sha256:a44008b116985a30846d8b43049cc40f36914c8a799ef48af97628458d942c13",
+      "sourceCaseCount": 10,
+      "reductionProcedureVersion": "scripts/codev-continuation-vector-reduction/v1"
+    },
+    {
+      "sourceId": "scripts-historical-v1",
+      "family": "scripts_historical",
+      "sourceSchema": "flow-prompt-lab/historical-alternating-corpus-snapshot/v1",
+      "sourceDigest": "sha256:7da868c6807cc819c099762b300428c329ba5a23cb4b6c79fe8b46fbca3e4cdf",
+      "sourceByteDigest": "sha256:6a04c0484b8e6a13f8fe8b0d3abaa284cefcb4a28a96f2cc913da1c5bc8464d3",
+      "sourceCaseCount": 21,
+      "reductionProcedureVersion": "scripts/historical-continuation-reduction/v1"
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "adversarial-ambiguous-wrapper",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case ambiguous wrapper.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [
+            "json_text"
+          ],
+          "diagnostics": [
+            "proposal.ambiguous_wrapper"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-1d89f79764e6e9f9",
+            "planDigest": "sha256:f24c52219e8229c7a88cef13a3de86676b48755ff6820fe95c224e74b3c59206",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 1,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "reject",
+          "reason": "invalid_proposal",
+          "diagnostics": [
+            "proposal.ambiguous_wrapper",
+            "transition.rejected_invalid_proposal"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-blank-continue",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case blank continue.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": [
+            "proposal.next_task_required"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-77428b7ec60abd24",
+            "planDigest": "sha256:581fcc91cb8633e6d2540e0882819b7d3bc5932f83fde00d7155cb7a7e579e44",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 2,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "reject",
+          "reason": "invalid_proposal",
+          "diagnostics": [
+            "proposal.next_task_required",
+            "transition.rejected_invalid_proposal"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-blocked-policy-review",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case blocked policy review.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:blocker"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-16a7c19953b72fcc",
+            "planDigest": "sha256:82f59d2905930ef76bae8635f2e93cf7178af2e53da769ee3bb71d8f13e3779e",
+            "policyDigest": "sha256:02162107bf2fa7392f9c40482efd4f026056247001d81231392160fa4c6be8f2"
+          },
+          "progress": {
+            "iteration": 3,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "blocked",
+              "verified": true,
+              "evidenceRef": "evidence:blocker"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "review_again",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "review_again",
+          "reason": "blocked_not_permitted",
+          "diagnostics": [
+            "transition.blocked_not_permitted"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-complete-failed-validation",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case complete failed validation.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "The bounded plan is complete.",
+            "evidenceRefs": [],
+            "verdict": "complete",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-875c9d378a8a8821",
+            "planDigest": "sha256:718079ba5d448d3c3e19d5e6f5d31cec482ec8369521ba23e1c7d07be34ad05e",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 4,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "failed",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "review_again",
+          "reason": "completion_validation_insufficient",
+          "diagnostics": [
+            "transition.completion_validation_insufficient"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-complete-verified-blocker",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case complete verified blocker.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "The bounded plan is complete.",
+            "evidenceRefs": [],
+            "verdict": "complete",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-82392a0d5a6bd8e3",
+            "planDigest": "sha256:b961528774f1dd0ad9ef7f9eb4c0cb1b2cb4cfe776c79216972092e15097284b",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 5,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "active_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:blocker"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "review_again",
+          "reason": "completion_blocked",
+          "blockerCodes": [
+            "active_blocker"
+          ],
+          "diagnostics": [
+            "transition.completion_blocked"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-conflicting-terminal-task",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case conflicting terminal task.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": [
+            "proposal.next_task_must_be_empty"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-9d59834afad0b49d",
+            "planDigest": "sha256:1e02d505582669cca3ed84eda6f0c38d5b0c153a9446a9c8f65c1e614d5b04f7",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 6,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "reject",
+          "reason": "invalid_proposal",
+          "diagnostics": [
+            "proposal.next_task_must_be_empty",
+            "transition.rejected_invalid_proposal"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-host-cancel-over-invalid",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case host cancel over invalid.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [],
+          "diagnostics": [
+            "proposal.not_object"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-ab5bf7f90e904b59",
+            "planDigest": "sha256:b7ef12f12b1847b592703ffd53c2f1ad6760c56b617f9528e41df59bc22d035c",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 7,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "stop",
+          "reason": "cancelled"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "cancelled",
+          "diagnostics": [
+            "transition.host_stop"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-host-suspend-over-invalid",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case host suspend over invalid.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [],
+          "diagnostics": [
+            "proposal.not_object"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-0bea8d9836c30f02",
+            "planDigest": "sha256:077e00cbf0840db3b7dee29f4208bdb0073f843dd15573f2d2c660d21fd5d847",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 8,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "suspend",
+          "reason": "approval_required"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "suspend",
+          "reason": "approval_required",
+          "diagnostics": [
+            "transition.host_suspend"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-malformed-json",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case malformed json.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [
+            "json_text"
+          ],
+          "diagnostics": [
+            "proposal.malformed_json"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-fb189b625c696696",
+            "planDigest": "sha256:4c3de292b77df995c0273868c64259f5bd525b8aa9d1c3f541d1712d6c94c06a",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 9,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "reject",
+          "reason": "invalid_proposal",
+          "diagnostics": [
+            "proposal.malformed_json",
+            "transition.rejected_invalid_proposal"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-repeated-review",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case repeated review.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "One bounded task remains.",
+            "evidenceRefs": [],
+            "verdict": "continue",
+            "nextTask": "Repeat the bounded task."
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-32f68c2f6c5e361b",
+            "planDigest": "sha256:db6f9b22ec8c1befe4aebbd03a50d058d0a308c4287a8c012855eabf9e1e9f3c",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 10,
+            "priorTaskKeys": [
+              "task-key/v1:sha256:69eccc6f270f232324ef5b610fce004c01264cf8029d576617aafba7679c870f"
+            ],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "review_again",
+          "reason": "repeated_task",
+          "diagnostics": [
+            "transition.repeated_task"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-repeated-stop-stuck",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case repeated stop stuck.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "One bounded task remains.",
+            "evidenceRefs": [],
+            "verdict": "continue",
+            "nextTask": "Repeat the bounded task."
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-0e2d860505f2c820",
+            "planDigest": "sha256:39741fa978d0a402c1ab518e0d597e198391c103bf7d165bb6d6b690e2d867d8",
+            "policyDigest": "sha256:a999ef32391ce212b356c80bf151a5c2e9776367b2bf9bc4658297f3ad3b745e"
+          },
+          "progress": {
+            "iteration": 11,
+            "priorTaskKeys": [
+              "task-key/v1:sha256:69eccc6f270f232324ef5b610fce004c01264cf8029d576617aafba7679c870f"
+            ],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "stop_stuck"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "stuck",
+          "diagnostics": [
+            "transition.repeated_task"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-unicode-task-key",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case unicode task key.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "One bounded task remains.",
+            "evidenceRefs": [],
+            "verdict": "continue",
+            "nextTask": "ＦＩＸ  THE   TEST"
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-ab30afd1a00bd3cd",
+            "planDigest": "sha256:16f648a1c811701ea50d1fbc9fbbda122cca0e7f4f989098b0a5633adcadcbf3",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 12,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "continue",
+          "nextTask": "ＦＩＸ  THE   TEST",
+          "taskKey": "task-key/v1:sha256:d59a39c8c43d566b7311658cef284ba6eb0c6b0c95ab66515947d94a040bddfa",
+          "diagnostics": [
+            "transition.continue"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-unknown-field",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case unknown field.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": [
+            "proposal.unknown_field"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-e7b3abdb2f4c3854",
+            "planDigest": "sha256:fee88be35906bdd9cfa02778f97b9aed50ece499c76d250568f214942ead91c8",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 13,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "reject",
+          "reason": "invalid_proposal",
+          "diagnostics": [
+            "proposal.unknown_field",
+            "transition.rejected_invalid_proposal"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-unknown-verdict",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case unknown verdict.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": [
+            "proposal.verdict_unknown"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-19cc836bafec0fce",
+            "planDigest": "sha256:0105fa8faeb8b729c74ee8ffce59e8d2cc2adb51a1c7f03926a56e0f1735fd2f",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 14,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "reject",
+          "reason": "invalid_proposal",
+          "diagnostics": [
+            "proposal.verdict_unknown",
+            "transition.rejected_invalid_proposal"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-unverified-blocker",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case unverified blocker.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:blocker"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-4d5794b9d30a05c4",
+            "planDigest": "sha256:81d6f4a182f0993ecd0392e002c16a4b96df668ff6e2fb4101f33278f50a72d3",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 15,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "unverified_blocker",
+              "verified": false,
+              "evidenceRef": "evidence:blocker"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "review_again",
+          "reason": "blocker_evidence_unverified",
+          "diagnostics": [
+            "transition.blocker_evidence_unverified"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "adversarial-valid-blocked",
+      "family": "adversarial",
+      "sourceId": "adversarial-contract-v1",
+      "description": "Adversarial continuation contract case valid blocked.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:blocker"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-47fc9579e61b30b3",
+            "planDigest": "sha256:cbd4b913962c80a9dbfc13d3c4f7ab2c49f56f0537659e626a9975ca5abf248d",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 16,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "verified_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:blocker"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "blocked",
+          "blockerCodes": [
+            "verified_blocker"
+          ],
+          "diagnostics": [
+            "transition.blocked"
+          ]
+        },
+        "comparisonClassification": "match"
+      }
+    },
+    {
+      "caseId": "codev-active-blocker-completion",
+      "family": "codev",
+      "sourceId": "codev-continuation-contract-v1",
+      "description": "Codev completion proposal conflicts with a verified active blocker.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "The bounded plan is complete.",
+            "evidenceRefs": [],
+            "verdict": "complete",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-d982e99481c0facd",
+            "planDigest": "sha256:6e5c1f9f565691766b483f968dfa9b37b2fbd21f22a0dff9571205ac966b7717",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 1,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "failed",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "validation_failed",
+              "verified": true,
+              "evidenceRef": "evidence:blocker"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "review_again",
+          "reason": "completion_blocked",
+          "blockerCodes": [
+            "validation_failed"
+          ],
+          "diagnostics": [
+            "transition.completion_blocked"
+          ]
+        },
+        "comparisonClassification": "safer_kernel",
+        "legacy": {
+          "normalizedDecision": "complete",
+          "admittedTransition": "continue",
+          "diagnosticCodes": [
+            "codev.host_override.active_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "codev-ambiguous-review",
+      "family": "codev",
+      "sourceId": "codev-continuation-contract-v1",
+      "description": "Codev ambiguous continuation response is not admitted.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [],
+          "diagnostics": [
+            "proposal.not_object"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-ed8508acc6621d7c",
+            "planDigest": "sha256:960eb561491e63909179eefa8c92ae48c81f76b4b29c7a73cb0efbded86bfb2f",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 2,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "reject",
+          "reason": "invalid_proposal",
+          "diagnostics": [
+            "proposal.not_object",
+            "transition.rejected_invalid_proposal"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "unclassified",
+          "admittedTransition": "reject",
+          "diagnosticCodes": [
+            "codev.continuation_decision_error"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "codev-blocked-not-adopted",
+      "family": "codev",
+      "sourceId": "codev-continuation-contract-v1",
+      "description": "Codev blocked proposal remains a review state until product semantics are approved.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:blocker"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-9911daced4a013dc",
+            "planDigest": "sha256:94cd0e73d0631fa118a5b84837e41f3cead2df349ca239c57f65ca870a0af2b2",
+            "policyDigest": "sha256:02162107bf2fa7392f9c40482efd4f026056247001d81231392160fa4c6be8f2"
+          },
+          "progress": {
+            "iteration": 3,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "dependency_blocked",
+              "verified": true,
+              "evidenceRef": "evidence:blocker"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "review_again",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "review_again",
+          "reason": "blocked_not_permitted",
+          "diagnostics": [
+            "transition.blocked_not_permitted"
+          ]
+        },
+        "comparisonClassification": "safer_kernel",
+        "legacy": {
+          "normalizedDecision": "unclassified",
+          "admittedTransition": "reject",
+          "diagnosticCodes": [
+            "codev.blocked_not_in_current_decision_vocabulary"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "codev-budget-precedence",
+      "family": "codev",
+      "sourceId": "codev-continuation-contract-v1",
+      "description": "Codev host budget stop overrides a continuation proposal.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "One bounded task remains.",
+            "evidenceRefs": [],
+            "verdict": "continue",
+            "nextTask": "Execute the bounded budget task."
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-e69791664d307114",
+            "planDigest": "sha256:d0144dfa685663a09c8af4e2737930dc24bf5a191126aafdd4cb372ebc61101f",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 4,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "stop",
+          "reason": "budget_exceeded"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "budget_exceeded",
+          "diagnostics": [
+            "transition.host_stop"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "continue",
+          "admittedTransition": "host_stop",
+          "diagnosticCodes": [
+            "codev.host_override.budget_exceeded"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "codev-cancel-precedence",
+      "family": "codev",
+      "sourceId": "codev-continuation-contract-v1",
+      "description": "Codev cancellation overrides an invalid proposal.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [],
+          "diagnostics": [
+            "proposal.not_object"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-546b4130b2660c66",
+            "planDigest": "sha256:78e4c8647328ad58c12f6001cc7e140e81cd13cd0ccc3fc5f50ade5ea36067d8",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 5,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "stop",
+          "reason": "cancelled"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "cancelled",
+          "diagnostics": [
+            "transition.host_stop"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "unclassified",
+          "admittedTransition": "host_stop",
+          "diagnosticCodes": [
+            "codev.host_control.cancelled"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "codev-clean-completion",
+      "family": "codev",
+      "sourceId": "codev-continuation-contract-v1",
+      "description": "Codev clean completion with passed validation is admitted.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "The bounded plan is complete.",
+            "evidenceRefs": [],
+            "verdict": "complete",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-eb565ee7efcd0307",
+            "planDigest": "sha256:9b5e0cd0a8c52895e71e78cd4ce23fabf38472b45b333bc4b173a862519d34c6",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 6,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "passed",
+            "verifiedRefs": [
+              "validation:verified"
+            ]
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "complete",
+          "diagnostics": [
+            "transition.complete"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "complete",
+          "admittedTransition": "complete",
+          "diagnosticCodes": []
+        }
+      }
+    },
+    {
+      "caseId": "codev-fresh-continuation",
+      "family": "codev",
+      "sourceId": "codev-continuation-contract-v1",
+      "description": "Codev fresh bounded continuation is admitted.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "One bounded task remains.",
+            "evidenceRefs": [],
+            "verdict": "continue",
+            "nextTask": "Execute the bounded fresh task."
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-dbbba133a351a540",
+            "planDigest": "sha256:68bd7519f4d0ce2b8682f3a1a80228cb68d9b97a2c4302dc008771154e4f57a1",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 7,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "continue",
+          "nextTask": "Execute the bounded fresh task.",
+          "taskKey": "task-key/v1:sha256:46f4774e37b3d9ef3a8d2971f9b37dc5cf503fdaa9bba69e3e502614429fa0dd",
+          "diagnostics": [
+            "transition.continue"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "continue",
+          "admittedTransition": "continue",
+          "diagnosticCodes": []
+        }
+      }
+    },
+    {
+      "caseId": "codev-iteration-precedence",
+      "family": "codev",
+      "sourceId": "codev-continuation-contract-v1",
+      "description": "Codev maximum-turn authority overrides a continuation proposal.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "One bounded task remains.",
+            "evidenceRefs": [],
+            "verdict": "continue",
+            "nextTask": "Execute the bounded iteration task."
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-c4df9754b86e5387",
+            "planDigest": "sha256:e0e88c07fdc949d0093e576f4683340ec6227439ca8e23d618cea0101cb9286c",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 8,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "stop",
+          "reason": "iteration_limit"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "iteration_limit",
+          "diagnostics": [
+            "transition.host_stop"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "continue",
+          "admittedTransition": "host_stop",
+          "diagnosticCodes": [
+            "codev.host_override.max_turns_reached"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "codev-pause-precedence",
+      "family": "codev",
+      "sourceId": "codev-continuation-contract-v1",
+      "description": "Codev pause authority suspends a continuing run.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "One bounded task remains.",
+            "evidenceRefs": [],
+            "verdict": "continue",
+            "nextTask": "Execute the bounded pause task."
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-e9ceddeafd116b21",
+            "planDigest": "sha256:e9c5a0cd6bdc35f89b136f3fc8153f3e3ec09be579a3d356612da7b9bcf0b313",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 9,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "suspend",
+          "reason": "paused"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "suspend",
+          "reason": "paused",
+          "diagnostics": [
+            "transition.host_suspend"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "continue",
+          "admittedTransition": "suspend",
+          "diagnosticCodes": [
+            "codev.host_control.paused"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "codev-validation-not-run",
+      "family": "codev",
+      "sourceId": "codev-continuation-contract-v1",
+      "description": "Codev completion without required validation remains under review.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "The bounded plan is complete.",
+            "evidenceRefs": [],
+            "verdict": "complete",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-efd2884c04db52de",
+            "planDigest": "sha256:900daf92ad74eb5fbcbdc47d92f8d6df9ffffcfe764b04df62b014d5eb5ceb5e",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 10,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "review_again",
+          "reason": "completion_validation_insufficient",
+          "diagnostics": [
+            "transition.completion_validation_insufficient"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "complete",
+          "admittedTransition": "review_again",
+          "diagnosticCodes": [
+            "codev.completion_conflicts_with_validation_not_run"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-0b08c18488157ab1",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical judge required case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": [
+            "proposal.next_task_required",
+            "proposal.rationale_required"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-7ee0f7118f14ff57",
+            "planDigest": "sha256:4eba741c86b8a9121d8e184cfffd983d0d1fcbf75dc5ad31a94ce37f3b55fc25",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 11,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "reject",
+          "reason": "invalid_proposal",
+          "diagnostics": [
+            "proposal.next_task_required",
+            "proposal.rationale_required",
+            "transition.rejected_invalid_proposal"
+          ]
+        },
+        "comparisonClassification": "safer_kernel",
+        "legacy": {
+          "normalizedDecision": "judge_required",
+          "admittedTransition": "review_again",
+          "diagnosticCodes": [
+            "scripts.classification.judge_required"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-10bf575dc8451418",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical deterministically admitted case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A bounded historical continuation remains.",
+            "evidenceRefs": [],
+            "verdict": "continue",
+            "nextTask": "Execute bounded historical continuation c8451418."
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-22a213e8ec206de7",
+            "planDigest": "sha256:892694d15c0385cd91e5a80b5d53dee94d40bb19dc5de0c4999740f89bc4f068",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 18,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "continue",
+          "nextTask": "Execute bounded historical continuation c8451418.",
+          "taskKey": "task-key/v1:sha256:0cc9e5f24206ed839c11ffba0dc0e3e77f8a074f87bae0084fad78eedb6a3734",
+          "diagnostics": [
+            "transition.continue"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "continue",
+          "admittedTransition": "continue",
+          "diagnosticCodes": [
+            "scripts.classification.deterministically_admitted"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-1a9fb372c02d8df2",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical genuine blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified historical blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:1a9fb372c02d8df2"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-416af0c7097896d2",
+            "planDigest": "sha256:48d81cdce39cb37ee0eb77e9719fbefe28c10ba3072dddc975d38d94f7eaa05c",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 4,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "verified_historical_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:1a9fb372c02d8df2"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "blocked",
+          "blockerCodes": [
+            "verified_historical_blocker"
+          ],
+          "diagnostics": [
+            "transition.blocked"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "genuine_blocker",
+          "admittedTransition": "blocked",
+          "diagnosticCodes": [
+            "scripts.classification.genuine_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-22d9f9ec0301c7e3",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical genuine blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified historical blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:22d9f9ec0301c7e3"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-dccad5b4ad8f7cc9",
+            "planDigest": "sha256:5986b3a0f3d636ff1888b531072a4a961409267143c14aaff1638b4fdc522702",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 5,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "verified_historical_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:22d9f9ec0301c7e3"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "blocked",
+          "blockerCodes": [
+            "verified_historical_blocker"
+          ],
+          "diagnostics": [
+            "transition.blocked"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "genuine_blocker",
+          "admittedTransition": "blocked",
+          "diagnosticCodes": [
+            "scripts.classification.genuine_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-3172dcc0660db5f2",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical genuine blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified historical blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:3172dcc0660db5f2"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-3d4fbdf5905958f9",
+            "planDigest": "sha256:ac62a6e11f90d2c6fb9c8a6ab4d07d0a2768e122e0d2a32f4d18452083a9f563",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 8,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "verified_historical_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:3172dcc0660db5f2"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "blocked",
+          "blockerCodes": [
+            "verified_historical_blocker"
+          ],
+          "diagnostics": [
+            "transition.blocked"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "genuine_blocker",
+          "admittedTransition": "blocked",
+          "diagnosticCodes": [
+            "scripts.classification.genuine_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-394303936f759ff6",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical genuine blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified historical blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:394303936f759ff6"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-d93e7ca2ac620518",
+            "planDigest": "sha256:fa8a56424ad8de508880350f769672ce69f713f718d2093b83ac230b02196db9",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 9,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "verified_historical_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:394303936f759ff6"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "blocked",
+          "blockerCodes": [
+            "verified_historical_blocker"
+          ],
+          "diagnostics": [
+            "transition.blocked"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "genuine_blocker",
+          "admittedTransition": "blocked",
+          "diagnosticCodes": [
+            "scripts.classification.genuine_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-3b2ee4ec8f26b867",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical genuine blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified historical blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:3b2ee4ec8f26b867"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-8daa7ad1ce756a34",
+            "planDigest": "sha256:b04b6cedfb4fecc98374f263f8e3a1250d2831febadc162843b92f952471de3e",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 14,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "verified_historical_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:3b2ee4ec8f26b867"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "blocked",
+          "blockerCodes": [
+            "verified_historical_blocker"
+          ],
+          "diagnostics": [
+            "transition.blocked"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "genuine_blocker",
+          "admittedTransition": "blocked",
+          "diagnosticCodes": [
+            "scripts.classification.genuine_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-3d6cbd805870be24",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical deterministically admitted case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A bounded historical continuation remains.",
+            "evidenceRefs": [],
+            "verdict": "continue",
+            "nextTask": "Execute bounded historical continuation 5870be24."
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-ad68bb5ba27e0aae",
+            "planDigest": "sha256:7fac9ccf1ec3efbecaa0e4f420bd3f108cae2e4eed48e0284bba7edce0f7e3a3",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 10,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "continue",
+          "nextTask": "Execute bounded historical continuation 5870be24.",
+          "taskKey": "task-key/v1:sha256:134add4cf7071c6cf17826b6c564d41218df12c9f338ff658afb760686967ab7",
+          "diagnostics": [
+            "transition.continue"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "continue",
+          "admittedTransition": "continue",
+          "diagnosticCodes": [
+            "scripts.classification.deterministically_admitted"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-49b87941f3f08dfa",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical non semantic blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [],
+          "diagnostics": [
+            "proposal.not_object"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-c69218ae8b3c610e",
+            "planDigest": "sha256:27c02307c97923e3358462ac7cc21121d47fa755b5dad264bb1185ae746d4f41",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 21,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "unavailable",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "stop",
+          "reason": "host_failure"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "host_failure",
+          "diagnostics": [
+            "transition.host_stop"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "non_semantic_blocker",
+          "admittedTransition": "host_stop",
+          "diagnosticCodes": [
+            "scripts.classification.non_semantic_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-52831ad1d78dd75c",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical judge required case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": [
+            "proposal.rationale_required"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-3c9b1976d1c4e74d",
+            "planDigest": "sha256:6525e4579a3c23e2e3457318e2b71c73b04c832b629c418cf278b75a518961d6",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 1,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "reject",
+          "reason": "invalid_proposal",
+          "diagnostics": [
+            "proposal.rationale_required",
+            "transition.rejected_invalid_proposal"
+          ]
+        },
+        "comparisonClassification": "safer_kernel",
+        "legacy": {
+          "normalizedDecision": "judge_required",
+          "admittedTransition": "review_again",
+          "diagnosticCodes": [
+            "scripts.classification.judge_required"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-57635cda2753e6b8",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical non semantic blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [],
+          "diagnostics": [
+            "proposal.not_object"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-a145aab26a2e2cb0",
+            "planDigest": "sha256:3ebd4e4a28d8e08040366a1196633481072529432c3aa9099e0c9a0a5daecd71",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 2,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "unavailable",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "stop",
+          "reason": "host_failure"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "host_failure",
+          "diagnostics": [
+            "transition.host_stop"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "non_semantic_blocker",
+          "admittedTransition": "host_stop",
+          "diagnosticCodes": [
+            "scripts.classification.non_semantic_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-5c09428eb13e5d1e",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical non semantic blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [],
+          "diagnostics": [
+            "proposal.not_object"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-a3db47c6ae6cbaba",
+            "planDigest": "sha256:ded5a6d3a36fbe788884dc5301f13bd26a5a550248ccef550c867608d4964dfc",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 17,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "unavailable",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "stop",
+          "reason": "host_failure"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "host_failure",
+          "diagnostics": [
+            "transition.host_stop"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "non_semantic_blocker",
+          "admittedTransition": "host_stop",
+          "diagnosticCodes": [
+            "scripts.classification.non_semantic_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-6e1c2222b567333e",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical non semantic blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [],
+          "diagnostics": [
+            "proposal.not_object"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-72b3c1d6c13deb22",
+            "planDigest": "sha256:cf1b242409f3f440585b8f6ad7e17a72bbc58cf31a9674132f37411949a1bc59",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 13,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "unavailable",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "stop",
+          "reason": "host_failure"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "host_failure",
+          "diagnostics": [
+            "transition.host_stop"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "non_semantic_blocker",
+          "admittedTransition": "host_stop",
+          "diagnosticCodes": [
+            "scripts.classification.non_semantic_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-7c4d67f78cff1c8b",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical genuine blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified historical blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:7c4d67f78cff1c8b"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-cb850f897d869268",
+            "planDigest": "sha256:3faf1e81414aa087ba9c9c240bb9b22417daf697c201395ba546514815cfc626",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 7,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "verified_historical_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:7c4d67f78cff1c8b"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "blocked",
+          "blockerCodes": [
+            "verified_historical_blocker"
+          ],
+          "diagnostics": [
+            "transition.blocked"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "genuine_blocker",
+          "admittedTransition": "blocked",
+          "diagnosticCodes": [
+            "scripts.classification.genuine_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-82a8b87c5dbca6df",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical deterministically admitted case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "The historical continuation was complete.",
+            "evidenceRefs": [],
+            "verdict": "complete",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-fc6ab219674063f8",
+            "planDigest": "sha256:ad01d2986c50731f01b08fcde1288967277149aadb5ac94816446bb18504cb9a",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 19,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_required",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "complete",
+          "diagnostics": [
+            "transition.complete"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "complete",
+          "admittedTransition": "complete",
+          "diagnosticCodes": [
+            "scripts.classification.deterministically_admitted"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-9c2834192215cd5c",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical non semantic blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [],
+          "diagnostics": [
+            "proposal.not_object"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-0c1ee451cacb8997",
+            "planDigest": "sha256:914e1ab3aa6282f86d8073c5ec75d4556a830bdd2ac36dd9abdece65425c844d",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 12,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "unavailable",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "stop",
+          "reason": "host_failure"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "host_failure",
+          "diagnostics": [
+            "transition.host_stop"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "non_semantic_blocker",
+          "admittedTransition": "host_stop",
+          "diagnosticCodes": [
+            "scripts.classification.non_semantic_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-caf4cc1cd283af5e",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical genuine blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified historical blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:caf4cc1cd283af5e"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-947dbd4f1d81101a",
+            "planDigest": "sha256:4ed6dcf336a21fdc4b8350fe5ffe3e9cbf84ff7876a43ee5bd614fd009af6a55",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 16,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "verified_historical_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:caf4cc1cd283af5e"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "blocked",
+          "blockerCodes": [
+            "verified_historical_blocker"
+          ],
+          "diagnostics": [
+            "transition.blocked"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "genuine_blocker",
+          "admittedTransition": "blocked",
+          "diagnosticCodes": [
+            "scripts.classification.genuine_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-d029b1d86bc06869",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical non semantic blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "invalid",
+          "appliedRules": [],
+          "diagnostics": [
+            "proposal.not_object"
+          ]
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-828ec3adbb98c2d5",
+            "planDigest": "sha256:ca64ef575a9e6cf78eb85b769a376538ca10c06132db588af26944ce5ebd4158",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 6,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "unavailable",
+            "verifiedRefs": []
+          },
+          "blockers": []
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "stop",
+          "reason": "host_failure"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "host_failure",
+          "diagnostics": [
+            "transition.host_stop"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "non_semantic_blocker",
+          "admittedTransition": "host_stop",
+          "diagnosticCodes": [
+            "scripts.classification.non_semantic_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-df4511b5210efefc",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical genuine blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified historical blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:df4511b5210efefc"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-cf54b5310db6d2df",
+            "planDigest": "sha256:3af6bd29c7f7de3cdf85cbc64782be99350fcaf361c5797b84024044397b5194",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 15,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "verified_historical_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:df4511b5210efefc"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "blocked",
+          "blockerCodes": [
+            "verified_historical_blocker"
+          ],
+          "diagnostics": [
+            "transition.blocked"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "genuine_blocker",
+          "admittedTransition": "blocked",
+          "diagnosticCodes": [
+            "scripts.classification.genuine_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-f403e629a5782f42",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical genuine blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified historical blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:f403e629a5782f42"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-70fc21c0ccc9c884",
+            "planDigest": "sha256:2aa1934e08c7f6741bac6406560484082053dbf9d4493db53bf92094addac0dc",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 3,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "verified_historical_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:f403e629a5782f42"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "blocked",
+          "blockerCodes": [
+            "verified_historical_blocker"
+          ],
+          "diagnostics": [
+            "transition.blocked"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "genuine_blocker",
+          "admittedTransition": "blocked",
+          "diagnosticCodes": [
+            "scripts.classification.genuine_blocker"
+          ]
+        }
+      }
+    },
+    {
+      "caseId": "scripts-historical-f599c0b134c0bd89",
+      "family": "scripts_historical",
+      "sourceId": "scripts-historical-v1",
+      "description": "Anonymized historical genuine blocker case.",
+      "input": {
+        "proposal": {
+          "schema": "dzupagent/continuation-normalization/v1",
+          "status": "valid",
+          "proposal": {
+            "schema": "dzupagent/continuation-proposal/v1",
+            "rationale": "A verified historical blocker prevents continuation.",
+            "evidenceRefs": [
+              "evidence:f599c0b134c0bd89"
+            ],
+            "verdict": "blocked",
+            "nextTask": ""
+          },
+          "appliedRules": [
+            "direct_object"
+          ],
+          "diagnostics": []
+        },
+        "evidence": {
+          "schema": "dzupagent/continuation-evidence/v1",
+          "runIdentity": {
+            "runId": "fixture-1d2687a42563a2f8",
+            "planDigest": "sha256:928fc4bd95129c6ea4b2d865b9365912b708a5005df739d79c1539751df523f2",
+            "policyDigest": "sha256:bb867e0d08c32b3b93d07e2cadab7068d1be3d5402fbefb8f4b6299788c7b739"
+          },
+          "progress": {
+            "iteration": 20,
+            "priorTaskKeys": [],
+            "requestedToolCalls": 0,
+            "successfulToolCalls": 0,
+            "failedToolCalls": 0
+          },
+          "validation": {
+            "status": "not_run",
+            "verifiedRefs": []
+          },
+          "blockers": [
+            {
+              "code": "verified_historical_blocker",
+              "verified": true,
+              "evidenceRef": "evidence:f599c0b134c0bd89"
+            }
+          ]
+        },
+        "policy": {
+          "schema": "dzupagent/continuation-policy/v1",
+          "terminalBlocked": "allow",
+          "completionValidation": "passed_or_not_required",
+          "repeatedTask": {
+            "maxPriorOccurrences": 1,
+            "onLimit": "review_again"
+          }
+        },
+        "hostControl": {
+          "action": "run"
+        }
+      },
+      "expected": {
+        "kernelTransition": {
+          "schema": "dzupagent/continuation-transition/v1",
+          "action": "stop",
+          "reason": "blocked",
+          "blockerCodes": [
+            "verified_historical_blocker"
+          ],
+          "diagnostics": [
+            "transition.blocked"
+          ]
+        },
+        "comparisonClassification": "match",
+        "legacy": {
+          "normalizedDecision": "genuine_blocker",
+          "admittedTransition": "blocked",
+          "diagnosticCodes": [
+            "scripts.classification.genuine_blocker"
+          ]
+        }
+      }
+    }
+  ],
+  "divergenceLedger": [
+    {
+      "schema": "dzupagent/continuation-divergence-ledger/v1",
+      "caseId": "codev-active-blocker-completion",
+      "classification": "safer_kernel",
+      "legacySummary": "Codev synthesizes a continuation task for the active blocker.",
+      "kernelSummary": "The kernel returns structured review_again without inventing task prose.",
+      "safetyRationale": "Both paths prevent completion; the kernel keeps host rendering outside the reducer.",
+      "reviewStatus": "proposed",
+      "reviewedBy": "codex-static-publication-review",
+      "reviewedAt": "2026-07-23T00:00:00.000Z"
+    },
+    {
+      "schema": "dzupagent/continuation-divergence-ledger/v1",
+      "caseId": "codev-blocked-not-adopted",
+      "classification": "safer_kernel",
+      "legacySummary": "Codev currently rejects blocked as an unsupported reviewer decision.",
+      "kernelSummary": "The kernel returns an explicit non-terminal review state under policy.",
+      "safetyRationale": "Neither path admits work or completion; product blocked semantics remain unresolved.",
+      "reviewStatus": "proposed",
+      "reviewedBy": "codex-static-publication-review",
+      "reviewedAt": "2026-07-23T00:00:00.000Z"
+    },
+    {
+      "schema": "dzupagent/continuation-divergence-ledger/v1",
+      "caseId": "scripts-historical-0b08c18488157ab1",
+      "classification": "safer_kernel",
+      "legacySummary": "The legacy path required semantic review.",
+      "kernelSummary": "The kernel rejects the incomplete proposal deterministically.",
+      "safetyRationale": "Rejecting ambiguity is non-admitting and therefore safety-dominant.",
+      "reviewStatus": "proposed",
+      "reviewedBy": "codex-static-publication-review",
+      "reviewedAt": "2026-07-23T00:00:00.000Z"
+    },
+    {
+      "schema": "dzupagent/continuation-divergence-ledger/v1",
+      "caseId": "scripts-historical-52831ad1d78dd75c",
+      "classification": "safer_kernel",
+      "legacySummary": "The legacy path required semantic review.",
+      "kernelSummary": "The kernel rejects the incomplete proposal deterministically.",
+      "safetyRationale": "Rejecting ambiguity is non-admitting and therefore safety-dominant.",
+      "reviewStatus": "proposed",
+      "reviewedBy": "codex-static-publication-review",
+      "reviewedAt": "2026-07-23T00:00:00.000Z"
+    }
+  ],
+  "publicationReview": {
+    "reviewStatus": "automated",
+    "reviewedBy": "codex-static-publication-review",
+    "reviewedAt": "2026-07-23T00:00:00.000Z",
+    "containsRawProviderOutput": false,
+    "containsAbsolutePaths": false,
+    "containsTenantContent": false,
+    "containsCredentials": false
+  }
+}

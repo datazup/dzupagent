@@ -6,8 +6,10 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import {
+  createFlowCompiledClassificationEnvelope,
   createFlowCompiler,
   semanticResolve,
+  validateFlowCompiledClassificationEnvelope,
 } from "../index.js";
 
 const TOOL: ResolvedTool = {
@@ -168,6 +170,135 @@ describe("classified flow policy", () => {
           diagnostic.code === "PRIMITIVE_REDACTION_REQUIRED",
       ),
     ).toBe(false);
+
+    const envelope = createFlowCompiledClassificationEnvelope(
+      redacted,
+      "compile-redaction",
+      "semantic-redaction",
+      {
+        referenceBindings: {
+          state: ["secretResult"],
+          steps: ["write_redacted"],
+        },
+        referenceTypeBindings: {
+          state: { secretResult: "unknown" },
+        },
+        referencePortBindings: {
+          write_redacted: { receipt: "object" },
+        },
+        referenceClassificationBindings: {
+          state: { secretResult: "secret" },
+        },
+        referencePortClassificationBindings: {
+          write_redacted: { receipt: "internal" },
+        },
+      },
+    );
+    expect(envelope.classificationComplete).toBe(true);
+    expect(envelope.unclassifiedReferences).toEqual([]);
+    expect(envelope.primitives[0]).toEqual(
+      expect.objectContaining({
+        nodePath: "root",
+        primitiveRef: "primitive://evidence.write@1",
+        redaction: {
+          requiredAbove: "internal",
+          policyRef: "policy://dzupagent/evidence-redaction@1",
+          receiptRequired: true,
+          receiptSchema: "dzupagent.flowRedactionReceipt/v1",
+        },
+      }),
+    );
+    expect(envelope.classificationHash).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(validateFlowCompiledClassificationEnvelope(envelope)).toEqual({
+      valid: true,
+      issues: [],
+    });
+    expect(
+      validateFlowCompiledClassificationEnvelope({
+        ...envelope,
+        semanticHash: "tampered",
+      }),
+    ).toEqual({
+      valid: false,
+      issues: ["classificationHash does not match envelope contents"],
+    });
+    expect(
+      validateFlowCompiledClassificationEnvelope({
+        ...envelope,
+        rawContent: "must-never-be-carried",
+      }),
+    ).toEqual({
+      valid: false,
+      issues: ["envelope.rawContent is not allowed"],
+    });
+    expect(
+      validateFlowCompiledClassificationEnvelope({
+        ...envelope,
+        values: [
+          {
+            ...envelope.values[0],
+            rawContent: "must-never-be-carried",
+          },
+        ],
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        valid: false,
+        issues: expect.arrayContaining([
+          "values[0].rawContent is not allowed",
+          "classificationHash does not match envelope contents",
+        ]),
+      }),
+    );
+    expect(
+      createFlowCompiledClassificationEnvelope(
+        redacted,
+        "different-compile-id",
+        "semantic-redaction",
+        {
+          referenceBindings: {
+            state: ["secretResult"],
+            steps: ["write_redacted"],
+          },
+          referenceTypeBindings: {
+            state: { secretResult: "unknown" },
+          },
+          referencePortBindings: {
+            write_redacted: { receipt: "object" },
+          },
+          referenceClassificationBindings: {
+            state: { secretResult: "secret" },
+          },
+          referencePortClassificationBindings: {
+            write_redacted: { receipt: "internal" },
+          },
+        },
+      ).classificationHash,
+    ).toBe(envelope.classificationHash);
+    const incomplete = createFlowCompiledClassificationEnvelope(
+      redacted,
+      "compile-incomplete",
+      "semantic-redaction",
+      {
+        referenceBindings: {
+          context: ["tenantLabel"],
+          state: ["secretResult"],
+        },
+        referenceTypeBindings: {
+          context: { tenantLabel: "string" },
+          state: { secretResult: "unknown" },
+        },
+        referencePortBindings: {},
+        referenceClassificationBindings: {
+          state: { secretResult: "secret" },
+        },
+        referencePortClassificationBindings: {},
+      },
+    );
+    expect(incomplete.classificationComplete).toBe(false);
+    expect(incomplete.unclassifiedReferences).toEqual([
+      "context.tenantLabel",
+    ]);
   });
 
   it("uses generated primitive ports and preserves their inferred classification", async () => {
@@ -268,6 +399,53 @@ describe("classified flow policy", () => {
       result.warnings.some((warning) =>
         warning.code.startsWith("CREDENTIAL_HANDLE_"),
       ),
+    ).toBe(false);
+    expect(result.classificationEnvelope).toEqual(
+      expect.objectContaining({
+        schema: "dzupagent.flowCompiledClassificationEnvelope/v1",
+        compileId: result.compileId,
+        classificationHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        classificationComplete: true,
+        unclassifiedReferences: [],
+        values: expect.arrayContaining([
+          expect.objectContaining({
+            reference: "inputs.providerCredential",
+            classification: "secret",
+            valueType: "credential",
+            credential: {
+              form: "opaque-handle",
+              resolution: "lease-only",
+            },
+          }),
+        ]),
+        primitives: expect.arrayContaining([
+          expect.objectContaining({
+            nodePath: "root.nodes[0]",
+            primitiveRef: "primitive://adapter.run@1",
+            credential: {
+              mode: "handle-only",
+              inputPaths: ["input.credential", "input.credentials.*"],
+              resolverCapabilityRef: "flow.runtime.credential.resolve@1",
+            },
+            outputs: [
+              expect.objectContaining({
+                port: "result",
+                expectedClassification: "internal",
+                effectiveClassification: "secret",
+              }),
+            ],
+          }),
+        ]),
+      }),
+    );
+    expect(
+      (result.artifact as Record<string, unknown>)["classificationEnvelope"],
+    ).toBe(result.classificationEnvelope);
+    expect(
+      Object.getOwnPropertyDescriptor(
+        result.artifact,
+        "classificationEnvelope",
+      )?.writable,
     ).toBe(false);
   });
 
