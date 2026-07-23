@@ -28,6 +28,12 @@ normalize (canonical AST), validate (semantic checks) — and returns a single
 `ParseDslResult`. Any diagnostic in any phase fails the call and sets
 `ok: false`.
 
+The YAML frontend is intentionally a block-style subset. It supports mappings,
+sequences, scalar values, inline scalar arrays/JSON objects, and literal block
+scalars (`|`). Literal blocks preserve indentation deeper than their content
+indentation. Folded scalars (`>`), anchors, tags, and general YAML features are
+not part of the contract; canonical examples use only this documented subset.
+
 ## Document shape
 
 ```yaml
@@ -42,6 +48,7 @@ inputs:
     type: number
     required: false
     default: 5
+    classification: internal   # public | internal | sensitive | secret
 defaults:
   persona: planner              # alias for personaRef
   timeout_ms: 300000            # alias for timeoutMs
@@ -59,6 +66,16 @@ steps:
 `steps` is a flat array of single-key node wrappers — `- action: { ... }`,
 `- if: { ... }`, etc. Graph-style top-level `nodes`/`edges` fields are
 explicitly rejected.
+
+Input classification is optional for compatibility. When declared, the flow
+compiler propagates the most restrictive classification through dependent
+state outputs. `secrets.*` references are always treated as `secret`.
+Compatibility compilation warns when `sensitive` or `secret` values reach an
+unreviewed provider, tool, command, event, evidence, persistence, artifact, or
+human-prompt sink; strict compilation rejects the same flow. The existing
+`evidence.write` field `redact: true` is the only v1 declassification contract.
+Generic declassification syntax is intentionally deferred until a reviewed
+primitive contract can define its transform and evidence semantics.
 
 ## Template expressions
 
