@@ -76,4 +76,43 @@ describe("PrimitiveDefinitionV2", () => {
       }),
     ).toThrow(/does not match/);
   });
+
+  it("binds required redaction evidence to the canonical receipt schema", () => {
+    const evidenceWrite = BUILT_IN_PRIMITIVE_DEFINITIONS_V2.find(
+      (definition) => primitiveKind(definition) === "evidence.write",
+    )!;
+    expect(evidenceWrite.evidence).toEqual(
+      expect.objectContaining({
+        redactionReceiptRequired: true,
+        redactionReceiptSchema: "dzupagent.flowRedactionReceipt/v1",
+      }),
+    );
+    expect(() =>
+      validatePrimitiveDefinitionV2({
+        ...evidenceWrite,
+        evidence: {
+          ...evidenceWrite.evidence,
+          redactionReceiptSchema: undefined,
+        },
+      }),
+    ).toThrow(/canonical redaction receipt schema/);
+  });
+
+  it("requires handle-only primitives to declare their resolver capability", () => {
+    const adapterRun = BUILT_IN_PRIMITIVE_DEFINITIONS_V2.find(
+      (definition) => primitiveKind(definition) === "adapter.run",
+    )!;
+    expect(adapterRun.credentialResolverCapabilityRef).toBe(
+      "flow.runtime.credential.resolve@1",
+    );
+    expect(adapterRun.requiresCapabilities).toContain(
+      adapterRun.credentialResolverCapabilityRef,
+    );
+    expect(() =>
+      validatePrimitiveDefinitionV2({
+        ...adapterRun,
+        credentialResolverCapabilityRef: undefined,
+      }),
+    ).toThrow(/credential resolver capability/);
+  });
 });
