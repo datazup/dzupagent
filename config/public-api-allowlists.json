@@ -398,6 +398,7 @@
         { "match": "prefix", "pattern": "./slack/" },
         { "match": "prefix", "pattern": "./database/" },
         { "match": "prefix", "pattern": "./sql/" },
+        { "match": "exact", "pattern": "./security-manifest.js" },
         { "match": "exact", "pattern": "<local>:dzupagent_CONNECTORS_VERSION" }
       ],
       "transitionalRoot": [],
