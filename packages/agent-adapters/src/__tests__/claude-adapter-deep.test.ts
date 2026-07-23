@@ -183,9 +183,36 @@ describe('ClaudeAgentAdapter — deep coverage', () => {
       expect(cacheStats).toBeDefined()
       expect(cacheStats.cacheReadTokens).toBe(800)
       expect(cacheStats.cacheWriteTokens).toBe(200)
-      expect(cacheStats.totalInputTokens).toBe(2000)
-      expect(cacheStats.cacheHitRatio).toBeCloseTo(0.4, 5)
+      expect(cacheStats.totalInputTokens).toBe(3000)
+      expect(cacheStats.cacheHitRatio).toBeCloseTo(800 / 3000, 5)
       expect(cacheStats.sessionId).toBe('sess-cache')
+    })
+
+    it('keeps cache statistics bounded when cached input exceeds uncached input', async () => {
+      mockQuery.mockReturnValue(
+        asyncIterableOf([
+          sysMsg('sess-cache-heavy'),
+          resultSuccess({
+            sessionId: 'sess-cache-heavy',
+            usage: {
+              input_tokens: 6645,
+              output_tokens: 100,
+              cache_read_input_tokens: 31100,
+              cache_creation_input_tokens: 14710,
+            },
+          }),
+        ]),
+      )
+      const events = await collectEvents(adapter.execute({ prompt: 'p' }))
+      const cacheStats = events.find(e => e.type === 'adapter:cache_stats') as Extract<
+        AgentEvent,
+        { type: 'adapter:cache_stats' }
+      >
+      expect(cacheStats.totalInputTokens).toBe(52455)
+      expect(cacheStats.cacheHitRatio).toBeCloseTo(31100 / 52455, 8)
+      expect(cacheStats.cacheReadTokens).toBeLessThanOrEqual(cacheStats.totalInputTokens)
+      expect(cacheStats.cacheHitRatio).toBeGreaterThanOrEqual(0)
+      expect(cacheStats.cacheHitRatio).toBeLessThanOrEqual(1)
     })
 
     it('does NOT emit adapter:cache_stats when no cache tokens present', async () => {
@@ -605,7 +632,8 @@ describe('ClaudeAgentAdapter — deep coverage', () => {
       expect(completed.usage?.cachedInputTokens).toBe(50)
       const cacheStats = events.at(-1) as Extract<AgentEvent, { type: 'adapter:cache_stats' }>
       expect(cacheStats.cacheReadTokens).toBe(50)
-      expect(cacheStats.cacheHitRatio).toBeCloseTo(50 / 75)
+      expect(cacheStats.totalInputTokens).toBe(125)
+      expect(cacheStats.cacheHitRatio).toBeCloseTo(50 / 125)
     })
   })
 })

@@ -222,7 +222,10 @@ export function mapResultMessage(
     if (tokenUsage && (tokenUsage.cachedInputTokens !== undefined || tokenUsage.cacheWriteTokens !== undefined)) {
       const cacheRead = tokenUsage.cachedInputTokens ?? 0
       const cacheWrite = tokenUsage.cacheWriteTokens ?? 0
-      const total = tokenUsage.inputTokens
+      // Anthropic reports uncached input, cache reads, and cache writes as
+      // separate usage fields. The shared cache-statistics contract requires
+      // totalInputTokens to include every input category.
+      const total = tokenUsage.inputTokens + cacheRead + cacheWrite
       const cacheStatsEvent = makeCacheStatsEvent({
         providerId: 'claude',
         sessionId,
