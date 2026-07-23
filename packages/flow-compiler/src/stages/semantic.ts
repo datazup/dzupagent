@@ -2,6 +2,8 @@ import type {
   AsyncToolResolver,
   AsyncToolsetResolver,
   FlowNode,
+  FlowReferenceBindings,
+  FlowReferencePolicy,
   ResolvedTool,
   ToolResolver,
   ToolsetResolver,
@@ -49,6 +51,10 @@ export interface SemanticOptions {
    * never raise `UNRESOLVED_TOOL_REF`. All other validation rules apply.
    */
   target?: 'codev-runtime'
+  /** Compatibility-preserving default; opt into strict reference validation. */
+  referencePolicy?: FlowReferencePolicy
+  /** Declared names by reference root for strict missing-reference checks. */
+  referenceBindings?: FlowReferenceBindings
 }
 
 export interface SemanticResult {
@@ -183,6 +189,8 @@ export async function semanticResolve(
     missingToolsetResolverEmitted: false,
     missingProfileRegistryEmitted: false,
     target: opts.target,
+    referencePolicy: opts.referencePolicy ?? 'compat-v1',
+    referenceBindings: opts.referenceBindings,
   }
 
   await visit(ast, ROOT_PATH, ctx)

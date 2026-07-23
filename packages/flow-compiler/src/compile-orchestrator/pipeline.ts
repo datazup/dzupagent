@@ -249,6 +249,12 @@ export async function runCompile(
       ? { profileRegistry: opts.profileRegistry }
       : {}),
     ...(opts.target !== undefined ? { target: opts.target } : {}),
+    ...(opts.referencePolicy !== undefined
+      ? { referencePolicy: opts.referencePolicy }
+      : {}),
+    ...(opts.referenceBindings !== undefined
+      ? { referenceBindings: opts.referenceBindings }
+      : {}),
   });
 
   emit({

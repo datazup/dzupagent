@@ -28,7 +28,12 @@ export function validateConditionExpr(
 ): void {
   if (!expr) return
 
-  const validation = validateFlowConditionExpression(expr)
+  const validation = validateFlowConditionExpression(expr, {
+    referencePolicy: ctx.referencePolicy,
+    ...(ctx.referenceBindings !== undefined
+      ? { knownBindings: ctx.referenceBindings }
+      : {}),
+  })
   if (validation.valid) return
 
   if (validation.reason.includes('disallowed construct')) {

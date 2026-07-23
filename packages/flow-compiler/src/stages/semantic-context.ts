@@ -2,6 +2,8 @@ import type {
   AsyncToolResolver,
   AsyncToolsetResolver,
   ResolvedTool,
+  FlowReferenceBindings,
+  FlowReferencePolicy,
   ToolResolver,
   ToolsetResolver,
   ValidationError,
@@ -51,4 +53,6 @@ export interface WalkContext {
   missingToolsetResolverEmitted: boolean
   missingProfileRegistryEmitted: boolean
   target: 'codev-runtime' | undefined
+  referencePolicy: FlowReferencePolicy
+  referenceBindings: FlowReferenceBindings | undefined
 }

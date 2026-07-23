@@ -204,8 +204,17 @@ export async function visit(
       await resolveAgent(node, path, ctx);
       return;
     }
+    case "return_to": {
+      validateConditionExpr(
+        node.type,
+        node.condition,
+        `${path}.condition`,
+        "return_to.condition",
+        ctx
+      );
+      return;
+    }
     case "prompt":
-    case "return_to":
     case "validate":
     case "set":
     case "worker.dispatch":

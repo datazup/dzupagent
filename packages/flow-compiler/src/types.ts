@@ -6,6 +6,8 @@ import type {
   FlowDocumentPolicy,
   FlowDurabilityPolicy,
   FlowNodeKind,
+  FlowReferenceBindings,
+  FlowReferencePolicy,
   ToolResolver,
   ToolsetResolver,
 } from "@dzupagent/flow-ast";
@@ -82,6 +84,17 @@ export interface CompilerOptions {
    * local resolver.
    */
   target?: "codev-runtime";
+  /**
+   * Reference validation policy. Defaults to `compat-v1`; `strict` rejects
+   * legacy/disallowed roots and malformed control references during semantic
+   * analysis without changing v1 runtime evaluation.
+   */
+  referencePolicy?: FlowReferencePolicy;
+  /**
+   * Optional declared binding names by reference root. Strict analysis uses
+   * this snapshot to fail missing input/state/step references before lowering.
+   */
+  referenceBindings?: FlowReferenceBindings;
 }
 
 export interface FlowDocumentResolver {

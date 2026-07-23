@@ -1,7 +1,9 @@
 import type {
   FlowExpression,
   FlowExpressionAnalysis,
+  FlowReferenceAnalysisOptions,
 } from "@dzupagent/flow-ast";
+import { parseFlowReferenceExpression } from "@dzupagent/flow-ast";
 
 function isFlowExpression(value: unknown): value is FlowExpression {
   if (!value || typeof value !== "object") return false;
@@ -69,6 +71,7 @@ function childExpressions(expr: FlowExpression): FlowExpression[] {
 
 export function analyzeFlowExpression(
   expr: FlowExpression,
+  referenceOptions: FlowReferenceAnalysisOptions = {},
 ): FlowExpressionAnalysis {
   if (!isFlowExpression(expr)) {
     return {
@@ -86,7 +89,16 @@ export function analyzeFlowExpression(
     };
   }
   if (expr.op === "ref") {
-    return { deterministic: true, refs: [expr.path], warnings: [] };
+    const parsed = parseFlowReferenceExpression(expr.path, {
+      ...referenceOptions,
+      useSite: referenceOptions.useSite ?? "required-value",
+    });
+    return {
+      deterministic: parsed.ok,
+      refs:
+        parsed.reference !== undefined ? [parsed.reference.source] : [expr.path],
+      warnings: parsed.diagnostics.map((diagnostic) => diagnostic.code),
+    };
   }
   if (expr.op === "literal") {
     return { deterministic: true, refs: [], warnings: [] };
@@ -96,7 +108,9 @@ export function analyzeFlowExpression(
   const invalidChildCount = children.filter(
     (child) => !isFlowExpression(child),
   ).length;
-  const nested = children.filter(isFlowExpression).map(analyzeFlowExpression);
+  const nested = children
+    .filter(isFlowExpression)
+    .map((child) => analyzeFlowExpression(child, referenceOptions));
 
   return {
     deterministic:

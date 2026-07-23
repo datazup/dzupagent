@@ -1,6 +1,18 @@
+import {
+  parseFlowReferenceExpression,
+  type FlowReferenceBindings,
+  type FlowReferencePolicy,
+} from "./reference-expression.js"
+
 export type FlowConditionValidationResult =
   | { valid: true }
   | { valid: false; reason: string }
+
+export interface FlowConditionValidationOptions {
+  referencePolicy?: FlowReferencePolicy
+  allowedRoots?: readonly string[]
+  knownBindings?: FlowReferenceBindings
+}
 
 type TemplateNormalizationResult =
   | { valid: true; source: string }
@@ -26,16 +38,19 @@ export function resolveFlowConditionExpression(
   return evaluateConditionSource(renderTemplateText(expr, state), state)
 }
 
-export function validateFlowConditionExpression(expr: string): FlowConditionValidationResult {
+export function validateFlowConditionExpression(
+  expr: string,
+  options: FlowConditionValidationOptions = {},
+): FlowConditionValidationResult {
   const trimmed = expr.trim()
   if (trimmed.length === 0) return { valid: false, reason: "condition expression is empty" }
   if (containsDisallowedConstruct(trimmed)) {
     return { valid: false, reason: "condition expression contains a disallowed construct" }
   }
 
-  const normalized = normalizeTemplatesForValidation(trimmed)
+  const normalized = normalizeTemplatesForValidation(trimmed, options)
   if (!normalized.valid) return normalized
-  return validateConditionSource(normalized.source)
+  return validateConditionSource(normalized.source, options)
 }
 
 function evaluateConditionSource(
@@ -78,31 +93,39 @@ function evaluateConditionSource(
   return resolveConditionOperand(trimmed, state)
 }
 
-function validateConditionSource(source: string): FlowConditionValidationResult {
+function validateConditionSource(
+  source: string,
+  options: FlowConditionValidationOptions,
+): FlowConditionValidationResult {
   const trimmed = stripWrappingParens(source.trim())
   if (trimmed.length === 0) return { valid: false, reason: "condition expression is empty" }
 
   const orParts = splitTopLevel(trimmed, "||")
-  if (orParts.length > 1) return validateParts(orParts)
+  if (orParts.length > 1) return validateParts(orParts, options)
 
   const andParts = splitTopLevel(trimmed, "&&")
-  if (andParts.length > 1) return validateParts(andParts)
+  if (andParts.length > 1) return validateParts(andParts, options)
 
-  if (trimmed.startsWith("!")) return validateConditionSource(trimmed.slice(1))
+  if (trimmed.startsWith("!")) {
+    return validateConditionSource(trimmed.slice(1), options)
+  }
 
   const comparison = findTopLevelComparison(trimmed)
   if (comparison !== null) {
-    const left = validateConditionOperand(comparison.left)
+    const left = validateConditionOperand(comparison.left, options)
     if (!left.valid) return left
-    return validateConditionOperand(comparison.right)
+    return validateConditionOperand(comparison.right, options)
   }
 
-  return validateConditionOperand(trimmed)
+  return validateConditionOperand(trimmed, options)
 }
 
-function validateParts(parts: string[]): FlowConditionValidationResult {
+function validateParts(
+  parts: string[],
+  options: FlowConditionValidationOptions,
+): FlowConditionValidationResult {
   for (const part of parts) {
-    const result = validateConditionSource(part)
+    const result = validateConditionSource(part, options)
     if (!result.valid) return result
   }
   return { valid: true }
@@ -121,7 +144,10 @@ function resolveConditionOperand(raw: string, state: Record<string, unknown>): u
   return undefined
 }
 
-function validateConditionOperand(raw: string): FlowConditionValidationResult {
+function validateConditionOperand(
+  raw: string,
+  options: FlowConditionValidationOptions,
+): FlowConditionValidationResult {
   const value = raw.trim()
   if (value.length === 0) return { valid: false, reason: "condition operand is empty" }
   if (
@@ -130,10 +156,13 @@ function validateConditionOperand(raw: string): FlowConditionValidationResult {
     value === "null" ||
     value === "undefined" ||
     isQuotedString(value) ||
-    isNumberLiteral(value) ||
-    isPathExpression(value)
+    isNumberLiteral(value)
   ) {
     return { valid: true }
+  }
+  if (isPathExpression(value)) {
+    if (options.referencePolicy !== "strict") return { valid: true }
+    return validateStrictConditionReference(value, options)
   }
   return {
     valid: false,
@@ -191,7 +220,10 @@ function renderTemplateText(expr: string, state: Record<string, unknown>): strin
   return output
 }
 
-function normalizeTemplatesForValidation(source: string): TemplateNormalizationResult {
+function normalizeTemplatesForValidation(
+  source: string,
+  options: FlowConditionValidationOptions,
+): TemplateNormalizationResult {
   let output = ""
   let cursor = 0
   while (cursor < source.length) {
@@ -204,13 +236,57 @@ function normalizeTemplatesForValidation(source: string): TemplateNormalizationR
     if (close === -1) return { valid: false, reason: "unterminated template expression" }
     output += source.slice(cursor, open)
     const path = source.slice(open + 2, close).trim()
-    if (!isPathExpression(path)) {
+    if (options.referencePolicy === "strict") {
+      const validation = validateStrictConditionReference(path, options)
+      if (!validation.valid) return validation
+    } else if (!isPathExpression(path)) {
       return { valid: false, reason: `unsupported template path "${path}"` }
     }
     output += "__template_value__"
     cursor = close + 2
   }
   return { valid: true, source: output }
+}
+
+function validateStrictConditionReference(
+  source: string,
+  options: FlowConditionValidationOptions,
+): FlowConditionValidationResult {
+  const parsed = parseFlowReferenceExpression(source, {
+    policy: "strict",
+    useSite: "boolean-control",
+    ...(options.allowedRoots !== undefined
+      ? { allowedRoots: options.allowedRoots }
+      : {}),
+    ...(options.knownBindings !== undefined
+      ? { knownBindings: options.knownBindings }
+      : {}),
+  })
+  const diagnostic = parsed.diagnostics[0]
+  if (!parsed.ok || parsed.reference === undefined) {
+    return {
+      valid: false,
+      reason:
+        diagnostic === undefined
+          ? "invalid strict reference"
+          : `${diagnostic.code} at ${diagnostic.start}-${diagnostic.end}: ${diagnostic.message}`,
+    }
+  }
+  if (parsed.reference.filters.length > 0) {
+    return {
+      valid: false,
+      reason: "reference filters are not supported in runtime condition expressions",
+    }
+  }
+  if (
+    parsed.reference.segments.some((segment) => segment.kind === "index")
+  ) {
+    return {
+      valid: false,
+      reason: "indexed references are not supported in runtime condition expressions",
+    }
+  }
+  return { valid: true }
 }
 
 function findTopLevelComparison(source: string): { left: string; operator: string; right: string } | null {
