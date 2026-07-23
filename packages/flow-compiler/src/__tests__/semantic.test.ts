@@ -346,6 +346,43 @@ describe("semanticResolve — condition expression validation", () => {
     );
   });
 
+  it("keeps compat-v1 reference aliases by default", async () => {
+    const resolver = makeResolver(["pm.task"]);
+    const ast = sequence(branch("ctx.ready === true", [action("pm.task")]));
+    const result = await semanticResolve(ast, { toolResolver: resolver });
+    expect(result.errors.filter((e) => e.code === "INVALID_CONDITION")).toEqual(
+      []
+    );
+  });
+
+  it("rejects legacy control roots when strict references are requested", async () => {
+    const resolver = makeResolver(["pm.task"]);
+    const ast = sequence(branch("ctx.ready === true", [action("pm.task")]));
+    const result = await semanticResolve(ast, {
+      toolResolver: resolver,
+      referencePolicy: "strict",
+    });
+    const error = result.errors.find((entry) => entry.code === "INVALID_CONDITION");
+
+    expect(error?.nodePath).toBe("root.nodes[0].condition");
+    expect(error?.message).toContain("DISALLOWED_REFERENCE_ROOT");
+  });
+
+  it("rejects missing declared bindings in strict mode", async () => {
+    const resolver = makeResolver(["pm.task"]);
+    const ast = sequence(
+      branch("inputs.missing === true", [action("pm.task")]),
+    );
+    const result = await semanticResolve(ast, {
+      toolResolver: resolver,
+      referencePolicy: "strict",
+      referenceBindings: { inputs: ["ready"] },
+    });
+    const error = result.errors.find((entry) => entry.code === "INVALID_CONDITION");
+
+    expect(error?.message).toContain("MISSING_REFERENCE");
+  });
+
   it("passes simple identifier conditions", async () => {
     const resolver = makeResolver(["pm.task"]);
     const ast = sequence(branch("isReady", [action("pm.task")]));

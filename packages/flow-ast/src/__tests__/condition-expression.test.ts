@@ -43,4 +43,35 @@ describe("flow condition expressions", () => {
       reason: expect.stringContaining("disallowed"),
     });
   });
+
+  it("keeps compat-v1 aliases as the default but supports opt-in strict roots", () => {
+    expect(validateFlowConditionExpression("ctx.ready === true")).toEqual({
+      valid: true,
+    });
+    expect(
+      validateFlowConditionExpression("ctx.ready === true", {
+        referencePolicy: "strict",
+      }),
+    ).toMatchObject({
+      valid: false,
+      reason: expect.stringContaining("DISALLOWED_REFERENCE_ROOT"),
+    });
+    expect(
+      validateFlowConditionExpression("state.ready === true", {
+        referencePolicy: "strict",
+      }),
+    ).toEqual({ valid: true });
+  });
+
+  it("fails missing strict bindings when a symbol snapshot is supplied", () => {
+    expect(
+      validateFlowConditionExpression("inputs.missing === true", {
+        referencePolicy: "strict",
+        knownBindings: { inputs: ["ready"] },
+      }),
+    ).toMatchObject({
+      valid: false,
+      reason: expect.stringContaining("MISSING_REFERENCE"),
+    });
+  });
 });

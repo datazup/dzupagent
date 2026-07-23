@@ -75,4 +75,40 @@ describe("analyzeFlowExpression", () => {
       warnings: ["INVALID_EXPRESSION_NODE"],
     });
   });
+
+  it("supports strict reference diagnostics without changing the default", () => {
+    expect(
+      analyzeFlowExpression({ op: "ref", path: "ctx.ready" }),
+    ).toEqual({
+      deterministic: true,
+      refs: ["ctx.ready"],
+      warnings: [],
+    });
+    expect(
+      analyzeFlowExpression(
+        { op: "ref", path: "ctx.ready" },
+        { policy: "strict" },
+      ),
+    ).toEqual({
+      deterministic: false,
+      refs: ["ctx.ready"],
+      warnings: ["DISALLOWED_REFERENCE_ROOT"],
+    });
+  });
+
+  it("reports missing declared expression bindings in strict mode", () => {
+    expect(
+      analyzeFlowExpression(
+        { op: "ref", path: "inputs.missing" },
+        {
+          policy: "strict",
+          knownBindings: { inputs: ["goal"] },
+        },
+      ),
+    ).toEqual({
+      deterministic: false,
+      refs: ["inputs.missing"],
+      warnings: ["MISSING_REFERENCE"],
+    });
+  });
 });
