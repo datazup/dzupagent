@@ -54,11 +54,13 @@ export { compileTextInput, isFlowDocumentJson } from "./cli-input.js";
 export {
   createToolResolverFromRegistry,
   createToolsetResolverFromCatalog,
+  resolveToolSecurityReadiness,
   validateHostToolRegistry,
   validateToolsetCatalog,
 } from "./host-tool-registry.js";
 export type {
   HostToolRegistryValidationResult,
+  ToolSecurityReadinessResult,
   ToolsetCatalogValidationResult,
 } from "./host-tool-registry.js";
 export { collectFlowArtifactMetadata } from "./flow-artifact-metadata.js";
@@ -72,12 +74,14 @@ export type {
   FlowCompiledClassificationEnvelopeValidation,
   FlowCompiledClassifiedPort,
   FlowCompiledClassifiedValue,
+  FlowCompiledIntegrationObligation,
   FlowCompiledPrimitiveObligation,
   FlowCompiledPrimitiveOutputObligation,
 } from "./classification-envelope-types.js";
 export {
   attachFlowCompiledClassificationEnvelope,
   createFlowCompiledClassificationEnvelope,
+  hashFlowToolSecurityPolicy,
 } from "./classification-envelope.js";
 export type { FlowClassificationEnvelopeSnapshot } from "./classification-envelope.js";
 export { validateFlowCompiledClassificationEnvelope } from "./classification-envelope-validation.js";
@@ -86,8 +90,14 @@ export type {
   FlowClassificationHostAdmission,
   FlowClassificationHostAdmissionRequest,
 } from "./classification-host-admission.js";
-export { resolveFlowCredentialLeaseForEnvelope } from "./credential-lease-admission.js";
-export type { FlowEnvelopeCredentialLeaseRequest } from "./credential-lease-admission.js";
+export {
+  resolveFlowCredentialLeaseForEnvelope,
+  resolveFlowToolCredentialLeaseForEnvelope,
+} from "./credential-lease-admission.js";
+export type {
+  FlowEnvelopeCredentialLeaseRequest,
+  FlowEnvelopeToolCredentialLeaseRequest,
+} from "./credential-lease-admission.js";
 export {
   attestFlowRedactionReceipt,
   canonicalizeFlowSecurityJson,

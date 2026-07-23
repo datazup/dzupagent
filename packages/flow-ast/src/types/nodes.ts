@@ -1,4 +1,5 @@
 import type { FlowNodeBase } from "./primitives.js";
+import type { FlowHttpCredentialAuth } from "./integration-security.js";
 import type {
   AgentNode,
   ValidateNode,
@@ -247,6 +248,11 @@ export type HttpNode = FlowNodeBase & {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   headers?: Record<string, string>;
   body?: Record<string, unknown>;
+  /**
+   * Reviewed host-only credential injection. The credential must be an exact
+   * opaque-handle reference and is never interpolated into URL/query/body.
+   */
+  auth?: FlowHttpCredentialAuth;
   /** State key for the response body (default: node id or "httpResponse"). */
   outputVar?: string;
   /** Request timeout in milliseconds. Defaults to 30 000 ms when unset. */

@@ -9,6 +9,7 @@
  */
 export * from "./types/primitives.js";
 export * from "./types/credential-contracts.js";
+export * from "./types/integration-security.js";
 export * from "./types/security-contracts.js";
 export * from "./types/nodes.js";
 export * from "./types/agent-nodes.js";

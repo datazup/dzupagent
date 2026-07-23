@@ -5,11 +5,17 @@ import type {
   ToolsetCatalogEntry,
   ToolsetResolver,
 } from '@dzupagent/flow-ast'
+import { validateFlowToolSecurityPolicy } from '@dzupagent/flow-ast'
 
 import type { CompilationDiagnostic } from './types.js'
 
 export interface HostToolRegistryValidationResult {
   valid: boolean
+  diagnostics: CompilationDiagnostic[]
+}
+
+export interface ToolSecurityReadinessResult {
+  ready: boolean
   diagnostics: CompilationDiagnostic[]
 }
 
@@ -50,12 +56,57 @@ export function validateHostToolRegistry(
         nodePath: `${nodePath}.kind`,
       })
     }
+
+    if (entry.securityPolicy !== undefined) {
+      for (const issue of validateFlowToolSecurityPolicy(entry.securityPolicy)) {
+        diagnostics.push({
+          stage: 3,
+          code: 'INVALID_TOOL_SECURITY_POLICY',
+          category: 'policy',
+          message: `Invalid security policy for "${entry.ref}": ${issue}.`,
+          nodePath: `${nodePath}.securityPolicy`,
+        })
+      }
+    }
   })
 
   return {
     valid: diagnostics.length === 0,
     diagnostics,
   }
+}
+
+/**
+ * Explain whether every published tool has a closed, valid security policy.
+ * This does not mutate or activate a registry.
+ */
+export function resolveToolSecurityReadiness(
+  entries: readonly HostToolRegistryEntry[],
+): ToolSecurityReadinessResult {
+  const diagnostics: CompilationDiagnostic[] = []
+  entries.forEach((entry, index) => {
+    const nodePath = `toolRegistry[${index}].securityPolicy`
+    if (entry.securityPolicy === undefined) {
+      diagnostics.push({
+        stage: 3,
+        code: 'TOOL_SECURITY_POLICY_MISSING',
+        category: 'policy',
+        message: `Tool "${entry.ref}" has no reviewed classification, credential, effect, output, and evidence policy.`,
+        nodePath,
+      })
+      return
+    }
+    for (const issue of validateFlowToolSecurityPolicy(entry.securityPolicy)) {
+      diagnostics.push({
+        stage: 3,
+        code: 'INVALID_TOOL_SECURITY_POLICY',
+        category: 'policy',
+        message: `Invalid security policy for "${entry.ref}": ${issue}.`,
+        nodePath,
+      })
+    }
+  })
+  return { ready: diagnostics.length === 0, diagnostics }
 }
 
 export function createToolResolverFromRegistry(
@@ -73,6 +124,7 @@ export function createToolResolverFromRegistry(
       ...(entry.outputSchema !== undefined ? { outputSchema: entry.outputSchema } : {}),
       handle: entry.handle ?? { ref: entry.ref, kind: entry.kind },
       ...(entry.meta !== undefined ? { meta: entry.meta } : {}),
+      ...(entry.securityPolicy !== undefined ? { securityPolicy: entry.securityPolicy } : {}),
     }
     byRef.set(entry.ref, resolved)
     for (const alias of entry.aliases ?? []) {

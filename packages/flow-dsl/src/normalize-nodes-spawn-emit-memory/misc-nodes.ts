@@ -25,6 +25,7 @@ const HTTP_KEYS = new Set<string>([
   "method",
   "headers",
   "body",
+  "auth",
   "outputVar",
   "output_var",
 ]);
@@ -70,6 +71,44 @@ export function normalizeHttp(
   if (raw.body !== undefined) {
     const b = normalizeObject(raw.body, `${path}.body`, diagnostics);
     if (b !== undefined) node.body = b;
+  }
+
+  if (raw.auth !== undefined) {
+    const auth = normalizeObject(raw.auth, `${path}.auth`, diagnostics);
+    if (auth !== undefined) {
+      const scheme = auth.scheme;
+      const credential = auth.credential;
+      const provider = auth.provider;
+      const scopes = auth.scopes;
+      const headerName = auth.headerName ?? auth.header_name;
+      if (
+        (scheme !== "bearer" &&
+          scheme !== "basic" &&
+          scheme !== "api-key-header") ||
+        typeof credential !== "string" ||
+        credential.length === 0 ||
+        typeof provider !== "string" ||
+        provider.length === 0 ||
+        !Array.isArray(scopes) ||
+        scopes.some((scope) => typeof scope !== "string")
+      ) {
+        diagnostics.push({
+          phase: "normalize",
+          code: DSL_ERROR.INVALID_NODE_SHAPE,
+          message:
+            "http.auth requires scheme, credential, provider, and string scopes",
+          path: `${path}.auth`,
+        });
+      } else {
+        node.auth = {
+          scheme,
+          credential,
+          provider,
+          scopes: scopes as string[],
+          ...(typeof headerName === "string" ? { headerName } : {}),
+        };
+      }
+    }
   }
 
   const outputVarRaw = raw.outputVar ?? raw.output_var;

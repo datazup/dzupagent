@@ -32,13 +32,25 @@ export type FlowCredentialHandle = Readonly<FlowCredentialHandleDescriptor> & {
   readonly [credentialHandleBrand]: true;
 };
 
-export interface FlowCredentialUse {
-  readonly primitiveRef: `primitive://${string}@${string}`;
+interface FlowCredentialUseBase {
   readonly inputPath: string;
   readonly capabilityRef: string;
   readonly runId?: string;
   readonly attemptId?: string;
 }
+
+/** Exact portable subject that is authorized to consume one credential lease. */
+export type FlowCredentialUse = FlowCredentialUseBase &
+  (
+    | {
+        readonly primitiveRef: `primitive://${string}@${string}`;
+        readonly toolRef?: never;
+      }
+    | {
+        readonly toolRef: string;
+        readonly primitiveRef?: never;
+      }
+  );
 
 export interface FlowCredentialLease {
   readonly schema: typeof FLOW_CREDENTIAL_LEASE_SCHEMA;

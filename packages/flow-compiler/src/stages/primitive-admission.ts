@@ -24,6 +24,7 @@ const CLASSIFICATION_ORDER: Record<FlowDataClassification, number> = {
 
 export interface PrimitiveAdmissionResult {
   readonly authorizedCredentialHandle: boolean;
+  readonly authorizedClassifiedInput: boolean;
 }
 
 /**
@@ -43,7 +44,21 @@ export function validatePrimitiveReferenceAdmission(
 ): PrimitiveAdmissionResult {
   const definition = resolveBuiltInPrimitiveDefinition(node.type);
   if (definition === undefined) {
-    return { authorizedCredentialHandle: false };
+    if (node.type === "action") {
+      return validateToolReferenceAdmission(
+        node,
+        nodePath,
+        sitePath,
+        reference,
+        form,
+        span,
+        ctx,
+      );
+    }
+    return {
+      authorizedCredentialHandle: false,
+      authorizedClassifiedInput: false,
+    };
   }
 
   const valueType = resolveReferenceValueType(reference, {
@@ -101,7 +116,10 @@ export function validatePrimitiveReferenceAdmission(
         ctx,
       );
     }
-    return { authorizedCredentialHandle: authorized };
+    return {
+      authorizedCredentialHandle: authorized,
+      authorizedClassifiedInput: false,
+    };
   }
 
   if (
@@ -118,12 +136,12 @@ export function validatePrimitiveReferenceAdmission(
     );
   }
 
-  if (
+  const redactionRequired =
     classification !== undefined &&
     definition.redactionRequiredAbove !== undefined &&
     isAbove(classification, definition.redactionRequiredAbove) &&
-    !satisfiesRedactionObligation(node)
-  ) {
+    !satisfiesRedactionObligation(node);
+  if (redactionRequired) {
     pushPolicyDiagnostic(
       node,
       sitePath,
@@ -134,7 +152,142 @@ export function validatePrimitiveReferenceAdmission(
     );
   }
 
-  return { authorizedCredentialHandle: false };
+  return {
+    authorizedCredentialHandle: false,
+    authorizedClassifiedInput:
+      classification !== undefined &&
+      definition.acceptedInputClassifications.includes(classification) &&
+      !redactionRequired,
+  };
+}
+
+function validateToolReferenceAdmission(
+  node: Extract<FlowNode, { type: "action" }>,
+  nodePath: string,
+  sitePath: string,
+  reference: ParsedFlowReference,
+  form: FlowTemplateForm,
+  span: CompilationSourceSpan | undefined,
+  ctx: WalkContext,
+): PrimitiveAdmissionResult {
+  const policy = ctx.resolved.get(nodePath)?.securityPolicy;
+  const valueType = resolveReferenceValueType(reference, {
+    ...(ctx.referenceTypeBindings !== undefined
+      ? { typeBindings: ctx.referenceTypeBindings }
+      : {}),
+    ...(ctx.referencePortBindings !== undefined
+      ? { portBindings: ctx.referencePortBindings }
+      : {}),
+  });
+  const classification = classificationForReference(
+    reference,
+    ctx.referenceClassificationBindings,
+    ctx.referencePortClassificationBindings,
+  );
+  const inputPath = relativeInputPath(nodePath, sitePath);
+
+  if (valueType === "credential") {
+    if (policy === undefined) {
+      pushPolicyDiagnostic(
+        node,
+        sitePath,
+        "CREDENTIAL_HANDLE_NOT_ALLOWED",
+        `tool "${node.toolRef}" has no reviewed credential-handle policy`,
+        span,
+        ctx,
+      );
+      return {
+        authorizedCredentialHandle: false,
+        authorizedClassifiedInput: false,
+      };
+    }
+    let authorized = true;
+    if (form !== "whole-value") {
+      authorized = false;
+      pushPolicyDiagnostic(
+        node,
+        sitePath,
+        "CREDENTIAL_HANDLE_INTERPOLATION",
+        `credential handle "${reference.source}" must be passed as an opaque whole value, never interpolated into text`,
+        span,
+        ctx,
+      );
+    }
+    if (reference.filters.length > 0) {
+      authorized = false;
+      pushPolicyDiagnostic(
+        node,
+        sitePath,
+        "CREDENTIAL_HANDLE_TRANSFORM_FORBIDDEN",
+        `credential handle "${reference.source}" cannot use filters or transforms`,
+        span,
+        ctx,
+      );
+    }
+    if (
+      policy.credential.mode !== "handle-only" ||
+      !policy.credential.inputPaths.some((pattern) =>
+        matchesInputPath(pattern, inputPath),
+      )
+    ) {
+      authorized = false;
+      pushPolicyDiagnostic(
+        node,
+        sitePath,
+        "CREDENTIAL_HANDLE_NOT_ALLOWED",
+        `tool "${node.toolRef}" does not accept a credential handle at input path "${inputPath}"`,
+        span,
+        ctx,
+      );
+    }
+    return {
+      authorizedCredentialHandle: authorized,
+      authorizedClassifiedInput: false,
+    };
+  }
+
+  if (
+    policy !== undefined &&
+    policy.credential.inputPaths.some((pattern) =>
+      matchesInputPath(pattern, inputPath),
+    ) &&
+    (classification === "sensitive" || classification === "secret")
+  ) {
+    pushPolicyDiagnostic(
+      node,
+      sitePath,
+      "CREDENTIAL_HANDLE_NOT_ALLOWED",
+      `tool "${node.toolRef}" credential path "${inputPath}" accepts only an opaque credential handle, never raw ${classification} material`,
+      span,
+      ctx,
+    );
+    return {
+      authorizedCredentialHandle: false,
+      authorizedClassifiedInput: false,
+    };
+  }
+
+  if (
+    policy !== undefined &&
+    classification !== undefined &&
+    !policy.acceptedInputClassifications.includes(classification)
+  ) {
+    pushPolicyDiagnostic(
+      node,
+      sitePath,
+      "PRIMITIVE_INPUT_CLASSIFICATION_DENIED",
+      `tool "${node.toolRef}" does not accept ${classification} data at "${inputPath}"`,
+      span,
+      ctx,
+    );
+  }
+  return {
+    authorizedCredentialHandle: false,
+    authorizedClassifiedInput:
+      policy !== undefined &&
+      classification !== undefined &&
+      policy.acceptedInputClassifications.includes(classification),
+  };
 }
 
 function relativeInputPath(nodePath: string, sitePath: string): string {

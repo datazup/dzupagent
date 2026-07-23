@@ -8,17 +8,15 @@
 // --- Types ---
 export type { Connector, ConnectorConfig } from './connector-types.js'
 export { filterTools } from './connector-types.js'
-export type {
-  ConnectorTool,
-  ConnectorToolLike,
-  ConnectorToolkit,
-  ConnectorFactory,
-} from './connector-contract.js'
+export type { ConnectorTool, ConnectorToolLike, ConnectorToolkit, ConnectorFactory, ConnectorSecurityReadiness } from './connector-contract.js'
 export {
   isConnectorTool,
   normalizeConnectorTool,
   normalizeConnectorTools,
+  attachConnectorSecurityManifest,
+  resolveConnectorSecurityReadiness,
 } from './connector-contract.js'
+export * from './security-manifest.js'
 
 // --- GitHub ---
 export { createGitHubConnector, createGitHubConnectorToolkit } from './github/index.js'
@@ -43,7 +41,7 @@ export type {
 } from './github/index.js'
 
 // --- HTTP ---
-export { createHTTPConnector, createHttpConnectorToolkit } from './http/index.js'
+export { createHTTPConnector, createHttpConnectorToolkit, injectFlowHttpCredentialHeader } from './http/index.js'
 export type { HTTPConnectorConfig } from './http/index.js'
 
 // --- Slack ---

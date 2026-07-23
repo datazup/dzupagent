@@ -1,6 +1,10 @@
-import type { FlowDataClassification } from "@dzupagent/flow-ast";
+import type {
+  EffectClass,
+  FlowDataClassification,
+  ResolvedToolKind,
+} from "@dzupagent/flow-ast";
 
-import type { FlowReferenceValueType } from "./types.js";
+import type { FlowReferenceValueType } from "./reference-value-types.js";
 
 export const FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA =
   "dzupagent.flowCompiledClassificationEnvelope/v1" as const;
@@ -43,6 +47,12 @@ export interface FlowCompiledPrimitiveObligation {
     readonly mode: "handle-only" | "raw-by-policy";
     readonly inputPaths: readonly string[];
     readonly resolverCapabilityRef?: string;
+    readonly allowedProviders?: readonly string[];
+    readonly requiredScopes?: readonly string[];
+    readonly httpAuth?: {
+      readonly scheme: "bearer" | "basic" | "api-key-header";
+      readonly headerName?: string;
+    };
   };
   readonly redaction?: {
     readonly requiredAbove?: FlowDataClassification;
@@ -51,6 +61,29 @@ export interface FlowCompiledPrimitiveObligation {
     readonly receiptSchema?: "dzupagent.flowRedactionReceipt/v1";
   };
   readonly outputs: readonly FlowCompiledPrimitiveOutputObligation[];
+}
+
+export interface FlowCompiledIntegrationObligation {
+  readonly nodePath: string;
+  readonly nodeId?: string;
+  readonly toolRef: string;
+  readonly toolKind: ResolvedToolKind;
+  readonly policyHash: `sha256:${string}`;
+  readonly acceptedInputClassifications: readonly FlowDataClassification[];
+  readonly credential?: {
+    readonly mode: "handle-only";
+    readonly inputPaths: readonly string[];
+    readonly resolverCapabilityRef: string;
+    readonly allowedProviders: readonly string[];
+    readonly requiredScopes: readonly string[];
+  };
+  readonly outputClassification: FlowDataClassification;
+  readonly effectClasses: readonly EffectClass[];
+  readonly evidence: {
+    readonly required: readonly string[];
+    readonly classification: FlowDataClassification;
+    readonly rawContent: "forbidden" | "ephemeral" | "allowed-by-policy";
+  };
 }
 
 /**
@@ -68,6 +101,7 @@ export interface FlowCompiledClassificationEnvelope {
   readonly values: readonly FlowCompiledClassifiedValue[];
   readonly ports: readonly FlowCompiledClassifiedPort[];
   readonly primitives: readonly FlowCompiledPrimitiveObligation[];
+  readonly integrations: readonly FlowCompiledIntegrationObligation[];
 }
 
 export interface FlowCompiledClassificationEnvelopeValidation {

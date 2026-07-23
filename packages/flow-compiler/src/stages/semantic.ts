@@ -213,6 +213,7 @@ export async function semanticResolve(
     missingProfileRegistryEmitted: false,
     target: opts.target,
     referencePolicy: opts.referencePolicy ?? 'compat-v1',
+    admissionProfile: opts.admissionProfile ?? 'interactive',
     referenceBindings: opts.referenceBindings,
     referenceAvailabilityBindings:
       opts.referenceAvailabilityBindings ?? opts.referenceBindings,

@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type {
   FlowDataClassification,
   FlowNode,
+  ResolvedTool,
 } from "@dzupagent/flow-ast";
 
 import type {
@@ -19,6 +20,7 @@ import {
   type FlowCompiledClassificationEnvelope,
   type FlowCompiledClassifiedPort,
   type FlowCompiledClassifiedValue,
+  type FlowCompiledIntegrationObligation,
   type FlowCompiledPrimitiveObligation,
 } from "./classification-envelope-types.js";
 import { resolveBuiltInPrimitiveDefinition } from "./stages/primitive-reference-ports.js";
@@ -37,10 +39,14 @@ export function createFlowCompiledClassificationEnvelope(
   compileId: string,
   semanticHash: string,
   snapshot: FlowClassificationEnvelopeSnapshot,
+  resolvedTools: ReadonlyMap<string, ResolvedTool> = new Map(),
 ): FlowCompiledClassificationEnvelope {
   const values = Object.freeze(classifiedValues(snapshot));
   const ports = Object.freeze(classifiedPorts(snapshot));
   const primitives = Object.freeze(primitiveObligations(root, snapshot));
+  const integrations = Object.freeze(
+    integrationObligations(root, resolvedTools),
+  );
   const unclassifiedReferences = Object.freeze(
     collectUnclassifiedReferences(snapshot),
   );
@@ -53,6 +59,7 @@ export function createFlowCompiledClassificationEnvelope(
     values,
     ports,
     primitives,
+    integrations,
   });
   const envelope: FlowCompiledClassificationEnvelope = {
     schema: FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA,
@@ -64,8 +71,62 @@ export function createFlowCompiledClassificationEnvelope(
     values,
     ports,
     primitives,
+    integrations,
   };
   return Object.freeze(envelope);
+}
+
+function integrationObligations(
+  root: FlowNode,
+  resolvedTools: ReadonlyMap<string, ResolvedTool>,
+): FlowCompiledIntegrationObligation[] {
+  const nodeIds = new Map<string, string>();
+  visitNodes(root, "root", (node, nodePath) => {
+    if (node.id !== undefined) nodeIds.set(nodePath, node.id);
+  });
+  return [...resolvedTools.entries()]
+    .flatMap(([nodePath, tool]) => {
+      const policy = tool.securityPolicy;
+      if (policy === undefined) return [];
+      const credential =
+        policy.credential.mode === "handle-only"
+          ? Object.freeze({
+              mode: "handle-only" as const,
+              inputPaths: Object.freeze([...policy.credential.inputPaths]),
+              resolverCapabilityRef:
+                policy.credential.resolverCapabilityRef as string,
+              allowedProviders: Object.freeze([
+                ...policy.credential.allowedProviders,
+              ]),
+              requiredScopes: Object.freeze([
+                ...policy.credential.requiredScopes,
+              ]),
+            })
+          : undefined;
+      return [
+        Object.freeze({
+          nodePath,
+          ...(nodeIds.get(nodePath) === undefined
+            ? {}
+            : { nodeId: nodeIds.get(nodePath) as string }),
+          toolRef: tool.ref,
+          toolKind: tool.kind,
+          policyHash: hashFlowToolSecurityPolicy(policy),
+          acceptedInputClassifications: Object.freeze([
+            ...policy.acceptedInputClassifications,
+          ]),
+          ...(credential === undefined ? {} : { credential }),
+          outputClassification: policy.outputClassification,
+          effectClasses: Object.freeze([...policy.effectClasses]),
+          evidence: Object.freeze({
+            required: Object.freeze([...policy.evidence.required]),
+            classification: policy.evidence.classification,
+            rawContent: policy.evidence.rawContent,
+          }),
+        }),
+      ];
+    })
+    .sort((left, right) => left.nodePath.localeCompare(right.nodePath));
 }
 
 function collectUnclassifiedReferences(
@@ -205,6 +266,18 @@ function primitiveObligations(
                   resolverCapabilityRef:
                     definition.credentialResolverCapabilityRef,
                 }),
+            ...(node.type !== "http" || node.auth === undefined
+              ? {}
+              : {
+                  allowedProviders: Object.freeze([node.auth.provider]),
+                  requiredScopes: Object.freeze([...node.auth.scopes]),
+                  httpAuth: Object.freeze({
+                    scheme: node.auth.scheme,
+                    ...(node.auth.headerName === undefined
+                      ? {}
+                      : { headerName: node.auth.headerName }),
+                  }),
+                }),
           });
     obligations.push(
       Object.freeze({
@@ -314,6 +387,14 @@ function sortedEntries<T>(
 }
 
 export function hashFlowCompiledClassificationEnvelopePayload(
+  value: unknown,
+): `sha256:${string}` {
+  return `sha256:${createHash("sha256")
+    .update(stableStringify(value))
+    .digest("hex")}`;
+}
+
+export function hashFlowToolSecurityPolicy(
   value: unknown,
 ): `sha256:${string}` {
   return `sha256:${createHash("sha256")

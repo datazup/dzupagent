@@ -7,6 +7,10 @@ export interface FlowClassificationHostAdmissionRequest {
   readonly expectedClassificationHash?: `sha256:${string}`;
   readonly expectedCompileId?: string;
   readonly availableCapabilities: readonly string[];
+  /** Current host-registry policy identities keyed by exact tool ref. */
+  readonly availableIntegrationPolicyHashes?: Readonly<
+    Record<string, `sha256:${string}` | undefined>
+  >;
 }
 
 export interface FlowClassificationHostAdmission {
@@ -63,6 +67,19 @@ export function admitFlowCompiledClassificationEnvelope(
   for (const capability of missingCapabilities) {
     issues.push(`required host capability is unavailable: ${capability}`);
   }
+  for (const integration of envelope.integrations) {
+    const availableHash =
+      request.availableIntegrationPolicyHashes?.[integration.toolRef];
+    if (availableHash === undefined) {
+      issues.push(
+        `integration security policy is unavailable: ${integration.toolRef}`,
+      );
+    } else if (availableHash !== integration.policyHash) {
+      issues.push(
+        `integration security policy hash mismatch: ${integration.toolRef}`,
+      );
+    }
+  }
   return frozenAdmission(
     issues.length === 0,
     issues,
@@ -82,6 +99,11 @@ function collectRequiredCapabilities(
     }
     if (primitive.credential?.resolverCapabilityRef !== undefined) {
       required.add(primitive.credential.resolverCapabilityRef);
+    }
+  }
+  for (const integration of envelope.integrations) {
+    if (integration.credential !== undefined) {
+      required.add(integration.credential.resolverCapabilityRef);
     }
   }
   return [...required].sort((left, right) => left.localeCompare(right));

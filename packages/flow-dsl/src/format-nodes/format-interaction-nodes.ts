@@ -158,6 +158,24 @@ export function formatInteractionNode(
       pushCommon(lines, node, indentLevel + 2);
       lines.push(`${childIndent}url: ${quote(node.url)}`);
       if (node.method) lines.push(`${childIndent}method: ${node.method}`);
+      if (node.auth) {
+        lines.push(`${childIndent}auth:`);
+        lines.push(`${childIndent}  scheme: ${node.auth.scheme}`);
+        lines.push(
+          `${childIndent}  credential: ${quote(node.auth.credential)}`
+        );
+        lines.push(`${childIndent}  provider: ${quote(node.auth.provider)}`);
+        lines.push(
+          `${childIndent}  scopes: [${node.auth.scopes
+            .map((scope) => quote(scope))
+            .join(", ")}]`
+        );
+        if (node.auth.headerName) {
+          lines.push(
+            `${childIndent}  headerName: ${quote(node.auth.headerName)}`
+          );
+        }
+      }
       if (node.outputVar) lines.push(`${childIndent}output: ${node.outputVar}`);
       return;
     case "subflow":

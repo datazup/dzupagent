@@ -6,6 +6,7 @@ import type {
   ToolResolver,
   ValidationError,
 } from '@dzupagent/flow-ast'
+import { validateFlowToolSecurityPolicy } from '@dzupagent/flow-ast'
 
 import { topSuggestions } from './semantic-condition.js'
 import { resolvePersonaRef } from './semantic-persona-resolver.js'
@@ -48,6 +49,7 @@ export async function resolveAction(
         // messaging on the same node.
       } else if (hit !== null) {
         ctx.resolved.set(path, hit)
+        validateResolvedToolPolicy(hit, node.type, path, ctx)
       } else {
         ctx.errors.push(unresolvedToolError(node.type, path, node.toolRef, ctx))
       }
@@ -56,6 +58,35 @@ export async function resolveAction(
 
   if (node.personaRef !== undefined) {
     await resolvePersonaRef(node.type, path, node.personaRef, ctx)
+  }
+}
+
+function validateResolvedToolPolicy(
+  tool: ResolvedTool,
+  nodeType: FlowNode['type'],
+  nodePath: string,
+  ctx: WalkContext,
+): void {
+  if (tool.securityPolicy === undefined) {
+    if (ctx.admissionProfile === 'unattended') {
+      ctx.errors.push({
+        nodeType,
+        nodePath: `${nodePath}.toolRef`,
+        code: 'TOOL_SECURITY_POLICY_REQUIRED',
+        category: 'policy',
+        message: `Unattended tool "${tool.ref}" requires a reviewed classification, credential, effect, output, and evidence policy.`,
+      })
+    }
+    return
+  }
+  for (const issue of validateFlowToolSecurityPolicy(tool.securityPolicy)) {
+    ctx.errors.push({
+      nodeType,
+      nodePath: `${nodePath}.toolRef`,
+      code: 'INVALID_TOOL_SECURITY_POLICY',
+      category: 'policy',
+      message: `Tool "${tool.ref}" has an invalid security policy: ${issue}.`,
+    })
   }
 }
 

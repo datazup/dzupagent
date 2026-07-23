@@ -439,6 +439,7 @@ export async function runCompile(
     compileId,
     requirements.semanticHash,
     referenceSnapshot,
+    resolved,
   );
   attachFlowCompiledClassificationEnvelope(artifact, classificationEnvelope);
 

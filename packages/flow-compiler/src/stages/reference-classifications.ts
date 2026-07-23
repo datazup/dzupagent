@@ -286,7 +286,7 @@ function outputSourceValue(node: FlowNode): unknown {
     case "classify":
       return node.prompt;
     case "http":
-      return [node.url, node.headers, node.body];
+      return [node.url, node.headers, node.body, node.auth];
     case "subflow":
       return node.input;
     case "prompt":

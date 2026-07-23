@@ -22,7 +22,11 @@ export async function visit(
   path: string,
   ctx: WalkContext
 ): Promise<void> {
-  validateNodeTemplateReferences(node, path, ctx);
+  // Action policy depends on resolved tool metadata. Resolve that leaf first;
+  // every other node remains reference-first.
+  if (node.type !== "action") {
+    validateNodeTemplateReferences(node, path, ctx);
+  }
 
   switch (node.type) {
     case "sequence": {
@@ -36,6 +40,7 @@ export async function visit(
     }
     case "action": {
       await resolveAction(node, path, ctx);
+      validateNodeTemplateReferences(node, path, ctx);
       return;
     }
     case "for_each": {

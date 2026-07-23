@@ -251,7 +251,10 @@ function validateTemplateSource(
       span,
       ctx,
     );
-    if (!admission.authorizedCredentialHandle) {
+    if (
+      !admission.authorizedCredentialHandle &&
+      !admission.authorizedClassifiedInput
+    ) {
       validateClassifiedFlow(node, site, reference, span, ctx);
     }
   }
@@ -293,7 +296,10 @@ function validateDirectStateKeyFlow(
       span,
       ctx,
     );
-    if (admission.authorizedCredentialHandle) return;
+    if (
+      admission.authorizedCredentialHandle ||
+      admission.authorizedClassifiedInput
+    ) return;
   }
   pushUnsafeDataFlow(
     node,

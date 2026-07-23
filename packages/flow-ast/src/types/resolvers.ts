@@ -72,6 +72,8 @@ export interface ResolvedTool {
   handle: unknown;
   /** Optional generic metadata surfaced by host registries for planning tools. */
   meta?: Record<string, unknown>;
+  /** Reviewed classification, credential, effect, output, and evidence policy. */
+  securityPolicy?: FlowToolSecurityPolicy;
 }
 
 export interface HostToolRegistryEntry {
@@ -83,6 +85,8 @@ export interface HostToolRegistryEntry {
   aliases?: string[];
   description?: string;
   meta?: Record<string, unknown>;
+  /** Reviewed classification, credential, effect, output, and evidence policy. */
+  securityPolicy?: FlowToolSecurityPolicy;
 }
 
 /**
@@ -132,3 +136,4 @@ export interface ToolsetCatalogEntry {
   tools: readonly string[];
   description?: string;
 }
+import type { FlowToolSecurityPolicy } from "./integration-security.js";

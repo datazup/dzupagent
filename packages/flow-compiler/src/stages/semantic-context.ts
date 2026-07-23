@@ -63,6 +63,7 @@ export interface WalkContext {
   missingProfileRegistryEmitted: boolean
   target: 'codev-runtime' | undefined
   referencePolicy: FlowReferencePolicy
+  admissionProfile: "interactive" | "unattended"
   referenceBindings: FlowReferenceBindings | undefined
   /** Names available at flow entry, before compiler-owned node writes. */
   referenceAvailabilityBindings: FlowReferenceBindings | undefined

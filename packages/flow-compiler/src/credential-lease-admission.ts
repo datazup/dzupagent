@@ -24,6 +24,19 @@ export interface FlowEnvelopeCredentialLeaseRequest {
   readonly now?: Date;
 }
 
+export interface FlowEnvelopeToolCredentialLeaseRequest {
+  readonly envelope: FlowCompiledClassificationEnvelope;
+  readonly nodePath: string;
+  readonly inputPath: string;
+  readonly handle: FlowCredentialHandle;
+  readonly resolver: FlowCredentialHandleResolver;
+  /** Current host-registry identity for the exact tool policy. */
+  readonly expectedPolicyHash: `sha256:${string}`;
+  readonly runId?: string;
+  readonly attemptId?: string;
+  readonly now?: Date;
+}
+
 /**
  * Resolve only an envelope-authorized opaque handle use and verify the
  * returned lease is bound to that exact handle and capability.
@@ -49,7 +62,11 @@ export async function resolveFlowCredentialLeaseForEnvelope(
   if (primitive.credential === undefined) {
     return denied("CREDENTIAL_USE_FORBIDDEN");
   }
-  if (!primitive.credential.inputPaths.includes(request.inputPath)) {
+  if (
+    !primitive.credential.inputPaths.some((pattern) =>
+      matchesInputPath(pattern, request.inputPath),
+    )
+  ) {
     return denied("CREDENTIAL_PATH_NOT_ADMITTED");
   }
   const capability = primitive.credential.resolverCapabilityRef;
@@ -62,12 +79,20 @@ export async function resolveFlowCredentialLeaseForEnvelope(
   if (!isFlowCredentialHandle(request.handle)) {
     return denied("CREDENTIAL_HANDLE_INVALID");
   }
-  if (request.handle.capabilityRef !== capability) {
-    return denied("CREDENTIAL_HANDLE_CAPABILITY_MISMATCH");
+  if (
+    primitive.credential.allowedProviders !== undefined &&
+    (request.handle.provider === undefined ||
+      !primitive.credential.allowedProviders.includes(request.handle.provider))
+  ) {
+    return denied("CREDENTIAL_PROVIDER_NOT_ADMITTED");
   }
-  const now = request.now ?? new Date();
-  if (expired(request.handle.expiresAt, now)) {
-    return Object.freeze({ status: "expired", code: "CREDENTIAL_HANDLE_EXPIRED" });
+  if (
+    primitive.credential.requiredScopes !== undefined &&
+    primitive.credential.requiredScopes.some(
+      (scope) => !request.handle.scopes.includes(scope),
+    )
+  ) {
+    return denied("CREDENTIAL_SCOPE_NOT_ADMITTED");
   }
   const use: FlowCredentialUse = Object.freeze({
     primitiveRef: primitive.primitiveRef,
@@ -78,9 +103,99 @@ export async function resolveFlowCredentialLeaseForEnvelope(
       ? {}
       : { attemptId: request.attemptId }),
   });
+  return resolveAuthorizedCredential(
+    request.handle,
+    capability,
+    use,
+    request.resolver,
+    request.now ?? new Date(),
+  );
+}
+
+/**
+ * Resolve a tool credential only when the compiled integration obligation,
+ * exact path, provider, scopes, and resolver capability all match.
+ */
+export async function resolveFlowToolCredentialLeaseForEnvelope(
+  request: FlowEnvelopeToolCredentialLeaseRequest,
+): Promise<FlowCredentialResolution> {
+  const validation = validateFlowCompiledClassificationEnvelope(
+    request.envelope,
+  );
+  if (!validation.valid) return denied("CLASSIFICATION_ENVELOPE_INVALID");
+  if (!request.envelope.classificationComplete) {
+    return denied("CLASSIFICATION_ENVELOPE_INCOMPLETE");
+  }
+  const integration = request.envelope.integrations.find(
+    (entry) => entry.nodePath === request.nodePath,
+  );
+  if (integration === undefined) return denied("TOOL_NOT_ADMITTED");
+  const credential = integration.credential;
+  if (credential === undefined) return denied("CREDENTIAL_USE_FORBIDDEN");
+  if (integration.policyHash !== request.expectedPolicyHash) {
+    return denied("TOOL_SECURITY_POLICY_HASH_MISMATCH");
+  }
+  if (
+    !credential.inputPaths.some((pattern) =>
+      matchesInputPath(pattern, request.inputPath),
+    )
+  ) {
+    return denied("CREDENTIAL_PATH_NOT_ADMITTED");
+  }
+  if (!isFlowCredentialHandle(request.handle)) {
+    return denied("CREDENTIAL_HANDLE_INVALID");
+  }
+  if (
+    request.handle.provider === undefined ||
+    !credential.allowedProviders.includes(request.handle.provider)
+  ) {
+    return denied("CREDENTIAL_PROVIDER_NOT_ADMITTED");
+  }
+  if (
+    credential.requiredScopes.some(
+      (scope) => !request.handle.scopes.includes(scope),
+    )
+  ) {
+    return denied("CREDENTIAL_SCOPE_NOT_ADMITTED");
+  }
+  const capability = credential.resolverCapabilityRef;
+  const use: FlowCredentialUse = Object.freeze({
+    toolRef: integration.toolRef,
+    inputPath: request.inputPath,
+    capabilityRef: capability,
+    ...(request.runId === undefined ? {} : { runId: request.runId }),
+    ...(request.attemptId === undefined
+      ? {}
+      : { attemptId: request.attemptId }),
+  });
+  return resolveAuthorizedCredential(
+    request.handle,
+    capability,
+    use,
+    request.resolver,
+    request.now ?? new Date(),
+  );
+}
+
+async function resolveAuthorizedCredential(
+  handle: FlowCredentialHandle,
+  capability: string,
+  use: FlowCredentialUse,
+  resolver: FlowCredentialHandleResolver,
+  now: Date,
+): Promise<FlowCredentialResolution> {
+  if (!isFlowCredentialHandle(handle)) {
+    return denied("CREDENTIAL_HANDLE_INVALID");
+  }
+  if (handle.capabilityRef !== capability) {
+    return denied("CREDENTIAL_HANDLE_CAPABILITY_MISMATCH");
+  }
+  if (expired(handle.expiresAt, now)) {
+    return Object.freeze({ status: "expired", code: "CREDENTIAL_HANDLE_EXPIRED" });
+  }
   let resolution: unknown;
   try {
-    resolution = await request.resolver.resolve(request.handle, use);
+    resolution = await resolver.resolve(handle, use);
   } catch {
     return Object.freeze({
       status: "unavailable",
@@ -122,14 +237,14 @@ export async function resolveFlowCredentialLeaseForEnvelope(
   }
   const issue = validateLease(
     resolution.lease,
-    request.handle.handleId,
+    handle.handleId,
     capability,
     now,
   );
   if (issue !== undefined) {
     if (isRecord(resolution.lease)) {
       await releaseInvalidLease(
-        request.resolver,
+        resolver,
         resolution.lease as unknown as FlowCredentialLease,
       );
     }
@@ -139,6 +254,15 @@ export async function resolveFlowCredentialLeaseForEnvelope(
     status: "resolved",
     lease: freezeLease(resolution.lease as FlowCredentialLease),
   });
+}
+
+function matchesInputPath(pattern: string, actual: string): boolean {
+  const expected = pattern.split(".");
+  const observed = actual.split(".");
+  if (expected.length !== observed.length) return false;
+  return expected.every(
+    (segment, index) => segment === "*" || segment === observed[index],
+  );
 }
 
 function validateLease(

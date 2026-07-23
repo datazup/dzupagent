@@ -3,6 +3,7 @@ import {
   type FlowCompiledClassificationEnvelopeValidation,
 } from "./classification-envelope-types.js";
 import { hashFlowCompiledClassificationEnvelopePayload } from "./classification-envelope.js";
+import { validateCompiledIntegration } from "./classification-envelope-integration-validation.js";
 
 const CLASSIFICATIONS = new Set([
   "public",
@@ -42,6 +43,7 @@ export function validateFlowCompiledClassificationEnvelope(
       "values",
       "ports",
       "primitives",
+      "integrations",
     ],
     "envelope",
     issues,
@@ -78,10 +80,17 @@ export function validateFlowCompiledClassificationEnvelope(
   validateArray(value.values, "values", issues, validateValue);
   validateArray(value.ports, "ports", issues, validatePort);
   validateArray(value.primitives, "primitives", issues, validatePrimitive);
+  validateArray(
+    value.integrations,
+    "integrations",
+    issues,
+    validateCompiledIntegration,
+  );
   if (
     Array.isArray(value.values) &&
     Array.isArray(value.ports) &&
     Array.isArray(value.primitives) &&
+    Array.isArray(value.integrations) &&
     unclassified !== undefined
   ) {
     try {
@@ -93,6 +102,7 @@ export function validateFlowCompiledClassificationEnvelope(
         values: value.values,
         ports: value.ports,
         primitives: value.primitives,
+        integrations: value.integrations,
       });
       if (value.classificationHash !== expected) {
         issues.push("classificationHash does not match envelope contents");
@@ -200,7 +210,14 @@ function validatePrimitive(
 function validateCredential(value: unknown, path: string, issues: string[]): void {
   if (!recordWithKeys(
     value,
-    ["mode", "inputPaths", "resolverCapabilityRef"],
+    [
+      "mode",
+      "inputPaths",
+      "resolverCapabilityRef",
+      "allowedProviders",
+      "requiredScopes",
+      "httpAuth",
+    ],
     path,
     issues,
   )) return;
@@ -212,6 +229,28 @@ function validateCredential(value: unknown, path: string, issues: string[]): voi
       `${path}.resolverCapabilityRef`,
       issues,
     );
+  }
+  if (value.allowedProviders !== undefined) {
+    stringArray(value.allowedProviders, `${path}.allowedProviders`, issues);
+  }
+  if (value.requiredScopes !== undefined) {
+    stringArray(value.requiredScopes, `${path}.requiredScopes`, issues);
+  }
+  if (value.httpAuth !== undefined) {
+    validateHttpAuth(value.httpAuth, `${path}.httpAuth`, issues);
+  }
+}
+
+function validateHttpAuth(value: unknown, path: string, issues: string[]): void {
+  if (!recordWithKeys(value, ["scheme", "headerName"], path, issues)) return;
+  enumValue(
+    value.scheme,
+    new Set(["bearer", "basic", "api-key-header"]),
+    `${path}.scheme`,
+    issues,
+  );
+  if (value.headerName !== undefined) {
+    requireNonEmptyString(value.headerName, `${path}.headerName`, issues);
   }
 }
 

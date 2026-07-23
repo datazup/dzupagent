@@ -1,4 +1,5 @@
 import { COLLAB_REVIEW_LOOP_V2_SCHEMA } from "./collab-review-loop-v2.js";
+import { HTTP_PRIMITIVE_DEFINITION_V2 } from "./built-in-http-v2.js";
 import { definePrimitiveV2 } from "./definition-v2.js";
 import type {
   PrimitiveDefinitionV2,
@@ -418,6 +419,7 @@ const VALIDATE_SCHEMA = builtIn({
 export const BUILT_IN_PRIMITIVE_DEFINITIONS_V2: readonly PrimitiveDefinitionV2[] =
   Object.freeze([
     ADAPTER_RUN,
+    HTTP_PRIMITIVE_DEFINITION_V2,
     VALIDATE,
     APPROVAL,
     reviewLoop("2"),
