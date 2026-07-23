@@ -35,6 +35,7 @@ Reusable memory management for LLM agents built on LangGraph Store.
 - **Staged Writer** -- 3-stage capture/promote/confirm workflow with auto-thresholds
 - **Frozen Snapshots** -- Freeze memory at session start for prompt cache optimization
 - **Observation Extractor** -- LLM-based fact extraction from conversations
+- **Governed Observational Memory** -- Optional candidate-first staging and explicit confirmation before model-written observations become durable
 - **Retrieval** -- Vector search, TF-IDF full-text search, entity graph traversal, RRF fusion
 
 ## Install
@@ -70,6 +71,54 @@ const results = await memory.search('lessons', { tenantId: 't1' }, 'validation',
 // Format for prompt injection
 const context = memory.formatForPrompt(records, { header: '## Lessons Learned' })
 ```
+
+## Candidate-First Observational Memory
+
+Use candidate-first mode when a model extracts possible long-term memories from
+short-term conversation context:
+
+```typescript
+const memory = new MemoryService(store, [
+  {
+    name: 'observations',
+    scopeKeys: ['tenantId', 'workspaceId'],
+    searchable: true,
+  },
+  {
+    name: 'observation-candidates',
+    scopeKeys: ['tenantId', 'workspaceId'],
+    searchable: false,
+  },
+])
+const candidateStore = new MemoryServiceObservationCandidateStore(
+  memory,
+  'observation-candidates',
+)
+
+const observations = new ObservationalMemory({
+  model: cheapModel,
+  memoryService: memory,
+  store,
+  namespace: 'observations',
+  scope: { tenantId: 't1', workspaceId: 'w1' },
+  observationWriteMode: 'candidate-first',
+  candidateStore,
+  observerAgentUri: 'forge://acme/memory-observer',
+})
+
+await observations.observe(messages)
+
+// This asynchronous form restores candidates after a process restart.
+const pending = await observations.listPendingObservationCandidates()
+await observations.confirmObservation(pending[0].key)
+```
+
+Candidate-first mode rejects unsafe records through the default write policy,
+does not trust model confidence as confirmation, and persists confirmed
+observations with derived provenance. The separate candidate namespace stores
+restart-safe lifecycle state and idempotent confirmation receipts; rejected and
+stale candidates are pruned by the configured retention policy. Direct mode
+remains the backwards-compatible default.
 
 ## Store Backends
 

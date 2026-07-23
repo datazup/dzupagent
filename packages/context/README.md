@@ -26,6 +26,7 @@ Context window engineering for LLM conversations built on LangChain message type
 ## Features
 
 - **Message Manager** -- Multi-phase compression pipeline (tool result pruning, orphaned pair repair, structured summarization)
+- **Pre-Summary Handoff** -- Canonical `onBeforeSummarize` hook receives the exact messages being replaced for non-fatal memory-candidate extraction
 - **Auto-Compress** -- Single-call pipeline integrating all compression phases
 - **Context Eviction** -- Head/tail truncation for large content blocks (20K token threshold)
 - **System Reminders** -- Periodic re-injection of key instructions (Claude Code-inspired)
@@ -74,6 +75,20 @@ const { content, evicted } = evictIfNeeded(largeFileContent, 'schema.prisma')
 // Anthropic prompt cache optimization
 const cachedMessages = applyCacheBreakpoints(messages)
 ```
+
+The same hook is available on `MessageManagerConfig`, including through
+`DzupAgentConfig.messageConfig`:
+
+```typescript
+const messageConfig = {
+  onBeforeSummarize: async (oldMessages) => {
+    await observationalMemory.observe(oldMessages)
+  },
+}
+```
+
+Treat the model-written rolling summary as short-term context. Promote durable
+facts through an explicit memory write or candidate workflow.
 
 ## Peer Dependencies
 
