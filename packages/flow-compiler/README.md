@@ -42,6 +42,51 @@ warnings. Under `strict`, they are Stage 3 policy errors.
 redaction seam. The compiler does not infer that arbitrary transforms,
 filters, tools, or HTTP calls declassify data.
 
+Built-in primitive step ports no longer require host snapshots. The compiler
+generates their value types and baseline classifications from
+`PrimitiveDefinitionV2`, then monotonically raises a port classification when
+the concrete node output depends on more restrictive data. Explicit host port
+bindings remain supported for custom or host-owned primitives and merge
+conservatively with generated contracts.
+
+This is compile-time and authoring metadata. It does not claim that a host
+already persists classification envelopes in events, logs, checkpoints, or
+stores.
+
+## Primitive input admission and credential handles
+
+Stage 3 applies the resolved built-in `PrimitiveDefinitionV2` input contract:
+
+- raw values outside `acceptedInputClassifications` produce
+  `PRIMITIVE_INPUT_CLASSIFICATION_DENIED`;
+- values above `redactionRequiredAbove` require the existing reviewed
+  redaction seam or produce `PRIMITIVE_REDACTION_REQUIRED`;
+- `credential` inputs are automatically secret and may only be passed as
+  unfiltered whole values at exact declared `credentialInputPaths`;
+- whole-value `set` assignments preserve credential-handle identity, while
+  interpolation, filters, and arbitrary transforms do not;
+- raw `secrets.*` strings do not become credential handles merely because
+  they are placed in a credential-named field.
+
+Compatibility mode reports these as warnings. Strict mode promotes them to
+Stage 3 policy errors. An authorized credential handle bypasses the raw-secret
+sink diagnostic at that exact input path, while all other sensitive/secret
+flows retain the existing fail-closed policy.
+
+For unattended compilation, opt into the fail-closed admission profile:
+
+```ts
+createFlowCompiler({
+  toolResolver,
+  admissionProfile: 'unattended',
+  referencePolicy: 'strict',
+})
+```
+
+`unattended` rejects compatibility reference policy and requires every
+document input to have a resolved classification. The general interactive v1
+default remains unchanged.
+
 ## Provider-free corpus qualification
 
 `dzupagent-qualify-flow-corpus` checks an explicit manifest of DSL files. Each

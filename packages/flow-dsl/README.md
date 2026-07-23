@@ -77,6 +77,40 @@ human-prompt sink; strict compilation rejects the same flow. The existing
 Generic declassification syntax is intentionally deferred until a reviewed
 primitive contract can define its transform and evidence semantics.
 
+Credential inputs use the opaque `credential` type:
+
+```yaml
+inputs:
+  providerCredential:
+    type: credential
+    required: true
+```
+
+Credential inputs are always classified `secret`, cannot declare defaults, and
+cannot be downgraded. They represent host-supplied handles, never raw secret
+text. The compiler only admits them as unfiltered whole values at input paths
+explicitly declared by a V2 primitive contract.
+
+## PrimitiveDefinitionV2
+
+All built-in primitives originate from the serializable
+`PrimitiveDefinitionV2` contracts exported as
+`BUILT_IN_PRIMITIVE_DEFINITIONS_V2`. Each contract declares identity,
+owner/stability, required profiles and capabilities, input classification and
+credential policy, typed and classified output ports, normalized errors,
+effects/replay, delivery/durability/cancellation, policy, evidence/redaction,
+and a deterministic SHA-256 semantic hash.
+
+Credential-capable primitives additionally declare exact
+`credentialInputPaths`; wildcards are limited to a final path segment. A
+primitive that forbids credentials cannot declare credential paths.
+
+`BUILT_IN_PRIMITIVES` remains the compatible v1 registry view and is generated
+from those V2 definitions. Composite expansion functions are attached through
+stable `expansionRef` identities so the V2 catalog itself remains serializable.
+Use `exportPrimitiveCatalogV2` for the complete contract; existing consumers
+can continue to use `exportPrimitiveCatalog`.
+
 ## Template expressions
 
 The DSL supports `{{ ... }}` expressions inside any string field. Two evaluation
