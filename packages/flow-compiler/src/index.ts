@@ -64,6 +64,54 @@ export type {
 export { collectFlowArtifactMetadata } from "./flow-artifact-metadata.js";
 export { projectCompilationDiagnostics } from "./diagnostic-projection.js";
 export { createFlowReferenceAuthoringSnapshot } from "./reference-authoring.js";
+export {
+  FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA,
+} from "./classification-envelope-types.js";
+export type {
+  FlowCompiledClassificationEnvelope,
+  FlowCompiledClassificationEnvelopeValidation,
+  FlowCompiledClassifiedPort,
+  FlowCompiledClassifiedValue,
+  FlowCompiledPrimitiveObligation,
+  FlowCompiledPrimitiveOutputObligation,
+} from "./classification-envelope-types.js";
+export {
+  attachFlowCompiledClassificationEnvelope,
+  createFlowCompiledClassificationEnvelope,
+} from "./classification-envelope.js";
+export type { FlowClassificationEnvelopeSnapshot } from "./classification-envelope.js";
+export { validateFlowCompiledClassificationEnvelope } from "./classification-envelope-validation.js";
+export { admitFlowCompiledClassificationEnvelope } from "./classification-host-admission.js";
+export type {
+  FlowClassificationHostAdmission,
+  FlowClassificationHostAdmissionRequest,
+} from "./classification-host-admission.js";
+export { resolveFlowCredentialLeaseForEnvelope } from "./credential-lease-admission.js";
+export type { FlowEnvelopeCredentialLeaseRequest } from "./credential-lease-admission.js";
+export {
+  attestFlowRedactionReceipt,
+  canonicalizeFlowSecurityJson,
+  deepFreezeJson,
+  digestFlowRedactionReceiptPayload,
+  digestFlowSecurityJson,
+  verifyFlowRedactionReceiptAttestation,
+} from "./redaction-receipt-crypto.js";
+export type {
+  FlowRedactionReceiptPublicKeyResolver,
+  FlowUnsignedRedactionReceipt,
+} from "./redaction-receipt-crypto.js";
+export {
+  FLOW_REDACTION_TERMINAL_RECORD_SCHEMA,
+  InMemoryFlowRedactionReceiptCustodyStore,
+  commitFlowRedactionResult,
+} from "./redaction-receipt-custody.js";
+export type {
+  CommitFlowRedactionResultRequest,
+  FlowRedactionReceiptCustodyCommit,
+  FlowRedactionReceiptCustodyPut,
+  FlowRedactionReceiptCustodyStore,
+  FlowRedactionTerminalRecord,
+} from "./redaction-receipt-custody.js";
 export { analyzeStrictReferenceMigrationSources } from "./strict-reference-migration.js";
 export type { StrictReferenceMigrationRunners } from "./strict-reference-migration.js";
 export {

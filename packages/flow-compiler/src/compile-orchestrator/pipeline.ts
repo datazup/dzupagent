@@ -44,6 +44,10 @@ import { collectFleetSteps } from "../lower/lower-fleet-nodes.js";
 import type { LoweredFleetStep } from "../lower/lower-fleet-nodes.js";
 import { inlineSubflows } from "../stages/subflow-inline.js";
 import { collectFlowRequirements } from "../capability-manifest.js";
+import {
+  attachFlowCompiledClassificationEnvelope,
+  createFlowCompiledClassificationEnvelope,
+} from "../classification-envelope.js";
 
 import type {
   CompilerOptions,
@@ -430,6 +434,13 @@ export async function runCompile(
   if (fleetSteps.length > 0) {
     (artifact as Record<string, unknown>)["fleetSteps"] = fleetSteps;
   }
+  const classificationEnvelope = createFlowCompiledClassificationEnvelope(
+    ast,
+    compileId,
+    requirements.semanticHash,
+    referenceSnapshot,
+  );
+  attachFlowCompiledClassificationEnvelope(artifact, classificationEnvelope);
 
   // Best-effort node/edge counts. The `artifact` shapes differ by target;
   // we read common fields defensively to keep the emit site target-agnostic.
@@ -454,6 +465,7 @@ export async function runCompile(
   return {
     target,
     artifact,
+    classificationEnvelope,
     warnings: compilationWarnings,
     reasons: targetReasons(target, bitmask),
     requirements,

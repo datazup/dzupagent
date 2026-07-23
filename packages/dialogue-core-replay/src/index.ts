@@ -34,3 +34,17 @@ export type {
   ContinuationFixturePublicationReviewV1,
   ContinuationLegacyObservationV1,
 } from "./continuation-conformance.js";
+export {
+  ContinuationConformanceValidationError,
+  loadContinuationConformanceFixtureSetV1,
+  validateContinuationConformanceFixtureSetV1,
+} from "./continuation-conformance-validation.js";
+export {
+  CONTINUATION_CONFORMANCE_REPORT_SCHEMA_V1,
+  classifyContinuationComparisonV1,
+  runContinuationConformanceV1,
+} from "./continuation-conformance-runner.js";
+export type {
+  ContinuationConformanceCaseResultV1,
+  ContinuationConformanceReportV1,
+} from "./continuation-conformance-runner.js";

@@ -28,6 +28,7 @@ export interface ContinuationConformanceSourceV1 {
   readonly family: ContinuationConformanceFamilyV1;
   readonly sourceSchema: string;
   readonly sourceDigest: ContinuationHashV1;
+  readonly sourceByteDigest?: ContinuationHashV1;
   readonly sourceCaseCount: number;
   readonly reductionProcedureVersion: string;
 }
@@ -46,7 +47,9 @@ export interface ContinuationLegacyObservationV1 {
     | "complete"
     | "blocked"
     | "review_again"
-    | "reject";
+    | "reject"
+    | "host_stop"
+    | "suspend";
   readonly diagnosticCodes: readonly string[];
 }
 
@@ -63,7 +66,10 @@ export interface ContinuationConformanceCaseV1 {
   };
   readonly expected: {
     readonly kernelTransition: ContinuationTransitionV1;
-    readonly comparisonClassification: ContinuationComparisonClassificationV1;
+    readonly comparisonClassification: Exclude<
+      ContinuationComparisonClassificationV1,
+      "unsafe_kernel"
+    >;
     readonly legacy?: ContinuationLegacyObservationV1;
   };
 }
@@ -75,11 +81,13 @@ export interface ContinuationDivergenceLedgerEntryV1 {
   readonly legacySummary: string;
   readonly kernelSummary: string;
   readonly safetyRationale: string;
-  readonly approvedBy: string;
-  readonly approvedAt: string;
+  readonly reviewStatus: "proposed" | "approved";
+  readonly reviewedBy: string;
+  readonly reviewedAt: string;
 }
 
 export interface ContinuationFixturePublicationReviewV1 {
+  readonly reviewStatus: "automated" | "approved";
   readonly reviewedBy: string;
   readonly reviewedAt: string;
   readonly containsRawProviderOutput: false;

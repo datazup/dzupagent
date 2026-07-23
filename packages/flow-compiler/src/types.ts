@@ -18,6 +18,7 @@ import type { ParseInput } from "@dzupagent/flow-ast";
 import type { DzupEventBus } from "@dzupagent/core/events";
 
 import type { ProfileRegistry } from "./profile-registry.js";
+import type { FlowCompiledClassificationEnvelope } from "./classification-envelope-types.js";
 
 /**
  * Compile-time value categories used by strict reference analysis.
@@ -331,6 +332,12 @@ export interface CompileSuccess {
   compileId: string;
   target: CompilationTarget;
   artifact: unknown;
+  /**
+   * Immutable value/port classification and primitive policy projection.
+   * Every compiler-produced success includes it; the optional marker preserves
+   * source compatibility for hosts that construct legacy result fixtures.
+   */
+  classificationEnvelope?: FlowCompiledClassificationEnvelope;
   warnings: CompilationWarning[];
   reasons: CompilationTargetReason[];
   /**
