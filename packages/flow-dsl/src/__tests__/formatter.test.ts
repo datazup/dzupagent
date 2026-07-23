@@ -106,6 +106,19 @@ describe('formatDocumentToDsl', () => {
       const out = formatDocumentToDsl(makeDoc({ inputs: {} }))
       expect(out).not.toContain('inputs:')
     })
+
+    it('emits credential inputs without inventing raw defaults', () => {
+      const out = formatDocumentToDsl(makeDoc({
+        inputs: {
+          providerCredential: {
+            type: 'credential',
+            required: true,
+          },
+        },
+      }))
+      expect(out).toContain('  providerCredential: credential')
+      expect(out).not.toContain('raw-secret')
+    })
   })
 
   describe('defaults', () => {

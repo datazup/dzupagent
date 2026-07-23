@@ -58,6 +58,21 @@ describe("flow semantic catalog", () => {
       mode: "execution-leaf",
       target: "adapter.run",
     });
+    expect(adapter?.contract).toMatchObject({
+      schema: "dzupagent.primitiveDefinition/v2",
+      ref: "primitive://adapter.run@1",
+      acceptedInputClassifications: ["public", "internal"],
+      credentialInputs: "handle-only",
+      outputPorts: {
+        result: {
+          classification: "internal",
+          persistence: "state",
+        },
+      },
+      compatibility: {
+        semanticHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      },
+    });
     expect(
       reviewLoop?.expandsTo.find((target) => target.authored === "if"),
     ).toEqual({

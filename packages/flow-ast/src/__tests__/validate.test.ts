@@ -450,6 +450,59 @@ describe("flowDocumentSchema", () => {
     }
   });
 
+  it("accepts opaque credential inputs and rejects defaults or downgrades", () => {
+    const valid = flowDocumentSchema.safeParse({
+      dsl: "dzupflow/v1",
+      id: "credential_workflow",
+      version: 1,
+      inputs: {
+        providerCredential: {
+          type: "credential",
+          required: true,
+        },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "complete", id: "done" }],
+      },
+    });
+    const invalid = flowDocumentSchema.safeParse({
+      dsl: "dzupflow/v1",
+      id: "invalid_credential",
+      version: 1,
+      inputs: {
+        providerCredential: {
+          type: "credential",
+          default: "raw-secret",
+          classification: "internal",
+        },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "complete", id: "done" }],
+      },
+    });
+
+    expect(valid.success).toBe(true);
+    expect(invalid.success).toBe(false);
+    if (!invalid.success) {
+      expect(invalid.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "root.inputs.providerCredential.default",
+            message: expect.stringContaining("cannot declare defaults"),
+          }),
+          expect.objectContaining({
+            path: "root.inputs.providerCredential.classification",
+            message: expect.stringContaining("cannot be downgraded"),
+          }),
+        ]),
+      );
+    }
+  });
+
   it("rejects non-FlowValue input defaults", () => {
     const result = flowDocumentSchema.safeParse({
       dsl: "dzupflow/v1",

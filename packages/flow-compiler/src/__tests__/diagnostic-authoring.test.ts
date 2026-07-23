@@ -182,4 +182,130 @@ describe("reference authoring snapshot", () => {
       ),
     ).toBe(false);
   });
+
+  it("generates typed and classified ports from primitive definitions", () => {
+    const snapshot = createFlowReferenceAuthoringSnapshot({
+      type: "sequence",
+      id: "root",
+      nodes: [
+        {
+          type: "adapter.run",
+          id: "provider",
+          provider: "codex",
+          instructions: "Summarize {{ inputs.payload }}",
+          input: { payload: "{{ inputs.payload }}" },
+          output: "providerResult",
+        },
+        {
+          type: "evidence.write",
+          id: "evidence",
+          source: "providerResult",
+          output: "receipt",
+          redact: true,
+        },
+      ],
+    }, {
+      referenceBindings: { inputs: ["payload"] },
+      referenceTypeBindings: { inputs: { payload: "object" } },
+      referenceClassificationBindings: {
+        inputs: { payload: "sensitive" },
+      },
+    });
+
+    expect(snapshot.ports).toMatchObject({
+      provider: { result: "unknown" },
+      evidence: { receipt: "object" },
+    });
+    expect(snapshot.portClassifications).toMatchObject({
+      provider: { result: "sensitive" },
+      evidence: { receipt: "internal" },
+    });
+    expect(snapshot.completions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "steps.provider.result",
+          valueType: "unknown",
+          classification: "sensitive",
+        }),
+        expect.objectContaining({
+          label: "steps.evidence.receipt",
+          valueType: "object",
+          classification: "internal",
+        }),
+      ]),
+    );
+  });
+
+  it("projects credential inputs as opaque secret handles", () => {
+    const snapshot = createFlowReferenceAuthoringSnapshot({
+      dsl: "dzupflow/v1",
+      id: "credential_authoring",
+      version: 1,
+      inputs: {
+        providerCredential: {
+          type: "credential",
+          required: true,
+        },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "set",
+            id: "copy_credential",
+            assign: {
+              copiedCredential: "{{ inputs.providerCredential }}",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(snapshot.completions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "inputs.providerCredential",
+          valueType: "credential",
+          classification: "secret",
+        }),
+        expect.objectContaining({
+          label: "state.copiedCredential",
+          valueType: "credential",
+          classification: "secret",
+        }),
+      ]),
+    );
+
+    const conflicting = createFlowReferenceAuthoringSnapshot({
+      dsl: "dzupflow/v1",
+      id: "credential_authoring_conflict",
+      version: 1,
+      inputs: {
+        providerCredential: {
+          type: "credential",
+          required: true,
+        },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "set",
+            assign: {
+              copiedCredential: "{{ inputs.providerCredential }}",
+            },
+          },
+          {
+            type: "set",
+            assign: {
+              copiedCredential: "raw-value",
+            },
+          },
+        ],
+      },
+    });
+    expect(conflicting.types.state?.copiedCredential).not.toBe("credential");
+  });
 });

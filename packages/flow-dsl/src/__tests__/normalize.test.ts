@@ -216,6 +216,52 @@ describe("normalizeDslDocument", () => {
       );
     });
 
+    it("normalizes credential handles and rejects raw defaults or downgrades", () => {
+      const valid = normalizeDslDocument(
+        makeMinimalRaw({
+          inputs: {
+            providerCredential: {
+              type: "credential",
+              required: true,
+            },
+          },
+        }),
+      );
+      const invalid = normalizeDslDocument(
+        makeMinimalRaw({
+          inputs: {
+            providerCredential: {
+              type: "credential",
+              default: "raw-secret",
+              classification: "internal",
+            },
+          },
+        }),
+      );
+
+      expect(valid.diagnostics).toEqual([]);
+      expect(valid.document?.inputs?.["providerCredential"]).toEqual({
+        type: "credential",
+        required: true,
+      });
+      expect(invalid.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "root.inputs.providerCredential.default",
+          }),
+          expect.objectContaining({
+            path: "root.inputs.providerCredential.classification",
+          }),
+        ]),
+      );
+      expect(
+        invalid.document?.inputs?.["providerCredential"]?.default,
+      ).toBeUndefined();
+      expect(
+        invalid.document?.inputs?.["providerCredential"]?.classification,
+      ).toBeUndefined();
+    });
+
     it("preserves JSON-like (nested array/object) input defaults", () => {
       // Ported from the former flow-dsl/test/normalize.test.ts (TEST-M-04).
       const raw = makeMinimalRaw({
