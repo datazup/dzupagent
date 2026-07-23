@@ -90,6 +90,24 @@ const messageConfig = {
 Treat the model-written rolling summary as short-term context. Promote durable
 facts through an explicit memory write or candidate workflow.
 
+For hosts that require the versioned structured-summary contract, enable
+fail-closed section validation:
+
+```typescript
+const messageConfig = {
+  summaryValidation: 'required',
+  summaryModelId: 'summary-model-v1',
+  eventBus,
+}
+```
+
+`summarizeAndTrim()` then returns `summaryMetadata` with the prompt version,
+model ID, source-message count, and validation result. The validator accepts
+normal Markdown heading variation rather than exact JSON or a fixed heading
+level. If required sections are missing, the prior summary is preserved and a
+non-fatal `context:summary_validation_failed` event is emitted. Validation is
+opt-in so existing unstructured-summary consumers keep their current behavior.
+
 ## Peer Dependencies
 
 | Package | Version |

@@ -104,6 +104,11 @@ const observations = new ObservationalMemory({
   observationWriteMode: 'candidate-first',
   candidateStore,
   observerAgentUri: 'forge://acme/memory-observer',
+  observationRunId: runId,
+  observationMessageReferenceResolver: message => message.id,
+  onObservationLifecycleEvent: event => {
+    auditSink.record(event)
+  },
 })
 
 await observations.observe(messages)
@@ -119,6 +124,26 @@ observations with derived provenance. The separate candidate namespace stores
 restart-safe lifecycle state and idempotent confirmation receipts; rejected and
 stale candidates are pruned by the configured retention policy. Direct mode
 remains the backwards-compatible default.
+
+The default `observation-extraction/v3` contract requires every extracted
+observation to cite at least one supplied message label. The extractor resolves
+only valid labels into stable `evidenceReferences`, using the host message ID
+when available and a deterministic role/content digest otherwise. Each
+reference includes the optional run ID, a complete-content SHA-256 digest, and
+a bounded review excerpt. Uncited or invented references are discarded, and
+candidate confirmation validates evidence again. Semantic consolidation unions
+the source references of merged or duplicate observations.
+
+Custom `observationPrompt` values must preserve the same `evidenceRefs`
+requirement and supplied message-label convention. A custom response without
+valid evidence references is rejected rather than persisted.
+
+`onObservationLifecycleEvent` is a narrow, non-fatal host adapter. It emits
+captured, promoted, confirmed, rejected, restored, retention-pruned, and
+persistence-failed events with scope, candidate key, stage, and reference IDs;
+it does not expose the observation value or source excerpt. Product-owned
+approval UI should consume this adapter rather than being added to the memory
+package.
 
 ## Store Backends
 
