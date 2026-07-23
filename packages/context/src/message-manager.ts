@@ -64,9 +64,21 @@ export interface MessageManagerConfig {
   eventBus?: {
     emit(event: { type: string } & Record<string, unknown>): void
   }
+  /**
+   * Called with the exact, boundary-aligned messages that will be replaced by
+   * the rolling summary.
+   *
+   * This is the canonical short-term-context handoff seam. Hosts can use it
+   * to extract reviewable long-term-memory candidates before detail is
+   * discarded. Hook failures are non-fatal and never block compression.
+   */
+  onBeforeSummarize?: (messages: BaseMessage[]) => Promise<void> | void
 }
 
-const DEFAULTS: Omit<Required<MessageManagerConfig>, 'onFallback' | 'memoryFrame' | 'eventBus' | 'tokenCounter'> = {
+const DEFAULTS: Omit<
+  Required<MessageManagerConfig>,
+  'onFallback' | 'memoryFrame' | 'eventBus' | 'tokenCounter' | 'onBeforeSummarize'
+> = {
   maxMessages: 30,
   keepRecentMessages: 10,
   maxMessageTokens: 12_000,
@@ -378,6 +390,17 @@ export async function summarizeAndTrim(
 
   // Phase 3: Repair orphaned pairs in the recent section
   const repairedRecent = repairOrphanedToolPairs(recentMessages)
+
+  // Preserve information before the short-term window is replaced by a
+  // model-written summary. The hook receives the exact split selected above,
+  // rather than a caller-side approximation of `messages.length - keep`.
+  if (config?.onBeforeSummarize) {
+    try {
+      await config.onBeforeSummarize(oldMessages)
+    } catch {
+      // Non-fatal: memory extraction/promotion must not block compression.
+    }
+  }
 
   // Phase 4: Structured summarization
   const formattedOld = oldMessages

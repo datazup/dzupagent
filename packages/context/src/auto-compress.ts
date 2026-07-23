@@ -144,18 +144,12 @@ export async function autoCompress(
     return { messages, summary: existingSummary, compressed: false };
   }
 
-  // Call the pre-summarize hook with messages that are about to be compressed away.
-  // Uses keepRecentMessages (default 10) to estimate which messages will be lost.
+  // Estimate messages that will be lost for best-effort transcript offload.
+  // The canonical onBeforeSummarize hook runs inside summarizeAndTrim after its
+  // safe boundary alignment, so all summarization call paths share one seam.
   const keep = config?.keepRecentMessages ?? 10;
   const willBeLost =
     messages.length > keep ? messages.slice(0, messages.length - keep) : [];
-  if (willBeLost.length > 0 && config?.onBeforeSummarize) {
-    try {
-      await config.onBeforeSummarize(willBeLost);
-    } catch {
-      // Non-fatal: extraction failure must not prevent compression
-    }
-  }
 
   let offloadPath: string | undefined;
   if (willBeLost.length > 0 && config?.offload) {

@@ -61,11 +61,12 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
           },
           body: [
             {
-              type: "validate.schema",
-              id: "classify_validation",
-              source: "{{ state.validationItem.result }}",
-              schema: "dzup.sdlc.validation-result@1",
-              output: "validationStatus",
+              "validate.schema": {
+                id: "classify_validation",
+                source: "{{ state.validationItem.result }}",
+                schema: "dzup.sdlc.validation-result@1",
+                output: "validationStatus",
+              },
             },
           ],
         },

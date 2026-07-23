@@ -245,22 +245,17 @@ export async function compressToLevel(
 
   // --- Level 3: structured summarization via summarizeAndTrim ---
   if (level === 3) {
-    // Fire the pre-summarize hook (non-fatal)
-    if (cfg.onBeforeSummarize && result.length > cfg.keepRecentLevel3) {
-      const oldMessages = result.slice(0, result.length - cfg.keepRecentLevel3)
-      try {
-        await cfg.onBeforeSummarize(oldMessages)
-      } catch {
-        // Non-fatal: hook failure must not block compression
-      }
-    }
-
     try {
       const { summary, trimmedMessages } = await summarizeAndTrim(
         result,
         existingSummary,
         model,
-        { keepRecentMessages: cfg.keepRecentLevel3 },
+        {
+          keepRecentMessages: cfg.keepRecentLevel3,
+          ...(cfg.onBeforeSummarize
+            ? { onBeforeSummarize: cfg.onBeforeSummarize }
+            : {}),
+        },
       )
       return buildResult(trimmedMessages, summary, 3, originalTokens, charsPerToken)
     } catch {
