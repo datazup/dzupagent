@@ -667,7 +667,9 @@
         { "match": "exact", "pattern": "./policy-numbers.js" }
       ],
       "transitionalRoot": [],
-      "subpaths": {},
+      "subpaths": {
+        "./expressions": "typed expression and strict reference analysis contracts"
+      },
       "migrationWindow": "Flow AST root exports are stable Layer 0 parser, validator, and contract primitives; add allowlist rules before exposing new root modules."
     },
     {
