@@ -525,6 +525,32 @@ describe("createFlowCompiler — stage 3 errors", () => {
     // 2 unresolved refs → 2 errors
     expect(failure.errors).toHaveLength(2);
   });
+
+  it("threads strict reference policy and binding snapshots through the compiler", async () => {
+    const resolver = makeResolver(["known.tool"]);
+    const compiler = createFlowCompiler({
+      toolResolver: resolver,
+      referencePolicy: "strict",
+      referenceBindings: { inputs: ["ready"] },
+    });
+
+    const result = await compiler.compile({
+      type: "branch",
+      condition: "inputs.missing === true",
+      then: [{ type: "action", toolRef: "known.tool", input: {} }],
+    });
+
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) throw new Error("expected strict compile failure");
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        stage: 3,
+        code: "INVALID_CONDITION",
+        nodePath: "root.condition",
+        message: expect.stringContaining("MISSING_REFERENCE"),
+      }),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

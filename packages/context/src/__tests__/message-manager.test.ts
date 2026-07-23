@@ -379,6 +379,35 @@ describe('summarizeAndTrim', () => {
     expect((model.invoke as ReturnType<typeof vi.fn>)).toHaveBeenCalled()
   })
 
+  it('calls onBeforeSummarize with the exact messages replaced by the summary', async () => {
+    const model = createMockModel('summary')
+    const hook = vi.fn()
+    const msgs = makeConversation(10)
+
+    await summarizeAndTrim(msgs, null, model, {
+      keepRecentMessages: 6,
+      onBeforeSummarize: hook,
+    })
+
+    expect(hook).toHaveBeenCalledTimes(1)
+    const oldMessages = hook.mock.calls[0]![0] as BaseMessage[]
+    expect(oldMessages.length).toBeGreaterThan(0)
+    expect(oldMessages[0]).toBe(msgs[0])
+  })
+
+  it('keeps summarization non-fatal when onBeforeSummarize rejects', async () => {
+    const model = createMockModel('summary after hook failure')
+    const msgs = makeConversation(10)
+
+    const result = await summarizeAndTrim(msgs, null, model, {
+      keepRecentMessages: 6,
+      onBeforeSummarize: vi.fn().mockRejectedValue(new Error('candidate store unavailable')),
+    })
+
+    expect(result.summary).toBe('summary after hook failure')
+    expect((model.invoke as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1)
+  })
+
   it('includes existing summary in the update prompt', async () => {
     const model = createMockModel('updated summary')
     const msgs = makeConversation(10)
