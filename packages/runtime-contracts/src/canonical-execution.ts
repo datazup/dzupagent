@@ -6,11 +6,14 @@
  * validate the resulting decision before execution.
  */
 
-export type ExecutionLeafKind =
-  | "prompt"
-  | "agent"
-  | "adapter.run"
-  | "worker.dispatch";
+export const EXECUTION_LEAF_KINDS = [
+  "prompt",
+  "agent",
+  "adapter.run",
+  "worker.dispatch",
+] as const;
+
+export type ExecutionLeafKind = (typeof EXECUTION_LEAF_KINDS)[number];
 
 export interface ExecutionSourceRef {
   readonly flowId?: string;

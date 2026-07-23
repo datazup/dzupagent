@@ -1,4 +1,7 @@
-import type { FlowFragmentV1, FlowNode } from "@dzupagent/flow-ast";
+import {
+  flowReference,
+  type FlowFragmentV1,
+} from "@dzupagent/flow-ast";
 
 import { createFragmentRegistry } from "./registry.js";
 
@@ -50,21 +53,20 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
           id: "validate_each",
           source: "{{ params.items }}",
           as: "validationItem",
-          concurrency: "{{ params.concurrency }}" as unknown as number,
-          failFast: "{{ params.failFast }}" as unknown as boolean,
+          concurrency: flowReference<number>("params.concurrency"),
+          failFast: flowReference<boolean>("params.failFast"),
           collect: {
             from: "validationStatus",
             into: "validationStatuses",
           },
           body: [
             {
-              "validate.schema": {
-                id: "classify_validation",
-                source: "{{ state.validationItem.result }}",
-                schema: "dzup.sdlc.validation-result@1",
-                output: "validationStatus",
-              },
-            } as unknown as FlowNode,
+              type: "validate.schema",
+              id: "classify_validation",
+              source: "{{ state.validationItem.result }}",
+              schema: "dzup.sdlc.validation-result@1",
+              output: "validationStatus",
+            },
           ],
         },
       ],
@@ -173,8 +175,8 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
           id: "dispatch_each_packet",
           source: "{{ params.packets }}",
           as: "packetItem",
-          concurrency: "{{ params.concurrency }}" as unknown as number,
-          failFast: "{{ params.failFast }}" as unknown as boolean,
+          concurrency: flowReference<number>("params.concurrency"),
+          failFast: flowReference<boolean>("params.failFast"),
           collect: {
             from: "each_packet__packetStatus",
             into: "packetStatuses",
@@ -184,7 +186,7 @@ export const BUILT_IN_SDL_FRAGMENT_DEFINITIONS: readonly FlowFragmentV1[] = [
               type: "sdlc.gated_packet",
               id: "each_packet",
               packetRef: "{{ state.packetItem.ref }}",
-            } as unknown as FlowNode,
+            },
           ],
         },
       ],

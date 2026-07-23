@@ -421,16 +421,19 @@ export function expandFragmentInvocation(
   const params = resolveParams(input);
   const exports = normalizeExportMap(entry.fragment.exports, instanceId, params);
   const exportAvailability = normalizeExportAvailability(entry.fragment.exports);
+  const fragmentNodes = entry.fragment.root.nodes.map((node) =>
+    Object.fromEntries(Object.entries(node)),
+  );
   const referenceScope = collectReferenceScope(
-    entry.fragment.root.nodes as unknown as Record<string, unknown>[],
+    fragmentNodes,
   );
   validateLocalReferences(
-    entry.fragment.root.nodes as unknown as Record<string, unknown>[],
+    fragmentNodes,
     referenceScope,
   );
-  const expandedNodes = entry.fragment.root.nodes.map((node, index) =>
+  const expandedNodes = fragmentNodes.map((node, index) =>
     expandNode(
-      node as unknown as Record<string, unknown>,
+      node,
       input,
       instanceId,
       params,

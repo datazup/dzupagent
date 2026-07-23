@@ -1,3 +1,8 @@
+import {
+  isFlowReferenceValue,
+  parseFlowReferenceExpression,
+} from "@dzupagent/flow-ast";
+
 const STATE_KEY_FIELDS = new Set([
   "output",
   "outputKey",
@@ -170,6 +175,31 @@ export function rewriteFragmentValue(
   referenceScope: FragmentReferenceScope = {},
   localStateKeys: ReadonlySet<string> = new Set()
 ): unknown {
+  if (isFlowReferenceValue(value)) {
+    const parsed = parseFlowReferenceExpression(value.source, {
+      policy: "strict",
+      allowedRoots: ["params", "state", "inputs", "steps", "loop", "context"],
+    });
+    if (!parsed.ok || parsed.reference === undefined) {
+      const reason =
+        parsed.diagnostics[0]?.message ?? `invalid fragment reference "${value.source}"`;
+      throw new Error(reason);
+    }
+    const { reference } = parsed;
+    const first = reference.segments[0];
+    if (
+      reference.root === "params" &&
+      reference.segments.length === 1 &&
+      first?.kind === "property" &&
+      reference.filters.length === 0
+    ) {
+      if (!(first.key in params)) {
+        throw new Error(`unbound fragment param "${first.key}"`);
+      }
+      return params[first.key];
+    }
+    return `{{ ${reference.source} }}`;
+  }
   if (typeof value === "string") {
     if (STRUCTURAL_PARAM_RE.test(value)) return substituteParams(value, params);
     return substituteParams(

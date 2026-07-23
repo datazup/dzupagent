@@ -18,3 +18,5 @@ export interface FlowExpressionAnalysis {
   refs: string[];
   warnings: string[];
 }
+
+export * from "./reference-expression.js";

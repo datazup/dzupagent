@@ -118,6 +118,22 @@ export type {
   TargetCapabilityLimitation,
   TargetCapabilityManifest,
 } from "./capability-manifest.js";
+export {
+  generateFlowSemanticCatalog,
+  renderFlowSemanticCatalogMarkdown,
+} from "./semantic-catalog.js";
+export type {
+  FlowSemanticCatalog,
+  FlowSemanticCatalogDiagnostic,
+  FlowSemanticCatalogDiagnosticCode,
+  FlowSemanticExecutionLeafEntry,
+  FlowSemanticFragmentEntry,
+  FlowSemanticNodeClass,
+  FlowSemanticNodeEntry,
+  FlowSemanticPrimitiveEntry,
+  PrimitiveExpansionTarget,
+  PrimitiveSemanticExecutionMode,
+} from "./semantic-catalog.js";
 export { validateShape } from "./stages/shape-validate.js";
 export { semanticResolve } from "./stages/semantic.js";
 export type { SemanticOptions, SemanticResult } from "./stages/semantic.js";
