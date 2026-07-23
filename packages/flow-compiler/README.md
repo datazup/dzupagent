@@ -87,6 +87,54 @@ createFlowCompiler({
 document input to have a resolved classification. The general interactive v1
 default remains unchanged.
 
+## Compiled classification envelope
+
+Every successful compile emits
+`dzupagent.flowCompiledClassificationEnvelope/v1` both on
+`CompileSuccess.classificationEnvelope` and as the immutable
+`artifact.classificationEnvelope` property.
+
+The envelope contains:
+
+- classified value and step-port identities with their compile-time types;
+- opaque-handle markers for credential values;
+- resolved V2 primitive refs and accepted input classifications;
+- exact credential paths and required resolver capabilities;
+- redaction thresholds, versioned policies, and required receipt schemas;
+- expected catalog output classifications and effective classifications after
+  monotonic propagation;
+- `classificationComplete` plus sorted `unclassifiedReferences`, so hosts can
+  reject unresolved policy coverage without inferring meaning from omission.
+
+Entries are deterministically sorted and deeply frozen. The envelope carries
+no authored/runtime values, credential material, or redacted output. It is a
+portable host obligation with its own deterministic `classificationHash`
+(independent of the per-run `compileId`), not evidence that any runtime
+enforces or persists the classification contract.
+
+### Strict host security kit
+
+Provider-free host helpers turn the envelope into a fail-closed admission
+boundary:
+
+- `admitFlowCompiledClassificationEnvelope` binds the envelope to the expected
+  semantic, classification, and optional compile identities, requires complete
+  classification coverage, and checks every projected primitive capability;
+- `resolveFlowCredentialLeaseForEnvelope` permits only an exact primitive
+  credential path, requires a nominal handle with the projected resolver
+  capability, and rejects mismatched, expired, or malformed leases;
+- `attestFlowRedactionReceipt` and
+  `verifyFlowRedactionReceiptAttestation` use canonical JSON, SHA-256 payload
+  identities, trusted key references, and Ed25519 signatures;
+- `commitFlowRedactionResult` validates the classified output digest and
+  signature before atomically storing the first terminal operation result;
+  equivalent retries are duplicates and different late results are conflicts.
+
+`InMemoryFlowRedactionReceiptCustodyStore` exists for provider-free
+qualification only. A durable host must implement atomic `putIfAbsent` on the
+operation id and must secure the classified result at rest. These helpers do
+not activate a provider, secret backend, key store, or production runtime.
+
 ## Provider-free corpus qualification
 
 `dzupagent-qualify-flow-corpus` checks an explicit manifest of DSL files. Each

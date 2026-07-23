@@ -104,6 +104,9 @@ and a deterministic SHA-256 semantic hash.
 Credential-capable primitives additionally declare exact
 `credentialInputPaths`; wildcards are limited to a final path segment. A
 primitive that forbids credentials cannot declare credential paths.
+Handle-only primitives also declare a `credentialResolverCapabilityRef` that
+must appear in `requiresCapabilities`; `adapter.run@1` requires
+`flow.runtime.credential.resolve@1`.
 Definitions requiring redaction evidence must bind
 `dzupagent.flowRedactionReceipt/v1` and a versioned policy reference.
 `evidence.write@1` now carries that canonical receipt requirement in its

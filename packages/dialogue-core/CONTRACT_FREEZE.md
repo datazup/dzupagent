@@ -245,3 +245,10 @@ network, environment, or clock access.
 
 This addition does not make the continuation kernel authoritative in any host.
 Scripts and Codev adoption remain comparison-gated.
+
+Focused 0.3.0 staging gate:
+
+- `yarn build --filter=@dzupagent/dialogue-core` → exit 0
+- `yarn typecheck --filter=@dzupagent/dialogue-core` → exit 0
+- `yarn lint --filter=@dzupagent/dialogue-core` → exit 0
+- `yarn test --filter=@dzupagent/dialogue-core` → 30 tests pass
