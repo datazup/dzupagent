@@ -91,7 +91,10 @@ const ADAPTER_RUN = builtIn({
   version: "1",
   category: "leaf",
   description: "Run one provider adapter call through the host registry.",
-  requiresCapabilities: ["flow.runtime.adapter.run@1"],
+  requiresCapabilities: [
+    "flow.runtime.adapter.run@1",
+    "flow.runtime.credential.resolve@1",
+  ],
   inputSchema: {
     type: "object",
     required: ["instructions", "output"],
@@ -105,6 +108,7 @@ const ADAPTER_RUN = builtIn({
   acceptedInputClassifications: SAFE_SINK_CLASSIFICATIONS,
   credentialInputs: "handle-only",
   credentialInputPaths: ["input.credential", "input.credentials.*"],
+  credentialResolverCapabilityRef: "flow.runtime.credential.resolve@1",
   outputPorts: {
     result: {
       schema: {},
@@ -372,6 +376,7 @@ const EVIDENCE_WRITE = builtIn({
     rawContent: "forbidden",
     redactionPolicyRef: "policy://dzupagent/evidence-redaction@1",
     redactionReceiptRequired: true,
+    redactionReceiptSchema: "dzupagent.flowRedactionReceipt/v1",
   },
 });
 

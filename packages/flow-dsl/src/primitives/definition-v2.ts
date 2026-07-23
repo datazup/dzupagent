@@ -192,6 +192,50 @@ export function validatePrimitiveDefinitionV2(
       `primitive ${identity} accepts credentials but declares no credential input paths`,
     );
   }
+  if (
+    definition.credentialInputs === "handle-only" &&
+    (definition.credentialResolverCapabilityRef === undefined ||
+      !definition.requiresCapabilities.includes(
+        definition.credentialResolverCapabilityRef,
+      ))
+  ) {
+    throw new Error(
+      `primitive ${identity} must require its credential resolver capability`,
+    );
+  }
+  if (
+    definition.credentialInputs !== "handle-only" &&
+    definition.credentialResolverCapabilityRef !== undefined
+  ) {
+    throw new Error(
+      `primitive ${identity} declares a credential resolver without handle-only inputs`,
+    );
+  }
+  if (
+    definition.evidence.redactionReceiptRequired &&
+    definition.evidence.redactionReceiptSchema !==
+      "dzupagent.flowRedactionReceipt/v1"
+  ) {
+    throw new Error(
+      `primitive ${identity} requires the canonical redaction receipt schema`,
+    );
+  }
+  if (
+    definition.evidence.redactionReceiptRequired &&
+    definition.evidence.redactionPolicyRef === undefined
+  ) {
+    throw new Error(
+      `primitive ${identity} requires a redaction policy reference`,
+    );
+  }
+  if (
+    !definition.evidence.redactionReceiptRequired &&
+    definition.evidence.redactionReceiptSchema !== undefined
+  ) {
+    throw new Error(
+      `primitive ${identity} declares a redaction receipt schema without requiring a receipt`,
+    );
+  }
   if (definition.execution.delivery.length === 0) {
     throw new Error(`primitive ${identity} must declare delivery support`);
   }

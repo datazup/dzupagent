@@ -20,3 +20,17 @@ export type {
   ReplayDialogueResult,
   SchedulerFactory,
 } from "./replay-dialogue.js";
+export {
+  CONTINUATION_CONFORMANCE_FIXTURE_SET_SCHEMA_V1,
+  CONTINUATION_DIVERGENCE_LEDGER_SCHEMA_V1,
+} from "./continuation-conformance.js";
+export type {
+  ContinuationComparisonClassificationV1,
+  ContinuationConformanceCaseV1,
+  ContinuationConformanceFamilyV1,
+  ContinuationConformanceFixtureSetV1,
+  ContinuationConformanceSourceV1,
+  ContinuationDivergenceLedgerEntryV1,
+  ContinuationFixturePublicationReviewV1,
+  ContinuationLegacyObservationV1,
+} from "./continuation-conformance.js";

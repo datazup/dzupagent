@@ -14,7 +14,10 @@
     "outDir": "dist",
     "baseUrl": ".",
     "paths": {
-      "@dzupagent/dialogue-core": ["../dialogue-core/src/index.ts"]
+      "@dzupagent/dialogue-core": ["../dialogue-core/src/index.ts"],
+      "@dzupagent/dialogue-core/continuation/v1": [
+        "../dialogue-core/src/continuation/v1.ts"
+      ]
     },
     "resolveJsonModule": true,
     "isolatedModules": true,

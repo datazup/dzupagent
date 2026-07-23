@@ -1,6 +1,7 @@
 import type {
   EffectClass,
   FlowDataClassification,
+  FlowRedactionReceiptSchema,
   NodeIdempotencyMode,
 } from "@dzupagent/flow-ast";
 
@@ -88,6 +89,7 @@ export interface PrimitiveDefinitionV2 {
   acceptedInputClassifications: readonly FlowDataClassification[];
   credentialInputs: "forbidden" | "handle-only" | "raw-by-policy";
   credentialInputPaths: readonly string[];
+  credentialResolverCapabilityRef?: string;
   redactionRequiredAbove?: FlowDataClassification;
   outputPorts: Readonly<Record<string, PrimitiveOutputPortDefinition>>;
   errorSchema: PrimitiveSchema;
@@ -127,6 +129,7 @@ export interface PrimitiveDefinitionV2 {
     rawContent: "forbidden" | "ephemeral" | "allowed-by-policy";
     redactionPolicyRef?: string;
     redactionReceiptRequired: boolean;
+    redactionReceiptSchema?: FlowRedactionReceiptSchema;
   };
 
   compatibility: {

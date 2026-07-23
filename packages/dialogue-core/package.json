@@ -9,6 +9,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./continuation/v1": {
+      "import": "./dist/continuation/v1.js",
+      "types": "./dist/continuation/v1.d.ts"
     }
   },
   "scripts": {
