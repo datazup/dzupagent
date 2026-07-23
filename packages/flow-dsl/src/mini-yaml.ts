@@ -289,8 +289,7 @@ function parseLiteralBlock(
   while (index < lines.length) {
     const line = lines[index]!;
     if (line.indent < indent) break;
-    if (line.indent !== indent) break;
-    chunks.push(line.content);
+    chunks.push(`${" ".repeat(line.indent - indent)}${line.content}`);
     index += 1;
   }
   return { value: chunks.join("\n"), nextIndex: index };

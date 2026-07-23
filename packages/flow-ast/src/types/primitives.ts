@@ -4,6 +4,27 @@ export type FlowValue =
   | FlowValue[]
   | { [key: string]: FlowValue };
 
+/**
+ * Portable data-classification vocabulary for authored flow values.
+ *
+ * The order is monotonic: derived values may retain or increase their
+ * classification, but may only decrease it through an explicit reviewed
+ * redaction/declassification primitive.
+ */
+export type FlowDataClassification =
+  | "public"
+  | "internal"
+  | "sensitive"
+  | "secret";
+
+/** Runtime-stable list of {@link FlowDataClassification} values. */
+export const FLOW_DATA_CLASSIFICATIONS: readonly FlowDataClassification[] = [
+  "public",
+  "internal",
+  "sensitive",
+  "secret",
+] as const;
+
 export type FlowDiagnosticCategory =
   | "shape"
   | "resolution"
@@ -218,6 +239,8 @@ export interface FlowInputSpec {
   required?: boolean;
   description?: string;
   default?: FlowValue;
+  /** Optional compile-time classification propagated to dependent values. */
+  classification?: FlowDataClassification;
 }
 
 export interface FlowDefaults {

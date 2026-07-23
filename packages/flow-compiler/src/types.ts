@@ -2,6 +2,7 @@ import type {
   AsyncToolResolver,
   AsyncToolsetResolver,
   FlowDiagnosticCategory,
+  FlowDataClassification,
   FlowDocumentV1,
   FlowDocumentPolicy,
   FlowDurabilityPolicy,
@@ -55,6 +56,22 @@ export type FlowReferencePortBindings = Readonly<
   Record<
     string,
     Readonly<Record<string, FlowReferenceValueType | undefined>> | undefined
+  >
+>;
+
+/** Classifications for the first declared name below each reference root. */
+export type FlowReferenceClassificationBindings = Readonly<
+  Record<
+    string,
+    Readonly<Record<string, FlowDataClassification | undefined>> | undefined
+  >
+>;
+
+/** Explicit output-port classifications by stable step id. */
+export type FlowReferencePortClassificationBindings = Readonly<
+  Record<
+    string,
+    Readonly<Record<string, FlowDataClassification | undefined>> | undefined
   >
 >;
 
@@ -152,6 +169,18 @@ export interface CompilerOptions {
    * initially available; execution order is analyzed separately.
    */
   referencePortBindings?: FlowReferencePortBindings;
+  /**
+   * Optional host classifications for late-bound context, state, secret,
+   * artifact, or external symbols. Classifications merge monotonically; a
+   * host declaration cannot downgrade a more restrictive document or
+   * compiler-derived value.
+   */
+  referenceClassificationBindings?: FlowReferenceClassificationBindings;
+  /**
+   * Classifications for reviewed canonical output ports. Kept separate from
+   * value types because a schema category does not imply a security level.
+   */
+  referencePortClassificationBindings?: FlowReferencePortClassificationBindings;
 }
 
 export interface FlowDocumentResolver {
@@ -347,6 +376,7 @@ export interface FlowReferenceCompletion {
   name: string;
   stepId?: string;
   valueType: FlowReferenceValueType;
+  classification?: FlowDataClassification;
 }
 
 export interface FlowReferenceAuthoringSnapshot {
@@ -354,6 +384,8 @@ export interface FlowReferenceAuthoringSnapshot {
   bindings: FlowReferenceBindings;
   types: FlowReferenceTypeBindings;
   ports: FlowReferencePortBindings;
+  classifications: FlowReferenceClassificationBindings;
+  portClassifications: FlowReferencePortClassificationBindings;
   completions: FlowReferenceCompletion[];
 }
 
@@ -361,6 +393,8 @@ export interface FlowReferenceAuthoringOptions {
   referenceBindings?: FlowReferenceBindings;
   referenceTypeBindings?: FlowReferenceTypeBindings;
   referencePortBindings?: FlowReferencePortBindings;
+  referenceClassificationBindings?: FlowReferenceClassificationBindings;
+  referencePortClassificationBindings?: FlowReferencePortClassificationBindings;
 }
 
 export type StrictReferenceMigrationSource =

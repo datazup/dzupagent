@@ -117,7 +117,9 @@ export function normalizeIf(
     ...base,
     condition: typeof raw.condition === 'string' ? raw.condition : '',
     then: normalizeSteps(raw.then, `${path}.then`, diagnostics),
-    else: raw.else !== undefined ? normalizeSteps(raw.else, `${path}.else`, diagnostics) : undefined,
+  }
+  if (raw.else !== undefined) {
+    node.else = normalizeSteps(raw.else, `${path}.else`, diagnostics)
   }
   if (node.condition.length === 0) {
     diagnostics.push({

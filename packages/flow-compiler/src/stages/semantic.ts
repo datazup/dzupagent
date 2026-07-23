@@ -16,6 +16,8 @@ import type { ProfileRegistry, ResolvedProfile } from '../profile-registry.js'
 import type {
   AsyncPersonaResolver,
   FlowReferencePortBindings,
+  FlowReferenceClassificationBindings,
+  FlowReferencePortClassificationBindings,
   FlowReferenceTypeBindings,
   PersonaResolver,
 } from '../types.js'
@@ -69,6 +71,10 @@ export interface SemanticOptions {
   referenceTypeBindings?: FlowReferenceTypeBindings
   /** Explicit canonical output ports by stable step id. */
   referencePortBindings?: FlowReferencePortBindings
+  /** Compiler- and host-derived first-segment data classifications. */
+  referenceClassificationBindings?: FlowReferenceClassificationBindings
+  /** Reviewed data classifications for canonical output ports. */
+  referencePortClassificationBindings?: FlowReferencePortClassificationBindings
 }
 
 export interface SemanticResult {
@@ -209,6 +215,9 @@ export async function semanticResolve(
       opts.referenceAvailabilityBindings ?? opts.referenceBindings,
     referenceTypeBindings: opts.referenceTypeBindings,
     referencePortBindings: opts.referencePortBindings,
+    referenceClassificationBindings: opts.referenceClassificationBindings,
+    referencePortClassificationBindings:
+      opts.referencePortClassificationBindings,
   }
 
   const referenceFlow = analyzeReferenceFlow(ast, {

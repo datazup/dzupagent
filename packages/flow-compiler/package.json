@@ -12,7 +12,8 @@
     }
   },
   "bin": {
-    "dzupagent-compile": "dist/bin/compile.js"
+    "dzupagent-compile": "dist/bin/compile.js",
+    "dzupagent-qualify-flow-corpus": "dist/bin/qualify-corpus.js"
   },
   "files": [
     "dist"

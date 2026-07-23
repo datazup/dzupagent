@@ -66,6 +66,21 @@ export { projectCompilationDiagnostics } from "./diagnostic-projection.js";
 export { createFlowReferenceAuthoringSnapshot } from "./reference-authoring.js";
 export { analyzeStrictReferenceMigrationSources } from "./strict-reference-migration.js";
 export type { StrictReferenceMigrationRunners } from "./strict-reference-migration.js";
+export {
+  FLOW_CORPUS_MANIFEST_SCHEMA,
+  FLOW_CORPUS_REPORT_SCHEMA,
+  hashFlowCorpusSource,
+  parseFlowCorpusManifest,
+  qualifyFlowCorpusSources,
+  renderFlowCorpusQualificationMarkdown,
+} from "./corpus-qualification.js";
+export type {
+  FlowCorpusManifest,
+  FlowCorpusManifestEntry,
+  FlowCorpusQualificationItem,
+  FlowCorpusQualificationReport,
+  LoadedFlowCorpusSource,
+} from "./corpus-qualification.js";
 export { mapFlowLeafToExecutionRequest } from "./execution-mapper.js";
 export { mapFlowNodeToGateRequests } from "./gate-mapper.js";
 export type {

@@ -35,7 +35,8 @@ export function formatDocumentToDsl(document: FlowDocumentV1): string {
       if (
         spec.required === true &&
         spec.description === undefined &&
-        spec.default === undefined
+        spec.default === undefined &&
+        spec.classification === undefined
       ) {
         lines.push(`  ${key}: ${spec.type}`);
       } else {
@@ -45,6 +46,10 @@ export function formatDocumentToDsl(document: FlowDocumentV1): string {
           lines.push(`    required: ${String(spec.required)}`);
         if (spec.description !== undefined)
           lines.push(`    description: ${quote(spec.description)}`);
+        if (spec.default !== undefined)
+          lines.push(`    default: ${formatScalar(spec.default)}`);
+        if (spec.classification !== undefined)
+          lines.push(`    classification: ${spec.classification}`);
       }
     }
   }

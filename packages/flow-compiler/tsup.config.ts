@@ -10,7 +10,10 @@ export default defineConfig([
     sourcemap: true,
   },
   {
-    entry: { 'bin/compile': 'bin/compile.ts' },
+    entry: {
+      'bin/compile': 'bin/compile.ts',
+      'bin/qualify-corpus': 'bin/qualify-corpus.ts',
+    },
     format: ['esm'],
     dts: false,
     clean: false,

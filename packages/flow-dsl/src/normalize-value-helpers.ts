@@ -86,6 +86,7 @@ const INPUT_SPEC_KEYS = new Set<string>([
   'required',
   'description',
   'default',
+  'classification',
 ])
 
 export function normalizeInputs(
@@ -144,6 +145,9 @@ export function normalizeInputs(
       ...(value.default !== undefined && isFlowValue(value.default)
         ? { default: value.default }
         : {}),
+      ...(isInputClassification(value.classification)
+        ? { classification: value.classification }
+        : {}),
     }
     if (value.default !== undefined && !isFlowValue(value.default)) {
       diagnostics.push({
@@ -151,6 +155,17 @@ export function normalizeInputs(
         code: DSL_ERROR.INVALID_INPUT_SPEC,
         message: 'input spec.default must be a JSON-like value when present',
         path: `root.inputs.${key}.default`,
+      })
+    }
+    if (
+      value.classification !== undefined
+      && !isInputClassification(value.classification)
+    ) {
+      diagnostics.push({
+        phase: 'normalize',
+        code: DSL_ERROR.INVALID_INPUT_SPEC,
+        message: 'input spec.classification must be one of public|internal|sensitive|secret',
+        path: `root.inputs.${key}.classification`,
       })
     }
   }
@@ -233,6 +248,15 @@ export function isInputType(value: unknown): value is FlowInputSpec['type'] {
     || value === 'object'
     || value === 'array'
     || value === 'any'
+}
+
+export function isInputClassification(
+  value: unknown,
+): value is NonNullable<FlowInputSpec['classification']> {
+  return value === 'public'
+    || value === 'internal'
+    || value === 'sensitive'
+    || value === 'secret'
 }
 
 export function isFlowValue(value: unknown): value is FlowValue {

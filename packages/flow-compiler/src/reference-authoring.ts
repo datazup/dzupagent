@@ -15,10 +15,19 @@ import {
   mergeReferencePortBindings,
   mergeReferenceTypeBindings,
 } from "./stages/reference-symbol-contracts.js";
+import {
+  deriveDocumentReferenceClassificationBindings,
+  deriveNodeReferenceClassificationBindings,
+  deriveSecretReferenceClassificationBindings,
+  mergeReferenceClassificationBindings,
+  mergeReferencePortClassificationBindings,
+} from "./stages/reference-classifications.js";
 import type {
   FlowReferenceAuthoringOptions,
   FlowReferenceAuthoringSnapshot,
+  FlowReferenceClassificationBindings,
   FlowReferenceCompletion,
+  FlowReferencePortClassificationBindings,
   FlowReferencePortBindings,
   FlowReferenceTypeBindings,
 } from "./types.js";
@@ -52,13 +61,39 @@ export function createFlowReferenceAuthoringSnapshot(
     deriveNodeReferencePortBindings(root),
     options.referencePortBindings,
   );
+  const initialClassifications = mergeReferenceClassificationBindings(
+    document !== undefined
+      ? deriveDocumentReferenceClassificationBindings(document)
+      : undefined,
+    options.referenceClassificationBindings,
+    deriveSecretReferenceClassificationBindings(bindings),
+  );
+  const classifications = mergeReferenceClassificationBindings(
+    initialClassifications,
+    deriveNodeReferenceClassificationBindings(
+      root,
+      initialClassifications,
+      options.referencePortClassificationBindings,
+    ),
+  );
+  const portClassifications = mergeReferencePortClassificationBindings(
+    options.referencePortClassificationBindings,
+  );
 
   return {
     schema: "dzupagent.flowReferenceAuthoring/v1",
     bindings,
     types,
     ports,
-    completions: buildCompletions(bindings, types, ports),
+    classifications,
+    portClassifications,
+    completions: buildCompletions(
+      bindings,
+      types,
+      ports,
+      classifications,
+      portClassifications,
+    ),
   };
 }
 
@@ -66,6 +101,8 @@ function buildCompletions(
   bindings: FlowReferenceAuthoringSnapshot["bindings"],
   types: FlowReferenceTypeBindings,
   ports: FlowReferencePortBindings,
+  classifications: FlowReferenceClassificationBindings,
+  portClassifications: FlowReferencePortClassificationBindings,
 ): FlowReferenceCompletion[] {
   const completions: FlowReferenceCompletion[] = [];
   for (const [root, names] of Object.entries(bindings)) {
@@ -78,6 +115,9 @@ function buildCompletions(
         root,
         name,
         valueType: types[root]?.[name] ?? "unknown",
+        ...(classifications[root]?.[name] !== undefined
+          ? { classification: classifications[root]?.[name] }
+          : {}),
       });
     }
   }
@@ -91,6 +131,9 @@ function buildCompletions(
         stepId,
         name: port,
         valueType: valueType ?? "unknown",
+        ...(portClassifications[stepId]?.[port] !== undefined
+          ? { classification: portClassifications[stepId]?.[port] }
+          : {}),
       });
     }
   }

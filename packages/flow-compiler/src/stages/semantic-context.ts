@@ -14,6 +14,8 @@ import type { ProfileRegistry, ResolvedProfile } from '../profile-registry.js'
 import type {
   AsyncPersonaResolver,
   FlowReferencePortBindings,
+  FlowReferenceClassificationBindings,
+  FlowReferencePortClassificationBindings,
   FlowReferenceTypeBindings,
   PersonaResolver,
 } from '../types.js'
@@ -68,4 +70,12 @@ export interface WalkContext {
   referenceTypeBindings: FlowReferenceTypeBindings | undefined
   /** Explicit canonical output ports for stable step ids. */
   referencePortBindings: FlowReferencePortBindings | undefined
+  /** Monotonic classifications for first-segment values. */
+  referenceClassificationBindings:
+    | FlowReferenceClassificationBindings
+    | undefined
+  /** Reviewed classifications for canonical output ports. */
+  referencePortClassificationBindings:
+    | FlowReferencePortClassificationBindings
+    | undefined
 }

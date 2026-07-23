@@ -2,6 +2,7 @@ import type { FlowNode } from "@dzupagent/flow-ast";
 import {
   analyzeFlowTemplateReferences,
   type FlowReferenceUseSite,
+  type ParsedFlowReference,
 } from "@dzupagent/flow-ast/expressions";
 
 import type { WalkContext } from "./semantic-context.js";
@@ -10,6 +11,7 @@ import {
   type SemanticDiagnostic,
 } from "./semantic-diagnostic.js";
 import { analyzeReferenceContract } from "./reference-contracts.js";
+import { classificationForReference } from "./reference-classifications.js";
 
 const CHILD_NODE_FIELDS = new Set([
   "nodes",
@@ -52,10 +54,27 @@ const OPAQUE_SCHEMA_FIELDS = new Set([
   "resultSchema",
 ]);
 
+export type FlowClassificationSink =
+  | "provider-prompt"
+  | "tool-input"
+  | "command"
+  | "event-log"
+  | "evidence"
+  | "persistence"
+  | "artifact"
+  | "human-prompt";
+
 export interface NodeTemplateReferenceSite {
   readonly source: string;
   readonly path: string;
   readonly useSite: FlowReferenceUseSite;
+  readonly syntax: "template" | "state-key";
+  readonly classificationSink?: FlowClassificationSink;
+}
+
+interface CollectTemplateOptions {
+  readonly stateKey?: boolean;
+  readonly classificationSink?: FlowClassificationSink;
 }
 
 /**
@@ -76,7 +95,7 @@ export function validateNodeTemplateReferences(
   }
 }
 
-/** Collect executable template-bearing strings without analyzing child nodes. */
+/** Collect executable reference-bearing strings without analyzing child nodes. */
 export function collectNodeTemplateReferenceSites(
   node: FlowNode,
   path: string,
@@ -95,6 +114,10 @@ export function collectNodeTemplateReferenceSites(
       `${path}.${field}`,
       useSiteForField(field),
       sites,
+      {
+        stateKey: isDirectStateKeyField(node, field),
+        classificationSink: classificationSinkForField(node, field),
+      },
     );
   }
   return sites;
@@ -108,7 +131,7 @@ function collectGovernanceMetadata(
   if (!isRecord(value)) return;
   for (const [field, nested] of Object.entries(value)) {
     if (!GOVERNANCE_META_FIELDS.has(field)) continue;
-    collectTemplateValues(nested, `${path}.${field}`, "policy", sites);
+    collectTemplateValues(nested, `${path}.${field}`, "policy", sites, {});
   }
 }
 
@@ -117,10 +140,20 @@ function collectTemplateValues(
   path: string,
   useSite: FlowReferenceUseSite,
   sites: NodeTemplateReferenceSite[],
+  options: CollectTemplateOptions,
 ): void {
   if (typeof value === "string") {
-    if (!value.includes("{{") && !value.includes("}}")) return;
-    sites.push({ source: value, path, useSite });
+    const hasTemplate = value.includes("{{") || value.includes("}}");
+    if (!hasTemplate && !options.stateKey) return;
+    sites.push({
+      source: value,
+      path,
+      useSite,
+      syntax: hasTemplate ? "template" : "state-key",
+      ...(options.classificationSink !== undefined
+        ? { classificationSink: options.classificationSink }
+        : {}),
+    });
     return;
   }
 
@@ -131,6 +164,7 @@ function collectTemplateValues(
         `${path}[${index}]`,
         useSite,
         sites,
+        options,
       );
     }
     return;
@@ -146,6 +180,7 @@ function collectTemplateValues(
         ? "policy"
         : useSite,
       sites,
+      options,
     );
   }
 }
@@ -155,6 +190,10 @@ function validateTemplateSource(
   site: NodeTemplateReferenceSite,
   ctx: WalkContext,
 ): void {
+  if (site.syntax === "state-key") {
+    validateDirectStateKeyFlow(node, site, ctx);
+    return;
+  }
   const analysis = analyzeFlowTemplateReferences(site.source, {
     policy: ctx.referencePolicy,
     useSite: site.useSite,
@@ -163,6 +202,7 @@ function validateTemplateSource(
       ? { knownBindings: ctx.referenceBindings }
       : {}),
   });
+
   for (const diagnostic of analysis.diagnostics) {
     pushDiagnostic(
       node,
@@ -176,6 +216,7 @@ function validateTemplateSource(
   }
 
   for (const reference of analysis.references) {
+    const span = nodeFieldSpan(reference.start, reference.end);
     for (const issue of analyzeReferenceContract(
       reference,
       analysis.form,
@@ -195,9 +236,81 @@ function validateTemplateSource(
         site.useSite,
         `[${issue.code}] ${issue.message}`,
         ctx,
-        nodeFieldSpan(reference.start, reference.end),
+        span,
       );
     }
+    validateClassifiedFlow(node, site, reference, span, ctx);
+  }
+}
+
+function validateClassifiedFlow(
+  node: FlowNode,
+  site: NodeTemplateReferenceSite,
+  reference: ParsedFlowReference,
+  span: SemanticDiagnostic["span"],
+  ctx: WalkContext,
+): void {
+  if (site.classificationSink === undefined) return;
+  const classification = classificationForReference(
+    reference,
+    ctx.referenceClassificationBindings,
+    ctx.referencePortClassificationBindings,
+  );
+  pushUnsafeDataFlow(node, site, classification, reference.source, span, ctx);
+}
+
+function validateDirectStateKeyFlow(
+  node: FlowNode,
+  site: NodeTemplateReferenceSite,
+  ctx: WalkContext,
+): void {
+  pushUnsafeDataFlow(
+    node,
+    site,
+    ctx.referenceClassificationBindings?.["state"]?.[site.source],
+    `state.${site.source}`,
+    nodeFieldSpan(0, site.source.length),
+    ctx,
+  );
+}
+
+function pushUnsafeDataFlow(
+  node: FlowNode,
+  site: NodeTemplateReferenceSite,
+  classification: "public" | "internal" | "sensitive" | "secret" | undefined,
+  referenceSource: string,
+  span: SemanticDiagnostic["span"],
+  ctx: WalkContext,
+): void {
+  if (site.classificationSink === undefined) return;
+  if (classification !== "sensitive" && classification !== "secret") return;
+  if (
+    site.classificationSink === "evidence" &&
+    node.type === "evidence.write" &&
+    node.redact === true
+  ) {
+    return;
+  }
+
+  const sink = site.classificationSink.replaceAll("-", " ");
+  const detailCode = `${classification.toUpperCase()}_TO_${site.classificationSink
+    .replaceAll("-", "_")
+    .toUpperCase()}`;
+  const diagnostic: SemanticDiagnostic = {
+    nodeType: node.type,
+    nodePath: site.path,
+    code: "UNSAFE_DATA_FLOW",
+    category: "policy",
+    message:
+      `[${detailCode}] ${classification} reference "${referenceSource}" ` +
+      `cannot flow to ${sink} at "${site.path}" without an explicit reviewed ` +
+      "redaction/declassification contract.",
+    ...(span !== undefined ? { span } : {}),
+  };
+  if (ctx.referencePolicy === "strict") {
+    ctx.errors.push(diagnostic);
+  } else {
+    ctx.warnings.push(diagnostic);
   }
 }
 
@@ -238,6 +351,76 @@ function isControlReferenceField(
     return true;
   }
   return field === "source" && node.type === "for_each";
+}
+
+function isDirectStateKeyField(node: FlowNode, field: string): boolean {
+  return node.type === "evidence.write" && field === "source";
+}
+
+function classificationSinkForField(
+  node: FlowNode,
+  field: string,
+): FlowClassificationSink | undefined {
+  switch (node.type) {
+    case "prompt":
+      return field === "userPrompt" || field === "systemPrompt"
+        ? "provider-prompt"
+        : undefined;
+    case "agent":
+      return field === "instructions" || field === "input"
+        ? "provider-prompt"
+        : undefined;
+    case "worker.dispatch":
+      return field === "systemPrompt" ||
+        field === "instructions" ||
+        field === "input"
+        ? "provider-prompt"
+        : undefined;
+    case "adapter.run":
+    case "adapter.race":
+    case "adapter.parallel":
+      return field === "systemPrompt" ||
+        field === "instructions" ||
+        field === "input"
+        ? "provider-prompt"
+        : undefined;
+    case "adapter.supervisor":
+      return field === "systemPrompt" ||
+        field === "goal" ||
+        field === "input"
+        ? "provider-prompt"
+        : undefined;
+    case "classify":
+      return field === "prompt" ? "provider-prompt" : undefined;
+    case "fleet.dispatch":
+    case "fleet.contract-net":
+      return field === "task" || field === "repos"
+        ? "provider-prompt"
+        : undefined;
+    case "action":
+      return field === "input" ? "tool-input" : undefined;
+    case "shell.run":
+      return field === "command" || field === "cwd"
+        ? "command"
+        : undefined;
+    case "emit":
+      return field === "payload" ? "event-log" : undefined;
+    case "memory":
+      return node.operation === "write" && field === "valueExpr"
+        ? "persistence"
+        : undefined;
+    case "knowledge.write":
+      return field === "entry" ? "persistence" : undefined;
+    case "evidence.write":
+      return field === "source" ? "evidence" : undefined;
+    case "complete":
+      return field === "result" ? "artifact" : undefined;
+    case "approval":
+    case "clarification":
+      return field === "question" ? "human-prompt" : undefined;
+    default:
+      return undefined;
+  }
 }
 
 function useSiteForField(field: string): FlowReferenceUseSite {

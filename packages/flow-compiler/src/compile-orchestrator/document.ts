@@ -31,6 +31,7 @@ import {
 } from "../authoring-input.js";
 import { deriveDocumentReferenceBindings } from "../stages/reference-symbols.js";
 import { deriveDocumentReferenceTypeBindings } from "../stages/reference-symbol-contracts.js";
+import { deriveDocumentReferenceClassificationBindings } from "../stages/reference-classifications.js";
 import { currentFlowRefFromDocument } from "../stages/subflow-inline.js";
 
 import type { CompileSuccess, CompileFailure } from "../types.js";
@@ -90,6 +91,9 @@ export async function runCompileDocument(
     {
       bindings: deriveDocumentReferenceBindings(document as FlowDocumentV1),
       types: deriveDocumentReferenceTypeBindings(document as FlowDocumentV1),
+      classifications: deriveDocumentReferenceClassificationBindings(
+        document as FlowDocumentV1,
+      ),
     },
   );
 
@@ -174,6 +178,9 @@ export async function runCompileDsl(
       ? {
           bindings: deriveDocumentReferenceBindings(prepared.document),
           types: deriveDocumentReferenceTypeBindings(prepared.document),
+          classifications: deriveDocumentReferenceClassificationBindings(
+            prepared.document,
+          ),
         }
       : {},
   );

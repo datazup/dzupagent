@@ -28,7 +28,6 @@
 
 import { parseFlow } from "@dzupagent/flow-ast";
 import type { ParseInput } from "@dzupagent/flow-ast";
-import type { FlowReferenceBindings } from "@dzupagent/flow-ast/expressions";
 import type { DzupEvent } from "@dzupagent/core";
 
 import { validateShape } from "../stages/shape-validate.js";
@@ -45,16 +44,6 @@ import { collectFleetSteps } from "../lower/lower-fleet-nodes.js";
 import type { LoweredFleetStep } from "../lower/lower-fleet-nodes.js";
 import { inlineSubflows } from "../stages/subflow-inline.js";
 import { collectFlowRequirements } from "../capability-manifest.js";
-import {
-  deriveNodeReferenceBindings,
-  mergeReferenceBindings,
-} from "../stages/reference-symbols.js";
-import {
-  deriveNodeReferencePortBindings,
-  deriveNodeReferenceTypeBindings,
-  mergeReferencePortBindings,
-  mergeReferenceTypeBindings,
-} from "../stages/reference-symbol-contracts.js";
 
 import type {
   CompilerOptions,
@@ -64,7 +53,6 @@ import type {
   FlowCompileSourceKind,
   CompileSuccess,
   FlowCompileSubflowEvidence,
-  FlowReferenceTypeBindings,
 } from "../types.js";
 
 import {
@@ -83,6 +71,10 @@ import {
   toCompilationWarnings,
   toSemanticWarnings,
 } from "./diagnostics.js";
+import {
+  createSemanticReferenceSnapshot,
+  type SourceReferenceSnapshot,
+} from "./reference-snapshot.js";
 
 // Flow compiler event shapes are part of the canonical `DzupEvent` union in
 // `@dzupagent/core` (Wave 11 ADR §4). We narrow to the relevant subset here
@@ -113,11 +105,6 @@ export type FlowCompileEvent = Extract<
 export interface CompileOrchestratorDeps {
   readonly opts: CompilerOptions;
   readonly emit: (e: FlowCompileEvent) => void;
-}
-
-export interface SourceReferenceSnapshot {
-  readonly bindings?: FlowReferenceBindings;
-  readonly types?: FlowReferenceTypeBindings;
 }
 
 /**
@@ -258,23 +245,10 @@ export async function runCompile(
   // -----------------------------------------------------------------------
   // Stage 3: Semantic resolution — halts on any error
   // -----------------------------------------------------------------------
-  const referenceBindings = mergeReferenceBindings(
-    deriveNodeReferenceBindings(ast),
-    sourceReferences.bindings,
-    opts.referenceBindings,
-  );
-  const referenceAvailabilityBindings = mergeReferenceBindings(
-    sourceReferences.bindings,
-    opts.referenceBindings,
-  );
-  const referenceTypeBindings = mergeReferenceTypeBindings(
-    deriveNodeReferenceTypeBindings(ast),
-    sourceReferences.types,
-    opts.referenceTypeBindings,
-  );
-  const referencePortBindings = mergeReferencePortBindings(
-    deriveNodeReferencePortBindings(ast),
-    opts.referencePortBindings,
+  const referenceSnapshot = createSemanticReferenceSnapshot(
+    ast,
+    sourceReferences,
+    opts,
   );
   const semanticResult = await semanticResolve(ast, {
     toolResolver: opts.toolResolver,
@@ -289,10 +263,7 @@ export async function runCompile(
     ...(opts.referencePolicy !== undefined
       ? { referencePolicy: opts.referencePolicy }
       : {}),
-    referenceBindings,
-    referenceAvailabilityBindings,
-    referenceTypeBindings,
-    referencePortBindings,
+    ...referenceSnapshot,
   });
 
   emit({

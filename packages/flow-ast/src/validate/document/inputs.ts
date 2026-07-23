@@ -91,6 +91,30 @@ export function validateOptionalInputs(
         });
       }
     }
+    if (
+      "classification" in rawSpec &&
+      rawSpec["classification"] !== undefined
+    ) {
+      const classification = rawSpec["classification"];
+      if (
+        classification === "public" ||
+        classification === "internal" ||
+        classification === "sensitive" ||
+        classification === "secret"
+      ) {
+        spec.classification = classification;
+      } else {
+        issues.push({
+          path: joinPath(
+            joinPath(joinPath(path, "inputs"), key),
+            "classification"
+          ),
+          code: "MISSING_REQUIRED_FIELD",
+          message:
+            "input spec.classification must be one of public|internal|sensitive|secret",
+        });
+      }
+    }
     inputs[key] = spec;
   }
   return inputs;
