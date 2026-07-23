@@ -114,7 +114,11 @@ describe("reference authoring snapshot", () => {
       id: "authoring",
       version: 1,
       inputs: {
-        payload: { type: "object", required: true },
+        payload: {
+          type: "object",
+          required: true,
+          classification: "sensitive",
+        },
       },
       root: {
         type: "sequence",
@@ -133,6 +137,12 @@ describe("reference authoring snapshot", () => {
       referenceBindings: { context: ["tenantId"] },
       referenceTypeBindings: { context: { tenantId: "string" } },
       referencePortBindings: { prepare: { result: "object" } },
+      referenceClassificationBindings: {
+        context: { tenantId: "internal" },
+      },
+      referencePortClassificationBindings: {
+        prepare: { result: "sensitive" },
+      },
     });
 
     expect(snapshot.schema).toBe("dzupagent.flowReferenceAuthoring/v1");
@@ -141,6 +151,7 @@ describe("reference authoring snapshot", () => {
         expect.objectContaining({
           label: "inputs.payload",
           valueType: "object",
+          classification: "sensitive",
         }),
         expect.objectContaining({
           label: "state.ready",
@@ -149,13 +160,21 @@ describe("reference authoring snapshot", () => {
         expect.objectContaining({
           label: "context.tenantId",
           valueType: "string",
+          classification: "internal",
         }),
         expect.objectContaining({
           kind: "step-port",
           label: "steps.prepare.result",
           valueType: "object",
+          classification: "sensitive",
         }),
       ]),
+    );
+    expect(snapshot.classifications).toEqual(
+      expect.objectContaining({
+        inputs: { payload: "sensitive" },
+        context: { tenantId: "internal" },
+      }),
     );
     expect(
       snapshot.completions.some(

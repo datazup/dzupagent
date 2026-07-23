@@ -16,6 +16,12 @@ import {
   mergeReferencePortBindings,
   mergeReferenceTypeBindings,
 } from "../stages/reference-symbol-contracts.js";
+import {
+  deriveDocumentReferenceClassificationBindings,
+  deriveNodeReferenceClassificationBindings,
+  deriveSecretReferenceClassificationBindings,
+  mergeReferenceClassificationBindings,
+} from "../stages/reference-classifications.js";
 
 describe("reference symbol derivation", () => {
   it("derives canonical document inputs without inventing host state", () => {
@@ -191,5 +197,66 @@ describe("reference symbol derivation", () => {
       inputs: { goal: "string" },
       state: { count: "number" },
     });
+  });
+
+  it("derives and propagates classifications monotonically", () => {
+    const document: FlowDocumentV1 = {
+      dsl: "dzupflow/v1",
+      id: "classified_symbols",
+      version: 1,
+      inputs: {
+        customerRecord: {
+          type: "object",
+          classification: "sensitive",
+        },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [
+          {
+            type: "set",
+            id: "copy",
+            assign: {
+              customerCopy: "{{ inputs.customerRecord }}",
+              credentialCopy: "{{ secrets.apiKey }}",
+            },
+          },
+          {
+            type: "prompt",
+            id: "summarize",
+            userPrompt: "Summarize {{ state.customerCopy }}",
+            outputKey: "summary",
+          },
+        ],
+      },
+    };
+    const seed = mergeReferenceClassificationBindings(
+      deriveDocumentReferenceClassificationBindings(document),
+      deriveSecretReferenceClassificationBindings({
+        secrets: ["apiKey"],
+      }),
+    );
+
+    expect(seed).toEqual({
+      inputs: { customerRecord: "sensitive" },
+      secrets: { apiKey: "secret" },
+    });
+    expect(
+      deriveNodeReferenceClassificationBindings(document.root, seed),
+    ).toEqual({
+      state: {
+        credentialCopy: "secret",
+        customerCopy: "sensitive",
+        summary: "sensitive",
+      },
+    });
+    expect(
+      mergeReferenceClassificationBindings(
+        { state: { value: "internal" } },
+        { state: { value: "secret" } },
+        { state: { value: "public" } },
+      ),
+    ).toEqual({ state: { value: "secret" } });
   });
 });

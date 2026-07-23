@@ -718,7 +718,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
     );
   });
 
-  it("unions document symbols with host-declared strict bindings", async () => {
+  it("unions host bindings before enforcing strict secret sink policy", async () => {
     const resolver = makeResolver(["known.tool"]);
     const compiler = createFlowCompiler({
       toolResolver: resolver,
@@ -753,7 +753,21 @@ describe("createFlowCompiler — stage 3 errors", () => {
       },
     });
 
-    expect("errors" in result).toBe(false);
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) throw new Error("expected strict compile failure");
+    expect(result.errors).toContainEqual(
+      expect.objectContaining({
+        stage: 3,
+        code: "UNSAFE_DATA_FLOW",
+        nodePath: "root.nodes[0].input.prompt",
+        message: expect.stringContaining("[SECRET_TO_TOOL_INPUT]"),
+      }),
+    );
+    expect(
+      result.errors.some((error) =>
+        error.message.includes("[MISSING_REFERENCE]"),
+      ),
+    ).toBe(false);
   });
 
   it("fails closed when a strict step reference has no canonical port contract", async () => {

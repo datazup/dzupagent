@@ -135,6 +135,24 @@ describe('parseYamlSubset', () => {
       const result = parseYamlSubset(source)
       expect(result).toEqual({ ok: true, value: { desc: 'line one\nline two' } })
     })
+
+    it('preserves indentation deeper than the block content indentation', () => {
+      const source = [
+        'prompt: |',
+        '  Output this object:',
+        '    key: value',
+        '  Done.',
+        'next: true',
+      ].join('\n')
+      const result = parseYamlSubset(source)
+      expect(result).toEqual({
+        ok: true,
+        value: {
+          prompt: 'Output this object:\n  key: value\nDone.',
+          next: true,
+        },
+      })
+    })
   })
 
   describe('inline arrays', () => {

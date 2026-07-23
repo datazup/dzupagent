@@ -403,6 +403,53 @@ describe("flowDocumentSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts classified inputs and rejects unknown classifications", () => {
+    const valid = flowDocumentSchema.safeParse({
+      dsl: "dzupflow/v1",
+      id: "classified_workflow",
+      version: 1,
+      inputs: {
+        customerRecord: {
+          type: "object",
+          classification: "sensitive",
+        },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "complete", id: "done" }],
+      },
+    });
+    const invalid = flowDocumentSchema.safeParse({
+      dsl: "dzupflow/v1",
+      id: "invalid_classification",
+      version: 1,
+      inputs: {
+        customerRecord: {
+          type: "object",
+          classification: "private",
+        },
+      },
+      root: {
+        type: "sequence",
+        id: "root",
+        nodes: [{ type: "complete", id: "done" }],
+      },
+    });
+
+    expect(valid.success).toBe(true);
+    expect(invalid.success).toBe(false);
+    if (!invalid.success) {
+      expect(invalid.error.issues).toContainEqual(
+        expect.objectContaining({
+          path: "root.inputs.customerRecord.classification",
+          message:
+            "input spec.classification must be one of public|internal|sensitive|secret",
+        })
+      );
+    }
+  });
+
   it("rejects non-FlowValue input defaults", () => {
     const result = flowDocumentSchema.safeParse({
       dsl: "dzupflow/v1",

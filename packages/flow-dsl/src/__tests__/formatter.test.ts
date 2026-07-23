@@ -84,12 +84,22 @@ describe('formatDocumentToDsl', () => {
 
     it('emits full input spec when optional fields present', () => {
       const out = formatDocumentToDsl(makeDoc({
-        inputs: { count: { type: 'number', required: false, description: 'The count' } },
+        inputs: {
+          count: {
+            type: 'number',
+            required: false,
+            description: 'The count',
+            default: 5,
+            classification: 'internal',
+          },
+        },
       }))
       expect(out).toContain('  count:')
       expect(out).toContain('    type: number')
       expect(out).toContain('    required: false')
       expect(out).toContain('    description: "The count"')
+      expect(out).toContain('    default: 5')
+      expect(out).toContain('    classification: internal')
     })
 
     it('does not emit inputs section when inputs is empty', () => {

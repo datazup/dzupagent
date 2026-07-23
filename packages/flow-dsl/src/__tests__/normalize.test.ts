@@ -180,6 +180,7 @@ describe("normalizeDslDocument", () => {
             required: false,
             description: "The count",
             default: 5,
+            classification: "internal",
           },
         },
       });
@@ -192,7 +193,27 @@ describe("normalizeDslDocument", () => {
         required: false,
         description: "The count",
         default: 5,
+        classification: "internal",
       });
+    });
+
+    it("rejects an unknown input classification", () => {
+      const raw = makeMinimalRaw({
+        inputs: {
+          customerRecord: {
+            type: "object",
+            classification: "private",
+          },
+        },
+      });
+      const { diagnostics } = normalizeDslDocument(raw);
+
+      expect(diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: "INVALID_INPUT_SPEC",
+          path: "root.inputs.customerRecord.classification",
+        })
+      );
     });
 
     it("preserves JSON-like (nested array/object) input defaults", () => {
@@ -361,6 +382,7 @@ describe("normalizeSteps — if (branch)", () => {
     const diagnostics: Parameters<typeof normalizeSteps>[2] = [];
     const nodes = normalizeSteps(raw, "root.steps", diagnostics);
     expect(nodes[0]?.type).toBe("branch");
+    expect(nodes[0]).not.toHaveProperty("else");
     expect(diagnostics).toHaveLength(0);
   });
 
