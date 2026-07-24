@@ -15,7 +15,7 @@
       "sourceId": "codev-continuation-contract-v1",
       "family": "codev",
       "sourceSchema": "codev/agent-loop-continuation-contract-sources/v1",
-      "sourceDigest": "sha256:f428b9c401112d7d00affbe139b8233a73d6757e16fa84d62fef1f0a1543b37f",
+      "sourceDigest": "sha256:f50a8687a2cfe13a87293b497f2ad5c74885714dc6c2b6fdb28587b45a2abaf0",
       "sourceCaseCount": 10,
       "reductionProcedureVersion": "scripts/codev-continuation-vector-reduction/v1"
     },
@@ -1244,7 +1244,7 @@
       "caseId": "codev-blocked-not-adopted",
       "family": "codev",
       "sourceId": "codev-continuation-contract-v1",
-      "description": "Codev blocked proposal uses the versioned paused-review policy by default.",
+      "description": "Codev blocked proposal remains a review state until product semantics are approved.",
       "input": {
         "proposal": {
           "schema": "dzupagent/continuation-normalization/v1",
@@ -1313,10 +1313,10 @@
         },
         "comparisonClassification": "safer_kernel",
         "legacy": {
-          "normalizedDecision": "blocked",
-          "admittedTransition": "blocked",
+          "normalizedDecision": "unclassified",
+          "admittedTransition": "reject",
           "diagnosticCodes": [
-            "codev.blocked_policy.paused_review"
+            "codev.blocked_not_in_current_decision_vocabulary"
           ]
         }
       }
@@ -3448,9 +3448,9 @@
       "schema": "dzupagent/continuation-divergence-ledger/v1",
       "caseId": "codev-blocked-not-adopted",
       "classification": "safer_kernel",
-      "legacySummary": "Codev preserves blocked as paused review under its versioned default policy.",
+      "legacySummary": "Codev currently rejects blocked as an unsupported reviewer decision.",
       "kernelSummary": "The kernel returns an explicit non-terminal review state under policy.",
-      "safetyRationale": "Neither path admits work or completion; Codev retains product-owned resume semantics.",
+      "safetyRationale": "Neither path admits work or completion; product blocked semantics remain unresolved.",
       "reviewStatus": "proposed",
       "reviewedBy": "codex-static-publication-review",
       "reviewedAt": "2026-07-23T00:00:00.000Z"
