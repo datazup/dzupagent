@@ -6,15 +6,15 @@
  * pattern file imports just what it needs to keep dependencies explicit.
  */
 
-import { HumanMessage } from '@langchain/core/messages'
-import type { DzupAgent } from '../../../agent/dzip-agent.js'
-import type { SharedWorkspace, TeamRunResult } from '../team-workspace.js'
-import type { ResolvedParticipant } from './team-pattern.js'
-import type { BlackboardContextOverflowBehavior } from '../team-policy.js'
+import { HumanMessage } from "@langchain/core/messages";
+import type { DzupAgent } from "../../../agent/dzip-agent.js";
+import type { SharedWorkspace, TeamRunResult } from "../team-workspace.js";
+import type { ResolvedParticipant } from "./team-pattern.js";
+import type { BlackboardContextOverflowBehavior } from "../team-policy.js";
 
-export const DEFAULT_MAX_PARALLEL_PARTICIPANTS = 5
-export const DEFAULT_BLACKBOARD_CONTEXT_MAX_SERIALIZED_CHARS = 16_000
-export const DEFAULT_BLACKBOARD_CONTEXT_MAX_ENTRY_CHARS = 4_000
+export const DEFAULT_MAX_PARALLEL_PARTICIPANTS = 5;
+export const DEFAULT_BLACKBOARD_CONTEXT_MAX_SERIALIZED_CHARS = 16_000;
+export const DEFAULT_BLACKBOARD_CONTEXT_MAX_ENTRY_CHARS = 4_000;
 
 /**
  * Run a single resolved participant directly, bypassing coordination.
@@ -25,11 +25,11 @@ export const DEFAULT_BLACKBOARD_CONTEXT_MAX_ENTRY_CHARS = 4_000
 export async function runSingleParticipant(
   entry: ResolvedParticipant,
   task: string,
-  startTime: number,
+  startTime: number
 ): Promise<TeamRunResult> {
-  const agent: DzupAgent = entry.spawned.agent
-  const result = await agent.generate([new HumanMessage(task)])
-  const durationMs = Date.now() - startTime
+  const agent: DzupAgent = entry.spawned.agent;
+  const result = await agent.generate([new HumanMessage(task)]);
+  const durationMs = Date.now() - startTime;
   return {
     content: result.content,
     agentResults: [
@@ -42,8 +42,44 @@ export async function runSingleParticipant(
       },
     ],
     durationMs,
-    pattern: 'single-participant',
+    pattern: "single-participant",
+  };
+}
+
+/** Participant retry knobs, the enforced subset of the execution policy. */
+export interface MemberRetryPolicy {
+  retryOnFailure?: boolean;
+  maxRetries?: number;
+}
+
+export const DEFAULT_MEMBER_MAX_RETRIES = 1;
+
+/**
+ * Invoke one member agent, retrying failed attempts when the execution
+ * policy enables `retryOnFailure` (up to `maxRetries` extra attempts,
+ * default 1). Retries are immediate — member calls are long LLM invocations,
+ * so the inter-attempt gap adds nothing; persistent failure is the breaker's
+ * job, not backoff's.
+ */
+export async function runMemberAgent(
+  agent: DzupAgent,
+  messages: Parameters<DzupAgent["generate"]>[0],
+  retry?: MemberRetryPolicy
+): Promise<Awaited<ReturnType<DzupAgent["generate"]>>> {
+  const attempts =
+    retry?.retryOnFailure === true
+      ? 1 + (retry.maxRetries ?? DEFAULT_MEMBER_MAX_RETRIES)
+      : 1;
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      return await agent.generate(messages);
+    } catch (err: unknown) {
+      lastError = err;
+    }
   }
+  throw lastError;
 }
 
 /**
@@ -54,79 +90,80 @@ export async function runSingleParticipant(
 export async function mapSettledWithConcurrency<T, R>(
   items: readonly T[],
   concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>,
+  mapper: (item: T, index: number) => Promise<R>
 ): Promise<Array<PromiseSettledResult<R>>> {
-  const settled: Array<PromiseSettledResult<R>> = new Array(items.length)
-  let nextIndex = 0
+  const settled: Array<PromiseSettledResult<R>> = new Array(items.length);
+  let nextIndex = 0;
 
   const worker = async (): Promise<void> => {
     while (true) {
-      const index = nextIndex
-      nextIndex += 1
-      if (index >= items.length) return
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
 
       try {
         settled[index] = {
-          status: 'fulfilled',
+          status: "fulfilled",
           value: await mapper(items[index]!, index),
-        }
+        };
       } catch (reason: unknown) {
-        settled[index] = { status: 'rejected', reason }
+        settled[index] = { status: "rejected", reason };
       }
     }
-  }
+  };
 
-  const workerCount = Math.min(concurrency, items.length)
-  await Promise.all(Array.from({ length: workerCount }, () => worker()))
-  return settled
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return settled;
 }
 
 /** Effective blackboard context policy after defaults. */
 export interface ResolvedBlackboardContextPolicy {
-  maxSerializedChars: number
-  maxEntryChars: number
-  overflowBehavior: BlackboardContextOverflowBehavior
+  maxSerializedChars: number;
+  maxEntryChars: number;
+  overflowBehavior: BlackboardContextOverflowBehavior;
 }
 
 /** Compact a string by keeping a head + tail and inserting an ellipsis marker. */
 export function compactText(value: string, maxChars: number): string {
-  if (value.length <= maxChars) return value
-  const marker = '\n\n[compacted: middle omitted to fit blackboard context budget]\n\n'
+  if (value.length <= maxChars) return value;
+  const marker =
+    "\n\n[compacted: middle omitted to fit blackboard context budget]\n\n";
   if (maxChars <= marker.length + 2) {
-    return value.slice(0, maxChars)
+    return value.slice(0, maxChars);
   }
-  const remaining = maxChars - marker.length
-  const headChars = Math.ceil(remaining * 0.6)
-  const tailChars = Math.max(0, remaining - headChars)
-  return `${value.slice(0, headChars)}${marker}${value.slice(-tailChars)}`
+  const remaining = maxChars - marker.length;
+  const headChars = Math.ceil(remaining * 0.6);
+  const tailChars = Math.max(0, remaining - headChars);
+  return `${value.slice(0, headChars)}${marker}${value.slice(-tailChars)}`;
 }
 
 /** Format a workspace as bounded context, compacting entries to fit the budget. */
 export function formatCompactedWorkspaceContext(
   workspace: SharedWorkspace,
-  policy: ResolvedBlackboardContextPolicy,
+  policy: ResolvedBlackboardContextPolicy
 ): string {
-  const lines: string[] = ['## Shared Workspace']
-  let remaining = policy.maxSerializedChars - lines[0]!.length
+  const lines: string[] = ["## Shared Workspace"];
+  let remaining = policy.maxSerializedChars - lines[0]!.length;
 
   for (const [key, rawValue] of workspace.entries()) {
-    if (!rawValue || remaining <= 0) continue
-    const heading = `### ${key}`
-    const sectionOverhead = heading.length + 3
-    if (remaining <= sectionOverhead) break
+    if (!rawValue || remaining <= 0) continue;
+    const heading = `### ${key}`;
+    const sectionOverhead = heading.length + 3;
+    if (remaining <= sectionOverhead) break;
 
     const maxValueChars = Math.min(
       policy.maxEntryChars,
-      remaining - sectionOverhead,
-    )
-    const value = compactText(rawValue, maxValueChars)
-    lines.push(heading)
-    lines.push(value)
-    lines.push('')
-    remaining -= sectionOverhead + value.length
+      remaining - sectionOverhead
+    );
+    const value = compactText(rawValue, maxValueChars);
+    lines.push(heading);
+    lines.push(value);
+    lines.push("");
+    remaining -= sectionOverhead + value.length;
   }
 
-  const formatted = lines.join('\n')
-  if (formatted.length <= policy.maxSerializedChars) return formatted
-  return formatted.slice(0, policy.maxSerializedChars)
+  const formatted = lines.join("\n");
+  if (formatted.length <= policy.maxSerializedChars) return formatted;
+  return formatted.slice(0, policy.maxSerializedChars);
 }
