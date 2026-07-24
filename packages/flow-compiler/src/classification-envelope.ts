@@ -5,6 +5,7 @@ import type {
   FlowNode,
   ResolvedTool,
 } from "@dzupagent/flow-ast";
+import type { PrimitiveRegistryV2 } from "@dzupagent/flow-dsl";
 
 import type {
   FlowReferenceBindings,
@@ -14,6 +15,7 @@ import type {
   FlowReferencePortBindings,
   FlowReferencePortClassificationBindings,
   FlowReferenceTypeBindings,
+  FlowPrimitiveBindings,
 } from "./types.js";
 import {
   FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA,
@@ -23,7 +25,7 @@ import {
   type FlowCompiledIntegrationObligation,
   type FlowCompiledPrimitiveObligation,
 } from "./classification-envelope-types.js";
-import { resolveBuiltInPrimitiveDefinition } from "./stages/primitive-reference-ports.js";
+import { resolvePrimitiveDefinition } from "./stages/primitive-reference-ports.js";
 
 export interface FlowClassificationEnvelopeSnapshot {
   readonly referenceBindings: FlowReferenceBindings;
@@ -40,10 +42,19 @@ export function createFlowCompiledClassificationEnvelope(
   semanticHash: string,
   snapshot: FlowClassificationEnvelopeSnapshot,
   resolvedTools: ReadonlyMap<string, ResolvedTool> = new Map(),
+  primitiveRegistry?: PrimitiveRegistryV2,
+  primitiveBindings?: FlowPrimitiveBindings,
 ): FlowCompiledClassificationEnvelope {
   const values = Object.freeze(classifiedValues(snapshot));
   const ports = Object.freeze(classifiedPorts(snapshot));
-  const primitives = Object.freeze(primitiveObligations(root, snapshot));
+  const primitives = Object.freeze(
+    primitiveObligations(
+      root,
+      snapshot,
+      primitiveRegistry,
+      primitiveBindings,
+    ),
+  );
   const integrations = Object.freeze(
     integrationObligations(root, resolvedTools),
   );
@@ -230,10 +241,12 @@ function classifiedPorts(
 function primitiveObligations(
   root: FlowNode,
   snapshot: FlowClassificationEnvelopeSnapshot,
+  registry: PrimitiveRegistryV2 | undefined,
+  bindings: FlowPrimitiveBindings | undefined,
 ): FlowCompiledPrimitiveObligation[] {
   const obligations: FlowCompiledPrimitiveObligation[] = [];
   visitNodes(root, "root", (node, nodePath) => {
-    const definition = resolveBuiltInPrimitiveDefinition(node.type);
+    const definition = resolvePrimitiveDefinition(node.type, registry, bindings);
     if (definition === undefined) return;
     const redaction =
       definition.redactionRequiredAbove !== undefined ||

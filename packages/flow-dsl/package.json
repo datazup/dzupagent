@@ -9,6 +9,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./source-map": {
+      "import": "./dist/dsl-source-map.js",
+      "types": "./dist/dsl-source-map.d.ts"
     }
   },
   "files": [
@@ -22,7 +26,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@dzupagent/flow-ast": "0.2.0"
+    "@dzupagent/flow-ast": "0.2.0",
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@dzupagent/flow-ast": "0.2.0",

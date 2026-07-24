@@ -252,13 +252,45 @@ function expandStepArray(
         kind: definition.kind,
         version: definition.version,
       });
-    const nested = expandStepArray(primitiveSteps, options, `${path}[${index}]`);
+    const annotatedSteps = annotatePrimitiveSteps(
+      primitiveSteps,
+      `${definition.kind}@${definition.version}`,
+    );
+    const nested = expandStepArray(annotatedSteps, options, `${path}[${index}]`);
     steps.push(...nested.steps);
     fragmentExpansions.push(...nested.fragmentExpansions);
     changed = true;
   }
 
   return { changed, raw: changed ? steps : stepsRaw, steps, fragmentExpansions };
+}
+
+function annotatePrimitiveSteps(
+  steps: readonly StepWrapper[],
+  primitive: string,
+): StepWrapper[] {
+  return steps.map((wrapper) => {
+    const keys = Object.keys(wrapper);
+    if (keys.length !== 1) return { ...wrapper };
+    const kind = keys[0]!;
+    const value = wrapper[kind];
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { ...wrapper };
+    }
+    const record = value as Record<string, unknown>;
+    const meta =
+      record.meta !== null &&
+      typeof record.meta === "object" &&
+      !Array.isArray(record.meta)
+        ? (record.meta as Record<string, unknown>)
+        : {};
+    return {
+      [kind]: {
+        ...record,
+        meta: { ...meta, primitive },
+      },
+    };
+  });
 }
 
 export function expandRegisteredComposites(

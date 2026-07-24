@@ -44,5 +44,6 @@ function projectDiagnostic(
       ? { category: diagnostic.category }
       : {}),
     ...(diagnostic.span !== undefined ? { span: diagnostic.span } : {}),
+    ...(diagnostic.fixes !== undefined ? { fixes: diagnostic.fixes } : {}),
   };
 }

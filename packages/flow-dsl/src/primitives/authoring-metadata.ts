@@ -49,12 +49,27 @@ export function createPrimitiveAuthoringMetadata(
       .filter((field) => field.leaf && field.classification === "unclassified")
       .map((field) => field.path),
   );
+  const inputCompletions = Object.freeze(
+    inputFields
+      .filter((field) => field.leaf)
+      .map((field) =>
+        Object.freeze({
+          label: field.path,
+          insertText: field.path,
+          path: field.path,
+          valueType: field.valueType,
+          classification: field.classification,
+          credential: field.credential,
+        }),
+      ),
+  );
   return Object.freeze({
     schema: "dzupagent.primitiveAuthoringMetadata/v1" as const,
     primitiveRef: definition.ref,
     semanticHash: definition.compatibility.semanticHash,
     inputSchema: definition.inputSchema,
     inputFields: Object.freeze(inputFields),
+    inputCompletions,
     outputFields,
     unclassifiedLeafPaths,
     classificationComplete:

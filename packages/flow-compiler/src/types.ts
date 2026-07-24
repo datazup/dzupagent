@@ -1,7 +1,6 @@
 import type {
   AsyncToolResolver,
   AsyncToolsetResolver,
-  FlowDiagnosticCategory,
   FlowDataClassification,
   FlowDocumentV1,
   FlowDocumentPolicy,
@@ -17,25 +16,32 @@ import type {
 import type { ParseInput } from "@dzupagent/flow-ast";
 import type { DzupEventBus } from "@dzupagent/core/events";
 import type {
-  PrimitiveDefinitionV2,
+  PrimitiveExpansionHandlers,
   PrimitiveRegistryV2,
 } from "@dzupagent/flow-dsl";
-
 import type { ProfileRegistry } from "./profile-registry.js";
 import type { FlowCompiledClassificationEnvelope } from "./classification-envelope-types.js";
 import type { FlowReferenceValueType } from "./reference-value-types.js";
+import type { FlowPrimitiveBindings } from "./primitive-registry-types.js";
+import type {
+  CompilationDiagnostic,
+  CompilationWarning,
+} from "./diagnostic-types.js";
 
 export type { FlowReferenceValueType } from "./reference-value-types.js";
-
-export interface FlowPrimitiveBinding {
-  readonly ref: PrimitiveDefinitionV2["ref"];
-  readonly semanticHash: PrimitiveDefinitionV2["compatibility"]["semanticHash"];
-}
-
-export type FlowPrimitiveBindings = Readonly<
-  Record<string, FlowPrimitiveBinding | undefined>
->;
-
+export type {
+  FlowPrimitiveBinding,
+  FlowPrimitiveBindings,
+} from "./primitive-registry-types.js";
+export type {
+  CompilationDiagnostic,
+  CompilationSourceSpan,
+  CompilationStage,
+  CompilationWarning,
+  FlowDiagnosticQuickFix,
+  FlowDiagnosticTextEdit,
+  FlowEditorDiagnostic,
+} from "./diagnostic-types.js";
 /** Compile-time admission posture; unattended flows fail closed. */
 export type FlowAdmissionProfile = "interactive" | "unattended";
 
@@ -89,6 +95,11 @@ export interface CompilerOptions {
    * merely because they are the latest version in a supplied registry.
    */
   primitiveBindings?: FlowPrimitiveBindings;
+  /**
+   * Host-owned expansion code keyed by stable `expansionRef`. Functions stay
+   * outside serializable V2 manifests and are used only while parsing DSL.
+   */
+  primitiveExpansionHandlers?: PrimitiveExpansionHandlers;
   flowDocumentResolver?: FlowDocumentResolver;
   personaResolver?: PersonaResolver | AsyncPersonaResolver;
   /**
@@ -244,8 +255,6 @@ export interface FlowRequirementSummary {
   unsupportedNodeKinds: FlowNodeKind[];
 }
 
-export type CompilationStage = 1 | 2 | 3 | 4;
-
 export type FlowCompileSourceKind =
   | "flow-object"
   | "flow-json-string"
@@ -263,55 +272,6 @@ export interface CompileInvocationOptions {
   correlation?: FlowCompileCorrelation;
   currentFlowRef?: string;
   fragmentExpansions?: FlowCompileFragmentEvidence[];
-}
-
-export interface CompilationDiagnostic {
-  stage: CompilationStage;
-  code: string;
-  message: string;
-  nodePath?: string;
-  suggestion?: string;
-  category?: FlowDiagnosticCategory;
-  /**
-   * Stable editor-facing location. DSL parse diagnostics use source lines;
-   * semantic reference diagnostics use UTF-16 offsets relative to nodePath.
-   */
-  span?: CompilationSourceSpan;
-}
-
-export interface CompilationWarning {
-  stage: CompilationStage;
-  code: string;
-  message: string;
-  nodePath?: string;
-  suggestion?: string;
-  category?: FlowDiagnosticCategory;
-  span?: CompilationSourceSpan;
-}
-
-export type CompilationSourceSpan =
-  | {
-      kind: "source-lines";
-      lineStart: number;
-      columnStart: number;
-      lineEnd: number;
-      columnEnd: number;
-    }
-  | {
-      kind: "node-field-offsets";
-      start: number;
-      end: number;
-    };
-
-export interface FlowEditorDiagnostic {
-  severity: "error" | "warning";
-  stage: CompilationStage;
-  code: string;
-  message: string;
-  nodePath?: string;
-  suggestion?: string;
-  category?: FlowDiagnosticCategory;
-  span?: CompilationSourceSpan;
 }
 
 export interface CompilationTargetReason {

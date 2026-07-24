@@ -210,12 +210,22 @@ export interface PrimitiveOutputAuthoringField {
   readonly persistence: PrimitiveOutputPortDefinition["persistence"];
 }
 
+export interface PrimitiveAuthoringCompletion {
+  readonly label: string;
+  readonly insertText: string;
+  readonly path: string;
+  readonly valueType: PrimitiveAuthoringValueType;
+  readonly classification: FlowDataClassification | "unclassified";
+  readonly credential: boolean;
+}
+
 export interface PrimitiveAuthoringMetadata {
   readonly schema: "dzupagent.primitiveAuthoringMetadata/v1";
   readonly primitiveRef: PrimitiveDefinitionV2["ref"];
   readonly semanticHash: PrimitiveDefinitionV2["compatibility"]["semanticHash"];
   readonly inputSchema: PrimitiveSchema;
   readonly inputFields: readonly PrimitiveAuthoringField[];
+  readonly inputCompletions: readonly PrimitiveAuthoringCompletion[];
   readonly outputFields: readonly PrimitiveOutputAuthoringField[];
   readonly unclassifiedLeafPaths: readonly string[];
   readonly classificationComplete: boolean;

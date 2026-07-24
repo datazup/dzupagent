@@ -13,6 +13,7 @@ import {
   validatePrimitiveAuthoringSchema,
   validatePrimitiveSchema,
 } from "./authoring-metadata.js";
+import { validatePrimitiveDefinitionV2ContractValues } from "./definition-v2-contract-validation.js";
 
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const INPUT_PATH_PATTERN =
@@ -145,6 +146,7 @@ export function validatePrimitiveDefinitionV2(
   definition: PrimitiveDefinitionV2,
 ): void {
   const identity = `${primitiveKind(definition)}@${definition.version}`;
+  validatePrimitiveDefinitionV2ContractValues(definition, identity);
   if (definition.ref !== `primitive://${identity}`) {
     throw new Error(
       `primitive ${identity} ref must be primitive://${identity}; received ${definition.ref}`,

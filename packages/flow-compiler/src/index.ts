@@ -37,6 +37,7 @@ import type {
   FlowCompileEvent,
 } from "./compile-orchestrator.js";
 import { analyzeStrictReferenceMigrationSources } from "./strict-reference-migration.js";
+import { validateCompilerPrimitiveRegistry } from "./primitive-registry-admission.js";
 
 import type {
   CompilerOptions,
@@ -64,7 +65,21 @@ export type {
   ToolsetCatalogValidationResult,
 } from "./host-tool-registry.js";
 export { collectFlowArtifactMetadata } from "./flow-artifact-metadata.js";
+export {
+  bindFlowRequirementsToPrimitiveRegistry,
+  resolvePrimitiveRegistryReadiness,
+  validateCompilerPrimitiveRegistry,
+  validateFlowPrimitiveSelections,
+} from "./primitive-registry-admission.js";
+export type {
+  FlowPrimitiveRegistryReadiness,
+  FlowPrimitiveRegistryReadinessRequest,
+  FlowPrimitiveRegistryValidation,
+  FlowPrimitiveSelectionIssue,
+} from "./primitive-registry-admission.js";
 export { projectCompilationDiagnostics } from "./diagnostic-projection.js";
+export { applyFlowDiagnosticQuickFix } from "./diagnostic-quick-fix.js";
+export type { ApplyFlowDiagnosticQuickFixResult } from "./diagnostic-quick-fix.js";
 export { createFlowReferenceAuthoringSnapshot } from "./reference-authoring.js";
 export {
   FLOW_COMPILED_CLASSIFICATION_ENVELOPE_SCHEMA,
@@ -301,6 +316,22 @@ export function createFlowCompiler(opts: CompilerOptions): FlowCompiler {
       "flow-compiler: forwardInnerEvents=true requires an eventBus — " +
         "pass `eventBus` in CompilerOptions or leave forwardInnerEvents unset."
     );
+  }
+  if (opts.primitiveBindings !== undefined && opts.primitiveRegistry === undefined) {
+    throw new Error(
+      "flow-compiler: primitiveBindings requires an additive primitiveRegistry",
+    );
+  }
+  if (opts.primitiveRegistry !== undefined) {
+    const validation = validateCompilerPrimitiveRegistry(
+      opts.primitiveRegistry,
+      opts.primitiveBindings,
+    );
+    if (!validation.valid) {
+      throw new Error(
+        `flow-compiler: invalid primitive registry: ${validation.issues.join("; ")}`,
+      );
+    }
   }
 
   // Capture `emit` once at factory time. When forwarding is off the callable

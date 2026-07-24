@@ -2,7 +2,17 @@ import {
   validateFlowDocumentShape,
   type FlowDocumentV1,
 } from '@dzupagent/flow-ast'
-import { canonicalizeDsl } from '@dzupagent/flow-dsl'
+import {
+  canonicalizeDsl,
+  toPrimitiveRegistryV1,
+  type PrimitiveExpansionHandlers,
+  type PrimitiveRegistryV2,
+} from '@dzupagent/flow-dsl'
+import {
+  createDslSourceMap,
+  resolveDslSourceSpan,
+  type DslSourceMap,
+} from '@dzupagent/flow-dsl/source-map'
 
 import type { CompilationDiagnostic } from './types.js'
 
@@ -35,8 +45,17 @@ export function prepareFlowInputFromDocument(
 
 export function prepareFlowInputFromDsl(
   source: unknown,
+  options: {
+    primitiveRegistry?: PrimitiveRegistryV2
+    primitiveExpansionHandlers?: PrimitiveExpansionHandlers
+  } = {},
 ):
-  | { ok: true; flowInput: object; document?: FlowDocumentV1 }
+  | {
+      ok: true
+      flowInput: object
+      document?: FlowDocumentV1
+      sourceMap?: DslSourceMap
+    }
   | { ok: false; errors: CompilationDiagnostic[] } {
   if (typeof source !== 'string' || source.trim().length === 0) {
     return {
@@ -45,8 +64,22 @@ export function prepareFlowInputFromDsl(
     }
   }
 
-  const canonicalized = canonicalizeDsl(source)
+  const canonicalized = canonicalizeDsl(
+    source,
+    options.primitiveRegistry === undefined
+      ? {}
+      : {
+          primitiveRegistry: toPrimitiveRegistryV1(
+            options.primitiveRegistry,
+            options.primitiveExpansionHandlers,
+          ),
+        },
+  )
   if (!canonicalized.ok) {
+    const sourceMap = createDslSourceMap(
+      source,
+      canonicalized.partialDocument ?? undefined,
+    )
     return {
       ok: false,
       errors: canonicalized.diagnostics.map((diagnostic) => ({
@@ -67,15 +100,35 @@ export function prepareFlowInputFromDsl(
               },
             }
           : {}),
+        ...(!diagnostic.span && sourceMap !== undefined
+          ? sourceOffsetSpan(sourceMap, diagnostic.path)
+          : {}),
       })),
     }
   }
 
+  const sourceMap = createDslSourceMap(source, canonicalized.document)
   return {
     ok: true,
     flowInput: canonicalized.flowInput,
     document: canonicalized.document,
+    ...(sourceMap !== undefined ? { sourceMap } : {}),
   }
+}
+
+function sourceOffsetSpan(
+  sourceMap: DslSourceMap,
+  path: string,
+): Pick<CompilationDiagnostic, 'span'> {
+  const span = resolveDslSourceSpan(sourceMap, path)
+  return span === undefined
+    ? {}
+    : {
+        span: {
+          kind: 'source-offsets',
+          ...span,
+        },
+      }
 }
 
 function makeDiagnostic(

@@ -1,17 +1,42 @@
 import { createHash } from "node:crypto";
 
+import { expandCollabReviewLoop } from "./collab-review-loop.js";
+import { expandCollabReviewLoopV2 } from "./collab-review-loop-v2.js";
 import { createPrimitiveAuthoringMetadata } from "./authoring-metadata.js";
 import {
   definePrimitiveV2,
   primitiveKind,
+  toPrimitiveDefinitionV1,
   validatePrimitiveDefinitionV2,
 } from "./definition-v2.js";
+import { createPrimitiveRegistry } from "./registry.js";
 import type {
   PrimitiveDefinitionV2,
   PrimitiveDefinitionV2Input,
+  PrimitiveExpansionHandlers,
+  PrimitiveRegistry,
   PrimitiveRegistryV2,
   PrimitiveRegistryV2Options,
 } from "./types.js";
+
+/** Generate a compatible parser/expansion registry from exact V2 contracts. */
+export function toPrimitiveRegistryV1(
+  registry: PrimitiveRegistryV2,
+  expansionHandlers: PrimitiveExpansionHandlers = {},
+): PrimitiveRegistry {
+  const handlers = {
+    ...expansionHandlers,
+    "collab.review_loop@1": expandCollabReviewLoop,
+    "collab.review_loop@2": expandCollabReviewLoopV2,
+  };
+  return createPrimitiveRegistry(
+    registry
+      .list()
+      .map((definition) =>
+        toPrimitiveDefinitionV1(definition, handlers),
+      ),
+  );
+}
 
 /** Create an immutable, exact-ref V2 registry with compatibility validation. */
 export function createPrimitiveRegistryV2(

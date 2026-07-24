@@ -11,6 +11,7 @@ import type {
   FlowReferenceBindings,
   FlowReferencePolicy,
 } from '@dzupagent/flow-ast/expressions'
+import type { PrimitiveRegistryV2 } from '@dzupagent/flow-dsl'
 
 import type { ProfileRegistry, ResolvedProfile } from '../profile-registry.js'
 import type {
@@ -20,6 +21,7 @@ import type {
   FlowReferencePortClassificationBindings,
   FlowReferenceTypeBindings,
   FlowAdmissionProfile,
+  FlowPrimitiveBindings,
   PersonaResolver,
 } from '../types.js'
 
@@ -66,6 +68,10 @@ export interface SemanticOptions {
   referencePolicy?: FlowReferencePolicy
   /** Fail-closed compile admission for unattended execution. */
   admissionProfile?: FlowAdmissionProfile
+  /** Exact external primitive contracts available to this compilation. */
+  primitiveRegistry?: PrimitiveRegistryV2
+  /** Hash-bound selections; external definitions are never selected implicitly. */
+  primitiveBindings?: FlowPrimitiveBindings
   /** Declared names by reference root for strict missing-reference checks. */
   referenceBindings?: FlowReferenceBindings
   /** Names available before the first node executes. */
@@ -214,6 +220,8 @@ export async function semanticResolve(
     target: opts.target,
     referencePolicy: opts.referencePolicy ?? 'compat-v1',
     admissionProfile: opts.admissionProfile ?? 'interactive',
+    primitiveRegistry: opts.primitiveRegistry,
+    primitiveBindings: opts.primitiveBindings,
     referenceBindings: opts.referenceBindings,
     referenceAvailabilityBindings:
       opts.referenceAvailabilityBindings ?? opts.referenceBindings,

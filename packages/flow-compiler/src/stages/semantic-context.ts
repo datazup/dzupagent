@@ -9,6 +9,7 @@ import type {
   FlowReferenceBindings,
   FlowReferencePolicy,
 } from '@dzupagent/flow-ast/expressions'
+import type { PrimitiveRegistryV2 } from '@dzupagent/flow-dsl'
 
 import type { ProfileRegistry, ResolvedProfile } from '../profile-registry.js'
 import type {
@@ -17,6 +18,7 @@ import type {
   FlowReferenceClassificationBindings,
   FlowReferencePortClassificationBindings,
   FlowReferenceTypeBindings,
+  FlowPrimitiveBindings,
   PersonaResolver,
 } from '../types.js'
 import type { SemanticDiagnostic } from './semantic-diagnostic.js'
@@ -64,6 +66,8 @@ export interface WalkContext {
   target: 'codev-runtime' | undefined
   referencePolicy: FlowReferencePolicy
   admissionProfile: "interactive" | "unattended"
+  primitiveRegistry: PrimitiveRegistryV2 | undefined
+  primitiveBindings: FlowPrimitiveBindings | undefined
   referenceBindings: FlowReferenceBindings | undefined
   /** Names available at flow entry, before compiler-owned node writes. */
   referenceAvailabilityBindings: FlowReferenceBindings | undefined

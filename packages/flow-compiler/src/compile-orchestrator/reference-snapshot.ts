@@ -1,5 +1,6 @@
 import type { FlowNode } from "@dzupagent/flow-ast";
 import type { FlowReferenceBindings } from "@dzupagent/flow-ast/expressions";
+import type { DslSourceMap } from "@dzupagent/flow-dsl/source-map";
 
 import {
   deriveNodeReferenceBindings,
@@ -29,6 +30,7 @@ export interface SourceReferenceSnapshot {
   readonly bindings?: FlowReferenceBindings;
   readonly types?: FlowReferenceTypeBindings;
   readonly classifications?: FlowReferenceClassificationBindings;
+  readonly dslSourceMap?: DslSourceMap;
 }
 
 /** Assemble the declaration, availability, type, port, and policy snapshot. */
@@ -48,7 +50,11 @@ export function createSemanticReferenceSnapshot(
     deriveSecretReferenceClassificationBindings(referenceBindings),
   );
   const referencePortBindings = mergeReferencePortBindings(
-    deriveNodeReferencePortBindings(ast),
+    deriveNodeReferencePortBindings(
+      ast,
+      options.primitiveRegistry,
+      options.primitiveBindings,
+    ),
     options.referencePortBindings,
   );
   const initialTypes = mergeReferenceTypeBindings(
@@ -62,7 +68,12 @@ export function createSemanticReferenceSnapshot(
   );
   const initialPortClassifications =
     mergeReferencePortClassificationBindings(
-      derivePrimitiveReferencePortClassificationBindings(ast),
+      derivePrimitiveReferencePortClassificationBindings(
+        ast,
+        {},
+        options.primitiveRegistry,
+        options.primitiveBindings,
+      ),
       options.referencePortClassificationBindings,
     );
   const derivedClassifications = deriveNodeReferenceClassificationBindings(
@@ -76,6 +87,8 @@ export function createSemanticReferenceSnapshot(
       derivePrimitiveReferencePortClassificationBindings(
         ast,
         derivedClassifications,
+        options.primitiveRegistry,
+        options.primitiveBindings,
       ),
     );
   const referenceClassificationBindings = mergeReferenceClassificationBindings(

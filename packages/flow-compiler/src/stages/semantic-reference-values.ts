@@ -10,10 +10,12 @@ import type { WalkContext } from "./semantic-context.js";
 import {
   nodeFieldSpan,
   type SemanticDiagnostic,
+  type SemanticRelativeQuickFix,
 } from "./semantic-diagnostic.js";
 import { analyzeReferenceContract } from "./reference-contracts.js";
 import { classificationForReference } from "./reference-classifications.js";
 import { validatePrimitiveReferenceAdmission } from "./primitive-admission.js";
+import { canonicalReferenceRootFixes } from "./reference-quick-fixes.js";
 
 const CHILD_NODE_FIELDS = new Set([
   "nodes",
@@ -207,6 +209,11 @@ function validateTemplateSource(
   });
 
   for (const diagnostic of analysis.diagnostics) {
+    const fixes = canonicalReferenceRootFixes(
+      diagnostic,
+      analysis.references,
+      ctx.referenceBindings,
+    );
     pushDiagnostic(
       node,
       diagnostic.severity,
@@ -215,6 +222,7 @@ function validateTemplateSource(
       `[${diagnostic.code}] ${diagnostic.message}`,
       ctx,
       nodeFieldSpan(diagnostic.start, diagnostic.end),
+      fixes,
     );
   }
 
@@ -359,6 +367,7 @@ function pushDiagnostic(
   message: string,
   ctx: WalkContext,
   span?: SemanticDiagnostic["span"],
+  fixes?: readonly SemanticRelativeQuickFix[],
 ): void {
   const validationError: SemanticDiagnostic = {
     nodeType: node.type,
@@ -367,6 +376,7 @@ function pushDiagnostic(
     category: useSite === "policy" ? "policy" : "resolution",
     message,
     ...(span !== undefined ? { span } : {}),
+    ...(fixes !== undefined && fixes.length > 0 ? { fixes } : {}),
   };
   if (severity === "error") {
     ctx.errors.push(validationError);

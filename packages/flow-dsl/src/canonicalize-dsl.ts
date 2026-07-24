@@ -1,10 +1,16 @@
 import { documentToGraph } from './document-to-graph.js'
-import { parseDslToDocument } from './parse-dsl.js'
+import {
+  parseDslToDocument,
+  type ParseDslToDocumentOptions,
+} from './parse-dsl.js'
 
 import type { CanonicalizeDslResult } from './types.js'
 
-export function canonicalizeDsl(source: string): CanonicalizeDslResult {
-  const parsed = parseDslToDocument(source)
+export function canonicalizeDsl(
+  source: string,
+  options: ParseDslToDocumentOptions = {},
+): CanonicalizeDslResult {
+  const parsed = parseDslToDocument(source, options)
   if (!parsed.ok) {
     return {
       ok: false,

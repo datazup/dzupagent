@@ -7,6 +7,14 @@ export {
   createContinuationTaskKeyV1,
   normalizeContinuationTaskTextV1,
 } from "./task-key.js";
+export {
+  classifyContinuationAdmissionsV1,
+  continuationTransitionAdmissionV1,
+} from "./comparison.js";
+export type {
+  ContinuationAdmissionV1,
+  ContinuationComparisonClassificationV1,
+} from "./comparison.js";
 export { evaluateContinuationTransitionV1 } from "./reducer.js";
 export {
   CONTINUATION_DIAGNOSTIC_CODES_V1,

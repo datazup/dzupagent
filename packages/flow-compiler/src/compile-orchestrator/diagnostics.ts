@@ -18,6 +18,10 @@
  */
 
 import type { ParseInput } from "@dzupagent/flow-ast";
+import {
+  resolveDslSourceSpan,
+  type DslSourceMap,
+} from "@dzupagent/flow-dsl/source-map";
 
 import { FLOW_NODE_CAPABILITY_REGISTRY } from "../capability-manifest.js";
 import type { FlowRequirementSummary } from "../capability-manifest.js";
@@ -25,7 +29,10 @@ import type { FlowRequirementSummary } from "../capability-manifest.js";
 import type {
   CompilationTarget,
   CompilationTargetReason,
+  CompilationDiagnostic,
+  CompilationSourceSpan,
   CompilationWarning,
+  FlowDiagnosticQuickFix,
   FlowCompileSourceKind,
 } from "../types.js";
 import type { SemanticDiagnostic } from "../stages/semantic-diagnostic.js";
@@ -107,17 +114,80 @@ export function toCompilationWarnings(
 }
 
 export function toSemanticWarnings(
-  warnings: readonly SemanticDiagnostic[]
+  warnings: readonly SemanticDiagnostic[],
+  sourceMap?: DslSourceMap,
 ): CompilationWarning[] {
-  return warnings.map((warning) => ({
+  return warnings.map((warning) =>
+    projectSemanticDiagnostic(warning, sourceMap),
+  );
+}
+
+export function toSemanticErrors(
+  errors: readonly SemanticDiagnostic[],
+  sourceMap?: DslSourceMap,
+): CompilationDiagnostic[] {
+  return errors.map((error) => projectSemanticDiagnostic(error, sourceMap));
+}
+
+function projectSemanticDiagnostic(
+  diagnostic: SemanticDiagnostic,
+  sourceMap: DslSourceMap | undefined,
+): CompilationDiagnostic {
+  const span = projectSemanticSpan(diagnostic, sourceMap);
+  const fixes = projectSemanticFixes(diagnostic, sourceMap);
+  return {
     stage: 3,
-    code: warning.code,
-    message: warning.message,
-    nodePath: warning.nodePath,
-    category: warning.category ?? "resolution",
-    ...extractSuggestionFromMessage(warning.message),
-    ...(warning.span !== undefined ? { span: warning.span } : {}),
-  }));
+    code: diagnostic.code,
+    message: diagnostic.message,
+    nodePath: diagnostic.nodePath,
+    category: diagnostic.category ?? "resolution",
+    ...extractSuggestionFromMessage(diagnostic.message),
+    ...(span !== undefined ? { span } : {}),
+    ...(fixes.length > 0 ? { fixes } : {}),
+  };
+}
+
+function projectSemanticSpan(
+  diagnostic: SemanticDiagnostic,
+  sourceMap: DslSourceMap | undefined,
+): CompilationSourceSpan | undefined {
+  if (
+    sourceMap === undefined ||
+    diagnostic.span?.kind !== "node-field-offsets"
+  ) {
+    return diagnostic.span;
+  }
+  const absolute = resolveDslSourceSpan(
+    sourceMap,
+    diagnostic.nodePath,
+    diagnostic.span,
+  );
+  return absolute === undefined
+    ? diagnostic.span
+    : { kind: "source-offsets", ...absolute };
+}
+
+function projectSemanticFixes(
+  diagnostic: SemanticDiagnostic,
+  sourceMap: DslSourceMap | undefined,
+): FlowDiagnosticQuickFix[] {
+  if (sourceMap === undefined || diagnostic.fixes === undefined) return [];
+  return diagnostic.fixes.flatMap((fix) => {
+    const span = resolveDslSourceSpan(sourceMap, diagnostic.nodePath, fix);
+    if (span === undefined) return [];
+    return [{
+      id: fix.id,
+      title: fix.title,
+      applicability: "safe" as const,
+      sourceDigest: sourceMap.sourceDigest,
+      edits: Object.freeze([{
+        start: span.start,
+        end: span.end,
+        expectedText: fix.expectedText,
+        newText: fix.newText,
+      }]),
+    }];
+  });
 }
 
 export function conformanceWarnings(

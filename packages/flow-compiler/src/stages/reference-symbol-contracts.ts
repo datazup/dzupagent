@@ -3,11 +3,13 @@ import type {
   FlowNode,
 } from "@dzupagent/flow-ast";
 import { analyzeFlowTemplateReferences } from "@dzupagent/flow-ast/expressions";
+import type { PrimitiveRegistryV2 } from "@dzupagent/flow-dsl";
 
 import type {
   FlowReferencePortBindings,
   FlowReferenceTypeBindings,
   FlowReferenceValueType,
+  FlowPrimitiveBindings,
 } from "../types.js";
 import { derivePrimitiveReferencePortBindings } from "./primitive-reference-ports.js";
 import { resolveReferenceValueType } from "./reference-contracts.js";
@@ -103,6 +105,8 @@ function recordCredentialCandidate(
  */
 export function deriveNodeReferencePortBindings(
   root: FlowNode,
+  registry?: PrimitiveRegistryV2,
+  bindings?: FlowPrimitiveBindings,
 ): FlowReferencePortBindings {
   const ports = new Map<string, Record<string, FlowReferenceValueType>>();
   visitNodePorts(root, ports);
@@ -111,7 +115,7 @@ export function deriveNodeReferencePortBindings(
   );
   return mergeReferencePortBindings(
     declared,
-    derivePrimitiveReferencePortBindings(root),
+    derivePrimitiveReferencePortBindings(root, registry, bindings),
   );
 }
 

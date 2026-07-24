@@ -159,7 +159,17 @@ export async function runCompileDsl(
   deps: CompileOrchestratorDeps,
   source: unknown
 ): Promise<CompileSuccess | CompileFailure> {
-  const prepared = prepareFlowInputFromDsl(source);
+  const prepared = prepareFlowInputFromDsl(source, {
+    ...(deps.opts.primitiveRegistry === undefined
+      ? {}
+      : { primitiveRegistry: deps.opts.primitiveRegistry }),
+    ...(deps.opts.primitiveExpansionHandlers === undefined
+      ? {}
+      : {
+          primitiveExpansionHandlers:
+            deps.opts.primitiveExpansionHandlers,
+        }),
+  });
   if (!prepared.ok) {
     return {
       compileId: crypto.randomUUID(),
@@ -181,6 +191,9 @@ export async function runCompileDsl(
           classifications: deriveDocumentReferenceClassificationBindings(
             prepared.document,
           ),
+          ...(prepared.sourceMap !== undefined
+            ? { dslSourceMap: prepared.sourceMap }
+            : {}),
         }
       : {},
   );

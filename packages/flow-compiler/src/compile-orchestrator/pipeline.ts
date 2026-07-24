@@ -1,29 +1,11 @@
 /**
  * @dzupagent/flow-compiler — four-stage compile pipeline (internal).
  *
- * This module owns {@link runCompile}, the four-stage compile pipeline that
- * backs the public `createFlowCompiler` factory, along with the shared
- * `CompileOrchestratorDeps`/`FlowCompileEvent` contracts. It is intentionally
- * NOT part of the package public barrel (`index.ts`); `index.ts` stays a thin
- * façade that wires dependencies (resolvers + the `emit` callback) and
- * delegates through the `../compile-orchestrator.js` re-export.
- *
- * The orchestration was previously expressed as closures inside
- * `createFlowCompiler`, capturing `opts` and `emit` from factory scope. It is
- * now expressed as plain functions that receive those captures as an explicit
- * `CompileOrchestratorDeps` parameter (dependency injection), so the pipeline
- * is independently testable and the public barrel no longer carries the bulk
- * of the implementation.
- *
  * Stage pipeline:
  *   1. parseFlow       — JSON/object → FlowNode AST  (errors: stage 1)
  *   2. validateShape   — structural validation         (errors: stage 2)
  *   3. semanticResolve — tool/persona ref resolution  (errors: stage 3, halts)
  *   4. routeTarget + lower — emit artifact            (errors: stage 4)
- *
- * Since Wave 11 `runCompile` is always asynchronous. Sync resolvers pay a
- * single unconditional microtask per compile — a negligible cost relative to
- * parse + shape-validate + lower. See ADR `DECISIONS_WAVE_11.md`.
  */
 
 import { parseFlow } from "@dzupagent/flow-ast";
@@ -48,6 +30,9 @@ import {
   attachFlowCompiledClassificationEnvelope,
   createFlowCompiledClassificationEnvelope,
 } from "../classification-envelope.js";
+import {
+  bindFlowRequirementsToPrimitiveRegistry,
+} from "../primitive-registry-admission.js";
 
 import type {
   CompilerOptions,
@@ -69,9 +54,9 @@ import {
   countArtifact,
   countDiagnosticsByCategory,
   defaultSourceKind,
-  extractSuggestionFromMessage,
   jsonPointerToNodePath,
   targetReasons,
+  toSemanticErrors,
   toCompilationWarnings,
   toSemanticWarnings,
 } from "./diagnostics.js";
@@ -79,6 +64,7 @@ import {
   createSemanticReferenceSnapshot,
   type SourceReferenceSnapshot,
 } from "./reference-snapshot.js";
+import { rejectInvalidPrimitiveSelection } from "./primitive-admission.js";
 
 // Flow compiler event shapes are part of the canonical `DzupEvent` union in
 // `@dzupagent/core` (Wave 11 ADR §4). We narrow to the relevant subset here
@@ -246,6 +232,15 @@ export async function runCompile(
     };
   }
 
+  const primitiveSelectionFailure = rejectInvalidPrimitiveSelection(
+    ast,
+    opts,
+    compileId,
+    startedAt,
+    emit,
+  );
+  if (primitiveSelectionFailure !== undefined) return primitiveSelectionFailure;
+
   // -----------------------------------------------------------------------
   // Stage 3: Semantic resolution — halts on any error
   // -----------------------------------------------------------------------
@@ -270,6 +265,12 @@ export async function runCompile(
     ...(opts.admissionProfile !== undefined
       ? { admissionProfile: opts.admissionProfile }
       : {}),
+    ...(opts.primitiveRegistry !== undefined
+      ? { primitiveRegistry: opts.primitiveRegistry }
+      : {}),
+    ...(opts.primitiveBindings !== undefined
+      ? { primitiveBindings: opts.primitiveBindings }
+      : {}),
     ...referenceSnapshot,
   });
 
@@ -282,15 +283,10 @@ export async function runCompile(
   });
 
   if (semanticResult.errors.length > 0) {
-    const stage3Errors: CompilationError[] = semanticResult.errors.map((e) => ({
-      stage: 3 as const,
-      code: e.code,
-      message: e.message,
-      nodePath: e.nodePath,
-      category: e.category ?? "resolution",
-      ...extractSuggestionFromMessage(e.message),
-      ...(e.span !== undefined ? { span: e.span } : {}),
-    }));
+    const stage3Errors = toSemanticErrors(
+      semanticResult.errors,
+      sourceReferences.dslSourceMap,
+    );
     emit({
       type: "flow:compile_failed",
       compileId,
@@ -306,12 +302,20 @@ export async function runCompile(
   }
 
   const { resolved, resolvedPersonas } = semanticResult;
-  const semanticWarnings = toSemanticWarnings(semanticResult.warnings);
+  const semanticWarnings = toSemanticWarnings(
+    semanticResult.warnings,
+    sourceReferences.dslSourceMap,
+  );
   // -----------------------------------------------------------------------
   // Stage 4: Route + lower
   // -----------------------------------------------------------------------
   const { target, bitmask } = routeTarget(ast);
-  const requirements = collectFlowRequirements(ast);
+  const requirements = bindFlowRequirementsToPrimitiveRegistry(
+    ast,
+    collectFlowRequirements(ast),
+    opts.primitiveRegistry,
+    opts.primitiveBindings,
+  );
 
   // Stage 4: reject runtime leaves that the selected target cannot represent.
   const unsupportedRuntimeNodes = collectUnsupportedRuntimeNodes(ast, target);
@@ -440,6 +444,8 @@ export async function runCompile(
     requirements.semanticHash,
     referenceSnapshot,
     resolved,
+    opts.primitiveRegistry,
+    opts.primitiveBindings,
   );
   attachFlowCompiledClassificationEnvelope(artifact, classificationEnvelope);
 

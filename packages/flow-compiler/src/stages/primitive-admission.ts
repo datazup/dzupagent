@@ -13,7 +13,7 @@ import type { CompilationSourceSpan } from "../types.js";
 import { resolveReferenceValueType } from "./reference-contracts.js";
 import { classificationForReference } from "./reference-classifications.js";
 import type { WalkContext } from "./semantic-context.js";
-import { resolveBuiltInPrimitiveDefinition } from "./primitive-reference-ports.js";
+import { resolvePrimitiveDefinition } from "./primitive-reference-ports.js";
 
 const CLASSIFICATION_ORDER: Record<FlowDataClassification, number> = {
   public: 0,
@@ -42,7 +42,11 @@ export function validatePrimitiveReferenceAdmission(
   span: CompilationSourceSpan | undefined,
   ctx: WalkContext,
 ): PrimitiveAdmissionResult {
-  const definition = resolveBuiltInPrimitiveDefinition(node.type);
+  const definition = resolvePrimitiveDefinition(
+    node.type,
+    ctx.primitiveRegistry,
+    ctx.primitiveBindings,
+  );
   if (definition === undefined) {
     if (node.type === "action") {
       return validateToolReferenceAdmission(

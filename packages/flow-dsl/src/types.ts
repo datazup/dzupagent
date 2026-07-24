@@ -7,6 +7,34 @@ export interface SourceSpan {
   columnEnd: number
 }
 
+/** Absolute UTF-16 source range with one-based line/column positions. */
+export interface DslSourceSpan extends SourceSpan {
+  start: number
+  end: number
+}
+
+/** One authored YAML/JSON value projected onto its canonical AST path. */
+export interface DslSourceMapEntry {
+  canonicalPath: string
+  authoredPath: string
+  keySpan?: DslSourceSpan
+  valueSpan?: DslSourceSpan
+  /**
+   * Absolute source offset for each UTF-16 boundary in the decoded scalar.
+   * Present only when the authored value is a string and exact composition is
+   * possible.
+   */
+  contentOffsets?: readonly number[]
+  derived?: boolean
+}
+
+export interface DslSourceMap {
+  schema: 'dzupagent.dslSourceMap/v1'
+  sourceDigest: `sha256:${string}`
+  lineStarts: readonly number[]
+  entries: Readonly<Record<string, DslSourceMapEntry | undefined>>
+}
+
 export interface DslDiagnostic {
   phase: 'parse' | 'normalize' | 'validate'
   code: string

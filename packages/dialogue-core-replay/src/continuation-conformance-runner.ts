@@ -1,5 +1,6 @@
 import {
   canonicalizeContinuationValueV1,
+  classifyContinuationAdmissionsV1,
   evaluateContinuationTransitionV1,
   hashContinuationValueV1,
   type ContinuationTransitionV1,
@@ -51,32 +52,10 @@ export function classifyContinuationComparisonV1(
   if (legacy === undefined) {
     return "match";
   }
-
-  const kernelAdmission = transitionAdmission(transition);
-  if (legacy.admittedTransition === kernelAdmission) {
-    return "match";
-  }
-
-  const legacyProtectsAdmission = isNonAdmitted(
-    legacy.admittedTransition
+  return classifyContinuationAdmissionsV1(
+    legacy.admittedTransition,
+    transition
   );
-  const kernelAdmits =
-    kernelAdmission === "continue" || kernelAdmission === "complete";
-  if (legacyProtectsAdmission && kernelAdmits) {
-    return "unsafe_kernel";
-  }
-
-  const legacyAdmits =
-    legacy.admittedTransition === "continue" ||
-    legacy.admittedTransition === "complete";
-  if (
-    (legacyAdmits && isNonAdmitted(kernelAdmission)) ||
-    (legacyProtectsAdmission && isNonAdmitted(kernelAdmission))
-  ) {
-    return "safer_kernel";
-  }
-
-  return "reviewed_difference";
 }
 
 export function runContinuationConformanceV1(
@@ -155,42 +134,4 @@ export function runContinuationConformanceV1(
     },
     cases: results,
   };
-}
-
-function transitionAdmission(
-  transition: ContinuationTransitionV1
-): ContinuationLegacyObservationV1["admittedTransition"] {
-  switch (transition.action) {
-    case "continue":
-      return "continue";
-    case "suspend":
-      return "suspend";
-    case "review_again":
-      return "review_again";
-    case "reject":
-      return "reject";
-    case "stop":
-      if (transition.reason === "complete") {
-        return "complete";
-      }
-      if (
-        transition.reason === "blocked" ||
-        transition.reason === "stuck"
-      ) {
-        return "blocked";
-      }
-      return "host_stop";
-  }
-}
-
-function isNonAdmitted(
-  transition: ContinuationLegacyObservationV1["admittedTransition"]
-): boolean {
-  return (
-    transition === "blocked" ||
-    transition === "review_again" ||
-    transition === "reject" ||
-    transition === "host_stop" ||
-    transition === "suspend"
-  );
 }
