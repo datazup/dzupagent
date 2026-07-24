@@ -53,6 +53,32 @@ This is compile-time and authoring metadata. It does not claim that a host
 already persists classification envelopes in events, logs, checkpoints, or
 stores.
 
+## Custom V2 registry admission
+
+Pass an additive `primitiveRegistry` to compile host-owned V2 primitives. Each
+selected external primitive also requires an exact `primitiveBindings` entry
+containing its `kind@version` ref and semantic hash:
+
+```ts
+createFlowCompiler({
+  toolResolver,
+  primitiveRegistry,
+  primitiveBindings: {
+    'validate.schema': {
+      ref: 'validate.schema@2',
+      semanticHash: registry.definitions['validate.schema@2'].semanticHash,
+    },
+  },
+})
+```
+
+The compiler never resolves an external primitive to an implicit latest
+version. It rejects missing or stale bindings, retains every built-in identity
+unchanged, emits selected refs and hashes into semantic requirements, and
+unions the selected primitive capabilities into host readiness. Custom
+composite DSL expansion is admitted through explicit expansion handlers and
+preserves the exact source primitive ref on each expanded step.
+
 ## Primitive input admission and credential handles
 
 Stage 3 applies the resolved built-in `PrimitiveDefinitionV2` input contract:
@@ -86,6 +112,20 @@ createFlowCompiler({
 `unattended` rejects compatibility reference policy and requires every
 document input to have a resolved classification. The general interactive v1
 default remains unchanged.
+
+## Absolute diagnostics and guarded quick fixes
+
+`compileDsl` composes semantic field-relative spans with the authored YAML/JSON
+source map. Editor diagnostics therefore carry `source-offsets` with absolute
+UTF-16 offsets and one-based line/column positions. Object/document compilation
+continues to use `node-field-offsets` because it has no raw text source.
+
+The compiler emits a `safe` quick fix only when a legacy `input` or `ctx`
+reference has the same declared name under canonical `inputs` or `context`.
+`applyFlowDiagnosticQuickFix` verifies the source SHA-256 digest, every expected
+substring, valid ranges, and non-overlap before returning a new source string.
+It never mutates the caller string. Availability, type, port, classification,
+and policy diagnostics do not invent edits when semantics cannot be proven.
 
 ## Compiled classification envelope
 

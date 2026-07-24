@@ -28,6 +28,15 @@ normalize (canonical AST), validate (semantic checks) — and returns a single
 `ParseDslResult`. Any diagnostic in any phase fails the call and sets
 `ok: false`.
 
+`@dzupagent/flow-dsl/source-map` exports `createDslSourceMap(source, document)`
+to build a deterministic authored-to-canonical index after subset parsing.
+`resolveDslSourceSpan` composes canonical
+node paths and field-relative UTF-16 offsets into absolute source offsets plus
+one-based line/column positions. Nested branches, named parallel branches,
+quoted scalars, inline JSON values, and literal blocks are supported. Generated
+fragment/composite fields without a unique authored origin remain unmapped
+rather than receiving a guessed range.
+
 The YAML frontend is intentionally a block-style subset. It supports mappings,
 sequences, scalar values, inline scalar arrays/JSON objects, and literal block
 scalars (`|`). Literal blocks preserve indentation deeper than their content
@@ -102,8 +111,9 @@ effects/replay, delivery/durability/cancellation, policy, evidence/redaction,
 and a deterministic SHA-256 semantic hash.
 
 Credential-capable primitives additionally declare exact
-`credentialInputPaths`; wildcards are limited to a final path segment. A
-primitive that forbids credentials cannot declare credential paths.
+`credentialInputPaths`; `*` may identify an array item before a reviewed
+descendant path such as `records.*.credential`. A primitive that forbids
+credentials cannot declare credential paths.
 Handle-only primitives also declare a `credentialResolverCapabilityRef` that
 must appear in `requiresCapabilities`; `adapter.run@1` requires
 `flow.runtime.credential.resolve@1`.
@@ -117,6 +127,21 @@ from those V2 definitions. Composite expansion functions are attached through
 stable `expansionRef` identities so the V2 catalog itself remains serializable.
 Use `exportPrimitiveCatalogV2` for the complete contract; existing consumers
 can continue to use `exportPrimitiveCatalog`.
+
+## Custom V2 registries and authoring metadata
+
+Hosts can create an immutable, deterministically hashed `PrimitiveRegistryV2`
+with `createPrimitiveRegistryV2`, or extend the complete built-in registry with
+`extendPrimitiveRegistryV2`. Registration validates schema contracts, exact
+refs, aliases, supersession links, compensation targets, credential paths, and
+semantic hashes. `toPrimitiveRegistryV1` derives the parser expansion registry
+without weakening the V2 catalog.
+
+`createPrimitiveAuthoringMetadata` projects inline input and output schemas
+into stable nested fields, classifications, credential flags, and completion
+items. Array item paths use `*`. Hosts that require every leaf input to have an
+explicit classification can set `requireClassifiedLeafInputs`. External
+`$ref` schemas remain opaque until a host schema registry resolves them.
 
 ## Template expressions
 
