@@ -75,6 +75,25 @@ export { OpenRouterAdapter } from "./openrouter/openrouter-adapter.js";
 export type { OpenRouterConfig } from "./openrouter/openrouter-adapter.js";
 export { OpenAIAdapter } from "./openai/openai-adapter.js";
 export type { OpenAIConfig, OpenAIRunResult } from "./openai/openai-adapter.js";
+export {
+  assessModelAvailability,
+  discoverClaudeModels,
+  discoverCodexModels,
+  discoverProviderModels,
+  parseClaudeCliModelAliases,
+} from "./model-discovery.js";
+export type {
+  ClaudeModelDiscoveryOptions,
+  CodexModelDiscoveryOptions,
+  DiscoverableProviderId,
+  ModelAvailabilityAssessment,
+  ModelDiscoveryDependencies,
+  ProviderModelCatalog,
+  ProviderModelCatalogCompleteness,
+  ProviderModelCatalogEntry,
+  ProviderModelCatalogSource,
+  ProviderModelDiscoveryOptions,
+} from "./model-discovery.js";
 
 // --- Prompts ---
 export { SystemPromptBuilder } from "./prompts/system-prompt-builder.js";

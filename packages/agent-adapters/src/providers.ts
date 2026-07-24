@@ -63,6 +63,25 @@ export { OpenRouterAdapter } from './openrouter/openrouter-adapter.js'
 export type { OpenRouterConfig } from './openrouter/openrouter-adapter.js'
 export { OpenAIAdapter } from './openai/openai-adapter.js'
 export type { OpenAIConfig, OpenAIRunResult } from './openai/openai-adapter.js'
+export {
+  assessModelAvailability,
+  discoverClaudeModels,
+  discoverCodexModels,
+  discoverProviderModels,
+  parseClaudeCliModelAliases,
+} from './model-discovery.js'
+export type {
+  ClaudeModelDiscoveryOptions,
+  CodexModelDiscoveryOptions,
+  DiscoverableProviderId,
+  ModelAvailabilityAssessment,
+  ModelDiscoveryDependencies,
+  ProviderModelCatalog,
+  ProviderModelCatalogCompleteness,
+  ProviderModelCatalogEntry,
+  ProviderModelCatalogSource,
+  ProviderModelDiscoveryOptions,
+} from './model-discovery.js'
 
 // --- Provider Registry primitives ---
 export { ProviderAdapterRegistry } from './registry/adapter-registry.js'
