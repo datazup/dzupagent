@@ -43,8 +43,27 @@ describe("continuation conformance contract", () => {
       unsafeKernel: 0,
       saferKernel: 4,
       reviewedDifference: 0,
+      approvedDivergences: 0,
+      rejectedDivergences: 0,
       pendingDivergenceApprovals: 4,
     });
+  });
+
+  it("records rejected divergence and publication reviews without granting adoption", () => {
+    const fixture = JSON.parse(fs.readFileSync(fixtureUrl, "utf8"));
+    fixture.divergenceLedger[0].reviewStatus = "rejected";
+    fixture.divergenceLedger[0].reviewedBy = "human-reviewer";
+    fixture.divergenceLedger[0].reviewedAt = "2026-07-24T00:00:00.000Z";
+    fixture.publicationReview.reviewStatus = "rejected";
+    fixture.publicationReview.reviewedBy = "human-reviewer";
+    fixture.publicationReview.reviewedAt = "2026-07-24T00:00:00.000Z";
+
+    const report = runContinuationConformanceV1(fixture);
+
+    expect(report.safetyGatePassed).toBe(true);
+    expect(report.adoptionReady).toBe(false);
+    expect(report.counts.rejectedDivergences).toBe(1);
+    expect(report.counts.pendingDivergenceApprovals).toBe(3);
   });
 
   it("rejects unexpected fixture keys", () => {
