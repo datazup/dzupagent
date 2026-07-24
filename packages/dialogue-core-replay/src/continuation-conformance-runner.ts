@@ -40,6 +40,8 @@ export interface ContinuationConformanceReportV1 {
     readonly unsafeKernel: number;
     readonly saferKernel: number;
     readonly reviewedDifference: number;
+    readonly approvedDivergences: number;
+    readonly rejectedDivergences: number;
     readonly pendingDivergenceApprovals: number;
   };
   readonly cases: readonly ContinuationConformanceCaseResultV1[];
@@ -101,10 +103,15 @@ export function runContinuationConformanceV1(
     results.filter(
       (item) => item.comparisonClassification === classification
     ).length;
-  const pendingDivergenceApprovals =
-    fixture.divergenceLedger.filter(
-      (entry) => entry.reviewStatus !== "approved"
-    ).length;
+  const approvedDivergences = fixture.divergenceLedger.filter(
+    (entry) => entry.reviewStatus === "approved"
+  ).length;
+  const rejectedDivergences = fixture.divergenceLedger.filter(
+    (entry) => entry.reviewStatus === "rejected"
+  ).length;
+  const pendingDivergenceApprovals = fixture.divergenceLedger.filter(
+    (entry) => entry.reviewStatus === "proposed"
+  ).length;
   const unsafeKernel = countClassification("unsafe_kernel");
   const passedCount = results.filter((item) => item.passed).length;
   const safetyGatePassed =
@@ -112,7 +119,8 @@ export function runContinuationConformanceV1(
   const adoptionReady =
     safetyGatePassed &&
     fixture.publicationReview.reviewStatus === "approved" &&
-    pendingDivergenceApprovals === 0;
+    pendingDivergenceApprovals === 0 &&
+    rejectedDivergences === 0;
 
   return {
     schema: CONTINUATION_CONFORMANCE_REPORT_SCHEMA_V1,
@@ -130,6 +138,8 @@ export function runContinuationConformanceV1(
       unsafeKernel,
       saferKernel: countClassification("safer_kernel"),
       reviewedDifference: countClassification("reviewed_difference"),
+      approvedDivergences,
+      rejectedDivergences,
       pendingDivergenceApprovals,
     },
     cases: results,

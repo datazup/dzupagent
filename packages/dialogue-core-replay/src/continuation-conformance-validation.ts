@@ -342,7 +342,7 @@ export function validateContinuationConformanceFixtureSetV1(
     );
     enumValue(
       entry["reviewStatus"],
-      new Set(["proposed", "approved"]),
+      new Set(["proposed", "approved", "rejected"]),
       `divergenceLedger[${index}].reviewStatus`
     );
     nonEmptyString(
@@ -624,7 +624,7 @@ function validatePublicationReview(value: unknown): void {
   );
   enumValue(
     review["reviewStatus"],
-    new Set(["automated", "approved"]),
+    new Set(["automated", "approved", "rejected"]),
     "publicationReview.reviewStatus"
   );
   nonEmptyString(review["reviewedBy"], "publicationReview.reviewedBy");

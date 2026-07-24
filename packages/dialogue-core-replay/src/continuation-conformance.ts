@@ -81,13 +81,13 @@ export interface ContinuationDivergenceLedgerEntryV1 {
   readonly legacySummary: string;
   readonly kernelSummary: string;
   readonly safetyRationale: string;
-  readonly reviewStatus: "proposed" | "approved";
+  readonly reviewStatus: "proposed" | "approved" | "rejected";
   readonly reviewedBy: string;
   readonly reviewedAt: string;
 }
 
 export interface ContinuationFixturePublicationReviewV1 {
-  readonly reviewStatus: "automated" | "approved";
+  readonly reviewStatus: "automated" | "approved" | "rejected";
   readonly reviewedBy: string;
   readonly reviewedAt: string;
   readonly containsRawProviderOutput: false;
