@@ -8,6 +8,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./github-security": {
+      "import": "./dist/github-security.js",
+      "types": "./dist/github-security.d.ts"
     }
   },
   "scripts": {
