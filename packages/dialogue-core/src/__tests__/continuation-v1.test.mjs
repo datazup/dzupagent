@@ -5,6 +5,8 @@ import {
   CONTINUATION_POLICY_SCHEMA_V1,
   CONTINUATION_PROPOSAL_SCHEMA_V1,
   canonicalizeContinuationValueV1,
+  classifyContinuationAdmissionsV1,
+  continuationTransitionAdmissionV1,
   createContinuationTaskKeyV1,
   evaluateContinuationTransitionV1,
   hashContinuationValueV1,
@@ -362,6 +364,35 @@ describe("continuation v1 precedence and admission", () => {
 });
 
 describe("continuation v1 deterministic utilities and compatibility", () => {
+  it("classifies host and kernel admissions by safety dominance", () => {
+    const admitted = evaluate(proposal());
+    const conservative = evaluate(
+      proposal({ verdict: "complete", nextTask: "" }),
+      { evidence: evidence({ validation: { status: "failed" } }) }
+    );
+    const hostStop = evaluate(proposal(), {
+      hostControl: { action: "stop", reason: "budget_exceeded" },
+    });
+
+    expect(continuationTransitionAdmissionV1(admitted)).toBe("continue");
+    expect(continuationTransitionAdmissionV1(hostStop)).toBe("host_stop");
+    expect(classifyContinuationAdmissionsV1("continue", admitted)).toBe(
+      "match"
+    );
+    expect(classifyContinuationAdmissionsV1("complete", conservative)).toBe(
+      "safer_kernel"
+    );
+    expect(classifyContinuationAdmissionsV1("host_stop", admitted)).toBe(
+      "unsafe_kernel"
+    );
+    expect(classifyContinuationAdmissionsV1("continue", {
+      schema: "dzupagent/continuation-transition/v1",
+      action: "stop",
+      reason: "complete",
+      diagnostics: ["transition.complete"],
+    })).toBe("reviewed_difference");
+  });
+
   it("canonicalizes key order and hashes equal JSON semantics identically", () => {
     const first = { z: [3, { b: true, a: null }], a: "value" };
     const reordered = { a: "value", z: [3, { a: null, b: true }] };

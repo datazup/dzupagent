@@ -192,6 +192,13 @@ describe("PrimitiveRegistryV2", () => {
         classification: "sensitive",
       }),
     ]);
+    expect(metadata.inputCompletions).toContainEqual(
+      expect.objectContaining({
+        label: "records.*.token",
+        valueType: "credential",
+        classification: "secret",
+      }),
+    );
   });
 
   it("rejects semantic, compatibility, schema-path, and classification drift", () => {

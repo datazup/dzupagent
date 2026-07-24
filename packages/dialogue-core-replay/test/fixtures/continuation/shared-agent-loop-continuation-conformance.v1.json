@@ -15,7 +15,7 @@
       "sourceId": "codev-continuation-contract-v1",
       "family": "codev",
       "sourceSchema": "codev/agent-loop-continuation-contract-sources/v1",
-      "sourceDigest": "sha256:c19c8b6fe994a4037cc9f927181d4c06233605fee5c2927205e0fa260e9817b1",
+      "sourceDigest": "sha256:0d3c7509a232650395dfcdc9b22a850ad3905708c2cbceb277d7eb47cc55c529",
       "sourceCaseCount": 10,
       "reductionProcedureVersion": "scripts/codev-continuation-vector-reduction/v1"
     },

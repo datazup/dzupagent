@@ -61,7 +61,13 @@ describe("registry-backed composite expansion", () => {
     ) as { steps: Array<Record<string, unknown>> };
 
     expect(output.steps).toEqual([
-      { complete: { id: "custom_step", result: "custom" } },
+      {
+        complete: {
+          id: "custom_step",
+          result: "custom",
+          meta: { primitive: "custom.workflow@1" },
+        },
+      },
     ]);
   });
 
