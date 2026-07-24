@@ -66,6 +66,42 @@ const github = createGitHubConnector({
 
 Tools: file operations, issue management, PR management, repository search.
 
+### GitHub Flow security catalog
+
+The GitHub connector publishes a provider-free reviewed policy catalog for all
+22 current tools:
+
+```ts
+import {
+  attachConnectorSecurityManifest,
+  createGitHubConnectorToolkit,
+} from '@dzupagent/connectors'
+import {
+  GITHUB_CONNECTOR_SECURITY_MANIFEST,
+} from '@dzupagent/connectors/github-security'
+
+const toolkit = createGitHubConnectorToolkit({
+  // Legacy connector configuration; do not treat this as a strict Flow host.
+  token: process.env.GITHUB_TOKEN!,
+})
+const catalogQualified = attachConnectorSecurityManifest(
+  toolkit,
+  GITHUB_CONNECTOR_SECURITY_MANIFEST,
+)
+```
+
+Each policy declares an exact `input.credential` handle path, the
+`flow.runtime.credential.resolve@1` capability, the `github` provider, reviewed
+fine-grained repository permissions, sensitive output, effects, and evidence
+obligations. `createGitHubConnectorSecurityManifest(enabledTools)` returns an
+exact subset and rejects empty, duplicate, or unknown selections.
+
+Catalog qualification is not runtime qualification. The existing connector
+still receives a caller-owned token in its configuration and does not resolve
+or release a Flow credential lease or emit the required evidence. A strict
+host must keep that execution path disabled until a separate host bridge
+implements those obligations.
+
 ### HTTP
 
 ```ts
