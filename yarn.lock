@@ -1562,6 +1562,7 @@ __metadata:
     "@dzupagent/flow-ast": 0.2.0
   bin:
     dzupagent-compile: dist/bin/compile.js
+    dzupagent-qualify-flow-corpus: dist/bin/qualify-corpus.js
   languageName: unknown
   linkType: soft
 
@@ -1573,6 +1574,7 @@ __metadata:
     tsup: "npm:*"
     typescript: "npm:^5.8.3"
     vitest: "npm:^3.2.4"
+    yaml: "npm:^2.8.3"
   languageName: unknown
   linkType: soft
 
