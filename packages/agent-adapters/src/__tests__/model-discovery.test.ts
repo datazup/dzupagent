@@ -181,6 +181,13 @@ describe("provider model discovery", () => {
                     max_input_tokens: 1_000_000,
                     max_tokens: 128_000,
                     capabilities: {
+                      effort: {
+                        supported: true,
+                        low: { supported: true },
+                        medium: { supported: true },
+                        high: { supported: false },
+                        future: { supported: true },
+                      },
                       thinking: { supported: true },
                     },
                     type: "model",
@@ -217,6 +224,7 @@ describe("provider model discovery", () => {
     expect(catalog.models.find((model) => model.id === "model-new")).toMatchObject({
       maxInputTokens: 1_000_000,
       maxOutputTokens: 128_000,
+      supportedReasoningEfforts: ["future", "low", "medium"],
       capabilities: { thinking: { supported: true } },
     });
     expect(

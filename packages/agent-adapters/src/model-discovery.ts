@@ -555,6 +555,19 @@ function anthropicModelEntry(
   const id = stringValue(model["id"]);
   if (!id) return null;
   const capabilities = objectValueOrUndefined(model["capabilities"]);
+  const effortCapabilities = objectValueOrUndefined(
+    capabilities?.["effort"],
+  );
+  const supportedReasoningEfforts = effortCapabilities
+    ? Object.entries(effortCapabilities)
+        .filter(
+          ([name, value]) =>
+            name !== "supported" &&
+            booleanValue(objectValue(value)["supported"]) === true,
+        )
+        .map(([name]) => name)
+        .sort()
+    : [];
   return {
     providerId: "claude",
     id,
@@ -567,6 +580,9 @@ function anthropicModelEntry(
       : {}),
     ...(numberValue(model["max_tokens"]) !== undefined
       ? { maxOutputTokens: numberValue(model["max_tokens"]) }
+      : {}),
+    ...(supportedReasoningEfforts.length
+      ? { supportedReasoningEfforts }
       : {}),
     ...(capabilities ? { capabilities } : {}),
   };
