@@ -10,82 +10,88 @@ import type {
   CoordinatorPattern,
   ParticipantDefinition,
   TeamDefinition,
-} from './team-definition.js'
-import type { TeamPolicies } from './team-policy.js'
-import type { TeamRunResult } from './team-workspace.js'
-import type { TeamOTelSpanLike, TeamRuntimeTracer } from './team-otel-types.js'
-import type { TeamRuntimeEventEmitter } from './team-runtime-events.js'
-import type { TeamPattern, TeamPatternContext } from './patterns/index.js'
-import type { TeamBreakerTracker } from './team-runtime-breaker.js'
-import { createPhaseModel, transitionPhase } from './team-runtime-phase.js'
+} from "./team-definition.js";
+import type { TeamPolicies } from "./team-policy.js";
+import type { TeamRunResult } from "./team-workspace.js";
+import type { TeamOTelSpanLike, TeamRuntimeTracer } from "./team-otel-types.js";
+import type { TeamRuntimeEventEmitter } from "./team-runtime-events.js";
+import type { TeamPattern, TeamPatternContext } from "./patterns/index.js";
+import type { TeamBreakerTracker } from "./team-runtime-breaker.js";
+import { createPhaseModel, transitionPhase } from "./team-runtime-phase.js";
 import {
   consolidateIfEnabled,
   type TeamRuntimeMemoryService,
-} from './team-runtime-memory.js'
+} from "./team-runtime-memory.js";
 
 export interface ExecuteContext {
-  task: string
-  runId: string
-  definition: TeamDefinition
-  policies: TeamPolicies
-  emitEvent: TeamRuntimeEventEmitter
-  tracer: TeamRuntimeTracer | undefined
-  memory: TeamRuntimeMemoryService | undefined
-  breakerTracker: TeamBreakerTracker | undefined
-  resolvePattern: (id: CoordinatorPattern) => TeamPattern
+  task: string;
+  runId: string;
+  definition: TeamDefinition;
+  policies: TeamPolicies;
+  emitEvent: TeamRuntimeEventEmitter;
+  tracer: TeamRuntimeTracer | undefined;
+  memory: TeamRuntimeMemoryService | undefined;
+  breakerTracker: TeamBreakerTracker | undefined;
+  resolvePattern: (id: CoordinatorPattern) => TeamPattern;
   buildPatternContext: (
     task: string,
     runId: string,
     startedAt: number,
-    span: TeamOTelSpanLike | undefined,
-  ) => Promise<TeamPatternContext>
+    span: TeamOTelSpanLike | undefined
+  ) => Promise<TeamPatternContext>;
   /** Setter that lets the runtime expose the active span externally. */
-  setCurrentSpan: (span: TeamOTelSpanLike | undefined) => void
+  setCurrentSpan: (span: TeamOTelSpanLike | undefined) => void;
 }
 
-export async function executeTeamRun(ctx: ExecuteContext): Promise<TeamRunResult> {
-  const startedAt = Date.now()
-  const phase = createPhaseModel(startedAt)
-  let span: TeamOTelSpanLike | undefined
+export async function executeTeamRun(
+  ctx: ExecuteContext
+): Promise<TeamRunResult> {
+  const startedAt = Date.now();
+  const phase = createPhaseModel(startedAt);
+  let span: TeamOTelSpanLike | undefined;
   const phaseOpts = {
     teamId: ctx.definition.id,
     runId: ctx.runId,
     emitEvent: ctx.emitEvent,
     getSpan: () => span,
-  }
+  };
 
-  span = startSpan(ctx)
-  ctx.setCurrentSpan(span)
+  span = startSpan(ctx);
+  ctx.setCurrentSpan(span);
 
   try {
-    transitionPhase(phase, 'planning', phaseOpts)
-    transitionPhase(phase, 'executing', phaseOpts)
+    transitionPhase(phase, "planning", phaseOpts);
+    transitionPhase(phase, "executing", phaseOpts);
 
     if (allBreakersOpen(ctx.definition.participants, ctx.breakerTracker)) {
-      transitionPhase(phase, 'evaluating', phaseOpts)
-      transitionPhase(phase, 'completing', phaseOpts)
-      emitTeamCompleted(ctx, Date.now() - startedAt)
-      if (span && ctx.tracer) ctx.tracer.endSpanOk(span)
+      transitionPhase(phase, "evaluating", phaseOpts);
+      transitionPhase(phase, "completing", phaseOpts);
+      emitTeamCompleted(ctx, Date.now() - startedAt);
+      if (span && ctx.tracer) ctx.tracer.endSpanOk(span);
       return {
-        content: '',
+        content: "",
         agentResults: [],
         durationMs: Date.now() - startedAt,
-        pattern: 'breaker-short-circuit',
-      }
+        pattern: "breaker-short-circuit",
+      };
     }
 
-    const pattern = ctx.resolvePattern(ctx.definition.coordinatorPattern)
+    const pattern = ctx.resolvePattern(ctx.definition.coordinatorPattern);
     const patternCtx = await ctx.buildPatternContext(
       ctx.task,
       ctx.runId,
       startedAt,
-      span,
-    )
-    const result = await pattern.execute(patternCtx)
+      span
+    );
+    const result = await runWithRunTimeout(
+      pattern.execute(patternCtx),
+      ctx.policies.execution?.timeoutMs,
+      ctx.definition.id
+    );
 
-    transitionPhase(phase, 'evaluating', phaseOpts)
-    transitionPhase(phase, 'completing', phaseOpts)
-    emitTeamCompleted(ctx, Date.now() - startedAt)
+    transitionPhase(phase, "evaluating", phaseOpts);
+    transitionPhase(phase, "completing", phaseOpts);
+    emitTeamCompleted(ctx, Date.now() - startedAt);
 
     await consolidateIfEnabled({
       teamId: ctx.definition.id,
@@ -93,55 +99,86 @@ export async function executeTeamRun(ctx: ExecuteContext): Promise<TeamRunResult
       policies: ctx.policies,
       memory: ctx.memory,
       emitEvent: ctx.emitEvent,
-    })
+    });
 
-    if (span && ctx.tracer) ctx.tracer.endSpanOk(span)
-    return result
+    if (span && ctx.tracer) ctx.tracer.endSpanOk(span);
+    return result;
   } catch (err: unknown) {
-    transitionPhase(phase, 'failed', phaseOpts)
+    transitionPhase(phase, "failed", phaseOpts);
     ctx.emitEvent({
-      type: 'team_failed',
+      type: "team_failed",
       teamId: ctx.definition.id,
       runId: ctx.runId,
       error: err instanceof Error ? err.message : String(err),
       at: new Date(),
-    })
-    if (span && ctx.tracer) ctx.tracer.endSpanWithError(span, err)
-    throw err
+    });
+    if (span && ctx.tracer) ctx.tracer.endSpanWithError(span, err);
+    throw err;
   } finally {
-    ctx.setCurrentSpan(undefined)
+    ctx.setCurrentSpan(undefined);
+  }
+}
+
+/**
+ * Hard timeout around an entire team run (`execution.timeoutMs`).
+ *
+ * On expiry the run REJECTS and flows through the normal failure path
+ * (team_failed event, span error); the abandoned pattern promise is not
+ * cancelled — in-flight member calls run to completion but their results
+ * are discarded.
+ */
+export async function runWithRunTimeout<T>(
+  run: Promise<T>,
+  timeoutMs: number | undefined,
+  teamId: string
+): Promise<T> {
+  if (timeoutMs === undefined) return run;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(
+        new Error(
+          `TeamRuntime[${teamId}]: run exceeded execution.timeoutMs (${timeoutMs}ms)`
+        )
+      );
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([run, expiry]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
 function startSpan(ctx: ExecuteContext): TeamOTelSpanLike | undefined {
   const span = ctx.tracer?.startPhaseSpan(`team:${ctx.definition.id}`, {
     runId: ctx.runId,
-  })
+  });
   if (span) {
-    span.setAttribute('team.run_id', ctx.runId)
-    span.setAttribute('team.agent_count', ctx.definition.participants.length)
+    span.setAttribute("team.run_id", ctx.runId);
+    span.setAttribute("team.agent_count", ctx.definition.participants.length);
     span.setAttribute(
-      'team.coordination_pattern',
-      ctx.definition.coordinatorPattern,
-    )
+      "team.coordination_pattern",
+      ctx.definition.coordinatorPattern
+    );
   }
-  return span
+  return span;
 }
 
 function allBreakersOpen(
   participants: ParticipantDefinition[],
-  tracker: TeamBreakerTracker | undefined,
+  tracker: TeamBreakerTracker | undefined
 ): boolean {
-  if (!tracker || participants.length === 0) return false
-  return participants.every((p) => !tracker.isAvailable(p.id))
+  if (!tracker || participants.length === 0) return false;
+  return participants.every((p) => !tracker.isAvailable(p.id));
 }
 
 function emitTeamCompleted(ctx: ExecuteContext, durationMs: number): void {
   ctx.emitEvent({
-    type: 'team_completed',
+    type: "team_completed",
     teamId: ctx.definition.id,
     runId: ctx.runId,
     durationMs,
     at: new Date(),
-  })
+  });
 }

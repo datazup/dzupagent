@@ -6,6 +6,7 @@ import type { CoordinatorPattern } from "../team-definition.js";
 const SUPERVISOR: CoordinatorPattern = "supervisor";
 const COUNCIL: CoordinatorPattern = "council";
 const BLACKBOARD: CoordinatorPattern = "blackboard";
+const PEER_TO_PEER: CoordinatorPattern = "peer_to_peer";
 
 describe("validateTeamPolicies", () => {
   describe("empty / no-op cases", () => {
@@ -67,30 +68,72 @@ describe("validateTeamPolicies", () => {
       ).toThrow(/maxParallelParticipants/);
     });
 
-    it("rejects reserved field timeoutMs", () => {
+    it("accepts a valid timeoutMs on any pattern (whole-run timeout)", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs: 5000 } })
-      ).toThrow(/timeoutMs.*not supported/);
+      ).not.toThrow();
+      expect(() =>
+        validateTeamPolicies(PEER_TO_PEER, { execution: { timeoutMs: 1 } })
+      ).not.toThrow();
     });
 
-    it("rejects reserved field retryOnFailure", () => {
+    it("rejects malformed timeoutMs (0 / negative / float)", () => {
+      for (const timeoutMs of [0, -5, 1.5]) {
+        expect(() =>
+          validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs } })
+        ).toThrow(/timeoutMs.*positive integer/);
+      }
+    });
+
+    it("accepts retryOnFailure with maxRetries on peer_to_peer", () => {
+      expect(() =>
+        validateTeamPolicies(PEER_TO_PEER, {
+          execution: { retryOnFailure: true, maxRetries: 3 },
+        })
+      ).not.toThrow();
+      expect(() =>
+        validateTeamPolicies(PEER_TO_PEER, {
+          execution: { retryOnFailure: false },
+        })
+      ).not.toThrow();
+    });
+
+    it("rejects participant retry fields outside peer_to_peer", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { retryOnFailure: true },
         })
-      ).toThrow(/retryOnFailure.*not supported/);
-    });
-
-    it("rejects reserved field maxRetries", () => {
+      ).toThrow(/retry.*only supported for coordinator pattern 'peer_to_peer'/);
       expect(() =>
-        validateTeamPolicies(SUPERVISOR, { execution: { maxRetries: 3 } })
-      ).toThrow(/maxRetries.*not supported/);
+        validateTeamPolicies(COUNCIL, { execution: { maxRetries: 3 } })
+      ).toThrow(/peer_to_peer/);
     });
 
-    it("timeoutMs check fires before maxParallelParticipants check (first reserved field wins)", () => {
+    it("rejects malformed maxRetries (0 / negative / float)", () => {
+      for (const maxRetries of [0, -1, 1.5]) {
+        expect(() =>
+          validateTeamPolicies(PEER_TO_PEER, {
+            execution: { retryOnFailure: true, maxRetries },
+          })
+        ).toThrow(/maxRetries.*positive integer/);
+      }
+    });
+
+    it("rejects maxRetries without retryOnFailure enabled", () => {
+      expect(() =>
+        validateTeamPolicies(PEER_TO_PEER, { execution: { maxRetries: 2 } })
+      ).toThrow(/maxRetries.*requires 'retryOnFailure'/);
+      expect(() =>
+        validateTeamPolicies(PEER_TO_PEER, {
+          execution: { retryOnFailure: false, maxRetries: 2 },
+        })
+      ).toThrow(/requires 'retryOnFailure'/);
+    });
+
+    it("timeoutMs check fires before maxParallelParticipants check", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
-          execution: { timeoutMs: 1000, maxParallelParticipants: -1 },
+          execution: { timeoutMs: -1, maxParallelParticipants: -1 },
         })
       ).toThrow(/timeoutMs/);
     });
@@ -267,9 +310,9 @@ describe("validateTeamPolicies", () => {
   });
 
   describe("error message content", () => {
-    it("error for timeoutMs mentions the field name", () => {
+    it("error for malformed timeoutMs mentions the field name", () => {
       try {
-        validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs: 1 } });
+        validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs: 0 } });
         expect.fail("should throw");
       } catch (e) {
         expect((e as Error).message).toContain("timeoutMs");

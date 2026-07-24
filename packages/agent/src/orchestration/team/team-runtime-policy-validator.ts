@@ -7,15 +7,17 @@
  * unsupported or malformed.
  */
 
-import type { CoordinatorPattern } from './team-definition.js'
-import type { TeamPolicies } from './team-policy.js'
+import type { CoordinatorPattern } from "./team-definition.js";
+import type { TeamPolicies } from "./team-policy.js";
 
 /**
  * Validate `TeamPolicies` against the team's coordinator pattern.
  *
  * Throws when:
- *   - an execution policy uses a reserved field (timeoutMs / retryOnFailure /
- *     maxRetries) or a malformed maxParallelParticipants value;
+ *   - an execution policy has a malformed timeoutMs / maxParallelParticipants
+ *     value, uses participant retry (retryOnFailure / maxRetries) outside the
+ *     'peer_to_peer' pattern where it is enforced, or sets maxRetries without
+ *     enabling retryOnFailure;
  *   - a governance policy is supplied for a non-council pattern, or uses a
  *     reserved field;
  *   - a memory policy is supplied for a non-blackboard pattern, or contains
@@ -25,86 +27,111 @@ import type { TeamPolicies } from './team-policy.js'
  */
 export function validateTeamPolicies(
   pattern: CoordinatorPattern,
-  policies: TeamPolicies,
+  policies: TeamPolicies
 ): void {
-  validateExecutionPolicy(policies)
-  validateGovernancePolicy(pattern, policies)
-  validateMemoryPolicy(pattern, policies)
-  rejectUnsupportedPolicyGroup('isolation', policies.isolation)
-  rejectUnsupportedPolicyGroup('mailbox', policies.mailbox)
-  rejectUnsupportedPolicyGroup('evaluation', policies.evaluation)
+  validateExecutionPolicy(pattern, policies);
+  validateGovernancePolicy(pattern, policies);
+  validateMemoryPolicy(pattern, policies);
+  rejectUnsupportedPolicyGroup("isolation", policies.isolation);
+  rejectUnsupportedPolicyGroup("mailbox", policies.mailbox);
+  rejectUnsupportedPolicyGroup("evaluation", policies.evaluation);
 }
 
-function validateExecutionPolicy(policies: TeamPolicies): void {
-  const execution = policies.execution
-  if (!execution) return
+function validateExecutionPolicy(
+  pattern: CoordinatorPattern,
+  policies: TeamPolicies
+): void {
+  const execution = policies.execution;
+  if (!execution) return;
 
-  if (execution.timeoutMs !== undefined) {
+  if (
+    execution.timeoutMs !== undefined &&
+    (!Number.isInteger(execution.timeoutMs) || execution.timeoutMs < 1)
+  ) {
     throw new Error(
-      "TeamRuntime execution policy field 'timeoutMs' is not supported yet",
-    )
+      "TeamRuntime execution policy field 'timeoutMs' must be a positive integer"
+    );
   }
-  if (execution.retryOnFailure !== undefined) {
+
+  const usesRetry =
+    execution.retryOnFailure !== undefined ||
+    execution.maxRetries !== undefined;
+  if (usesRetry && pattern !== "peer_to_peer") {
     throw new Error(
-      "TeamRuntime execution policy field 'retryOnFailure' is not supported yet",
-    )
+      "TeamRuntime execution policy participant retry (retryOnFailure / maxRetries) is only supported for coordinator pattern 'peer_to_peer'"
+    );
+  }
+  if (
+    execution.retryOnFailure !== undefined &&
+    typeof execution.retryOnFailure !== "boolean"
+  ) {
+    throw new Error(
+      "TeamRuntime execution policy field 'retryOnFailure' must be a boolean"
+    );
   }
   if (execution.maxRetries !== undefined) {
-    throw new Error(
-      "TeamRuntime execution policy field 'maxRetries' is not supported yet",
-    )
+    if (!Number.isInteger(execution.maxRetries) || execution.maxRetries < 1) {
+      throw new Error(
+        "TeamRuntime execution policy field 'maxRetries' must be a positive integer"
+      );
+    }
+    if (execution.retryOnFailure !== true) {
+      throw new Error(
+        "TeamRuntime execution policy field 'maxRetries' requires 'retryOnFailure' to be true"
+      );
+    }
   }
 
-  const maxParallel = execution.maxParallelParticipants
+  const maxParallel = execution.maxParallelParticipants;
   if (
     maxParallel !== undefined &&
     (!Number.isInteger(maxParallel) || maxParallel < 1)
   ) {
     throw new Error(
-      "TeamRuntime execution policy field 'maxParallelParticipants' must be a positive integer",
-    )
+      "TeamRuntime execution policy field 'maxParallelParticipants' must be a positive integer"
+    );
   }
 }
 
 function validateGovernancePolicy(
   pattern: CoordinatorPattern,
-  policies: TeamPolicies,
+  policies: TeamPolicies
 ): void {
-  const governance = policies.governance
-  if (!governance) return
+  const governance = policies.governance;
+  if (!governance) return;
 
-  if (pattern !== 'council') {
+  if (pattern !== "council") {
     throw new Error(
-      "TeamRuntime governance policy group is only supported for coordinator pattern 'council'",
-    )
+      "TeamRuntime governance policy group is only supported for coordinator pattern 'council'"
+    );
   }
   if (governance.minScore !== undefined) {
     throw new Error(
-      "TeamRuntime governance policy field 'minScore' is not supported yet",
-    )
+      "TeamRuntime governance policy field 'minScore' is not supported yet"
+    );
   }
   if (governance.requireUnanimous !== undefined) {
     throw new Error(
-      "TeamRuntime governance policy field 'requireUnanimous' is not supported yet",
-    )
+      "TeamRuntime governance policy field 'requireUnanimous' is not supported yet"
+    );
   }
 }
 
 function validateMemoryPolicy(
   pattern: CoordinatorPattern,
-  policies: TeamPolicies,
+  policies: TeamPolicies
 ): void {
-  const memory = policies.memory
-  if (!memory) return
+  const memory = policies.memory;
+  if (!memory) return;
 
-  if (pattern !== 'blackboard') {
+  if (pattern !== "blackboard") {
     throw new Error(
-      "TeamRuntime memory policy group is only supported for coordinator pattern 'blackboard'",
-    )
+      "TeamRuntime memory policy group is only supported for coordinator pattern 'blackboard'"
+    );
   }
 
-  const blackboardContext = memory.blackboardContext
-  if (!blackboardContext) return
+  const blackboardContext = memory.blackboardContext;
+  if (!blackboardContext) return;
 
   if (
     blackboardContext.maxSerializedChars !== undefined &&
@@ -112,8 +139,8 @@ function validateMemoryPolicy(
       blackboardContext.maxSerializedChars < 1)
   ) {
     throw new Error(
-      "TeamRuntime memory policy field 'blackboardContext.maxSerializedChars' must be a positive integer",
-    )
+      "TeamRuntime memory policy field 'blackboardContext.maxSerializedChars' must be a positive integer"
+    );
   }
   if (
     blackboardContext.maxEntryChars !== undefined &&
@@ -121,15 +148,15 @@ function validateMemoryPolicy(
       blackboardContext.maxEntryChars < 1)
   ) {
     throw new Error(
-      "TeamRuntime memory policy field 'blackboardContext.maxEntryChars' must be a positive integer",
-    )
+      "TeamRuntime memory policy field 'blackboardContext.maxEntryChars' must be a positive integer"
+    );
   }
 }
 
 function rejectUnsupportedPolicyGroup(
-  group: 'isolation' | 'mailbox' | 'evaluation',
-  policy: unknown,
+  group: "isolation" | "mailbox" | "evaluation",
+  policy: unknown
 ): void {
-  if (policy === undefined) return
-  throw new Error(`TeamRuntime policy group '${group}' is not supported yet`)
+  if (policy === undefined) return;
+  throw new Error(`TeamRuntime policy group '${group}' is not supported yet`);
 }
