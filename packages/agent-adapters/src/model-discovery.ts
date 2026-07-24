@@ -24,6 +24,7 @@ export interface ProviderModelCatalogEntry {
   isDefault?: boolean | undefined;
   hidden?: boolean | undefined;
   alias?: boolean | undefined;
+  canonicalId?: string | undefined;
   defaultReasoningEffort?: string | undefined;
   supportedReasoningEfforts?: readonly string[] | undefined;
   inputModalities?: readonly string[] | undefined;
@@ -96,6 +97,7 @@ export interface ClaudeModelDiscoveryOptions {
   apiKey?: string | undefined;
   apiBaseUrl?: string | undefined;
   anthropicVersion?: string | undefined;
+  resolveModelIds?: readonly string[] | undefined;
   timeoutMs?: number | undefined;
   env?: Readonly<Record<string, string | undefined>> | undefined;
   dependencies?: ModelDiscoveryDependencies | undefined;
@@ -207,12 +209,24 @@ export async function discoverClaudeModels(
         timeoutMs,
         fetchImpl: dependencies.fetch ?? fetch,
       });
+      const resolvedModels = await resolveAnthropicApiModelAliases({
+        models,
+        requestedModelIds: options.resolveModelIds ?? [],
+        apiKey,
+        apiBaseUrl:
+          options.apiBaseUrl ??
+          env["ANTHROPIC_BASE_URL"] ??
+          "https://api.anthropic.com",
+        anthropicVersion: options.anthropicVersion ?? "2023-06-01",
+        timeoutMs,
+        fetchImpl: dependencies.fetch ?? fetch,
+      });
       return createCatalog({
         providerId: "claude",
         source: "anthropic-models-api",
         completeness: "account-catalog",
         authenticated: true,
-        models,
+        models: resolvedModels,
         warnings,
         now: dependencies.now,
       });
@@ -467,25 +481,8 @@ async function listAnthropicApiModels(input: {
     const payload = objectValue(await response.json());
     const rows = Array.isArray(payload["data"]) ? payload["data"] : [];
     for (const raw of rows) {
-      const model = objectValue(raw);
-      const id = stringValue(model["id"]);
-      if (!id) continue;
-      const capabilities = objectValueOrUndefined(model["capabilities"]);
-      entries.push({
-        providerId: "claude",
-        id,
-        displayName: stringValue(model["display_name"]) ?? id,
-        ...(stringValue(model["created_at"])
-          ? { createdAt: stringValue(model["created_at"]) }
-          : {}),
-        ...(numberValue(model["max_input_tokens"]) !== undefined
-          ? { maxInputTokens: numberValue(model["max_input_tokens"]) }
-          : {}),
-        ...(numberValue(model["max_tokens"]) !== undefined
-          ? { maxOutputTokens: numberValue(model["max_tokens"]) }
-          : {}),
-        ...(capabilities ? { capabilities } : {}),
-      });
+      const entry = anthropicModelEntry(raw);
+      if (entry) entries.push(entry);
     }
     if (payload["has_more"] !== true) break;
     const lastId = stringValue(payload["last_id"]);
@@ -496,6 +493,83 @@ async function listAnthropicApiModels(input: {
     afterId = lastId;
   }
   return entries;
+}
+
+async function resolveAnthropicApiModelAliases(input: {
+  models: readonly ProviderModelCatalogEntry[];
+  requestedModelIds: readonly string[];
+  apiKey: string;
+  apiBaseUrl: string;
+  anthropicVersion: string;
+  timeoutMs: number;
+  fetchImpl: typeof fetch;
+}): Promise<ProviderModelCatalogEntry[]> {
+  const entries = [...input.models];
+  const knownIds = new Set(entries.map((model) => model.id.toLowerCase()));
+  const requestedIds = [...new Set(input.requestedModelIds)]
+    .map((id) => id.trim())
+    .filter(
+      (id) =>
+        /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/u.test(id) &&
+        !knownIds.has(id.toLowerCase()),
+    );
+  for (const requestedId of requestedIds) {
+    const response = await fetchWithTimeout(
+      `${input.apiBaseUrl.replace(/\/+$/u, "")}/v1/models/${encodeURIComponent(requestedId)}`,
+      {
+        headers: {
+          "x-api-key": input.apiKey,
+          "anthropic-version": input.anthropicVersion,
+        },
+      },
+      input.timeoutMs,
+      input.fetchImpl,
+    );
+    if (response.status === 404) continue;
+    assertOk(response, "Anthropic Models Retrieve API");
+    const canonical = anthropicModelEntry(await response.json());
+    if (!canonical) {
+      throw new Error(
+        "Anthropic Models Retrieve API returned an invalid model object",
+      );
+    }
+    if (!knownIds.has(canonical.id.toLowerCase())) {
+      entries.push(canonical);
+      knownIds.add(canonical.id.toLowerCase());
+    }
+    entries.push({
+      ...canonical,
+      id: requestedId,
+      alias: true,
+      canonicalId: canonical.id,
+    });
+    knownIds.add(requestedId.toLowerCase());
+  }
+  return entries;
+}
+
+function anthropicModelEntry(
+  raw: unknown,
+): ProviderModelCatalogEntry | null {
+  const model = objectValue(raw);
+  const id = stringValue(model["id"]);
+  if (!id) return null;
+  const capabilities = objectValueOrUndefined(model["capabilities"]);
+  return {
+    providerId: "claude",
+    id,
+    displayName: stringValue(model["display_name"]) ?? id,
+    ...(stringValue(model["created_at"])
+      ? { createdAt: stringValue(model["created_at"]) }
+      : {}),
+    ...(numberValue(model["max_input_tokens"]) !== undefined
+      ? { maxInputTokens: numberValue(model["max_input_tokens"]) }
+      : {}),
+    ...(numberValue(model["max_tokens"]) !== undefined
+      ? { maxOutputTokens: numberValue(model["max_tokens"]) }
+      : {}),
+    ...(capabilities ? { capabilities } : {}),
+  };
 }
 
 async function defaultRunCommand(

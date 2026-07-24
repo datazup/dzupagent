@@ -224,6 +224,69 @@ describe("provider model discovery", () => {
     ).toBe("unavailable");
   });
 
+  it("resolves provider-maintained Claude aliases through Models Retrieve", async () => {
+    const requestedUrls: string[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      requestedUrls.push(url);
+      if (url.endsWith("/v1/models/sonnet")) {
+        return new Response(
+          JSON.stringify({
+            id: "claude-sonnet-current-version",
+            display_name: "Claude Sonnet",
+            created_at: "2026-07-01T00:00:00Z",
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            capabilities: {
+              structured_outputs: { supported: true },
+            },
+            type: "model",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "claude-sonnet-current-version",
+              display_name: "Claude Sonnet",
+              created_at: "2026-07-01T00:00:00Z",
+              max_input_tokens: 1_000_000,
+              max_tokens: 128_000,
+              capabilities: {
+                structured_outputs: { supported: true },
+              },
+              type: "model",
+            },
+          ],
+          first_id: "claude-sonnet-current-version",
+          has_more: false,
+          last_id: "claude-sonnet-current-version",
+        }),
+        { status: 200 },
+      );
+    });
+
+    const catalog = await discoverClaudeModels({
+      source: "anthropic-api",
+      apiKey: "test-key",
+      resolveModelIds: ["sonnet"],
+      dependencies: { fetch: fetchMock as typeof fetch, now: fixedNow },
+    });
+
+    expect(requestedUrls).toHaveLength(2);
+    expect(requestedUrls[1]).toMatch(/\/v1\/models\/sonnet$/u);
+    expect(catalog.models.find((model) => model.id === "sonnet")).toMatchObject({
+      alias: true,
+      canonicalId: "claude-sonnet-current-version",
+      maxInputTokens: 1_000_000,
+      maxOutputTokens: 128_000,
+      capabilities: { structured_outputs: { supported: true } },
+    });
+    expect(assessModelAvailability(catalog, "sonnet").status).toBe("available");
+  });
+
   it("uses Claude CLI provider aliases when API credentials are absent", async () => {
     const runCommand = vi.fn(
       async (_command: string, args: readonly string[]) => {
