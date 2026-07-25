@@ -11,10 +11,12 @@
 import { parseFlow } from "@dzupagent/flow-ast";
 import type { ParseInput } from "@dzupagent/flow-ast";
 import type { DzupEvent } from "@dzupagent/core";
+import { resolveDslSourceSpan } from "@dzupagent/flow-dsl/source-map";
 
 import { validateShape } from "../stages/shape-validate.js";
 import { semanticResolve } from "../stages/semantic.js";
 import {
+  collectUnsupportedTypedConditions,
   collectUnsupportedRuntimeNodes,
   routeTarget,
 } from "../route-target.js";
@@ -343,6 +345,54 @@ export async function runCompile(
       errors: stage4Errors,
       compileId,
       diagnosticCountsByCategory: countDiagnosticsByCategory(stage4Errors),
+    };
+  }
+
+  // Typed control is semantically validated, but no generic target currently
+  // owns its evaluation contract. Stop before lowering instead of serializing
+  // the fail-closed legacy shadow as executable semantics.
+  const unsupportedTypedConditions =
+    collectUnsupportedTypedConditions(ast);
+  if (unsupportedTypedConditions.length > 0) {
+    const stage4Errors: CompilationError[] =
+      unsupportedTypedConditions.map((condition) => {
+        const sourceSpan =
+          sourceReferences.dslSourceMap === undefined
+            ? undefined
+            : resolveDslSourceSpan(
+                sourceReferences.dslSourceMap,
+                condition.path,
+              );
+        return {
+          stage: 4 as const,
+          code: "TYPED_CONDITION_TARGET_UNSUPPORTED",
+          message:
+            `Typed condition at "${condition.path}" is valid, but the selected "${target}" target has no reviewed ` +
+            `flow.control.typed-condition@1 evaluator. Artifact emission is blocked.`,
+          nodePath: condition.path,
+          category: "lowering",
+          ...(sourceSpan === undefined
+            ? {}
+            : {
+                span: {
+                  kind: "source-offsets" as const,
+                  ...sourceSpan,
+                },
+              }),
+        };
+      });
+    emit({
+      type: "flow:compile_failed",
+      compileId,
+      stage: 4,
+      errorCount: stage4Errors.length,
+      durationMs: Date.now() - startedAt,
+    });
+    return {
+      errors: stage4Errors,
+      compileId,
+      diagnosticCountsByCategory:
+        countDiagnosticsByCategory(stage4Errors),
     };
   }
 

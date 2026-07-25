@@ -4,6 +4,7 @@ import type { DslSourceMapEntry, DslSourceSpan } from "./types.js";
 import {
   readV2SourceLineage,
   V2_SOURCE_LINEAGE_META_KEY,
+  type V2SourceLineageMarker,
 } from "./v2/source-lineage.js";
 
 const NODE_KIND_TO_TYPE: Readonly<Record<string, string>> = Object.freeze({
@@ -360,7 +361,20 @@ function projectV2Node(
       ) {
         continue;
       }
-      const mapped = mapV2Field(marker.use, field, marker.saveBindings);
+      if (
+        field === "typedCondition" &&
+        marker.typedConditionBindings !== undefined
+      ) {
+        projectV2TypedCondition(
+          `${canonicalPath}.typedCondition`,
+          marker.authoredPath,
+          marker.typedConditionBindings,
+          authored,
+          entries,
+        );
+        continue;
+      }
+      const mapped = mapV2Field(marker, field, marker.saveBindings);
       if (mapped === undefined) continue;
       const authoredPath = `${marker.authoredPath}.${mapped.path}`;
       projectValue(
@@ -384,10 +398,12 @@ function projectV2Node(
     case "branch":
       projectEntry(
         `${canonicalPath}.then`,
-        `${marker.authoredPath}.with.then`,
+        marker.guardedStep
+          ? marker.authoredPath
+          : `${marker.authoredPath}.with.then`,
         authored,
         entries,
-        marker.generated,
+        marker.generated || marker.guardedStep === true,
       );
       projectV2NodeList(node.then, `${canonicalPath}.then`, raw, authored, entries);
       if (node.else !== undefined) {
@@ -475,22 +491,52 @@ function projectV2Metadata(
 }
 
 function mapV2Field(
-  use: string,
+  marker: V2SourceLineageMarker,
   field: string,
   saveBindings: Readonly<Record<string, string>> | undefined,
 ): { path: string; derived: boolean } | undefined {
+  if (marker.guardedStep) {
+    if (field === "id") return { path: "id", derived: true };
+    if (field === "condition") return { path: "when", derived: true };
+    return undefined;
+  }
   if (field === "id") return { path: "id", derived: false };
   const savedPort = saveBindings?.[field];
   if (savedPort !== undefined) {
     return { path: `save.${savedPort}`, derived: true };
   }
-  if (use === "core.branch@1" && field === "condition") {
-    return { path: "when", derived: false };
+  if (marker.use === "core.branch@1" && field === "condition") {
+    return {
+      path: "when",
+      derived: marker.typedConditionBindings !== undefined,
+    };
   }
-  if (use.startsWith("core.")) {
+  if (marker.use.startsWith("core.")) {
     return { path: `with.${field}`, derived: false };
   }
   return { path: `with.${field}`, derived: false };
+}
+
+function projectV2TypedCondition(
+  canonicalPath: string,
+  authoredStepPath: string,
+  bindings: Readonly<Record<string, string>>,
+  authored: Map<string, MutableDslSourceEntry>,
+  entries: Map<string, DslSourceMapEntry>,
+): void {
+  const authoredWhen = `${authoredStepPath}.when`;
+  projectEntry(canonicalPath, authoredWhen, authored, entries);
+  projectEntry(`${canonicalPath}.schema`, authoredWhen, authored, entries, true);
+  for (const [canonicalRelative, authoredRelative] of Object.entries(bindings)) {
+    projectEntry(
+      `${canonicalPath}.${canonicalRelative}`,
+      authoredRelative.length === 0
+        ? authoredWhen
+        : `${authoredWhen}.${authoredRelative}`,
+      authored,
+      entries,
+    );
+  }
 }
 
 function projectDerivedCanonicalValue(

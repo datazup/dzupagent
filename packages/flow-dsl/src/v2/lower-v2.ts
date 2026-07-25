@@ -1,6 +1,9 @@
 import {
   BUILT_IN_PRIMITIVE_REGISTRY_V2,
 } from "../primitives/built-ins.js";
+import {
+  FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
+} from "@dzupagent/flow-ast";
 import type {
   PrimitiveDefinitionV2,
   PrimitiveRegistryV2,
@@ -15,6 +18,10 @@ import {
   withV2SourceLineage,
   type V2SourceLineageMarker,
 } from "./source-lineage.js";
+import {
+  parseV2TypedCondition,
+  type ParsedV2TypedCondition,
+} from "./typed-condition.js";
 
 const TOP_LEVEL_KEYS = new Set([
   "dsl",
@@ -66,6 +73,8 @@ interface LoweringContext {
     `sha256:${string}`
   >;
   readonly namespaceVersions: Map<string, string>;
+  readonly authoredStepIds: ReadonlySet<string>;
+  readonly generatedGuardIds: Set<string>;
 }
 
 /** Lower the bounded v2 authoring subset into the existing v1 wrapper frontend. */
@@ -110,6 +119,8 @@ export function lowerDslV2Document(
     lineage: [],
     bindings: new Map(),
     namespaceVersions: new Map(),
+    authoredStepIds: collectAuthoredStepIds(raw.steps),
+    generatedGuardIds: new Set(),
   };
   const steps = lowerSteps(raw.steps, "root.steps", "steps", context);
   if (diagnostics.length > 0) {
@@ -258,63 +269,78 @@ function lowerStep(
   };
   const kind = match[1]!;
   const version = match[2]!;
+  const guard =
+    kind === "core.branch" || raw.when === undefined
+      ? undefined
+      : parseV2TypedCondition(
+          raw.when,
+          `${authoredPath}.when`,
+          context.diagnostics,
+        );
+  if (guard === null) return null;
+  const childLoweredPath =
+    guard === undefined ? loweredPath : `${loweredPath}.if.then[0]`;
+  let lowered: Readonly<Record<string, unknown>> | null;
   if (kind.startsWith("core.")) {
-    return lowerCoreStep(
+    lowered = lowerCoreStep(
       kind,
       version,
       raw,
       input ?? {},
       base,
       authoredPath,
-      loweredPath,
+      childLoweredPath,
       context,
     );
-  }
-  if (raw.when !== undefined) {
-    context.diagnostics.push(
-      unsupported(
-        "P3a only supports when on core.branch@1",
-        `${authoredPath}.when`,
-      ),
-    );
-  }
-  const definition = context.registry.resolve(kind, version);
-  if (definition === undefined) {
-    context.diagnostics.push({
-      phase: "normalize",
-      code: "V2_UNKNOWN_PRIMITIVE",
-      message: `v2 use "${use}" does not resolve to an exact V2 primitive`,
-      path: `${authoredPath}.use`,
-    });
-    return null;
-  }
-  registerPrimitive(definition, authoredPath, context);
-  const body: Record<string, unknown> = { ...base, ...(input ?? {}) };
-  const saveBindings = lowerSave(
-    raw.save,
-    definition,
-    body,
-    authoredPath,
-    context,
-  );
-  context.lineage.push({
-    authoredPath,
-    loweredPath,
-    use,
-    primitiveRef: definition.ref,
-    primitiveSemanticHash: definition.compatibility.semanticHash,
-  });
-  return {
-    [kind]: withV2SourceLineage(body, {
+  } else {
+    const definition = context.registry.resolve(kind, version);
+    if (definition === undefined) {
+      context.diagnostics.push({
+        phase: "normalize",
+        code: "V2_UNKNOWN_PRIMITIVE",
+        message: `v2 use "${use}" does not resolve to an exact V2 primitive`,
+        path: `${authoredPath}.use`,
+      });
+      return null;
+    }
+    registerPrimitive(definition, authoredPath, context);
+    const body: Record<string, unknown> = { ...base, ...(input ?? {}) };
+    const saveBindings = lowerSave(
+      raw.save,
+      definition,
+      body,
       authoredPath,
-      loweredPath,
+      context,
+    );
+    context.lineage.push({
+      authoredPath,
+      loweredPath: childLoweredPath,
       use,
-      generated: false,
       primitiveRef: definition.ref,
       primitiveSemanticHash: definition.compatibility.semanticHash,
-      ...(Object.keys(saveBindings).length === 0 ? {} : { saveBindings }),
-    }),
-  };
+    });
+    lowered = {
+      [kind]: withV2SourceLineage(body, {
+        authoredPath,
+        loweredPath: childLoweredPath,
+        use,
+        generated: false,
+        primitiveRef: definition.ref,
+        primitiveSemanticHash: definition.compatibility.semanticHash,
+        ...(Object.keys(saveBindings).length === 0 ? {} : { saveBindings }),
+      }),
+    };
+  }
+  if (lowered === null || guard === undefined) return lowered;
+  return wrapGuardedStep(
+    lowered,
+    guard,
+    id!,
+    use,
+    authoredPath,
+    loweredPath,
+    context,
+  );
 }
 
 function lowerCoreStep(
@@ -345,11 +371,6 @@ function lowerCoreStep(
     );
   }
   if (kind === "core.set") {
-    if (raw.when !== undefined) {
-      context.diagnostics.push(
-        unsupported("P3a does not support when on core.set@1", `${authoredPath}.when`),
-      );
-    }
     context.lineage.push({ authoredPath, loweredPath, use: `${kind}@${version}` });
     return {
       set: withV2SourceLineage(
@@ -359,14 +380,6 @@ function lowerCoreStep(
     };
   }
   if (kind === "core.complete") {
-    if (raw.when !== undefined) {
-      context.diagnostics.push(
-        unsupported(
-          "P3a does not support when on core.complete@1",
-          `${authoredPath}.when`,
-        ),
-      );
-    }
     context.lineage.push({ authoredPath, loweredPath, use: `${kind}@${version}` });
     return {
       complete: withV2SourceLineage(
@@ -376,9 +389,24 @@ function lowerCoreStep(
     };
   }
   if (kind === "core.branch") {
-    if (typeof raw.when !== "string" || raw.when.length === 0) {
+    const legacyCondition =
+      typeof raw.when === "string" && raw.when.length > 0
+        ? raw.when
+        : undefined;
+    const typedCondition =
+      legacyCondition !== undefined || raw.when === undefined
+        ? undefined
+        : parseV2TypedCondition(
+            raw.when,
+            `${authoredPath}.when`,
+            context.diagnostics,
+          );
+    if (legacyCondition === undefined && typedCondition == null) {
       context.diagnostics.push(
-        required("core.branch@1 requires a string when expression", `${authoredPath}.when`),
+        required(
+          "core.branch@1 requires a string or typed boolean when expression",
+          `${authoredPath}.when`,
+        ),
       );
     }
     const allowed = new Set(["then", "else"]);
@@ -412,11 +440,29 @@ function lowerCoreStep(
       if: withV2SourceLineage(
         {
           ...base,
-          condition: raw.when,
+          condition:
+            legacyCondition ??
+            FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
+          ...(typedCondition == null
+            ? {}
+            : { typedCondition: typedCondition.condition }),
           then: thenSteps,
           ...(elseSteps === undefined ? {} : { else: elseSteps }),
         },
-        coreSourceLineage(kind, version, authoredPath, loweredPath),
+        {
+          ...coreSourceLineage(
+            kind,
+            version,
+            authoredPath,
+            loweredPath,
+          ),
+          ...(typedCondition == null
+            ? {}
+            : {
+                typedConditionBindings:
+                  typedCondition.sourceBindings,
+              }),
+        },
       ),
     };
   }
@@ -427,6 +473,60 @@ function lowerCoreStep(
     path: `${authoredPath}.use`,
   });
   return null;
+}
+
+function wrapGuardedStep(
+  lowered: Readonly<Record<string, unknown>>,
+  guard: ParsedV2TypedCondition,
+  id: string,
+  use: string,
+  authoredPath: string,
+  loweredPath: string,
+  context: LoweringContext,
+): Readonly<Record<string, unknown>> | null {
+  const guardId = `${id}__when_guard`;
+  if (
+    context.authoredStepIds.has(guardId) ||
+    context.generatedGuardIds.has(guardId)
+  ) {
+    context.diagnostics.push({
+      phase: "normalize",
+      code: "V2_GUARD_ID_CONFLICT",
+      message:
+        `generated v2 when guard id "${guardId}" conflicts with another step`,
+      path: `${authoredPath}.id`,
+    });
+    return null;
+  }
+  context.generatedGuardIds.add(guardId);
+  for (let index = context.lineage.length - 1; index >= 0; index -= 1) {
+    const entry = context.lineage[index];
+    if (entry?.authoredPath !== authoredPath) continue;
+    context.lineage[index] = {
+      ...entry,
+      guardId,
+      guardLoweredPath: loweredPath,
+    };
+    break;
+  }
+  return {
+    if: withV2SourceLineage(
+      {
+        id: guardId,
+        condition: FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
+        typedCondition: guard.condition,
+        then: [lowered],
+      },
+      {
+        authoredPath,
+        loweredPath,
+        use,
+        generated: false,
+        guardedStep: true,
+        typedConditionBindings: guard.sourceBindings,
+      },
+    ),
+  };
 }
 
 function lowerSave(
@@ -596,6 +696,24 @@ function failure(message: string, path: string): LowerDslV2Result {
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function collectAuthoredStepIds(value: unknown): ReadonlySet<string> {
+  const ids = new Set<string>();
+  const visit = (steps: unknown): void => {
+    if (!Array.isArray(steps)) return;
+    for (const step of steps) {
+      if (!isRecord(step)) continue;
+      if (typeof step.id === "string" && step.id.length > 0) {
+        ids.add(step.id);
+      }
+      if (!isRecord(step.with)) continue;
+      visit(step.with.then);
+      visit(step.with.else);
+    }
+  };
+  visit(value);
+  return ids;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

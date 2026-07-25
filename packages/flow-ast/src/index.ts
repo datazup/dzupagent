@@ -3,6 +3,12 @@ export type { FlowFragmentCatalog, FlowFragmentCatalogEntry, FlowFragmentDsl, Fl
 export type {
   FlowExpression,
   FlowExpressionAnalysis,
+  FlowTypedCondition,
+} from "./expressions.js";
+export {
+  FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
+  isFlowExpression,
+  isFlowTypedCondition,
 } from "./expressions.js";
 export * from "./parse.js";
 export * from "./validate.js";

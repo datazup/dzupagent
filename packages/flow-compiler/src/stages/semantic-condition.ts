@@ -1,7 +1,12 @@
-import { validateFlowConditionExpression, type FlowNode } from '@dzupagent/flow-ast'
+import {
+  validateFlowConditionExpression,
+  type FlowNode,
+  type FlowTypedCondition,
+} from '@dzupagent/flow-ast'
 
 import type { WalkContext } from './semantic-context.js'
 import { nodeFieldSpan } from './semantic-diagnostic.js'
+import { analyzeFlowExpressionContract } from './expression-validate.js'
 
 // ---------------------------------------------------------------------------
 // Condition expression validation (Stage 3 / R3)
@@ -58,6 +63,54 @@ export function validateConditionExpr(
     message: `${fieldLabel} is not a valid expression in the runtime-supported expression subset: ${validation.reason}`,
     ...(span !== undefined ? { span } : {}),
   })
+}
+
+/** Strict, typed v2 control analysis. No runtime evaluation occurs here. */
+export function validateTypedConditionExpr(
+  nodeType: FlowNode['type'],
+  condition: FlowTypedCondition,
+  nodePath: string,
+  ctx: WalkContext,
+): void {
+  const analysis = analyzeFlowExpressionContract(condition.expression, {
+    policy: 'strict',
+    useSite: 'boolean-control',
+    ...(ctx.referenceBindings === undefined
+      ? {}
+      : { knownBindings: ctx.referenceBindings }),
+    ...(ctx.referenceTypeBindings === undefined
+      ? {}
+      : { typeBindings: ctx.referenceTypeBindings }),
+    ...(ctx.referencePortBindings === undefined
+      ? {}
+      : { portBindings: ctx.referencePortBindings }),
+    requireKnownTypes: true,
+  })
+  for (const issue of analysis.issues) {
+    ctx.errors.push({
+      nodeType,
+      nodePath: `${nodePath}.typedCondition.${issue.path}`,
+      code: 'INVALID_CONDITION',
+      category: 'condition',
+      message: `[${issue.code}] ${issue.message}`,
+      ...(issue.start === undefined || issue.end === undefined
+        ? {}
+        : { span: nodeFieldSpan(issue.start, issue.end) }),
+    })
+  }
+  if (
+    analysis.issues.length === 0 &&
+    analysis.resultType !== 'boolean'
+  ) {
+    ctx.errors.push({
+      nodeType,
+      nodePath: `${nodePath}.typedCondition`,
+      code: 'INVALID_CONDITION',
+      category: 'condition',
+      message:
+        `typed condition resolves to ${analysis.resultType}; boolean is required for control decisions`,
+    })
+  }
 }
 
 function conditionDiagnosticSpan(

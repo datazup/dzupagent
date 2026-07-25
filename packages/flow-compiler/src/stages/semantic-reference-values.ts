@@ -389,6 +389,7 @@ function isControlReferenceField(
   node: FlowNode,
   field: string,
 ): boolean {
+  if (field === "typedCondition" && node.type === "branch") return true;
   if (
     field === "condition" &&
     (node.type === "branch" ||

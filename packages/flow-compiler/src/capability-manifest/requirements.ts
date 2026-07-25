@@ -27,6 +27,15 @@ export function collectFlowRequirements(ast: FlowNode): FlowRequirementSummary {
       requiredCapabilities.add(capability);
     }
   }
+  let hasTypedCondition = false;
+  visitFlow(ast, (node) => {
+    if (node.type === "branch" && node.typedCondition !== undefined) {
+      hasTypedCondition = true;
+    }
+  });
+  if (hasTypedCondition) {
+    requiredCapabilities.add("flow.control.typed-condition@1");
+  }
 
   return {
     schema: "dzupagent.flowRequirements/v1",

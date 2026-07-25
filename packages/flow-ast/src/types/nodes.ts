@@ -1,5 +1,6 @@
 import type { FlowNodeBase } from "./primitives.js";
 import type { FlowHttpCredentialAuth } from "./integration-security.js";
+import type { FlowTypedCondition } from "../expressions.js";
 import type {
   AgentNode,
   ValidateNode,
@@ -123,7 +124,13 @@ export type ForEachNode = FlowNodeBase & {
 };
 export type BranchNode = FlowNodeBase & {
   type: "branch";
+  /**
+   * Legacy runtime condition. Typed conditions use the fixed fail-closed
+   * shadow and carry semantic authority in `typedCondition`.
+   */
   condition: string;
+  /** Canonical typed condition; generic runtime targets currently reject it. */
+  typedCondition?: FlowTypedCondition;
   then: FlowNode[];
   else?: FlowNode[];
 };

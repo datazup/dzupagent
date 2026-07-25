@@ -7,6 +7,10 @@ import type {
   ForEachNode,
   ParallelNode,
 } from '@dzupagent/flow-ast'
+import {
+  FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
+  isFlowTypedCondition,
+} from '@dzupagent/flow-ast'
 
 import { DSL_ERROR } from './errors.js'
 import {
@@ -37,6 +41,7 @@ const ACTION_KEYS = new Set<string>([
 const IF_KEYS = new Set<string>([
   ...COMMON_NODE_KEYS,
   'condition',
+  'typedCondition',
   'then',
   'else',
 ])
@@ -116,6 +121,9 @@ export function normalizeIf(
     type: 'branch',
     ...base,
     condition: typeof raw.condition === 'string' ? raw.condition : '',
+    ...(isFlowTypedCondition(raw.typedCondition)
+      ? { typedCondition: raw.typedCondition }
+      : {}),
     then: normalizeSteps(raw.then, `${path}.then`, diagnostics),
   }
   if (raw.else !== undefined) {
@@ -126,6 +134,28 @@ export function normalizeIf(
       phase: 'normalize',
       code: DSL_ERROR.MISSING_REQUIRED_FIELD,
       message: 'if.condition is required',
+      path: `${path}.condition`,
+    })
+  }
+  if (
+    raw.typedCondition !== undefined &&
+    !isFlowTypedCondition(raw.typedCondition)
+  ) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: 'if.typedCondition must be a canonical FlowTypedCondition',
+      path: `${path}.typedCondition`,
+    })
+  }
+  if (
+    node.typedCondition !== undefined &&
+    node.condition !== FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW
+  ) {
+    diagnostics.push({
+      phase: 'normalize',
+      code: DSL_ERROR.INVALID_NODE_SHAPE,
+      message: `if.condition must equal "${FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW}" when typedCondition is present`,
       path: `${path}.condition`,
     })
   }

@@ -5,6 +5,8 @@ export interface DslV2StepLineage {
   readonly authoredPath: string;
   readonly loweredPath: string;
   readonly use: string;
+  readonly guardId?: string;
+  readonly guardLoweredPath?: string;
   readonly primitiveRef?: PrimitiveDefinitionV2["ref"];
   readonly primitiveSemanticHash?: `sha256:${string}`;
 }

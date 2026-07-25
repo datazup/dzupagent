@@ -7,6 +7,8 @@ export interface V2SourceLineageMarker {
   readonly loweredPath: string;
   readonly use: string;
   readonly generated: boolean;
+  readonly guardedStep?: boolean;
+  readonly typedConditionBindings?: Readonly<Record<string, string>>;
   readonly primitiveRef?: PrimitiveDefinitionV2["ref"];
   readonly primitiveSemanticHash?: `sha256:${string}`;
   readonly saveBindings?: Readonly<Record<string, string>>;
