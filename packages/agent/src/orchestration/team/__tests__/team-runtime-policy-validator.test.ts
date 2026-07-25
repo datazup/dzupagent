@@ -32,7 +32,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { maxParallelParticipants: 1 },
-        })
+        }),
       ).not.toThrow();
     });
 
@@ -40,7 +40,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { maxParallelParticipants: 10 },
-        })
+        }),
       ).not.toThrow();
     });
 
@@ -48,7 +48,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { maxParallelParticipants: 0 },
-        })
+        }),
       ).toThrow(/maxParallelParticipants.*positive integer/);
     });
 
@@ -56,7 +56,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { maxParallelParticipants: -1 },
-        })
+        }),
       ).toThrow(/maxParallelParticipants/);
     });
 
@@ -64,23 +64,23 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { maxParallelParticipants: 2.5 },
-        })
+        }),
       ).toThrow(/maxParallelParticipants/);
     });
 
     it("accepts a valid timeoutMs on any pattern (whole-run timeout)", () => {
       expect(() =>
-        validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs: 5000 } })
+        validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs: 5000 } }),
       ).not.toThrow();
       expect(() =>
-        validateTeamPolicies(PEER_TO_PEER, { execution: { timeoutMs: 1 } })
+        validateTeamPolicies(PEER_TO_PEER, { execution: { timeoutMs: 1 } }),
       ).not.toThrow();
     });
 
     it("rejects malformed timeoutMs (0 / negative / float)", () => {
       for (const timeoutMs of [0, -5, 1.5]) {
         expect(() =>
-          validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs } })
+          validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs } }),
         ).toThrow(/timeoutMs.*positive integer/);
       }
     });
@@ -89,12 +89,12 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(PEER_TO_PEER, {
           execution: { retryOnFailure: true, maxRetries: 3 },
-        })
+        }),
       ).not.toThrow();
       expect(() =>
         validateTeamPolicies(PEER_TO_PEER, {
           execution: { retryOnFailure: false },
-        })
+        }),
       ).not.toThrow();
     });
 
@@ -102,10 +102,10 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { retryOnFailure: true },
-        })
+        }),
       ).toThrow(/retry.*only supported for coordinator pattern 'peer_to_peer'/);
       expect(() =>
-        validateTeamPolicies(COUNCIL, { execution: { maxRetries: 3 } })
+        validateTeamPolicies(COUNCIL, { execution: { maxRetries: 3 } }),
       ).toThrow(/peer_to_peer/);
     });
 
@@ -114,19 +114,19 @@ describe("validateTeamPolicies", () => {
         expect(() =>
           validateTeamPolicies(PEER_TO_PEER, {
             execution: { retryOnFailure: true, maxRetries },
-          })
+          }),
         ).toThrow(/maxRetries.*positive integer/);
       }
     });
 
     it("rejects maxRetries without retryOnFailure enabled", () => {
       expect(() =>
-        validateTeamPolicies(PEER_TO_PEER, { execution: { maxRetries: 2 } })
+        validateTeamPolicies(PEER_TO_PEER, { execution: { maxRetries: 2 } }),
       ).toThrow(/maxRetries.*requires 'retryOnFailure'/);
       expect(() =>
         validateTeamPolicies(PEER_TO_PEER, {
           execution: { retryOnFailure: false, maxRetries: 2 },
-        })
+        }),
       ).toThrow(/requires 'retryOnFailure'/);
     });
 
@@ -134,7 +134,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { timeoutMs: -1, maxParallelParticipants: -1 },
-        })
+        }),
       ).toThrow(/timeoutMs/);
     });
   });
@@ -144,7 +144,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(COUNCIL, {
           governance: { judgeModel: "claude-opus-4-8" },
-        })
+        }),
       ).not.toThrow();
     });
 
@@ -152,7 +152,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           governance: { judgeModel: "claude-opus-4-8" },
-        })
+        }),
       ).toThrow(/governance.*council/);
     });
 
@@ -160,24 +160,60 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(BLACKBOARD, {
           governance: { judgeModel: "claude-opus-4-8" },
-        })
+        }),
       ).toThrow(/governance.*council/);
     });
 
-    it("rejects reserved field minScore even on council", () => {
+    it("accepts a valid minScore in [0, 1] on council (service-gated)", () => {
       expect(() =>
         validateTeamPolicies(COUNCIL, {
           governance: { judgeModel: "m", minScore: 0.8 },
-        })
-      ).toThrow(/minScore.*not supported/);
+        }),
+      ).not.toThrow();
+      for (const minScore of [0, 1]) {
+        expect(() =>
+          validateTeamPolicies(COUNCIL, {
+            governance: { judgeModel: "m", minScore },
+          }),
+        ).not.toThrow();
+      }
     });
 
-    it("rejects reserved field requireUnanimous even on council", () => {
+    it("rejects minScore outside [0, 1]", () => {
+      for (const minScore of [-0.1, 1.5, Number.NaN]) {
+        expect(() =>
+          validateTeamPolicies(COUNCIL, {
+            governance: { judgeModel: "m", minScore },
+          }),
+        ).toThrow(/minScore.*\[0, 1\]/);
+      }
+    });
+
+    it("accepts requireUnanimous boolean on council (service-gated)", () => {
       expect(() =>
         validateTeamPolicies(COUNCIL, {
           governance: { judgeModel: "m", requireUnanimous: true },
-        })
-      ).toThrow(/requireUnanimous.*not supported/);
+        }),
+      ).not.toThrow();
+    });
+
+    it("rejects non-boolean requireUnanimous", () => {
+      expect(() =>
+        validateTeamPolicies(COUNCIL, {
+          governance: {
+            judgeModel: "m",
+            requireUnanimous: "yes" as unknown as boolean,
+          },
+        }),
+      ).toThrow(/requireUnanimous.*boolean/);
+    });
+
+    it("still rejects governance fields on a non-council pattern", () => {
+      expect(() =>
+        validateTeamPolicies(SUPERVISOR, {
+          governance: { judgeModel: "m", minScore: 0.8 },
+        }),
+      ).toThrow(/governance.*council/);
     });
   });
 
@@ -189,19 +225,19 @@ describe("validateTeamPolicies", () => {
 
     it("accepts memory policy on blackboard pattern", () => {
       expect(() =>
-        validateTeamPolicies(BLACKBOARD, { memory: baseMemory })
+        validateTeamPolicies(BLACKBOARD, { memory: baseMemory }),
       ).not.toThrow();
     });
 
     it("rejects memory policy on supervisor pattern", () => {
       expect(() =>
-        validateTeamPolicies(SUPERVISOR, { memory: baseMemory })
+        validateTeamPolicies(SUPERVISOR, { memory: baseMemory }),
       ).toThrow(/memory.*blackboard/);
     });
 
     it("rejects memory policy on council pattern", () => {
       expect(() =>
-        validateTeamPolicies(COUNCIL, { memory: baseMemory })
+        validateTeamPolicies(COUNCIL, { memory: baseMemory }),
       ).toThrow(/memory.*blackboard/);
     });
 
@@ -212,7 +248,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxSerializedChars: 4096, maxEntryChars: 512 },
           },
-        })
+        }),
       ).not.toThrow();
     });
 
@@ -223,7 +259,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxSerializedChars: 0 },
           },
-        })
+        }),
       ).toThrow(/maxSerializedChars.*positive integer/);
     });
 
@@ -234,7 +270,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxSerializedChars: -100 },
           },
-        })
+        }),
       ).toThrow(/maxSerializedChars/);
     });
 
@@ -245,7 +281,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxSerializedChars: 1.5 },
           },
-        })
+        }),
       ).toThrow(/maxSerializedChars/);
     });
 
@@ -256,7 +292,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxEntryChars: 0 },
           },
-        })
+        }),
       ).toThrow(/maxEntryChars.*positive integer/);
     });
 
@@ -267,7 +303,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxEntryChars: -1 },
           },
-        })
+        }),
       ).toThrow(/maxEntryChars/);
     });
 
@@ -278,34 +314,129 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { overflowBehavior: "compact" },
           },
-        })
+        }),
       ).not.toThrow();
     });
   });
 
-  describe("unsupported policy groups", () => {
-    it("rejects non-undefined isolation policy", () => {
+  describe("evaluation policy (service-gated, any pattern)", () => {
+    it("accepts a well-formed evaluation policy on any pattern", () => {
+      expect(() =>
+        validateTeamPolicies(SUPERVISOR, {
+          evaluation: {
+            scorerModel: "claude-opus-4-8",
+            scoringCriteria: ["clarity", "correctness"],
+            minPassScore: 0.7,
+          },
+        }),
+      ).not.toThrow();
+      expect(() =>
+        validateTeamPolicies(BLACKBOARD, {
+          evaluation: { scorerModel: "m" },
+        }),
+      ).not.toThrow();
+    });
+
+    it("rejects empty scorerModel", () => {
+      expect(() =>
+        validateTeamPolicies(SUPERVISOR, {
+          evaluation: { scorerModel: "" },
+        }),
+      ).toThrow(/scorerModel.*non-empty/);
+    });
+
+    it("rejects minPassScore outside [0, 1]", () => {
+      for (const minPassScore of [-1, 2, Number.NaN]) {
+        expect(() =>
+          validateTeamPolicies(SUPERVISOR, {
+            evaluation: { scorerModel: "m", minPassScore },
+          }),
+        ).toThrow(/minPassScore.*\[0, 1\]/);
+      }
+    });
+
+    it("rejects non-string scoringCriteria entries", () => {
+      expect(() =>
+        validateTeamPolicies(SUPERVISOR, {
+          evaluation: {
+            scorerModel: "m",
+            scoringCriteria: [1 as unknown as string],
+          },
+        }),
+      ).toThrow(/scoringCriteria.*array of strings/);
+    });
+  });
+
+  describe("isolation policy (shape-checked, consuming-app concern)", () => {
+    it("accepts a well-formed isolation policy on any pattern", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           isolation: { sandboxed: false, sharedWorkspace: true },
-        })
-      ).toThrow(/isolation.*not supported/);
+        }),
+      ).not.toThrow();
     });
 
-    it("rejects non-undefined mailbox policy", () => {
+    it("rejects non-boolean isolation fields", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
-          mailbox: { deliveryMode: "broadcast" },
-        })
-      ).toThrow(/mailbox.*not supported/);
+          isolation: {
+            sandboxed: "no" as unknown as boolean,
+            sharedWorkspace: true,
+          },
+        }),
+      ).toThrow(/sandboxed.*boolean/);
+      expect(() =>
+        validateTeamPolicies(SUPERVISOR, {
+          isolation: {
+            sandboxed: true,
+            sharedWorkspace: 1 as unknown as boolean,
+          },
+        }),
+      ).toThrow(/sharedWorkspace.*boolean/);
+    });
+  });
+
+  describe("mailbox policy (shape-checked, consuming-app concern)", () => {
+    it("accepts each valid deliveryMode", () => {
+      for (const deliveryMode of [
+        "broadcast",
+        "targeted",
+        "round_robin",
+      ] as const) {
+        expect(() =>
+          validateTeamPolicies(SUPERVISOR, {
+            mailbox: { deliveryMode },
+          }),
+        ).not.toThrow();
+      }
     });
 
-    it("rejects non-undefined evaluation policy", () => {
+    it("accepts a valid maxQueueDepth", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
-          evaluation: { scorerModel: "claude-opus-4-8" },
-        })
-      ).toThrow(/evaluation.*not supported/);
+          mailbox: { deliveryMode: "targeted", maxQueueDepth: 10 },
+        }),
+      ).not.toThrow();
+    });
+
+    it("rejects an invalid deliveryMode", () => {
+      expect(() =>
+        validateTeamPolicies(SUPERVISOR, {
+          mailbox: {
+            deliveryMode: "gossip" as unknown as "broadcast",
+          },
+        }),
+      ).toThrow(/deliveryMode/);
+    });
+
+    it("rejects a non-positive-integer maxQueueDepth", () => {
+      for (const maxQueueDepth of [0, -1, 2.5]) {
+        expect(() =>
+          validateTeamPolicies(SUPERVISOR, {
+            mailbox: { deliveryMode: "broadcast", maxQueueDepth },
+          }),
+        ).toThrow(/maxQueueDepth.*positive integer/);
+      }
     });
   });
 

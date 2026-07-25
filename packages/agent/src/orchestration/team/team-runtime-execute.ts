@@ -22,6 +22,11 @@ import {
   consolidateIfEnabled,
   type TeamRuntimeMemoryService,
 } from "./team-runtime-memory.js";
+import {
+  applyVerdictGates,
+  type TeamEvaluationService,
+  type TeamGovernanceService,
+} from "./team-runtime-verdict.js";
 
 export interface ExecuteContext {
   task: string;
@@ -31,20 +36,22 @@ export interface ExecuteContext {
   emitEvent: TeamRuntimeEventEmitter;
   tracer: TeamRuntimeTracer | undefined;
   memory: TeamRuntimeMemoryService | undefined;
+  governance: TeamGovernanceService | undefined;
+  evaluation: TeamEvaluationService | undefined;
   breakerTracker: TeamBreakerTracker | undefined;
   resolvePattern: (id: CoordinatorPattern) => TeamPattern;
   buildPatternContext: (
     task: string,
     runId: string,
     startedAt: number,
-    span: TeamOTelSpanLike | undefined
+    span: TeamOTelSpanLike | undefined,
   ) => Promise<TeamPatternContext>;
   /** Setter that lets the runtime expose the active span externally. */
   setCurrentSpan: (span: TeamOTelSpanLike | undefined) => void;
 }
 
 export async function executeTeamRun(
-  ctx: ExecuteContext
+  ctx: ExecuteContext,
 ): Promise<TeamRunResult> {
   const startedAt = Date.now();
   const phase = createPhaseModel(startedAt);
@@ -81,15 +88,25 @@ export async function executeTeamRun(
       ctx.task,
       ctx.runId,
       startedAt,
-      span
+      span,
     );
     const result = await runWithRunTimeout(
       pattern.execute(patternCtx),
       ctx.policies.execution?.timeoutMs,
-      ctx.definition.id
+      ctx.definition.id,
     );
 
     transitionPhase(phase, "evaluating", phaseOpts);
+    await applyVerdictGates({
+      teamId: ctx.definition.id,
+      runId: ctx.runId,
+      task: ctx.task,
+      result,
+      policies: ctx.policies,
+      governance: ctx.governance,
+      evaluation: ctx.evaluation,
+      emitEvent: ctx.emitEvent,
+    });
     transitionPhase(phase, "completing", phaseOpts);
     emitTeamCompleted(ctx, Date.now() - startedAt);
 
@@ -130,7 +147,7 @@ export async function executeTeamRun(
 export async function runWithRunTimeout<T>(
   run: Promise<T>,
   timeoutMs: number | undefined,
-  teamId: string
+  teamId: string,
 ): Promise<T> {
   if (timeoutMs === undefined) return run;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -138,8 +155,8 @@ export async function runWithRunTimeout<T>(
     timer = setTimeout(() => {
       reject(
         new Error(
-          `TeamRuntime[${teamId}]: run exceeded execution.timeoutMs (${timeoutMs}ms)`
-        )
+          `TeamRuntime[${teamId}]: run exceeded execution.timeoutMs (${timeoutMs}ms)`,
+        ),
       );
     }, timeoutMs);
   });
@@ -159,7 +176,7 @@ function startSpan(ctx: ExecuteContext): TeamOTelSpanLike | undefined {
     span.setAttribute("team.agent_count", ctx.definition.participants.length);
     span.setAttribute(
       "team.coordination_pattern",
-      ctx.definition.coordinatorPattern
+      ctx.definition.coordinatorPattern,
     );
   }
   return span;
@@ -167,7 +184,7 @@ function startSpan(ctx: ExecuteContext): TeamOTelSpanLike | undefined {
 
 function allBreakersOpen(
   participants: ParticipantDefinition[],
-  tracker: TeamBreakerTracker | undefined
+  tracker: TeamBreakerTracker | undefined,
 ): boolean {
   if (!tracker || participants.length === 0) return false;
   return participants.every((p) => !tracker.isAvailable(p.id));
