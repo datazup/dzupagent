@@ -1,8 +1,10 @@
 import {
-  FLOW_TYPED_CONDITION_CAPABILITY,
   type FlowNode,
   type FlowNodeKind,
 } from "@dzupagent/flow-ast";
+import {
+  FLOW_TYPED_CONDITION_CAPABILITY,
+} from "@dzupagent/flow-ast/typed-condition-evaluator";
 
 import { routeTarget } from "../route-target.js";
 import type { FlowRequirementSummary } from "../types.js";

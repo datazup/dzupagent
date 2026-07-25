@@ -3,20 +3,7 @@ export type { FlowFragmentCatalog, FlowFragmentCatalogEntry, FlowFragmentDsl, Fl
 export type {
   FlowExpression,
   FlowExpressionAnalysis,
-  FlowTypedCondition,
 } from "./expressions.js";
-export {
-  FLOW_TYPED_CONDITION_CAPABILITY,
-  FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
-  isFlowExpression,
-  isFlowTypedCondition,
-} from "./expressions.js";
-export {
-  evaluateFlowTypedCondition,
-  type FlowTypedConditionEvaluationErrorCode,
-  type FlowTypedConditionEvaluationOptions,
-  type FlowTypedConditionEvaluationResult,
-} from "./typed-condition-evaluator.js";
 export * from "./parse.js";
 export * from "./validate.js";
 export * from "./condition-expression.js";

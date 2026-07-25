@@ -5,10 +5,20 @@ import {
   type FlowTypedCondition,
 } from "./expressions.js";
 import {
-  parseFlowReferenceExpression,
-  type FlowReferenceFilter,
-  type ParsedFlowReference,
-} from "./reference-expression.js";
+  MISSING_VALUE,
+  describeValue,
+  failure,
+  type EvaluationFailure,
+  type MissingValue,
+  type ValueResult,
+} from "./typed-condition-evaluator/internal.js";
+import { evaluateTypedConditionReference } from "./typed-condition-evaluator/reference.js";
+import {
+  evaluateTypedConditionEmpty,
+  structurallyEqualTypedConditionValues,
+} from "./typed-condition-evaluator/value.js";
+
+export { FLOW_TYPED_CONDITION_CAPABILITY } from "./expressions.js";
 
 export interface FlowTypedConditionEvaluationOptions {
   /** Capabilities explicitly owned by the calling host. */
@@ -38,17 +48,6 @@ export type FlowTypedConditionEvaluationResult =
       readonly message: string;
       readonly path: string;
     };
-
-type EvaluationFailure = Extract<
-  FlowTypedConditionEvaluationResult,
-  { readonly ok: false }
->;
-type MissingValue = typeof MISSING_VALUE;
-type ValueResult =
-  | { readonly ok: true; readonly value: unknown | MissingValue }
-  | EvaluationFailure;
-
-const MISSING_VALUE = Symbol("dzupagent.flowTypedCondition.missing");
 
 /**
  * Provider-free evaluator for the canonical typed-condition contract.
@@ -134,7 +133,7 @@ function evaluateExpression(
       }
       return { ok: true, value: expression.value };
     case "ref":
-      return evaluateReference(
+      return evaluateTypedConditionReference(
         expression.path,
         bindings,
         `${path}.path`,
@@ -190,7 +189,9 @@ function evaluateExpression(
         `${path}.arg`,
         resolvedReferences,
       );
-      return value.ok ? evaluateEmpty(value.value, `${path}.arg`) : value;
+      return value.ok
+        ? evaluateTypedConditionEmpty(value.value, `${path}.arg`)
+        : value;
     }
     case "eq":
     case "ne": {
@@ -202,7 +203,11 @@ function evaluateExpression(
         resolvedReferences,
       );
       if (!pair.ok) return pair;
-      const equal = structuralEqual(pair.left, pair.right, path);
+      const equal = structurallyEqualTypedConditionValues(
+        pair.left,
+        pair.right,
+        path,
+      );
       if (!equal.ok) return equal;
       return {
         ok: true,
@@ -252,6 +257,7 @@ function evaluateBooleanList(
     const boolean = requireBoolean(value.value, `${path}.args[${index}]`);
     if (!boolean.ok) return boolean;
     result = identity ? result && boolean.value : result || boolean.value;
+    if (identity ? !result : result) break;
   }
   return { ok: true, value: result };
 }
@@ -375,7 +381,11 @@ function evaluateContains(
   }
   if (Array.isArray(collection.value)) {
     for (const item of collection.value) {
-      const equal = structuralEqual(item, value.value, path);
+      const equal = structurallyEqualTypedConditionValues(
+        item,
+        value.value,
+        path,
+      );
       if (!equal.ok) return equal;
       if (equal.value) return { ok: true, value: true };
     }
@@ -386,221 +396,6 @@ function evaluateContains(
     "membership requires a string/string pair or an array collection",
     path,
   );
-}
-
-function evaluateReference(
-  source: string,
-  bindings: Readonly<Record<string, unknown>>,
-  path: string,
-  resolvedReferences: string[],
-): ValueResult {
-  const parsed = parseFlowReferenceExpression(source, {
-    policy: "strict",
-    useSite: "boolean-control",
-    sourcePath: path,
-  });
-  if (!parsed.ok || parsed.reference === undefined) {
-    const detail = parsed.diagnostics
-      .map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`)
-      .join("; ");
-    return failure(
-      "INVALID_TYPED_REFERENCE",
-      detail.length > 0 ? detail : `invalid typed reference "${source}"`,
-      path,
-    );
-  }
-  resolvedReferences.push(parsed.reference.source);
-  return applyReferenceFilters(
-    resolveReference(parsed.reference, bindings),
-    parsed.reference.filters,
-    path,
-  );
-}
-
-function resolveReference(
-  reference: ParsedFlowReference,
-  bindings: Readonly<Record<string, unknown>>,
-): unknown | MissingValue {
-  if (!hasOwn(bindings, reference.root)) return MISSING_VALUE;
-  let value: unknown = bindings[reference.root];
-  for (const segment of reference.segments) {
-    if (segment.kind === "index") {
-      if (!Array.isArray(value) || segment.index >= value.length) {
-        return MISSING_VALUE;
-      }
-      value = value[segment.index];
-    } else {
-      if (!isObjectRecord(value) || !hasOwn(value, segment.key)) {
-        return MISSING_VALUE;
-      }
-      value = value[segment.key];
-    }
-  }
-  return value;
-}
-
-function applyReferenceFilters(
-  initial: unknown | MissingValue,
-  filters: readonly FlowReferenceFilter[],
-  path: string,
-): ValueResult {
-  let value = initial;
-  for (const filter of filters) {
-    switch (filter.name) {
-      case "default":
-        if (
-          value === MISSING_VALUE ||
-          value === null ||
-          value === undefined
-        ) {
-          value = filter.argument;
-        }
-        break;
-      case "length":
-        if (typeof value === "string" || Array.isArray(value)) {
-          value = value.length;
-        } else if (isObjectRecord(value)) {
-          value = Object.keys(value).length;
-        } else {
-          return filterTypeFailure(filter.name, path);
-        }
-        break;
-      case "upper":
-      case "lower":
-        if (typeof value !== "string") {
-          return filterTypeFailure(filter.name, path);
-        }
-        value =
-          filter.name === "upper"
-            ? value.toUpperCase()
-            : value.toLowerCase();
-        break;
-      case "json":
-        if (value === MISSING_VALUE || value === undefined) {
-          return filterTypeFailure(filter.name, path);
-        }
-        try {
-          const encoded = JSON.stringify(value);
-          if (encoded === undefined) {
-            return filterTypeFailure(filter.name, path);
-          }
-          value = encoded;
-        } catch {
-          return failure(
-            "TYPED_CONDITION_VALUE_UNSUPPORTED",
-            'filter "json" cannot encode a cyclic or unsupported value',
-            path,
-          );
-        }
-        break;
-      default:
-        return failure(
-          "INVALID_TYPED_REFERENCE",
-          `unsupported reference filter "${filter.name}"`,
-          path,
-        );
-    }
-  }
-  return { ok: true, value };
-}
-
-function evaluateEmpty(
-  value: unknown | MissingValue,
-  path: string,
-): ValueResult {
-  if (
-    value === MISSING_VALUE ||
-    value === null ||
-    value === undefined
-  ) {
-    return { ok: true, value: true };
-  }
-  if (typeof value === "string" || Array.isArray(value)) {
-    return { ok: true, value: value.length === 0 };
-  }
-  if (isObjectRecord(value)) {
-    return { ok: true, value: Object.keys(value).length === 0 };
-  }
-  return failure(
-    "TYPED_CONDITION_TYPE_MISMATCH",
-    `empty requires null, string, array, or plain object; received ${describeValue(value)}`,
-    path,
-  );
-}
-
-function structuralEqual(
-  left: unknown,
-  right: unknown,
-  path: string,
-  seen: WeakMap<object, object> = new WeakMap(),
-): { readonly ok: true; readonly value: boolean } | EvaluationFailure {
-  if (
-    Object.is(left, right) &&
-    (left === null || typeof left !== "object")
-  ) {
-    return { ok: true, value: true };
-  }
-  if (
-    left === null ||
-    right === null ||
-    typeof left !== "object" ||
-    typeof right !== "object"
-  ) {
-    return { ok: true, value: false };
-  }
-  if (
-    (!Array.isArray(left) && !isPlainObject(left)) ||
-    (!Array.isArray(right) && !isPlainObject(right))
-  ) {
-    return failure(
-      "TYPED_CONDITION_VALUE_UNSUPPORTED",
-      "typed equality supports only scalar, array, and plain-object values",
-      path,
-    );
-  }
-  if (left === right) return { ok: true, value: true };
-  const prior = seen.get(left);
-  if (prior !== undefined) {
-    return prior === right
-      ? { ok: true, value: true }
-      : failure(
-          "TYPED_CONDITION_VALUE_UNSUPPORTED",
-          "typed equality does not support divergent cyclic values",
-          path,
-        );
-  }
-  seen.set(left, right);
-
-  if (Array.isArray(left) || Array.isArray(right)) {
-    if (!Array.isArray(left) || !Array.isArray(right)) {
-      return { ok: true, value: false };
-    }
-    if (left.length !== right.length) return { ok: true, value: false };
-    for (let index = 0; index < left.length; index += 1) {
-      const equal = structuralEqual(left[index], right[index], path, seen);
-      if (!equal.ok || !equal.value) return equal;
-    }
-    return { ok: true, value: true };
-  }
-
-  const leftKeys = Object.keys(left).sort();
-  const rightKeys = Object.keys(right).sort();
-  if (
-    leftKeys.length !== rightKeys.length ||
-    leftKeys.some((key, index) => key !== rightKeys[index])
-  ) {
-    return { ok: true, value: false };
-  }
-  for (const key of leftKeys) {
-    const equal = structuralEqual(
-      (left as Record<string, unknown>)[key],
-      (right as Record<string, unknown>)[key],
-      path,
-      seen,
-    );
-    if (!equal.ok || !equal.value) return equal;
-  }
-  return { ok: true, value: true };
 }
 
 function requireBoolean(
@@ -623,45 +418,4 @@ function requireBoolean(
         `boolean operand required; received ${describeValue(value)}`,
         path,
       );
-}
-
-function filterTypeFailure(
-  filter: string,
-  path: string,
-): EvaluationFailure {
-  return failure(
-    "TYPED_CONDITION_TYPE_MISMATCH",
-    `filter "${filter}" received an incompatible runtime value`,
-    path,
-  );
-}
-
-function failure(
-  code: FlowTypedConditionEvaluationErrorCode,
-  message: string,
-  path: string,
-): EvaluationFailure {
-  return { ok: false, code, message, path };
-}
-
-function hasOwn(
-  value: Readonly<Record<string, unknown>>,
-  key: string,
-): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isPlainObject(value: object): value is Record<string, unknown> {
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-function describeValue(value: unknown): string {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "array";
-  return typeof value;
 }

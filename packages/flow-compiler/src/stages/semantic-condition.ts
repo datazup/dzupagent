@@ -1,8 +1,10 @@
 import {
   validateFlowConditionExpression,
   type FlowNode,
-  type FlowTypedCondition,
 } from '@dzupagent/flow-ast'
+import type {
+  FlowTypedCondition,
+} from '@dzupagent/flow-ast/expressions'
 
 import type { WalkContext } from './semantic-context.js'
 import { nodeFieldSpan } from './semantic-diagnostic.js'

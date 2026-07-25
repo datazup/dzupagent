@@ -5,7 +5,7 @@ import {
   type CompiledAgentDescriptor,
 } from "@dzupagent/runtime-contracts/agent-blueprint";
 
-import {
+import type {
   InMemoryAgentHandlerRegistry,
 } from "./handler-registry.js";
 import {
@@ -31,10 +31,16 @@ export interface AgentBlueprintProviderTerminalReceipt {
   readonly eventType: "completed" | "failed";
   readonly attemptId: string;
   readonly providerId: string;
-  readonly usage: {
-    readonly inputTokens: number;
-    readonly outputTokens: number;
-  };
+  readonly usage:
+    | {
+        readonly kind: "measured";
+        readonly inputTokens: number;
+        readonly outputTokens: number;
+      }
+    | {
+        readonly kind: "unknown";
+        readonly reason: string;
+      };
 }
 
 export interface AgentBlueprintProviderResponse {
@@ -270,10 +276,7 @@ function validateProviderResponse(
     receipt.attemptId.length === 0 ||
     typeof receipt.providerId !== "string" ||
     receipt.providerId.length === 0 ||
-    !Number.isFinite(receipt.usage?.inputTokens) ||
-    receipt.usage.inputTokens < 0 ||
-    !Number.isFinite(receipt.usage?.outputTokens) ||
-    receipt.usage.outputTokens < 0
+    !validProviderUsage(receipt.usage, response.status)
   ) {
     throw new AgentBlueprintExecutionError(
       "PROVIDER_TERMINAL_RECEIPT_MISSING",
@@ -292,6 +295,26 @@ function validateProviderResponse(
       "Completed provider response requires output.",
     );
   }
+}
+
+function validProviderUsage(
+  usage: AgentBlueprintProviderTerminalReceipt["usage"] | undefined,
+  status: AgentBlueprintProviderResponse["status"],
+): boolean {
+  if (usage?.kind === "measured") {
+    return (
+      Number.isFinite(usage.inputTokens) &&
+      usage.inputTokens >= 0 &&
+      Number.isFinite(usage.outputTokens) &&
+      usage.outputTokens >= 0
+    );
+  }
+  return (
+    status === "failed" &&
+    usage?.kind === "unknown" &&
+    typeof usage.reason === "string" &&
+    usage.reason.trim().length > 0
+  );
 }
 
 function normalizeValidatorResult(

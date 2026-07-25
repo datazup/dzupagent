@@ -8,11 +8,11 @@
  *   4. routeTarget + lower — emit artifact            (errors: stage 4)
  */
 
+import { parseFlow } from "@dzupagent/flow-ast";
+import type { ParseInput } from "@dzupagent/flow-ast";
 import {
   FLOW_TYPED_CONDITION_CAPABILITY,
-  parseFlow,
-} from "@dzupagent/flow-ast";
-import type { ParseInput } from "@dzupagent/flow-ast";
+} from "@dzupagent/flow-ast/typed-condition-evaluator";
 import type { DzupEvent } from "@dzupagent/core";
 import { resolveDslSourceSpan } from "@dzupagent/flow-dsl/source-map";
 

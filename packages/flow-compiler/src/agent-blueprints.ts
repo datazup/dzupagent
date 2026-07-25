@@ -26,3 +26,11 @@ export {
   type ExecuteCompiledAgentBlueprintInput,
   type ExecuteCompiledAgentBlueprintResult,
 } from "./agent-blueprints/runtime.js";
+export {
+  CompiledAgentRuntime,
+  CompiledAgentRuntimeError,
+  type CompiledAgentRuntimeOptions,
+  type ExecuteRegisteredAgentInput,
+  type ExecuteRegisteredAgentResult,
+  type ResolvedCompiledAgent,
+} from "./agent-blueprints/compiled-agent-runtime.js";

@@ -1,7 +1,7 @@
 import type {
   FlowExpression,
   FlowTypedCondition,
-} from "@dzupagent/flow-ast";
+} from "@dzupagent/flow-ast/expressions";
 
 import type { DslDiagnostic } from "../types.js";
 

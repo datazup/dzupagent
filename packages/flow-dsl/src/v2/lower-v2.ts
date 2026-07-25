@@ -3,7 +3,7 @@ import {
 } from "../primitives/built-ins.js";
 import {
   FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
-} from "@dzupagent/flow-ast";
+} from "@dzupagent/flow-ast/expressions";
 import type {
   PrimitiveDefinitionV2,
   PrimitiveRegistryV2,

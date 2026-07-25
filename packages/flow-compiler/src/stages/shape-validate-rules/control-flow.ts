@@ -1,7 +1,7 @@
 import {
   FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
   isFlowTypedCondition,
-} from "@dzupagent/flow-ast";
+} from "@dzupagent/flow-ast/expressions";
 
 import {
   emptyBody,
