@@ -117,8 +117,29 @@ export type {
 export {
   toAgentResults,
   applyGatherStep,
+  applyLlmGatherStep,
 } from "./gather/fleet-gather-bridge.js";
 export type { FleetGatherAdapterOptions } from "./gather/fleet-gather-bridge.js";
+
+// --- LLM-backed Fleet Gather Strategies (synthesis / judge) ---
+export {
+  LLM_GATHER_STRATEGY_NAMES,
+  isLlmGatherStrategyName,
+  createLlmGatherStrategy,
+  SynthesisGatherStrategy,
+  JudgeGatherStrategy,
+  agentAsGatherModel,
+} from "./gather/llm-gather-strategies.js";
+export type {
+  LlmGatherStrategyName,
+  GatherModel,
+  GatherAgentLike,
+  GatherRenderFn,
+  AsyncOrchestrationMergeStrategy,
+  LlmGatherStrategyOptions,
+  SynthesisGatherOptions,
+  JudgeGatherOptions,
+} from "./gather/llm-gather-strategies.js";
 
 // --- Circuit Breaker ---
 export { AgentCircuitBreaker } from "./circuit-breaker.js";
