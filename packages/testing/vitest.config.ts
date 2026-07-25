@@ -14,6 +14,7 @@ export default defineConfig({
     //   - singleThread (old):  10.72s   (341/343 pass — 2 pre-existing arch-boundary
     //                                     failures, unrelated to pool config)
     //   - parallel vmThreads:   4.55s   (identical 341/343 — ~58% faster)
+    // Measured 2026-07-22 (last recorded in git); review-by 2026-10-22 (DZUPAGENT-TEST-L-11).
     // vmThreads (not forks) is kept because the workspace scan uses Node.js
     // built-in fs APIs that are thread-safe and avoid fork startup overhead.
     pool: "vmThreads",

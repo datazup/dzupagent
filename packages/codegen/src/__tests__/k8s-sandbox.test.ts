@@ -4,7 +4,6 @@ import {
   expect,
   beforeEach,
   afterEach,
-  beforeAll,
   vi,
 } from "vitest";
 
@@ -31,27 +30,28 @@ let AgentSandboxReconciler:
     })
   | undefined;
 
-beforeAll(async () => {
-  try {
-    const podBuilder = await import(
-      "../../../../k8s/operator/src/pod-builder.js"
-    );
-    const netpolBuilder = await import(
-      "../../../../k8s/operator/src/netpol-builder.js"
-    );
-    const reconcilerModule = await import(
-      "../../../../k8s/operator/src/reconciler.js"
-    );
+// Load the optional operator modules at top level (TLA) so the imports resolve
+// during collection, before `describeOperator()` is evaluated. Doing this in a
+// `beforeAll` hook left the vars undefined at collection time, so the operator
+// suites always registered as `describe.skip` even when the operator workspace
+// was present (DZUPAGENT-TEST-M-02).
+try {
+  const podBuilder = await import("../../../../k8s/operator/src/pod-builder.js");
+  const netpolBuilder = await import(
+    "../../../../k8s/operator/src/netpol-builder.js"
+  );
+  const reconcilerModule = await import(
+    "../../../../k8s/operator/src/reconciler.js"
+  );
 
-    buildPodSpec = podBuilder.buildPodSpec as typeof buildPodSpec;
-    buildNetworkPolicy =
-      netpolBuilder.buildNetworkPolicy as typeof buildNetworkPolicy;
-    AgentSandboxReconciler =
-      reconcilerModule.AgentSandboxReconciler as typeof AgentSandboxReconciler;
-  } catch {
-    // Operator module is optional in this workspace; operator-specific suites are skipped.
-  }
-});
+  buildPodSpec = podBuilder.buildPodSpec as typeof buildPodSpec;
+  buildNetworkPolicy =
+    netpolBuilder.buildNetworkPolicy as typeof buildNetworkPolicy;
+  AgentSandboxReconciler =
+    reconcilerModule.AgentSandboxReconciler as typeof AgentSandboxReconciler;
+} catch {
+  // Operator module is optional in this workspace; operator-specific suites are skipped.
+}
 
 const describeOperator = (): typeof describe =>
   buildPodSpec && buildNetworkPolicy && AgentSandboxReconciler

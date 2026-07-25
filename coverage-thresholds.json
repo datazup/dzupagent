@@ -197,13 +197,12 @@
   "packages": {
     "adapter-rules": {
       "baseline": {
-        "reason": "Package has tests but no published test:coverage script yet.",
+        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -216,13 +215,12 @@
     },
     "adapter-types": {
       "baseline": {
-        "reason": "Package has tests but no published test:coverage script yet.",
+        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -259,13 +257,12 @@
     },
     "agent-types": {
       "baseline": {
-        "reason": "Package has tests but no published test:coverage script yet.",
+        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -278,13 +275,12 @@
     },
     "app-tools": {
       "baseline": {
-        "reason": "Package has tests but no published test:coverage script yet.",
+        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -297,13 +293,12 @@
     },
     "cache": {
       "baseline": {
-        "reason": "Package has tests but no published test:coverage script yet.",
+        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -316,13 +311,12 @@
     },
     "code-edit-kit": {
       "baseline": {
-        "reason": "Package has tests but no published test:coverage script yet.",
+        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -345,7 +339,7 @@
       "baseline": {
         "reason": "Coverage report is present; protect the current floor while staged targets are adopted.",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "thresholds": {
           "statements": 85,
           "branches": 90,
@@ -354,7 +348,7 @@
         },
         "targets": [
           {
-            "by": "2026-07-31",
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 90,
               "branches": 90,
@@ -375,13 +369,12 @@
     },
     "connectors-browser": {
       "baseline": {
-        "reason": "Browser connector has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory.",
+        "reason": "Browser connector now publishes a test:coverage script emitting json-summary; critical source files are tracked by file-level inventory; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -394,13 +387,12 @@
     },
     "connectors-documents": {
       "baseline": {
-        "reason": "Document connector has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory.",
+        "reason": "Document connector now publishes a test:coverage script emitting json-summary; critical source files are tracked by file-level inventory; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -415,7 +407,7 @@
       "baseline": {
         "reason": "Coverage report is present; protect the current floor while staged targets are adopted.",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "thresholds": {
           "statements": 96.98,
           "branches": 93.24,
@@ -424,7 +416,7 @@
         },
         "targets": [
           {
-            "by": "2026-07-31",
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 99,
               "branches": 97,
@@ -439,10 +431,10 @@
       "baseline": {
         "reason": "CLI scaffolding coverage is still being baselined.",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -489,13 +481,12 @@
     },
     "eval-contracts": {
       "baseline": {
-        "reason": "Package has tests but no published test:coverage script yet.",
+        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -630,13 +621,12 @@
     },
     "runtime-contracts": {
       "baseline": {
-        "reason": "Runtime contracts package has tests but no published test:coverage script yet.",
+        "reason": "Runtime contracts package now publishes a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -649,13 +639,12 @@
     },
     "scraper": {
       "baseline": {
-        "reason": "Scraper package has tests but no published test:coverage script yet; critical source files are tracked by file-level inventory.",
+        "reason": "Scraper package now publishes a test:coverage script emitting json-summary; critical source files are tracked by file-level inventory; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -678,11 +667,10 @@
       "baseline": {
         "reason": "Shared test utilities are still being baselined.",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "targets": [
           {
-            "by": "2026-07-31",
-            "requireCoverageScript": true,
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -695,9 +683,9 @@
     },
     "testing": {
       "baseline": {
-        "reason": "Security test suite coverage is still being baselined.",
+        "reason": "Testing package coverage is staged; protect the current floor while staged targets are adopted (DZUPAGENT-TEST-M-08/L-10).",
         "since": "2026-04-29",
-        "reviewBy": "2026-07-31",
+        "reviewBy": "2026-08-15",
         "thresholds": {
           "statements": 95.25,
           "branches": 87.89,
@@ -706,12 +694,48 @@
         },
         "targets": [
           {
-            "by": "2026-07-31",
+            "by": "2026-08-15",
             "thresholds": {
               "statements": 100,
               "branches": 100,
               "functions": 100,
               "lines": 100
+            }
+          }
+        ]
+      }
+    },
+    "execution-contracts": {
+      "baseline": {
+        "reason": "vitest.config.ts added under DZUPAGENT-TEST-M-07 so test:coverage emits json-summary; staged thresholds pending a verified floor.",
+        "since": "2026-07-25",
+        "reviewBy": "2026-08-15",
+        "targets": [
+          {
+            "by": "2026-08-15",
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
+            }
+          }
+        ]
+      }
+    },
+    "security": {
+      "baseline": {
+        "reason": "Now tracked by the coverage gate under DZUPAGENT-TEST-M-07; test:coverage emits json-summary; staged thresholds pending a verified floor.",
+        "since": "2026-07-25",
+        "reviewBy": "2026-08-15",
+        "targets": [
+          {
+            "by": "2026-08-15",
+            "thresholds": {
+              "statements": 70,
+              "branches": 60,
+              "functions": 60,
+              "lines": 70
             }
           }
         ]

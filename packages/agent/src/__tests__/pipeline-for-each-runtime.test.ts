@@ -1,5 +1,6 @@
 import { Socket } from 'node:net'
 import { describe, expect, it } from 'vitest'
+import { requireIntegrationEnv } from '@dzupagent/test-utils'
 import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import { InMemoryPipelineCheckpointStore } from '../pipeline/in-memory-checkpoint-store.js'
 import {
@@ -618,8 +619,21 @@ describe('PipelineRuntime — lowered for_each collect', () => {
     })
   })
 
-  const maybeLiveRedisIt = process.env.DZUPAGENT_REDIS_URL ? it : it.skip
-  const maybeLivePostgresIt = process.env.DZUPAGENT_POSTGRES_URL ? it : it.skip
+  // Fail-closed under RUN_REQUIRED_INTEGRATION=1: requireIntegrationEnv throws
+  // when the live-service URL is missing instead of silently skipping
+  // (DZUPAGENT-TEST-H-01). Locally (lane off) it still skips.
+  const maybeLiveRedisIt = requireIntegrationEnv(
+    'for_each live Redis checkpoint resume',
+    'DZUPAGENT_REDIS_URL'
+  ).shouldSkip
+    ? it.skip
+    : it
+  const maybeLivePostgresIt = requireIntegrationEnv(
+    'for_each live Postgres checkpoint resume',
+    'DZUPAGENT_POSTGRES_URL'
+  ).shouldSkip
+    ? it.skip
+    : it
 
   maybeLiveRedisIt(
     'resumes a concurrent for_each failure from a live Redis checkpoint store',

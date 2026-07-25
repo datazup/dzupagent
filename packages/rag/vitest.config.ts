@@ -16,6 +16,7 @@ export default defineConfig({
     // v22.17, NOT a CI host; relative, not CI-authoritative):
     //   - singleFork (this):   2.40s  EXIT 0
     //   - parallel forks:      3.28s  EXIT 0  (SLOWER — fork-init cost wins)
+    // Measured 2026-07-22 (last recorded in git); review-by 2026-10-22 (DZUPAGENT-TEST-L-11).
     // singleFork serialises files in one process that already has
     // --max-old-space-size=4096; fileParallelism:false prevents Vitest from
     // attempting concurrent file runs inside that fork.

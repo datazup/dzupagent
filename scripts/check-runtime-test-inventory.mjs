@@ -1,7 +1,105 @@
 import { readdirSync, existsSync, readFileSync } from 'node:fs'
-import { basename, dirname, extname, join } from 'node:path'
+import { basename, dirname, extname, join, relative } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
+
+// ---------------------------------------------------------------------------
+// ripgrep availability + node:fs fallback (DZUPAGENT-TEST-L-09)
+// ---------------------------------------------------------------------------
+// The inventory enumerates/greps test files via `rg` for speed. On hosts
+// without the ripgrep binary that used to crash the whole gate with an opaque
+// `spawnSync rg ENOENT`. We probe once and fall back to a node:fs walk so the
+// gate stays runnable everywhere (the behavior-based scan already reads file
+// contents anyway).
+
+let ripgrepAvailable = null
+function hasRipgrep() {
+  if (ripgrepAvailable !== null) return ripgrepAvailable
+  try {
+    execFileSync('rg', ['--version'], { stdio: 'ignore' })
+    ripgrepAvailable = true
+  } catch {
+    ripgrepAvailable = false
+  }
+  return ripgrepAvailable
+}
+
+// Convert an rg-style `-g` glob into an anchored RegExp, mirroring the subset
+// of gitignore glob semantics used in this file: `**` spans path segments
+// (including `/`), `*` matches any run of non-`/` chars, `?` a single non-`/`
+// char. Patterns without a `/` are matched against the basename (like rg),
+// patterns containing `/` against the full repo-relative POSIX path.
+const globRegExpCache = new Map()
+function globToRegExp(glob) {
+  const cached = globRegExpCache.get(glob)
+  if (cached) return cached
+  let re = ''
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i]
+    if (c === '*') {
+      if (glob[i + 1] === '*') {
+        i++
+        if (glob[i + 1] === '/') {
+          i++
+          re += '(?:.*/)?' // `**/` — zero or more leading path segments
+        } else {
+          re += '.*' // `**` — any chars including `/`
+        }
+      } else {
+        re += '[^/]*' // `*` — any run of non-slash chars
+      }
+    } else if (c === '?') {
+      re += '[^/]'
+    } else if ('.+^$(){}|[]\\'.includes(c)) {
+      re += '\\' + c // escape regex metacharacters
+    } else {
+      re += c
+    }
+  }
+  const compiled = new RegExp('^' + re + '$')
+  globRegExpCache.set(glob, compiled)
+  return compiled
+}
+
+// Match a repo-relative POSIX path against any of the given rg-style globs.
+function matchesGlob(relPath, patterns) {
+  const base = basename(relPath)
+  return patterns.some((pattern) => {
+    const target = pattern.includes('/') ? relPath : base
+    return globToRegExp(pattern).test(target)
+  })
+}
+
+// Recursively enumerate files under `srcRelPath` (repo-relative) whose name
+// matches any of `patterns`, returning repo-relative POSIX paths. Mirrors
+// `rg --files <srcRelPath> -g <pattern>...`.
+function walkMatchingFiles(srcRelPath, patterns, repoRoot) {
+  const results = []
+  const walk = (absDir) => {
+    let entries
+    try {
+      entries = readdirSync(absDir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === 'coverage') {
+        continue
+      }
+      const abs = join(absDir, entry.name)
+      if (entry.isDirectory()) {
+        walk(abs)
+      } else if (entry.isFile()) {
+        const rel = relative(repoRoot, abs).replace(/\\/g, '/')
+        if (matchesGlob(rel, patterns)) {
+          results.push(rel)
+        }
+      }
+    }
+  }
+  walk(join(repoRoot, srcRelPath))
+  return results
+}
 
 // ---------------------------------------------------------------------------
 // Capability classification (TEST-M-03 / MC-8)
@@ -14,8 +112,11 @@ import { pathToFileURL } from 'node:url'
  *   'integration-external'— requires Postgres/Redis/Qdrant or Docker
  *   'e2e'                 — full-stack end-to-end
  *
- * Classification is based on filename patterns and directory markers;
- * no file content is read. Matches are checked most-specific first.
+ * Classification here is based on filename patterns and directory markers
+ * only; this function reads no file content. Matches are checked
+ * most-specific first. (The behavior-based true-integration scan later in this
+ * file — isTrueIntegrationTestFile / countTrueIntegrationTestFiles — does read
+ * file contents to detect the fail-closed integration markers.)
  */
 export function classifyTestCapability(filePath) {
   const normalised = filePath.replace(/\\/g, '/')
@@ -51,9 +152,11 @@ const runtimePackageDenylist = new Set([
   'test-utils',
   'testing',
   'runtime-contracts',
-  // `hitl-kit` is a pure types package (payload/response shapes) with no
-  // runtime logic to exercise, so it carries no test suite by design.
-  'hitl-kit',
+  // NOTE (DZUPAGENT-TEST-L-10): `hitl-kit` was previously denylisted as a
+  // "pure types package with no test suite by design". That premise is now
+  // false — it ships 6 test files (escalation-policy-deep, hitl-approval-gate-deep,
+  // runtime-approval-bridge, ...) with real runtime logic, so it is left on the
+  // regular runtime path and evaluated by the zero-test / critical-source gates.
 ])
 const runtimeCriticalPackages = new Set([
   'agent',
@@ -147,6 +250,20 @@ const trueIntegrationMarkerPattern =
 
 function countTrueIntegrationTestFiles(srcPath, repoRoot) {
   if (!existsSync(join(repoRoot, srcPath))) return 0
+  if (!hasRipgrep()) {
+    const markerRegExp = new RegExp(trueIntegrationMarkerPattern)
+    return walkMatchingFiles(
+      srcPath,
+      ['*test.ts', '*test.tsx', '*test.mjs', '*test.mts'],
+      repoRoot,
+    ).filter((rel) => {
+      try {
+        return markerRegExp.test(readFileSync(join(repoRoot, rel), 'utf8'))
+      } catch {
+        return false
+      }
+    }).length
+  }
   try {
     const output = execFileSync(
       'rg',
@@ -199,6 +316,9 @@ function rgCount(args, repoRoot) {
 }
 
 function countTestFiles(srcPath, patterns, repoRoot) {
+  if (!hasRipgrep()) {
+    return walkMatchingFiles(srcPath, patterns, repoRoot).length
+  }
   const args = ['--files', srcPath]
   for (const pattern of patterns) {
     args.push('-g', pattern)
@@ -615,21 +735,26 @@ function buildCapabilityReport(repoRoot = process.cwd()) {
   const tiers = { unit: [], component: [], 'integration-external': [], e2e: [] }
 
   for (const pkgName of runtimePackages) {
-    // Use rg --files to enumerate test files for this package
+    // Enumerate test files for this package (rg when available, else fs walk).
     const patterns = ['*test.ts', '*test.tsx', '*test.mjs', '*test.mts']
-    const rgArgs = ['--files', `packages/${pkgName}/src`]
-    for (const p of patterns) rgArgs.push('-g', p)
+    const srcRelPath = `packages/${pkgName}/src`
 
     let files = []
-    try {
-      const out = execFileSync('rg', rgArgs, {
-        cwd: repoRoot,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }).trim()
-      if (out.length > 0) files = out.split('\n').map((f) => f.trim()).filter(Boolean)
-    } catch (err) {
-      if (!(err && typeof err === 'object' && 'status' in err && err.status === 1)) throw err
+    if (hasRipgrep()) {
+      const rgArgs = ['--files', srcRelPath]
+      for (const p of patterns) rgArgs.push('-g', p)
+      try {
+        const out = execFileSync('rg', rgArgs, {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }).trim()
+        if (out.length > 0) files = out.split('\n').map((f) => f.trim()).filter(Boolean)
+      } catch (err) {
+        if (!(err && typeof err === 'object' && 'status' in err && err.status === 1)) throw err
+      }
+    } else {
+      files = walkMatchingFiles(srcRelPath, patterns, repoRoot)
     }
 
     for (const relPath of files) {

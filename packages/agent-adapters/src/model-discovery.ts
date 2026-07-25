@@ -128,7 +128,9 @@ export async function discoverCodexModels(
   options: CodexModelDiscoveryOptions = {},
 ): Promise<ProviderModelCatalog> {
   const source = options.source ?? "auto";
-  const timeoutMs = options.timeoutMs ?? 10_000;
+  // App-server startup (bundled sandbox bootstrap) can exceed 10s on a loaded
+  // host; a timeout here fails provider preflight for otherwise-healthy runs.
+  const timeoutMs = options.timeoutMs ?? 30_000;
   const dependencies = options.dependencies ?? {};
   const warnings: string[] = [];
 
@@ -652,9 +654,12 @@ async function defaultLoadCodexPage(input: {
           continue;
         }
         if (message["id"] === 0 && message["result"]) {
-          child.stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
+          child.stdin.write(
+            `${JSON.stringify({ jsonrpc: "2.0", method: "initialized", params: {} })}\n`,
+          );
           child.stdin.write(
             `${JSON.stringify({
+              jsonrpc: "2.0",
               method: "model/list",
               id: 1,
               params: {
@@ -684,6 +689,7 @@ async function defaultLoadCodexPage(input: {
     });
     child.stdin.write(
       `${JSON.stringify({
+        jsonrpc: "2.0",
         method: "initialize",
         id: 0,
         params: {

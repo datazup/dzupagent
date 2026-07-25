@@ -1,6 +1,8 @@
 import { defineConfig } from "vitest/config";
 
 // TEST-M-09 fast unit lane (measured, not asserted).
+// Measured 2026-07-22 (last recorded in git); review-by 2026-10-22 — re-run the
+// benchmark or drop the pool override if it no longer holds (DZUPAGENT-TEST-L-11).
 //
 // Benchmarks (INDICATIVE — dev workstation, Linux 6.17 / Node v22.17, NOT a CI
 // host; numbers are relative, not CI-authoritative):
@@ -20,6 +22,9 @@ import { defineConfig } from "vitest/config";
 // isolate:true (default) gives every file a fresh module registry either way, so
 // cross-file state bleed is not a risk in either project.
 
+// Re-check trigger (DZUPAGENT-TEST-L-11): revisit this list by 2026-10-22 — a
+// file that stops importing full provider/graph runtime can move back to the
+// parallel "unit" lane; a new heavy-import test should be added here.
 const HEAVY_TESTS = [
   "src/formats/__tests__/formats.test.ts", // @langchain/anthropic + @langchain/openai
   "src/persistence/__tests__/checkpointer.test.ts", // @langchain/langgraph MemorySaver
