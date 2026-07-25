@@ -5,6 +5,10 @@ import {
   lowerDslV2Document,
   parseDslToDocument,
 } from "../index.js";
+import {
+  createDslSourceMap,
+  resolveDslSourceSpan,
+} from "../dsl-source-map.js";
 
 const V1_EQUIVALENT = `
 dsl: dzupflow/v1
@@ -171,6 +175,99 @@ describe("bounded dzupflow/v2 frontend", () => {
         semanticHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
       },
     ]);
+    expect(
+      JSON.stringify(v2.document),
+    ).not.toContain("__dzupV2SourceLineage");
+  });
+
+  it("composes exact authored fields and derived expansion breadcrumbs into canonical source paths", () => {
+    const parsed = parseDslToDocument(V2_EQUIVALENT);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const sourceMap =
+      parsed.sourceMap ?? createDslSourceMap(V2_EQUIVALENT, parsed.document);
+    expect(sourceMap).toBeDefined();
+    if (sourceMap === undefined) return;
+
+    const when = resolveDslSourceSpan(
+      sourceMap,
+      "root.nodes[1].condition",
+    );
+    const instructions = resolveDslSourceSpan(
+      sourceMap,
+      "root.nodes[1].then[0].instructions",
+    );
+    const savedOutput = resolveDslSourceSpan(
+      sourceMap,
+      "root.nodes[1].then[0].output",
+    );
+    expect(V2_EQUIVALENT.slice(when?.start, when?.end)).toBe(
+      '"{{ state.ready }}"',
+    );
+    expect(
+      V2_EQUIVALENT.slice(instructions?.start, instructions?.end),
+    ).toBe("Draft the bounded result.");
+    expect(V2_EQUIVALENT.slice(savedOutput?.start, savedOutput?.end)).toBe(
+      "state.draft",
+    );
+    expect(
+      sourceMap.entries["root.nodes[1].then[0].output"],
+    ).toMatchObject({
+      authoredPath: "root.steps[1].with.then[0].save.result",
+      derived: true,
+    });
+    expect(
+      resolveDslSourceSpan(
+        sourceMap,
+        "root.nodes[1].then[0].output",
+        { start: 0, end: 5 },
+      ),
+    ).toBeUndefined();
+
+    const composite = parseDslToDocument(V2_COMPOSITE);
+    expect(composite.ok).toBe(true);
+    if (!composite.ok || composite.sourceMap === undefined) return;
+    expect(
+      composite.sourceMap.entries["root.nodes[0].instructions"],
+    ).toMatchObject({
+      authoredPath: "root.steps[0].use",
+      derived: true,
+    });
+    const generated = resolveDslSourceSpan(
+      composite.sourceMap,
+      "root.nodes[0].instructions",
+    );
+    expect(V2_COMPOSITE.slice(generated?.start, generated?.end)).toBe(
+      "collab.review_loop@1",
+    );
+  });
+
+  it("attaches an exact authored span to v2 envelope diagnostics", () => {
+    const source = `dsl: dzupflow/v2
+id: invalid-save
+version: 2.0.0
+steps:
+  - id: invoke
+    use: adapter.run@1
+    with:
+      provider: codex
+      instructions: Draft.
+    save:
+      missing: state.value
+`;
+    const parsed = parseDslToDocument(source);
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "V2_UNKNOWN_OUTPUT_PORT",
+        path: "root.steps[0].save.missing",
+        span: expect.objectContaining({
+          lineStart: 11,
+          lineEnd: 11,
+        }),
+      }),
+    );
   });
 
   it("fails closed on unpinned, unknown, unsupported, and unsafe save contracts", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   digestRagEvidenceBundle,
+  executeRagComposition,
   validateRagEvidenceBundle,
   validateRagGroundedAnswer,
   type RagEvidenceBundle,
@@ -249,5 +250,149 @@ describe("RAG runtime contracts", () => {
     expect(result.diagnostics.map((item) => item.code)).toContain(
       "RAG_EVIDENCE_BUNDLE_DIGEST_MISMATCH",
     );
+  });
+
+  it("executes a bounded provider-neutral fake-corpus composition", async () => {
+    const calls: string[] = [];
+    const result = await executeRagComposition(
+      request(),
+      {
+        retrieve: async (_request, context) => {
+          calls.push(`retrieve:${context.route}`);
+          return bundle();
+        },
+        synthesize: async (_request, evidence) => {
+          calls.push("synthesize");
+          return answer({
+            evidenceBundleDigest: digestRagEvidenceBundle(evidence),
+          });
+        },
+      },
+      { maxRetrievalAttempts: 2, minimumEvidenceItems: 1 },
+    );
+    expect(calls).toEqual(["retrieve:primary", "synthesize"]);
+    expect(result.status).toBe("answered");
+    expect(result.attempts).toHaveLength(1);
+    expect(result.boundaries).toEqual({
+      bounded: true,
+      providerSelectedByHost: true,
+      dataAuthorityWidened: false,
+      indexMutationAuthorized: false,
+      snapshotPromotionAuthorized: false,
+      authorityEffect: "none",
+    });
+  });
+
+  it("uses one declared fallback after truthful no-results", async () => {
+    const calls: string[] = [];
+    const result = await executeRagComposition(
+      request(),
+      {
+        retrieve: async (_request, context) => {
+          calls.push(context.route);
+          if (context.route === "primary") {
+            return bundle({
+              status: "no-results",
+              items: [],
+              noResultReason: "Primary index has no accessible match.",
+            });
+          }
+          return bundle();
+        },
+        synthesize: async (_request, evidence) =>
+          answer({
+            evidenceBundleDigest: digestRagEvidenceBundle(evidence),
+          }),
+      },
+      { maxRetrievalAttempts: 2, minimumEvidenceItems: 1 },
+    );
+    expect(calls).toEqual(["primary", "declared-fallback"]);
+    expect(result.status).toBe("answered");
+    expect(result.attempts).toHaveLength(2);
+  });
+
+  it("abstains after bounded no-results without synthesizing", async () => {
+    let synthesized = false;
+    const result = await executeRagComposition(
+      request({ fallback: { mode: "none" } }),
+      {
+        retrieve: async () =>
+          bundle({
+            status: "no-results",
+            items: [],
+            noResultReason: "No authorized source matched.",
+          }),
+        synthesize: async () => {
+          synthesized = true;
+          return answer();
+        },
+      },
+      { maxRetrievalAttempts: 2, minimumEvidenceItems: 1 },
+    );
+    expect(result.status).toBe("no-results");
+    expect(result.attempts).toHaveLength(1);
+    expect(synthesized).toBe(false);
+  });
+
+  it("fails closed on invalid evidence and unsupported claims", async () => {
+    const invalidEvidence = await executeRagComposition(
+      request(),
+      {
+        retrieve: async () =>
+          bundle({
+            items: [
+              {
+                ...bundle().items[0]!,
+                accessScopes: ["tenant:other"],
+              },
+            ],
+          }),
+        synthesize: async () => answer(),
+      },
+    );
+    expect(invalidEvidence.status).toBe("invalid-evidence");
+    expect(
+      invalidEvidence.diagnostics.map((item) => item.code),
+    ).toContain("RAG_EVIDENCE_SCOPE_WIDENED");
+
+    const invalidAnswer = await executeRagComposition(
+      request(),
+      {
+        retrieve: async () => bundle(),
+        synthesize: async (_request, evidence) =>
+          answer({
+            claims: [
+              {
+                claimId: "unsupported",
+                text: "Unsupported.",
+                evidenceIds: ["missing"],
+              },
+            ],
+            evidenceBundleDigest: digestRagEvidenceBundle(evidence),
+          }),
+      },
+    );
+    expect(invalidAnswer.status).toBe("invalid-answer");
+    expect(
+      invalidAnswer.diagnostics.map((item) => item.code),
+    ).toContain("RAG_CLAIM_EVIDENCE_MISSING");
+  });
+
+  it("enforces evidence thresholds without widening retrieval", async () => {
+    let synthesized = false;
+    const result = await executeRagComposition(
+      request(),
+      {
+        retrieve: async () => bundle(),
+        synthesize: async () => {
+          synthesized = true;
+          return answer();
+        },
+      },
+      { maxRetrievalAttempts: 1, minimumEvidenceItems: 2 },
+    );
+    expect(result.status).toBe("insufficient-evidence");
+    expect(synthesized).toBe(false);
+    expect(result.attempts).toHaveLength(1);
   });
 });

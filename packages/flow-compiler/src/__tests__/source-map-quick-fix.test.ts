@@ -190,4 +190,92 @@ steps:
       }),
     );
   });
+
+  it("maps strict v2 condition references to the authored when field", async () => {
+    const source = `dsl: dzupflow/v2
+id: v2_condition_map
+version: 2.0.0
+inputs:
+  ready: boolean
+steps:
+  - id: choose
+    use: core.branch@1
+    when: inputs.missing === true
+    with:
+      then:
+        - id: done
+          use: core.complete@1
+          with:
+            result: accepted
+`;
+    const result = await createFlowCompiler({
+      toolResolver: resolver,
+      referencePolicy: "strict",
+    }).compileDsl(source);
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) throw new Error("expected strict v2 failure");
+    const diagnostic = result.errors.find(
+      (item) => item.code === "INVALID_CONDITION",
+    );
+    expect(diagnostic).toEqual(
+      expect.objectContaining({
+        nodePath: "root.nodes[0].condition",
+        span: expect.objectContaining({
+          kind: "source-offsets",
+          lineStart: 9,
+          lineEnd: 9,
+        }),
+      }),
+    );
+    if (diagnostic?.span?.kind !== "source-offsets") {
+      throw new Error("expected absolute v2 condition span");
+    }
+    expect(source.slice(diagnostic.span.start, diagnostic.span.end)).toBe(
+      "inputs.missing",
+    );
+  });
+
+  it("rebases generated composite diagnostics to the authored use and suppresses derived fixes", async () => {
+    const source = `dsl: dzupflow/v2
+id: v2_generated_map
+version: 2.0.0
+steps:
+  - id: review
+    use: collab.review_loop@1
+    with:
+      task:
+        kind: implementation
+      proposer:
+        executionProviderId: codex
+      critic:
+        executionProviderId: claude
+`;
+    const result = await createFlowCompiler({
+      toolResolver: resolver,
+      referencePolicy: "strict",
+    }).compileDsl(source);
+    expect("errors" in result).toBe(true);
+    if (!("errors" in result)) throw new Error("expected generated strict failure");
+    const diagnostic = result.errors.find(
+      (item) =>
+        item.code === "INVALID_CONDITION" &&
+        item.nodePath?.endsWith(".condition") === true,
+    );
+    expect(diagnostic).toEqual(
+      expect.objectContaining({
+        span: expect.objectContaining({
+          kind: "source-offsets",
+          lineStart: 6,
+          lineEnd: 6,
+        }),
+      }),
+    );
+    if (diagnostic?.span?.kind !== "source-offsets") {
+      throw new Error("expected generated invocation span");
+    }
+    expect(source.slice(diagnostic.span.start, diagnostic.span.end)).toBe(
+      "collab.review_loop@1",
+    );
+    expect(diagnostic.fixes).toBeUndefined();
+  });
 });
