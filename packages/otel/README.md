@@ -110,6 +110,58 @@ try {
 }
 ```
 
+### Provider-neutral Agent Loop trace projection
+
+`projectAgentLoopTraceEvent()` converts one deterministic Agent Loop lifecycle
+event into a bounded OTel span projection. The projection includes correlation,
+task, dispatch, attempt, review, provider route, source/build, DSL registry,
+usage/cost, decision, and stop-classification fields.
+
+It deliberately does not accept or export prompt text, model output, evidence
+content, or arbitrary metadata. Every projection carries explicit false
+acceptance, continuation, execution, mutation, deployment, promotion, and
+production authority.
+
+```ts
+import {
+  AGENT_LOOP_TRACE_EVENT_SCHEMA,
+  projectAgentLoopTraceEvent,
+  recordAgentLoopTraceEvent,
+} from '@dzupagent/otel/agent-loop'
+import { trace } from '@opentelemetry/api'
+
+const event = {
+  schema: AGENT_LOOP_TRACE_EVENT_SCHEMA,
+  event: 'next_path_approval.completed',
+  observedAt: new Date().toISOString(),
+  identity: {
+    runId: 'run-123',
+    correlationId: 'correlation-123',
+    taskId: 'task-4',
+    reviewId: 'review-4',
+    generation: 4,
+  },
+  status: 'completed',
+  role: 'next-path-approver',
+  decision: 'approve',
+  providerId: 'codex',
+  modelId: 'review-model',
+} as const
+
+const projection = projectAgentLoopTraceEvent(event)
+
+// Optional emission. A missing/no-op SDK remains safe, and exporter/projector
+// errors are returned as data rather than changing controller behavior.
+const result = recordAgentLoopTraceEvent(
+  trace.getTracer('dzupagent-agent-loop'),
+  event,
+)
+```
+
+Applications may attach any conforming OTel processor/exporter, including an
+OTLP exporter or Langfuse span processor. Exporter configuration and
+credential handling stay outside Agent Loop and DSL packages.
+
 ### OTelBridge
 
 Subscribes to `DzupEventBus` and translates events into OTel metrics and span events. This is the single wiring point between DzupAgent's event-driven architecture and OpenTelemetry.
@@ -429,6 +481,8 @@ ForgeSpanAttr.GEN_AI_USAGE_TOTAL_TOKENS  // 'gen_ai.usage.total_tokens'
 ### Functions
 
 - `createOTelPlugin(config?)` -- create a DzupPlugin wiring all OTel features
+- `projectAgentLoopTraceEvent(event)` -- validate and project content-free Agent Loop telemetry
+- `recordAgentLoopTraceEvent(tracer, event, options?)` -- emit one non-authoritative, non-fatal Agent Loop span
 - `getAllMetricNames()` -- list all metric names from the event-metric map
 - `withForgeContext(ctx, fn)` -- run a function within a ForgeTraceContext
 - `currentForgeContext()` -- get the current trace context from AsyncLocalStorage
@@ -436,6 +490,9 @@ ForgeSpanAttr.GEN_AI_USAGE_TOTAL_TOKENS  // 'gen_ai.usage.total_tokens'
 ### Constants
 
 - `ForgeSpanAttr` -- standardized span attribute keys
+- `AgentLoopSpanAttr` -- provider-neutral Agent Loop span attribute keys
+- `AGENT_LOOP_TRACE_EVENT_SCHEMA` / `AGENT_LOOP_SPAN_PROJECTION_SCHEMA` -- versioned projection contracts
+- `AGENT_LOOP_TRACE_EVENTS` -- supported Agent Loop lifecycle events
 - `SpanStatusCode` -- OTel span status codes (`OK`, `ERROR`, `UNSET`)
 - `SpanKind` -- OTel span kinds (`INTERNAL`, `CLIENT`, `SERVER`, `PRODUCER`, `CONSUMER`)
 - `EVENT_METRIC_MAP` -- complete event-to-metric mapping table
@@ -443,7 +500,7 @@ ForgeSpanAttr.GEN_AI_USAGE_TOTAL_TOKENS  // 'gen_ai.usage.total_tokens'
 
 ### Types
 
-`OTelPluginConfig`, `DzupTracerConfig`, `ForgeTraceSnapshot`, `ForgeTraceContext`, `OTelBridgeConfig`, `MetricSink`, `MetricMapping`, `CostEntry`, `CostReport`, `CostAlertThreshold`, `CostAttributorConfig`, `SafetyCategory`, `SafetySeverity`, `SafetyEvent`, `SafetyPatternRule`, `SafetyMonitorConfig`, `AuditCategory`, `AuditEntry`, `AuditStore`, `AuditTrailConfig`, `OTelSpan`, `OTelTracer`, `OTelSpanOptions`, `OTelContext`, `ForgeSpanAttrKey`
+`OTelPluginConfig`, `DzupTracerConfig`, `ForgeTraceSnapshot`, `ForgeTraceContext`, `AgentLoopTraceEvent`, `AgentLoopTraceIdentity`, `AgentLoopTraceSource`, `AgentLoopTraceUsage`, `AgentLoopSpanProjection`, `RecordAgentLoopTraceResult`, `OTelBridgeConfig`, `MetricSink`, `MetricMapping`, `CostEntry`, `CostReport`, `CostAlertThreshold`, `CostAttributorConfig`, `SafetyCategory`, `SafetySeverity`, `SafetyEvent`, `SafetyPatternRule`, `SafetyMonitorConfig`, `AuditCategory`, `AuditEntry`, `AuditStore`, `AuditTrailConfig`, `OTelSpan`, `OTelTracer`, `OTelSpanOptions`, `OTelContext`, `ForgeSpanAttrKey`
 
 ## Dependencies
 

@@ -190,6 +190,28 @@ describe("canonical agent and review-loop contracts", () => {
     });
   });
 
+  it("admits a read-only next-path approver as a canonical review actor", () => {
+    expect(
+      validateReviewDecision(
+        loopRequest(),
+        decision({
+          reviewer: {
+            ...decision().reviewer,
+            actorId: "next-path-approver-1",
+            role: "next-path-approver",
+          },
+          decision: "revise",
+          validation: "passed",
+          corrections: ["Continue with the next unfinished in-plan task."],
+          reason: "The proposed next task remains inside the admitted plan.",
+        }),
+      ),
+    ).toEqual({
+      valid: true,
+      diagnostics: [],
+    });
+  });
+
   it("rejects identity drift, usage overrun, and false progress", () => {
     const result = validateAgentRunResult(
       agentRequest(),

@@ -25,6 +25,7 @@ export interface AgentActorRef {
     | "implementer"
     | "reviewer"
     | "semantic-judge"
+    | "next-path-approver"
     | "terminal-approver"
     | "manager"
     | "specialist";
@@ -291,9 +292,8 @@ export function validateReviewDecision(
     );
   }
   if (
-    !["reviewer", "semantic-judge", "terminal-approver"].includes(
-      decision.reviewer.role,
-    )
+    !["reviewer", "semantic-judge", "next-path-approver", "terminal-approver"]
+      .includes(decision.reviewer.role)
   ) {
     add(
       diagnostics,
