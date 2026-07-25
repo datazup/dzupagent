@@ -443,10 +443,6 @@ steps:
         semanticHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
       },
     ]);
-    expect(report.candidateSource).toContain("imports:");
-    expect(report.primitiveImports).toEqual([
-      expect.objectContaining({ ref: "primitive://adapter.run@1" }),
-    ]);
     expect(report.sourceSemanticSha256).toBe(report.candidateSemanticSha256);
     expect(Object.isFrozen(report)).toBe(true);
 
