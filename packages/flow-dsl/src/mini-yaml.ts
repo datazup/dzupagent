@@ -193,8 +193,19 @@ function parseSequence(
     if (inlineEntry?.rawValue === "") {
       const nested = parseNested(lines, index + 1, indent + 4);
       if (!nested.ok) return nested;
-      items.push({ [inlineEntry.key]: nested.value });
+      const item: Record<string, unknown> = {
+        [inlineEntry.key]: nested.value,
+      };
       index = nested.nextIndex;
+      const continuation = parseSequenceMappingContinuation(
+        lines,
+        index,
+        indent,
+        item,
+      );
+      if (!continuation.ok) return continuation;
+      items.push(continuation.value);
+      index = continuation.nextIndex;
       continue;
     }
 
@@ -202,8 +213,26 @@ function parseSequence(
       inlineEntry?.rawValue !== undefined &&
       inlineEntry.rawValue.length > 0
     ) {
-      items.push({ [inlineEntry.key]: parseScalar(inlineEntry.rawValue) });
-      index += 1;
+      const literal =
+        inlineEntry.rawValue === "|"
+          ? parseLiteralBlock(lines, index + 1, indent + 4)
+          : undefined;
+      const item: Record<string, unknown> = {
+        [inlineEntry.key]:
+          literal !== undefined
+            ? literal.value
+            : parseScalar(inlineEntry.rawValue),
+      };
+      index = literal?.nextIndex ?? index + 1;
+      const continuation = parseSequenceMappingContinuation(
+        lines,
+        index,
+        indent,
+        item,
+      );
+      if (!continuation.ok) return continuation;
+      items.push(continuation.value);
+      index = continuation.nextIndex;
       continue;
     }
 
@@ -212,6 +241,33 @@ function parseSequence(
   }
 
   return { ok: true, value: items, nextIndex: index };
+}
+
+function parseSequenceMappingContinuation(
+  lines: YamlLine[],
+  startIndex: number,
+  sequenceIndent: number,
+  item: Record<string, unknown>,
+): BlockParseResult {
+  const next = lines[startIndex];
+  if (
+    next === undefined ||
+    next.indent !== sequenceIndent + 2 ||
+    next.content === "-" ||
+    next.content.startsWith("- ")
+  ) {
+    return { ok: true, value: item, nextIndex: startIndex };
+  }
+  const continuation = parseMapping(lines, startIndex, sequenceIndent + 2);
+  if (!continuation.ok) return continuation;
+  return {
+    ok: true,
+    value: {
+      ...item,
+      ...(continuation.value as Record<string, unknown>),
+    },
+    nextIndex: continuation.nextIndex,
+  };
 }
 
 function parseMapping(

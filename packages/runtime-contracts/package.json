@@ -13,6 +13,14 @@
     "./orchestration": {
       "import": "./dist/orchestration.js",
       "types": "./dist/orchestration.d.ts"
+    },
+    "./rag": {
+      "import": "./dist/rag.js",
+      "types": "./dist/rag.d.ts"
+    },
+    "./agent-review": {
+      "import": "./dist/agent-review.js",
+      "types": "./dist/agent-review.d.ts"
     }
   },
   "files": [

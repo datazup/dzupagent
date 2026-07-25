@@ -1,5 +1,13 @@
-import { DEFAULT_PRIMITIVE_REGISTRY } from "./built-ins.js";
-import type { PrimitiveDefinition, PrimitiveRegistry } from "./types.js";
+import {
+  BUILT_IN_PRIMITIVE_REGISTRY_V2,
+  DEFAULT_PRIMITIVE_REGISTRY,
+} from "./built-ins.js";
+import type {
+  PrimitiveDefinition,
+  PrimitiveDefinitionV2,
+  PrimitiveRegistry,
+  PrimitiveRegistryV2,
+} from "./types.js";
 import { expandFragmentInvocation } from "../fragments/expand-fragment.js";
 import type {
   FragmentExpansionMetadata,
@@ -22,14 +30,18 @@ const STEP_ARRAY_FIELDS = new Set([
 
 export interface CompositeExpansionOptions {
   primitiveRegistry?: PrimitiveRegistry;
+  primitiveRegistryV2?: PrimitiveRegistryV2;
   fragmentRegistry?: FragmentRegistry;
   requirePinnedFragmentUses?: boolean;
+  requirePrimitiveLineage?: boolean;
 }
 
 interface ResolvedCompositeExpansionOptions {
   primitiveRegistry: PrimitiveRegistry;
+  primitiveRegistryV2: PrimitiveRegistryV2;
   fragmentRegistry?: FragmentRegistry;
   requirePinnedFragmentUses: boolean;
+  requirePrimitiveLineage: boolean;
   pinnedPrimitiveUses: Record<string, string>;
   pinnedFragmentUses: Record<string, string>;
 }
@@ -37,6 +49,16 @@ interface ResolvedCompositeExpansionOptions {
 export interface CompositeExpansionResult {
   raw: unknown;
   fragmentExpansions: FragmentExpansionMetadata[];
+  primitiveExpansions: PrimitiveExpansionLineage[];
+}
+
+export interface PrimitiveExpansionLineage {
+  readonly ref: PrimitiveDefinitionV2["ref"];
+  readonly semanticHash: PrimitiveDefinitionV2["compatibility"]["semanticHash"];
+  readonly invocationPath: string;
+  readonly expandedPaths: readonly string[];
+  readonly childPrimitiveRefs: readonly PrimitiveDefinitionV2["ref"][];
+  readonly parentPrimitiveRef?: PrimitiveDefinitionV2["ref"];
 }
 
 function isStepWrapperArray(value: unknown): value is StepWrapper[] {
@@ -122,14 +144,15 @@ function expandNestedStepArrays(
     return expandStepArray(raw, options, path);
   }
   if (Array.isArray(raw)) {
-    return { raw, changed: false, fragmentExpansions: [] };
+    return { raw, changed: false, fragmentExpansions: [], primitiveExpansions: [] };
   }
   if (!raw || typeof raw !== "object") {
-    return { raw, changed: false, fragmentExpansions: [] };
+    return { raw, changed: false, fragmentExpansions: [], primitiveExpansions: [] };
   }
 
   let changed = false;
   const fragmentExpansions: FragmentExpansionMetadata[] = [];
+  const primitiveExpansions: PrimitiveExpansionLineage[] = [];
   const entries = Object.entries(raw as Record<string, unknown>).map(
     ([key, value]) => {
       if (!STEP_ARRAY_FIELDS.has(key) && key !== "branches") {
@@ -141,6 +164,7 @@ function expandNestedStepArrays(
           : expandNestedStepArrays(value, options, `${path}.${key}`);
       if (expanded.changed) changed = true;
       fragmentExpansions.push(...expanded.fragmentExpansions);
+      primitiveExpansions.push(...expanded.primitiveExpansions);
       return [key, expanded.raw] as const;
     },
   );
@@ -148,6 +172,7 @@ function expandNestedStepArrays(
     raw: changed ? Object.fromEntries(entries) : raw,
     changed,
     fragmentExpansions,
+    primitiveExpansions,
   };
 }
 
@@ -157,11 +182,12 @@ function expandBranches(
   path: string,
 ): CompositeExpansionResult & { changed: boolean } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { raw, changed: false, fragmentExpansions: [] };
+    return { raw, changed: false, fragmentExpansions: [], primitiveExpansions: [] };
   }
 
   let changed = false;
   const fragmentExpansions: FragmentExpansionMetadata[] = [];
+  const primitiveExpansions: PrimitiveExpansionLineage[] = [];
   const entries = Object.entries(raw as Record<string, unknown>).map(
     ([branchName, value]) => {
       const expanded = expandNestedStepArrays(
@@ -171,6 +197,7 @@ function expandBranches(
       );
       if (expanded.changed) changed = true;
       fragmentExpansions.push(...expanded.fragmentExpansions);
+      primitiveExpansions.push(...expanded.primitiveExpansions);
       return [branchName, expanded.raw] as const;
     },
   );
@@ -179,6 +206,7 @@ function expandBranches(
     raw: changed ? Object.fromEntries(entries) : raw,
     changed,
     fragmentExpansions,
+    primitiveExpansions,
   };
 }
 
@@ -191,9 +219,11 @@ function expandStepArray(
   raw: StepWrapper[];
   steps: StepWrapper[];
   fragmentExpansions: FragmentExpansionMetadata[];
+  primitiveExpansions: PrimitiveExpansionLineage[];
 } {
   const steps: StepWrapper[] = [];
   const fragmentExpansions: FragmentExpansionMetadata[] = [];
+  const primitiveExpansions: PrimitiveExpansionLineage[] = [];
   let changed = false;
 
   for (let index = 0; index < stepsRaw.length; index += 1) {
@@ -235,6 +265,7 @@ function expandStepArray(
       if (nested.changed) {
         steps.push({ [kind]: nested.raw });
         fragmentExpansions.push(...nested.fragmentExpansions);
+        primitiveExpansions.push(...nested.primitiveExpansions);
         changed = true;
         continue;
       }
@@ -257,12 +288,56 @@ function expandStepArray(
       `${definition.kind}@${definition.version}`,
     );
     const nested = expandStepArray(annotatedSteps, options, `${path}[${index}]`);
+    const v2Definition = options.primitiveRegistryV2.resolve(
+      definition.kind,
+      definition.version,
+    );
+    if (v2Definition === undefined && options.requirePrimitiveLineage) {
+      throw new Error(
+        `composite primitive ${definition.kind}@${definition.version} requires an exact V2 definition for expansion lineage`,
+      );
+    }
+    if (v2Definition !== undefined) {
+      const childPrimitiveRefs = Object.freeze(
+        [...new Set(nested.primitiveExpansions.map((item) => item.ref))].sort(),
+      );
+      primitiveExpansions.push(
+        Object.freeze({
+          ref: v2Definition.ref,
+          semanticHash: v2Definition.compatibility.semanticHash,
+          invocationPath: `${path}[${index}]`,
+          expandedPaths: Object.freeze(
+            nested.steps.map(
+              (_, childIndex) =>
+                `${path}[${index}].expanded[${childIndex}]`,
+            ),
+          ),
+          childPrimitiveRefs,
+        }),
+        ...nested.primitiveExpansions.map((item) =>
+          item.parentPrimitiveRef === undefined
+            ? Object.freeze({
+                ...item,
+                parentPrimitiveRef: v2Definition.ref,
+              })
+            : item,
+        ),
+      );
+    } else {
+      primitiveExpansions.push(...nested.primitiveExpansions);
+    }
     steps.push(...nested.steps);
     fragmentExpansions.push(...nested.fragmentExpansions);
     changed = true;
   }
 
-  return { changed, raw: changed ? steps : stepsRaw, steps, fragmentExpansions };
+  return {
+    changed,
+    raw: changed ? steps : stepsRaw,
+    steps,
+    fragmentExpansions,
+    primitiveExpansions,
+  };
 }
 
 function annotatePrimitiveSteps(
@@ -305,22 +380,29 @@ export function expandRegisteredCompositesDetailed(
   registryOrOptions: PrimitiveRegistry | CompositeExpansionOptions = DEFAULT_PRIMITIVE_REGISTRY
 ): CompositeExpansionResult {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { raw, fragmentExpansions: [] };
+    return { raw, fragmentExpansions: [], primitiveExpansions: [] };
   }
   const options: ResolvedCompositeExpansionOptions = isPrimitiveRegistry(
     registryOrOptions
   )
     ? {
         primitiveRegistry: registryOrOptions,
+        primitiveRegistryV2: BUILT_IN_PRIMITIVE_REGISTRY_V2,
         requirePinnedFragmentUses: false,
+        requirePrimitiveLineage: false,
         pinnedPrimitiveUses: {},
         pinnedFragmentUses: {},
       }
     : {
         primitiveRegistry:
           registryOrOptions.primitiveRegistry ?? DEFAULT_PRIMITIVE_REGISTRY,
+        primitiveRegistryV2:
+          registryOrOptions.primitiveRegistryV2 ??
+          BUILT_IN_PRIMITIVE_REGISTRY_V2,
         requirePinnedFragmentUses:
           registryOrOptions.requirePinnedFragmentUses ?? false,
+        requirePrimitiveLineage:
+          registryOrOptions.requirePrimitiveLineage ?? false,
         pinnedPrimitiveUses: {},
         pinnedFragmentUses: {},
         ...(registryOrOptions.fragmentRegistry
@@ -336,13 +418,18 @@ export function expandRegisteredCompositesDetailed(
       ? "nodes"
       : null;
 
-  if (arrayKey === null) return { raw, fragmentExpansions: [] };
+  if (arrayKey === null) {
+    return { raw, fragmentExpansions: [], primitiveExpansions: [] };
+  }
 
   const expanded = expandStepArray(doc[arrayKey] as StepWrapper[], options, arrayKey);
-  if (!expanded.changed) return { raw, fragmentExpansions: [] };
+  if (!expanded.changed) {
+    return { raw, fragmentExpansions: [], primitiveExpansions: [] };
+  }
 
   return {
     raw: { ...doc, [arrayKey]: expanded.steps },
     fragmentExpansions: expanded.fragmentExpansions,
+    primitiveExpansions: expanded.primitiveExpansions,
   };
 }

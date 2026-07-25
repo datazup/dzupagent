@@ -10,3 +10,6 @@ export * from "./template.js";
 export * from "./mini-yaml.js";
 export * from "./primitives/index.js";
 export * from "./fragments/index.js";
+export * from "./schemas/index.js";
+export * from "./migrations/index.js";
+export * from "./v2/index.js";

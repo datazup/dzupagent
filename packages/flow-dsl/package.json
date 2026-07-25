@@ -2,7 +2,7 @@
   "name": "@dzupagent/flow-dsl",
   "version": "0.2.0",
   "type": "module",
-  "description": "Textual dzupflow/v1 DSL parser, formatter, validator, and graph projection for DzupAgent",
+  "description": "Textual dzupflow/v1 parser and bounded v2 compatibility frontend, formatter, validator, and graph projection for DzupAgent",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

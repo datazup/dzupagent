@@ -4,6 +4,10 @@ import type {
   FlowRedactionReceiptSchema,
   NodeIdempotencyMode,
 } from "@dzupagent/flow-ast";
+import type {
+  FlowSchemaBinding,
+  FlowSchemaRegistry,
+} from "../schemas/types.js";
 
 export type PrimitiveCategory =
   | "leaf"
@@ -176,6 +180,8 @@ export interface PrimitiveRegistryV2Options {
    * classification. Credential leaves are classified as secret implicitly.
    */
   requireClassifiedLeafInputs?: boolean;
+  /** Resolve exact external schemas before classification completeness checks. */
+  schemaRegistry?: FlowSchemaRegistry;
 }
 
 export type PrimitiveAuthoringValueType =
@@ -224,11 +230,17 @@ export interface PrimitiveAuthoringMetadata {
   readonly primitiveRef: PrimitiveDefinitionV2["ref"];
   readonly semanticHash: PrimitiveDefinitionV2["compatibility"]["semanticHash"];
   readonly inputSchema: PrimitiveSchema;
+  readonly schemaRegistryHash?: `sha256:${string}`;
+  readonly schemaBindings: readonly FlowSchemaBinding[];
   readonly inputFields: readonly PrimitiveAuthoringField[];
   readonly inputCompletions: readonly PrimitiveAuthoringCompletion[];
   readonly outputFields: readonly PrimitiveOutputAuthoringField[];
   readonly unclassifiedLeafPaths: readonly string[];
   readonly classificationComplete: boolean;
+}
+
+export interface PrimitiveAuthoringMetadataOptions {
+  readonly schemaRegistry?: FlowSchemaRegistry;
 }
 
 export interface PrimitiveRegistry {

@@ -1,8 +1,11 @@
 import type { FlowDataClassification } from "@dzupagent/flow-ast";
+import { resolveFlowSchema } from "../schemas/registry.js";
+import type { FlowSchemaRef } from "../schemas/types.js";
 
 import type {
   PrimitiveAuthoringField,
   PrimitiveAuthoringMetadata,
+  PrimitiveAuthoringMetadataOptions,
   PrimitiveAuthoringValueType,
   PrimitiveDefinitionV2,
   PrimitiveOutputAuthoringField,
@@ -22,11 +25,23 @@ const SCHEMA_TYPES = new Set([
 /** Generate deterministic nested editor/form metadata from one reviewed V2 contract. */
 export function createPrimitiveAuthoringMetadata(
   definition: PrimitiveDefinitionV2,
+  options: PrimitiveAuthoringMetadataOptions = {},
 ): PrimitiveAuthoringMetadata {
+  const resolvedInput =
+    typeof definition.inputSchema === "string" && options.schemaRegistry
+      ? resolveFlowSchema(
+          definition.inputSchema as FlowSchemaRef,
+          options.schemaRegistry,
+        )
+      : undefined;
+  const inputSchema = resolvedInput?.jsonSchema ?? definition.inputSchema;
+  if (typeof inputSchema !== "string") {
+    validateDeclaredPaths(definition, inputSchema);
+  }
   const inputFields =
-    typeof definition.inputSchema === "string"
+    typeof inputSchema === "string"
       ? []
-      : collectInputFields(definition, definition.inputSchema);
+      : collectInputFields(definition, inputSchema);
   const outputFields = Object.freeze(
     Object.entries(definition.outputPorts)
       .sort(([left], [right]) => left.localeCompare(right))
@@ -67,13 +82,17 @@ export function createPrimitiveAuthoringMetadata(
     schema: "dzupagent.primitiveAuthoringMetadata/v1" as const,
     primitiveRef: definition.ref,
     semanticHash: definition.compatibility.semanticHash,
-    inputSchema: definition.inputSchema,
+    inputSchema,
+    ...(resolvedInput === undefined
+      ? {}
+      : { schemaRegistryHash: resolvedInput.registryHash }),
+    schemaBindings: resolvedInput?.bindings ?? Object.freeze([]),
     inputFields: Object.freeze(inputFields),
     inputCompletions,
     outputFields,
     unclassifiedLeafPaths,
     classificationComplete:
-      typeof definition.inputSchema !== "string" &&
+      typeof inputSchema !== "string" &&
       unclassifiedLeafPaths.length === 0,
   });
 }
@@ -83,11 +102,6 @@ export function validatePrimitiveAuthoringSchema(
   definition: PrimitiveDefinitionV2,
 ): void {
   if (typeof definition.inputSchema === "string") {
-    if (Object.keys(definition.inputPathClassifications ?? {}).length > 0) {
-      throw new Error(
-        `primitive ${definition.ref} cannot classify deep paths in an unresolved input-schema reference`,
-      );
-    }
     return;
   }
   validatePrimitiveSchema(definition.inputSchema, "inputSchema");
@@ -102,6 +116,26 @@ export function validatePrimitiveAuthoringSchema(
     if (!schemaAllowsPath(definition.inputSchema, path)) {
       throw new Error(
         `primitive ${definition.ref} declares unknown credential input path "${path}"`,
+      );
+    }
+  }
+}
+
+function validateDeclaredPaths(
+  definition: PrimitiveDefinitionV2,
+  schema: Readonly<Record<string, unknown>>,
+): void {
+  for (const path of Object.keys(definition.inputPathClassifications ?? {})) {
+    if (!schemaAllowsPath(schema, path)) {
+      throw new Error(
+        `primitive ${definition.ref} classifies unknown resolved input-schema path "${path}"`,
+      );
+    }
+  }
+  for (const path of definition.credentialInputPaths) {
+    if (!schemaAllowsPath(schema, path)) {
+      throw new Error(
+        `primitive ${definition.ref} declares unknown resolved credential input path "${path}"`,
       );
     }
   }

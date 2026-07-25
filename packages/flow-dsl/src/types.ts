@@ -1,4 +1,5 @@
 import type { FlowDocumentV1, FlowNode } from '@dzupagent/flow-ast'
+import type { DslV2FrontendMetadata } from './v2/types.js'
 
 export interface SourceSpan {
   lineStart: number
@@ -65,6 +66,7 @@ export interface ParseDslSuccess {
   document: FlowDocumentV1
   partialDocument: null
   diagnostics: []
+  frontend?: DslV2FrontendMetadata
 }
 
 export interface ParseDslFailure {

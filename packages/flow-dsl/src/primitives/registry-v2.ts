@@ -56,12 +56,16 @@ export function createPrimitiveRegistryV2(
     if (byRef.has(definition.ref)) {
       throw new Error(`duplicate primitive V2 ref ${definition.ref}`);
     }
+    const authoringMetadata = createPrimitiveAuthoringMetadata(definition, {
+      ...(options.schemaRegistry
+        ? { schemaRegistry: options.schemaRegistry }
+        : {}),
+    });
     if (
       options.requireClassifiedLeafInputs === true &&
-      !createPrimitiveAuthoringMetadata(definition).classificationComplete
+      !authoringMetadata.classificationComplete
     ) {
-      const paths =
-        createPrimitiveAuthoringMetadata(definition).unclassifiedLeafPaths;
+      const paths = authoringMetadata.unclassifiedLeafPaths;
       throw new Error(
         `primitive ${definition.ref} has unclassified input leaves: ${paths.join(", ")}`,
       );
