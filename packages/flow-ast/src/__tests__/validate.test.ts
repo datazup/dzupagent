@@ -84,6 +84,56 @@ describe("flowNodeSchema.safeParse — valid inputs", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts a canonical typed branch and rejects a non-fail-closed shadow", () => {
+    const typedCondition = {
+      schema: "dzupagent.flowTypedCondition/v1",
+      expression: { op: "ref", path: "inputs.ready" },
+    };
+    expect(
+      flowNodeSchema.safeParse({
+        type: "branch",
+        id: "typed-branch",
+        condition: "false",
+        typedCondition,
+        then: [{ type: "complete", id: "done" }],
+      }).success,
+    ).toBe(true);
+
+    const rejected = flowNodeSchema.safeParse({
+      type: "branch",
+      id: "unsafe-shadow",
+      condition: "true",
+      typedCondition,
+      then: [{ type: "complete", id: "done" }],
+    });
+    expect(rejected.success).toBe(false);
+    if (!rejected.success) {
+      expect(rejected.error.issues).toContainEqual(
+        expect.objectContaining({
+          path: "root.condition",
+          code: "INVALID_CONDITION",
+        }),
+      );
+    }
+
+    let tooDeep: unknown = { op: "literal", value: true };
+    for (let depth = 0; depth < 33; depth += 1) {
+      tooDeep = { op: "not", arg: tooDeep };
+    }
+    expect(
+      flowNodeSchema.safeParse({
+        type: "branch",
+        id: "too-deep",
+        condition: "false",
+        typedCondition: {
+          schema: "dzupagent.flowTypedCondition/v1",
+          expression: tooDeep,
+        },
+        then: [{ type: "complete", id: "done" }],
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts a parallel with two branches", () => {
     const result = flowNodeSchema.safeParse({
       type: "parallel",

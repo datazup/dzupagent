@@ -2,6 +2,7 @@ import { checkOutputKeyUniqueness } from "@dzupagent/flow-ast";
 import { describe, expect, it } from "vitest";
 
 import {
+  formatDocumentToDsl,
   lowerDslV2Document,
   parseDslToDocument,
 } from "../index.js";
@@ -105,6 +106,61 @@ steps:
         executionProviderId: claude
 `;
 
+const V2_GUARDED_COMPOSITE = `
+dsl: dzupflow/v2
+id: guarded-review-v2-frontend
+version: 2.0.0
+inputs:
+  ready: boolean
+steps:
+  - id: review
+    use: collab.review_loop@1
+    when:
+      ref: inputs.ready
+    with:
+      task:
+        kind: implementation
+      proposer:
+        executionProviderId: codex
+      critic:
+        executionProviderId: claude
+`;
+
+const V2_TYPED_GUARDS = `
+dsl: dzupflow/v2
+id: typed-v2-guards
+version: 2.0.0
+inputs:
+  ready: boolean
+  score: number
+steps:
+  - id: seed
+    use: core.set@1
+    when:
+      ref: inputs.ready
+    with:
+      assign:
+        seeded: true
+  - id: draft
+    use: adapter.run@1
+    when:
+      gte:
+        - ref: inputs.score
+        - 3
+    with:
+      provider: codex
+      instructions: Draft the typed result.
+    save:
+      result: state.draft
+  - id: done
+    use: core.complete@1
+    when:
+      not:
+        ref: inputs.ready
+    with:
+      result: accepted
+`;
+
 describe("bounded dzupflow/v2 frontend", () => {
   it("lowers uniform set, branch, invoke, and complete steps to equal canonical v1", () => {
     const v1 = parseDslToDocument(V1_EQUIVALENT);
@@ -178,6 +234,231 @@ describe("bounded dzupflow/v2 frontend", () => {
     expect(
       JSON.stringify(v2.document),
     ).not.toContain("__dzupV2SourceLineage");
+
+    const guarded = parseDslToDocument(V2_GUARDED_COMPOSITE);
+    expect(
+      guarded,
+      JSON.stringify(guarded.diagnostics, null, 2),
+    ).toMatchObject({ ok: true });
+    if (!guarded.ok) return;
+    expect(guarded.document.root.nodes[0]).toMatchObject({
+      type: "branch",
+      id: "review__when_guard",
+      condition: "false",
+      then: [
+        { type: "adapter.run", id: "review__propose" },
+        { type: "adapter.run", id: "review__critique" },
+        { type: "branch", id: "review__reconcile" },
+      ],
+    });
+    expect(guarded.document.meta?.primitiveExpansions).toEqual([
+      expect.objectContaining({
+        ref: "primitive://collab.review_loop@1",
+        semanticHash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        invocationPath: "steps[0].then[0]",
+      }),
+    ]);
+    expect(guarded.frontend?.stepLineage).toContainEqual(
+      expect.objectContaining({
+        authoredPath: "root.steps[0]",
+        loweredPath: "steps[0].if.then[0]",
+        guardId: "review__when_guard",
+        primitiveRef: "primitive://collab.review_loop@1",
+        primitiveSemanticHash:
+          expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+      }),
+    );
+    expect(
+      guarded.sourceMap?.entries[
+        "root.nodes[0].then[0].instructions"
+      ],
+    ).toMatchObject({
+      authoredPath: "root.steps[0].use",
+      derived: true,
+    });
+  });
+
+  it("retains typed v2 guards in fail-closed canonical branches", () => {
+    const parsed = parseDslToDocument(V2_TYPED_GUARDS);
+    expect(parsed, JSON.stringify(parsed.diagnostics, null, 2)).toMatchObject({
+      ok: true,
+    });
+    if (!parsed.ok) return;
+
+    expect(parsed.document.root).toMatchObject({
+      type: "sequence",
+      nodes: [
+        {
+          type: "branch",
+          id: "seed__when_guard",
+          condition: "false",
+          typedCondition: {
+            schema: "dzupagent.flowTypedCondition/v1",
+            expression: { op: "ref", path: "inputs.ready" },
+          },
+          then: [{ type: "set", id: "seed" }],
+        },
+        {
+          type: "branch",
+          id: "draft__when_guard",
+          condition: "false",
+          typedCondition: {
+            schema: "dzupagent.flowTypedCondition/v1",
+            expression: {
+              op: "gte",
+              left: { op: "ref", path: "inputs.score" },
+              right: { op: "literal", value: 3 },
+            },
+          },
+          then: [{ type: "adapter.run", id: "draft", output: "draft" }],
+        },
+        {
+          type: "branch",
+          id: "done__when_guard",
+          condition: "false",
+          typedCondition: {
+            schema: "dzupagent.flowTypedCondition/v1",
+            expression: {
+              op: "not",
+              arg: { op: "ref", path: "inputs.ready" },
+            },
+          },
+          then: [{ type: "complete", id: "done" }],
+        },
+      ],
+    });
+    expect(checkOutputKeyUniqueness(parsed.document.root)).toEqual([]);
+    expect(JSON.stringify(parsed.document)).not.toContain(
+      "__dzupV2SourceLineage",
+    );
+    expect(parsed.frontend?.stepLineage).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          authoredPath: "root.steps[1]",
+          loweredPath: "steps[1].if.then[0]",
+          guardId: "draft__when_guard",
+          guardLoweredPath: "steps[1]",
+          primitiveRef: "primitive://adapter.run@1",
+          primitiveSemanticHash:
+            expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        }),
+      ]),
+    );
+
+    const sourceMap = parsed.sourceMap;
+    expect(sourceMap).toBeDefined();
+    if (sourceMap === undefined) return;
+    const guard = sourceMap.entries["root.nodes[1].typedCondition"];
+    const shadow = sourceMap.entries["root.nodes[1].condition"];
+    const child = sourceMap.entries["root.nodes[1].then[0].instructions"];
+    expect(guard).toMatchObject({
+      authoredPath: "root.steps[1].when",
+    });
+    expect(guard?.derived).not.toBe(true);
+    expect(shadow).toMatchObject({
+      authoredPath: "root.steps[1].when",
+      derived: true,
+    });
+    expect(child).toMatchObject({
+      authoredPath: "root.steps[1].with.instructions",
+    });
+    expect(
+      V2_TYPED_GUARDS.slice(guard?.valueSpan?.start, guard?.valueSpan?.end),
+    ).toContain("gte:");
+
+    const reparsed = parseDslToDocument(formatDocumentToDsl(parsed.document));
+    expect(
+      reparsed,
+      JSON.stringify(reparsed.diagnostics, null, 2),
+    ).toMatchObject({ ok: true });
+    if (reparsed.ok) {
+      expect(reparsed.document.root).toEqual(parsed.document.root);
+    }
+  });
+
+  it("accepts typed explicit branches and rejects unsafe typed conditions", () => {
+    const branch = lowerDslV2Document({
+      dsl: "dzupflow/v2",
+      id: "typed-branch",
+      version: "2.0.0",
+      inputs: { ready: "boolean" },
+      steps: [{
+        id: "choose",
+        use: "core.branch@1",
+        when: { ref: "inputs.ready" },
+        with: {
+          then: [{
+            id: "done",
+            use: "core.complete@1",
+            with: { result: "done" },
+          }],
+        },
+      }],
+    });
+    expect(branch, JSON.stringify(branch.diagnostics, null, 2)).toMatchObject({
+      ok: true,
+    });
+
+    for (const { when, code } of [
+      { when: { random: true }, code: "V2_NONDETERMINISTIC_CONDITION" },
+      {
+        when: { exprJs: "inputs.ready" },
+        code: "V2_NONDETERMINISTIC_CONDITION",
+      },
+      { when: { bogus: true }, code: "V2_INVALID_TYPED_CONDITION" },
+      { when: { eq: [true] }, code: "V2_INVALID_TYPED_CONDITION" },
+    ]) {
+      const result = lowerDslV2Document({
+        dsl: "dzupflow/v2",
+        id: "unsafe-condition",
+        version: "2.0.0",
+        inputs: {
+          ready: "boolean",
+          score: "number",
+          items: "array",
+        },
+        steps: [{
+          id: "guarded",
+          use: "core.complete@1",
+          when,
+          with: { result: "done" },
+        }],
+      });
+      expect(result.ok).toBe(false);
+      expect(result.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code,
+          }),
+        ]),
+      );
+    }
+
+    const collision = lowerDslV2Document({
+      dsl: "dzupflow/v2",
+      id: "guard-id-collision",
+      version: "2.0.0",
+      steps: [
+        {
+          id: "guarded",
+          use: "core.complete@1",
+          when: true,
+          with: { result: "done" },
+        },
+        {
+          id: "guarded__when_guard",
+          use: "core.complete@1",
+          with: { result: "conflict" },
+        },
+      ],
+    });
+    expect(collision.ok).toBe(false);
+    expect(collision.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: "V2_GUARD_ID_CONFLICT",
+        path: "root.steps[0].id",
+      }),
+    );
   });
 
   it("composes exact authored fields and derived expansion breadcrumbs into canonical source paths", () => {
