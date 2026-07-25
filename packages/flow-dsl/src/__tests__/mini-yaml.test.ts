@@ -111,6 +111,33 @@ describe('parseYamlSubset', () => {
       expect(result).toEqual({ ok: true, value: [{ key: 'value' }, { key: 'other' }] })
     })
 
+    it('parses multi-key mapping items from an inline first key', () => {
+      const source = [
+        'steps:',
+        '  - id: seed',
+        '    use: core.set@1',
+        '    with:',
+        '      assign:',
+        '        ready: true',
+        '  - id: done',
+        '    use: core.complete@1',
+      ].join('\n')
+      const result = parseYamlSubset(source)
+      expect(result).toEqual({
+        ok: true,
+        value: {
+          steps: [
+            {
+              id: 'seed',
+              use: 'core.set@1',
+              with: { assign: { ready: true } },
+            },
+            { id: 'done', use: 'core.complete@1' },
+          ],
+        },
+      })
+    })
+
     it('parses bare sequence mapping entries', () => {
       const source = 'commands:\n  -\n    command: yarn test\n    cwd: .'
       const result = parseYamlSubset(source)

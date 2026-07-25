@@ -130,7 +130,7 @@ describe('parseDslToDocument', () => {
   })
 
   it('emits INVALID_DSL_VERSION diagnostic for unknown dsl discriminator', () => {
-    const dsl = MINIMAL_VALID_DSL.replace('dzupflow/v1', 'dzupflow/v2')
+    const dsl = MINIMAL_VALID_DSL.replace('dzupflow/v1', 'dzupflow/v999')
     const result = parseDslToDocument(dsl)
     expect(result.ok).toBe(false)
     expect(result.document).toBeNull()

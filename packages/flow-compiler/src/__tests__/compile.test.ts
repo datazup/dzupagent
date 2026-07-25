@@ -284,6 +284,44 @@ steps:
     expect(success.artifact.steps).toHaveLength(1);
     expect(success.artifact.steps[0]?.skillName).toBe("tasks.run");
   });
+
+  it("compiles equivalent bounded v1 and v2 DSL to the same semantic requirements and target", async () => {
+    const compiler = createFlowCompiler({ toolResolver: makeResolver([]) });
+    const v1 = await compiler.compileDsl(`
+dsl: dzupflow/v1
+id: equivalent_frontends
+version: 1
+steps:
+  - set:
+      id: seed
+      assign:
+        ready: true
+  - complete:
+      id: done
+      result: accepted
+`);
+    const v2 = await compiler.compileDsl(`
+dsl: dzupflow/v2
+id: equivalent_frontends
+version: 2.0.0
+steps:
+  - id: seed
+    use: core.set@1
+    with:
+      assign:
+        ready: true
+  - id: done
+    use: core.complete@1
+    with:
+      result: accepted
+`);
+
+    expect("errors" in v1, JSON.stringify(v1, null, 2)).toBe(false);
+    expect("errors" in v2, JSON.stringify(v2, null, 2)).toBe(false);
+    if ("errors" in v1 || "errors" in v2) return;
+    expect(v2.requirements.semanticHash).toBe(v1.requirements.semanticHash);
+    expect(v2.target).toBe(v1.target);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BUILT_IN_PRIMITIVE_REGISTRY_V2,
   createPrimitiveRegistry,
+  createPrimitiveRegistryV2,
   expandRegisteredComposites,
   expandRegisteredCompositesDetailed,
   type PrimitiveDefinition,
@@ -189,5 +191,68 @@ describe("registry-backed composite expansion", () => {
       result: "v1",
       meta: { primitive: "custom.workflow@1" },
     });
+  });
+
+  it("records exact semantic lineage for a pinned composite expansion", () => {
+    const result = expandRegisteredCompositesDetailed(
+      {
+        uses: { collab: "dzup.collab@1" },
+        steps: [
+          {
+            "collab.review_loop": {
+              id: "review",
+              task: { kind: "implementation" },
+              proposer: { executionProviderId: "codex" },
+              critic: { executionProviderId: "claude" },
+            },
+          },
+        ],
+      },
+      { requirePrimitiveLineage: true },
+    );
+    const definition = BUILT_IN_PRIMITIVE_REGISTRY_V2.get(
+      "primitive://collab.review_loop@1",
+    );
+
+    expect(result.primitiveExpansions).toEqual([
+      {
+        ref: "primitive://collab.review_loop@1",
+        semanticHash: definition?.compatibility.semanticHash,
+        invocationPath: "steps[0]",
+        expandedPaths: [
+          "steps[0].expanded[0]",
+          "steps[0].expanded[1]",
+          "steps[0].expanded[2]",
+        ],
+        childPrimitiveRefs: [],
+      },
+    ]);
+    expect(
+      result.primitiveExpansions[0]?.semanticHash,
+    ).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(Object.isFrozen(result.primitiveExpansions[0])).toBe(true);
+    expect(Object.isFrozen(result.primitiveExpansions[0]?.expandedPaths)).toBe(
+      true,
+    );
+  });
+
+  it("fails closed when strict lineage has no exact V2 contract", () => {
+    const registry = createPrimitiveRegistry([versionedComposite("1")]);
+
+    expect(() =>
+      expandRegisteredCompositesDetailed(
+        {
+          uses: { custom: "dzup.custom@1" },
+          steps: [{ "custom.workflow": { id: "untracked" } }],
+        },
+        {
+          primitiveRegistry: registry,
+          primitiveRegistryV2: createPrimitiveRegistryV2([]),
+          requirePrimitiveLineage: true,
+        },
+      ),
+    ).toThrow(
+      /custom\.workflow@1 requires an exact V2 definition for expansion lineage/i,
+    );
   });
 });
