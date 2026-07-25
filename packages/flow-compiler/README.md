@@ -180,16 +180,30 @@ simulator never invokes a runtime handler or provider, mutates external state,
 continues another workflow, deploys, promotes, or activates a target; it is
 execution-contract evidence, not a production runtime.
 
-The same subpath also exposes `simulateV2InactiveLocalTarget` under the
-separate identity `dzupagent.local-v2-simulator@1`. It accepts only one fully
-qualified guarded primitive step and deterministic local scripted outcomes.
-The simulator applies the exact inherited policy narrowing, cumulative
-timeout and budget limits, same-invocation retry and deterministic backoff,
-terminal catch outcomes, schema-checked atomic multi-port writes, cooperative
-cancellation, and digest-bound checkpoint/resume evidence. It never invokes a
-primitive handler or provider and never writes external state. Its immutable
-receipt grants no continuation, deployment, promotion, or activation
-authority, and the qualification receipt cannot authorize simulation.
+`runV2InactiveLocalHost` publishes the separate inactive identity
+`dzupagent.local-v2-multi-step-host@1`. The current bounded host executes two
+or more top-level guarded primitive steps only after the complete five-contract
+qualification. Every hosted step owns exact policy, retry, terminal-catch, and
+multi-port-save contracts and binds both the primitive semantic hash and a
+separate caller-supplied local handler id/hash. Handler bindings must declare
+provider-free mode, no effects, and safe replay; invocations receive deeply
+frozen input/state snapshots and no provider authority.
+
+Every processed step is committed through a caller-supplied CAS-shaped
+checkpoint store before the next handler runs. Checkpoints bind the exact run,
+source, qualification, plan, handler identities, revision, prior checkpoint,
+state, and step receipts. The included in-memory reference store proves
+process-local claim/commit/release, concurrent-owner rejection, suspension,
+restart without replay, terminal result reuse, and stale handler/checkpoint
+rejection. Store exceptions and failed release operations return structured
+fail-closed errors.
+
+This host grants checkpoint-store mutation only. It grants no provider
+dispatch, workflow-external state mutation, external continuation, deployment,
+promotion, or activation authority. `core.set`, dynamic typed branch
+re-evaluation, nested kernel composition, resolved state/step inputs, and a
+durable multi-process checkpoint-store adapter remain outside this bounded
+packet rather than being inferred from primitive sequencing.
 
 ## Compiled classification envelope
 
