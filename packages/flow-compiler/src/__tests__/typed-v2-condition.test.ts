@@ -1,4 +1,9 @@
-import type { ToolResolver } from "@dzupagent/flow-ast";
+import {
+  evaluateFlowTypedCondition,
+  FLOW_TYPED_CONDITION_CAPABILITY,
+  type FlowExpression,
+  type ToolResolver,
+} from "@dzupagent/flow-ast";
 import { parseDslToDocument } from "@dzupagent/flow-dsl";
 import { describe, expect, it } from "vitest";
 
@@ -14,6 +19,85 @@ const resolver: ToolResolver = {
 };
 
 describe("typed dzupflow/v2 conditions", () => {
+  it("keeps analyzer-valid fixtures aligned with provider-free evaluation", () => {
+    const fixtures: Array<{
+      expression: FlowExpression;
+      bindings: Readonly<Record<string, unknown>>;
+      expected: boolean;
+    }> = [
+      {
+        expression: {
+          op: "gte",
+          left: { op: "ref", path: "inputs.score" },
+          right: { op: "literal", value: 3 },
+        },
+        bindings: { inputs: { score: 4 } },
+        expected: true,
+      },
+      {
+        expression: {
+          op: "contains",
+          collection: { op: "ref", path: "inputs.label" },
+          value: { op: "literal", value: "approved" },
+        },
+        bindings: { inputs: { label: "review-approved" } },
+        expected: true,
+      },
+      {
+        expression: {
+          op: "and",
+          args: [
+            { op: "ref", path: "inputs.ready" },
+            {
+              op: "not",
+              arg: { op: "ref", path: "inputs.blocked" },
+            },
+          ],
+        },
+        bindings: { inputs: { ready: true, blocked: true } },
+        expected: false,
+      },
+    ];
+
+    for (const fixture of fixtures) {
+      const analysis = analyzeFlowExpressionContract(fixture.expression, {
+        policy: "strict",
+        knownBindings: {
+          inputs: ["score", "label", "ready", "blocked"],
+        },
+        typeBindings: {
+          inputs: {
+            score: "number",
+            label: "string",
+            ready: "boolean",
+            blocked: "boolean",
+          },
+        },
+        requireKnownTypes: true,
+      });
+      expect(analysis).toMatchObject({
+        deterministic: true,
+        resultType: "boolean",
+        issues: [],
+      });
+      expect(
+        evaluateFlowTypedCondition(
+          {
+            schema: "dzupagent.flowTypedCondition/v1",
+            expression: fixture.expression,
+          },
+          {
+            hostCapabilities: [FLOW_TYPED_CONDITION_CAPABILITY],
+            bindings: fixture.bindings,
+          },
+        ),
+      ).toMatchObject({
+        ok: true,
+        value: fixture.expected,
+      });
+    }
+  });
+
   it("accepts literal boolean and declared compatible comparison contracts", () => {
     expect(
       analyzeFlowExpressionContract(
