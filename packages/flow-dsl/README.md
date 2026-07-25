@@ -15,12 +15,12 @@ import {
   parseDslToDocument,
   validateDocument,
   canonicalizeDsl,
-} from '@dzupagent/flow-dsl'
+} from "@dzupagent/flow-dsl";
 
-const { ok, document, diagnostics } = parseDslToDocument(source)
+const { ok, document, diagnostics } = parseDslToDocument(source);
 if (!ok) {
-  console.error(diagnostics)
-  process.exit(1)
+  console.error(diagnostics);
+  process.exit(1);
 }
 ```
 
@@ -50,27 +50,27 @@ not part of the contract; canonical examples use only this documented subset.
 ## Document shape
 
 ```yaml
-dsl: dzupflow/v1                # or dzupflow/v1alpha-agent
-id: my-flow                     # flow identifier
+dsl: dzupflow/v1 # or dzupflow/v1alpha-agent
+id: my-flow # flow identifier
 version: 1
 title: Optional human title
 description: Optional one-liner
 inputs:
-  goal: string                  # shorthand
-  count:                        # or full spec
+  goal: string # shorthand
+  count: # or full spec
     type: number
     required: false
     default: 5
-    classification: internal   # public | internal | sensitive | secret
+    classification: internal # public | internal | sensitive | secret
 defaults:
-  persona: planner              # alias for personaRef
-  timeout_ms: 300000            # alias for timeoutMs
+  persona: planner # alias for personaRef
+  timeout_ms: 300000 # alias for timeoutMs
   retry: { attempts: 3, delayMs: 100 }
 steps:
   - action:
       id: plan
       ref: tool.plan_task
-      input: { goal: '{{ input.goal }}' }
+      input: { goal: "{{ input.goal }}" }
   - complete:
       id: done
       result: ok
@@ -174,6 +174,21 @@ Every `use` must include an exact version. Primitive invocations bind the
 exact V2 ref and semantic hash, and generated v1 namespace imports remain
 version-pinned. `save` currently supports one declared output port mapped to a
 flat `state.<key>` when the compatible v1 node has a reviewed output adapter.
+
+Authored V2 may additionally declare an exact primitive import closure:
+
+```yaml
+imports:
+  primitives:
+    - ref: primitive://adapter.run@1
+      semanticHash: sha256:<exact-registry-sha256>
+```
+
+The ref must exist in the selected registry and the hash must match its exact
+semantic contract. Duplicate, missing, unused, unregistered, malformed, or
+hash-drifted imports fail closed. Omitting `imports` preserves compatibility
+and records a derived effective import set in frontend metadata; an explicit
+catalog is required when source-level lock custody is needed.
 
 ### Typed conditions and general `when`
 
@@ -306,12 +321,41 @@ multi-port save contract likewise stops with
 The bounded frontend still fails closed on nested or non-state save targets;
 unknown kernel versions;
 unregistered primitives; conflicting versions from one namespace; and
-unimplemented top-level profiles, locks, outputs, state, and return surfaces.
+unimplemented top-level profile/schema/fragment/connector/role/flow locks,
+outputs, state, and return surfaces.
 This is a compatibility frontend, not a new runtime. Richer kernel constructs,
 typed-condition target adoption, exact generated-field edits, source pre/post
-hash attestation, and an authored-v2 formatter remain separate work. The
+hash attestation, and broader import catalogs remain separate work. The
 existing canonical v1 formatter preserves the typed-condition sidecar and its
 quoted fail-closed shadow across parse-format-parse round trips.
+
+## Authored V2 formatting and report-only V1 migration
+
+`@dzupagent/flow-dsl/v2-authoring` publishes:
+
+- `importDslV2Source` for YAML import, bounded validation, deterministic key
+  ordering, canonical source and semantic hashes, and parse-format-parse
+  verification;
+- `formatDslV2Document` for the same contract from plain JSON input; and
+- `previewDslV1ToV2Migration` for a report-only, hash-bound migration preview.
+
+Formatting covers the complete currently qualified V2 envelope, including
+typed conditions, policy narrowing, retry, terminal catch, multi-port save,
+evidence, annotations, and explicit primitive import locks. Comments are
+intentionally not preserved. Non-JSON values, cycles, unknown fields, and
+unsupported envelope shapes produce diagnostics instead of being dropped.
+
+The V1 preview classifies each node as `equivalent`, `lossy`, or `unsupported`.
+It emits a candidate only when the supported set/branch/primitive/complete
+projection lowers to the exact same canonical V1 document. Primitive
+migration requires the source V1 `uses.<namespace>` pin and materializes the
+corresponding exact ref and semantic hash in `imports.primitives`; it never
+selects an implicit latest version. The immutable report carries source,
+candidate, semantic, and report hashes.
+
+These APIs authorize source formatting and report construction only. They do
+not mutate the input document, apply a migration, execute a runtime, dispatch
+a provider, deploy, or activate a target.
 
 ## Custom V2 registries and authoring metadata
 
@@ -404,13 +448,13 @@ exact scope set is provided by the host runtime.
 
 ### Pipe filters (closed set)
 
-| Filter         | Behavior                                                                                  |
-|----------------|-------------------------------------------------------------------------------------------|
-| `length`       | `Array.length` / `String.length`; `undefined` otherwise.                                  |
-| `json`         | `JSON.stringify(value)`.                                                                  |
-| `upper`        | `String(value).toUpperCase()`; `undefined` for null/undefined.                            |
-| `lower`        | `String(value).toLowerCase()`; `undefined` for null/undefined.                            |
-| `default:"x"`  | Returns the literal arg when value is null/undefined; passthrough otherwise. Arg accepts a quoted string, a signed integer, or a bare string. |
+| Filter        | Behavior                                                                                                                                      |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `length`      | `Array.length` / `String.length`; `undefined` otherwise.                                                                                      |
+| `json`        | `JSON.stringify(value)`.                                                                                                                      |
+| `upper`       | `String(value).toUpperCase()`; `undefined` for null/undefined.                                                                                |
+| `lower`       | `String(value).toLowerCase()`; `undefined` for null/undefined.                                                                                |
+| `default:"x"` | Returns the literal arg when value is null/undefined; passthrough otherwise. Arg accepts a quoted string, a signed integer, or a bare string. |
 
 Filters chain left-to-right: `{{ state.items | length | json }}` returns the
 length as a JSON string.
@@ -438,9 +482,9 @@ Invoke a registered tool/skill with input.
 ```yaml
 - action:
     id: plan
-    ref: tool.plan_task           # or toolRef
-    input: { goal: '{{ input.goal }}' }
-    persona: planner              # optional; binds personaRef
+    ref: tool.plan_task # or toolRef
+    input: { goal: "{{ input.goal }}" }
+    persona: planner # optional; binds personaRef
 ```
 
 ### `complete`
@@ -450,7 +494,7 @@ Mark the flow finished.
 ```yaml
 - complete:
     id: done
-    result: ok                    # optional string
+    result: ok # optional string
 ```
 
 ### `set`
@@ -463,9 +507,9 @@ their values) to avoid leaking secrets.
 - set:
     id: seed_state
     assign:
-      count: '{{ state.items | length }}'
+      count: "{{ state.items | length }}"
       done: true
-      summary: '{{ state.last_agent.output.summary }}'
+      summary: "{{ state.last_agent.output.summary }}"
 ```
 
 `assign` is required and must be a plain object. Arrays or scalars are rejected
@@ -491,7 +535,7 @@ Read, write, list, or search in tenant-scoped memory. `tier` must be one of
     operation: write
     tier: project
     key: snapshot
-    valueExpr: '{{ plan }}'        # value_expr alias accepted
+    valueExpr: "{{ plan }}" # value_expr alias accepted
 ```
 
 ```yaml
@@ -511,9 +555,9 @@ Templated semantic search against the configured memory backend.
     id: find_prior
     operation: search
     tier: workspace
-    query: '{{ state.who }}'       # required, may use templates
-    limit: 5                       # positive integer; defaults to 10
-    outputVar: priorSessions       # default: memorySearchResults
+    query: "{{ state.who }}" # required, may use templates
+    limit: 5 # positive integer; defaults to 10
+    outputVar: priorSessions # default: memorySearchResults
 ```
 
 `query` is required for `search` and is resolved through the template engine
@@ -527,13 +571,13 @@ via `resolveDeep` at execution.
 ```yaml
 - http:
     id: post_echo
-    method: POST                  # GET|POST|PUT|PATCH|DELETE
-    url: '{{ state.endpoint }}/echo/{{ state.who }}'
+    method: POST # GET|POST|PUT|PATCH|DELETE
+    url: "{{ state.endpoint }}/echo/{{ state.who }}"
     headers:
-      Authorization: 'Bearer {{ state.token }}'
+      Authorization: "Bearer {{ state.token }}"
     body:
-      firstTag: '{{ state.items[0] }}'
-      count: '{{ state.items | length }}'
+      firstTag: "{{ state.items[0] }}"
+      count: "{{ state.items | length }}"
     outputVar: response
 ```
 
@@ -547,12 +591,12 @@ an explicit `systemPrompt` is set on the node (see
 ```yaml
 - prompt:
     id: greet
-    userPrompt: 'Greet {{ state.who | upper }}'
-    systemPrompt: 'You are concise.'    # optional; wins over inherited persona
-    outputKey: greeting                 # where to store the assistant reply
-    model: claude-sonnet-4-6            # optional override
-    provider: anthropic                 # optional override
-    tools: true                         # optional; expose host tools
+    userPrompt: "Greet {{ state.who | upper }}"
+    systemPrompt: "You are concise." # optional; wins over inherited persona
+    outputKey: greeting # where to store the assistant reply
+    model: claude-sonnet-4-6 # optional override
+    provider: anthropic # optional override
+    tools: true # optional; expose host tools
 ```
 
 ### `agent`
@@ -564,10 +608,10 @@ policy. Available under `dsl: dzupflow/v1alpha-agent` (and forward).
 - agent:
     id: plan
     agentId: planner
-    profile: planner-profile          # optional profile reference
-    toolset: planning                  # named toolset to expand
-    tools: [fs.read]                   # or explicit tool ids
-    instructions: 'Plan the work'
+    profile: planner-profile # optional profile reference
+    toolset: planning # named toolset to expand
+    tools: [fs.read] # or explicit tool ids
+    instructions: "Plan the work"
     input: { topic: flow }
     stop: { maxIterations: 4, requireFinalSchema: true }
     output: { key: plan, schemaRef: plan.v1 }
@@ -576,7 +620,7 @@ policy. Available under `dsl: dzupflow/v1alpha-agent` (and forward).
       onValidationFailure: { attempts: 1, fullLoop: false }
       onModelUnavailable: { attempts: 2, fallbackProfile: backup }
     validation:
-      required: [{ command: 'yarn typecheck' }]
+      required: [{ command: "yarn typecheck" }]
       repair: { maxAttempts: 2 }
     policy:
       timeoutMs: 60000
@@ -594,7 +638,7 @@ Standalone validation gate (referenced suite or inline commands).
 - validate:
     id: final
     commands:
-      - { command: 'yarn typecheck' }
+      - { command: "yarn typecheck" }
     repair: { maxAttempts: 2, onFailure: retry-prior-agent }
 ```
 
@@ -613,11 +657,11 @@ When inheritance fires for a prompt node, the journal records
 ```yaml
 - persona:
     id: with_persona
-    ref: friendly-assistant            # or personaId
+    ref: friendly-assistant # or personaId
     body:
       - prompt:
           id: greet
-          userPrompt: 'Greet the user.'
+          userPrompt: "Greet the user."
           outputKey: greeting
 ```
 
@@ -628,7 +672,7 @@ Capability- or provider-routed sub-sequence.
 ```yaml
 - route:
     id: pick_path
-    strategy: capability               # or fixed-provider
+    strategy: capability # or fixed-provider
     tags: [fast, cheap]
     body:
       - action: { ref: skill:run, input: {} }
@@ -638,7 +682,7 @@ Capability- or provider-routed sub-sequence.
 
 ```yaml
 - if:
-    condition: '{{ state.count | length }}'
+    condition: "{{ state.count | length }}"
     then:
       - action: { ref: skill:a, input: {} }
     else:
@@ -669,10 +713,10 @@ Iterate a state source. Supports `attachAs`, `collectInto`, `accumulator`, and
 ```yaml
 - for_each:
     id: process_items
-    source: items                      # state key (or template)
+    source: items # state key (or template)
     as: item
     body:
-      - action: { ref: skill:process, input: { item: '{{ item }}' } }
+      - action: { ref: skill:process, input: { item: "{{ item }}" } }
 ```
 
 ### `try_catch`
@@ -692,8 +736,8 @@ Iterate a state source. Supports `attachAs`, `collectInto`, `accumulator`, and
 ```yaml
 - loop:
     id: poll
-    condition: '{{ state.running }}'
-    maxIterations: 50                  # max_iterations alias accepted
+    condition: "{{ state.running }}"
+    maxIterations: 50 # max_iterations alias accepted
     body:
       - action: { ref: skill:check, input: {} }
 ```
@@ -705,7 +749,7 @@ Pause for human approval; branch on the response.
 ```yaml
 - approval:
     id: gate
-    question: 'Proceed with deploy?'
+    question: "Proceed with deploy?"
     approval_class: destructive_shell # optional; omitted means always-human
     options: [yes, no]
     onApprove:
@@ -728,9 +772,9 @@ Pause for a clarification answer (`text` or `choice`).
 ```yaml
 - clarify:
     id: ask_name
-    question: 'What is your name?'
-    expected: text                     # or choice
-    choices: [a, b]                    # required when expected = choice
+    question: "What is your name?"
+    expected: text # or choice
+    choices: [a, b] # required when expected = choice
 ```
 
 ### `classify`
@@ -740,10 +784,10 @@ LLM-driven enum selection from a fixed choice list.
 ```yaml
 - classify:
     id: pick_tier
-    prompt: 'Which implementation tier?'
+    prompt: "Which implementation tier?"
     choices: [frontend, backend, infra]
-    output: tier                       # alias for outputKey
-    default: infra                     # must be one of choices
+    output: tier # alias for outputKey
+    default: infra # must be one of choices
 ```
 
 ### `emit`
@@ -756,9 +800,9 @@ through the template engine.
     id: announce
     event: demo.completed
     payload:
-      who: '{{ state.who }}'
-      itemCount: '{{ state.items | length }}'
-      descriptor: '{{ state.who }} processed {{ state.items | length }} tags'
+      who: "{{ state.who }}"
+      itemCount: "{{ state.items | length }}"
+      descriptor: "{{ state.who }} processed {{ state.items | length }} tags"
 ```
 
 ### `spawn`
@@ -768,9 +812,9 @@ Spawn a child flow run from a template; optionally block until completion.
 ```yaml
 - spawn:
     id: run_child
-    templateRef: tmpl-abc              # template_ref alias accepted
+    templateRef: tmpl-abc # template_ref alias accepted
     waitForCompletion: true
-    input: { goal: '{{ input.goal }}' }
+    input: { goal: "{{ input.goal }}" }
 ```
 
 ### `subflow`
@@ -780,8 +824,8 @@ Inline another flow document by reference.
 ```yaml
 - subflow:
     id: inline_auth
-    flowRef: auth-flow-id              # flow_ref alias accepted
-    input: { user: '{{ state.user }}' }
+    flowRef: auth-flow-id # flow_ref alias accepted
+    input: { user: "{{ state.user }}" }
     outputVar: authResult
 ```
 
@@ -793,7 +837,7 @@ Jump back to an earlier step id (bounded loop construct).
 - return_to:
     id: try_again
     targetId: plan
-    condition: '{{ state.retry }}'
+    condition: "{{ state.retry }}"
     maxIterations: 3
 ```
 
@@ -802,7 +846,7 @@ Jump back to an earlier step id (bounded loop construct).
 ```yaml
 - wait:
     id: pause
-    durationMs: 2000                   # duration_ms alias accepted
+    durationMs: 2000 # duration_ms alias accepted
 ```
 
 ### `checkpoint` / `restore`
@@ -817,7 +861,7 @@ Snapshot and resume points for long-running flows.
 - restore:
     id: r1
     checkpointLabel: after-plan
-    onNotFound: skip                   # or fail
+    onNotFound: skip # or fail
 ```
 
 ## Output-key uniqueness
@@ -843,8 +887,8 @@ a follow-up milestone.
 ## Validation
 
 ```ts
-import { validateDocument } from '@dzupagent/flow-dsl'
-const { valid, diagnostics } = validateDocument(document)
+import { validateDocument } from "@dzupagent/flow-dsl";
+const { valid, diagnostics } = validateDocument(document);
 ```
 
 `parseDslToDocument` runs `validateDocument` for you and rolls its diagnostics
