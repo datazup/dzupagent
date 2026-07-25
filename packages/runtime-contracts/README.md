@@ -32,6 +32,13 @@ independence, validation/evidence-backed decisions, revision limits, progress,
 and terminal states. They do not choose a provider or replace host-owned
 validation, Git, budget, restart, or authorization gates.
 
+The exported
+`fixtures/agent-review-conformance-v1.json` package subpath is the immutable
+provider-free cross-host corpus for accepted, revise, revision-limit,
+no-progress, blocked-external, skipped-validation, and host-policy-failure
+projections. Consumers must verify its `payloadSha256` over the canonical
+payload before executing the cases; the fixture grants no runtime authority.
+
 The RAG subpath also exposes a provider-neutral bounded composition. Hosts
 inject retrieval and synthesis implementations; the composition admits at
 most one primary retrieval and one explicitly declared fallback, validates
