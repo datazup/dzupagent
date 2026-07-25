@@ -1,0 +1,208 @@
+import { createHash } from "node:crypto";
+
+import type { FlowNode } from "@dzupagent/flow-ast";
+import type { FlowTypedCondition } from "@dzupagent/flow-ast/expressions";
+import type { DslV2FrontendMetadata } from "@dzupagent/flow-dsl";
+import { FLOW_PRIMITIVE_MULTI_PORT_SAVE_CAPABILITY } from "@dzupagent/flow-dsl/v2-multi-port-save";
+import { FLOW_PRIMITIVE_POLICY_NARROWING_CAPABILITY } from "@dzupagent/flow-dsl/v2-policy-narrowing";
+import { FLOW_PRIMITIVE_RETRY_POLICY_CAPABILITY } from "@dzupagent/flow-dsl/v2-retry-policy";
+import { FLOW_PRIMITIVE_TERMINAL_CATCH_CAPABILITY } from "@dzupagent/flow-dsl/v2-terminal-catch";
+
+import type {
+  V2InactiveLocalTargetContractEvidence,
+  V2InactiveLocalTargetQualificationError,
+} from "./contracts.js";
+
+export function validatePrimitiveContractIdentities(
+  frontend: DslV2FrontendMetadata
+): V2InactiveLocalTargetQualificationError[] {
+  const declared = new Map(
+    frontend.primitiveBindings.map(
+      (binding) => [binding.ref, binding.semanticHash] as const
+    )
+  );
+  const errors: V2InactiveLocalTargetQualificationError[] = [];
+  for (const item of primitiveContractItems(frontend)) {
+    if (declared.get(item.primitiveRef) === item.primitiveSemanticHash)
+      continue;
+    errors.push({
+      code: "V2_LOCAL_TARGET_PRIMITIVE_IDENTITY_DRIFT",
+      message: `${item.capability} at ${item.authoredPath} is not bound to the exact frontend primitive ref/hash`,
+      path: item.authoredPath,
+    });
+  }
+  return errors;
+}
+
+export function collectPrimitiveContractEvidence(
+  frontend: DslV2FrontendMetadata
+): readonly V2InactiveLocalTargetContractEvidence[] {
+  return Object.freeze(
+    primitiveContractItems(frontend)
+      .map((item) =>
+        Object.freeze({
+          capability: item.capability,
+          authoredPath: item.authoredPath,
+          primitiveRef: item.primitiveRef,
+          primitiveSemanticHash: item.primitiveSemanticHash,
+          contractSha256: digest(stableStringify(item.contract)),
+        })
+      )
+      .sort((left, right) =>
+        `${left.authoredPath}:${left.capability}`.localeCompare(
+          `${right.authoredPath}:${right.capability}`
+        )
+      )
+  );
+}
+
+function primitiveContractItems(frontend: DslV2FrontendMetadata) {
+  return [
+    ...frontend.policyNarrowings.map((binding) => ({
+      capability: FLOW_PRIMITIVE_POLICY_NARROWING_CAPABILITY,
+      authoredPath: binding.authoredPath,
+      primitiveRef: binding.primitiveRef,
+      primitiveSemanticHash: binding.primitiveSemanticHash,
+      contract: binding.narrowing,
+    })),
+    ...frontend.retryPolicies.map((binding) => ({
+      capability: FLOW_PRIMITIVE_RETRY_POLICY_CAPABILITY,
+      authoredPath: binding.authoredPath,
+      primitiveRef: binding.primitiveRef,
+      primitiveSemanticHash: binding.primitiveSemanticHash,
+      contract: binding.retry,
+    })),
+    ...frontend.terminalCatches.map((binding) => ({
+      capability: FLOW_PRIMITIVE_TERMINAL_CATCH_CAPABILITY,
+      authoredPath: binding.authoredPath,
+      primitiveRef: binding.primitiveRef,
+      primitiveSemanticHash: binding.primitiveSemanticHash,
+      contract: binding.catch,
+    })),
+    ...frontend.multiPortSaves.map((binding) => ({
+      capability: FLOW_PRIMITIVE_MULTI_PORT_SAVE_CAPABILITY,
+      authoredPath: binding.authoredPath,
+      primitiveRef: binding.primitiveRef,
+      primitiveSemanticHash: binding.primitiveSemanticHash,
+      contract: binding.save,
+    })),
+  ];
+}
+
+export function collectTypedConditions(root: FlowNode): readonly {
+  readonly path: string;
+  readonly condition: FlowTypedCondition;
+}[] {
+  const result: Array<{ path: string; condition: FlowTypedCondition }> = [];
+  visit(root, "root", result);
+  return Object.freeze(result);
+}
+
+function visit(
+  node: FlowNode,
+  path: string,
+  result: Array<{ path: string; condition: FlowTypedCondition }>
+): void {
+  if (node.type === "branch" && node.typedCondition !== undefined) {
+    result.push({
+      path: `${path}.typedCondition`,
+      condition: node.typedCondition,
+    });
+  }
+  for (const [child, childPath] of childNodes(node, path)) {
+    visit(child, childPath, result);
+  }
+}
+
+function childNodes(node: FlowNode, path: string): Array<[FlowNode, string]> {
+  switch (node.type) {
+    case "sequence":
+      return node.nodes.map((child, index) => [
+        child,
+        `${path}.nodes[${index}]`,
+      ]);
+    case "for_each":
+    case "persona":
+    case "route":
+    case "loop":
+      return node.body.map((child, index) => [child, `${path}.body[${index}]`]);
+    case "branch":
+      return [
+        ...node.then.map(
+          (child, index) =>
+            [child, `${path}.then[${index}]`] as [FlowNode, string]
+        ),
+        ...(node.else ?? []).map(
+          (child, index) =>
+            [child, `${path}.else[${index}]`] as [FlowNode, string]
+        ),
+      ];
+    case "parallel":
+      return node.branches.flatMap((branch, branchIndex) =>
+        branch.map(
+          (child, index) =>
+            [child, `${path}.branches[${branchIndex}][${index}]`] as [
+              FlowNode,
+              string
+            ]
+        )
+      );
+    case "approval":
+      return [
+        ...node.onApprove.map(
+          (child, index) =>
+            [child, `${path}.onApprove[${index}]`] as [FlowNode, string]
+        ),
+        ...(node.onReject ?? []).map(
+          (child, index) =>
+            [child, `${path}.onReject[${index}]`] as [FlowNode, string]
+        ),
+      ];
+    case "try_catch":
+      return [
+        ...node.body.map(
+          (child, index) =>
+            [child, `${path}.body[${index}]`] as [FlowNode, string]
+        ),
+        ...node.catch.map(
+          (child, index) =>
+            [child, `${path}.catch[${index}]`] as [FlowNode, string]
+        ),
+      ];
+    default:
+      return [];
+  }
+}
+
+export function digest(value: string): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+export function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  if (isRecord(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export function deepFreeze<T>(value: T): T {
+  if (Array.isArray(value)) {
+    value.forEach((item) => deepFreeze(item));
+    return Object.freeze(value);
+  }
+  if (isRecord(value)) {
+    Object.values(value).forEach((nested) => deepFreeze(nested));
+    return Object.freeze(value);
+  }
+  return value;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}

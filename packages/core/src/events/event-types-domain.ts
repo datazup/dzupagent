@@ -248,7 +248,7 @@ export type DomainLifecycleEvent =
         };
       };
       warnings: Array<{
-        stage: 4;
+        stage: 1 | 2 | 3 | 4;
         code: string;
         message: string;
         nodePath?: string;

@@ -1,24 +1,12 @@
-import {
-  BUILT_IN_PRIMITIVE_REGISTRY_V2,
-} from "../primitives/built-ins.js";
-import type {
-  PrimitiveRegistryV2,
-} from "../primitives/types.js";
+import { BUILT_IN_PRIMITIVE_REGISTRY_V2 } from "../primitives/built-ins.js";
+import type { PrimitiveRegistryV2 } from "../primitives/types.js";
 import type { DslDiagnostic } from "../types.js";
-import type {
-  DslV2FrontendMetadata,
-  LowerDslV2Result,
-} from "./types.js";
+import type { DslV2FrontendMetadata, LowerDslV2Result } from "./types.js";
 import { withV2SourceLineage } from "./source-lineage.js";
-import {
-  parseV2TypedCondition,
-} from "./typed-condition.js";
+import { parseV2TypedCondition } from "./typed-condition.js";
 import type { PrimitivePolicyLimits } from "./policy-narrowing.js";
 import type { V2LoweringContext } from "./lower-v2-context.js";
-import {
-  lowerV2CoreStep,
-  wrapV2GuardedStep,
-} from "./lower-v2-kernel.js";
+import { lowerV2CoreStep, wrapV2GuardedStep } from "./lower-v2-kernel.js";
 import {
   lowerV2PolicyNarrowing,
   lowerV2RetryPolicy,
@@ -26,6 +14,11 @@ import {
   lowerV2Save,
   registerV2Primitive,
 } from "./lower-v2-primitive.js";
+import {
+  effectiveV2PrimitiveImports,
+  parseV2PrimitiveImports,
+  validateV2PrimitiveImportClosure,
+} from "./imports.js";
 
 const TOP_LEVEL_KEYS = new Set([
   "dsl",
@@ -38,6 +31,7 @@ const TOP_LEVEL_KEYS = new Set([
   "tags",
   "meta",
   "durability",
+  "imports",
   "steps",
 ]);
 const STEP_KEYS = new Set([
@@ -63,7 +57,7 @@ export interface LowerDslV2Options {
 /** Lower the bounded v2 authoring subset into the existing v1 wrapper frontend. */
 export function lowerDslV2Document(
   raw: unknown,
-  options: LowerDslV2Options = {},
+  options: LowerDslV2Options = {}
 ): LowerDslV2Result {
   const diagnostics: DslDiagnostic[] = [];
   if (!isRecord(raw)) {
@@ -71,7 +65,9 @@ export function lowerDslV2Document(
   }
   for (const key of Object.keys(raw)) {
     if (!TOP_LEVEL_KEYS.has(key)) {
-      diagnostics.push(unsupported(`Unsupported dzupflow/v2 field "${key}"`, `root.${key}`));
+      diagnostics.push(
+        unsupported(`Unsupported dzupflow/v2 field "${key}"`, `root.${key}`)
+      );
     }
   }
   if (raw.dsl !== "dzupflow/v2") {
@@ -91,14 +87,11 @@ export function lowerDslV2Document(
     });
   }
   if (nonEmptyString(raw.id) === undefined) {
-    diagnostics.push(
-      required("dzupflow/v2 id is required", "root.id"),
-    );
+    diagnostics.push(required("dzupflow/v2 id is required", "root.id"));
   }
   const context: V2LoweringContext = {
     diagnostics,
-    registry:
-      options.primitiveRegistryV2 ?? BUILT_IN_PRIMITIVE_REGISTRY_V2,
+    registry: options.primitiveRegistryV2 ?? BUILT_IN_PRIMITIVE_REGISTRY_V2,
     lineage: [],
     bindings: new Map(),
     namespaceVersions: new Map(),
@@ -110,7 +103,13 @@ export function lowerDslV2Document(
     terminalCatches: [],
     multiPortSaves: [],
   };
+  const imports = parseV2PrimitiveImports(
+    raw.imports,
+    context.registry,
+    diagnostics
+  );
   const steps = lowerSteps(raw.steps, "root.steps", "steps", context);
+  validateV2PrimitiveImportClosure(imports, context.bindings, diagnostics);
   if (diagnostics.length > 0) {
     return {
       ok: false,
@@ -126,7 +125,7 @@ export function lowerDslV2Document(
       .map(([namespace, version]) => [
         namespace,
         `dzup.${namespace}@${version}`,
-      ]),
+      ])
   );
   const lowered: Record<string, unknown> = {
     dsl: "dzupflow/v1",
@@ -153,6 +152,8 @@ export function lowerDslV2Document(
     authoredVersion: "2.0.0",
     canonicalDsl: "dzupflow/v1",
     canonicalVersion: 1,
+    primitiveImportMode: imports.explicit ? "explicit" : "derived",
+    primitiveImports: effectiveV2PrimitiveImports(imports, context.bindings),
     stepLineage: context.lineage,
     primitiveBindings: [...context.bindings.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
@@ -174,7 +175,7 @@ function lowerSteps(
   raw: unknown,
   authoredPath: string,
   loweredPath: string,
-  context: V2LoweringContext,
+  context: V2LoweringContext
 ): readonly Readonly<Record<string, unknown>>[] {
   if (!Array.isArray(raw)) {
     context.diagnostics.push({
@@ -190,7 +191,7 @@ function lowerSteps(
       step,
       `${authoredPath}[${index}]`,
       `${loweredPath}[${index}]`,
-      context,
+      context
     );
     return lowered === null ? [] : [lowered];
   });
@@ -200,7 +201,7 @@ function lowerStep(
   raw: unknown,
   authoredPath: string,
   loweredPath: string,
-  context: V2LoweringContext,
+  context: V2LoweringContext
 ): Readonly<Record<string, unknown>> | null {
   if (!isRecord(raw)) {
     context.diagnostics.push({
@@ -216,18 +217,22 @@ function lowerStep(
       context.diagnostics.push(
         unsupported(
           `Unsupported dzupflow/v2 step field "${key}"`,
-          `${authoredPath}.${key}`,
-        ),
+          `${authoredPath}.${key}`
+        )
       );
     }
   }
   const id = nonEmptyString(raw.id);
   const use = nonEmptyString(raw.use);
   if (id === undefined) {
-    context.diagnostics.push(required("v2 step id is required", `${authoredPath}.id`));
+    context.diagnostics.push(
+      required("v2 step id is required", `${authoredPath}.id`)
+    );
   }
   if (use === undefined) {
-    context.diagnostics.push(required("v2 step use is required", `${authoredPath}.use`));
+    context.diagnostics.push(
+      required("v2 step use is required", `${authoredPath}.use`)
+    );
     return null;
   }
   const match = EXACT_USE_PATTERN.exec(use);
@@ -244,18 +249,16 @@ function lowerStep(
   const annotations = objectField(
     raw.annotations,
     `${authoredPath}.annotations`,
-    context,
+    context
   );
   const evidence = objectField(
     raw.evidence,
     `${authoredPath}.evidence`,
-    context,
+    context
   );
   const base = {
     ...(id === undefined ? {} : { id }),
-    ...(annotations === undefined
-      ? {}
-      : { meta: { annotations } }),
+    ...(annotations === undefined ? {} : { meta: { annotations } }),
     ...(evidence === undefined ? {} : { evidence }),
   };
   const kind = match[1]!;
@@ -266,7 +269,7 @@ function lowerStep(
       : parseV2TypedCondition(
           raw.when,
           `${authoredPath}.when`,
-          context.diagnostics,
+          context.diagnostics
         );
   if (guard === null) return null;
   const childLoweredPath =
@@ -282,7 +285,7 @@ function lowerStep(
       authoredPath,
       childLoweredPath,
       context,
-      lowerSteps,
+      lowerSteps
     );
   } else {
     const definition = context.registry.resolve(kind, version);
@@ -300,19 +303,19 @@ function lowerStep(
       raw.policy,
       definition,
       authoredPath,
-      context,
+      context
     );
     const retryPolicy = lowerV2RetryPolicy(
       raw.retry,
       definition,
       authoredPath,
-      context,
+      context
     );
     const terminalCatch = lowerV2TerminalCatch(
       raw.catch,
       definition,
       authoredPath,
-      context,
+      context
     );
     const body: Record<string, unknown> = { ...base, ...(input ?? {}) };
     const saveResult = lowerV2Save(
@@ -325,9 +328,9 @@ function lowerStep(
         guarded: guard !== undefined,
         terminalCatchContinues:
           terminalCatch?.clauses.some(
-            (clause) => clause.outcome.action === "continue",
+            (clause) => clause.outcome.action === "continue"
           ) === true,
-      },
+      }
     );
     context.lineage.push({
       authoredPath,
@@ -344,9 +347,7 @@ function lowerStep(
         generated: false,
         primitiveRef: definition.ref,
         primitiveSemanticHash: definition.compatibility.semanticHash,
-        ...(policyNarrowing === undefined
-          ? {}
-          : { policyNarrowing }),
+        ...(policyNarrowing === undefined ? {} : { policyNarrowing }),
         ...(retryPolicy === undefined ? {} : { retryPolicy }),
         ...(terminalCatch === undefined ? {} : { terminalCatch }),
         ...(Object.keys(saveResult.legacyBindings).length === 0
@@ -366,14 +367,14 @@ function lowerStep(
     use,
     authoredPath,
     loweredPath,
-    context,
+    context
   );
 }
 
 function objectField(
   value: unknown,
   path: string,
-  context: V2LoweringContext,
+  context: V2LoweringContext
 ): Record<string, unknown> | undefined {
   if (value === undefined) return undefined;
   if (!isRecord(value)) {
@@ -438,10 +439,7 @@ function deepFreeze(value: unknown): unknown {
   }
   return Object.freeze(
     Object.fromEntries(
-      Object.entries(value).map(([key, nested]) => [
-        key,
-        deepFreeze(nested),
-      ]),
-    ),
+      Object.entries(value).map(([key, nested]) => [key, deepFreeze(nested)])
+    )
   );
 }

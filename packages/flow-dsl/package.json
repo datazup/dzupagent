@@ -29,6 +29,10 @@
     "./v2-multi-port-save": {
       "import": "./dist/v2-multi-port-save.js",
       "types": "./dist/v2-multi-port-save.d.ts"
+    },
+    "./v2-authoring": {
+      "import": "./dist/v2-authoring.js",
+      "types": "./dist/v2-authoring.d.ts"
     }
   },
   "files": [
