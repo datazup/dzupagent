@@ -35,8 +35,11 @@ to build a deterministic authored-to-canonical index after subset parsing.
 node paths and field-relative UTF-16 offsets into absolute source offsets plus
 one-based line/column positions. Nested branches, named parallel branches,
 quoted scalars, inline JSON values, and literal blocks are supported. Generated
-fragment/composite fields without a unique authored origin remain unmapped
-rather than receiving a guessed range.
+v2 primitive/fragment fields map to their parent `use` as explicitly derived
+breadcrumbs; derived mappings resolve diagnostics but reject field-relative
+quick fixes. For v2, consume the `sourceMap` returned by
+`parseDslToDocument`/`canonicalizeDsl` so parser-only expansion lineage can be
+composed before the canonical document is returned.
 
 The YAML frontend is intentionally a block-style subset. It supports mappings,
 sequences, scalar values, inline scalar arrays/JSON objects, and literal block
@@ -132,7 +135,8 @@ can continue to use `exportPrimitiveCatalog`.
 ## Bounded dzupflow/v2 frontend
 
 `parseDslToDocument` recognizes the explicit `dsl: dzupflow/v2` document kind
-with `version: 2.0.0`. P3a supports the uniform multi-key step envelope:
+with `version: 2.0.0`. The current bounded frontend supports the uniform
+multi-key step envelope:
 
 ```yaml
 dsl: dzupflow/v2
@@ -175,13 +179,21 @@ v1 source and adds immutable `frontend` evidence to the parse result with
 authored/lowered step paths and exact primitive bindings. Composite expansion
 also retains exact primitive ref/hash lineage in document metadata.
 
-P3a recognizes but fails closed on `policy`, `retry`, and `catch`; general
+The parse and canonicalize results additionally return a v2 `sourceMap`.
+Direct canonical fields compose back to exact authored `id`, `use`, `with`,
+`when`, `save`, evidence, and annotation spans. Composite and fragment
+expansion propagates parser-only lineage through nested generated steps, then
+removes it immutably before returning the canonical document. Generated
+compiler diagnostics point to the parent `use`; relative edits on those
+derived paths and on adapted save targets are suppressed.
+
+The bounded frontend recognizes but fails closed on `policy`, `retry`, and `catch`; general
 step-level `when`; multiple or nested save targets; unknown kernel versions;
 unregistered primitives; conflicting versions from one namespace; and
 unimplemented top-level profiles, locks, outputs, state, and return surfaces.
-This is a compatibility frontend, not a new runtime. Authored v2 source-map
-composition, richer kernel constructs, typed expression ASTs, and v2
-formatting remain separate work.
+This is a compatibility frontend, not a new runtime. Richer kernel constructs,
+typed expression ASTs, exact generated-field edits, source pre/post hash
+attestation, and v2 formatting remain separate work.
 
 ## Custom V2 registries and authoring metadata
 

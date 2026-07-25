@@ -21,6 +21,7 @@ import {
 } from '@dzupagent/runtime-contracts/agent-review'
 
 import {
+  executeRagComposition,
   validateRagEvidenceBundle,
   validateRagGroundedAnswer,
 } from '@dzupagent/runtime-contracts/rag'
@@ -30,6 +31,13 @@ The agent-review contracts normalize bounded run results, reviewer
 independence, validation/evidence-backed decisions, revision limits, progress,
 and terminal states. They do not choose a provider or replace host-owned
 validation, Git, budget, restart, or authorization gates.
+
+The RAG subpath also exposes a provider-neutral bounded composition. Hosts
+inject retrieval and synthesis implementations; the composition admits at
+most one primary retrieval and one explicitly declared fallback, validates
+snapshot/scope/evidence bindings, abstains on no or insufficient evidence, and
+rejects unsupported claims. It does not choose providers, mutate indexes, or
+authorize snapshot promotion.
 
 ## License
 
