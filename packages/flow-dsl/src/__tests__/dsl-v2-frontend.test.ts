@@ -585,7 +585,7 @@ steps:
             },
           ],
         },
-        code: "UNSUPPORTED_FIELD",
+        code: "V2_POLICY_REQUIRES_PRIMITIVE",
       },
       {
         raw: {

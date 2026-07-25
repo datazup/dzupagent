@@ -199,10 +199,16 @@ describe('AdapterRegistryRouter', () => {
     expect(events.some((e) => e.type === 'adapter:completed' && e.providerId === 'codex')).toBe(true)
     expect(captured.goose?.options?.['permissionMode']).toBeUndefined()
     expect(captured.goose?.options?.['sandboxMode']).toBe('workspace-write')
-    expect(captured.goose?.policyContext).toBeUndefined()
+    expect(captured.goose?.policyContext).toEqual({
+      activePolicy: { sandboxMode: 'workspace-write', maxTurns: 3 },
+      conformanceMode: 'strict',
+    })
     expect(captured.codex?.options?.['approvalPolicy']).toBeUndefined()
     expect(captured.codex?.options?.['sandboxMode']).toBe('workspace-write')
-    expect(captured.codex?.policyContext).toBeUndefined()
+    expect(captured.codex?.policyContext).toEqual({
+      activePolicy: { sandboxMode: 'workspace-write', maxTurns: 3 },
+      conformanceMode: 'strict',
+    })
   })
 
   it('supports legacy option-key policy metadata for compatibility', async () => {
@@ -383,7 +389,46 @@ describe('AdapterRegistryRouter', () => {
 
     expect(capturedInputs).toHaveLength(2)
     expect(capturedInputs[0]?.options?.['sandboxMode']).toBe('workspace-write')
+    expect(capturedInputs[0]?.policyContext?.activePolicy).toEqual({
+      sandboxMode: 'workspace-write',
+      maxTurns: 2,
+    })
     expect(capturedInputs[1]?.options?.['sandboxMode']).toBeUndefined()
     expect(capturedInputs[1]?.policyContext).toBeUndefined()
+  })
+
+  it('forwards cloned native tool controls without controller-only policy metadata', async () => {
+    let captured: AgentInput | undefined
+    const router = buildRouter(
+      makeCapturingAdapter('codex', (input) => { captured = input }, successEvents('codex')),
+    )
+    const allowedTools = ['read_file', 'search']
+    const blockedTools = ['shell']
+    const policyInput: AgentInput = {
+      prompt: 'p',
+      policyContext: {
+        activePolicy: {
+          allowedTools,
+          blockedTools,
+          toolPolicy: 'strict',
+        },
+        conformanceMode: 'strict',
+        projectedGuardrails: { maxIterations: 4 },
+      },
+    }
+
+    await collectEvents(router.executeWithFallback(policyInput, task))
+
+    expect(captured?.policyContext).toEqual({
+      activePolicy: {
+        allowedTools: ['read_file', 'search'],
+        blockedTools: ['shell'],
+        toolPolicy: 'strict',
+      },
+      conformanceMode: 'strict',
+    })
+    expect(captured?.policyContext?.projectedGuardrails).toBeUndefined()
+    expect(captured?.policyContext?.activePolicy?.allowedTools).not.toBe(allowedTools)
+    expect(captured?.policyContext?.activePolicy?.blockedTools).not.toBe(blockedTools)
   })
 })

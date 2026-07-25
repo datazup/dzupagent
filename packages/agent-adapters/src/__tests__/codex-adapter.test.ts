@@ -97,6 +97,16 @@ describe("CodexAdapter", () => {
           allowlist: true,
           blocklist: true,
         },
+        providerRequestCorrelation: {
+          idempotencyKey: {
+            accepted: false,
+            enforcement: "none",
+          },
+          restartLookup: {
+            supported: true,
+            lookupBy: ["sessionId"],
+          },
+        },
       });
     });
   });

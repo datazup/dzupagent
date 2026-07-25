@@ -583,6 +583,54 @@ describe("ClaudeAgentAdapter — W30 gap coverage", () => {
       expect(o["continue"]).toBe(true);
       expect(o["forkSession"]).toBe(true);
     });
+
+    it("applies native Claude tool controls after provider options", () => {
+      const opts = buildQueryOptions({
+        input: {
+          ...baseInput,
+          policyContext: {
+            activePolicy: {
+              allowedTools: ["Read", "Grep"],
+              blockedTools: ["Write", "Bash"],
+            },
+            conformanceMode: "strict",
+          },
+        },
+        config: {
+          providerOptions: {
+            allowedTools: ["Write"],
+            disallowedTools: [],
+          },
+        },
+        interactionPolicy: {
+          mode: "auto-approve",
+          allowedTools: [],
+          blockedTools: [],
+        },
+      });
+      const o = opts["options"] as Record<string, unknown>;
+      expect(o["allowedTools"]).toEqual(["Read", "Grep"]);
+      expect(o["disallowedTools"]).toEqual(["Write", "Bash"]);
+    });
+
+    it("disables Claude built-in tools for strict empty allowlist", () => {
+      const opts = buildQueryOptions({
+        input: {
+          ...baseInput,
+          policyContext: {
+            activePolicy: { toolPolicy: "strict", allowedTools: [] },
+            conformanceMode: "strict",
+          },
+        },
+        config: baseConfig,
+        interactionPolicy: {
+          mode: "auto-approve",
+          allowedTools: [],
+          blockedTools: [],
+        },
+      });
+      expect((opts["options"] as Record<string, unknown>)["tools"]).toEqual([]);
+    });
   });
 
   // ── interrupt before execute ───────────────────────────────────────────────
