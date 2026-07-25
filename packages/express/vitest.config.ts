@@ -32,6 +32,7 @@ export default defineConfig({
     // CI host; relative, not CI-authoritative):
     //   - singleFork (this):   3.09s  EXIT 0
     //   - parallel forks:      3.12s  EXIT 0  (statistical tie — no benefit)
+    // Measured 2026-07-22 (last recorded in git); review-by 2026-10-22 (DZUPAGENT-TEST-L-11).
     // Serial also keeps the original RPC-timeout hedge for slow/NTFS CI hosts at
     // zero cost. isolate:true (default) gives each test file a fresh module
     // registry (TEST-M-08 compliance); the single fork serialises that cost.

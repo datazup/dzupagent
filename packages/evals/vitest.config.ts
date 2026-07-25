@@ -13,6 +13,7 @@ export default defineConfig({
     // CI host; relative, not CI-authoritative), 53 files / 2828 tests:
     //   - singleFork (old):        10.55s  EXIT 0
     //   - parallel forks (this):    5.89s  EXIT 0  (~44% faster, all green)
+    // Measured 2026-07-22 (last recorded in git); review-by 2026-10-22 (DZUPAGENT-TEST-L-11).
     // isolate:true (default) still gives each file a fresh module registry, so
     // cross-file state bleed is not a risk under parallelism.
     pool: "forks",
