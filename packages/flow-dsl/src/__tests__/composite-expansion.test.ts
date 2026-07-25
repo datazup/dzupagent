@@ -8,6 +8,11 @@ import {
   expandRegisteredCompositesDetailed,
   type PrimitiveDefinition,
 } from "../primitives/index.js";
+import { BUILT_IN_FRAGMENT_REGISTRY } from "../fragments/built-ins.js";
+import {
+  readV2SourceLineage,
+  withV2SourceLineage,
+} from "../v2/source-lineage.js";
 
 function versionedComposite(version: string): PrimitiveDefinition {
   return {
@@ -254,5 +259,49 @@ describe("registry-backed composite expansion", () => {
     ).toThrow(
       /custom\.workflow@1 requires an exact V2 definition for expansion lineage/i,
     );
+  });
+
+  it("propagates derived v2 lineage through generated fragment steps", () => {
+    const marker = {
+      authoredPath: "root.steps[0]",
+      loweredPath: "steps[0]",
+      use: "custom.fragment_composite@1",
+      generated: false,
+    } as const;
+    const result = expandRegisteredCompositesDetailed(
+      {
+        steps: [
+          {
+            "sdlc.validation_gate": withV2SourceLineage(
+              {
+                id: "validation",
+                cwd: "packages/flow-dsl",
+                command: "yarn test",
+              },
+              marker,
+            ),
+          },
+        ],
+      },
+      { fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY },
+    );
+    const steps = (result.raw as {
+      steps: Array<Record<string, Record<string, unknown>>>;
+    }).steps;
+
+    expect(steps).toHaveLength(2);
+    for (const wrapper of steps) {
+      const body = Object.values(wrapper)[0];
+      expect(readV2SourceLineage(body)).toEqual({
+        ...marker,
+        generated: true,
+      });
+    }
+    expect(result.fragmentExpansions).toEqual([
+      expect.objectContaining({
+        id: "sdlc.validation_gate",
+        invocationPath: "steps[0]",
+      }),
+    ]);
   });
 });
