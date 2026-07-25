@@ -383,7 +383,9 @@
         { "match": "exact", "pattern": "./folder-context-generator.js" },
         { "match": "prefix", "pattern": "./providers/" }
       ],
-      "subpaths": {},
+      "subpaths": {
+        "./local-evaluation": "provider-free deterministic lexical host and classified-corpus retrieval, grounding, abstention, latency, and cost evaluation"
+      },
       "migrationWindow": "Root transitional exports remain available through 0.x; provider-specific RAG wiring should move to explicit provider subpaths before a future 1.0 root contraction."
     },
     {
