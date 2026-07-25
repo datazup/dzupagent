@@ -67,6 +67,7 @@ export interface ParseDslSuccess {
   partialDocument: null
   diagnostics: []
   frontend?: DslV2FrontendMetadata
+  sourceMap?: DslSourceMap
 }
 
 export interface ParseDslFailure {
@@ -74,6 +75,7 @@ export interface ParseDslFailure {
   document: null
   partialDocument: FlowDocumentV1 | null
   diagnostics: DslDiagnostic[]
+  sourceMap?: DslSourceMap
 }
 
 export type ParseDslResult = ParseDslSuccess | ParseDslFailure
@@ -85,6 +87,7 @@ export interface CanonicalizeDslSuccess {
   derivedGraph: DerivedGraph
   partialDocument: null
   diagnostics: []
+  sourceMap?: DslSourceMap
 }
 
 export interface CanonicalizeDslFailure {
@@ -94,6 +97,7 @@ export interface CanonicalizeDslFailure {
   flowInput: null
   derivedGraph: null
   diagnostics: DslDiagnostic[]
+  sourceMap?: DslSourceMap
 }
 
 export type CanonicalizeDslResult = CanonicalizeDslSuccess | CanonicalizeDslFailure

@@ -11,6 +11,10 @@ import type {
   DslV2StepLineage,
   LowerDslV2Result,
 } from "./types.js";
+import {
+  withV2SourceLineage,
+  type V2SourceLineageMarker,
+} from "./source-lineage.js";
 
 const TOP_LEVEL_KEYS = new Set([
   "dsl",
@@ -286,7 +290,13 @@ function lowerStep(
   }
   registerPrimitive(definition, authoredPath, context);
   const body: Record<string, unknown> = { ...base, ...(input ?? {}) };
-  lowerSave(raw.save, definition, body, authoredPath, context);
+  const saveBindings = lowerSave(
+    raw.save,
+    definition,
+    body,
+    authoredPath,
+    context,
+  );
   context.lineage.push({
     authoredPath,
     loweredPath,
@@ -294,7 +304,17 @@ function lowerStep(
     primitiveRef: definition.ref,
     primitiveSemanticHash: definition.compatibility.semanticHash,
   });
-  return { [kind]: body };
+  return {
+    [kind]: withV2SourceLineage(body, {
+      authoredPath,
+      loweredPath,
+      use,
+      generated: false,
+      primitiveRef: definition.ref,
+      primitiveSemanticHash: definition.compatibility.semanticHash,
+      ...(Object.keys(saveBindings).length === 0 ? {} : { saveBindings }),
+    }),
+  };
 }
 
 function lowerCoreStep(
@@ -331,7 +351,12 @@ function lowerCoreStep(
       );
     }
     context.lineage.push({ authoredPath, loweredPath, use: `${kind}@${version}` });
-    return { set: { ...base, ...input } };
+    return {
+      set: withV2SourceLineage(
+        { ...base, ...input },
+        coreSourceLineage(kind, version, authoredPath, loweredPath),
+      ),
+    };
   }
   if (kind === "core.complete") {
     if (raw.when !== undefined) {
@@ -343,7 +368,12 @@ function lowerCoreStep(
       );
     }
     context.lineage.push({ authoredPath, loweredPath, use: `${kind}@${version}` });
-    return { complete: { ...base, ...input } };
+    return {
+      complete: withV2SourceLineage(
+        { ...base, ...input },
+        coreSourceLineage(kind, version, authoredPath, loweredPath),
+      ),
+    };
   }
   if (kind === "core.branch") {
     if (typeof raw.when !== "string" || raw.when.length === 0) {
@@ -379,12 +409,15 @@ function lowerCoreStep(
             context,
           );
     return {
-      if: {
-        ...base,
-        condition: raw.when,
-        then: thenSteps,
-        ...(elseSteps === undefined ? {} : { else: elseSteps }),
-      },
+      if: withV2SourceLineage(
+        {
+          ...base,
+          condition: raw.when,
+          then: thenSteps,
+          ...(elseSteps === undefined ? {} : { else: elseSteps }),
+        },
+        coreSourceLineage(kind, version, authoredPath, loweredPath),
+      ),
     };
   }
   context.diagnostics.push({
@@ -402,8 +435,8 @@ function lowerSave(
   body: Record<string, unknown>,
   authoredPath: string,
   context: LoweringContext,
-): void {
-  if (raw === undefined) return;
+): Readonly<Record<string, string>> {
+  if (raw === undefined) return {};
   if (!isRecord(raw)) {
     context.diagnostics.push({
       phase: "normalize",
@@ -411,7 +444,7 @@ function lowerSave(
       message: "v2 save must map one output port to state.<key>",
       path: `${authoredPath}.save`,
     });
-    return;
+    return {};
   }
   const entries = Object.entries(raw);
   if (entries.length !== 1) {
@@ -421,7 +454,7 @@ function lowerSave(
       message: "P3a supports exactly one saved primitive output",
       path: `${authoredPath}.save`,
     });
-    return;
+    return {};
   }
   const [port, target] = entries[0]!;
   if (!(port in definition.outputPorts)) {
@@ -431,7 +464,7 @@ function lowerSave(
       message: `primitive ${definition.ref} does not declare output port "${port}"`,
       path: `${authoredPath}.save.${port}`,
     });
-    return;
+    return {};
   }
   if (typeof target !== "string") {
     context.diagnostics.push({
@@ -440,7 +473,7 @@ function lowerSave(
       message: "P3a save target must be state.<key>",
       path: `${authoredPath}.save.${port}`,
     });
-    return;
+    return {};
   }
   const targetMatch = STATE_TARGET_PATTERN.exec(target);
   if (targetMatch === null) {
@@ -450,7 +483,7 @@ function lowerSave(
       message: `P3a save target must be state.<key>; received "${target}"`,
       path: `${authoredPath}.save.${port}`,
     });
-    return;
+    return {};
   }
   const outputField = LEGACY_OUTPUT_FIELDS[primitiveKind(definition)];
   if (outputField === undefined) {
@@ -460,9 +493,24 @@ function lowerSave(
       message: `P3a has no canonical v1 save adapter for ${definition.ref}`,
       path: `${authoredPath}.save`,
     });
-    return;
+    return {};
   }
   body[outputField] = targetMatch[1]!;
+  return { [outputField]: port };
+}
+
+function coreSourceLineage(
+  kind: string,
+  version: string,
+  authoredPath: string,
+  loweredPath: string,
+): V2SourceLineageMarker {
+  return {
+    authoredPath,
+    loweredPath,
+    use: `${kind}@${version}`,
+    generated: false,
+  };
 }
 
 function registerPrimitive(

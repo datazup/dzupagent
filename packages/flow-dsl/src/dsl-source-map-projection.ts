@@ -1,6 +1,10 @@
 import type { FlowDocumentV1, FlowNode } from "@dzupagent/flow-ast";
 
 import type { DslSourceMapEntry, DslSourceSpan } from "./types.js";
+import {
+  readV2SourceLineage,
+  V2_SOURCE_LINEAGE_META_KEY,
+} from "./v2/source-lineage.js";
 
 const NODE_KIND_TO_TYPE: Readonly<Record<string, string>> = Object.freeze({
   action: "action",
@@ -96,6 +100,29 @@ export function projectDslDocumentEntries(
     authored,
     entries,
   );
+}
+
+/** Project canonical nodes through the uniform dzupflow/v2 step envelope. */
+export function projectDslV2DocumentEntries(
+  document: FlowDocumentV1,
+  raw: Record<string, unknown>,
+  authored: Map<string, MutableDslSourceEntry>,
+  entries: Map<string, DslSourceMapEntry>,
+): void {
+  projectEntry("root", "root", authored, entries);
+  for (const key of Object.keys(raw)) {
+    if (key === "steps") continue;
+    projectValue(
+      (document as unknown as Record<string, unknown>)[key],
+      raw[key],
+      `root.${key}`,
+      `root.${key}`,
+      authored,
+      entries,
+    );
+  }
+  projectEntry("root.nodes", "root.steps", authored, entries);
+  projectV2NodeList(document.root.nodes, "root.nodes", raw, authored, entries);
 }
 
 function projectNodeList(
@@ -220,20 +247,39 @@ function projectValue(
   authored: Map<string, MutableDslSourceEntry>,
   entries: Map<string, DslSourceMapEntry>,
   normalizationAlias?: string,
+  derived = false,
 ): void {
-  projectEntry(canonicalPath, authoredPath, authored, entries);
+  projectEntry(canonicalPath, authoredPath, authored, entries, derived);
   if (normalizationAlias !== undefined) {
-    projectEntry(normalizationAlias, authoredPath, authored, entries);
+    projectEntry(normalizationAlias, authoredPath, authored, entries, derived);
   }
   if (Array.isArray(canonicalValue) && Array.isArray(rawValue)) {
     canonicalValue.forEach((value, index) =>
-      projectValue(value, rawValue[index], `${canonicalPath}[${index}]`, `${authoredPath}[${index}]`, authored, entries),
+      projectValue(
+        value,
+        rawValue[index],
+        `${canonicalPath}[${index}]`,
+        `${authoredPath}[${index}]`,
+        authored,
+        entries,
+        undefined,
+        derived,
+      ),
     );
   } else if (isRecord(canonicalValue) && isRecord(rawValue)) {
     for (const [field, value] of Object.entries(canonicalValue)) {
       const rawKey = resolveRawKey(field, rawValue);
       if (rawKey === undefined) continue;
-      projectValue(value, rawValue[rawKey], `${canonicalPath}.${field}`, `${authoredPath}.${rawKey}`, authored, entries);
+      projectValue(
+        value,
+        rawValue[rawKey],
+        `${canonicalPath}.${field}`,
+        `${authoredPath}.${rawKey}`,
+        authored,
+        entries,
+        undefined,
+        derived,
+      );
     }
   }
 }
@@ -243,6 +289,7 @@ function projectEntry(
   authoredPath: string,
   authored: Map<string, MutableDslSourceEntry>,
   entries: Map<string, DslSourceMapEntry>,
+  derived = false,
 ): void {
   const source = authored.get(authoredPath);
   if (source === undefined) return;
@@ -254,7 +301,251 @@ function projectEntry(
     ...(source.contentOffsets !== undefined
       ? { contentOffsets: Object.freeze([...source.contentOffsets]) }
       : {}),
+    ...(derived ? { derived: true } : {}),
   }));
+}
+
+function projectV2NodeList(
+  nodes: readonly FlowNode[],
+  canonicalPrefix: string,
+  raw: Record<string, unknown>,
+  authored: Map<string, MutableDslSourceEntry>,
+  entries: Map<string, DslSourceMapEntry>,
+): void {
+  nodes.forEach((node, index) => {
+    projectV2Node(
+      node,
+      `${canonicalPrefix}[${index}]`,
+      raw,
+      authored,
+      entries,
+    );
+  });
+}
+
+function projectV2Node(
+  node: FlowNode,
+  canonicalPath: string,
+  raw: Record<string, unknown>,
+  authored: Map<string, MutableDslSourceEntry>,
+  entries: Map<string, DslSourceMapEntry>,
+): void {
+  const marker = readV2SourceLineage(node);
+  if (marker === undefined) return;
+  const anchorPath = marker.generated
+    ? `${marker.authoredPath}.use`
+    : marker.authoredPath;
+  projectEntry(
+    canonicalPath,
+    anchorPath,
+    authored,
+    entries,
+    marker.generated,
+  );
+
+  if (marker.generated) {
+    projectDerivedCanonicalValue(
+      node,
+      canonicalPath,
+      anchorPath,
+      authored,
+      entries,
+    );
+  } else {
+    for (const [field, value] of Object.entries(node)) {
+      if (
+        field === "type" ||
+        CHILD_FIELDS.has(field) ||
+        field === "meta"
+      ) {
+        continue;
+      }
+      const mapped = mapV2Field(marker.use, field, marker.saveBindings);
+      if (mapped === undefined) continue;
+      const authoredPath = `${marker.authoredPath}.${mapped.path}`;
+      projectValue(
+        value,
+        valueAtPath(raw, authoredPath),
+        `${canonicalPath}.${field}`,
+        authoredPath,
+        authored,
+        entries,
+        undefined,
+        mapped.derived,
+      );
+    }
+    projectV2Metadata(node, canonicalPath, marker.authoredPath, raw, authored, entries);
+  }
+
+  switch (node.type) {
+    case "sequence":
+      projectV2NodeList(node.nodes, `${canonicalPath}.nodes`, raw, authored, entries);
+      break;
+    case "branch":
+      projectEntry(
+        `${canonicalPath}.then`,
+        `${marker.authoredPath}.with.then`,
+        authored,
+        entries,
+        marker.generated,
+      );
+      projectV2NodeList(node.then, `${canonicalPath}.then`, raw, authored, entries);
+      if (node.else !== undefined) {
+        projectEntry(
+          `${canonicalPath}.else`,
+          `${marker.authoredPath}.with.else`,
+          authored,
+          entries,
+          marker.generated,
+        );
+        projectV2NodeList(node.else, `${canonicalPath}.else`, raw, authored, entries);
+      }
+      break;
+    case "parallel":
+      node.branches.forEach((branch, index) =>
+        projectV2NodeList(
+          branch,
+          `${canonicalPath}.branches[${index}]`,
+          raw,
+          authored,
+          entries,
+        ),
+      );
+      break;
+    case "try_catch":
+      projectV2NodeList(node.body, `${canonicalPath}.body`, raw, authored, entries);
+      projectV2NodeList(node.catch, `${canonicalPath}.catch`, raw, authored, entries);
+      break;
+    case "approval":
+      projectV2NodeList(
+        node.onApprove,
+        `${canonicalPath}.onApprove`,
+        raw,
+        authored,
+        entries,
+      );
+      if (node.onReject !== undefined) {
+        projectV2NodeList(
+          node.onReject,
+          `${canonicalPath}.onReject`,
+          raw,
+          authored,
+          entries,
+        );
+      }
+      break;
+    case "for_each":
+    case "loop":
+    case "persona":
+    case "route":
+      projectV2NodeList(node.body, `${canonicalPath}.body`, raw, authored, entries);
+      break;
+  }
+}
+
+function projectV2Metadata(
+  node: FlowNode,
+  canonicalPath: string,
+  authoredPath: string,
+  raw: Record<string, unknown>,
+  authored: Map<string, MutableDslSourceEntry>,
+  entries: Map<string, DslSourceMapEntry>,
+): void {
+  const meta = node.meta;
+  if (!isRecord(meta)) return;
+  for (const [field, value] of Object.entries(meta)) {
+    if (field === V2_SOURCE_LINEAGE_META_KEY) continue;
+    const sourceField =
+      field === "annotations"
+        ? "annotations"
+        : field === "evidence"
+          ? "evidence"
+          : undefined;
+    if (sourceField === undefined) continue;
+    const sourcePath = `${authoredPath}.${sourceField}`;
+    projectValue(
+      value,
+      valueAtPath(raw, sourcePath),
+      `${canonicalPath}.meta.${field}`,
+      sourcePath,
+      authored,
+      entries,
+    );
+  }
+}
+
+function mapV2Field(
+  use: string,
+  field: string,
+  saveBindings: Readonly<Record<string, string>> | undefined,
+): { path: string; derived: boolean } | undefined {
+  if (field === "id") return { path: "id", derived: false };
+  const savedPort = saveBindings?.[field];
+  if (savedPort !== undefined) {
+    return { path: `save.${savedPort}`, derived: true };
+  }
+  if (use === "core.branch@1" && field === "condition") {
+    return { path: "when", derived: false };
+  }
+  if (use.startsWith("core.")) {
+    return { path: `with.${field}`, derived: false };
+  }
+  return { path: `with.${field}`, derived: false };
+}
+
+function projectDerivedCanonicalValue(
+  value: unknown,
+  canonicalPath: string,
+  authoredPath: string,
+  authored: Map<string, MutableDslSourceEntry>,
+  entries: Map<string, DslSourceMapEntry>,
+): void {
+  projectEntry(canonicalPath, authoredPath, authored, entries, true);
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      projectDerivedCanonicalValue(
+        item,
+        `${canonicalPath}[${index}]`,
+        authoredPath,
+        authored,
+        entries,
+      ),
+    );
+    return;
+  }
+  if (!isRecord(value)) return;
+  for (const [field, nested] of Object.entries(value)) {
+    if (field === V2_SOURCE_LINEAGE_META_KEY) continue;
+    projectDerivedCanonicalValue(
+      nested,
+      `${canonicalPath}.${field}`,
+      authoredPath,
+      authored,
+      entries,
+    );
+  }
+}
+
+function valueAtPath(
+  root: Record<string, unknown>,
+  path: string,
+): unknown {
+  const segments = path
+    .replace(/^root\.?/, "")
+    .replace(/\[(\d+)\]/g, ".$1")
+    .split(".")
+    .filter(Boolean);
+  let value: unknown = root;
+  for (const segment of segments) {
+    if (Array.isArray(value) && /^\d+$/.test(segment)) {
+      value = value[Number(segment)];
+    } else if (isRecord(value)) {
+      value = value[segment];
+    } else {
+      return undefined;
+    }
+  }
+  return value;
 }
 
 function findRawStep(

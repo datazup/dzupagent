@@ -19,6 +19,9 @@ export function canonicalizeDsl(
       flowInput: null,
       derivedGraph: null,
       diagnostics: parsed.diagnostics,
+      ...(parsed.sourceMap === undefined
+        ? {}
+        : { sourceMap: parsed.sourceMap }),
     }
   }
 
@@ -29,5 +32,8 @@ export function canonicalizeDsl(
     flowInput: parsed.document.root,
     derivedGraph: documentToGraph(parsed.document),
     diagnostics: [],
+    ...(parsed.sourceMap === undefined
+      ? {}
+      : { sourceMap: parsed.sourceMap }),
   }
 }

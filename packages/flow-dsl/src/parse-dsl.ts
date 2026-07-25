@@ -11,6 +11,12 @@ import type { PrimitiveRegistry } from "./primitives/types.js";
 import type { PrimitiveRegistryV2 } from "./primitives/types.js";
 import { BUILT_IN_PRIMITIVE_REGISTRY_V2 } from "./primitives/built-ins.js";
 import { lowerDslV2Document } from "./v2/lower-v2.js";
+import {
+  createDslSourceMap,
+  resolveDslSourceSpan,
+} from "./dsl-source-map.js";
+import { stripV2SourceLineage } from "./v2/source-lineage.js";
+import type { DslDiagnostic, DslSourceMap } from "./types.js";
 
 export interface ParseDslToDocumentOptions {
   fragmentRegistry?: FragmentRegistry;
@@ -59,11 +65,13 @@ export function parseDslToDocument(
         })
       : undefined;
   if (v2 !== undefined && !v2.ok) {
+    const sourceMap = createDslSourceMap(source);
     return {
       ok: false,
       document: null,
       partialDocument: null,
-      diagnostics: [...v2.diagnostics],
+      diagnostics: attachDiagnosticSpans(v2.diagnostics, sourceMap),
+      ...(sourceMap === undefined ? {} : { sourceMap }),
     };
   }
   const authoredRaw = v2?.raw ?? yaml.value;
@@ -86,6 +94,7 @@ export function parseDslToDocument(
     fragmentExpansions = expanded.fragmentExpansions;
     primitiveExpansions = expanded.primitiveExpansions;
   } catch (error) {
+    const sourceMap = createDslSourceMap(source);
     return {
       ok: false,
       document: null,
@@ -98,6 +107,7 @@ export function parseDslToDocument(
           path: "root.steps",
         },
       ],
+      ...(sourceMap === undefined ? {} : { sourceMap }),
     };
   }
 
@@ -106,11 +116,23 @@ export function parseDslToDocument(
     fragmentRegistry,
   });
   if (!normalized.ok) {
+    const sourceMap =
+      v2 === undefined
+        ? undefined
+        : createDslSourceMap(
+            source,
+            normalized.partialDocument ?? undefined,
+          );
+    const partialDocument =
+      v2 === undefined || normalized.partialDocument === null
+        ? normalized.partialDocument
+        : stripV2SourceLineage(normalized.partialDocument);
     return {
       ok: false,
       document: null,
-      partialDocument: normalized.partialDocument,
-      diagnostics: normalized.diagnostics,
+      partialDocument,
+      diagnostics: attachDiagnosticSpans(normalized.diagnostics, sourceMap),
+      ...(sourceMap === undefined ? {} : { sourceMap }),
     };
   }
 
@@ -122,22 +144,53 @@ export function parseDslToDocument(
       ...(primitiveExpansions.length === 0 ? {} : { primitiveExpansions }),
     };
   }
-  const validation = validateDocument(document);
-  const allDiagnostics = validation.diagnostics;
+  const sourceMap =
+    v2 === undefined ? undefined : createDslSourceMap(source, document);
+  const canonicalDocument =
+    v2 === undefined ? document : stripV2SourceLineage(document);
+  const validation = validateDocument(canonicalDocument);
+  const allDiagnostics = attachDiagnosticSpans(
+    validation.diagnostics,
+    sourceMap,
+  );
   if (allDiagnostics.length > 0) {
     return {
       ok: false,
       document: null,
-      partialDocument: document,
+      partialDocument: canonicalDocument,
       diagnostics: allDiagnostics,
+      ...(sourceMap === undefined ? {} : { sourceMap }),
     };
   }
 
   return {
     ok: true,
-    document: document as FlowDocumentV1,
+    document: canonicalDocument as FlowDocumentV1,
     partialDocument: null,
     diagnostics: [],
     ...(v2 === undefined ? {} : { frontend: v2.metadata }),
+    ...(sourceMap === undefined ? {} : { sourceMap }),
   };
+}
+
+function attachDiagnosticSpans(
+  diagnostics: readonly DslDiagnostic[],
+  sourceMap: DslSourceMap | undefined,
+): DslDiagnostic[] {
+  if (sourceMap === undefined) return [...diagnostics];
+  return diagnostics.map((diagnostic) => {
+    if (diagnostic.span !== undefined) return diagnostic;
+    const span = resolveDslSourceSpan(sourceMap, diagnostic.path);
+    return span === undefined
+      ? diagnostic
+      : {
+          ...diagnostic,
+          span: {
+            lineStart: span.lineStart,
+            columnStart: span.columnStart,
+            lineEnd: span.lineEnd,
+            columnEnd: span.columnEnd,
+          },
+        };
+  });
 }

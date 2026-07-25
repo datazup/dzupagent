@@ -76,10 +76,12 @@ export function prepareFlowInputFromDsl(
         },
   )
   if (!canonicalized.ok) {
-    const sourceMap = createDslSourceMap(
-      source,
-      canonicalized.partialDocument ?? undefined,
-    )
+    const sourceMap =
+      canonicalized.sourceMap ??
+      createDslSourceMap(
+        source,
+        canonicalized.partialDocument ?? undefined,
+      )
     return {
       ok: false,
       errors: canonicalized.diagnostics.map((diagnostic) => ({
@@ -107,7 +109,9 @@ export function prepareFlowInputFromDsl(
     }
   }
 
-  const sourceMap = createDslSourceMap(source, canonicalized.document)
+  const sourceMap =
+    canonicalized.sourceMap ??
+    createDslSourceMap(source, canonicalized.document)
   return {
     ok: true,
     flowInput: canonicalized.flowInput,

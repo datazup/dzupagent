@@ -78,6 +78,67 @@ export interface RagGroundedAnswer {
   readonly evidenceBundleDigest: `sha256:${string}`;
 }
 
+export interface RagCompositionPolicy {
+  readonly maxRetrievalAttempts: 1 | 2;
+  readonly minimumEvidenceItems: number;
+}
+
+export interface RagRetrievalAttemptContext {
+  readonly attempt: 1 | 2;
+  readonly route: "primary" | "declared-fallback";
+  readonly providerId?: string;
+  readonly dataScopes: readonly string[];
+  readonly maxCostCents: number;
+}
+
+export type RagRetriever = (
+  request: RagRetrievalRequest,
+  context: RagRetrievalAttemptContext,
+) => Promise<RagEvidenceBundle>;
+
+export type RagSynthesizer = (
+  request: RagRetrievalRequest,
+  bundle: RagEvidenceBundle,
+) => Promise<RagGroundedAnswer>;
+
+export type RagCompositionStatus =
+  | "answered"
+  | "no-results"
+  | "insufficient-evidence"
+  | "invalid-evidence"
+  | "invalid-answer"
+  | "retriever-failed"
+  | "synthesizer-failed";
+
+export interface RagCompositionAttempt {
+  readonly attempt: 1 | 2;
+  readonly route: "primary" | "declared-fallback";
+  readonly status: "results" | "no-results" | "failed" | "invalid";
+  readonly evidenceBundleDigest?: `sha256:${string}`;
+  readonly diagnostics: readonly RagContractDiagnostic[];
+  readonly reason: string;
+}
+
+export interface RagCompositionResult {
+  readonly schema: "dzupagent.ragCompositionResult/v1";
+  readonly requestId: string;
+  readonly correlationId: string;
+  readonly status: RagCompositionStatus;
+  readonly attempts: readonly RagCompositionAttempt[];
+  readonly evidence?: RagEvidenceBundle;
+  readonly answer?: RagGroundedAnswer;
+  readonly diagnostics: readonly RagContractDiagnostic[];
+  readonly reason: string;
+  readonly boundaries: {
+    readonly bounded: true;
+    readonly providerSelectedByHost: true;
+    readonly dataAuthorityWidened: false;
+    readonly indexMutationAuthorized: false;
+    readonly snapshotPromotionAuthorized: false;
+    readonly authorityEffect: "none";
+  };
+}
+
 export type RagContractDiagnosticCode =
   | "RAG_REQUEST_ID_MISMATCH"
   | "RAG_CORRELATION_ID_MISMATCH"
@@ -280,6 +341,200 @@ export function validateRagGroundedAnswer(
     }
   }
   return validation(diagnostics);
+}
+
+export async function executeRagComposition(
+  request: RagRetrievalRequest,
+  dependencies: {
+    readonly retrieve: RagRetriever;
+    readonly synthesize: RagSynthesizer;
+  },
+  policy: RagCompositionPolicy = {
+    maxRetrievalAttempts: 1,
+    minimumEvidenceItems: 1,
+  },
+): Promise<RagCompositionResult> {
+  if (
+    ![1, 2].includes(policy.maxRetrievalAttempts) ||
+    !Number.isSafeInteger(policy.minimumEvidenceItems) ||
+    policy.minimumEvidenceItems < 1 ||
+    policy.minimumEvidenceItems > request.topK
+  ) {
+    throw new Error("RAG composition policy is invalid.");
+  }
+  const attempts: RagCompositionAttempt[] = [];
+  let evidence: RagEvidenceBundle | undefined;
+  const contexts: RagRetrievalAttemptContext[] = [
+    {
+      attempt: 1,
+      route: "primary",
+      dataScopes: request.authority.dataScopes,
+      maxCostCents: request.authority.maxCostCents,
+    },
+  ];
+  if (
+    policy.maxRetrievalAttempts === 2 &&
+    request.fallback.mode === "alternate-retriever"
+  ) {
+    contexts.push({
+      attempt: 2,
+      route: "declared-fallback",
+      providerId: request.fallback.providerId,
+      dataScopes: request.fallback.dataScopes,
+      maxCostCents: request.fallback.maxCostCents,
+    });
+  }
+
+  for (const context of contexts) {
+    let candidate: RagEvidenceBundle;
+    try {
+      candidate = await dependencies.retrieve(request, context);
+    } catch (error) {
+      attempts.push({
+        attempt: context.attempt,
+        route: context.route,
+        status: "failed",
+        diagnostics: [],
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      return compositionResult(
+        request,
+        "retriever-failed",
+        attempts,
+        undefined,
+        undefined,
+        [],
+        "The host retriever failed; the composition did not authorize an undeclared retry.",
+      );
+    }
+    const admission = validateRagEvidenceBundle(request, candidate);
+    if (!admission.valid) {
+      attempts.push({
+        attempt: context.attempt,
+        route: context.route,
+        status: "invalid",
+        evidenceBundleDigest: digestRagEvidenceBundle(candidate),
+        diagnostics: admission.diagnostics,
+        reason: "Retrieved evidence failed canonical admission.",
+      });
+      return compositionResult(
+        request,
+        "invalid-evidence",
+        attempts,
+        candidate,
+        undefined,
+        admission.diagnostics,
+        "Retrieved evidence failed canonical admission.",
+      );
+    }
+    evidence = candidate;
+    attempts.push({
+      attempt: context.attempt,
+      route: context.route,
+      status: candidate.status,
+      evidenceBundleDigest: digestRagEvidenceBundle(candidate),
+      diagnostics: [],
+      reason:
+        candidate.status === "results"
+          ? "Canonical evidence is available."
+          : String(candidate.noResultReason),
+    });
+    if (candidate.status === "results") break;
+  }
+
+  if (!evidence || evidence.status === "no-results") {
+    return compositionResult(
+      request,
+      "no-results",
+      attempts,
+      evidence,
+      undefined,
+      [],
+      evidence?.noResultReason ||
+        "No accessible evidence was returned within the bounded retrieval policy.",
+    );
+  }
+  if (evidence.items.length < policy.minimumEvidenceItems) {
+    return compositionResult(
+      request,
+      "insufficient-evidence",
+      attempts,
+      evidence,
+      undefined,
+      [],
+      `Retrieved ${evidence.items.length} evidence item(s); policy requires ${policy.minimumEvidenceItems}.`,
+    );
+  }
+
+  let answer: RagGroundedAnswer;
+  try {
+    answer = await dependencies.synthesize(request, evidence);
+  } catch (error) {
+    return compositionResult(
+      request,
+      "synthesizer-failed",
+      attempts,
+      evidence,
+      undefined,
+      [],
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  const answerAdmission = validateRagGroundedAnswer(
+    request,
+    evidence,
+    answer,
+  );
+  if (!answerAdmission.valid) {
+    return compositionResult(
+      request,
+      "invalid-answer",
+      attempts,
+      evidence,
+      answer,
+      answerAdmission.diagnostics,
+      "The synthesized answer failed grounding admission.",
+    );
+  }
+  return compositionResult(
+    request,
+    "answered",
+    attempts,
+    evidence,
+    answer,
+    [],
+    "The grounded answer passed canonical evidence admission.",
+  );
+}
+
+function compositionResult(
+  request: RagRetrievalRequest,
+  status: RagCompositionStatus,
+  attempts: readonly RagCompositionAttempt[],
+  evidence: RagEvidenceBundle | undefined,
+  answer: RagGroundedAnswer | undefined,
+  diagnostics: readonly RagContractDiagnostic[],
+  reason: string,
+): RagCompositionResult {
+  return {
+    schema: "dzupagent.ragCompositionResult/v1",
+    requestId: request.requestId,
+    correlationId: request.correlationId,
+    status,
+    attempts,
+    ...(evidence ? { evidence } : {}),
+    ...(answer ? { answer } : {}),
+    diagnostics,
+    reason,
+    boundaries: {
+      bounded: true,
+      providerSelectedByHost: true,
+      dataAuthorityWidened: false,
+      indexMutationAuthorized: false,
+      snapshotPromotionAuthorized: false,
+      authorityEffect: "none",
+    },
+  };
 }
 
 function validateFallback(

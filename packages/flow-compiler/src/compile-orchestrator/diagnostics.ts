@@ -162,9 +162,17 @@ function projectSemanticSpan(
     diagnostic.nodePath,
     diagnostic.span,
   );
-  return absolute === undefined
+  if (absolute !== undefined) {
+    return { kind: "source-offsets", ...absolute };
+  }
+  const entry = sourceMap.entries[diagnostic.nodePath];
+  const derived =
+    entry?.derived === true
+      ? resolveDslSourceSpan(sourceMap, diagnostic.nodePath)
+      : undefined;
+  return derived === undefined
     ? diagnostic.span
-    : { kind: "source-offsets", ...absolute };
+    : { kind: "source-offsets", ...derived };
 }
 
 function projectSemanticFixes(

@@ -13,6 +13,12 @@ import type {
   FragmentExpansionMetadata,
   FragmentRegistry,
 } from "../fragments/types.js";
+import {
+  generatedV2SourceLineage,
+  readV2SourceLineage,
+  withV2SourceLineage,
+  type V2SourceLineageMarker,
+} from "../v2/source-lineage.js";
 
 type StepWrapper = Record<string, unknown>;
 const STEP_ARRAY_FIELDS = new Set([
@@ -252,7 +258,12 @@ function expandStepArray(
           raw: wrapper[kind],
           path: `${path}[${index}]`,
         });
-        steps.push(...expanded.steps);
+        const sourceLineage = readV2SourceLineage(wrapper[kind]);
+        steps.push(
+          ...(sourceLineage === undefined
+            ? expanded.steps
+            : annotateGeneratedV2Lineage(expanded.steps, sourceLineage)),
+        );
         fragmentExpansions.push(...expanded.fragmentExpansions);
         changed = true;
         continue;
@@ -287,7 +298,12 @@ function expandStepArray(
       primitiveSteps,
       `${definition.kind}@${definition.version}`,
     );
-    const nested = expandStepArray(annotatedSteps, options, `${path}[${index}]`);
+    const sourceLineage = readV2SourceLineage(wrapper[kind]);
+    const sourcedSteps =
+      sourceLineage === undefined
+        ? annotatedSteps
+        : annotateGeneratedV2Lineage(annotatedSteps, sourceLineage);
+    const nested = expandStepArray(sourcedSteps, options, `${path}[${index}]`);
     const v2Definition = options.primitiveRegistryV2.resolve(
       definition.kind,
       definition.version,
@@ -366,6 +382,62 @@ function annotatePrimitiveSteps(
       },
     };
   });
+}
+
+function annotateGeneratedV2Lineage(
+  steps: readonly StepWrapper[],
+  source: V2SourceLineageMarker,
+): StepWrapper[] {
+  const generated = generatedV2SourceLineage(source);
+  return steps.map((wrapper) =>
+    annotateGeneratedV2Wrapper(wrapper, generated),
+  );
+}
+
+function annotateGeneratedV2Wrapper(
+  wrapper: StepWrapper,
+  marker: V2SourceLineageMarker,
+): StepWrapper {
+  const keys = Object.keys(wrapper);
+  if (keys.length !== 1) return { ...wrapper };
+  const kind = keys[0]!;
+  const value = wrapper[kind];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ...wrapper };
+  }
+  const body = value as Record<string, unknown>;
+  const annotated: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(body)) {
+    if (STEP_ARRAY_FIELDS.has(key) && Array.isArray(nested)) {
+      annotated[key] = nested.map((item) =>
+        item && typeof item === "object" && !Array.isArray(item)
+          ? annotateGeneratedV2Wrapper(item as StepWrapper, marker)
+          : item,
+      );
+      continue;
+    }
+    if (key === "branches" && nested && typeof nested === "object" && !Array.isArray(nested)) {
+      annotated[key] = Object.fromEntries(
+        Object.entries(nested as Record<string, unknown>).map(
+          ([branchName, branchSteps]) => [
+            branchName,
+            Array.isArray(branchSteps)
+              ? branchSteps.map((item) =>
+                  item && typeof item === "object" && !Array.isArray(item)
+                    ? annotateGeneratedV2Wrapper(item as StepWrapper, marker)
+                    : item,
+                )
+              : branchSteps,
+          ],
+        ),
+      );
+      continue;
+    }
+    annotated[key] = nested;
+  }
+  return {
+    [kind]: withV2SourceLineage(annotated, marker),
+  };
 }
 
 export function expandRegisteredComposites(

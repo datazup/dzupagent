@@ -14,6 +14,7 @@ import {
 import { parseYamlSubset } from "./mini-yaml.js";
 import {
   projectDslDocumentEntries,
+  projectDslV2DocumentEntries,
   type MutableDslSourceEntry,
 } from "./dsl-source-map-projection.js";
 import type {
@@ -59,7 +60,16 @@ export function createDslSourceMap(
   }
 
   if (document !== undefined && isRecord(parsed.value)) {
-    projectDslDocumentEntries(document, parsed.value, authored, entries);
+    if (parsed.value.dsl === "dzupflow/v2") {
+      projectDslV2DocumentEntries(
+        document,
+        parsed.value,
+        authored,
+        entries,
+      );
+    } else {
+      projectDslDocumentEntries(document, parsed.value, authored, entries);
+    }
   }
 
   return Object.freeze({
@@ -79,6 +89,7 @@ export function resolveDslSourceSpan(
   const entry = sourceMap.entries[canonicalPath];
   if (entry === undefined) return undefined;
   if (relative === undefined) return entry.valueSpan ?? entry.keySpan;
+  if (entry.derived) return undefined;
   const offsets = entry.contentOffsets;
   if (
     offsets === undefined ||
