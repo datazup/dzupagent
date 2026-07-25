@@ -218,8 +218,9 @@ requires strict references, declared value types, compatible operands, a
 boolean result, and control-flow availability. A valid typed condition also
 adds the required capability `flow.control.typed-condition@1`.
 
-No generic compiler target currently has a reviewed evaluator for that
-capability. Compilation therefore stops at Stage 4 with
+`@dzupagent/flow-ast/typed-condition-evaluator` now publishes one reviewed,
+provider-free evaluator for that capability. No generic compiler target has
+adopted and qualified it. Compilation therefore still stops at Stage 4 with
 `TYPED_CONDITION_TARGET_UNSUPPORTED` before artifact emission. The fixed
 legacy shadow keeps unchanged hosts fail closed; it is never treated as the
 typed condition's executable meaning. Existing v1 strings and v2
@@ -243,7 +244,7 @@ The bounded frontend recognizes but fails closed on `policy`, `retry`, and
 unregistered primitives; conflicting versions from one namespace; and
 unimplemented top-level profiles, locks, outputs, state, and return surfaces.
 This is a compatibility frontend, not a new runtime. Richer kernel constructs,
-typed-condition host evaluation, exact generated-field edits, source pre/post
+typed-condition target adoption, exact generated-field edits, source pre/post
 hash attestation, and an authored-v2 formatter remain separate work. The
 existing canonical v1 formatter preserves the typed-condition sidecar and its
 quoted fail-closed shadow across parse-format-parse round trips.
