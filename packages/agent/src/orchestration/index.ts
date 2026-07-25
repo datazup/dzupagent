@@ -114,6 +114,11 @@ export type {
   GatherScoreFn,
   GatherStrategyOptions,
 } from "./gather/gather-strategies.js";
+export {
+  toAgentResults,
+  applyGatherStep,
+} from "./gather/fleet-gather-bridge.js";
+export type { FleetGatherAdapterOptions } from "./gather/fleet-gather-bridge.js";
 
 // --- Circuit Breaker ---
 export { AgentCircuitBreaker } from "./circuit-breaker.js";
