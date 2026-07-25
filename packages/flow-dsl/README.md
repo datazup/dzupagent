@@ -1,9 +1,10 @@
 # @dzupagent/flow-dsl
 
-Textual dzupflow/v1 DSL parser, formatter, validator, and graph projection for
-the DzupAgent framework. Author multi-step agent flows in YAML (or plain JSON);
-this package compiles them into the typed `FlowDocumentV1` AST consumed by the
-codev-app flow-runtime executor.
+Textual dzupflow/v1 parser plus a bounded dzupflow/v2 compatibility frontend,
+formatter, validator, and graph projection for the DzupAgent framework. Author
+multi-step agent flows in YAML (or plain JSON); this package lowers supported
+v2 envelopes and existing v1 wrappers into the same typed `FlowDocumentV1`
+canonical AST consumed by current compilers and hosts.
 
 Part of the [DzupAgent](../../README.md) framework.
 
@@ -128,6 +129,60 @@ stable `expansionRef` identities so the V2 catalog itself remains serializable.
 Use `exportPrimitiveCatalogV2` for the complete contract; existing consumers
 can continue to use `exportPrimitiveCatalog`.
 
+## Bounded dzupflow/v2 frontend
+
+`parseDslToDocument` recognizes the explicit `dsl: dzupflow/v2` document kind
+with `version: 2.0.0`. P3a supports the uniform multi-key step envelope:
+
+```yaml
+dsl: dzupflow/v2
+id: bounded-example
+version: 2.0.0
+steps:
+  - id: seed
+    use: core.set@1
+    with:
+      assign:
+        ready: true
+  - id: draft
+    use: adapter.run@1
+    with:
+      provider: codex
+      instructions: Draft the result.
+    save:
+      result: state.draft
+  - id: done
+    use: core.complete@1
+    with:
+      result: accepted
+```
+
+The current kernel subset is:
+
+- implicit top-level sequence;
+- `core.set@1`;
+- `core.branch@1`, using `when` plus `with.then` and optional `with.else`;
+- exact registered primitive invocation such as `adapter.run@1`;
+- `core.complete@1`.
+
+Every `use` must include an exact version. Primitive invocations bind the
+exact V2 ref and semantic hash, and generated v1 namespace imports remain
+version-pinned. `save` currently supports one declared output port mapped to a
+flat `state.<key>` when the compatible v1 node has a reviewed output adapter.
+
+Successful parsing returns the same canonical `FlowDocumentV1` as equivalent
+v1 source and adds immutable `frontend` evidence to the parse result with
+authored/lowered step paths and exact primitive bindings. Composite expansion
+also retains exact primitive ref/hash lineage in document metadata.
+
+P3a recognizes but fails closed on `policy`, `retry`, and `catch`; general
+step-level `when`; multiple or nested save targets; unknown kernel versions;
+unregistered primitives; conflicting versions from one namespace; and
+unimplemented top-level profiles, locks, outputs, state, and return surfaces.
+This is a compatibility frontend, not a new runtime. Authored v2 source-map
+composition, richer kernel constructs, typed expression ASTs, and v2
+formatting remain separate work.
+
 ## Custom V2 registries and authoring metadata
 
 Hosts can create an immutable, deterministically hashed `PrimitiveRegistryV2`
@@ -140,8 +195,47 @@ without weakening the V2 catalog.
 `createPrimitiveAuthoringMetadata` projects inline input and output schemas
 into stable nested fields, classifications, credential flags, and completion
 items. Array item paths use `*`. Hosts that require every leaf input to have an
-explicit classification can set `requireClassifiedLeafInputs`. External
-`$ref` schemas remain opaque until a host schema registry resolves them.
+explicit classification can set `requireClassifiedLeafInputs`.
+
+External schemas use exact `schema://namespace/name@version` refs. Define them
+with `defineFlowSchema`, then create a deterministic `FlowSchemaRegistry` with
+`createFlowSchemaRegistry`. Reviewed trust is the default admission policy;
+local or untrusted contracts require an explicit host opt-in. Registry
+construction rejects duplicate refs, hash drift, missing supersession targets,
+cross-identity supersession, missing nested refs, `$ref` siblings, and cycles.
+`resolveFlowSchema` returns an immutable resolved schema plus the exact
+registry hash and transitive ref/hash bindings. Passing the registry to
+`createPrimitiveAuthoringMetadata` or `createPrimitiveRegistryV2` enables deep
+field and classification checks for external primitive input schemas.
+
+`expandRegisteredCompositesDetailed` also returns `primitiveExpansions`.
+Each entry binds the authored invocation path to the exact V2 primitive ref,
+semantic hash, generated paths, child composite refs, and optional parent
+primitive ref. Set `requirePrimitiveLineage: true` to fail closed when an
+invoked v1 composite has no matching exact V2 contract.
+
+## Report-only version migrations
+
+`defineVersionMigration` declares an exact primitive or schema route such as
+`migration://primitive/custom.lookup@1-to-2` or
+`migration://schema/custom/customer@1-to-2`. The immutable definition locks
+the source and target semantic hashes, change classification, stable transform
+and semantic-projection refs, and exact/manual/unavailable rollback truth.
+
+`createVersionMigrationRegistry` binds every route to the current primitive or
+schema registries. It rejects hash drift, duplicate routes, cross-identity
+routes, targets that do not explicitly supersede their source, and
+inconsistent incompatible/equivalent declarations. There is no path search
+and no implicit latest version.
+
+`previewVersionMigration` runs a registered transform twice against frozen
+JSON clones, rejects nondeterminism or non-finite JSON, compares optional
+semantic projections, and verifies exact rollback without changing the source
+value or a DSL document. `qualifyVersionMigration` evaluates hash-pinned,
+order-independent fixtures and returns an immutable readiness report.
+Incompatible routes always remain blocked. These APIs produce previews and
+evidence only; applying edited DSL remains a separate, explicitly authorized
+consumer action.
 
 ## Template expressions
 
