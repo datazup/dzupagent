@@ -25,7 +25,7 @@ yarn verify
 
 ## Boundaries
 
-- Use Yarn 1 + Turbo from this repo root.
+- Use the checked-in Yarn 4.16.0 toolchain with Corepack + Turbo from this repo root.
 - Prefer filtered Turbo checks such as `yarn test --filter=@dzupagent/core`.
 - Do not add product features to `packages/server` or `packages/playground`; product behavior belongs in consuming apps such as codev-app.
 

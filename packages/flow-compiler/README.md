@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { createFlowCompiler, routeTarget } from '@dzupagent/flow-compiler'
+import { createFlowCompiler, routeTarget } from "@dzupagent/flow-compiler";
 ```
 
 ## Classified references and secret-flow checks
@@ -20,15 +20,15 @@ Documents may classify inputs as `public`, `internal`, `sensitive`, or
 ```ts
 const compiler = createFlowCompiler({
   toolResolver,
-  referencePolicy: 'strict',
-  referenceBindings: { context: ['tenantId'], secrets: ['apiKey'] },
+  referencePolicy: "strict",
+  referenceBindings: { context: ["tenantId"], secrets: ["apiKey"] },
   referenceClassificationBindings: {
-    context: { tenantId: 'internal' },
+    context: { tenantId: "internal" },
   },
   referencePortClassificationBindings: {
-    loadCustomer: { result: 'sensitive' },
+    loadCustomer: { result: "sensitive" },
   },
-})
+});
 ```
 
 Classifications merge monotonically; the most restrictive declaration wins,
@@ -64,12 +64,12 @@ createFlowCompiler({
   toolResolver,
   primitiveRegistry,
   primitiveBindings: {
-    'validate.schema': {
-      ref: 'validate.schema@2',
-      semanticHash: registry.definitions['validate.schema@2'].semanticHash,
+    "validate.schema": {
+      ref: "validate.schema@2",
+      semanticHash: registry.definitions["validate.schema@2"].semanticHash,
     },
   },
-})
+});
 ```
 
 The compiler never resolves an external primitive to an implicit latest
@@ -104,9 +104,9 @@ For unattended compilation, opt into the fail-closed admission profile:
 ```ts
 createFlowCompiler({
   toolResolver,
-  admissionProfile: 'unattended',
-  referencePolicy: 'strict',
-})
+  admissionProfile: "unattended",
+  referencePolicy: "strict",
+});
 ```
 
 `unattended` rejects compatibility reference policy and requires every
@@ -155,6 +155,41 @@ control-flow availability. Stage 4 returns
 emitting the deterministic V1 compatibility anchor as complete semantics.
 Typed-condition, policy, retry, catch, and multi-port-save adoption gaps
 accumulate.
+
+`@dzupagent/flow-compiler/v2-inactive-local-target` provides one
+provider-free, qualification-only adoption contract for the complete five
+capability set. It requires strict reference validation, an additive exact
+primitive registry/binding, complete source coverage, successful local typed
+condition evaluation, and the normal compiler pipeline to stop on exactly the
+five reviewed Stage 4 diagnostics. The deterministic receipt binds the source,
+capabilities, primitive ref/hash contracts, condition results, and compiler
+gate. It remains explicitly inactive and grants no artifact, primitive,
+provider, state-mutation, continuation, deployment, promotion, or activation
+authority. Generic compilation is unchanged.
+
+The same subpath also publishes `simulateV2InactiveLocalTarget` as a bounded,
+provider-free executable simulator for exactly one guarded primitive step that
+owns all five reviewed contracts. It accepts only deterministic JSON scripted
+attempts, intersects inherited policy, enforces cumulative timeout/budget and
+same-invocation retry/backoff, applies explicit terminal-catch outcomes, and
+commits validated multi-port state writes atomically. Content-addressed
+checkpoints bind the exact source, qualification, plan, attempts, cost,
+duration, and state for deterministic resume. Cancellation is an explicit
+attempt boundary and dominates approval before the first attempt. The
+simulator never invokes a runtime handler or provider, mutates external state,
+continues another workflow, deploys, promotes, or activates a target; it is
+execution-contract evidence, not a production runtime.
+
+The same subpath also exposes `simulateV2InactiveLocalTarget` under the
+separate identity `dzupagent.local-v2-simulator@1`. It accepts only one fully
+qualified guarded primitive step and deterministic local scripted outcomes.
+The simulator applies the exact inherited policy narrowing, cumulative
+timeout and budget limits, same-invocation retry and deterministic backoff,
+terminal catch outcomes, schema-checked atomic multi-port writes, cooperative
+cancellation, and digest-bound checkpoint/resume evidence. It never invokes a
+primitive handler or provider and never writes external state. Its immutable
+receipt grants no continuation, deployment, promotion, or activation
+authority, and the qualification receipt cannot authorize simulation.
 
 ## Compiled classification envelope
 
