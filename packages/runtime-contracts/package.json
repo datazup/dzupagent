@@ -21,10 +21,14 @@
     "./agent-review": {
       "import": "./dist/agent-review.js",
       "types": "./dist/agent-review.d.ts"
+    },
+    "./fixtures/agent-review-conformance-v1.json": {
+      "default": "./fixtures/agent-review-conformance-v1.json"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "fixtures"
   ],
   "scripts": {
     "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",

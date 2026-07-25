@@ -1,0 +1,57 @@
+{
+  "schema": "dzupagent.agentReviewConformanceCorpus/v1",
+  "description": "Provider-free canonical terminal scenarios shared unchanged by host projection adapters.",
+  "cases": [
+    {
+      "id": "accepted",
+      "scenario": "accepted",
+      "expectedSummaryStatus": "passed",
+      "expectedTerminalStatus": "accepted"
+    },
+    {
+      "id": "revise",
+      "scenario": "revise",
+      "expectedSummaryStatus": "passed",
+      "expectedTerminalStatus": "non_terminal_revision"
+    },
+    {
+      "id": "revision-limit",
+      "scenario": "revision_limit",
+      "expectedSummaryStatus": "passed",
+      "expectedTerminalStatus": "exhausted"
+    },
+    {
+      "id": "no-progress",
+      "scenario": "no_progress",
+      "expectedSummaryStatus": "passed",
+      "expectedTerminalStatus": "stalled"
+    },
+    {
+      "id": "blocked-external",
+      "scenario": "blocked_external",
+      "expectedSummaryStatus": "passed",
+      "expectedTerminalStatus": "blocked_external"
+    },
+    {
+      "id": "skipped-validation",
+      "scenario": "skipped_validation",
+      "expectedSummaryStatus": "passed",
+      "expectedTerminalStatus": "invalid_decision"
+    },
+    {
+      "id": "host-policy-failure",
+      "scenario": "host_policy_failure",
+      "expectedSummaryStatus": "passed",
+      "expectedTerminalStatus": "failed"
+    }
+  ],
+  "boundaries": {
+    "providerCalls": 0,
+    "continuationAuthorized": false,
+    "executionAuthorized": false,
+    "mutationAuthorized": false,
+    "promotionAuthorized": false,
+    "authorityEffect": "none"
+  },
+  "payloadSha256": "sha256:cf6c73dafcec824c4f7ed2f90b3c54133ea6416b9ffd801712eca5ca28eb0fcc"
+}

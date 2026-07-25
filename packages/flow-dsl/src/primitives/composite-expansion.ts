@@ -16,6 +16,7 @@ import type {
 import {
   generatedV2SourceLineage,
   readV2SourceLineage,
+  withoutV2SourceLineageMetadata,
   withV2SourceLineage,
   type V2SourceLineageMarker,
 } from "../v2/source-lineage.js";
@@ -255,7 +256,7 @@ function expandStepArray(
         const expanded = expandFragmentInvocation({
           registry: fragmentRegistry,
           kind,
-          raw: wrapper[kind],
+          raw: withoutV2SourceLineageMetadata(wrapper[kind]),
           path: `${path}[${index}]`,
         });
         const sourceLineage = readV2SourceLineage(wrapper[kind]);

@@ -45,6 +45,27 @@ export function generatedV2SourceLineage(
   });
 }
 
+/** Remove lineage before passing a v2-authored body to a strict expander. */
+export function withoutV2SourceLineageMetadata(
+  value: unknown,
+): unknown {
+  if (!isRecord(value) || !isRecord(value.meta)) return value;
+  if (
+    !isV2SourceLineageMarker(
+      value.meta[V2_SOURCE_LINEAGE_META_KEY],
+    )
+  ) {
+    return value;
+  }
+  const meta = Object.fromEntries(
+    Object.entries(value.meta).filter(
+      ([key]) => key !== V2_SOURCE_LINEAGE_META_KEY,
+    ),
+  );
+  const { meta: _meta, ...rest } = value;
+  return Object.keys(meta).length === 0 ? rest : { ...rest, meta };
+}
+
 /** Immutably remove parser-only lineage without changing authored metadata. */
 export function stripV2SourceLineage<T>(value: T): T {
   if (Array.isArray(value)) {
