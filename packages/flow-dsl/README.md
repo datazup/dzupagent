@@ -165,7 +165,8 @@ The current kernel subset is:
 
 - implicit top-level sequence;
 - `core.set@1`;
-- `core.branch@1`, using `when` plus `with.then` and optional `with.else`;
+- `core.branch@1`, using either a legacy string `when` or the typed form below,
+  plus `with.then` and optional `with.else`;
 - exact registered primitive invocation such as `adapter.run@1`;
 - `core.complete@1`.
 
@@ -173,6 +174,56 @@ Every `use` must include an exact version. Primitive invocations bind the
 exact V2 ref and semantic hash, and generated v1 namespace imports remain
 version-pinned. `save` currently supports one declared output port mapped to a
 flat `state.<key>` when the compatible v1 node has a reviewed output adapter.
+
+### Typed conditions and general `when`
+
+The bounded typed-condition syntax is keyed data, not JavaScript or a template
+string:
+
+```yaml
+inputs:
+  ready: boolean
+  score: number
+steps:
+  - id: draft
+    use: adapter.run@1
+    when:
+      all:
+        - ref: inputs.ready
+        - gte:
+            - ref: inputs.score
+            - 3
+    with:
+      provider: codex
+      instructions: Draft the result.
+    save:
+      result: state.draft
+```
+
+Supported forms are scalar literals, `ref`, `all`, `any`, `not`, `exists`,
+`is_empty`, `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, and `in`.
+Operator objects contain exactly one key. The parser limits conditions to 256
+nodes and depth 32 and rejects I/O or nondeterministic operators.
+
+General typed `when` is supported on `core.set@1`, exact registered primitive
+invocations, and `core.complete@1`. Lowering creates a canonical branch guard
+whose `then` contains the original lowered step. The child keeps its authored
+id, save/evidence/annotation data, exact primitive ref/hash lineage, and
+authored source mappings. The guard uses the fixed legacy string shadow
+`condition: "false"` and carries semantic authority in
+`typedCondition: dzupagent.flowTypedCondition/v1`.
+
+The compiler is the single semantic authority for typed conditions. It
+requires strict references, declared value types, compatible operands, a
+boolean result, and control-flow availability. A valid typed condition also
+adds the required capability `flow.control.typed-condition@1`.
+
+No generic compiler target currently has a reviewed evaluator for that
+capability. Compilation therefore stops at Stage 4 with
+`TYPED_CONDITION_TARGET_UNSUPPORTED` before artifact emission. The fixed
+legacy shadow keeps unchanged hosts fail closed; it is never treated as the
+typed condition's executable meaning. Existing v1 strings and v2
+`core.branch@1` string `when` remain compatible.
 
 Successful parsing returns the same canonical `FlowDocumentV1` as equivalent
 v1 source and adds immutable `frontend` evidence to the parse result with
@@ -187,13 +238,15 @@ removes it immutably before returning the canonical document. Generated
 compiler diagnostics point to the parent `use`; relative edits on those
 derived paths and on adapted save targets are suppressed.
 
-The bounded frontend recognizes but fails closed on `policy`, `retry`, and `catch`; general
-step-level `when`; multiple or nested save targets; unknown kernel versions;
+The bounded frontend recognizes but fails closed on `policy`, `retry`, and
+`catch`; multiple or nested save targets; unknown kernel versions;
 unregistered primitives; conflicting versions from one namespace; and
 unimplemented top-level profiles, locks, outputs, state, and return surfaces.
 This is a compatibility frontend, not a new runtime. Richer kernel constructs,
-typed expression ASTs, exact generated-field edits, source pre/post hash
-attestation, and v2 formatting remain separate work.
+typed-condition host evaluation, exact generated-field edits, source pre/post
+hash attestation, and an authored-v2 formatter remain separate work. The
+existing canonical v1 formatter preserves the typed-condition sidecar and its
+quoted fail-closed shadow across parse-format-parse round trips.
 
 ## Custom V2 registries and authoring metadata
 
