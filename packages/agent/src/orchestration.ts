@@ -221,3 +221,43 @@ export type {
   SupervisionPolicy,
   AgentBreakerState,
 } from "./orchestration/team/supervision-policy.js";
+
+// --- Fleet Gather Strategies (fleet.gather DSL vocabulary) ---
+export {
+  GATHER_STRATEGY_NAMES,
+  isGatherStrategyName,
+  createGatherStrategy,
+  ConcatGatherStrategy,
+  BestGatherStrategy,
+} from "./orchestration/gather/gather-strategies.js";
+export type {
+  GatherStrategyName,
+  GatherScoreFn,
+  GatherStrategyOptions,
+} from "./orchestration/gather/gather-strategies.js";
+export {
+  toAgentResults,
+  applyGatherStep,
+  applyLlmGatherStep,
+} from "./orchestration/gather/fleet-gather-bridge.js";
+export type { FleetGatherAdapterOptions } from "./orchestration/gather/fleet-gather-bridge.js";
+
+// --- LLM-backed Fleet Gather Strategies (synthesis / judge) ---
+export {
+  LLM_GATHER_STRATEGY_NAMES,
+  isLlmGatherStrategyName,
+  createLlmGatherStrategy,
+  SynthesisGatherStrategy,
+  JudgeGatherStrategy,
+  agentAsGatherModel,
+} from "./orchestration/gather/llm-gather-strategies.js";
+export type {
+  LlmGatherStrategyName,
+  GatherModel,
+  GatherAgentLike,
+  GatherRenderFn,
+  AsyncOrchestrationMergeStrategy,
+  LlmGatherStrategyOptions,
+  SynthesisGatherOptions,
+  JudgeGatherOptions,
+} from "./orchestration/gather/llm-gather-strategies.js";

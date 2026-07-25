@@ -19,6 +19,13 @@ import {
   isGatherStrategyName,
   type GatherStrategyOptions,
 } from "./gather-strategies.js";
+import {
+  LLM_GATHER_STRATEGY_NAMES,
+  createLlmGatherStrategy,
+  isLlmGatherStrategyName,
+  type JudgeGatherOptions,
+  type SynthesisGatherOptions,
+} from "./llm-gather-strategies.js";
 
 export interface FleetGatherAdapterOptions<T = unknown> {
   /**
@@ -104,4 +111,27 @@ export function applyGatherStep<T = unknown>(
     );
   }
   return createGatherStrategy<T>(name, options).merge(results);
+}
+
+/**
+ * Applies a compiled `fleet.gather` step that names an LLM-backed strategy
+ * (`synthesis` | `judge`) to adapted agent results. Async because these
+ * strategies invoke a model. Unknown/omitted strategy names throw with the
+ * valid LLM vocabulary listed — deterministic strategies go through
+ * {@link applyGatherStep} instead.
+ */
+export async function applyLlmGatherStep<T = unknown>(
+  step: { strategy?: string },
+  results: AgentResult<T>[],
+  options: SynthesisGatherOptions<T> & JudgeGatherOptions<T>,
+): Promise<MergedResult<T>> {
+  const name = step.strategy;
+  if (name === undefined || !isLlmGatherStrategyName(name)) {
+    throw new Error(
+      `Unknown LLM gather strategy "${String(
+        name,
+      )}" — expected one of: ${LLM_GATHER_STRATEGY_NAMES.join(", ")}`,
+    );
+  }
+  return createLlmGatherStrategy<T>(name, options).merge(results);
 }
