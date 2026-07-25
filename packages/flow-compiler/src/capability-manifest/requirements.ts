@@ -1,4 +1,8 @@
-import { type FlowNode, type FlowNodeKind } from "@dzupagent/flow-ast";
+import {
+  FLOW_TYPED_CONDITION_CAPABILITY,
+  type FlowNode,
+  type FlowNodeKind,
+} from "@dzupagent/flow-ast";
 
 import { routeTarget } from "../route-target.js";
 import type { FlowRequirementSummary } from "../types.js";
@@ -34,7 +38,7 @@ export function collectFlowRequirements(ast: FlowNode): FlowRequirementSummary {
     }
   });
   if (hasTypedCondition) {
-    requiredCapabilities.add("flow.control.typed-condition@1");
+    requiredCapabilities.add(FLOW_TYPED_CONDITION_CAPABILITY);
   }
 
   return {

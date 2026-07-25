@@ -8,7 +8,10 @@
  *   4. routeTarget + lower — emit artifact            (errors: stage 4)
  */
 
-import { parseFlow } from "@dzupagent/flow-ast";
+import {
+  FLOW_TYPED_CONDITION_CAPABILITY,
+  parseFlow,
+} from "@dzupagent/flow-ast";
 import type { ParseInput } from "@dzupagent/flow-ast";
 import type { DzupEvent } from "@dzupagent/core";
 import { resolveDslSourceSpan } from "@dzupagent/flow-dsl/source-map";
@@ -368,7 +371,7 @@ export async function runCompile(
           code: "TYPED_CONDITION_TARGET_UNSUPPORTED",
           message:
             `Typed condition at "${condition.path}" is valid, but the selected "${target}" target has no reviewed ` +
-            `flow.control.typed-condition@1 evaluator. Artifact emission is blocked.`,
+            `${FLOW_TYPED_CONDITION_CAPABILITY} evaluator. Artifact emission is blocked.`,
           nodePath: condition.path,
           category: "lowering",
           ...(sourceSpan === undefined

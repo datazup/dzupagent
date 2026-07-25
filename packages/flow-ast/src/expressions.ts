@@ -25,6 +25,10 @@ export interface FlowTypedCondition {
   readonly expression: FlowExpression;
 }
 
+/** Exact host capability required before a typed condition may be evaluated. */
+export const FLOW_TYPED_CONDITION_CAPABILITY =
+  "flow.control.typed-condition@1" as const;
+
 /** Legacy shadow used only to keep non-typed hosts fail closed. */
 export const FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW = "false";
 
