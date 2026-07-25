@@ -15,7 +15,7 @@ import type { SpawnedAgent } from "../team-workspace.js";
 
 function buildDefinition(
   id: string,
-  participants: Array<Pick<ParticipantDefinition, "id" | "role">>
+  participants: Array<Pick<ParticipantDefinition, "id" | "role">>,
 ): TeamDefinition {
   return {
     id,
@@ -30,7 +30,7 @@ function buildDefinition(
 
 function createDelayedAgent(
   id: string,
-  onActiveChange: (delta: 1 | -1) => void
+  onActiveChange: (delta: 1 | -1) => void,
 ): DzupAgent {
   const model: BaseChatModel = {
     invoke: vi.fn(async () => {
@@ -60,7 +60,7 @@ function createDelayedAgent(
 function createBlackboardAgent(
   id: string,
   responses: string[],
-  prompts: string[] = []
+  prompts: string[] = [],
 ): DzupAgent {
   let index = 0;
   const model: BaseChatModel = {
@@ -69,7 +69,7 @@ function createBlackboardAgent(
       prompts.push(
         typeof lastMessage?.content === "string"
           ? lastMessage.content
-          : JSON.stringify(lastMessage?.content)
+          : JSON.stringify(lastMessage?.content),
       );
       const content = responses[index] ?? responses.at(-1) ?? "";
       index += 1;
@@ -93,7 +93,7 @@ function createBlackboardAgent(
 function makeRuntime(
   definition: TeamDefinition,
   agentsById: Map<string, DzupAgent>,
-  maxParallelParticipants: number
+  maxParallelParticipants: number,
 ): TeamRuntime {
   return new TeamRuntime({
     definition,
@@ -126,9 +126,9 @@ describe("TeamRuntime execution policy", () => {
         participants.map((participant) => [
           participant.id,
           createDelayedAgent(participant.id, onActiveChange),
-        ])
+        ]),
       ),
-      2
+      2,
     );
 
     const result = await runtime.execute("task");
@@ -154,9 +154,9 @@ describe("TeamRuntime execution policy", () => {
         participants.map((participant) => [
           participant.id,
           createDelayedAgent(participant.id, onActiveChange),
-        ])
+        ]),
       ),
-      1
+      1,
     );
     const checkpoint: TeamCheckpoint = {
       teamId: "policy-resume",
@@ -176,7 +176,7 @@ describe("TeamRuntime execution policy", () => {
     const result = await runtime.resume(checkpoint, contract, "task");
 
     expect(
-      result.agentResults.map((agentResult) => agentResult.agentId)
+      result.agentResults.map((agentResult) => agentResult.agentId),
     ).toEqual(["p1", "p2"]);
     expect(maxActive).toBe(1);
   });
@@ -191,7 +191,7 @@ describe("TeamRuntime execution policy", () => {
         new TeamRuntime({
           definition,
           policies: { execution: { timeoutMs: 100 } },
-        })
+        }),
     ).not.toThrow();
 
     expect(
@@ -199,7 +199,7 @@ describe("TeamRuntime execution policy", () => {
         new TeamRuntime({
           definition,
           policies: { execution: { retryOnFailure: true, maxRetries: 2 } },
-        })
+        }),
     ).not.toThrow();
   });
 
@@ -213,7 +213,7 @@ describe("TeamRuntime execution policy", () => {
         new TeamRuntime({
           definition,
           policies: { execution: { timeoutMs: 0 } },
-        })
+        }),
     ).toThrow("execution policy field 'timeoutMs' must be a positive integer");
 
     expect(
@@ -221,7 +221,7 @@ describe("TeamRuntime execution policy", () => {
         new TeamRuntime({
           definition,
           policies: { execution: { maxRetries: 1 } },
-        })
+        }),
     ).toThrow("'maxRetries' requires 'retryOnFailure' to be true");
 
     const supervisorDefinition: TeamDefinition = {
@@ -233,13 +233,13 @@ describe("TeamRuntime execution policy", () => {
         new TeamRuntime({
           definition: supervisorDefinition,
           policies: { execution: { retryOnFailure: true } },
-        })
+        }),
     ).toThrow(/only supported for coordinator pattern 'peer_to_peer'/);
   });
 
-  it("rejects governance policy fields that TeamRuntime does not enforce yet", () => {
+  it("rejects governance policy on a non-council pattern but accepts score gates on council", () => {
     const councilDefinition: TeamDefinition = {
-      ...buildDefinition("unsupported-governance", [
+      ...buildDefinition("governance-gates", [
         { id: "judge", role: "judge" },
         { id: "p1", role: "worker" },
       ]),
@@ -254,21 +254,13 @@ describe("TeamRuntime execution policy", () => {
         new TeamRuntime({
           definition: peerDefinition,
           policies: { governance: { judgeModel: "claude-opus-4-7" } },
-        })
+        }),
     ).toThrow(
-      "governance policy group is only supported for coordinator pattern 'council'"
+      "governance policy group is only supported for coordinator pattern 'council'",
     );
 
-    expect(
-      () =>
-        new TeamRuntime({
-          definition: councilDefinition,
-          policies: {
-            governance: { judgeModel: "claude-opus-4-7", minScore: 0.8 },
-          },
-        })
-    ).toThrow("governance policy field 'minScore' is not supported yet");
-
+    // minScore / requireUnanimous are now shape-checked and service-gated, not
+    // blanket-rejected: a well-formed council policy constructs cleanly.
     expect(
       () =>
         new TeamRuntime({
@@ -276,13 +268,23 @@ describe("TeamRuntime execution policy", () => {
           policies: {
             governance: {
               judgeModel: "claude-opus-4-7",
+              minScore: 0.8,
               requireUnanimous: true,
             },
           },
-        })
-    ).toThrow(
-      "governance policy field 'requireUnanimous' is not supported yet"
-    );
+        }),
+    ).not.toThrow();
+
+    // ...but a malformed threshold still fails fast at construction.
+    expect(
+      () =>
+        new TeamRuntime({
+          definition: councilDefinition,
+          policies: {
+            governance: { judgeModel: "claude-opus-4-7", minScore: 1.5 },
+          },
+        }),
+    ).toThrow(/minScore.*\[0, 1\]/);
   });
 
   it("emits metadata-safe diagnostics when enforcing governance judgeModel", async () => {
@@ -326,7 +328,7 @@ describe("TeamRuntime execution policy", () => {
         policyGroup: "governance",
         policyField: "judgeModel",
         coordinatorPattern: "council",
-      })
+      }),
     );
     expect(JSON.stringify(events)).not.toContain("claude-opus-4-7");
   });
@@ -336,9 +338,9 @@ describe("TeamRuntime execution policy", () => {
     ["mailbox", { mailbox: { deliveryMode: "targeted" } }],
     ["evaluation", { evaluation: { scorerModel: "claude-opus-4-7" } }],
   ] satisfies Array<[string, TeamPolicies]>)(
-    "rejects unsupported %s policy group fail-closed",
+    "accepts a well-formed %s policy group (shape-checked / service-gated)",
     (group, policies) => {
-      const definition = buildDefinition(`unsupported-${group}`, [
+      const definition = buildDefinition(`accepted-${group}`, [
         { id: "p1", role: "worker" },
       ]);
 
@@ -347,9 +349,30 @@ describe("TeamRuntime execution policy", () => {
           new TeamRuntime({
             definition,
             policies,
-          })
-      ).toThrow(`TeamRuntime policy group '${group}' is not supported yet`);
-    }
+          }),
+      ).not.toThrow();
+    },
+  );
+
+  it.each([
+    ["isolation", { isolation: { sandboxed: "no", sharedWorkspace: false } }],
+    ["mailbox", { mailbox: { deliveryMode: "gossip" } }],
+    ["evaluation", { evaluation: { scorerModel: "" } }],
+  ] as Array<[string, TeamPolicies]>)(
+    "rejects a malformed %s policy group fail-closed",
+    (group, policies) => {
+      const definition = buildDefinition(`malformed-${group}`, [
+        { id: "p1", role: "worker" },
+      ]);
+
+      expect(
+        () =>
+          new TeamRuntime({
+            definition,
+            policies,
+          }),
+      ).toThrow(new RegExp(group));
+    },
   );
 });
 
@@ -363,7 +386,7 @@ describe("TeamRuntime blackboard memory policy", () => {
 
   function createBlackboardRuntime(
     policies: TeamPolicies,
-    agent: DzupAgent
+    agent: DzupAgent,
   ): TeamRuntime {
     return new TeamRuntime({
       definition: buildBlackboardDefinition("blackboard-budget"),
@@ -383,7 +406,7 @@ describe("TeamRuntime blackboard memory policy", () => {
     const agent = createBlackboardAgent(
       "writer",
       ["small one", "small two", "small three"],
-      prompts
+      prompts,
     );
     const runtime = createBlackboardRuntime(
       {
@@ -396,7 +419,7 @@ describe("TeamRuntime blackboard memory policy", () => {
           },
         },
       },
-      agent
+      agent,
     );
 
     const result = await runtime.execute("small task");
@@ -414,7 +437,7 @@ describe("TeamRuntime blackboard memory policy", () => {
     const agent = createBlackboardAgent(
       "writer",
       [largeContribution, largeContribution, largeContribution],
-      prompts
+      prompts,
     );
     const runtime = createBlackboardRuntime(
       {
@@ -428,7 +451,7 @@ describe("TeamRuntime blackboard memory policy", () => {
           },
         },
       },
-      agent
+      agent,
     );
 
     const result = await runtime.execute("bounded task");
@@ -456,7 +479,7 @@ describe("TeamRuntime blackboard memory policy", () => {
           },
         },
       },
-      agent
+      agent,
     );
 
     const result = await runtime.execute("bounded task");
@@ -479,9 +502,9 @@ describe("TeamRuntime blackboard memory policy", () => {
           policies: {
             memory: { tier: "session", shareAcrossParticipants: true },
           },
-        })
+        }),
     ).toThrow(
-      "memory policy group is only supported for coordinator pattern 'blackboard'"
+      "memory policy group is only supported for coordinator pattern 'blackboard'",
     );
   });
 
@@ -500,7 +523,7 @@ describe("TeamRuntime blackboard memory policy", () => {
               consolidateOnComplete: true,
             },
           },
-        })
+        }),
     ).not.toThrow();
   });
 });

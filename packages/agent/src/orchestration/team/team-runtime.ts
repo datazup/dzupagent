@@ -7,67 +7,90 @@
  * strategy under `./patterns/`.
  */
 
-import { KeyedCircuitBreaker } from '@dzupagent/core/llm'
-import { TeamBreakerTracker } from './team-runtime-breaker.js'
+import { KeyedCircuitBreaker } from "@dzupagent/core/llm";
+import { TeamBreakerTracker } from "./team-runtime-breaker.js";
 import {
   SharedWorkspace,
   type TeamRunResult,
   type TeamSpawnedAgent as SpawnedAgent,
-} from './team-workspace.js'
+} from "./team-workspace.js";
 import type {
   CoordinatorPattern,
   ParticipantDefinition,
   TeamDefinition,
-} from './team-definition.js'
-import type { TeamPolicies } from './team-policy.js'
-import type { TeamCheckpoint, ResumeContract } from './team-checkpoint.js'
-import type { SupervisionPolicy } from './supervision-policy.js'
+} from "./team-definition.js";
+import type { TeamPolicies } from "./team-policy.js";
+import type { TeamCheckpoint, ResumeContract } from "./team-checkpoint.js";
+import type { SupervisionPolicy } from "./supervision-policy.js";
 import {
   TEAM_PATTERN_REGISTRY,
   type ResolvedParticipant,
   type TeamPattern,
   type TeamPatternContext,
-} from './patterns/index.js'
-import { DEFAULT_GOVERNANCE_MODEL as DEFAULT_GOVERNANCE_MODEL_FROM_PATTERN } from './patterns/council-pattern.js'
-import { validateTeamPolicies } from './team-runtime-policy-validator.js'
-import type { TeamOTelSpanLike, TeamRuntimeTracer } from './team-otel-types.js'
-import type { TeamRuntimeEventEmitter } from './team-runtime-events.js'
-import type { TeamRuntimeMemoryService } from './team-runtime-memory.js'
-import { EMPTY_RESUME_RESULT, planResume } from './team-runtime-resume.js'
-import { buildPatternHooks } from './team-runtime-hooks.js'
-import { executeTeamRun } from './team-runtime-execute.js'
+} from "./patterns/index.js";
+import { DEFAULT_GOVERNANCE_MODEL as DEFAULT_GOVERNANCE_MODEL_FROM_PATTERN } from "./patterns/council-pattern.js";
+import { validateTeamPolicies } from "./team-runtime-policy-validator.js";
+import type { TeamOTelSpanLike, TeamRuntimeTracer } from "./team-otel-types.js";
+import type { TeamRuntimeEventEmitter } from "./team-runtime-events.js";
+import type { TeamRuntimeMemoryService } from "./team-runtime-memory.js";
+import type {
+  TeamEvaluationService,
+  TeamGovernanceService,
+} from "./team-runtime-verdict.js";
+import { EMPTY_RESUME_RESULT, planResume } from "./team-runtime-resume.js";
+import { buildPatternHooks } from "./team-runtime-hooks.js";
+import { executeTeamRun } from "./team-runtime-execute.js";
 
 // Re-export structural types so existing callers keep working.
-export type { TeamOTelSpanLike, TeamRuntimeTracer } from './team-otel-types.js'
+export type { TeamOTelSpanLike, TeamRuntimeTracer } from "./team-otel-types.js";
 export type {
   TeamRuntimeEvent,
   TeamRuntimeEventEmitter,
-} from './team-runtime-events.js'
-export type { TeamRuntimeMemoryService } from './team-runtime-memory.js'
+} from "./team-runtime-events.js";
+export type { TeamRuntimeMemoryService } from "./team-runtime-memory.js";
+export type {
+  TeamEvaluationService,
+  TeamGovernanceService,
+  TeamVerdict,
+  TeamVerdictInput,
+} from "./team-runtime-verdict.js";
+export { TeamVerdictRejectedError } from "./team-runtime-verdict.js";
 
 // Default model constants — exported for downstream wiring.
-export const DEFAULT_ROUTER_MODEL = 'claude-haiku-4-5-20251001'
-export const DEFAULT_PARTICIPANT_MODEL = 'claude-sonnet-4-6'
-export const DEFAULT_GOVERNANCE_MODEL = DEFAULT_GOVERNANCE_MODEL_FROM_PATTERN
+export const DEFAULT_ROUTER_MODEL = "claude-haiku-4-5-20251001";
+export const DEFAULT_PARTICIPANT_MODEL = "claude-sonnet-4-6";
+export const DEFAULT_GOVERNANCE_MODEL = DEFAULT_GOVERNANCE_MODEL_FROM_PATTERN;
 
 /** Resolves a `ParticipantDefinition` into a runnable `SpawnedAgent`. */
 export type ParticipantResolver = (
   participant: ParticipantDefinition,
   team: TeamDefinition,
-) => Promise<SpawnedAgent>
+) => Promise<SpawnedAgent>;
 
 /** Options accepted by the `TeamRuntime` constructor. */
 export interface TeamRuntimeOptions {
-  definition: TeamDefinition
-  policies?: TeamPolicies
-  resolveParticipant?: ParticipantResolver
-  onEvent?: TeamRuntimeEventEmitter
-  generateRunId?: () => string
-  memory?: TeamRuntimeMemoryService
-  tracer?: TeamRuntimeTracer
-  supervisionPolicy?: SupervisionPolicy
+  definition: TeamDefinition;
+  policies?: TeamPolicies;
+  resolveParticipant?: ParticipantResolver;
+  onEvent?: TeamRuntimeEventEmitter;
+  generateRunId?: () => string;
+  memory?: TeamRuntimeMemoryService;
+  /**
+   * Host-injected scorer for the `governance` acceptance gate (council
+   * pattern). Required for `governance.minScore` / `governance.requireUnanimous`
+   * to take effect; without it those fields are inert.
+   */
+  governance?: TeamGovernanceService;
+  /**
+   * Host-injected scorer for the `evaluation` acceptance gate (any pattern).
+   * Required for `evaluation.minPassScore` to take effect; without it the field
+   * is inert.
+   */
+  evaluation?: TeamEvaluationService;
+  tracer?: TeamRuntimeTracer;
+  supervisionPolicy?: SupervisionPolicy;
   /** Optional pattern registry override — primarily a test seam. */
-  patternRegistry?: Record<CoordinatorPattern, TeamPattern>
+  patternRegistry?: Record<CoordinatorPattern, TeamPattern>;
 }
 
 /**
@@ -75,41 +98,45 @@ export interface TeamRuntimeOptions {
  * Instantiate once per team, then call `execute(task)` one or more times.
  */
 export class TeamRuntime {
-  private readonly definition: TeamDefinition
-  private readonly policies: TeamPolicies
-  private readonly resolveParticipant: ParticipantResolver | undefined
-  private readonly emitEvent: TeamRuntimeEventEmitter
-  private readonly generateRunId: () => string
-  private readonly tracer: TeamRuntimeTracer | undefined
-  private currentSpan: TeamOTelSpanLike | undefined
-  private readonly breakerTracker: TeamBreakerTracker | undefined
-  private readonly memory: TeamRuntimeMemoryService | undefined
-  private readonly patternRegistry: Record<CoordinatorPattern, TeamPattern>
+  private readonly definition: TeamDefinition;
+  private readonly policies: TeamPolicies;
+  private readonly resolveParticipant: ParticipantResolver | undefined;
+  private readonly emitEvent: TeamRuntimeEventEmitter;
+  private readonly generateRunId: () => string;
+  private readonly tracer: TeamRuntimeTracer | undefined;
+  private currentSpan: TeamOTelSpanLike | undefined;
+  private readonly breakerTracker: TeamBreakerTracker | undefined;
+  private readonly memory: TeamRuntimeMemoryService | undefined;
+  private readonly governance: TeamGovernanceService | undefined;
+  private readonly evaluation: TeamEvaluationService | undefined;
+  private readonly patternRegistry: Record<CoordinatorPattern, TeamPattern>;
 
   constructor(options: TeamRuntimeOptions) {
-    this.definition = options.definition
-    this.policies = options.policies ?? {}
-    validateTeamPolicies(this.definition.coordinatorPattern, this.policies)
-    this.resolveParticipant = options.resolveParticipant
-    this.emitEvent = options.onEvent ?? (() => {})
+    this.definition = options.definition;
+    this.policies = options.policies ?? {};
+    validateTeamPolicies(this.definition.coordinatorPattern, this.policies);
+    this.resolveParticipant = options.resolveParticipant;
+    this.emitEvent = options.onEvent ?? (() => {});
     this.generateRunId =
-      options.generateRunId ?? (() => globalThis.crypto.randomUUID())
-    this.tracer = options.tracer
-    this.memory = options.memory
-    this.patternRegistry = options.patternRegistry ?? TEAM_PATTERN_REGISTRY
+      options.generateRunId ?? (() => globalThis.crypto.randomUUID());
+    this.tracer = options.tracer;
+    this.memory = options.memory;
+    this.governance = options.governance;
+    this.evaluation = options.evaluation;
+    this.patternRegistry = options.patternRegistry ?? TEAM_PATTERN_REGISTRY;
     this.breakerTracker = options.supervisionPolicy
       ? new TeamBreakerTracker(options.supervisionPolicy)
-      : undefined
+      : undefined;
   }
 
   /** The team definition backing this runtime. */
   get team(): TeamDefinition {
-    return this.definition
+    return this.definition;
   }
 
   /** The policies applied to this runtime. */
   get policy(): TeamPolicies {
-    return this.policies
+    return this.policies;
   }
 
   /**
@@ -122,9 +149,9 @@ export class TeamRuntime {
     if (!this.resolveParticipant) {
       throw new Error(
         `TeamRuntime: no ParticipantResolver supplied; cannot spawn participant '${participant.id}'`,
-      )
+      );
     }
-    return this.resolveParticipant(participant, this.definition)
+    return this.resolveParticipant(participant, this.definition);
   }
 
   /**
@@ -140,14 +167,16 @@ export class TeamRuntime {
       emitEvent: this.emitEvent,
       tracer: this.tracer,
       memory: this.memory,
+      governance: this.governance,
+      evaluation: this.evaluation,
       breakerTracker: this.breakerTracker,
       resolvePattern: (id) => this.resolvePattern(id),
       buildPatternContext: (t, runId, startedAt, span) =>
         this.buildPatternContext(t, runId, startedAt, span),
       setCurrentSpan: (span) => {
-        this.currentSpan = span
+        this.currentSpan = span;
       },
-    })
+    });
   }
 
   /**
@@ -164,30 +193,32 @@ export class TeamRuntime {
       checkpoint,
       contract,
       task,
-    )
-    if (workingParticipants.length === 0) return EMPTY_RESUME_RESULT
+    );
+    if (workingParticipants.length === 0) return EMPTY_RESUME_RESULT;
 
-    const original = this.definition.participants
+    const original = this.definition.participants;
     try {
-      ;(this.definition as { participants: ParticipantDefinition[] }).participants =
-        workingParticipants
-      return await this.execute(resumeTask)
+      (
+        this.definition as { participants: ParticipantDefinition[] }
+      ).participants = workingParticipants;
+      return await this.execute(resumeTask);
     } finally {
-      ;(this.definition as { participants: ParticipantDefinition[] }).participants =
-        original
+      (
+        this.definition as { participants: ParticipantDefinition[] }
+      ).participants = original;
     }
   }
 
   // --- private helpers ----------------------------------------------------
 
   private resolvePattern(id: CoordinatorPattern): TeamPattern {
-    const pattern = this.patternRegistry[id]
+    const pattern = this.patternRegistry[id];
     if (!pattern) {
       throw new Error(
         `TeamRuntime: unknown coordinator pattern '${String(id)}'`,
-      )
+      );
     }
-    return pattern
+    return pattern;
   }
 
   private async buildPatternContext(
@@ -196,8 +227,8 @@ export class TeamRuntime {
     startedAt: number,
     span: TeamOTelSpanLike | undefined,
   ): Promise<TeamPatternContext> {
-    const participants = await this.resolveAll()
-    const breaker = this.breakerTracker?.registry ?? new KeyedCircuitBreaker()
+    const participants = await this.resolveAll();
+    const breaker = this.breakerTracker?.registry ?? new KeyedCircuitBreaker();
     return {
       task,
       teamId: this.definition.id,
@@ -217,19 +248,19 @@ export class TeamRuntime {
         getSpan: () => this.currentSpan,
         breakerTracker: this.breakerTracker,
       }),
-    }
+    };
   }
 
   private async resolveAll(): Promise<ResolvedParticipant[]> {
-    const tracker = this.breakerTracker
+    const tracker = this.breakerTracker;
     const eligible = tracker
       ? this.definition.participants.filter((p) => tracker.isAvailable(p.id))
-      : this.definition.participants
+      : this.definition.participants;
     return Promise.all(
       eligible.map(async (participant) => {
-        const spawned = await this.spawnParticipant(participant)
-        return { participant, spawned }
+        const spawned = await this.spawnParticipant(participant);
+        return { participant, spawned };
       }),
-    )
+    );
   }
 }

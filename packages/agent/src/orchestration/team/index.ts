@@ -10,7 +10,7 @@ export type {
   CoordinatorPattern,
   ParticipantDefinition,
   TeamDefinition,
-} from './team-definition.js'
+} from "./team-definition.js";
 
 export type {
   ExecutionPolicy,
@@ -20,23 +20,24 @@ export type {
   MailboxPolicy,
   EvaluationPolicy,
   TeamPolicies,
-} from './team-policy.js'
+} from "./team-policy.js";
 
-export type { TeamPhase, TeamPhaseModel } from './team-phase.js'
+export type { TeamPhase, TeamPhaseModel } from "./team-phase.js";
 
-export type { TeamCheckpoint, ResumeContract } from './team-checkpoint.js'
+export type { TeamCheckpoint, ResumeContract } from "./team-checkpoint.js";
 
 export type {
   SupervisionPolicy,
   AgentBreakerState,
-} from './supervision-policy.js'
+} from "./supervision-policy.js";
 
 export {
   TeamRuntime,
+  TeamVerdictRejectedError,
   DEFAULT_ROUTER_MODEL,
   DEFAULT_PARTICIPANT_MODEL,
   DEFAULT_GOVERNANCE_MODEL,
-} from './team-runtime.js'
+} from "./team-runtime.js";
 export type {
   TeamRuntimeEvent,
   TeamRuntimeEventEmitter,
@@ -44,9 +45,14 @@ export type {
   ParticipantResolver,
   TeamRuntimeTracer,
   TeamOTelSpanLike,
-} from './team-runtime.js'
+  TeamRuntimeMemoryService,
+  TeamGovernanceService,
+  TeamEvaluationService,
+  TeamVerdict,
+  TeamVerdictInput,
+} from "./team-runtime.js";
 
-export { SharedWorkspace } from './team-workspace.js'
+export { SharedWorkspace } from "./team-workspace.js";
 export type {
   WorkspaceSubscriber,
   TeamAgentRole,
@@ -54,4 +60,4 @@ export type {
   TeamSpawnedAgent,
   TeamAgentRunResult,
   TeamRunResult,
-} from './team-workspace.js'
+} from "./team-workspace.js";
