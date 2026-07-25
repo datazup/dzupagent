@@ -13,6 +13,11 @@
 export type {
   AdapterProviderId,
   AdapterCapabilityProfile,
+  ProviderRequestCorrelationCapability,
+  ProviderRequestIdempotencyEnforcement,
+  ProviderRequestLookupInput,
+  ProviderRequestLookupKey,
+  ProviderRequestLookupResult,
   AgentInput,
   AgentEvent,
   AgentStreamEvent,

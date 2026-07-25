@@ -10,16 +10,10 @@
 
 import { parseFlow } from "@dzupagent/flow-ast";
 import type { ParseInput } from "@dzupagent/flow-ast";
-import {
-  FLOW_TYPED_CONDITION_CAPABILITY,
-} from "@dzupagent/flow-ast/typed-condition-evaluator";
-import type { DzupEvent } from "@dzupagent/core";
-import { resolveDslSourceSpan } from "@dzupagent/flow-dsl/source-map";
 
 import { validateShape } from "../stages/shape-validate.js";
 import { semanticResolve } from "../stages/semantic.js";
 import {
-  collectUnsupportedTypedConditions,
   collectUnsupportedRuntimeNodes,
   routeTarget,
 } from "../route-target.js";
@@ -40,7 +34,6 @@ import {
 } from "../primitive-registry-admission.js";
 
 import type {
-  CompilerOptions,
   CompileInvocationOptions,
   CompilationError,
   CompileFailure,
@@ -70,37 +63,8 @@ import {
   type SourceReferenceSnapshot,
 } from "./reference-snapshot.js";
 import { rejectInvalidPrimitiveSelection } from "./primitive-admission.js";
-
-// Flow compiler event shapes are part of the canonical `DzupEvent` union in
-// `@dzupagent/core` (Wave 11 ADR §4). We narrow to the relevant subset here
-// so `emit` site types remain tight without reintroducing the legacy cast.
-export type FlowCompileEvent = Extract<
-  DzupEvent,
-  {
-    type:
-      | "flow:compile_started"
-      | "flow:compile_parsed"
-      | "flow:compile_shape_validated"
-      | "flow:compile_semantic_resolved"
-      | "flow:compile_lowered"
-      | "flow:compile_completed"
-      | "flow:compile_failed";
-  }
->;
-
-/**
- * Dependencies injected into the compile orchestration by the
- * `createFlowCompiler` façade. These are exactly the values the pipeline
- * previously closed over from factory scope:
- *
- *  - `opts`: the resolver/registry/target options supplied at factory time.
- *  - `emit`: the lifecycle-event sink. A no-op when inner-event forwarding is
- *    off; otherwise bound to the supplied `DzupEventBus`.
- */
-export interface CompileOrchestratorDeps {
-  readonly opts: CompilerOptions;
-  readonly emit: (e: FlowCompileEvent) => void;
-}
+import { collectUnsupportedV2TargetErrors } from "./v2-target-gates.js";
+import type { CompileOrchestratorDeps } from "./contracts.js";
 
 /**
  * Run the four-stage compile pipeline for a parsed flow input.
@@ -351,51 +315,24 @@ export async function runCompile(
     };
   }
 
-  // Typed control is semantically validated, but no generic target currently
-  // owns its evaluation contract. Stop before lowering instead of serializing
-  // the fail-closed legacy shadow as executable semantics.
-  const unsupportedTypedConditions =
-    collectUnsupportedTypedConditions(ast);
-  if (unsupportedTypedConditions.length > 0) {
-    const stage4Errors: CompilationError[] =
-      unsupportedTypedConditions.map((condition) => {
-        const sourceSpan =
-          sourceReferences.dslSourceMap === undefined
-            ? undefined
-            : resolveDslSourceSpan(
-                sourceReferences.dslSourceMap,
-                condition.path,
-              );
-        return {
-          stage: 4 as const,
-          code: "TYPED_CONDITION_TARGET_UNSUPPORTED",
-          message:
-            `Typed condition at "${condition.path}" is valid, but the selected "${target}" target has no reviewed ` +
-            `${FLOW_TYPED_CONDITION_CAPABILITY} evaluator. Artifact emission is blocked.`,
-          nodePath: condition.path,
-          category: "lowering",
-          ...(sourceSpan === undefined
-            ? {}
-            : {
-                span: {
-                  kind: "source-offsets" as const,
-                  ...sourceSpan,
-                },
-              }),
-        };
-      });
+  const unsupportedV2TargetErrors = collectUnsupportedV2TargetErrors(
+    ast,
+    target,
+    sourceReferences,
+  );
+  if (unsupportedV2TargetErrors.length > 0) {
     emit({
       type: "flow:compile_failed",
       compileId,
       stage: 4,
-      errorCount: stage4Errors.length,
+      errorCount: unsupportedV2TargetErrors.length,
       durationMs: Date.now() - startedAt,
     });
     return {
-      errors: stage4Errors,
+      errors: unsupportedV2TargetErrors,
       compileId,
       diagnosticCountsByCategory:
-        countDiagnosticsByCategory(stage4Errors),
+        countDiagnosticsByCategory(unsupportedV2TargetErrors),
     };
   }
 

@@ -62,6 +62,10 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       supportsStreaming: true,
       supportsCostUsage: true,
       nativeToolControls: { mode: true, allowlist: false, blocklist: true },
+      providerRequestCorrelation: {
+        idempotencyKey: { accepted: false, enforcement: 'none' },
+        restartLookup: { supported: false, lookupBy: [] },
+      },
     }
   }
 
@@ -85,7 +89,15 @@ export class ClaudeCliAdapter extends BaseCliAdapter {
       if (allowedTools.length > 0 && input.policyContext?.conformanceMode === 'strict') {
         throw unsupported('Claude --allowedTools auto-approves tools but does not enforce a strict allowlist')
       }
-      if (allowedTools.length > 0) args.push('--allowedTools', ...allowedTools)
+      if (allowedTools.length > 0) {
+        args.push('--allowedTools', ...allowedTools)
+        if (blockedTools.length > 0 || blockedMcpTools.length > 0) {
+          args.push(
+            '--disallowedTools',
+            ...new Set([...blockedTools, ...blockedMcpTools]),
+          )
+        }
+      }
       else args.push('--disallowedTools', 'Bash', ...blockedTools, ...blockedMcpTools)
     } else {
       if (blockedTools.length > 0 || blockedMcpTools.length > 0) args.push('--disallowedTools', ...blockedTools, ...blockedMcpTools)

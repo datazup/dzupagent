@@ -90,6 +90,10 @@ export class CodexCliAdapter implements AgentCLIAdapter {
       supportsStreaming: true,
       supportsCostUsage: true,
       nativeToolControls: { mode: true, allowlist: false, blocklist: true },
+      providerRequestCorrelation: {
+        idempotencyKey: { accepted: false, enforcement: "none" },
+        restartLookup: { supported: false, lookupBy: [] },
+      },
     };
   }
 

@@ -32,6 +32,7 @@ export function canonicalizeDsl(
     flowInput: parsed.document.root,
     derivedGraph: documentToGraph(parsed.document),
     diagnostics: [],
+    ...(parsed.frontend === undefined ? {} : { frontend: parsed.frontend }),
     ...(parsed.sourceMap === undefined
       ? {}
       : { sourceMap: parsed.sourceMap }),

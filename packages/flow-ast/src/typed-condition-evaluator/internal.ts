@@ -1,7 +1,7 @@
 import type {
   FlowTypedConditionEvaluationErrorCode,
   FlowTypedConditionEvaluationResult,
-} from "../typed-condition-evaluator.js";
+} from "./contracts.js";
 
 export type EvaluationFailure = Extract<
   FlowTypedConditionEvaluationResult,

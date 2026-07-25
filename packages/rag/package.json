@@ -8,6 +8,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./local-evaluation": {
+      "import": "./dist/local-evaluation.js",
+      "types": "./dist/local-evaluation.d.ts"
     }
   },
   "scripts": {
@@ -23,6 +27,7 @@
   "dependencies": {
     "@dzupagent/core": "0.2.0",
     "@dzupagent/memory": "0.2.0",
+    "@dzupagent/runtime-contracts": "0.2.0",
     "@dzupagent/security": "0.2.0"
   },
   "peerDependencies": {

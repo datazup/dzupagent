@@ -19,6 +19,8 @@ import type {
   AgentStreamEvent,
   AgentInput,
   HealthStatus,
+  ProviderRequestLookupInput,
+  ProviderRequestLookupResult,
 } from "../types.js";
 import { getDefaultMonitorStatus } from "../provider-catalog.js";
 import { InteractionResolver } from "../interaction/interaction-resolver.js";
@@ -38,6 +40,9 @@ import {
   type RunStreamedThreadContext,
 } from "./codex-streamed-thread.js";
 import type { CodexApprovalContext } from "./codex-approval.js";
+import {
+  lookupCodexProviderRequest,
+} from "./codex-provider-request-lookup.js";
 
 export interface CodexAdapterConfig extends AdapterConfig {
   networkAccessEnabled?: boolean | undefined;
@@ -184,7 +189,32 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
         allowlist: true,
         blocklist: true,
       },
+      providerRequestCorrelation: {
+        idempotencyKey: {
+          accepted: false,
+          enforcement: "none",
+        },
+        restartLookup: {
+          supported: true,
+          lookupBy: ["sessionId"],
+        },
+      },
     };
+  }
+
+  async lookupProviderRequest(
+    lookup: ProviderRequestLookupInput,
+  ): Promise<ProviderRequestLookupResult> {
+    const providerOptions = this.config.providerOptions ?? {};
+    return lookupCodexProviderRequest({
+      cliPath:
+        typeof providerOptions["codexPathOverride"] === "string"
+          ? providerOptions["codexPathOverride"]
+          : "codex",
+      threadId: String(lookup.sessionId || ""),
+      timeoutMs: this.config.timeoutMs,
+      env: this.config.env,
+    });
   }
 
   // ---- BaseSdkAdapter.loadSdk — concrete implementation -----------------

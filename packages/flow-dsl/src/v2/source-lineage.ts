@@ -1,4 +1,12 @@
 import type { PrimitiveDefinitionV2 } from "../primitives/types.js";
+import type { PrimitivePolicyNarrowing } from "./policy-narrowing.js";
+import type { PrimitiveRetryPolicy } from "./retry-policy.js";
+import type {
+  PrimitiveTerminalCatchContract,
+} from "./terminal-catch.js";
+import type {
+  PrimitiveMultiPortSaveContract,
+} from "./multi-port-save.js";
 
 export const V2_SOURCE_LINEAGE_META_KEY = "__dzupV2SourceLineage";
 
@@ -12,6 +20,10 @@ export interface V2SourceLineageMarker {
   readonly primitiveRef?: PrimitiveDefinitionV2["ref"];
   readonly primitiveSemanticHash?: `sha256:${string}`;
   readonly saveBindings?: Readonly<Record<string, string>>;
+  readonly policyNarrowing?: PrimitivePolicyNarrowing;
+  readonly retryPolicy?: PrimitiveRetryPolicy;
+  readonly terminalCatch?: PrimitiveTerminalCatchContract;
+  readonly multiPortSave?: PrimitiveMultiPortSaveContract;
 }
 
 export function withV2SourceLineage(

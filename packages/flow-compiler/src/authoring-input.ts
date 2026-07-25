@@ -5,6 +5,7 @@ import {
 import {
   canonicalizeDsl,
   toPrimitiveRegistryV1,
+  type DslV2FrontendMetadata,
   type PrimitiveExpansionHandlers,
   type PrimitiveRegistryV2,
 } from '@dzupagent/flow-dsl'
@@ -54,6 +55,7 @@ export function prepareFlowInputFromDsl(
       ok: true
       flowInput: object
       document?: FlowDocumentV1
+      frontend?: DslV2FrontendMetadata
       sourceMap?: DslSourceMap
     }
   | { ok: false; errors: CompilationDiagnostic[] } {
@@ -73,6 +75,7 @@ export function prepareFlowInputFromDsl(
             options.primitiveRegistry,
             options.primitiveExpansionHandlers,
           ),
+          primitiveRegistryV2: options.primitiveRegistry,
         },
   )
   if (!canonicalized.ok) {
@@ -116,6 +119,9 @@ export function prepareFlowInputFromDsl(
     ok: true,
     flowInput: canonicalized.flowInput,
     document: canonicalized.document,
+    ...(canonicalized.frontend === undefined
+      ? {}
+      : { frontend: canonicalized.frontend }),
     ...(sourceMap !== undefined ? { sourceMap } : {}),
   }
 }
