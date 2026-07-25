@@ -1,0 +1,76 @@
+import { deepFreeze, digest, stableStringify } from "./evidence.js";
+import {
+  V2_INACTIVE_LOCAL_HOST_ID,
+  type V2InactiveLocalHostCheckpoint,
+  type V2InactiveLocalHostCheckpointStore,
+  type V2InactiveLocalHostClaimResult,
+} from "./host-contracts.js";
+
+interface StoredRun {
+  checkpoint: V2InactiveLocalHostCheckpoint | null;
+  leaseToken: string | null;
+  leaseSequence: number;
+}
+
+/**
+ * Process-local reference store for tests and inactive qualification. The
+ * interface is intentionally CAS-shaped so a durable host store can implement
+ * the same claim/commit/release contract without changing execution logic.
+ */
+export function createInMemoryV2InactiveLocalHostStore(): V2InactiveLocalHostCheckpointStore {
+  const runs = new Map<string, StoredRun>();
+  return Object.freeze({
+    async claim(input): Promise<V2InactiveLocalHostClaimResult> {
+      const current = runs.get(input.runId) ?? {
+        checkpoint: null,
+        leaseToken: null,
+        leaseSequence: 0,
+      };
+      if (current.leaseToken !== null) {
+        return { ok: false, reason: "already-claimed" };
+      }
+      const leaseSequence = current.leaseSequence + 1;
+      const leaseToken = digest(
+        stableStringify({
+          target: V2_INACTIVE_LOCAL_HOST_ID,
+          runId: input.runId,
+          ownerId: input.ownerId,
+          leaseSequence,
+          previous: current.checkpoint?.checkpointSha256 ?? null,
+        })
+      );
+      runs.set(input.runId, { ...current, leaseSequence, leaseToken });
+      return {
+        ok: true,
+        leaseToken,
+        checkpoint: current.checkpoint,
+      };
+    },
+    async commit(input): Promise<boolean> {
+      const current = runs.get(input.runId);
+      if (
+        current === undefined ||
+        current.leaseToken !== input.leaseToken ||
+        (current.checkpoint?.checkpointSha256 ?? null) !==
+          input.expectedPreviousSha256 ||
+        input.checkpoint.previousCheckpointSha256 !==
+          input.expectedPreviousSha256 ||
+        input.checkpoint.revision !==
+          (current.checkpoint?.revision ?? 0) + 1
+      ) {
+        return false;
+      }
+      runs.set(input.runId, {
+        ...current,
+        checkpoint: deepFreeze(structuredClone(input.checkpoint)),
+      });
+      return true;
+    },
+    async release(input): Promise<boolean> {
+      const current = runs.get(input.runId);
+      if (current?.leaseToken !== input.leaseToken) return false;
+      runs.set(input.runId, { ...current, leaseToken: null });
+      return true;
+    },
+  });
+}

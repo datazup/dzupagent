@@ -1,5 +1,4 @@
 import type { FlowDocumentV1, FlowNode } from "@dzupagent/flow-ast";
-import type { FlowExpression } from "@dzupagent/flow-ast/expressions";
 
 import { BUILT_IN_PRIMITIVE_REGISTRY_V2 } from "../primitives/built-ins.js";
 import { primitiveKind } from "../primitives/definition-v2.js";
@@ -15,6 +14,7 @@ import {
   type DslV2AuthoringOptions,
 } from "./contracts.js";
 import { sha256, stableStringify } from "./canonical.js";
+import { reverseV2Condition } from "./condition-conversion.js";
 import { formatDslV2Document, v2AuthoringAuthority } from "./source-import.js";
 
 const OUTPUT_FIELDS: Readonly<Record<string, string | undefined>> =
@@ -214,7 +214,7 @@ function migrateNode(
     };
   }
   if (node.type === "branch") {
-    const when = reverseCondition(node);
+    const when = reverseV2Condition(node);
     if (when === undefined) {
       context.items.push(
         item(
@@ -317,57 +317,6 @@ function migrateNode(
       ? {}
       : { save: { [outputPort]: `state.${output}` } }),
   };
-}
-
-function reverseCondition(
-  node: Extract<FlowNode, { type: "branch" }>
-): unknown {
-  if (node.typedCondition !== undefined) {
-    return reverseExpression(node.typedCondition.expression);
-  }
-  return node.condition.length > 0 ? node.condition : undefined;
-}
-
-function reverseExpression(expression: FlowExpression): unknown {
-  if ("exprJs" in expression) return undefined;
-  switch (expression.op) {
-    case "literal":
-      return expression.value;
-    case "ref":
-      return { ref: expression.path };
-    case "and":
-    case "or":
-      return {
-        [expression.op === "and" ? "all" : "any"]:
-          expression.args.map(reverseExpression),
-      };
-    case "not":
-    case "exists":
-      return { [expression.op]: reverseExpression(expression.arg) };
-    case "empty":
-      return { is_empty: reverseExpression(expression.arg) };
-    case "contains":
-      return {
-        contains: [
-          reverseExpression(expression.collection),
-          reverseExpression(expression.value),
-        ],
-      };
-    case "in":
-      return {
-        in: [
-          reverseExpression(expression.value),
-          reverseExpression(expression.collection),
-        ],
-      };
-    default:
-      return {
-        [expression.op]: [
-          reverseExpression(expression.left),
-          reverseExpression(expression.right),
-        ],
-      };
-  }
 }
 
 function buildCandidateDocument(
