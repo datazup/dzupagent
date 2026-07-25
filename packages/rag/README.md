@@ -26,6 +26,11 @@ npm install @dzupagent/rag
   - `RagPipeline` provides a unified interface for document ingestion, retrieval, and context building.
 - **Citation Tracking**
   - `CitationTracker` helps maintain traceability from generated responses back to source document chunks.
+- **Deterministic Local Evaluation**
+  - `@dzupagent/rag/local-evaluation` binds the canonical bounded RAG
+    composition to a provider-free lexical fixture host and measures
+    retrieval, grounding, abstention, observed latency, deterministic work,
+    and zero provider cost against classified corpus cases.
 
 ## Quick Start
 
@@ -56,6 +61,52 @@ const context = await rag.assembleContext("How do I configure the server?", {
 console.log(context.formattedPrompt)
 console.log(context.citations)
 ```
+
+### Provider-free local evaluation
+
+```ts
+import {
+  DeterministicLocalRagEvaluationHost,
+} from '@dzupagent/rag/local-evaluation'
+
+const host = new DeterministicLocalRagEvaluationHost(
+  [{
+    id: 'server-doc',
+    text: 'The server timeout is configured in server.yaml.',
+    sourceRef: 'docs/server',
+    locator: 'docs/server.md:10',
+    accessScopes: ['docs:public'],
+    contentClass: 'public-documentation',
+  }],
+  {
+    snapshotId: 'fixture-v1',
+    snapshotCreatedAt: '2026-07-25T00:00:00.000Z',
+    evaluatedAt: '2026-07-25T12:00:00.000Z',
+  },
+)
+
+const report = await host.evaluate([{
+  caseId: 'server-timeout',
+  query: 'server timeout',
+  dataScopes: ['docs:public'],
+  relevantDocumentIds: ['server-doc'],
+  expectedStatus: 'answered',
+  requiredAnswerTerms: ['server.yaml'],
+}])
+```
+
+The host uses a content-addressed immutable snapshot, deterministic Unicode
+lexical ranking with stable tie-breaking, exact access-scope filtering,
+sanitized evidence references, and canonical grounded-answer admission.
+Evaluation reports recall@K, precision@K, status accuracy, grounding coverage,
+required-term coverage, abstention accuracy, deterministic operation count,
+observed local duration, and zero provider cost. Durations are observations
+and are excluded from the deterministic report fingerprint.
+
+This subpath performs no network or provider call and grants no index mutation,
+snapshot promotion, or production authority. It qualifies local composition
+behavior only; it does not prove a real embedding model, external index,
+connector, reranker, or production corpus.
 
 ## Usage Examples
 

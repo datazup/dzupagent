@@ -227,9 +227,61 @@ typed condition's executable meaning. Existing v1 strings and v2
 `core.branch@1` string `when` remain compatible.
 
 Successful parsing returns the same canonical `FlowDocumentV1` as equivalent
-v1 source and adds immutable `frontend` evidence to the parse result with
-authored/lowered step paths and exact primitive bindings. Composite expansion
-also retains exact primitive ref/hash lineage in document metadata.
+v1 source and adds immutable `frontend` evidence to parse and canonicalize
+results with authored/lowered step paths and exact primitive bindings.
+Composite expansion also retains exact primitive ref/hash lineage in document
+metadata.
+
+Primitive steps may declare a bounded `policy`. Every authored key must occur
+in the exact selected primitive's `allowedOverrides`. `timeoutMs` and
+`budgetCents` are positive finite ceilings that compose with inherited host
+limits by `min`; `requireApproval` may only be `true` and composes by logical
+`or`. `@dzupagent/flow-dsl/v2-policy-narrowing` exposes the deterministic,
+provider-free `evaluatePrimitivePolicyNarrowing` intersection contract, and
+`v2InheritedPolicy` lets a parser
+reject an authored ceiling that exceeds known host limits. Empty objects,
+unknown fields, unreviewed future semantics, invalid values, attempted
+widening, and policy on kernel steps fail closed at the exact authored field.
+Successful policy evidence binds the authored path, primitive ref, primitive
+semantic hash, and normalized narrowing.
+
+Primitive steps may also declare a bounded `retry` envelope. `match` must be
+a non-empty list of exact, case-sensitive error codes declared by the selected
+primitive, and every selected error must be marked `retryable: true`.
+Wildcards, duplicates, undeclared errors, and declared terminal errors fail
+closed. `maxAttempts` is the total same-invocation attempt count, including
+the initial attempt, and is bounded from 2 through 20. Optional backoff
+requires an exact `fixed` or `exponential` strategy, non-negative integer
+`initialMs`/`maxMs` with `maxMs >= initialMs`, and `none` or `full` jitter.
+`@dzupagent/flow-dsl/v2-retry-policy` exposes the immutable provider-free
+`evaluatePrimitiveRetryPolicy` validation contract. Successful evidence binds
+the authored path, primitive ref/hash, normalized retry policy, and the invariant
+`attemptIdentity: "same-invocation"`; it never converts retry into a new task
+or invocation.
+
+Primitive steps may declare a bounded `catch` array for exact declared
+terminal errors. Catch rejects wildcard, duplicate, undeclared, and
+`retryable: true` errors; retryable errors belong to `retry`. Every clause
+must explicitly choose `continue`, `complete`, or `fail`, and `fail` requires
+a stable code. The content-free terminal-attempt descriptor binds the exact
+primitive ref/hash, terminal error code, same-invocation identity,
+`internal` classification, and `rawProviderContent: "excluded"`.
+`@dzupagent/flow-dsl/v2-terminal-catch` exposes the provider-free
+`evaluatePrimitiveTerminalCatch` contract. Successful evidence is retained as
+frontend metadata and is not projected into an invented V1 `catch` or
+`on_error` field.
+
+Primitive steps may save two through 32 exact output ports to distinct
+`state.<key>` destinations. `@dzupagent/flow-dsl/v2-multi-port-save` exposes
+the provider-free `evaluatePrimitiveMultiPortSave` contract. Every immutable
+binding retains the exact port, output schema, cardinality, classification,
+persistence, destination key and required schema, plus whether the value is
+guarded or unavailable after a terminal-catch `continue`. Unknown ports,
+non-state persistence, invalid or duplicate destinations, and out-of-bound
+binding counts fail closed. The compatibility lowering retains one
+deterministic V1 anchor only for existing analysis; the complete binding set
+stays in frontend metadata and generic artifact emission remains blocked until
+a target adopts `flow.save.primitive-multi-port@1`.
 
 The parse and canonicalize results additionally return a v2 `sourceMap`.
 Direct canonical fields compose back to exact authored `id`, `use`, `with`,
@@ -239,8 +291,20 @@ removes it immutably before returning the canonical document. Generated
 compiler diagnostics point to the parent `use`; relative edits on those
 derived paths and on adapted save targets are suppressed.
 
-The bounded frontend recognizes but fails closed on `policy`, `retry`, and
-`catch`; multiple or nested save targets; unknown kernel versions;
+No generic compiler target has adopted
+`flow.policy.primitive-narrowing@1`. Valid policy therefore stops at Stage 4
+with `V2_POLICY_TARGET_UNSUPPORTED`; when typed control is also present, both
+target-adoption diagnostics are returned together. No generic compiler target
+has adopted `flow.retry.primitive-errors@1` either, so valid retry evidence
+stops at Stage 4 with `V2_RETRY_TARGET_UNSUPPORTED` rather than being dropped
+through V1 compatibility lowering. Retry, policy, and typed-control target
+diagnostics accumulate. Terminal catch likewise stops with
+`V2_CATCH_TARGET_UNSUPPORTED` until a target adopts
+`flow.catch.primitive-terminal@1`; all four target gaps accumulate. The
+multi-port save contract likewise stops with
+`V2_MULTI_SAVE_TARGET_UNSUPPORTED`, so all five target gaps accumulate.
+The bounded frontend still fails closed on nested or non-state save targets;
+unknown kernel versions;
 unregistered primitives; conflicting versions from one namespace; and
 unimplemented top-level profiles, locks, outputs, state, and return surfaces.
 This is a compatibility frontend, not a new runtime. Richer kernel constructs,

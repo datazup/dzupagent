@@ -89,9 +89,20 @@ Registry fallback path (`ProviderAdapterRegistry` + `AdapterRegistryRouter`):
 1. Select routable adapters (registered, enabled, breaker-allowed/healthy).
 2. Route with active strategy (`TaskRoutingStrategy`).
 3. Build attempt order: primary decision, router fallbacks, then remaining healthy adapters.
-4. Execute sequential attempts with optional timeout (`executionTimeoutMs` / per-call `input.options.timeoutMs`).
-5. Record success/failure and breaker transitions via `AdapterHealthMonitor`; emit event-bus notifications when configured.
-6. Throw `ALL_ADAPTERS_EXHAUSTED` semantics when no provider reaches terminal success.
+4. Compile and conform the active provider policy for each attempt. Forward a
+   cloned, narrowed `activePolicy` plus its conformance mode in typed
+   `policyContext`; controller-only projected guardrails and execution metadata
+   are excluded from that typed policy context. Existing compiled option and
+   guardrail overlays remain a separate compatibility transport.
+5. Project native tool controls at the provider edge. The Claude SDK query
+   builder applies `allowedTools`/`disallowedTools` after provider options so
+   configuration cannot widen the active policy, and uses `tools: []` for a
+   strict empty allowlist. Claude CLI treats `--allowedTools` as auto-approval,
+   so warn-only workspace-write attempts also receive the complete native
+   `--disallowedTools` complement as their enforcement boundary.
+6. Execute sequential attempts with optional timeout (`executionTimeoutMs` / per-call `input.options.timeoutMs`).
+7. Record success/failure and breaker transitions via `AdapterHealthMonitor`; emit event-bus notifications when configured.
+8. Throw `ALL_ADAPTERS_EXHAUSTED` semantics when no provider reaches terminal success.
 
 Chat/session path (`OrchestratorFacade.chatWithRaw`):
 

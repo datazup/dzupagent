@@ -127,6 +127,35 @@ substring, valid ranges, and non-overlap before returning a new source string.
 It never mutates the caller string. Availability, type, port, classification,
 and policy diagnostics do not invent edits when semantics cannot be proven.
 
+Valid `dzupflow/v2` primitive-policy narrowings remain authoring evidence until
+an executable target adopts `flow.policy.primitive-narrowing@1`. Stage 4
+returns `V2_POLICY_TARGET_UNSUPPORTED` at the authored policy span instead of
+dropping the constraint during V1 compatibility lowering. Typed-condition and
+policy adoption gaps are accumulated so authors can resolve both in one pass.
+
+Valid V2 primitive retry policies follow the same fail-closed target boundary.
+Stage 4 returns `V2_RETRY_TARGET_UNSUPPORTED` at the authored retry span until
+the selected target adopts `flow.retry.primitive-errors@1` with
+same-invocation identity, exact retryable-error matching, bounded attempts,
+and reviewed backoff scheduling. Retry, policy, and typed-condition adoption
+gaps are reported together; generic artifact emission never silently drops
+one of these contracts.
+
+Valid V2 terminal catch contracts stop at the same boundary. Stage 4 returns
+`V2_CATCH_TARGET_UNSUPPORTED` at the authored catch span until a target adopts
+`flow.catch.primitive-terminal@1` with code-only terminal attempt inputs,
+same-invocation identity, and explicit continue/complete/fail handling.
+Typed-condition, policy, retry, and catch target gaps accumulate rather than
+masking one another.
+
+Valid V2 multi-port saves also remain authoring evidence until a target adopts
+`flow.save.primitive-multi-port@1` with typed state writes and reviewed
+control-flow availability. Stage 4 returns
+`V2_MULTI_SAVE_TARGET_UNSUPPORTED` at the authored save span instead of
+emitting the deterministic V1 compatibility anchor as complete semantics.
+Typed-condition, policy, retry, catch, and multi-port-save adoption gaps
+accumulate.
+
 ## Compiled classification envelope
 
 Every successful compile emits
