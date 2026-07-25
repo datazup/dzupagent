@@ -498,7 +498,9 @@
         { "match": "exact", "pattern": "<local>:dzupagent_OTEL_VERSION" }
       ],
       "transitionalRoot": [],
-      "subpaths": {},
+      "subpaths": {
+        "./agent-loop": "provider-neutral Agent Loop trace projection contracts and non-fatal OTel emission"
+      },
       "migrationWindow": "OTel root exports are currently the contracted package surface; add allowlist rules before exposing new root modules."
     },
     {

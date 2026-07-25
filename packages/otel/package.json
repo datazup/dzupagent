@@ -8,6 +8,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./agent-loop": {
+      "import": "./dist/agent-loop.js",
+      "types": "./dist/agent-loop.d.ts"
     }
   },
   "scripts": {
