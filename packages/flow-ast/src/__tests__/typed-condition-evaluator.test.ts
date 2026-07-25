@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  evaluateFlowTypedCondition,
-  FLOW_TYPED_CONDITION_CAPABILITY,
   type FlowExpression,
   type FlowTypedCondition,
-} from "../index.js";
+} from "../expressions.js";
+import {
+  evaluateFlowTypedCondition,
+  FLOW_TYPED_CONDITION_CAPABILITY,
+} from "../typed-condition-evaluator.js";
 
 const capability = [FLOW_TYPED_CONDITION_CAPABILITY];
 
@@ -89,6 +91,97 @@ describe("evaluateFlowTypedCondition", () => {
     ).toMatchObject({ ok: true, value: true });
   });
 
+  it("covers the bounded operator set and short-circuits guarded missing values", () => {
+    const cases: Array<[FlowExpression, boolean]> = [
+      [
+        {
+          op: "or",
+          args: [
+            { op: "literal", value: true },
+            { op: "ref", path: "inputs.missing" },
+          ],
+        },
+        true,
+      ],
+      [
+        {
+          op: "not",
+          arg: { op: "literal", value: false },
+        },
+        true,
+      ],
+      [
+        {
+          op: "ne",
+          left: { op: "literal", value: "a" },
+          right: { op: "literal", value: "b" },
+        },
+        true,
+      ],
+      [
+        {
+          op: "gt",
+          left: { op: "literal", value: 4 },
+          right: { op: "literal", value: 3 },
+        },
+        true,
+      ],
+      [
+        {
+          op: "lt",
+          left: { op: "literal", value: "a" },
+          right: { op: "literal", value: "b" },
+        },
+        true,
+      ],
+      [
+        {
+          op: "lte",
+          left: { op: "literal", value: 3 },
+          right: { op: "literal", value: 3 },
+        },
+        true,
+      ],
+      [
+        {
+          op: "in",
+          value: { op: "literal", value: "b" },
+          collection: { op: "ref", path: "inputs.labels" },
+        },
+        true,
+      ],
+      [
+        {
+          op: "eq",
+          left: { op: "ref", path: "inputs.labels | length" },
+          right: { op: "literal", value: 2 },
+        },
+        true,
+      ],
+      [
+        {
+          op: "eq",
+          left: { op: "ref", path: "inputs.payload | json" },
+          right: { op: "literal", value: '{"ready":true}' },
+        },
+        true,
+      ],
+    ];
+    for (const [expression, expected] of cases) {
+      expect(
+        evaluateFlowTypedCondition(condition(expression), {
+          hostCapabilities: capability,
+          bindings: {
+            inputs: {
+              labels: ["a", "b"],
+              payload: { ready: true },
+            },
+          },
+        }),
+      ).toMatchObject({ ok: true, value: expected });
+    }
+  });
+
   it("keeps missing behavior explicit for exists, empty, and comparisons", () => {
     const options = {
       hostCapabilities: capability,
@@ -149,6 +242,8 @@ describe("evaluateFlowTypedCondition", () => {
   });
 
   it("fails closed for JavaScript, malformed references, and unsupported values", () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
     expect(
       evaluateFlowTypedCondition(condition({ exprJs: "Date.now() > 0" }), {
         hostCapabilities: capability,
@@ -177,6 +272,22 @@ describe("evaluateFlowTypedCondition", () => {
         {
           hostCapabilities: capability,
           bindings: { state: { when: new Date(0) } },
+        },
+      ),
+    ).toMatchObject({
+      ok: false,
+      code: "TYPED_CONDITION_VALUE_UNSUPPORTED",
+    });
+    expect(
+      evaluateFlowTypedCondition(
+        condition({
+          op: "eq",
+          left: { op: "ref", path: "state.cyclic" },
+          right: { op: "ref", path: "state.cyclic" },
+        }),
+        {
+          hostCapabilities: capability,
+          bindings: { state: { cyclic } },
         },
       ),
     ).toMatchObject({

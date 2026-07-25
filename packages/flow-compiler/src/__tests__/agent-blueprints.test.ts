@@ -8,6 +8,8 @@ import {
 import {
   AgentBlueprintCompileError,
   AgentHandlerRegistryError,
+  CompiledAgentRuntime,
+  CompiledAgentRuntimeError,
   InMemoryAgentHandlerRegistry,
   compileAgentBlueprint,
   executeCompiledAgentBlueprint,
@@ -154,7 +156,72 @@ describe("agent blueprint compiler", () => {
       }),
     ).toThrow(/UNPUBLISHED_REF/);
   });
+
+  it("rejects missing, mismatched, and failed provider terminal receipts", async () => {
+    const compiled = compileAgentBlueprint(blueprint, catalog);
+    const handlers = new InMemoryAgentHandlerRegistry([
+      { ...compiled.handlers.renderer, handler: () => "Review" },
+      {
+        ...compiled.handlers.normalizer!,
+        handler: (context: unknown) =>
+          (context as { output?: unknown }).output,
+      },
+      { ...compiled.handlers.validators[0]!, handler: () => true },
+    ]);
+    const execute = (
+      invokeProvider: Parameters<
+        typeof executeCompiledAgentBlueprint
+      >[0]["invokeProvider"],
+    ) =>
+      executeCompiledAgentBlueprint({
+        descriptor: compiled,
+        handlers,
+        input: {},
+        invokeProvider,
+      });
+
+    await expect(
+      execute(async () => ({ status: "completed", output: "approved" })),
+    ).rejects.toMatchObject({ code: "PROVIDER_TERMINAL_RECEIPT_MISSING" });
+    await expect(
+      execute(async () => ({
+        ...completedProviderResponse("approved"),
+        terminalReceipt: {
+          ...completedProviderResponse("approved").terminalReceipt,
+          eventType: "failed",
+        },
+      })),
+    ).rejects.toMatchObject({ code: "PROVIDER_TERMINAL_RECEIPT_MISSING" });
+    await expect(
+      execute(async () => ({
+        status: "failed",
+        terminalReason: "adapter failed",
+        terminalReceipt: {
+          eventType: "failed",
+          attemptId: "attempt-1",
+          providerId: "provider-a",
+          usage: {
+            kind: "unknown",
+            reason: "Adapter ended without usage telemetry.",
+          },
+        },
+      })),
+    ).rejects.toMatchObject({ code: "PROVIDER_FAILED" });
+  });
 });
+
+function completedProviderResponse(output: unknown) {
+  return {
+    status: "completed" as const,
+    output,
+    terminalReceipt: {
+      eventType: "completed" as const,
+      attemptId: "attempt-1",
+      providerId: "provider-a",
+      usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 1 },
+    },
+  };
+}
 
 describe("agent handler registry", () => {
   it("invokes allowlisted pure functions by string ref", async () => {
@@ -273,7 +340,11 @@ describe("compiled agent blueprint runtime", () => {
           eventType: "completed" as const,
           attemptId: "attempt-1",
           providerId: "provider-a",
-          usage: { inputTokens: 10, outputTokens: 3 },
+          usage: {
+            kind: "measured" as const,
+            inputTokens: 10,
+            outputTokens: 3,
+          },
         },
       };
     });
@@ -298,6 +369,104 @@ describe("compiled agent blueprint runtime", () => {
       authorityEffect: "advisory",
     });
     expect(invokeProvider).toHaveBeenCalledOnce();
+  });
+
+  it("resolves immutable compiled agents and aliases through one generic runtime", async () => {
+    const reviewer = compileAgentBlueprint(blueprint, catalog);
+    const coder = compileAgentBlueprint(
+      {
+        ...blueprint,
+        id: "coder",
+        personaRef: "persona.reviewer/v1",
+      },
+      catalog,
+    );
+    const handlers = new InMemoryAgentHandlerRegistry([
+      { ...reviewer.handlers.renderer, handler: () => "Execute" },
+      {
+        ...reviewer.handlers.normalizer!,
+        handler: (context: unknown) =>
+          (context as { output?: unknown }).output,
+      },
+      { ...reviewer.handlers.validators[0]!, handler: () => true },
+    ]);
+    const first = new CompiledAgentRuntime({
+      descriptors: [reviewer, coder],
+      handlers,
+      aliases: {
+        implementer: "coder",
+        judge: "reviewer",
+      },
+    });
+    const second = new CompiledAgentRuntime({
+      descriptors: [coder, reviewer],
+      handlers,
+      aliases: {
+        judge: "reviewer",
+        implementer: "coder",
+      },
+    });
+
+    expect(first.fingerprint).toBe(second.fingerprint);
+    expect(first.list().map(({ id }) => id)).toEqual([
+      "coder",
+      "reviewer",
+    ]);
+    expect(first.resolve("implementer")).toMatchObject({
+      requestedId: "implementer",
+      agentId: "coder",
+      resolutionSource: "alias",
+      runtimeFingerprint: first.fingerprint,
+    });
+    await expect(
+      first.execute({
+        agentId: "judge",
+        input: { objective: "Review the candidate." },
+        invokeProvider: async () =>
+          completedProviderResponse("approved"),
+      }),
+    ).resolves.toMatchObject({
+      output: "approved",
+      selection: {
+        requestedId: "judge",
+        agentId: "reviewer",
+        resolutionSource: "alias",
+        runtimeFingerprint: first.fingerprint,
+      },
+    });
+  });
+
+  it("rejects unknown aliases, duplicate names, and descriptor drift", () => {
+    const compiled = compileAgentBlueprint(blueprint, catalog);
+    const handlers = new InMemoryAgentHandlerRegistry();
+    expect(
+      () =>
+        new CompiledAgentRuntime({
+          descriptors: [compiled],
+          handlers,
+          aliases: { missing: "unknown-agent" },
+        }),
+    ).toThrow(CompiledAgentRuntimeError);
+    expect(
+      () =>
+        new CompiledAgentRuntime({
+          descriptors: [compiled],
+          handlers,
+          aliases: { reviewer: "reviewer" },
+        }),
+    ).toThrow(/DUPLICATE_AGENT_NAME/);
+    expect(
+      () =>
+        new CompiledAgentRuntime({
+          descriptors: [
+            {
+              ...compiled,
+              tools: ["repo.write"],
+            },
+          ],
+          handlers,
+        }),
+    ).toThrow(/AGENT_DESCRIPTOR_FINGERPRINT_MISMATCH/);
   });
 
   it("rejects tampered descriptors and invalid output before postprocessing", async () => {

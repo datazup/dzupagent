@@ -1,9 +1,11 @@
 import {
-  evaluateFlowTypedCondition,
-  FLOW_TYPED_CONDITION_CAPABILITY,
   type FlowExpression,
   type ToolResolver,
 } from "@dzupagent/flow-ast";
+import {
+  evaluateFlowTypedCondition,
+  FLOW_TYPED_CONDITION_CAPABILITY,
+} from "@dzupagent/flow-ast/typed-condition-evaluator";
 import { parseDslToDocument } from "@dzupagent/flow-dsl";
 import { describe, expect, it } from "vitest";
 
