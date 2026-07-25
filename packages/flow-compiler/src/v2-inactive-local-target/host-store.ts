@@ -20,7 +20,10 @@ interface StoredRun {
 export function createInMemoryV2InactiveLocalHostStore(): V2InactiveLocalHostCheckpointStore {
   const runs = new Map<string, StoredRun>();
   return Object.freeze({
-    async claim(input): Promise<V2InactiveLocalHostClaimResult> {
+    async claim(input: {
+      readonly runId: string;
+      readonly ownerId: string;
+    }): Promise<V2InactiveLocalHostClaimResult> {
       const current = runs.get(input.runId) ?? {
         checkpoint: null,
         leaseToken: null,
@@ -46,7 +49,12 @@ export function createInMemoryV2InactiveLocalHostStore(): V2InactiveLocalHostChe
         checkpoint: current.checkpoint,
       };
     },
-    async commit(input): Promise<boolean> {
+    async commit(input: {
+      readonly runId: string;
+      readonly leaseToken: string;
+      readonly expectedPreviousSha256: `sha256:${string}` | null;
+      readonly checkpoint: V2InactiveLocalHostCheckpoint;
+    }): Promise<boolean> {
       const current = runs.get(input.runId);
       if (
         current === undefined ||
@@ -55,8 +63,7 @@ export function createInMemoryV2InactiveLocalHostStore(): V2InactiveLocalHostChe
           input.expectedPreviousSha256 ||
         input.checkpoint.previousCheckpointSha256 !==
           input.expectedPreviousSha256 ||
-        input.checkpoint.revision !==
-          (current.checkpoint?.revision ?? 0) + 1
+        input.checkpoint.revision !== (current.checkpoint?.revision ?? 0) + 1
       ) {
         return false;
       }
@@ -66,10 +73,17 @@ export function createInMemoryV2InactiveLocalHostStore(): V2InactiveLocalHostChe
       });
       return true;
     },
-    async release(input): Promise<boolean> {
+    async release(input: {
+      readonly runId: string;
+      readonly leaseToken: string;
+    }): Promise<boolean> {
       const current = runs.get(input.runId);
       if (current?.leaseToken !== input.leaseToken) return false;
-      runs.set(input.runId, { ...current, leaseToken: null });
+      runs.set(input.runId, {
+        checkpoint: current.checkpoint,
+        leaseSequence: current.leaseSequence,
+        leaseToken: null,
+      });
       return true;
     },
   });

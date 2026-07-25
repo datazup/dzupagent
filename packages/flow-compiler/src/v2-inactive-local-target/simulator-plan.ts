@@ -68,6 +68,17 @@ export async function prepareSimulationContext(
     qualification.receipt.conditionEvaluations.length
   );
   if (!selected.ok) return selected;
+  const condition = qualification.receipt.conditionEvaluations[0];
+  if (condition?.status !== "evaluated") {
+    return {
+      ok: false,
+      error: {
+        code: "V2_SIMULATOR_QUALIFICATION_FAILED",
+        message: "inactive simulator requires eager typed-condition evidence",
+        path: "qualification.conditionEvaluations",
+      },
+    };
+  }
   const primitive = resolvePrimitive(request, selected.primitiveRef);
   if (primitive === undefined) {
     return {
@@ -130,7 +141,7 @@ export async function prepareSimulationContext(
       planSha256,
       primitive,
       authoredPath: selected.authoredPath,
-      condition: qualification.receipt.conditionEvaluations[0]!,
+      condition,
       policy: policy.effectivePolicy,
       retry: selected.retry.retry,
       terminalCatch: selected.terminal.catch,

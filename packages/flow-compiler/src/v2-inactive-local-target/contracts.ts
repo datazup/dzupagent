@@ -36,6 +36,12 @@ export interface V2InactiveLocalTargetQualificationRequest {
    */
   readonly hostCapabilities: readonly string[];
   readonly conditionBindings: Readonly<Record<string, unknown>>;
+  /**
+   * The standalone qualifier evaluates conditions eagerly by default. The
+   * local host uses the explicit deferred mode so conditions can be resolved
+   * against checkpointed state and prior step outputs at their step boundary.
+   */
+  readonly conditionEvaluationMode?: "eager" | "deferred-runtime";
   readonly compilerOptions: CompilerOptions;
 }
 
@@ -88,11 +94,19 @@ export interface V2InactiveLocalTargetQualificationReceipt {
     readonly terminalCatches: number;
     readonly multiPortSaves: number;
   };
-  readonly conditionEvaluations: readonly {
-    readonly path: string;
-    readonly value: boolean;
-    readonly resolvedReferences: readonly string[];
-  }[];
+  readonly conditionEvaluationMode: "eager" | "deferred-runtime";
+  readonly conditionEvaluations: readonly (
+    | {
+        readonly path: string;
+        readonly status: "evaluated";
+        readonly value: boolean;
+        readonly resolvedReferences: readonly string[];
+      }
+    | {
+        readonly path: string;
+        readonly status: "deferred-runtime";
+      }
+  )[];
   readonly primitiveContracts: readonly V2InactiveLocalTargetContractEvidence[];
   readonly lifecycle: {
     readonly activation: "inactive";

@@ -25,6 +25,8 @@ export interface V2InactiveLocalHandlerInvocation {
   readonly stepId: string;
   readonly authoredPath: string;
   readonly attempt: number;
+  readonly handlerId: string;
+  readonly handlerSha256: `sha256:${string}`;
   readonly input: Readonly<Record<string, unknown>>;
   readonly state: Readonly<Record<string, unknown>>;
   readonly authority: {
@@ -38,6 +40,11 @@ export interface V2InactiveLocalHandlerInvocation {
 export interface V2InactiveLocalHandlerBinding {
   readonly ref: `primitive://${string}@${string}`;
   readonly semanticHash: `sha256:${string}`;
+  readonly handlerId: string;
+  readonly handlerSha256: `sha256:${string}`;
+  readonly mode: "provider-free-local";
+  readonly declaredEffects: "none";
+  readonly replay: "safe";
   /**
    * A pure local handler. The host passes frozen snapshots and accepts only a
    * deterministic JSON result. External effects are outside this contract.
@@ -63,6 +70,11 @@ export interface V2InactiveLocalHostAttemptReceipt {
 export type V2InactiveLocalHostStepStatus =
   | "completed"
   | "skipped"
+  | "skipped-branch"
+  | "set-applied"
+  | "branch-then"
+  | "branch-else"
+  | "complete"
   | "caught-continue"
   | "caught-complete"
   | "failed"
@@ -73,17 +85,31 @@ export interface V2InactiveLocalHostStepReceipt {
   readonly index: number;
   readonly id: string;
   readonly authoredPath: string;
-  readonly primitiveRef: `primitive://${string}@${string}`;
-  readonly primitiveSemanticHash: `sha256:${string}`;
+  readonly kind: "primitive" | "set" | "branch" | "complete";
+  readonly use: string;
+  readonly primitiveRef?: `primitive://${string}@${string}`;
+  readonly primitiveSemanticHash?: `sha256:${string}`;
+  readonly handler?: {
+    readonly id: string;
+    readonly sha256: `sha256:${string}`;
+    readonly mode: "provider-free-local";
+    readonly declaredEffects: "none";
+    readonly replay: "safe";
+  };
   readonly status: V2InactiveLocalHostStepStatus;
   readonly condition: {
     readonly value: boolean;
     readonly resolvedReferences: readonly string[];
   };
-  readonly effectivePolicy: PrimitivePolicyLimits;
+  readonly effectivePolicy?: PrimitivePolicyLimits;
   readonly attempts: readonly V2InactiveLocalHostAttemptReceipt[];
   readonly stateBeforeSha256: `sha256:${string}`;
   readonly stateAfterSha256: `sha256:${string}`;
+  /** Exact resolved `with`/assignment/result value used at this step boundary. */
+  readonly resolvedInputSha256?: `sha256:${string}`;
+  readonly outputSha256?: `sha256:${string}`;
+  readonly branchDecision?: boolean;
+  readonly completionResultSha256?: `sha256:${string}`;
   readonly terminal?: {
     readonly code: string;
     readonly catchAction?: "continue" | "complete" | "fail";
@@ -109,6 +135,9 @@ export interface V2InactiveLocalHostCheckpoint {
   readonly status: V2InactiveLocalHostStatus | "running";
   readonly nextStepIndex: number;
   readonly state: Readonly<Record<string, unknown>>;
+  readonly stepOutputs: Readonly<Record<string, unknown>>;
+  readonly branchDecisions: Readonly<Record<string, boolean>>;
+  readonly completionResult?: unknown;
   readonly steps: readonly V2InactiveLocalHostStepReceipt[];
   readonly previousCheckpointSha256: `sha256:${string}` | null;
   readonly checkpointSha256: `sha256:${string}`;
@@ -163,13 +192,17 @@ export interface V2InactiveLocalHostReceipt {
   readonly planSha256: `sha256:${string}`;
   readonly checkpointSha256: `sha256:${string}`;
   readonly state: Readonly<Record<string, unknown>>;
+  readonly stepOutputs: Readonly<Record<string, unknown>>;
+  readonly branchDecisions: Readonly<Record<string, boolean>>;
+  readonly result?: unknown;
   readonly steps: readonly V2InactiveLocalHostStepReceipt[];
   readonly hostSha256: `sha256:${string}`;
   readonly authority: {
     readonly localHandlerInvocation: true;
-    readonly localCheckpointMutation: true;
+    readonly checkpointStoreMutation: true;
+    readonly handlerDeclaredEffects: "none";
     readonly providerDispatch: false;
-    readonly externalStateMutation: false;
+    readonly workflowExternalStateMutation: false;
     readonly externalContinuation: false;
     readonly deployment: false;
     readonly promotion: false;
@@ -184,6 +217,8 @@ export type V2InactiveLocalHostErrorCode =
   | "V2_LOCAL_HOST_HANDLER_BINDING_INVALID"
   | "V2_LOCAL_HOST_HANDLER_RESULT_INVALID"
   | "V2_LOCAL_HOST_OUTPUT_INVALID"
+  | "V2_LOCAL_HOST_REFERENCE_RESOLUTION_FAILED"
+  | "V2_LOCAL_HOST_TYPED_CONDITION_FAILED"
   | "V2_LOCAL_HOST_CHECKPOINT_DRIFT"
   | "V2_LOCAL_HOST_CONCURRENT_RUN";
 
@@ -196,4 +231,7 @@ export interface V2InactiveLocalHostError {
 
 export type V2InactiveLocalHostResult =
   | { readonly ok: true; readonly receipt: V2InactiveLocalHostReceipt }
-  | { readonly ok: false; readonly errors: readonly V2InactiveLocalHostError[] };
+  | {
+      readonly ok: false;
+      readonly errors: readonly V2InactiveLocalHostError[];
+    };

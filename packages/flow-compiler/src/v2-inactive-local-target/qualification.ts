@@ -171,8 +171,17 @@ async function qualify(
   const compilerGate = await validateCompilerGate(request);
   if (compilerGate !== undefined) return fail(compilerGate);
 
+  const conditionEvaluationMode =
+    request.conditionEvaluationMode ?? "eager";
   const conditionEvaluations = [];
   for (const item of typedConditions) {
+    if (conditionEvaluationMode === "deferred-runtime") {
+      conditionEvaluations.push({
+        path: item.path,
+        status: "deferred-runtime" as const,
+      });
+      continue;
+    }
     const evaluation = evaluateFlowTypedCondition(item.condition, {
       hostCapabilities: request.hostCapabilities,
       bindings: request.conditionBindings,
@@ -187,6 +196,7 @@ async function qualify(
     }
     conditionEvaluations.push({
       path: item.path,
+      status: "evaluated" as const,
       value: evaluation.value,
       resolvedReferences: Object.freeze([...evaluation.resolvedReferences]),
     });
@@ -206,6 +216,7 @@ async function qualify(
       observedDiagnostics: V2_INACTIVE_LOCAL_TARGET_GATE_CODES,
     }),
     coverage,
+    conditionEvaluationMode,
     conditionEvaluations: Object.freeze(conditionEvaluations),
     primitiveContracts,
     lifecycle: Object.freeze({
