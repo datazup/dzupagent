@@ -1,5 +1,6 @@
 import {
   BUILT_IN_PRIMITIVE_REGISTRY_V2,
+  createPrimitiveRegistryV2,
   definePrimitiveV2,
   extendPrimitiveRegistryV2,
   type PrimitiveDefinitionV2,
@@ -10,6 +11,7 @@ import { createFlowCompiler } from "../index.js";
 import {
   qualifyV2InactiveLocalTarget,
   V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
+  V2_INACTIVE_LOCAL_TARGET_GATE_CODES,
   V2_INACTIVE_LOCAL_TARGET_ID,
 } from "../v2-inactive-local-target.js";
 
@@ -54,10 +56,9 @@ function multiPortAdapter(): PrimitiveDefinitionV2 {
 
 function fixture() {
   const primitive = multiPortAdapter();
-  const registry = extendPrimitiveRegistryV2(
-    BUILT_IN_PRIMITIVE_REGISTRY_V2,
-    [primitive],
-  );
+  const registry = extendPrimitiveRegistryV2(BUILT_IN_PRIMITIVE_REGISTRY_V2, [
+    primitive,
+  ]);
   const source = `
 dsl: dzupflow/v2
 id: inactive-local-target
@@ -94,6 +95,7 @@ describe("inactive local V2 target qualification", () => {
     const { primitive, registry, source } = fixture();
     const compilerOptions = {
       toolResolver: resolver,
+      referencePolicy: "strict" as const,
       primitiveRegistry: registry,
       primitiveBindings: {
         "adapter.run": {
@@ -122,6 +124,11 @@ describe("inactive local V2 target qualification", () => {
         schema: "dzupagent.v2InactiveLocalTargetQualification/v1",
         target: V2_INACTIVE_LOCAL_TARGET_ID,
         status: "qualified-inactive",
+        compilerGate: {
+          referencePolicy: "strict",
+          artifactEmission: "blocked",
+          observedDiagnostics: V2_INACTIVE_LOCAL_TARGET_GATE_CODES,
+        },
         coverage: {
           typedConditions: 1,
           policyNarrowings: 1,
@@ -153,8 +160,8 @@ describe("inactive local V2 target qualification", () => {
       first.receipt.primitiveContracts.every(
         (item) =>
           item.contractSha256.startsWith("sha256:") &&
-          item.primitiveSemanticHash.startsWith("sha256:"),
-      ),
+          item.primitiveSemanticHash.startsWith("sha256:")
+      )
     ).toBe(true);
     expect(Object.isFrozen(first.receipt)).toBe(true);
     expect(Object.isFrozen(first.receipt.primitiveContracts)).toBe(true);
@@ -164,6 +171,7 @@ describe("inactive local V2 target qualification", () => {
     const { primitive, registry, source } = fixture();
     const compilerOptions = {
       toolResolver: resolver,
+      referencePolicy: "strict" as const,
       primitiveRegistry: registry,
       primitiveBindings: {
         "adapter.run": {
@@ -201,12 +209,108 @@ describe("inactive local V2 target qualification", () => {
     }
   });
 
+  it("requires strict compiler posture without an external target hint", async () => {
+    const { primitive, registry, source } = fixture();
+    const base = {
+      toolResolver: resolver,
+      primitiveRegistry: registry,
+      primitiveBindings: {
+        "adapter.run": {
+          ref: primitive.ref,
+          semanticHash: primitive.compatibility.semanticHash,
+        },
+      },
+    };
+    const compatible = await qualifyV2InactiveLocalTarget({
+      source,
+      compilerOptions: base,
+      hostCapabilities: V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
+      conditionBindings: { inputs: { ready: true } },
+    });
+    const external = await qualifyV2InactiveLocalTarget({
+      source,
+      compilerOptions: {
+        ...base,
+        referencePolicy: "strict",
+        target: "codev-runtime",
+      },
+      hostCapabilities: V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
+      conditionBindings: { inputs: { ready: true } },
+    });
+
+    for (const result of [compatible, external]) {
+      expect(result).toMatchObject({
+        ok: false,
+        errors: [
+          expect.objectContaining({
+            code: "V2_LOCAL_TARGET_STRICT_COMPILER_REQUIRED",
+            path: "compilerOptions",
+          }),
+        ],
+      });
+    }
+  });
+
+  it("requires exact external bindings and an additive registry", async () => {
+    const { primitive, registry, source } = fixture();
+    const unbound = await qualifyV2InactiveLocalTarget({
+      source,
+      compilerOptions: {
+        toolResolver: resolver,
+        referencePolicy: "strict",
+        primitiveRegistry: registry,
+      },
+      hostCapabilities: V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
+      conditionBindings: { inputs: { ready: true } },
+    });
+    expect(unbound).toMatchObject({
+      ok: false,
+      errors: [
+        expect.objectContaining({
+          code: "V2_LOCAL_TARGET_PRIMITIVE_BINDING_REQUIRED",
+        }),
+      ],
+    });
+
+    const nonAdditive = await qualifyV2InactiveLocalTarget({
+      source,
+      compilerOptions: {
+        toolResolver: resolver,
+        referencePolicy: "strict",
+        primitiveRegistry: createPrimitiveRegistryV2([
+          BUILT_IN_PRIMITIVE_REGISTRY_V2.get("primitive://adapter.run@1")!,
+          primitive,
+        ]),
+        primitiveBindings: {
+          "adapter.run": {
+            ref: primitive.ref,
+            semanticHash: primitive.compatibility.semanticHash,
+          },
+        },
+      },
+      hostCapabilities: V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
+      conditionBindings: { inputs: { ready: true } },
+    });
+    expect(nonAdditive).toMatchObject({
+      ok: false,
+      errors: [
+        expect.objectContaining({
+          code: "V2_LOCAL_TARGET_REGISTRY_INVALID",
+          causes: expect.arrayContaining([
+            expect.stringMatching(/missing built-in primitive/),
+          ]),
+        }),
+      ],
+    });
+  });
+
   it("fails closed on missing runtime condition values", async () => {
     const { primitive, registry, source } = fixture();
     const result = await qualifyV2InactiveLocalTarget({
       source,
       compilerOptions: {
         toolResolver: resolver,
+        referencePolicy: "strict",
         primitiveRegistry: registry,
         primitiveBindings: {
           "adapter.run": {
@@ -243,7 +347,10 @@ steps:
 `,
       hostCapabilities: V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
       conditionBindings: {},
-      compilerOptions: { toolResolver: resolver },
+      compilerOptions: {
+        toolResolver: resolver,
+        referencePolicy: "strict",
+      },
     });
     expect(notV2).toMatchObject({
       ok: false,
@@ -271,7 +378,10 @@ steps:
 `,
       hostCapabilities: V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
       conditionBindings: { inputs: { ready: true } },
-      compilerOptions: { toolResolver: resolver },
+      compilerOptions: {
+        toolResolver: resolver,
+        referencePolicy: "strict",
+      },
     });
     expect(incomplete).toMatchObject({
       ok: false,
@@ -305,7 +415,39 @@ steps:
         "V2_RETRY_TARGET_UNSUPPORTED",
         "V2_CATCH_TARGET_UNSUPPORTED",
         "V2_MULTI_SAVE_TARGET_UNSUPPORTED",
-      ]),
+      ])
     );
+  });
+
+  it("rejects semantic errors before issuing target evidence", async () => {
+    const { primitive, registry, source } = fixture();
+    const result = await qualifyV2InactiveLocalTarget({
+      source: source.replace("inputs.ready", "inputs.missing"),
+      compilerOptions: {
+        toolResolver: resolver,
+        referencePolicy: "strict",
+        primitiveRegistry: registry,
+        primitiveBindings: {
+          "adapter.run": {
+            ref: primitive.ref,
+            semanticHash: primitive.compatibility.semanticHash,
+          },
+        },
+      },
+      hostCapabilities: V2_INACTIVE_LOCAL_TARGET_CAPABILITIES,
+      conditionBindings: { inputs: { missing: true } },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      errors: [
+        expect.objectContaining({
+          code: "V2_LOCAL_TARGET_COMPILER_GATE_REQUIRED",
+          causes: expect.arrayContaining([
+            expect.stringMatching(/REFERENCE|reference/),
+          ]),
+        }),
+      ],
+    });
   });
 });
