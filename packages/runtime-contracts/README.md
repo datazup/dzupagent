@@ -25,12 +25,23 @@ import {
   validateRagEvidenceBundle,
   validateRagGroundedAnswer,
 } from '@dzupagent/runtime-contracts/rag'
+
+import {
+  validateAgentBlueprint,
+  validateCompiledAgentDescriptor,
+} from '@dzupagent/runtime-contracts/agent-blueprint'
 ```
 
 The agent-review contracts normalize bounded run results, reviewer
 independence, validation/evidence-backed decisions, revision limits, progress,
 and terminal states. They do not choose a provider or replace host-owned
 validation, Git, budget, restart, or authorization gates.
+
+The agent-blueprint contracts define provider-neutral, versioned references for
+personas, tasks, prompt overlays, schemas, toolsets, policies, and allowlisted
+handler functions. A compiled descriptor contains no executable code and an AI
+`host-action-request` remains a request: authorization, signing keys, and
+side-effect execution stay host-owned.
 
 The exported
 `fixtures/agent-review-conformance-v1.json` package subpath is the immutable
