@@ -492,7 +492,7 @@ describe('PolicyConformanceChecker', () => {
 
   describe('allowedTools and blockedTools', () => {
     it('should produce a warning for allowedTools on providers without allowlist support', () => {
-      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'openai' && p !== 'codex' && p !== 'ollama')) {
+      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'claude' && p !== 'openai' && p !== 'codex' && p !== 'ollama')) {
         const result = compileAndCheck(provider, { allowedTools: ['read', 'write'] })
         const violation = result.violations.find((v) => v.field === 'allowedTools')
         expect(violation).toBeDefined()
@@ -516,13 +516,18 @@ describe('PolicyConformanceChecker', () => {
       expect(result.violations.find((v) => v.field === 'allowedTools')).toBeUndefined()
     })
 
+    it('should not warn for Claude allowedTools because query options filter tools natively', () => {
+      const result = compileAndCheck('claude', { allowedTools: ['Read'] })
+      expect(result.violations.find((v) => v.field === 'allowedTools')).toBeUndefined()
+    })
+
     it('should not warn for Ollama allowedTools because request tools are filtered natively', () => {
       const result = compileAndCheck('ollama', { allowedTools: ['lookup'] })
       expect(result.violations.find((v) => v.field === 'allowedTools')).toBeUndefined()
     })
 
     it('should produce a warning for blockedTools on providers without blocklist support', () => {
-      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'openai' && p !== 'codex' && p !== 'ollama')) {
+      for (const provider of ALL_PROVIDERS.filter((p) => p !== 'claude' && p !== 'openai' && p !== 'codex' && p !== 'ollama')) {
         const result = compileAndCheck(provider, { blockedTools: ['shell'] })
         const violation = result.violations.find((v) => v.field === 'blockedTools')
         expect(violation).toBeDefined()

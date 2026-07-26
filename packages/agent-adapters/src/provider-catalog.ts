@@ -71,7 +71,7 @@ export const PROVIDER_CATALOG = {
     approvalSupport: 'native',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
-    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
+    toolControlSupport: { mode: 'none', allowlist: 'native', blocklist: 'native' },
   },
   codex: {
     runtimeExecution: true,

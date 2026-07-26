@@ -7,7 +7,7 @@ Part of the [DzupAgent](../../README.md) framework.
 ## Usage
 
 ```ts
-import { createFlowCompiler, routeTarget } from '@dzupagent/flow-compiler'
+import { createFlowCompiler, routeTarget } from "@dzupagent/flow-compiler";
 ```
 
 ## Classified references and secret-flow checks
@@ -20,15 +20,15 @@ Documents may classify inputs as `public`, `internal`, `sensitive`, or
 ```ts
 const compiler = createFlowCompiler({
   toolResolver,
-  referencePolicy: 'strict',
-  referenceBindings: { context: ['tenantId'], secrets: ['apiKey'] },
+  referencePolicy: "strict",
+  referenceBindings: { context: ["tenantId"], secrets: ["apiKey"] },
   referenceClassificationBindings: {
-    context: { tenantId: 'internal' },
+    context: { tenantId: "internal" },
   },
   referencePortClassificationBindings: {
-    loadCustomer: { result: 'sensitive' },
+    loadCustomer: { result: "sensitive" },
   },
-})
+});
 ```
 
 Classifications merge monotonically; the most restrictive declaration wins,
@@ -64,12 +64,12 @@ createFlowCompiler({
   toolResolver,
   primitiveRegistry,
   primitiveBindings: {
-    'validate.schema': {
-      ref: 'validate.schema@2',
-      semanticHash: registry.definitions['validate.schema@2'].semanticHash,
+    "validate.schema": {
+      ref: "validate.schema@2",
+      semanticHash: registry.definitions["validate.schema@2"].semanticHash,
     },
   },
-})
+});
 ```
 
 The compiler never resolves an external primitive to an implicit latest
@@ -104,9 +104,9 @@ For unattended compilation, opt into the fail-closed admission profile:
 ```ts
 createFlowCompiler({
   toolResolver,
-  admissionProfile: 'unattended',
-  referencePolicy: 'strict',
-})
+  admissionProfile: "unattended",
+  referencePolicy: "strict",
+});
 ```
 
 `unattended` rejects compatibility reference policy and requires every
@@ -126,6 +126,84 @@ reference has the same declared name under canonical `inputs` or `context`.
 substring, valid ranges, and non-overlap before returning a new source string.
 It never mutates the caller string. Availability, type, port, classification,
 and policy diagnostics do not invent edits when semantics cannot be proven.
+
+Valid `dzupflow/v2` primitive-policy narrowings remain authoring evidence until
+an executable target adopts `flow.policy.primitive-narrowing@1`. Stage 4
+returns `V2_POLICY_TARGET_UNSUPPORTED` at the authored policy span instead of
+dropping the constraint during V1 compatibility lowering. Typed-condition and
+policy adoption gaps are accumulated so authors can resolve both in one pass.
+
+Valid V2 primitive retry policies follow the same fail-closed target boundary.
+Stage 4 returns `V2_RETRY_TARGET_UNSUPPORTED` at the authored retry span until
+the selected target adopts `flow.retry.primitive-errors@1` with
+same-invocation identity, exact retryable-error matching, bounded attempts,
+and reviewed backoff scheduling. Retry, policy, and typed-condition adoption
+gaps are reported together; generic artifact emission never silently drops
+one of these contracts.
+
+Valid V2 terminal catch contracts stop at the same boundary. Stage 4 returns
+`V2_CATCH_TARGET_UNSUPPORTED` at the authored catch span until a target adopts
+`flow.catch.primitive-terminal@1` with code-only terminal attempt inputs,
+same-invocation identity, and explicit continue/complete/fail handling.
+Typed-condition, policy, retry, and catch target gaps accumulate rather than
+masking one another.
+
+Valid V2 multi-port saves also remain authoring evidence until a target adopts
+`flow.save.primitive-multi-port@1` with typed state writes and reviewed
+control-flow availability. Stage 4 returns
+`V2_MULTI_SAVE_TARGET_UNSUPPORTED` at the authored save span instead of
+emitting the deterministic V1 compatibility anchor as complete semantics.
+Typed-condition, policy, retry, catch, and multi-port-save adoption gaps
+accumulate.
+
+`@dzupagent/flow-compiler/v2-inactive-local-target` provides one
+provider-free, qualification-only adoption contract for the complete five
+capability set. It requires strict reference validation, an additive exact
+primitive registry/binding, complete source coverage, successful local typed
+condition evaluation, and the normal compiler pipeline to stop on exactly the
+five reviewed Stage 4 diagnostics. The deterministic receipt binds the source,
+capabilities, primitive ref/hash contracts, condition results, and compiler
+gate. It remains explicitly inactive and grants no artifact, primitive,
+provider, state-mutation, continuation, deployment, promotion, or activation
+authority. Generic compilation is unchanged.
+
+The same subpath also publishes `simulateV2InactiveLocalTarget` as a bounded,
+provider-free executable simulator for exactly one guarded primitive step that
+owns all five reviewed contracts. It accepts only deterministic JSON scripted
+attempts, intersects inherited policy, enforces cumulative timeout/budget and
+same-invocation retry/backoff, applies explicit terminal-catch outcomes, and
+commits validated multi-port state writes atomically. Content-addressed
+checkpoints bind the exact source, qualification, plan, attempts, cost,
+duration, and state for deterministic resume. Cancellation is an explicit
+attempt boundary and dominates approval before the first attempt. The
+simulator never invokes a runtime handler or provider, mutates external state,
+continues another workflow, deploys, promotes, or activates a target; it is
+execution-contract evidence, not a production runtime.
+
+`runV2InactiveLocalHost` publishes the separate inactive identity
+`dzupagent.local-v2-multi-step-host@1`. The current bounded host executes two
+or more top-level guarded primitive steps only after the complete five-contract
+qualification. Every hosted step owns exact policy, retry, terminal-catch, and
+multi-port-save contracts and binds both the primitive semantic hash and a
+separate caller-supplied local handler id/hash. Handler bindings must declare
+provider-free mode, no effects, and safe replay; invocations receive deeply
+frozen input/state snapshots and no provider authority.
+
+Every processed step is committed through a caller-supplied CAS-shaped
+checkpoint store before the next handler runs. Checkpoints bind the exact run,
+source, qualification, plan, handler identities, revision, prior checkpoint,
+state, and step receipts. The included in-memory reference store proves
+process-local claim/commit/release, concurrent-owner rejection, suspension,
+restart without replay, terminal result reuse, and stale handler/checkpoint
+rejection. Store exceptions and failed release operations return structured
+fail-closed errors.
+
+This host grants checkpoint-store mutation only. It grants no provider
+dispatch, workflow-external state mutation, external continuation, deployment,
+promotion, or activation authority. `core.set`, dynamic typed branch
+re-evaluation, nested kernel composition, resolved state/step inputs, and a
+durable multi-process checkpoint-store adapter remain outside this bounded
+packet rather than being inferred from primitive sequencing.
 
 ## Compiled classification envelope
 

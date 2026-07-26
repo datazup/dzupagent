@@ -21,3 +21,5 @@ export type { FeatureBitmask } from "./route-target/target-router.js";
 export { hasOnError } from "./route-target/on-error.js";
 export { collectUnsupportedRuntimeNodes } from "./route-target/unsupported-runtime-nodes.js";
 export type { UnsupportedRuntimeNode } from "./route-target/unsupported-runtime-nodes.js";
+export { collectUnsupportedTypedConditions } from "./route-target/typed-conditions.js";
+export type { UnsupportedTypedCondition } from "./route-target/typed-conditions.js";

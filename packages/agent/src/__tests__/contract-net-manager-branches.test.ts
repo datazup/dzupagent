@@ -189,13 +189,11 @@ describe('ContractNetManager — branch coverage', () => {
       eventBus: bus,
     })
     expect(result.success).toBe(true)
-    const types = events
-      .filter((e) => e.type === 'protocol:message_sent')
-      .map((e) => (e as unknown as { messageType: string }).messageType)
-    expect(types).toContain('contract-net:cfp_announced')
-    expect(types).toContain('contract-net:bid_received')
-    expect(types).toContain('contract-net:awarded')
-    expect(types).toContain('contract-net:completed')
+    const types = events.map((e) => e.type)
+    expect(types).toContain('contractnet:announced')
+    expect(types).toContain('contractnet:bid_received')
+    expect(types).toContain('contractnet:awarded')
+    expect(types).toContain('contractnet:completed')
   })
 
   it('includes requiredCapabilities and maxCostCents in CFP prompt', async () => {
@@ -263,10 +261,8 @@ describe('ContractNetManager — branch coverage', () => {
     })
     expect(result.success).toBe(false)
     expect(result.error).toContain('execution failed!')
-    const failedType = events
-      .filter((e) => e.type === 'protocol:message_sent')
-      .map((e) => (e as unknown as { messageType: string }).messageType)
-    expect(failedType).toContain('contract-net:failed')
+    const failedTypes = events.map((e) => e.type)
+    expect(failedTypes).toContain('contractnet:failed')
   })
 
   it('uses default bid deadline when not configured', async () => {

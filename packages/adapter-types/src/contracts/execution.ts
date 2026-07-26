@@ -66,6 +66,64 @@ export interface AgentPolicyExecutionContext {
   executionPolicy?: AgentSignedExecutionPolicy | undefined
 }
 
+/** Opaque provider identity keys accepted by restart lookup implementations. */
+export type ProviderRequestLookupKey =
+  | 'idempotencyKey'
+  | 'requestId'
+  | 'sessionId'
+  | 'responseId'
+
+/** Where an accepted provider-request idempotency key is actually enforced. */
+export type ProviderRequestIdempotencyEnforcement =
+  | 'provider'
+  | 'gateway'
+  | 'adapter'
+  | 'controller-local'
+  | 'none'
+
+/**
+ * Optional provider request-correlation capability.
+ *
+ * Resume support alone does not imply either idempotency or restart lookup.
+ * Adapters must declare only behavior that the selected backend can perform
+ * without starting another inference request.
+ */
+export interface ProviderRequestCorrelationCapability {
+  idempotencyKey: {
+    accepted: boolean
+    enforcement: ProviderRequestIdempotencyEnforcement
+  }
+  restartLookup: {
+    supported: boolean
+    lookupBy: readonly ProviderRequestLookupKey[]
+  }
+}
+
+/** Bounded input used to inspect one retained provider attempt after restart. */
+export interface ProviderRequestLookupInput {
+  idempotencyKey?: string | undefined
+  requestId?: string | undefined
+  sessionId?: string | undefined
+  responseId?: string | undefined
+}
+
+/**
+ * Content-free restart lookup result. Provider prompts and responses are never
+ * part of this contract.
+ */
+export interface ProviderRequestLookupResult {
+  state: 'terminal' | 'in_flight' | 'unknown'
+  outcome?: 'completed' | 'failed' | 'cancelled' | undefined
+  requestId?: string | undefined
+  sessionId?: string | undefined
+  responseId?: string | undefined
+  usage?: {
+    inputTokens?: number | undefined
+    outputTokens?: number | undefined
+    costUsd?: number | undefined
+  } | undefined
+}
+
 /** Runtime capability declaration for adapter behavior. */
 export interface AdapterCapabilityProfile {
   supportsResume: boolean
@@ -101,6 +159,10 @@ export interface AdapterCapabilityProfile {
     allowlist?: boolean | undefined
     blocklist?: boolean | undefined
   } | undefined
+  /** Optional request idempotency and read-only restart lookup support. */
+  providerRequestCorrelation?:
+    | ProviderRequestCorrelationCapability
+    | undefined
   maxContextTokens?: number | undefined
 }
 
@@ -277,6 +339,14 @@ export interface AgentCLIAdapter {
 
   /** Runtime capability declaration. */
   getCapabilities(): AdapterCapabilityProfile
+
+  /**
+   * Inspect one retained upstream request without dispatching new inference.
+   * Present only when providerRequestCorrelation.restartLookup is supported.
+   */
+  lookupProviderRequest?(
+    lookup: ProviderRequestLookupInput,
+  ): Promise<ProviderRequestLookupResult>
 
   /** List available sessions (if supported by the adapter) */
   listSessions?(): Promise<SessionInfo[]>

@@ -12,8 +12,9 @@
  * preserves the pre-split import surface exactly (structural move only — no
  * behavior change):
  *
- *   - `./compile-orchestrator/pipeline.ts`    — the four-stage `runCompile`
- *     pipeline plus the `CompileOrchestratorDeps` / `FlowCompileEvent` contracts.
+ *   - `./compile-orchestrator/pipeline.ts`    — the four-stage `runCompile`.
+ *   - `./compile-orchestrator/contracts.ts`   — orchestration dependencies and
+ *     lifecycle event contracts.
  *   - `./compile-orchestrator/document.ts`    — the `runCompileDocument` /
  *     `runCompileDsl` source-shaped entry points and document-policy extraction.
  *   - `./compile-orchestrator/evidence.ts`    — compile-evidence construction
@@ -25,7 +26,7 @@ export { runCompile } from "./compile-orchestrator/pipeline.js";
 export type {
   CompileOrchestratorDeps,
   FlowCompileEvent,
-} from "./compile-orchestrator/pipeline.js";
+} from "./compile-orchestrator/contracts.js";
 export {
   runCompileDocument,
   runCompileDsl,

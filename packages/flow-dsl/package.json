@@ -13,6 +13,26 @@
     "./source-map": {
       "import": "./dist/dsl-source-map.js",
       "types": "./dist/dsl-source-map.d.ts"
+    },
+    "./v2-policy-narrowing": {
+      "import": "./dist/v2-policy-narrowing.js",
+      "types": "./dist/v2-policy-narrowing.d.ts"
+    },
+    "./v2-retry-policy": {
+      "import": "./dist/v2-retry-policy.js",
+      "types": "./dist/v2-retry-policy.d.ts"
+    },
+    "./v2-terminal-catch": {
+      "import": "./dist/v2-terminal-catch.js",
+      "types": "./dist/v2-terminal-catch.d.ts"
+    },
+    "./v2-multi-port-save": {
+      "import": "./dist/v2-multi-port-save.js",
+      "types": "./dist/v2-multi-port-save.d.ts"
+    },
+    "./v2-authoring": {
+      "import": "./dist/v2-authoring.js",
+      "types": "./dist/v2-authoring.d.ts"
     }
   },
   "files": [

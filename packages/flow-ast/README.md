@@ -46,6 +46,36 @@ These are contracts only. Hosts still own credential lease dereferencing,
 transform execution, receipt signing and verification, secure persistence, and
 terminal-result conflict handling.
 
+## Typed-condition evaluation
+
+The provider-free evaluator is published on a reviewed subpath so the
+growth-frozen root barrel remains unchanged:
+
+```ts
+import {
+  evaluateFlowTypedCondition,
+  FLOW_TYPED_CONDITION_CAPABILITY,
+} from '@dzupagent/flow-ast/typed-condition-evaluator'
+
+const result = evaluateFlowTypedCondition(condition, {
+  hostCapabilities: [FLOW_TYPED_CONDITION_CAPABILITY],
+  bindings: {
+    inputs: { ready: true, score: 4 },
+  },
+})
+```
+
+Every call requires the exact `flow.control.typed-condition@1` capability.
+Evaluation is synchronous, deterministic, provider-free, and I/O-free. It
+uses strict references, boolean-only control composition, short-circuit
+`and`/`or`, finite numeric comparisons, code-unit string ordering,
+structural array/plain-object equality, deterministic reference filters, and
+structured fail-closed results for missing or incompatible runtime values.
+
+The evaluator grants no target, provider, mutation, deployment, or production
+authority. Compiler targets remain blocked until a host separately adopts and
+qualifies the capability.
+
 ## License
 
 MIT

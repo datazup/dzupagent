@@ -1,6 +1,12 @@
 import type { FlowNode } from "@dzupagent/flow-ast";
 import type { FlowReferenceBindings } from "@dzupagent/flow-ast/expressions";
 import type { DslSourceMap } from "@dzupagent/flow-dsl/source-map";
+import type {
+  DslV2PolicyNarrowingBinding,
+  DslV2RetryPolicyBinding,
+  DslV2TerminalCatchBinding,
+  DslV2MultiPortSaveBinding,
+} from "@dzupagent/flow-dsl";
 
 import {
   deriveNodeReferenceBindings,
@@ -31,6 +37,10 @@ export interface SourceReferenceSnapshot {
   readonly types?: FlowReferenceTypeBindings;
   readonly classifications?: FlowReferenceClassificationBindings;
   readonly dslSourceMap?: DslSourceMap;
+  readonly dslV2PolicyNarrowings?: readonly DslV2PolicyNarrowingBinding[];
+  readonly dslV2RetryPolicies?: readonly DslV2RetryPolicyBinding[];
+  readonly dslV2TerminalCatches?: readonly DslV2TerminalCatchBinding[];
+  readonly dslV2MultiPortSaves?: readonly DslV2MultiPortSaveBinding[];
 }
 
 /** Assemble the declaration, availability, type, port, and policy snapshot. */

@@ -20,7 +20,10 @@ describe('buildCompileResultEvent', () => {
           eventCorrelationId: 'c-1',
         },
       },
-      warnings: [{ stage: 4, code: 'WARN_1', message: 'warn' }],
+      warnings: [
+        { stage: 3, code: 'SEMANTIC_WARN', message: 'semantic warning' },
+        { stage: 4, code: 'WARN_1', message: 'warn' },
+      ],
       reasons: [{ code: 'FOR_EACH_PRESENT', message: 'pipeline required' }],
     })).toEqual({
       type: 'flow:compile_result',
@@ -40,7 +43,10 @@ describe('buildCompileResultEvent', () => {
           eventCorrelationId: 'c-1',
         },
       },
-      warnings: [{ stage: 4, code: 'WARN_1', message: 'warn' }],
+      warnings: [
+        { stage: 3, code: 'SEMANTIC_WARN', message: 'semantic warning' },
+        { stage: 4, code: 'WARN_1', message: 'warn' },
+      ],
       reasons: [{ code: 'FOR_EACH_PRESENT', message: 'pipeline required' }],
     })
   })

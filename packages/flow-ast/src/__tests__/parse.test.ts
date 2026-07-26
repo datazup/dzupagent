@@ -518,6 +518,36 @@ describe("parseFlow — shape validation", () => {
 });
 
 describe("parseFlow — node-specific behaviours", () => {
+  it("preserves a canonical typed branch only with its fail-closed shadow", () => {
+    const typedCondition = {
+      schema: "dzupagent.flowTypedCondition/v1" as const,
+      expression: { op: "ref" as const, path: "inputs.ready" },
+    };
+    const accepted = parseFlow({
+      type: "branch",
+      condition: "false",
+      typedCondition,
+      then: [{ type: "complete" }],
+    });
+
+    expect(accepted.errors).toEqual([]);
+    expect(accepted.ast).toMatchObject({ typedCondition });
+
+    const rejected = parseFlow({
+      type: "branch",
+      condition: "true",
+      typedCondition,
+      then: [{ type: "complete" }],
+    });
+    expect(rejected.ast).toBeNull();
+    expect(rejected.errors).toContainEqual(
+      expect.objectContaining({
+        code: "WRONG_FIELD_TYPE",
+        pointer: "/condition",
+      }),
+    );
+  });
+
   it("for_each surfaces nested errors when shape fails too", () => {
     const result = parseFlow({
       type: "for_each",

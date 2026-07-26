@@ -22,6 +22,10 @@
       "import": "./dist/agent-review.js",
       "types": "./dist/agent-review.d.ts"
     },
+    "./agent-blueprint": {
+      "import": "./dist/agent-blueprint.js",
+      "types": "./dist/agent-blueprint.d.ts"
+    },
     "./fixtures/agent-review-conformance-v1.json": {
       "default": "./fixtures/agent-review-conformance-v1.json"
     }

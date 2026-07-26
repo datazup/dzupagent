@@ -13,6 +13,10 @@
     "./expressions": {
       "import": "./dist/expressions.js",
       "types": "./dist/expressions.d.ts"
+    },
+    "./typed-condition-evaluator": {
+      "import": "./dist/typed-condition-evaluator.js",
+      "types": "./dist/typed-condition-evaluator.d.ts"
     }
   },
   "files": [

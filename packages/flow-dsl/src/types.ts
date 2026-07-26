@@ -1,5 +1,8 @@
 import type { FlowDocumentV1, FlowNode } from '@dzupagent/flow-ast'
+import type { DslDiagnostic } from './diagnostic-types.js'
 import type { DslV2FrontendMetadata } from './v2/types.js'
+
+export type { DslDiagnostic } from './diagnostic-types.js'
 
 export interface SourceSpan {
   lineStart: number
@@ -34,15 +37,6 @@ export interface DslSourceMap {
   sourceDigest: `sha256:${string}`
   lineStarts: readonly number[]
   entries: Readonly<Record<string, DslSourceMapEntry | undefined>>
-}
-
-export interface DslDiagnostic {
-  phase: 'parse' | 'normalize' | 'validate'
-  code: string
-  message: string
-  path: string
-  span?: SourceSpan
-  suggestion?: string
 }
 
 export interface NormalizeDslSuccess {
@@ -87,6 +81,7 @@ export interface CanonicalizeDslSuccess {
   derivedGraph: DerivedGraph
   partialDocument: null
   diagnostics: []
+  frontend?: DslV2FrontendMetadata
   sourceMap?: DslSourceMap
 }
 

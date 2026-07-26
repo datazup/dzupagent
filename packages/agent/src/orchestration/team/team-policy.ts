@@ -41,9 +41,23 @@ export interface ExecutionPolicy {
 export interface GovernancePolicy {
   /** Model to use for judging. Recommended: `claude-opus-4-7`. */
   judgeModel: string;
-  /** Minimum acceptable judge score in [0, 1]; below this rejects the run. */
+  /**
+   * Minimum acceptable judge score in [0, 1]; below this rejects the run.
+   *
+   * Enforced by the governance acceptance gate after a council run completes,
+   * but only when a `TeamGovernanceService` is injected into the runtime — the
+   * runtime cannot itself score a free-form judge verdict. When no scorer is
+   * wired this field is a documented no-op (shape-checked, but inert), the same
+   * seam as `MemoryPolicy.consolidateOnComplete`.
+   */
   minScore?: number;
-  /** If true, council requires unanimous judgment to pass. */
+  /**
+   * If true, council requires unanimous judgment to pass.
+   *
+   * Enforced by the governance acceptance gate (via the injected
+   * `TeamGovernanceService.evaluate` returning `unanimous`); inert when no
+   * scorer service is wired.
+   */
   requireUnanimous?: boolean;
 }
 
@@ -56,8 +70,9 @@ export interface MemoryPolicy {
   /**
    * Whether to consolidate/summarize memory when the run completes.
    *
-   * TeamRuntime rejects this field when it is enabled until a real
-   * consolidation implementation exists.
+   * Enforced by the post-run consolidation pass (`consolidateIfEnabled`) when a
+   * `TeamRuntimeMemoryService` (`consolidate` callback or `store`) is injected;
+   * inert when no memory service is wired.
    */
   consolidateOnComplete?: boolean;
   /**
@@ -80,7 +95,16 @@ export interface BlackboardContextPolicy {
   overflowBehavior?: BlackboardContextOverflowBehavior;
 }
 
-/** Controls sandboxing and workspace sharing. */
+/**
+ * Controls sandboxing and workspace sharing.
+ *
+ * SCOPED OUT of in-repo TeamRuntime enforcement: the runtime spawns
+ * participant agents in-process and has no sandbox executor, and it always
+ * provisions a fresh per-run `SharedWorkspace` (there is no "unshared" mode to
+ * toggle). These knobs are therefore a consuming-app concern — an app that runs
+ * participants in real sandboxes/containers reads this policy itself. The
+ * validator shape-checks the fields so a malformed declaration fails fast.
+ */
 export interface IsolationPolicy {
   /** Whether participants run in a sandboxed environment. */
   sandboxed: boolean;
@@ -88,7 +112,15 @@ export interface IsolationPolicy {
   sharedWorkspace: boolean;
 }
 
-/** Controls inter-participant mailbox (message passing). */
+/**
+ * Controls inter-participant mailbox (message passing).
+ *
+ * SCOPED OUT of in-repo TeamRuntime enforcement: team coordination patterns do
+ * not route messages through the `@dzupagent/agent/mailbox` subsystem, which is
+ * host-driven (the host constructs `AgentMailbox` instances and wires delivery).
+ * `deliveryMode` / `maxQueueDepth` are therefore a consuming-app concern; the
+ * validator shape-checks them so a malformed declaration fails fast.
+ */
 export interface MailboxPolicy {
   /** Max queued messages per participant (default: unbounded). */
   maxQueueDepth?: number;
@@ -99,6 +131,12 @@ export interface MailboxPolicy {
 /**
  * Controls automated scoring of the team's final output.
  * Typically uses an Opus-class scorer model for high-stakes evaluation.
+ *
+ * `minPassScore` is enforced by the evaluation acceptance gate after any
+ * pattern completes, but only when a `TeamEvaluationService` is injected into
+ * the runtime (`scorerModel` / `scoringCriteria` are passed to it as inputs).
+ * Without a scorer service the gate is a documented no-op — the same
+ * host-injected-service seam as governance and memory consolidation.
  */
 export interface EvaluationPolicy {
   /** Model to use for scoring. Recommended: `claude-opus-4-7`. */

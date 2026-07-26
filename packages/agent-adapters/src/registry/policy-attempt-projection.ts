@@ -135,8 +135,14 @@ export function buildAttemptInput(
     attemptInput: {
       ...baseInput,
       signal,
-      // Attempt execution should not surface orchestration metadata to adapters.
-      policyContext: undefined,
+      // Retain only the conformance-checked active policy needed by provider
+      // adapters for native sandbox/tool projection. Do not copy
+      // controller-only execution metadata or projected guardrails into this
+      // typed context; compiled option overlays remain below.
+      policyContext: {
+        activePolicy: cloneAdapterPolicy(policy),
+        conformanceMode,
+      },
       options: {
         ...options,
         ...compiled.config,
@@ -158,6 +164,18 @@ export function buildAttemptInput(
     legacyOptionWarningEvents,
     conformanceMode,
     conformanceViolations: nonBlockingViolations,
+  };
+}
+
+function cloneAdapterPolicy(policy: AdapterPolicy): AdapterPolicy {
+  return {
+    ...policy,
+    ...(policy.allowedTools
+      ? { allowedTools: [...policy.allowedTools] }
+      : {}),
+    ...(policy.blockedTools
+      ? { blockedTools: [...policy.blockedTools] }
+      : {}),
   };
 }
 

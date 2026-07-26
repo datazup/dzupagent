@@ -57,7 +57,14 @@ export function pushField(
 }
 
 export function quote(value: string): string {
-  if (/^[A-Za-z0-9_.\/:-]+$/.test(value)) return value;
+  const yamlTypedScalar =
+    /^(?:~|null|true|false|yes|no|on|off|[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)$/i;
+  if (
+    /^[A-Za-z0-9_.\/:-]+$/.test(value) &&
+    !yamlTypedScalar.test(value)
+  ) {
+    return value;
+  }
   return JSON.stringify(value);
 }
 

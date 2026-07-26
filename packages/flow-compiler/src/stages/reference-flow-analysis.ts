@@ -25,6 +25,7 @@ import {
 } from "./reference-flow-analysis/availability.js";
 import { scanControlReferences } from "./reference-flow-analysis/control-references.js";
 import { collectNodeTemplateReferenceSites } from "./semantic-reference-values.js";
+import { analyzeFlowExpressionContract } from "./expression-validate.js";
 import {
   nodeFieldSpan,
   type SemanticDiagnostic,
@@ -282,6 +283,41 @@ function analyzeNodeReferences(
         warnings,
       );
     }
+  }
+
+  if (node.type === "branch" && node.typedCondition !== undefined) {
+    const typed = analyzeFlowExpressionContract(
+      node.typedCondition.expression,
+      {
+        policy: "strict",
+        useSite: "boolean-control",
+        ...(options.declarationBindings === undefined
+          ? {}
+          : { knownBindings: options.declarationBindings }),
+        ...(options.typeBindings === undefined
+          ? {}
+          : { typeBindings: options.typeBindings }),
+        ...(options.portBindings === undefined
+          ? {}
+          : { portBindings: options.portBindings }),
+      },
+    );
+    const typedOptions: ReferenceFlowAnalysisOptions = {
+      ...options,
+      policy: "strict",
+    };
+    for (const site of typed.referenceSites) {
+      validateAvailability(
+        node,
+        site.reference,
+        `${path}.typedCondition.${site.path}`,
+        available,
+        typedOptions,
+        errors,
+        warnings,
+      );
+    }
+    return;
   }
 
   const control = controlReferenceSite(node, path);

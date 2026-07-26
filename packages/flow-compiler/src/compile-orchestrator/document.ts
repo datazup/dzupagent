@@ -37,7 +37,7 @@ import { currentFlowRefFromDocument } from "../stages/subflow-inline.js";
 import type { CompileSuccess, CompileFailure } from "../types.js";
 
 import { runCompile } from "./pipeline.js";
-import type { CompileOrchestratorDeps } from "./pipeline.js";
+import type { CompileOrchestratorDeps } from "./contracts.js";
 import { countDiagnosticsByCategory } from "./diagnostics.js";
 import { extractFragmentExpansions } from "./evidence.js";
 
@@ -194,6 +194,30 @@ export async function runCompileDsl(
           ...(prepared.sourceMap !== undefined
             ? { dslSourceMap: prepared.sourceMap }
             : {}),
+          ...(prepared.frontend?.policyNarrowings === undefined
+            ? {}
+            : {
+                dslV2PolicyNarrowings:
+                  prepared.frontend.policyNarrowings,
+              }),
+          ...(prepared.frontend?.retryPolicies === undefined
+            ? {}
+            : {
+                dslV2RetryPolicies:
+                  prepared.frontend.retryPolicies,
+              }),
+          ...(prepared.frontend?.terminalCatches === undefined
+            ? {}
+            : {
+                dslV2TerminalCatches:
+                  prepared.frontend.terminalCatches,
+              }),
+          ...(prepared.frontend?.multiPortSaves === undefined
+            ? {}
+            : {
+                dslV2MultiPortSaves:
+                  prepared.frontend.multiPortSaves,
+              }),
         }
       : {},
   );

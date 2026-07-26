@@ -4,7 +4,10 @@ import type {
   ValidationError,
 } from "@dzupagent/flow-ast";
 
-import { validateConditionExpr } from "../semantic-condition.js";
+import {
+  validateConditionExpr,
+  validateTypedConditionExpr,
+} from "../semantic-condition.js";
 import type { WalkContext } from "../semantic-context.js";
 import { validateNodeTemplateReferences } from "../semantic-reference-values.js";
 import { resolvePersonaNode } from "../semantic-persona-resolver.js";
@@ -61,13 +64,17 @@ export async function visit(
       return;
     }
     case "branch": {
-      validateConditionExpr(
-        node.type,
-        node.condition,
-        `${path}.condition`,
-        "branch.condition",
-        ctx
-      );
+      if (node.typedCondition === undefined) {
+        validateConditionExpr(
+          node.type,
+          node.condition,
+          `${path}.condition`,
+          "branch.condition",
+          ctx
+        );
+      } else {
+        validateTypedConditionExpr(node.type, node.typedCondition, path, ctx);
+      }
       for (let idx = 0; idx < node.then.length; idx++) {
         const child = node.then[idx];
         if (child !== undefined) {

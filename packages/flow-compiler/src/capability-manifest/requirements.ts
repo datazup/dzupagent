@@ -1,4 +1,10 @@
-import { type FlowNode, type FlowNodeKind } from "@dzupagent/flow-ast";
+import {
+  type FlowNode,
+  type FlowNodeKind,
+} from "@dzupagent/flow-ast";
+import {
+  FLOW_TYPED_CONDITION_CAPABILITY,
+} from "@dzupagent/flow-ast/typed-condition-evaluator";
 
 import { routeTarget } from "../route-target.js";
 import type { FlowRequirementSummary } from "../types.js";
@@ -26,6 +32,15 @@ export function collectFlowRequirements(ast: FlowNode): FlowRequirementSummary {
     for (const capability of item.runtimeCapabilities) {
       requiredCapabilities.add(capability);
     }
+  }
+  let hasTypedCondition = false;
+  visitFlow(ast, (node) => {
+    if (node.type === "branch" && node.typedCondition !== undefined) {
+      hasTypedCondition = true;
+    }
+  });
+  if (hasTypedCondition) {
+    requiredCapabilities.add(FLOW_TYPED_CONDITION_CAPABILITY);
   }
 
   return {

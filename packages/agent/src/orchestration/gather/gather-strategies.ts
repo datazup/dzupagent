@@ -6,9 +6,11 @@
  * OrchestrationMergeStrategy contract so the fleet runtime and supervisor share
  * one result shape; `all` and `first` reuse the equivalent merge strategies.
  *
- * LLM-backed gather (audit-synthesis, change-set-synthesis, comparison-report)
- * is a separate, later phase — it needs an AgentInput and belongs with the
- * adapter-backed strategies, not here.
+ * LLM-backed gather (synthesis / judge) is model-driven and therefore
+ * asynchronous — it lives in the sibling `llm-gather-strategies.ts` module,
+ * which implements the async `AsyncOrchestrationMergeStrategy` contract over a
+ * provider-agnostic `GatherModel` port. The two vocabularies are kept separate
+ * so the deterministic strategies here stay synchronous and dependency-free.
  */
 import type {
   AgentResult,
@@ -59,7 +61,7 @@ function countByStatus<T>(results: AgentResult<T>[]): {
 
 function noSuccessResult<T>(
   results: AgentResult<T>[],
-  counts: { successCount: number; timeoutCount: number; errorCount: number }
+  counts: { successCount: number; timeoutCount: number; errorCount: number },
 ): MergedResult<T> {
   return {
     status:
@@ -74,9 +76,9 @@ function noSuccessResult<T>(
  * spread, scalar outputs appended. Tolerates failures: `success` when every
  * agent succeeded, `partial` when at least one did.
  */
-export class ConcatGatherStrategy<T = unknown>
-  implements OrchestrationMergeStrategy<T>
-{
+export class ConcatGatherStrategy<
+  T = unknown,
+> implements OrchestrationMergeStrategy<T> {
   merge(results: AgentResult<T>[]): MergedResult<T> {
     const counts = countByStatus(results);
     if (counts.successCount === 0) return noSuccessResult(results, counts);
@@ -114,9 +116,9 @@ const defaultScore: GatherScoreFn = (result) => {
  * rank lowest; ties break toward earlier dispatch order, so the pick is
  * deterministic for a given result order.
  */
-export class BestGatherStrategy<T = unknown>
-  implements OrchestrationMergeStrategy<T>
-{
+export class BestGatherStrategy<
+  T = unknown,
+> implements OrchestrationMergeStrategy<T> {
   private readonly scoreBy: GatherScoreFn<T>;
 
   constructor(options: GatherStrategyOptions<T> = {}) {
@@ -155,7 +157,7 @@ export class BestGatherStrategy<T = unknown>
  */
 export function createGatherStrategy<T = unknown>(
   name: GatherStrategyName,
-  options: GatherStrategyOptions<T> = {}
+  options: GatherStrategyOptions<T> = {},
 ): OrchestrationMergeStrategy<T> {
   switch (name) {
     case "all":
@@ -170,8 +172,8 @@ export function createGatherStrategy<T = unknown>(
       const exhaustive: never = name;
       throw new Error(
         `Unknown gather strategy "${String(
-          exhaustive
-        )}" — expected one of: ${GATHER_STRATEGY_NAMES.join(", ")}`
+          exhaustive,
+        )}" — expected one of: ${GATHER_STRATEGY_NAMES.join(", ")}`,
       );
     }
   }

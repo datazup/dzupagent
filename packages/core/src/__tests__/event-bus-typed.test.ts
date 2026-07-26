@@ -1607,6 +1607,112 @@ describe("DzupEventBus — async error isolation", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 23b. Contract-net protocol lifecycle events
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("DzupEventBus — contract-net lifecycle events", () => {
+  it("delivers contractnet:announced with cfpId and task", () => {
+    const b = bus();
+    const h = vi.fn();
+    b.on("contractnet:announced", h);
+    b.emit({ type: "contractnet:announced", cfpId: "cfp1", task: "build" });
+    expect(h).toHaveBeenCalledWith(
+      expect.objectContaining({ cfpId: "cfp1", task: "build" }),
+    );
+  });
+
+  it("delivers contractnet:bid_received with cfpId and agentId", () => {
+    const b = bus();
+    const h = vi.fn();
+    b.on("contractnet:bid_received", h);
+    b.emit({ type: "contractnet:bid_received", cfpId: "cfp1", agentId: "a1" });
+    expect(h).toHaveBeenCalledWith(
+      expect.objectContaining({ cfpId: "cfp1", agentId: "a1" }),
+    );
+  });
+
+  it("delivers contractnet:awarded with winnerId", () => {
+    const b = bus();
+    const h = vi.fn();
+    b.on("contractnet:awarded", h);
+    b.emit({ type: "contractnet:awarded", cfpId: "cfp1", winnerId: "a2" });
+    expect(h).toHaveBeenCalledWith(
+      expect.objectContaining({ winnerId: "a2" }),
+    );
+  });
+
+  it("delivers contractnet:completed with agentId and durationMs", () => {
+    const b = bus();
+    const h = vi.fn();
+    b.on("contractnet:completed", h);
+    b.emit({
+      type: "contractnet:completed",
+      cfpId: "cfp1",
+      agentId: "a2",
+      durationMs: 120,
+    });
+    expect(h).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "a2", durationMs: 120 }),
+    );
+  });
+
+  it("delivers contractnet:failed (bidding phase) with reason and no agentId", () => {
+    const b = bus();
+    const h = vi.fn();
+    b.on("contractnet:failed", h);
+    b.emit({
+      type: "contractnet:failed",
+      cfpId: "cfp1",
+      phase: "bidding",
+      reason: "No bids received",
+    });
+    expect(h).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: "bidding", reason: "No bids received" }),
+    );
+  });
+
+  it("delivers contractnet:failed (executing phase) with agentId and error", () => {
+    const b = bus();
+    const h = vi.fn();
+    b.on("contractnet:failed", h);
+    b.emit({
+      type: "contractnet:failed",
+      cfpId: "cfp1",
+      phase: "executing",
+      agentId: "a2",
+      error: "boom",
+    });
+    expect(h).toHaveBeenCalledWith(
+      expect.objectContaining({ phase: "executing", agentId: "a2", error: "boom" }),
+    );
+  });
+
+  it("contractnet:announced handler does not fire on contractnet:failed", () => {
+    const b = bus();
+    const h = vi.fn();
+    b.on("contractnet:announced", h);
+    b.emit({
+      type: "contractnet:failed",
+      cfpId: "cfp1",
+      phase: "bidding",
+      reason: "nope",
+    });
+    expect(h).not.toHaveBeenCalled();
+  });
+
+  it("typedEmit dispatches contractnet:awarded to typed and wildcard handlers", () => {
+    const b = bus();
+    const typed = vi.fn();
+    const wild = vi.fn();
+    b.on("contractnet:awarded", typed);
+    b.onAny(wild);
+    typedEmit(b, { type: "contractnet:awarded", cfpId: "cfp1", winnerId: "a2" });
+    expect(typed).toHaveBeenCalledOnce();
+    expect(wild).toHaveBeenCalledOnce();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 23. typedEmit with orchestration and platform events
 // ─────────────────────────────────────────────────────────────────────────────
 

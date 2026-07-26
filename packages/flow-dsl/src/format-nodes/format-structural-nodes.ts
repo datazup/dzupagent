@@ -42,6 +42,11 @@ export function formatStructuralNode(
       lines.push(`${indent}- if:`);
       pushCommon(lines, node, indentLevel + 2);
       lines.push(`${childIndent}condition: ${quote(node.condition)}`);
+      if (node.typedCondition !== undefined) {
+        lines.push(
+          `${childIndent}typedCondition: ${formatScalar(node.typedCondition)}`
+        );
+      }
       lines.push(`${childIndent}then:`);
       for (const child of node.then) formatNode(lines, child, indentLevel + 3);
       if (node.else && node.else.length > 0) {

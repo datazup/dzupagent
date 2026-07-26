@@ -10,7 +10,6 @@
 
 import { parseFlow } from "@dzupagent/flow-ast";
 import type { ParseInput } from "@dzupagent/flow-ast";
-import type { DzupEvent } from "@dzupagent/core";
 
 import { validateShape } from "../stages/shape-validate.js";
 import { semanticResolve } from "../stages/semantic.js";
@@ -35,7 +34,6 @@ import {
 } from "../primitive-registry-admission.js";
 
 import type {
-  CompilerOptions,
   CompileInvocationOptions,
   CompilationError,
   CompileFailure,
@@ -65,37 +63,8 @@ import {
   type SourceReferenceSnapshot,
 } from "./reference-snapshot.js";
 import { rejectInvalidPrimitiveSelection } from "./primitive-admission.js";
-
-// Flow compiler event shapes are part of the canonical `DzupEvent` union in
-// `@dzupagent/core` (Wave 11 ADR §4). We narrow to the relevant subset here
-// so `emit` site types remain tight without reintroducing the legacy cast.
-export type FlowCompileEvent = Extract<
-  DzupEvent,
-  {
-    type:
-      | "flow:compile_started"
-      | "flow:compile_parsed"
-      | "flow:compile_shape_validated"
-      | "flow:compile_semantic_resolved"
-      | "flow:compile_lowered"
-      | "flow:compile_completed"
-      | "flow:compile_failed";
-  }
->;
-
-/**
- * Dependencies injected into the compile orchestration by the
- * `createFlowCompiler` façade. These are exactly the values the pipeline
- * previously closed over from factory scope:
- *
- *  - `opts`: the resolver/registry/target options supplied at factory time.
- *  - `emit`: the lifecycle-event sink. A no-op when inner-event forwarding is
- *    off; otherwise bound to the supplied `DzupEventBus`.
- */
-export interface CompileOrchestratorDeps {
-  readonly opts: CompilerOptions;
-  readonly emit: (e: FlowCompileEvent) => void;
-}
+import { collectUnsupportedV2TargetErrors } from "./v2-target-gates.js";
+import type { CompileOrchestratorDeps } from "./contracts.js";
 
 /**
  * Run the four-stage compile pipeline for a parsed flow input.
@@ -343,6 +312,27 @@ export async function runCompile(
       errors: stage4Errors,
       compileId,
       diagnosticCountsByCategory: countDiagnosticsByCategory(stage4Errors),
+    };
+  }
+
+  const unsupportedV2TargetErrors = collectUnsupportedV2TargetErrors(
+    ast,
+    target,
+    sourceReferences,
+  );
+  if (unsupportedV2TargetErrors.length > 0) {
+    emit({
+      type: "flow:compile_failed",
+      compileId,
+      stage: 4,
+      errorCount: unsupportedV2TargetErrors.length,
+      durationMs: Date.now() - startedAt,
+    });
+    return {
+      errors: unsupportedV2TargetErrors,
+      compileId,
+      diagnosticCountsByCategory:
+        countDiagnosticsByCategory(unsupportedV2TargetErrors),
     };
   }
 

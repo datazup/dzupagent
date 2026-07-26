@@ -1,4 +1,9 @@
 import {
+  FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
+  isFlowTypedCondition,
+} from "@dzupagent/flow-ast/expressions";
+
+import {
   emptyBody,
   isNonEmptyString,
   missing,
@@ -71,6 +76,30 @@ export const controlFlowValidators: ShapeRulePartial<ControlFlowKind> = {
           node.type,
           path,
           "branch.condition is required (non-empty string)"
+        )
+      );
+    }
+    if (
+      node.typedCondition !== undefined &&
+      !isFlowTypedCondition(node.typedCondition)
+    ) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          "branch.typedCondition must be a canonical FlowTypedCondition"
+        )
+      );
+    }
+    if (
+      node.typedCondition !== undefined &&
+      node.condition !== FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW
+    ) {
+      errors.push(
+        missing(
+          node.type,
+          path,
+          `branch.condition must equal "${FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW}" when typedCondition is present`
         )
       );
     }

@@ -96,6 +96,23 @@ export function buildQueryOptions({
     }
   }
 
+  // Apply the conformance-checked policy last so provider configuration cannot
+  // widen the tool surface selected for this attempt. Claude Agent SDK treats
+  // allowedTools/disallowedTools as query-time tool exposure controls.
+  const activePolicy = input.policyContext?.activePolicy
+  if (activePolicy?.allowedTools) {
+    options['allowedTools'] = [...activePolicy.allowedTools]
+  }
+  if (activePolicy?.blockedTools) {
+    options['disallowedTools'] = [...activePolicy.blockedTools]
+  }
+  if (
+    activePolicy?.toolPolicy === 'strict' &&
+    (activePolicy.allowedTools?.length ?? 0) === 0
+  ) {
+    options['tools'] = []
+  }
+
   return {
     prompt: input.prompt,
     options,

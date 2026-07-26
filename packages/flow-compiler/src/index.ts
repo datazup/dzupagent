@@ -244,7 +244,16 @@ export type {
   InlineSubflowOptions,
   InlineSubflowResult,
 } from "./stages/subflow-inline.js";
-export { analyzeFlowExpression } from "./stages/expression-validate.js";
+export {
+  analyzeFlowExpression,
+  analyzeFlowExpressionContract,
+} from "./stages/expression-validate.js";
+export type {
+  FlowExpressionContractAnalysis,
+  FlowExpressionContractIssue,
+  FlowExpressionContractOptions,
+  FlowExpressionReferenceSite,
+} from "./stages/expression-validate.js";
 export {
   routeTarget,
   computeFeatureBitmask,

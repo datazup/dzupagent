@@ -143,6 +143,10 @@ describe('ClaudeAgentAdapter', () => {
         executesToolLoop: true,
         supportsStreaming: true,
         supportsCostUsage: true,
+        providerRequestCorrelation: {
+          idempotencyKey: { accepted: false, enforcement: 'none' },
+          restartLookup: { supported: false, lookupBy: [] },
+        },
       })
     })
 

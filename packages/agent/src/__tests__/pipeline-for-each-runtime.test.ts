@@ -1,6 +1,6 @@
 import { Socket } from 'node:net'
 import { describe, expect, it } from 'vitest'
-import { requireIntegrationEnv } from '@dzupagent/test-utils'
+import { requireIntegrationEnv } from './require-integration-env.js'
 import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import { InMemoryPipelineCheckpointStore } from '../pipeline/in-memory-checkpoint-store.js'
 import {

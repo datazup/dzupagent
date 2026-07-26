@@ -56,6 +56,29 @@ describe('Claude local CLI backend', () => {
     })).toThrow('does not enforce a strict allowlist')
   })
 
+  it('enforces the complement blocklist for warn-only workspace-write projection', () => {
+    const args = new InspectableClaudeCliAdapter().args({
+      prompt: 'edit',
+      policyContext: {
+        conformanceMode: 'warn-only',
+        activePolicy: {
+          sandboxMode: 'workspace-write',
+          allowedTools: ['Edit', 'Read'],
+          blockedTools: ['Bash', 'WebFetch', 'WebSearch'],
+        },
+      },
+    })
+    expect(args).toEqual(expect.arrayContaining([
+      '--allowedTools',
+      'Edit',
+      'Read',
+      '--disallowedTools',
+      'Bash',
+      'WebFetch',
+      'WebSearch',
+    ]))
+  })
+
   it('rejects unsupported max-turn projection instead of ignoring it', () => {
     expect(() => new InspectableClaudeCliAdapter().args({ prompt: 'bounded', maxTurns: 2 })).toThrow('max-turns')
   })

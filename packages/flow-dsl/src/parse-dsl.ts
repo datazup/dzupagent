@@ -9,6 +9,7 @@ import type { ParseDslResult } from "./types.js";
 import type { FragmentRegistry } from "./fragments/types.js";
 import type { PrimitiveRegistry } from "./primitives/types.js";
 import type { PrimitiveRegistryV2 } from "./primitives/types.js";
+import type { PrimitivePolicyLimits } from "./v2/policy-narrowing.js";
 import { BUILT_IN_PRIMITIVE_REGISTRY_V2 } from "./primitives/built-ins.js";
 import { lowerDslV2Document } from "./v2/lower-v2.js";
 import {
@@ -24,6 +25,7 @@ export interface ParseDslToDocumentOptions {
   primitiveRegistryV2?: PrimitiveRegistryV2;
   requirePinnedFragmentUses?: boolean;
   requirePrimitiveLineage?: boolean;
+  v2InheritedPolicy?: PrimitivePolicyLimits;
 }
 
 export function parseDslToDocument(
@@ -62,6 +64,9 @@ export function parseDslToDocument(
           primitiveRegistryV2:
             options.primitiveRegistryV2 ??
             BUILT_IN_PRIMITIVE_REGISTRY_V2,
+          ...(options.v2InheritedPolicy === undefined
+            ? {}
+            : { inheritedPolicy: options.v2InheritedPolicy }),
         })
       : undefined;
   if (v2 !== undefined && !v2.ok) {
