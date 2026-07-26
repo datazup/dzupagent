@@ -103,6 +103,16 @@ export type {
   GovernedEffect,
   EffectAuthorizationResult,
 } from "./authority-classes.js";
+export {
+  G01_AUTHORITY_ENVELOPE_SCHEMA,
+  readAuthorityEnvelope,
+} from "./authority-envelope.js";
+export type {
+  AuthorityEnvelope,
+  AuthorityEnvelopeTarget,
+  AuthorityEnvelopeSigner,
+  AuthorityEnvelopeReadResult,
+} from "./authority-envelope.js";
 
 // --- Trust Scoring ---
 export { createTrustScorer, InMemoryTrustScoreStore } from "./trust-scorer.js";
