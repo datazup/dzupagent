@@ -2013,5 +2013,238 @@ describe("DelegatingSupervisor", () => {
         });
       });
     });
+
+    // ---------------------------------------------------------------------
+    // Propagation across the process boundary, into the event stream
+    // ---------------------------------------------------------------------
+    describe("propagation into the delegation:started event payload", () => {
+      /** Collect events from a bus dedicated to a single test. */
+      function makeBus(): { bus: DzupEventBus; seen: DzupEvent[] } {
+        const seen: DzupEvent[] = [];
+        const bus = createEventBus();
+        bus.onAny((e) => seen.push(e));
+        return { bus, seen };
+      }
+
+      function startedEvent(seen: DzupEvent[]) {
+        const started = seen.find((e) => e.type === "delegation:started");
+        expect(started).toBeDefined();
+        return started as Extract<DzupEvent, { type: "delegation:started" }>;
+      }
+
+      it("omits the hierarchy key entirely for a root supervisor", async () => {
+        const store = new InMemoryRunStore();
+        const { bus, seen } = makeBus();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            eventBus: bus,
+            executor: withStoreUpdate(store),
+          }),
+          eventBus: bus,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        // Absent, not `undefined` and not `{}` — a pre-hierarchy consumer must
+        // see a byte-identical payload.
+        expect("hierarchy" in startedEvent(seen)).toBe(false);
+      });
+
+      it("omits hierarchy when only parentContext is set (root supervisor)", async () => {
+        const store = new InMemoryRunStore();
+        const { bus, seen } = makeBus();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            eventBus: bus,
+            executor: withStoreUpdate(store),
+          }),
+          eventBus: bus,
+          parentContext: {
+            parentRunId: "delegation-parent-run",
+            decisions: [],
+            constraints: [],
+            relevantFiles: [],
+          },
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        const started = startedEvent(seen);
+        // The DELEGATION parent still populates the flat field...
+        expect(started.parentRunId).toBe("delegation-parent-run");
+        // ...but a root supervisor contributes no orchestrator hierarchy.
+        expect("hierarchy" in started).toBe(false);
+      });
+
+      it("carries the full hierarchy as a nested object", async () => {
+        const store = new InMemoryRunStore();
+        const { bus, seen } = makeBus();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            eventBus: bus,
+            executor: withStoreUpdate(store),
+          }),
+          eventBus: bus,
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 1,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        expect(startedEvent(seen).hierarchy).toEqual({
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 1,
+        });
+      });
+
+      it("keeps the two parentRunId concepts unconflated on the wire", async () => {
+        const store = new InMemoryRunStore();
+        const { bus, seen } = makeBus();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            eventBus: bus,
+            executor: withStoreUpdate(store),
+          }),
+          eventBus: bus,
+          parentContext: {
+            parentRunId: "delegation-parent-run",
+            decisions: [],
+            constraints: [],
+            relevantFiles: [],
+          },
+          parentRunId: "hierarchy-parent-run",
+          depth: 2,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        const started = startedEvent(seen);
+        // Flat field = DELEGATION parent. Nested field = ORCHESTRATOR parent.
+        // Nesting is what makes these unambiguous to an out-of-process reader.
+        expect(started.parentRunId).toBe("delegation-parent-run");
+        expect(started.hierarchy?.parentRunId).toBe("hierarchy-parent-run");
+      });
+
+      it("attributes the issuer's OWN depth, un-incremented", async () => {
+        const store = new InMemoryRunStore();
+        const { bus, seen } = makeBus();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            eventBus: bus,
+            executor: withStoreUpdate(store),
+          }),
+          eventBus: bus,
+          // Deepest depth a supervisor may legally be constructed at.
+          depth: MAX_ORCHESTRATION_DEPTH - 1,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        // A delegation targets a specialist leaf, not another orchestrator
+        // level, so the event carries the issuer's own depth un-incremented.
+        // Incrementing here would exceed MAX_ORCHESTRATION_DEPTH.
+        expect(startedEvent(seen).hierarchy?.depth).toBe(
+          MAX_ORCHESTRATION_DEPTH - 1
+        );
+      });
+
+      it("preserves an explicit depth: 0 as a deliberate signal", async () => {
+        const store = new InMemoryRunStore();
+        const { bus, seen } = makeBus();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            eventBus: bus,
+            executor: withStoreUpdate(store),
+          }),
+          eventBus: bus,
+          depth: 0,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        expect(startedEvent(seen).hierarchy).toEqual({ depth: 0 });
+      });
+
+      it("carries hierarchy on every task of a parallel batch", async () => {
+        const store = new InMemoryRunStore();
+        const { bus, seen } = makeBus();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([
+            ["agent-a", makeSpecialist("agent-a")],
+            ["agent-b", makeSpecialist("agent-b")],
+          ]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            eventBus: bus,
+            executor: withStoreUpdate(store),
+          }),
+          eventBus: bus,
+          parentRunId: "hierarchy-parent-run",
+          depth: 1,
+        });
+
+        await supervisor.delegateAndCollect([
+          { task: "Task A", specialistId: "agent-a", input: {} },
+          { task: "Task B", specialistId: "agent-b", input: {} },
+        ]);
+
+        const started = seen.filter((e) => e.type === "delegation:started");
+        expect(started).toHaveLength(2);
+        for (const e of started) {
+          expect(
+            (e as Extract<DzupEvent, { type: "delegation:started" }>).hierarchy
+          ).toEqual({ parentRunId: "hierarchy-parent-run", depth: 1 });
+        }
+      });
+
+      it("still emits hierarchy on started when the delegation later fails", async () => {
+        const store = new InMemoryRunStore();
+        const { bus, seen } = makeBus();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            eventBus: bus,
+            executor: failingForAgent(store, "agent-a"),
+          }),
+          eventBus: bus,
+          parentRunId: "hierarchy-parent-run",
+          depth: 1,
+        });
+
+        const result = await supervisor.delegateTask("Task A", "agent-a", {});
+        expect(result.success).toBe(false);
+
+        // The terminal event deliberately carries no hierarchy: it is
+        // correlatable to `started` via the shared delegationId, so duplicating
+        // an immutable tree position onto it would be redundancy.
+        const started = startedEvent(seen);
+        const failed = seen.find((e) => e.type === "delegation:failed");
+        expect(started.hierarchy).toEqual({
+          parentRunId: "hierarchy-parent-run",
+          depth: 1,
+        });
+        expect(failed).toBeDefined();
+        expect("hierarchy" in failed!).toBe(false);
+        expect(
+          (failed as Extract<DzupEvent, { type: "delegation:failed" }>)
+            .delegationId
+        ).toBe(started.delegationId);
+      });
+    });
   });
 });

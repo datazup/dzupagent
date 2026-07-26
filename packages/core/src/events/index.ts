@@ -3,6 +3,7 @@ export type { DzupEventBus } from "./event-bus.js";
 export type {
   AdapterProgressDzupEvent,
   AdapterRuntimeDzupEvent,
+  DelegationEventHierarchy,
   DzupEvent,
   DzupEventOf,
   BudgetUsage,

@@ -65,12 +65,23 @@ export async function startDelegation(
   };
   active.set(delegationId, entry);
 
-  // Emit started event
+  // Emit started event.
+  //
+  // `parentRunId` here is the DELEGATION parent (the run issuing this
+  // individual delegation). The orchestrator-hierarchy parent travels nested
+  // under `hierarchy` and can never be confused with it — see
+  // `DelegationHierarchy` in ./types.js for the disambiguation.
+  //
+  // Spread-when-present: a root supervisor issues no `hierarchy`, so the
+  // emitted payload stays byte-identical to a pre-hierarchy build and existing
+  // out-of-process consumers are unaffected. The depth carried is the ISSUER's
+  // own depth, passed through un-incremented.
   deps.eventBus?.emit({
     type: "delegation:started",
     parentRunId,
     targetAgentId: request.targetAgentId,
     delegationId,
+    ...(request.hierarchy ? { hierarchy: request.hierarchy } : {}),
   });
 
   return { run, entry };
