@@ -12,6 +12,7 @@ import {
 } from "../orchestration/delegation.js";
 import {
   DelegatingSupervisor,
+  MAX_ORCHESTRATION_DEPTH,
   type TaskAssignment,
 } from "../orchestration/delegating-supervisor.js";
 import type { AgentCircuitBreaker } from "../orchestration/circuit-breaker.js";
@@ -763,11 +764,7 @@ describe("DelegatingSupervisor", () => {
       });
 
       expect(result.succeeded).toContain("node-1");
-      expect(decomposeMock).toHaveBeenCalledWith(
-        "build the api",
-        mockLlm,
-        {}
-      );
+      expect(decomposeMock).toHaveBeenCalledWith("build the api", mockLlm, {});
 
       vi.mocked(PlanningAgent).mockClear();
       decomposeMock.mockClear();
@@ -1066,7 +1063,9 @@ describe("DelegatingSupervisor", () => {
         routingPolicy,
       });
 
-      const apiResult = await supervisor.planAndDelegate("build the api endpoint");
+      const apiResult = await supervisor.planAndDelegate(
+        "build the api endpoint"
+      );
 
       expect(apiResult.succeeded).toEqual(["api-agent"]);
       expect(apiResult.results.get("api-agent")?.output).toBe(
@@ -1074,7 +1073,9 @@ describe("DelegatingSupervisor", () => {
       );
       expect(apiResult.results.has("ui-agent")).toBe(false);
 
-      const uiResult = await supervisor.planAndDelegate("build the api endpoint");
+      const uiResult = await supervisor.planAndDelegate(
+        "build the api endpoint"
+      );
 
       expect(uiResult.succeeded).toEqual(["ui-agent"]);
       expect(uiResult.results.get("ui-agent")?.output).toBe(
@@ -1134,7 +1135,9 @@ describe("DelegatingSupervisor", () => {
 
       let thrown: unknown;
       try {
-        await emptyRouteSupervisor.planAndDelegate("do something unrelated xyz");
+        await emptyRouteSupervisor.planAndDelegate(
+          "do something unrelated xyz"
+        );
       } catch (err) {
         thrown = err;
       }
@@ -1630,6 +1633,117 @@ describe("DelegatingSupervisor", () => {
 
       expect(complete).toBeDefined();
       expect((complete as Record<string, unknown>).success).toBe(true);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Hierarchy / depth guard (ORCHESTRATION_V2)
+  // -----------------------------------------------------------------------
+  describe("hierarchy (ORCHESTRATION_V2)", () => {
+    /** Minimal config shared by the hierarchy tests. */
+    function baseConfig() {
+      return {
+        specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+        tracker: makeTrackerReturning({ success: true, output: "ok" }),
+      };
+    }
+
+    it("defaults depth to 0 when unset", () => {
+      const supervisor = new DelegatingSupervisor(baseConfig());
+
+      expect(supervisor.hierarchy.depth).toBe(0);
+    });
+
+    it("leaves parentRunId and branchId undefined when unset", () => {
+      const supervisor = new DelegatingSupervisor(baseConfig());
+
+      expect(supervisor.hierarchy.parentRunId).toBeUndefined();
+      expect(supervisor.hierarchy.branchId).toBeUndefined();
+    });
+
+    it("round-trips parentRunId, branchId and depth from config", () => {
+      const supervisor = new DelegatingSupervisor({
+        ...baseConfig(),
+        parentRunId: "run-parent-1",
+        branchId: "branch-left",
+        depth: 2,
+      });
+
+      expect(supervisor.hierarchy).toEqual({
+        parentRunId: "run-parent-1",
+        branchId: "branch-left",
+        depth: 2,
+      });
+    });
+
+    it("does not conflate hierarchy parentRunId with DelegationContext.parentRunId", () => {
+      const supervisor = new DelegatingSupervisor({
+        ...baseConfig(),
+        parentContext: {
+          parentRunId: "delegation-parent-run",
+          decisions: [],
+          constraints: [],
+          relevantFiles: [],
+        },
+        parentRunId: "hierarchy-parent-run",
+      });
+
+      // The orchestrator-hierarchy parent is a different concept from the
+      // per-delegation parent run carried on DelegationContext.
+      expect(supervisor.hierarchy.parentRunId).toBe("hierarchy-parent-run");
+    });
+
+    it("constructs successfully just below MAX_ORCHESTRATION_DEPTH", () => {
+      const supervisor = new DelegatingSupervisor({
+        ...baseConfig(),
+        depth: MAX_ORCHESTRATION_DEPTH - 1,
+      });
+
+      expect(supervisor.hierarchy.depth).toBe(MAX_ORCHESTRATION_DEPTH - 1);
+    });
+
+    it("throws when constructed at MAX_ORCHESTRATION_DEPTH", () => {
+      expect(
+        () =>
+          new DelegatingSupervisor({
+            ...baseConfig(),
+            depth: MAX_ORCHESTRATION_DEPTH,
+          })
+      ).toThrow(
+        `Orchestration depth limit reached: depth=${MAX_ORCHESTRATION_DEPTH} >= max=${MAX_ORCHESTRATION_DEPTH}.`
+      );
+    });
+
+    it("throws when constructed beyond MAX_ORCHESTRATION_DEPTH", () => {
+      expect(
+        () =>
+          new DelegatingSupervisor({
+            ...baseConfig(),
+            depth: MAX_ORCHESTRATION_DEPTH + 5,
+          })
+      ).toThrow(/Orchestration depth limit reached/);
+    });
+
+    it("is inert for ordinary root-level use: depth unset still delegates", async () => {
+      const supervisor = new DelegatingSupervisor(baseConfig());
+
+      const result = await supervisor.delegateTask("Task A", "agent-a", {});
+
+      expect(result.success).toBe(true);
+      expect(supervisor.hierarchy.depth).toBe(0);
+    });
+
+    it("a sub-orchestrator below the limit still delegates normally", async () => {
+      const supervisor = new DelegatingSupervisor({
+        ...baseConfig(),
+        parentRunId: "run-parent-1",
+        branchId: "branch-right",
+        depth: MAX_ORCHESTRATION_DEPTH - 1,
+      });
+
+      const result = await supervisor.delegateTask("Task A", "agent-a", {});
+
+      expect(result.success).toBe(true);
     });
   });
 });

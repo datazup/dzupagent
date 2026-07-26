@@ -320,6 +320,69 @@ export class ContractNetManager {
   }
 
   /**
+   * Enforce the CFP's `maxCostCents` ceiling on the collected bids.
+   *
+   * Returns the bids eligible for ranking. When `cfp.maxCostCents` is unset
+   * this returns `state.bids` unchanged (identical behaviour to before the
+   * ceiling existed — no filtering, no events, same array contents).
+   *
+   * A bid is eligible when `estimatedCostCents <= maxCostCents`. The
+   * comparison is inclusive, so a bid landing exactly on the budget is
+   * affordable and stays in the running.
+   *
+   * `estimatedCostCents` is a required field, but {@link parseBid} coerces a
+   * malformed value (e.g. `"cheap"`) to `NaN`. A `NaN` cost fails the `<=`
+   * comparison and is therefore ineligible under a budget — an unpriced bid
+   * cannot be proven affordable, so it must not be awarded a budgeted
+   * contract. (An *omitted* cost coerces to `0`, which is genuinely within
+   * any non-negative budget and stays eligible.)
+   *
+   * Throws {@link OrchestrationError} when a budget is set and no bid fits.
+   */
+  private static filterBidsByBudget(
+    state: ContractNetState,
+    eventBus: DzupEventBus | undefined
+  ): ContractBid[] {
+    const { cfpId, maxCostCents } = state.cfp;
+    if (maxCostCents == null) return state.bids;
+
+    const eligible = state.bids.filter(
+      (bid) => bid.estimatedCostCents <= maxCostCents
+    );
+    if (eligible.length > 0) return eligible;
+
+    // Every bid blew the budget: fail rather than award an unaffordable
+    // contract. Name the closest miss so the caller can see how far off the
+    // field was and raise the budget deliberately.
+    const cheapest = ContractNetManager.cheapestCost(state.bids);
+    const reason =
+      cheapest == null
+        ? `No bid within budget of ${maxCostCents} cents`
+        : `No bid within budget: cheapest bid is ${cheapest} cents, budget is ${maxCostCents} cents`;
+
+    state.phase = "failed";
+    emitContractEvent(eventBus, {
+      type: "contractnet:failed",
+      cfpId,
+      phase: "bidding",
+      reason,
+    });
+    throw new OrchestrationError(reason, "contract-net", { cfpId });
+  }
+
+  /**
+   * Lowest `estimatedCostCents` across `bids`, or `null` when there are no
+   * bids or every cost is non-finite (`NaN`), which `Math.min` would otherwise
+   * report as `NaN`.
+   */
+  private static cheapestCost(bids: ContractBid[]): number | null {
+    const costs = bids
+      .map((bid) => bid.estimatedCostCents)
+      .filter((cost) => Number.isFinite(cost));
+    return costs.length > 0 ? Math.min(...costs) : null;
+  }
+
+  /**
    * Phases 3–4: evaluate/rank the collected bids, award to the top bid, and
    * resolve the winning specialist agent. Mutates `state` and throws
    * {@link OrchestrationError} when no winner can be determined.
@@ -332,9 +395,13 @@ export class ContractNetManager {
     const strategy = config.strategy ?? createWeightedStrategy({});
     const cfpId = state.cfp.cfpId;
 
-    // Phase 3: Evaluate
+    // Phase 3: Evaluate. `maxCostCents` is a HARD ceiling, not a hint: bids
+    // above it are removed before ranking so an over-budget specialist can
+    // never be awarded (and therefore never spends). When no budget is
+    // configured this is a pass-through and ranking is unchanged.
     state.phase = "evaluating";
-    const rankedBids = strategy.evaluate(state.bids);
+    const eligibleBids = ContractNetManager.filterBidsByBudget(state, eventBus);
+    const rankedBids = strategy.evaluate(eligibleBids);
     const winningBid = rankedBids[0];
 
     if (!winningBid) {

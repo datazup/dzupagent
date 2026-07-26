@@ -332,3 +332,275 @@ describe("ContractNetManager gap paths", () => {
     expect(result.cfpId).toMatch(/^cfp_/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// maxCostCents is an ENFORCED ceiling, not a hint
+// ---------------------------------------------------------------------------
+
+/** Collect every event emitted onto a stub bus. */
+function makeRecordingBus(): {
+  bus: never;
+  emitted: Array<Record<string, unknown>>;
+} {
+  const emitted: Array<Record<string, unknown>> = [];
+  const bus = {
+    emit: vi.fn((event: Record<string, unknown>) => {
+      emitted.push(event);
+    }),
+    on: vi.fn(() => () => {}),
+    once: vi.fn(() => () => {}),
+    onAny: vi.fn(() => () => {}),
+  };
+  return { bus: bus as never, emitted };
+}
+
+describe("ContractNetManager maxCostCents enforcement", () => {
+  it("no budget set: every bid stays eligible and the strategy winner is unchanged", async () => {
+    // Regression guard — without maxCostCents the filter must be a pure
+    // pass-through, so the wildly expensive bid can still win on quality.
+    const pricey = makeAgent(
+      "pricey",
+      makeModel([
+        bidJson({ estimatedCostCents: 100_000, qualityEstimate: 0.99 }),
+        "pricey ran",
+      ])
+    );
+    const cheap = makeAgent(
+      "cheap",
+      makeModel([
+        bidJson({ estimatedCostCents: 1, qualityEstimate: 0.1 }),
+        "cheap ran",
+      ])
+    );
+
+    const result = await ContractNetManager.execute({
+      specialists: [pricey, cheap],
+      task: "no budget",
+      strategy: highestQualityStrategy,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.agentId).toBe("pricey");
+    expect(result.result).toBe("pricey ran");
+  });
+
+  it("over-budget bid cannot win even when it would otherwise rank first", async () => {
+    // highestQualityStrategy would pick `lavish` (0.99) outright, but it bids
+    // 900 against a 100-cent ceiling, so only `frugal` remains eligible.
+    const lavish = makeAgent(
+      "lavish",
+      makeModel([
+        bidJson({ estimatedCostCents: 900, qualityEstimate: 0.99 }),
+        "lavish ran",
+      ])
+    );
+    const frugal = makeAgent(
+      "frugal",
+      makeModel([
+        bidJson({ estimatedCostCents: 40, qualityEstimate: 0.2 }),
+        "frugal ran",
+      ])
+    );
+
+    const result = await ContractNetManager.execute({
+      specialists: [lavish, frugal],
+      task: "budget capped",
+      strategy: highestQualityStrategy,
+      maxCostCents: 100,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.agentId).toBe("frugal");
+    expect(result.result).toBe("frugal ran");
+  });
+
+  it("a bid exactly at the budget is eligible (inclusive bound)", async () => {
+    const exact = makeAgent(
+      "exact",
+      makeModel([bidJson({ estimatedCostCents: 250 }), "exact ran"])
+    );
+
+    const result = await ContractNetManager.execute({
+      specialists: [exact],
+      task: "boundary",
+      maxCostCents: 250,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.agentId).toBe("exact");
+    expect(result.result).toBe("exact ran");
+  });
+
+  it("all bids over budget: throws OrchestrationError naming cheapest cost and budget", async () => {
+    const a = makeAgent("a", makeModel([bidJson({ estimatedCostCents: 700 })]));
+    const b = makeAgent("b", makeModel([bidJson({ estimatedCostCents: 420 })]));
+
+    try {
+      await ContractNetManager.execute({
+        specialists: [a, b],
+        task: "unaffordable",
+        maxCostCents: 100,
+      });
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(OrchestrationError);
+      const oe = err as OrchestrationError;
+      expect(oe.pattern).toBe("contract-net");
+      // Names the closest miss (420, not 700) and the ceiling.
+      expect(oe.message).toContain("420");
+      expect(oe.message).toContain("100");
+      expect((oe.context as Record<string, unknown>)["cfpId"]).toMatch(/^cfp_/);
+    }
+  });
+
+  it("all bids over budget: never executes the over-budget specialist", async () => {
+    // The whole point of the ceiling — an unaffordable winner must not spend.
+    const model = makeModel([bidJson({ estimatedCostCents: 5000 }), "SPENT"]);
+    const spec = makeAgent("spendy", model);
+
+    await expect(
+      ContractNetManager.execute({
+        specialists: [spec],
+        task: "must not spend",
+        maxCostCents: 10,
+      })
+    ).rejects.toThrow(OrchestrationError);
+
+    // Exactly one invoke: the bid. The execution call never happened.
+    expect(model.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("all bids over budget: emits contractnet:failed with the budget reason and no award", async () => {
+    const { bus, emitted } = makeRecordingBus();
+    const spec = makeAgent(
+      "spec",
+      makeModel([bidJson({ estimatedCostCents: 800 })])
+    );
+
+    await expect(
+      ContractNetManager.execute({
+        specialists: [spec],
+        task: "budget event",
+        maxCostCents: 50,
+        eventBus: bus,
+      })
+    ).rejects.toThrow(OrchestrationError);
+
+    const types = emitted.map((e) => e["type"]);
+    expect(types).toContain("contractnet:bid_received");
+    // No contract was awarded, so no award/completion event.
+    expect(types).not.toContain("contractnet:awarded");
+    expect(types).not.toContain("contractnet:completed");
+
+    const failure = emitted.find((e) => e["type"] === "contractnet:failed");
+    expect(failure).toBeDefined();
+    expect(failure!["phase"]).toBe("bidding");
+    expect(String(failure!["reason"])).toContain("800");
+    expect(String(failure!["reason"])).toContain("50");
+    expect(failure!["cfpId"]).toMatch(/^cfp_/);
+  });
+
+  it("cost-less bid (omitted field coerces to 0) is eligible under a budget", async () => {
+    // parseBid coerces a missing estimatedCostCents to 0, which is genuinely
+    // within any non-negative budget — so it stays in the running.
+    const model = makeModel([
+      JSON.stringify({
+        estimatedDurationMs: 1000,
+        qualityEstimate: 0.8,
+        confidence: 0.9,
+        approach: "unpriced",
+      }),
+      "free ran",
+    ]);
+    const spec = makeAgent("free", model);
+
+    const result = await ContractNetManager.execute({
+      specialists: [spec],
+      task: "omitted cost",
+      maxCostCents: 100,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.agentId).toBe("free");
+  });
+
+  it("unpriced bid (non-numeric cost coerces to NaN) is INELIGIBLE under a budget", async () => {
+    // A NaN cost cannot be proven within budget, so it must not be awarded.
+    const model = makeModel([
+      JSON.stringify({
+        estimatedCostCents: "cheap, trust me",
+        estimatedDurationMs: 1000,
+        qualityEstimate: 0.9,
+        confidence: 0.9,
+        approach: "vibes",
+      }),
+      "SPENT",
+    ]);
+    const spec = makeAgent("vague", model);
+
+    try {
+      await ContractNetManager.execute({
+        specialists: [spec],
+        task: "nan cost",
+        maxCostCents: 100,
+      });
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(OrchestrationError);
+      // No finite cost to name, so the message reports the budget alone.
+      expect((err as OrchestrationError).message).toContain(
+        "No bid within budget of 100 cents"
+      );
+    }
+    expect(model.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("unpriced bid is still eligible when NO budget is set", async () => {
+    // Without a ceiling there is nothing to prove, so a NaN cost is harmless.
+    const spec = makeAgent(
+      "vague",
+      makeModel([
+        JSON.stringify({
+          estimatedCostCents: "who knows",
+          estimatedDurationMs: 1000,
+          qualityEstimate: 0.9,
+          confidence: 0.9,
+          approach: "vibes",
+        }),
+        "vague ran",
+      ])
+    );
+
+    const result = await ContractNetManager.execute({
+      specialists: [spec],
+      task: "nan cost, no budget",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.result).toBe("vague ran");
+  });
+
+  it("budget set but all bids affordable: emits no failure and awards normally", async () => {
+    const { bus, emitted } = makeRecordingBus();
+    const a = makeAgent(
+      "a",
+      makeModel([bidJson({ estimatedCostCents: 10 }), "a ran"])
+    );
+    const b = makeAgent(
+      "b",
+      makeModel([bidJson({ estimatedCostCents: 20 }), "b ran"])
+    );
+
+    const result = await ContractNetManager.execute({
+      specialists: [a, b],
+      task: "all affordable",
+      strategy: lowestCostStrategy,
+      maxCostCents: 1000,
+      eventBus: bus,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.agentId).toBe("a");
+    expect(emitted.map((e) => e["type"])).not.toContain("contractnet:failed");
+  });
+});
