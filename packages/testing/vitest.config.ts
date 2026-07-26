@@ -2,10 +2,14 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    unstubEnvs: true,
+    unstubGlobals: true,
     globals: false,
     environment: "node",
-    testTimeout: 300_000,
-    hookTimeout: 120_000,
+    // DZUPAGENT-TEST-L-08: was 300_000/120_000, masking hangs for minutes.
+    // Slow tests must opt in explicitly via `it('...', fn, { timeout: N })`.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     // TEST-M-09: vmThreads multi-thread (fast lane), measured — the previously
     // asserted singleThread rationale (arch scan ~58s / onTaskUpdate RPC timeout)
     // did NOT reproduce; parallel vmThreads is substantially faster with

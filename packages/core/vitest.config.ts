@@ -33,6 +33,8 @@ const HEAVY_TESTS = [
 
 export default defineConfig({
   test: {
+    unstubEnvs: true,
+    unstubGlobals: true,
     globals: false,
     environment: "node",
     hookTimeout: 60_000,
