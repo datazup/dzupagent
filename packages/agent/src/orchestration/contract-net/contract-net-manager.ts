@@ -10,7 +10,8 @@
  */
 import { HumanMessage } from "@langchain/core/messages";
 import type { DzupAgent } from "../../agent/dzip-agent.js";
-import type { DzupEventBus } from "@dzupagent/core/events";
+import type { DzupEvent, DzupEventBus } from "@dzupagent/core/events";
+import { typedEmit } from "@dzupagent/core/events";
 import { OrchestrationError } from "../orchestration-error.js";
 import { createWeightedStrategy } from "./bid-strategies.js";
 import type {
@@ -31,28 +32,20 @@ function generateCfpId(): string {
   return `cfp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** Emit a custom contract-net event via the event bus (fire-and-forget). */
+/**
+ * Emit a typed `contractnet:*` lifecycle event via the event bus
+ * (fire-and-forget; a missing bus is a no-op).
+ *
+ * These discriminated-union events (see `OrchestrationDomainEvent` in
+ * @dzupagent/core) replace the earlier `protocol:message_sent` conflation
+ * (DZUPAGENT-AGENT-INFO-02) so otel/metrics observe contract-net phases
+ * directly instead of decoding an opaque `messageType` string.
+ */
 function emitContractEvent(
   eventBus: DzupEventBus | undefined,
-  type: string,
-  payload: Record<string, unknown>
+  event: Extract<DzupEvent, { type: `contractnet:${string}` }>
 ): void {
-  if (!eventBus) return;
-  // TODO(DZUPAGENT-AGENT-INFO-02): When a domain-specific `contractnet:*` event type
-  // is added to DzupEvent (e.g. `contractnet:cfp_broadcast`, `contractnet:awarded`,
-  // `contractnet:rejected`), replace this `protocol:message_sent` emit with the
-  // appropriate typed event. The generic protocol event works for now but conflates
-  // contract-net lifecycle events with unrelated protocol traffic seen by otel/metrics.
-  // Use onAny-compatible custom events by casting to DzupEvent.
-  // The task spec says NOT to modify core DzupEvent types, so we
-  // emit via the protocol event type which accepts arbitrary string data.
-  eventBus.emit({
-    type: "protocol:message_sent",
-    protocol: "contract-net",
-    to: "broadcast",
-    messageType: type,
-    payload,
-  });
+  typedEmit(eventBus, event);
 }
 
 /**
@@ -264,7 +257,7 @@ export class ContractNetManager {
     const cfpId = cfp.cfpId;
 
     // Phase 1: Announce
-    emitContractEvent(eventBus, "contract-net:cfp_announced", { cfpId, task });
+    emitContractEvent(eventBus, { type: "contractnet:announced", cfpId, task });
 
     // Phase 2: Collect bids
     state.phase = "bidding";
@@ -275,8 +268,10 @@ export class ContractNetManager {
 
     if (!retryOnNoBids) {
       state.phase = "failed";
-      emitContractEvent(eventBus, "contract-net:failed", {
+      emitContractEvent(eventBus, {
+        type: "contractnet:failed",
         cfpId,
+        phase: "bidding",
         reason: "No bids received",
       });
       throw new OrchestrationError("No bids received", "contract-net", {
@@ -294,8 +289,10 @@ export class ContractNetManager {
 
     if (retryBids.length === 0) {
       state.phase = "failed";
-      emitContractEvent(eventBus, "contract-net:failed", {
+      emitContractEvent(eventBus, {
+        type: "contractnet:failed",
         cfpId,
+        phase: "bidding",
         reason: "No bids received after retry",
       });
       throw new OrchestrationError(
@@ -314,7 +311,8 @@ export class ContractNetManager {
   ): void {
     for (const bid of bids) {
       state.bids.push(bid);
-      emitContractEvent(eventBus, "contract-net:bid_received", {
+      emitContractEvent(eventBus, {
+        type: "contractnet:bid_received",
         cfpId: state.cfp.cfpId,
         agentId: bid.agentId,
       });
@@ -355,7 +353,8 @@ export class ContractNetManager {
       winnerId: winningBid.agentId,
       bid: winningBid,
     };
-    emitContractEvent(eventBus, "contract-net:awarded", {
+    emitContractEvent(eventBus, {
+      type: "contractnet:awarded",
       cfpId,
       winnerId: winningBid.agentId,
     });
@@ -414,7 +413,8 @@ export class ContractNetManager {
       };
       state.result = contractResult;
 
-      emitContractEvent(eventBus, "contract-net:completed", {
+      emitContractEvent(eventBus, {
+        type: "contractnet:completed",
         cfpId,
         agentId: winningBid.agentId,
         durationMs,
@@ -435,8 +435,10 @@ export class ContractNetManager {
       };
       state.result = contractResult;
 
-      emitContractEvent(eventBus, "contract-net:failed", {
+      emitContractEvent(eventBus, {
+        type: "contractnet:failed",
         cfpId,
+        phase: "executing",
         agentId: winningBid.agentId,
         error: errorMessage,
       });

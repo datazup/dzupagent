@@ -80,15 +80,12 @@ describe("ContractNetManager recordBids seam (CODE-M-11)", () => {
     expect(result.agentId).toBe("b");
 
     const bidReceived = events.filter(
-      (e) =>
-        e.type === "protocol:message_sent" &&
-        (e as { messageType?: string }).messageType ===
-          "contract-net:bid_received"
+      (e) => e.type === "contractnet:bid_received"
     );
     expect(bidReceived).toHaveLength(3);
 
     const bidderIds = bidReceived
-      .map((e) => (e as { payload: { agentId: string } }).payload.agentId)
+      .map((e) => (e as { agentId: string }).agentId)
       .sort();
     expect(bidderIds).toEqual(["a", "b", "c"]);
   });

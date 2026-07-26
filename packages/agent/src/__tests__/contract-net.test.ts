@@ -340,13 +340,13 @@ describe('ContractNetManager.execute', () => {
       eventBus: eventBus as never,
     })
 
-    // Should have emitted: cfp_announced, bid_received, awarded, completed
+    // Should have emitted: announced, bid_received, awarded, completed
     expect(eventBus.emit).toHaveBeenCalled()
-    const messageTypes = emitted.map(e => (e as Record<string, unknown>)['messageType'])
-    expect(messageTypes).toContain('contract-net:cfp_announced')
-    expect(messageTypes).toContain('contract-net:bid_received')
-    expect(messageTypes).toContain('contract-net:awarded')
-    expect(messageTypes).toContain('contract-net:completed')
+    const eventTypes = emitted.map(e => e.type)
+    expect(eventTypes).toContain('contractnet:announced')
+    expect(eventTypes).toContain('contractnet:bid_received')
+    expect(eventTypes).toContain('contractnet:awarded')
+    expect(eventTypes).toContain('contractnet:completed')
   })
 
   it('returns failed result when execution throws', async () => {

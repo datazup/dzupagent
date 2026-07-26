@@ -263,6 +263,51 @@ export type OrchestrationDomainEvent =
       targetAgentId: string;
       delegationId: string;
     }
+  // --- Contract-Net Protocol ---
+  // Typed lifecycle events for the contract-net negotiation protocol
+  // (Call-For-Proposals → bidding → award → execution). Emitted by
+  // `ContractNetManager` in @dzupagent/agent. These replace the earlier
+  // `protocol:message_sent` conflation (see DZUPAGENT-AGENT-INFO-02) so
+  // otel/metrics can observe contract-net phases without decoding an opaque
+  // `messageType` string. `cfpId` correlates every event of one negotiation.
+  | {
+      /** Phase 1: a Call-For-Proposals was broadcast to the specialists. */
+      type: "contractnet:announced";
+      cfpId: string;
+      task: string;
+    }
+  | {
+      /** Phase 2: a single specialist's bid was parsed and recorded. */
+      type: "contractnet:bid_received";
+      cfpId: string;
+      agentId: string;
+    }
+  | {
+      /** Phase 4: the contract was awarded to the winning bidder. */
+      type: "contractnet:awarded";
+      cfpId: string;
+      winnerId: string;
+    }
+  | {
+      /** Phase 5: the winning specialist finished the task successfully. */
+      type: "contractnet:completed";
+      cfpId: string;
+      agentId: string;
+      durationMs: number;
+    }
+  | {
+      /**
+       * The negotiation failed. `phase` distinguishes a bidding-stage failure
+       * (no bids received, even after retry — `reason` set, no `agentId`) from
+       * an execution-stage failure (winner threw — `agentId` + `error` set).
+       */
+      type: "contractnet:failed";
+      cfpId: string;
+      phase: "bidding" | "executing";
+      agentId?: string;
+      reason?: string;
+      error?: string;
+    }
   // --- Supervisor ---
   | { type: "supervisor:delegating"; specialistId: string; task: string }
   | {
