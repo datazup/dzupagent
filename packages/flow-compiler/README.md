@@ -181,29 +181,44 @@ continues another workflow, deploys, promotes, or activates a target; it is
 execution-contract evidence, not a production runtime.
 
 `runV2InactiveLocalHost` publishes the separate inactive identity
-`dzupagent.local-v2-multi-step-host@1`. The current bounded host executes two
-or more top-level guarded primitive steps only after the complete five-contract
-qualification. Every hosted step owns exact policy, retry, terminal-catch, and
-multi-port-save contracts and binds both the primitive semantic hash and a
-separate caller-supplied local handler id/hash. Handler bindings must declare
-provider-free mode, no effects, and safe replay; invocations receive deeply
-frozen input/state snapshots and no provider authority.
+`dzupagent.local-v2-multi-step-host@1`. The bounded host executes exact
+`core.set@1`, typed `core.branch@1`, registered primitive, and
+`core.complete@1` plans only after complete five-contract qualification.
+Typed conditions are structurally qualified and then evaluated at their step
+boundary against the last committed state and prior step outputs. Strict
+`inputs`, `state`, and `steps` templates are resolved into bounded JSON before
+local invocation. Every hosted primitive still owns exact policy, retry,
+terminal-catch, and multi-port-save contracts and binds both the primitive
+semantic hash and a caller-supplied local handler id/hash. Handler bindings
+must declare provider-free mode, no effects, and safe replay; invocations
+receive deeply frozen input/state snapshots and no provider authority.
+Each executed step receipt also retains the SHA-256 identity of its fully
+resolved input so restart validation can detect resolution drift.
 
 Every processed step is committed through a caller-supplied CAS-shaped
 checkpoint store before the next handler runs. Checkpoints bind the exact run,
 source, qualification, plan, handler identities, revision, prior checkpoint,
-state, and step receipts. The included in-memory reference store proves
-process-local claim/commit/release, concurrent-owner rejection, suspension,
-restart without replay, terminal result reuse, and stale handler/checkpoint
-rejection. Store exceptions and failed release operations return structured
-fail-closed errors.
+state, step outputs, branch decisions, completion result, and step receipts.
+Branch decisions are recorded once and inactive descendants receive explicit
+skip receipts, so restart cursors cannot silently enter the other branch.
+Restore revalidates receipt hashes, state chains, output projections, branch
+projections, and completion evidence. The included in-memory reference store
+proves process-local claim/commit/release, concurrent-owner rejection,
+suspension, restart without replay, terminal result reuse, and stale
+handler/checkpoint rejection. The separate filesystem reference store qualifies
+durable multi-process custody through private mode-`0600` digest-bound records,
+atomic rename plus directory sync, expiring exclusive leases, monotonic fencing
+before every checkpoint CAS, idempotent latest-lease release, stale-lock crash
+recovery, fresh-instance terminal restoration, stale-owner rejection, and
+eight-process contention. Its capability evidence is provider-free and grants
+no product-runtime or production activation authority. Store exceptions and
+failed release operations return structured fail-closed errors.
 
 This host grants checkpoint-store mutation only. It grants no provider
 dispatch, workflow-external state mutation, external continuation, deployment,
-promotion, or activation authority. `core.set`, dynamic typed branch
-re-evaluation, nested kernel composition, resolved state/step inputs, and a
-durable multi-process checkpoint-store adapter remain outside this bounded
-packet rather than being inferred from primitive sequencing.
+promotion, or activation authority. Parallel scheduling, loops, approval,
+subflows, provider effects, backend-specific production storage qualification,
+and production activation remain outside this bounded packet.
 
 ## Compiled classification envelope
 

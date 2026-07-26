@@ -321,13 +321,25 @@ multi-port save contract likewise stops with
 The bounded frontend still fails closed on nested or non-state save targets;
 unknown kernel versions;
 unregistered primitives; conflicting versions from one namespace; and
-unimplemented top-level profile/schema/fragment/connector/role/flow locks,
+unregistered top-level profile/schema/fragment/connector/role/flow locks,
 outputs, state, and return surfaces.
 This is a compatibility frontend, not a new runtime. Richer kernel constructs,
-typed-condition target adoption, exact generated-field edits, source pre/post
-hash attestation, and broader import catalogs remain separate work. The
-existing canonical v1 formatter preserves the typed-condition sidecar and its
-quoted fail-closed shadow across parse-format-parse round trips.
+typed-condition target adoption, exact generated-field edits, and source
+pre/post hash attestation remain separate work. The existing canonical v1
+formatter preserves the typed-condition sidecar and its quoted fail-closed
+shadow across parse-format-parse round trips.
+
+Beyond `imports.primitives`, V2 authoring accepts exact content-addressed
+`profiles`, `schemas`, `fragments`, `connectors`, `roles`, and `flows`
+catalogs when the caller supplies matching `v2ImportCatalogs` (or
+`importCatalogs` on the authoring subpath). References remain
+catalog-specific opaque strings rather than inventing one universal URI
+scheme. Every entry requires an exact lowercase SHA-256 identity, rejects
+duplicates, unknown refs, hash drift, extra fields, and implicit latest
+selection, and is projected with the effective primitive imports into one
+sorted `dzupagent.dslV2ResolvedImportLock/v1`. The frontend and authoring
+result expose its digest; this is content custody only and does not resolve or
+execute the imported resources.
 
 ## Authored V2 formatting and report-only V1 migration
 
@@ -341,9 +353,10 @@ quoted fail-closed shadow across parse-format-parse round trips.
 
 Formatting covers the complete currently qualified V2 envelope, including
 typed conditions, policy narrowing, retry, terminal catch, multi-port save,
-evidence, annotations, and explicit primitive import locks. Comments are
-intentionally not preserved. Non-JSON values, cycles, unknown fields, and
-unsupported envelope shapes produce diagnostics instead of being dropped.
+evidence, annotations, explicit primitive imports, and caller-qualified
+broader content-addressed locks. Comments are intentionally not preserved.
+Non-JSON values, cycles, unknown fields, and unsupported envelope shapes
+produce diagnostics instead of being dropped.
 
 The V1 preview classifies each node as `equivalent`, `lossy`, or `unsupported`.
 It emits a candidate only when the supported set/branch/primitive/complete
