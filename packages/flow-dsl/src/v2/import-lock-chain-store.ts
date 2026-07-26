@@ -1,5 +1,6 @@
 import {
   createV2ImportLockChainEntry,
+  verifyV2ImportLockChain,
   type DslV2ImportLockChainEntry,
 } from "./import-lock-chain.js";
 import type { DslV2ResolvedImportLock } from "./types.js";
@@ -81,6 +82,138 @@ export class InMemoryV2ImportLockChainStore implements V2ImportLockChainStore {
     // Mutate only after every check has passed, so a refused append leaves
     // the retained chain exactly as it was.
     this.chains.set(flowId, [...chain, entry]);
+  }
+}
+
+/**
+ * Raw persistence for {@link DurableV2ImportLockChainStore}.
+ *
+ * Deliberately the narrowest surface that can back a chain: opaque strings in,
+ * opaque strings out, keyed by flow id. `flow-dsl` has no filesystem, path, or
+ * OS imports anywhere in its source and stays that way — a package that reads
+ * files cannot run everywhere the DSL is lowered. Keeping the I/O behind this
+ * interface leaves the *integrity* rules here, in the one place that already
+ * owns them, while the *storage* lives wherever the caller needs it: a file, a
+ * database row, an object store, a git note.
+ *
+ * Implementations only need last-write-wins semantics per flow id. They are
+ * not asked to validate anything; the store refuses bad data on the way in and
+ * re-checks it on the way out.
+ */
+export interface V2ImportLockChainBackend {
+  /** The stored document for a flow, or `undefined` if it has none yet. */
+  read(flowId: string): Promise<string | undefined>;
+
+  /** Replace the stored document for a flow. */
+  write(flowId: string, serialized: string): Promise<void>;
+}
+
+/** Envelope written by {@link DurableV2ImportLockChainStore}. */
+interface PersistedChainDocument {
+  readonly schema: typeof PERSISTED_CHAIN_SCHEMA;
+  readonly flowId: string;
+  readonly entries: readonly DslV2ImportLockChainEntry[];
+}
+
+const PERSISTED_CHAIN_SCHEMA = "dzupagent.dslV2ImportLockChainDocument/v1";
+
+/**
+ * A {@link V2ImportLockChainStore} whose lineage outlives the process.
+ *
+ * The in-memory store is enough for a single run, but a chain that starts at
+ * revision 0 on every process start records no lineage at all — which is the
+ * gap this closes (ADR-0001 C2 / L1, open question 4).
+ *
+ * Crossing a process boundary changes the threat model, and that drives the
+ * two ways this differs from the in-memory store:
+ *
+ *  - **Reads are verified, not trusted.** In memory, the only way to reach the
+ *    retained chain is through `append`, so anything present was already
+ *    checked. Persisted bytes can be edited between runs by a text editor, a
+ *    bad merge, or an attacker, so `read`/`head` re-run
+ *    `verifyV2ImportLockChain` and refuse a chain that no longer verifies
+ *    rather than handing back history that only looks valid.
+ *  - **The head is re-read per call.** Nothing is cached across operations,
+ *    because another process may have appended in between; a cached head would
+ *    silently authorize a fork.
+ */
+export class DurableV2ImportLockChainStore implements V2ImportLockChainStore {
+  constructor(private readonly backend: V2ImportLockChainBackend) {}
+
+  async read(flowId: string): Promise<readonly DslV2ImportLockChainEntry[]> {
+    return Object.freeze(await this.load(flowId));
+  }
+
+  async head(flowId: string): Promise<DslV2ImportLockChainEntry | undefined> {
+    const chain = await this.load(flowId);
+    return chain[chain.length - 1];
+  }
+
+  async append(
+    flowId: string,
+    entry: DslV2ImportLockChainEntry
+  ): Promise<void> {
+    const chain = await this.load(flowId);
+    const head = chain[chain.length - 1];
+
+    // A replayed head must not write. Beyond saving a round-trip, rewriting
+    // identical bytes on every lowering would churn the backend (and any
+    // mtime/version/audit trail hanging off it) for a run that changed nothing.
+    if (isReplayOfHead(entry, head)) return;
+
+    assertExtendsHead(flowId, entry, head);
+
+    const document: PersistedChainDocument = {
+      schema: PERSISTED_CHAIN_SCHEMA,
+      flowId,
+      entries: [...chain, entry],
+    };
+    await this.backend.write(flowId, JSON.stringify(document, null, 2));
+  }
+
+  /** Parse and re-verify the stored chain; empty for an unknown flow. */
+  private async load(flowId: string): Promise<DslV2ImportLockChainEntry[]> {
+    const serialized = await this.backend.read(flowId);
+    if (serialized === undefined) return [];
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(serialized);
+    } catch (cause) {
+      throw new Error(
+        `import-lock chain for '${flowId}' is not readable: the stored document is not ` +
+          `valid JSON, so its integrity cannot be established`,
+        { cause }
+      );
+    }
+
+    const document = parsed as Partial<PersistedChainDocument>;
+    if (document?.schema !== PERSISTED_CHAIN_SCHEMA) {
+      throw new Error(
+        `import-lock chain for '${flowId}' has an unsupported document schema ` +
+          `'${String(document?.schema)}'; expected '${PERSISTED_CHAIN_SCHEMA}'`
+      );
+    }
+    if (!Array.isArray(document.entries)) {
+      throw new Error(
+        `import-lock chain for '${flowId}' is malformed: 'entries' is not an array`
+      );
+    }
+
+    // The load-bearing difference from the in-memory store: recompute rather
+    // than trust. An entry edited at rest keeps a well-formed shape, so only
+    // re-verification catches it.
+    const diagnostics = verifyV2ImportLockChain(document.entries);
+    if (diagnostics.length > 0) {
+      throw new Error(
+        `import-lock chain for '${flowId}' failed its integrity check and appears to have ` +
+          `been tampered with at rest: ${diagnostics
+            .map((diagnostic) => diagnostic.message)
+            .join("; ")}`
+      );
+    }
+
+    return [...document.entries];
   }
 }
 
