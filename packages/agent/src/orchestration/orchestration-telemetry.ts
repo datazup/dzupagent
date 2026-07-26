@@ -21,12 +21,22 @@
  *   - these recorders → plain debug logs (an opt-in convenience for hosts that
  *     do not wire an event bus).
  *
- * Note `supervisor-runner.ts` hand-rolls its own `defaultLogger.debug` calls in
- * the no-event-bus fallback branches rather than calling `recordRoutingDecision`.
- * That duplication is real but deliberate to leave alone here: switching it
- * would silently change the emitted log message and attribute names for anyone
- * already grepping them. Consolidating the two is a behavioural decision for the
- * package owner, not a mechanical cleanup.
+ * Note `supervisor-runner.ts` writes its own `defaultLogger.debug` calls in the
+ * no-event-bus fallback branches rather than calling `recordRoutingDecision`.
+ * DECIDED: leave them separate. This is not pending cleanup.
+ *
+ * They look like duplication but are not. Those branches are guarded by
+ * `if (!eventBus)` — they fire only when no bus is wired, and they carry a
+ * DIFFERENT payload than these recorders take. The circuit-breaker branch logs
+ * the concrete `removedIds`; `RoutingSpanData` below models the same situation
+ * as aggregate counts (`candidateCount`, `filteredByCircuitBreaker`). Rewriting
+ * the fallbacks to call these helpers would therefore DISCARD the per-agent
+ * identifiers, not merely re-key the output — a loss of information on the one
+ * path that exists precisely because richer telemetry is unavailable.
+ *
+ * Consolidating would also change the emitted message strings for anyone already
+ * grepping them, for no functional gain. Both objections point the same way, so
+ * the split stands.
  *
  * Do NOT confuse this module with `circuit-breaker-recorder.ts`. That module
  * mutates breaker STATE (`recordFailure` / `recordTimeout`, deciding whether a
