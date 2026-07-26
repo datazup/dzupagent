@@ -214,15 +214,31 @@ export class AgentOrchestrator {
 
   /**
    * Debate pattern -- multiple agents propose solutions, a judge selects the best.
+   *
+   * Cancellation: when `options.signal` is supplied the debate fails fast if the
+   * signal is already aborted, and the signal is threaded into every proposer
+   * round and the final judge call so in-flight generations are cancelled
+   * rather than running to completion. The positional signature is unchanged;
+   * `signal` rides on the existing options bag.
    */
   static async debate(
     proposers: DzupAgent[],
     judge: DzupAgent,
     task: string,
-    options?: { rounds?: number }
+    options?: { rounds?: number; signal?: AbortSignal }
   ): Promise<string> {
     const rounds = options?.rounds ?? 1;
+    const signal = options?.signal;
     let proposals: string[] = [];
+
+    // Fail fast before spawning any proposer work, mirroring the
+    // supervisor/contract-net guards.
+    if (signal?.aborted) {
+      throw new OrchestrationError(
+        "debate() aborted before execution",
+        "debate"
+      );
+    }
 
     for (let round = 0; round < rounds; round++) {
       // Each proposer generates a solution
@@ -236,7 +252,12 @@ export class AgentOrchestrator {
               )}\n\nImprove upon the best aspects of all proposals.`;
 
       const results = await Promise.all(
-        proposers.map((agent) => agent.generate([new HumanMessage(roundInput)]))
+        proposers.map((agent) =>
+          agent.generate(
+            [new HumanMessage(roundInput)],
+            signal ? { signal } : undefined
+          )
+        )
       );
       proposals = results.map((r) => r.content);
     }
@@ -246,13 +267,16 @@ export class AgentOrchestrator {
       .map((p, i) => `## Proposal ${i + 1}\n${p}`)
       .join("\n\n");
 
-    const judgeResult = await judge.generate([
-      new HumanMessage(
-        `Evaluate these proposals for the following task:\n\n**Task:** ${task}\n\n${judgeInput}\n\n` +
-          `Select the best proposal (or synthesize the best parts of multiple proposals). ` +
-          `Explain your reasoning briefly, then provide the final answer.`
-      ),
-    ]);
+    const judgeResult = await judge.generate(
+      [
+        new HumanMessage(
+          `Evaluate these proposals for the following task:\n\n**Task:** ${task}\n\n${judgeInput}\n\n` +
+            `Select the best proposal (or synthesize the best parts of multiple proposals). ` +
+            `Explain your reasoning briefly, then provide the final answer.`
+        ),
+      ],
+      signal ? { signal } : undefined
+    );
 
     return judgeResult.content;
   }

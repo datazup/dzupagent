@@ -5,9 +5,16 @@
  * The participant whose role is `supervisor` is selected as the manager (or
  * the first participant when no role matches); the remaining participants
  * are exposed to the manager as tools.
+ *
+ * `ctx.signal` / `ctx.eventBus` are forwarded onto `SupervisorConfig`, which
+ * already declares both. That makes a team-run supervision cancellable (the
+ * runner fails fast on an already-aborted signal and threads it into every
+ * `generate`) and lets it emit the same routing diagnostics a direct
+ * `AgentOrchestrator.supervisor` call does.
  */
 
 import { AgentOrchestrator } from "../../orchestrator.js";
+import { omitUndefined } from "../../../utils/exact-optional.js";
 import type {
   TeamPattern,
   TeamPatternContext,
@@ -36,11 +43,18 @@ export const supervisorPattern: TeamPattern = {
     for (const s of specialists) ctx.hooks.emitParticipantStart(s.participant);
 
     try {
-      const result = await AgentOrchestrator.supervisor({
-        manager: managerEntry.spawned.agent,
-        specialists: specialists.map((s) => s.spawned.agent),
-        task: ctx.task,
-      });
+      // `omitUndefined` keeps unset runtime plumbing genuinely absent, so a run
+      // with neither signal nor bus produces exactly the three-field config
+      // this call used before.
+      const result = await AgentOrchestrator.supervisor(
+        omitUndefined({
+          manager: managerEntry.spawned.agent,
+          specialists: specialists.map((s) => s.spawned.agent),
+          task: ctx.task,
+          signal: ctx.signal,
+          eventBus: ctx.eventBus,
+        })
+      );
 
       const durationMs = Date.now() - startTime;
       ctx.hooks.emitParticipantComplete(
