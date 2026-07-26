@@ -11,9 +11,11 @@
  * / evaluation acceptance gates), it validates the field shape and pattern
  * scope but does NOT reject them — the runtime treats them as inert no-ops when
  * the corresponding service is unwired (mirroring `memory.consolidateOnComplete`).
- * Policy groups with no in-repo runtime consumer at all (isolation / mailbox)
- * are still shape-checked so a malformed declaration fails fast, and documented
- * as consuming-app concerns in `team-policy.ts`.
+ * Policy groups with no in-repo runtime consumer at all (isolation / mailbox),
+ * and individual scoped-out fields within an otherwise-enforced group
+ * (memory.tier / memory.shareAcrossParticipants), are still shape-checked so a
+ * malformed declaration fails fast, and documented as consuming-app concerns in
+ * `team-policy.ts`.
  */
 
 import type { CoordinatorPattern } from "./team-definition.js";
@@ -29,15 +31,16 @@ import type { TeamPolicies } from "./team-policy.js";
  *     enabling retryOnFailure;
  *   - a governance policy is supplied for a non-council pattern, or has a
  *     malformed minScore;
- *   - a memory policy is supplied for a non-blackboard pattern, or contains
- *     a malformed blackboardContext budget;
+ *   - a memory policy is supplied for a non-blackboard pattern, has a malformed
+ *     tier / shareAcrossParticipants (shape-checked only — no in-repo runtime
+ *     consumer), or contains a malformed blackboardContext budget;
  *   - an evaluation policy has a malformed minPassScore or empty scorerModel;
  *   - an isolation / mailbox policy is malformed (both groups are shape-checked
  *     but have no in-repo runtime consumer — see team-policy.ts).
  */
 export function validateTeamPolicies(
   pattern: CoordinatorPattern,
-  policies: TeamPolicies,
+  policies: TeamPolicies
 ): void {
   validateExecutionPolicy(pattern, policies);
   validateGovernancePolicy(pattern, policies);
@@ -49,7 +52,7 @@ export function validateTeamPolicies(
 
 function validateExecutionPolicy(
   pattern: CoordinatorPattern,
-  policies: TeamPolicies,
+  policies: TeamPolicies
 ): void {
   const execution = policies.execution;
   if (!execution) return;
@@ -59,7 +62,7 @@ function validateExecutionPolicy(
     (!Number.isInteger(execution.timeoutMs) || execution.timeoutMs < 1)
   ) {
     throw new Error(
-      "TeamRuntime execution policy field 'timeoutMs' must be a positive integer",
+      "TeamRuntime execution policy field 'timeoutMs' must be a positive integer"
     );
   }
 
@@ -68,7 +71,7 @@ function validateExecutionPolicy(
     execution.maxRetries !== undefined;
   if (usesRetry && pattern !== "peer_to_peer") {
     throw new Error(
-      "TeamRuntime execution policy participant retry (retryOnFailure / maxRetries) is only supported for coordinator pattern 'peer_to_peer'",
+      "TeamRuntime execution policy participant retry (retryOnFailure / maxRetries) is only supported for coordinator pattern 'peer_to_peer'"
     );
   }
   if (
@@ -76,18 +79,18 @@ function validateExecutionPolicy(
     typeof execution.retryOnFailure !== "boolean"
   ) {
     throw new Error(
-      "TeamRuntime execution policy field 'retryOnFailure' must be a boolean",
+      "TeamRuntime execution policy field 'retryOnFailure' must be a boolean"
     );
   }
   if (execution.maxRetries !== undefined) {
     if (!Number.isInteger(execution.maxRetries) || execution.maxRetries < 1) {
       throw new Error(
-        "TeamRuntime execution policy field 'maxRetries' must be a positive integer",
+        "TeamRuntime execution policy field 'maxRetries' must be a positive integer"
       );
     }
     if (execution.retryOnFailure !== true) {
       throw new Error(
-        "TeamRuntime execution policy field 'maxRetries' requires 'retryOnFailure' to be true",
+        "TeamRuntime execution policy field 'maxRetries' requires 'retryOnFailure' to be true"
       );
     }
   }
@@ -98,21 +101,21 @@ function validateExecutionPolicy(
     (!Number.isInteger(maxParallel) || maxParallel < 1)
   ) {
     throw new Error(
-      "TeamRuntime execution policy field 'maxParallelParticipants' must be a positive integer",
+      "TeamRuntime execution policy field 'maxParallelParticipants' must be a positive integer"
     );
   }
 }
 
 function validateGovernancePolicy(
   pattern: CoordinatorPattern,
-  policies: TeamPolicies,
+  policies: TeamPolicies
 ): void {
   const governance = policies.governance;
   if (!governance) return;
 
   if (pattern !== "council") {
     throw new Error(
-      "TeamRuntime governance policy group is only supported for coordinator pattern 'council'",
+      "TeamRuntime governance policy group is only supported for coordinator pattern 'council'"
     );
   }
   // minScore / requireUnanimous are enforced by the governance acceptance gate
@@ -120,28 +123,45 @@ function validateGovernancePolicy(
   // check only.
   assertScoreInUnitInterval(
     governance.minScore,
-    "governance policy field 'minScore'",
+    "governance policy field 'minScore'"
   );
   if (
     governance.requireUnanimous !== undefined &&
     typeof governance.requireUnanimous !== "boolean"
   ) {
     throw new Error(
-      "TeamRuntime governance policy field 'requireUnanimous' must be a boolean",
+      "TeamRuntime governance policy field 'requireUnanimous' must be a boolean"
     );
   }
 }
 
 function validateMemoryPolicy(
   pattern: CoordinatorPattern,
-  policies: TeamPolicies,
+  policies: TeamPolicies
 ): void {
   const memory = policies.memory;
   if (!memory) return;
 
   if (pattern !== "blackboard") {
     throw new Error(
-      "TeamRuntime memory policy group is only supported for coordinator pattern 'blackboard'",
+      "TeamRuntime memory policy group is only supported for coordinator pattern 'blackboard'"
+    );
+  }
+
+  // `tier` and `shareAcrossParticipants` have no in-repo runtime consumer — the
+  // runtime owns no store whose lifetime/sharing they could select (see
+  // team-policy.ts). Both are required on the interface, so a JS caller or a
+  // JSON-loaded policy can still supply a missing/malformed value that
+  // TypeScript never sees. Shape-check only.
+  const tiers = ["ephemeral", "session", "persistent"] as const;
+  if (!tiers.includes(memory.tier)) {
+    throw new Error(
+      "TeamRuntime memory policy field 'tier' must be one of 'ephemeral' | 'session' | 'persistent'"
+    );
+  }
+  if (typeof memory.shareAcrossParticipants !== "boolean") {
+    throw new Error(
+      "TeamRuntime memory policy field 'shareAcrossParticipants' must be a boolean"
     );
   }
 
@@ -154,7 +174,7 @@ function validateMemoryPolicy(
       blackboardContext.maxSerializedChars < 1)
   ) {
     throw new Error(
-      "TeamRuntime memory policy field 'blackboardContext.maxSerializedChars' must be a positive integer",
+      "TeamRuntime memory policy field 'blackboardContext.maxSerializedChars' must be a positive integer"
     );
   }
   if (
@@ -163,7 +183,7 @@ function validateMemoryPolicy(
       blackboardContext.maxEntryChars < 1)
   ) {
     throw new Error(
-      "TeamRuntime memory policy field 'blackboardContext.maxEntryChars' must be a positive integer",
+      "TeamRuntime memory policy field 'blackboardContext.maxEntryChars' must be a positive integer"
     );
   }
 }
@@ -177,7 +197,7 @@ function validateEvaluationPolicy(policies: TeamPolicies): void {
     evaluation.scorerModel.length === 0
   ) {
     throw new Error(
-      "TeamRuntime evaluation policy field 'scorerModel' must be a non-empty string",
+      "TeamRuntime evaluation policy field 'scorerModel' must be a non-empty string"
     );
   }
   if (
@@ -186,14 +206,14 @@ function validateEvaluationPolicy(policies: TeamPolicies): void {
       evaluation.scoringCriteria.some((c) => typeof c !== "string"))
   ) {
     throw new Error(
-      "TeamRuntime evaluation policy field 'scoringCriteria' must be an array of strings",
+      "TeamRuntime evaluation policy field 'scoringCriteria' must be an array of strings"
     );
   }
   // minPassScore is enforced by the evaluation acceptance gate when a
   // `TeamEvaluationService` is injected (inert no-op otherwise). Shape-check only.
   assertScoreInUnitInterval(
     evaluation.minPassScore,
-    "evaluation policy field 'minPassScore'",
+    "evaluation policy field 'minPassScore'"
   );
 }
 
@@ -209,12 +229,12 @@ function validateIsolationPolicy(policies: TeamPolicies): void {
 
   if (typeof isolation.sandboxed !== "boolean") {
     throw new Error(
-      "TeamRuntime isolation policy field 'sandboxed' must be a boolean",
+      "TeamRuntime isolation policy field 'sandboxed' must be a boolean"
     );
   }
   if (typeof isolation.sharedWorkspace !== "boolean") {
     throw new Error(
-      "TeamRuntime isolation policy field 'sharedWorkspace' must be a boolean",
+      "TeamRuntime isolation policy field 'sharedWorkspace' must be a boolean"
     );
   }
 }
@@ -232,7 +252,7 @@ function validateMailboxPolicy(policies: TeamPolicies): void {
   const modes = ["broadcast", "targeted", "round_robin"] as const;
   if (!modes.includes(mailbox.deliveryMode)) {
     throw new Error(
-      "TeamRuntime mailbox policy field 'deliveryMode' must be one of 'broadcast' | 'targeted' | 'round_robin'",
+      "TeamRuntime mailbox policy field 'deliveryMode' must be one of 'broadcast' | 'targeted' | 'round_robin'"
     );
   }
   if (
@@ -240,14 +260,14 @@ function validateMailboxPolicy(policies: TeamPolicies): void {
     (!Number.isInteger(mailbox.maxQueueDepth) || mailbox.maxQueueDepth < 1)
   ) {
     throw new Error(
-      "TeamRuntime mailbox policy field 'maxQueueDepth' must be a positive integer",
+      "TeamRuntime mailbox policy field 'maxQueueDepth' must be a positive integer"
     );
   }
 }
 
 function assertScoreInUnitInterval(
   value: number | undefined,
-  label: string,
+  label: string
 ): void {
   if (value === undefined) return;
   if (

@@ -16,6 +16,7 @@ import type {
   DelegationRequest,
   DelegationResult,
   DelegationContext,
+  DelegationHierarchy,
 } from "./delegation.js";
 import type { ProviderExecutionPort } from "./provider-adapter/provider-execution-port.js";
 import type { RoutingPolicy } from "./routing-policy-types.js";
@@ -81,6 +82,15 @@ export class DelegatingSupervisor {
   private readonly hierarchyParentRunId: string | undefined;
   private readonly hierarchyBranchId: string | undefined;
   private readonly hierarchyDepth: number;
+  /**
+   * Pre-resolved hierarchy stamped onto every delegation this supervisor
+   * issues, or `undefined` for a root supervisor with no hierarchy configured.
+   *
+   * Kept `undefined` (rather than `{ depth: 0 }`) in the root case so that
+   * requests and metadata omit the `hierarchy` key entirely and stay
+   * byte-identical to a pre-hierarchy build — the dominant caller shape.
+   */
+  private readonly delegationHierarchy: DelegationHierarchy | undefined;
 
   constructor(config: DelegatingSupervisorConfig) {
     // Enforce the orchestration depth ceiling before any wiring happens, so a
@@ -91,6 +101,26 @@ export class DelegatingSupervisor {
 
     this.hierarchyParentRunId = config.parentRunId;
     this.hierarchyBranchId = config.branchId;
+
+    // Resolve the hierarchy stamped onto issued delegations exactly once.
+    // A supervisor with NO hierarchy signal at all (root: no parentRunId, no
+    // branchId, no explicit depth) stamps nothing, so its delegations are
+    // byte-identical to a pre-hierarchy build. An explicit `depth: 0` is a
+    // deliberate signal and is preserved.
+    const hasHierarchySignal =
+      config.parentRunId !== undefined ||
+      config.branchId !== undefined ||
+      config.depth !== undefined;
+    this.delegationHierarchy = hasHierarchySignal
+      ? omitUndefined({
+          parentRunId: config.parentRunId,
+          branchId: config.branchId,
+          // The issuing supervisor's OWN depth — a delegation targets a
+          // specialist leaf, not another orchestrator level, so this is not
+          // incremented. See DelegationHierarchy.depth.
+          depth: this.hierarchyDepth,
+        })
+      : undefined;
 
     this.specialists = config.specialists;
     this.tracker = config.tracker;
@@ -178,6 +208,10 @@ export class DelegatingSupervisor {
           attemptedProviders: [...portResult.attemptedProviders],
           fallbackAttempts: portResult.fallbackAttempts,
           providerMetadata: portResult.metadata,
+          // Provider-port execution bypasses the tracker lifecycle, so stamp
+          // the same tree attribution here. `undefined` for root supervisors,
+          // which omitUndefined then drops entirely.
+          hierarchy: this.delegationHierarchy,
         }),
       };
 
@@ -193,11 +227,16 @@ export class DelegatingSupervisor {
       return delegationResult;
     }
 
+    // `context` and `hierarchy` are independent siblings: the caller-supplied
+    // parentContext (carrying the per-delegation parentRunId) is passed through
+    // untouched, while the orchestrator-hierarchy parent travels under
+    // `hierarchy`. Neither can clobber the other.
     const request: DelegationRequest = omitUndefined({
       targetAgentId: specialistId,
       task,
       input,
       context: this.parentContext,
+      hierarchy: this.delegationHierarchy,
     });
 
     let result: DelegationResult;
@@ -439,17 +478,34 @@ export class DelegatingSupervisor {
    * For a root supervisor these are unrelated: (2) is typically set while
    * (1) is not.
    *
-   * ## Not yet wired
+   * ## What is propagated
    *
-   * `depth` and `branchId` are currently *validated and readable* but are NOT
-   * propagated into delegation records or `delegation:*` events. Wiring them
-   * would require either (a) widening the `DelegationRequest` /
-   * `DelegationContext` contracts in `delegation/types.ts` with explicit
-   * hierarchy fields, or (b) adding hierarchy fields to the `delegation:*`
-   * event payloads in `@dzupagent/core/events`. Both are cross-package
-   * contract changes and are deliberately out of scope here; overloading the
-   * existing `DelegationContext.parentRunId` would conflate concepts (1) and
-   * (2) above and is explicitly rejected.
+   * All three fields are propagated into delegation records as a nested
+   * {@link DelegationHierarchy} object, kept strictly separate from (2):
+   *
+   * - `DelegationRequest.hierarchy` — stamped on every delegation this
+   *   supervisor issues, alongside (never merged into) `context`.
+   * - `RunStore` run metadata — stamped by `startDelegation`.
+   * - `DelegationMetadata.hierarchy` — echoed onto the result by
+   *   `finalizeSuccess` / `finalizeFailure`, and by the provider-port path,
+   *   so a completed or failed delegation carries its tree position.
+   *
+   * A supervisor with no hierarchy signal at all (no `parentRunId`, no
+   * `branchId`, no explicit `depth`) stamps nothing: the `hierarchy` key is
+   * omitted entirely and its delegation records are byte-identical to a
+   * pre-hierarchy build. An explicit `depth: 0` is treated as a deliberate
+   * signal and is preserved.
+   *
+   * `hierarchy.depth` on a delegation is the *issuing supervisor's own* depth,
+   * not that depth plus one: a delegation targets a specialist leaf rather
+   * than another orchestrator level, so it does not descend the tree.
+   *
+   * ## Still not wired
+   *
+   * The `delegation:*` event payloads in `@dzupagent/core/events` still carry
+   * no hierarchy fields; adding them is a cross-package contract change and
+   * remains out of scope. Overloading `DelegationContext.parentRunId` to carry
+   * concept (1) is explicitly rejected.
    *
    * Likewise, no recursive sub-orchestrator spawning exists yet — this
    * supervisor delegates only to *specialist agents*, never to another

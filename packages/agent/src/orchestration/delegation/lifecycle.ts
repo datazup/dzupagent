@@ -45,6 +45,9 @@ export async function startDelegation(
       delegationId,
       parentRunId,
       priority: request.priority ?? 5,
+      // Spread-when-present: a root supervisor issues no `hierarchy`, so the
+      // stamped run metadata stays byte-identical to a pre-hierarchy build.
+      ...(request.hierarchy ? { hierarchy: request.hierarchy } : {}),
     },
   });
 
@@ -95,9 +98,12 @@ export async function finalizeSuccess(
   const durationMs = Date.now() - startTime;
   entry.status = result.success ? "completed" : "failed";
 
-  // Attach duration to metadata
+  // Attach duration to metadata, echoing the issuing supervisor's tree position
+  // when it had one. A root supervisor sends no `hierarchy`, so this key is
+  // absent and the metadata stays byte-identical to a pre-hierarchy build.
   const metadata: DelegationMetadata = {
     ...result.metadata,
+    ...(request.hierarchy ? { hierarchy: request.hierarchy } : {}),
     durationMs,
   };
 
@@ -159,6 +165,14 @@ export async function finalizeFailure(
     wasCancelledByUser,
   } = args;
   const durationMs = Date.now() - startTime;
+  // Failed delegations carry the same tree attribution as successful ones, so a
+  // failure can be located in the orchestration tree. Absent for root
+  // supervisors, keeping failure metadata byte-identical to a pre-hierarchy
+  // build.
+  const failureMetadata: DelegationMetadata = {
+    ...(request.hierarchy ? { hierarchy: request.hierarchy } : {}),
+    durationMs,
+  };
   const isAbort = err instanceof Error && err.name === "AbortError";
   const isTimeout =
     abortController.signal.aborted &&
@@ -186,7 +200,7 @@ export async function finalizeFailure(
       success: false,
       output: null,
       error: `Delegation timed out after ${timeoutMs}ms`,
-      metadata: { durationMs },
+      metadata: failureMetadata,
     };
   }
 
@@ -211,7 +225,7 @@ export async function finalizeFailure(
       success: false,
       output: null,
       error: "Delegation cancelled",
-      metadata: { durationMs },
+      metadata: failureMetadata,
     };
   }
 
@@ -237,7 +251,7 @@ export async function finalizeFailure(
     success: false,
     output: null,
     error: errorMsg,
-    metadata: { durationMs },
+    metadata: failureMetadata,
   };
 }
 
