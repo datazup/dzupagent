@@ -7,6 +7,7 @@ const SUPERVISOR: CoordinatorPattern = "supervisor";
 const COUNCIL: CoordinatorPattern = "council";
 const BLACKBOARD: CoordinatorPattern = "blackboard";
 const PEER_TO_PEER: CoordinatorPattern = "peer_to_peer";
+const CONTRACT_NET: CoordinatorPattern = "contract_net";
 
 /** Derived from the real declaration so the tests track it if the union moves. */
 type MemoryTier = NonNullable<TeamPolicies["memory"]>["tier"];
@@ -22,6 +23,7 @@ describe("validateTeamPolicies", () => {
         execution: undefined,
         governance: undefined,
         memory: undefined,
+        contractNet: undefined,
         isolation: undefined,
         mailbox: undefined,
         evaluation: undefined,
@@ -438,6 +440,184 @@ describe("validateTeamPolicies", () => {
     });
   });
 
+  // Unlike governance / evaluation there is no host-injected-service seam here:
+  // every field is threaded into ContractNetManager and genuinely enforced.
+  describe("contractNet policy (enforced, contract_net only)", () => {
+    it("accepts a contractNet policy on the contract_net pattern", () => {
+      expect(() =>
+        validateTeamPolicies(CONTRACT_NET, {
+          contractNet: { maxCostCents: 500 },
+        })
+      ).not.toThrow();
+    });
+
+    it("accepts an empty contractNet policy object", () => {
+      expect(() =>
+        validateTeamPolicies(CONTRACT_NET, { contractNet: {} })
+      ).not.toThrow();
+    });
+
+    it("accepts a fully populated contractNet policy", () => {
+      expect(() =>
+        validateTeamPolicies(CONTRACT_NET, {
+          contractNet: {
+            maxCostCents: 250,
+            requiredCapabilities: ["typescript"],
+            bidDeadlineMs: 5000,
+            retryOnNoBids: true,
+          },
+        })
+      ).not.toThrow();
+    });
+
+    it("rejects a contractNet policy on every non-contract_net pattern", () => {
+      for (const pattern of [
+        SUPERVISOR,
+        COUNCIL,
+        BLACKBOARD,
+        PEER_TO_PEER,
+      ] as const) {
+        expect(() =>
+          validateTeamPolicies(pattern, {
+            contractNet: { maxCostCents: 500 },
+          })
+        ).toThrow(/contractNet.*contract_net/);
+      }
+    });
+
+    it("reports the pattern mismatch before field shape", () => {
+      // Mirrors the memory-policy precedent: the scope gate runs first, so a
+      // doubly-invalid policy surfaces the scope error.
+      expect(() =>
+        validateTeamPolicies(SUPERVISOR, {
+          contractNet: { maxCostCents: -1 },
+        })
+      ).toThrow(/contractNet.*contract_net/);
+    });
+
+    describe("maxCostCents", () => {
+      it("accepts 0 (a real, fully-restrictive ceiling)", () => {
+        expect(() =>
+          validateTeamPolicies(CONTRACT_NET, {
+            contractNet: { maxCostCents: 0 },
+          })
+        ).not.toThrow();
+      });
+
+      it("accepts a fractional cost", () => {
+        expect(() =>
+          validateTeamPolicies(CONTRACT_NET, {
+            contractNet: { maxCostCents: 12.5 },
+          })
+        ).not.toThrow();
+      });
+
+      it("rejects a negative maxCostCents", () => {
+        expect(() =>
+          validateTeamPolicies(CONTRACT_NET, {
+            contractNet: { maxCostCents: -1 },
+          })
+        ).toThrow(/maxCostCents.*non-negative finite number/);
+      });
+
+      it("rejects NaN / Infinity", () => {
+        for (const maxCostCents of [Number.NaN, Number.POSITIVE_INFINITY]) {
+          expect(() =>
+            validateTeamPolicies(CONTRACT_NET, {
+              contractNet: { maxCostCents },
+            })
+          ).toThrow(/maxCostCents/);
+        }
+      });
+
+      it("rejects a non-number maxCostCents", () => {
+        expect(() =>
+          validateTeamPolicies(CONTRACT_NET, {
+            contractNet: { maxCostCents: "100" as unknown as number },
+          })
+        ).toThrow(/maxCostCents/);
+      });
+    });
+
+    describe("bidDeadlineMs", () => {
+      it("accepts a positive integer", () => {
+        expect(() =>
+          validateTeamPolicies(CONTRACT_NET, {
+            contractNet: { bidDeadlineMs: 1 },
+          })
+        ).not.toThrow();
+      });
+
+      it("rejects 0 / negative / float", () => {
+        for (const bidDeadlineMs of [0, -1, 1.5]) {
+          expect(() =>
+            validateTeamPolicies(CONTRACT_NET, {
+              contractNet: { bidDeadlineMs },
+            })
+          ).toThrow(/bidDeadlineMs.*positive integer/);
+        }
+      });
+    });
+
+    describe("requiredCapabilities", () => {
+      it("accepts an empty array", () => {
+        expect(() =>
+          validateTeamPolicies(CONTRACT_NET, {
+            contractNet: { requiredCapabilities: [] },
+          })
+        ).not.toThrow();
+      });
+
+      it("rejects a non-array", () => {
+        expect(() =>
+          validateTeamPolicies(CONTRACT_NET, {
+            contractNet: {
+              requiredCapabilities: "typescript" as unknown as string[],
+            },
+          })
+        ).toThrow(/requiredCapabilities.*array of non-empty strings/);
+      });
+
+      it("rejects non-string entries", () => {
+        expect(() =>
+          validateTeamPolicies(CONTRACT_NET, {
+            contractNet: {
+              requiredCapabilities: [1 as unknown as string],
+            },
+          })
+        ).toThrow(/requiredCapabilities/);
+      });
+
+      it("rejects empty-string entries", () => {
+        expect(() =>
+          validateTeamPolicies(CONTRACT_NET, {
+            contractNet: { requiredCapabilities: ["ok", ""] },
+          })
+        ).toThrow(/requiredCapabilities/);
+      });
+    });
+
+    describe("retryOnNoBids", () => {
+      it("accepts both booleans", () => {
+        for (const retryOnNoBids of [true, false]) {
+          expect(() =>
+            validateTeamPolicies(CONTRACT_NET, {
+              contractNet: { retryOnNoBids },
+            })
+          ).not.toThrow();
+        }
+      });
+
+      it("rejects a non-boolean", () => {
+        expect(() =>
+          validateTeamPolicies(CONTRACT_NET, {
+            contractNet: { retryOnNoBids: "yes" as unknown as boolean },
+          })
+        ).toThrow(/retryOnNoBids.*boolean/);
+      });
+    });
+  });
+
   describe("evaluation policy (service-gated, any pattern)", () => {
     it("accepts a well-formed evaluation policy on any pattern", () => {
       expect(() =>
@@ -577,6 +757,17 @@ describe("validateTeamPolicies", () => {
         expect.fail("should throw");
       } catch (e) {
         expect((e as Error).message).toContain("council");
+      }
+    });
+
+    it("error for contractNet pattern mismatch mentions 'contract_net'", () => {
+      try {
+        validateTeamPolicies(SUPERVISOR, {
+          contractNet: { maxCostCents: 100 },
+        });
+        expect.fail("should throw");
+      } catch (e) {
+        expect((e as Error).message).toContain("contract_net");
       }
     });
 

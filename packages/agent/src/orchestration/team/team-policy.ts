@@ -132,6 +132,38 @@ export interface BlackboardContextPolicy {
 }
 
 /**
+ * Controls the contract-net negotiation run by the `contract_net` coordinator
+ * pattern. Applies only to that pattern — the validator rejects this group on
+ * any other, mirroring `MemoryPolicy`/`blackboard`.
+ *
+ * Every field here is threaded straight through to `ContractNetManager.execute`
+ * as the matching `ContractNetConfig` field, so each is genuinely ENFORCED (no
+ * host-injected-service seam, unlike governance / evaluation). Omitting the
+ * group entirely leaves the negotiation on the manager's own defaults, which is
+ * exactly the behaviour before this policy existed.
+ *
+ * Runtime plumbing (`signal`, `eventBus`, `strategy`) is deliberately NOT here:
+ * those are not declarative, JSON-expressible knobs, so they ride on
+ * `TeamRuntimeOptions` / `TeamPatternContext` instead (see `contractNet` on
+ * `TeamRuntimeOptions`).
+ */
+export interface ContractNetPolicy {
+  /**
+   * Hard cost ceiling for the awarded contract, in cents. ENFORCED by
+   * `ContractNetManager`: bids above it are filtered out before ranking and can
+   * never win, and the negotiation throws when no bid fits. Inclusive bound.
+   * Omit for no ceiling.
+   */
+  maxCostCents?: number;
+  /** Capabilities announced in the CFP prompt. Must be non-empty strings. */
+  requiredCapabilities?: string[];
+  /** Per-specialist bid deadline in ms (positive integer, manager default 30000). */
+  bidDeadlineMs?: number;
+  /** Retry the bidding round once with a doubled deadline when no bids arrive. */
+  retryOnNoBids?: boolean;
+}
+
+/**
  * Controls sandboxing and workspace sharing.
  *
  * SCOPED OUT of in-repo TeamRuntime enforcement: the runtime spawns
@@ -188,6 +220,7 @@ export interface TeamPolicies {
   execution?: ExecutionPolicy;
   governance?: GovernancePolicy;
   memory?: MemoryPolicy;
+  contractNet?: ContractNetPolicy;
   isolation?: IsolationPolicy;
   mailbox?: MailboxPolicy;
   evaluation?: EvaluationPolicy;
