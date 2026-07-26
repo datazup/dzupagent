@@ -74,7 +74,41 @@ export interface DelegationRequest {
   hierarchy?: DelegationHierarchy;
   /** Max time to wait for specialist completion (ms, default: 300_000) */
   timeoutMs?: number;
-  /** Priority (lower = higher, default: 5) */
+  /**
+   * Scheduling priority for the delegated run — **lower = more urgent**,
+   * default 5.
+   *
+   * READ, unlike its same-named counterpart. `delegation/lifecycle.ts` resolves
+   * an omitted value (`request.priority ?? 5`) and stamps the result onto the
+   * created run's `metadata.priority`. This package does not itself order
+   * anything by it; the ascending-is-urgent reading is realised downstream,
+   * where `@dzupagent/server`'s run queue re-reads `metadata.priority` (again
+   * defaulting to 5) and inserts jobs into a queue held in ASCENDING priority
+   * order. So the direction documented here is load-bearing: it is the contract
+   * the queue's comparator already assumes.
+   *
+   * ⚠️ OPPOSITE CONVENTION FROM `AgentTask.priority`. These two fields share a
+   * name and invert each other's meaning:
+   *
+   *  - THIS field (`DelegationRequest.priority`): **lower = more urgent**,
+   *    default 5, and it IS read (`delegation/lifecycle.ts` → run metadata →
+   *    server run queue).
+   *  - `AgentTask.priority` (`../routing-policy-types.ts`): **higher = more
+   *    urgent**, and it is an UNENFORCED HINT — no built-in `RoutingPolicy`
+   *    reads it at all.
+   *
+   * Do not copy a comparator between the two types, and do not assume a
+   * `priority` value is portable across them: moving a number from one to the
+   * other inverts its meaning silently, with no type error and no test failure
+   * at the copy site. The hazard is asymmetric and therefore easy to get wrong
+   * — because `AgentTask.priority` is currently unread, anyone implementing it
+   * has no live comparator to imitate except this one, which runs the opposite
+   * direction. Any such implementation must assert its direction explicitly
+   * rather than inheriting this field's ordering.
+   *
+   * @see `../__tests__/agent-task-priority-unenforced.test.ts` — pins this
+   * default and the direction clash, so neither docstring can rot independently.
+   */
   priority?: number;
 }
 
