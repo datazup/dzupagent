@@ -700,7 +700,7 @@ steps:
 id: lab-action
 version: 1
 uses:
-  action: dzup.action@1
+  agent: dzup.agent@1
 steps:
   - action:
       id: agentRun
@@ -725,7 +725,7 @@ steps:
     });
     expect(report.primitiveImports).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ ref: "primitive://action@1" }),
+        expect.objectContaining({ ref: "primitive://agent.run@1" }),
       ])
     );
 
@@ -741,8 +741,7 @@ steps:
 id: lab-loop
 version: 1
 uses:
-  action: dzup.action@1
-  loop: dzup.loop@1
+  agent: dzup.agent@1
 steps:
   - loop:
       id: reviewLoop
@@ -776,6 +775,56 @@ steps:
     });
     // The loop body must be migrated, not carried through as raw V1 nodes.
     expect(report.candidateSource).not.toContain("type: action");
+
+    const v1 = parseDslToDocument(source);
+    const v2 = parseDslToDocument(report.candidateSource!);
+    expect(v1).toMatchObject({ ok: true });
+    expect(v2).toMatchObject({ ok: true });
+    if (v1.ok && v2.ok) expect(v2.document).toEqual(v1.document);
+  });
+
+  it("migrates a lab-shaped flow whose loop body dispatches an agent", () => {
+    // Mirrors scripts/flow-prompt-lab/dsl/codex_talk.yaml: an agent dispatch
+    // followed by a bounded loop whose body dispatches again.
+    const source = `dsl: dzupflow/v1
+id: lab-shaped
+version: 1
+uses:
+  agent: dzup.agent@1
+inputs:
+  workingDirectory:
+    type: string
+    required: true
+steps:
+  - action:
+      id: plan
+      ref: agent.codex.run
+      input:
+        role: planner
+        promptTemplate: registry:codex-talk.planner
+        workingDirectory: "{{ inputs.workingDirectory }}"
+  - loop:
+      id: talkLoop
+      condition: "{{ state.loopControl.shouldContinue }}"
+      maxIterations: 5
+      progressKey: implement
+      body:
+        - action:
+            id: implement
+            ref: codev.codex.run
+            input:
+              role: implementer
+              dispatchProfileId: primary-worker
+  - complete:
+      id: done
+      result: Flow finished.
+`;
+    const report = previewDslV1ToV2Migration(source);
+    expect(report).toMatchObject({
+      classification: "equivalent",
+      canonicalEquivalent: true,
+    });
+    expect(report.sourceSemanticSha256).toBe(report.candidateSemanticSha256);
 
     const v1 = parseDslToDocument(source);
     const v2 = parseDslToDocument(report.candidateSource!);
