@@ -33,6 +33,10 @@
     "./v2-authoring": {
       "import": "./dist/v2-authoring.js",
       "types": "./dist/v2-authoring.d.ts"
+    },
+    "./v2-import-lock-chain": {
+      "import": "./dist/v2-import-lock-chain.js",
+      "types": "./dist/v2-import-lock-chain.d.ts"
     }
   },
   "files": [

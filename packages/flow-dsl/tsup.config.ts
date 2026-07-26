@@ -9,6 +9,7 @@ export default defineConfig({
     "src/v2-terminal-catch.ts",
     "src/v2-multi-port-save.ts",
     "src/v2-authoring.ts",
+    "src/v2-import-lock-chain.ts",
   ],
   format: ["esm"],
   dts: false,
