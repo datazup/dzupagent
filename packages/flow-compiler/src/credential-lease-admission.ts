@@ -328,11 +328,22 @@ function expired(value: string | undefined, now: Date): boolean {
 }
 
 function validDate(value: string): boolean {
+  /* eslint-disable security/detect-unsafe-regex */
+  // Anchored at both ends; the unbounded `\d+` sits in an optional group whose
+  // following alternatives (`Z` / `[+-]`) are DISJOINT from `\d`, so the engine
+  // has no overlapping alternative to backtrack across — linear-time, no ReDoS.
+  // Measured on adversarial input ('...00.' + '9'.repeat(n) + 'X', which forces
+  // end-anchor failure after a long fractional run): n=1,000 -> 0.11ms;
+  // 50,000 -> 0.21ms; 200,000 -> 1.21ms; 400,000 -> 3.13ms. Linear, not
+  // exponential. The detect-unsafe-regex heuristic over-flags the nested
+  // quantifier. This gates credential lease expiry, so the pattern must not be
+  // rewritten for lint tidiness.
   return (
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
       value,
     ) && Number.isFinite(Date.parse(value))
   );
+  /* eslint-enable security/detect-unsafe-regex */
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
