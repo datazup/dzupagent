@@ -154,7 +154,7 @@ export async function visit(
         ctx.warnings.push({
           nodeType: node.type,
           nodePath: `${path}.waitForCompletion`,
-          code: "MISSING_REQUIRED_FIELD",
+          code: "UNIMPLEMENTED_AT_RUNTIME",
           message:
             `spawn node "${
               node.id ?? node.templateRef
@@ -174,7 +174,7 @@ export async function visit(
       ctx.warnings.push({
         nodeType: node.type,
         nodePath: `${path}.event`,
-        code: "MISSING_REQUIRED_FIELD",
+        code: "UNIMPLEMENTED_AT_RUNTIME",
         message:
           `emit node "${node.id ?? node.event}": event "${
             node.event

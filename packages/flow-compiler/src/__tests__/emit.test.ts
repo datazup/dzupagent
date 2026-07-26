@@ -487,3 +487,47 @@ describe('semanticResolve', () => {
     expect(result.errors.length).toBe(2)
   })
 })
+
+// ---------------------------------------------------------------------------
+// UNIMPLEMENTED_AT_RUNTIME warnings
+//
+// Both sites warn that a node compiles and validates but has no runtime
+// behavior. They previously borrowed MISSING_REQUIRED_FIELD, which reads as
+// "the author omitted something" — the opposite of the truth, since the author
+// supplied a well-formed node and the *runtime* is what is missing.
+// ---------------------------------------------------------------------------
+
+describe('UNIMPLEMENTED_AT_RUNTIME', () => {
+  it('warns that an emit node will not be published at runtime', async () => {
+    const resolver = makeResolver([])
+    const ast: FlowNode = { type: 'emit', id: 'e1', event: 'flow.custom', payload: {} }
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    const warning = result.warnings.find((w) => w.code === 'UNIMPLEMENTED_AT_RUNTIME')
+    expect(warning).toBeDefined()
+    expect(warning?.message).toContain('NOT be published at runtime')
+    // The node itself is valid — this must be a warning, never an error.
+    expect(result.errors).toHaveLength(0)
+  })
+
+  it('warns that spawn waitForCompletion=true is not honored', async () => {
+    const resolver = makeResolver([])
+    const ast: FlowNode = {
+      type: 'spawn',
+      id: 's1',
+      templateRef: 'tpl:child',
+      waitForCompletion: true,
+    }
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    const warning = result.warnings.find((w) => w.code === 'UNIMPLEMENTED_AT_RUNTIME')
+    expect(warning).toBeDefined()
+    expect(warning?.message).toContain('waitForCompletion=true is not yet implemented')
+    expect(result.errors).toHaveLength(0)
+  })
+
+  it('does not warn on a spawn that leaves waitForCompletion unset', async () => {
+    const resolver = makeResolver([])
+    const ast: FlowNode = { type: 'spawn', id: 's2', templateRef: 'tpl:child' }
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    expect(result.warnings.some((w) => w.code === 'UNIMPLEMENTED_AT_RUNTIME')).toBe(false)
+  })
+})

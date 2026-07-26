@@ -56,7 +56,7 @@ describe("emit node compile-time diagnostic (semantic stage)", () => {
     expect(emitWarnings).toHaveLength(1);
 
     const warning = emitWarnings[0];
-    expect(warning?.code).toBe("MISSING_REQUIRED_FIELD");
+    expect(warning?.code).toBe("UNIMPLEMENTED_AT_RUNTIME");
     expect(warning?.category).toBe("policy");
     // The event name must appear so the author can locate the dead node.
     expect(warning?.message).toContain("task.completed");
@@ -156,7 +156,7 @@ describe("emit node diagnostic is a warning, not an error", () => {
     expect(result.warnings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          code: "MISSING_REQUIRED_FIELD",
+          code: "UNIMPLEMENTED_AT_RUNTIME",
           category: "policy",
           message: expect.stringContaining("task.completed"),
         }),
