@@ -1,6 +1,19 @@
 /**
  * LlmRecorder — record/replay RegistryMiddleware for deterministic CI.
  *
+ * DZUPAGENT-TEST-L-06: there are two LLM recorders in the workspace, and
+ * that is intentional — they wrap different integration surfaces:
+ *   - **This one** implements `RegistryMiddleware` and plugs into
+ *     `ModelRegistry.use(new LlmRecorder(...))`. Use this when the code
+ *     under test goes through `@dzupagent/core`'s ModelRegistry/middleware
+ *     pipeline — the common case for `@dzupagent/agent` consumers.
+ *   - `@dzupagent/test-utils`'s `LLMRecorder` wraps a raw LangChain
+ *     `BaseChatModel` directly (`recorder.wrap(model)`), for tests that
+ *     construct/inject a chat model with no ModelRegistry involved.
+ * The two are not drop-in replacements for each other (different wrapped
+ * types, different fixture shapes) — pick by integration surface. Do not
+ * add a third recorder; if neither surface fits, extend one of these two.
+ *
  * Record mode  (LLM_RECORD=1): lets the real LLM call through, then
  *   serialises (request, response) to a JSON fixture file.
  * Replay mode  (default):       loads the fixture and short-circuits the

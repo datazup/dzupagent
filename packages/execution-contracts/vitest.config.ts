@@ -2,6 +2,8 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
+    unstubEnvs: true,
+    unstubGlobals: true,
     environment: 'node',
     testTimeout: 30_000,
     passWithNoTests: true,

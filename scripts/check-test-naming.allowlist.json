@@ -1,0 +1,23 @@
+{
+  "files": [
+    "packages/context/src/__tests__/w15-j3-compression-edge.test.ts",
+    "packages/context/src/__tests__/w15-j3-context-transfer-edge.test.ts",
+    "packages/context/src/__tests__/w15-j3-message-manager-edge.test.ts",
+    "packages/context/src/__tests__/w15-j3-phase-window-edge.test.ts",
+    "packages/context/src/__tests__/w15-j3-prompt-cache-edge.test.ts",
+    "packages/context/src/__tests__/w15-j3-remaining-branches.test.ts",
+    "packages/core/src/__tests__/w15-b1-facades.test.ts",
+    "packages/core/src/__tests__/w15-b2-security.test.ts",
+    "packages/core/src/__tests__/w15-h2-branch-coverage.test.ts",
+    "packages/evals/src/__tests__/w15-e4-deep-coverage.test.ts",
+    "packages/evals/src/__tests__/w15-h4-branch-coverage.test.ts",
+    "packages/evals/src/__tests__/w15-scorers-runner-comprehensive.test.ts",
+    "packages/evals/src/__tests__/w26-c-orchestrator-coverage.test.ts",
+    "packages/evals/src/__tests__/w35-d-regression-tracking.test.ts",
+    "packages/otel/src/__tests__/w15-j1-branch-gaps.test.ts",
+    "packages/otel/src/__tests__/w15-tracing-metrics-baggage.test.ts",
+    "packages/scraper/src/__tests__/w15-j2-edges.test.ts",
+    "packages/testing/src/__tests__/w1-w3-compile-to-run.test.ts"
+  ],
+  "note": "DZUPAGENT-TEST-L-05 grandfathered work-item-named test files as of 2026-07-25 audit remediation; do not add more, see implementation/phase-refactor/DZUPAGENT-TEST-L-05."
+}

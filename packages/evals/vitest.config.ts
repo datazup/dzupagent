@@ -2,10 +2,22 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    unstubEnvs: true,
+    unstubGlobals: true,
     globals: false,
     environment: "node",
-    testTimeout: 300_000,
-    hookTimeout: 300_000,
+    // DZUPAGENT-TEST-L-08: was 300_000/300_000, masking hangs for 5 minutes.
+    // No test in this package needs more than the product-level
+    // `testTimeoutMs` fixture values (max 60_000, see sandbox-contracts.test.ts)
+    // exercised as *data*, not as the vitest runner timeout. Slow tests must
+    // opt in explicitly via `it('...', fn, { timeout: N })`.
+    // hookTimeout kept at 60s (not 30s): vectorstore-contracts.test.ts's
+    // beforeEach constructs a real InMemoryVectorStore and was observed
+    // hitting 30s under this package's own 53-file parallel-fork pool on a
+    // 6-core host (not external load) — 60s gives headroom for that without
+    // reverting to the original 300s hang-masking ceiling.
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
     // TEST-M-09: parallel fork pool (fast unit lane), measured — the previously
     // asserted singleFork rationale (10-30s dynamic adapter imports exhausting CI
     // memory / RPC timeouts >4 workers) did NOT reproduce.
