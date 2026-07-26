@@ -34,6 +34,9 @@ import type { TeamPolicies } from "./team-policy.js";
  *   - a memory policy is supplied for a non-blackboard pattern, has a malformed
  *     tier / shareAcrossParticipants (shape-checked only — no in-repo runtime
  *     consumer), or contains a malformed blackboardContext budget;
+ *   - a contractNet policy is supplied for a non-contract_net pattern, or has a
+ *     malformed maxCostCents / bidDeadlineMs / requiredCapabilities /
+ *     retryOnNoBids (all fully enforced by ContractNetManager);
  *   - an evaluation policy has a malformed minPassScore or empty scorerModel;
  *   - an isolation / mailbox policy is malformed (both groups are shape-checked
  *     but have no in-repo runtime consumer — see team-policy.ts).
@@ -45,6 +48,7 @@ export function validateTeamPolicies(
   validateExecutionPolicy(pattern, policies);
   validateGovernancePolicy(pattern, policies);
   validateMemoryPolicy(pattern, policies);
+  validateContractNetPolicy(pattern, policies);
   validateIsolationPolicy(policies);
   validateMailboxPolicy(policies);
   validateEvaluationPolicy(policies);
@@ -184,6 +188,70 @@ function validateMemoryPolicy(
   ) {
     throw new Error(
       "TeamRuntime memory policy field 'blackboardContext.maxEntryChars' must be a positive integer"
+    );
+  }
+}
+
+/**
+ * Validate the `contractNet` policy group.
+ *
+ * Unlike governance / evaluation (host-injected-service seams) every field here
+ * is threaded straight into `ContractNetManager.execute` and is genuinely
+ * enforced, so this is a pure shape + scope gate on fields that really bite.
+ * The group is scoped to the `contract_net` pattern for the same reason
+ * `memory` is scoped to `blackboard`: no other pattern runs a negotiation these
+ * knobs could steer, so accepting them elsewhere would silently do nothing.
+ */
+function validateContractNetPolicy(
+  pattern: CoordinatorPattern,
+  policies: TeamPolicies
+): void {
+  const contractNet = policies.contractNet;
+  if (!contractNet) return;
+
+  if (pattern !== "contract_net") {
+    throw new Error(
+      "TeamRuntime contractNet policy group is only supported for coordinator pattern 'contract_net'"
+    );
+  }
+
+  const { maxCostCents, bidDeadlineMs, requiredCapabilities, retryOnNoBids } =
+    contractNet;
+
+  if (
+    maxCostCents !== undefined &&
+    (typeof maxCostCents !== "number" ||
+      !Number.isFinite(maxCostCents) ||
+      maxCostCents < 0)
+  ) {
+    throw new Error(
+      "TeamRuntime contractNet policy field 'maxCostCents' must be a non-negative finite number"
+    );
+  }
+
+  if (
+    bidDeadlineMs !== undefined &&
+    (!Number.isInteger(bidDeadlineMs) || bidDeadlineMs < 1)
+  ) {
+    throw new Error(
+      "TeamRuntime contractNet policy field 'bidDeadlineMs' must be a positive integer"
+    );
+  }
+
+  if (requiredCapabilities !== undefined) {
+    if (
+      !Array.isArray(requiredCapabilities) ||
+      requiredCapabilities.some((c) => typeof c !== "string" || c.length === 0)
+    ) {
+      throw new Error(
+        "TeamRuntime contractNet policy field 'requiredCapabilities' must be an array of non-empty strings"
+      );
+    }
+  }
+
+  if (retryOnNoBids !== undefined && typeof retryOnNoBids !== "boolean") {
+    throw new Error(
+      "TeamRuntime contractNet policy field 'retryOnNoBids' must be a boolean"
     );
   }
 }

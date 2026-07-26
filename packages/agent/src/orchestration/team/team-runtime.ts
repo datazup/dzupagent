@@ -8,6 +8,7 @@
  */
 
 import { KeyedCircuitBreaker } from "@dzupagent/core/llm";
+import type { DzupEventBus } from "@dzupagent/core/events";
 import { TeamBreakerTracker } from "./team-runtime-breaker.js";
 import {
   SharedWorkspace,
@@ -25,6 +26,7 @@ import type { SupervisionPolicy } from "./supervision-policy.js";
 import {
   TEAM_PATTERN_REGISTRY,
   type ResolvedParticipant,
+  type TeamContractNetRuntimeOptions,
   type TeamPattern,
   type TeamPatternContext,
 } from "./patterns/index.js";
@@ -55,6 +57,7 @@ export type {
   TeamVerdictInput,
 } from "./team-runtime-verdict.js";
 export { TeamVerdictRejectedError } from "./team-runtime-verdict.js";
+export type { TeamContractNetRuntimeOptions } from "./patterns/index.js";
 
 // Default model constants — exported for downstream wiring.
 export const DEFAULT_ROUTER_MODEL = "claude-haiku-4-5-20251001";
@@ -64,7 +67,7 @@ export const DEFAULT_GOVERNANCE_MODEL = DEFAULT_GOVERNANCE_MODEL_FROM_PATTERN;
 /** Resolves a `ParticipantDefinition` into a runnable `SpawnedAgent`. */
 export type ParticipantResolver = (
   participant: ParticipantDefinition,
-  team: TeamDefinition,
+  team: TeamDefinition
 ) => Promise<SpawnedAgent>;
 
 /** Options accepted by the `TeamRuntime` constructor. */
@@ -89,6 +92,30 @@ export interface TeamRuntimeOptions {
   evaluation?: TeamEvaluationService;
   tracer?: TeamRuntimeTracer;
   supervisionPolicy?: SupervisionPolicy;
+  /**
+   * Cancellation signal for the whole run, forwarded to patterns via
+   * `TeamPatternContext.signal`.
+   *
+   * Runtime plumbing rather than a `TeamPolicies` field: an `AbortSignal` is a
+   * live object, not a declarative value, matching how `signal` rides on
+   * `SupervisorConfig` / `DelegatingSupervisorConfig`. Only patterns delegating
+   * to a cancellable sub-protocol (currently `contract_net`) observe it;
+   * `execution.timeoutMs` remains the pattern-agnostic deadline.
+   */
+  signal?: AbortSignal;
+  /**
+   * Domain event bus for protocol-level events emitted from inside a pattern
+   * (currently the `contractnet:*` events). Forwarded to patterns via
+   * `TeamPatternContext.eventBus`. Separate from `onEvent`, which carries the
+   * team's own phase / participant lifecycle events.
+   */
+  eventBus?: DzupEventBus;
+  /**
+   * Non-declarative knobs for the `contract_net` pattern that cannot live in
+   * `TeamPolicies.contractNet` because they are live objects rather than
+   * JSON-expressible values.
+   */
+  contractNet?: TeamContractNetRuntimeOptions;
   /** Optional pattern registry override — primarily a test seam. */
   patternRegistry?: Record<CoordinatorPattern, TeamPattern>;
 }
@@ -109,6 +136,11 @@ export class TeamRuntime {
   private readonly memory: TeamRuntimeMemoryService | undefined;
   private readonly governance: TeamGovernanceService | undefined;
   private readonly evaluation: TeamEvaluationService | undefined;
+  private readonly signal: AbortSignal | undefined;
+  private readonly eventBus: DzupEventBus | undefined;
+  private readonly contractNetRuntime:
+    | TeamContractNetRuntimeOptions
+    | undefined;
   private readonly patternRegistry: Record<CoordinatorPattern, TeamPattern>;
 
   constructor(options: TeamRuntimeOptions) {
@@ -123,6 +155,9 @@ export class TeamRuntime {
     this.memory = options.memory;
     this.governance = options.governance;
     this.evaluation = options.evaluation;
+    this.signal = options.signal;
+    this.eventBus = options.eventBus;
+    this.contractNetRuntime = options.contractNet;
     this.patternRegistry = options.patternRegistry ?? TEAM_PATTERN_REGISTRY;
     this.breakerTracker = options.supervisionPolicy
       ? new TeamBreakerTracker(options.supervisionPolicy)
@@ -144,11 +179,11 @@ export class TeamRuntime {
    * Exposed as `protected` so subclasses can hydrate participants on demand.
    */
   protected async spawnParticipant(
-    participant: ParticipantDefinition,
+    participant: ParticipantDefinition
   ): Promise<SpawnedAgent> {
     if (!this.resolveParticipant) {
       throw new Error(
-        `TeamRuntime: no ParticipantResolver supplied; cannot spawn participant '${participant.id}'`,
+        `TeamRuntime: no ParticipantResolver supplied; cannot spawn participant '${participant.id}'`
       );
     }
     return this.resolveParticipant(participant, this.definition);
@@ -186,13 +221,13 @@ export class TeamRuntime {
   async resume(
     checkpoint: TeamCheckpoint,
     contract: ResumeContract,
-    task: string,
+    task: string
   ): Promise<TeamRunResult> {
     const { workingParticipants, resumeTask } = planResume(
       this.definition,
       checkpoint,
       contract,
-      task,
+      task
     );
     if (workingParticipants.length === 0) return EMPTY_RESUME_RESULT;
 
@@ -215,7 +250,7 @@ export class TeamRuntime {
     const pattern = this.patternRegistry[id];
     if (!pattern) {
       throw new Error(
-        `TeamRuntime: unknown coordinator pattern '${String(id)}'`,
+        `TeamRuntime: unknown coordinator pattern '${String(id)}'`
       );
     }
     return pattern;
@@ -225,7 +260,7 @@ export class TeamRuntime {
     task: string,
     runId: string,
     startedAt: number,
-    span: TeamOTelSpanLike | undefined,
+    span: TeamOTelSpanLike | undefined
   ): Promise<TeamPatternContext> {
     const participants = await this.resolveAll();
     const breaker = this.breakerTracker?.registry ?? new KeyedCircuitBreaker();
@@ -240,6 +275,9 @@ export class TeamRuntime {
       workspace: new SharedWorkspace(),
       circuitBreaker: breaker,
       otelSpan: span,
+      signal: this.signal,
+      eventBus: this.eventBus,
+      contractNet: this.contractNetRuntime,
       hooks: buildPatternHooks({
         teamId: this.definition.id,
         runId,
@@ -260,7 +298,7 @@ export class TeamRuntime {
       eligible.map(async (participant) => {
         const spawned = await this.spawnParticipant(participant);
         return { participant, spawned };
-      }),
+      })
     );
   }
 }
