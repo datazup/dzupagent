@@ -55,6 +55,17 @@ const STEP_KEYS = new Set([
 const EXACT_USE_PATTERN =
   /^([A-Za-z][A-Za-z0-9_.-]*)@([A-Za-z0-9][A-Za-z0-9_.-]*)$/;
 
+/**
+ * Primitive kinds whose canonical v1 node is named differently. `agent.run@1`
+ * lowers to a v1 `action` node: the primitive is deliberately not kinded
+ * `action`, because the compiler resolves v2 contracts by v1 node kind and an
+ * `action`-kinded primitive would shadow host tool-registry security policy.
+ */
+const V1_NODE_FOR_PRIMITIVE_KIND: Readonly<Record<string, string | undefined>> =
+  Object.freeze({
+    "agent.run": "action",
+  });
+
 export interface LowerDslV2Options {
   readonly primitiveRegistryV2?: PrimitiveRegistryV2;
   readonly inheritedPolicy?: PrimitivePolicyLimits;
@@ -360,7 +371,7 @@ function lowerStep(
       primitiveSemanticHash: definition.compatibility.semanticHash,
     });
     lowered = {
-      [kind]: withV2SourceLineage(body, {
+      [V1_NODE_FOR_PRIMITIVE_KIND[kind] ?? kind]: withV2SourceLineage(body, {
         authoredPath,
         loweredPath: childLoweredPath,
         use,

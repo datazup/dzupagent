@@ -421,20 +421,27 @@ const VALIDATE_SCHEMA = builtIn({
 });
 
 /**
- * Generic tool/agent dispatch. `adapter.run` covers a *provider adapter* call
- * with a fixed instructions/output shape; this covers the broader V1 `action`
- * node, whose `toolRef` selects any registered tool (`agent.codex.run`,
- * `codev.codex.run`, …) and whose `input` shape is tool-defined.
+ * Agent/tool dispatch by reference. `adapter.run` covers a *provider adapter*
+ * call with a fixed instructions/output shape; this covers dispatch where
+ * `toolRef` selects any registered tool (`agent.codex.run`, `codev.codex.run`,
+ * …) and the `input` shape is tool-defined.
+ *
+ * Deliberately kinded `agent.run`, not `action`: the compiler resolves V2
+ * contracts by v1 node kind, and an `action`-kinded primitive would shadow the
+ * host tool registry's security policy for `action` nodes
+ * (`primitive-admission.ts` falls back to tool-policy admission only when no
+ * primitive resolves). V1 `action` nodes are mapped onto this ref by the
+ * v1→v2 migration instead.
  */
-const ACTION = builtIn(
+const AGENT_RUN = builtIn(
   {
-    namespace: "action",
-    name: "action",
+    namespace: "agent",
+    name: "run",
     version: "1",
     category: "leaf",
     description: "Dispatch a registered tool or agent by reference.",
     requiresCapabilities: [
-      "flow.runtime.action.dispatch@1",
+      "flow.runtime.agent.run@1",
       "flow.runtime.credential.resolve@1",
     ],
     inputSchema: {
@@ -464,6 +471,7 @@ const ACTION = builtIn(
       replay: "deduplicated",
     },
     execution: {
+      // The executor is the v1 `action` node this primitive lowers to.
       kind: "runtime-leaf",
       handlerRef: "action",
       delivery: ["inline", "queued"],
@@ -472,8 +480,8 @@ const ACTION = builtIn(
       cancellation: "required",
     },
     errors: [
-      { code: "ACTION_FAILED", retryable: true },
-      { code: "ACTION_CANCELLED", retryable: false },
+      { code: "AGENT_RUN_FAILED", retryable: true },
+      { code: "AGENT_RUN_CANCELLED", retryable: false },
     ],
     policy: {
       allowedOverrides: ["timeoutMs", "budgetCents", "requireApproval"],
@@ -486,13 +494,13 @@ const ACTION = builtIn(
       redactionReceiptRequired: false,
     },
   },
-  "action"
+  "agent.run"
 );
 
 /** Serializable source of truth for every built-in primitive. */
 export const BUILT_IN_PRIMITIVE_DEFINITIONS_V2: readonly PrimitiveDefinitionV2[] =
   Object.freeze([
-    ACTION,
+    AGENT_RUN,
     ADAPTER_RUN,
     HTTP_PRIMITIVE_DEFINITION_V2,
     VALIDATE,

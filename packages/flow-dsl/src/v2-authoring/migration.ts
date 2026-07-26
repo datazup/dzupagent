@@ -26,6 +26,16 @@ const OUTPUT_FIELDS: Readonly<Record<string, string | undefined>> =
     "validate.schema": "output",
   });
 
+/**
+ * V1 node kinds whose V2 primitive is named differently. `action` dispatch is
+ * `agent.run@1`: an `action`-kinded primitive would shadow the compiler's host
+ * tool-registry security policy for `action` nodes.
+ */
+const PRIMITIVE_KIND_FOR_NODE: Readonly<Record<string, string | undefined>> =
+  Object.freeze({
+    action: "agent.run",
+  });
+
 interface MigrationContext {
   readonly registry: PrimitiveRegistryV2;
   readonly items: DslV1ToV2MigrationItem[];
@@ -245,9 +255,31 @@ function migrateNode(
     };
   }
 
+  if (node.type === "loop") {
+    const bodySteps = migrateNodes(node.body, `${path}.body`, context);
+    context.items.push(
+      item(path, node.type, "equivalent", "maps to core.loop@1")
+    );
+    return {
+      id: node.id,
+      use: "core.loop@1",
+      with: {
+        condition: node.condition,
+        body: bodySteps,
+        ...(node.maxIterations === undefined
+          ? {}
+          : { maxIterations: node.maxIterations }),
+        ...(node.progressKey === undefined
+          ? {}
+          : { progressKey: node.progressKey }),
+      },
+    };
+  }
+
+  const primitiveTarget = PRIMITIVE_KIND_FOR_NODE[node.type] ?? node.type;
   const candidates = context.registry
     .list()
-    .filter((definition) => primitiveKind(definition) === node.type);
+    .filter((definition) => primitiveKind(definition) === primitiveTarget);
   const namespace = candidates[0]?.namespace;
   const version =
     namespace === undefined
@@ -256,7 +288,7 @@ function migrateNode(
   const definition =
     version === undefined
       ? undefined
-      : context.registry.resolve(node.type, version);
+      : context.registry.resolve(primitiveTarget, version);
   if (definition === undefined || definition.category === "composite") {
     context.items.push(
       item(
@@ -272,11 +304,6 @@ function migrateNode(
   }
   context.imports.set(definition.ref, definition.compatibility.semanticHash);
   const body = clone(node) as unknown as Record<string, unknown>;
-  // Child steps are V1 nodes and must be migrated too; carrying them through
-  // verbatim would embed a V1 subtree inside the V2 candidate.
-  if (node.type === "loop") {
-    body.body = migrateNodes(node.body, `${path}.body`, context);
-  }
   delete body.type;
   delete body.id;
   const outputField = OUTPUT_FIELDS[node.type];
@@ -312,11 +339,11 @@ function migrateNode(
     return placeholder(node, path);
   }
   context.items.push(
-    item(path, node.type, "equivalent", `maps to ${node.type}@${version}`)
+    item(path, node.type, "equivalent", `maps to ${primitiveTarget}@${version}`)
   );
   return {
     id: node.id,
-    use: `${node.type}@${version}`,
+    use: `${primitiveTarget}@${version}`,
     with: body,
     ...(output === undefined || outputPort === undefined
       ? {}

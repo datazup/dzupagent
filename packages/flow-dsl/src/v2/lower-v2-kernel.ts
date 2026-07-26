@@ -1,6 +1,4 @@
-import {
-  FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
-} from "@dzupagent/flow-ast/expressions";
+import { FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW } from "@dzupagent/flow-ast/expressions";
 
 import type { DslDiagnostic } from "../types.js";
 import {
@@ -17,7 +15,7 @@ type LowerSteps = (
   raw: unknown,
   authoredPath: string,
   loweredPath: string,
-  context: V2LoweringContext,
+  context: V2LoweringContext
 ) => readonly Readonly<Record<string, unknown>>[];
 
 export function lowerV2CoreStep(
@@ -29,7 +27,7 @@ export function lowerV2CoreStep(
   authoredPath: string,
   loweredPath: string,
   context: V2LoweringContext,
-  lowerSteps: LowerSteps,
+  lowerSteps: LowerSteps
 ): Readonly<Record<string, unknown>> | null {
   if (version !== "1") {
     context.diagnostics.push({
@@ -44,8 +42,7 @@ export function lowerV2CoreStep(
     context.diagnostics.push({
       phase: "normalize",
       code: "V2_POLICY_REQUIRES_PRIMITIVE",
-      message:
-        `policy narrowing requires an exact primitive contract; ${kind}@${version} is a kernel step`,
+      message: `policy narrowing requires an exact primitive contract; ${kind}@${version} is a kernel step`,
       path: `${authoredPath}.policy`,
     });
   }
@@ -53,8 +50,7 @@ export function lowerV2CoreStep(
     context.diagnostics.push({
       phase: "normalize",
       code: "V2_RETRY_REQUIRES_PRIMITIVE",
-      message:
-        `retry requires exact declared primitive errors; ${kind}@${version} is a kernel step`,
+      message: `retry requires exact declared primitive errors; ${kind}@${version} is a kernel step`,
       path: `${authoredPath}.retry`,
     });
   }
@@ -62,8 +58,7 @@ export function lowerV2CoreStep(
     context.diagnostics.push({
       phase: "normalize",
       code: "V2_CATCH_REQUIRES_PRIMITIVE",
-      message:
-        `catch requires exact declared primitive errors; ${kind}@${version} is a kernel step`,
+      message: `catch requires exact declared primitive errors; ${kind}@${version} is a kernel step`,
       path: `${authoredPath}.catch`,
     });
   }
@@ -71,25 +66,33 @@ export function lowerV2CoreStep(
     context.diagnostics.push(
       unsupported(
         `P3a does not support save on ${kind}@${version}`,
-        `${authoredPath}.save`,
-      ),
+        `${authoredPath}.save`
+      )
     );
   }
   if (kind === "core.set") {
-    context.lineage.push({ authoredPath, loweredPath, use: `${kind}@${version}` });
+    context.lineage.push({
+      authoredPath,
+      loweredPath,
+      use: `${kind}@${version}`,
+    });
     return {
       set: withV2SourceLineage(
         { ...base, ...input },
-        coreSourceLineage(kind, version, authoredPath, loweredPath),
+        coreSourceLineage(kind, version, authoredPath, loweredPath)
       ),
     };
   }
   if (kind === "core.complete") {
-    context.lineage.push({ authoredPath, loweredPath, use: `${kind}@${version}` });
+    context.lineage.push({
+      authoredPath,
+      loweredPath,
+      use: `${kind}@${version}`,
+    });
     return {
       complete: withV2SourceLineage(
         { ...base, ...input },
-        coreSourceLineage(kind, version, authoredPath, loweredPath),
+        coreSourceLineage(kind, version, authoredPath, loweredPath)
       ),
     };
   }
@@ -101,7 +104,17 @@ export function lowerV2CoreStep(
       authoredPath,
       loweredPath,
       context,
-      lowerSteps,
+      lowerSteps
+    );
+  }
+  if (kind === "core.loop") {
+    return lowerLoop(
+      input,
+      base,
+      authoredPath,
+      loweredPath,
+      context,
+      lowerSteps
     );
   }
   context.diagnostics.push({
@@ -120,7 +133,7 @@ export function wrapV2GuardedStep(
   use: string,
   authoredPath: string,
   loweredPath: string,
-  context: V2LoweringContext,
+  context: V2LoweringContext
 ): Readonly<Record<string, unknown>> | null {
   const guardId = `${id}__when_guard`;
   if (
@@ -130,8 +143,7 @@ export function wrapV2GuardedStep(
     context.diagnostics.push({
       phase: "normalize",
       code: "V2_GUARD_ID_CONFLICT",
-      message:
-        `generated v2 when guard id "${guardId}" conflicts with another step`,
+      message: `generated v2 when guard id "${guardId}" conflicts with another step`,
       path: `${authoredPath}.id`,
     });
     return null;
@@ -162,7 +174,7 @@ export function wrapV2GuardedStep(
         generated: false,
         guardedStep: true,
         typedConditionBindings: guard.sourceBindings,
-      },
+      }
     ),
   };
 }
@@ -174,26 +186,24 @@ function lowerBranch(
   authoredPath: string,
   loweredPath: string,
   context: V2LoweringContext,
-  lowerSteps: LowerSteps,
+  lowerSteps: LowerSteps
 ): Readonly<Record<string, unknown>> {
   const legacyCondition =
-    typeof raw.when === "string" && raw.when.length > 0
-      ? raw.when
-      : undefined;
+    typeof raw.when === "string" && raw.when.length > 0 ? raw.when : undefined;
   const typedCondition =
     legacyCondition !== undefined || raw.when === undefined
       ? undefined
       : parseV2TypedCondition(
           raw.when,
           `${authoredPath}.when`,
-          context.diagnostics,
+          context.diagnostics
         );
   if (legacyCondition === undefined && typedCondition == null) {
     context.diagnostics.push(
       required(
         "core.branch@1 requires a string or typed boolean when expression",
-        `${authoredPath}.when`,
-      ),
+        `${authoredPath}.when`
+      )
     );
   }
   const allowed = new Set(["then", "else"]);
@@ -202,8 +212,8 @@ function lowerBranch(
       context.diagnostics.push(
         unsupported(
           `core.branch@1 with.${key} is unsupported`,
-          `${authoredPath}.with.${key}`,
-        ),
+          `${authoredPath}.with.${key}`
+        )
       );
     }
   }
@@ -216,7 +226,7 @@ function lowerBranch(
     input.then,
     `${authoredPath}.with.then`,
     `${loweredPath}.if.then`,
-    context,
+    context
   );
   const elseSteps =
     input.else === undefined
@@ -225,15 +235,13 @@ function lowerBranch(
           input.else,
           `${authoredPath}.with.else`,
           `${loweredPath}.if.else`,
-          context,
+          context
         );
   return {
     if: withV2SourceLineage(
       {
         ...base,
-        condition:
-          legacyCondition ??
-          FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
+        condition: legacyCondition ?? FLOW_TYPED_CONDITION_FAIL_CLOSED_SHADOW,
         ...(typedCondition == null
           ? {}
           : { typedCondition: typedCondition.condition }),
@@ -241,19 +249,82 @@ function lowerBranch(
         ...(elseSteps === undefined ? {} : { else: elseSteps }),
       },
       {
-        ...coreSourceLineage(
-          "core.branch",
-          "1",
-          authoredPath,
-          loweredPath,
-        ),
+        ...coreSourceLineage("core.branch", "1", authoredPath, loweredPath),
         ...(typedCondition == null
           ? {}
           : {
-              typedConditionBindings:
-                typedCondition.sourceBindings,
+              typedConditionBindings: typedCondition.sourceBindings,
             }),
+      }
+    ),
+  };
+}
+
+/**
+ * Bounded iteration. Unlike core.branch the condition lives in `with`, matching
+ * the v1 loop node, which evaluates it against state before each iteration.
+ */
+function lowerLoop(
+  input: Record<string, unknown>,
+  base: Record<string, unknown>,
+  authoredPath: string,
+  loweredPath: string,
+  context: V2LoweringContext,
+  lowerSteps: LowerSteps
+): Readonly<Record<string, unknown>> {
+  const condition =
+    typeof input.condition === "string" && input.condition.length > 0
+      ? input.condition
+      : undefined;
+  if (condition === undefined) {
+    context.diagnostics.push(
+      required(
+        "core.loop@1 requires a non-empty string with.condition",
+        `${authoredPath}.with.condition`
+      )
+    );
+  }
+  const allowed = new Set([
+    "condition",
+    "body",
+    "maxIterations",
+    "progressKey",
+  ]);
+  for (const key of Object.keys(input)) {
+    if (!allowed.has(key)) {
+      context.diagnostics.push(
+        unsupported(
+          `core.loop@1 with.${key} is unsupported`,
+          `${authoredPath}.with.${key}`
+        )
+      );
+    }
+  }
+  context.lineage.push({
+    authoredPath,
+    loweredPath,
+    use: "core.loop@1",
+  });
+  const bodySteps = lowerSteps(
+    input.body,
+    `${authoredPath}.with.body`,
+    `${loweredPath}.loop.body`,
+    context
+  );
+  return {
+    loop: withV2SourceLineage(
+      {
+        ...base,
+        condition: condition ?? "",
+        body: bodySteps,
+        ...(typeof input.maxIterations === "number"
+          ? { maxIterations: input.maxIterations }
+          : {}),
+        ...(typeof input.progressKey === "string"
+          ? { progressKey: input.progressKey }
+          : {}),
       },
+      coreSourceLineage("core.loop", "1", authoredPath, loweredPath)
     ),
   };
 }
@@ -262,7 +333,7 @@ function coreSourceLineage(
   kind: string,
   version: string,
   authoredPath: string,
-  loweredPath: string,
+  loweredPath: string
 ): V2SourceLineageMarker {
   return {
     authoredPath,
