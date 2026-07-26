@@ -60,11 +60,18 @@ export const DEFAULT_MEMBER_MAX_RETRIES = 1;
  * default 1). Retries are immediate — member calls are long LLM invocations,
  * so the inter-attempt gap adds nothing; persistent failure is the breaker's
  * job, not backoff's.
+ *
+ * The optional `signal` is threaded into every `generate` attempt so a
+ * cancelled run stops the in-flight provider call. Cancellation also stops the
+ * retry loop: once the signal has aborted there is no point burning the
+ * remaining attempts, so the abort is surfaced immediately. `signal` is
+ * optional and omitted entirely when absent, so existing callers are unchanged.
  */
 export async function runMemberAgent(
   agent: DzupAgent,
   messages: Parameters<DzupAgent["generate"]>[0],
-  retry?: MemberRetryPolicy
+  retry?: MemberRetryPolicy,
+  signal?: AbortSignal
 ): Promise<Awaited<ReturnType<DzupAgent["generate"]>>> {
   const attempts =
     retry?.retryOnFailure === true
@@ -73,8 +80,11 @@ export async function runMemberAgent(
 
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt++) {
+    if (signal?.aborted) {
+      throw lastError ?? signal.reason ?? new Error("Aborted");
+    }
     try {
-      return await agent.generate(messages);
+      return await agent.generate(messages, signal ? { signal } : undefined);
     } catch (err: unknown) {
       lastError = err;
     }
