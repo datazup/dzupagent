@@ -40,7 +40,12 @@ function collectBusEvents(bus: DzupEventBus): DzupEvent[] {
 // ---------------------------------------------------------------------------
 
 describe("AdapterApprovalGate", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -62,7 +67,7 @@ describe("AdapterApprovalGate", () => {
       const promise = gate.requestApproval(ctx);
 
       // Wait a tick for the request to be registered
-      await new Promise((r) => setTimeout(r, 10));
+      await vi.advanceTimersByTimeAsync(0);
 
       const pending = gate.listPending();
       expect(pending).toHaveLength(1);
@@ -77,7 +82,9 @@ describe("AdapterApprovalGate", () => {
 
     it("required mode times out", async () => {
       const gate = new AdapterApprovalGate({ mode: "required", timeoutMs: 50 });
-      const result = await gate.requestApproval(createContext());
+      const resultPromise = gate.requestApproval(createContext());
+      await vi.advanceTimersByTimeAsync(50);
+      const result = await resultPromise;
       expect(result).toBe("timeout");
     });
 
@@ -95,9 +102,11 @@ describe("AdapterApprovalGate", () => {
       expect(result1).toBe("approved");
 
       // Dangerous tag -- requires approval, will timeout
-      const result2 = await gate.requestApproval(
+      const result2Promise = gate.requestApproval(
         createContext({ tags: ["dangerous"] })
       );
+      await vi.advanceTimersByTimeAsync(50);
+      const result2 = await result2Promise;
       expect(result2).toBe("timeout");
     });
 
@@ -121,7 +130,7 @@ describe("AdapterApprovalGate", () => {
       });
       const promise = gate.requestApproval(createContext());
 
-      await new Promise((r) => setTimeout(r, 10));
+      await vi.advanceTimersByTimeAsync(0);
 
       const pending = gate.listPending();
       const found = gate.grant(pending[0]!.requestId, "admin");
@@ -145,7 +154,7 @@ describe("AdapterApprovalGate", () => {
       });
       const promise = gate.requestApproval(createContext());
 
-      await new Promise((r) => setTimeout(r, 10));
+      await vi.advanceTimersByTimeAsync(0);
 
       const pending = gate.listPending();
       const found = gate.reject(pending[0]!.requestId, "too risky");
@@ -184,9 +193,11 @@ describe("AdapterApprovalGate", () => {
       });
 
       // Above threshold -- will timeout
-      const result = await gate.requestApproval(
+      const resultPromise = gate.requestApproval(
         createContext({ estimatedCostCents: 200 })
       );
+      await vi.advanceTimersByTimeAsync(50);
+      const result = await resultPromise;
       expect(result).toBe("timeout");
     });
 
@@ -198,7 +209,9 @@ describe("AdapterApprovalGate", () => {
       });
 
       // No cost estimate -- requires approval, will timeout
-      const result = await gate.requestApproval(createContext());
+      const resultPromise = gate.requestApproval(createContext());
+      await vi.advanceTimersByTimeAsync(50);
+      const result = await resultPromise;
       expect(result).toBe("timeout");
     });
   });
@@ -214,7 +227,7 @@ describe("AdapterApprovalGate", () => {
       gate.requestApproval(createContext({ runId: "run-1" }));
       gate.requestApproval(createContext({ runId: "run-2" }));
 
-      await new Promise((r) => setTimeout(r, 10));
+      await vi.advanceTimersByTimeAsync(0);
 
       const pending = gate.listPending();
       expect(pending).toHaveLength(2);
@@ -234,7 +247,7 @@ describe("AdapterApprovalGate", () => {
       });
       gate.requestApproval(createContext());
 
-      await new Promise((r) => setTimeout(r, 10));
+      await vi.advanceTimersByTimeAsync(0);
 
       const pending = gate.listPending();
       const req = gate.getRequest(pending[0]!.requestId);
@@ -260,7 +273,7 @@ describe("AdapterApprovalGate", () => {
       gate.requestApproval(createContext({ runId: "a" }));
       gate.requestApproval(createContext({ runId: "b" }));
 
-      await new Promise((r) => setTimeout(r, 10));
+      await vi.advanceTimersByTimeAsync(0);
 
       expect(gate.listPending()).toHaveLength(2);
 
@@ -321,7 +334,7 @@ describe("AdapterApprovalGate", () => {
       // Start consuming in background
       const eventsPromise = collectEvents(guardGen);
 
-      await new Promise((r) => setTimeout(r, 10));
+      await vi.advanceTimersByTimeAsync(0);
 
       // Reject the pending request
       const pending = gate.listPending();
@@ -346,9 +359,11 @@ describe("AdapterApprovalGate", () => {
         },
       ];
 
-      const events = await collectEvents(
+      const eventsPromise = collectEvents(
         gate.guard(createContext(), eventStream(source))
       );
+      await vi.advanceTimersByTimeAsync(30);
+      const events = await eventsPromise;
 
       expect(events).toHaveLength(1);
       expect(events[0]!.type).toBe("adapter:failed");
@@ -369,7 +384,7 @@ describe("AdapterApprovalGate", () => {
 
       const promise = gate.requestApproval(createContext());
 
-      await new Promise((r) => setTimeout(r, 10));
+      await vi.advanceTimersByTimeAsync(0);
 
       const pending = gate.listPending();
       gate.grant(pending[0]!.requestId, "admin");
@@ -393,7 +408,7 @@ describe("AdapterApprovalGate", () => {
 
       const promise = gate.requestApproval(createContext());
 
-      await new Promise((r) => setTimeout(r, 10));
+      await vi.advanceTimersByTimeAsync(0);
 
       const pending = gate.listPending();
       gate.reject(pending[0]!.requestId, "too risky");
@@ -417,7 +432,10 @@ describe("AdapterApprovalGate", () => {
         webhookUrl: "https://hooks.example.com/approve",
       });
 
-      await gate.requestApproval(
+      // Fire (but do not await to completion -- the webhook is dispatched
+      // synchronously before the 50ms timeout timer even starts, and we
+      // don't need the full "timeout" resolution for this assertion).
+      void gate.requestApproval(
         createContext({
           estimatedCostCents: 42,
           tags: ["deploy"],
@@ -426,7 +444,7 @@ describe("AdapterApprovalGate", () => {
       );
 
       // Webhook is fire-and-forget, wait a tick
-      await new Promise((r) => setTimeout(r, 20));
+      await vi.advanceTimersByTimeAsync(0);
 
       expect(fetchSpy).toHaveBeenCalledOnce();
       const [url, options] = fetchSpy.mock.calls[0]!;
@@ -457,9 +475,11 @@ describe("AdapterApprovalGate", () => {
         webhookFetchImpl: fetchMock as typeof fetch,
       });
 
-      await gate.requestApproval(createContext());
+      // Fire (but do not await to completion -- see comment in the previous
+      // test for why we don't need the full 50ms "timeout" resolution here).
+      void gate.requestApproval(createContext());
 
-      await new Promise((r) => setTimeout(r, 20));
+      await vi.advanceTimersByTimeAsync(0);
 
       expect(fetchMock).toHaveBeenCalledOnce();
       const [url] = fetchMock.mock.calls[0] as [string];
@@ -478,7 +498,9 @@ describe("AdapterApprovalGate", () => {
       });
 
       // Should not throw despite fetch failure
-      const result = await gate.requestApproval(createContext());
+      const resultPromise = gate.requestApproval(createContext());
+      await vi.advanceTimersByTimeAsync(50);
+      const result = await resultPromise;
       expect(result).toBe("timeout");
     });
   });
@@ -529,11 +551,13 @@ describe("AdapterApprovalGate", () => {
         webhookUrl: "https://hooks.example.com/approve",
       });
 
-      const result = await gate.requestApproval(createContext());
+      const resultPromise = gate.requestApproval(createContext());
+      await vi.advanceTimersByTimeAsync(30);
+      const result = await resultPromise;
       expect(result).toBe("timeout");
 
       // Give the fire-and-forget webhook catch a tick to run.
-      await new Promise((r) => setTimeout(r, 20));
+      await vi.advanceTimersByTimeAsync(0);
 
       expect(warnSpy).toHaveBeenCalled();
       const flat = JSON.stringify(warnSpy.mock.calls);

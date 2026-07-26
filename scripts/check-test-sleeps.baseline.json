@@ -1,5 +1,5 @@
 {
-  "maxSleeps": 246,
+  "maxSleeps": 189,
   "note": "DZUPAGENT-TEST-L-01 baseline: ratchets down only. Bump only via --update-baseline after converting sleeps to fake timers / vi.waitFor, never to accommodate new sleeps.",
-  "updatedAt": "2026-07-25"
+  "updatedAt": "2026-07-26"
 }

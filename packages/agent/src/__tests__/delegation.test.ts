@@ -160,8 +160,12 @@ describe('SimpleDelegationTracker', () => {
 
       await tracker.delegate(makeRequest())
 
-      // Allow microtasks to flush
-      await new Promise((r) => setTimeout(r, 10))
+      // Events are emitted synchronously within delegate()'s awaited chain,
+      // but poll (rather than assume) to stay robust to ordering changes.
+      await vi.waitFor(() => {
+        expect(events.some((e) => e.type === 'delegation:started')).toBe(true)
+        expect(events.some((e) => e.type === 'delegation:completed')).toBe(true)
+      })
 
       const started = events.find((e) => e.type === 'delegation:started')
       const completed = events.find((e) => e.type === 'delegation:completed')
@@ -255,7 +259,9 @@ describe('SimpleDelegationTracker', () => {
 
       await tracker.delegate(makeRequest({ timeoutMs: 30 }))
 
-      await new Promise((r) => setTimeout(r, 10))
+      await vi.waitFor(() => {
+        expect(events.some((e) => e.type === 'delegation:timeout')).toBe(true)
+      })
 
       const timeoutEvent = events.find((e) => e.type === 'delegation:timeout')
       expect(timeoutEvent).toBeDefined()
@@ -312,7 +318,9 @@ describe('SimpleDelegationTracker', () => {
       const resultPromise = tracker.delegate(makeRequest())
 
       // Wait for it to become active
-      await new Promise((r) => setTimeout(r, 10))
+      await vi.waitFor(() => {
+        expect(tracker.getActiveDelegations().length).toBeGreaterThan(0)
+      })
 
       // Cancel
       const cancelled = tracker.cancel('specialist-db')
@@ -334,11 +342,22 @@ describe('SimpleDelegationTracker', () => {
 
       const resultPromise = tracker.delegate(makeRequest())
 
-      await new Promise((r) => setTimeout(r, 10))
+      await vi.waitFor(() => {
+        expect(tracker.getActiveDelegations().length).toBeGreaterThan(0)
+      })
       tracker.cancel('specialist-db')
 
       await resultPromise
-      await new Promise((r) => setTimeout(r, 10))
+      await vi.waitFor(() => {
+        expect(
+          events.some(
+            (e) =>
+              e.type === 'delegation:cancelled' ||
+              e.type === 'delegation:failed' ||
+              e.type === 'delegation:timeout',
+          ),
+        ).toBe(true)
+      })
 
       const cancelEvent = events.find((e) =>
         e.type === 'delegation:cancelled' || e.type === 'delegation:failed' || e.type === 'delegation:timeout',
@@ -357,7 +376,9 @@ describe('SimpleDelegationTracker', () => {
 
       const resultPromise = tracker.delegate(makeRequest())
 
-      await new Promise((r) => setTimeout(r, 10))
+      await vi.waitFor(() => {
+        expect(tracker.getActiveDelegations().length).toBeGreaterThan(0)
+      })
       tracker.cancel('specialist-db')
 
       await resultPromise
@@ -397,7 +418,9 @@ describe('SimpleDelegationTracker', () => {
       const p3 = tracker.delegate(makeRequest({ targetAgentId: 'agent-ui' }))
 
       // Give them time to start
-      await new Promise((r) => setTimeout(r, 10))
+      await vi.waitFor(() => {
+        expect(tracker.getActiveDelegations().length).toBe(3)
+      })
 
       const active = tracker.getActiveDelegations()
       expect(active.length).toBe(3)
@@ -427,7 +450,9 @@ describe('SimpleDelegationTracker', () => {
       const p1 = tracker.delegate(makeRequest({ targetAgentId: 'agent-db' }))
       const p2 = tracker.delegate(makeRequest({ targetAgentId: 'agent-api' }))
 
-      await new Promise((r) => setTimeout(r, 10))
+      await vi.waitFor(() => {
+        expect(tracker.getActiveDelegations().length).toBe(2)
+      })
 
       // Cancel only agent-db
       const cancelled = tracker.cancel('agent-db')
@@ -491,7 +516,9 @@ describe('SimpleDelegationTracker', () => {
       })
 
       await tracker.delegate(makeRequest())
-      await new Promise((r) => setTimeout(r, 10))
+      await vi.waitFor(() => {
+        expect(events.some((e) => e.type === 'delegation:failed')).toBe(true)
+      })
 
       const failedEvent = events.find((e) => e.type === 'delegation:failed')
       expect(failedEvent).toBeDefined()

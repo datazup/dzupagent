@@ -348,6 +348,21 @@ function makePolicy(
 // Tests
 // ============================================================================
 
+// Global fake-timer harness: every setTimeout in this suite (both the
+// EscalationEngine's own SLA/cooldown timers and InMemoryApprovalStateStore's
+// internal poll() timeout) becomes fake here. Real-time "let internal timers
+// fire" waits (`await new Promise((res) => setTimeout(res, N))`) are replaced
+// with `await vi.advanceTimersByTimeAsync(N)`, which advances fake time AND
+// flushes microtasks/pending promise chains — required so the escalation
+// chain actually proceeds to the next level synchronously with the advance.
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("EscalationPolicy — policy validation", () => {
   it("throws when levels array is empty", () => {
     const { policy, notifiers } = makePolicy();
@@ -576,7 +591,7 @@ describe("EscalationPolicy — escalation chain (level 1 → 2 → 3)", () => {
     const runPromise = engine.run("r1", "ap1", null);
     // Level 1 will time out (timeoutMs=50); level 2 key = "ap1::lvl2"
     // Grant level 2 after it has been created.
-    await new Promise<void>((res) => setTimeout(res, 80));
+    await vi.advanceTimersByTimeAsync(80);
     await store.grant("r1", "ap1::lvl2");
     const outcome = await runPromise;
     expect(outcome.decision).toBe("granted");
@@ -587,7 +602,7 @@ describe("EscalationPolicy — escalation chain (level 1 → 2 → 3)", () => {
 
   it("level 2 notifier receives level=2 in the event", async () => {
     const runPromise = engine.run("r1", "ap1", null);
-    await new Promise<void>((res) => setTimeout(res, 80));
+    await vi.advanceTimersByTimeAsync(80);
     await store.grant("r1", "ap1::lvl2");
     await runPromise;
     expect(notifiers[1].calls[0].level).toBe(2);
@@ -607,7 +622,7 @@ describe("EscalationPolicy — escalation chain (level 1 → 2 → 3)", () => {
     const localEngine = new EscalationEngine(localStore, localPolicy);
     const runPromise = localEngine.run("r1", "ap1", null);
     // Level 1 expires at ~50ms, level 2 expires at ~100ms, level 3 opens ~100ms
-    await new Promise<void>((res) => setTimeout(res, 160));
+    await vi.advanceTimersByTimeAsync(160);
     await localStore.grant("r1", "ap1::lvl3");
     const outcome = await runPromise;
     localStore.clear();
@@ -628,7 +643,7 @@ describe("EscalationPolicy — escalation chain (level 1 → 2 → 3)", () => {
     });
     const localEngine = new EscalationEngine(localStore, localPolicy);
     const runPromise = localEngine.run("r1", "ap1", null);
-    await new Promise<void>((res) => setTimeout(res, 160));
+    await vi.advanceTimersByTimeAsync(160);
     await localStore.grant("r1", "ap1::lvl3");
     await runPromise;
     localStore.clear();
@@ -638,30 +653,34 @@ describe("EscalationPolicy — escalation chain (level 1 → 2 → 3)", () => {
   });
 
   it("throws ApprovalTimeoutError when all three levels time out", async () => {
-    await expect(engine.run("r1", "ap1", null)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
-    );
+    const runPromise = engine.run("r1", "ap1", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
   });
 
   it("escalation log has three entries after full chain timeout", async () => {
-    await expect(engine.run("r1", "ap1", null)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
-    );
+    const runPromise = engine.run("r1", "ap1", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
     expect(engine.getEscalationLog()).toHaveLength(3);
   });
 
   it("escalation log entries have ascending level numbers", async () => {
-    await expect(engine.run("r1", "ap1", null)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
-    );
+    const runPromise = engine.run("r1", "ap1", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
     const log = engine.getEscalationLog();
     expect(log.map((e) => e.level)).toEqual([1, 2, 3]);
   });
 
   it("escalation log records the correct levelName for each entry", async () => {
-    await expect(engine.run("r1", "ap1", null)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
-    );
+    const runPromise = engine.run("r1", "ap1", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
     const log = engine.getEscalationLog();
     expect(log[0].levelName).toBe("team-lead");
     expect(log[1].levelName).toBe("manager");
@@ -670,7 +689,7 @@ describe("EscalationPolicy — escalation chain (level 1 → 2 → 3)", () => {
 
   it("rejection at level 2 does not escalate to level 3", async () => {
     const runPromise = engine.run("r1", "ap1", null);
-    await new Promise<void>((res) => setTimeout(res, 80));
+    await vi.advanceTimersByTimeAsync(80);
     await store.reject("r1", "ap1::lvl2", "manager said no");
     const outcome = await runPromise;
     expect(outcome.decision).toBe("rejected");
@@ -679,7 +698,7 @@ describe("EscalationPolicy — escalation chain (level 1 → 2 → 3)", () => {
 
   it("resolution log records resolvedAtLevel=2 when level 2 grants", async () => {
     const runPromise = engine.run("r1", "ap1", null);
-    await new Promise<void>((res) => setTimeout(res, 80));
+    await vi.advanceTimersByTimeAsync(80);
     await store.grant("r1", "ap1::lvl2");
     await runPromise;
     const res = engine.getResolutionLog();
@@ -697,7 +716,7 @@ describe("EscalationPolicy — escalation chain (level 1 → 2 → 3)", () => {
     });
     const localEngine = new EscalationEngine(localStore, localPolicy);
     const runPromise = localEngine.run("r1", "ap1", null);
-    await new Promise<void>((res) => setTimeout(res, 160));
+    await vi.advanceTimersByTimeAsync(160);
     await localStore.grant("r1", "ap1::lvl3");
     await runPromise;
     localStore.clear();
@@ -770,7 +789,7 @@ describe("EscalationPolicy — SLA tracking", () => {
     });
     const engine = new EscalationEngine(store, policy);
     const runPromise = engine.run("r1", "ap1", null);
-    await new Promise<void>((res) => setTimeout(res, 60));
+    await vi.advanceTimersByTimeAsync(60);
     expect(engine.timeRemainingMs()!).toBe(0);
     await store.grant("r1", "ap1");
     await runPromise;
@@ -800,7 +819,7 @@ describe("EscalationPolicy — SLA breach callback", () => {
     });
     const engine = new EscalationEngine(store, policy);
     const runPromise = engine.run("r1", "ap1", null);
-    await new Promise<void>((res) => setTimeout(res, 80));
+    await vi.advanceTimersByTimeAsync(80);
     expect(breachCb).toHaveBeenCalledWith("r1", "ap1");
     await store.grant("r1", "ap1"); // resolve so test doesn't hang
     await runPromise;
@@ -818,7 +837,7 @@ describe("EscalationPolicy — SLA breach callback", () => {
     });
     const engine = new EscalationEngine(store, policy);
     const runPromise = engine.run("r1", "ap1", null);
-    await new Promise<void>((res) => setTimeout(res, 60));
+    await vi.advanceTimersByTimeAsync(60);
     expect(engine.isSlaBreach()).toBe(true);
     await store.grant("r1", "ap1");
     await runPromise;
@@ -852,7 +871,7 @@ describe("EscalationPolicy — SLA breach callback", () => {
     });
     const engine = new EscalationEngine(store, policy);
     const runPromise = engine.run("r1", "ap-sla-test", null);
-    await new Promise<void>((res) => setTimeout(res, 60));
+    await vi.advanceTimersByTimeAsync(60);
     expect(breachCb).toHaveBeenCalledWith("r1", "ap-sla-test");
     await store.grant("r1", "ap-sla-test");
     await runPromise;
@@ -862,9 +881,10 @@ describe("EscalationPolicy — SLA breach callback", () => {
     store = new InMemoryApprovalStateStore();
     const { policy } = makePolicy({ slaMs: 500 }); // all levels timeoutMs=50
     const engine = new EscalationEngine(store, policy);
-    await expect(engine.run("r1", "ap1", null)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
-    );
+    const runPromise = engine.run("r1", "ap1", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
     expect(engine.isSlaBreach()).toBe(true);
   });
 });
@@ -930,7 +950,7 @@ describe("EscalationPolicy — notification routing", () => {
     const { policy, notifiers } = makePolicy();
     const engine = new EscalationEngine(store, policy);
     const runPromise = engine.run("r1", "ap1", null);
-    await new Promise<void>((res) => setTimeout(res, 80));
+    await vi.advanceTimersByTimeAsync(80);
     await store.grant("r1", "ap1::lvl2");
     await runPromise;
     expect(notifiers[1].calls[0].reason).toMatch(/Level 1/);
@@ -945,9 +965,10 @@ describe("EscalationPolicy — notification routing", () => {
       levels: policy.levels.map((lvl) => ({ ...lvl, notifier: shared })),
     };
     const engine = new EscalationEngine(store, sharedPolicy);
-    await expect(engine.run("r1", "ap1", null)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
-    );
+    const runPromise = engine.run("r1", "ap1", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
     // All three levels used the same notifier
     expect(shared.calls).toHaveLength(3);
   });
@@ -1019,7 +1040,7 @@ describe("EscalationPolicy — policy configuration", () => {
     const engine = new EscalationEngine(store, policy);
     const runPromise = engine.run("r1", "ap1", null);
     // Level A times out in ~30ms; level B should now be active
-    await new Promise<void>((res) => setTimeout(res, 60));
+    await vi.advanceTimersByTimeAsync(60);
     await store.grant("r1", "ap1::lvl2");
     const outcome = await runPromise;
     expect(outcome.decision).toBe("granted");
@@ -1038,9 +1059,10 @@ describe("EscalationPolicy — policy configuration", () => {
       slaMs: 1_000,
     };
     const engine = new EscalationEngine(store, policy);
-    await expect(engine.run("r1", "ap1", null)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
-    );
+    const runPromise = engine.run("r1", "ap1", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
     expect(n.calls).toHaveLength(2); // exactly 2 levels attempted
   });
 
@@ -1057,9 +1079,10 @@ describe("EscalationPolicy — policy configuration", () => {
       levels,
       slaMs: 5_000,
     });
-    await expect(engine.run("r1", "ap1", null)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
-    );
+    const runPromise = engine.run("r1", "ap1", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
     expect(n.calls).toHaveLength(5);
   });
 });
@@ -1094,11 +1117,11 @@ describe("EscalationPolicy — cooldown between escalation steps", () => {
     const runPromise = engine.run("r1", "ap1", null);
 
     // After L1 times out (~20ms) + before cooldown ends (~70ms): L2 not yet active
-    await new Promise<void>((res) => setTimeout(res, 30));
+    await vi.advanceTimersByTimeAsync(30);
     expect(n2.calls).toHaveLength(0);
 
     // After cooldown completes
-    await new Promise<void>((res) => setTimeout(res, 60));
+    await vi.advanceTimersByTimeAsync(60);
     expect(n2.calls).toHaveLength(1);
 
     await store.grant("r1", "ap1::lvl2");
@@ -1124,7 +1147,7 @@ describe("EscalationPolicy — cooldown between escalation steps", () => {
     };
     const engine = new EscalationEngine(store, policy);
     const runPromise = engine.run("r1", "ap1", null);
-    await new Promise<void>((res) => setTimeout(res, 80));
+    await vi.advanceTimersByTimeAsync(80);
     expect(n2.calls).toHaveLength(1);
     await store.grant("r1", "ap1::lvl2");
     await runPromise;
@@ -1154,7 +1177,7 @@ describe("EscalationPolicy — cooldown between escalation steps", () => {
     };
     const engine = new EscalationEngine(store, policy);
     const runPromise = engine.run("r1", "ap1", null);
-    await new Promise<void>((res) => setTimeout(res, 200));
+    await vi.advanceTimersByTimeAsync(200);
     // L1 (20ms) → L2 cooldown (30ms) → L2 poll (20ms) → L3 (no cooldown)
     expect(n.calls).toHaveLength(3);
     await store.grant("r1", "ap1::lvl3");
@@ -1175,9 +1198,10 @@ describe("EscalationPolicy — escalation metadata", () => {
     store = new InMemoryApprovalStateStore();
     const { policy } = makePolicy();
     const engine = new EscalationEngine(store, policy);
-    await expect(engine.run("r1", "ap1", null)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
-    );
+    const runPromise = engine.run("r1", "ap1", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
     for (const entry of engine.getEscalationLog()) {
       expect(entry.notifiedAt).toBeInstanceOf(Date);
     }
@@ -1187,9 +1211,10 @@ describe("EscalationPolicy — escalation metadata", () => {
     store = new InMemoryApprovalStateStore();
     const { policy } = makePolicy();
     const engine = new EscalationEngine(store, policy);
-    await expect(
-      engine.run("run-meta", "ap-meta", null)
-    ).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    const runPromise = engine.run("run-meta", "ap-meta", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
     const log = engine.getEscalationLog();
     expect(log[0].runId).toBe("run-meta");
     // First entry uses the original approvalId
@@ -1206,9 +1231,10 @@ describe("EscalationPolicy — escalation metadata", () => {
       ],
     });
     const engine = new EscalationEngine(store, policy);
-    await expect(engine.run("r1", "ap1", null)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
-    );
+    const runPromise = engine.run("r1", "ap1", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
     const log = engine.getEscalationLog();
     expect(log[0].approvers).toEqual(["alice"]);
     expect(log[1].approvers).toEqual(["bob", "carol"]);
@@ -1219,9 +1245,10 @@ describe("EscalationPolicy — escalation metadata", () => {
     store = new InMemoryApprovalStateStore();
     const { policy } = makePolicy();
     const engine = new EscalationEngine(store, policy);
-    await expect(engine.run("r1", "ap1", null)).rejects.toBeInstanceOf(
-      ApprovalTimeoutError
-    );
+    const runPromise = engine.run("r1", "ap1", null);
+    const assertion = expect(runPromise).rejects.toBeInstanceOf(ApprovalTimeoutError);
+    await vi.runAllTimersAsync();
+    await assertion;
     const log = engine.getEscalationLog();
     for (let i = 1; i < log.length; i++) {
       expect(log[i].notifiedAt.getTime()).toBeGreaterThanOrEqual(
@@ -1346,7 +1373,7 @@ describe("EscalationPolicy — concurrent escalations", () => {
     // Immediately grant r2 (stays at level 1)
     await store.grant("r2", "ap2");
     // r1 times out level 1 then gets granted at level 2
-    await new Promise<void>((res) => setTimeout(res, 80));
+    await vi.advanceTimersByTimeAsync(80);
     await store.grant("r1", "ap1::lvl2");
 
     await Promise.all([run1, run2]);
@@ -1381,7 +1408,7 @@ describe("EscalationPolicy — request-level policy override", () => {
       slaMs: 40,
       onSlaBreach: breachCb,
     });
-    await new Promise<void>((res) => setTimeout(res, 80));
+    await vi.advanceTimersByTimeAsync(80);
     expect(breachCb).toHaveBeenCalled();
     await store.grant("r1", "ap1");
     await runPromise;
@@ -1404,7 +1431,7 @@ describe("EscalationPolicy — request-level policy override", () => {
     const runPromise = engine.run("r1", "ap1", null, {
       onSlaBreach: localCb,
     });
-    await new Promise<void>((res) => setTimeout(res, 80));
+    await vi.advanceTimersByTimeAsync(80);
     expect(localCb).toHaveBeenCalled();
     expect(globalCb).not.toHaveBeenCalled();
     await store.grant("r1", "ap1");
@@ -1438,7 +1465,7 @@ describe("EscalationPolicy — request-level policy override", () => {
     const originalSlaMs = policy.slaMs;
     const engine = new EscalationEngine(store, policy);
     const runPromise = engine.run("r1", "ap1", null, { slaMs: 30 });
-    await new Promise<void>((res) => setTimeout(res, 60));
+    await vi.advanceTimersByTimeAsync(60);
     // Original policy slaMs must be unchanged
     expect(policy.slaMs).toBe(originalSlaMs);
     await store.grant("r1", "ap1");

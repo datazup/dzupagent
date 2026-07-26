@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { InMemoryRunQueue } from '../queue/run-queue.js'
 
 function createJobInput(overrides?: Record<string, unknown>) {
@@ -12,7 +12,12 @@ function createJobInput(overrides?: Record<string, unknown>) {
 }
 
 describe('InMemoryRunQueue', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
   afterEach(() => {
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
 
@@ -32,7 +37,7 @@ describe('InMemoryRunQueue', () => {
     await queue.enqueue(createJobInput())
 
     // Wait briefly for job processing
-    await new Promise((r) => setTimeout(r, 50))
+    await vi.advanceTimersByTimeAsync(50)
 
     const stats = queue.stats()
     expect(stats.completed).toBeGreaterThanOrEqual(1)
@@ -52,7 +57,7 @@ describe('InMemoryRunQueue', () => {
       processed.push(job.runId)
     })
 
-    await new Promise((r) => setTimeout(r, 100))
+    await vi.advanceTimersByTimeAsync(100)
 
     expect(processed[0]).toBe('high-priority')
     expect(processed[1]).toBe('mid-priority')
@@ -85,6 +90,8 @@ describe('InMemoryRunQueue', () => {
     queue.start(async () => {
       concurrent++
       maxConcurrent = Math.max(maxConcurrent, concurrent)
+      // sleep-ok: runs under this file's vi.useFakeTimers(); resolved by the
+      // test's own vi.advanceTimersByTimeAsync(200) below, not real time.
       await new Promise((r) => setTimeout(r, 50))
       concurrent--
     })
@@ -94,7 +101,7 @@ describe('InMemoryRunQueue', () => {
     await queue.enqueue(createJobInput())
     await queue.enqueue(createJobInput())
 
-    await new Promise((r) => setTimeout(r, 200))
+    await vi.advanceTimersByTimeAsync(200)
 
     expect(maxConcurrent).toBeLessThanOrEqual(2)
     await queue.stop(false)
@@ -108,7 +115,7 @@ describe('InMemoryRunQueue', () => {
     })
 
     await queue.enqueue(createJobInput({ runId: 'failing-job' }))
-    await new Promise((r) => setTimeout(r, 100))
+    await vi.advanceTimersByTimeAsync(100)
 
     const deadLetter = queue.getDeadLetter()
     expect(deadLetter).toHaveLength(1)
@@ -125,7 +132,7 @@ describe('InMemoryRunQueue', () => {
 
     queue.start(async () => { throw new Error('fail') })
     await queue.enqueue(createJobInput())
-    await new Promise((r) => setTimeout(r, 100))
+    await vi.advanceTimersByTimeAsync(100)
 
     expect(queue.getDeadLetter()).toHaveLength(1)
     queue.clearDeadLetter()
@@ -144,7 +151,7 @@ describe('InMemoryRunQueue', () => {
 
     await queue.enqueue(createJobInput())
     // Wait for initial + 2 retries (backoff: 10ms, 20ms)
-    await new Promise((r) => setTimeout(r, 200))
+    await vi.advanceTimersByTimeAsync(200)
 
     // 1 initial + 2 retries = 3 total attempts
     expect(attempts).toBe(3)
@@ -158,12 +165,18 @@ describe('InMemoryRunQueue', () => {
     let completed = false
 
     queue.start(async () => {
+      // sleep-ok: runs under this file's vi.useFakeTimers(); resolved by the
+      // test's own vi.advanceTimersByTimeAsync(300) below, not real time.
       await new Promise((r) => setTimeout(r, 50))
       completed = true
     })
 
     await queue.enqueue(createJobInput())
-    await queue.stop(true)
+    const stopPromise = queue.stop(true)
+    // stop(true) internally polls activeJobs.size via a 200ms setInterval and
+    // waits for the in-flight job's own 50ms delay — advance past both.
+    await vi.advanceTimersByTimeAsync(300)
+    await stopPromise
 
     expect(completed).toBe(true)
   })
@@ -174,11 +187,13 @@ describe('InMemoryRunQueue', () => {
 
     queue.start(async (_job, signal) => {
       signal.addEventListener('abort', () => { signalAborted = true })
+      // sleep-ok: runs under this file's vi.useFakeTimers(); this job is meant
+      // to never complete before being aborted — no advance ever reaches it.
       await new Promise((r) => setTimeout(r, 5000))
     })
 
     await queue.enqueue(createJobInput())
-    await new Promise((r) => setTimeout(r, 20))
+    await vi.advanceTimersByTimeAsync(20)
     await queue.stop(false)
 
     expect(signalAborted).toBe(true)
@@ -190,11 +205,13 @@ describe('InMemoryRunQueue', () => {
 
     queue.start(async (_job, signal) => {
       signal.addEventListener('abort', () => { aborted = true })
+      // sleep-ok: runs under this file's vi.useFakeTimers(); this job is meant
+      // to never complete before being cancelled — no advance ever reaches it.
       await new Promise((r) => setTimeout(r, 5000))
     })
 
     await queue.enqueue(createJobInput({ runId: 'active-job' }))
-    await new Promise((r) => setTimeout(r, 20))
+    await vi.advanceTimersByTimeAsync(20)
 
     const cancelled = queue.cancel('active-job')
     expect(cancelled).toBe(true)
@@ -206,7 +223,7 @@ describe('InMemoryRunQueue', () => {
     const queue = new InMemoryRunQueue({ maxRetries: 0 })
     queue.start(async () => { throw new Error('fail') })
     await queue.enqueue(createJobInput())
-    await new Promise((r) => setTimeout(r, 50))
+    await vi.advanceTimersByTimeAsync(50)
 
     const dl1 = queue.getDeadLetter()
     const dl2 = queue.getDeadLetter()

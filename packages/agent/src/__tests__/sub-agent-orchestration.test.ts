@@ -441,7 +441,12 @@ describe("Fan-out patterns — parallel sub-agent dispatch", () => {
       { task: "T1", specialistId: "ev-a", input: {} },
       { task: "T2", specialistId: "ev-b", input: {} },
     ]);
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => {
+      const startedEvents = events.filter(
+        (e) => e.type === "delegation:started",
+      );
+      expect(startedEvents.length).toBeGreaterThanOrEqual(2);
+    });
     const startedEvents = events.filter((e) => e.type === "delegation:started");
     expect(startedEvents.length).toBeGreaterThanOrEqual(2);
   });
@@ -841,7 +846,11 @@ describe("Sub-agent error handling — failures and timeouts", () => {
       input: {},
       timeoutMs: 30,
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await vi.waitFor(() => {
+      expect(
+        collectedEvents.some((e) => e.type === "delegation:timeout"),
+      ).toBe(true);
+    });
     expect(collectedEvents.some((e) => e.type === "delegation:timeout")).toBe(
       true,
     );
@@ -973,6 +982,9 @@ describe("Sub-agent lifecycle — creation, execution, teardown", () => {
       runStore: store,
       executor: async (runId, _agentId, _input, signal) => {
         if (signal.aborted) return;
+        // sleep-ok: load-bearing real delay — the test asserts the
+        // delegation is observably "active" mid-flight, which requires the
+        // executor to still be running when the assertion below polls it.
         await new Promise((r) => setTimeout(r, 200));
         await store.update(runId, {
           status: "completed",
@@ -986,7 +998,9 @@ describe("Sub-agent lifecycle — creation, execution, teardown", () => {
       task: "work",
       input: {},
     });
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => {
+      expect(tracker.getActiveDelegations().length).toBeGreaterThan(0);
+    });
     expect(tracker.getActiveDelegations().length).toBeGreaterThan(0);
     await p;
   });
@@ -1042,6 +1056,9 @@ describe("Sub-agent lifecycle — creation, execution, teardown", () => {
             () => rej(new DOMException("Aborted")),
             { once: true },
           );
+          // sleep-ok: arbitrarily long delay so this executor never
+          // completes before the test cancels it below; the 10s never
+          // actually elapses in the test run.
           setTimeout(_res, 10000);
         });
         await store.update(runId, {
@@ -1056,7 +1073,9 @@ describe("Sub-agent lifecycle — creation, execution, teardown", () => {
       task: "work",
       input: {},
     });
-    await new Promise((r) => setTimeout(r, 15));
+    await vi.waitFor(() => {
+      expect(tracker.getActiveDelegations().length).toBeGreaterThan(0);
+    });
     const cancelled = tracker.cancel("cancellable");
     expect(cancelled).toBe(true);
     const result = await p;
@@ -1076,6 +1095,9 @@ describe("Sub-agent lifecycle — creation, execution, teardown", () => {
       runStore: store,
       executor: async (runId, _agentId, _input, signal) => {
         if (signal.aborted) return;
+        // sleep-ok: load-bearing real delay — the test asserts all three
+        // delegations are observably "active" simultaneously, which
+        // requires every executor to still be running when it polls below.
         await new Promise((r) => setTimeout(r, 300));
         await store.update(runId, {
           status: "completed",
@@ -1099,7 +1121,9 @@ describe("Sub-agent lifecycle — creation, execution, teardown", () => {
       task: "t3",
       input: {},
     });
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => {
+      expect(tracker.getActiveDelegations()).toHaveLength(3);
+    });
     expect(tracker.getActiveDelegations()).toHaveLength(3);
     await Promise.all([p1, p2, p3]);
     expect(tracker.getActiveDelegations()).toHaveLength(0);
@@ -1116,7 +1140,13 @@ describe("Sub-agent lifecycle — creation, execution, teardown", () => {
       task: "task",
       input: {},
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await vi.waitFor(() => {
+      expect(
+        events.some(
+          (e) => e.type === "delegation:completed" || e.type === "delegation:failed",
+        ),
+      ).toBe(true);
+    });
     const types = events.map((e) => e.type);
     const startIdx = types.indexOf("delegation:started");
     const endIdx = types.findIndex(
