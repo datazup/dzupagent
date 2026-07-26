@@ -531,3 +531,32 @@ describe('UNIMPLEMENTED_AT_RUNTIME', () => {
     expect(result.warnings.some((w) => w.code === 'UNIMPLEMENTED_AT_RUNTIME')).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// classify / memory are deliberately NOT warned at the semantic stage.
+// See the DECIDED note in stages/semantic-walk/dispatch.ts. These pin the
+// decision so it is not silently reversed by someone generalizing the emit
+// warning to every partially-lowered node kind.
+// ---------------------------------------------------------------------------
+
+describe('classify and memory semantic-stage silence', () => {
+  it('does not raise UNIMPLEMENTED_AT_RUNTIME for a classify node', async () => {
+    const resolver = makeResolver([])
+    const ast: FlowNode = {
+      type: 'classify',
+      id: 'c1',
+      input: 'x',
+      categories: ['a', 'b'],
+      output: 'label',
+    }
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    expect(result.warnings.some((w) => w.code === 'UNIMPLEMENTED_AT_RUNTIME')).toBe(false)
+  })
+
+  it('does not raise UNIMPLEMENTED_AT_RUNTIME for a memory node', async () => {
+    const resolver = makeResolver([])
+    const ast: FlowNode = { type: 'memory', id: 'm1', operation: 'read', output: 'recalled' }
+    const result = await semanticResolve(ast, { toolResolver: resolver })
+    expect(result.warnings.some((w) => w.code === 'UNIMPLEMENTED_AT_RUNTIME')).toBe(false)
+  })
+})

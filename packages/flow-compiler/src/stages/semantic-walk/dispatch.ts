@@ -198,6 +198,30 @@ export async function visit(
     case "knowledge.write":
     case "knowledge.query": {
       // Leaf nodes — no refs to resolve in semantic stage.
+      //
+      // DECIDED: `classify` and `memory` deliberately get NO semantic-stage
+      // UNIMPLEMENTED_AT_RUNTIME warning, unlike `emit` above.
+      //
+      // Two independent reasons, either of which is sufficient:
+      //
+      // 1. They are already reported. FLOW_NODE_CAPABILITY_REGISTRY marks both
+      //    `status: "partial"`, so `conformanceWarnings()` raises
+      //    PARTIAL_NODE_SUPPORT for them at stage 4. A second warning here
+      //    would duplicate that, and the registry is the systematic home for
+      //    "this node kind lowers incompletely" — per-node warnings are not.
+      //
+      // 2. The `emit` case does not generalize to them. An emit node is a pure
+      //    sink: nothing downstream reads it, so a dead emit is silently and
+      //    losslessly dropped, which is exactly what makes it worth warning
+      //    about. `classify` and `memory` instead declare output symbols that
+      //    later nodes reference. They are also not equally unwired — the
+      //    registry records `memory` as "degraded" (skill-chain HAS a memory
+      //    projection) versus `classify` as "metadata-only". A blanket "will
+      //    not run at runtime" warning would therefore be false for `memory`
+      //    on the skill-chain route.
+      //
+      // Revisit only if the registry status changes; do not re-derive from the
+      // fact that these cases fall through to a bare `return`.
       return;
     }
     case "try_catch": {
