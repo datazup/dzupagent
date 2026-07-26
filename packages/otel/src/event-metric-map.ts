@@ -10,6 +10,7 @@ import {
   agentLifecycleMetricMap,
   approvalMetricMap,
   budgetMetricMap,
+  contractNetMetricMap,
   delegationMetricMap,
   emptyEventMetricMap,
   executionLedgerMetricMap,
@@ -31,8 +32,8 @@ import {
   toolLifecycleMetricMap,
   vectorMetricMap,
   workflowDomainMetricMap,
-} from './event-metric-map/index.js'
-import type { MetricMapFragment } from './event-metric-map/index.js'
+} from "./event-metric-map/index.js";
+import type { MetricMapFragment } from "./event-metric-map/index.js";
 
 /**
  * Complete mapping of DzupEvent types to their metric representations.
@@ -57,6 +58,7 @@ export const EVENT_METRIC_MAP: MetricMapFragment = {
   ...pipelineRetryMetricMap,
   ...telemetryMetricMap,
   ...delegationMetricMap,
+  ...contractNetMetricMap,
   ...supervisorMetricMap,
   ...executionLedgerMetricMap,
   ...flowCompileMetricMap,
@@ -65,19 +67,19 @@ export const EVENT_METRIC_MAP: MetricMapFragment = {
   ...personaRegistryMetricMap,
   ...emptyEventMetricMap,
   ...workflowDomainMetricMap,
-}
+};
 
 /**
  * Get all unique metric names defined in the mapping.
  */
 export function getAllMetricNames(): string[] {
-  const names = new Set<string>()
+  const names = new Set<string>();
   for (const mappings of Object.values(EVENT_METRIC_MAP)) {
     for (const mapping of mappings) {
-      names.add(mapping.metricName)
+      names.add(mapping.metricName);
     }
   }
-  return [...names]
+  return [...names];
 }
 
-export type { MetricMapping } from './event-metric-map/index.js'
+export type { MetricMapping } from "./event-metric-map/index.js";
