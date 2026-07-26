@@ -42,7 +42,10 @@ export type { AdapterDomainEvent } from "./event-types-adapter.js";
 export type { AgentDomainEvent } from "./event-types-agent.js";
 export type { DomainLifecycleEvent } from "./event-types-domain.js";
 export type { LlmMemoryDomainEvent } from "./event-types-llm-memory.js";
-export type { OrchestrationDomainEvent } from "./event-types-orchestration.js";
+export type {
+  DelegationEventHierarchy,
+  OrchestrationDomainEvent,
+} from "./event-types-orchestration.js";
 export type { PlatformDomainEvent } from "./event-types-platform.js";
 
 /**

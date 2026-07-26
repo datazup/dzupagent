@@ -489,6 +489,9 @@ export class DelegatingSupervisor {
    * - `DelegationMetadata.hierarchy` — echoed onto the result by
    *   `finalizeSuccess` / `finalizeFailure`, and by the provider-port path,
    *   so a completed or failed delegation carries its tree position.
+   * - `delegation:started` event payload — emitted by `startDelegation` as a
+   *   nested `hierarchy` object, so an OUT-OF-PROCESS observer can rebuild the
+   *   orchestration tree from the event stream alone.
    *
    * A supervisor with no hierarchy signal at all (no `parentRunId`, no
    * `branchId`, no explicit `depth`) stamps nothing: the `hierarchy` key is
@@ -502,10 +505,21 @@ export class DelegatingSupervisor {
    *
    * ## Still not wired
    *
-   * The `delegation:*` event payloads in `@dzupagent/core/events` still carry
-   * no hierarchy fields; adding them is a cross-package contract change and
-   * remains out of scope. Overloading `DelegationContext.parentRunId` to carry
-   * concept (1) is explicitly rejected.
+   * Only `delegation:started` carries `hierarchy`; the four terminal
+   * `delegation:*` events do not. They are unreachable without a preceding
+   * `started` event bearing the same `delegationId` on the same bus, so the
+   * tree position is already correlatable and four extra copies of an immutable
+   * value would be redundancy, not information. Overloading
+   * `DelegationContext.parentRunId` to carry concept (1) remains explicitly
+   * rejected.
+   *
+   * The provider-port path (`delegateTask` early-returns when `providerPort` is
+   * configured) emits NO `delegation:*` events at all — only
+   * `supervisor:delegating` / `supervisor:delegation_complete`. It therefore has
+   * no `delegation:started` payload to carry hierarchy on. That path attributes
+   * the tree position via `DelegationMetadata.hierarchy` on its returned result
+   * instead. Giving the provider port a full `delegation:*` lifecycle is a
+   * separate, larger change and remains out of scope.
    *
    * Likewise, no recursive sub-orchestrator spawning exists yet — this
    * supervisor delegates only to *specialist agents*, never to another

@@ -1,6 +1,52 @@
 import type { AdapterRuntimeDzupEvent } from "./event-types-shared.js";
 
 /**
+ * Serialized position of the *issuing orchestrator* within the orchestration
+ * tree, carried on `delegation:started` so an out-of-process observer can
+ * reconstruct the tree from the event stream alone.
+ *
+ * ## Why this is a nested object and not three sibling fields
+ *
+ * `parentRunId` is an overloaded name denoting two distinct concepts that must
+ * never be conflated:
+ *
+ * 1. {@link DelegationEventHierarchy.parentRunId} (this one) — the ORCHESTRATOR
+ *    parent: the run of the supervisor that spawned the supervisor *issuing*
+ *    this delegation as a sub-orchestrator. Absent for a root supervisor.
+ * 2. The `parentRunId` field sitting directly on the `delegation:*` events — the
+ *    DELEGATION parent: the run issuing this individual delegation to a
+ *    specialist.
+ *
+ * For a root supervisor these are unrelated: (2) is typically set while (1) is
+ * not. Nesting (1) under `hierarchy` makes the two unambiguous at every read
+ * site — `event.hierarchy.parentRunId` can never be mistaken for
+ * `event.parentRunId`, which three loose sibling fields would not guarantee.
+ * That property matters more, not less, across the process boundary, where the
+ * consumer is code this package does not control.
+ *
+ * Mirrors the in-process `DelegationHierarchy` contract in
+ * `@dzupagent/agent`'s `orchestration/delegation/types.ts`. Every field is
+ * optional and purely additive: a delegation issued with no hierarchy carries
+ * no `hierarchy` key at all.
+ */
+export interface DelegationEventHierarchy {
+  /** Orchestrator-hierarchy parent run ID, when the issuer is a sub-orchestrator. */
+  parentRunId?: string;
+  /** Branch identifier when the issuer runs inside a parallel/conditional tree. */
+  branchId?: string;
+  /**
+   * Depth of the *issuing orchestrator* in the orchestration tree. Root = 0.
+   *
+   * This is the issuer's own depth, NOT the depth of the delegated work. A
+   * delegation issued by a supervisor at depth N is attributed depth N and is
+   * never incremented on the way to the event: the delegation is an action *of*
+   * that supervisor, and its target is a specialist agent (a leaf), not another
+   * orchestrator level.
+   */
+  depth?: number;
+}
+
+/**
  * Pipeline, approval, human-contact, adapter-interaction, MCP, provider,
  * adapter-registry, supervisor, and delegation events emitted from
  * orchestration layers.
@@ -231,9 +277,25 @@ export type OrchestrationDomainEvent =
   // --- Delegation ---
   | {
       type: "delegation:started";
+      /**
+       * Run issuing this individual delegation — the DELEGATION parent.
+       *
+       * NOT the orchestrator-hierarchy parent. See {@link hierarchy} below and
+       * `DelegationEventHierarchy` for the disambiguation.
+       */
       parentRunId: string;
       targetAgentId: string;
       delegationId: string;
+      /**
+       * Orchestration-tree position of the issuing supervisor.
+       *
+       * Absent entirely for root supervisors, so a pre-hierarchy consumer sees a
+       * byte-identical payload. Carried only on `delegation:started`: the four
+       * terminal `delegation:*` events always follow a `started` event bearing
+       * the same `delegationId`, so observers correlate on that key rather than
+       * receiving four redundant copies of the same immutable tree position.
+       */
+      hierarchy?: DelegationEventHierarchy;
     }
   | {
       type: "delegation:completed";
