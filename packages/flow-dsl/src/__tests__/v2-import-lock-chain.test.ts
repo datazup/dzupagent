@@ -27,6 +27,18 @@ function lock(seed: string): DslV2ResolvedImportLock {
   }) as DslV2ResolvedImportLock;
 }
 
+/** Index into a chain, asserting the entry exists (keeps strict mode honest). */
+function at(
+  entries: readonly DslV2ImportLockChainEntry[],
+  index: number
+): DslV2ImportLockChainEntry {
+  const entry = entries[index];
+  if (entry === undefined) {
+    throw new Error(`expected a chain entry at index ${index}`);
+  }
+  return entry;
+}
+
 /** Build a well-formed chain of the given locks, each parented to the prior. */
 function chainOf(
   ...locks: readonly DslV2ResolvedImportLock[]
@@ -40,7 +52,7 @@ function chainOf(
 
 describe("dslV2ImportLockChain", () => {
   it("roots the first revision at parentLockSha256 null and revision 0", () => {
-    const [root] = chainOf(LOCK_A);
+    const root = at(chainOf(LOCK_A), 0);
 
     expect(root).toMatchObject({
       schema: "dzupagent.dslV2ImportLockChain/v1",
@@ -53,7 +65,9 @@ describe("dslV2ImportLockChain", () => {
   });
 
   it("links each successor to its predecessor and increments the revision", () => {
-    const [, second, third] = chainOf(LOCK_A, LOCK_B, LOCK_C);
+    const chain = chainOf(LOCK_A, LOCK_B, LOCK_C);
+    const second = at(chain, 1);
+    const third = at(chain, 2);
 
     expect(second).toMatchObject({
       lockSha256: LOCK_B.lockSha256,
@@ -77,8 +91,8 @@ describe("dslV2ImportLockChain", () => {
   it("distinguishes identical locks that sit at different chain positions", () => {
     // Same content-addressed lock, different history: the lock digest is equal
     // by design, so only the chain digest can tell the two revisions apart.
-    const [root] = chainOf(LOCK_A);
-    const [, replayed] = chainOf(LOCK_B, LOCK_A);
+    const root = at(chainOf(LOCK_A), 0);
+    const replayed = at(chainOf(LOCK_B, LOCK_A), 1);
 
     expect(replayed.lockSha256).toBe(root.lockSha256);
     expect(replayed.chainSha256).not.toBe(root.chainSha256);
@@ -95,7 +109,7 @@ describe("dslV2ImportLockChain", () => {
   });
 
   it("rejects a chain whose first entry is not a root", () => {
-    const [, second] = chainOf(LOCK_A, LOCK_B);
+    const second = at(chainOf(LOCK_A, LOCK_B), 1);
 
     // A non-root head is defective on every axis at once — parent, revision,
     // and the lineage digest that commits to both — so all three are reported.
@@ -108,10 +122,12 @@ describe("dslV2ImportLockChain", () => {
   });
 
   it("detects a broken parent link", () => {
-    const [first, , third] = chainOf(LOCK_A, LOCK_B, LOCK_C);
+    const chain = chainOf(LOCK_A, LOCK_B, LOCK_C);
 
     // Drop the middle revision: third still claims LOCK_B as its parent.
-    expect(verifyV2ImportLockChain([first, third])).toContainEqual(
+    expect(
+      verifyV2ImportLockChain([at(chain, 0), at(chain, 2)])
+    ).toContainEqual(
       expect.objectContaining({
         code: "V2_INVALID_IMPORT_LOCK_CHAIN",
         path: "importLockChain[1].parentLockSha256",
@@ -120,15 +136,18 @@ describe("dslV2ImportLockChain", () => {
   });
 
   it("detects reordered revisions", () => {
-    const [first, second, third] = chainOf(LOCK_A, LOCK_B, LOCK_C);
+    const chain = chainOf(LOCK_A, LOCK_B, LOCK_C);
 
-    expect(verifyV2ImportLockChain([first, third, second])).not.toEqual([]);
+    expect(
+      verifyV2ImportLockChain([at(chain, 0), at(chain, 2), at(chain, 1)])
+    ).not.toEqual([]);
   });
 
   it("detects a non-monotonic revision counter", () => {
-    const [first, second] = chainOf(LOCK_A, LOCK_B);
+    const chain = chainOf(LOCK_A, LOCK_B);
+    const first = at(chain, 0);
     const forged = Object.freeze({
-      ...second,
+      ...at(chain, 1),
       revision: 7,
     }) as DslV2ImportLockChainEntry;
 
@@ -141,9 +160,10 @@ describe("dslV2ImportLockChain", () => {
   });
 
   it("detects a tampered chain digest", () => {
-    const [first, second] = chainOf(LOCK_A, LOCK_B);
+    const chain = chainOf(LOCK_A, LOCK_B);
+    const first = at(chain, 0);
     const forged = Object.freeze({
-      ...second,
+      ...at(chain, 1),
       chainSha256: LOCK_C.lockSha256,
     }) as DslV2ImportLockChainEntry;
 
@@ -156,7 +176,7 @@ describe("dslV2ImportLockChain", () => {
   });
 
   it("detects a fork: two revisions claiming the same parent", () => {
-    const [first] = chainOf(LOCK_A);
+    const first = at(chainOf(LOCK_A), 0);
     const branchB = createV2ImportLockChainEntry(LOCK_B, first);
     const branchC = createV2ImportLockChainEntry(LOCK_C, first);
 

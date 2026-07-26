@@ -37,6 +37,10 @@
     "./v2-import-lock-chain": {
       "import": "./dist/v2-import-lock-chain.js",
       "types": "./dist/v2-import-lock-chain.d.ts"
+    },
+    "./template-declaration": {
+      "import": "./dist/template-declaration.js",
+      "types": "./dist/template-declaration.d.ts"
     }
   },
   "files": [
