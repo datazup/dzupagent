@@ -25,6 +25,10 @@ import {
   parseV2PrimitiveImports,
   validateV2PrimitiveImportClosure,
 } from "./imports.js";
+import {
+  createV2ImportLockChainEntry,
+  type DslV2ImportLockChainEntry,
+} from "./import-lock-chain.js";
 
 const TOP_LEVEL_KEYS = new Set([
   "dsl",
@@ -70,6 +74,11 @@ export interface LowerDslV2Options {
   readonly primitiveRegistryV2?: PrimitiveRegistryV2;
   readonly inheritedPolicy?: PrimitivePolicyLimits;
   readonly importCatalogs?: DslV2ExternalImportCatalogs;
+  /**
+   * The chain entry this lowering supersedes, if any. Omit to root a new
+   * revision line; supply the previous lowering's entry to extend one.
+   */
+  readonly priorImportLockChainEntry?: DslV2ImportLockChainEntry;
 }
 
 /** Lower the bounded v2 authoring subset into the existing v1 wrapper frontend. */
@@ -173,6 +182,10 @@ export function lowerDslV2Document(
     imports,
     context.bindings
   );
+  const resolvedImportLock = createV2ResolvedImportLock(
+    primitiveImports,
+    externalImports
+  );
   const metadata: DslV2FrontendMetadata = deepFreeze({
     schema: "dzupagent.dslV2Frontend/v1",
     authoredDsl: "dzupflow/v2",
@@ -181,9 +194,10 @@ export function lowerDslV2Document(
     canonicalVersion: 1,
     primitiveImportMode: imports.explicit ? "explicit" : "derived",
     primitiveImports,
-    resolvedImportLock: createV2ResolvedImportLock(
-      primitiveImports,
-      externalImports
+    resolvedImportLock,
+    importLockChainEntry: createV2ImportLockChainEntry(
+      resolvedImportLock,
+      options.priorImportLockChainEntry
     ),
     stepLineage: context.lineage,
     primitiveBindings: [...context.bindings.entries()]

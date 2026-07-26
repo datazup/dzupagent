@@ -4,6 +4,7 @@ import type { PrimitivePolicyNarrowing } from "./policy-narrowing.js";
 import type { PrimitiveRetryPolicy } from "./retry-policy.js";
 import type { PrimitiveTerminalCatchContract } from "./terminal-catch.js";
 import type { PrimitiveMultiPortSaveContract } from "./multi-port-save.js";
+import type { DslV2ImportLockChainEntry } from "./import-lock-chain.js";
 
 export interface DslV2StepLineage {
   readonly authoredPath: string;
@@ -24,6 +25,13 @@ export interface DslV2FrontendMetadata {
   readonly primitiveImportMode: "derived" | "explicit";
   readonly primitiveImports: readonly DslV2PrimitiveImport[];
   readonly resolvedImportLock: DslV2ResolvedImportLock;
+  /**
+   * Revision-chain lineage for the lock above (ADR-0001 C2). Roots at
+   * `revision: 0` unless the caller supplies a prior entry, so lineage is
+   * always produced — the lock records *what* was imported, this records
+   * *what it replaced*.
+   */
+  readonly importLockChainEntry: DslV2ImportLockChainEntry;
   readonly stepLineage: readonly DslV2StepLineage[];
   readonly primitiveBindings: readonly {
     readonly ref: PrimitiveDefinitionV2["ref"];
