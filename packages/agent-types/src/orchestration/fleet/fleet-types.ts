@@ -105,8 +105,39 @@ export type FleetScenario =
   | "continuous-fleet";
 
 export interface FleetBudgets {
+  /**
+   * Wall-clock deadline for the whole run, measured from the first line of
+   * `FleetSupervisor.run()`. Enforced: the supervisor checks the deadline
+   * before dispatching each task and stops dispatching (escalating with
+   * `budget-exhausted`) once it has passed. Tasks already in flight are not
+   * interrupted — the budget bounds how much *new* work a run starts.
+   */
   wallclockMs?: number;
+  /**
+   * NOT enforced by FleetSupervisor.
+   *
+   * SCOPED OUT: the fleet execution path carries no token accounting. Workers
+   * report progress as a {@link WorkerEvent} stream and terminate with a
+   * `WorkerOutcome`, and neither shape has a token field — `RepoAgentResult`
+   * exposes only `events` and `state`. There is therefore nothing for the
+   * supervisor to measure, and inferring tokens from event text would be a
+   * fabricated number, so the field is a documented no-op rather than a
+   * silently-ignored one.
+   *
+   * To enforce it, a token count would first have to reach the supervisor:
+   * either add a usage-bearing `WorkerEvent` variant (e.g.
+   * `{ kind: "usage"; inputTokens; outputTokens }`) that executors emit, or
+   * carry usage on `WorkerOutcome` and surface it on `RepoAgentResult`. Once a
+   * real source exists, `maxTokens` slots into the same
+   * check-after-each-task seam that `maxToolCalls` uses.
+   */
   maxTokens?: number;
+  /**
+   * Cumulative cap on `WorkerEvent{kind:"tool_call"}` across every completed
+   * task's `RepoAgentResult.events`. Enforced: checked after each task
+   * completes; exceeding it stops further dispatch and escalates with
+   * `budget-exhausted`.
+   */
   maxToolCalls?: number;
 }
 
