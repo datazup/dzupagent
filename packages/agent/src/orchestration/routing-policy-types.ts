@@ -45,7 +45,9 @@ export interface AgentTask {
    *  - THIS field (`AgentTask.priority`): **higher = more urgent**.
    *  - `DelegationRequest.priority` (`delegation/types.ts`): **lower = more
    *    urgent**, default 5 — and it IS read, at `delegation/lifecycle.ts`
-   *    (`request.priority ?? 5`).
+   *    (`request.priority ?? 5`), which stamps it onto run metadata that
+   *    `@dzupagent/server`'s run queue later orders ASCENDING. That docstring
+   *    carries the mirror image of this warning.
    *
    * So the one live `priority` consumer in this package follows the OPPOSITE
    * direction from the one documented here. Do not copy a comparator between

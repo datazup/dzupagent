@@ -13,13 +13,21 @@
  * policy to honour `priority`, they fail loudly and the "unenforced" docs get
  * revisited rather than silently rotting.
  *
- * They additionally pin the DIRECTION CLASH the docstring warns about:
+ * They additionally pin the DIRECTION CLASH that BOTH docstrings now warn about
+ * reciprocally (`routing-policy-types.ts` and `delegation/types.ts`):
  * `AgentTask.priority` documents "higher = more urgent" while the one live
  * `priority` consumer in this package, `DelegationRequest.priority`
  * (`delegation/lifecycle.ts`, `request.priority ?? 5`), documents "lower =
  * higher". Two same-named fields with inverted meanings is a real inverted-
  * comparator hazard, so the clash is asserted here: whichever side changes
  * first, this test forces the other's docs to be reconciled.
+ *
+ * The hazard is asymmetric, which is why it is pinned rather than only prosed.
+ * `AgentTask.priority` is unread, so the only live comparator an implementer
+ * can imitate is the delegation one — which runs the OPPOSITE direction. The
+ * delegation side is therefore pinned twice: its default (5) and its
+ * untransformed pass-through to run metadata, the value `@dzupagent/server`'s
+ * run queue later re-reads and inserts in ASCENDING order.
  */
 import { describe, expect, it, vi } from "vitest";
 import { RuleBasedRouting } from "../routing/rule-based-routing.js";
@@ -167,6 +175,39 @@ describe("AgentTask.priority vs DelegationRequest.priority direction clash", () 
     );
 
     expect(created[0]?.metadata?.["priority"]).toBe(5);
+  });
+
+  it("pins an explicit delegation priority through to run metadata", async () => {
+    // The default (5) is pinned above. Pin the pass-through too: an explicit
+    // value must reach `metadata.priority` UNTRANSFORMED. If anyone ever
+    // "normalises" this field by inverting it to match AgentTask's higher-is-
+    // urgent reading, that silent reinterpretation fails here rather than in
+    // production queue ordering.
+    const created: Array<{ metadata?: Record<string, unknown> }> = [];
+    const runStore = {
+      create: vi.fn(async (input: { metadata?: Record<string, unknown> }) => {
+        created.push(input);
+        return { id: "run-1" };
+      }),
+    } as unknown as RunStore;
+
+    // 1 means MOST urgent under this field's "lower = higher" convention.
+    const request = {
+      targetAgentId: "specialist",
+      task: "do it",
+      input: {},
+      priority: 1,
+    } as DelegationRequest;
+
+    await startDelegation(
+      { runStore, eventBus: undefined },
+      new Map<string, ActiveDelegation & { abort: AbortController }>(),
+      request,
+      "deleg-1",
+      "parent-run-1"
+    );
+
+    expect(created[0]?.metadata?.["priority"]).toBe(1);
   });
 
   it("documents that the two conventions are inverted, not aligned", () => {
