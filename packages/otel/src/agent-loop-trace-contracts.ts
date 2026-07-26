@@ -1,5 +1,13 @@
-import type { OTelContext, OTelSpan } from "./otel-types.js";
-import { SpanKind, SpanStatusCode } from "./otel-types.js";
+// SpanKind/SpanStatusCode are runtime `as const` objects, but this module
+// references them only via the `typeof X.Y` type query in interface members,
+// so TypeScript already elides this import from the emitted JS. `import type`
+// makes that erasure explicit; there is no runtime binding to lose.
+import type {
+  OTelContext,
+  OTelSpan,
+  SpanKind,
+  SpanStatusCode,
+} from "./otel-types.js";
 
 export const AGENT_LOOP_TRACE_EVENT_SCHEMA =
   "dzupagent.agentLoopTraceEvent/v1" as const;
