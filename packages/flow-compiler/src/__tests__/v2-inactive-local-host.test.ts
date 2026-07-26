@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import {
   BUILT_IN_PRIMITIVE_REGISTRY_V2,
   definePrimitiveV2,
@@ -7,6 +11,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  createFileV2InactiveLocalHostStore,
   createInMemoryV2InactiveLocalHostStore,
   runV2InactiveLocalHost,
   V2_INACTIVE_LOCAL_HOST_ID,
@@ -16,7 +21,10 @@ import {
   type V2InactiveLocalHostRequest,
   type V2InactiveLocalHostCheckpoint,
 } from "../v2-inactive-local-target.js";
-import { digest, stableStringify } from "../v2-inactive-local-target/evidence.js";
+import {
+  digest,
+  stableStringify,
+} from "../v2-inactive-local-target/evidence.js";
 
 const resolver = {
   resolve: () => null,
@@ -255,10 +263,13 @@ describe("inactive provider-free multi-step V2 host", () => {
   it("executes set, dynamic branch, resolved inputs, step outputs, and complete across restart", async () => {
     const store = createInMemoryV2InactiveLocalHostStore();
     const observed: V2InactiveLocalHandlerInvocation[] = [];
-    const base = fixture((invocation) => {
-      observed.push(invocation);
-      return success(invocation);
-    }, { store, runId: "kernel-run", ownerId: "worker-a" });
+    const base = fixture(
+      (invocation) => {
+        observed.push(invocation);
+        return success(invocation);
+      },
+      { store, runId: "kernel-run", ownerId: "worker-a" }
+    );
     const request = {
       ...base,
       source: kernelSource(),
@@ -276,7 +287,8 @@ describe("inactive provider-free multi-step V2 host", () => {
       ...request,
       maxStepsThisRun: 3,
     });
-    if (!suspended.ok) throw new Error(JSON.stringify(suspended.errors, null, 2));
+    if (!suspended.ok)
+      throw new Error(JSON.stringify(suspended.errors, null, 2));
     expect(suspended).toMatchObject({
       ok: true,
       receipt: {
@@ -375,6 +387,35 @@ describe("inactive provider-free multi-step V2 host", () => {
     expect(observed[0]?.input.instructions).toBe("Draft else");
   });
 
+  it("fails closed before mutation when a runtime input reference is missing", async () => {
+    const observed: V2InactiveLocalHandlerInvocation[] = [];
+    const base = fixture((invocation) => {
+      observed.push(invocation);
+      return success(invocation);
+    });
+    const result = await runV2InactiveLocalHost({
+      ...base,
+      runId: "kernel-missing-input",
+      source: kernelSource(),
+      compilerOptions: {
+        ...base.compilerOptions,
+        referencePortBindings: { draft: { result: "object" } },
+        referenceTypeBindings: { state: { route: "boolean" } },
+      },
+      conditionBindings: { inputs: {} },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      errors: [
+        {
+          code: "V2_LOCAL_HOST_REFERENCE_RESOLUTION_FAILED",
+          path: "root.steps[0].with.assign.route",
+        },
+      ],
+    });
+    expect(observed).toEqual([]);
+  });
+
   it("rejects a digest-valid checkpoint whose branch projection was rewritten", async () => {
     let checkpoint: V2InactiveLocalHostCheckpoint | null = null;
     let lease: string | null = null;
@@ -414,7 +455,8 @@ describe("inactive provider-free multi-step V2 host", () => {
       await runV2InactiveLocalHost({ ...request, maxStepsThisRun: 2 })
     ).toMatchObject({ ok: true, receipt: { status: "suspended" } });
     if (checkpoint === null) throw new Error("expected checkpoint");
-    const { checkpointSha256: _digest, ...core } = checkpoint;
+    const currentCheckpoint = checkpoint as V2InactiveLocalHostCheckpoint;
+    const { checkpointSha256: _digest, ...core } = currentCheckpoint;
     const rewritten = { ...core, branchDecisions: { choose: false } };
     checkpoint = {
       ...rewritten,
@@ -704,6 +746,44 @@ describe("inactive provider-free multi-step V2 host", () => {
       ok: false,
       errors: [{ code: "V2_LOCAL_HOST_CHECKPOINT_DRIFT" }],
     });
+  });
+
+  it("reuses a terminal host checkpoint through a fresh durable-store instance", async () => {
+    const rootDirectory = await mkdtemp(
+      join(tmpdir(), "dzup-v2-host-terminal-")
+    );
+    try {
+      const first = await runV2InactiveLocalHost(
+        fixture(success, {
+          store: createFileV2InactiveLocalHostStore({ rootDirectory }),
+          runId: "durable-terminal-run",
+          ownerId: "worker-a",
+        })
+      );
+      expect(first).toMatchObject({
+        ok: true,
+        receipt: { status: "completed" },
+      });
+
+      let replayed = false;
+      const reused = await runV2InactiveLocalHost(
+        fixture(
+          () => {
+            replayed = true;
+            throw new Error("terminal checkpoint must not replay a handler");
+          },
+          {
+            store: createFileV2InactiveLocalHostStore({ rootDirectory }),
+            runId: "durable-terminal-run",
+            ownerId: "worker-b",
+          }
+        )
+      );
+      expect(reused).toEqual(first);
+      expect(replayed).toBe(false);
+    } finally {
+      await rm(rootDirectory, { recursive: true, force: true });
+    }
   });
 
   it("fails closed when the caller-supplied checkpoint store cannot release", async () => {

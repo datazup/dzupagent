@@ -4,6 +4,7 @@ import {
   definePrimitiveV2,
   parseDslToDocument,
   type PrimitiveDefinitionV2,
+  type DslV2ExternalImportCatalogs,
 } from "../index.js";
 import {
   DSL_V2_AUTHORING_ID,
@@ -124,7 +125,174 @@ steps:
       result: accepted
 `;
 
+const BROAD_IMPORT_HASHES = {
+  profile: `sha256:${"1".repeat(64)}` as const,
+  schema: `sha256:${"2".repeat(64)}` as const,
+  fragment: `sha256:${"3".repeat(64)}` as const,
+  connector: `sha256:${"4".repeat(64)}` as const,
+  role: `sha256:${"5".repeat(64)}` as const,
+  flow: `sha256:${"6".repeat(64)}` as const,
+};
+
+const BROAD_IMPORT_CATALOGS: DslV2ExternalImportCatalogs = {
+  profiles: [
+    { ref: "research-fast@1", semanticHash: BROAD_IMPORT_HASHES.profile },
+  ],
+  schemas: [
+    { ref: "schema.result/v1", semanticHash: BROAD_IMPORT_HASHES.schema },
+  ],
+  fragments: [
+    { ref: "review-fragment@2", semanticHash: BROAD_IMPORT_HASHES.fragment },
+  ],
+  connectors: [
+    { ref: "github-rest@1", semanticHash: BROAD_IMPORT_HASHES.connector },
+  ],
+  roles: [{ ref: "reviewer@3", semanticHash: BROAD_IMPORT_HASHES.role }],
+  flows: [{ ref: "review-loop@4", semanticHash: BROAD_IMPORT_HASHES.flow }],
+};
+
+const BROAD_IMPORT_SOURCE = `dsl: dzupflow/v2
+id: broad-import-custody
+version: 2.0.0
+imports:
+  profiles:
+    - ref: research-fast@1
+      semanticHash: ${BROAD_IMPORT_HASHES.profile}
+  schemas:
+    - ref: schema.result/v1
+      semanticHash: ${BROAD_IMPORT_HASHES.schema}
+  fragments:
+    - ref: review-fragment@2
+      semanticHash: ${BROAD_IMPORT_HASHES.fragment}
+  connectors:
+    - ref: github-rest@1
+      semanticHash: ${BROAD_IMPORT_HASHES.connector}
+  roles:
+    - ref: reviewer@3
+      semanticHash: ${BROAD_IMPORT_HASHES.role}
+  flows:
+    - ref: review-loop@4
+      semanticHash: ${BROAD_IMPORT_HASHES.flow}
+steps:
+  - id: done
+    use: core.complete@1
+    with:
+      result: accepted
+`;
+
 describe(DSL_V2_AUTHORING_ID, () => {
+  it("binds all broader import catalogs into one deterministic resolved lock", () => {
+    const first = importDslV2Source(BROAD_IMPORT_SOURCE, {
+      importCatalogs: BROAD_IMPORT_CATALOGS,
+    });
+    const second = importDslV2Source(BROAD_IMPORT_SOURCE, {
+      importCatalogs: {
+        flows: BROAD_IMPORT_CATALOGS.flows,
+        roles: BROAD_IMPORT_CATALOGS.roles,
+        connectors: BROAD_IMPORT_CATALOGS.connectors,
+        fragments: BROAD_IMPORT_CATALOGS.fragments,
+        schemas: BROAD_IMPORT_CATALOGS.schemas,
+        profiles: BROAD_IMPORT_CATALOGS.profiles,
+      },
+    });
+
+    expect(first).toMatchObject({ ok: true });
+    expect(second).toMatchObject({ ok: true });
+    if (!first.ok || !second.ok) throw new Error("broader imports rejected");
+    expect(first.frontend.resolvedImportLock).toEqual(
+      second.frontend.resolvedImportLock
+    );
+    expect(first.resolvedImportLockSha256).toBe(
+      first.frontend.resolvedImportLock.lockSha256
+    );
+    expect(first.frontend.resolvedImportLock).toMatchObject({
+      schema: "dzupagent.dslV2ResolvedImportLock/v1",
+      catalogs: {
+        primitives: [],
+        profiles: BROAD_IMPORT_CATALOGS.profiles,
+        schemas: BROAD_IMPORT_CATALOGS.schemas,
+        fragments: BROAD_IMPORT_CATALOGS.fragments,
+        connectors: BROAD_IMPORT_CATALOGS.connectors,
+        roles: BROAD_IMPORT_CATALOGS.roles,
+        flows: BROAD_IMPORT_CATALOGS.flows,
+      },
+      lockSha256: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+    });
+    expect(Object.isFrozen(first.frontend.resolvedImportLock)).toBe(true);
+  });
+
+  it("rejects duplicate and malformed broader imports", () => {
+    const duplicate = importDslV2Source(
+      BROAD_IMPORT_SOURCE.replace(
+        "  schemas:",
+        `    - ref: research-fast@1\n      semanticHash: ${BROAD_IMPORT_HASHES.profile}\n  schemas:`
+      ),
+      { importCatalogs: BROAD_IMPORT_CATALOGS }
+    );
+    expect(duplicate).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: "V2_INVALID_IMPORT",
+          message: expect.stringMatching(/duplicate profiles import/u),
+        }),
+      ]),
+    });
+
+    const malformed = importDslV2Source(
+      BROAD_IMPORT_SOURCE.replace(
+        `semanticHash: ${BROAD_IMPORT_HASHES.schema}`,
+        "semanticHash: SHA256:not-a-digest"
+      ),
+      { importCatalogs: BROAD_IMPORT_CATALOGS }
+    );
+    expect(malformed).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: "V2_INVALID_IMPORT",
+          path: "root.imports.schemas[0].semanticHash",
+        }),
+      ]),
+    });
+  });
+
+  it("fails closed when broader import custody is absent or hash-drifted", () => {
+    const absent = importDslV2Source(BROAD_IMPORT_SOURCE);
+    expect(absent).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: "V2_INVALID_IMPORT",
+          message: expect.stringMatching(
+            /profiles import .* is not registered/u
+          ),
+        }),
+      ]),
+    });
+
+    const drifted = importDslV2Source(BROAD_IMPORT_SOURCE, {
+      importCatalogs: {
+        ...BROAD_IMPORT_CATALOGS,
+        connectors: [
+          {
+            ref: "github-rest@1",
+            semanticHash: `sha256:${"f".repeat(64)}`,
+          },
+        ],
+      },
+    });
+    expect(drifted).toMatchObject({
+      ok: false,
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          code: "V2_INVALID_IMPORT",
+          path: "root.imports.connectors[0].semanticHash",
+        }),
+      ]),
+    });
+  });
+
   it("imports and deterministically formats the complete qualified V2 subset", () => {
     const registry = multiPortRegistry();
     const source = withExactPrimitiveImport(FULL_V2, registry);
