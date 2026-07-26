@@ -79,7 +79,10 @@ export async function executeV2InactiveLocalKernelStep(
       step,
       { ...progress, state },
       "set-applied",
-      mergeConditionReferences(condition.condition, resolved.resolvedReferences),
+      mergeConditionReferences(
+        condition.condition,
+        resolved.resolvedReferences
+      ),
       { stateBefore: progress.state, resolvedInput: resolved.value }
     );
   }
@@ -94,7 +97,10 @@ export async function executeV2InactiveLocalKernelStep(
       step,
       progress,
       "complete",
-      mergeConditionReferences(condition.condition, resolved.resolvedReferences),
+      mergeConditionReferences(
+        condition.condition,
+        resolved.resolvedReferences
+      ),
       {
         completionResult: resolved.value,
         resolvedInput: resolved.value,
@@ -119,12 +125,13 @@ export async function executeV2InactiveLocalKernelStep(
     ),
   });
   if (!primitive.ok) return primitive;
-  const stepOutputs = primitive.outputs === undefined
-    ? progress.stepOutputs
-    : deepFreeze({
-        ...cloneRecord(progress.stepOutputs),
-        [step.id]: cloneRecord(primitive.outputs),
-      });
+  const stepOutputs =
+    primitive.outputs === undefined
+      ? progress.stepOutputs
+      : deepFreeze({
+          ...cloneRecord(progress.stepOutputs),
+          [step.id]: cloneRecord(primitive.outputs),
+        });
   return {
     ...primitive,
     stepOutputs,
@@ -243,7 +250,11 @@ function kernelResult(
     branchDecisions: deepFreeze({ ...progress.branchDecisions }),
     ...(options.completionResult === undefined
       ? {}
-      : { completionResult: deepFreeze(structuredClone(options.completionResult)) }),
+      : {
+          completionResult: deepFreeze(
+            structuredClone(options.completionResult)
+          ),
+        }),
     terminal: options.terminal ?? false,
   };
 }

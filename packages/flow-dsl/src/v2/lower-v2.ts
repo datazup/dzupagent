@@ -1,7 +1,11 @@
 import { BUILT_IN_PRIMITIVE_REGISTRY_V2 } from "../primitives/built-ins.js";
 import type { PrimitiveRegistryV2 } from "../primitives/types.js";
 import type { DslDiagnostic } from "../types.js";
-import type { DslV2FrontendMetadata, LowerDslV2Result } from "./types.js";
+import type {
+  DslV2ExternalImportCatalogs,
+  DslV2FrontendMetadata,
+  LowerDslV2Result,
+} from "./types.js";
 import { withV2SourceLineage } from "./source-lineage.js";
 import { parseV2TypedCondition } from "./typed-condition.js";
 import type { PrimitivePolicyLimits } from "./policy-narrowing.js";
@@ -15,7 +19,9 @@ import {
   registerV2Primitive,
 } from "./lower-v2-primitive.js";
 import {
+  createV2ResolvedImportLock,
   effectiveV2PrimitiveImports,
+  parseV2ExternalImports,
   parseV2PrimitiveImports,
   validateV2PrimitiveImportClosure,
 } from "./imports.js";
@@ -52,6 +58,7 @@ const EXACT_USE_PATTERN =
 export interface LowerDslV2Options {
   readonly primitiveRegistryV2?: PrimitiveRegistryV2;
   readonly inheritedPolicy?: PrimitivePolicyLimits;
+  readonly importCatalogs?: DslV2ExternalImportCatalogs;
 }
 
 /** Lower the bounded v2 authoring subset into the existing v1 wrapper frontend. */
@@ -108,6 +115,11 @@ export function lowerDslV2Document(
     context.registry,
     diagnostics
   );
+  const externalImports = parseV2ExternalImports(
+    raw.imports,
+    options.importCatalogs,
+    diagnostics
+  );
   const steps = lowerSteps(raw.steps, "root.steps", "steps", context);
   validateV2PrimitiveImportClosure(imports, context.bindings, diagnostics);
   if (diagnostics.length > 0) {
@@ -146,6 +158,10 @@ export function lowerDslV2Document(
   }
   if (Object.keys(uses).length > 0) lowered.uses = uses;
 
+  const primitiveImports = effectiveV2PrimitiveImports(
+    imports,
+    context.bindings
+  );
   const metadata: DslV2FrontendMetadata = deepFreeze({
     schema: "dzupagent.dslV2Frontend/v1",
     authoredDsl: "dzupflow/v2",
@@ -153,7 +169,11 @@ export function lowerDslV2Document(
     canonicalDsl: "dzupflow/v1",
     canonicalVersion: 1,
     primitiveImportMode: imports.explicit ? "explicit" : "derived",
-    primitiveImports: effectiveV2PrimitiveImports(imports, context.bindings),
+    primitiveImports,
+    resolvedImportLock: createV2ResolvedImportLock(
+      primitiveImports,
+      externalImports
+    ),
     stepLineage: context.lineage,
     primitiveBindings: [...context.bindings.entries()]
       .sort(([left], [right]) => left.localeCompare(right))

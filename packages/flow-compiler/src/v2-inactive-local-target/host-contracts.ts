@@ -147,6 +147,10 @@ export type V2InactiveLocalHostClaimResult =
   | {
       readonly ok: true;
       readonly leaseToken: string;
+      /** Monotonic per-run token. Durable stores return it on every claim. */
+      readonly fencingToken?: number;
+      /** Advisory lease boundary; the store remains the authority. */
+      readonly leaseExpiresAtMs?: number;
       readonly checkpoint: V2InactiveLocalHostCheckpoint | null;
     }
   | { readonly ok: false; readonly reason: "already-claimed" };
@@ -159,12 +163,14 @@ export interface V2InactiveLocalHostCheckpointStore {
   commit(input: {
     readonly runId: string;
     readonly leaseToken: string;
+    readonly fencingToken?: number;
     readonly expectedPreviousSha256: `sha256:${string}` | null;
     readonly checkpoint: V2InactiveLocalHostCheckpoint;
   }): Promise<boolean>;
   release(input: {
     readonly runId: string;
     readonly leaseToken: string;
+    readonly fencingToken?: number;
   }): Promise<boolean>;
 }
 

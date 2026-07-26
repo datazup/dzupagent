@@ -1,7 +1,6 @@
 import type { FlowNode } from "@dzupagent/flow-ast";
 import type { FlowTypedCondition } from "@dzupagent/flow-ast/expressions";
 import {
-  BUILT_IN_PRIMITIVE_REGISTRY_V2,
   parseYamlSubset,
   type DslV2FrontendMetadata,
   type PrimitiveDefinitionV2,
@@ -15,13 +14,27 @@ import type { PrimitiveRetryPolicy } from "@dzupagent/flow-dsl/v2-retry-policy";
 import type { PrimitiveTerminalCatchContract } from "@dzupagent/flow-dsl/v2-terminal-catch";
 
 import { prepareFlowInputFromDsl } from "../authoring-input.js";
-import { collectTypedConditions, deepFreeze, digest, stableStringify } from "./evidence.js";
+import {
+  collectTypedConditions,
+  deepFreeze,
+  digest,
+  stableStringify,
+} from "./evidence.js";
 import type {
   V2InactiveLocalHandlerBinding,
   V2InactiveLocalHostError,
   V2InactiveLocalHostRequest,
 } from "./host-contracts.js";
 import { validateV2InactiveLocalHostRequest } from "./host-plan-request.js";
+import {
+  cloneHostPlanRecord as cloneRecord,
+  exactHostPlanBinding as exactBinding,
+  hostPlanIdentity as planIdentity,
+  invalidHostPlan as invalidPlan,
+  invalidHostPlanBinding as bindingInvalid,
+  isPlainHostPlanRecord as isPlainRecord,
+  resolveHostPlanPrimitive as resolvePrimitive,
+} from "./host-plan-support.js";
 import { qualifyV2InactiveLocalTarget } from "./qualification.js";
 
 interface PlanBase {
@@ -124,10 +137,15 @@ export async function prepareV2InactiveLocalHost(
     !prepared.ok ||
     prepared.frontend === undefined
   ) {
-    return invalidPlan("source", "qualified source could not enter the V2 host plan");
+    return invalidPlan(
+      "source",
+      "qualified source could not enter the V2 host plan"
+    );
   }
 
-  const typedConditions = collectTypedConditions(prepared.flowInput as FlowNode);
+  const typedConditions = collectTypedConditions(
+    prepared.flowInput as FlowNode
+  );
   const planned = planSteps(
     authored.value,
     prepared.frontend,
@@ -182,11 +200,17 @@ function planSteps(
   conditions: readonly FlowTypedCondition[],
   request: V2InactiveLocalHostRequest
 ):
-  | { readonly ok: true; readonly steps: readonly V2InactiveLocalHostStepPlan[] }
+  | {
+      readonly ok: true;
+      readonly steps: readonly V2InactiveLocalHostStepPlan[];
+    }
   | { readonly ok: false; readonly error: V2InactiveLocalHostError } {
   const rawSteps = document.steps;
   if (!Array.isArray(rawSteps) || rawSteps.length === 0) {
-    return invalidPlan("root.steps", "multi-step host requires authored V2 steps");
+    return invalidPlan(
+      "root.steps",
+      "multi-step host requires authored V2 steps"
+    );
   }
   const handlers = new Map(
     request.handlers.map((handler) => [handler.ref, handler] as const)
@@ -227,13 +251,17 @@ function planSteps(
   }
   const used = new Set(
     steps
-      .filter((step): step is V2InactiveLocalHostPrimitiveStepPlan =>
-        step.kind === "primitive"
+      .filter(
+        (step): step is V2InactiveLocalHostPrimitiveStepPlan =>
+          step.kind === "primitive"
       )
       .map((step) => step.handler.ref)
   );
   if (request.handlers.some((handler) => !used.has(handler.ref))) {
-    return bindingInvalid("handlers", "unused local handler bindings are forbidden");
+    return bindingInvalid(
+      "handlers",
+      "unused local handler bindings are forbidden"
+    );
   }
   return { ok: true, steps: deepFreeze(steps) };
 }
@@ -249,7 +277,9 @@ function flattenSteps(
   frontend: DslV2FrontendMetadata,
   handlers: ReadonlyMap<string, V2InactiveLocalHandlerBinding>,
   request: V2InactiveLocalHostRequest
-): { readonly ok: true } | { readonly ok: false; readonly error: V2InactiveLocalHostError } {
+):
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: V2InactiveLocalHostError } {
   for (const [rawIndex, rawValue] of rawSteps.entries()) {
     const authoredPath = `${basePath}[${rawIndex}]`;
     if (!isPlainRecord(rawValue)) {
@@ -257,14 +287,24 @@ function flattenSteps(
     }
     const selected = lineage.get(authoredPath);
     if (selected === undefined || typeof rawValue.use !== "string") {
-      return invalidPlan(authoredPath, "hosted step requires exact V2 source lineage");
+      return invalidPlan(
+        authoredPath,
+        "hosted step requires exact V2 source lineage"
+      );
     }
-    const id = typeof rawValue.id === "string" ? rawValue.id : `step-${output.length + 1}`;
-    const condition = rawValue.when === undefined
-      ? undefined
-      : conditions[conditionCursor.value++];
+    const id =
+      typeof rawValue.id === "string"
+        ? rawValue.id
+        : `step-${output.length + 1}`;
+    const condition =
+      rawValue.when === undefined
+        ? undefined
+        : conditions[conditionCursor.value++];
     if (rawValue.when !== undefined && condition === undefined) {
-      return invalidPlan(`${authoredPath}.when`, "typed condition lineage is missing");
+      return invalidPlan(
+        `${authoredPath}.when`,
+        "typed condition lineage is missing"
+      );
     }
     const base = {
       index: output.length,
@@ -276,13 +316,19 @@ function flattenSteps(
     };
     if (rawValue.use === "core.branch@1") {
       if (condition === undefined || !isPlainRecord(rawValue.with)) {
-        return invalidPlan(authoredPath, "core.branch@1 requires typed when and with");
+        return invalidPlan(
+          authoredPath,
+          "core.branch@1 requires typed when and with"
+        );
       }
       output.push(deepFreeze({ ...base, kind: "branch" as const, condition }));
       const thenSteps = rawValue.with.then;
       const elseSteps = rawValue.with.else;
       if (!Array.isArray(thenSteps) || thenSteps.length === 0) {
-        return invalidPlan(`${authoredPath}.with.then`, "branch then must be non-empty");
+        return invalidPlan(
+          `${authoredPath}.with.then`,
+          "branch then must be non-empty"
+        );
       }
       const thenResult = flattenSteps(
         thenSteps,
@@ -299,7 +345,10 @@ function flattenSteps(
       if (!thenResult.ok) return thenResult;
       if (elseSteps !== undefined) {
         if (!Array.isArray(elseSteps) || elseSteps.length === 0) {
-          return invalidPlan(`${authoredPath}.with.else`, "branch else must be non-empty when present");
+          return invalidPlan(
+            `${authoredPath}.with.else`,
+            "branch else must be non-empty when present"
+          );
         }
         const elseResult = flattenSteps(
           elseSteps,
@@ -318,20 +367,39 @@ function flattenSteps(
       continue;
     }
     if (rawValue.use === "core.set@1") {
-      const assign = isPlainRecord(rawValue.with) && isPlainRecord(rawValue.with.assign)
-        ? rawValue.with.assign
-        : undefined;
+      const assign =
+        isPlainRecord(rawValue.with) && isPlainRecord(rawValue.with.assign)
+          ? rawValue.with.assign
+          : undefined;
       if (assign === undefined) {
-        return invalidPlan(`${authoredPath}.with.assign`, "core.set@1 requires assign");
+        return invalidPlan(
+          `${authoredPath}.with.assign`,
+          "core.set@1 requires assign"
+        );
       }
-      output.push(deepFreeze({ ...base, kind: "set" as const, assign: cloneRecord(assign) }));
+      output.push(
+        deepFreeze({
+          ...base,
+          kind: "set" as const,
+          assign: cloneRecord(assign),
+        })
+      );
       continue;
     }
     if (rawValue.use === "core.complete@1") {
       if (!isPlainRecord(rawValue.with) || !("result" in rawValue.with)) {
-        return invalidPlan(`${authoredPath}.with.result`, "core.complete@1 requires result");
+        return invalidPlan(
+          `${authoredPath}.with.result`,
+          "core.complete@1 requires result"
+        );
       }
-      output.push(deepFreeze({ ...base, kind: "complete" as const, result: structuredClone(rawValue.with.result) }));
+      output.push(
+        deepFreeze({
+          ...base,
+          kind: "complete" as const,
+          result: structuredClone(rawValue.with.result),
+        })
+      );
       continue;
     }
     const primitive = planPrimitive(
@@ -359,8 +427,14 @@ function planPrimitive(
   | { readonly ok: true; readonly step: V2InactiveLocalHostPrimitiveStepPlan }
   | { readonly ok: false; readonly error: V2InactiveLocalHostError } {
   const primitiveRef = lineage.primitiveRef;
-  if (primitiveRef === undefined || lineage.primitiveSemanticHash === undefined) {
-    return invalidPlan(base.authoredPath, "primitive step requires exact ref/hash lineage");
+  if (
+    primitiveRef === undefined ||
+    lineage.primitiveSemanticHash === undefined
+  ) {
+    return invalidPlan(
+      base.authoredPath,
+      "primitive step requires exact ref/hash lineage"
+    );
   }
   const primitive = resolvePrimitive(request, primitiveRef);
   const handler = handlers.get(primitiveRef);
@@ -379,7 +453,12 @@ function planPrimitive(
   const retry = exactBinding(frontend.retryPolicies, base.authoredPath);
   const terminal = exactBinding(frontend.terminalCatches, base.authoredPath);
   const save = exactBinding(frontend.multiPortSaves, base.authoredPath);
-  if (policy === undefined || retry === undefined || terminal === undefined || save === undefined) {
+  if (
+    policy === undefined ||
+    retry === undefined ||
+    terminal === undefined ||
+    save === undefined
+  ) {
     return invalidPlan(
       base.authoredPath,
       "every hosted primitive must own policy, retry, terminal catch, and multi-port save"
@@ -394,7 +473,9 @@ function planPrimitive(
     return invalidPlan(
       `${base.authoredPath}.policy`,
       "authored policy is incompatible with the inherited host policy",
-      narrowed.errors.map((error) => `${error.code}:${error.field ?? "root"}:${error.message}`)
+      narrowed.errors.map(
+        (error) => `${error.code}:${error.field ?? "root"}:${error.message}`
+      )
     );
   }
   return {
@@ -411,66 +492,4 @@ function planPrimitive(
       save: save.save,
     }),
   };
-}
-
-function planIdentity(step: V2InactiveLocalHostStepPlan) {
-  return step.kind === "primitive"
-    ? {
-        ...step,
-        handler: {
-          ref: step.handler.ref,
-          semanticHash: step.handler.semanticHash,
-          handlerId: step.handler.handlerId,
-          handlerSha256: step.handler.handlerSha256,
-          mode: step.handler.mode,
-          declaredEffects: step.handler.declaredEffects,
-          replay: step.handler.replay,
-        },
-      }
-    : step;
-}
-
-function exactBinding<T extends { readonly authoredPath: string }>(
-  bindings: readonly T[],
-  authoredPath: string
-): T | undefined {
-  const matches = bindings.filter((item) => item.authoredPath === authoredPath);
-  return matches.length === 1 ? matches[0] : undefined;
-}
-
-function resolvePrimitive(
-  request: V2InactiveLocalHostRequest,
-  ref: PrimitiveDefinitionV2["ref"]
-): PrimitiveDefinitionV2 | undefined {
-  return request.compilerOptions.primitiveRegistry?.get(ref) ??
-    BUILT_IN_PRIMITIVE_REGISTRY_V2.get(ref);
-}
-
-function invalidPlan(path: string, message: string, causes?: readonly string[]) {
-  return {
-    ok: false as const,
-    error: {
-      code: "V2_LOCAL_HOST_PLAN_INVALID" as const,
-      message,
-      path,
-      ...(causes === undefined ? {} : { causes }),
-    },
-  };
-}
-
-function bindingInvalid(path: string, message: string) {
-  return {
-    ok: false as const,
-    error: { code: "V2_LOCAL_HOST_HANDLER_BINDING_INVALID" as const, message, path },
-  };
-}
-
-function cloneRecord(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
-  return structuredClone(value) as Record<string, unknown>;
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
 }

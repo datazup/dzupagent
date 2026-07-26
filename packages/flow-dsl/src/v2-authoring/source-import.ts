@@ -63,6 +63,9 @@ export function formatDslV2Document(
     ...(options.inheritedPolicy === undefined
       ? {}
       : { inheritedPolicy: options.inheritedPolicy }),
+    ...(options.importCatalogs === undefined
+      ? {}
+      : { importCatalogs: options.importCatalogs }),
   });
   if (!lowered.ok) return failure(canonical.document, lowered.diagnostics);
 
@@ -74,6 +77,9 @@ export function formatDslV2Document(
     ...(options.inheritedPolicy === undefined
       ? {}
       : { v2InheritedPolicy: options.inheritedPolicy }),
+    ...(options.importCatalogs === undefined
+      ? {}
+      : { v2ImportCatalogs: options.importCatalogs }),
   });
   if (!reparsed.ok || reparsed.frontend === undefined) {
     return failure(
@@ -100,6 +106,7 @@ export function formatDslV2Document(
     canonicalSource,
     canonicalSourceSha256: sha256(canonicalSource),
     semanticSha256: sha256(stableStringify(reparsed.document)),
+    resolvedImportLockSha256: reparsed.frontend.resolvedImportLock.lockSha256,
     canonicalDocument: reparsed.document,
     frontend: reparsed.frontend,
     diagnostics: [] as const,

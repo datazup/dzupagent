@@ -23,6 +23,7 @@ export interface DslV2FrontendMetadata {
   readonly canonicalVersion: 1;
   readonly primitiveImportMode: "derived" | "explicit";
   readonly primitiveImports: readonly DslV2PrimitiveImport[];
+  readonly resolvedImportLock: DslV2ResolvedImportLock;
   readonly stepLineage: readonly DslV2StepLineage[];
   readonly primitiveBindings: readonly {
     readonly ref: PrimitiveDefinitionV2["ref"];
@@ -37,6 +38,40 @@ export interface DslV2FrontendMetadata {
 export interface DslV2PrimitiveImport {
   readonly ref: PrimitiveDefinitionV2["ref"];
   readonly semanticHash: `sha256:${string}`;
+}
+
+export const DSL_V2_EXTERNAL_IMPORT_CATALOGS = [
+  "profiles",
+  "schemas",
+  "fragments",
+  "connectors",
+  "roles",
+  "flows",
+] as const;
+
+export type DslV2ExternalImportCatalog =
+  (typeof DSL_V2_EXTERNAL_IMPORT_CATALOGS)[number];
+
+export interface DslV2ContentAddressedImport {
+  readonly ref: string;
+  readonly semanticHash: `sha256:${string}`;
+}
+
+export type DslV2ExternalImportCatalogs = Readonly<
+  Partial<
+    Record<DslV2ExternalImportCatalog, readonly DslV2ContentAddressedImport[]>
+  >
+>;
+
+export interface DslV2ResolvedImportLock {
+  readonly schema: "dzupagent.dslV2ResolvedImportLock/v1";
+  readonly catalogs: Readonly<
+    Record<
+      "primitives" | DslV2ExternalImportCatalog,
+      readonly DslV2ContentAddressedImport[]
+    >
+  >;
+  readonly lockSha256: `sha256:${string}`;
 }
 
 export interface DslV2PolicyNarrowingBinding {

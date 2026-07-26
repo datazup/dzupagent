@@ -10,12 +10,10 @@ import type { FragmentRegistry } from "./fragments/types.js";
 import type { PrimitiveRegistry } from "./primitives/types.js";
 import type { PrimitiveRegistryV2 } from "./primitives/types.js";
 import type { PrimitivePolicyLimits } from "./v2/policy-narrowing.js";
+import type { DslV2ExternalImportCatalogs } from "./v2/types.js";
 import { BUILT_IN_PRIMITIVE_REGISTRY_V2 } from "./primitives/built-ins.js";
 import { lowerDslV2Document } from "./v2/lower-v2.js";
-import {
-  createDslSourceMap,
-  resolveDslSourceSpan,
-} from "./dsl-source-map.js";
+import { createDslSourceMap, resolveDslSourceSpan } from "./dsl-source-map.js";
 import { stripV2SourceLineage } from "./v2/source-lineage.js";
 import type { DslDiagnostic, DslSourceMap } from "./types.js";
 
@@ -26,6 +24,7 @@ export interface ParseDslToDocumentOptions {
   requirePinnedFragmentUses?: boolean;
   requirePrimitiveLineage?: boolean;
   v2InheritedPolicy?: PrimitivePolicyLimits;
+  v2ImportCatalogs?: DslV2ExternalImportCatalogs;
 }
 
 export function parseDslToDocument(
@@ -62,11 +61,13 @@ export function parseDslToDocument(
     (yaml.value as Record<string, unknown>).dsl === "dzupflow/v2"
       ? lowerDslV2Document(yaml.value, {
           primitiveRegistryV2:
-            options.primitiveRegistryV2 ??
-            BUILT_IN_PRIMITIVE_REGISTRY_V2,
+            options.primitiveRegistryV2 ?? BUILT_IN_PRIMITIVE_REGISTRY_V2,
           ...(options.v2InheritedPolicy === undefined
             ? {}
             : { inheritedPolicy: options.v2InheritedPolicy }),
+          ...(options.v2ImportCatalogs === undefined
+            ? {}
+            : { importCatalogs: options.v2ImportCatalogs }),
         })
       : undefined;
   if (v2 !== undefined && !v2.ok) {
@@ -124,10 +125,7 @@ export function parseDslToDocument(
     const sourceMap =
       v2 === undefined
         ? undefined
-        : createDslSourceMap(
-            source,
-            normalized.partialDocument ?? undefined,
-          );
+        : createDslSourceMap(source, normalized.partialDocument ?? undefined);
     const partialDocument =
       v2 === undefined || normalized.partialDocument === null
         ? normalized.partialDocument
@@ -156,7 +154,7 @@ export function parseDslToDocument(
   const validation = validateDocument(canonicalDocument);
   const allDiagnostics = attachDiagnosticSpans(
     validation.diagnostics,
-    sourceMap,
+    sourceMap
   );
   if (allDiagnostics.length > 0) {
     return {
@@ -180,7 +178,7 @@ export function parseDslToDocument(
 
 function attachDiagnosticSpans(
   diagnostics: readonly DslDiagnostic[],
-  sourceMap: DslSourceMap | undefined,
+  sourceMap: DslSourceMap | undefined
 ): DslDiagnostic[] {
   if (sourceMap === undefined) return [...diagnostics];
   return diagnostics.map((diagnostic) => {

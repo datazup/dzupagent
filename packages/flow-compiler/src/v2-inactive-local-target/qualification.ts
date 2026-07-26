@@ -171,8 +171,7 @@ async function qualify(
   const compilerGate = await validateCompilerGate(request);
   if (compilerGate !== undefined) return fail(compilerGate);
 
-  const conditionEvaluationMode =
-    request.conditionEvaluationMode ?? "eager";
+  const conditionEvaluationMode = request.conditionEvaluationMode ?? "eager";
   const conditionEvaluations = [];
   for (const item of typedConditions) {
     if (conditionEvaluationMode === "deferred-runtime") {

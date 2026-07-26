@@ -3,6 +3,7 @@ import type { FlowDocumentV1 } from "@dzupagent/flow-ast";
 import type { PrimitiveRegistryV2 } from "../primitives/types.js";
 import type { DslDiagnostic } from "../types.js";
 import type { DslV2FrontendMetadata } from "../v2/types.js";
+import type { DslV2ExternalImportCatalogs } from "../v2/types.js";
 import type { PrimitivePolicyLimits } from "../v2/policy-narrowing.js";
 
 export const DSL_V2_AUTHORING_ID = "dzupagent.dsl-v2-authoring@1" as const;
@@ -10,6 +11,7 @@ export const DSL_V2_AUTHORING_ID = "dzupagent.dsl-v2-authoring@1" as const;
 export interface DslV2AuthoringOptions {
   readonly primitiveRegistryV2?: PrimitiveRegistryV2;
   readonly inheritedPolicy?: PrimitivePolicyLimits;
+  readonly importCatalogs?: DslV2ExternalImportCatalogs;
 }
 
 export interface DslV2AuthoringSuccess {
@@ -20,6 +22,7 @@ export interface DslV2AuthoringSuccess {
   readonly canonicalSource: string;
   readonly canonicalSourceSha256: `sha256:${string}`;
   readonly semanticSha256: `sha256:${string}`;
+  readonly resolvedImportLockSha256: `sha256:${string}`;
   readonly canonicalDocument: FlowDocumentV1;
   readonly frontend: DslV2FrontendMetadata;
   readonly diagnostics: readonly [];

@@ -68,7 +68,7 @@ export async function runV2InactiveLocalHost(
     ) {
       result = successReceipt(context, claim.checkpoint);
     } else {
-      result = await executeHost(context, restored.progress, claim.leaseToken);
+      result = await executeHost(context, restored.progress, claim);
     }
   } catch (error) {
     result = checkpointStoreFailure("commit", error);
@@ -77,6 +77,7 @@ export async function runV2InactiveLocalHost(
     const released = await input.checkpointStore.release({
       runId: input.runId,
       leaseToken: claim.leaseToken,
+      fencingToken: claim.fencingToken,
     });
     return released ? result : checkpointStoreFailure("release");
   } catch (error) {
@@ -87,7 +88,7 @@ export async function runV2InactiveLocalHost(
 async function executeHost(
   context: V2InactiveLocalHostContext,
   progress: MutableHostProgress,
-  leaseToken: string
+  claim: Extract<V2InactiveLocalHostClaimResult, { readonly ok: true }>
 ): Promise<V2InactiveLocalHostResult> {
   let processed = 0;
   while (progress.nextStepIndex < context.steps.length) {
@@ -95,10 +96,10 @@ async function executeHost(
       context.request.cancellation?.aborted === true ||
       context.request.cancelBeforeStep === progress.nextStepIndex + 1
     ) {
-      return commitTerminal(context, progress, leaseToken, "cancelled");
+      return commitTerminal(context, progress, claim, "cancelled");
     }
     if (processed > 0 && processed === context.request.maxStepsThisRun) {
-      return commitTerminal(context, progress, leaseToken, "suspended");
+      return commitTerminal(context, progress, claim, "suspended");
     }
 
     const step = context.steps[progress.nextStepIndex]!;
@@ -130,7 +131,7 @@ async function executeHost(
     const committed = await commitCheckpoint(
       context,
       progress,
-      leaseToken,
+      claim,
       checkpointStatus
     );
     if (!committed.ok) return committed;
@@ -138,7 +139,7 @@ async function executeHost(
       return successReceipt(context, committed.checkpoint);
     }
   }
-  return commitTerminal(context, progress, leaseToken, "completed");
+  return commitTerminal(context, progress, claim, "completed");
 }
 
 function stepTerminalStatus(
@@ -162,15 +163,10 @@ function stepTerminalStatus(
 async function commitTerminal(
   context: V2InactiveLocalHostContext,
   progress: MutableHostProgress,
-  leaseToken: string,
+  claim: Extract<V2InactiveLocalHostClaimResult, { readonly ok: true }>,
   status: V2InactiveLocalHostStatus
 ): Promise<V2InactiveLocalHostResult> {
-  const committed = await commitCheckpoint(
-    context,
-    progress,
-    leaseToken,
-    status
-  );
+  const committed = await commitCheckpoint(context, progress, claim, status);
   return committed.ok
     ? successReceipt(context, committed.checkpoint)
     : committed;
@@ -179,7 +175,7 @@ async function commitTerminal(
 async function commitCheckpoint(
   context: V2InactiveLocalHostContext,
   progress: MutableHostProgress,
-  leaseToken: string,
+  claim: Extract<V2InactiveLocalHostClaimResult, { readonly ok: true }>,
   status: V2InactiveLocalHostCheckpoint["status"]
 ): Promise<
   | { readonly ok: true; readonly checkpoint: V2InactiveLocalHostCheckpoint }
@@ -200,7 +196,11 @@ async function commitCheckpoint(
     branchDecisions: deepFreeze({ ...progress.branchDecisions }),
     ...(progress.completionResult === undefined
       ? {}
-      : { completionResult: deepFreeze(structuredClone(progress.completionResult)) }),
+      : {
+          completionResult: deepFreeze(
+            structuredClone(progress.completionResult)
+          ),
+        }),
     steps: deepFreeze(progress.steps.map((step) => ({ ...step }))),
     previousCheckpointSha256: progress.previousCheckpointSha256,
   };
@@ -210,7 +210,8 @@ async function commitCheckpoint(
   });
   const committed = await context.request.checkpointStore.commit({
     runId: context.request.runId,
-    leaseToken,
+    leaseToken: claim.leaseToken,
+    fencingToken: claim.fencingToken,
     expectedPreviousSha256: progress.previousCheckpointSha256,
     checkpoint,
   });
@@ -320,7 +321,8 @@ function validateCheckpointProjection(
     if (
       digest(stableStringify(core)) !== receipt.stepSha256 ||
       receipt.stateBeforeSha256 !== previousStateSha256
-    ) return false;
+    )
+      return false;
     previousStateSha256 = receipt.stateAfterSha256;
     const plan = context.steps[index];
     if (plan === undefined) return false;
@@ -330,13 +332,16 @@ function validateCheckpointProjection(
     if (
       (branchActive && receipt.status === "skipped-branch") ||
       (!branchActive && receipt.status !== "skipped-branch")
-    ) return false;
+    )
+      return false;
     if (receipt.kind === "branch" && receipt.status !== "skipped-branch") {
       if (
         receipt.branchDecision === undefined ||
-        (receipt.status !== "branch-then" && receipt.status !== "branch-else") ||
+        (receipt.status !== "branch-then" &&
+          receipt.status !== "branch-else") ||
         receipt.branchDecision !== (receipt.status === "branch-then")
-      ) return false;
+      )
+        return false;
       decisions[receipt.id] = receipt.branchDecision;
     }
     if (receipt.outputSha256 !== undefined) {
@@ -344,7 +349,8 @@ function validateCheckpointProjection(
       if (
         output === undefined ||
         digest(stableStringify(output)) !== receipt.outputSha256
-      ) return false;
+      )
+        return false;
       outputIds.add(receipt.id);
     }
     if (receipt.completionResultSha256 !== undefined) {
@@ -353,9 +359,11 @@ function validateCheckpointProjection(
   }
   if (
     previousStateSha256 !== digest(stableStringify(checkpoint.state)) ||
-    stableStringify(decisions) !== stableStringify(checkpoint.branchDecisions) ||
+    stableStringify(decisions) !==
+      stableStringify(checkpoint.branchDecisions) ||
     Object.keys(checkpoint.stepOutputs).some((id) => !outputIds.has(id))
-  ) return false;
+  )
+    return false;
   return completionResultSha256 === undefined
     ? checkpoint.completionResult === undefined
     : checkpoint.completionResult !== undefined &&
@@ -438,8 +446,10 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isBooleanRecord(value: unknown): value is Record<string, boolean> {
-  return isPlainRecord(value) &&
-    Object.values(value).every((item) => typeof item === "boolean");
+  return (
+    isPlainRecord(value) &&
+    Object.values(value).every((item) => typeof item === "boolean")
+  );
 }
 
 function isJsonValue(value: unknown): boolean {

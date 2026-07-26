@@ -145,10 +145,12 @@ function resolveString(
 function resolveReference(
   reference: ParsedFlowReference,
   bindings: Readonly<Record<string, unknown>>
-): { readonly ok: true; readonly value: unknown } | {
-  readonly ok: false;
-  readonly message: string;
-} {
+):
+  | { readonly ok: true; readonly value: unknown }
+  | {
+      readonly ok: false;
+      readonly message: string;
+    } {
   if (!hasOwn(bindings, reference.root)) {
     return { ok: false, message: `missing reference ${reference.source}` };
   }
@@ -173,10 +175,12 @@ function applyFilters(
   initial: unknown,
   filters: readonly FlowReferenceFilter[],
   source: string
-): { readonly ok: true; readonly value: unknown } | {
-  readonly ok: false;
-  readonly message: string;
-} {
+):
+  | { readonly ok: true; readonly value: unknown }
+  | {
+      readonly ok: false;
+      readonly message: string;
+    } {
   let value = initial;
   for (const filter of filters) {
     switch (filter.name) {
@@ -192,8 +196,10 @@ function applyFilters(
         break;
       case "upper":
       case "lower":
-        if (typeof value !== "string") return filterFailure(source, filter.name);
-        value = filter.name === "upper" ? value.toUpperCase() : value.toLowerCase();
+        if (typeof value !== "string")
+          return filterFailure(source, filter.name);
+        value =
+          filter.name === "upper" ? value.toUpperCase() : value.toLowerCase();
         break;
       case "json":
         value = stableStringify(value);

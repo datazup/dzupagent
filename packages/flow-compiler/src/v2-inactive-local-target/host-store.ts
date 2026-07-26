@@ -10,6 +10,7 @@ interface StoredRun {
   checkpoint: V2InactiveLocalHostCheckpoint | null;
   leaseToken: string | null;
   leaseSequence: number;
+  lastReleasedLeaseToken: string | null;
 }
 
 /**
@@ -28,6 +29,7 @@ export function createInMemoryV2InactiveLocalHostStore(): V2InactiveLocalHostChe
         checkpoint: null,
         leaseToken: null,
         leaseSequence: 0,
+        lastReleasedLeaseToken: null,
       };
       if (current.leaseToken !== null) {
         return { ok: false, reason: "already-claimed" };
@@ -46,12 +48,14 @@ export function createInMemoryV2InactiveLocalHostStore(): V2InactiveLocalHostChe
       return {
         ok: true,
         leaseToken,
+        fencingToken: leaseSequence,
         checkpoint: current.checkpoint,
       };
     },
     async commit(input: {
       readonly runId: string;
       readonly leaseToken: string;
+      readonly fencingToken?: number;
       readonly expectedPreviousSha256: `sha256:${string}` | null;
       readonly checkpoint: V2InactiveLocalHostCheckpoint;
     }): Promise<boolean> {
@@ -59,6 +63,7 @@ export function createInMemoryV2InactiveLocalHostStore(): V2InactiveLocalHostChe
       if (
         current === undefined ||
         current.leaseToken !== input.leaseToken ||
+        input.fencingToken !== current.leaseSequence ||
         (current.checkpoint?.checkpointSha256 ?? null) !==
           input.expectedPreviousSha256 ||
         input.checkpoint.previousCheckpointSha256 !==
@@ -76,13 +81,26 @@ export function createInMemoryV2InactiveLocalHostStore(): V2InactiveLocalHostChe
     async release(input: {
       readonly runId: string;
       readonly leaseToken: string;
+      readonly fencingToken?: number;
     }): Promise<boolean> {
       const current = runs.get(input.runId);
-      if (current?.leaseToken !== input.leaseToken) return false;
+      if (
+        current?.leaseToken === null &&
+        current.lastReleasedLeaseToken === input.leaseToken &&
+        current.leaseSequence === input.fencingToken
+      ) {
+        return true;
+      }
+      if (
+        current?.leaseToken !== input.leaseToken ||
+        current.leaseSequence !== input.fencingToken
+      )
+        return false;
       runs.set(input.runId, {
         checkpoint: current.checkpoint,
         leaseSequence: current.leaseSequence,
         leaseToken: null,
+        lastReleasedLeaseToken: input.leaseToken,
       });
       return true;
     },
