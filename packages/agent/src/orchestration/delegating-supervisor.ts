@@ -43,6 +43,10 @@ import type {
   DelegateTaskOptions,
   DelegatingSupervisorConfig,
   PlanAndDelegateOptions,
+  SubOrchestratorChildHierarchy,
+  SubOrchestratorFactory,
+  SubOrchestratorSpawnOptions,
+  SubOrchestratorSpawnResult,
   SupervisorHierarchy,
   TaskAssignment,
 } from "./delegating-supervisor-types.js";
@@ -54,7 +58,10 @@ export type {
   DelegateTaskOptions,
   DelegatingSupervisorConfig,
   PlanAndDelegateOptions,
+  SubOrchestratorChildHierarchy,
+  SubOrchestratorFactory,
   SubOrchestratorSpawnOptions,
+  SubOrchestratorSpawnResult,
   SupervisorHierarchy,
   TaskAssignment,
 } from "./delegating-supervisor-types.js";
@@ -78,10 +85,14 @@ export class DelegatingSupervisor {
   private readonly circuitBreaker: AgentCircuitBreaker | undefined;
   private readonly duplicateSpecialistAssignmentIdMode: DuplicateSpecialistAssignmentIdMode;
 
+  private readonly subOrchestratorFactory: SubOrchestratorFactory | undefined;
+
   // ── Hierarchy (ORCHESTRATION_V2) ──
   private readonly hierarchyParentRunId: string | undefined;
   private readonly hierarchyBranchId: string | undefined;
   private readonly hierarchyDepth: number;
+  /** This supervisor's OWN run ID, used when naming itself a child's parent. */
+  private readonly ownRunId: string | undefined;
   /**
    * Pre-resolved hierarchy stamped onto every delegation this supervisor
    * issues, or `undefined` for a root supervisor with no hierarchy configured.
@@ -101,6 +112,7 @@ export class DelegatingSupervisor {
 
     this.hierarchyParentRunId = config.parentRunId;
     this.hierarchyBranchId = config.branchId;
+    this.ownRunId = config.runId;
 
     // Resolve the hierarchy stamped onto issued delegations exactly once.
     // A supervisor with NO hierarchy signal at all (root: no parentRunId, no
@@ -130,6 +142,7 @@ export class DelegatingSupervisor {
     this.routingPolicy = config.routingPolicy;
     this.mergeStrategy = config.mergeStrategy;
     this.circuitBreaker = config.circuitBreaker;
+    this.subOrchestratorFactory = config.subOrchestratorFactory;
     this.duplicateSpecialistAssignmentIdMode =
       config.duplicateSpecialistAssignmentIdMode ?? "warn";
   }
@@ -494,6 +507,167 @@ export class DelegatingSupervisor {
   }
 
   // -------------------------------------------------------------------------
+  // Recursive sub-orchestration (ORCHESTRATION_V2)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Dispatch a subtask to a CHILD `DelegatingSupervisor`.
+   *
+   * This is the recursive half of the orchestration hierarchy: unlike
+   * {@link delegateTask}, whose target is a specialist *leaf*, this descends one
+   * orchestrator level. It is the site the depth ceiling exists for.
+   *
+   * ## Depth enforcement
+   *
+   * `assertDepthAllowed(this.hierarchyDepth + 1)` runs FIRST, before the factory
+   * is invoked and before any child is constructed — the CHILD's prospective
+   * depth, not the spawner's.
+   *
+   * That choice is forced, not stylistic. `assertDepthAllowed(d)` throws when
+   * `d >= MAX_ORCHESTRATION_DEPTH` (3), and the constructor already applies it
+   * to a supervisor's own depth, so constructable depths are {0, 1, 2}.
+   * Guarding the *spawner's* depth here would let a depth-2 supervisor pass and
+   * then produce a depth-3 child that the child constructor must reject: the
+   * dispatch site would be reporting "allowed" for a spawn that cannot
+   * complete. Guarding the child's depth makes the dispatch-site verdict
+   * truthful — if this method gets past the guard, the child is constructable.
+   *
+   * Stated plainly: **depth 1 is the deepest a supervisor may spawn FROM**,
+   * because depth 2 is the deepest a supervisor may exist AT. A depth-2
+   * supervisor is a valid leaf orchestrator; it delegates to specialists and
+   * spawns no children.
+   *
+   * ## Hierarchy propagation
+   *
+   * The child receives:
+   *  - `parentRunId` = THIS supervisor's own run ID (`config.runId`) — the
+   *    ORCHESTRATOR-hierarchy parent, concept (1) in the {@link hierarchy}
+   *    docblock. It is NOT taken from `parentContext.parentRunId`, which is the
+   *    per-delegation parent, concept (2). Conflating them is explicitly
+   *    rejected; a supervisor with no `runId` cannot name itself a parent and
+   *    this method throws instead of substituting concept (2).
+   *  - `branchId` = `options.branchId`, verbatim.
+   *  - `depth`    = this supervisor's depth + 1.
+   *
+   * Caller-supplied `options.parentRunId` / `options.depth` are treated as
+   * assertions, not inputs: they are compared against the derived values and a
+   * mismatch throws, so a caller working from a stale view of the tree fails
+   * loudly rather than spawning a mis-attributed child.
+   *
+   * ## Events
+   *
+   * This method deliberately emits NO event of its own. See the "Sub-orchestrator
+   * spawning" section of the {@link hierarchy} docblock for the reasoning.
+   *
+   * @throws OrchestrationError when no factory is available, when `runId` is
+   *   unset, when the caller's asserted hierarchy disagrees with the derived
+   *   one, or when the factory returns a child whose hierarchy does not match.
+   * @throws Error (from `assertDepthAllowed`) when the depth ceiling is reached.
+   */
+  async spawnSubOrchestrator(
+    options: SubOrchestratorSpawnOptions,
+    factory?: SubOrchestratorFactory
+  ): Promise<SubOrchestratorSpawnResult> {
+    // ── 1. Depth guard, AT THE DISPATCH SITE, before anything is built. ──
+    //
+    // The guard is on the CHILD's prospective depth, not the spawner's. Two
+    // readings of `assertDepthAllowed` were available and they are NOT
+    // equivalent; this one is forced by the pre-existing constructor guard.
+    //
+    // `assertDepthAllowed(d)` throws when `d >= MAX_ORCHESTRATION_DEPTH` (3),
+    // and the constructor already applies it to a supervisor's own depth. So
+    // the set of constructable depths is {0, 1, 2}: three levels, which is what
+    // makes 3 the level *count*. Guarding the spawner's depth instead would let
+    // a depth-2 supervisor pass this check and then hand the factory a child at
+    // depth 3 that the child constructor must reject — the dispatch site would
+    // report "allowed" for a spawn that cannot possibly complete. Guarding the
+    // child's depth keeps the dispatch-site verdict truthful: if this returns,
+    // the child is constructable.
+    //
+    // Consequence, stated plainly: depth 1 is the deepest a supervisor may
+    // spawn FROM, because depth 2 is the deepest a supervisor may exist AT.
+    const childDepth = this.hierarchyDepth + 1;
+    assertOrchestrationDepthAllowed(childDepth);
+
+    const resolvedFactory = factory ?? this.subOrchestratorFactory;
+    if (!resolvedFactory) {
+      throw new OrchestrationError(
+        "Cannot spawn a sub-orchestrator: no subOrchestratorFactory was " +
+          "configured and none was passed to spawnSubOrchestrator(). The " +
+          "child's specialists and delegation tracker are wiring decisions " +
+          "this supervisor cannot invent.",
+        "delegation",
+        { branchId: options.branchId, depth: childDepth }
+      );
+    }
+
+    // ── 2. Derive the child's hierarchy from THIS supervisor. ──
+    if (this.ownRunId === undefined) {
+      throw new OrchestrationError(
+        "Cannot spawn a sub-orchestrator: this supervisor has no `runId`, so " +
+          "it cannot name itself as the child's orchestrator-hierarchy parent. " +
+          "Set DelegatingSupervisorConfig.runId. Note this is NOT " +
+          "parentContext.parentRunId, which is the per-delegation parent and " +
+          "would mis-attribute the tree.",
+        "delegation",
+        { branchId: options.branchId, depth: childDepth }
+      );
+    }
+
+    const hierarchy: SubOrchestratorChildHierarchy = {
+      parentRunId: this.ownRunId,
+      branchId: options.branchId,
+      depth: childDepth,
+    };
+
+    // ── 3. Validate the caller's asserted position against the derived one. ──
+    if (options.parentRunId !== hierarchy.parentRunId) {
+      throw new OrchestrationError(
+        `Sub-orchestrator spawn rejected: options.parentRunId ` +
+          `"${options.parentRunId}" does not match this supervisor's run ` +
+          `"${hierarchy.parentRunId}". The spawning supervisor is the only ` +
+          "authority on the child's orchestrator-hierarchy parent.",
+        "delegation",
+        {
+          expectedParentRunId: hierarchy.parentRunId,
+          actualParentRunId: options.parentRunId,
+        }
+      );
+    }
+    if (options.depth !== hierarchy.depth) {
+      throw new OrchestrationError(
+        `Sub-orchestrator spawn rejected: options.depth ${options.depth} does ` +
+          `not match the derived child depth ${hierarchy.depth} ` +
+          `(spawner depth ${this.hierarchyDepth} + 1).`,
+        "delegation",
+        { expectedDepth: hierarchy.depth, actualDepth: options.depth }
+      );
+    }
+
+    // ── 4. Build the child and verify the factory honored the hierarchy. ──
+    const child = await resolvedFactory({ hierarchy, options });
+    const actual = child.hierarchy;
+    if (
+      actual.parentRunId !== hierarchy.parentRunId ||
+      actual.branchId !== hierarchy.branchId ||
+      actual.depth !== hierarchy.depth
+    ) {
+      throw new OrchestrationError(
+        "Sub-orchestrator factory returned a child whose hierarchy does not " +
+          "match the derived one. The factory must spread the supplied " +
+          "`hierarchy` onto the child config verbatim.",
+        "delegation",
+        { expected: hierarchy, actual }
+      );
+    }
+
+    // ── 5. Run the child. Failures propagate to this caller unchanged. ──
+    const result = await child.planAndDelegate(options.inputPrompt);
+
+    return { hierarchy, supervisor: child, result };
+  }
+
+  // -------------------------------------------------------------------------
   // Accessors
   // -------------------------------------------------------------------------
 
@@ -597,14 +771,54 @@ export class DelegatingSupervisor {
    * returned result. Overloading `DelegationContext.parentRunId` to carry
    * concept (1) remains explicitly rejected.
    *
-   * ## Still not wired
+   * ## Sub-orchestrator spawning
    *
-   * No recursive sub-orchestrator spawning exists yet — this
-   * supervisor delegates only to *specialist agents*, never to another
-   * `DelegatingSupervisor` — so the depth guard is enforced at construction
-   * time (fail fast on a too-deep supervisor) rather than at a child-dispatch
-   * site, because no such site exists. See `SubOrchestratorSpawnOptions`,
-   * which remains an unimplemented forward declaration.
+   * {@link spawnSubOrchestrator} dispatches a subtask to a CHILD
+   * `DelegatingSupervisor`, so the tree now descends through orchestrator
+   * levels and not only into specialist leaves. `SubOrchestratorSpawnOptions`
+   * is no longer a forward declaration: it is that method's request type.
+   *
+   * The depth guard is consequently enforced at two independent places, and
+   * they check different things:
+   *
+   * - **Dispatch site** (`spawnSubOrchestrator`) — `assertDepthAllowed` on the
+   *   *child's prospective* depth, before the factory runs. Makes the
+   *   dispatch-site verdict truthful: past the guard, the child is
+   *   constructable. Deepest depth a supervisor may spawn FROM is 1.
+   * - **Construction** (the constructor) — `assertDepthAllowed` on the
+   *   supervisor's *own* depth, unchanged. Still fails fast on a too-deep
+   *   supervisor built directly, bypassing any spawn. Deepest depth a
+   *   supervisor may exist AT is 2.
+   *
+   * The child's `parentRunId` is concept (1) above — the spawner's OWN run ID,
+   * supplied as `DelegatingSupervisorConfig.runId`, a third identity distinct
+   * from both this supervisor's `hierarchy.parentRunId` and its
+   * `parentContext.parentRunId`. A supervisor without `runId` cannot spawn:
+   * `spawnSubOrchestrator` throws rather than substituting concept (2), which
+   * would mis-attribute the tree. Overloading (2) to carry (1) remains
+   * explicitly rejected here as everywhere else.
+   *
+   * ### Events deliberately NOT emitted
+   *
+   * A sub-orchestrator dispatch emits NO event of its own, and this is a
+   * decision rather than an omission. The only established shapes are
+   * `delegation:*` and `supervisor:*`, and neither can describe this truthfully:
+   *
+   * - `delegation:*` drives the `forge_delegation_*_total` metrics in
+   *   `@dzupagent/otel`, which count delegations to specialist agents. A child
+   *   orchestrator is not a specialist, and its `targetAgentId` would name
+   *   something absent from any `specialists` map — inflating those counters
+   *   with a different kind of event.
+   * - `supervisor:delegating` / `supervisor:delegation_complete` are keyed on
+   *   `specialistId`, with the same problem.
+   *
+   * Inventing a `suborchestrator:*` family, or widening the shared union to
+   * accommodate this one call site, was rejected. It is also unnecessary: the
+   * spawn is already fully observable without it, because the child stamps
+   * `hierarchy` = `{ parentRunId: <spawner run>, branchId, depth }` onto every
+   * `delegation:started` it emits. An out-of-process observer therefore
+   * reconstructs the parent→child edge from the child's own event stream, which
+   * is the same mechanism used for every other tree attribution here.
    */
   get hierarchy(): SupervisorHierarchy {
     return {

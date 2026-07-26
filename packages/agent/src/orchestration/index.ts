@@ -49,6 +49,10 @@ export type {
   AggregatedDelegationResult,
   DelegateTaskOptions,
   DuplicateSpecialistAssignmentIdMode,
+  SubOrchestratorSpawnOptions,
+  SubOrchestratorSpawnResult,
+  SubOrchestratorChildHierarchy,
+  SubOrchestratorFactory,
 } from "./delegating-supervisor.js";
 
 export { TopologyAnalyzer } from "./topology/topology-analyzer.js";
