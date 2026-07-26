@@ -695,6 +695,95 @@ steps:
     expect(unsupported).not.toHaveProperty("candidateSource");
   });
 
+  it("migrates a lab-dialect action dispatch node", () => {
+    const source = `dsl: dzupflow/v1
+id: lab-action
+version: 1
+uses:
+  action: dzup.action@1
+steps:
+  - action:
+      id: agentRun
+      ref: agent.codex.run
+      input:
+        role: single-agent
+        model: gpt-5.3-codex
+  - complete:
+      id: done
+      result: finished
+`;
+    const report = previewDslV1ToV2Migration(source);
+    expect(report).toMatchObject({
+      classification: "equivalent",
+      canonicalEquivalent: true,
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          nodeType: "action",
+          classification: "equivalent",
+        }),
+      ]),
+    });
+    expect(report.primitiveImports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ref: "primitive://action@1" }),
+      ])
+    );
+
+    const v1 = parseDslToDocument(source);
+    const v2 = parseDslToDocument(report.candidateSource!);
+    expect(v1).toMatchObject({ ok: true });
+    expect(v2).toMatchObject({ ok: true });
+    if (v1.ok && v2.ok) expect(v2.document).toEqual(v1.document);
+  });
+
+  it("migrates a bounded loop and recurses into its body", () => {
+    const source = `dsl: dzupflow/v1
+id: lab-loop
+version: 1
+uses:
+  action: dzup.action@1
+  loop: dzup.loop@1
+steps:
+  - loop:
+      id: reviewLoop
+      condition: "{{ state.shouldContinue }}"
+      maxIterations: 5
+      body:
+        - action:
+            id: implement
+            ref: agent.codex.run
+            input:
+              role: implementer
+  - complete:
+      id: done
+      result: finished
+`;
+    const report = previewDslV1ToV2Migration(source);
+    expect(report).toMatchObject({
+      classification: "equivalent",
+      canonicalEquivalent: true,
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          nodeType: "loop",
+          classification: "equivalent",
+        }),
+        expect.objectContaining({
+          path: "root.steps[0].body[0]",
+          nodeType: "action",
+          classification: "equivalent",
+        }),
+      ]),
+    });
+    // The loop body must be migrated, not carried through as raw V1 nodes.
+    expect(report.candidateSource).not.toContain("type: action");
+
+    const v1 = parseDslToDocument(source);
+    const v2 = parseDslToDocument(report.candidateSource!);
+    expect(v1).toMatchObject({ ok: true });
+    expect(v2).toMatchObject({ ok: true });
+    if (v1.ok && v2.ok) expect(v2.document).toEqual(v1.document);
+  });
+
   it("classifies malformed and non-V1 sources as invalid", () => {
     expect(previewDslV1ToV2Migration("dsl:\tbad")).toMatchObject({
       classification: "invalid",
