@@ -8,6 +8,9 @@ const COUNCIL: CoordinatorPattern = "council";
 const BLACKBOARD: CoordinatorPattern = "blackboard";
 const PEER_TO_PEER: CoordinatorPattern = "peer_to_peer";
 
+/** Derived from the real declaration so the tests track it if the union moves. */
+type MemoryTier = NonNullable<TeamPolicies["memory"]>["tier"];
+
 describe("validateTeamPolicies", () => {
   describe("empty / no-op cases", () => {
     it("passes with empty policies object", () => {
@@ -32,7 +35,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { maxParallelParticipants: 1 },
-        }),
+        })
       ).not.toThrow();
     });
 
@@ -40,7 +43,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { maxParallelParticipants: 10 },
-        }),
+        })
       ).not.toThrow();
     });
 
@@ -48,7 +51,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { maxParallelParticipants: 0 },
-        }),
+        })
       ).toThrow(/maxParallelParticipants.*positive integer/);
     });
 
@@ -56,7 +59,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { maxParallelParticipants: -1 },
-        }),
+        })
       ).toThrow(/maxParallelParticipants/);
     });
 
@@ -64,23 +67,23 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { maxParallelParticipants: 2.5 },
-        }),
+        })
       ).toThrow(/maxParallelParticipants/);
     });
 
     it("accepts a valid timeoutMs on any pattern (whole-run timeout)", () => {
       expect(() =>
-        validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs: 5000 } }),
+        validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs: 5000 } })
       ).not.toThrow();
       expect(() =>
-        validateTeamPolicies(PEER_TO_PEER, { execution: { timeoutMs: 1 } }),
+        validateTeamPolicies(PEER_TO_PEER, { execution: { timeoutMs: 1 } })
       ).not.toThrow();
     });
 
     it("rejects malformed timeoutMs (0 / negative / float)", () => {
       for (const timeoutMs of [0, -5, 1.5]) {
         expect(() =>
-          validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs } }),
+          validateTeamPolicies(SUPERVISOR, { execution: { timeoutMs } })
         ).toThrow(/timeoutMs.*positive integer/);
       }
     });
@@ -89,12 +92,12 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(PEER_TO_PEER, {
           execution: { retryOnFailure: true, maxRetries: 3 },
-        }),
+        })
       ).not.toThrow();
       expect(() =>
         validateTeamPolicies(PEER_TO_PEER, {
           execution: { retryOnFailure: false },
-        }),
+        })
       ).not.toThrow();
     });
 
@@ -102,10 +105,10 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { retryOnFailure: true },
-        }),
+        })
       ).toThrow(/retry.*only supported for coordinator pattern 'peer_to_peer'/);
       expect(() =>
-        validateTeamPolicies(COUNCIL, { execution: { maxRetries: 3 } }),
+        validateTeamPolicies(COUNCIL, { execution: { maxRetries: 3 } })
       ).toThrow(/peer_to_peer/);
     });
 
@@ -114,19 +117,19 @@ describe("validateTeamPolicies", () => {
         expect(() =>
           validateTeamPolicies(PEER_TO_PEER, {
             execution: { retryOnFailure: true, maxRetries },
-          }),
+          })
         ).toThrow(/maxRetries.*positive integer/);
       }
     });
 
     it("rejects maxRetries without retryOnFailure enabled", () => {
       expect(() =>
-        validateTeamPolicies(PEER_TO_PEER, { execution: { maxRetries: 2 } }),
+        validateTeamPolicies(PEER_TO_PEER, { execution: { maxRetries: 2 } })
       ).toThrow(/maxRetries.*requires 'retryOnFailure'/);
       expect(() =>
         validateTeamPolicies(PEER_TO_PEER, {
           execution: { retryOnFailure: false, maxRetries: 2 },
-        }),
+        })
       ).toThrow(/requires 'retryOnFailure'/);
     });
 
@@ -134,7 +137,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           execution: { timeoutMs: -1, maxParallelParticipants: -1 },
-        }),
+        })
       ).toThrow(/timeoutMs/);
     });
   });
@@ -144,7 +147,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(COUNCIL, {
           governance: { judgeModel: "claude-opus-4-8" },
-        }),
+        })
       ).not.toThrow();
     });
 
@@ -152,7 +155,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           governance: { judgeModel: "claude-opus-4-8" },
-        }),
+        })
       ).toThrow(/governance.*council/);
     });
 
@@ -160,7 +163,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(BLACKBOARD, {
           governance: { judgeModel: "claude-opus-4-8" },
-        }),
+        })
       ).toThrow(/governance.*council/);
     });
 
@@ -168,13 +171,13 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(COUNCIL, {
           governance: { judgeModel: "m", minScore: 0.8 },
-        }),
+        })
       ).not.toThrow();
       for (const minScore of [0, 1]) {
         expect(() =>
           validateTeamPolicies(COUNCIL, {
             governance: { judgeModel: "m", minScore },
-          }),
+          })
         ).not.toThrow();
       }
     });
@@ -184,7 +187,7 @@ describe("validateTeamPolicies", () => {
         expect(() =>
           validateTeamPolicies(COUNCIL, {
             governance: { judgeModel: "m", minScore },
-          }),
+          })
         ).toThrow(/minScore.*\[0, 1\]/);
       }
     });
@@ -193,7 +196,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(COUNCIL, {
           governance: { judgeModel: "m", requireUnanimous: true },
-        }),
+        })
       ).not.toThrow();
     });
 
@@ -204,7 +207,7 @@ describe("validateTeamPolicies", () => {
             judgeModel: "m",
             requireUnanimous: "yes" as unknown as boolean,
           },
-        }),
+        })
       ).toThrow(/requireUnanimous.*boolean/);
     });
 
@@ -212,7 +215,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           governance: { judgeModel: "m", minScore: 0.8 },
-        }),
+        })
       ).toThrow(/governance.*council/);
     });
   });
@@ -225,20 +228,136 @@ describe("validateTeamPolicies", () => {
 
     it("accepts memory policy on blackboard pattern", () => {
       expect(() =>
-        validateTeamPolicies(BLACKBOARD, { memory: baseMemory }),
+        validateTeamPolicies(BLACKBOARD, { memory: baseMemory })
       ).not.toThrow();
     });
 
     it("rejects memory policy on supervisor pattern", () => {
       expect(() =>
-        validateTeamPolicies(SUPERVISOR, { memory: baseMemory }),
+        validateTeamPolicies(SUPERVISOR, { memory: baseMemory })
       ).toThrow(/memory.*blackboard/);
     });
 
     it("rejects memory policy on council pattern", () => {
       expect(() =>
-        validateTeamPolicies(COUNCIL, { memory: baseMemory }),
+        validateTeamPolicies(COUNCIL, { memory: baseMemory })
       ).toThrow(/memory.*blackboard/);
+    });
+
+    // `tier` / `shareAcrossParticipants` have no in-repo runtime consumer (the
+    // runtime owns no store whose lifetime/sharing they select — see
+    // team-policy.ts). They are shape-checked only, so a malformed declaration
+    // from a JS caller or JSON-loaded policy fails fast.
+    describe("tier (shape-checked, scoped out of enforcement)", () => {
+      for (const tier of ["ephemeral", "session", "persistent"] as const) {
+        it(`accepts tier '${tier}'`, () => {
+          expect(() =>
+            validateTeamPolicies(BLACKBOARD, {
+              memory: { ...baseMemory, tier },
+            })
+          ).not.toThrow();
+        });
+      }
+
+      it("rejects an unknown tier value", () => {
+        expect(() =>
+          validateTeamPolicies(BLACKBOARD, {
+            memory: {
+              ...baseMemory,
+              tier: "durable" as unknown as MemoryTier,
+            },
+          })
+        ).toThrow(
+          /'tier' must be one of 'ephemeral' \| 'session' \| 'persistent'/
+        );
+      });
+
+      it("rejects a missing tier", () => {
+        expect(() =>
+          validateTeamPolicies(BLACKBOARD, {
+            memory: {
+              shareAcrossParticipants: false,
+            } as unknown as TeamPolicies["memory"],
+          })
+        ).toThrow(/'tier' must be one of/);
+      });
+
+      it("rejects a non-string tier", () => {
+        expect(() =>
+          validateTeamPolicies(BLACKBOARD, {
+            memory: { ...baseMemory, tier: 1 as unknown as MemoryTier },
+          })
+        ).toThrow(/'tier' must be one of/);
+      });
+    });
+
+    describe("shareAcrossParticipants (shape-checked, scoped out)", () => {
+      it("accepts shareAcrossParticipants true", () => {
+        expect(() =>
+          validateTeamPolicies(BLACKBOARD, {
+            memory: { ...baseMemory, shareAcrossParticipants: true },
+          })
+        ).not.toThrow();
+      });
+
+      it("accepts shareAcrossParticipants false", () => {
+        expect(() =>
+          validateTeamPolicies(BLACKBOARD, {
+            memory: { ...baseMemory, shareAcrossParticipants: false },
+          })
+        ).not.toThrow();
+      });
+
+      it("rejects a missing shareAcrossParticipants", () => {
+        expect(() =>
+          validateTeamPolicies(BLACKBOARD, {
+            memory: {
+              tier: "ephemeral",
+            } as unknown as TeamPolicies["memory"],
+          })
+        ).toThrow(/'shareAcrossParticipants' must be a boolean/);
+      });
+
+      it("rejects a non-boolean shareAcrossParticipants", () => {
+        expect(() =>
+          validateTeamPolicies(BLACKBOARD, {
+            memory: {
+              ...baseMemory,
+              shareAcrossParticipants: "yes" as unknown as boolean,
+            },
+          })
+        ).toThrow(/shareAcrossParticipants.*boolean/);
+      });
+    });
+
+    it("reports the pattern mismatch before field shape on a non-blackboard pattern", () => {
+      // The pattern gate runs first, so a doubly-invalid policy surfaces the
+      // scope error rather than a shape error.
+      expect(() =>
+        validateTeamPolicies(SUPERVISOR, {
+          memory: {
+            tier: "durable" as unknown as MemoryTier,
+            shareAcrossParticipants: "yes" as unknown as boolean,
+          },
+        })
+      ).toThrow(/memory.*blackboard/);
+    });
+
+    it("accepts a fully valid memory policy with every field set", () => {
+      expect(() =>
+        validateTeamPolicies(BLACKBOARD, {
+          memory: {
+            tier: "persistent",
+            shareAcrossParticipants: true,
+            consolidateOnComplete: true,
+            blackboardContext: {
+              maxSerializedChars: 4096,
+              maxEntryChars: 512,
+              overflowBehavior: "compact",
+            },
+          },
+        })
+      ).not.toThrow();
     });
 
     it("accepts blackboardContext with valid positive-integer budgets", () => {
@@ -248,7 +367,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxSerializedChars: 4096, maxEntryChars: 512 },
           },
-        }),
+        })
       ).not.toThrow();
     });
 
@@ -259,7 +378,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxSerializedChars: 0 },
           },
-        }),
+        })
       ).toThrow(/maxSerializedChars.*positive integer/);
     });
 
@@ -270,7 +389,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxSerializedChars: -100 },
           },
-        }),
+        })
       ).toThrow(/maxSerializedChars/);
     });
 
@@ -281,7 +400,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxSerializedChars: 1.5 },
           },
-        }),
+        })
       ).toThrow(/maxSerializedChars/);
     });
 
@@ -292,7 +411,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxEntryChars: 0 },
           },
-        }),
+        })
       ).toThrow(/maxEntryChars.*positive integer/);
     });
 
@@ -303,7 +422,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { maxEntryChars: -1 },
           },
-        }),
+        })
       ).toThrow(/maxEntryChars/);
     });
 
@@ -314,7 +433,7 @@ describe("validateTeamPolicies", () => {
             ...baseMemory,
             blackboardContext: { overflowBehavior: "compact" },
           },
-        }),
+        })
       ).not.toThrow();
     });
   });
@@ -328,12 +447,12 @@ describe("validateTeamPolicies", () => {
             scoringCriteria: ["clarity", "correctness"],
             minPassScore: 0.7,
           },
-        }),
+        })
       ).not.toThrow();
       expect(() =>
         validateTeamPolicies(BLACKBOARD, {
           evaluation: { scorerModel: "m" },
-        }),
+        })
       ).not.toThrow();
     });
 
@@ -341,7 +460,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           evaluation: { scorerModel: "" },
-        }),
+        })
       ).toThrow(/scorerModel.*non-empty/);
     });
 
@@ -350,7 +469,7 @@ describe("validateTeamPolicies", () => {
         expect(() =>
           validateTeamPolicies(SUPERVISOR, {
             evaluation: { scorerModel: "m", minPassScore },
-          }),
+          })
         ).toThrow(/minPassScore.*\[0, 1\]/);
       }
     });
@@ -362,7 +481,7 @@ describe("validateTeamPolicies", () => {
             scorerModel: "m",
             scoringCriteria: [1 as unknown as string],
           },
-        }),
+        })
       ).toThrow(/scoringCriteria.*array of strings/);
     });
   });
@@ -372,7 +491,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           isolation: { sandboxed: false, sharedWorkspace: true },
-        }),
+        })
       ).not.toThrow();
     });
 
@@ -383,7 +502,7 @@ describe("validateTeamPolicies", () => {
             sandboxed: "no" as unknown as boolean,
             sharedWorkspace: true,
           },
-        }),
+        })
       ).toThrow(/sandboxed.*boolean/);
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
@@ -391,7 +510,7 @@ describe("validateTeamPolicies", () => {
             sandboxed: true,
             sharedWorkspace: 1 as unknown as boolean,
           },
-        }),
+        })
       ).toThrow(/sharedWorkspace.*boolean/);
     });
   });
@@ -406,7 +525,7 @@ describe("validateTeamPolicies", () => {
         expect(() =>
           validateTeamPolicies(SUPERVISOR, {
             mailbox: { deliveryMode },
-          }),
+          })
         ).not.toThrow();
       }
     });
@@ -415,7 +534,7 @@ describe("validateTeamPolicies", () => {
       expect(() =>
         validateTeamPolicies(SUPERVISOR, {
           mailbox: { deliveryMode: "targeted", maxQueueDepth: 10 },
-        }),
+        })
       ).not.toThrow();
     });
 
@@ -425,7 +544,7 @@ describe("validateTeamPolicies", () => {
           mailbox: {
             deliveryMode: "gossip" as unknown as "broadcast",
           },
-        }),
+        })
       ).toThrow(/deliveryMode/);
     });
 
@@ -434,7 +553,7 @@ describe("validateTeamPolicies", () => {
         expect(() =>
           validateTeamPolicies(SUPERVISOR, {
             mailbox: { deliveryMode: "broadcast", maxQueueDepth },
-          }),
+          })
         ).toThrow(/maxQueueDepth.*positive integer/);
       }
     });

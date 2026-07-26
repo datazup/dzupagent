@@ -9,6 +9,7 @@ import {
   SimpleDelegationTracker,
   type DelegationTracker,
   type DelegationExecutor,
+  type DelegationRequest,
 } from "../orchestration/delegation.js";
 import {
   DelegatingSupervisor,
@@ -1744,6 +1745,273 @@ describe("DelegatingSupervisor", () => {
       const result = await supervisor.delegateTask("Task A", "agent-a", {});
 
       expect(result.success).toBe(true);
+    });
+
+    // ---------------------------------------------------------------------
+    // Propagation into delegation records
+    // ---------------------------------------------------------------------
+    describe("propagation into delegation records", () => {
+      /** Returns the single DelegationRequest the tracker received. */
+      function soleRequest(tracker: DelegationTracker): DelegationRequest {
+        const mock = vi.mocked(tracker.delegate);
+        expect(mock).toHaveBeenCalledTimes(1);
+        return mock.mock.calls[0]![0]!;
+      }
+
+      it("omits hierarchy entirely when no hierarchy config is set", async () => {
+        const tracker = makeTrackerReturning({ success: true, output: "ok" });
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", { k: "v" });
+
+        // Backward-compat regression guard: the request must be byte-identical
+        // to a pre-hierarchy build — no `hierarchy` key at all.
+        const request = soleRequest(tracker);
+        expect(request).toEqual({
+          targetAgentId: "agent-a",
+          task: "Task A",
+          input: { k: "v" },
+        });
+        expect("hierarchy" in request).toBe(false);
+      });
+
+      it("omits hierarchy when only parentContext is set (root supervisor)", async () => {
+        const tracker = makeTrackerReturning({ success: true, output: "ok" });
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker,
+          parentContext: {
+            parentRunId: "delegation-parent-run",
+            decisions: [],
+            constraints: [],
+            relevantFiles: [],
+          },
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        const request = soleRequest(tracker);
+        expect("hierarchy" in request).toBe(false);
+        expect(request.context?.parentRunId).toBe("delegation-parent-run");
+      });
+
+      it("stamps parentRunId, branchId and depth onto the request", async () => {
+        const tracker = makeTrackerReturning({ success: true, output: "ok" });
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker,
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 2,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        expect(soleRequest(tracker).hierarchy).toEqual({
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 2,
+        });
+      });
+
+      it("keeps the two parentRunId concepts independently retrievable", async () => {
+        const tracker = makeTrackerReturning({ success: true, output: "ok" });
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker,
+          parentContext: {
+            parentRunId: "delegation-parent-run",
+            decisions: ["d1"],
+            constraints: [],
+            relevantFiles: [],
+          },
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 1,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        const request = soleRequest(tracker);
+        // The caller-supplied per-delegation parentRunId is NOT overwritten...
+        expect(request.context?.parentRunId).toBe("delegation-parent-run");
+        expect(request.context?.decisions).toEqual(["d1"]);
+        // ...and the orchestrator-hierarchy parent travels separately.
+        expect(request.hierarchy?.parentRunId).toBe("hierarchy-parent-run");
+      });
+
+      it("stamps depth even when it is the only hierarchy signal", async () => {
+        const tracker = makeTrackerReturning({ success: true, output: "ok" });
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker,
+          depth: 2,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        expect(soleRequest(tracker).hierarchy).toEqual({ depth: 2 });
+      });
+
+      it("treats an explicit depth: 0 as a deliberate signal", async () => {
+        const tracker = makeTrackerReturning({ success: true, output: "ok" });
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker,
+          depth: 0,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        expect(soleRequest(tracker).hierarchy).toEqual({ depth: 0 });
+      });
+
+      it("attributes a delegation to the issuer's own depth, not depth + 1", async () => {
+        const tracker = makeTrackerReturning({ success: true, output: "ok" });
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker,
+          branchId: "b",
+          depth: MAX_ORCHESTRATION_DEPTH - 1,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        // A delegation targets a specialist leaf, not another orchestrator
+        // level, so it must not descend the tree (which at this depth would
+        // also collide with MAX_ORCHESTRATION_DEPTH).
+        expect(soleRequest(tracker).hierarchy?.depth).toBe(
+          MAX_ORCHESTRATION_DEPTH - 1
+        );
+        expect(supervisor.hierarchy.depth).toBe(MAX_ORCHESTRATION_DEPTH - 1);
+      });
+
+      it("stamps hierarchy on every task of a parallel batch", async () => {
+        const tracker = makeTrackerReturning({ success: true, output: "ok" });
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([
+            ["agent-a", makeSpecialist("agent-a")],
+            ["agent-b", makeSpecialist("agent-b")],
+          ]),
+          tracker,
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 1,
+        });
+
+        const tasks: TaskAssignment[] = [
+          { id: "t1", task: "Task A", specialistId: "agent-a", input: {} },
+          { id: "t2", task: "Task B", specialistId: "agent-b", input: {} },
+        ];
+        await supervisor.delegateAndCollect(tasks);
+
+        const calls = vi.mocked(tracker.delegate).mock.calls;
+        expect(calls).toHaveLength(2);
+        for (const [request] of calls) {
+          expect(request.hierarchy).toEqual({
+            parentRunId: "hierarchy-parent-run",
+            branchId: "branch-left",
+            depth: 1,
+          });
+        }
+      });
+    });
+
+    // ---------------------------------------------------------------------
+    // Propagation through the real tracker into run + result metadata
+    // ---------------------------------------------------------------------
+    describe("propagation into run and result metadata", () => {
+      it("echoes hierarchy onto completed delegation metadata", async () => {
+        const store = new InMemoryRunStore();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            executor: withStoreUpdate(store),
+          }),
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 1,
+        });
+
+        const result = await supervisor.delegateTask("Task A", "agent-a", {});
+
+        expect(result.success).toBe(true);
+        expect(result.metadata?.hierarchy).toEqual({
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 1,
+        });
+      });
+
+      it("stamps hierarchy onto the persisted run record metadata", async () => {
+        const store = new InMemoryRunStore();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            executor: withStoreUpdate(store),
+          }),
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 1,
+        });
+
+        await supervisor.delegateTask("Task A", "agent-a", {});
+
+        const runs = await store.list({ agentId: "agent-a" });
+        expect(runs).toHaveLength(1);
+        expect(
+          (runs[0]!.metadata as Record<string, unknown>).hierarchy
+        ).toEqual({
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 1,
+        });
+      });
+
+      it("leaves run metadata free of a hierarchy key for a root supervisor", async () => {
+        const store = new InMemoryRunStore();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            executor: withStoreUpdate(store),
+          }),
+        });
+
+        const result = await supervisor.delegateTask("Task A", "agent-a", {});
+
+        const runs = await store.list({ agentId: "agent-a" });
+        expect("hierarchy" in (runs[0]!.metadata as object)).toBe(false);
+        expect("hierarchy" in (result.metadata as object)).toBe(false);
+      });
+
+      it("echoes hierarchy onto failed delegation metadata", async () => {
+        const store = new InMemoryRunStore();
+        const supervisor = new DelegatingSupervisor({
+          specialists: new Map([["agent-a", makeSpecialist("agent-a")]]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            executor: failingForAgent(store, "agent-a"),
+          }),
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 1,
+        });
+
+        const result = await supervisor.delegateTask("Task A", "agent-a", {});
+
+        expect(result.success).toBe(false);
+        expect(result.metadata?.hierarchy).toEqual({
+          parentRunId: "hierarchy-parent-run",
+          branchId: "branch-left",
+          depth: 1,
+        });
+      });
     });
   });
 });

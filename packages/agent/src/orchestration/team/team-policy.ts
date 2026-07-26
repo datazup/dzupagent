@@ -61,11 +61,47 @@ export interface GovernancePolicy {
   requireUnanimous?: boolean;
 }
 
-/** Controls how team memory is scoped and persisted. */
+/**
+ * Controls how team memory is scoped and persisted.
+ *
+ * `tier` and `shareAcrossParticipants` are SCOPED OUT of in-repo TeamRuntime
+ * enforcement (see their field docs); `consolidateOnComplete` is enforced behind
+ * the host-injected memory-service seam and `blackboardContext` is enforced by
+ * the blackboard pattern.
+ */
 export interface MemoryPolicy {
-  /** Storage tier for team memory. */
+  /**
+   * Storage tier for team memory.
+   *
+   * SCOPED OUT of in-repo TeamRuntime enforcement: the runtime owns no store
+   * whose lifetime this could select. The only store it provisions is a per-run
+   * in-process `SharedWorkspace` that is unconditionally ephemeral (discarded
+   * when the run ends — there is no "session"/"persistent" mode to switch it
+   * to), and all durable persistence happens inside the host-injected
+   * `TeamRuntimeMemoryService` (`consolidate` / `store`), whose retention the
+   * runtime cannot see or control. Choosing a tier is therefore a consuming-app
+   * concern — an app backing that service with a real store reads this policy
+   * itself. Note this field deliberately does NOT gate the consolidation pass:
+   * `consolidateOnComplete` already expresses that intent directly, and having
+   * `tier` silently veto it would create a second, contradictory gate. The
+   * validator shape-checks the field so a malformed declaration fails fast.
+   */
   tier: "ephemeral" | "session" | "persistent";
-  /** Whether all participants share the same memory store. */
+  /**
+   * Whether all participants share the same memory store.
+   *
+   * SCOPED OUT of in-repo TeamRuntime enforcement: there are no per-participant
+   * memory writes for this flag to partition. Participants share a single
+   * per-run `SharedWorkspace` by construction (the runtime has no "unshared"
+   * mode — the same reason `IsolationPolicy.sharedWorkspace` is scoped out), and
+   * the only memory-service interaction is a single post-run consolidation pass
+   * at team scope (`consolidateIfEnabled` uses `namespace = teamId`), which has
+   * no participant dimension to split on. Scoping a namespace per participant
+   * here would consolidate namespaces nothing ever wrote to. Partitioning memory
+   * per participant is therefore a consuming-app concern, owned by whoever backs
+   * the memory service. The validator shape-checks the field so a malformed
+   * declaration fails fast.
+   */
   shareAcrossParticipants: boolean;
   /**
    * Whether to consolidate/summarize memory when the run completes.

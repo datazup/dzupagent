@@ -35,6 +35,7 @@ export type {
   ActiveDelegation,
   DelegationContext,
   DelegationExecutor,
+  DelegationHierarchy,
   DelegationMetadata,
   DelegationRequest,
   DelegationResult,
