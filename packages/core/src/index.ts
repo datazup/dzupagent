@@ -750,6 +750,14 @@ export type {
 export { Semaphore } from "./concurrency/semaphore.js";
 export { ConcurrencyPool } from "./concurrency/pool.js";
 export type { PoolConfig, PoolStats } from "./concurrency/pool.js";
+export { RateLimiter } from "./concurrency/rate-limiter.js";
+export type {
+  RateLimiterConfig,
+  RateLimiterProviderConfig,
+  RateLimitRequest,
+  RateLimitDecision,
+  RateLimitReason,
+} from "./concurrency/rate-limiter.js";
 
 // --- Output ---
 export type {

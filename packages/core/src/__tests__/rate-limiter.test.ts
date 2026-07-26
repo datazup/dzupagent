@@ -1,167 +1,122 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { RateLimiter } from "../concurrency/rate-limiter.js";
+import type {
+  RateLimiterProviderConfig,
+  RateLimitRequest,
+} from "../concurrency/rate-limiter.js";
 
-type Request = {
-  provider: string;
-  key: string;
-  cost?: number;
-};
+const limiterFor = (providers: Record<string, RateLimiterProviderConfig>) =>
+  new RateLimiter({ providers });
 
-type ProviderLimit = {
-  capacity: number;
-  refillPerMs: number;
-  windowMs: number;
-  maxInWindow: number;
-  burst?: number;
-  backoffMs?: number;
-};
-
-type Decision = {
-  allowed: boolean;
-  reason?: "token_bucket" | "sliding_window" | "backoff";
-  retryAfterMs: number;
-  remainingTokens: number;
-  windowCount: number;
-};
-
-const DEFAULT_LIMIT: ProviderLimit = {
-  capacity: 3,
-  refillPerMs: 0.01,
-  windowMs: 1_000,
-  maxInWindow: 3,
-};
-
-class ReferenceRateLimiter {
-  private readonly providers: Record<string, ProviderLimit>;
-  private readonly buckets = new Map<string, { tokens: number; updatedAt: number }>();
-  private readonly windows = new Map<string, number[]>();
-  private readonly backoffs = new Map<string, number>();
-
-  constructor(providers: Record<string, Partial<ProviderLimit>> = {}) {
-    this.providers = Object.fromEntries(
-      Object.entries(providers).map(([provider, limit]) => [
-        provider,
-        { ...DEFAULT_LIMIT, ...limit },
-      ]),
-    );
-  }
-
-  check(request: Request): Decision {
-    const now = Date.now();
-    const limit = this.limitFor(request.provider);
-    const scope = `${request.provider}:${request.key}`;
-    const retryUntil = this.backoffs.get(scope) ?? 0;
-
-    if (retryUntil > now) {
-      return this.reject(scope, limit, "backoff", retryUntil - now);
-    }
-
-    const bucket = this.bucketFor(scope, limit, now);
-    const window = this.windowFor(scope, limit, now);
-    const cost = request.cost ?? 1;
-
-    if (bucket.tokens < cost) {
-      return this.reject(scope, limit, "token_bucket", this.tokenRetryAfter(limit, cost - bucket.tokens));
-    }
-
-    if (window.length >= limit.maxInWindow) {
-      const retryAfterMs = Math.max(0, limit.windowMs - (now - window[0]));
-      return this.reject(scope, limit, "sliding_window", retryAfterMs);
-    }
-
-    bucket.tokens -= cost;
-    window.push(now);
-
-    return {
-      allowed: true,
-      retryAfterMs: 0,
-      remainingTokens: bucket.tokens,
-      windowCount: window.length,
-    };
-  }
-
-  private limitFor(provider: string): ProviderLimit {
-    return this.providers[provider] ?? DEFAULT_LIMIT;
-  }
-
-  private bucketFor(scope: string, limit: ProviderLimit, now: number) {
-    const bucket = this.buckets.get(scope) ?? {
-      tokens: limit.capacity + (limit.burst ?? 0),
-      updatedAt: now,
-    };
-    const maxTokens = limit.capacity + (limit.burst ?? 0);
-    const elapsed = now - bucket.updatedAt;
-    bucket.tokens = Math.min(maxTokens, bucket.tokens + elapsed * limit.refillPerMs);
-    bucket.updatedAt = now;
-    this.buckets.set(scope, bucket);
-    return bucket;
-  }
-
-  private windowFor(scope: string, limit: ProviderLimit, now: number) {
-    const window = (this.windows.get(scope) ?? []).filter((timestamp) => now - timestamp < limit.windowMs);
-    this.windows.set(scope, window);
-    return window;
-  }
-
-  private reject(
-    scope: string,
-    limit: ProviderLimit,
-    reason: "token_bucket" | "sliding_window" | "backoff",
-    retryAfterMs: number,
-  ): Decision {
-    const now = Date.now();
-    const backoffMs = limit.backoffMs ?? 0;
-    if (backoffMs > 0 && reason !== "backoff") {
-      this.backoffs.set(scope, now + backoffMs);
-      retryAfterMs = Math.max(retryAfterMs, backoffMs);
-    }
-
-    return {
-      allowed: false,
-      reason,
-      retryAfterMs,
-      remainingTokens: this.buckets.get(scope)?.tokens ?? limit.capacity + (limit.burst ?? 0),
-      windowCount: this.windows.get(scope)?.length ?? 0,
-    };
-  }
-
-  private tokenRetryAfter(limit: ProviderLimit, deficit: number) {
-    return limit.refillPerMs > 0 ? Math.ceil(deficit / limit.refillPerMs) : Number.POSITIVE_INFINITY;
-  }
-}
-
-const request = (provider = "openai", key = "default", cost = 1): Request => ({
+const request = (provider = "openai", key = "default", cost = 1): RateLimitRequest => ({
   provider,
   key,
   cost,
 });
 
-const consume = (limiter: ReferenceRateLimiter, count: number, req = request()) =>
+const consume = (limiter: RateLimiter, count: number, req = request()) =>
   Array.from({ length: count }, () => limiter.check(req));
 
-describe("RateLimiter compile stub", () => {
+describe("RateLimiter construction and reset", () => {
   it("can be constructed without provider configuration", () => {
     expect(new RateLimiter()).toBeInstanceOf(RateLimiter);
   });
 
-  it("retains constructor configuration for callers that inspect the stub", () => {
+  it("retains constructor configuration for callers that inspect it", () => {
     const limiter = new RateLimiter({ providers: { openai: { requestsPerMinute: 60 } } });
     expect(limiter.config.providers?.openai?.requestsPerMinute).toBe(60);
   });
 
-  it("does not implement check behavior in the compile stub", () => {
+  it("implements check behavior without throwing", () => {
     const limiter = new RateLimiter();
-    expect(() => limiter.check(request())).toThrow("RateLimiter is a compile stub");
+    const decision = limiter.check(request());
+    expect(decision.allowed).toBe(true);
+    expect(decision.remainingTokens).toBe(2);
+    expect(decision.windowCount).toBe(1);
   });
 
-  it("does not implement consume behavior in the compile stub", () => {
-    const limiter = new RateLimiter();
-    expect(() => limiter.consume(request())).toThrow("RateLimiter is a compile stub");
+  it("implements consume behavior as a mutating admission call", () => {
+    const limiter = limiterFor({ openai: { capacity: 2, maxInWindow: 20 } });
+    expect(limiter.consume(request()).remainingTokens).toBe(1);
+    expect(limiter.consume(request()).remainingTokens).toBe(0);
+    const denied = limiter.consume(request());
+    expect(denied.allowed).toBe(false);
+    expect(denied.reason).toBe("token_bucket");
   });
 
-  it("does not implement reset behavior in the compile stub", () => {
+  it("implements reset behavior without throwing", () => {
     const limiter = new RateLimiter();
-    expect(() => limiter.reset()).toThrow("RateLimiter is a compile stub");
+    expect(() => limiter.reset()).not.toThrow();
+  });
+
+  it("restores the token bucket and sliding window after reset", () => {
+    const limiter = limiterFor({ openai: { capacity: 3, maxInWindow: 3 } });
+    consume(limiter, 3);
+    expect(limiter.check(request()).allowed).toBe(false);
+
+    limiter.reset();
+
+    const afterReset = limiter.check(request());
+    expect(afterReset.allowed).toBe(true);
+    expect(afterReset.remainingTokens).toBe(2);
+    expect(afterReset.windowCount).toBe(1);
+  });
+
+  it("clears an armed backoff on reset", () => {
+    const limiter = limiterFor({
+      openai: { capacity: 1, refillPerMs: 0.001, maxInWindow: 20, backoffMs: 500 },
+    });
+    consume(limiter, 1);
+    expect(limiter.check(request()).allowed).toBe(false);
+    expect(limiter.check(request()).reason).toBe("backoff");
+
+    limiter.reset();
+
+    expect(limiter.check(request()).allowed).toBe(true);
+  });
+
+  it("reports backoff ahead of the token bucket when both would deny", () => {
+    // Backoff must win the precedence race even when tokens are also available:
+    // drain to arm the backoff, then refill the bucket while the cooldown runs.
+    const limiter = limiterFor({
+      openai: { capacity: 1, refillPerMs: 0.01, maxInWindow: 20, backoffMs: 500 },
+    });
+    consume(limiter, 1);
+    expect(limiter.check(request()).reason).toBe("token_bucket");
+
+    // 200ms restores two tokens, so only the armed backoff can deny here.
+    vi.advanceTimersByTime(200);
+    const denied = limiter.check(request());
+    expect(denied.allowed).toBe(false);
+    expect(denied.reason).toBe("backoff");
+    expect(denied.retryAfterMs).toBe(300);
+    // A backoff denial short-circuits before the bucket is touched, so the
+    // bucket's refill is NOT applied and remainingTokens stays at the last
+    // recorded value rather than the mid-cooldown refilled value.
+    expect(denied.remainingTokens).toBe(0);
+  });
+
+  it("derives refill and capacity from requestsPerMinute sugar", () => {
+    const limiter = limiterFor({ openai: { requestsPerMinute: 60, maxInWindow: 100 } });
+    const drained = consume(limiter, 60);
+    expect(drained[59].allowed).toBe(true);
+    expect(drained[59].remainingTokens).toBe(0);
+    expect(limiter.check(request()).allowed).toBe(false);
+
+    // 60 rpm == 0.001 tokens/ms, so one token returns after 1_000ms.
+    vi.advanceTimersByTime(1_000);
+    expect(limiter.check(request()).allowed).toBe(true);
+  });
+
+  it("lets explicit fields override requestsPerMinute sugar", () => {
+    const limiter = limiterFor({
+      openai: { requestsPerMinute: 60, capacity: 2, refillPerMs: 0.01, maxInWindow: 20 },
+    });
+    expect(consume(limiter, 2)[1].remainingTokens).toBe(0);
+    expect(limiter.check(request()).allowed).toBe(false);
+
+    vi.advanceTimersByTime(100);
+    expect(limiter.check(request()).allowed).toBe(true);
   });
 });
 
@@ -184,7 +139,7 @@ describe("RateLimiter token bucket behavior matrix", () => {
     { name: "reports retry delay for a token denial", drain: 5, cost: 1, allowed: false, retryAfterMs: 100 },
   ].forEach((entry) => {
     it(entry.name, () => {
-      const limiter = new ReferenceRateLimiter({ openai: { capacity: 5, maxInWindow: 20 } });
+      const limiter = limiterFor({ openai: { capacity: 5, maxInWindow: 20 } });
       if (entry.drain) consume(limiter, entry.drain);
       if (entry.advanceMs) vi.advanceTimersByTime(entry.advanceMs);
       const actual = limiter.check(
@@ -216,7 +171,7 @@ describe("RateLimiter sliding window enforcement matrix", () => {
     { name: "allows under all limits after unrelated provider exhaustion", calls: 4, otherProvider: "openai", finalProvider: "anthropic", allowed: [true, true, true, true] },
   ].forEach((entry) => {
     it(entry.name, () => {
-      const limiter = new ReferenceRateLimiter({
+      const limiter = limiterFor({
         openai: {
           capacity: entry.capacity ?? 20,
           maxInWindow: entry.maxInWindow ?? 3,
@@ -258,7 +213,7 @@ describe("RateLimiter per-provider limit matrix", () => {
     { name: "success after prior provider failure remains allowed", openaiCalls: 4, finalProvider: "anthropic", anthropicAllowed: true },
   ].forEach((entry) => {
     it(entry.name, () => {
-      const limiter = new ReferenceRateLimiter({
+      const limiter = limiterFor({
         openai: {
           capacity: entry.provider === "openai" && entry.capacity ? entry.capacity : 3,
           refillPerMs: entry.provider === "openai" && entry.refillPerMs ? entry.refillPerMs : 0.01,
@@ -304,7 +259,7 @@ describe("RateLimiter burst allowance matrix", () => {
     { name: "burst denial reports token bucket", calls: 6, burst: 2, reason: "token_bucket" },
   ].forEach((entry) => {
     it(entry.name, () => {
-      const limiter = new ReferenceRateLimiter({
+      const limiter = limiterFor({
         openai: { capacity: 3, burst: entry.provider === "anthropic" ? 0 : entry.burst, maxInWindow: entry.maxInWindow ?? 20 },
         anthropic: { capacity: 3, burst: entry.provider === "anthropic" ? entry.burst : 0, maxInWindow: 20 },
       });
@@ -335,7 +290,7 @@ describe("RateLimiter backoff-on-limit-hit matrix", () => {
     { name: "success after prior failure consumes normally", drain: 1, backoffMs: 500, advanceMs: 1_000, allowed: true, remainingTokens: 0 },
   ].forEach((entry) => {
     it(entry.name, () => {
-      const limiter = new ReferenceRateLimiter({
+      const limiter = limiterFor({
         openai: {
           capacity: 1,
           refillPerMs: 0.001,
