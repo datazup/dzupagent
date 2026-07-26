@@ -545,9 +545,9 @@ describe('classify and memory semantic-stage silence', () => {
     const ast: FlowNode = {
       type: 'classify',
       id: 'c1',
-      input: 'x',
-      categories: ['a', 'b'],
-      output: 'label',
+      prompt: 'Categorize the request',
+      choices: ['a', 'b'],
+      outputKey: 'label',
     }
     const result = await semanticResolve(ast, { toolResolver: resolver })
     expect(result.warnings.some((w) => w.code === 'UNIMPLEMENTED_AT_RUNTIME')).toBe(false)
@@ -555,7 +555,14 @@ describe('classify and memory semantic-stage silence', () => {
 
   it('does not raise UNIMPLEMENTED_AT_RUNTIME for a memory node', async () => {
     const resolver = makeResolver([])
-    const ast: FlowNode = { type: 'memory', id: 'm1', operation: 'read', output: 'recalled' }
+    const ast: FlowNode = {
+      type: 'memory',
+      id: 'm1',
+      operation: 'read',
+      tier: 'session',
+      key: 'prior-answer',
+      outputVar: 'recalled',
+    }
     const result = await semanticResolve(ast, { toolResolver: resolver })
     expect(result.warnings.some((w) => w.code === 'UNIMPLEMENTED_AT_RUNTIME')).toBe(false)
   })

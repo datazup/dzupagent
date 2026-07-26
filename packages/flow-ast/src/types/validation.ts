@@ -41,4 +41,7 @@ export type ValidationErrorCode =
   | "INVALID_TEMPLATE_FRONTMATTER"
   | "MISSING_REQUIRED_SECTION"
   | "UNKNOWN_FRONTMATTER_KEY"
-  | "SPDD_ORDERING_VIOLATION";
+  | "SPDD_ORDERING_VIOLATION"
+  // Emitted as a WARNING, never an error: the node is well-formed and the
+  // author has nothing to fix — the runtime behavior is what is missing.
+  | "UNIMPLEMENTED_AT_RUNTIME";
