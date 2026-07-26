@@ -169,6 +169,15 @@ function requireString(
 function validDate(value: unknown): boolean {
   return (
     nonEmptyString(value) &&
+    // Not backtracking-prone despite the rule's heuristic: every quantifier except
+    // `\.\d+` is a fixed `{n}` count, and that one is bounded on the left by a
+    // literal `.` and on the right by `(?:Z|[+-]\d{2}:\d{2})`, whose first
+    // characters (`Z`, `+`, `-`) are disjoint from `\d`. No input can therefore be
+    // divided between `\d+` and what follows in more than one way, so there is no
+    // ambiguity to backtrack over. Measured against an adversarial near-miss
+    // ("2024-01-01T00:00:00." + N digits + "!"): 5k=0.011ms, 10k=0.021ms,
+    // 20k=0.040ms, 40k=0.103ms (~2x per doubling = linear).
+    // eslint-disable-next-line security/detect-unsafe-regex
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
       value,
     ) &&

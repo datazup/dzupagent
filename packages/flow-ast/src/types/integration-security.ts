@@ -250,6 +250,19 @@ function validateCredentialPolicy(value: unknown, issues: string[]): void {
   if (
     inputPaths?.some(
       (path) =>
+        // Not backtracking-prone despite the rule's heuristic: the repeated group
+        // `(?:\.(?:...))+` can only begin with a literal `.`, and the inner
+        // `[A-Za-z0-9_-]*` cannot match `.`. The segment boundary is therefore
+        // forced by the dot rather than chosen, so a given input has exactly one
+        // possible split into segments and the two alternation branches
+        // (`[A-Za-z]...` vs `\*`) accept disjoint first characters. Measured
+        // against adversarial near-misses that reach the regex (stringArray applies
+        // no character-class gate, only a non-empty-string check): dotted path
+        // "a" + ".abcde"*N + "!" gave 5k=0.037ms, 10k=0.094ms, 20k=0.193ms,
+        // 40k=0.509ms (~2x per doubling = linear); single long segment, hyphen
+        // runs, all-wildcard segments and a no-dot input all stayed under 0.3ms
+        // at 40k.
+        // eslint-disable-next-line security/detect-unsafe-regex
         !/^[A-Za-z][A-Za-z0-9_-]*(?:\.(?:[A-Za-z][A-Za-z0-9_-]*|\*))+$/u.test(
           path,
         ) ||
