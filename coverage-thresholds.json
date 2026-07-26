@@ -9,6 +9,7 @@
     "agent",
     "agent-adapters",
     "core",
+    "flow-ast",
     "memory",
     "memory-ipc",
     "rag"
@@ -524,21 +525,11 @@
       }
     },
     "flow-ast": {
-      "baseline": {
-        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); parse/agent-loop.ts and parse/worker-dispatch.ts backfilled with direct unit tests under DZUPAGENT-CODE-M-05. Critical parser and validator files remain tracked by file-level inventory; staged thresholds pending a verified floor.",
-        "since": "2026-07-12",
-        "reviewBy": "2026-08-15",
-        "targets": [
-          {
-            "by": "2026-08-15",
-            "thresholds": {
-              "statements": 70,
-              "branches": 60,
-              "functions": 60,
-              "lines": 70
-            }
-          }
-        ]
+      "thresholds": {
+        "statements": 70,
+        "branches": 60,
+        "functions": 60,
+        "lines": 70
       }
     },
     "flow-compiler": {
