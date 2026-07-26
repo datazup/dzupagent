@@ -55,7 +55,7 @@ type DefinitionOverrides = Omit<
 
 function builtIn(
   overrides: DefinitionOverrides,
-  authoredKind = `${overrides.namespace}.${overrides.name}`,
+  authoredKind = `${overrides.namespace}.${overrides.name}`
 ): PrimitiveDefinitionV2 {
   const kind = authoredKind.replace(/^\./, "");
   return definePrimitiveV2({
@@ -147,86 +147,92 @@ const ADAPTER_RUN = builtIn({
   },
 });
 
-const VALIDATE = builtIn({
-  namespace: "validate",
-  name: "validate",
-  version: "1",
-  category: "validator",
-  description: "Run validation commands or a referenced validation suite.",
-  requiresCapabilities: ["flow.runtime.validate@1"],
-  inputSchema: { type: "object" },
-  acceptedInputClassifications: ALL_CLASSIFICATIONS,
-  credentialInputs: "forbidden",
-  outputPorts: {
-    result: {
-      schema: { type: "object" },
-      cardinality: "one",
-      classification: "internal",
-      persistence: "state",
+const VALIDATE = builtIn(
+  {
+    namespace: "validate",
+    name: "validate",
+    version: "1",
+    category: "validator",
+    description: "Run validation commands or a referenced validation suite.",
+    requiresCapabilities: ["flow.runtime.validate@1"],
+    inputSchema: { type: "object" },
+    acceptedInputClassifications: ALL_CLASSIFICATIONS,
+    credentialInputs: "forbidden",
+    outputPorts: {
+      result: {
+        schema: { type: "object" },
+        cardinality: "one",
+        classification: "internal",
+        persistence: "state",
+      },
     },
+    effect: {
+      classes: ["compute"],
+      idempotency: "idempotent",
+      replay: "safe",
+    },
+    execution: {
+      kind: "host-action",
+      handlerRef: "validate",
+      delivery: ["inline", "queued"],
+      durability: ["checkpointed", "durable"],
+      maySuspend: false,
+      cancellation: "cooperative",
+    },
+    errors: [{ code: "VALIDATION_FAILED", retryable: false }],
   },
-  effect: {
-    classes: ["compute"],
-    idempotency: "idempotent",
-    replay: "safe",
-  },
-  execution: {
-    kind: "host-action",
-    handlerRef: "validate",
-    delivery: ["inline", "queued"],
-    durability: ["checkpointed", "durable"],
-    maySuspend: false,
-    cancellation: "cooperative",
-  },
-  errors: [{ code: "VALIDATION_FAILED", retryable: false }],
-}, "validate");
+  "validate"
+);
 
-const APPROVAL = builtIn({
-  namespace: "human",
-  name: "approval",
-  version: "1",
-  category: "leaf",
-  description: "Pause for a human approval decision.",
-  requiresCapabilities: ["flow.runtime.approval@1"],
-  inputSchema: { type: "object" },
-  acceptedInputClassifications: SAFE_SINK_CLASSIFICATIONS,
-  credentialInputs: "forbidden",
-  outputPorts: {
-    decision: {
-      schema: { type: "string", enum: ["approved", "rejected"] },
-      cardinality: "one",
-      classification: "internal",
-      persistence: "state",
+const APPROVAL = builtIn(
+  {
+    namespace: "human",
+    name: "approval",
+    version: "1",
+    category: "leaf",
+    description: "Pause for a human approval decision.",
+    requiresCapabilities: ["flow.runtime.approval@1"],
+    inputSchema: { type: "object" },
+    acceptedInputClassifications: SAFE_SINK_CLASSIFICATIONS,
+    credentialInputs: "forbidden",
+    outputPorts: {
+      decision: {
+        schema: { type: "string", enum: ["approved", "rejected"] },
+        cardinality: "one",
+        classification: "internal",
+        persistence: "state",
+      },
+    },
+    effect: {
+      classes: ["human_decision"],
+      idempotency: "exactly-once-required",
+      replay: "deduplicated",
+    },
+    execution: {
+      kind: "host-action",
+      handlerRef: "approval",
+      delivery: ["queued"],
+      durability: ["durable"],
+      maySuspend: true,
+      cancellation: "required",
+    },
+    errors: [
+      { code: "APPROVAL_REJECTED", retryable: false },
+      { code: "APPROVAL_EXPIRED", retryable: false },
+    ],
+    policy: {
+      allowedOverrides: ["timeoutMs", "requireApproval"],
+      requiredApprovalClasses: ["human-decision"],
+      requiresBudgetReservation: false,
+    },
+    evidence: {
+      required: ["decision-receipt"],
+      rawContent: "forbidden",
+      redactionReceiptRequired: false,
     },
   },
-  effect: {
-    classes: ["human_decision"],
-    idempotency: "exactly-once-required",
-    replay: "deduplicated",
-  },
-  execution: {
-    kind: "host-action",
-    handlerRef: "approval",
-    delivery: ["queued"],
-    durability: ["durable"],
-    maySuspend: true,
-    cancellation: "required",
-  },
-  errors: [
-    { code: "APPROVAL_REJECTED", retryable: false },
-    { code: "APPROVAL_EXPIRED", retryable: false },
-  ],
-  policy: {
-    allowedOverrides: ["timeoutMs", "requireApproval"],
-    requiredApprovalClasses: ["human-decision"],
-    requiresBudgetReservation: false,
-  },
-  evidence: {
-    required: ["decision-receipt"],
-    rawContent: "forbidden",
-    redactionReceiptRequired: false,
-  },
-}, "approval");
+  "approval"
+);
 
 function reviewLoop(version: "1" | "2"): PrimitiveDefinitionV2 {
   const isV2 = version === "2";
@@ -290,8 +296,7 @@ function reviewLoop(version: "1" | "2"): PrimitiveDefinitionV2 {
       redactionReceiptRequired: false,
     },
     compatibility: {
-      supersedes:
-        version === "2" ? ["primitive://collab.review_loop@1"] : [],
+      supersedes: version === "2" ? ["primitive://collab.review_loop@1"] : [],
       deprecatedAliases: [],
     },
   });
@@ -415,9 +420,79 @@ const VALIDATE_SCHEMA = builtIn({
   errors: [{ code: "SCHEMA_VALIDATION_FAILED", retryable: false }],
 });
 
+/**
+ * Generic tool/agent dispatch. `adapter.run` covers a *provider adapter* call
+ * with a fixed instructions/output shape; this covers the broader V1 `action`
+ * node, whose `toolRef` selects any registered tool (`agent.codex.run`,
+ * `codev.codex.run`, …) and whose `input` shape is tool-defined.
+ */
+const ACTION = builtIn(
+  {
+    namespace: "action",
+    name: "action",
+    version: "1",
+    category: "leaf",
+    description: "Dispatch a registered tool or agent by reference.",
+    requiresCapabilities: [
+      "flow.runtime.action.dispatch@1",
+      "flow.runtime.credential.resolve@1",
+    ],
+    inputSchema: {
+      type: "object",
+      required: ["toolRef", "input"],
+      properties: {
+        toolRef: { type: "string", minLength: 1 },
+        input: { type: "object" },
+        personaRef: { type: "string", minLength: 1 },
+      },
+    },
+    acceptedInputClassifications: SAFE_SINK_CLASSIFICATIONS,
+    credentialInputs: "handle-only",
+    credentialInputPaths: ["input.credential", "input.credentials.*"],
+    credentialResolverCapabilityRef: "flow.runtime.credential.resolve@1",
+    outputPorts: {
+      result: {
+        schema: {},
+        cardinality: "one",
+        classification: "internal",
+        persistence: "state",
+      },
+    },
+    effect: {
+      classes: ["llm"],
+      idempotency: "at-least-once",
+      replay: "deduplicated",
+    },
+    execution: {
+      kind: "runtime-leaf",
+      handlerRef: "action",
+      delivery: ["inline", "queued"],
+      durability: ["checkpointed", "durable"],
+      maySuspend: false,
+      cancellation: "required",
+    },
+    errors: [
+      { code: "ACTION_FAILED", retryable: true },
+      { code: "ACTION_CANCELLED", retryable: false },
+    ],
+    policy: {
+      allowedOverrides: ["timeoutMs", "budgetCents", "requireApproval"],
+      requiredApprovalClasses: [],
+      requiresBudgetReservation: true,
+    },
+    evidence: {
+      required: ["provider-attempt", "usage"],
+      rawContent: "ephemeral",
+      redactionReceiptRequired: false,
+    },
+  },
+  "action"
+);
+
 /** Serializable source of truth for every built-in primitive. */
 export const BUILT_IN_PRIMITIVE_DEFINITIONS_V2: readonly PrimitiveDefinitionV2[] =
   Object.freeze([
+    ACTION,
     ADAPTER_RUN,
     HTTP_PRIMITIVE_DEFINITION_V2,
     VALIDATE,

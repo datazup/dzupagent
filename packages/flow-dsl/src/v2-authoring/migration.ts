@@ -272,6 +272,11 @@ function migrateNode(
   }
   context.imports.set(definition.ref, definition.compatibility.semanticHash);
   const body = clone(node) as unknown as Record<string, unknown>;
+  // Child steps are V1 nodes and must be migrated too; carrying them through
+  // verbatim would embed a V1 subtree inside the V2 candidate.
+  if (node.type === "loop") {
+    body.body = migrateNodes(node.body, `${path}.body`, context);
+  }
   delete body.type;
   delete body.id;
   const outputField = OUTPUT_FIELDS[node.type];
