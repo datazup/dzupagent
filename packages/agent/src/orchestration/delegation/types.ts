@@ -50,7 +50,9 @@ export interface DelegationHierarchy {
    * delegation is an action *of* that supervisor, and its target is a
    * specialist agent (a leaf), not another orchestrator level. Depth only
    * increments when a supervisor spawns another `DelegatingSupervisor`, which
-   * this package does not yet do.
+   * happens in `DelegatingSupervisor.spawnSubOrchestrator` — the child is
+   * constructed at spawner depth + 1, and its own delegations then carry that
+   * incremented depth as *their* issuer depth.
    */
   depth?: number;
 }
