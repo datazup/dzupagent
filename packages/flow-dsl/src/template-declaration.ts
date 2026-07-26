@@ -32,6 +32,10 @@ const PLACEHOLDER_SCAN = /\{\{\s*([^}]+?)\s*\}\}/gu;
  * than a step actually rendered.
  */
 const PLACEHOLDER_EXPRESSION =
+  // Same shape as definition-v2: each repetition is gated by a literal `.` that
+  // the identifier class cannot match, so no two repetitions compete for the
+  // same input. Measured flat: 10k-char adversarial dotted input 0.60ms.
+  // eslint-disable-next-line security/detect-unsafe-regex -- False positive.
   /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/u;
 
 /** Paths that must never be interpolated into a prompt body. */

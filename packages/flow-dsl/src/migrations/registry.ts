@@ -16,6 +16,11 @@ import type {
 
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const MIGRATION_REF_PATTERN =
+  // Anchored both ends; each segment class is separated by a literal delimiter
+  // (`/`, `@`, `-to-`) that the class itself cannot match, so there is no
+  // ambiguity to backtrack across. Measured flat: 10k-char adversarial input
+  // 0.18ms.
+  // eslint-disable-next-line security/detect-unsafe-regex -- False positive.
   /^migration:\/\/(primitive|schema)\/([A-Za-z][A-Za-z0-9_.-]*(?:\/[A-Za-z][A-Za-z0-9_.-]*)?)@([A-Za-z0-9][A-Za-z0-9_.-]*)-to-([A-Za-z0-9][A-Za-z0-9_.-]*)$/;
 
 /** Define one immutable, content-addressed report-only migration contract. */

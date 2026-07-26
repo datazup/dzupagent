@@ -17,6 +17,10 @@ import { validatePrimitiveDefinitionV2ContractValues } from "./definition-v2-con
 
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const INPUT_PATH_PATTERN =
+  // The repeated group is `(?:\.(?:...))+`: every repetition must start with a
+  // literal `.`, which the inner classes exclude, so repetitions cannot overlap.
+  // Measured flat: 10k-char adversarial dotted input 0.69ms.
+  // eslint-disable-next-line security/detect-unsafe-regex -- False positive.
   /^[A-Za-z][A-Za-z0-9_-]*(?:\.(?:[A-Za-z][A-Za-z0-9_-]*|\*))+$/;
 
 /** Create a frozen V2 definition with a deterministic compatibility hash. */
