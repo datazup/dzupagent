@@ -25,7 +25,39 @@ export interface AgentTask {
   content: string;
   /** Tags that may match agent capabilities */
   tags?: string[];
-  /** Priority hint (higher = more urgent) */
+  /**
+   * Priority hint, higher = more urgent.
+   *
+   * UNENFORCED HINT — no built-in `RoutingPolicy` reads this field, and routing
+   * behaviour is identical whether it is set, unset, or set to any value.
+   *
+   * This is structural, not an oversight: `RoutingPolicy.select(task,
+   * candidates)` scores ONE task against N candidates, so it has no seam at
+   * which two tasks could be ordered relative to each other. Priority is a
+   * cross-task scheduling concept, and this package intentionally has no
+   * scheduler — callers that need priority ordering must sort their own task
+   * queue before handing tasks to a policy. A custom `RoutingPolicy` may read
+   * `task.priority` for its own purposes; nothing built-in will.
+   *
+   * ⚠️ OPPOSITE CONVENTION FROM `DelegationRequest.priority`. These two fields
+   * share a name and invert each other's meaning:
+   *
+   *  - THIS field (`AgentTask.priority`): **higher = more urgent**.
+   *  - `DelegationRequest.priority` (`delegation/types.ts`): **lower = more
+   *    urgent**, default 5 — and it IS read, at `delegation/lifecycle.ts`
+   *    (`request.priority ?? 5`).
+   *
+   * So the one live `priority` consumer in this package follows the OPPOSITE
+   * direction from the one documented here. Do not copy a comparator between
+   * the two types, and do not assume a `priority` value is portable across
+   * them: moving a number from one to the other inverts its meaning. Any future
+   * implementation honouring this field must assert its direction explicitly
+   * rather than inheriting the delegation comparator.
+   *
+   * @see `__tests__/agent-task-priority-unenforced.test.ts` — pins this
+   * documented no-op, and pins the direction clash so neither doc can rot
+   * independently.
+   */
   priority?: number;
   /** Custom metadata passed to routing policies */
   metadata?: Record<string, unknown>;
