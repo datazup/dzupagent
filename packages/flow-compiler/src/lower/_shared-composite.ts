@@ -79,8 +79,15 @@ export function lowerNodeToPipeline(
     case "spawn":
     case "emit":
     case "memory":
-      // Runtime-executed nodes: present in AST but not emitted as graph edges.
-      // Consumers of the lowered graph should not expect these to appear as nodes/edges.
+      // Deferred to an external runtime (e.g. the Codev FlowRuntime): present in
+      // the AST but not emitted as graph edges. Consumers of the lowered graph
+      // should not expect these to appear as nodes/edges.
+      //
+      // NOTE: "deferred" is not a guarantee of execution. No in-repo executor
+      // handles these types, and for `emit` specifically no emitter for the
+      // `flow:emit` event exists anywhere, so an emit node is silently inert
+      // unless the consuming runtime implements it. The semantic stage raises a
+      // compile-time warning for `emit` (see stages/semantic-walk/dispatch.ts).
       return {
         nodes: [],
         edges: [],
@@ -111,7 +118,7 @@ export function lowerNodeToPipeline(
         node.body,
         ctx,
         (idx) => `${path}.body[${idx}]`,
-        lowerNodeToPipeline,
+        lowerNodeToPipeline
       );
 
     case "loop":
@@ -120,7 +127,7 @@ export function lowerNodeToPipeline(
         node.body,
         ctx,
         (idx) => `${path}.body[${idx}]`,
-        lowerNodeToPipeline,
+        lowerNodeToPipeline
       );
 
     case "agent":

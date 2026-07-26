@@ -166,8 +166,26 @@ export async function visit(
       }
       return;
     }
+    case "emit": {
+      // The `emit` node parses, validates and compiles cleanly, but no runtime
+      // executor publishes the `flow:emit` event — the type is declared in the
+      // OrchestrationDomainEvent union and never emitted by any call site.
+      // Warn at compile time so authors do not ship a silently dead event.
+      ctx.warnings.push({
+        nodeType: node.type,
+        nodePath: `${path}.event`,
+        code: "MISSING_REQUIRED_FIELD",
+        message:
+          `emit node "${node.id ?? node.event}": event "${
+            node.event
+          }" will NOT be published at runtime — ` +
+          `the node compiles and validates, but no runtime emitter for "flow:emit" exists. ` +
+          `Remove the emit node until a runtime emitter ships to silence this warning.`,
+        category: "policy",
+      });
+      return;
+    }
     case "classify":
-    case "emit":
     case "memory":
     case "checkpoint":
     case "restore":
