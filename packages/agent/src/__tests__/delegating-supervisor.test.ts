@@ -1635,6 +1635,225 @@ describe("DelegatingSupervisor", () => {
       expect(complete).toBeDefined();
       expect((complete as Record<string, unknown>).success).toBe(true);
     });
+
+    // ---------------------------------------------------------------------
+    // delegation:* lifecycle on the provider-port path
+    //
+    // Without these events the provider-port path is invisible to the
+    // forge_delegation_* metrics in @dzupagent/otel, which key exclusively off
+    // delegation:* events.
+    // ---------------------------------------------------------------------
+    describe("delegation:* lifecycle", () => {
+      /** A provider port whose run() resolves with a fixed result. */
+      function okPort() {
+        return {
+          run: vi.fn(async () => ({
+            content: "port result",
+            providerId: "claude" as const,
+            attemptedProviders: ["claude" as const],
+            fallbackAttempts: 0,
+          })),
+          stream: vi.fn(),
+        };
+      }
+
+      function portSupervisor(
+        extra: Partial<
+          ConstructorParameters<typeof DelegatingSupervisor>[0]
+        > = {},
+        port: ProviderExecutionPort = okPort()
+      ) {
+        return new DelegatingSupervisor({
+          specialists: new Map([
+            ["worker", makeSpecialist("worker", { metadata: { tags: ["x"] } })],
+          ]),
+          tracker: new SimpleDelegationTracker({
+            runStore: store,
+            executor: withStoreUpdate(store),
+          }),
+          eventBus,
+          providerPort: port,
+          ...extra,
+        });
+      }
+
+      it("emits delegation:started then delegation:completed, in that order", async () => {
+        await portSupervisor().delegateTask("Do work", "worker", {});
+
+        const lifecycle = events
+          .map((e) => e.type)
+          .filter((t) => t.startsWith("delegation:"));
+        expect(lifecycle).toEqual([
+          "delegation:started",
+          "delegation:completed",
+        ]);
+      });
+
+      it("correlates started and completed on one delegationId and parentRunId", async () => {
+        await portSupervisor({
+          parentContext: { parentRunId: "parent-run-9" },
+        }).delegateTask("Do work", "worker", {});
+
+        const started = events.find((e) => e.type === "delegation:started") as
+          | Extract<DzupEvent, { type: "delegation:started" }>
+          | undefined;
+        const completed = events.find(
+          (e) => e.type === "delegation:completed"
+        ) as Extract<DzupEvent, { type: "delegation:completed" }> | undefined;
+
+        expect(started).toBeDefined();
+        expect(completed).toBeDefined();
+        expect(started!.targetAgentId).toBe("worker");
+        expect(started!.parentRunId).toBe("parent-run-9");
+        expect(completed!.parentRunId).toBe("parent-run-9");
+        expect(completed!.delegationId).toBe(started!.delegationId);
+        expect(started!.delegationId).toMatch(/^[0-9a-f-]{36}$/);
+        expect(completed!.success).toBe(true);
+        expect(completed!.durationMs).toBeGreaterThanOrEqual(0);
+      });
+
+      it('falls back to parentRunId "unknown" with no parent context', async () => {
+        await portSupervisor().delegateTask("Do work", "worker", {});
+
+        const started = events.find(
+          (e) => e.type === "delegation:started"
+        ) as Extract<DzupEvent, { type: "delegation:started" }>;
+        expect(started.parentRunId).toBe("unknown");
+      });
+
+      it("omits the hierarchy key entirely for a root supervisor", async () => {
+        await portSupervisor().delegateTask("Do work", "worker", {});
+
+        const started = events.find(
+          (e) => e.type === "delegation:started"
+        ) as Extract<DzupEvent, { type: "delegation:started" }>;
+
+        // Absence, not `=== undefined`: the payload must stay byte-identical
+        // to a pre-change build for root supervisors.
+        expect("hierarchy" in started).toBe(false);
+        expect(Object.keys(started).sort()).toEqual([
+          "delegationId",
+          "parentRunId",
+          "targetAgentId",
+          "type",
+        ]);
+      });
+
+      it("carries nested hierarchy on started when the supervisor has one", async () => {
+        await portSupervisor({
+          parentRunId: "orch-parent",
+          branchId: "branch-7",
+          depth: 2,
+        }).delegateTask("Do work", "worker", {});
+
+        const started = events.find(
+          (e) => e.type === "delegation:started"
+        ) as Extract<DzupEvent, { type: "delegation:started" }>;
+
+        expect(started.hierarchy).toEqual({
+          parentRunId: "orch-parent",
+          branchId: "branch-7",
+          depth: 2,
+        });
+      });
+
+      it("emits delegation:failed and still rethrows the original error", async () => {
+        const boom = new Error("provider exploded");
+        const failingPort = {
+          run: vi.fn(async () => {
+            throw boom;
+          }),
+          stream: vi.fn(),
+        };
+
+        await expect(
+          portSupervisor({}, failingPort).delegateTask("Do work", "worker", {})
+        ).rejects.toBe(boom);
+
+        const lifecycle = events
+          .map((e) => e.type)
+          .filter((t) => t.startsWith("delegation:"));
+        expect(lifecycle).toEqual(["delegation:started", "delegation:failed"]);
+
+        const failed = events.find(
+          (e) => e.type === "delegation:failed"
+        ) as Extract<DzupEvent, { type: "delegation:failed" }>;
+        expect(failed.error).toBe("provider exploded");
+        expect(failed.targetAgentId).toBe("worker");
+
+        // No completed event on the failure path.
+        expect(events.some((e) => e.type === "delegation:completed")).toBe(
+          false
+        );
+      });
+
+      it("emits delegation:failed for an aborted signal, not :cancelled or :timeout", async () => {
+        // The provider-port path owns no AbortController and no timer, so it
+        // cannot distinguish abort-as-cancellation from abort-as-timeout. It
+        // deliberately reports both as delegation:failed rather than
+        // fabricating the distinction.
+        const abortErr = new Error("Aborted");
+        abortErr.name = "AbortError";
+        const abortingPort = {
+          run: vi.fn(async () => {
+            throw abortErr;
+          }),
+          stream: vi.fn(),
+        };
+
+        await expect(
+          portSupervisor({}, abortingPort).delegateTask("Do work", "worker", {})
+        ).rejects.toBe(abortErr);
+
+        const lifecycle = events
+          .map((e) => e.type)
+          .filter((t) => t.startsWith("delegation:"));
+        expect(lifecycle).toEqual(["delegation:started", "delegation:failed"]);
+        expect(
+          events.some(
+            (e) =>
+              e.type === "delegation:cancelled" ||
+              e.type === "delegation:timeout"
+          )
+        ).toBe(false);
+      });
+
+      it("still emits the supervisor:* pair alongside the new events", async () => {
+        await portSupervisor().delegateTask("Do work", "worker", {});
+
+        // Regression guard: the delegation:* lifecycle is purely additive.
+        const supervisorEvents = events
+          .map((e) => e.type)
+          .filter((t) => t.startsWith("supervisor:"));
+        expect(supervisorEvents).toEqual([
+          "supervisor:delegating",
+          "supervisor:delegation_complete",
+        ]);
+
+        // supervisor:delegating must still precede the delegation start.
+        expect(events.map((e) => e.type)).toEqual([
+          "supervisor:delegating",
+          "delegation:started",
+          "delegation:completed",
+          "supervisor:delegation_complete",
+        ]);
+      });
+
+      it("reports a durationMs consistent with the result metadata", async () => {
+        const result = await portSupervisor().delegateTask(
+          "Do work",
+          "worker",
+          {}
+        );
+
+        const completed = events.find(
+          (e) => e.type === "delegation:completed"
+        ) as Extract<DzupEvent, { type: "delegation:completed" }>;
+
+        // One shared measurement — the event and the metadata cannot disagree.
+        expect(completed.durationMs).toBe(result.metadata?.durationMs);
+      });
+    });
   });
 
   // -----------------------------------------------------------------------

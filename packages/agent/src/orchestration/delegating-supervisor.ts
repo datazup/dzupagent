@@ -167,6 +167,29 @@ export class DelegatingSupervisor {
     if (this.providerPort) {
       const tags: string[] = (specialist.metadata?.tags ?? []) as string[];
       const startedAt = Date.now();
+
+      // Mint the delegation identity BEFORE the provider call so the whole
+      // lifecycle correlates on one key. Same convention as the tracker
+      // (`delegation.ts`): a fresh UUID, and the DELEGATION parent resolved from
+      // the parent context, falling back to the literal "unknown" when this
+      // supervisor was built without one. `parentContext` is the provider-port
+      // equivalent of the tracker's `request.context`.
+      const delegationId = crypto.randomUUID();
+      const parentRunId = this.parentContext?.parentRunId ?? "unknown";
+
+      // Emitted before the provider call so no delegation can ever surface a
+      // terminal event without a preceding start. Spread-when-present keeps a
+      // root supervisor's payload byte-identical to a pre-change build.
+      this.eventBus?.emit({
+        type: "delegation:started",
+        parentRunId,
+        targetAgentId: specialistId,
+        delegationId,
+        ...(this.delegationHierarchy
+          ? { hierarchy: this.delegationHierarchy }
+          : {}),
+      });
+
       let portResult: Awaited<ReturnType<ProviderExecutionPort["run"]>>;
       try {
         portResult = await this.providerPort.run(
@@ -193,16 +216,37 @@ export class DelegatingSupervisor {
           })
         );
       } catch (err: unknown) {
+        // Terminal event before the existing circuit-breaker + rethrow, which
+        // are preserved exactly: the error still propagates unchanged.
+        //
+        // Always `delegation:failed`, never `:timeout` or `:cancelled`. This
+        // path owns no AbortController and starts no timer, so it cannot
+        // reproduce the signals `finalizeFailure` classifies on: a timeout
+        // there is detected via an abort reason the tracker's own setTimeout
+        // wrote, and a cancellation via the tracker's `cancelledByUser` set.
+        // Neither exists here, so the distinction would be fabricated.
+        this.eventBus?.emit({
+          type: "delegation:failed",
+          parentRunId,
+          targetAgentId: specialistId,
+          delegationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+
         this.recordCircuitBreakerFailure(specialistId, err);
         markCircuitBreakerRecorded(err);
         throw err;
       }
 
+      // One measurement shared by the event and the result metadata, so the
+      // emitted durationMs can never disagree with metadata.durationMs.
+      const durationMs = Date.now() - startedAt;
+
       const delegationResult: DelegationResult = {
         success: true,
         output: portResult.content,
         metadata: omitUndefined({
-          durationMs: Date.now() - startedAt,
+          durationMs,
           specialistId,
           providerId: portResult.providerId,
           attemptedProviders: [...portResult.attemptedProviders],
@@ -216,6 +260,15 @@ export class DelegatingSupervisor {
       };
 
       this.circuitBreaker?.recordSuccess(specialistId);
+
+      this.eventBus?.emit({
+        type: "delegation:completed",
+        parentRunId,
+        targetAgentId: specialistId,
+        delegationId,
+        durationMs,
+        success: true,
+      });
 
       this.eventBus?.emit({
         type: "supervisor:delegation_complete",
@@ -489,9 +542,10 @@ export class DelegatingSupervisor {
    * - `DelegationMetadata.hierarchy` — echoed onto the result by
    *   `finalizeSuccess` / `finalizeFailure`, and by the provider-port path,
    *   so a completed or failed delegation carries its tree position.
-   * - `delegation:started` event payload — emitted by `startDelegation` as a
-   *   nested `hierarchy` object, so an OUT-OF-PROCESS observer can rebuild the
-   *   orchestration tree from the event stream alone.
+   * - `delegation:started` event payload — emitted as a nested `hierarchy`
+   *   object by `startDelegation` on the tracker path and by `delegateTask`
+   *   itself on the provider-port path, so an OUT-OF-PROCESS observer can
+   *   rebuild the orchestration tree from the event stream alone.
    *
    * A supervisor with no hierarchy signal at all (no `parentRunId`, no
    * `branchId`, no explicit `depth`) stamps nothing: the `hierarchy` key is
@@ -503,25 +557,49 @@ export class DelegatingSupervisor {
    * not that depth plus one: a delegation targets a specialist leaf rather
    * than another orchestrator level, so it does not descend the tree.
    *
-   * ## Still not wired
-   *
-   * Only `delegation:started` carries `hierarchy`; the four terminal
-   * `delegation:*` events do not. They are unreachable without a preceding
-   * `started` event bearing the same `delegationId` on the same bus, so the
-   * tree position is already correlatable and four extra copies of an immutable
-   * value would be redundancy, not information. Overloading
-   * `DelegationContext.parentRunId` to carry concept (1) remains explicitly
-   * rejected.
+   * ## Provider-port lifecycle
    *
    * The provider-port path (`delegateTask` early-returns when `providerPort` is
-   * configured) emits NO `delegation:*` events at all — only
-   * `supervisor:delegating` / `supervisor:delegation_complete`. It therefore has
-   * no `delegation:started` payload to carry hierarchy on. That path attributes
-   * the tree position via `DelegationMetadata.hierarchy` on its returned result
-   * instead. Giving the provider port a full `delegation:*` lifecycle is a
-   * separate, larger change and remains out of scope.
+   * configured) emits a `delegation:*` lifecycle of its own, in addition to the
+   * `supervisor:delegating` / `supervisor:delegation_complete` pair it has
+   * always emitted. Without it, every delegation routed through a provider port
+   * was invisible to the `forge_delegation_*_total` metrics in
+   * `@dzupagent/otel`, which are driven exclusively off `delegation:*` events.
    *
-   * Likewise, no recursive sub-orchestrator spawning exists yet — this
+   * It mints its own `delegationId` (fresh UUID) and resolves `parentRunId` from
+   * `parentContext?.parentRunId`, falling back to `"unknown"` — the same
+   * convention `SimpleDelegationTracker.delegate` uses, so both paths produce
+   * indistinguishable event identities. `delegation:started` is emitted before
+   * the provider call and the terminal event after it, so no delegation ever
+   * appears with a terminal event and no start. Its `delegation:started` carries
+   * `hierarchy` on the same spread-when-present basis as the tracker path.
+   *
+   * Only two of the five events are reachable here: `delegation:started` and
+   * then either `delegation:completed` or `delegation:failed`.
+   * `delegation:timeout` and `delegation:cancelled` are deliberately NOT
+   * emitted. This path owns no `AbortController` and starts no timer, so it
+   * cannot reproduce either signal `finalizeFailure` classifies on — a timeout
+   * there is recognized by an abort reason written by the tracker's own
+   * `setTimeout`, and a cancellation by the tracker's `cancelledByUser` set.
+   * The caller-supplied `options.signal` aborting surfaces here as an ordinary
+   * throw with no reliable provenance, so classifying it would be fabricating a
+   * distinction the path cannot actually observe. An abort therefore counts as
+   * `delegation:failed`; `forge_delegation_timeout_total` and
+   * `forge_delegation_cancelled_total` stay at zero for provider-port
+   * delegations by design, not by omission.
+   *
+   * Beyond `started`, the terminal `delegation:*` events do not carry
+   * `hierarchy` on either path. They are unreachable without a preceding
+   * `started` event bearing the same `delegationId` on the same bus, so the
+   * tree position is already correlatable and extra copies of an immutable
+   * value would be redundancy, not information. That path additionally
+   * attributes the tree position via `DelegationMetadata.hierarchy` on its
+   * returned result. Overloading `DelegationContext.parentRunId` to carry
+   * concept (1) remains explicitly rejected.
+   *
+   * ## Still not wired
+   *
+   * No recursive sub-orchestrator spawning exists yet — this
    * supervisor delegates only to *specialist agents*, never to another
    * `DelegatingSupervisor` — so the depth guard is enforced at construction
    * time (fail fast on a too-deep supervisor) rather than at a child-dispatch
