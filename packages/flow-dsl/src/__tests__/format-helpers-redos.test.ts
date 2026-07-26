@@ -60,11 +60,27 @@ describe("quote() ReDoS regression", () => {
       return performance.now() - started;
     };
 
+    // Best-of-N, not a single sample. This ratio compares two wall-clock
+    // measurements, and a scheduler preemption can only ever *inflate* one --
+    // never make the work cheaper. A preemption landing in the `small` sample
+    // deflates the denominator and pushes the ratio past the bound even though
+    // the code is linear, which is exactly how this test flaked on a loaded
+    // box. Taking the minimum discards that noise while keeping the guard's
+    // teeth: genuine quadratic regrowth inflates *every* sample, so the
+    // fastest large run is still ~16x the fastest small one.
+    const bestTimeFor = (len: number): number => {
+      let best = Infinity;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        best = Math.min(best, timeFor(len));
+      }
+      return best;
+    };
+
     // Warm up so JIT compilation is not attributed to the first measurement.
     timeFor(1_000);
 
-    const small = Math.max(timeFor(10_000), 0.01);
-    const large = timeFor(40_000);
+    const small = Math.max(bestTimeFor(10_000), 0.01);
+    const large = bestTimeFor(40_000);
 
     // 4x the input. Linear predicts ~4x time; the old quadratic pattern grew
     // ~16x across this range. 10x sits well clear of both.
