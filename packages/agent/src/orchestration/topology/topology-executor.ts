@@ -22,6 +22,19 @@ export interface MeshResult {
   metrics: TopologyMetrics;
 }
 
+/**
+ * Default number of mesh rounds.
+ *
+ * Mesh is an all-to-all peer-exchange topology: round 0 produces initial
+ * positions and every later round lets each agent revise in light of its
+ * peers. A single round therefore exchanges nothing and degenerates into
+ * star fan-out, so 2 is the smallest value that is actually a mesh — one
+ * round to produce, one to react. Ring defaults to 3 because it refines a
+ * single artifact serially; mesh multiplies calls by agent count each round,
+ * so it stays deliberately cheaper by default.
+ */
+const DEFAULT_MESH_ROUNDS = 2;
+
 export interface RingResult {
   result: string;
   metrics: TopologyMetrics;
@@ -36,13 +49,29 @@ export class TopologyExecutor {
   /**
    * Execute mesh topology: all agents communicate with all others.
    *
-   * Each agent gets the task + all other agents' previous outputs.
-   * Runs one round, collects all results.
+   * Runs `maxRounds` rounds (default {@link DEFAULT_MESH_ROUNDS}). In round 0
+   * every agent sees the bare task. In each later round an agent additionally
+   * receives every *other* agent's output from the previous round — its own
+   * prior output is deliberately excluded, which is what makes this all-to-all
+   * peer exchange rather than self-refinement.
+   *
+   * Within a round agents run concurrently via `Promise.allSettled`; the round
+   * boundary is the only synchronization point.
+   *
+   * Failure semantics: a failed call yields an `[error: ...]` placeholder that
+   * is carried into the next round as that peer's contribution, so the mesh
+   * stays well-formed and index-aligned. A failing agent is *not* ejected — it
+   * is retried each round, since failures are frequently transient.
+   * `errorCount` counts every failed call across all rounds and can therefore
+   * exceed `agentCount`.
+   *
+   * @returns The final round's outputs, index-aligned with `config.agents`.
    */
   static async executeMesh(
     config: TopologyExecutorConfig
   ): Promise<MeshResult> {
     const { agents, task, signal } = config;
+    const maxRounds = config.maxRounds ?? DEFAULT_MESH_ROUNDS;
     const startTime = Date.now();
     let messageCount = 0;
     let errorCount = 0;
@@ -56,32 +85,45 @@ export class TopologyExecutor {
 
     TopologyExecutor.checkAborted(signal, "topology-mesh");
 
-    // Run all agents in parallel with the task
-    const settled = await Promise.allSettled(
-      agents.map(async (agent) => {
-        messageCount++;
-        const result = await agent.generate(
-          [new HumanMessage(task)],
-          omitUndefined({ signal })
-        );
-        return result.content;
-      })
-    );
+    let results: string[] = [];
 
-    const results: string[] = [];
-    for (const outcome of settled) {
-      if (outcome.status === "fulfilled") {
-        results.push(outcome.value);
-      } else {
-        errorCount++;
-        results.push(
-          `[error: ${
-            outcome.reason instanceof Error
-              ? outcome.reason.message
-              : String(outcome.reason)
-          }]`
-        );
+    for (let round = 0; round < maxRounds; round++) {
+      TopologyExecutor.checkAborted(signal, "topology-mesh");
+
+      const previous = results;
+
+      const settled = await Promise.allSettled(
+        agents.map(async (agent, index) => {
+          messageCount++;
+          const prompt =
+            round === 0
+              ? task
+              : TopologyExecutor.buildMeshPrompt(task, agents, previous, index);
+          const result = await agent.generate(
+            [new HumanMessage(prompt)],
+            omitUndefined({ signal })
+          );
+          return result.content;
+        })
+      );
+
+      const roundResults: string[] = [];
+      for (const outcome of settled) {
+        if (outcome.status === "fulfilled") {
+          roundResults.push(outcome.value);
+        } else {
+          errorCount++;
+          roundResults.push(
+            `[error: ${
+              outcome.reason instanceof Error
+                ? outcome.reason.message
+                : String(outcome.reason)
+            }]`
+          );
+        }
       }
+
+      results = roundResults;
     }
 
     return {
@@ -94,6 +136,50 @@ export class TopologyExecutor {
         errorCount,
       },
     };
+  }
+
+  /**
+   * Build a round-N (N > 0) mesh prompt: the task plus every *other* agent's
+   * output from round N-1. The agent's own previous output is excluded so the
+   * exchange stays peer-to-peer.
+   */
+  private static buildMeshPrompt(
+    task: string,
+    agents: TopologyExecutorConfig["agents"],
+    previous: string[],
+    selfIndex: number
+  ): string {
+    const peerBlocks: string[] = [];
+
+    for (let i = 0; i < agents.length; i++) {
+      if (i === selfIndex) continue;
+      const output = previous[i];
+      if (output === undefined) continue;
+      peerBlocks.push(
+        `${TopologyExecutor.meshPeerLabel(agents, i)}:\n${output}`
+      );
+    }
+
+    if (peerBlocks.length === 0) {
+      return task;
+    }
+
+    return `${task}\n\nPeer agent outputs from the previous round:\n\n${peerBlocks.join(
+      "\n\n"
+    )}`;
+  }
+
+  /**
+   * Stable, human-readable label for a peer agent. Prefers the agent's `name`
+   * (which DzupAgent defaults to its `id`) and falls back to a positional
+   * label so the prompt is never ambiguous.
+   */
+  private static meshPeerLabel(
+    agents: TopologyExecutorConfig["agents"],
+    index: number
+  ): string {
+    const name = agents[index]?.name;
+    return name !== undefined && name !== "" ? name : `Agent ${index + 1}`;
   }
 
   /**
@@ -197,7 +283,7 @@ export class TopologyExecutor {
     if (
       autoSwitch &&
       result.metrics.agentCount > 0 &&
-      result.metrics.errorCount / result.metrics.agentCount > errorThreshold
+      TopologyExecutor.errorRate(result.metrics) > errorThreshold
     ) {
       const analyzer = new TopologyAnalyzer();
       const characteristics = TopologyExecutor.inferCharacteristics(
@@ -359,6 +445,28 @@ export class TopologyExecutor {
     }
   }
 
+  /**
+   * Error rate in [0, 1] used to gate auto-switching.
+   *
+   * Multi-round topologies (mesh, ring) accumulate `errorCount` across every
+   * round, so dividing by `agentCount` alone would yield a ratio above 1.0 and
+   * make a fixed threshold like 0.5 meaningless — a 2-round mesh with a single
+   * persistent failure out of 4 agents would score 0.5 instead of its true
+   * 0.25. Normalizing by the number of *calls actually made* keeps the value a
+   * genuine per-call failure rate and keeps `errorThreshold` comparable across
+   * topologies.
+   */
+  private static errorRate(metrics: TopologyMetrics): number {
+    const denominator =
+      metrics.messageCount > 0 ? metrics.messageCount : metrics.agentCount;
+
+    if (denominator <= 0) {
+      return 0;
+    }
+
+    return metrics.errorCount / denominator;
+  }
+
   private static createThrownFailureResult(
     config: TopologyExecutorConfig,
     topology: TopologyType,
@@ -387,8 +495,9 @@ export class TopologyExecutor {
         return config.agents.length > 0 ? config.agents.length : 0;
       case "pipeline":
       case "star":
-      case "mesh":
         return config.agents.length;
+      case "mesh":
+        return config.agents.length * (config.maxRounds ?? DEFAULT_MESH_ROUNDS);
       case "ring":
         return config.agents.length * (config.maxRounds ?? 3);
     }
