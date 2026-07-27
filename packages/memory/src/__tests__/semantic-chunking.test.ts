@@ -15,10 +15,11 @@ import { describe, it } from 'vitest'
  * code is not wholly untested. These 60 tests simply contributed nothing to
  * that coverage while appearing to.
  *
- * NOTE: packages/rag/src/__tests__/minimal-chunker.test.ts has its own
- * weakness — several assertions sit inside `for (const chunk of result)` with
- * no non-empty guard, so an empty return turns them green. Worth closing,
- * since that file carries the real SmartChunker coverage.
+ * NOTE (RESOLVED 2026-07-27, commit 1740fd29): minimal-chunker.test.ts used to
+ * assert only inside unguarded `for (const chunk of result)` bodies, so an
+ * empty return turned them green — a gutted `chunkText` left 12 of 21 tests
+ * passing. Every loop there now runs through a non-empty guard; the same
+ * mutation fails 20 of 21. No action outstanding.
  *
  * Removed 2026-07-27.
  */
