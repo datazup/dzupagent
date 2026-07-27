@@ -6,6 +6,7 @@ export default defineConfig([
       'src/index.ts',
       'src/agent-blueprints.ts',
       'src/v2-inactive-local-target.ts',
+      'src/file-import-lock-chain-backend.ts',
     ],
     format: ['esm'],
     dts: false,

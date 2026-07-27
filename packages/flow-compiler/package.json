@@ -17,6 +17,10 @@
     "./v2-inactive-local-target": {
       "import": "./dist/v2-inactive-local-target.js",
       "types": "./dist/v2-inactive-local-target.d.ts"
+    },
+    "./file-import-lock-chain-backend": {
+      "import": "./dist/file-import-lock-chain-backend.js",
+      "types": "./dist/file-import-lock-chain-backend.d.ts"
     }
   },
   "bin": {
