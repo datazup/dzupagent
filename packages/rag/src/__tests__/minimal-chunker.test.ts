@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from "vitest";
 import { SmartChunker } from "../chunker.js";
+import type { ChunkResult } from "../chunker.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -24,6 +25,20 @@ function minimalChunker(targetTokens: number): SmartChunker {
     overlapFraction: 0,
     respectBoundaries: false,
   });
+}
+
+/**
+ * Assert a chunk list is non-empty, then return it for iteration.
+ *
+ * Per-chunk invariants below are asserted inside `for...of` loops. An empty
+ * `result` makes such a loop body run zero times, so the test passes without
+ * executing a single assertion — a gutted `chunkText` that returns `[]` was
+ * verified to leave 12 of 21 tests in this file green. Routing every loop
+ * through this guard converts that silent pass into a failure.
+ */
+function nonEmpty(chunks: readonly ChunkResult[]): readonly ChunkResult[] {
+  expect(chunks.length).toBeGreaterThan(0);
+  return chunks;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +77,7 @@ describe("SmartChunker — minimal configuration", () => {
       const chunker = minimalChunker(10);
       const text = "x".repeat(400);
       const result = chunker.chunkText(text, "src");
-      const ids = result.map((c) => c.id);
+      const ids = nonEmpty(result).map((c) => c.id);
       expect(new Set(ids).size).toBe(ids.length);
     });
 
@@ -76,7 +91,7 @@ describe("SmartChunker — minimal configuration", () => {
     it("consecutive chunk indices are sequential with no gaps", () => {
       const chunker = minimalChunker(10);
       const text = "y".repeat(400);
-      const result = chunker.chunkText(text, "src");
+      const result = nonEmpty(chunker.chunkText(text, "src"));
       for (let i = 0; i < result.length; i++) {
         expect(result[i]!.metadata.chunkIndex).toBe(i);
       }
@@ -94,7 +109,7 @@ describe("SmartChunker — minimal configuration", () => {
       const text = "w".repeat(1000);
       const result = chunker.chunkText(text, "src");
       // Allow 2× for trailing-chunk merge, but not 3×
-      for (const chunk of result) {
+      for (const chunk of nonEmpty(result)) {
         expect(chunk.tokenCount).toBeLessThanOrEqual(targetTokens * 2);
       }
     });
@@ -105,7 +120,7 @@ describe("SmartChunker — minimal configuration", () => {
       const text = "z".repeat(2000);
       const result = chunker.chunkText(text, "src");
       // All chunks except possibly the merged last one should be close to target
-      for (const chunk of result.slice(0, -1)) {
+      for (const chunk of nonEmpty(result).slice(0, -1)) {
         expect(chunk.text.length).toBeGreaterThan(targetTokens * 2); // at least half
       }
     });
@@ -120,7 +135,7 @@ describe("SmartChunker — minimal configuration", () => {
       const chunker = minimalChunker(10);
       const text = "content ".repeat(50);
       const result = chunker.chunkText(text, "src");
-      for (const chunk of result) {
+      for (const chunk of nonEmpty(result)) {
         expect(chunk.text.trim().length).toBeGreaterThan(0);
       }
     });
@@ -144,7 +159,7 @@ describe("SmartChunker — minimal configuration", () => {
       const chunker = minimalChunker(10); // 40 chars
       const text = "a".repeat(80); // exactly 2 chunks
       const result = chunker.chunkText(text, "src");
-      for (const chunk of result) {
+      for (const chunk of nonEmpty(result)) {
         expect(chunk.text.length).toBeGreaterThan(0);
       }
     });
@@ -159,7 +174,7 @@ describe("SmartChunker — minimal configuration", () => {
       const chunker = minimalChunker(10);
       const text = "b".repeat(200);
       const result = chunker.chunkText(text, "my-source-id");
-      for (const chunk of result) {
+      for (const chunk of nonEmpty(result)) {
         expect(chunk.metadata.sourceId).toBe("my-source-id");
       }
     });
@@ -175,7 +190,7 @@ describe("SmartChunker — minimal configuration", () => {
       const chunker = minimalChunker(10);
       const text = "d".repeat(200);
       const result = chunker.chunkText(text, "src");
-      for (const chunk of result) {
+      for (const chunk of nonEmpty(result)) {
         expect(chunk.metadata.endOffset).toBeGreaterThan(
           chunk.metadata.startOffset
         );
@@ -186,7 +201,7 @@ describe("SmartChunker — minimal configuration", () => {
       const chunker = minimalChunker(10);
       const text = "e".repeat(200);
       const result = chunker.chunkText(text, "src");
-      for (const chunk of result) {
+      for (const chunk of nonEmpty(result)) {
         expect(chunk.metadata.boundaryType).toBe("token");
       }
     });
@@ -195,7 +210,7 @@ describe("SmartChunker — minimal configuration", () => {
       const chunker = minimalChunker(30);
       const text = "f".repeat(600);
       const result = chunker.chunkText(text, "src");
-      for (const chunk of result) {
+      for (const chunk of nonEmpty(result)) {
         expect(chunk.tokenCount).toBe(Math.ceil(chunk.text.length / 4));
       }
     });
@@ -210,7 +225,7 @@ describe("SmartChunker — minimal configuration", () => {
       const chunker = minimalChunker(15);
       const text = "word ".repeat(200);
       const result = chunker.chunkText(text, "src");
-      for (const chunk of result) {
+      for (const chunk of nonEmpty(result)) {
         expect(chunk.quality).toBeGreaterThanOrEqual(0);
         expect(chunk.quality).toBeLessThanOrEqual(1);
       }
@@ -237,7 +252,7 @@ describe("SmartChunker — minimal configuration", () => {
       const text = "Hello world this is a test.";
       const result = chunker.chunkText(text, "src");
       expect(result.length).toBeGreaterThan(0);
-      for (const chunk of result) {
+      for (const chunk of nonEmpty(result)) {
         expect(chunk.text.length).toBeGreaterThan(0);
       }
     });
