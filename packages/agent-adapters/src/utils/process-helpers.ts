@@ -39,7 +39,7 @@ export interface SpawnJsonlOptions extends SpawnOptions {
   backpressure?: boolean | undefined
   /** Output and record bounds applied before any untrusted data is yielded. */
   limits?: Partial<CliRuntimeLimits> | undefined
-  /** Compatibility defaults to skip; new strict callers should select error. */
+  /** Unset defaults to skip for compatibility; all shipped adapters pass 'error'. */
   malformedLinePolicy?: MalformedLinePolicy | undefined
   /** Defaults to JSONL; text mode yields one bounded terminal text record. */
   stdoutMode?: CliStdoutMode | undefined
@@ -64,14 +64,23 @@ export interface SpawnJsonlOptions extends SpawnOptions {
 /**
  * Spawn a CLI process and yield parsed JSONL records from its stdout.
  *
- * Each line of stdout is expected to be a valid JSON object. Lines that
- * fail to parse are silently skipped (some CLIs emit non-JSON preamble).
+ * Each line of stdout is expected to be a valid JSON object. Handling of lines
+ * that fail to parse — and of valid JSON that is not an object — depends on
+ * `options.malformedLinePolicy`:
+ *
+ * - `'error'`: throw ADAPTER_EXECUTION_FAILED on the offending line.
+ * - `'skip'` (or unset): silently skip it, tolerating non-JSON CLI preamble.
+ *
+ * While the unset default is skip, every adapter shipped in this package
+ * (claude, codex, gemini, qwen) explicitly passes `'error'`, so throwing is
+ * what callers actually observe in practice.
  *
  * The generator cleans up the child process on return or throw, and
  * respects the optional AbortSignal for cancellation.
  *
  * @throws {ForgeError} with code ADAPTER_SDK_NOT_INSTALLED if the binary is not found (ENOENT).
- * @throws {ForgeError} with code ADAPTER_EXECUTION_FAILED if the process exits with a non-zero code.
+ * @throws {ForgeError} with code ADAPTER_EXECUTION_FAILED if the process exits with a non-zero
+ *   code, or if a malformed line is seen while `malformedLinePolicy` is `'error'`.
  * @throws {ForgeError} with code ADAPTER_TIMEOUT if the process exceeds timeoutMs.
  * @throws {ForgeError} with code AGENT_ABORTED if execution is cancelled via AbortSignal.
  */
