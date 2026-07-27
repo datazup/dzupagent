@@ -5,6 +5,7 @@ import {
   COMMON_EMBEDDING_MODELS,
 } from '../llm/embedding-registry.js'
 import type { EmbeddingModelEntry } from '../llm/embedding-registry.js'
+import { ModelRegistry } from '../llm/model-registry.js'
 
 function makeEntry(overrides?: Partial<EmbeddingModelEntry>): EmbeddingModelEntry {
   return {
@@ -162,5 +163,30 @@ describe('createDefaultEmbeddingRegistry', () => {
     for (const model of COMMON_EMBEDDING_MODELS) {
       expect(reg.has(model.id)).toBe(true)
     }
+  })
+})
+
+/**
+ * ModelRegistry exposes `embeddings` as an eagerly-initialized field. The
+ * ModelRegistry suite (model-registry-extended.test.ts) mocks this module out
+ * entirely — `createDefaultEmbeddingRegistry` there returns `{}` — so it cannot
+ * assert that the accessor is wired to the *real* pre-populated registry. That
+ * assertion has to live here, where nothing is mocked.
+ */
+describe('ModelRegistry.embeddings wiring', () => {
+  it('exposes a registry pre-populated from COMMON_EMBEDDING_MODELS', () => {
+    const registry = new ModelRegistry()
+    expect(registry.embeddings.list().length).toBe(COMMON_EMBEDDING_MODELS.length)
+    for (const model of COMMON_EMBEDDING_MODELS) {
+      expect(registry.embeddings.has(model.id)).toBe(true)
+    }
+  })
+
+  it('gives each ModelRegistry its own embedding registry instance', () => {
+    const a = new ModelRegistry()
+    const b = new ModelRegistry()
+    a.embeddings.register(makeEntry({ id: 'instance-scoped-entry' }))
+    expect(a.embeddings.has('instance-scoped-entry')).toBe(true)
+    expect(b.embeddings.has('instance-scoped-entry')).toBe(false)
   })
 })

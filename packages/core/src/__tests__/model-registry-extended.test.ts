@@ -1151,8 +1151,18 @@ describe("ModelRegistry — extended coverage", () => {
   // -------------------------------------------------------------------------
 
   describe("embeddings accessor", () => {
-    it("exposes an embeddings property", () => {
+    // NOTE: `../llm/embedding-registry.js` is mocked at the top of this file
+    // (createDefaultEmbeddingRegistry returns `{}`), so this suite can only
+    // assert that ModelRegistry initializes the field eagerly from the factory
+    // — NOT any real registry behaviour. Genuine coverage of the default
+    // registry's contents and wiring lives in embedding-registry.test.ts,
+    // which does not mock the module.
+    it("initializes the embeddings field eagerly from the factory", () => {
       expect(registry.embeddings).toBeDefined();
+      // Eager (field initializer), not a lazy getter: two reads are the same object.
+      expect(registry.embeddings).toBe(registry.embeddings);
+      // Per-instance, not a shared module singleton.
+      expect(new ModelRegistry().embeddings).not.toBe(registry.embeddings);
     });
   });
 });
