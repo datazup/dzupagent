@@ -15,6 +15,22 @@
  * without mismatched required fields. Specializations are free (and
  * encouraged) to tighten optionality on their own extension fields.
  *
+ * SCOPE (2026-07-27): these bases carry ONLY fields that every specialization
+ * actually honors. They previously declared eight behavioural knobs
+ * (`selectionStrategy`, `maxDelegations`, `mappers`, `reducer`,
+ * `maxConcurrency`, `chunkSize`, `mergeFn`, `bidders`, `evaluator`,
+ * `bidTimeoutMs`) that NO consumer read — each specialization implements the
+ * same concept under its own name. Three were actively harmful: `maxDelegations`,
+ * `maxConcurrency` and `bidTimeoutMs` shadowed the live knobs
+ * `maxConcurrentDelegations`, `concurrency` and `bidDeadlineMs`, so setting the
+ * inherited field silently did nothing while a near-identically-named sibling
+ * was the real control. They were deleted rather than wired, because wiring
+ * would have created two competing knobs per concept.
+ *
+ * Rule for future edits: do not add a field here unless EVERY specialization
+ * reads it. A knob that only one side honors belongs on that side's own
+ * interface.
+ *
  * IMPORTANT: This file MUST NOT import from any other `@dzupagent/*`
  * package — `@dzupagent/agent-types` sits at Layer 0 of the dependency
  * graph and runtime symbols (e.g. `DzupEventBus`) belong to higher layers.
@@ -33,10 +49,6 @@
 export interface BaseSupervisorContract<TAgent> {
   /** Specialist collaborators to be coordinated by the supervisor. */
   specialists?: TAgent[]
-  /** Selection strategy for choosing which specialist handles a delegation. */
-  selectionStrategy?: 'round-robin' | 'capability-match' | 'load-balanced'
-  /** Maximum number of concurrent delegations the supervisor may run. */
-  maxDelegations?: number
 }
 
 /**
@@ -51,18 +63,12 @@ export interface BaseSupervisorContract<TAgent> {
  * @typeParam TResult - The per-unit result type the reducer consumes.
  */
 export interface BaseMapReduceContract<TAgent, TChunk = unknown, TResult = unknown> {
-  /** Mapper collaborators executing chunks in parallel. */
-  mappers?: TAgent[]
-  /** Optional reducer collaborator that consumes the merged stream. */
-  reducer?: TAgent
-  /** Maximum number of concurrent map operations. */
-  maxConcurrency?: number
-  /** Default chunk size hint for the splitter, when applicable. */
-  chunkSize?: number
-  /** Hook that combines per-chunk results into a single aggregate. */
-  mergeFn?: (results: TResult[]) => TResult
   /** Marker preserving the chunk type for downstream specializations. */
   readonly __chunk?: TChunk
+  /** Marker preserving the result type for downstream specializations. */
+  readonly __result?: TResult
+  /** Marker preserving the collaborator type for downstream specializations. */
+  readonly __agent?: TAgent
 }
 
 /**
@@ -74,12 +80,8 @@ export interface BaseMapReduceContract<TAgent, TChunk = unknown, TResult = unkno
  * @typeParam TAgent - The collaborator type used for bidding/execution.
  */
 export interface BaseContractNetContract<TAgent> {
-  /** Bidder collaborators participating in the call for proposals. */
-  bidders?: TAgent[]
-  /** Optional dedicated evaluator that picks the winning bid. */
-  evaluator?: TAgent
-  /** Maximum time (ms) to collect bids before evaluating. */
-  bidTimeoutMs?: number
+  /** Marker preserving the collaborator type for downstream specializations. */
+  readonly __agent?: TAgent
 }
 
 
