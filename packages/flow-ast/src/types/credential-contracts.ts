@@ -1,3 +1,5 @@
+import { isRecord, nonEmptyString, validDate } from "./primitives.js";
+
 export const FLOW_CREDENTIAL_HANDLE_SCHEMA =
   "dzupagent.flowCredentialHandle/v1" as const;
 export const FLOW_CREDENTIAL_LEASE_SCHEMA =
@@ -166,29 +168,3 @@ function requireString(
   }
 }
 
-function validDate(value: unknown): boolean {
-  return (
-    nonEmptyString(value) &&
-    // Not backtracking-prone despite the rule's heuristic: every quantifier except
-    // `\.\d+` is a fixed `{n}` count, and that one is bounded on the left by a
-    // literal `.` and on the right by `(?:Z|[+-]\d{2}:\d{2})`, whose first
-    // characters (`Z`, `+`, `-`) are disjoint from `\d`. No input can therefore be
-    // divided between `\d+` and what follows in more than one way, so there is no
-    // ambiguity to backtrack over. Measured against an adversarial near-miss
-    // ("2024-01-01T00:00:00." + N digits + "!"): 5k=0.011ms, 10k=0.021ms,
-    // 20k=0.040ms, 40k=0.103ms (~2x per doubling = linear).
-    // eslint-disable-next-line security/detect-unsafe-regex
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
-      value,
-    ) &&
-    Number.isFinite(Date.parse(value))
-  );
-}
-
-function nonEmptyString(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
