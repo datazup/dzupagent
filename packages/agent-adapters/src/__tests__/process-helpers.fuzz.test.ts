@@ -1,188 +1,82 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
+
+import { spawnAndStreamJsonl } from '../utils/process-helpers.js'
 
 /**
- * Fuzz-style tests for the JSON parsing resilience used in JSONL streaming.
+ * This file previously held 32 `it()` blocks fuzzing a LOCAL `tryParseJson`
+ * defined at line 15, with zero imports from `../utils/process-helpers.js`.
+ * Its header admitted it: "Replicate the try/catch JSON.parse pattern from
+ * process-helpers."
  *
- * spawnAndStreamJsonl (in process-helpers.ts) parses each stdout line with
- * JSON.parse, accepts only non-null, non-array objects, and silently skips
- * everything else. This suite exercises that logic with a broad range of
- * malformed, edge-case, and valid inputs.
+ * That replication encoded the WRONG behaviour. The local helper hardcoded
+ * "silently skip malformed lines", but `spawnAndStreamJsonl` takes a
+ * `malformedLinePolicy: 'skip' | 'error'` and forwards it to
+ * `runJsonlProcess` — and the real adapters (qwen-adapter.ts:212,
+ * gemini-adapter.ts:283) default it to `'error'`, not `'skip'`. So the fuzz
+ * suite could never reach the branch it claimed to fuzz, and would not have
+ * noticed the policy changing.
+ *
+ * `runJsonlProcess` itself is covered directly in cli-runtime.test.ts. What
+ * was missing — and is asserted below — is that the public
+ * `spawnAndStreamJsonl` wrapper actually FORWARDS the policy rather than
+ * swallowing it, for both values and for the default.
  */
-describe('JSONL parsing resilience', () => {
-  /**
-   * Replicate the try/catch JSON.parse pattern from process-helpers.
-   * Accepts only non-null, non-array objects — exactly matching the
-   * runtime filter in spawnAndStreamJsonl.
-   */
-  function tryParseJson(line: string): Record<string, unknown> | undefined {
-    try {
-      const parsed: unknown = JSON.parse(line)
-      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>
-      }
-      return undefined
-    } catch {
-      return undefined
+async function collect(stream: AsyncGenerator<Record<string, unknown>>): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = []
+  for await (const record of stream) out.push(record)
+  return out
+}
+
+/** Emit a preamble line that is not JSON, then one valid JSONL record. */
+const MALFORMED_THEN_VALID = `process.stdout.write('not-json\\n');process.stdout.write(JSON.stringify({ok:true})+'\\n')`
+
+describe('spawnAndStreamJsonl — malformedLinePolicy forwarding', () => {
+  it("skips malformed lines when the policy is 'skip'", async () => {
+    const records = await collect(
+      spawnAndStreamJsonl(process.execPath, ['-e', MALFORMED_THEN_VALID], {
+        malformedLinePolicy: 'skip',
+      }),
+    )
+    expect(records).toEqual([{ ok: true }])
+  })
+
+  it("throws on a malformed line when the policy is 'error'", async () => {
+    await expect(
+      collect(
+        spawnAndStreamJsonl(process.execPath, ['-e', MALFORMED_THEN_VALID], {
+          malformedLinePolicy: 'error',
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: 'ADAPTER_EXECUTION_FAILED',
+      context: expect.objectContaining({ classification: 'malformed_stream' }),
+    })
+  })
+
+  it('defaults to skipping when no policy is supplied', async () => {
+    const records = await collect(
+      spawnAndStreamJsonl(process.execPath, ['-e', MALFORMED_THEN_VALID], {}),
+    )
+    expect(records).toEqual([{ ok: true }])
+  })
+
+  it("rejects a non-object JSON line under the 'error' policy", async () => {
+    await expect(
+      collect(
+        spawnAndStreamJsonl(process.execPath, ['-e', `process.stdout.write('42\\n')`], {
+          malformedLinePolicy: 'error',
+        }),
+      ),
+    ).rejects.toMatchObject({ code: 'ADAPTER_EXECUTION_FAILED' })
+  })
+
+  it('yields every well-formed record regardless of policy', async () => {
+    const script = `process.stdout.write(JSON.stringify({n:1})+'\\n');process.stdout.write(JSON.stringify({n:2})+'\\n')`
+    for (const policy of ['skip', 'error'] as const) {
+      const records = await collect(
+        spawnAndStreamJsonl(process.execPath, ['-e', script], { malformedLinePolicy: policy }),
+      )
+      expect(records).toEqual([{ n: 1 }, { n: 2 }])
     }
-  }
-
-  // --- Valid inputs ---
-
-  it('parses valid JSON objects', () => {
-    expect(tryParseJson('{"key":"value"}')).toEqual({ key: 'value' })
-  })
-
-  it('handles empty object', () => {
-    expect(tryParseJson('{}')).toEqual({})
-  })
-
-  it('handles unicode content', () => {
-    expect(tryParseJson('{"emoji":"🎉","cjk":"你好"}')).toEqual({ emoji: '🎉', cjk: '你好' })
-  })
-
-  it('handles escaped characters', () => {
-    expect(tryParseJson('{"path":"C:\\\\Users\\\\test"}')).toEqual({ path: 'C:\\Users\\test' })
-  })
-
-  it('handles newlines in values', () => {
-    expect(tryParseJson('{"text":"line1\\nline2"}')).toEqual({ text: 'line1\nline2' })
-  })
-
-  it('handles deeply nested JSON', () => {
-    const deep = '{"a":'.repeat(50) + '{}' + '}'.repeat(50)
-    const result = tryParseJson(deep)
-    expect(result).toBeDefined()
-  })
-
-  it('handles very long string values', () => {
-    const long = JSON.stringify({ content: 'x'.repeat(100_000) })
-    const result = tryParseJson(long)
-    expect(result).toBeDefined()
-    expect((result as Record<string, unknown>).content).toHaveLength(100_000)
-  })
-
-  // --- Rejected but valid JSON (non-object types) ---
-
-  it('handles JSON null', () => {
-    expect(tryParseJson('null')).toBeUndefined()
-  })
-
-  it('handles JSON number', () => {
-    expect(tryParseJson('42')).toBeUndefined()
-  })
-
-  it('handles JSON string', () => {
-    expect(tryParseJson('"string"')).toBeUndefined()
-  })
-
-  it('handles JSON boolean true', () => {
-    expect(tryParseJson('true')).toBeUndefined()
-  })
-
-  it('handles JSON boolean false', () => {
-    expect(tryParseJson('false')).toBeUndefined()
-  })
-
-  it('handles JSON array', () => {
-    expect(tryParseJson('[1,2,3]')).toBeUndefined()
-  })
-
-  it('handles nested array', () => {
-    expect(tryParseJson('[[[]]]')).toBeUndefined()
-  })
-
-  // --- Malformed / invalid inputs ---
-
-  it('handles empty string', () => {
-    expect(tryParseJson('')).toBeUndefined()
-  })
-
-  it('handles plain text', () => {
-    expect(tryParseJson('not json at all')).toBeUndefined()
-  })
-
-  it('handles truncated JSON', () => {
-    expect(tryParseJson('{"incomplete": ')).toBeUndefined()
-  })
-
-  it('handles binary data', () => {
-    expect(tryParseJson('\x00\x01\x02')).toBeUndefined()
-  })
-
-  it('handles single open brace', () => {
-    expect(tryParseJson('{')).toBeUndefined()
-  })
-
-  it('handles trailing comma', () => {
-    expect(tryParseJson('{"a":1,}')).toBeUndefined()
-  })
-
-  it('handles single quotes (invalid JSON)', () => {
-    expect(tryParseJson("{'key':'value'}")).toBeUndefined()
-  })
-
-  it('handles unquoted keys', () => {
-    expect(tryParseJson('{key: "value"}')).toBeUndefined()
-  })
-
-  it('handles JavaScript-style comments', () => {
-    expect(tryParseJson('{"a":1} // comment')).toBeUndefined()
-  })
-
-  it('handles multiple JSON objects on one line', () => {
-    expect(tryParseJson('{"a":1}{"b":2}')).toBeUndefined()
-  })
-
-  it('handles whitespace-only string', () => {
-    expect(tryParseJson('   ')).toBeUndefined()
-  })
-
-  it('handles tab characters', () => {
-    expect(tryParseJson('\t\t')).toBeUndefined()
-  })
-
-  it('handles NaN (invalid JSON)', () => {
-    expect(tryParseJson('NaN')).toBeUndefined()
-  })
-
-  it('handles undefined literal (invalid JSON)', () => {
-    expect(tryParseJson('undefined')).toBeUndefined()
-  })
-
-  it('handles Infinity (invalid JSON)', () => {
-    expect(tryParseJson('Infinity')).toBeUndefined()
-  })
-
-  it('handles ANSI escape codes', () => {
-    expect(tryParseJson('\x1b[31mError\x1b[0m')).toBeUndefined()
-  })
-
-  it('handles zero-width characters', () => {
-    expect(tryParseJson('\u200B\u200C\u200D')).toBeUndefined()
-  })
-
-  // --- Mixed valid/invalid batch ---
-
-  it('correctly filters mixed valid and invalid lines', () => {
-    const lines = [
-      '{"valid":true}',
-      'garbage',
-      '{"also":"valid"}',
-      '',
-      '{"more":123}',
-      'not{json',
-      'null',
-      '[1,2]',
-      '42',
-      '{"last":"one"}',
-    ]
-    const results = lines.map(tryParseJson).filter(Boolean)
-    expect(results).toHaveLength(4)
-    expect(results).toEqual([
-      { valid: true },
-      { also: 'valid' },
-      { more: 123 },
-      { last: 'one' },
-    ])
   })
 })
