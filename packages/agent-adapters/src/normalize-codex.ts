@@ -19,10 +19,42 @@ export function normalizeCodex(
     getString(record, 'thread_id', 'threadId', 'session_id', 'sessionId') ?? fallbackSessionId
 
   switch (type) {
-    case 'item.started':
+    case 'item.started': {
+      const item = getObject(record, 'item')
+      if (!item) return null
+      const toolCallId = getString(item, 'id')
+      const itemType = getString(item, 'type')
+      if (itemType === 'command_execution') {
+        return {
+          type: 'adapter:tool_call', providerId: 'codex', toolName: 'shell',
+          ...(toolCallId ? { toolCallId } : {}),
+          input: { command: getString(item, 'command') ?? '' }, timestamp: Date.now(),
+        }
+      }
+      if (itemType === 'file_change') {
+        return {
+          type: 'adapter:tool_call', providerId: 'codex', toolName: 'file_edit',
+          ...(toolCallId ? { toolCallId } : {}), input: { changes: item['changes'] ?? [] }, timestamp: Date.now(),
+        }
+      }
+      if (itemType === 'mcp_tool_call') {
+        const tool = getString(item, 'tool', 'toolName') ?? 'unknown'
+        const server = getString(item, 'server', 'serverName')
+        return {
+          type: 'adapter:tool_call', providerId: 'codex', toolName: server ? `${server}/${tool}` : tool,
+          ...(toolCallId ? { toolCallId } : {}), input: item['arguments'] ?? {}, timestamp: Date.now(),
+        }
+      }
+      return null
+    }
     case 'item.completed': {
       const item = getObject(record, 'item')
-      return item ? normalizeCodex(item, sessionId) : null
+      if (!item) return null
+      const normalized = normalizeCodex(item, sessionId)
+      const toolCallId = getString(item, 'id')
+      return normalized && toolCallId && (normalized.type === 'adapter:tool_result' || normalized.type === 'adapter:tool_call')
+        ? { ...normalized, toolCallId }
+        : normalized
     }
 
     case 'thread_started':
@@ -111,7 +143,7 @@ export function normalizeCodex(
       return {
         type: 'adapter:tool_result',
         providerId: 'codex',
-        toolName: 'file_change',
+        toolName: 'file_edit',
         output: serializeProviderPayload(record['changes']) ?? '',
         durationMs: 0,
         timestamp: Date.now(),

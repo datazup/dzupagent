@@ -37,6 +37,15 @@ async function collect(gen: AsyncGenerator<AgentStreamEvent, void, undefined>): 
 }
 
 describe('Codex explicit CLI backend', () => {
+  it('pairs Codex file-change start and completion events with one stable tool call id', () => {
+    const adapter = new CodexCliAdapter()
+    const item = { id: 'file-change-1', type: 'file_change', changes: [{ path: 'src/a.ts', kind: 'modified' }] }
+    const started = adapter.mapProviderEvent({ type: 'item.started', item }, 'session-1', { prompt: 'test' })
+    const completed = adapter.mapProviderEvent({ type: 'item.completed', item }, 'session-1', { prompt: 'test' })
+    expect(started).toMatchObject({ type: 'adapter:tool_call', toolName: 'file_edit', toolCallId: 'file-change-1' })
+    expect(completed).toMatchObject({ type: 'adapter:tool_result', toolName: 'file_edit', toolCallId: 'file-change-1' })
+  })
+
   it('materializes exactly the explicit backend and keeps SDK as the default', () => {
     expect(createCodexBackendAdapter()).toBeInstanceOf(CodexAdapter)
     expect(createCodexBackendAdapter({ backend: 'sdk' })).toBeInstanceOf(CodexAdapter)
