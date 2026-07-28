@@ -278,6 +278,19 @@ export function mapItemCompleted(
     return [
       annotateProviderIdentity(
         withCorrelationId(
+          makeToolCallEvent({
+            providerId,
+            toolName: 'file_edit',
+            input: { changes: item.changes },
+            timestamp: ts,
+          }),
+          input.correlationId,
+        ),
+        providerEventId,
+        parentProviderEventId,
+      ),
+      annotateProviderIdentity(
+        withCorrelationId(
           makeToolResultEvent({
             providerId,
             toolName: 'file_edit',

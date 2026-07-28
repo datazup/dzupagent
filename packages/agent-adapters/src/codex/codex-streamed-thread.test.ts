@@ -625,7 +625,7 @@ describe('mapItemCompleted', () => {
     expect(result[1]?.type).toBe('adapter:tool_result')
   })
 
-  it('maps file_change to tool_result event with summary', () => {
+  it('maps file_change to a correlated tool_call and tool_result with summary', () => {
     const item = {
       type: 'file_change' as const,
       id: 'fc-1',
@@ -633,9 +633,14 @@ describe('mapItemCompleted', () => {
       status: 'completed',
     }
     const result = mapItemCompleted('codex', item, ts, 'pev', null, input)
-    expect(result).toHaveLength(1)
-    expect(result[0]?.type).toBe('adapter:tool_result')
-    const r = result[0] as { type: string; output?: string }
+    expect(result).toHaveLength(2)
+    expect(result[0]?.type).toBe('adapter:tool_call')
+    expect(result[1]?.type).toBe('adapter:tool_result')
+    const call = result[0] as { type: string; toolName?: string; input?: unknown }
+    const r = result[1] as { type: string; toolName?: string; output?: string }
+    expect(call.toolName).toBe('file_edit')
+    expect(call.input).toEqual({ changes: item.changes })
+    expect(r.toolName).toBe('file_edit')
     expect(r.output).toContain('modified: src/foo.ts')
   })
 

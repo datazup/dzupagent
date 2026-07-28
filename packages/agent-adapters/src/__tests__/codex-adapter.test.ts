@@ -1331,6 +1331,7 @@ describe("CodexAdapter", () => {
         "adapter:message", // Analyzing...
         "adapter:tool_call", // shell
         "adapter:tool_result", // shell output
+        "adapter:tool_call", // file_edit
         "adapter:tool_result", // file_edit
         "adapter:message", // Done!
         "adapter:completed",
