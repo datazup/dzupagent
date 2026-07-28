@@ -46,7 +46,15 @@ export async function resolveAccountPickerInterstitial(
   }
 
   try {
-    await choice.click({ timeout: LOGIN_TIMEOUT });
+    const pickerUrl = page.url();
+    // Identity providers commonly style radios with an overlaid label/avatar.
+    // Force the semantic radio click so decorative children cannot intercept
+    // the pointer action while the browser still dispatches the input event.
+    await choice.click({ timeout: LOGIN_TIMEOUT, force: true });
+    // Some pickers submit immediately when the radio changes. In that case
+    // the old continue button no longer exists, and trying to click it would
+    // turn a successful login into a timeout.
+    if (page.url() !== pickerUrl && !(await isLoginPage(page))) return true;
     // Pickers commonly enable the button only after selection —
     // Playwright's click auto-waits for it to become enabled.
     await continueButton.click({ timeout: LOGIN_TIMEOUT });
