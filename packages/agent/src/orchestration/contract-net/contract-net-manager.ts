@@ -49,6 +49,28 @@ function emitContractEvent(
 }
 
 /**
+ * Normalise the self-reported `capabilities` field of a bid.
+ *
+ * This is untrusted model output, so anything that is not an array of usable
+ * strings degrades to `undefined` ("did not answer") rather than to `[]`
+ * ("declared none"). Both are unqualified under a non-empty requirement, but
+ * only `undefined` is honest about a bidder that never addressed the question.
+ *
+ * Entries are trimmed and blanks dropped, because a stray `" "` is not a
+ * capability. Non-string entries are dropped rather than coerced: `String(0)`
+ * would mint the capability `"0"`, which could match a requirement literally
+ * nobody intended.
+ */
+function parseCapabilities(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const tags = raw
+    .filter((c): c is string => typeof c === "string")
+    .map((c) => c.trim())
+    .filter((c) => c.length > 0);
+  return tags.length > 0 ? tags : undefined;
+}
+
+/**
  * Parse a bid from an agent's text response.
  * Expects JSON with the bid fields.
  */
@@ -64,7 +86,7 @@ function parseBid(
 
     const parsed = JSON.parse(jsonStr.trim()) as Record<string, unknown>;
 
-    return {
+    return omitUndefined({
       agentId,
       cfpId,
       estimatedCostCents: Number(parsed["estimatedCostCents"] ?? 0),
@@ -75,7 +97,8 @@ function parseBid(
       ),
       confidence: Math.max(0, Math.min(1, Number(parsed["confidence"] ?? 0.5))),
       approach: String(parsed["approach"] ?? "No approach specified"),
-    };
+      capabilities: parseCapabilities(parsed["capabilities"]),
+    });
   } catch {
     return null;
   }
@@ -96,6 +119,11 @@ async function collectBid(
     cfp.requiredCapabilities?.length
       ? `Required capabilities: ${cfp.requiredCapabilities.join(", ")}`
       : "",
+    // Only demanded when it is enforced. Asking unconditionally would train
+    // bidders to emit a field that nothing reads on most CFPs.
+    cfp.requiredCapabilities?.length
+      ? `You must list which of these you actually have in "capabilities". Claim ONLY capabilities you genuinely have: a bid missing any required capability is discarded before ranking and cannot win.`
+      : "",
     cfp.maxCostCents != null ? `Maximum budget: ${cfp.maxCostCents} cents` : "",
     "",
     "Respond with this exact JSON structure:",
@@ -105,6 +133,9 @@ async function collectBid(
     '  "qualityEstimate": <number between 0 and 1>,',
     '  "confidence": <number between 0 and 1>,',
     '  "approach": "<brief description of your approach>"',
+    ...(cfp.requiredCapabilities?.length
+      ? ['  , "capabilities": ["<capability>", ...]']
+      : []),
     "}",
   ]
     .filter(Boolean)
@@ -371,6 +402,61 @@ export class ContractNetManager {
   }
 
   /**
+   * Enforce the CFP's `requiredCapabilities` on the collected bids.
+   *
+   * Returns the bids eligible for ranking. When the CFP names no requirements
+   * this returns `bids` unchanged — no filtering, no events, same contents as
+   * before capability matching existed.
+   *
+   * The match semantic is a SUBSET test: a bid qualifies when it declares
+   * every required capability. This mirrors `maxCostCents` — a hard,
+   * pre-ranking eligibility gate rather than a soft ranking bonus — because a
+   * missing capability means the specialist cannot do the work at all, and no
+   * amount of being cheap or fast compensates for that. A soft bonus would let
+   * an unqualified-but-cheap bidder win, which is the defect this closes.
+   *
+   * Matching is exact string equality on trimmed tags. Requirements are
+   * likewise trimmed so a policy written as `" sql"` still matches `"sql"`.
+   *
+   * Throws {@link OrchestrationError} when requirements are set and no bid
+   * qualifies, rather than awarding the contract to a specialist that cannot
+   * perform it.
+   */
+  private static filterBidsByCapabilities(
+    state: ContractNetState,
+    bids: ContractBid[],
+    eventBus: DzupEventBus | undefined
+  ): ContractBid[] {
+    const { cfpId, requiredCapabilities } = state.cfp;
+    const required = (requiredCapabilities ?? [])
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+    if (required.length === 0) return bids;
+
+    const eligible = bids.filter((bid) => {
+      const declared = new Set(bid.capabilities ?? []);
+      return required.every((c) => declared.has(c));
+    });
+    if (eligible.length > 0) return eligible;
+
+    // Nobody qualified. Fail rather than award work to a specialist that did
+    // not demonstrate the required skills. Name the requirement so the caller
+    // can see whether the policy is too strict or the roster is wrong.
+    const reason = `No bid met the required capabilities: ${required.join(
+      ", "
+    )}`;
+
+    state.phase = "failed";
+    emitContractEvent(eventBus, {
+      type: "contractnet:failed",
+      cfpId,
+      phase: "bidding",
+      reason,
+    });
+    throw new OrchestrationError(reason, "contract-net", { cfpId });
+  }
+
+  /**
    * Lowest `estimatedCostCents` across `bids`, or `null` when there are no
    * bids or every cost is non-finite (`NaN`), which `Math.min` would otherwise
    * report as `NaN`.
@@ -399,8 +485,22 @@ export class ContractNetManager {
     // above it are removed before ranking so an over-budget specialist can
     // never be awarded (and therefore never spends). When no budget is
     // configured this is a pass-through and ranking is unchanged.
+    //
+    // `requiredCapabilities` is enforced the same way and for the same reason:
+    // a specialist that cannot do the work must not win it by underbidding.
+    // Budget runs first so that when both gates would reject the field, the
+    // error names the affordability problem — the one the caller controls by
+    // raising a number rather than by changing the roster.
     state.phase = "evaluating";
-    const eligibleBids = ContractNetManager.filterBidsByBudget(state, eventBus);
+    const affordableBids = ContractNetManager.filterBidsByBudget(
+      state,
+      eventBus
+    );
+    const eligibleBids = ContractNetManager.filterBidsByCapabilities(
+      state,
+      affordableBids,
+      eventBus
+    );
     const rankedBids = strategy.evaluate(eligibleBids);
     const winningBid = rankedBids[0];
 

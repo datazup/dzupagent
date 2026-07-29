@@ -48,25 +48,35 @@ export interface ParticipantDefinition {
    * Do NOT confuse this with the two adjacent, *live* capability surfaces:
    *
    *  - `TeamPolicies.contractNet.requiredCapabilities` (`team-policy.ts`) is
-   *    enforced only in the weak sense that `ContractNetManager` interpolates it
-   *    into the CFP *prompt* text sent to bidders
-   *    (`contract-net/contract-net-manager.ts` — "Required capabilities: ..."). It
-   *    filters nothing: a specialist whose capabilities do not match can still
-   *    bid and still win. Bid eligibility is decided by `maxCostCents` and the
-   *    ranking strategy alone.
+   *    fully enforced: `ContractNetManager` interpolates it into the CFP prompt
+   *    AND filters the returned bids by it before ranking
+   *    (`contract-net/contract-net-manager.ts` `filterBidsByCapabilities`). A
+   *    bid wins only if it declares every required capability. Note the match
+   *    is against the capabilities a bidder self-reports IN ITS BID, which is
+   *    a different surface from this field — nothing propagates a participant
+   *    definition into its own bid.
    *  - `AgentSpec.tags` (`routing-policy-types.ts`) is the tag surface that
    *    `RuleBasedRouting` actually matches on, and it is populated from
    *    `AgentExecutionSpec.metadata.tags` (`specialist-selection.ts`
    *    `toAgentSpecs`) — never from this field.
    *
-   * Wiring this to bid evaluation would require inventing a match semantic
-   * (subset? intersection? weighted score? hard filter or soft rank bonus?) that
-   * does not exist anywhere in the codebase today, and would change which agent
-   * wins a contract. That is a deliberate design decision, not a mechanical
-   * hookup, so the field stays inert until such a semantic is specified.
+   * The match semantic this docstring once called unspecified now exists:
+   * contract-net requires a SUBSET match and enforces it as a hard
+   * pre-ranking filter, mirroring `maxCostCents`. What is still missing is a
+   * *trust* decision, and that is why this field remains inert. The filter
+   * matches on capabilities a bidder SELF-REPORTS, which an agent can
+   * overclaim. Feeding this operator-authored field into that match would
+   * silently convert it from a declaration into an entitlement — every
+   * participant would automatically satisfy requirements naming the tags its
+   * own definition lists, regardless of what it can do.
    *
-   * @see `__tests__/participant-capabilities-unused.test.ts` — pins this
-   * documented no-op so the claim cannot silently rot into a lie.
+   * Wiring it therefore means deciding whether a participant definition is
+   * evidence of capability or merely a claim about it, and that is an
+   * operator-facing policy question, not a mechanical hookup.
+   *
+   * @see `__tests__/participant-capabilities-vs-bid-capabilities.test.ts` —
+   * pins this no-op, and the gap between it and the enforced bid-side filter,
+   * so neither claim can silently rot into a lie.
    */
   capabilities?: string[];
 }

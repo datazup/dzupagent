@@ -45,6 +45,19 @@ function bidJson(overrides: Partial<ContractBid> = {}): string {
     qualityEstimate: overrides.qualityEstimate ?? 0.8,
     confidence: overrides.confidence ?? 0.9,
     approach: overrides.approach ?? "standard",
+    ...(overrides.capabilities ? { capabilities: overrides.capabilities } : {}),
+  });
+}
+
+/** A raw bid payload, for asserting how malformed `capabilities` degrade. */
+function rawBidJson(capabilities: unknown): string {
+  return JSON.stringify({
+    estimatedCostCents: 100,
+    estimatedDurationMs: 5000,
+    qualityEstimate: 0.8,
+    confidence: 0.9,
+    approach: "standard",
+    capabilities,
   });
 }
 
@@ -602,5 +615,288 @@ describe("ContractNetManager maxCostCents enforcement", () => {
     expect(result.success).toBe(true);
     expect(result.agentId).toBe("a");
     expect(emitted.map((e) => e["type"])).not.toContain("contractnet:failed");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// requiredCapabilities is an ENFORCED subset filter, not prompt decoration
+// ---------------------------------------------------------------------------
+
+describe("ContractNetManager requiredCapabilities enforcement", () => {
+  it("no requirement set: bids without capabilities stay eligible", async () => {
+    // Regression guard — the overwhelmingly common case. Without a
+    // requirement the filter must be a pure pass-through, so a bid that
+    // declares nothing still wins on cost.
+    const a = makeAgent(
+      "a",
+      makeModel([bidJson({ estimatedCostCents: 10 }), "a ran"])
+    );
+    const b = makeAgent(
+      "b",
+      makeModel([bidJson({ estimatedCostCents: 20 }), "b ran"])
+    );
+
+    const result = await ContractNetManager.execute({
+      specialists: [a, b],
+      task: "no capability requirement",
+      strategy: lowestCostStrategy,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.agentId).toBe("a");
+  });
+
+  it("an unqualified bid cannot win even when it would otherwise rank first", async () => {
+    // The defect this closes: lowestCostStrategy would pick `cheap` outright,
+    // but it never declares `sql`, so only `expert` remains eligible.
+    const cheap = makeAgent(
+      "cheap",
+      makeModel([bidJson({ estimatedCostCents: 1 }), "cheap ran"])
+    );
+    const expert = makeAgent(
+      "expert",
+      makeModel([
+        bidJson({ estimatedCostCents: 900, capabilities: ["sql", "python"] }),
+        "expert ran",
+      ])
+    );
+
+    const result = await ContractNetManager.execute({
+      specialists: [cheap, expert],
+      task: "needs sql",
+      strategy: lowestCostStrategy,
+      requiredCapabilities: ["sql"],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.agentId).toBe("expert");
+    expect(result.result).toBe("expert ran");
+  });
+
+  it("requires ALL capabilities, not merely one (subset, not intersection)", async () => {
+    // `partial` overlaps on `sql` but lacks `security`. An intersection
+    // semantic would let it through; the subset semantic must not.
+    const partial = makeAgent(
+      "partial",
+      makeModel([
+        bidJson({ estimatedCostCents: 1, capabilities: ["sql"] }),
+        "partial ran",
+      ])
+    );
+    const full = makeAgent(
+      "full",
+      makeModel([
+        bidJson({
+          estimatedCostCents: 900,
+          capabilities: ["sql", "security"],
+        }),
+        "full ran",
+      ])
+    );
+
+    const result = await ContractNetManager.execute({
+      specialists: [partial, full],
+      task: "needs both",
+      strategy: lowestCostStrategy,
+      requiredCapabilities: ["sql", "security"],
+    });
+
+    expect(result.agentId).toBe("full");
+  });
+
+  it("extra capabilities beyond the requirement do not disqualify", async () => {
+    const generalist = makeAgent(
+      "generalist",
+      makeModel([
+        bidJson({ capabilities: ["sql", "python", "rust", "design"] }),
+        "generalist ran",
+      ])
+    );
+
+    const result = await ContractNetManager.execute({
+      specialists: [generalist],
+      task: "superset is fine",
+      requiredCapabilities: ["sql"],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.agentId).toBe("generalist");
+  });
+
+  it("no qualifying bid: throws OrchestrationError naming the requirement", async () => {
+    const a = makeAgent("a", makeModel([bidJson({}), "a ran"]));
+
+    await expect(
+      ContractNetManager.execute({
+        specialists: [a],
+        task: "nobody qualifies",
+        requiredCapabilities: ["sql", "security"],
+      })
+    ).rejects.toThrow(/No bid met the required capabilities: sql, security/);
+    await expect(
+      ContractNetManager.execute({
+        specialists: [makeAgent("a2", makeModel([bidJson({}), "a ran"]))],
+        task: "nobody qualifies",
+        requiredCapabilities: ["sql"],
+      })
+    ).rejects.toBeInstanceOf(OrchestrationError);
+  });
+
+  it("no qualifying bid: never executes the unqualified specialist", async () => {
+    // Enforcement must happen BEFORE the winner runs, or the contract has
+    // already been performed by an agent that could not do the work.
+    const model = makeModel([bidJson({}), "should never run"]);
+    const a = makeAgent("a", model);
+
+    await expect(
+      ContractNetManager.execute({
+        specialists: [a],
+        task: "must not execute",
+        requiredCapabilities: ["sql"],
+      })
+    ).rejects.toThrow(OrchestrationError);
+
+    // Exactly one invoke: the bid. No execution call followed.
+    expect(model.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("no qualifying bid: emits contractnet:failed and never awards", async () => {
+    const { bus, emitted } = makeRecordingBus();
+    const a = makeAgent("a", makeModel([bidJson({}), "a ran"]));
+
+    await expect(
+      ContractNetManager.execute({
+        specialists: [a],
+        task: "capability event",
+        requiredCapabilities: ["sql"],
+        eventBus: bus,
+      })
+    ).rejects.toThrow(OrchestrationError);
+
+    const types = emitted.map((e) => e["type"]);
+    expect(types).toContain("contractnet:failed");
+    expect(types).not.toContain("contractnet:awarded");
+    const failure = emitted.find((e) => e["type"] === "contractnet:failed");
+    expect(String(failure?.["reason"])).toContain("sql");
+  });
+
+  it("budget is reported first when a bid fails both gates", async () => {
+    // Ordering is deliberate: the caller fixes affordability by raising a
+    // number, so name that before the roster problem.
+    const a = makeAgent(
+      "a",
+      makeModel([bidJson({ estimatedCostCents: 900 }), "a ran"])
+    );
+
+    await expect(
+      ContractNetManager.execute({
+        specialists: [a],
+        task: "both gates fail",
+        maxCostCents: 100,
+        requiredCapabilities: ["sql"],
+      })
+    ).rejects.toThrow(/No bid within budget/);
+  });
+
+  it("matching is exact: a near-miss tag does not qualify", async () => {
+    const a = makeAgent(
+      "a",
+      makeModel([bidJson({ capabilities: ["SQL"] }), "a ran"])
+    );
+
+    await expect(
+      ContractNetManager.execute({
+        specialists: [a],
+        task: "case sensitivity",
+        requiredCapabilities: ["sql"],
+      })
+    ).rejects.toThrow(/No bid met the required capabilities/);
+  });
+
+  it("whitespace in declared and required tags is trimmed before matching", async () => {
+    const a = makeAgent(
+      "a",
+      makeModel([bidJson({ capabilities: ["  sql  "] }), "a ran"])
+    );
+
+    const result = await ContractNetManager.execute({
+      specialists: [a],
+      task: "trimmed",
+      requiredCapabilities: [" sql "],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("an all-blank requirement list is treated as no requirement", async () => {
+    const a = makeAgent("a", makeModel([bidJson({}), "a ran"]));
+
+    const result = await ContractNetManager.execute({
+      specialists: [a],
+      task: "blank requirement",
+      requiredCapabilities: ["   "],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.agentId).toBe("a");
+  });
+
+  it("malformed capabilities degrade to unqualified rather than throwing", async () => {
+    // Untrusted model output: a string, an object, and non-string entries must
+    // not crash the parse, and must not be coerced into matching tags.
+    for (const malformed of ["sql", { sql: true }, [0], [null], []]) {
+      const a = makeAgent("a", makeModel([rawBidJson(malformed), "a ran"]));
+      await expect(
+        ContractNetManager.execute({
+          specialists: [a],
+          task: "malformed capabilities",
+          requiredCapabilities: ["sql"],
+        })
+      ).rejects.toThrow(/No bid met the required capabilities/);
+    }
+  });
+
+  it("does not mint a matching tag by coercing a number", async () => {
+    // `String(0)` would produce the capability "0"; dropping non-strings
+    // prevents a requirement of "0" from being met by a numeric entry.
+    const a = makeAgent("a", makeModel([rawBidJson([0]), "a ran"]));
+
+    await expect(
+      ContractNetManager.execute({
+        specialists: [a],
+        task: "numeric coercion",
+        requiredCapabilities: ["0"],
+      })
+    ).rejects.toThrow(/No bid met the required capabilities/);
+  });
+
+  it("asks bidders to declare capabilities only when the CFP requires them", async () => {
+    // A bidder can only be filtered on a field it was asked to supply, so the
+    // schema line must appear exactly when the filter is active — and must not
+    // appear otherwise, to avoid training bidders to emit a field nothing
+    // reads on the common no-requirement CFP.
+    const bidPromptOf = (model: BaseChatModel): string => {
+      const calls = (model.invoke as ReturnType<typeof vi.fn>).mock.calls;
+      return calls
+        .map((call) =>
+          (call[0] as BaseMessage[]).map((m) => String(m.content)).join("\n")
+        )
+        .find((text) => text.includes("Respond ONLY with a JSON object"))!;
+    };
+
+    const withReqModel = makeModel([bidJson({ capabilities: ["sql"] }), "ran"]);
+    await ContractNetManager.execute({
+      specialists: [makeAgent("withReq", withReqModel)],
+      task: "prompt with requirement",
+      requiredCapabilities: ["sql"],
+    });
+    expect(bidPromptOf(withReqModel)).toContain('"capabilities"');
+
+    const noReqModel = makeModel([bidJson({}), "ran"]);
+    await ContractNetManager.execute({
+      specialists: [makeAgent("noReq", noReqModel)],
+      task: "prompt without requirement",
+    });
+    expect(bidPromptOf(noReqModel)).not.toContain('"capabilities"');
   });
 });
