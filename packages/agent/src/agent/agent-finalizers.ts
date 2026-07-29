@@ -232,14 +232,14 @@ async function runMemoryDecay(
   if (threshold === 0 || !isFinite(threshold)) return
 
   try {
-    const records = await memory.get(namespace, scope)
-    if (records.length < threshold) return
+    // Keyed read: `get()` returns bare values, so the store key is not
+    // recoverable from the record and every entry would be dropped below.
+    const keyed = await memory.getKeyed(namespace, scope)
+    if (keyed.length < threshold) return
 
-    const withDecay = records.flatMap((r): Array<{ key: string; meta: DecayMetadata }> => {
-      const rec = r as DecayRecord
-      const key = typeof rec['_key'] === 'string' ? rec['_key'] : undefined
-      const meta = rec['_decay']
-      if (!key || !meta) return []
+    const withDecay = keyed.flatMap(({ key, value }): Array<{ key: string; meta: DecayMetadata }> => {
+      const meta = (value as DecayRecord)['_decay']
+      if (!meta) return []
       return [{ key, meta }]
     })
 

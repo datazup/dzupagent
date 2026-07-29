@@ -13,12 +13,6 @@ export function spaceScope(spaceId: string): Record<string, string> {
   return { _space: spaceId }
 }
 
-export function keyFromValue(value: Record<string, unknown>, fallbackIndex: number): string {
-  if (typeof value['_key'] === 'string') return value['_key']
-  if (typeof value['key'] === 'string') return value['key']
-  return `record-${fallbackIndex}`
-}
-
 export function hasFields(obj: unknown): obj is { fields: Record<string, unknown> } {
   return (
     typeof obj === 'object' &&

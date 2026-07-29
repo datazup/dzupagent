@@ -15,7 +15,7 @@ import type {
   PendingShareRequest,
   SharedMemorySpace,
 } from './types.js'
-import { keyFromValue, spaceNamespace, spaceScope } from './space-helpers.js'
+import { spaceNamespace, spaceScope } from './space-helpers.js'
 import { handleSharePullRequest, handleSharePush } from './space-share.js'
 import { reviewPullRequestForSpace } from './space-pull-request.js'
 import { decodePending, isDecoded } from './space-decoders.js'
@@ -88,11 +88,23 @@ export async function querySpace(
       queryText,
       limit,
     )
-    return results.map((v, i) => ({ key: keyFromValue(v, i), value: v }))
+    // `search()` returns bare values with no key. Recover identity by matching
+    // against a keyed read of the same namespace rather than fabricating one:
+    // a synthesized `record-N` key is not a real record identity and corrupts
+    // the space if a caller writes back with it.
+    const keyed = await memoryService.getKeyed(spaceNamespace(space.id), scope)
+    const used = new Set<number>()
+    return results.map(v => {
+      const idx = keyed.findIndex(
+        (k, i) => !used.has(i) && JSON.stringify(k.value) === JSON.stringify(v),
+      )
+      if (idx >= 0) used.add(idx)
+      return { key: idx >= 0 ? keyed[idx]!.key : '', value: v }
+    })
   }
 
-  const results = await memoryService.get(spaceNamespace(space.id), scope)
-  return results.slice(0, limit).map((v, i) => ({ key: keyFromValue(v, i), value: v }))
+  const keyed = await memoryService.getKeyed(spaceNamespace(space.id), scope)
+  return keyed.slice(0, limit).map(k => ({ key: k.key, value: k.value }))
 }
 
 /**

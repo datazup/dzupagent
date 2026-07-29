@@ -73,6 +73,16 @@ function createMockMemoryService(options?: { failingDeleteKeys?: string[] }): {
         return Promise.resolve(Array.from(nsRecords.values()))
       },
     ),
+    getKeyed: vi.fn().mockImplementation(
+      (ns: string, scope: Record<string, string>) => {
+        const nsKey = `${ns}:${JSON.stringify(scope)}`
+        const nsRecords = records.get(nsKey)
+        if (!nsRecords) return Promise.resolve([])
+        return Promise.resolve(
+          Array.from(nsRecords.entries()).map(([key, value]) => ({ key, value })),
+        )
+      },
+    ),
     search: vi.fn().mockImplementation(
       (ns: string, scope: Record<string, string>, _query: string, _limit?: number) => {
         const nsKey = `${ns}:${JSON.stringify(scope)}`
