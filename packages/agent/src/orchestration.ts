@@ -272,3 +272,17 @@ export type {
   LlmJudgeVerdictOptions,
   LlmJudgeVerdictService,
 } from "./orchestration/team/team-verdict-llm-judge.js";
+
+export {
+  JudgeBudgetExceededError,
+  JudgeTimeoutError,
+  withJudgeBudget,
+  withJudgeCache,
+  withJudgeTimeout,
+} from "./orchestration/team/team-verdict-judge-controls.js";
+export type {
+  AbortableJudgeInvoker,
+  JudgeBudgetOptions,
+  JudgeCacheOptions,
+  JudgeTimeoutOptions,
+} from "./orchestration/team/team-verdict-judge-controls.js";
