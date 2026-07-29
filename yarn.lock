@@ -1740,6 +1740,7 @@ __metadata:
     "@dzupagent/evals": "npm:0.2.0"
     "@dzupagent/flow-ast": "npm:0.2.0"
     "@dzupagent/flow-compiler": "npm:0.2.0"
+    "@dzupagent/flow-dsl": "npm:0.2.0"
     "@dzupagent/hitl-kit": "npm:0.2.0"
     "@dzupagent/memory": "npm:0.2.0"
     "@dzupagent/memory-ipc": "npm:0.2.0"

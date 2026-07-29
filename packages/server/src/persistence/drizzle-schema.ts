@@ -34,6 +34,7 @@ export {
 export {
   forgeNodeLedger,
   flowNodeAdapterMeta,
+  flowImportLockChains,
   workerNodes,
   flowArtifacts,
   flowEvents,

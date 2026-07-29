@@ -254,6 +254,10 @@ export type {
   AdapterMetaStore,
 } from "./runtime/adapter-meta-store.js";
 
+// --- Import-Lock Chain Persistence (ADR-0001 C2) ---
+export { DrizzleV2ImportLockChainBackend } from "./persistence/drizzle-import-lock-chain-backend.js";
+export type { DrizzleV2ImportLockChainBackendOptions } from "./persistence/drizzle-import-lock-chain-backend.js";
+
 // --- Event-History Replay Runtime (Stage 5) ---
 export {
   InMemoryEventStore,

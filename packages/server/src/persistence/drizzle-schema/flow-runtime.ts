@@ -82,6 +82,38 @@ export const flowNodeAdapterMeta = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Import-Lock Chain Documents (ADR-0001 C2 — durable DSL v2 lineage)
+// ---------------------------------------------------------------------------
+
+/**
+ * Serialized import-lock revision chains, one row per flow document.
+ *
+ * Backs the Drizzle {@link V2ImportLockChainBackend}. The `document` column is
+ * deliberately opaque `text`, not `jsonb`: the store above it verifies lineage
+ * digests over the exact bytes it wrote, and `jsonb` normalizes key order and
+ * whitespace on the round-trip, which would invalidate the very digests the
+ * chain exists to prove. Storing the payload verbatim keeps the backend a
+ * byte-faithful blob store, which is all the contract asks of it.
+ *
+ * Keyed by the author-supplied `flow_id` directly — unlike the filesystem
+ * backend, which must hash the id to keep it out of a path, a SQL parameter has
+ * no traversal semantics, so the natural key is safe and stays readable.
+ */
+export const flowImportLockChains = pgTable(
+  "flow_import_lock_chains",
+  {
+    flowId: text("flow_id").primaryKey(),
+    /** Verbatim serialized chain document; never re-encoded. */
+    document: text("document").notNull(),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    index("flow_import_lock_chains_updated_at_idx").on(table.updatedAt),
+  ]
+);
+
+// ---------------------------------------------------------------------------
 // Worker Fleet Registry (P1 — stable node identity + heartbeat + fleet view)
 // ---------------------------------------------------------------------------
 

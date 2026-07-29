@@ -127,6 +127,13 @@
       "when": 0,
       "tag": "0017_stage5_flow_events",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 0,
+      "tag": "0018_c2_import_lock_chains",
+      "breakpoints": true
     }
   ]
 }
