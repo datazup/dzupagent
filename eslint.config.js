@@ -115,7 +115,7 @@ export default [
           // its value, so a double lacking it cannot model record identity —
           // which is what every one of those defects got wrong.
           //
-          // `warn`, not `error`: 193 pre-existing instances across 75 files. The
+          // `warn`, not `error`: 137 pre-existing instances across 75 files. The
           // point is to stop *new* ones and to make the migration visible, not
           // to fail the build on debt this rule was written to surface. Fix the
           // ones you touch; do not bulk-suppress.
