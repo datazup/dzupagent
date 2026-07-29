@@ -261,3 +261,14 @@ export type {
   SynthesisGatherOptions,
   JudgeGatherOptions,
 } from "./orchestration/gather/llm-gather-strategies.js";
+
+export {
+  createLlmJudgeVerdictService,
+  TeamJudgeUnavailableError,
+} from "./orchestration/team/team-verdict-llm-judge.js";
+export type {
+  JudgeFailurePolicy,
+  JudgeInvoker,
+  LlmJudgeVerdictOptions,
+  LlmJudgeVerdictService,
+} from "./orchestration/team/team-verdict-llm-judge.js";

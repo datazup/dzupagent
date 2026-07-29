@@ -33,6 +33,7 @@ import {
 import { DEFAULT_GOVERNANCE_MODEL as DEFAULT_GOVERNANCE_MODEL_FROM_PATTERN } from "./patterns/council-pattern.js";
 import { validateTeamPolicies } from "./team-runtime-policy-validator.js";
 import type { TeamOTelSpanLike, TeamRuntimeTracer } from "./team-otel-types.js";
+import { bridgeTeamEventsToBus } from "./team-runtime-bus-bridge.js";
 import type { TeamRuntimeEventEmitter } from "./team-runtime-events.js";
 import type { TeamRuntimeMemoryService } from "./team-runtime-memory.js";
 import type {
@@ -148,7 +149,13 @@ export class TeamRuntime {
     this.policies = options.policies ?? {};
     validateTeamPolicies(this.definition.coordinatorPattern, this.policies);
     this.resolveParticipant = options.resolveParticipant;
-    this.emitEvent = options.onEvent ?? (() => {});
+    // Wrapped at this single assignment rather than at each emit site, so a
+    // future team event cannot be added that silently bypasses the bus.
+    this.emitEvent = bridgeTeamEventsToBus(
+      options.onEvent ?? (() => {}),
+      options.eventBus,
+      this.definition.coordinatorPattern
+    );
     this.generateRunId =
       options.generateRunId ?? (() => globalThis.crypto.randomUUID());
     this.tracer = options.tracer;

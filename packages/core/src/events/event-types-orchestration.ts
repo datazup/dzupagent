@@ -370,6 +370,62 @@ export type OrchestrationDomainEvent =
       reason?: string;
       error?: string;
     }
+  // --- Team Runtime ---
+  // Typed lifecycle events for `TeamRuntime` in @dzupagent/agent. These mirror
+  // a SUBSET of the richer `TeamRuntimeEvent` union that the runtime hands to
+  // its `onEvent` callback: `onEvent` is the host's per-instance observer,
+  // whereas these are the process-wide domain events that otel/metrics can
+  // observe (a `MetricMapFragment` keys off `DzupEvent['type']`, so an event
+  // that never reaches the bus can never drive a metric).
+  //
+  // Only bounded-cardinality fields are modelled here. `runId` is carried for
+  // correlation but must NOT be used as a metric label — it is unbounded, the
+  // same reason contract-net keeps the free-form `task` off its labels.
+  // Free-form strings from `TeamRuntimeEvent` (error messages, namespaces) are
+  // deliberately omitted rather than forwarded.
+  | {
+      /** A team run finished successfully. */
+      type: "team:completed";
+      teamId: string;
+      runId: string;
+      coordinatorPattern: string;
+      durationMs: number;
+    }
+  | {
+      /** A team run terminated through the failure path. */
+      type: "team:failed";
+      teamId: string;
+      runId: string;
+      coordinatorPattern: string;
+    }
+  | {
+      /**
+       * A governance / evaluation acceptance gate was reached.
+       *
+       * `outcome: 'skipped'` means the policy declared a threshold but no
+       * scorer service was injected, so the run passed ungated. A non-zero
+       * rate of skipped verdicts is a misconfiguration to alert on, which is
+       * precisely why this reaches the bus rather than only `onEvent`.
+       */
+      type: "team:verdict_evaluated";
+      teamId: string;
+      runId: string;
+      gate: "governance" | "evaluation";
+      outcome: "passed" | "rejected" | "skipped";
+      /** Absent on `skipped` — no scorer ran, so there is no score. */
+      score?: number;
+    }
+  | {
+      /**
+       * A declared post-run memory consolidation pass did not complete —
+       * either no memory service was wired (`unwired`) or a wired one threw
+       * (`failed`). Run outcomes are unaffected; consolidation is non-fatal.
+       */
+      type: "team:consolidation_skipped";
+      teamId: string;
+      runId: string;
+      reason: "unwired" | "failed";
+    }
   // --- Supervisor ---
   | { type: "supervisor:delegating"; specialistId: string; task: string }
   | {

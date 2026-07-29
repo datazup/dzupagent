@@ -63,3 +63,14 @@ export type {
   TeamAgentRunResult,
   TeamRunResult,
 } from "./team-workspace.js";
+
+export {
+  createLlmJudgeVerdictService,
+  TeamJudgeUnavailableError,
+} from "./team-verdict-llm-judge.js";
+export type {
+  JudgeFailurePolicy,
+  JudgeInvoker,
+  LlmJudgeVerdictOptions,
+  LlmJudgeVerdictService,
+} from "./team-verdict-llm-judge.js";

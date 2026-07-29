@@ -70,6 +70,45 @@ export type TeamRuntimeEvent =
     }
   | {
       /**
+       * A post-run memory consolidation pass was DECLARED
+       * (`memory.consolidateOnComplete: true`) but did not complete.
+       *
+       * Emitted for the same reason as `team_verdict_evaluated` with
+       * `outcome: 'skipped'`: without it, "consolidation ran" and
+       * "consolidation never happened" are indistinguishable from the outside,
+       * because the success path emits `team_consolidation_completed` and both
+       * failure paths previously emitted nothing at all.
+       *
+       * The two reasons are kept distinct because they need different
+       * responses:
+       *
+       * - `unwired` — the policy asked for consolidation but no
+       *   `TeamRuntimeMemoryService` was injected, so nothing could run. This is
+       *   a deployment/wiring mistake, and is expected in tests and in any
+       *   environment where the team is declared before its store exists.
+       * - `failed` — a service WAS wired and threw. This is the more dangerous
+       *   case and the reason this event exists at all: a store that rejects on
+       *   every run (bad credentials, wrong namespace, disk full) would
+       *   otherwise be completely invisible, since the failure is deliberately
+       *   swallowed to keep consolidation non-fatal.
+       *
+       * Run outcomes are unchanged in both cases — consolidation remains a
+       * non-critical post-run step. This event is reporting only.
+       */
+      type: "team_consolidation_skipped";
+      teamId: string;
+      runId: string;
+      namespace: string;
+      reason: "unwired" | "failed";
+      /**
+       * Failure message when `reason: 'failed'`. Absent for `unwired`, where
+       * nothing ran and so there is no error to report.
+       */
+      error?: string;
+      at: Date;
+    }
+  | {
+      /**
        * A governance / evaluation acceptance gate was reached on a completed
        * run. `outcome: 'rejected'` is immediately followed by a `team_failed`
        * event.
