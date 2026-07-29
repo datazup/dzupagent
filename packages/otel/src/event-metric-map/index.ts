@@ -20,6 +20,7 @@ export { providerRunMetricMap } from "./provider-run.js";
 export { schedulerMetricMap } from "./scheduler.js";
 export { skillLifecycleMetricMap } from "./skill-lifecycle.js";
 export { supervisorMetricMap } from "./supervisor.js";
+export { teamRuntimeMetricMap } from "./team-runtime.js";
 export { telemetryMetricMap } from "./telemetry.js";
 export { toolLifecycleMetricMap } from "./tool-lifecycle.js";
 export { vectorMetricMap } from "./vector.js";
