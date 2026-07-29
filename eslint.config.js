@@ -124,11 +124,47 @@ export default [
           message:
             "Stateless memory double: a spy cannot observe what the store holds, only that it was called. Use createMemoryHarness() from @dzupagent/memory/testing, which wraps a real MemoryService over an InMemoryStore and exposes snapshot()/keys()/liveKeys() for assertions. If this object is not a memory service, add an eslint-disable-next-line with a reason.",
         },
+        {
+          // `expect(xs.every(p)).toBe(true)` passes when `xs` is empty —
+          // `[].every()` is `true` by definition. So the assertion says
+          // "every item satisfies p OR there are no items", and the second
+          // branch is usually not what the test means.
+          //
+          // This is not hypothetical: a memory tenant-isolation test filtered
+          // recorded calls to `op get|search`, analytics moved to `getKeyed`,
+          // the filtered set went empty, and all six scope assertions passed
+          // against nothing. Only a hand-written `toBeGreaterThan(0)` caught
+          // it. This rule generalises that save.
+          //
+          // Assert non-emptiness first — `expect(xs.length).toBeGreaterThan(0)`
+          // or `expect(xs).toHaveLength(n)` — or, when the count is the point,
+          // prefer `expect(xs.filter(p)).toHaveLength(n)`, which pins both the
+          // predicate and the population in one assertion.
+          //
+          // Narrow by design: only `.every()` compared to `true`. `.some()` is
+          // already empty-safe (it fails on `[]`), and `.toBe(false)` is not
+          // vacuous either.
+          //
+          // Measured over the seven packages with hits (server, agent, core,
+          // context, otel, memory-ipc, adapter-types): 116 warnings, of which
+          // ~16 (~15%) assert a *negative* predicate ("no item is X"), where an
+          // empty collection is a fair pass. Those are false positives by
+          // construction — the selector cannot see the predicate's polarity,
+          // nor whether a length guard precedes the call. Suppress those with a
+          // reason. `warn`, not `error`, for the same reason as the rule above:
+          // surface the debt, block none of it.
+          selector:
+            "CallExpression[callee.property.name='toBe'][arguments.0.value=true][callee.object.callee.name='expect'][callee.object.arguments.0.callee.property.name='every']",
+          message:
+            "Vacuous on an empty array: [].every() is true, so this passes when the collection is empty. Assert the collection is non-empty first (expect(xs.length).toBeGreaterThan(0) or toHaveLength(n)), or use expect(xs.filter(p)).toHaveLength(n). If an empty collection is an acceptable pass here, add an eslint-disable-next-line with a reason.",
+        },
       ],
     },
   },
   // Type-aware rules for TypeScript source files only (requires tsconfig project).
-  // Test files are excluded from all package tsconfigs, so they cannot use project-based parsing.
+  // Most package tsconfigs still exclude test files, so they cannot use
+  // project-based parsing. (memory-ipc, security, rag and context now include
+  // their tests; the exclusion here is kept uniform rather than per-package.)
   {
     files: ["**/*.ts", "**/*.tsx"],
     ignores: ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**"],
