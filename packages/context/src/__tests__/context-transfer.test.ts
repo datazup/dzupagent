@@ -1,10 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages'
 import type { BaseMessage } from '@langchain/core/messages'
+import { at } from './helpers/at.js'
 import {
   ContextTransferService,
-  type ContextTransferConfig,
-  type IntentRelevanceRule,
 } from '../context-transfer.js'
 
 // ---------------------------------------------------------------------------
@@ -270,10 +269,10 @@ describe('ContextTransferService', () => {
 
       // Original had 3 messages (system + human + ai), result has 4
       expect(result.length).toBe(msgs.length + 1)
-      expect(result[0]._getType()).toBe('system') // original system
-      expect(result[1]._getType()).toBe('system') // injected context
-      expect((result[1].content as string)).toContain('Context Transferred')
-      expect(result[2]._getType()).toBe('human') // original human
+      expect(at(result, 0)._getType()).toBe('system') // original system
+      expect(at(result, 1)._getType()).toBe('system') // injected context
+      expect((at(result, 1).content as string)).toContain('Context Transferred')
+      expect(at(result, 2)._getType()).toBe('human') // original human
     })
 
     it('inserts at position 0 if no system message exists', () => {
@@ -287,8 +286,8 @@ describe('ContextTransferService', () => {
       const result = service.injectContext(ctx, msgs)
 
       expect(result.length).toBe(msgs.length + 1)
-      expect(result[0]._getType()).toBe('system') // injected
-      expect(result[1]._getType()).toBe('human')  // original first
+      expect(at(result, 0)._getType()).toBe('system') // injected
+      expect(at(result, 1)._getType()).toBe('human')  // original first
     })
 
     it('does not mutate the input array', () => {
@@ -318,7 +317,7 @@ describe('ContextTransferService', () => {
 
       expect(result).not.toBeNull()
       expect(result!.length).toBe(target.length + 1)
-      const injected = result![1].content as string
+      const injected = at(result!, 1).content as string
       expect(injected).toContain('Context Transferred from "implement_auth"')
     })
 
@@ -346,7 +345,7 @@ describe('ContextTransferService', () => {
 
       expect(result).not.toBeNull()
       // Find the injected system message
-      const injected = result![1].content as string
+      const injected = at(result!, 1).content as string
       expect(injected).toContain('Context Transferred')
     })
   })

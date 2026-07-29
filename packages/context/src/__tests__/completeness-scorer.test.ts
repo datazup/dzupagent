@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scoreCompleteness, type DescriptionInput } from '../completeness-scorer.js'
+import { scoreCompleteness } from '../completeness-scorer.js'
 
 describe('scoreCompleteness', () => {
   // -----------------------------------------------------------------------

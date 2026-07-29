@@ -6,6 +6,7 @@ import {
   type BaseMessage,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import { at } from './helpers/at.js'
 import {
   shouldSummarize,
   pruneToolResults,
@@ -518,9 +519,9 @@ describe('summarizeAndTrim', () => {
 
     await summarizeAndTrim(msgs, 'old context here', model)
 
-    const call = (model.invoke as ReturnType<typeof vi.fn>).mock.calls[0]
-    const invokeMessages = call[0] as BaseMessage[]
-    const humanPrompt = invokeMessages[1].content as string
+    const call = at((model.invoke as ReturnType<typeof vi.fn>).mock.calls, 0)
+    const invokeMessages = at(call, 0) as BaseMessage[]
+    const humanPrompt = at(invokeMessages, 1).content as string
     expect(humanPrompt).toContain('Existing summary to UPDATE')
     expect(humanPrompt).toContain('old context here')
   })
@@ -531,9 +532,9 @@ describe('summarizeAndTrim', () => {
 
     await summarizeAndTrim(msgs, null, model)
 
-    const call = (model.invoke as ReturnType<typeof vi.fn>).mock.calls[0]
-    const invokeMessages = call[0] as BaseMessage[]
-    const humanPrompt = invokeMessages[1].content as string
+    const call = at((model.invoke as ReturnType<typeof vi.fn>).mock.calls, 0)
+    const invokeMessages = at(call, 0) as BaseMessage[]
+    const humanPrompt = at(invokeMessages, 1).content as string
     expect(humanPrompt).toContain('Conversation to summarize')
     expect(humanPrompt).not.toContain('Existing summary')
   })
@@ -628,9 +629,9 @@ describe('summarizeAndTrim', () => {
 
     await summarizeAndTrim(msgs, null, model, { keepRecentMessages: 10 })
 
-    const call = (model.invoke as ReturnType<typeof vi.fn>).mock.calls[0]
-    const invokeMessages = call[0] as BaseMessage[]
-    const humanPrompt = invokeMessages[1].content as string
+    const call = at((model.invoke as ReturnType<typeof vi.fn>).mock.calls, 0)
+    const invokeMessages = at(call, 0) as BaseMessage[]
+    const humanPrompt = at(invokeMessages, 1).content as string
     // Each old message content should be truncated to 500 chars max
     expect(humanPrompt).not.toContain('A'.repeat(600))
   })
