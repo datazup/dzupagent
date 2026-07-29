@@ -101,6 +101,29 @@ export default [
           message:
             "Avoid real setTimeout in tests. Use vi.useFakeTimers() + vi.advanceTimersByTimeAsync() instead.",
         },
+        {
+          // A memory-service double built from bare spies — `get`/`put` present,
+          // no `getKeyed`. A spy holds no state: it can observe *that* put() was
+          // called, never *what the namespace now contains*. That blind spot hid
+          // a family of defects in which an operation reported success while the
+          // store was untouched (retention reporting `{ pruned: 2 }` while every
+          // record survived and the namespace grew each sweep), and it hid them
+          // because a mock cannot disagree with the code that drives it.
+          //
+          // Absence of `getKeyed` is the tell. It is now required on the store
+          // contracts precisely because a record's key is not recoverable from
+          // its value, so a double lacking it cannot model record identity —
+          // which is what every one of those defects got wrong.
+          //
+          // `warn`, not `error`: 193 pre-existing instances across 75 files. The
+          // point is to stop *new* ones and to make the migration visible, not
+          // to fail the build on debt this rule was written to surface. Fix the
+          // ones you touch; do not bulk-suppress.
+          selector:
+            "ObjectExpression:has(Property[key.name='get']):has(Property[key.name='put']):not(:has(Property[key.name='getKeyed']))",
+          message:
+            "Stateless memory double: a spy cannot observe what the store holds, only that it was called. Use createMemoryHarness() from @dzupagent/memory/testing, which wraps a real MemoryService over an InMemoryStore and exposes snapshot()/keys()/liveKeys() for assertions. If this object is not a memory service, add an eslint-disable-next-line with a reason.",
+        },
       ],
     },
   },

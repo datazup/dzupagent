@@ -12,6 +12,13 @@
  *     namespace case-sensitivity, rotateKey with multiple namespaces
  */
 
+/* eslint-disable no-restricted-syntax -- The doubles here implement
+ * `MemoryServiceLike` from `memory-service-adapter.js`, a different and
+ * narrower contract than the store-backed one: it has no `getKeyed` at all.
+ * These tests assert how the adapter *translates call arguments* (scope
+ * conversion, record shaping), so a spy's call log is the correct assertion
+ * surface and a stateful store would add nothing. The no-blind-memory-mock
+ * warning keys on a missing `getKeyed`, which cannot apply to this contract. */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { randomBytes } from "node:crypto";
 import { memoryServiceToClient } from "../memory-service-adapter.js";
@@ -154,16 +161,14 @@ describe("memoryServiceToClient — scope conversion", () => {
 
 describe("memoryServiceToClient — get() record lifting", () => {
   it("uses id field when present", async () => {
-    const getSpy = vi
-      .fn()
-      .mockResolvedValue([
-        {
-          id: "explicit-id",
-          text: "content",
-          createdAt: 1000,
-          updatedAt: 2000,
-        },
-      ]);
+    const getSpy = vi.fn().mockResolvedValue([
+      {
+        id: "explicit-id",
+        text: "content",
+        createdAt: 1000,
+        updatedAt: 2000,
+      },
+    ]);
     const svc: MemoryServiceLike = { get: getSpy, put: vi.fn() };
     const client = memoryServiceToClient(svc);
 
@@ -256,18 +261,16 @@ describe("memoryServiceToClient — get() record lifting", () => {
   });
 
   it("extracts extra fields into metadata", async () => {
-    const getSpy = vi
-      .fn()
-      .mockResolvedValue([
-        {
-          id: "r1",
-          text: "x",
-          tag: "lesson",
-          importance: 0.9,
-          createdAt: 1000,
-          updatedAt: 2000,
-        },
-      ]);
+    const getSpy = vi.fn().mockResolvedValue([
+      {
+        id: "r1",
+        text: "x",
+        tag: "lesson",
+        importance: 0.9,
+        createdAt: 1000,
+        updatedAt: 2000,
+      },
+    ]);
     const svc: MemoryServiceLike = { get: getSpy, put: vi.fn() };
     const client = memoryServiceToClient(svc);
 
@@ -277,19 +280,17 @@ describe("memoryServiceToClient — get() record lifting", () => {
   });
 
   it("does not include id/key/text/content/createdAt/updatedAt in metadata", async () => {
-    const getSpy = vi
-      .fn()
-      .mockResolvedValue([
-        {
-          id: "r1",
-          key: "k1",
-          text: "x",
-          content: "c",
-          createdAt: 1000,
-          updatedAt: 2000,
-          tag: "keep",
-        },
-      ]);
+    const getSpy = vi.fn().mockResolvedValue([
+      {
+        id: "r1",
+        key: "k1",
+        text: "x",
+        content: "c",
+        createdAt: 1000,
+        updatedAt: 2000,
+        tag: "keep",
+      },
+    ]);
     const svc: MemoryServiceLike = { get: getSpy, put: vi.fn() };
     const client = memoryServiceToClient(svc);
 
@@ -412,16 +413,14 @@ describe("memoryServiceToClient — get() pagination", () => {
 
 describe("memoryServiceToClient — get() with search query", () => {
   it("routes to svc.search when query.search is set and svc.search exists", async () => {
-    const searchSpy = vi
-      .fn()
-      .mockResolvedValue([
-        {
-          id: "found",
-          text: "matching content",
-          createdAt: 1000,
-          updatedAt: 1000,
-        },
-      ]);
+    const searchSpy = vi.fn().mockResolvedValue([
+      {
+        id: "found",
+        text: "matching content",
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+    ]);
     const svc: MemoryServiceLike = {
       get: vi.fn(),
       put: vi.fn(),
@@ -952,13 +951,7 @@ describe("EncryptedMemoryService — rotateKey bulk rotation", () => {
     // All re-puts should use new key, each targeting its original key.
     const rePutCalls = mock.putSpy.mock.calls.slice(5);
     expect(rePutCalls).toHaveLength(5);
-    expect(rePutCalls.map((c) => c[2])).toEqual([
-      "k0",
-      "k1",
-      "k2",
-      "k3",
-      "k4",
-    ]);
+    expect(rePutCalls.map((c) => c[2])).toEqual(["k0", "k1", "k2", "k3", "k4"]);
     for (const call of rePutCalls) {
       const env = (call[3] as Record<string, unknown>)[
         "_encrypted_value"
