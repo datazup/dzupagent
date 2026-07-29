@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/knowledge/index.ts"],
+  entry: ["src/index.ts", "src/knowledge/index.ts", "src/testing/index.ts"],
   format: ["esm"],
   dts: false,
   clean: true,
@@ -30,5 +30,7 @@ export default defineConfig({
     "@langchain/langgraph",
     "@langchain/langgraph-checkpoint-postgres",
     "@langchain/langgraph-checkpoint-postgres/store",
+    // Only the ./testing subpath imports vitest, and only test code loads it.
+    "vitest",
   ],
 });
