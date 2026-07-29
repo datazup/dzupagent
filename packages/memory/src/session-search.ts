@@ -56,12 +56,25 @@ export interface SessionSearchStore {
     scope: Record<string, string>,
     key?: string,
   ): Promise<Record<string, unknown>[]>
+  /**
+   * Read records paired with the store key they were written under.
+   *
+   * Optional for backward compatibility, but preferred: `get()` returns bare
+   * values, so a record's real key is not recoverable from it and
+   * `SearchResult.key` falls back to `value['key']` (usually absent).
+   */
+  getKeyed?(
+    namespace: string,
+    scope: Record<string, string>,
+  ): Promise<Array<{ key: string; value: Record<string, unknown> }>>
 }
 
 interface IndexedRecord {
   namespace: string
   scope: Record<string, string>
   value: Record<string, unknown>
+  /** Real store key, when the store exposes a keyed read. */
+  key?: string
 }
 
 export class SessionSearch {
@@ -80,6 +93,14 @@ export class SessionSearch {
 
   /** Index all records from a namespace+scope into the search index. */
   async index(namespace: string, scope: Record<string, string>): Promise<void> {
+    if (this.store.getKeyed) {
+      const keyed = await this.store.getKeyed(namespace, scope)
+      this.indexMap.set(
+        namespace,
+        keyed.map(k => ({ namespace, scope, value: k.value, key: k.key })),
+      )
+      return
+    }
     const records = await this.store.get(namespace, scope)
     this.indexMap.set(
       namespace,
@@ -105,7 +126,11 @@ export class SessionSearch {
         if (matchedTerms.length === 0) continue
         const score = matchedTerms.length / terms.length
         results.push({
-          key: typeof record.value['key'] === 'string' ? record.value['key'] : String(record.value['key'] ?? ''),
+          key:
+            record.key ??
+            (typeof record.value['key'] === 'string'
+              ? record.value['key']
+              : String(record.value['key'] ?? '')),
           namespace: ns,
           scope: record.scope,
           value: record.value,
