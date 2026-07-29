@@ -450,9 +450,16 @@ Current codebase risks and known gaps (from implementation and tests):
     `memory.consolidateOnComplete`. Each is a real gate, but only once the host
     injects the matching service (`TeamGovernanceService`,
     `TeamEvaluationService`, `TeamRuntimeMemoryService`). With no service wired
-    they are shape-checked and inert — a documented no-op, not a rejection. A
-    policy that looks like a quality gate can therefore pass everything if the
-    consuming app never wired a scorer.
+    they are shape-checked and the run passes ungated — a documented
+    pass-through, not a rejection.
+
+    The two acceptance gates no longer do this _silently_: a declared-but-unwired
+    `governance` / `evaluation` threshold emits `team_verdict_evaluated` with
+    `outcome: 'skipped'` (and no `score`, since nothing scored the run), so an
+    unenforced quality bar is distinguishable from a met one. Alert on a
+    non-zero skipped rate. **`memory.consolidateOnComplete` still has no
+    equivalent signal** — an unwired memory service remains a silent no-op.
+
   - **Scoped out of in-repo enforcement** — all of `isolation`, all of `mailbox`,
     and `memory.tier` / `memory.shareAcrossParticipants`. The runtime has no
     sandbox executor, does not route pattern messages through the mailbox
@@ -479,8 +486,23 @@ Current codebase risks and known gaps (from implementation and tests):
 
 - Topology auto-switch uses static inferred characteristics on retry (`inferCharacteristics`) rather than measured run metrics, so retry choice is heuristic and not feedback-driven.
 
+- `TeamRuntime` lifecycle events (`TeamRuntimeEvent`, including
+  `team_verdict_evaluated`) are delivered **only** to the `onEvent` callback.
+  They are not published to `DzupEventBus`, which is a separate channel the
+  runtime forwards to patterns via `TeamPatternContext.eventBus`. Because the
+  otel `event-metric-map` keys off bus events, no team lifecycle event can
+  currently produce a metric: `@dzupagent/otel` has fragments for
+  `contractnet:*` but there is no `team:*` bus event to map. Hosts that want
+  team metrics must bridge `onEvent` themselves. Publishing team events onto the
+  bus would close this, but it is an API-surface decision (event naming,
+  cardinality of `team_id`/`run_id` labels), not a mechanical hookup.
+
 ## Changelog
 
+- 2026-07-29: recorded the `skipped` verdict signal for declared-but-unwired
+  governance/evaluation gates, narrowed the silent-pass risk to
+  `memory.consolidateOnComplete`, and documented that team lifecycle events
+  reach `onEvent` only and so cannot currently drive otel metrics.
 - 2026-07-29: hand-refresh of "Risks and TODOs". Replaced the flat team-policy
   "unsupported" list with the enforced / injected-service-seam / scoped-out
   distinction the code actually implements; recorded the contract-net capability

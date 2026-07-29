@@ -47,16 +47,22 @@ export interface GovernancePolicy {
    * Enforced by the governance acceptance gate after a council run completes,
    * but only when a `TeamGovernanceService` is injected into the runtime — the
    * runtime cannot itself score a free-form judge verdict. When no scorer is
-   * wired this field is a documented no-op (shape-checked, but inert), the same
-   * seam as `MemoryPolicy.consolidateOnComplete`.
+   * wired the run passes ungated (the same seam as
+   * `MemoryPolicy.consolidateOnComplete`), but NOT silently: the runtime emits
+   * `team_verdict_evaluated` with `outcome: 'skipped'` so an unenforced
+   * threshold is visible rather than masquerading as a met one.
+   *
+   * `createDeterministicVerdictService` in `@dzupagent/testing` is a wireable
+   * model-free scorer for tests and as a host template.
    */
   minScore?: number;
   /**
    * If true, council requires unanimous judgment to pass.
    *
    * Enforced by the governance acceptance gate (via the injected
-   * `TeamGovernanceService.evaluate` returning `unanimous`); inert when no
-   * scorer service is wired.
+   * `TeamGovernanceService.evaluate` returning `unanimous`). With no scorer
+   * wired the run passes ungated and reports a `skipped` verdict, exactly as
+   * for {@link GovernancePolicy.minScore}.
    */
   requireUnanimous?: boolean;
 }
@@ -203,8 +209,10 @@ export interface MailboxPolicy {
  * `minPassScore` is enforced by the evaluation acceptance gate after any
  * pattern completes, but only when a `TeamEvaluationService` is injected into
  * the runtime (`scorerModel` / `scoringCriteria` are passed to it as inputs).
- * Without a scorer service the gate is a documented no-op — the same
- * host-injected-service seam as governance and memory consolidation.
+ * Without a scorer service the run passes ungated — the same
+ * host-injected-service seam as governance and memory consolidation — and the
+ * runtime emits `team_verdict_evaluated` with `outcome: 'skipped'` so the
+ * unenforced threshold is observable instead of looking like a pass.
  */
 export interface EvaluationPolicy {
   /** Model to use for scoring. Recommended: `claude-opus-4-7`. */

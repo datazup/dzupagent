@@ -11,11 +11,20 @@
  * declared threshold, emit a lifecycle event, and reject the run when the
  * threshold is not met.
  *
- * When no verdict service is wired the fields are inert: they are shape-checked
- * at construction but produce no runtime effect (the run passes through). This
- * keeps the thresholds declarable on a `TeamDefinition` that will later be
- * promoted into an environment that supplies a scorer, without forcing an
- * in-repo scorer implementation that would be pure guesswork.
+ * When no verdict service is wired the fields do not gate: they are
+ * shape-checked at construction and the run passes through. This keeps the
+ * thresholds declarable on a `TeamDefinition` that will later be promoted into
+ * an environment that supplies a scorer.
+ *
+ * That pass-through is NOT silent. A declared-but-unwired gate emits a
+ * `team_verdict_evaluated` event with `outcome: 'skipped'`, because otherwise
+ * "the bar was met" and "the bar was never checked" look identical from the
+ * outside — and the second is a misconfiguration that should be alertable. The
+ * run outcome is unchanged either way; only the reporting is.
+ *
+ * For a wireable in-repo implementation see `createDeterministicVerdictService`
+ * in `@dzupagent/testing`, which scores from observable run facts and needs no
+ * model or API key.
  */
 
 import type { TeamPolicies } from "./team-policy.js";
@@ -66,10 +75,7 @@ export interface TeamVerdictInput {
 
 /** Raised when a run fails a governance / evaluation acceptance threshold. */
 export class TeamVerdictRejectedError extends Error {
-  constructor(
-    readonly gate: "governance" | "evaluation",
-    message: string,
-  ) {
+  constructor(readonly gate: "governance" | "evaluation", message: string) {
     super(message);
     this.name = "TeamVerdictRejectedError";
   }
@@ -96,7 +102,7 @@ export interface VerdictGateContext {
  * the executor routes through the normal failure path (team_failed event).
  */
 export async function applyVerdictGates(
-  ctx: VerdictGateContext,
+  ctx: VerdictGateContext
 ): Promise<void> {
   await applyGovernanceGate(ctx);
   await applyEvaluationGate(ctx);
@@ -109,7 +115,17 @@ async function applyGovernanceGate(ctx: VerdictGateContext): Promise<void> {
   const gates =
     governance.minScore !== undefined || governance.requireUnanimous === true;
   if (!gates) return;
-  if (!ctx.governance) return;
+  if (!ctx.governance) {
+    // The policy declared an acceptance threshold but no scorer is wired, so
+    // the gate cannot be applied and the run passes ungated. Announce that
+    // rather than returning silently: a caller who wrote `minScore: 0.9` and
+    // sees clean runs would otherwise have no way to tell the bar was never
+    // checked. The run outcome is deliberately unchanged (see the `skipped`
+    // docs on TeamRuntimeEvent) — this is an observability signal, not a new
+    // failure mode.
+    emitSkipped(ctx, "governance");
+    return;
+  }
 
   const verdict = await ctx.governance.evaluate(verdictInput(ctx));
 
@@ -121,7 +137,7 @@ async function applyGovernanceGate(ctx: VerdictGateContext): Promise<void> {
     throw new TeamVerdictRejectedError(
       "governance",
       `TeamRuntime[${ctx.teamId}]: run rejected by governance.minScore ` +
-        `(score ${verdict.score} < ${governance.minScore})`,
+        `(score ${verdict.score} < ${governance.minScore})`
     );
   }
   if (governance.requireUnanimous === true && verdict.unanimous !== true) {
@@ -129,7 +145,7 @@ async function applyGovernanceGate(ctx: VerdictGateContext): Promise<void> {
     throw new TeamVerdictRejectedError(
       "governance",
       `TeamRuntime[${ctx.teamId}]: run rejected by governance.requireUnanimous ` +
-        `(judgement was not unanimous)`,
+        `(judgement was not unanimous)`
     );
   }
   emitVerdict(ctx, "governance", "passed", verdict.score);
@@ -139,7 +155,12 @@ async function applyEvaluationGate(ctx: VerdictGateContext): Promise<void> {
   const evaluation = ctx.policies.evaluation;
   if (!evaluation) return;
   if (evaluation.minPassScore === undefined) return;
-  if (!ctx.evaluation) return;
+  if (!ctx.evaluation) {
+    // Same reasoning as the governance gate above: a declared-but-unwired
+    // threshold is reported, not silently ignored.
+    emitSkipped(ctx, "evaluation");
+    return;
+  }
 
   const verdict = await ctx.evaluation.score(verdictInput(ctx));
 
@@ -148,7 +169,7 @@ async function applyEvaluationGate(ctx: VerdictGateContext): Promise<void> {
     throw new TeamVerdictRejectedError(
       "evaluation",
       `TeamRuntime[${ctx.teamId}]: run rejected by evaluation.minPassScore ` +
-        `(score ${verdict.score} < ${evaluation.minPassScore})`,
+        `(score ${verdict.score} < ${evaluation.minPassScore})`
     );
   }
   emitVerdict(ctx, "evaluation", "passed", verdict.score);
@@ -168,7 +189,7 @@ function emitVerdict(
   ctx: VerdictGateContext,
   gate: "governance" | "evaluation",
   outcome: "passed" | "rejected",
-  score: number,
+  score: number
 ): void {
   ctx.emitEvent({
     type: "team_verdict_evaluated",
@@ -177,6 +198,29 @@ function emitVerdict(
     gate,
     outcome,
     score,
+    at: new Date(),
+  });
+}
+
+/**
+ * Report a gate that was declared in policy but could not run because no
+ * scorer service was injected.
+ *
+ * Kept separate from {@link emitVerdict} rather than folded in behind an
+ * optional `score` so the required-`score` signature there still holds: a
+ * passed/rejected verdict must always carry the number it was decided on, and
+ * a skipped one has no number to carry.
+ */
+function emitSkipped(
+  ctx: VerdictGateContext,
+  gate: "governance" | "evaluation"
+): void {
+  ctx.emitEvent({
+    type: "team_verdict_evaluated",
+    teamId: ctx.teamId,
+    runId: ctx.runId,
+    gate,
+    outcome: "skipped",
     at: new Date(),
   });
 }

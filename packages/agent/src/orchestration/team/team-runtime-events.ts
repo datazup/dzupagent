@@ -70,16 +70,33 @@ export type TeamRuntimeEvent =
     }
   | {
       /**
-       * A governance / evaluation acceptance gate scored the completed run.
-       * `outcome: 'rejected'` is immediately followed by a `team_failed` event.
+       * A governance / evaluation acceptance gate was reached on a completed
+       * run. `outcome: 'rejected'` is immediately followed by a `team_failed`
+       * event.
+       *
+       * `outcome: 'skipped'` means the policy DECLARED a threshold but no
+       * scorer service was injected, so the gate could not be applied and the
+       * run passed ungated. This is emitted precisely because that case is
+       * otherwise indistinguishable from "the gate ran and passed": a team
+       * declaring `governance.minScore: 0.9` against an unwired runtime accepts
+       * every run, and without this event nothing anywhere says so. Treat a
+       * non-zero rate of skipped verdicts as a misconfiguration to alert on,
+       * not as normal operation.
        */
       type: "team_verdict_evaluated";
       teamId: string;
       runId: string;
       gate: "governance" | "evaluation";
-      outcome: "passed" | "rejected";
-      /** Numeric verdict score in [0, 1] returned by the scorer service. */
-      score: number;
+      outcome: "passed" | "rejected" | "skipped";
+      /**
+       * Numeric verdict score in [0, 1] returned by the scorer service.
+       *
+       * Absent on `outcome: 'skipped'` — no scorer ran, so there is no score.
+       * Deliberately left undefined rather than defaulted to 0 or 1, either of
+       * which would be a fabricated verdict that dashboards would average in
+       * as though a real gate had produced it.
+       */
+      score?: number;
       at: Date;
     };
 

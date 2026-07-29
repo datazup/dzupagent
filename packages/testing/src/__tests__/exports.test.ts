@@ -99,6 +99,7 @@ describe("Package exports — @dzupagent/testing", () => {
       "buildStubAnthropicClient",
       "captureSdlcMvpEvidenceCommandOutput",
       "createDemoEvalSuite",
+      "createDeterministicVerdictService",
       "createLivePostgresClient",
       "createLiveRedisClient",
       "createSdlcValidationRuntimeToolHandlers",

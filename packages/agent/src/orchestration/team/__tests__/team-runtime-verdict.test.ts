@@ -40,7 +40,7 @@ function createAgent(id: string): DzupAgent {
 function buildDefinition(
   id: string,
   pattern: CoordinatorPattern,
-  participants: Array<Pick<ParticipantDefinition, "id" | "role" | "model">>,
+  participants: Array<Pick<ParticipantDefinition, "id" | "role" | "model">>
 ): TeamDefinition {
   return {
     id,
@@ -57,10 +57,10 @@ function makeRuntime(
     governance?: TeamGovernanceService;
     evaluation?: TeamEvaluationService;
     onEvent?: (event: TeamRuntimeEvent) => void;
-  },
+  }
 ): TeamRuntime {
   const agents = new Map(
-    definition.participants.map((p) => [p.id, createAgent(p.id)]),
+    definition.participants.map((p) => [p.id, createAgent(p.id)])
   );
   return new TeamRuntime({
     definition,
@@ -109,7 +109,7 @@ describe("TeamRuntime governance acceptance gate", () => {
         gate: "governance",
         outcome: "passed",
         score: 0.9,
-      }),
+      })
     );
     expect(events.some((e) => e.type === "team_completed")).toBe(true);
     expect(events.some((e) => e.type === "team_failed")).toBe(false);
@@ -129,14 +129,14 @@ describe("TeamRuntime governance acceptance gate", () => {
     });
 
     await expect(runtime.execute("task")).rejects.toThrow(
-      /governance\.minScore/,
+      /governance\.minScore/
     );
     expect(events).toContainEqual(
       expect.objectContaining({
         type: "team_verdict_evaluated",
         gate: "governance",
         outcome: "rejected",
-      }),
+      })
     );
     expect(events.some((e) => e.type === "team_failed")).toBe(true);
     expect(events.some((e) => e.type === "team_completed")).toBe(false);
@@ -172,7 +172,7 @@ describe("TeamRuntime governance acceptance gate", () => {
     });
   });
 
-  it("is inert when the threshold is declared but no governance service is wired", async () => {
+  it("passes the run but reports a skipped verdict when the threshold is declared and no governance service is wired", async () => {
     const events: TeamRuntimeEvent[] = [];
     const runtime = makeRuntime(councilDefinition(), {
       policies: {
@@ -181,11 +181,37 @@ describe("TeamRuntime governance acceptance gate", () => {
       onEvent: (e) => events.push(e),
     });
 
+    // The run outcome is deliberately unchanged: an unwired gate does not
+    // fail the run, it just cannot vouch for it.
     await expect(runtime.execute("task")).resolves.toMatchObject({
       pattern: "council",
     });
-    expect(events.some((e) => e.type === "team_verdict_evaluated")).toBe(false);
     expect(events.some((e) => e.type === "team_completed")).toBe(true);
+
+    // ...but the ungated pass must be distinguishable from a real pass.
+    const verdicts = events.filter((e) => e.type === "team_verdict_evaluated");
+    expect(verdicts).toHaveLength(1);
+    expect(verdicts[0]).toMatchObject({
+      gate: "governance",
+      outcome: "skipped",
+    });
+    // No fabricated score: nothing scored this run.
+    expect((verdicts[0] as { score?: number }).score).toBeUndefined();
+  });
+
+  it("reports a skipped verdict when only requireUnanimous is declared and no service is wired", async () => {
+    const events: TeamRuntimeEvent[] = [];
+    const runtime = makeRuntime(councilDefinition(), {
+      policies: {
+        governance: { judgeModel: "claude-opus-4-7", requireUnanimous: true },
+      },
+      onEvent: (e) => events.push(e),
+    });
+
+    await runtime.execute("task");
+    expect(
+      events.filter((e) => e.type === "team_verdict_evaluated")
+    ).toMatchObject([{ gate: "governance", outcome: "skipped" }]);
   });
 
   it("does not invoke the scorer when only judgeModel is set (no thresholds)", async () => {
@@ -230,7 +256,7 @@ describe("TeamRuntime evaluation acceptance gate", () => {
         gate: "evaluation",
         outcome: "passed",
         score: 0.75,
-      }),
+      })
     );
   });
 
@@ -246,20 +272,25 @@ describe("TeamRuntime evaluation acceptance gate", () => {
     });
 
     await expect(runtime.execute("task")).rejects.toThrow(
-      /evaluation\.minPassScore/,
+      /evaluation\.minPassScore/
     );
   });
 
-  it("is inert when minPassScore is declared but no evaluation service is wired", async () => {
+  it("passes the run but reports a skipped verdict when minPassScore is declared and no evaluation service is wired", async () => {
+    const events: TeamRuntimeEvent[] = [];
     const runtime = makeRuntime(peerDefinition(), {
       policies: {
         evaluation: { scorerModel: "claude-opus-4-7", minPassScore: 0.99 },
       },
+      onEvent: (e) => events.push(e),
     });
 
     await expect(runtime.execute("task")).resolves.toMatchObject({
       pattern: "peer-to-peer",
     });
+    expect(
+      events.filter((e) => e.type === "team_verdict_evaluated")
+    ).toMatchObject([{ gate: "evaluation", outcome: "skipped" }]);
   });
 
   it("does not invoke the scorer when only scorerModel is set (no threshold)", async () => {
@@ -273,6 +304,20 @@ describe("TeamRuntime evaluation acceptance gate", () => {
 
     await runtime.execute("task");
     expect(evaluation.score).not.toHaveBeenCalled();
+  });
+
+  it("emits no skipped verdict when no threshold is declared at all", async () => {
+    // The skipped signal must mean "a declared gate could not run", not
+    // "this run had no gate". Firing it on ungated teams would make the
+    // metric useless — every run in the fleet would report a skip.
+    const events: TeamRuntimeEvent[] = [];
+    const runtime = makeRuntime(peerDefinition(), {
+      policies: { evaluation: { scorerModel: "claude-opus-4-7" } },
+      onEvent: (e) => events.push(e),
+    });
+
+    await runtime.execute("task");
+    expect(events.some((e) => e.type === "team_verdict_evaluated")).toBe(false);
   });
 
   it("keeps run scores out of serialized event metadata leakage risk (numeric only)", async () => {
