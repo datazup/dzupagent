@@ -38,6 +38,7 @@
  * `team_verdict_evaluated`.
  */
 
+import { readJudgeGuards } from "./team-verdict-judge-controls.js";
 import type {
   TeamEvaluationService,
   TeamGovernanceService,
@@ -74,6 +75,30 @@ export interface LlmJudgeVerdictOptions {
    * `evaluation.scoringCriteria` is present on the run's policies.
    */
   defaultCriteria?: string[];
+  /**
+   * Acknowledge that the judge has no latency or cost control, silencing the
+   * unguarded warning.
+   *
+   * A judge is a paid network call on the completion path of every gated run.
+   * Without a timeout, a provider that accepts a connection and never answers
+   * hangs the gate indefinitely while still billing; without a budget, a retry
+   * loop can spend without bound. Neither can be defaulted here, because this
+   * service takes an opaque callback and cannot cancel a request it does not
+   * itself make (see `withJudgeTimeout`, which requires an
+   * `AbortableJudgeInvoker` for exactly that reason).
+   *
+   * So the risk is REPORTED rather than silently accepted. Set this to `true`
+   * when the host applies its own timeout/budget outside these wrappers, which
+   * is a legitimate arrangement the brand cannot detect.
+   */
+  unguarded?: boolean;
+  /**
+   * Sink for the unguarded warning. Defaults to `console.warn`.
+   *
+   * Injectable so a host can route it into its own logger, and so tests can
+   * assert on it without touching global console state.
+   */
+  onWarning?: (message: string) => void;
 }
 
 /**
@@ -114,6 +139,23 @@ export function createLlmJudgeVerdictService(
     throw new Error(
       "createLlmJudgeVerdictService: 'onJudgeFailure' must be 'skip' or 'reject'"
     );
+  }
+
+  // Warn, never throw: an unguarded judge is a real risk but a working
+  // configuration, and failing construction would break every existing caller
+  // and every test that wires a trivial judge. The gate stays available; the
+  // exposure just stops being invisible.
+  if (options.unguarded !== true) {
+    const guards = readJudgeGuards(judge);
+    if (!guards.timeout && !guards.budget) {
+      const warn = options.onWarning ?? ((m: string) => console.warn(m));
+      warn(
+        "createLlmJudgeVerdictService: the judge has no timeout or budget " +
+          "control, so a hung or looping provider can stall every gated run " +
+          "while billing. Wrap it with withJudgeTimeout / withJudgeBudget, or " +
+          "set 'unguarded: true' to acknowledge a host-side control."
+      );
+    }
   }
 
   const verdictFor = async (input: TeamVerdictInput): Promise<TeamVerdict> => {

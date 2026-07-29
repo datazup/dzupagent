@@ -76,8 +76,10 @@ export type {
 } from "./team-verdict-llm-judge.js";
 
 export {
+  JUDGE_GUARDED,
   JudgeBudgetExceededError,
   JudgeTimeoutError,
+  readJudgeGuards,
   withJudgeBudget,
   withJudgeCache,
   withJudgeTimeout,
@@ -86,5 +88,6 @@ export type {
   AbortableJudgeInvoker,
   JudgeBudgetOptions,
   JudgeCacheOptions,
+  JudgeGuards,
   JudgeTimeoutOptions,
 } from "./team-verdict-judge-controls.js";

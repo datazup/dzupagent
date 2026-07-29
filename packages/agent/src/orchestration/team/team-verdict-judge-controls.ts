@@ -39,6 +39,19 @@
  *
  * ## Why a judge failure is never fabricated into a score
  *
+ * ## Why the wrappers brand what they return
+ *
+ * Each control marks its returned invoker with {@link JUDGE_GUARDED}, and
+ * `createLlmJudgeVerdictService` reads that mark to warn when a judge arrives
+ * with no latency or cost control at all. The brand accumulates through
+ * composition, so an outer wrapper never hides an inner guard.
+ *
+ * The mark is a positive declaration only: its absence means "no control from
+ * this module was applied", NOT "unguarded", since a host may wrap its own
+ * timeout around its own model call where nothing here can see it. That is why
+ * the service warns rather than throws, and why the warning can be acknowledged
+ * with `unguarded: true`.
+ *
  * Every control here throws on refusal (`JudgeTimeoutError`,
  * `JudgeBudgetExceededError`) rather than returning a low score. The verdict
  * service routes throws through its required `onJudgeFailure` policy, so a
@@ -73,6 +86,51 @@ export type AbortableJudgeInvoker = (
   signal: AbortSignal
 ) => Promise<string>;
 
+/**
+ * Marker set by the controls in this module on the invoker they return.
+ *
+ * Read by `createLlmJudgeVerdictService` to tell a guarded judge from a bare
+ * one. A brand on the function is used rather than an option on the service
+ * because the service accepts an opaque callback by design — it cannot inspect
+ * what a host wrapped around its own model call, only what these wrappers
+ * declare. Absence therefore means "no control from this module was applied",
+ * which is a weaker claim than "unguarded", and the warning says so.
+ */
+export const JUDGE_GUARDED = Symbol.for("dzupagent.judgeGuarded");
+
+/** Which controls have been applied to an invoker. */
+export interface JudgeGuards {
+  timeout?: boolean;
+  budget?: boolean;
+  cache?: boolean;
+}
+
+/** Read the guards declared on an invoker, if any. */
+export function readJudgeGuards(invoker: JudgeInvoker): JudgeGuards {
+  const brand = (invoker as { [JUDGE_GUARDED]?: JudgeGuards })[JUDGE_GUARDED];
+  return brand ?? {};
+}
+
+/**
+ * Copy the guards already on `inner` onto `outer` and add `added`.
+ *
+ * Guards must accumulate through composition: wrapping a timed-out invoker in a
+ * cache must not erase the fact that a timeout is still in the chain, or the
+ * outermost wrapper would report only itself.
+ */
+function brandGuarded(
+  outer: JudgeInvoker,
+  inner: JudgeInvoker | AbortableJudgeInvoker,
+  added: JudgeGuards
+): JudgeInvoker {
+  const inherited = (inner as { [JUDGE_GUARDED]?: JudgeGuards })[JUDGE_GUARDED];
+  Object.defineProperty(outer, JUDGE_GUARDED, {
+    value: { ...inherited, ...added },
+    enumerable: false,
+  });
+  return outer;
+}
+
 export interface JudgeTimeoutOptions {
   /** Latency budget for a single judge call, in milliseconds. */
   timeoutMs: number;
@@ -101,7 +159,7 @@ export function withJudgeTimeout(
     );
   }
 
-  return async (prompt: string): Promise<string> => {
+  const guarded = async (prompt: string): Promise<string> => {
     const controller = new AbortController();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
@@ -120,6 +178,8 @@ export function withJudgeTimeout(
       clearTimeout(timeoutId);
     }
   };
+
+  return brandGuarded(guarded, invoker, { timeout: true });
 }
 
 export interface JudgeCacheOptions {
@@ -161,7 +221,7 @@ export function withJudgeCache(
 
   const cache = new Map<string, Promise<string>>();
 
-  return (prompt: string): Promise<string> => {
+  const guarded = (prompt: string): Promise<string> => {
     const hit = cache.get(prompt);
     if (hit) return hit;
 
@@ -183,6 +243,8 @@ export function withJudgeCache(
 
     return pending;
   };
+
+  return brandGuarded(guarded, invoker, { cache: true });
 }
 
 export interface JudgeBudgetOptions {
@@ -219,7 +281,7 @@ export function withJudgeBudget(
 
   let used = 0;
 
-  return (prompt: string): Promise<string> => {
+  const guarded = (prompt: string): Promise<string> => {
     if (used >= maxCalls) {
       // Throw synchronously-as-rejection: the verdict service awaits this and
       // routes it through onJudgeFailure like any other judge failure.
@@ -237,4 +299,6 @@ export function withJudgeBudget(
 
     return invoker(prompt);
   };
+
+  return brandGuarded(guarded, invoker, { budget: true });
 }
