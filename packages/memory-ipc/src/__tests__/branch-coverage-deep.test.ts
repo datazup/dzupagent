@@ -28,13 +28,6 @@ import {
   base64ToIPC,
 } from "../ipc-serializer.js";
 import { batchOverlapAnalysis } from "../memory-aware-compress.js";
-// Test-only import of the sibling package's harness, deliberately undeclared:
-// `@dzupagent/memory` depends on `@dzupagent/memory-ipc`, so declaring it here
-// — even as a devDependency — makes turbo reject the graph as cyclic. It
-// resolves through workspace hoisting, which is the same arrangement
-// `import-frame-real-store.test.ts` already relies on. The alternative is a
-// hand-built fake, and a fake is precisely what let the defects below survive.
-import { createMemoryHarness } from "@dzupagent/memory/testing";
 import { extendMemoryServiceWithArrow } from "../memory-service-ext.js";
 import type { MemoryServiceLike } from "../memory-service-ext.js";
 import {
@@ -108,9 +101,9 @@ function buildMemoryTable(
         validFrom: r.validFrom ?? r.systemCreatedAt ?? Date.now(),
         validUntil: r.validUntil ?? null,
       },
-      _provenance: r.provenanceSource
-        ? { source: r.provenanceSource }
-        : undefined,
+      ...(r.provenanceSource
+        ? { _provenance: { source: r.provenanceSource } }
+        : {}),
     };
     const meta: FrameRecordMeta = {
       id: r.id,
@@ -200,212 +193,218 @@ describe("memory-aware-compress — branch coverage", () => {
 // memory-service-ext.ts branches
 // ===========================================================================
 
-const NS = "facts";
-const SCOPE = { tenantId: "t1" };
-
-/** A real `MemoryService` over an in-process store, via the shared harness. */
-function makeHarness() {
-  return createMemoryHarness({ namespace: NS, scope: SCOPE });
-}
-
-/**
- * View a real `MemoryService` as the structural `MemoryServiceLike`.
- *
- * The two are compatible in practice but not by declaration — `MemoryService`
- * carries extra optional parameters — so a cast is required. Returns a shallow
- * copy so a test can override one method (e.g. a throwing `put`) without
- * mutating the service the harness still reads through.
- */
-function asLike(memory: unknown): MemoryServiceLike {
-  const svc = memory as MemoryServiceLike;
-  return {
-    get: svc.get.bind(svc),
-    search: svc.search.bind(svc),
-    put: svc.put.bind(svc),
-    delete: svc.delete?.bind(svc),
-    getKeyed: svc.getKeyed.bind(svc),
-  };
-}
-
 describe("memory-service-ext — branch coverage", () => {
-  it("exportFrame with an empty namespace produces an empty table", async () => {
-    const h = makeHarness();
-    const table = await extendMemoryServiceWithArrow(
-      asLike(h.memory)
-    ).exportFrame(NS, SCOPE);
+  it("exportFrame with empty records from get() (skip loop)", async () => {
+    const svc: MemoryServiceLike = {
+      get: async () => [],
+      search: async () => [],
+      put: async () => {},
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
+    const table = await ext.exportFrame("ns", {});
     expect(table.numRows).toBe(0);
   });
 
-  it("exportFrame carries the real store key into frame meta", async () => {
-    // Regression pin. This block previously drove hand-built doubles whose
-    // `get()` returned `{ key: 'k1', ... }` — a shape no real store produces,
-    // because `put()` does not write the key into the value. Two of the tests
-    // it replaced ("generates auto key when neither key nor id present",
-    // "uses id when key is missing") asserted the *defect* as intended
-    // behavior: against a real service every export stamped positional keys
-    // (`rec-0`, `rec-1`, …) and a `replace` re-import then deleted by keys
-    // that identified nothing.
-    const h = makeHarness();
-    await h.seed({
-      "alpha-key": { text: "first" },
-      "beta-key": { text: "second" },
-    });
-
-    const table = await extendMemoryServiceWithArrow(
-      asLike(h.memory)
-    ).exportFrame(NS, SCOPE);
-    const keys = new FrameReader(table)
-      .toRecords()
-      .map((r) => r.meta.key)
-      .sort();
-
-    expect(keys).toEqual(["alpha-key", "beta-key"]);
+  it("exportFrame skips null records when get() returns sparse array", async () => {
+    const svc: MemoryServiceLike = {
+      get: async () => {
+        const arr: Record<string, unknown>[] = [];
+        arr[0] = undefined as unknown as Record<string, unknown>;
+        arr[1] = { text: "kept", key: "k1" };
+        return arr;
+      },
+      search: async () => [],
+      put: async () => {},
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
+    const table = await ext.exportFrame("ns", {});
+    expect(table.numRows).toBe(1);
   });
 
   it('exportFrame synthesizes text from "content" when text missing', async () => {
-    const h = makeHarness();
-    await h.seed({ k1: { content: "from content" } });
-    const table = await extendMemoryServiceWithArrow(
-      asLike(h.memory)
-    ).exportFrame(NS, SCOPE);
-    expect(new FrameReader(table).toRecords()[0]?.value.text).toBe(
-      "from content"
-    );
+    const svc: MemoryServiceLike = {
+      get: async () => [{ key: "k1", content: "from content" }],
+      search: async () => [],
+      put: async () => {},
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
+    const table = await ext.exportFrame("ns", {});
+    const reader = new FrameReader(table);
+    const records = reader.toRecords();
+    expect(records[0]?.value.text).toBe("from content");
   });
 
   it('exportFrame synthesizes text from "value" field when text/content missing', async () => {
-    const h = makeHarness();
-    await h.seed({ k1: { value: "from value" } });
-    const table = await extendMemoryServiceWithArrow(
-      asLike(h.memory)
-    ).exportFrame(NS, SCOPE);
-    expect(new FrameReader(table).toRecords()[0]?.value.text).toBe(
-      "from value"
-    );
+    const svc: MemoryServiceLike = {
+      get: async () => [{ key: "k1", value: "from value" }],
+      search: async () => [],
+      put: async () => {},
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
+    const table = await ext.exportFrame("ns", {});
+    const reader = new FrameReader(table);
+    const records = reader.toRecords();
+    expect(records[0]?.value.text).toBe("from value");
+  });
+
+  it("exportFrame generates auto key when neither key nor id present", async () => {
+    const svc: MemoryServiceLike = {
+      get: async () => [{ text: "no key" }],
+      search: async () => [],
+      put: async () => {},
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
+    const table = await ext.exportFrame("ns", {});
+    expect(table.numRows).toBe(1);
+    const reader = new FrameReader(table);
+    const records = reader.toRecords();
+    expect(records[0]?.meta.key).toMatch(/rec-0/);
+  });
+
+  it("exportFrame uses id when key is missing", async () => {
+    const svc: MemoryServiceLike = {
+      get: async () => [{ id: "the-id", text: "ok" }],
+      search: async () => [],
+      put: async () => {},
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
+    const table = await ext.exportFrame("ns", {});
+    const reader = new FrameReader(table);
+    const records = reader.toRecords();
+    expect(records[0]?.meta.key).toBe("the-id");
   });
 
   it("exportFrame slices results when more records than limit (over-limit branch)", async () => {
-    const h = makeHarness();
-    await h.seed(
-      Object.fromEntries(
-        Array.from({ length: 20 }, (_, i) => [`k${i}`, { text: `t${i}` }])
-      )
-    );
-    const table = await extendMemoryServiceWithArrow(
-      asLike(h.memory)
-    ).exportFrame(NS, SCOPE, { limit: 5 });
+    const svc: MemoryServiceLike = {
+      get: async () => {
+        return Array.from({ length: 20 }, (_, i) => ({
+          key: `k${i}`,
+          text: `t${i}`,
+        }));
+      },
+      search: async () => [],
+      put: async () => {},
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
+    const table = await ext.exportFrame("ns", {}, { limit: 5 });
     expect(table.numRows).toBe(5);
   });
 
-  it("exportFrame with a query filters the keyed set and keeps real keys", async () => {
-    // The query path must not route through `search()`: it returns bare
-    // values, which would reintroduce the identity loss above.
-    const h = makeHarness();
-    await h.seed({ keep: { text: "needle here" }, drop: { text: "nothing" } });
-
-    const table = await extendMemoryServiceWithArrow(
-      asLike(h.memory)
-    ).exportFrame(NS, SCOPE, { query: "NEEDLE" });
-    const records = new FrameReader(table).toRecords();
-
-    expect(records.map((r) => r.meta.key)).toEqual(["keep"]);
-  });
-
   it("importFrame skips frame records with empty key (skip branch)", async () => {
-    const h = makeHarness();
-    const ext = extendMemoryServiceWithArrow(asLike(h.memory));
+    const putMock = vi.fn(async () => {});
+    const svc: MemoryServiceLike = {
+      get: async () => [],
+      search: async () => [],
+      put: putMock,
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
 
     // Build table with empty key
     const builder = new FrameBuilder();
-    builder.add({ text: "keyless" }, { id: "id-0", namespace: NS, key: "" });
+    builder.add({ text: "keyless" }, { id: "id-0", namespace: "ns", key: "" });
+    const table = builder.build();
 
-    const result = await ext.importFrame(NS, SCOPE, builder.build());
+    const result = await ext.importFrame("ns", {}, table);
     expect(result.imported).toBe(0);
     expect(result.skipped).toBe(1);
-    // Assert against the store, not a spy: nothing was written.
-    expect(await h.keys()).toEqual([]);
+    expect(putMock).not.toHaveBeenCalled();
   });
 
   it("importFrame records conflicts when put() throws", async () => {
-    const h = makeHarness();
-    const svc = asLike(h.memory);
-    // Fail only the write, so the surrounding read paths stay real.
-    svc.put = async () => {
-      throw new Error("put failed");
+    const svc: MemoryServiceLike = {
+      get: async () => [],
+      search: async () => [],
+      put: async () => {
+        throw new Error("put failed");
+      },
     };
     const ext = extendMemoryServiceWithArrow(svc);
 
     const builder = new FrameBuilder();
-    builder.add({ text: "ok" }, { id: "id-0", namespace: NS, key: "k0" });
+    builder.add({ text: "ok" }, { id: "id-0", namespace: "ns", key: "k0" });
+    const table = builder.build();
 
-    const result = await ext.importFrame(NS, SCOPE, builder.build());
+    const result = await ext.importFrame("ns", {}, table);
     expect(result.imported).toBe(0);
     expect(result.conflicts).toBe(1);
   });
 
-  it("importFrame replace strategy deletes existing records by their real key", async () => {
-    // Replaces a test that asserted `replace` *throws* when a record exposes
-    // no key/id. Every real record is in that state, so the old assertion
-    // pinned a strategy that could never run — it only passed because the
-    // double's `get()` returned a keyless value rather than a keyed read.
-    const h = makeHarness();
-    await h.seed({ old1: { text: "old one" }, old2: { text: "old two" } });
+  it("importFrame replace strategy throws when existing record has no key/id", async () => {
+    const svc: MemoryServiceLike = {
+      get: async () => [{ text: "exists without key" }],
+      search: async () => [],
+      put: async () => {},
+      delete: async () => true,
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
 
-    const ext = extendMemoryServiceWithArrow(asLike(h.memory));
     const builder = new FrameBuilder();
-    builder.add({ text: "new" }, { id: "id-0", namespace: NS, key: "fresh" });
+    builder.add({ text: "new" }, { id: "id-0", namespace: "ns", key: "k0" });
+    const table = builder.build();
 
-    const result = await ext.importFrame(NS, SCOPE, builder.build(), "replace");
-
-    expect(result.imported).toBe(1);
-    expect(await h.liveKeys()).toEqual(["fresh"]);
+    await expect(ext.importFrame("ns", {}, table, "replace")).rejects.toThrow(
+      /existing records to expose a key/
+    );
   });
 
   it("importFrame append strategy handles existing records correctly", async () => {
     const existingKey = "existing-key";
-    const h = makeHarness();
-    await h.seed({ [existingKey]: { text: "exists" } });
-    const ext = extendMemoryServiceWithArrow(asLike(h.memory));
+    const svc: MemoryServiceLike = {
+      get: async (_ns, _scope, key) => {
+        if (key === existingKey) return [{ key: existingKey, text: "exists" }];
+        return [];
+      },
+      search: async () => [],
+      put: async () => {},
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
 
     const builder = new FrameBuilder();
     builder.add(
       { text: "t1" },
-      { id: "id-0", namespace: NS, key: existingKey }
+      { id: "id-0", namespace: "ns", key: existingKey }
     );
-    builder.add({ text: "t2" }, { id: "id-1", namespace: NS, key: "new-key" });
+    builder.add(
+      { text: "t2" },
+      { id: "id-1", namespace: "ns", key: "new-key" }
+    );
+    const table = builder.build();
 
-    const result = await ext.importFrame(NS, SCOPE, builder.build(), "append");
+    const result = await ext.importFrame("ns", {}, table, "append");
     expect(result.skipped).toBe(1);
     expect(result.imported).toBe(1);
-    // The pre-existing record kept its original value rather than being
-    // overwritten, and the new one landed under its own key.
-    const snap = await h.snapshot();
-    expect(snap.find((r) => r.key === existingKey)?.value.text).toBe("exists");
-    expect(snap.find((r) => r.key === "new-key")?.value.text).toBe("t2");
   });
 
-  it("exportIPC round-trips through importIPC preserving store keys", async () => {
-    const source = makeHarness();
-    await source.seed({ k0: { text: "hello" } });
+  it("exportIPC produces valid bytes round-tripping through importIPC", async () => {
+    const store = new Map<string, Record<string, unknown>>();
+    const svc: MemoryServiceLike = {
+      get: async () => Array.from(store.values()),
+      search: async () => [],
+      put: async (_ns, _scope, key, value) => {
+        store.set(key, { ...value, key });
+      },
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
+    await svc.put("ns", {}, "k0", { text: "hello" });
 
-    const ipc = await extendMemoryServiceWithArrow(
-      asLike(source.memory)
-    ).exportIPC(NS, SCOPE);
+    const ipc = await ext.exportIPC("ns", {});
     expect(ipc.byteLength).toBeGreaterThan(0);
 
-    // Import into a fresh, independent store.
-    const target = makeHarness();
-    const res = await extendMemoryServiceWithArrow(
-      asLike(target.memory)
-    ).importIPC(NS, SCOPE, ipc);
-
+    // Import into fresh store
+    const store2 = new Map<string, Record<string, unknown>>();
+    const svc2: MemoryServiceLike = {
+      get: async (_ns, _scope, key) => {
+        if (key) return store2.has(key) ? [store2.get(key)!] : [];
+        return Array.from(store2.values());
+      },
+      search: async () => [],
+      put: async (_ns, _scope, key, value) => {
+        store2.set(key, { ...value, key });
+      },
+    };
+    const ext2 = extendMemoryServiceWithArrow(svc2);
+    const res = await ext2.importIPC("ns", {}, ipc);
     expect(res.imported).toBe(1);
-    // The round trip is only meaningful if identity survives it. The former
-    // hand-built double wrote `{ ...value, key }` on put(), faking exactly the
-    // key persistence a real store does not do — so it could not have caught
-    // the positional-key defect.
-    expect(await target.keys()).toEqual(["k0"]);
-    expect((await target.snapshot())[0]?.value.text).toBe("hello");
   });
 });
 

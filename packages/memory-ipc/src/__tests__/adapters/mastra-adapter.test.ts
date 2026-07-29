@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { MastraAdapter, type MastraObservation } from '../../adapters/mastra-adapter.js'
+import { at } from '../helpers/at.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,7 +108,7 @@ describe('MastraAdapter', () => {
       ])
       expect(result.valid).toBe(1)
       expect(result.warnings.length).toBe(1)
-      expect(result.warnings[0].field).toBe('priority')
+      expect(at(result.warnings, 0).field).toBe('priority')
     })
 
     it('warns on invalid date format', () => {
@@ -116,7 +117,7 @@ describe('MastraAdapter', () => {
       ])
       expect(result.valid).toBe(1)
       expect(result.warnings.length).toBe(1)
-      expect(result.warnings[0].field).toBe('date')
+      expect(at(result.warnings, 0).field).toBe('date')
     })
 
     it('provides per-field warnings for invalid records', () => {
@@ -236,11 +237,11 @@ describe('MastraAdapter', () => {
       const result = adapter.fromFrame(table)
 
       expect(result).toHaveLength(1)
-      expect(result[0].content).toBe('User prefers dark mode')
-      expect(result[0].threadId).toBe('thread-abc')
-      expect(result[0].resourceId).toBe('user-123')
-      expect(result[0].agentId).toBe('agent-x')
-      expect(result[0].id).toBe('obs-1')
+      expect(at(result, 0).content).toBe('User prefers dark mode')
+      expect(at(result, 0).threadId).toBe('thread-abc')
+      expect(at(result, 0).resourceId).toBe('user-123')
+      expect(at(result, 0).agentId).toBe('agent-x')
+      expect(at(result, 0).id).toBe('obs-1')
     })
 
     it('maps importance back to priority (1-5 scale)', () => {
@@ -248,22 +249,22 @@ describe('MastraAdapter', () => {
       const table = adapter.toFrame([obs])
       const result = adapter.fromFrame(table)
       // importance = 4/5 = 0.8, back: round(0.8 * 5) = 4
-      expect(result[0].priority).toBe(4)
+      expect(at(result, 0).priority).toBe(4)
     })
 
     it('clamps priority to 1-5 range', () => {
       const obs = makeObservation({ priority: 1 })
       const table = adapter.toFrame([obs])
       const result = adapter.fromFrame(table)
-      expect(result[0].priority).toBeGreaterThanOrEqual(1)
-      expect(result[0].priority).toBeLessThanOrEqual(5)
+      expect(at(result, 0).priority).toBeGreaterThanOrEqual(1)
+      expect(at(result, 0).priority).toBeLessThanOrEqual(5)
     })
 
     it('reconstructs tags from payload_json', () => {
       const obs = makeObservation({ tags: ['perf', 'db'] })
       const table = adapter.toFrame([obs])
       const result = adapter.fromFrame(table)
-      expect(result[0].tags).toEqual(['perf', 'db'])
+      expect(at(result, 0).tags).toEqual(['perf', 'db'])
     })
 
     it('skips rows with null text', () => {
@@ -284,7 +285,7 @@ describe('MastraAdapter', () => {
       const obs = makeObservation()
       const table = adapter.toFrame([obs])
       const result = adapter.fromFrame(table)
-      expect(result[0].threadId).toBe('thread-abc')
+      expect(at(result, 0).threadId).toBe('thread-abc')
     })
   })
 
@@ -309,7 +310,7 @@ describe('MastraAdapter', () => {
       const restored = adapter.fromFrame(table)
 
       expect(restored).toHaveLength(1)
-      const r = restored[0]
+      const r = at(restored, 0)
       expect(r.id).toBe('rt-1')
       expect(r.content).toBe('Always validate user input')
       expect(r.priority).toBe(3)
@@ -335,8 +336,8 @@ describe('MastraAdapter', () => {
 
       expect(restored).toHaveLength(50)
       for (let i = 0; i < 50; i++) {
-        expect(restored[i].id).toBe(`obs-${i}`)
-        expect(restored[i].content).toBe(`Observation number ${i}`)
+        expect(at(restored, i).id).toBe(`obs-${i}`)
+        expect(at(restored, i).content).toBe(`Observation number ${i}`)
       }
     })
   })

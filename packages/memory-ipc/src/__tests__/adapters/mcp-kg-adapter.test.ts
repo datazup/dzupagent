@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { at } from '../helpers/at.js'
 import {
   MCPKGAdapter,
   flattenMCPKG,
@@ -234,10 +235,10 @@ describe('MCPKGAdapter', () => {
       const result = adapter.fromFrame(table)
 
       expect(result).toHaveLength(1)
-      expect(result[0].type).toBe('entity-observation')
-      expect(result[0].entityObservation?.entityName).toBe('Redis')
-      expect(result[0].entityObservation?.entityType).toBe('technology')
-      expect(result[0].entityObservation?.observation).toBe('Fast cache')
+      expect(at(result, 0).type).toBe('entity-observation')
+      expect(at(result, 0).entityObservation?.entityName).toBe('Redis')
+      expect(at(result, 0).entityObservation?.entityType).toBe('technology')
+      expect(at(result, 0).entityObservation?.observation).toBe('Fast cache')
     })
 
     it('converts causal-edge rows back to relation records', () => {
@@ -246,10 +247,10 @@ describe('MCPKGAdapter', () => {
       const result = adapter.fromFrame(table)
 
       expect(result).toHaveLength(1)
-      expect(result[0].type).toBe('relation')
-      expect(result[0].relation?.from).toBe('A')
-      expect(result[0].relation?.to).toBe('B')
-      expect(result[0].relation?.relationType).toBe('uses')
+      expect(at(result, 0).type).toBe('relation')
+      expect(at(result, 0).relation?.from).toBe('A')
+      expect(at(result, 0).relation?.to).toBe('B')
+      expect(at(result, 0).relation?.relationType).toBe('uses')
     })
 
     it('skips rows with null text', () => {
@@ -265,7 +266,7 @@ describe('MCPKGAdapter', () => {
       const records = [makeEntityRecord()]
       const table = adapter.toFrame(records)
       const result = adapter.fromFrame(table)
-      expect(result[0].entityObservation?.entityName).toBe('PostgreSQL')
+      expect(at(result, 0).entityObservation?.entityName).toBe('PostgreSQL')
     })
 
     it('handles empty table', () => {
@@ -283,9 +284,9 @@ describe('MCPKGAdapter', () => {
       const result = adapter.fromFrame(table)
 
       expect(result).toHaveLength(3)
-      expect(result[0].type).toBe('entity-observation')
-      expect(result[1].type).toBe('relation')
-      expect(result[2].type).toBe('entity-observation')
+      expect(at(result, 0).type).toBe('entity-observation')
+      expect(at(result, 1).type).toBe('relation')
+      expect(at(result, 2).type).toBe('entity-observation')
     })
   })
 
@@ -300,7 +301,7 @@ describe('MCPKGAdapter', () => {
       const restored = adapter.fromFrame(table)
 
       expect(restored).toHaveLength(1)
-      const r = restored[0]
+      const r = at(restored, 0)
       expect(r.type).toBe('entity-observation')
       expect(r.entityObservation?.entityName).toBe('TypeScript')
       expect(r.entityObservation?.entityType).toBe('technology')
@@ -313,7 +314,7 @@ describe('MCPKGAdapter', () => {
       const restored = adapter.fromFrame(table)
 
       expect(restored).toHaveLength(1)
-      const r = restored[0]
+      const r = at(restored, 0)
       expect(r.type).toBe('relation')
       expect(r.relation?.from).toBe('App')
       expect(r.relation?.to).toBe('Vue')
@@ -340,17 +341,17 @@ describe('flattenMCPKG', () => {
     const records = flattenMCPKG(entities, relations)
     expect(records).toHaveLength(3)
 
-    expect(records[0].type).toBe('entity-observation')
-    expect(records[0].entityObservation?.entityName).toBe('PostgreSQL')
-    expect(records[0].entityObservation?.observation).toBe('Reliable')
-    expect(records[0].entityObservation?.observationIndex).toBe(0)
-    expect(records[0].entityObservation?.totalObservations).toBe(3)
+    expect(at(records, 0).type).toBe('entity-observation')
+    expect(at(records, 0).entityObservation?.entityName).toBe('PostgreSQL')
+    expect(at(records, 0).entityObservation?.observation).toBe('Reliable')
+    expect(at(records, 0).entityObservation?.observationIndex).toBe(0)
+    expect(at(records, 0).entityObservation?.totalObservations).toBe(3)
 
-    expect(records[1].entityObservation?.observation).toBe('ACID-compliant')
-    expect(records[1].entityObservation?.observationIndex).toBe(1)
+    expect(at(records, 1).entityObservation?.observation).toBe('ACID-compliant')
+    expect(at(records, 1).entityObservation?.observationIndex).toBe(1)
 
-    expect(records[2].entityObservation?.observation).toBe('Supports JSONB')
-    expect(records[2].entityObservation?.observationIndex).toBe(2)
+    expect(at(records, 2).entityObservation?.observation).toBe('Supports JSONB')
+    expect(at(records, 2).entityObservation?.observationIndex).toBe(2)
   })
 
   it('appends relations after entities', () => {
@@ -363,9 +364,9 @@ describe('flattenMCPKG', () => {
 
     const records = flattenMCPKG(entities, relations)
     expect(records).toHaveLength(2)
-    expect(records[0].type).toBe('entity-observation')
-    expect(records[1].type).toBe('relation')
-    expect(records[1].relation).toEqual({ from: 'A', to: 'B', relationType: 'calls' })
+    expect(at(records, 0).type).toBe('entity-observation')
+    expect(at(records, 1).type).toBe('relation')
+    expect(at(records, 1).relation).toEqual({ from: 'A', to: 'B', relationType: 'calls' })
   })
 
   it('handles multiple entities', () => {
@@ -375,8 +376,8 @@ describe('flattenMCPKG', () => {
     ]
     const records = flattenMCPKG(entities, [])
     expect(records).toHaveLength(3)
-    expect(records[0].entityObservation?.entityName).toBe('A')
-    expect(records[2].entityObservation?.entityName).toBe('B')
+    expect(at(records, 0).entityObservation?.entityName).toBe('A')
+    expect(at(records, 2).entityObservation?.entityName).toBe('B')
   })
 
   it('handles empty inputs', () => {

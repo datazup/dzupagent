@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { FrameBuilder } from '../frame-builder.js'
 import type { FrameRecordMeta, FrameRecordValue } from '../frame-builder.js'
+import { at } from './helpers/at.js'
 import {
   findWeakIndices,
   batchDecayUpdate,
@@ -238,7 +239,7 @@ describe('rankByPageRank', () => {
     // Connected nodes (sharing entities) should have higher scores
     // r0 and r1 share `PostgreSQL`, r1 and r2 share `Redis`
     // r3 has no entity connections, so should have lowest score
-    expect(scores[3]).toBeLessThanOrEqual(scores[1])
+    expect(at(scores, 3)).toBeLessThanOrEqual(at(scores, 1))
   })
 })
 
@@ -250,7 +251,7 @@ describe('applyHubDampeningBatch', () => {
     ])
     const scores = new Float64Array([1.0, 1.0])
     const dampened = applyHubDampeningBatch(table, scores)
-    expect(dampened[0]).toBeGreaterThan(dampened[1]) // low access less dampened
+    expect(at(dampened, 0)).toBeGreaterThan(at(dampened, 1)) // low access less dampened
   })
 })
 

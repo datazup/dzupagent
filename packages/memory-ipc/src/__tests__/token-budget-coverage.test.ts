@@ -10,7 +10,6 @@ import {
   selectMemoriesByBudget,
   TokenBudgetAllocator,
 } from '../token-budget.js'
-import type { ScoredRecord } from '../token-budget.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
