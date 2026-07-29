@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from "vitest";
 import { SmartChunker } from "../chunker.js";
-import type { ChunkResult } from "../chunker.js";
+import type { ChunkResult } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

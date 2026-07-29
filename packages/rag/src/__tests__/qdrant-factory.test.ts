@@ -164,6 +164,9 @@ describe('QdrantRagFactory — ingest + retrieve (mock Qdrant)', () => {
 
 const QDRANT_URL = process.env['QDRANT_URL']
 const runIntegration = QDRANT_URL !== undefined && QDRANT_URL !== ''
+// Narrowed for use inside the gated tests below, where runIntegration proves
+// the URL is a non-empty string but TypeScript cannot see through the closure.
+const qdrantUrl = QDRANT_URL ?? ''
 
 // Fail-closed gate (DZUPAGENT-TEST-H-01): in the required-integration CI lane
 // (RUN_REQUIRED_INTEGRATION=1), a missing QDRANT_URL must fail the suite
@@ -191,14 +194,14 @@ describe.skipIf(!runIntegration)('QdrantRagFactory integration (live Qdrant)', (
       embedQuery: async () => [0.1, 0.2, 0.3, 0.4],
     }
 
-    const adapter = new QdrantAdapter({ url: QDRANT_URL })
+    const adapter = new QdrantAdapter({ url: qdrantUrl })
 
     // Ensure collection exists
     const collectionName = await ensureTenantCollection(adapter, tenantId, { dimensions: 4 })
     expect(collectionName).toBe(`rag_${tenantId}`)
 
     const pipeline = createQdrantRagPipeline({
-      qdrant: { url: QDRANT_URL },
+      qdrant: { url: qdrantUrl },
       embeddingProvider,
       dimensions: 4,
     })

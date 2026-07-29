@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { RagMemoryNamespace } from '../memory-namespace.js'
 import type { MemoryServiceLike } from '../memory-namespace.js'
 import type { ChunkResult } from '../types.js'
@@ -142,7 +142,7 @@ describe('RagMemoryNamespace', () => {
 
     it('throws when memory service does not support search', async () => {
       const memory = makeMemoryService()
-      delete (memory as Record<string, unknown>)['search']
+      delete (memory as unknown as Record<string, unknown>)['search']
       const ns = new RagMemoryNamespace(memory, config)
 
       await expect(
@@ -178,7 +178,7 @@ describe('RagMemoryNamespace', () => {
 
     it('throws when memory service does not support delete', async () => {
       const memory = makeMemoryService()
-      delete (memory as Record<string, unknown>)['delete']
+      delete (memory as unknown as Record<string, unknown>)['delete']
       const ns = new RagMemoryNamespace(memory, config)
 
       await expect(
