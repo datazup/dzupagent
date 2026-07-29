@@ -28,7 +28,14 @@ export interface PresetRuntimeDeps {
   /** Event bus */
   eventBus?: unknown
   /** Override preset fields */
-  overrides?: Partial<Pick<AgentPreset, 'instructions' | 'guardrails' | 'memoryProfile'>> & {
+  overrides?: Partial<
+    Pick<AgentPreset, 'instructions' | 'memoryProfile'>
+  > & {
+    /**
+     * Guardrail overrides. Merged key-by-key onto the preset's guardrails, so
+     * a caller may override one field without restating the others.
+     */
+    guardrails?: Partial<AgentPreset['guardrails']>
     /** Override self-learning config derived from preset.selfCorrection */
     selfLearning?: { enabled?: boolean; maxIterations?: number }
   }

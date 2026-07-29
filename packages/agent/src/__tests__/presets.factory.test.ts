@@ -464,3 +464,32 @@ describe('createDefaultPresetRegistry', () => {
     expect(registry.get('custom')).toBeDefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// buildConfigFromPreset — partial guardrail overrides
+// ---------------------------------------------------------------------------
+
+describe('buildConfigFromPreset guardrail overrides', () => {
+  it('accepts a partial guardrail override, keeping the preset value for the rest', () => {
+    // guardrails are spread-merged onto the preset's, so overriding one field
+    // must not require restating maxIterations.
+    const cfg = buildConfigFromPreset(
+      makePreset(),
+      makeDeps({ overrides: { guardrails: { maxCostCents: 5 } } }),
+    )
+
+    expect(cfg.guardrails.maxCostCents).toBe(5)
+    // Untouched fields fall through from the preset.
+    expect(cfg.guardrails.maxIterations).toBe(10)
+    expect(cfg.guardrails.maxTokens).toBe(5000)
+  })
+
+  it('still lets an override replace maxIterations', () => {
+    const cfg = buildConfigFromPreset(
+      makePreset(),
+      makeDeps({ overrides: { guardrails: { maxIterations: 99 } } }),
+    )
+    expect(cfg.guardrails.maxIterations).toBe(99)
+    expect(cfg.guardrails.maxCostCents).toBe(50)
+  })
+})

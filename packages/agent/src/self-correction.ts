@@ -103,6 +103,7 @@ export type {
   SignalSeverity,
   ObservabilityThresholds,
   ObservabilityBridgeConfig,
+  ObservabilityBridgeOptions,
 } from './self-correction/observability-bridge.js'
 
 export { StrategySelector } from './self-correction/strategy-selector.js'
