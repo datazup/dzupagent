@@ -193,28 +193,54 @@ describe("memory-aware-compress — branch coverage", () => {
 // memory-service-ext.ts branches
 // ===========================================================================
 
+/**
+ * A `MemoryServiceLike` backed by a real Map.
+ *
+ * `get` and `getKeyed` both read that one store, so they cannot disagree about
+ * identity — which is the whole failure mode these tests exist to catch. Hand-
+ * stubbing the two methods separately is what let the key-fabrication defect
+ * pass its own tests for so long.
+ */
+function keyedService(
+  entries: Array<[string, Record<string, unknown>]>
+): MemoryServiceLike & { store: Map<string, Record<string, unknown>> } {
+  const store = new Map(entries);
+  return {
+    store,
+    get: async (_ns, _scope, key) => {
+      if (key !== undefined) {
+        const hit = store.get(key);
+        return hit ? [hit] : [];
+      }
+      return Array.from(store.values());
+    },
+    getKeyed: async () =>
+      Array.from(store.entries(), ([key, value]) => ({ key, value })),
+    search: async () => [],
+    put: async (_ns, _scope, key, value) => {
+      store.set(key, value);
+    },
+  };
+}
+
 describe("memory-service-ext — branch coverage", () => {
-  it("exportFrame with empty records from get() (skip loop)", async () => {
-    const svc: MemoryServiceLike = {
-      get: async () => [],
-      search: async () => [],
-      put: async () => {},
-    };
+  it("exportFrame with no keyed records (skip loop)", async () => {
+    const svc = keyedService([]);
     const ext = extendMemoryServiceWithArrow(svc);
     const table = await ext.exportFrame("ns", {});
     expect(table.numRows).toBe(0);
   });
 
-  it("exportFrame skips null records when get() returns sparse array", async () => {
-    const svc: MemoryServiceLike = {
-      get: async () => {
-        const arr: Record<string, unknown>[] = [];
-        arr[0] = undefined as unknown as Record<string, unknown>;
-        arr[1] = { text: "kept", key: "k1" };
-        return arr;
-      },
-      search: async () => [],
-      put: async () => {},
+  it("exportFrame skips null records when getKeyed returns a sparse array", async () => {
+    const svc = keyedService([]);
+    svc.getKeyed = async () => {
+      const arr: Array<{ key: string; value: Record<string, unknown> }> = [];
+      arr[0] = undefined as unknown as {
+        key: string;
+        value: Record<string, unknown>;
+      };
+      arr[1] = { key: "k1", value: { text: "kept" } };
+      return arr;
     };
     const ext = extendMemoryServiceWithArrow(svc);
     const table = await ext.exportFrame("ns", {});
@@ -222,69 +248,47 @@ describe("memory-service-ext — branch coverage", () => {
   });
 
   it('exportFrame synthesizes text from "content" when text missing', async () => {
-    const svc: MemoryServiceLike = {
-      get: async () => [{ key: "k1", content: "from content" }],
-      search: async () => [],
-      put: async () => {},
-    };
+    const svc = keyedService([["k1", { content: "from content" }]]);
     const ext = extendMemoryServiceWithArrow(svc);
     const table = await ext.exportFrame("ns", {});
     const reader = new FrameReader(table);
-    const records = reader.toRecords();
-    expect(records[0]?.value.text).toBe("from content");
+    expect(first(reader.toRecords()).value.text).toBe("from content");
   });
 
   it('exportFrame synthesizes text from "value" field when text/content missing', async () => {
-    const svc: MemoryServiceLike = {
-      get: async () => [{ key: "k1", value: "from value" }],
-      search: async () => [],
-      put: async () => {},
-    };
+    const svc = keyedService([["k1", { value: "from value" }]]);
     const ext = extendMemoryServiceWithArrow(svc);
     const table = await ext.exportFrame("ns", {});
     const reader = new FrameReader(table);
-    const records = reader.toRecords();
-    expect(records[0]?.value.text).toBe("from value");
+    expect(first(reader.toRecords()).value.text).toBe("from value");
   });
 
-  it("exportFrame generates auto key when neither key nor id present", async () => {
-    const svc: MemoryServiceLike = {
-      get: async () => [{ text: "no key" }],
-      search: async () => [],
-      put: async () => {},
-    };
+  it("exportFrame carries the store key even when the value holds no identity", async () => {
+    // Regression: exportFrame used to fabricate `rec-${index}` here, losing the
+    // real key. Identity comes from the store, never from the value.
+    const svc = keyedService([["the-store-key", { text: "no inline key" }]]);
     const ext = extendMemoryServiceWithArrow(svc);
     const table = await ext.exportFrame("ns", {});
     expect(table.numRows).toBe(1);
     const reader = new FrameReader(table);
-    const records = reader.toRecords();
-    expect(records[0]?.meta.key).toMatch(/rec-0/);
+    expect(first(reader.toRecords()).meta.key).toBe("the-store-key");
   });
 
-  it("exportFrame uses id when key is missing", async () => {
-    const svc: MemoryServiceLike = {
-      get: async () => [{ id: "the-id", text: "ok" }],
-      search: async () => [],
-      put: async () => {},
-    };
+  it("exportFrame prefers the store key over a conflicting id in the value", async () => {
+    const svc = keyedService([["the-store-key", { id: "the-id", text: "ok" }]]);
     const ext = extendMemoryServiceWithArrow(svc);
     const table = await ext.exportFrame("ns", {});
     const reader = new FrameReader(table);
-    const records = reader.toRecords();
-    expect(records[0]?.meta.key).toBe("the-id");
+    expect(first(reader.toRecords()).meta.key).toBe("the-store-key");
   });
 
   it("exportFrame slices results when more records than limit (over-limit branch)", async () => {
-    const svc: MemoryServiceLike = {
-      get: async () => {
-        return Array.from({ length: 20 }, (_, i) => ({
-          key: `k${i}`,
-          text: `t${i}`,
-        }));
-      },
-      search: async () => [],
-      put: async () => {},
-    };
+    const svc = keyedService(
+      Array.from({ length: 20 }, (_, i): [string, Record<string, unknown>] => [
+        `k${i}`,
+        { text: `t${i}` },
+      ])
+    );
     const ext = extendMemoryServiceWithArrow(svc);
     const table = await ext.exportFrame("ns", {}, { limit: 5 });
     expect(table.numRows).toBe(5);
