@@ -1063,7 +1063,7 @@ describe("Error propagation across agents", () => {
         circuitBreaker: breaker,
         mergeStrategy: {
           merge: () => ({
-            status: "all-failed" as const,
+            status: "all_failed" as const,
             successCount: 0,
             errorCount: 1,
           }),
@@ -1084,7 +1084,7 @@ describe("Error propagation across agents", () => {
         circuitBreaker: breaker,
         mergeStrategy: {
           merge: () => ({
-            status: "all-failed" as const,
+            status: "all_failed" as const,
             successCount: 0,
             errorCount: 1,
           }),

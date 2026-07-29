@@ -154,6 +154,21 @@ function makeSession(trace?: CapturedTrace): ReplaySession {
 // TraceCapture — deep edge cases
 // ---------------------------------------------------------------------------
 
+/**
+ * The event `type` values below are deliberately outside the DzupEvent union.
+ *
+ * They exercise behaviour that is keyed on the *shape* of a type string rather
+ * than on any particular event: TraceCapture's re-indexing and `maxEvents`
+ * truncation, include/exclude filters, and ReplayInspector's `:failed`/`:error`
+ * SUFFIX matching (see isErrorEvent). Substituting a real event name would
+ * silently test a different branch, so the cast is the point — it is what
+ * "any event whose name ends in :failed" looks like in TypeScript.
+ */
+type SyntheticEvent = Parameters<DzupEventBus["emit"]>[0];
+
+const synthetic = (type: string, rest: Record<string, unknown> = {}) =>
+  ({ type, ...rest }) as unknown as SyntheticEvent;
+
 describe("TraceCapture — deep edge cases", () => {
   let bus: DzupEventBus;
 
@@ -182,7 +197,7 @@ describe("TraceCapture — deep edge cases", () => {
     capture.start("run-y");
 
     for (let i = 0; i < 7; i++) {
-      bus.emit({ type: `event:${i}`, agentId: "a", runId: "r" });
+      bus.emit(synthetic(`event:${i}`, { agentId: "a", runId: "r" }));
     }
 
     const trace = capture.stop();
@@ -222,7 +237,7 @@ describe("TraceCapture — deep edge cases", () => {
       throw new Error("provider error");
     });
     capture.start("run-err");
-    bus.emit({ type: "test:event", agentId: "a", runId: "r" });
+    bus.emit(synthetic("test:event", { agentId: "a", runId: "r" }));
     const trace = capture.stop();
     // stateSnapshot should be undefined (silently skipped)
     expect(trace.events[0]!.stateSnapshot).toBeUndefined();
@@ -231,13 +246,14 @@ describe("TraceCapture — deep edge cases", () => {
   it("extracts nodeId from nodeId field over toolName", () => {
     const capture = new TraceCapture(bus, { snapshotInterval: 0 });
     capture.start("run-nid");
-    bus.emit({
-      type: "pipeline:step",
-      nodeId: "step-1",
-      toolName: "ignored",
-      agentId: "a",
-      runId: "r",
-    });
+    bus.emit(
+      synthetic("pipeline:step", {
+        nodeId: "step-1",
+        toolName: "ignored",
+        agentId: "a",
+        runId: "r",
+      }),
+    );
     const trace = capture.stop();
     expect(trace.events[0]!.nodeId).toBe("step-1");
   });
@@ -253,7 +269,7 @@ describe("TraceCapture — deep edge cases", () => {
   it("nodeId is undefined when neither nodeId nor toolName present", () => {
     const capture = new TraceCapture(bus, { snapshotInterval: 0 });
     capture.start("run-no-nid");
-    bus.emit({ type: "custom:event", agentId: "a", runId: "r" });
+    bus.emit(synthetic("custom:event", { agentId: "a", runId: "r" }));
     const trace = capture.stop();
     expect(trace.events[0]!.nodeId).toBeUndefined();
   });
@@ -293,12 +309,12 @@ describe("TraceCapture — deep edge cases", () => {
     const capture = new TraceCapture(bus, { snapshotInterval: 0 });
 
     capture.start("run-1");
-    bus.emit({ type: "a:event", agentId: "a", runId: "r" });
+    bus.emit(synthetic("a:event", { agentId: "a", runId: "r" }));
     const trace1 = capture.stop();
 
     capture.start("run-2");
-    bus.emit({ type: "b:event", agentId: "a", runId: "r" });
-    bus.emit({ type: "c:event", agentId: "a", runId: "r" });
+    bus.emit(synthetic("b:event", { agentId: "a", runId: "r" }));
+    bus.emit(synthetic("c:event", { agentId: "a", runId: "r" }));
     const trace2 = capture.stop();
 
     expect(trace1.runId).toBe("run-1");
@@ -310,11 +326,11 @@ describe("TraceCapture — deep edge cases", () => {
   it("peek returns live reference to current events", () => {
     const capture = new TraceCapture(bus, { snapshotInterval: 0 });
     capture.start("run-peek");
-    bus.emit({ type: "test", agentId: "a", runId: "r" });
+    bus.emit(synthetic("test", { agentId: "a", runId: "r" }));
     const peeked = capture.peek();
     expect(peeked).toHaveLength(1);
     // peek() returns the live array — emitting another event grows it
-    bus.emit({ type: "test2", agentId: "a", runId: "r" });
+    bus.emit(synthetic("test2", { agentId: "a", runId: "r" }));
     expect(peeked).toHaveLength(2);
     capture.stop();
   });
@@ -335,7 +351,7 @@ describe("TraceCapture — deep edge cases", () => {
     capture.start("run-filter");
     bus.emit({ type: "tool:called", toolName: "x", input: {} });
     bus.emit({ type: "tool:result", toolName: "x", durationMs: 1 });
-    bus.emit({ type: "tool:failed", toolName: "x", error: "err" });
+    bus.emit(synthetic("tool:failed", { toolName: "x", error: "err" }));
     bus.emit({ type: "agent:started", agentId: "a", runId: "r" });
     const trace = capture.stop();
     // tool:called and tool:result pass, tool:failed and agent:started don't
@@ -353,7 +369,7 @@ describe("TraceCapture — deep edge cases", () => {
     capture.setStateProvider(spy);
     capture.start("run-no-snap");
     for (let i = 0; i < 5; i++) {
-      bus.emit({ type: `e:${i}`, agentId: "a", runId: "r" });
+      bus.emit(synthetic(`e:${i}`, { agentId: "a", runId: "r" }));
     }
     capture.stop();
     expect(spy).not.toHaveBeenCalled();
@@ -366,7 +382,7 @@ describe("TraceCapture — deep edge cases", () => {
     capture.setStateProvider(firstSpy);
     capture.setStateProvider(secondSpy); // override
     capture.start("run-replace-provider");
-    bus.emit({ type: "test", agentId: "a", runId: "r" });
+    bus.emit(synthetic("test", { agentId: "a", runId: "r" }));
     const trace = capture.stop();
     expect(firstSpy).not.toHaveBeenCalled();
     expect(secondSpy).toHaveBeenCalledTimes(1);
@@ -1625,11 +1641,11 @@ describe("End-to-end: capture → serialize → deserialize → replay → inspe
     const bus = makeBus();
     const capture = new TraceCapture(bus, { snapshotInterval: 0 });
     capture.start("isolation-run");
-    bus.emit({ type: "first", agentId: "a", runId: "r" });
+    bus.emit(synthetic("first", { agentId: "a", runId: "r" }));
     const trace = capture.stop();
 
     // Emit more events after capture stopped — they must NOT appear in trace
-    bus.emit({ type: "second", agentId: "a", runId: "r" });
+    bus.emit(synthetic("second", { agentId: "a", runId: "r" }));
 
     expect(trace.events).toHaveLength(1);
     expect(trace.events[0]!.type).toBe("first");
@@ -1644,9 +1660,9 @@ describe("End-to-end: capture → serialize → deserialize → replay → inspe
     cap1.start("run-bus1");
     cap2.start("run-bus2");
 
-    bus1.emit({ type: "bus1:event", agentId: "a", runId: "r1" });
-    bus2.emit({ type: "bus2:event", agentId: "a", runId: "r2" });
-    bus2.emit({ type: "bus2:event2", agentId: "a", runId: "r2" });
+    bus1.emit(synthetic("bus1:event", { agentId: "a", runId: "r1" }));
+    bus2.emit(synthetic("bus2:event", { agentId: "a", runId: "r2" }));
+    bus2.emit(synthetic("bus2:event2", { agentId: "a", runId: "r2" }));
 
     const t1 = cap1.stop();
     const t2 = cap2.stop();
@@ -1692,9 +1708,9 @@ describe("TraceCapture — maxEvents boundary", () => {
     const bus = makeBus();
     const cap = new TraceCapture(bus, { snapshotInterval: 0, maxEvents: 1 });
     cap.start("r");
-    bus.emit({ type: "first", agentId: "a", runId: "r" });
-    bus.emit({ type: "second", agentId: "a", runId: "r" });
-    bus.emit({ type: "third", agentId: "a", runId: "r" });
+    bus.emit(synthetic("first", { agentId: "a", runId: "r" }));
+    bus.emit(synthetic("second", { agentId: "a", runId: "r" }));
+    bus.emit(synthetic("third", { agentId: "a", runId: "r" }));
     const trace = cap.stop();
     expect(trace.events).toHaveLength(1);
     expect(trace.events[0]!.type).toBe("third");
@@ -1706,7 +1722,7 @@ describe("TraceCapture — maxEvents boundary", () => {
     const cap = new TraceCapture(bus, { snapshotInterval: 0, maxEvents: 0 });
     cap.start("r");
     for (let i = 0; i < 50; i++) {
-      bus.emit({ type: `e:${i}`, agentId: "a", runId: "r" });
+      bus.emit(synthetic(`e:${i}`, { agentId: "a", runId: "r" }));
     }
     const trace = cap.stop();
     expect(trace.events).toHaveLength(50);
@@ -1717,7 +1733,7 @@ describe("TraceCapture — maxEvents boundary", () => {
     const cap = new TraceCapture(bus, { snapshotInterval: 0 });
     cap.start("r");
     for (let i = 0; i < 100; i++) {
-      bus.emit({ type: `e:${i}`, agentId: "a", runId: "r" });
+      bus.emit(synthetic(`e:${i}`, { agentId: "a", runId: "r" }));
     }
     const trace = cap.stop();
     expect(trace.events).toHaveLength(100);
