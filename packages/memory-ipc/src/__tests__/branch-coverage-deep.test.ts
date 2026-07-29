@@ -18,6 +18,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { tableFromArrays, type Table } from "apache-arrow";
+import { first } from "./helpers/at.js";
 import { FrameBuilder } from "../frame-builder.js";
 import type { FrameRecordMeta, FrameRecordValue } from "../frame-builder.js";
 import { FrameReader } from "../frame-reader.js";
@@ -295,12 +296,9 @@ describe("memory-service-ext — branch coverage", () => {
   });
 
   it("importFrame skips frame records with empty key (skip branch)", async () => {
-    const putMock = vi.fn(async () => {});
-    const svc: MemoryServiceLike = {
-      get: async () => [],
-      search: async () => [],
-      put: putMock,
-    };
+    const svc = keyedService([]);
+    const putMock = vi.fn(svc.put);
+    svc.put = putMock;
     const ext = extendMemoryServiceWithArrow(svc);
 
     // Build table with empty key
@@ -315,12 +313,9 @@ describe("memory-service-ext — branch coverage", () => {
   });
 
   it("importFrame records conflicts when put() throws", async () => {
-    const svc: MemoryServiceLike = {
-      get: async () => [],
-      search: async () => [],
-      put: async () => {
-        throw new Error("put failed");
-      },
+    const svc = keyedService([]);
+    svc.put = async () => {
+      throw new Error("put failed");
     };
     const ext = extendMemoryServiceWithArrow(svc);
 
@@ -333,13 +328,8 @@ describe("memory-service-ext — branch coverage", () => {
     expect(result.conflicts).toBe(1);
   });
 
-  it("importFrame replace strategy throws when existing record has no key/id", async () => {
-    const svc: MemoryServiceLike = {
-      get: async () => [{ text: "exists without key" }],
-      search: async () => [],
-      put: async () => {},
-      delete: async () => true,
-    };
+  it("importFrame replace strategy throws when delete() is unavailable", async () => {
+    const svc = keyedService([["existing", { text: "exists" }]]);
     const ext = extendMemoryServiceWithArrow(svc);
 
     const builder = new FrameBuilder();
@@ -347,20 +337,39 @@ describe("memory-service-ext — branch coverage", () => {
     const table = builder.build();
 
     await expect(ext.importFrame("ns", {}, table, "replace")).rejects.toThrow(
-      /existing records to expose a key/
+      /replace strategy requires delete\(\)/
     );
+  });
+
+  it("importFrame replace strategy deletes existing records by their store key", async () => {
+    // Regression: replace used to delete keys derived from record *values*
+    // (`rec-0`, …), which identified nothing, so stale records survived.
+    const svc = keyedService([
+      ["keep-me-not", { text: "old one" }],
+      ["also-stale", { text: "old two" }],
+    ]);
+    const deleted: string[] = [];
+    svc.delete = async (_ns, _scope, key) => {
+      deleted.push(key);
+      return svc.store.delete(key);
+    };
+    const ext = extendMemoryServiceWithArrow(svc);
+
+    const builder = new FrameBuilder();
+    builder.add({ text: "new" }, { id: "id-0", namespace: "ns", key: "fresh" });
+    const table = builder.build();
+
+    const result = await ext.importFrame("ns", {}, table, "replace");
+
+    expect(deleted.sort()).toEqual(["also-stale", "keep-me-not"]);
+    expect(result.imported).toBe(1);
+    // The store is the source of truth, not the returned counts.
+    expect(Array.from(svc.store.keys())).toEqual(["fresh"]);
   });
 
   it("importFrame append strategy handles existing records correctly", async () => {
     const existingKey = "existing-key";
-    const svc: MemoryServiceLike = {
-      get: async (_ns, _scope, key) => {
-        if (key === existingKey) return [{ key: existingKey, text: "exists" }];
-        return [];
-      },
-      search: async () => [],
-      put: async () => {},
-    };
+    const svc = keyedService([[existingKey, { text: "exists" }]]);
     const ext = extendMemoryServiceWithArrow(svc);
 
     const builder = new FrameBuilder();
@@ -380,35 +389,20 @@ describe("memory-service-ext — branch coverage", () => {
   });
 
   it("exportIPC produces valid bytes round-tripping through importIPC", async () => {
-    const store = new Map<string, Record<string, unknown>>();
-    const svc: MemoryServiceLike = {
-      get: async () => Array.from(store.values()),
-      search: async () => [],
-      put: async (_ns, _scope, key, value) => {
-        store.set(key, { ...value, key });
-      },
-    };
+    const svc = keyedService([]);
     const ext = extendMemoryServiceWithArrow(svc);
     await svc.put("ns", {}, "k0", { text: "hello" });
 
     const ipc = await ext.exportIPC("ns", {});
     expect(ipc.byteLength).toBeGreaterThan(0);
 
-    // Import into fresh store
-    const store2 = new Map<string, Record<string, unknown>>();
-    const svc2: MemoryServiceLike = {
-      get: async (_ns, _scope, key) => {
-        if (key) return store2.has(key) ? [store2.get(key)!] : [];
-        return Array.from(store2.values());
-      },
-      search: async () => [],
-      put: async (_ns, _scope, key, value) => {
-        store2.set(key, { ...value, key });
-      },
-    };
+    // Import into a fresh store
+    const svc2 = keyedService([]);
     const ext2 = extendMemoryServiceWithArrow(svc2);
     const res = await ext2.importIPC("ns", {}, ipc);
     expect(res.imported).toBe(1);
+    // The key must survive the round trip, not be regenerated on landing.
+    expect(Array.from(svc2.store.keys())).toEqual(["k0"]);
   });
 });
 
