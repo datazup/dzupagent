@@ -547,3 +547,62 @@ describe('scorer adapter result', () => {
     expect([succeeded.passed, failed.passed]).toEqual([true, false]);
   });
 });
+
+describe('FactualityScorer with no verification hooks', () => {
+  /**
+   * The unwired scorer used to be the most dangerous configuration in the file.
+   * Both hooks are optional, so `new FactualityScorer({ threshold: 1 })`
+   * extracted no claims, verified no claims, computed a hallucination score of
+   * 0 from an empty set, and reported factuality 1.0 / passed=true. The
+   * STRICTEST threshold produced a perfect score having checked nothing.
+   */
+  it('does not report a passing score when nothing was verified', async () => {
+    const scorer = new FactualityScorer({ threshold: 1 });
+    const report = await scorer.generateReport(makeInput());
+
+    expect(report.verificationPerformed).toBe(false);
+    expect(report.passed).toBe(false);
+    expect(report.factualityScore).toBe(0);
+  });
+
+  it('reports the same for the default construction', async () => {
+    const report = await new FactualityScorer().generateReport(makeInput());
+    expect(report.passed).toBe(false);
+  });
+
+  it('still reports verification as performed when a wired scorer finds no claims', async () => {
+    // The distinction the fix turns on: verification RAN and legitimately found
+    // nothing to check. That is a real result and keeps the perfect score.
+    const scorer = new FactualityScorer({
+      extractClaims: () => [],
+      verifyClaims: () => [],
+    });
+    const report = await scorer.generateReport(makeInput({ output: '' }));
+
+    expect(report.verificationPerformed).toBe(true);
+    expect(report.factualityScore).toBe(1);
+    expect(report.passed).toBe(true);
+  });
+
+  it('counts a single configured hook as verification', async () => {
+    const scorer = new FactualityScorer({ extractClaims: () => [claims[0]] });
+    const report = await scorer.generateReport(makeInput());
+    expect(report.verificationPerformed).toBe(true);
+  });
+
+  it('says plainly in the adapter result that nothing was verified', async () => {
+    const result = await new FactualityScorer().score(makeInput());
+
+    // "0/0 claims verified" reads like a clean bill of health.
+    expect(result.scores[0]?.reasoning).toMatch(/nothing was verified/);
+    expect(result.scores.every((s) => s.score === 0)).toBe(true);
+    expect(result.passed).toBe(false);
+  });
+
+  it('leaves the report arrays empty rather than fabricating entries', async () => {
+    const report = await new FactualityScorer().generateReport(makeInput());
+    expect(report.claims).toEqual([]);
+    expect(report.claimResults).toEqual([]);
+    expect(report.referenceFacts).toEqual(facts);
+  });
+});

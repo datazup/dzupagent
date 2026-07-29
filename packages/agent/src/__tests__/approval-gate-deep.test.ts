@@ -1,6 +1,21 @@
 import { describe, it, expect, vi } from 'vitest'
 import { createEventBus } from '@dzupagent/core'
 import { ApprovalGate } from '../approval/approval-gate.js'
+import type { ApprovalCheckpointStore } from '../approval/approval-types.js'
+
+/**
+ * Minimal checkpoint store for constructing a gate with durableResume.
+ *
+ * waitForApproval never reads or writes the store — it is required only so
+ * that an unbounded wait is backed by SOMETHING that could resume it. The
+ * durable persistence path itself is covered in approval-gate-durable and
+ * approval-gate-hitl with real in-memory stores.
+ */
+const noopCheckpointStore = (): ApprovalCheckpointStore => ({
+  save: async () => {},
+  load: async () => null,
+  delete: async () => {},
+})
 
 describe('ApprovalGate - extended', () => {
   describe('conditional mode', () => {
@@ -150,9 +165,27 @@ describe('ApprovalGate - extended', () => {
       expect(request['timeoutAt']).toBeDefined()
     })
 
-    it('allows unbounded waits only when durable resume is explicit', async () => {
+    it('allows unbounded waits only when durable resume is backed by a store', async () => {
+      // This test previously constructed { durableResume: true } with NO store
+      // and no timeoutMs, treating the unbounded wait as the intended effect of
+      // the flag. That combination is now rejected at construction: it removes
+      // the default timeout while providing none of the durability that
+      // justifies removing it, so a restart loses the approval with no event
+      // and no timeout to bound it. durableResume and checkpointStore landed in
+      // the same commit and the flag's own doc says it "should only be enabled
+      // when pending approval state is durably persisted".
+      //
+      // The unbounded-wait behaviour it was pinning is preserved here, with the
+      // store that makes it safe.
       const bus = createEventBus()
-      const gate = new ApprovalGate({ mode: 'required', durableResume: true }, bus)
+      const gate = new ApprovalGate(
+        {
+          mode: 'required',
+          durableResume: true,
+          checkpointStore: noopCheckpointStore(),
+        },
+        bus,
+      )
 
       // Start waiting but resolve quickly via event
       const resultPromise = gate.waitForApproval('run-no-timeout', 'plan')
@@ -163,6 +196,13 @@ describe('ApprovalGate - extended', () => {
 
       const result = await resultPromise
       expect(result).toBe('approved')
+    })
+
+    it('rejects an unbounded wait that has no durable backing', () => {
+      const bus = createEventBus()
+      expect(
+        () => new ApprovalGate({ mode: 'required', durableResume: true }, bus),
+      ).toThrow(/unbounded AND non-durable/)
     })
 
     it('cancels approval waits via AbortSignal', async () => {
@@ -295,7 +335,18 @@ describe('ApprovalGate - extended', () => {
       const events: unknown[] = []
       bus.on('approval:requested', (e) => events.push(e))
 
-      const gate = new ApprovalGate({ mode: 'required', durableResume: true }, bus)
+      // Store supplied because durableResume without one (and without a
+      // timeoutMs) is now a construction error — see the guard in ApprovalGate.
+      // The assertion below is unchanged: an unbounded wait still reports no
+      // timeoutAt.
+      const gate = new ApprovalGate(
+        {
+          mode: 'required',
+          durableResume: true,
+          checkpointStore: noopCheckpointStore(),
+        },
+        bus,
+      )
 
       const p = gate.waitForApproval('run-nt', 'plan')
       setTimeout(() => bus.emit({ type: 'approval:granted', runId: 'run-nt' }), 10)
