@@ -23,6 +23,7 @@ export interface MockLocator {
   first: ReturnType<typeof vi.fn>;
   filter: ReturnType<typeof vi.fn>;
   click: ReturnType<typeof vi.fn>;
+  evaluate: ReturnType<typeof vi.fn>;
   fill: ReturnType<typeof vi.fn>;
   count: ReturnType<typeof vi.fn>;
   textContent: ReturnType<typeof vi.fn>;
@@ -33,6 +34,7 @@ function makeLocator(overrides: Partial<MockLocator> = {}): MockLocator {
     first: vi.fn().mockReturnThis(),
     filter: vi.fn().mockReturnThis(),
     click: vi.fn().mockResolvedValue(undefined),
+    evaluate: vi.fn().mockResolvedValue(undefined),
     fill: vi.fn().mockResolvedValue(undefined),
     count: vi.fn().mockResolvedValue(0),
     textContent: vi.fn().mockResolvedValue(null),

@@ -33,7 +33,9 @@ export async function resolveAccountPickerInterstitial(
   // "Continue with Google", and a bare `button[type="submit"]` fallback
   // could re-click the credential submit button and loop.
   const continueButton = page
-    .getByRole("button", { name: /^(continue|next|proceed|select|choose)$/i })
+    .getByRole("button", {
+      name: /^(continue(?: to .+)?|next|proceed|select|choose|choose an organi[sz]ation)$/i,
+    })
     .first();
   if ((await continueButton.count()) === 0) return false;
 
@@ -47,13 +49,22 @@ export async function resolveAccountPickerInterstitial(
 
   try {
     const pickerUrl = page.url();
-    // Identity providers commonly style radios with an overlaid label/avatar.
-    // Force the semantic radio click so decorative children cannot intercept
-    // the pointer action while the browser still dispatches the input event.
-    await choice.click({ timeout: LOGIN_TIMEOUT, force: true });
+    // Identity providers commonly style radios with an overlaid label/avatar
+    // and attach selection behavior to that option container. Activate the
+    // nearest label directly so decorative children cannot intercept the
+    // action; custom role=radio elements fall back to their own click method.
+    await choice.evaluate((element) => {
+      const target = element.closest("label") ?? element;
+      if (target instanceof HTMLElement) target.click();
+    });
     // Some pickers submit immediately when the radio changes. In that case
     // the old continue button no longer exists, and trying to click it would
     // turn a successful login into a timeout.
+    await page
+      .waitForURL((url) => url.toString() !== pickerUrl, {
+        timeout: Math.min(LOGIN_TIMEOUT, 3_000),
+      })
+      .catch(() => {});
     if (page.url() !== pickerUrl && !(await isLoginPage(page))) return true;
     // Pickers commonly enable the button only after selection —
     // Playwright's click auto-waits for it to become enabled.

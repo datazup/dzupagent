@@ -596,9 +596,7 @@ describe("AuthHandler", () => {
       expect(
         vi.mocked(locatorInstance.click).mock.calls.length
       ).toBeGreaterThanOrEqual(3);
-      expect(vi.mocked(locatorInstance.click)).toHaveBeenCalledWith(
-        expect.objectContaining({ force: true })
-      );
+      expect(vi.mocked(locatorInstance.evaluate)).toHaveBeenCalledOnce();
     });
 
     it("prefers the accountHint-matching option on an account picker", async () => {
