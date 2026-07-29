@@ -38,7 +38,17 @@ export function defaultMemoryRanker(
   })
 }
 
-export type AgentMemoryService = NonNullable<DzupAgentConfig['memory']>
+/**
+ * The slice of the memory service the context loader actually uses.
+ *
+ * The loader family calls exactly two methods, so it asks for exactly two.
+ * Derived from the real service via `Pick`, so the signatures cannot drift
+ * from it — but a caller (or a test double) needs only these to satisfy it.
+ */
+export type AgentMemoryService = Pick<
+  NonNullable<DzupAgentConfig['memory']>,
+  'get' | 'formatForPrompt'
+>
 export type ResolvedArrowMemoryConfig = ArrowMemoryConfig
 export type StandardMemoryBudgetConfig = Required<
   Pick<
@@ -130,7 +140,7 @@ export interface ArrowMemoryRuntime {
 
 export interface AgentMemoryContextLoaderConfig {
   instructions: string
-  memory?: DzupAgentConfig['memory']
+  memory?: AgentMemoryService
   memoryNamespace?: string
   memoryScope?: Record<string, string>
   /**
