@@ -1,6 +1,7 @@
 /**
  * Contract tests pinning the documented no-op of
- * `ParticipantDefinition.capabilities`.
+ * `ParticipantDefinition.capabilities` — and its deliberate separation from the
+ * enforced, bid-side capability filter.
  *
  * The docstring on that field (see `team-definition.ts`) states plainly that the
  * field is RESERVED AND CURRENTLY UNUSED: it is accepted, carried on the
@@ -16,10 +17,16 @@
  *
  * They also pin the two adjacent surfaces the docstring warns not to confuse
  * this field with, so the disambiguation itself cannot rot:
- *   - `contractNet.requiredCapabilities` reaches bidders as PROMPT TEXT only and
- *     filters nobody.
+ *   - `contractNet.requiredCapabilities` IS enforced (announced in the CFP and
+ *     applied as a subset filter on bids), but it matches what a bidder
+ *     self-reports in its bid — never this field.
  *   - `AgentSpec.tags` (what `RuleBasedRouting` really matches on) is populated
  *     from `metadata.tags`, never from participant `capabilities`.
+ *
+ * The gap between those two is the point: a participant may declare
+ * `capabilities: ['sql']` and still lose a CFP requiring `sql`, because nothing
+ * propagates the definition into the bid. That is deliberate — see the
+ * docstring's trust argument — and the tests below pin it.
  */
 import { describe, expect, it, vi } from "vitest";
 import { AIMessage } from "@langchain/core/messages";
@@ -36,14 +43,25 @@ import type {
 import type { SpawnedAgent } from "../team-workspace.js";
 import type { TeamPolicies } from "../team-policy.js";
 
-/** A bid that is valid, cheap, and identifies its bidder in `approach`. */
-function bidJson(agentId: string, costCents: number): string {
+/**
+ * A bid that is valid, cheap, and identifies its bidder in `approach`.
+ *
+ * `declaredCapabilities` is what the capability filter matches on — the
+ * bidder's own claim, which is a different surface from the participant
+ * definition's `capabilities` field these tests are about.
+ */
+function bidJson(
+  agentId: string,
+  costCents: number,
+  declaredCapabilities?: string[]
+): string {
   return JSON.stringify({
     estimatedCostCents: costCents,
     estimatedDurationMs: 10,
     qualityEstimate: 0.9,
     confidence: 0.9,
     approach: `approach-by-${agentId}`,
+    ...(declaredCapabilities ? { capabilities: declaredCapabilities } : {}),
   });
 }
 
@@ -55,7 +73,8 @@ function bidJson(agentId: string, costCents: number): string {
 function createBiddingAgent(
   id: string,
   costCents: number,
-  prompts: string[]
+  prompts: string[],
+  declaredCapabilities?: string[]
 ): DzupAgent {
   const model: BaseChatModel = {
     invoke: vi.fn(async (messages: BaseMessage[]) => {
@@ -64,7 +83,7 @@ function createBiddingAgent(
       // The bid prompt asks for JSON; the execution prompt does not.
       if (text.includes("Respond ONLY with a JSON object")) {
         return new AIMessage({
-          content: bidJson(id, costCents),
+          content: bidJson(id, costCents, declaredCapabilities),
           response_metadata: {},
         });
       }
@@ -118,13 +137,18 @@ function makeRuntime(
  */
 async function runTeam(
   capabilitiesFor: (id: string) => string[] | undefined,
-  policies?: TeamPolicies
+  policies?: TeamPolicies,
+  /** What each bidder CLAIMS in its bid — the surface the filter reads. */
+  declaresFor: (id: string) => string[] | undefined = () => undefined
 ): Promise<{ content: string; prompts: string[] }> {
   const prompts: string[] = [];
   const agentsById = new Map<string, DzupAgent>([
-    ["boss", createBiddingAgent("boss", 999, prompts)],
-    ["cheap", createBiddingAgent("cheap", 10, prompts)],
-    ["pricey", createBiddingAgent("pricey", 500, prompts)],
+    ["boss", createBiddingAgent("boss", 999, prompts, declaresFor("boss"))],
+    ["cheap", createBiddingAgent("cheap", 10, prompts, declaresFor("cheap"))],
+    [
+      "pricey",
+      createBiddingAgent("pricey", 500, prompts, declaresFor("pricey")),
+    ],
   ]);
 
   const participants: ParticipantDefinition[] = [
@@ -183,10 +207,14 @@ describe("ParticipantDefinition.capabilities is documented as unused", () => {
 
   it("routes capability strings into the CFP prompt ONLY via policies.contractNet.requiredCapabilities", async () => {
     // Positive control for the docstring's disambiguation: the policy field is
-    // the live surface and it reaches bidders as prompt text...
-    const { prompts, content } = await runTeam(() => undefined, {
-      contractNet: { requiredCapabilities: ["clairvoyance"] },
-    });
+    // the live surface and it reaches bidders as prompt text.
+    const { prompts } = await runTeam(
+      () => undefined,
+      { contractNet: { requiredCapabilities: ["clairvoyance"] } },
+      // Both declare it, so the run completes and the assertion under test is
+      // about prompt content rather than eligibility.
+      () => ["clairvoyance"]
+    );
 
     const bidPrompts = prompts.filter((p) =>
       p.includes("Respond ONLY with a JSON object")
@@ -195,10 +223,35 @@ describe("ParticipantDefinition.capabilities is documented as unused", () => {
     expect(
       bidPrompts.every((p) => p.includes("Required capabilities: clairvoyance"))
     ).toBe(true);
+  });
 
-    // ...but it is PROMPT TEXT ONLY: it filters nobody. Both specialists still
-    // bid, and the cheapest still wins despite neither declaring the capability.
-    expect(content).toBe("cheap-executed");
+  it("does not let a participant's declared capabilities satisfy a CFP requirement", async () => {
+    // The heart of the disambiguation. `pricey` declares the required
+    // capability ON ITS PARTICIPANT DEFINITION but claims nothing in its bid.
+    // If the definition leaked into bid matching, pricey would qualify and win
+    // (it would be the only eligible bid). It must not: the negotiation fails
+    // because no BID declared the capability.
+    await expect(
+      runTeam(
+        (id) => (id === "pricey" ? ["clairvoyance"] : undefined),
+        { contractNet: { requiredCapabilities: ["clairvoyance"] } },
+        () => undefined
+      )
+    ).rejects.toThrow(/No bid met the required capabilities: clairvoyance/);
+  });
+
+  it("awards on declared bid capabilities, not on price, when a CFP requires them", async () => {
+    // The defect this closes: `cheap` underbids 10 vs 500 but does not declare
+    // the required capability, so it is filtered out before ranking and the
+    // qualified-but-expensive bidder wins. Under the old prompt-text-only
+    // behaviour `cheap` won regardless.
+    const { content } = await runTeam(
+      () => undefined,
+      { contractNet: { requiredCapabilities: ["clairvoyance"] } },
+      (id) => (id === "pricey" ? ["clairvoyance"] : undefined)
+    );
+
+    expect(content).toBe("pricey-executed");
   });
 
   it("does not populate AgentSpec.tags from capabilities (tags come from metadata.tags)", () => {
