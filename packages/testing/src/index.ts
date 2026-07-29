@@ -40,6 +40,14 @@ export { createDemoEvalSuite, buildStubAnthropicClient } from "./eval/index.js";
 export { waitForCondition } from "./wait-for-condition.js";
 export type { WaitForConditionOptions } from "./wait-for-condition.js";
 
+// Model-free reference scorer for the TeamRuntime governance / evaluation
+// acceptance gates.
+export { createDeterministicVerdictService } from "./deterministic-verdict-service.js";
+export type {
+  DeterministicVerdictOptions,
+  DeterministicVerdictService,
+} from "./deterministic-verdict-service.js";
+
 // SDLC MVP evidence helpers and CLI backing implementation
 export {
   captureSdlcMvpEvidenceCommandOutput,
