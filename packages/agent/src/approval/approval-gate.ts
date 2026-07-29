@@ -41,7 +41,42 @@ export class ApprovalGate {
   constructor(
     private config: ApprovalConfig,
     private eventBus: DzupEventBus,
-  ) {}
+  ) {
+    // `durableResume` opts into an UNBOUNDED in-process wait when no
+    // `timeoutMs` is given (see getEffectiveTimeoutMs), on the promise that
+    // pending state is persisted in a checkpointStore and another runtime can
+    // resume it after a restart. All three conditions together are the unsafe
+    // combination: the flag removes the default timeout, and without a store
+    // requestApproval silently falls through to the legacy in-process wait —
+    // so the wait is unbounded AND non-durable, and a restart loses the
+    // approval forever with no event and no timeout to bound it. The flag's
+    // own doc says it should only be enabled when state is durably persisted.
+    //
+    // Deliberately NOT rejected: `durableResume` with an explicit `timeoutMs`
+    // and no store. That wait is bounded, the fall-through to waitForApproval
+    // is graceful, and it is an intentionally supported configuration with
+    // existing coverage. Only the unbounded case is a defect.
+    //
+    // Fail at construction rather than at the first approval: this is a
+    // misconfiguration, and surfacing it hours into a run at the moment a
+    // human is needed is the worst possible time to learn about it.
+    // `resume()` already throws for the same missing store; this makes the
+    // write path as strict as the read path.
+    if (
+      config.durableResume === true &&
+      config.checkpointStore === undefined &&
+      config.timeoutMs === undefined
+    ) {
+      throw new Error(
+        'ApprovalGate: ' +
+          "'durableResume: true' without a 'checkpointStore' requires a " +
+          "'timeoutMs'. Otherwise the approval wait is unbounded AND " +
+          'non-durable, so a restart loses it with no timeout to bound it. ' +
+          'Supply a checkpointStore for durable resumption, set a timeoutMs ' +
+          'to bound the wait, or omit durableResume for the default timeout.',
+      )
+    }
+  }
 
   /**
    * Check if approval is needed and wait for it.

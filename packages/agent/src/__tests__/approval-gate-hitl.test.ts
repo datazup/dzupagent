@@ -1325,3 +1325,70 @@ describe("APPROVAL_PENDING_KEY constant", () => {
     expect(state).not.toBeNull();
   });
 });
+
+describe("ApprovalGate durableResume configuration", () => {
+  /**
+   * `durableResume` with no `timeoutMs` buys an UNBOUNDED in-process wait
+   * against the promise that pending state lives in a checkpointStore and
+   * another runtime can resume it. Configured without that store the gate used
+   * to accept it silently, fall through to the legacy in-process wait, AND drop
+   * the default timeout — so the flag delivered the unbounded wait while
+   * delivering none of the durability that justified it. A restart lost the
+   * approval with no event and no timeout to bound it.
+   *
+   * The guard is narrow on purpose. `durableResume` + explicit `timeoutMs`
+   * with no store is a SUPPORTED configuration: the wait is bounded and the
+   * fall-through is graceful. Only the unbounded case is rejected.
+   */
+  it("rejects durableResume with neither a checkpointStore nor a timeoutMs", () => {
+    const bus = createEventBus();
+    expect(
+      () => new ApprovalGate({ mode: "required", durableResume: true }, bus),
+    ).toThrow(/requires a 'timeoutMs'/);
+  });
+
+  it("explains both consequences in the error", () => {
+    const bus = createEventBus();
+    expect(
+      () => new ApprovalGate({ mode: "required", durableResume: true }, bus),
+    ).toThrow(/unbounded AND non-durable/);
+  });
+
+  it("accepts durableResume when a checkpointStore is supplied", () => {
+    const bus = createEventBus();
+    expect(
+      () =>
+        new ApprovalGate(
+          {
+            mode: "required",
+            durableResume: true,
+            checkpointStore: new InMemoryApprovalStore(),
+          },
+          bus,
+        ),
+    ).not.toThrow();
+  });
+
+  it("accepts durableResume with an explicit timeoutMs and no store", () => {
+    // The bounded fall-through case. Rejecting this would break a documented,
+    // already-tested configuration — the wait cannot hang, it just is not
+    // durable, which is what the caller asked for.
+    const bus = createEventBus();
+    expect(
+      () =>
+        new ApprovalGate(
+          { mode: "required", durableResume: true, timeoutMs: 40 },
+          bus,
+        ),
+    ).not.toThrow();
+  });
+
+  it("leaves the default (non-durable) configuration alone", () => {
+    const bus = createEventBus();
+    expect(() => new ApprovalGate({ mode: "required" }, bus)).not.toThrow();
+    // Explicit false is a deliberate opt-out, not a misconfiguration.
+    expect(
+      () => new ApprovalGate({ mode: "required", durableResume: false }, bus),
+    ).not.toThrow();
+  });
+});

@@ -74,3 +74,17 @@ export type {
   LlmJudgeVerdictOptions,
   LlmJudgeVerdictService,
 } from "./team-verdict-llm-judge.js";
+
+export {
+  JudgeBudgetExceededError,
+  JudgeTimeoutError,
+  withJudgeBudget,
+  withJudgeCache,
+  withJudgeTimeout,
+} from "./team-verdict-judge-controls.js";
+export type {
+  AbortableJudgeInvoker,
+  JudgeBudgetOptions,
+  JudgeCacheOptions,
+  JudgeTimeoutOptions,
+} from "./team-verdict-judge-controls.js";
