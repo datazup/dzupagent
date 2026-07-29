@@ -29,12 +29,16 @@
  * rejection of every run. This service therefore never fabricates a 0 — it
  * routes failure through `onJudgeFailure` instead.
  *
- * `'skip'` deliberately reuses the runtime's existing skipped-verdict path, so
- * a judge that is down shows up in the same `team_verdict_evaluated`
- * (`outcome: 'skipped'`) signal and `dzip_team_verdict_total` metric as a gate
- * that was never wired. Both mean "this run was not actually judged".
+ * `'skip'` routes through the runtime's skipped-verdict path, so a judge that is
+ * down shows up in the `team_verdict_evaluated` (`outcome: 'skipped'`) signal
+ * and `dzip_team_verdict_total` metric rather than as a pass. Both a broken
+ * judge and an unwired gate mean "this run was not actually judged", but they
+ * are reported with different `reason` labels — `scorer_failed` vs `unwired` —
+ * because only one of them is an outage in progress. See the `reason` docs on
+ * `team_verdict_evaluated`.
  */
 
+import { readJudgeGuards } from "./team-verdict-judge-controls.js";
 import type {
   TeamEvaluationService,
   TeamGovernanceService,
@@ -71,6 +75,30 @@ export interface LlmJudgeVerdictOptions {
    * `evaluation.scoringCriteria` is present on the run's policies.
    */
   defaultCriteria?: string[];
+  /**
+   * Acknowledge that the judge has no latency or cost control, silencing the
+   * unguarded warning.
+   *
+   * A judge is a paid network call on the completion path of every gated run.
+   * Without a timeout, a provider that accepts a connection and never answers
+   * hangs the gate indefinitely while still billing; without a budget, a retry
+   * loop can spend without bound. Neither can be defaulted here, because this
+   * service takes an opaque callback and cannot cancel a request it does not
+   * itself make (see `withJudgeTimeout`, which requires an
+   * `AbortableJudgeInvoker` for exactly that reason).
+   *
+   * So the risk is REPORTED rather than silently accepted. Set this to `true`
+   * when the host applies its own timeout/budget outside these wrappers, which
+   * is a legitimate arrangement the brand cannot detect.
+   */
+  unguarded?: boolean;
+  /**
+   * Sink for the unguarded warning. Defaults to `console.warn`.
+   *
+   * Injectable so a host can route it into its own logger, and so tests can
+   * assert on it without touching global console state.
+   */
+  onWarning?: (message: string) => void;
 }
 
 /**
@@ -113,6 +141,23 @@ export function createLlmJudgeVerdictService(
     );
   }
 
+  // Warn, never throw: an unguarded judge is a real risk but a working
+  // configuration, and failing construction would break every existing caller
+  // and every test that wires a trivial judge. The gate stays available; the
+  // exposure just stops being invisible.
+  if (options.unguarded !== true) {
+    const guards = readJudgeGuards(judge);
+    if (!guards.timeout && !guards.budget) {
+      const warn = options.onWarning ?? ((m: string) => console.warn(m));
+      warn(
+        "createLlmJudgeVerdictService: the judge has no timeout or budget " +
+          "control, so a hung or looping provider can stall every gated run " +
+          "while billing. Wrap it with withJudgeTimeout / withJudgeBudget, or " +
+          "set 'unguarded: true' to acknowledge a host-side control."
+      );
+    }
+  }
+
   const verdictFor = async (input: TeamVerdictInput): Promise<TeamVerdict> => {
     let raw: string;
     try {
@@ -140,15 +185,21 @@ export function createLlmJudgeVerdictService(
 /**
  * Apply the configured failure policy.
  *
- * `'skip'` returns a score of 1 with `unanimous: true` — deliberately a
- * PASS-THROUGH, not a judgement. It is the only encoding of "do not gate this
- * run" available through the `TeamVerdict` contract, and it matches what the
- * runtime already does for an unwired scorer. Returning 0 instead would reject
- * every run during an outage.
+ * `'skip'` returns a non-gating verdict marked `notScored` — deliberately a
+ * PASS-THROUGH, not a judgement. Returning 0 instead would reject every run
+ * during an outage.
+ *
+ * `score: 1` remains the only encoding of "do not gate this run" the
+ * `TeamVerdict` contract offers, so `notScored` rides alongside it to say that
+ * the 1 is an abstention rather than a verdict. Without that flag an outage is
+ * reported as a unanimous pass and is indistinguishable from a gate that
+ * genuinely ran — the same silent-success failure the skipped-verdict signal
+ * exists to expose. The gate reads the flag and reports
+ * `outcome: 'skipped', reason: 'scorer_failed'`.
  */
 function onFailure(cause: unknown, policy: JudgeFailurePolicy): TeamVerdict {
   if (policy === "reject") throw new TeamJudgeUnavailableError(cause);
-  return { score: 1, unanimous: true };
+  return { score: 1, unanimous: true, notScored: true };
 }
 
 /** Build the judge prompt from the run's task, output, and declared criteria. */

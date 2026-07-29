@@ -3,8 +3,15 @@
  * self-correction module stores into a structured format for API
  * consumption and frontend dashboards.
  *
- * Read-only: never writes to store. All operations are best-effort --
- * empty store or store errors produce zero/empty results.
+ * Read-only: never writes to store. All operations are best-effort -- a store
+ * error degrades that section to a zero/empty value rather than failing the
+ * whole dashboard.
+ *
+ * Which sections degraded is REPORTED, in `LearningDashboard.degraded`. For a
+ * reporting surface the zeros are the danger: an unreachable store otherwise
+ * renders "0 lessons, stable quality, no errors", which is exactly what a
+ * healthy idle system looks like. Callers rendering these numbers must surface
+ * `degraded` alongside them.
  *
  * @module self-correction/learning-dashboard
  */
@@ -62,6 +69,30 @@ export interface NodePerformanceSummary {
   runsTracked: number
 }
 
+/** Dashboard sections, used to report which of them failed to load. */
+export type LearningDashboardSection =
+  | 'overview'
+  | 'qualityTrend'
+  | 'costTrend'
+  | 'nodePerformance'
+  | 'topLessons'
+  | 'topRules'
+  | 'recentErrors'
+
+/**
+ * A dashboard section that could not be read from the store.
+ *
+ * Every section degrades to a zero/empty value on store failure, which for a
+ * REPORTING surface is indistinguishable from a genuinely empty store: a dead
+ * store renders "0 lessons, stable quality, no errors" — a healthy-looking
+ * dashboard. This records that a number is missing rather than measured.
+ */
+export interface LearningDashboardFailure {
+  section: LearningDashboardSection
+  /** Failure message, for an operator reading the degraded dashboard. */
+  error: string
+}
+
 /** Full dashboard payload combining all sections. */
 export interface LearningDashboard {
   overview: LearningOverview
@@ -71,6 +102,16 @@ export interface LearningDashboard {
   topLessons: Array<{ summary: string; confidence: number; applyCount: number }>
   topRules: Array<{ content: string; confidence: number; successRate: number }>
   recentErrors: Array<{ nodeId: string; error: string; timestamp: string }>
+  /**
+   * Sections that failed to load; empty when every section was really read.
+   *
+   * Non-empty means the values above are partly fabricated and must not be read
+   * as measurements — `errorRate: 0` from an unreachable store is not "no
+   * errors". Surface this in any UI that renders the numbers, and alert on it:
+   * a silently-degraded dashboard is worse than an absent one, because it is
+   * trusted.
+   */
+  degraded: LearningDashboardFailure[]
 }
 
 /** Configuration for the LearningDashboardService. */
@@ -102,6 +143,10 @@ function safeString(v: unknown, fallback = ''): string {
 
 function safeNumber(v: unknown, fallback = 0): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback
+}
+
+function describeError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
 
 function computeTrendDirection(
@@ -149,17 +194,52 @@ export class LearningDashboardService {
   // Full dashboard
   // -------------------------------------------------------------------------
 
-  /** Get the full dashboard data. Calls all sub-methods in parallel. */
+  /**
+   * Get the full dashboard data. Calls all sub-methods in parallel.
+   *
+   * Sections still degrade to zero/empty on store failure, so a partial outage
+   * yields a partial dashboard rather than no dashboard. What changed is that
+   * the degradation is REPORTED in `degraded`: previously a completely dead
+   * store produced "0 lessons, stable quality, no errors", which an operator
+   * reads as a healthy idle system.
+   */
   async getDashboard(): Promise<LearningDashboard> {
+    const degraded: LearningDashboardFailure[] = []
+    // One sink per section, so a failing read is attributed to the section whose
+    // numbers it invalidates rather than to the dashboard as a whole.
+    const sink =
+      (section: LearningDashboardSection) =>
+      (error: unknown): void => {
+        degraded.push({ section, error: describeError(error) })
+      }
+
     const results = await Promise.allSettled([
-      this.getOverview(),
-      this.getQualityTrend(),
-      this.getCostTrend(),
-      this.getNodePerformance(),
-      this.getTopLessons(),
-      this.getTopRules(),
-      this.getRecentErrors(),
+      this.getOverview(sink('overview')),
+      this.getQualityTrend(undefined, sink('qualityTrend')),
+      this.getCostTrend(undefined, sink('costTrend')),
+      this.getNodePerformance(sink('nodePerformance')),
+      this.getTopLessons(sink('topLessons')),
+      this.getTopRules(sink('topRules')),
+      this.getRecentErrors(sink('recentErrors')),
     ])
+
+    // A rejected section never reached its own sink, so record it here. Without
+    // this the outer allSettled fallback would silently substitute an empty
+    // value — the same swallow one layer up.
+    const sections: LearningDashboardSection[] = [
+      'overview',
+      'qualityTrend',
+      'costTrend',
+      'nodePerformance',
+      'topLessons',
+      'topRules',
+      'recentErrors',
+    ]
+    results.forEach((result, i) => {
+      if (result.status === 'rejected') {
+        degraded.push({ section: sections[i]!, error: describeError(result.reason) })
+      }
+    })
 
     return {
       overview: results[0].status === 'fulfilled' ? results[0].value : emptyOverview(),
@@ -169,6 +249,7 @@ export class LearningDashboardService {
       topLessons: results[4].status === 'fulfilled' ? results[4].value : [],
       topRules: results[5].status === 'fulfilled' ? results[5].value : [],
       recentErrors: results[6].status === 'fulfilled' ? results[6].value : [],
+      degraded,
     }
   }
 
@@ -177,15 +258,15 @@ export class LearningDashboardService {
   // -------------------------------------------------------------------------
 
   /** Get just the overview (lightweight). */
-  async getOverview(): Promise<LearningOverview> {
+  async getOverview(onFailure?: (error: unknown) => void): Promise<LearningOverview> {
     const [lessons, rules, skills, trajectories, feedback, packs] =
       await Promise.allSettled([
-        this.countItems([...this.ns, 'lessons']),
-        this.countItems([...this.ns, 'rules']),
-        this.countItems([...this.ns, 'skills']),
-        this.countItems([...this.ns, 'trajectories', 'runs']),
-        this.countItems([...this.ns, 'feedback']),
-        this.loadPackIds(),
+        this.countItems([...this.ns, 'lessons'], onFailure),
+        this.countItems([...this.ns, 'rules'], onFailure),
+        this.countItems([...this.ns, 'skills'], onFailure),
+        this.countItems([...this.ns, 'trajectories', 'runs'], onFailure),
+        this.countItems([...this.ns, 'feedback'], onFailure),
+        this.loadPackIds(onFailure),
       ])
 
     return {
@@ -203,9 +284,12 @@ export class LearningDashboardService {
   // -------------------------------------------------------------------------
 
   /** Get quality trend for last N runs. */
-  async getQualityTrend(limit?: number): Promise<QualityTrend> {
+  async getQualityTrend(
+    limit?: number,
+    onFailure?: (error: unknown) => void,
+  ): Promise<QualityTrend> {
     const maxRuns = limit ?? this.maxTrendRuns
-    const trajectories = await this.loadTrajectories(maxRuns)
+    const trajectories = await this.loadTrajectories(maxRuns, onFailure)
 
     if (trajectories.length === 0) return emptyQualityTrend()
 
@@ -242,9 +326,12 @@ export class LearningDashboardService {
   // -------------------------------------------------------------------------
 
   /** Get cost trend for last N runs. */
-  async getCostTrend(limit?: number): Promise<CostTrend> {
+  async getCostTrend(
+    limit?: number,
+    onFailure?: (error: unknown) => void,
+  ): Promise<CostTrend> {
     const maxRuns = limit ?? this.maxTrendRuns
-    const trajectories = await this.loadTrajectories(maxRuns)
+    const trajectories = await this.loadTrajectories(maxRuns, onFailure)
 
     if (trajectories.length === 0) return emptyCostTrend()
 
@@ -276,8 +363,10 @@ export class LearningDashboardService {
   // -------------------------------------------------------------------------
 
   /** Get per-node performance summaries. */
-  async getNodePerformance(): Promise<NodePerformanceSummary[]> {
-    const trajectories = await this.loadTrajectories(1000)
+  async getNodePerformance(
+    onFailure?: (error: unknown) => void,
+  ): Promise<NodePerformanceSummary[]> {
+    const trajectories = await this.loadTrajectories(1000, onFailure)
 
     // Accumulate per-node stats
     const nodeStats = new Map<
@@ -327,9 +416,9 @@ export class LearningDashboardService {
   // -------------------------------------------------------------------------
 
   /** Get top lessons sorted by confidence descending. */
-  async getTopLessons(): Promise<
-    Array<{ summary: string; confidence: number; applyCount: number }>
-  > {
+  async getTopLessons(
+    onFailure?: (error: unknown) => void,
+  ): Promise<Array<{ summary: string; confidence: number; applyCount: number }>> {
     try {
       const ns = [...this.ns, 'lessons']
       const items = await this.store.search(ns, { limit: this.maxItems * 3 })
@@ -345,7 +434,10 @@ export class LearningDashboardService {
 
       lessons.sort((a, b) => b.confidence - a.confidence)
       return lessons.slice(0, this.maxItems)
-    } catch {
+    } catch (err: unknown) {
+      // An empty list from a failed read is indistinguishable from "nothing
+      // learned yet" — the exact ambiguity the degraded report removes.
+      onFailure?.(err)
       return []
     }
   }
@@ -355,9 +447,9 @@ export class LearningDashboardService {
   // -------------------------------------------------------------------------
 
   /** Get top rules sorted by success rate descending. */
-  async getTopRules(): Promise<
-    Array<{ content: string; confidence: number; successRate: number }>
-  > {
+  async getTopRules(
+    onFailure?: (error: unknown) => void,
+  ): Promise<Array<{ content: string; confidence: number; successRate: number }>> {
     try {
       const ns = [...this.ns, 'rules']
       const items = await this.store.search(ns, { limit: this.maxItems * 3 })
@@ -373,7 +465,10 @@ export class LearningDashboardService {
 
       rules.sort((a, b) => b.successRate - a.successRate)
       return rules.slice(0, this.maxItems)
-    } catch {
+    } catch (err: unknown) {
+      // An empty list from a failed read is indistinguishable from "nothing
+      // learned yet" — the exact ambiguity the degraded report removes.
+      onFailure?.(err)
       return []
     }
   }
@@ -383,9 +478,9 @@ export class LearningDashboardService {
   // -------------------------------------------------------------------------
 
   /** Get recent errors. */
-  async getRecentErrors(): Promise<
-    Array<{ nodeId: string; error: string; timestamp: string }>
-  > {
+  async getRecentErrors(
+    onFailure?: (error: unknown) => void,
+  ): Promise<Array<{ nodeId: string; error: string; timestamp: string }>> {
     try {
       const ns = [...this.ns, 'errors']
       const items = await this.store.search(ns, { limit: this.maxItems * 2 })
@@ -402,7 +497,10 @@ export class LearningDashboardService {
       // Sort by timestamp descending (most recent first)
       errors.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
       return errors.slice(0, this.maxItems)
-    } catch {
+    } catch (err: unknown) {
+      // An empty list from a failed read is indistinguishable from "nothing
+      // learned yet" — the exact ambiguity the degraded report removes.
+      onFailure?.(err)
       return []
     }
   }
@@ -412,17 +510,24 @@ export class LearningDashboardService {
   // -------------------------------------------------------------------------
 
   /** Count items in a namespace. Best-effort. */
-  private async countItems(namespace: string[]): Promise<number> {
+  private async countItems(
+    namespace: string[],
+    onFailure?: (error: unknown) => void,
+  ): Promise<number> {
     try {
       const items = await this.store.search(namespace, { limit: 10_000 })
       return items.length
-    } catch {
+    } catch (err: unknown) {
+      // A count of 0 from an unreachable store is not a measurement. Report it
+      // so the caller can mark the section degraded rather than publishing the
+      // zero as fact.
+      onFailure?.(err)
       return 0
     }
   }
 
   /** Load pack IDs from the packs_loaded namespace. */
-  private async loadPackIds(): Promise<string[]> {
+  private async loadPackIds(onFailure?: (error: unknown) => void): Promise<string[]> {
     try {
       const ns = [...this.ns, 'packs_loaded']
       const items = await this.store.search(ns, { limit: 1000 })
@@ -430,7 +535,8 @@ export class LearningDashboardService {
         const v = item.value as Record<string, unknown>
         return safeString(v['packId'] || item.key)
       })
-    } catch {
+    } catch (err: unknown) {
+      onFailure?.(err)
       return []
     }
   }
@@ -438,12 +544,16 @@ export class LearningDashboardService {
   /** Load trajectory records from the trajectories/runs namespace. */
   private async loadTrajectories(
     limit: number = this.maxTrendRuns,
+    onFailure?: (error: unknown) => void,
   ): Promise<Array<Record<string, unknown>>> {
     try {
       const ns = [...this.ns, 'trajectories', 'runs']
       const items = await this.store.search(ns, { limit })
       return items.map((item) => item.value as Record<string, unknown>)
-    } catch {
+    } catch (err: unknown) {
+      // Critical for the trend sections: an empty trajectory list yields
+      // trend: 'stable' with average 0, which reads as a calm, healthy system.
+      onFailure?.(err)
       return []
     }
   }

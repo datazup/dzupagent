@@ -160,6 +160,8 @@ export type {
   CostTrend,
   NodePerformanceSummary,
   LearningDashboard,
+  LearningDashboardFailure,
+  LearningDashboardSection,
   DashboardServiceConfig,
 } from './learning-dashboard.js'
 

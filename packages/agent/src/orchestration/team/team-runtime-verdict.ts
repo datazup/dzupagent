@@ -40,6 +40,22 @@ export interface TeamVerdict {
    * when `governance.requireUnanimous` is set; ignored otherwise.
    */
   unanimous?: boolean;
+  /**
+   * Set by a scorer that could NOT actually judge the run and is declining to
+   * gate it, rather than reporting a real verdict.
+   *
+   * A scorer with a `skip` failure policy has to return something, and the only
+   * non-gating value `score` can take is a passing one. That makes an outage
+   * indistinguishable from a genuine unanimous pass — the exact silent-success
+   * failure this contract exists to prevent elsewhere. Setting this flag lets
+   * the gate report `outcome: 'skipped'` with `reason: 'scorer_failed'` instead
+   * of counting a fabricated pass.
+   *
+   * The run outcome is unchanged: `notScored` still does not gate. Only the
+   * reporting differs — which is the whole point, since a judge that is down
+   * during a release is worth knowing about.
+   */
+  notScored?: boolean;
 }
 
 /**
@@ -123,11 +139,18 @@ async function applyGovernanceGate(ctx: VerdictGateContext): Promise<void> {
     // checked. The run outcome is deliberately unchanged (see the `skipped`
     // docs on TeamRuntimeEvent) — this is an observability signal, not a new
     // failure mode.
-    emitSkipped(ctx, "governance");
+    emitSkipped(ctx, "governance", "unwired");
     return;
   }
 
   const verdict = await ctx.governance.evaluate(verdictInput(ctx));
+
+  // A scorer that declined to judge does not gate, but must not be counted as a
+  // pass either — see `notScored` on TeamVerdict.
+  if (verdict.notScored === true) {
+    emitSkipped(ctx, "governance", "scorer_failed");
+    return;
+  }
 
   if (
     governance.minScore !== undefined &&
@@ -158,11 +181,16 @@ async function applyEvaluationGate(ctx: VerdictGateContext): Promise<void> {
   if (!ctx.evaluation) {
     // Same reasoning as the governance gate above: a declared-but-unwired
     // threshold is reported, not silently ignored.
-    emitSkipped(ctx, "evaluation");
+    emitSkipped(ctx, "evaluation", "unwired");
     return;
   }
 
   const verdict = await ctx.evaluation.score(verdictInput(ctx));
+
+  if (verdict.notScored === true) {
+    emitSkipped(ctx, "evaluation", "scorer_failed");
+    return;
+  }
 
   if (verdict.score < evaluation.minPassScore) {
     emitVerdict(ctx, "evaluation", "rejected", verdict.score);
@@ -203,17 +231,22 @@ function emitVerdict(
 }
 
 /**
- * Report a gate that was declared in policy but could not run because no
- * scorer service was injected.
+ * Report a gate that was declared in policy but could not be applied.
  *
  * Kept separate from {@link emitVerdict} rather than folded in behind an
  * optional `score` so the required-`score` signature there still holds: a
  * passed/rejected verdict must always carry the number it was decided on, and
  * a skipped one has no number to carry.
+ *
+ * `reason` is required here even though it is optional on the event, so that
+ * every skip this module emits is attributable. The field stays optional on the
+ * event type only for backward compatibility with consumers built against the
+ * single-cause version.
  */
 function emitSkipped(
   ctx: VerdictGateContext,
-  gate: "governance" | "evaluation"
+  gate: "governance" | "evaluation",
+  reason: "unwired" | "scorer_failed"
 ): void {
   ctx.emitEvent({
     type: "team_verdict_evaluated",
@@ -221,6 +254,7 @@ function emitSkipped(
     runId: ctx.runId,
     gate,
     outcome: "skipped",
+    reason,
     at: new Date(),
   });
 }

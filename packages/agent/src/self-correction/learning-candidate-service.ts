@@ -25,6 +25,15 @@ export interface PromoteResult {
   candidateId: string
   /** Reason for failure when success is false. */
   reason?: string
+  /**
+   * Whether the promoted lesson was written to a durable store.
+   *
+   * `false` with `success: true` means the promotion exists in memory only,
+   * because RecoveryFeedback has no store wired — the lesson is gone when the
+   * process exits. An operator who promotes a lesson reasonably expects it to
+   * survive, so a UI must not render this the same as a durable promotion.
+   */
+  persisted?: boolean
 }
 
 export interface RejectResult {
@@ -85,9 +94,12 @@ export class LearningCandidateService {
       return { success: false, candidateId, reason: `Candidate already ${candidate.status}` }
     }
 
-    const ok = await this.feedback.promoteCandidate(candidateId, reviewedBy)
-    return ok
-      ? { success: true, candidateId }
+    const { accepted, persisted } = await this.feedback.promoteCandidateDetailed(
+      candidateId,
+      reviewedBy,
+    )
+    return accepted
+      ? { success: true, candidateId, persisted }
       : { success: false, candidateId, reason: 'Promotion failed' }
   }
 

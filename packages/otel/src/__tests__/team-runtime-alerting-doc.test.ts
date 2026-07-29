@@ -108,4 +108,23 @@ describe("team runtime alerting runbook", () => {
     expect(text).toMatch(/reason="unwired"/);
     expect(text).toMatch(/reason="failed"/);
   });
+
+  it("alerts separately on a failing scorer and an unwired gate", () => {
+    // Both are outcome="skipped" but only one is an outage in progress. A
+    // runbook that alerted on the bare outcome would bury the outage in the
+    // constant background rate of teams that simply never wired a scorer —
+    // the reason the `reason` label was added.
+    const text = readFileSync(runbookPath!, "utf8");
+
+    expect(text).toMatch(/reason="scorer_failed"/);
+    // The unwired rule must be filtered too, or it double-counts the outage.
+    expect(text).toMatch(/outcome="skipped",reason="unwired"/);
+  });
+
+  it("declares every label key the map emits for the verdict metric", () => {
+    // A rule grouping by or filtering on a label the exporter never emits
+    // matches nothing and silently never fires.
+    const verdict = teamRuntimeMetricMap["team:verdict_evaluated"][0];
+    expect(verdict.labelKeys).toContain("reason");
+  });
 });

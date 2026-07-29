@@ -7,7 +7,7 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { InMemoryRunStateStore, type DzupRunState } from '@dzupagent/core'
+import { InMemoryRunStateStore, omitUndefined, type DzupRunState } from '@dzupagent/core'
 import type { DzupAgentConfig, GenerateOptions, GenerateResult } from '../agent/agent-types.js'
 import type { ToolLoopResult, StopReason, ToolStat } from '../agent/tool-loop.js'
 import type * as ToolLoopModule from '../agent/tool-loop.js'
@@ -77,7 +77,7 @@ function mockModel(): BaseChatModel {
 function basePrepareParams(overrides: Partial<Parameters<typeof prepareRunState>[0]> = {}) {
   const tools = [mockTool('read_file'), mockTool('write_file')]
   const model = mockModel()
-  return {
+  return omitUndefined<Parameters<typeof prepareRunState>[0]>({
     config: {
       id: 'test-agent',
       instructions: 'You are a test agent.',
@@ -91,7 +91,7 @@ function basePrepareParams(overrides: Partial<Parameters<typeof prepareRunState>
     bindTools: vi.fn((_m: BaseChatModel, _t: StructuredToolInterface[]) => model),
     runBeforeAgentHooks: vi.fn(async () => {}),
     ...overrides,
-  }
+  })
 }
 
 function makeToolLoopResult(overrides: Partial<ToolLoopResult> = {}): ToolLoopResult {
@@ -111,7 +111,7 @@ function baseExecuteParams(
   runState: PreparedRunState,
   overrides: Partial<Parameters<typeof executeGenerateRun>[0]> = {},
 ) {
-  return {
+  return omitUndefined<Parameters<typeof executeGenerateRun>[0]>({
     agentId: 'test-agent',
     config: {
       id: 'test-agent',
@@ -124,7 +124,7 @@ function baseExecuteParams(
     transformToolResult: vi.fn(async (_n: string, _i: Record<string, unknown>, r: string) => r),
     maybeUpdateSummary: vi.fn(async () => {}),
     ...overrides,
-  }
+  })
 }
 
 // ---------------------------------------------------------------------------

@@ -52,7 +52,6 @@ interface PgQueryResult {
 interface PgPoolLike {
   query(text: string, values?: unknown[]): Promise<PgQueryResult>
   connect(): Promise<PgPoolClient>
-  on(event: string, listener: (client: PgPoolClient) => void): void
   end(): Promise<void>
 }
 
@@ -76,36 +75,13 @@ export class PostgreSQLConnector extends BaseSQLConnector {
         : false,
       max: 5,
       idleTimeoutMillis: 30_000,
+      // Apply read-only mode as part of PostgreSQL's startup handshake. A
+      // pool `connect` event is synchronous from EventEmitter's perspective,
+      // so starting an async SET there races the first consumer query (and is
+      // deprecated by pg). Startup options are complete before Pool.connect()
+      // resolves and fail the connection closed if PostgreSQL rejects them.
+      options: '-c default_transaction_read_only=on',
     }) as unknown as PgPoolLike
-
-    // Force every new connection into read-only mode so that
-    // user-supplied SQL cannot INSERT/UPDATE/DELETE/DROP.
-    //
-    // If the SET fails we MUST NOT keep the connection: statement_timeout does
-    // not prevent writes, so a session where read-only enforcement silently
-    // failed would run user SQL writable. Log at error level and poison the
-    // connection by releasing it with an error, which evicts it from the pool
-    // so it is never handed out writable.
-    this.pool.on('connect', (client: PgPoolClient) => {
-      client.query('SET default_transaction_read_only = ON').catch((err: unknown) => {
-        console.error(
-          JSON.stringify({
-            level: 'error',
-            component: 'postgresql-connector',
-            operation: 'set_read_only',
-            message:
-              'Failed to enforce read-only mode on new connection; evicting it from the pool',
-            error: {
-              message: err instanceof Error ? err.message : String(err),
-              name: err instanceof Error ? err.constructor.name : typeof err,
-            },
-            timestamp: new Date().toISOString(),
-          }),
-        )
-        // Discard the connection so it can never be reused writable.
-        client.release(err instanceof Error ? err : new Error(String(err)))
-      })
-    })
   }
 
   // ---------------------------------------------------------------------------

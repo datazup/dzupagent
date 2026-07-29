@@ -84,6 +84,15 @@ describe("team runtime: metric extraction", () => {
       runId: "run-1",
       gate: "governance",
       outcome: "skipped",
+      reason: "unwired",
+    } as unknown as DzupEvent;
+    const scorerFailed = {
+      type: "team:verdict_evaluated",
+      teamId: "team-a",
+      runId: "run-1",
+      gate: "governance",
+      outcome: "skipped",
+      reason: "scorer_failed",
     } as unknown as DzupEvent;
     const passed = {
       type: "team:verdict_evaluated",
@@ -102,11 +111,23 @@ describe("team runtime: metric extraction", () => {
       team_id: "team-a",
       gate: "governance",
       outcome: "skipped",
+      reason: "unwired",
     });
+    // ...and the two skip causes must not be aggregated with each other: one is
+    // a static wiring mistake, the other a live outage.
+    expect(verdict!.extract(scorerFailed).labels).toEqual({
+      team_id: "team-a",
+      gate: "governance",
+      outcome: "skipped",
+      reason: "scorer_failed",
+    });
+    // A real verdict carries reason='none' rather than omitting the key, so the
+    // series shape stays constant across samples.
     expect(verdict!.extract(passed).labels).toEqual({
       team_id: "team-a",
       gate: "evaluation",
       outcome: "passed",
+      reason: "none",
     });
   });
 

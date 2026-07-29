@@ -214,6 +214,74 @@ describe("TeamRuntime governance acceptance gate", () => {
     ).toMatchObject([{ gate: "governance", outcome: "skipped" }]);
   });
 
+  it("distinguishes a scorer that declined to judge from an unwired gate", async () => {
+    // The two skip causes need different responses: unwired is a static wiring
+    // mistake, scorer_failed is a live outage during which every run passes a
+    // gate someone is relying on. Reported under one label, the alert for the
+    // outage is muted by the noise of the misconfiguration.
+    const events: TeamRuntimeEvent[] = [];
+    const governance: TeamGovernanceService = {
+      evaluate: vi.fn(async () => ({
+        score: 1,
+        unanimous: true,
+        notScored: true,
+      })),
+    };
+    const runtime = makeRuntime(councilDefinition(), {
+      policies: {
+        governance: { judgeModel: "claude-opus-4-7", minScore: 0.99 },
+      },
+      governance,
+      onEvent: (e) => events.push(e),
+    });
+
+    // Still ungated — a broken judge must not fail good runs.
+    await expect(runtime.execute("task")).resolves.toMatchObject({
+      pattern: "council",
+    });
+
+    const verdicts = events.filter((e) => e.type === "team_verdict_evaluated");
+    expect(verdicts).toMatchObject([
+      { gate: "governance", outcome: "skipped", reason: "scorer_failed" },
+    ]);
+    // The abstention must NOT be reported as a pass, even though score is 1.
+    expect(verdicts[0]).not.toMatchObject({ outcome: "passed" });
+  });
+
+  it("labels an unwired governance gate unwired, not scorer_failed", async () => {
+    const events: TeamRuntimeEvent[] = [];
+    const runtime = makeRuntime(councilDefinition(), {
+      policies: {
+        governance: { judgeModel: "claude-opus-4-7", minScore: 0.99 },
+      },
+      onEvent: (e) => events.push(e),
+    });
+
+    await runtime.execute("task");
+    expect(
+      events.filter((e) => e.type === "team_verdict_evaluated")
+    ).toMatchObject([{ outcome: "skipped", reason: "unwired" }]);
+  });
+
+  it("does not let notScored bypass a gate the scorer actually failed", async () => {
+    // notScored is an abstention, not an override: a scorer returning a REAL
+    // low score must still reject. Otherwise any scorer could silently disable
+    // the gate by always abstaining.
+    const governance: TeamGovernanceService = {
+      evaluate: vi.fn(async () => ({ score: 0.1, notScored: false })),
+    };
+    const runtime = makeRuntime(councilDefinition(), {
+      policies: {
+        governance: { judgeModel: "claude-opus-4-7", minScore: 0.8 },
+      },
+      governance,
+    });
+
+    await expect(runtime.execute("task")).rejects.toThrow(
+      /governance\.minScore/
+    );
+  });
+
   it("does not invoke the scorer when only judgeModel is set (no thresholds)", async () => {
     const governance: TeamGovernanceService = {
       evaluate: vi.fn(async () => ({ score: 0 })),
@@ -291,6 +359,29 @@ describe("TeamRuntime evaluation acceptance gate", () => {
     expect(
       events.filter((e) => e.type === "team_verdict_evaluated")
     ).toMatchObject([{ gate: "evaluation", outcome: "skipped" }]);
+  });
+
+  it("reports scorer_failed on the evaluation gate when the scorer abstains", async () => {
+    const events: TeamRuntimeEvent[] = [];
+    const evaluation: TeamEvaluationService = {
+      score: vi.fn(async () => ({ score: 1, notScored: true })),
+    };
+    const runtime = makeRuntime(peerDefinition(), {
+      policies: {
+        evaluation: { scorerModel: "claude-opus-4-7", minPassScore: 0.99 },
+      },
+      evaluation,
+      onEvent: (e) => events.push(e),
+    });
+
+    await expect(runtime.execute("task")).resolves.toMatchObject({
+      pattern: "peer-to-peer",
+    });
+    expect(
+      events.filter((e) => e.type === "team_verdict_evaluated")
+    ).toMatchObject([
+      { gate: "evaluation", outcome: "skipped", reason: "scorer_failed" },
+    ]);
   });
 
   it("does not invoke the scorer when only scorerModel is set (no threshold)", async () => {

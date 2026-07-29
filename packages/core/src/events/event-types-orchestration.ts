@@ -414,6 +414,15 @@ export type OrchestrationDomainEvent =
       outcome: "passed" | "rejected" | "skipped";
       /** Absent on `skipped` — no scorer ran, so there is no score. */
       score?: number;
+      /**
+       * Why a `skipped` verdict was skipped; absent on passed/rejected.
+       *
+       * `unwired` — the threshold was declared but no scorer was injected (a
+       * static wiring mistake). `scorer_failed` — a scorer was wired and could
+       * not produce a verdict (a live outage, during which every run passes a
+       * gate someone is relying on). Alert on them separately.
+       */
+      reason?: "unwired" | "scorer_failed";
     }
   | {
       /**

@@ -506,3 +506,133 @@ describe('PostRunAnalyzer', () => {
     })
   })
 })
+
+describe('PostRunAnalyzer failure reporting', () => {
+  function makeRun(overrides: Partial<RunAnalysis> = {}): RunAnalysis {
+    return {
+      runId: nextId(),
+      taskType: 'refactor',
+      riskClass: 'standard',
+      overallScore: 0.95,
+      approved: true,
+      totalCostCents: 10,
+      totalDurationMs: 1000,
+      errors: [],
+      nodeScores: new Map([['n1', 0.9]]),
+      ...overrides,
+    } as RunAnalysis
+  }
+
+  /** A store whose writes always fail; reads still work. */
+  function createWriteFailingStore(): BaseStore {
+    const base = createMemoryStore()
+    return {
+      ...base,
+      async put() {
+        throw new Error('disk full')
+      },
+    } as unknown as BaseStore
+  }
+
+  it('reports the stages that failed instead of returning clean zeros', async () => {
+    // analyze() is best-effort and never throws, so a totally broken store
+    // previously returned lessonsCreated: 0, rulesCreated: 0,
+    // trajectoryStored: false — indistinguishable from an unremarkable run. A
+    // self-learning system with a dead store reported "nothing to learn"
+    // forever, and nothing anywhere said otherwise.
+    const analyzer = new PostRunAnalyzer({ store: createWriteFailingStore() })
+
+    const result = await analyzer.analyze(
+      makeRun({
+        errors: [
+          { nodeId: 'n1', error: 'boom', resolved: true, resolution: 'retry' },
+        ],
+      } as Partial<RunAnalysis>),
+    )
+
+    // Still no throw: the contract is preserved.
+    expect(result.failures.length).toBeGreaterThan(0)
+    expect(result.failures.some(f => f.stage === 'trajectory')).toBe(true)
+    expect(result.failures[0]!.error).toContain('disk full')
+  })
+
+  it('does not blame a low score when the trajectory write threw', async () => {
+    // The summary said "Trajectory NOT stored (score <= 0.8)" for a run scoring
+    // 0.95 whose write failed — a specific, wrong reason handed to whoever reads
+    // the summary.
+    const analyzer = new PostRunAnalyzer({ store: createWriteFailingStore() })
+
+    const result = await analyzer.analyze(makeRun({ overallScore: 0.95 }))
+
+    expect(result.trajectoryStored).toBe(false)
+    expect(result.summary).toContain('storage failed')
+    expect(result.summary).not.toMatch(/Trajectory NOT stored \(score <=/)
+    // And the counts are labelled as floors rather than measurements.
+    expect(result.summary).toContain('Analysis failures')
+  })
+
+  it('still attributes a genuinely low score to the score', async () => {
+    // The converse: if a low-scoring run reported "storage failed", the signal
+    // would be noise and operators would learn to ignore it.
+    const analyzer = new PostRunAnalyzer({ store: createMemoryStore() })
+
+    const result = await analyzer.analyze(makeRun({ overallScore: 0.1 }))
+
+    expect(result.trajectoryStored).toBe(false)
+    expect(result.failures).toEqual([])
+    expect(result.summary).toMatch(/Trajectory NOT stored \(score <=/)
+    expect(result.summary).not.toContain('Analysis failures')
+  })
+
+  it('reports no failures for a clean high-scoring run', async () => {
+    const analyzer = new PostRunAnalyzer({ store: createMemoryStore() })
+
+    const result = await analyzer.analyze(makeRun({ overallScore: 0.95 }))
+
+    expect(result.failures).toEqual([])
+    expect(result.trajectoryStored).toBe(true)
+  })
+
+  it('persists and restores the failure list through history', async () => {
+    // The history is the one place a later reader looks. If failures were
+    // dropped on serialize, a broken analysis would read as clean there even
+    // though the live result reported it.
+    const store = createMemoryStore()
+    const failing = {
+      ...store,
+      async put(ns: string[], key: string, value: Record<string, unknown>) {
+        if (ns.includes('trajectories')) throw new Error('shard down')
+        return (store.put as (n: string[], k: string, v: Record<string, unknown>) => Promise<void>)(ns, key, value)
+      },
+    } as unknown as BaseStore
+
+    const analyzer = new PostRunAnalyzer({ store: failing })
+    const result = await analyzer.analyze(makeRun({ overallScore: 0.95 }))
+    expect(result.failures.some(f => f.stage === 'trajectory')).toBe(true)
+
+    const history = await analyzer.getRecentAnalyses(5)
+    expect(history.length).toBeGreaterThan(0)
+    expect(history[0]!.result.failures.some(f => f.stage === 'trajectory')).toBe(true)
+  })
+
+  it('treats a history record written before the field existed as no failures', async () => {
+    // Back-compat: inventing a failure for an old record would be as wrong as
+    // hiding a real one.
+    const store = createMemoryStore()
+    await store.put(['post_run', 'history'], 'old', {
+      runId: 'legacy-run',
+      lessonsCreated: 2,
+      rulesCreated: 1,
+      trajectoryStored: true,
+      suboptimalNodes: [],
+      summary: 'legacy',
+      timestamp: new Date().toISOString(),
+    })
+
+    const analyzer = new PostRunAnalyzer({ store })
+    const history = await analyzer.getRecentAnalyses(5)
+
+    const legacy = history.find(h => h.runId === 'legacy-run')!
+    expect(legacy.result.failures).toEqual([])
+  })
+})

@@ -40,6 +40,21 @@ export interface RunAnalysis {
   feedback?: string;
 }
 
+/** A stage of `analyze()` that threw instead of completing. */
+export type AnalysisStage =
+  | "trajectory"
+  | "errorLessons"
+  | "successPatterns"
+  | "rules"
+  | "suboptimalNodes"
+  | "history";
+
+/** An analysis stage that failed, and why. */
+export interface AnalysisFailure {
+  stage: AnalysisStage;
+  error: string;
+}
+
 /** Result of analyzing a pipeline run. */
 export interface AnalysisResult {
   /** Lessons extracted from this run */
@@ -52,6 +67,18 @@ export interface AnalysisResult {
   suboptimalNodes: string[];
   /** Summary for logging */
   summary: string;
+  /**
+   * Stages that threw instead of completing; empty on a clean analysis.
+   *
+   * `analyze()` is best-effort and never throws, which meant a run where every
+   * write failed returned `lessonsCreated: 0, rulesCreated: 0,
+   * trajectoryStored: false` — identical to a run that was simply unremarkable.
+   * A self-learning system with a broken store would report "nothing to learn"
+   * forever, and the zero counts were the only symptom.
+   *
+   * Non-empty means the counts above are floors, not measurements.
+   */
+  failures: AnalysisFailure[];
 }
 
 /** Configuration for the PostRunAnalyzer. */

@@ -133,13 +133,42 @@ export class RecoveryFeedback {
   /**
    * Promote a pending candidate to durable memory.
    * No-op (returns false) if candidate not found or already reviewed.
+   *
+   * "Promote to durable memory" is only half true when no store is configured:
+   * the candidate is marked `promoted` in the in-memory candidate store, but
+   * nothing is persisted, so the lesson is lost when the process exits. That is
+   * a supported mode (see the class docs), but it must not be reported as a
+   * durable promotion — the audit trail is the record an operator trusts, and a
+   * bare "Promoted by X" asserts a write that never happened.
+   *
+   * So the audit detail names the outcome, and {@link promoteCandidateDetailed}
+   * exposes it to a caller that needs to react. This method keeps returning a
+   * bare boolean for backward compatibility: `true` still means "the promotion
+   * was accepted", which is what every existing caller checks.
    */
   async promoteCandidate(
     candidateId: string,
     reviewedBy = "operator"
   ): Promise<boolean> {
+    return (await this.promoteCandidateDetailed(candidateId, reviewedBy))
+      .accepted;
+  }
+
+  /**
+   * Promote a pending candidate, reporting whether the lesson was persisted.
+   *
+   * `persisted: false` with `accepted: true` means the promotion was recorded
+   * in memory only, because no store is wired. Surface it: an operator
+   * promoting a lesson reasonably believes it will still be there tomorrow.
+   */
+  async promoteCandidateDetailed(
+    candidateId: string,
+    reviewedBy = "operator"
+  ): Promise<{ accepted: boolean; persisted: boolean }> {
     const candidate = this.candidateStore.get(candidateId);
-    if (!candidate || candidate.status !== "pending") return false;
+    if (!candidate || candidate.status !== "pending") {
+      return { accepted: false, persisted: false };
+    }
 
     const now = new Date();
     candidate.status = "promoted";
@@ -150,17 +179,20 @@ export class RecoveryFeedback {
       nodeId: candidate.lesson.nodeId,
       event: "promoted",
       actor: "operator",
-      detail: `Promoted by ${reviewedBy}`,
+      // The audit trail is the operator-facing record of what happened, so it
+      // must not claim a durable write when there is no store to write to.
+      detail: this.store
+        ? `Promoted by ${reviewedBy}`
+        : `Promoted by ${reviewedBy} (in-memory only: no durable store configured)`,
       timestamp: now,
     });
     this.candidateStore.update(candidate);
 
-    if (this.store) {
-      const serialized = serializeLesson(candidate.lesson);
-      await this.store.put(this.namespace, candidate.lesson.id, serialized);
-    }
+    if (!this.store) return { accepted: true, persisted: false };
 
-    return true;
+    const serialized = serializeLesson(candidate.lesson);
+    await this.store.put(this.namespace, candidate.lesson.id, serialized);
+    return { accepted: true, persisted: true };
   }
 
   /**

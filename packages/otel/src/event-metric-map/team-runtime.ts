@@ -78,13 +78,24 @@ export const teamRuntimeMetricMap = {
       type: "counter",
       description:
         "Total governance/evaluation acceptance verdicts, by gate and outcome " +
-        "(outcome='skipped' means the threshold was declared but no scorer was wired)",
-      labelKeys: ["team_id", "gate", "outcome"],
+        "(outcome='skipped' means the threshold was declared but the gate could " +
+        "not be applied; reason='unwired': no scorer injected, " +
+        "reason='scorer_failed': a wired scorer could not produce a verdict)",
+      labelKeys: ["team_id", "gate", "outcome", "reason"],
       extract: (e) => {
         const ev = asEvent<"team:verdict_evaluated">(e);
         return {
           value: 1,
-          labels: { team_id: ev.teamId, gate: ev.gate, outcome: ev.outcome },
+          labels: {
+            team_id: ev.teamId,
+            gate: ev.gate,
+            outcome: ev.outcome,
+            // 'none' rather than omitted: a label key declared in labelKeys but
+            // absent from a sample makes the series shape vary per-sample, which
+            // several exporters treat as a different series. passed/rejected
+            // genuinely have no reason — the gate ran.
+            reason: ev.reason ?? "none",
+          },
         };
       },
     },

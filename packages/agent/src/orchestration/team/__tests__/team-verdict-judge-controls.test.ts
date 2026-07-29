@@ -307,8 +307,13 @@ describe("integration with the verdict service", () => {
       await vi.advanceTimersByTimeAsync(1_000);
 
       // 'skip' is a pass-through, NOT a judgement. Scoring 0 here would let a
-      // slow judge reject every run.
-      await expect(pending).resolves.toEqual({ score: 1, unanimous: true });
+      // slow judge reject every run. notScored marks it as an abstention so the
+      // gate reports reason='scorer_failed' instead of a silent pass.
+      await expect(pending).resolves.toEqual({
+        score: 1,
+        unanimous: true,
+        notScored: true,
+      });
     } finally {
       vi.useRealTimers();
     }
@@ -326,9 +331,12 @@ describe("integration with the verdict service", () => {
       score: 0.9,
       unanimous: true,
     });
+    // An exhausted budget is an abstention, not a pass: without notScored a
+    // spent budget would silently ungate every subsequent run.
     await expect(service.score(input({ runId: "run-2" }))).resolves.toEqual({
       score: 1,
       unanimous: true,
+      notScored: true,
     });
   });
 
