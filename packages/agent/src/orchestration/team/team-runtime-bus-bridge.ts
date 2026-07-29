@@ -85,6 +85,10 @@ function publish(
           // score, and a fabricated 0 or 1 would be averaged in by dashboards
           // as though a real gate had produced it.
           ...(event.score === undefined ? {} : { score: event.score }),
+          // Same treatment for the skip cause: dropping it here would collapse
+          // 'a judge is down' back into 'nobody wired a gate' at the bus
+          // boundary, which is the distinction this field was added to carry.
+          ...(event.reason === undefined ? {} : { reason: event.reason }),
         });
         return;
       case "team_consolidation_skipped":

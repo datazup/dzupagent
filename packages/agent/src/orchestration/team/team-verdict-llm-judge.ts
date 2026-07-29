@@ -29,10 +29,13 @@
  * rejection of every run. This service therefore never fabricates a 0 — it
  * routes failure through `onJudgeFailure` instead.
  *
- * `'skip'` deliberately reuses the runtime's existing skipped-verdict path, so
- * a judge that is down shows up in the same `team_verdict_evaluated`
- * (`outcome: 'skipped'`) signal and `dzip_team_verdict_total` metric as a gate
- * that was never wired. Both mean "this run was not actually judged".
+ * `'skip'` routes through the runtime's skipped-verdict path, so a judge that is
+ * down shows up in the `team_verdict_evaluated` (`outcome: 'skipped'`) signal
+ * and `dzip_team_verdict_total` metric rather than as a pass. Both a broken
+ * judge and an unwired gate mean "this run was not actually judged", but they
+ * are reported with different `reason` labels — `scorer_failed` vs `unwired` —
+ * because only one of them is an outage in progress. See the `reason` docs on
+ * `team_verdict_evaluated`.
  */
 
 import type {
@@ -140,15 +143,21 @@ export function createLlmJudgeVerdictService(
 /**
  * Apply the configured failure policy.
  *
- * `'skip'` returns a score of 1 with `unanimous: true` — deliberately a
- * PASS-THROUGH, not a judgement. It is the only encoding of "do not gate this
- * run" available through the `TeamVerdict` contract, and it matches what the
- * runtime already does for an unwired scorer. Returning 0 instead would reject
- * every run during an outage.
+ * `'skip'` returns a non-gating verdict marked `notScored` — deliberately a
+ * PASS-THROUGH, not a judgement. Returning 0 instead would reject every run
+ * during an outage.
+ *
+ * `score: 1` remains the only encoding of "do not gate this run" the
+ * `TeamVerdict` contract offers, so `notScored` rides alongside it to say that
+ * the 1 is an abstention rather than a verdict. Without that flag an outage is
+ * reported as a unanimous pass and is indistinguishable from a gate that
+ * genuinely ran — the same silent-success failure the skipped-verdict signal
+ * exists to expose. The gate reads the flag and reports
+ * `outcome: 'skipped', reason: 'scorer_failed'`.
  */
 function onFailure(cause: unknown, policy: JudgeFailurePolicy): TeamVerdict {
   if (policy === "reject") throw new TeamJudgeUnavailableError(cause);
-  return { score: 1, unanimous: true };
+  return { score: 1, unanimous: true, notScored: true };
 }
 
 /** Build the judge prompt from the run's task, output, and declared criteria. */

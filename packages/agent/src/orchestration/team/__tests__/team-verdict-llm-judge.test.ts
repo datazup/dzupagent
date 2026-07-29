@@ -239,9 +239,13 @@ describe("createLlmJudgeVerdictService — judge failure policy", () => {
       // A pass-through, NOT a judgement of 1.0 — it is the only encoding of
       // "do not gate this run" the TeamVerdict contract allows. Scoring 0 here
       // would reject every run during an outage.
+      //
+      // notScored is what keeps that pass-through honest: without it the gate
+      // counts this as a real unanimous pass and an outage becomes invisible.
       await expect(service.score(input())).resolves.toEqual({
         score: 1,
         unanimous: true,
+        notScored: true,
       });
     }
   );
@@ -275,6 +279,20 @@ describe("createLlmJudgeVerdictService — judge failure policy", () => {
       name: "TeamJudgeUnavailableError",
       cause,
     });
+  });
+
+  it("does not mark a successful verdict as notScored", async () => {
+    // The flag must mean "could not judge", not "judged". If a working judge
+    // set it, every gate would silently stop enforcing — a far worse failure
+    // than the one notScored exists to fix.
+    const service = createLlmJudgeVerdictService({
+      judge: async () => JSON.stringify({ score: 0.42, unanimous: false }),
+      onJudgeFailure: "skip",
+    });
+
+    const verdict = await service.score(input());
+    expect(verdict).toEqual({ score: 0.42, unanimous: false });
+    expect(verdict.notScored).toBeUndefined();
   });
 
   it("never reports a score of 0 for a broken judge", async () => {

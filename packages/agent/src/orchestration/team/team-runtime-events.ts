@@ -113,20 +113,40 @@ export type TeamRuntimeEvent =
        * run. `outcome: 'rejected'` is immediately followed by a `team_failed`
        * event.
        *
-       * `outcome: 'skipped'` means the policy DECLARED a threshold but no
-       * scorer service was injected, so the gate could not be applied and the
-       * run passed ungated. This is emitted precisely because that case is
-       * otherwise indistinguishable from "the gate ran and passed": a team
-       * declaring `governance.minScore: 0.9` against an unwired runtime accepts
-       * every run, and without this event nothing anywhere says so. Treat a
-       * non-zero rate of skipped verdicts as a misconfiguration to alert on,
-       * not as normal operation.
+       * `outcome: 'skipped'` means the policy DECLARED a threshold but the gate
+       * could not be applied, so the run passed ungated. This is emitted
+       * precisely because that case is otherwise indistinguishable from "the
+       * gate ran and passed": a team declaring `governance.minScore: 0.9`
+       * against an unwired runtime accepts every run, and without this event
+       * nothing anywhere says so. Treat a non-zero rate of skipped verdicts as
+       * a misconfiguration to alert on, not as normal operation.
        */
       type: "team_verdict_evaluated";
       teamId: string;
       runId: string;
       gate: "governance" | "evaluation";
       outcome: "passed" | "rejected" | "skipped";
+      /**
+       * Why a `skipped` verdict was skipped. Absent on passed/rejected, where
+       * the gate did run and `score` carries the answer.
+       *
+       * The two reasons demand different responses, and conflating them is the
+       * ambiguity this field exists to remove:
+       *
+       * - `unwired` — the policy declared a threshold but no scorer service was
+       *   injected. A deployment/wiring mistake, and expected in tests or where
+       *   a team is declared before its scorer exists. Static: it is true of
+       *   every run until someone changes the wiring.
+       * - `scorer_failed` — a scorer WAS wired and could not produce a verdict
+       *   (model timeout, rate limit, unparseable response) under a failure
+       *   policy of `skip`. This is a LIVE dependency outage, and it is the
+       *   more urgent case: it appears and disappears with provider health, and
+       *   during it every run passes a gate someone is relying on.
+       *
+       * Without this discriminator a judge outage looks exactly like a gate
+       * nobody wired, so the alert for one is muted by the noise of the other.
+       */
+      reason?: "unwired" | "scorer_failed";
       /**
        * Numeric verdict score in [0, 1] returned by the scorer service.
        *

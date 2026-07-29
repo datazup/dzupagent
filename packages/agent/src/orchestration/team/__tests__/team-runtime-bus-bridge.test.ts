@@ -138,6 +138,50 @@ describe("bridgeTeamEventsToBus", () => {
     expect(event).toMatchObject({ outcome: "skipped", gate: "governance" });
   });
 
+  it("forwards the skip reason on a skipped verdict", () => {
+    // Dropping `reason` here would collapse "a wired judge is failing" back
+    // into "nobody wired a gate" at the bus boundary, silently undoing the
+    // distinction downstream alerts route on. Nothing else catches that: the
+    // metric would still be emitted, just permanently mislabelled.
+    for (const reason of ["unwired", "scorer_failed"] as const) {
+      expect(
+        forward({
+          type: "team_verdict_evaluated",
+          teamId: "t",
+          runId: "r",
+          gate: "governance",
+          outcome: "skipped",
+          reason,
+          at: AT,
+        })
+      ).toEqual([
+        {
+          type: "team:verdict_evaluated",
+          teamId: "t",
+          runId: "r",
+          gate: "governance",
+          outcome: "skipped",
+          reason,
+        },
+      ]);
+    }
+  });
+
+  it("omits reason entirely on a scored verdict", () => {
+    // passed/rejected genuinely have no reason — the gate ran. Emitting one
+    // would imply a skip that did not happen.
+    const [event] = forward({
+      type: "team_verdict_evaluated",
+      teamId: "t",
+      runId: "r",
+      gate: "evaluation",
+      outcome: "passed",
+      score: 0.9,
+      at: AT,
+    });
+    expect(event).not.toHaveProperty("reason");
+  });
+
   it("forwards consolidation skips with their reason", () => {
     for (const reason of ["unwired", "failed"] as const) {
       expect(
