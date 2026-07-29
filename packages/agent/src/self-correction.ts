@@ -149,6 +149,8 @@ export type {
   CostTrend,
   NodePerformanceSummary,
   LearningDashboard,
+  LearningDashboardFailure,
+  LearningDashboardSection,
   DashboardServiceConfig,
 } from './self-correction/learning-dashboard.js'
 

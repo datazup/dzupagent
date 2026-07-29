@@ -620,6 +620,73 @@ describe('LearningDashboardService', () => {
       expect(dashboard.recentErrors).toEqual([])
     })
 
+    it('reports every degraded section instead of publishing zeros as fact', async () => {
+      // The zeros above are graceful degradation and worth keeping. What was
+      // missing is that they were INDISTINGUISHABLE from a healthy empty store:
+      // a dead store rendered "0 lessons, stable quality, no errors", which is
+      // exactly what a calm idle system looks like.
+      const failService = new LearningDashboardService({ store: createFailingStore() })
+
+      const dashboard = await failService.getDashboard()
+
+      expect(dashboard.degraded.length).toBeGreaterThan(0)
+      const sections = new Set(dashboard.degraded.map((d) => d.section))
+      // Every section reads the store, so every one must be reported.
+      for (const section of [
+        'overview',
+        'qualityTrend',
+        'costTrend',
+        'nodePerformance',
+        'topLessons',
+        'topRules',
+        'recentErrors',
+      ]) {
+        expect(sections).toContain(section)
+      }
+      // The cause must survive, not just the fact of failure.
+      expect(dashboard.degraded[0]!.error).toContain('store failure')
+    })
+
+    it('reports nothing as degraded when a healthy store is genuinely empty', async () => {
+      // The converse, and the property that makes the signal worth alerting on:
+      // if an empty store reported degradation, every fresh deployment would
+      // look broken and the report would be ignored.
+      const emptyService = new LearningDashboardService({ store: createMemoryStore() })
+
+      const dashboard = await emptyService.getDashboard()
+
+      expect(dashboard.degraded).toEqual([])
+      // Still zeros — but now truthful ones.
+      expect(dashboard.overview.lessonCount).toBe(0)
+      expect(dashboard.qualityTrend.trend).toBe('stable')
+    })
+
+    it('distinguishes a partial outage from a total one', async () => {
+      // A store that fails only for trajectories: the trend sections are
+      // fabricated while the lesson counts are real. Reporting per-section
+      // rather than one dashboard-wide flag is what lets an operator tell which
+      // numbers on the screen they can still trust.
+      const base = createMemoryStore()
+      await seedLessons(base, 3)
+      const partial = {
+        ...base,
+        search: async (ns: string[], opts?: unknown) => {
+          if (ns.includes('trajectories')) throw new Error('trajectory shard down')
+          return (base.search as (n: string[], o?: unknown) => Promise<unknown[]>)(ns, opts)
+        },
+      } as unknown as BaseStore
+
+      const dashboard = await new LearningDashboardService({ store: partial }).getDashboard()
+
+      const sections = new Set(dashboard.degraded.map((d) => d.section))
+      expect(sections).toContain('qualityTrend')
+      expect(sections).toContain('costTrend')
+      expect(sections).toContain('nodePerformance')
+      // Lessons were readable, so they must NOT be marked degraded.
+      expect(sections).not.toContain('topLessons')
+      expect(dashboard.topLessons.length).toBe(3)
+    })
+
     it('getOverview returns zeros on failing store', async () => {
       const failService = new LearningDashboardService({ store: createFailingStore() })
       const overview = await failService.getOverview()
