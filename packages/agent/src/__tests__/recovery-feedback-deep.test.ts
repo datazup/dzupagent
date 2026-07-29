@@ -70,6 +70,52 @@ describe('RecoveryFeedback', () => {
       expect(candidateId).toMatch(/^cand_/)
     })
 
+    it('reports that a promotion without a store was not persisted', async () => {
+      // promoteCandidate returned a bare true here: the candidate was marked
+      // 'promoted' in memory while nothing was written, so a caller was told a
+      // durable promotion succeeded when the lesson dies with the process.
+      const feedback = new RecoveryFeedback()
+      const candidateId = await feedback.recordOutcome(makeLesson())
+
+      const result = await feedback.promoteCandidateDetailed(candidateId)
+
+      // Still accepted — no-store operation is a supported mode, not an error.
+      expect(result.accepted).toBe(true)
+      // ...but it must not claim durability it does not have.
+      expect(result.persisted).toBe(false)
+
+      // The audit trail is the record an operator trusts, so it says so too.
+      const candidate = feedback.getCandidate(candidateId)!
+      const promoted = candidate.auditTrail.find(e => e.event === 'promoted')!
+      expect(promoted.detail).toMatch(/in-memory only/)
+    })
+
+    it('reports a persisted promotion as persisted when a store is wired', async () => {
+      // The converse: if this reported false too, the signal would be useless
+      // and every promotion would look non-durable.
+      const store = makeMockStore()
+      const feedback = new RecoveryFeedback({ store })
+      const candidateId = await feedback.recordOutcome(makeLesson())
+
+      const result = await feedback.promoteCandidateDetailed(candidateId)
+
+      expect(result).toEqual({ accepted: true, persisted: true })
+      expect(store._data.size).toBe(1)
+      const candidate = feedback.getCandidate(candidateId)!
+      const promoted = candidate.auditTrail.find(e => e.event === 'promoted')!
+      expect(promoted.detail).not.toMatch(/in-memory only/)
+    })
+
+    it('keeps promoteCandidate returning a bare boolean for existing callers', async () => {
+      const feedback = new RecoveryFeedback()
+      const candidateId = await feedback.recordOutcome(makeLesson())
+
+      // Backward compatibility: true still means "the promotion was accepted".
+      await expect(feedback.promoteCandidate(candidateId)).resolves.toBe(true)
+      // And a second promotion of an already-reviewed candidate is still false.
+      await expect(feedback.promoteCandidate(candidateId)).resolves.toBe(false)
+    })
+
     it('retrieveSimilar returns empty array', async () => {
       const feedback = new RecoveryFeedback()
       const result = await feedback.retrieveSimilar('build_failure', 'node-a')
@@ -293,6 +339,10 @@ describe('RecoveryFeedback', () => {
       await expect(service.promote(tenantAId, 'reviewer-a', 'tenant-a')).resolves.toEqual({
         success: true,
         candidateId: tenantAId,
+        // This fixture wires no durable store, so the promotion is in-memory
+        // only. Reported rather than implied: an operator promoting a lesson
+        // expects it to outlive the process.
+        persisted: false,
       })
       expect(service.reject(tenantBId, 'reviewer-b', 'tenant-b')).toEqual({
         success: true,
