@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   HumanMessage,
   AIMessage,
-  SystemMessage,
   ToolMessage,
   type BaseMessage,
 } from '@langchain/core/messages'
@@ -15,7 +14,6 @@ import {
   validateSummaryAgainstProfile,
   STRUCTURED_SUMMARY_PROFILE_V1,
   formatSummaryContext,
-  type MessageManagerConfig,
 } from '../message-manager.js'
 
 // ---------------------------------------------------------------------------

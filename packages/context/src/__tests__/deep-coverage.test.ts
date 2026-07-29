@@ -15,7 +15,6 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 
 import {
   pruneToolResults,
-  repairOrphanedToolPairs,
   summarizeAndTrim,
 } from '../message-manager.js'
 import { PhaseAwareWindowManager } from '../phase-window.js'

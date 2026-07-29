@@ -13,7 +13,7 @@
  *  - Cross-level: result is never a reference to original (immutability)
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   HumanMessage,
   AIMessage,
@@ -27,7 +27,6 @@ import {
   compressToLevel,
   compressToBudget,
   type CompressionLevel,
-  type ProgressiveCompressConfig,
 } from "../progressive-compress.js";
 
 // ---------------------------------------------------------------------------
@@ -818,7 +817,10 @@ describe("compressToLevel — result shape", () => {
     const msgs = makePairs(3);
     for (const level of [1, 2] as CompressionLevel[]) {
       const result = await compressToLevel(msgs, level, null, model);
-      // The returned array may be different (even if same content, it went through pipeline)
+      // The name of this test is the assertion: the result must not alias the
+      // input. `result` was previously computed and never inspected, so only
+      // the non-mutation half was actually checked.
+      expect(result).not.toBe(msgs);
       // The key invariant: original array is not mutated
       expect(msgs.length).toBe(6);
     }
