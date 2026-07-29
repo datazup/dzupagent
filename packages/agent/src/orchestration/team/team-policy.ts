@@ -113,8 +113,14 @@ export interface MemoryPolicy {
    * Whether to consolidate/summarize memory when the run completes.
    *
    * Enforced by the post-run consolidation pass (`consolidateIfEnabled`) when a
-   * `TeamRuntimeMemoryService` (`consolidate` callback or `store`) is injected;
-   * inert when no memory service is wired.
+   * `TeamRuntimeMemoryService` (`consolidate` callback or `store`) is injected.
+   *
+   * When no memory service is wired the pass cannot run, but it does NOT do so
+   * silently: the runtime emits `team_consolidation_skipped` with
+   * `reason: 'unwired'`, the same seam-reporting contract as the governance and
+   * evaluation gates. A wired service that throws is likewise reported with
+   * `reason: 'failed'` — the failure stays non-fatal to the run, but is no
+   * longer discarded.
    */
   consolidateOnComplete?: boolean;
   /**
