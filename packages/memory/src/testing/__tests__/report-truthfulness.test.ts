@@ -19,6 +19,7 @@ import {
   expectNoDuplicateAfterRewrite,
   expectPrunedCountIsTruthful,
   expectRepeatedPassesDoNotGrow,
+  expectScopeIsPopulated,
 } from "../report-truthfulness.js";
 import {
   compactTombstonesForSpace,
@@ -283,5 +284,55 @@ describe("census", () => {
       tombstones: 1,
       keys: ["a", "b"],
     });
+  });
+});
+
+describe("expectScopeIsPopulated", () => {
+  it("passes when the scope under test really was written to", async () => {
+    const h = createMemoryHarness({
+      namespace: "facts",
+      scope: { tenantId: "t1" },
+    });
+    await h.memory.put("facts", { tenantId: "t1" }, "k1", { text: "hello" });
+
+    await expectScopeIsPopulated(h);
+  });
+
+  it("rejects the silent-empty read: written to one scope, read from another", async () => {
+    // The defect this guard exists for. Both scopes are valid and both tuples
+    // are well-formed, so nothing in the stack objects — the record is simply
+    // somewhere else, and the read returns [].
+    const h = createMemoryHarness({
+      namespace: "facts",
+      scope: { tenantId: "t1" },
+    });
+    await h.memory.put("facts", { tenantId: "t1" }, "k1", { text: "hello" });
+
+    await expect(
+      expectScopeIsPopulated(h, { scope: { tenantId: "t2" } }),
+    ).rejects.toThrow(/nothing was ever written/);
+  });
+
+  it("demonstrates what it protects: assertions over the empty read pass vacuously", async () => {
+    const h = createMemoryHarness({
+      namespace: "facts",
+      scope: { tenantId: "t1" },
+    });
+    await h.memory.put("facts", { tenantId: "t1" }, "k1", { text: "hello" });
+
+    const wrongScope = await h.liveKeys({ scope: { tenantId: "t2" } });
+
+    // Every one of these passes against a population that does not exist,
+    // which is exactly why the guard has to run before them.
+    expect(wrongScope).toHaveLength(0);
+    // eslint-disable-next-line no-restricted-syntax -- deliberately vacuous: this
+    // line IS the hazard being demonstrated. It passes against a population that
+    // does not exist, which is the reason expectScopeIsPopulated has to run first.
+    expect(wrongScope.every((k) => k.startsWith("never-matches-"))).toBe(true);
+
+    // The guard is what turns that silence into a failure.
+    await expect(
+      expectScopeIsPopulated(h, { scope: { tenantId: "t2" } }),
+    ).rejects.toThrow();
   });
 });

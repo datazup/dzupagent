@@ -204,3 +204,46 @@ export async function expectNoDuplicateAfterRewrite(
       `original was left in place alongside the rewritten copy.`,
   ).toBe(before.total);
 }
+
+/**
+ * Assert that a namespace/scope was actually written to before a test reads it.
+ *
+ * A read against a scope nothing ever wrote returns `[]` — not an error. Both
+ * scopes are valid, the tuple is well-formed, the record is simply elsewhere,
+ * so nothing in the stack objects. Every assertion downstream then holds
+ * vacuously: `toHaveLength(0)` passes, `every()` passes on the empty array,
+ * and a filter that matches nothing looks like a filter that excluded
+ * everything.
+ *
+ * This is the store-tuple-vs-namespace-name confusion in its general form. It
+ * bit a harness migration that wrote to the scope `{}` while the consolidator
+ * read `{ tenantId: 't1' }`: no error, no warning, just an empty result and a
+ * green suite.
+ *
+ * Call this before the assertions that depend on the population being there:
+ *
+ * ```ts
+ * await expectScopeIsPopulated(h, { scope: { tenantId: 't1' } })
+ * expect(await h.liveKeys({ scope: { tenantId: 't1' } })).toHaveLength(3)
+ * ```
+ *
+ * @param harness fixture wrapping the store under test
+ * @param target namespace/scope to check; defaults to the harness primary
+ */
+export async function expectScopeIsPopulated(
+  harness: MemoryHarness,
+  target?: TruthfulnessTarget,
+): Promise<void> {
+  const census = await censusOf(harness, target);
+  const where =
+    `namespace ${target?.namespace ?? harness.namespace} scope ` +
+    JSON.stringify(target?.scope ?? harness.scope);
+
+  expect(
+    census.total,
+    `nothing was ever written to ${where}, so every read of it returns [] ` +
+      `and every assertion over that empty result passes vacuously. Either ` +
+      `the test wrote to a different scope than it reads, or the write did ` +
+      `not happen at all.`,
+  ).toBeGreaterThan(0);
+}

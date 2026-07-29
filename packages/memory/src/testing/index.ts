@@ -19,5 +19,6 @@ export {
   expectCompactedCountIsTruthful,
   expectRepeatedPassesDoNotGrow,
   expectNoDuplicateAfterRewrite,
+  expectScopeIsPopulated,
 } from "./report-truthfulness.js";
 export type { StoreCensus, TruthfulnessTarget } from "./report-truthfulness.js";
