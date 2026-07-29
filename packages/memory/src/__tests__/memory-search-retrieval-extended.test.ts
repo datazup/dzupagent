@@ -166,7 +166,7 @@ describe("KeywordFTSSearch — extended", () => {
   describe("score structure", () => {
     it("all scores are positive numbers", () => {
       const records = Array.from({ length: 5 }, (_, i) =>
-        makeRecord(`k${i}`, `authentication service ${i}`),
+        makeRecord(`k${i}`, `authentication service ${i}`)
       );
       const results = sut.search(records, "authentication", 10);
       for (const r of results) {
@@ -213,7 +213,7 @@ describe("fusionSearch — extended", () => {
     it("rank-1 RRF score equals 1/(k+1) for k=60", () => {
       const results = fusionSearch(
         { vector: [item("a"), item("b")] },
-        { k: 60 },
+        { k: 60 }
       );
       expect(results[1]!.score).toBeCloseTo(1 / 61, 8);
     });
@@ -232,7 +232,7 @@ describe("fusionSearch — extended", () => {
       const shared = item("s");
       const results = fusionSearch(
         { vector: [shared], fts: [shared], graph: [shared] },
-        { k: 10 },
+        { k: 10 }
       );
       expect(results[0]!.score).toBeCloseTo(3 / 10, 8);
     });
@@ -339,12 +339,22 @@ describe("fusionSearch — extended", () => {
 
 describe("SessionSearch — extended", () => {
   function makeStore(
-    data: Record<string, Record<string, unknown>[]>,
+    data: Record<string, Record<string, unknown>[]>
   ): SessionSearchStore {
     return {
       get: vi
         .fn()
         .mockImplementation((ns: string) => Promise.resolve(data[ns] ?? [])),
+      // Required: `SessionSearch` indexes via the keyed read, since a record's
+      // store key cannot be recovered from its value.
+      getKeyed: vi.fn().mockImplementation((ns: string) =>
+        Promise.resolve(
+          (data[ns] ?? []).map((value, i) => ({
+            key: typeof value["key"] === "string" ? value["key"] : `rec-${i}`,
+            value,
+          }))
+        )
+      ),
     };
   }
 
@@ -471,8 +481,8 @@ describe("SessionSearch — extended", () => {
     });
   });
 
-  describe("key extraction from records", () => {
-    it("uses value.key as the result key when present", async () => {
+  describe("record key provenance", () => {
+    it("reports the key the store filed the record under", async () => {
       const store = makeStore({ ns1: [{ key: "my-key", text: "postgres" }] });
       const search = new SessionSearch(store);
       await search.index("ns1", SCOPE_A);
@@ -480,23 +490,22 @@ describe("SessionSearch — extended", () => {
       expect(results[0]!.key).toBe("my-key");
     });
 
-    it("uses empty string when record has no key field", async () => {
-      const store = makeStore({ ns1: [{ text: "postgres" }] });
+    it("reports a real key for values that carry no key field", async () => {
+      // The shape a real `put()` produces. This previously returned `''`,
+      // because the key was read out of the value rather than from the store.
+      const store = makeStore({});
+      store.getKeyed = vi
+        .fn()
+        .mockResolvedValue([{ key: "k-real", value: { text: "postgres" } }]);
       const search = new SessionSearch(store);
       await search.index("ns1", SCOPE_A);
       const results = await search.search({ text: "postgres" });
-      expect(typeof results[0]!.key).toBe("string");
+      expect(results[0]!.key).toBe("k-real");
     });
 
-    it("converts non-string key to string", async () => {
-      const store = makeStore({
-        ns1: [{ key: 12345, text: "postgres query" }],
-      });
-      const search = new SessionSearch(store);
-      await search.index("ns1", SCOPE_A);
-      const results = await search.search({ text: "postgres" });
-      expect(results[0]!.key).toBe("12345");
-    });
+    // Dropped: "converts non-string key to string". Store keys are strings by
+    // construction; the coercion it pinned only existed to paper over reading
+    // an arbitrary `value['key']` of unknown type.
   });
 
   describe("score [0,1] range", () => {
@@ -561,7 +570,7 @@ describe("fuseWithVector — extended", () => {
   function makeKeywordScored(
     key: string,
     finalScore: number,
-    value: Record<string, unknown> = {},
+    value: Record<string, unknown> = {}
   ) {
     return { key, finalScore, value: { text: key, ...value } };
   }
@@ -572,7 +581,7 @@ describe("fuseWithVector — extended", () => {
       text: string;
       score: number;
       metadata?: Record<string, unknown>;
-    }>,
+    }>
   ): SemanticStoreAdapter {
     return {
       search: vi.fn().mockResolvedValue(results),
@@ -603,7 +612,7 @@ describe("fuseWithVector — extended", () => {
       }> = [];
       const results = await fuseWithVector("ns", "query", keyword, 10, adapter);
       expect(results.some((r) => r["text"] === "retrieved by vector")).toBe(
-        true,
+        true
       );
     });
 
@@ -691,8 +700,8 @@ describe("fuseWithVector — extended", () => {
           "query",
           [makeKeywordScored("k1", 0.5)],
           10,
-          adapter,
-        ),
+          adapter
+        )
       ).resolves.toBeDefined();
     });
   });
@@ -833,7 +842,7 @@ describe("StoreVectorSearch — extended", () => {
       key: string;
       value: Record<string, unknown>;
       score?: number;
-    }>,
+    }>
   ) {
     return {
       search: vi.fn().mockResolvedValue(results),
