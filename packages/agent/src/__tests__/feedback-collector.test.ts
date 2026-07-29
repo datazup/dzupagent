@@ -6,7 +6,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   FeedbackCollector,
-  type FeedbackCollectorConfig,
   type FeedbackRecord,
 } from '../self-correction/feedback-collector.js'
 import type { BaseStore } from '@langchain/langgraph'

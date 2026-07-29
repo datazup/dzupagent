@@ -12,7 +12,7 @@
  * bounds, reason strings, combined triggers, and edge cases.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { StuckDetector } from "../guardrails/stuck-detector.js";
 
 // ============================================================================
@@ -503,7 +503,7 @@ describe("StuckDetector — semantic plateau detection", () => {
     const det = new StuckDetector({ semanticPlateauWindow: 0 });
     // Even 10 calls to the same tool with different args should not trigger
     for (let i = 0; i < 10; i++) {
-      const result = det.recordToolCall("search", { q: `q${i}` });
+      det.recordToolCall("search", { q: `q${i}` });
       // May or may not trigger from other detectors, but plateau itself is off
       // We use a high repeat threshold to isolate plateau
     }
@@ -514,7 +514,7 @@ describe("StuckDetector — semantic plateau detection", () => {
     });
     for (let i = 0; i < 10; i++) {
       expect(det2.recordToolCall("search", { q: `unique${i}` }).stuck).toBe(
-        false
+        false,
       );
     }
   });
@@ -581,11 +581,11 @@ describe("StuckDetector — semantic plateau detection", () => {
     });
     for (let i = 0; i < 4; i++) {
       expect(det.recordToolCall("vectorSearch", { query: `q${i}` }).stuck).toBe(
-        false
+        false,
       );
     }
     expect(det.recordToolCall("vectorSearch", { query: "q4" }).stuck).toBe(
-      true
+      true,
     );
   });
 
@@ -964,7 +964,7 @@ describe("StuckDetector — per-run isolation", () => {
     reused.reset();
     // Both should behave the same now
     expect(fresh.recordToolCall("t", { v: 1 }).stuck).toBe(
-      reused.recordToolCall("t", { v: 1 }).stuck
+      reused.recordToolCall("t", { v: 1 }).stuck,
     );
   });
 });

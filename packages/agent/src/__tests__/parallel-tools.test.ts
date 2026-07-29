@@ -3,7 +3,6 @@ import {
   executeToolsParallel,
   type ParallelToolCall,
   type ToolLookup,
-  type ToolExecutionResult,
 } from '../agent/parallel-executor.js'
 
 // ---------- Helpers ----------

@@ -79,7 +79,6 @@ function basePrepareParams(
     } satisfies DzupAgentConfig as DzupAgentConfig,
     resolvedModel: model,
     messages,
-    options: undefined,
     prepareMessages: vi.fn(async (msgs: BaseMessage[]) => ({ messages: msgs })),
     getTools: vi.fn(() => tools),
     bindTools: vi.fn((_m: BaseChatModel, _t: StructuredToolInterface[]) => model),

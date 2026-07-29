@@ -14,12 +14,11 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   AIMessage,
   HumanMessage,
-  SystemMessage,
   type BaseMessage,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { runToolLoop, type ToolLoopConfig } from '../agent/tool-loop.js'
+import { runToolLoop } from '../agent/tool-loop.js'
 import { IterationBudget } from '../guardrails/iteration-budget.js'
 import { StuckDetector } from '../guardrails/stuck-detector.js'
 

@@ -60,7 +60,7 @@ describe("ContractNetManager recordBids seam (CODE-M-11)", () => {
   it("emits exactly one bid_received event per collected bid", async () => {
     const eventBus = createEventBus();
     const events: DzupEvent[] = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => { events.push(e) });
 
     const specialists = [
       agent("a", biddingModel(bidJson(30))),

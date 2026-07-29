@@ -20,13 +20,13 @@ import {
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { AgentHooks } from "@dzupagent/core";
-import type { DzupAgentConfig, GenerateOptions } from "../agent/agent-types.js";
+import type { DzupAgentConfig } from "../agent/agent-types.js";
 import { prepareRunState } from "../agent/run-engine.js";
 import { makeMockModel, makeMockTool } from "./test-utils.js";
 
 function baseParams(
   configOverrides: Partial<DzupAgentConfig> = {},
-  overrides: Partial<Parameters<typeof prepareRunState>[0]> = {}
+  overrides: Partial<Parameters<typeof prepareRunState>[0]> = {},
 ) {
   const tools: StructuredToolInterface[] = [makeMockTool("read_file")];
   const model = makeMockModel("done");
@@ -39,11 +39,10 @@ function baseParams(
     } as DzupAgentConfig,
     resolvedModel: model,
     messages: [new HumanMessage("hello")] as BaseMessage[],
-    options: undefined as GenerateOptions | undefined,
     prepareMessages: vi.fn(async (msgs: BaseMessage[]) => ({ messages: msgs })),
     getTools: vi.fn(() => tools),
     bindTools: vi.fn(
-      (_m: BaseChatModel, _t: StructuredToolInterface[]) => model
+      (_m: BaseChatModel, _t: StructuredToolInterface[]) => model,
     ),
     runBeforeAgentHooks: vi.fn(async () => {}),
     ...overrides,
@@ -54,7 +53,7 @@ const MARKER = "BEFORE_MODEL_CALL_MARKER";
 
 function hasMarker(messages: BaseMessage[]): boolean {
   return messages.some(
-    (m) => typeof m.content === "string" && m.content.includes(MARKER)
+    (m) => typeof m.content === "string" && m.content.includes(MARKER),
   );
 }
 
@@ -62,7 +61,7 @@ function hasCacheControl(messages: BaseMessage[]): boolean {
   return messages.some(
     (m) =>
       (m.additional_kwargs as { cache_control?: unknown } | undefined)
-        ?.cache_control !== undefined
+        ?.cache_control !== undefined,
   );
 }
 
@@ -83,7 +82,7 @@ describe("run-engine prepareRunState — beforeModelCall", () => {
   it("passes model id + hook context to beforeModelCall", async () => {
     const beforeModelCall = vi.fn(async () => undefined);
     await prepareRunState(
-      baseParams({ hooks: { beforeModelCall }, id: "agent-x" })
+      baseParams({ hooks: { beforeModelCall }, id: "agent-x" }),
     );
 
     const call = beforeModelCall.mock.calls[0]!;
@@ -109,7 +108,7 @@ describe("run-engine prepareRunState — beforeModelCall", () => {
       baseParams({
         hooks,
         model: "claude-3-5-sonnet" as unknown as DzupAgentConfig["model"],
-      })
+      }),
     );
 
     expect(hasCacheControl(runState.preparedMessages)).toBe(true);
@@ -117,7 +116,7 @@ describe("run-engine prepareRunState — beforeModelCall", () => {
 
   it("a hook returning void passes the transcript through unchanged", async () => {
     const runState = await prepareRunState(
-      baseParams({ hooks: { beforeModelCall: async () => undefined } })
+      baseParams({ hooks: { beforeModelCall: async () => undefined } }),
     );
     // Only the original human message survives (plus no marker).
     expect(hasMarker(runState.preparedMessages)).toBe(false);
@@ -132,7 +131,7 @@ describe("run-engine prepareRunState — beforeModelCall", () => {
             throw new Error("hook boom");
           },
         },
-      })
+      }),
     );
     expect(runState.preparedMessages).toHaveLength(1);
   });

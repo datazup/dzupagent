@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest'
 import { AllRequiredMergeStrategy } from '../merge/all-required.js'
 import { UsePartialMergeStrategy } from '../merge/use-partial.js'
 import { FirstWinsMergeStrategy } from '../merge/first-wins.js'
-import type { AgentResult, MergedResult } from '../orchestration-merge-strategy-types.js'
+import type { AgentResult } from '../orchestration-merge-strategy-types.js'
 import {
   concatMerge,
   voteMerge,

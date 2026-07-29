@@ -34,10 +34,7 @@ describe("IterationBudget.fork (DZUPAGENT-AGENT-L-01)", () => {
       maxTokens: 100,
       budgetWarnings: [0.7],
     });
-    const firstParentWarnings = parent.recordUsage({
-      inputTokens: 70,
-      outputTokens: 0,
-    });
+    const firstParentWarnings = parent.recordUsage({ model: "test-model", inputTokens: 70, outputTokens: 0 });
     expect(firstParentWarnings.some((w) => w.threshold === 0.7)).toBe(true);
 
     // A fresh fork inherits the dedup snapshot, so it will NOT re-emit for the
@@ -46,10 +43,10 @@ describe("IterationBudget.fork (DZUPAGENT-AGENT-L-01)", () => {
     const child = parent.fork();
     // Forcing the child to re-evaluate must not throw and must not mutate the
     // parent's emittedThresholds object identity.
-    child.recordUsage({ inputTokens: 0, outputTokens: 0 });
+    child.recordUsage({ model: "test-model", inputTokens: 0, outputTokens: 0 });
 
     // Parent re-recording below new thresholds still de-dupes correctly.
-    const again = parent.recordUsage({ inputTokens: 0, outputTokens: 0 });
+    const again = parent.recordUsage({ model: "test-model", inputTokens: 0, outputTokens: 0 });
     expect(again.some((w) => w.threshold === 0.7)).toBe(false);
   });
 
@@ -58,8 +55,8 @@ describe("IterationBudget.fork (DZUPAGENT-AGENT-L-01)", () => {
     const child = parent.fork();
 
     // Child spend counts against the shared envelope visible to the parent.
-    child.recordUsage({ inputTokens: 400, outputTokens: 100 });
-    parent.recordUsage({ inputTokens: 400, outputTokens: 100 });
+    child.recordUsage({ model: "test-model", inputTokens: 400, outputTokens: 100 });
+    parent.recordUsage({ model: "test-model", inputTokens: 400, outputTokens: 100 });
 
     // 1000 tokens total across parent+child → parent sees the limit exceeded.
     expect(parent.isExceeded().exceeded).toBe(true);

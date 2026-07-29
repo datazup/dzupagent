@@ -10,7 +10,7 @@ import {
   InMemoryRunJournal,
   RunJournalBridgeRunStore,
 } from '@dzupagent/core'
-import type { RunJournal, RunJournalEntry } from '@dzupagent/core'
+import type { RunJournal } from '@dzupagent/core'
 
 describe('RunJournalBridgeRunStore integration', () => {
   let store: InMemoryRunStore

@@ -20,7 +20,7 @@
  * All LLM / generate calls are mocked — no real network calls.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { BaseMessage } from "@langchain/core/messages";
 import { agentAsTool } from "../tools/agent-as-tool.js";
 import type { AgentAsToolContext } from "../tools/agent-as-tool.js";
@@ -115,7 +115,7 @@ describe("agentAsTool – sub-agent invocation", () => {
     await t.invoke({ task: "summarise this" });
     expect(ctx.generate).toHaveBeenCalledOnce();
     const msgs = (ctx.generate as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as BaseMessage[];
+      .calls[0]![0] as BaseMessage[];
     expect(msgs).toHaveLength(1);
     expect(msgs[0]?.content).toContain("summarise this");
   });
@@ -132,7 +132,7 @@ describe("agentAsTool – sub-agent invocation", () => {
     const t = await agentAsTool(ctx);
     await t.invoke({ task: "simple task" });
     const msgs = (ctx.generate as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as BaseMessage[];
+      .calls[0]![0] as BaseMessage[];
     const content = msgs[0]?.content as string;
     expect(content).toBe("simple task");
     expect(content).not.toContain("Context:");
@@ -143,7 +143,7 @@ describe("agentAsTool – sub-agent invocation", () => {
     const t = await agentAsTool(ctx);
     await t.invoke({ task: "the task", context: "extra info" });
     const msgs = (ctx.generate as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as BaseMessage[];
+      .calls[0]![0] as BaseMessage[];
     const content = msgs[0]?.content as string;
     expect(content).toContain("the task");
     expect(content).toContain("Context:");
@@ -155,7 +155,7 @@ describe("agentAsTool – sub-agent invocation", () => {
     const t = await agentAsTool(ctx);
     await t.invoke({ task: "TASK", context: "CTX" });
     const msgs = (ctx.generate as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as BaseMessage[];
+      .calls[0]![0] as BaseMessage[];
     const content = msgs[0]?.content as string;
     const taskIdx = content.indexOf("TASK");
     const ctxIdx = content.indexOf("CTX");
@@ -175,7 +175,7 @@ describe("agentAsTool – sub-agent invocation", () => {
     const t = await agentAsTool(ctx);
     await t.invoke({ task: "" });
     const msgs = (ctx.generate as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as BaseMessage[];
+      .calls[0]![0] as BaseMessage[];
     expect(msgs[0]?.content).toBe("");
   });
 });
@@ -365,7 +365,7 @@ describe("agentAsTool – input field handling", () => {
     const t = await agentAsTool(ctx);
     await t.invoke({ task: "my task" });
     const msgs = (ctx.generate as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as BaseMessage[];
+      .calls[0]![0] as BaseMessage[];
     expect((msgs[0]?.content as string).startsWith("my task")).toBe(true);
   });
 
@@ -374,7 +374,7 @@ describe("agentAsTool – input field handling", () => {
     const t = await agentAsTool(ctx);
     await t.invoke({ task: "task text", context: "ctx text" });
     const msgs = (ctx.generate as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as BaseMessage[];
+      .calls[0]![0] as BaseMessage[];
     const content = msgs[0]?.content as string;
     expect(content).toContain("\n\nContext:\n");
   });
@@ -384,7 +384,7 @@ describe("agentAsTool – input field handling", () => {
     const t = await agentAsTool(ctx);
     await t.invoke({ task: "task only" });
     const msgs = (ctx.generate as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as BaseMessage[];
+      .calls[0]![0] as BaseMessage[];
     expect(msgs[0]?.content as string).not.toContain("Context:");
   });
 
@@ -394,7 +394,7 @@ describe("agentAsTool – input field handling", () => {
     const t = await agentAsTool(ctx);
     await t.invoke({ task: "task", context: bigCtx });
     const msgs = (ctx.generate as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as BaseMessage[];
+      .calls[0]![0] as BaseMessage[];
     const content = msgs[0]?.content as string;
     expect(content).toContain(bigCtx);
   });

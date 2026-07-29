@@ -346,7 +346,7 @@ describe('RecoveryCopilot', () => {
   describe('event emission', () => {
     it('emits events when creating and executing plans', async () => {
       const events: Array<{ type: string }> = []
-      eventBus.onAny((e) => events.push(e))
+      eventBus.onAny((e) => { events.push(e) })
 
       const copilot = createCopilot()
       const result = await copilot.recover(makeFailure())

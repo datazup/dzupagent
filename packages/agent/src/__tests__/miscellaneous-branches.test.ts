@@ -3,7 +3,7 @@
  * Targets: AgentCircuitBreaker states, replay inspector state-diff,
  * runtime-events formatters, checkpoint-helpers.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { AgentCircuitBreaker } from '../orchestration/circuit-breaker.js'
 import {
   pipelineStartedEvent,

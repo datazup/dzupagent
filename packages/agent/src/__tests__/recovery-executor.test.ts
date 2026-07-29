@@ -298,7 +298,7 @@ describe('RecoveryExecutor', () => {
 
   it('emits events during execution', async () => {
     const events: Array<{ type: string }> = []
-    eventBus.onAny((e) => events.push(e))
+    eventBus.onAny((e) => { events.push(e) })
 
     const executor = new RecoveryExecutor({
       eventBus,

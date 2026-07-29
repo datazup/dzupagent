@@ -14,7 +14,7 @@
  * - Configurable thresholds
  * - Edge cases: single-tool agents, empty calls, borderline thresholds
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { StuckDetector } from "../guardrails/stuck-detector.js";
 import type { StuckStatus } from "../guardrails/stuck-detector.js";
 import { PipelineStuckDetector } from "../self-correction/pipeline-stuck-detector.js";

@@ -79,7 +79,7 @@ describe('AgentMemoryContextLoader', () => {
         maxCharsPerItem: expect.any(Number),
       }),
     )
-    const options = memory.formatForPrompt.mock.calls[0][1] as {
+    const options = memory.formatForPrompt.mock.calls[0]![1] as {
       maxItems: number
       maxCharsPerItem: number
     }
@@ -470,7 +470,7 @@ describe('AgentMemoryContextLoader', () => {
         tokensAfter: 0,
       }),
     )
-    const call = onFallbackDetail.mock.calls[0][0] as { detail: string }
+    const call = onFallbackDetail.mock.calls[0]![0] as { detail: string }
     expect(call.detail).toContain('totalBudget=100')
     expect(call.detail).toContain('minResponseReserve=1000000')
   })

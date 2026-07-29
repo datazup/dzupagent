@@ -92,7 +92,7 @@ function timeoutSignal(ms: number, reason: string): AbortSignal {
 
 async function runWithExternalSignal(
   signal: AbortSignal,
-  output: string[] = []
+  output: string[] = [],
 ): Promise<CancellationRunResult> {
   if (signal.aborted) {
     return {
@@ -176,7 +176,8 @@ describe("agent run cancellation", () => {
       const handle = new ConcreteRunHandle("run-cancel-7", "running", journal);
       await handle.cancel("persist me");
       const [entry] = await journal.getAll("run-cancel-7");
-      expect(entry.data).toMatchObject({ reason: "persist me" });
+      expect(entry).toBeDefined();
+      expect(entry!.data).toMatchObject({ reason: "persist me" });
     });
 
     it("resolves a result waiter that started before cancellation", async () => {
@@ -214,7 +215,7 @@ describe("agent run cancellation", () => {
       const handle = new ConcreteRunHandle<string>(
         "run-cancel-12",
         "running",
-        journal
+        journal,
       );
       const resultPromise = handle.result();
       handle._complete("done");
@@ -227,7 +228,7 @@ describe("agent run cancellation", () => {
       const handle = new ConcreteRunHandle<string>(
         "run-cancel-13",
         "running",
-        journal
+        journal,
       );
       const resultPromise = handle.result();
       handle._fail("model failed");
@@ -240,7 +241,7 @@ describe("agent run cancellation", () => {
       const handle = new ConcreteRunHandle(
         "run-cancel-14",
         "rejected",
-        journal
+        journal,
       );
       await handle.cancel("too late");
       expect(handle.currentStatus).toBe("rejected");
@@ -264,7 +265,7 @@ describe("agent run cancellation", () => {
       const handle = new ConcreteRunHandle(
         "run-cancel-17",
         "suspended",
-        journal
+        journal,
       );
       await handle.cancel("suspended stop");
       await expect(handle.status()).resolves.toBe("cancelled");
@@ -275,7 +276,7 @@ describe("agent run cancellation", () => {
       await handle.cancel("rebuild");
       const rebuilt = await ConcreteRunHandle.fromRunId(
         "run-cancel-18",
-        journal
+        journal,
       );
       expect(rebuilt.currentStatus).toBe("cancelled");
     });
@@ -302,7 +303,7 @@ describe("agent run cancellation", () => {
       const controller = new AbortController();
       controller.abort("pre stop");
       await expect(
-        runWithExternalSignal(controller.signal)
+        runWithExternalSignal(controller.signal),
       ).resolves.toMatchObject({
         status: "cancelled",
         reason: "pre stop",
@@ -722,7 +723,7 @@ describe("agent run cancellation", () => {
       const handle = new ConcreteRunHandle<string>(
         "run-timeout-1",
         "running",
-        journal
+        journal,
       );
       const signal = timeoutSignal(50, "deadline");
       handle._complete("done");
@@ -737,7 +738,7 @@ describe("agent run cancellation", () => {
       const handle = new ConcreteRunHandle<string>(
         "run-timeout-2",
         "running",
-        journal
+        journal,
       );
       timeoutSignal(50, "deadline");
       handle._complete("done");

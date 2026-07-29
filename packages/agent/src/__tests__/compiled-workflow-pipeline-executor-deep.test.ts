@@ -7,10 +7,9 @@
  * - PipelineExecutor via PipelineRuntime: executeFromNode, dispatchFork,
  *   dispatchLoop, handleSuspend, saveCheckpoint, cancel, error edges
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   createWorkflow,
-  CompiledWorkflow,
   type WorkflowEvent,
   type WorkflowStep,
 } from "../workflow/index.js";
@@ -39,7 +38,7 @@ import type { RunJournal, RunStore } from "@dzupagent/core/persistence";
 
 function makeStep(
   id: string,
-  fn: (s: Record<string, unknown>) => Record<string, unknown> = (s) => s
+  fn: (s: Record<string, unknown>) => Record<string, unknown> = (s) => s,
 ): WorkflowStep {
   return {
     id,
@@ -59,7 +58,7 @@ function makePipelineDef(
   overrides: Partial<PipelineDefinition> & {
     nodes?: PipelineNode[];
     edges?: PipelineEdge[];
-  } = {}
+  } = {},
 ): PipelineDefinition {
   return {
     id: "test-pipeline",
@@ -77,12 +76,12 @@ function makePipelineDef(
 }
 
 function mockExecutor(
-  overrides: Record<string, Partial<NodeResult>> = {}
+  overrides: Record<string, Partial<NodeResult>> = {},
 ): NodeExecutor {
   return async (
     nodeId: string,
     _node: PipelineNode,
-    _ctx: NodeExecutionContext
+    _ctx: NodeExecutionContext,
   ): Promise<NodeResult> => {
     const o = overrides[nodeId];
     return {
@@ -253,7 +252,6 @@ describe("CompiledWorkflow — branch", () => {
   });
 
   it("takes false branch when condition returns 'other'", async () => {
-    const executed: string[] = [];
     const wf = createWorkflow({ id: "branch-false" })
       .branch((state) => (state["go"] ? "yes" : "no"), {
         yes: [makeStep("yes-step", (s) => ({ ...s, path: "yes" }))],
@@ -335,7 +333,7 @@ describe("CompiledWorkflow — error propagation", () => {
         makeStep("never-reached", (s) => {
           executed.push("never-reached");
           return s;
-        })
+        }),
       )
       .build();
 
@@ -443,14 +441,14 @@ describe("CompiledWorkflow — suspend and resume", () => {
         makeStep("before", (s) => {
           executed.push("before");
           return { ...s, pre: true };
-        })
+        }),
       )
       .suspend("pause")
       .then(
         makeStep("after", (s) => {
           executed.push("after");
           return { ...s, post: true };
-        })
+        }),
       )
       .build()
       .withCheckpointStore(store);
@@ -460,12 +458,6 @@ describe("CompiledWorkflow — suspend and resume", () => {
     expect(result1["pre"]).toBe(true);
     expect(executed).toEqual(["before"]);
 
-    // Load checkpoint via store
-    const allVersions = await store.listVersions(
-      Object.keys(
-        (store as unknown as { store: Map<string, unknown[]> }).store
-      )[0] ?? ""
-    );
     // Use runtime's pipelineRunId from the checkpoint
     const storeMap = (store as unknown as { store: Map<string, unknown[]> })
       .store;
@@ -486,7 +478,7 @@ describe("CompiledWorkflow — suspend and resume", () => {
     const wf = createWorkflow({ id: "no-store" }).suspend("pause").build();
 
     await expect(wf.resume("some-run-id")).rejects.toThrow(
-      "no checkpoint store"
+      "no checkpoint store",
     );
   });
 
@@ -498,7 +490,7 @@ describe("CompiledWorkflow — suspend and resume", () => {
       .withCheckpointStore(store);
 
     await expect(wf.resume("nonexistent-run-id")).rejects.toThrow(
-      "No checkpoint found"
+      "No checkpoint found",
     );
   });
 });
@@ -564,7 +556,7 @@ describe("CompiledWorkflow — withJournal", () => {
     await wf.run({});
     const calls = (journal.append as ReturnType<typeof vi.fn>).mock.calls as [
       string,
-      { type: string }
+      { type: string },
     ][];
     const types = calls.map(([, entry]) => entry.type);
     expect(types).toContain("run_started");
@@ -585,7 +577,7 @@ describe("CompiledWorkflow — withJournal", () => {
     await wf.run({});
     const calls = (journal.append as ReturnType<typeof vi.fn>).mock.calls as [
       string,
-      { type: string }
+      { type: string },
     ][];
     const types = calls.map(([, entry]) => entry.type);
     expect(types).toContain("step_started");
@@ -611,7 +603,7 @@ describe("CompiledWorkflow — withJournal", () => {
     await wf.run({}).catch(() => {});
     const calls = (journal.append as ReturnType<typeof vi.fn>).mock.calls as [
       string,
-      { type: string }
+      { type: string },
     ][];
     const types = calls.map(([, entry]) => entry.type);
     expect(types).toContain("run_failed");
@@ -748,7 +740,7 @@ describe("CompiledWorkflow — stream", () => {
 
     // After workflow:completed the generator should break
     const completedIdx = yielded.findIndex(
-      (e) => e.type === "workflow:completed"
+      (e) => e.type === "workflow:completed",
     );
     expect(completedIdx).toBeGreaterThanOrEqual(0);
     // No events should appear after workflow:completed
@@ -828,19 +820,19 @@ describe("CompiledWorkflow — crash recovery", () => {
         makeStep("n1", (s) => {
           callLog.push("n1");
           return { ...s, n1: true };
-        })
+        }),
       )
       .then(
         makeStep("n2", (s) => {
           callLog.push("n2");
           return { ...s, n2: true };
-        })
+        }),
       )
       .then(
         makeStep("n3", (s) => {
           callLog.push("n3");
           return { ...s, n3: true };
-        })
+        }),
       )
       .build()
       .withCheckpointStore(interceptStore);
@@ -852,7 +844,7 @@ describe("CompiledWorkflow — crash recovery", () => {
 
     // Find the checkpoint that has exactly 2 completed nodes (n1 + n2).
     const checkpointAfterN2 = savedCheckpoints.find(
-      (cp) => cp.completedNodeIds.length === 2
+      (cp) => cp.completedNodeIds.length === 2,
     );
     expect(checkpointAfterN2).toBeDefined();
 
@@ -937,10 +929,10 @@ describe("PipelineRuntime (PipelineExecutor) — linear execution", () => {
 
     await runtime.execute();
     const nodeStarted = events.filter(
-      (e) => e.type === "pipeline:node_started"
+      (e) => e.type === "pipeline:node_started",
     );
     const nodeCompleted = events.filter(
-      (e) => e.type === "pipeline:node_completed"
+      (e) => e.type === "pipeline:node_completed",
     );
     expect(nodeStarted.length).toBe(2); // A and B
     expect(nodeCompleted.length).toBe(2);
@@ -1093,7 +1085,7 @@ describe("PipelineRuntime — checkpointing", () => {
     expect(result.state).toBe("completed");
 
     const cpEvents = events.filter(
-      (e) => e.type === "pipeline:checkpoint_saved"
+      (e) => e.type === "pipeline:checkpoint_saved",
     );
     expect(cpEvents.length).toBe(2); // one per node A and B
   });
@@ -1111,7 +1103,7 @@ describe("PipelineRuntime — checkpointing", () => {
 
     await runtime.execute();
     const cpEvents = events.filter(
-      (e) => e.type === "pipeline:checkpoint_saved"
+      (e) => e.type === "pipeline:checkpoint_saved",
     );
     expect(cpEvents.length).toBe(0);
   });
@@ -1527,7 +1519,7 @@ describe("PipelineRuntime — pipeline validation", () => {
     });
 
     await expect(runtime.execute()).rejects.toThrow(
-      "Pipeline validation failed"
+      "Pipeline validation failed",
     );
   });
 });
@@ -1550,7 +1542,7 @@ describe("CompiledWorkflow — onError handler", () => {
         makeStep("after-recovery", (s) => {
           executed.push("after-recovery");
           return s;
-        })
+        }),
       )
       .onError(
         (err) => err.message.includes("transient"),
@@ -1559,7 +1551,7 @@ describe("CompiledWorkflow — onError handler", () => {
             executed.push("recovery-step");
             return s;
           }),
-        ]
+        ],
       )
       .build();
 
@@ -1603,7 +1595,7 @@ describe("PipelineRuntime — suspend checkpoint", () => {
     expect(result.state).toBe("suspended");
 
     const cpEvents = events.filter(
-      (e) => e.type === "pipeline:checkpoint_saved"
+      (e) => e.type === "pipeline:checkpoint_saved",
     );
     expect(cpEvents.length).toBeGreaterThanOrEqual(1);
 

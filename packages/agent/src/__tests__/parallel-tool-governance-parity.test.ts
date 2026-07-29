@@ -145,7 +145,7 @@ describe('parallel tool governance parity (MJ-AGENT-03)', () => {
 
       const bus = createEventBus()
       const events: unknown[] = []
-      bus.on('approval:requested', (e) => events.push(e))
+      bus.on('approval:requested', (e) => { events.push(e) })
 
       const governance = new ToolGovernance({ approvalRequired: ['deploy'] })
 

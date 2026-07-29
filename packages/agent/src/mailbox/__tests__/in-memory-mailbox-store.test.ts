@@ -4,7 +4,7 @@
  * Covers: save, findByRecipient (FIFO, limit, unreadOnly, since, TTL),
  * markRead, deleteExpired, and empty-mailbox edge case.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { InMemoryMailboxStore } from '../in-memory-mailbox-store.js'
 import type { MailMessage } from '../types.js'
 

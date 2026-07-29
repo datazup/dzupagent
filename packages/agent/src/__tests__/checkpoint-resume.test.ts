@@ -9,7 +9,7 @@
  * implementation) and PipelineRuntime for resume integration scenarios.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoint-store.js";
 import { PipelineRuntime } from "../pipeline/pipeline-runtime.js";
 import type { PipelineCheckpoint, PipelineDefinition } from "@dzupagent/core";

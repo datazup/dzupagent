@@ -2,8 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { BaseStore } from '@langchain/langgraph'
 import {
   SpecialistRegistry,
-  type SpecialistConfig,
-  type SpecialistRegistryConfig,
 } from '../self-correction/specialist-registry.js'
 
 // ---------------------------------------------------------------------------

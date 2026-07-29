@@ -9,7 +9,6 @@ import {
 } from '../orchestration/planning-agent.js'
 import { DelegatingSupervisor as RealSupervisor } from '../orchestration/delegating-supervisor.js'
 import { SimpleDelegationTracker } from '../orchestration/delegation.js'
-import type { ExecutionPlan } from '../orchestration/planning-agent.js'
 import type {
   DelegatingSupervisor,
   TaskAssignment,

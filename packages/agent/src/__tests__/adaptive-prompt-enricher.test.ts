@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type { BaseStore } from '@langchain/langgraph'
 import {
   AdaptivePromptEnricher,
-  type EnricherConfig,
 } from '../self-correction/adaptive-prompt-enricher.js'
 
 // ---------------------------------------------------------------------------

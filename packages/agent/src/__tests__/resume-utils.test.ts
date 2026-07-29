@@ -25,7 +25,7 @@ describe('rehydrateMessagesFromJournal', () => {
     expect(messages).toHaveLength(1)
     expect(typeOf(messages[0])).toBe('human')
     expect(messages[0]).toBeInstanceOf(HumanMessage)
-    expect(messages[0].content).toBe('do task X')
+    expect(messages[0]!.content).toBe('do task X')
   })
 
   it('emits HumanMessage + AIMessage per step_completed in seq order', () => {
@@ -36,13 +36,13 @@ describe('rehydrateMessagesFromJournal', () => {
     const messages = rehydrateMessagesFromJournal(entries, 'original input')
     expect(messages).toHaveLength(3)
     expect(messages[0]).toBeInstanceOf(HumanMessage)
-    expect(messages[0].content).toBe('original input')
+    expect(messages[0]!.content).toBe('original input')
     expect(messages[1]).toBeInstanceOf(AIMessage)
     expect(messages[2]).toBeInstanceOf(AIMessage)
-    expect(String(messages[1].content)).toContain('search')
-    expect(String(messages[1].content)).toContain('found 3')
-    expect(String(messages[2].content)).toContain('write_file')
-    expect(String(messages[2].content)).toContain('written')
+    expect(String(messages[1]!.content)).toContain('search')
+    expect(String(messages[1]!.content)).toContain('found 3')
+    expect(String(messages[2]!.content)).toContain('write_file')
+    expect(String(messages[2]!.content)).toContain('written')
   })
 
   it('sorts step_completed by seq even if provided out of order', () => {
@@ -51,8 +51,8 @@ describe('rehydrateMessagesFromJournal', () => {
       entry({ type: 'step_completed', seq: 2, data: { toolName: 'first', result: 'earlier' } }),
     ]
     const messages = rehydrateMessagesFromJournal(entries, 'x')
-    expect(String(messages[1].content)).toContain('first')
-    expect(String(messages[2].content)).toContain('second')
+    expect(String(messages[1]!.content)).toContain('first')
+    expect(String(messages[2]!.content)).toContain('second')
   })
 
   it('uses toolName when present, falls back to stepId', () => {
@@ -61,9 +61,9 @@ describe('rehydrateMessagesFromJournal', () => {
       entry({ type: 'step_completed', seq: 2, data: { stepId: 'ignored', toolName: 'preferred-name' } }),
     ]
     const messages = rehydrateMessagesFromJournal(entries, '')
-    expect(String(messages[1].content)).toContain('fallback-id')
-    expect(String(messages[2].content)).toContain('preferred-name')
-    expect(String(messages[2].content)).not.toContain('ignored')
+    expect(String(messages[1]!.content)).toContain('fallback-id')
+    expect(String(messages[2]!.content)).toContain('preferred-name')
+    expect(String(messages[2]!.content)).not.toContain('ignored')
   })
 
   it('uses result when present, falls back to "[completed]"', () => {
@@ -72,8 +72,8 @@ describe('rehydrateMessagesFromJournal', () => {
       entry({ type: 'step_completed', seq: 2, data: { toolName: 't2', result: 'value' } }),
     ]
     const messages = rehydrateMessagesFromJournal(entries, '')
-    expect(String(messages[1].content)).toContain('[completed]')
-    expect(String(messages[2].content)).toContain('value')
+    expect(String(messages[1]!.content)).toContain('[completed]')
+    expect(String(messages[2]!.content)).toContain('value')
   })
 
   it('ignores non-step_completed entries', () => {
@@ -87,6 +87,6 @@ describe('rehydrateMessagesFromJournal', () => {
     expect(messages).toHaveLength(2)
     expect(messages[0]).toBeInstanceOf(HumanMessage)
     expect(messages[1]).toBeInstanceOf(AIMessage)
-    expect(String(messages[1].content)).toContain('search')
+    expect(String(messages[1]!.content)).toContain('search')
   })
 })

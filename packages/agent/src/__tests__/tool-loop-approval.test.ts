@@ -86,7 +86,7 @@ describe('Approval-required tool gating (RF-AGENT-04)', () => {
     ])
     const bus = createEventBus()
     const events: unknown[] = []
-    bus.on('approval:requested', (e) => events.push(e))
+    bus.on('approval:requested', (e) => { events.push(e) })
 
     const governance = new ToolGovernance({
       approvalRequired: ['deploy'],
@@ -135,7 +135,7 @@ describe('Approval-required tool gating (RF-AGENT-04)', () => {
     const model = createMockModel([aiWithToolCall('deploy', {}, 'tc_local_id')])
     const bus = createEventBus()
     const events: { runId: string }[] = []
-    bus.on('approval:requested', (e) => events.push(e as { runId: string }))
+    bus.on('approval:requested', (e) => { events.push(e as { runId: string }) })
 
     const governance = new ToolGovernance({ approvalRequired: ['deploy'] })
 
@@ -164,7 +164,7 @@ describe('Approval-required tool gating (RF-AGENT-04)', () => {
     ])
     const bus = createEventBus()
     const events: unknown[] = []
-    bus.on('approval:requested', (e) => events.push(e))
+    bus.on('approval:requested', (e) => { events.push(e) })
 
     // Governance configured but read_file is NOT in approvalRequired
     const governance = new ToolGovernance({
@@ -196,7 +196,7 @@ describe('Approval-required tool gating (RF-AGENT-04)', () => {
     const model = createMockModel([aiWithToolCall('migrate_db', { dryRun: false })])
     const bus = createEventBus()
     const events: unknown[] = []
-    bus.on('approval:requested', (e) => events.push(e))
+    bus.on('approval:requested', (e) => { events.push(e) })
 
     const governance = new ToolGovernance({
       // No blockedTools — approval is the only restriction
@@ -235,7 +235,7 @@ describe('Approval-required tool gating (RF-AGENT-04)', () => {
     ])
     const bus = createEventBus()
     const events: unknown[] = []
-    bus.on('approval:requested', (e) => events.push(e))
+    bus.on('approval:requested', (e) => { events.push(e) })
 
     const governance = new ToolGovernance({ approvalRequired: ['deploy'] })
 

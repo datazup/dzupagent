@@ -1,18 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { createWorkflow, type WorkflowEvent } from "../workflow/index.js";
 import type { WorkflowStep } from "../workflow/workflow-types.js";
 import { InMemoryRunJournal, InMemoryRunStore } from "@dzupagent/core";
 
 function step(
   id: string,
-  fn: (state: Record<string, unknown>) => Record<string, unknown>
-): WorkflowStep {
-  return { id, execute: async (input) => fn(input as Record<string, unknown>) };
-}
-
-function asyncStep(
-  id: string,
-  fn: (state: Record<string, unknown>) => Promise<Record<string, unknown>>
+  fn: (state: Record<string, unknown>) => Record<string, unknown>,
 ): WorkflowStep {
   return { id, execute: async (input) => fn(input as Record<string, unknown>) };
 }
@@ -25,7 +18,7 @@ describe("WorkflowBuilder - merge strategies", () => {
           step("first", () => ({ winner: "first", firstOnly: true })),
           step("second", () => ({ winner: "second", secondOnly: true })),
         ],
-        "last-wins"
+        "last-wins",
       )
       .build();
 
@@ -38,7 +31,7 @@ describe("WorkflowBuilder - merge strategies", () => {
     const workflow = createWorkflow({ id: "concat" })
       .parallel(
         [step("a", () => ({ a: 1 })), step("b", () => ({ b: 2 }))],
-        "concat-arrays"
+        "concat-arrays",
       )
       .build();
 
@@ -85,7 +78,7 @@ describe("WorkflowBuilder - branch edge cases", () => {
       .build();
 
     await expect(workflow.run({})).rejects.toThrow(
-      'Branch "nonexistent" not found'
+      'Branch "nonexistent" not found',
     );
   });
 
@@ -153,8 +146,8 @@ describe("WorkflowBuilder - parallel step failure", () => {
 
     expect(
       events.some(
-        (e) => e.type === "step:failed" && "stepId" in e && e.stepId === "bad"
-      )
+        (e) => e.type === "step:failed" && "stepId" in e && e.stepId === "bad",
+      ),
     ).toBe(true);
   });
 });
@@ -229,7 +222,7 @@ describe("WorkflowBuilder - getHandle errors", () => {
       .build();
 
     await expect(workflow.getHandle("some-run")).rejects.toThrow(
-      "no journal configured"
+      "no journal configured",
     );
   });
 });
@@ -240,7 +233,7 @@ describe("WorkflowBuilder - stream error handling", () => {
       .then(
         step("fail", () => {
           throw new Error("stream boom");
-        })
+        }),
       )
       .build();
 
@@ -266,7 +259,7 @@ describe("WorkflowBuilder - complex workflows", () => {
           ...s,
           merged: `${s["dataA"]}-${s["dataB"]}`,
           quality: "high",
-        }))
+        })),
       )
       .branch((s) => (s["quality"] === "high" ? "publish" : "review"), {
         publish: [step("publish", (s) => ({ ...s, published: true }))],

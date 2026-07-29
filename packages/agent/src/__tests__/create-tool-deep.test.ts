@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createForgeTool } from '../tools/create-tool.js'
 

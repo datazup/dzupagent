@@ -16,7 +16,7 @@
  *  - End-to-end: capture → serialize → deserialize → replay → inspect
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createEventBus } from "@dzupagent/core";
 import type { DzupEventBus } from "@dzupagent/core";
 import { TraceCapture } from "../replay/trace-capture.js";
@@ -342,8 +342,8 @@ describe("TraceCapture — deep edge cases", () => {
     expect(trace.events).toHaveLength(2);
     expect(
       trace.events.every(
-        (e) => e.type.startsWith("tool:") && e.type !== "tool:failed"
-      )
+        (e) => e.type.startsWith("tool:") && e.type !== "tool:failed",
+      ),
     ).toBe(true);
   });
 
@@ -950,7 +950,7 @@ describe("ReplayInspector — deep analytics", () => {
     expect(recoveries.length).toBe(2);
     expect(recoveries.some((e) => e.type === "pipeline:node_retry")).toBe(true);
     expect(recoveries.some((e) => e.type === "pipeline:stuck_detected")).toBe(
-      true
+      true,
     );
   });
 
@@ -1205,7 +1205,7 @@ describe("TraceSerializer — deep serialization", () => {
   it("rejects trace with missing runId field", () => {
     const bad = Buffer.from(
       JSON.stringify({ schemaVersion: "1.0.0", events: [] }),
-      "utf-8"
+      "utf-8",
     );
     expect(() => serializer.deserialize(bad, "json")).toThrow("runId");
   });
@@ -1213,7 +1213,7 @@ describe("TraceSerializer — deep serialization", () => {
   it("rejects trace with non-array events", () => {
     const bad = Buffer.from(
       JSON.stringify({ schemaVersion: "1.0.0", runId: "r", events: {} }),
-      "utf-8"
+      "utf-8",
     );
     expect(() => serializer.deserialize(bad, "json")).toThrow();
   });
@@ -1314,7 +1314,6 @@ describe("TraceSerializer — deep serialization", () => {
 
   it("sanitize does not mutate original trace", () => {
     const trace = makeTrace();
-    const origData = { ...trace.events[0]!.data };
     // Add a sensitive field to test
     trace.events[0]!.data["password"] = "secret-value";
     serializer.sanitize(trace);
@@ -1390,7 +1389,7 @@ describe("TraceSerializer — deep serialization", () => {
     const buf = serializer.serialize(trace, { format: "json" });
     const restored = serializer.deserialize(buf);
     expect(restored.config.snapshotInterval).toBe(
-      trace.config.snapshotInterval
+      trace.config.snapshotInterval,
     );
   });
 });

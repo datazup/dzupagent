@@ -120,7 +120,6 @@ describe("peerToPeerPattern — gap coverage", () => {
 
   describe("maxParallelParticipants policy", () => {
     it("respects concurrency=1 — participants execute serially (observable via execution order)", async () => {
-      const order: string[] = [];
       // We inject responses via buildResolved but track call order via the
       // AIMessage content which is returned in the order items are processed.
       // With concurrency=1 and synchronous mock, ordering is deterministic.
@@ -131,7 +130,7 @@ describe("peerToPeerPattern — gap coverage", () => {
           buildResolved("b", { response: "B" }),
           buildResolved("c", { response: "C" }),
         ],
-        { policies: { execution: { maxParallelParticipants: 1 } } }
+        { policies: { execution: { maxParallelParticipants: 1 } } },
       );
       const result = await peerToPeerPattern.execute(ctx);
       // With serial execution agentResults preserve input order.

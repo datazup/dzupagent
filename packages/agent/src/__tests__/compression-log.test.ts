@@ -17,7 +17,7 @@ import {
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { DzupAgentConfig, GenerateOptions } from '../agent/agent-types.js'
+import type { DzupAgentConfig } from '../agent/agent-types.js'
 import type { ToolLoopResult, StopReason } from '../agent/tool-loop.js'
 
 // ---------------------------------------------------------------------------
@@ -75,12 +75,10 @@ function makeRunState(overrides: Partial<PreparedRunState> = {}): PreparedRunSta
   const tools = [mockTool('search')]
   return {
     maxIterations: 10,
-    budget: undefined,
     preparedMessages: [new HumanMessage('hello')],
     tools,
     toolMap: new Map(tools.map((t) => [t.name, t])),
     model: mockModel(),
-    stuckDetector: undefined,
     ...overrides,
   }
 }
@@ -109,7 +107,6 @@ function baseExecuteParams(
       instructions: 'You are a test agent.',
       model: 'gpt-4',
     } as DzupAgentConfig,
-    options: undefined as GenerateOptions | undefined,
     runState,
     invokeModel: vi.fn(async () => new AIMessage('done')),
     transformToolResult: vi.fn(

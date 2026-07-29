@@ -6,7 +6,6 @@ const nextId = () => `run-${String(++_id).padStart(4, '0')}`
 import {
   PostRunAnalyzer,
   type RunAnalysis,
-  type PostRunAnalyzerConfig,
 } from '../self-correction/post-run-analyzer.js'
 
 // ---------------------------------------------------------------------------

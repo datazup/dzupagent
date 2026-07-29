@@ -10,7 +10,7 @@
  *  - cacheMaxSize=0 means unlimited (no eviction)
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import type { DzupAgentConfig } from '../agent/agent-types.js'
 import type { DzupAgent } from '../agent/dzip-agent.js'
 import type { SkillRegistry } from '@dzupagent/core'

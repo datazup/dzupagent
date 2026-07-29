@@ -3,7 +3,6 @@ import type { BaseStore } from '@langchain/langgraph'
 import {
   StrategySelector,
   type FixStrategy,
-  type StrategySelectorConfig,
 } from '../self-correction/strategy-selector.js'
 
 // ---------------------------------------------------------------------------

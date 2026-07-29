@@ -55,7 +55,6 @@ describe('prepareRunState — resume rehydration', () => {
       } as DzupAgentConfig,
       resolvedModel: model,
       messages: original,
-      options: undefined,
       prepareMessages: vi.fn(async () => ({ messages: prepared })),
       getTools: vi.fn(() => [] as StructuredToolInterface[]),
       bindTools: vi.fn((m: BaseChatModel) => m),
@@ -64,7 +63,7 @@ describe('prepareRunState — resume rehydration', () => {
 
     expect(result.preparedMessages).toBe(prepared)
     expect(result.preparedMessages).toHaveLength(1)
-    expect(result.preparedMessages[0].content).toBe('prepared question')
+    expect(result.preparedMessages[0]!.content).toBe('prepared question')
   })
 
   it('rehydrates messages from journal when _resume.lastStateSeq is provided', async () => {
@@ -122,13 +121,13 @@ describe('prepareRunState — resume rehydration', () => {
     // 1 HumanMessage + 2 AIMessages (seq 2 and seq 3 only)
     expect(msgs).toHaveLength(3)
     expect(msgs[0]).toBeInstanceOf(HumanMessage)
-    expect(msgs[0].content).toBe('do task X')
+    expect(msgs[0]!.content).toBe('do task X')
     expect(msgs[1]).toBeInstanceOf(AIMessage)
-    expect(String(msgs[1].content)).toContain('search')
-    expect(String(msgs[1].content)).toContain('found results')
+    expect(String(msgs[1]!.content)).toContain('search')
+    expect(String(msgs[1]!.content)).toContain('found results')
     expect(msgs[2]).toBeInstanceOf(AIMessage)
-    expect(String(msgs[2].content)).toContain('write_file')
-    expect(String(msgs[2].content)).toContain('done')
+    expect(String(msgs[2]!.content)).toContain('write_file')
+    expect(String(msgs[2]!.content)).toContain('done')
     // The seq=4 entry must not appear in rehydrated output.
     const joined = msgs.map((m) => String(m.content)).join('\n')
     expect(joined).not.toContain('future')
@@ -160,6 +159,6 @@ describe('prepareRunState — resume rehydration', () => {
     })
 
     expect(result.preparedMessages[0]).toBeInstanceOf(HumanMessage)
-    expect(result.preparedMessages[0].content).toBe('fallback input')
+    expect(result.preparedMessages[0]!.content).toBe('fallback input')
   })
 })

@@ -9,8 +9,6 @@ import type { AgentPreset, PresetRuntimeDeps } from '../presets/types.js'
 import {
   RAGChatPreset,
   ResearchPreset,
-  SummarizerPreset,
-  QAPreset,
 } from '../presets/built-in.js'
 
 // ---------------------------------------------------------------------------

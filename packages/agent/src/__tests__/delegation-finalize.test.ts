@@ -47,7 +47,7 @@ describe("SimpleDelegationTracker finalize seams (CODE-M-11)", () => {
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => { events.push(e) });
   });
 
   it("finalizeSuccess: executor that leaves run non-completed yields failed result with the run error", async () => {

@@ -8,7 +8,7 @@ import {
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { InMemoryRunStateStore, type DzupRunState } from '@dzupagent/core'
-import type { DzupAgentConfig, GenerateOptions, GenerateResult } from '../agent/agent-types.js'
+import type { DzupAgentConfig, GenerateOptions } from '../agent/agent-types.js'
 import type { ToolLoopResult, StopReason, ToolStat } from '../agent/tool-loop.js'
 import type * as ToolLoopModule from '../agent/tool-loop.js'
 import { makeMockTool, makeMockEventBus } from './test-utils.js'
@@ -85,7 +85,6 @@ function basePrepareParams(overrides: Partial<Parameters<typeof prepareRunState>
     } satisfies DzupAgentConfig as DzupAgentConfig,
     resolvedModel: model,
     messages: [new HumanMessage('hello')] as BaseMessage[],
-    options: undefined as GenerateOptions | undefined,
     prepareMessages: vi.fn(async (msgs: BaseMessage[]) => ({ messages: msgs })),
     getTools: vi.fn(() => tools),
     bindTools: vi.fn((_m: BaseChatModel, _t: StructuredToolInterface[]) => model),
@@ -118,7 +117,6 @@ function baseExecuteParams(
       instructions: 'You are a test agent.',
       model: 'gpt-4',
     } as DzupAgentConfig,
-    options: undefined as GenerateOptions | undefined,
     runState,
     invokeModel: vi.fn(async () => new AIMessage('done')),
     transformToolResult: vi.fn(async (_n: string, _i: Record<string, unknown>, r: string) => r),
@@ -558,7 +556,6 @@ describe('prepareRunState', () => {
           id: 'a',
           instructions: '',
           model: 'gpt-4',
-          selfLearning: undefined,
         },
       })
       await prepareRunState(params)
@@ -604,12 +601,10 @@ describe('executeGenerateRun', () => {
     const tools = [mockTool('search')]
     return {
       maxIterations: 10,
-      budget: undefined,
       preparedMessages: [new HumanMessage('hello')],
       tools,
       toolMap: new Map(tools.map(t => [t.name, t])),
       model: mockModel(),
-      stuckDetector: undefined,
       ...overrides,
     }
   }
@@ -1312,8 +1307,6 @@ describe('executeStreamingToolCall', () => {
     return {
       toolCall: { id: 'call_1', name: 'search', args: { query: 'test' } },
       toolMap: new Map<string, StructuredToolInterface>([['search', tool]]),
-      budget: undefined as IterationBudget | undefined,
-      stuckDetector: undefined as StuckDetector | undefined,
       transformToolResult: vi.fn(async (_n: string, _i: Record<string, unknown>, r: string) => r),
       onToolLatency: vi.fn(),
       statTracker: createToolStatTracker(),
@@ -1517,7 +1510,7 @@ describe('RF-04 default cost ceiling (SEC-08)', () => {
 
       // Consume >50_000 input tokens — budget MUST report exhausted with the
       // `Token limit exceeded` reason so the tool loop aborts cleanly.
-      state.budget!.recordUsage({ inputTokens: 50_001, outputTokens: 0 })
+      state.budget!.recordUsage({ model: 'gpt-4', inputTokens: 50_001, outputTokens: 0 })
       const check = state.budget!.isExceeded()
       expect(check.exceeded).toBe(true)
       expect(check.reason).toMatch(/Token limit exceeded/)
@@ -1559,7 +1552,7 @@ describe('RF-04 default cost ceiling (SEC-08)', () => {
       expect(state.budget).toBeInstanceOf(IterationBudget)
 
       // 50_001 input tokens MUST NOT exhaust the explicit 1M cap.
-      state.budget!.recordUsage({ inputTokens: 50_001, outputTokens: 0 })
+      state.budget!.recordUsage({ model: 'gpt-4', inputTokens: 50_001, outputTokens: 0 })
       expect(state.budget!.isExceeded().exceeded).toBe(false)
     })
 
@@ -1580,7 +1573,7 @@ describe('RF-04 default cost ceiling (SEC-08)', () => {
       expect(state.maxIterations).toBe(DEFAULT_GUARDED_MAX_ITERATIONS)
       // Budget is capped at DEFAULT_UNGUARDED_BUDGET — consuming >50_000 input
       // tokens must trip the limit even with an empty guardrails object.
-      state.budget!.recordUsage({ inputTokens: 50_001, outputTokens: 0 })
+      state.budget!.recordUsage({ model: 'gpt-4', inputTokens: 50_001, outputTokens: 0 })
       expect(state.budget!.isExceeded().exceeded).toBe(true)
       expect(state.budget!.isExceeded().reason).toMatch(/Token limit exceeded/)
     })

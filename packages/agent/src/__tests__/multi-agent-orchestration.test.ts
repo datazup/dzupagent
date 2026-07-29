@@ -126,10 +126,6 @@ function makeSpecialist(
   };
 }
 
-function makeAgentSpec(id: string, tags: string[] = []): AgentSpec {
-  return { id, name: id, tags };
-}
-
 function makeTask(overrides: Partial<AgentTask> = {}): AgentTask {
   return {
     taskId: "task-1",
@@ -531,7 +527,9 @@ describe("DelegatingSupervisor — delegation patterns", () => {
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => {
+      events.push(e);
+    });
   });
 
   describe("single specialist delegation", () => {
@@ -935,7 +933,9 @@ describe("Result merging from multiple agents", () => {
     it("calls mergeStrategy.merge when provided and emits merge_complete event", () => {
       const eventBus = createEventBus();
       const collectedEvents: DzupEvent[] = [];
-      eventBus.onAny((e) => collectedEvents.push(e));
+      eventBus.onAny((e) => {
+        collectedEvents.push(e);
+      });
 
       const mergeStrategy = {
         merge: vi.fn(() => ({
@@ -1230,8 +1230,6 @@ describe("Orchestration lifecycle", () => {
         executor: hangingExecutor(),
       });
 
-      const controller = new AbortController();
-
       // Start delegation without await
       const delegatePromise = tracker.delegate({
         targetAgentId: "slow",
@@ -1384,7 +1382,9 @@ describe("Parallel delegation — concurrent execution", () => {
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => {
+      events.push(e);
+    });
   });
 
   it("delegates 3 tasks in parallel and collects all results", async () => {
@@ -1963,7 +1963,9 @@ describe("DelegatingSupervisor planAndDelegate with routing policy", () => {
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => {
+      events.push(e);
+    });
   });
 
   it("decomposes goal and matches specialists by metadata tags", async () => {

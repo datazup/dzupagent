@@ -18,7 +18,7 @@
  *  - Stream contract for branching workflows
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { createWorkflow, type WorkflowEvent } from "../workflow/index.js";
 import type {
   WorkflowStep,
@@ -186,7 +186,7 @@ describe("parallel branch execution", () => {
       ])
       .build();
 
-    const { events } = await collectEvents(wf.run ? wf : wf);
+    await collectEvents(wf.run ? wf : wf);
     // Re-collect properly
     const evts: WorkflowEvent[] = [];
     await wf.run({}, { onEvent: (e) => evts.push(e) });

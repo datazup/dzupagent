@@ -10,7 +10,7 @@
  * 6. DzupAgent.consolidate() returns {summarized:0} when no store available.
  * 7. memoryPolicy.consolidateFinalizer fires from maybeWriteBackMemory path.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { DzupAgent } from "../agent/dzip-agent.js";
 import { runConsolidateFinalizer } from "../agent/agent-finalizers.js";
 import type { DzupAgentConfig } from "../agent/agent-types.js";

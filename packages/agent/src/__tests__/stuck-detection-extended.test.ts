@@ -31,7 +31,6 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { StuckDetector } from "../guardrails/stuck-detector.js";
-import type { StuckDetectorConfig } from "../guardrails/stuck-detector.js";
 import { PipelineStuckDetector } from "../self-correction/pipeline-stuck-detector.js";
 import { StuckError } from "../agent/stuck-error.js";
 
