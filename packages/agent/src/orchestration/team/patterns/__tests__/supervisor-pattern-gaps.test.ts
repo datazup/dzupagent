@@ -5,8 +5,21 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentOrchestrator } from "../../../orchestrator.js";
+import type { SupervisorResult } from "../../../supervisor-types.js";
 import { supervisorPattern } from "../supervisor-pattern.js";
 import { buildContext, buildResolved } from "./test-helpers.js";
+
+/**
+ * Pin the supervisor spy to the modern config-object overload.
+ *
+ * `AgentOrchestrator.supervisor` is overloaded; the deprecated positional form
+ * resolves last and returns `Promise<string>`, so `vi.spyOn(...)` infers that
+ * one and rejects a `SupervisorResult` mock value. These tests exercise the
+ * config-object form, so the spy is narrowed to its return type.
+ */
+const mockSupervisor = (value: SupervisorResult) =>
+  vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue(value as never);
+
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -15,7 +28,7 @@ afterEach(() => {
 describe("supervisorPattern — gap coverage", () => {
   describe("agentResults shape", () => {
     it("manager agentResult carries the full content; specialists get empty content", async () => {
-      vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+      mockSupervisor({
         content: "manager-output",
         availableSpecialists: ["s1", "s2"],
         filteredSpecialists: [],
@@ -33,7 +46,7 @@ describe("supervisorPattern — gap coverage", () => {
     });
 
     it("all agentResults have success=true on the happy path", async () => {
-      vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+      mockSupervisor({
         content: "ok",
         availableSpecialists: ["s1"],
         filteredSpecialists: [],
@@ -48,7 +61,7 @@ describe("supervisorPattern — gap coverage", () => {
     });
 
     it("agentResults ordering: manager first, then specialists in input order", async () => {
-      vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+      mockSupervisor({
         content: "ok",
         availableSpecialists: ["alpha", "beta"],
         filteredSpecialists: [],
@@ -67,7 +80,7 @@ describe("supervisorPattern — gap coverage", () => {
     });
 
     it("result.durationMs is non-negative", async () => {
-      vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+      mockSupervisor({
         content: "ok",
         availableSpecialists: [],
         filteredSpecialists: [],
@@ -81,7 +94,7 @@ describe("supervisorPattern — gap coverage", () => {
     });
 
     it("all agentResults carry a non-negative durationMs", async () => {
-      vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+      mockSupervisor({
         content: "ok",
         availableSpecialists: ["s1"],
         filteredSpecialists: [],
@@ -98,7 +111,7 @@ describe("supervisorPattern — gap coverage", () => {
 
   describe("manager selection fallback", () => {
     it("uses first participant as manager when no participant has role 'supervisor'", async () => {
-      vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+      mockSupervisor({
         content: "first-wins",
         availableSpecialists: ["second"],
         filteredSpecialists: [],
@@ -114,7 +127,7 @@ describe("supervisorPattern — gap coverage", () => {
     });
 
     it("prefers the participant with role 'supervisor' over an earlier non-supervisor", async () => {
-      vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+      mockSupervisor({
         content: "sup-output",
         availableSpecialists: ["worker"],
         filteredSpecialists: [],
@@ -131,7 +144,7 @@ describe("supervisorPattern — gap coverage", () => {
 
   describe("hook wiring", () => {
     it("emitParticipantStart fires for manager and all specialists", async () => {
-      vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+      mockSupervisor({
         content: "ok",
         availableSpecialists: ["s1", "s2"],
         filteredSpecialists: [],
@@ -149,7 +162,7 @@ describe("supervisorPattern — gap coverage", () => {
     });
 
     it("manager start fires before specialist starts", async () => {
-      vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+      mockSupervisor({
         content: "ok",
         availableSpecialists: ["s1"],
         filteredSpecialists: [],
@@ -164,7 +177,7 @@ describe("supervisorPattern — gap coverage", () => {
     });
 
     it("emitParticipantComplete fires for all participants on success", async () => {
-      vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+      mockSupervisor({
         content: "ok",
         availableSpecialists: ["s1"],
         filteredSpecialists: [],
