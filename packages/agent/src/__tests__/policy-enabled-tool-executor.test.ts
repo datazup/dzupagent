@@ -83,24 +83,56 @@ function makeEventBus(): {
  * Build the base PolicyEnabledToolExecutorParams.
  * Accepts per-test overrides for config.
  */
+/**
+ * Drop keys whose value is `undefined`, so a spread cannot re-introduce them.
+ *
+ * The return type strips `| undefined` from the value types too: under
+ * `exactOptionalPropertyTypes` a `Partial<T>` whose values still admit
+ * `undefined` is not assignable to `T`, even though the runtime filter has
+ * already removed those keys.
+ */
+function omitUndefined<T extends object>(
+  obj: T,
+): { [K in keyof T]?: Exclude<T[K], undefined> } {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined),
+  ) as { [K in keyof T]?: Exclude<T[K], undefined> };
+}
+
 function makeParams(
   tools: StructuredToolInterface[],
-  configOverrides: Partial<ToolLoopConfig> = {},
+  // Explicit `undefined` is meaningful here: several tests pass it to assert a
+  // field falls back to its default, which `exactOptionalPropertyTypes` would
+  // otherwise forbid. Hence the added `| undefined` rather than `Partial<>` alone.
+  // Tests pass explicit `undefined` for optional fields to assert they fall
+  // back to their defaults — a branch `exactOptionalPropertyTypes` makes
+  // unwritable via a plain `Partial<>`. Relaxes the OPTIONAL keys only; the
+  // required ones (maxIterations) stay required, and are re-pinned below.
+  configOverrides: {
+    [K in keyof ToolLoopConfig]?: ToolLoopConfig[K] | undefined;
+  } = {},
   statGetterOverride?: StatGetter,
 ): PolicyEnabledToolExecutorParams {
   const { getter } = makeStatGetter();
   return {
     toolMap: new Map(tools.map((t) => [t.name, t])),
     config: {
-      maxIterations: 10,
       // MC-3 (AGENT-H-06): successful tool results are wrapped in an
       // `<untrusted_content>` delimiter by default. These unit tests assert
       // the executor's raw content shaping (transforms, validation, retry,
       // timeout, safety scan), which is orthogonal to wrapping, so they
       // opt out here. A dedicated test below re-enables wrapping to verify
       // the guardrail is applied on the happy path.
-      wrapToolResults: false,
-      ...configOverrides,
+      // These raw-shaping tests opt out of MC-3 wrapping by default, but a test
+      // that passes `wrapToolResults: undefined` is asking for the ON default —
+      // so an explicitly-present key wins over this baseline even when its value
+      // is undefined. `in` distinguishes that from an omitted key; a spread of
+      // the filtered object could not.
+      ...("wrapToolResults" in configOverrides
+        ? { wrapToolResults: configOverrides.wrapToolResults }
+        : { wrapToolResults: false }),
+      ...omitUndefined(configOverrides),
+      maxIterations: configOverrides.maxIterations ?? 10,
     },
     getOrCreateStat: statGetterOverride ?? getter,
   };
