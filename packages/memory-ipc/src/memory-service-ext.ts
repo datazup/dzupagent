@@ -60,6 +60,18 @@ export interface MemoryServiceLike {
     scope: Record<string, string>,
     key: string,
   ): Promise<boolean | void>
+  /**
+   * Read records paired with the store key they were written under.
+   *
+   * Optional because `MemoryServiceLike` is structural, but strongly
+   * preferred: `get()` returns bare values, so a record's key is not
+   * recoverable from it and key-dependent operations (such as the `replace`
+   * import strategy) cannot work without this.
+   */
+  getKeyed?(
+    namespace: string,
+    scope: Record<string, string>,
+  ): Promise<Array<{ key: string; value: Record<string, unknown> }>>
 }
 
 /** The Arrow extension methods added to a MemoryService. */
@@ -234,16 +246,26 @@ export function extendMemoryServiceWithArrow(
           )
         }
 
-        const existingRecords = await memoryService.get(namespace, scope)
-        for (const existingRecord of existingRecords) {
-          const existingKey = extractRecordKey(existingRecord)
-          if (!existingKey) {
-            throw new Error(
-              'replace strategy requires existing records to expose a key',
-            )
+        // Prefer a keyed read: `get()` returns bare values, so real records
+        // expose neither `key` nor `id` and every replace would throw.
+        if (memoryService.getKeyed) {
+          const existing = await memoryService.getKeyed(namespace, scope)
+          for (const { key: existingKey } of existing) {
+            await memoryService.delete(namespace, scope, existingKey)
           }
+        } else {
+          const existingRecords = await memoryService.get(namespace, scope)
+          for (const existingRecord of existingRecords) {
+            const existingKey = extractRecordKey(existingRecord)
+            if (!existingKey) {
+              throw new Error(
+                'replace strategy requires existing records to expose a key, ' +
+                  'or a getKeyed() implementation',
+              )
+            }
 
-          await memoryService.delete(namespace, scope, existingKey)
+            await memoryService.delete(namespace, scope, existingKey)
+          }
         }
       }
 
