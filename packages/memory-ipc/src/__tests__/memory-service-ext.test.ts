@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { extendMemoryServiceWithArrow } from "../memory-service-ext.js";
 import type { MemoryServiceLike } from "../memory-service-ext.js";
 import { FrameBuilder } from "../frame-builder.js";
@@ -293,11 +293,15 @@ describe("extendMemoryServiceWithArrow", () => {
     });
 
     it("should reject replace when delete capability is absent", async () => {
-      const put = vi.fn(async () => undefined);
+      // A real store with its delete capability withheld — the guard must fire
+      // on the missing method, not on an otherwise-crippled service.
+      const backing = new MockMemoryService();
+      await backing.put(ns, scope, "existing-0", { text: "old-value" });
       const service: MemoryServiceLike = {
-        get: async () => [{ key: "existing-0", text: "old-value" }],
-        search: async () => [],
-        put,
+        get: backing.get.bind(backing),
+        getKeyed: backing.getKeyed.bind(backing),
+        search: backing.search.bind(backing),
+        put: backing.put.bind(backing),
       };
 
       const extWithoutDelete = extendMemoryServiceWithArrow(service);
@@ -313,7 +317,10 @@ describe("extendMemoryServiceWithArrow", () => {
         extWithoutDelete.importFrame(ns, scope, table, "replace")
       ).rejects.toThrow(/delete\(\) support/);
 
-      expect(put).not.toHaveBeenCalled();
+      // Nothing was written: the store still holds only the pre-existing
+      // record, checked against the store rather than a call spy.
+      const remaining = await backing.getKeyed(ns, scope);
+      expect(remaining.map((r) => r.key)).toEqual(["existing-0"]);
     });
   });
 

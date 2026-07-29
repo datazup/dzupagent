@@ -229,7 +229,14 @@ export function extendMemoryServiceWithArrow(
       // Always read keyed. An exported frame's whole purpose is to be
       // re-importable, which requires each row to carry the key it came from —
       // and neither `get()` nor `search()` returns keys.
-      let records = await memoryService.getKeyed(namespace, scope);
+      //
+      // Drop holes before anything destructures an entry: a sparse or
+      // null-bearing result would otherwise throw here rather than skip the
+      // bad row, turning one unreadable record into a failed whole export.
+      let records = (await memoryService.getKeyed(namespace, scope)).filter(
+        (entry): entry is { key: string; value: Record<string, unknown> } =>
+          entry != null
+      );
 
       if (options?.query) {
         // Filter the keyed set rather than delegating to `search()`. `search()`
