@@ -42,6 +42,16 @@ function createMockMemoryService(namespaces: string[]): {
         return Promise.resolve(Array.from(nsRecords.values()))
       },
     ),
+    getKeyed: vi.fn().mockImplementation(
+      (ns: string, scope: Record<string, string>) => {
+        const nsKey = `${ns}:${JSON.stringify(scope)}`
+        const nsRecords = records.get(nsKey)
+        if (!nsRecords) return Promise.resolve([])
+        return Promise.resolve(
+          Array.from(nsRecords.entries()).map(([key, value]) => ({ key, value })),
+        )
+      },
+    ),
     search: vi.fn().mockResolvedValue([]),
     formatForPrompt: vi.fn().mockReturnValue(''),
   } as unknown as MemoryService

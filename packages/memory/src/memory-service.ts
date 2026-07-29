@@ -47,9 +47,11 @@ import {
 import {
   buildNamespaceTuple,
   deleteMemoryRecord,
+  getKeyedMemoryRecords,
   getMemoryRecords,
   getNamespace,
   putMemoryRecord,
+  type KeyedMemoryRecord,
 } from './memory-service-store.js'
 import { searchMemory } from './memory-service-search.js'
 import { formatMemoryForPrompt } from './memory-service-prompt.js'
@@ -57,6 +59,7 @@ import { formatMemoryForPrompt } from './memory-service-prompt.js'
 // Re-export public types so existing callers continue to import from
 // `./memory-service.js` without code changes.
 export type {
+  KeyedMemoryRecord,
   MemoryEventBus,
   MemoryPIIResult,
   MemoryServiceOptions,
@@ -148,6 +151,25 @@ export class MemoryService {
       store: this.store,
       referenceTracker: this.referenceTracker,
     })
+  }
+
+  /**
+   * Read every record in a namespace paired with the store key it was
+   * written under.
+   *
+   * `get()` returns bare values, so the key passed to `put()` is not
+   * recoverable from the result — `put()` does not write it into the record.
+   * Callers that need record identity (export, reconciliation, de-duplication)
+   * should use this instead. Values are returned verbatim.
+   *
+   * Non-fatal: returns [] on error.
+   */
+  async getKeyed(
+    namespace: string,
+    scope: Record<string, string>,
+  ): Promise<KeyedMemoryRecord[]> {
+    const ns = getNamespace(this.nsMap, namespace)
+    return getKeyedMemoryRecords(ns, scope, this.store)
   }
 
   /**

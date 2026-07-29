@@ -61,6 +61,7 @@ function createMockMemoryService(): {
   svc: MemoryService;
   putSpy: ReturnType<typeof vi.fn>;
   getSpy: ReturnType<typeof vi.fn>;
+  getKeyedSpy: ReturnType<typeof vi.fn>;
   searchSpy: ReturnType<typeof vi.fn>;
   formatSpy: ReturnType<typeof vi.fn>;
 } {
@@ -69,14 +70,17 @@ function createMockMemoryService(): {
   const searchSpy = vi.fn().mockResolvedValue([]);
   const formatSpy = vi.fn().mockReturnValue("formatted");
 
+  const getKeyedSpy = vi.fn().mockResolvedValue([]);
+
   const svc = {
     put: putSpy,
     get: getSpy,
+    getKeyed: getKeyedSpy,
     search: searchSpy,
     formatForPrompt: formatSpy,
   } as unknown as MemoryService;
 
-  return { svc, putSpy, getSpy, searchSpy, formatSpy };
+  return { svc, putSpy, getSpy, getKeyedSpy, searchSpy, formatSpy };
 }
 
 const SCOPE: MemoryScope = { tenantId: "t1", projectId: "p1" };
@@ -937,15 +941,24 @@ describe("EncryptedMemoryService — rotateKey bulk rotation", () => {
       keyProvider: rotateProvider,
     });
 
-    mock.getSpy.mockResolvedValueOnce(storedRecords);
+    mock.getKeyedSpy.mockResolvedValueOnce(
+      storedRecords.map((value, i) => ({ key: `k${i}`, value }))
+    );
     const result = await rotator.rotateKey("ns", SCOPE);
 
     expect(result.rotated).toBe(5);
     expect(result.failed).toBe(0);
 
-    // All re-puts should use new key
+    // All re-puts should use new key, each targeting its original key.
     const rePutCalls = mock.putSpy.mock.calls.slice(5);
     expect(rePutCalls).toHaveLength(5);
+    expect(rePutCalls.map((c) => c[2])).toEqual([
+      "k0",
+      "k1",
+      "k2",
+      "k3",
+      "k4",
+    ]);
     for (const call of rePutCalls) {
       const env = (call[3] as Record<string, unknown>)[
         "_encrypted_value"
@@ -963,7 +976,7 @@ describe("EncryptedMemoryService — rotateKey bulk rotation", () => {
       keyProvider: provider,
     });
 
-    mock.getSpy.mockResolvedValueOnce([]);
+    mock.getKeyedSpy.mockResolvedValueOnce([]);
     const result = await service.rotateKey("empty-ns", SCOPE);
     expect(result.rotated).toBe(0);
     expect(result.failed).toBe(0);

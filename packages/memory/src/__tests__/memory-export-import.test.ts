@@ -500,51 +500,60 @@ describe("AgentFileImporter.import", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Key preservation — DEFECT PIN
+  // Key preservation
   // -------------------------------------------------------------------------
   //
   // `MemoryService.put(ns, scope, key, value)` passes `key` to the backing
   // store but never writes it into the value, and `MemoryService.get()`
-  // returns bare values without their keys (stated verbatim at
-  // encryption/encrypted-memory-service.ts:244). The exporter recovers a key
-  // from `record['_key']` (exporter.ts:160-163) and otherwise falls back to a
-  // positional `record-<n>`.
+  // returns bare values without their keys. The exporter therefore used to
+  // fall back to a positional `record-<n>`, which renamed every record on
+  // export: conflict detection ('skip'/'merge') could never match an existing
+  // record, so a re-import duplicated instead of merging.
   //
-  // Net effect: memory written through the ordinary put() path exports with
-  // SYNTHETIC keys. Round-tripping renames every record, so conflict detection
-  // ('skip'/'merge') can never match an existing record and re-imports
-  // duplicate instead of merging.
-  //
-  // These tests pin CURRENT behavior. If `put()` is fixed to persist `_key`,
-  // the first test below flips and should be updated — that is the signal.
+  // The exporter now reads through `MemoryService.getKeyed()`, which pairs
+  // each record with the store key it was written under. Values are returned
+  // verbatim — no `_key` is injected — so export signatures still hash exactly
+  // the bytes the caller stored.
 
-  it("DEFECT: exports positional keys when records were written without _key", async () => {
+  it("exports the store key for records written without _key", async () => {
     const { svc } = makeService();
     await svc.put("lessons", SCOPE, "l1", { text: "no _key written" });
 
     const file = await makeExporter(svc).export();
     const record = file.memory.namespaces["lessons"]?.[0];
 
-    // The caller's key "l1" is lost; a positional placeholder takes its place.
-    expect(record?.key).toBe("record-0");
-    expect(record?.key).not.toBe("l1");
+    expect(record?.key).toBe("l1");
   });
 
-  it("DEFECT: re-importing a keyless export duplicates instead of matching", async () => {
+  it("does not inject _key into the exported value", async () => {
+    const { svc } = makeService();
+    await svc.put("lessons", SCOPE, "l1", { text: "no _key written" });
+
+    const file = await makeExporter(svc).export();
+
+    // The key travels in the envelope, not the payload — injecting it would
+    // change what the signature is computed over.
+    expect(file.memory.namespaces["lessons"]?.[0]?.value).not.toHaveProperty(
+      "_key"
+    );
+  });
+
+  it("re-importing a keyless export matches instead of duplicating", async () => {
     const source = makeService();
     await source.svc.put("lessons", SCOPE, "l1", { text: "original" });
     const file = await makeExporter(source.svc).export();
 
-    // Import back into the SAME service under 'skip'. A key-preserving export
-    // would detect the existing record and skip it.
+    // Import back into the SAME service under 'skip'. The key-preserving
+    // export lets the importer recognise the record that is already there.
     const result = await new AgentFileImporter(source.svc, SCOPE).import(file, {
       conflictStrategy: "skip",
     });
 
-    // Instead the record lands under "record-0", so nothing is recognised.
-    expect(result.skipped).toBe(0);
-    expect(result.imported).toBe(1);
-    expect(await source.svc.get("lessons", SCOPE, "record-0")).toHaveLength(1);
+    expect(result.skipped).toBe(1);
+    expect(result.imported).toBe(0);
+    // No positional alias was ever created.
+    expect(await source.svc.get("lessons", SCOPE, "record-0")).toHaveLength(0);
+    expect(await source.svc.get("lessons", SCOPE, "l1")).toHaveLength(1);
   });
 
   it("preserves the caller key when the record carries _key", async () => {
@@ -554,6 +563,33 @@ describe("AgentFileImporter.import", () => {
     const file = await makeExporter(svc).export();
 
     expect(file.memory.namespaces["lessons"]?.[0]?.key).toBe("l1");
+  });
+
+  it("an explicit _key still wins over the store key", async () => {
+    const { svc } = makeService();
+    // Stored under "s1" but carrying its own identity "canonical" — e.g. a
+    // record that arrived through a previous import.
+    await svc.put("lessons", SCOPE, "s1", {
+      _key: "canonical",
+      text: "explicit",
+    });
+
+    const file = await makeExporter(svc).export();
+
+    expect(file.memory.namespaces["lessons"]?.[0]?.key).toBe("canonical");
+  });
+
+  it("keeps distinct keys for multiple records in one namespace", async () => {
+    const { svc } = makeService();
+    await svc.put("lessons", SCOPE, "alpha", { text: "a" });
+    await svc.put("lessons", SCOPE, "beta", { text: "b" });
+
+    const file = await makeExporter(svc).export();
+    const keys = (file.memory.namespaces["lessons"] ?? [])
+      .map((r) => r.key)
+      .sort();
+
+    expect(keys).toEqual(["alpha", "beta"]);
   });
 
   it("reports zero counts for a file with no namespaces", async () => {

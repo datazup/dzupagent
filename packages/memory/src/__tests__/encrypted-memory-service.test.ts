@@ -5,12 +5,13 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { randomBytes } from 'node:crypto'
+import { InMemoryStore } from '@langchain/langgraph'
 import { EncryptedMemoryService } from '../encryption/encrypted-memory-service.js'
+import { MemoryService } from '../memory-service.js'
 import type {
   EncryptionKeyDescriptor,
   EncryptionKeyProvider,
 } from '../encryption/types.js'
-import type { MemoryService } from '../memory-service.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,22 +45,25 @@ function createMockMemoryService(): {
   svc: MemoryService
   putSpy: ReturnType<typeof vi.fn>
   getSpy: ReturnType<typeof vi.fn>
+  getKeyedSpy: ReturnType<typeof vi.fn>
   searchSpy: ReturnType<typeof vi.fn>
   formatSpy: ReturnType<typeof vi.fn>
 } {
   const putSpy = vi.fn().mockResolvedValue(undefined)
   const getSpy = vi.fn().mockResolvedValue([])
+  const getKeyedSpy = vi.fn().mockResolvedValue([])
   const searchSpy = vi.fn().mockResolvedValue([])
   const formatSpy = vi.fn().mockReturnValue('formatted')
 
   const svc = {
     put: putSpy,
     get: getSpy,
+    getKeyed: getKeyedSpy,
     search: searchSpy,
     formatForPrompt: formatSpy,
   } as unknown as MemoryService
 
-  return { svc, putSpy, getSpy, searchSpy, formatSpy }
+  return { svc, putSpy, getSpy, getKeyedSpy, searchSpy, formatSpy }
 }
 
 const SCOPE = { tenantId: 't1', projectId: 'p1' }
@@ -542,7 +546,7 @@ describe('EncryptedMemoryService — rotateKey()', () => {
       memoryService: mock.svc,
       keyProvider: provider,
     })
-    mock.getSpy.mockResolvedValueOnce([])
+    mock.getKeyedSpy.mockResolvedValueOnce([])
     const r = await svc.rotateKey('ns', SCOPE)
     expect(r.rotated).toBe(0)
     expect(r.failed).toBe(0)
@@ -581,13 +585,13 @@ describe('EncryptedMemoryService — rotateKey()', () => {
       keyProvider: rotateProvider,
     })
 
-    mock.getSpy.mockResolvedValueOnce([stored])
+    mock.getKeyedSpy.mockResolvedValueOnce([{ key: 'k', value: stored }])
     const r = await rotator.rotateKey('ns', SCOPE)
     expect(r.rotated).toBe(0)
     expect(r.failed).toBe(1)
   })
 
-  it('uses content-hash style fallback key when _key is missing', async () => {
+  it('re-puts under the store key when _key is missing', async () => {
     const mock = createMockMemoryService()
     const oldKey = makeKey('old', 'active')
     const oldProvider = createMockKeyProvider([oldKey])
@@ -608,13 +612,14 @@ describe('EncryptedMemoryService — rotateKey()', () => {
       memoryService: mock.svc,
       keyProvider: rotateProvider,
     })
-    mock.getSpy.mockResolvedValueOnce([stored])
+    mock.getKeyedSpy.mockResolvedValueOnce([{ key: 'k1', value: stored }])
     const r = await rotator.rotateKey('ns', SCOPE)
     expect(r.rotated).toBe(1)
 
-    // Re-put should have happened with synthetic key starting with "rotated_"
+    // Re-put must target the SAME key the record already occupies. Any other
+    // key would leave the original behind, still sealed with the old key.
     const rePutCall = mock.putSpy.mock.calls[1]!
-    expect((rePutCall[2] as string).startsWith('rotated_')).toBe(true)
+    expect(rePutCall[2]).toBe('k1')
   })
 
   it('uses _key from record when it is preserved as a plaintext field', async () => {
@@ -644,7 +649,7 @@ describe('EncryptedMemoryService — rotateKey()', () => {
       keyProvider: rotProv,
       plaintextFields: ['text', '_key'],
     })
-    mock.getSpy.mockResolvedValueOnce([stored])
+    mock.getKeyedSpy.mockResolvedValueOnce([{ key: 's1', value: stored }])
     await rot.rotateKey('ns', SCOPE)
     const rePut = mock.putSpy.mock.calls[1]!
     expect(rePut[2]).toBe('preserved-key')
@@ -678,11 +683,87 @@ describe('EncryptedMemoryService — rotateKey()', () => {
       memoryService: mock.svc,
       keyProvider: rotProv,
     })
-    mock.getSpy.mockResolvedValueOnce([recA, recB])
+    mock.getKeyedSpy.mockResolvedValueOnce([
+      { key: 'a', value: recA },
+      { key: 'b', value: recB },
+    ])
 
     const r = await rot.rotateKey('ns', SCOPE)
     expect(r.rotated).toBe(1)
     expect(r.failed).toBe(1)
+  })
+
+  // -------------------------------------------------------------------------
+  // Real-store rotation
+  // -------------------------------------------------------------------------
+  //
+  // Every test above drives a mocked MemoryService, so the re-put lands on a
+  // spy and nothing observes the resulting namespace. That is precisely how
+  // the synthetic-key defect survived: rotation reported `rotated: 1,
+  // failed: 0` while leaving the original record in place — still sealed with
+  // the superseded key — and adding a `rotated_0` duplicate beside it.
+  // These tests run against a real store so the namespace itself is asserted.
+
+  function makeRealService(): {
+    svc: MemoryService
+    enc: EncryptedMemoryService
+    useNewKey: () => void
+  } {
+    const store = new InMemoryStore()
+    const svc = new MemoryService(store, [
+      { name: 'ns', scopeKeys: ['tenantId'], searchable: false },
+    ])
+    const oldKey = makeKey('old', 'active')
+    const newKey = makeKey('new', 'active')
+    let keys: EncryptionKeyDescriptor[] = [oldKey]
+    const provider: EncryptionKeyProvider = {
+      getKey: async id => keys.find(k => k.keyId === id),
+      getActiveKey: async () => keys.find(k => k.status === 'active'),
+      listKeys: async () => keys,
+    }
+    const enc = new EncryptedMemoryService({
+      memoryService: svc,
+      keyProvider: provider,
+      encryptedNamespaces: ['ns'],
+    })
+    return {
+      svc,
+      enc,
+      useNewKey: () => {
+        keys = [{ ...oldKey, status: 'rotated' }, newKey]
+      },
+    }
+  }
+
+  it('rotates in place against a real store, leaving no duplicate', async () => {
+    const { svc, enc, useNewKey } = makeRealService()
+    await enc.put('ns', { tenantId: 't1' }, 'my-record', { secret: 'x' })
+
+    useNewKey()
+    const r = await enc.rotateKey('ns', { tenantId: 't1' })
+
+    expect(r).toEqual({ rotated: 1, failed: 0 })
+
+    // The namespace still holds exactly one record, under its original key.
+    const after = await svc.getKeyed('ns', { tenantId: 't1' })
+    expect(after.map(x => x.key)).toEqual(['my-record'])
+  })
+
+  it('re-seals the record with the new active key', async () => {
+    const { svc, enc, useNewKey } = makeRealService()
+    await enc.put('ns', { tenantId: 't1' }, 'my-record', { secret: 'x' })
+
+    useNewKey()
+    await enc.rotateKey('ns', { tenantId: 't1' })
+
+    // The stored envelope must now name the new key — the point of rotation.
+    const [raw] = await svc.get('ns', { tenantId: 't1' })
+    const envelope = raw?.['_encrypted_value'] as Record<string, unknown>
+    expect(envelope['keyId']).toBe('new')
+
+    // And the plaintext still round-trips.
+    const [readBack] = await enc.get('ns', { tenantId: 't1' })
+    expect(readBack).toMatchObject({ secret: 'x' })
   })
 })
 

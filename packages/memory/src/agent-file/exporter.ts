@@ -150,17 +150,22 @@ export class AgentFileExporter {
 
     for (const ns of namespaces) {
       try {
-        const records = await svc.get(ns, this.config.scope)
+        const records = await svc.getKeyed(ns, this.config.scope)
         const exported: AgentFileMemoryRecord[] = []
 
-        for (const record of records) {
+        for (const { key: storeKey, value: record } of records) {
           const provenance = extractProvenance(record)
 
-          // Derive key from the record
+          // Prefer the key the record was actually stored under. An explicit
+          // `_key` in the value still wins so records that carry their own
+          // identity (e.g. imported ones) keep it. The positional
+          // `record-<n>` fallback is gone: it renamed every record on export,
+          // so a re-import could never match an existing one and duplicated
+          // instead of merging.
           const key =
-            typeof record['_key'] === 'string'
+            typeof record['_key'] === 'string' && record['_key']
               ? record['_key']
-              : `record-${exported.length}`
+              : storeKey
 
           const entry: AgentFileMemoryRecord = {
             key,
