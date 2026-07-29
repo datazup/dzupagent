@@ -14,69 +14,101 @@ import type {
   CollectionConfig,
   VectorSearchResult as VectorDBSearchResult,
   VectorDeleteFilter,
+  MetadataFilter,
   VectorEntry,
   VectorQuery,
   VectorStore,
   VectorStoreHealth,
-} from '@dzupagent/core/vectordb'
+} from "@dzupagent/core/vectordb";
 
-import type { QdrantVectorStore } from './qdrant-store.js'
-import type { QdrantFilter } from './qdrant-types.js'
+import type { QdrantVectorStore } from "./qdrant-store.js";
+import type { QdrantFilter, QdrantFilterClause } from "./qdrant-types.js";
+
+/**
+ * Translates a normalized {@link MetadataFilter} into Qdrant `must` clauses.
+ *
+ * Only the operators this store can express as a positive `must` clause are
+ * supported. Everything else throws: a delete filter that is silently dropped
+ * or partially applied deletes more rows than the caller asked for, so a loud
+ * failure is the only safe response.
+ */
+function toQdrantConditions(filter: MetadataFilter): QdrantFilterClause[] {
+  if ("and" in filter) return filter.and.flatMap(toQdrantConditions);
+  if ("or" in filter) {
+    throw new Error(
+      "QdrantCorpusStore.delete: `or` filters are not supported; " +
+        "a top-level `must` cannot express disjunction without widening the delete"
+    );
+  }
+  switch (filter.op) {
+    case "eq":
+      return [{ key: filter.field, match: { value: filter.value } }];
+    case "in":
+      return [{ key: filter.field, match: { any: filter.value } }];
+    default:
+      throw new Error(
+        `QdrantCorpusStore.delete: unsupported filter operator '${filter.op}' ` +
+          `on field '${filter.field}'`
+      );
+  }
+}
 
 export class QdrantCorpusStore implements VectorStore {
-  readonly provider = 'qdrant-shared' as const
+  readonly provider = "qdrant-shared" as const;
 
-  private readonly store: QdrantVectorStore
-  private readonly collectionField: string
+  private readonly store: QdrantVectorStore;
+  private readonly collectionField: string;
   /** Track logical "collections" the manager has asked us to create. */
-  private readonly knownCollections = new Set<string>()
+  private readonly knownCollections = new Set<string>();
 
   constructor(
     store: QdrantVectorStore,
-    options: { collectionField?: string } = {},
+    options: { collectionField?: string } = {}
   ) {
-    this.store = store
-    this.collectionField = options.collectionField ?? '_collection'
+    this.store = store;
+    this.collectionField = options.collectionField ?? "_collection";
   }
 
-  async createCollection(name: string, _config: CollectionConfig): Promise<void> {
+  async createCollection(
+    name: string,
+    _config: CollectionConfig
+  ): Promise<void> {
     // Single physical collection — provisioning is the operator's job.
-    this.knownCollections.add(name)
+    this.knownCollections.add(name);
   }
 
   async deleteCollection(name: string): Promise<void> {
-    if (!this.knownCollections.has(name)) return
-    this.knownCollections.delete(name)
+    if (!this.knownCollections.has(name)) return;
+    this.knownCollections.delete(name);
     // Best-effort delete by filter — leaves the physical collection intact.
     await this.store.client.scroll(this.store.collectionName, {
       limit: 1,
       with_payload: false,
       filter: { must: [{ key: this.collectionField, match: { value: name } }] },
-    })
+    });
     // Issue a delete via the underlying client when supported.
     const client = this.store.client as unknown as {
-      delete?: (
-        c: string,
-        body: { filter: QdrantFilter },
-      ) => Promise<unknown>
-    }
-    if (typeof client.delete === 'function') {
+      delete?: (c: string, body: { filter: QdrantFilter }) => Promise<unknown>;
+    };
+    if (typeof client.delete === "function") {
       await client.delete(this.store.collectionName, {
-        filter: { must: [{ key: this.collectionField, match: { value: name } }] },
-      })
+        filter: {
+          must: [{ key: this.collectionField, match: { value: name } }],
+        },
+      });
     }
   }
 
   async listCollections(): Promise<string[]> {
-    return [...this.knownCollections]
+    return [...this.knownCollections];
   }
 
   async collectionExists(name: string): Promise<boolean> {
-    return this.knownCollections.has(name)
+    return this.knownCollections.has(name);
   }
 
   async upsert(collection: string, entries: VectorEntry[]): Promise<void> {
-    if (entries.length === 0) return
+    if (entries.length === 0) return;
     await this.store.upsertMany(
       entries.map((e) => ({
         id: e.id,
@@ -86,64 +118,78 @@ export class QdrantCorpusStore implements VectorStore {
           ...(e.text !== undefined ? { text: e.text } : {}),
           [this.collectionField]: collection,
         },
-      })),
-    )
+      }))
+    );
   }
 
-  async search(collection: string, query: VectorQuery): Promise<VectorDBSearchResult[]> {
+  async search(
+    collection: string,
+    query: VectorQuery
+  ): Promise<VectorDBSearchResult[]> {
     // Inject the synthetic _collection filter alongside any tenant filter.
     const filter: Record<string, unknown> = {
       [this.collectionField]: collection,
-    }
-    const tenantId = pickTenant(query.filter)
-    if (tenantId !== undefined) filter['tenantId'] = tenantId
+    };
+    const tenantId = pickTenant(query.filter);
+    if (tenantId !== undefined) filter["tenantId"] = tenantId;
 
-    const hits = await this.store.search(query.vector, query.limit, filter)
+    const hits = await this.store.search(query.vector, query.limit, filter);
     const filtered =
-      typeof query.minScore === 'number'
+      typeof query.minScore === "number"
         ? hits.filter((h) => h.score >= query.minScore!)
-        : hits
+        : hits;
     return filtered.map((h) => {
-      const payload = { ...h.payload }
-      const text = typeof payload['text'] === 'string' ? (payload['text'] as string) : undefined
-      delete payload['text']
-      delete payload[this.collectionField]
+      const payload = { ...h.payload };
+      const text =
+        typeof payload["text"] === "string"
+          ? (payload["text"] as string)
+          : undefined;
+      delete payload["text"];
+      delete payload[this.collectionField];
       return {
         id: h.id,
         score: h.score,
         metadata: payload,
         ...(text !== undefined ? { text } : {}),
-      }
-    })
+      };
+    });
   }
 
   async delete(collection: string, filter: VectorDeleteFilter): Promise<void> {
     const client = this.store.client as unknown as {
       delete?: (
         c: string,
-        body: { points?: Array<string | number>; filter?: QdrantFilter },
-      ) => Promise<unknown>
+        body: { points?: Array<string | number>; filter?: QdrantFilter }
+      ) => Promise<unknown>;
+    };
+    if (typeof client.delete !== "function") return;
+    if ("ids" in filter) {
+      await client.delete(this.store.collectionName, { points: filter.ids });
+      return;
     }
-    if (typeof client.delete !== 'function') return
-    if ('ids' in filter) {
-      await client.delete(this.store.collectionName, { points: filter.ids })
-      return
-    }
-    // Metadata-filter deletes are scoped to this logical collection.
+    // Metadata-filter deletes are scoped to this logical collection *and*
+    // narrowed by the caller's filter. Dropping the caller's terms here would
+    // silently widen "delete where quality < 0.2" into "delete everything in
+    // the collection", so an untranslatable filter throws instead.
     await client.delete(this.store.collectionName, {
-      filter: { must: [{ key: this.collectionField, match: { value: collection } }] },
-    })
+      filter: {
+        must: [
+          { key: this.collectionField, match: { value: collection } },
+          ...toQdrantConditions(filter.filter),
+        ],
+      },
+    });
   }
 
   async count(_collection: string): Promise<number> {
     // Counting per logical collection requires a Qdrant `count` round-trip;
     // CorpusManager doesn't actually call this on the hot path, so we
     // return 0 rather than depend on an extra client surface.
-    return 0
+    return 0;
   }
 
   async healthCheck(): Promise<VectorStoreHealth> {
-    return { healthy: true, latencyMs: 0, provider: this.provider }
+    return { healthy: true, latencyMs: 0, provider: this.provider };
   }
 
   async close(): Promise<void> {
@@ -152,19 +198,19 @@ export class QdrantCorpusStore implements VectorStore {
 }
 
 function pickTenant(
-  filter: VectorQuery['filter'] | undefined,
+  filter: VectorQuery["filter"] | undefined
 ): string | number | boolean | undefined {
-  if (!filter) return undefined
-  if ('and' in filter || 'or' in filter) {
-    const branches = 'and' in filter ? filter.and : filter.or
+  if (!filter) return undefined;
+  if ("and" in filter || "or" in filter) {
+    const branches = "and" in filter ? filter.and : filter.or;
     for (const child of branches) {
-      const v = pickTenant(child)
-      if (v !== undefined) return v
+      const v = pickTenant(child);
+      if (v !== undefined) return v;
     }
-    return undefined
+    return undefined;
   }
-  if ('field' in filter && filter.field === 'tenantId' && filter.op === 'eq') {
-    return filter.value
+  if ("field" in filter && filter.field === "tenantId" && filter.op === "eq") {
+    return filter.value;
   }
-  return undefined
+  return undefined;
 }
