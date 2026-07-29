@@ -50,6 +50,10 @@ import { MemoryService } from "../memory-service.js";
 import type { KeyedMemoryRecord } from "../memory-service-store.js";
 import type { NamespaceConfig } from "../memory-types.js";
 import type { MemoryServiceOptions } from "../memory-service-types.js";
+import {
+  attachMemoryStoreCapabilities,
+  type MemoryStoreCapabilities,
+} from "../store-capabilities.js";
 
 /** Options for {@link createMemoryHarness}. */
 export interface MemoryHarnessOptions {
@@ -82,6 +86,16 @@ export interface MemoryHarnessOptions {
    * to run the same assertions against production persistence.
    */
   store?: BaseStore;
+  /**
+   * Capabilities to advertise on the store, e.g. `{ supportsDelete: false }`
+   * to exercise the tombstone fallback that delete-incapable backends take.
+   *
+   * Capabilities are read from a `capabilities` property, not inferred from
+   * which methods exist, and `MemoryService` snapshots them in its
+   * constructor — so deleting `store.delete` after the fact has no effect.
+   * This is the supported way to get a delete-incapable store.
+   */
+  capabilities?: Partial<MemoryStoreCapabilities>;
 }
 
 /** A stateful memory fixture wrapping a real `MemoryService`. */
@@ -102,7 +116,7 @@ export interface MemoryHarness {
    */
   seed(
     records: Record<string, Record<string, unknown>>,
-    opts?: { namespace?: string; scope?: Record<string, string> },
+    opts?: { namespace?: string; scope?: Record<string, string> }
   ): Promise<string[]>;
 
   /**
@@ -155,7 +169,7 @@ function isTombstone(value: Record<string, unknown>): boolean {
 function toNamespaceConfig(
   entry: string | NamespaceConfig,
   scopeKeys: string[],
-  searchable: boolean,
+  searchable: boolean
 ): NamespaceConfig {
   if (typeof entry !== "string") return entry;
   return { name: entry, scopeKeys, searchable };
@@ -168,7 +182,7 @@ function toNamespaceConfig(
  * or write path surface here instead of being masked by a stand-in.
  */
 export function createMemoryHarness(
-  options: MemoryHarnessOptions = {},
+  options: MemoryHarnessOptions = {}
 ): MemoryHarness {
   const namespace = options.namespace ?? "facts";
   const scope = options.scope ?? { tenantId: "t1" };
@@ -178,11 +192,14 @@ export function createMemoryHarness(
   const namespaces: NamespaceConfig[] = [
     { name: namespace, scopeKeys, searchable },
     ...(options.extraNamespaces ?? []).map((e) =>
-      toNamespaceConfig(e, scopeKeys, false),
+      toNamespaceConfig(e, scopeKeys, false)
     ),
   ];
 
-  const store = options.store ?? new InMemoryStore();
+  const baseStore = options.store ?? new InMemoryStore();
+  const store = options.capabilities
+    ? attachMemoryStoreCapabilities(baseStore, options.capabilities)
+    : baseStore;
   const memory = new MemoryService(store, namespaces, {
     // Default off: the sanitizer drops unsafe values silently, which in a test
     // is indistinguishable from a write that never happened.
