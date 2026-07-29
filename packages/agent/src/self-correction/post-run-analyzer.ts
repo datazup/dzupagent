@@ -38,6 +38,8 @@ export type {
 import type {
   RunAnalysis,
   AnalysisResult,
+  AnalysisFailure,
+  AnalysisStage,
   PostRunAnalyzerConfig,
   AnalysisHistoryEntry,
 } from "./post-run-analyzer/types.js";
@@ -70,6 +72,16 @@ export class PostRunAnalyzer {
     let rulesCreated = 0;
     let trajectoryStored = false;
     const suboptimalNodes: string[] = [];
+    // Stays best-effort — no stage failure aborts the others or throws to the
+    // caller — but a swallowed failure is now recorded rather than presented as
+    // a clean zero. See AnalysisResult.failures.
+    const failures: AnalysisFailure[] = [];
+    const record = (stage: AnalysisStage, err: unknown): void => {
+      failures.push({
+        stage,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    };
 
     // (a) Store trajectory if high quality
     try {
@@ -77,16 +89,16 @@ export class PostRunAnalyzer {
         await this.storeTrajectory(run);
         trajectoryStored = true;
       }
-    } catch {
-      // best-effort
+    } catch (err: unknown) {
+      record("trajectory", err);
     }
 
     // (b) Extract lessons from resolved errors
     try {
       const errorLessons = await this.extractErrorLessons(run);
       lessonsCreated += errorLessons;
-    } catch {
-      // best-effort
+    } catch (err: unknown) {
+      record("errorLessons", err);
     }
 
     // (c) Extract success patterns from high-quality runs
@@ -95,24 +107,24 @@ export class PostRunAnalyzer {
         const successLessons = await this.extractSuccessPatterns(run);
         lessonsCreated += successLessons;
       }
-    } catch {
-      // best-effort
+    } catch (err: unknown) {
+      record("successPatterns", err);
     }
 
     // (d) Generate rules from resolved errors
     try {
       const rules = await this.generateRulesFromErrors(run);
       rulesCreated += rules;
-    } catch {
-      // best-effort
+    } catch (err: unknown) {
+      record("rules", err);
     }
 
     // (e) Detect suboptimal nodes
     try {
       const detected = await this.detectSuboptimalNodes(run);
       suboptimalNodes.push(...detected);
-    } catch {
-      // best-effort
+    } catch (err: unknown) {
+      record("suboptimalNodes", err);
     }
 
     const result: AnalysisResult = {
@@ -121,6 +133,7 @@ export class PostRunAnalyzer {
       trajectoryStored,
       suboptimalNodes,
       summary: "", // filled below
+      failures,
     };
 
     // (g) Build summary string
@@ -129,8 +142,12 @@ export class PostRunAnalyzer {
     // (f) Store analysis result for history
     try {
       await this.storeAnalysis(run.runId, result);
-    } catch {
-      // best-effort
+    } catch (err: unknown) {
+      record("history", err);
+      // The summary was already built, so re-render it to include this failure.
+      // Otherwise the one stage whose job is persisting the report is the one
+      // stage whose failure never appears in it.
+      result.summary = this.buildSummary(run, result);
     }
 
     return result;
@@ -139,7 +156,10 @@ export class PostRunAnalyzer {
   /**
    * Get analysis history for recent runs.
    */
-  async getRecentAnalyses(limit = 10): Promise<AnalysisHistoryEntry[]> {
+  async getRecentAnalyses(
+    limit = 10,
+    onFailure?: (error: unknown) => void
+  ): Promise<AnalysisHistoryEntry[]> {
     try {
       const ns = [...this.namespace, "history"];
       const items = await this.store.search(ns, { limit: limit * 2 });
@@ -153,7 +173,10 @@ export class PostRunAnalyzer {
       // Sort by timestamp descending
       entries.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
       return entries.slice(0, limit);
-    } catch {
+    } catch (err: unknown) {
+      // An empty history from a failed read looks like a system that has never
+      // analysed anything. Surface it to the caller's sink if one is wired.
+      onFailure?.(err);
       return [];
     }
   }
@@ -392,14 +415,33 @@ export class PostRunAnalyzer {
     );
     lines.push("");
 
+    const trajectoryFailed = result.failures.some(
+      (f) => f.stage === "trajectory"
+    );
     if (result.trajectoryStored) {
       lines.push(`- Trajectory stored (score > ${TRAJECTORY_THRESHOLD})`);
+    } else if (trajectoryFailed) {
+      // Do NOT blame the score here: the run cleared the threshold and the
+      // write threw. Reporting "score <= threshold" would state a specific
+      // wrong reason to whoever reads this summary.
+      lines.push(`- Trajectory NOT stored (storage failed, see failures)`);
     } else {
       lines.push(`- Trajectory NOT stored (score <= ${TRAJECTORY_THRESHOLD})`);
     }
 
     lines.push(`- Lessons created: ${result.lessonsCreated}`);
     lines.push(`- Rules created: ${result.rulesCreated}`);
+
+    if (result.failures.length > 0) {
+      lines.push("");
+      lines.push(`### Analysis failures (${result.failures.length})`);
+      lines.push(
+        "Counts above are floors, not measurements — these stages did not run to completion."
+      );
+      for (const f of result.failures) {
+        lines.push(`- ${f.stage}: ${f.error}`);
+      }
+    }
 
     if (result.suboptimalNodes.length > 0) {
       lines.push(`- Suboptimal nodes: ${result.suboptimalNodes.join(", ")}`);
