@@ -171,15 +171,28 @@ describe("AgentFileExporter", () => {
   it("produces a key-order-independent signature", async () => {
     // Two services holding the same logical record, written with object keys
     // in opposite orders. The canonical (sorted-key) hash must agree.
-    const a = makeService();
-    await a.svc.put("lessons", SCOPE, "l1", { alpha: 1, beta: 2 });
-    const b = makeService();
-    await b.svc.put("lessons", SCOPE, "l1", { beta: 2, alpha: 1 });
+    //
+    // `put()` stamps each record with `_decay` metadata carrying `Date.now()`,
+    // and the signature covers it (correctly — tampering with decay state must
+    // change the signature). Two writes that straddle a millisecond boundary
+    // therefore produce different records, which made this test fail roughly
+    // one run in ten for reasons having nothing to do with key order. Freeze
+    // the clock so key order is the only variable under test.
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    try {
+      const a = makeService();
+      await a.svc.put("lessons", SCOPE, "l1", { alpha: 1, beta: 2 });
+      const b = makeService();
+      await b.svc.put("lessons", SCOPE, "l1", { beta: 2, alpha: 1 });
 
-    const fileA = await makeExporter(a.svc).export();
-    const fileB = await makeExporter(b.svc).export();
+      const fileA = await makeExporter(a.svc).export();
+      const fileB = await makeExporter(b.svc).export();
 
-    expect(fileA.signature).toBe(fileB.signature);
+      expect(fileA.signature).toBe(fileB.signature);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("changes the signature when exported content changes", async () => {
