@@ -9,8 +9,12 @@
  * The validator is a *shape + scope* gate, not a feature gate: for policy
  * fields that have a runtime meaning behind a host-injected service (governance
  * / evaluation acceptance gates), it validates the field shape and pattern
- * scope but does NOT reject them — the runtime treats them as inert no-ops when
- * the corresponding service is unwired (mirroring `memory.consolidateOnComplete`).
+ * scope but does NOT reject them — an unwired service leaves the run ungated
+ * rather than failing construction (mirroring `memory.consolidateOnComplete`).
+ * Construction stays permissive deliberately: the thresholds must be declarable
+ * on a definition that is promoted into a scorer-equipped environment later.
+ * The resulting ungated pass is reported at run time as a `skipped` verdict, so
+ * permissive construction does not mean an unenforced gate goes unnoticed.
  * Policy groups with no in-repo runtime consumer at all (isolation / mailbox),
  * and individual scoped-out fields within an otherwise-enforced group
  * (memory.tier / memory.shareAcrossParticipants), are still shape-checked so a
