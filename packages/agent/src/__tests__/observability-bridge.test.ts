@@ -222,10 +222,12 @@ describe('ObservabilityCorrectionBridge', () => {
       bridge.recordNodeMetric({ ...normalMetric('nodeA'), costCents: 250 })
 
       const nodeASignals = bridge.getNodeSignals('nodeA')
+      expect(nodeASignals.length).toBeGreaterThan(0)
       expect(nodeASignals.every((s) => s.nodeId === 'nodeA')).toBe(true)
       expect(nodeASignals.length).toBeGreaterThanOrEqual(2)
 
       const nodeBSignals = bridge.getNodeSignals('nodeB')
+      expect(nodeBSignals.length).toBeGreaterThan(0)
       expect(nodeBSignals.every((s) => s.nodeId === 'nodeB')).toBe(true)
       expect(nodeBSignals.length).toBeGreaterThanOrEqual(1)
     })

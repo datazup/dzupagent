@@ -56,6 +56,7 @@ describe('peerToPeerPattern', () => {
     ])
     const result = await peerToPeerPattern.execute(ctx)
     expect(result.content).toBe('')
+    expect(result.agentResults.length).toBeGreaterThan(0)
     expect(result.agentResults.every((r) => !r.success)).toBe(true)
   })
 })

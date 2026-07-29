@@ -46,6 +46,7 @@ describe("councilPattern — gap coverage", () => {
         buildResolved("p", { role: "proposer" }),
       ]);
       await councilPattern.execute(ctx);
+      expect(calls.completes.length).toBeGreaterThan(0)
       expect(calls.completes.every((c) => c.durationMs >= 0)).toBe(true);
     });
 
@@ -60,6 +61,7 @@ describe("councilPattern — gap coverage", () => {
       await expect(councilPattern.execute(ctx)).rejects.toThrow(
         "debate exploded"
       );
+      expect(calls.completes.length).toBeGreaterThan(0)
       expect(calls.completes.every((c) => c.success === false)).toBe(true);
       expect(calls.completes.every((c) => c.error === "debate exploded")).toBe(
         true
@@ -93,6 +95,7 @@ describe("councilPattern — gap coverage", () => {
         buildResolved("p1", { role: "proposer" }),
       ]);
       const result = await councilPattern.execute(ctx);
+      expect(result.agentResults.length).toBeGreaterThan(0)
       expect(result.agentResults.every((r) => r.success)).toBe(true);
     });
 

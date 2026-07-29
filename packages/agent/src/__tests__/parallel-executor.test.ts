@@ -188,6 +188,7 @@ describe('executeToolsParallel — tool call IDs', () => {
     const results = await executeToolsParallel(calls, registry, { maxConcurrency: 1 })
     const ids = results.map(r => r.toolCallId)
     // All IDs must be present
+    expect(ids.length).toBeGreaterThan(0)
     expect(ids.every(id => typeof id === 'string' && id.length > 0)).toBe(true)
     // They should all match generated-ID shape
     expect(ids.every(id => id.startsWith('call_'))).toBe(true)

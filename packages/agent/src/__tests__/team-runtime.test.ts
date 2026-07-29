@@ -327,6 +327,7 @@ describe("TeamRuntime — participant events", () => {
     const completed = events.filter(
       (e) => e.type === "participant_completed",
     ) as Array<Extract<TeamRuntimeEvent, { type: "participant_completed" }>>;
+    expect(completed.length).toBeGreaterThan(0)
     expect(completed.every((e) => e.success)).toBe(true);
   });
 
@@ -445,6 +446,7 @@ describe("TeamRuntime — peer_to_peer pattern", () => {
 
     expect(result.pattern).toBe("peer-to-peer");
     expect(result.content).toBe("");
+    expect(result.agentResults.length).toBeGreaterThan(0)
     expect(result.agentResults.every((r) => !r.success)).toBe(true);
   });
 

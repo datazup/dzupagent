@@ -43,6 +43,7 @@ describe("supervisorPattern — gap coverage", () => {
         buildResolved("s1", { role: "specialist" }),
       ]);
       const result = await supervisorPattern.execute(ctx);
+      expect(result.agentResults.length).toBeGreaterThan(0)
       expect(result.agentResults.every((r) => r.success)).toBe(true);
     });
 
@@ -90,6 +91,7 @@ describe("supervisorPattern — gap coverage", () => {
         buildResolved("s1", { role: "specialist" }),
       ]);
       const result = await supervisorPattern.execute(ctx);
+      expect(result.agentResults.length).toBeGreaterThan(0)
       expect(result.agentResults.every((r) => r.durationMs >= 0)).toBe(true);
     });
   });
@@ -185,6 +187,7 @@ describe("supervisorPattern — gap coverage", () => {
         buildResolved("s1", { role: "specialist" }),
       ]);
       await expect(supervisorPattern.execute(ctx)).rejects.toThrow("sup-crash");
+      expect(calls.completes.length).toBeGreaterThan(0)
       expect(calls.completes.every((c) => c.error === "sup-crash")).toBe(true);
     });
   });
