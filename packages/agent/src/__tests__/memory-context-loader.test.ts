@@ -157,7 +157,7 @@ describe('AgentMemoryContextLoader', () => {
     const selectMemoriesByBudget = vi.fn(() => [])
 
     class FakeFrameReader {
-      constructor(_frame: { numRows: number }) {}
+      constructor(_frame: unknown) {}
 
       toRecords() {
         return [
@@ -387,7 +387,7 @@ describe('AgentMemoryContextLoader', () => {
     const onFallback = vi.fn()
 
     class FakeFrameReader {
-      constructor(_frame: { numRows: number }) {}
+      constructor(_frame: unknown) {}
       toRecords() {
         return [{ meta: { namespace: 'facts' }, value: { text: 'ignored' } }]
       }
@@ -428,7 +428,7 @@ describe('AgentMemoryContextLoader', () => {
     const onFallbackDetail = vi.fn()
 
     class FakeFrameReader {
-      constructor(_frame: { numRows: number }) {}
+      constructor(_frame: unknown) {}
       toRecords() {
         return [{ meta: { namespace: 'facts' }, value: { text: 'ignored' } }]
       }

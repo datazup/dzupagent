@@ -93,6 +93,23 @@ export interface GetApplicableParams {
   taskType?: string | undefined
 }
 
+/** Outcome of reading the skill corpus from the store. */
+interface LoadSkillsResult {
+  skills: AcquiredSkill[]
+  /** True when the store threw; `skills` is then empty for lack of data, not because none exist. */
+  readFailed: boolean
+  error?: Error | undefined
+}
+
+export interface RetrieveSkillsResult {
+  skills: AcquiredSkill[]
+  /**
+   * True when the skill store could not be read. An empty `skills` with this
+   * set means "unknown", not "none" — do not report the agent as unskilled.
+   */
+  skillsUnavailable: boolean
+}
+
 /** Extract a short name from the first 5 words of a description */
 function nameFromDescription(description: string): string {
   return description
@@ -189,8 +206,13 @@ export class SkillAcquisitionEngine {
         r.applyCount >= this.minUsageCount,
     )
 
-    // Load existing skills for dedup
-    const existing = await this.loadAllSkills()
+    // Load existing skills for dedup. If the corpus is unreadable every
+    // isDuplicate() check would return false, re-crystallizing every skill that
+    // already exists and reporting them as new discoveries. Novelty is
+    // unprovable here, so acquire nothing rather than corrupt the corpus.
+    const { skills: existing, readFailed: existingUnreadable } =
+      await this.loadAllSkills()
+    if (existingUnreadable) return []
 
     // Crystallize from lessons
     for (const lesson of qualifyingLessons) {
@@ -273,7 +295,8 @@ export class SkillAcquisitionEngine {
    * Get all acquired skills.
    */
   async getSkills(): Promise<AcquiredSkill[]> {
-    return this.loadAllSkills()
+    const { skills } = await this.loadAllSkills()
+    return skills
   }
 
   // ---------- getApplicableSkills --------------------------------------------
@@ -283,17 +306,34 @@ export class SkillAcquisitionEngine {
    * Matches nodeId or taskType against the skill's applicableWhen field.
    */
   async getApplicableSkills(params: GetApplicableParams): Promise<AcquiredSkill[]> {
+    const result = await this.retrieveApplicableSkills(params)
+    return result.skills
+  }
+
+  /**
+   * Get applicable skills along with whether the skill store could be read.
+   *
+   * Prefer this over {@link getApplicableSkills} when the absence of skills
+   * would change a decision: `skillsUnavailable` is the only way to tell an
+   * agent that has acquired nothing from a skill store that is down.
+   */
+  async retrieveApplicableSkills(
+    params: GetApplicableParams,
+  ): Promise<RetrieveSkillsResult> {
     const { nodeId, taskType } = params
-    const allSkills = await this.loadAllSkills()
+    const { skills: allSkills, readFailed } = await this.loadAllSkills()
 
-    if (!nodeId && !taskType) return allSkills
+    if (!nodeId && !taskType) {
+      return { skills: allSkills, skillsUnavailable: readFailed }
+    }
 
-    return allSkills.filter(skill => {
+    const matched = allSkills.filter(skill => {
       const when = skill.applicableWhen.toLowerCase()
       if (nodeId && when.includes(nodeId.toLowerCase())) return true
       if (taskType && when.includes(taskType.toLowerCase())) return true
       return false
     })
+    return { skills: matched, skillsUnavailable: readFailed }
   }
 
   // ---------- formatForPrompt ------------------------------------------------
@@ -361,8 +401,13 @@ export class SkillAcquisitionEngine {
 
   /**
    * Load all skills from the store.
+   *
+   * An unreadable store and a genuinely empty one are different facts, so the
+   * read outcome is reported in its own field rather than encoded as an empty
+   * array. Callers that decide from the corpus (prompt injection, dedup) must
+   * branch on `readFailed`; callers that only count may ignore it.
    */
-  private async loadAllSkills(): Promise<AcquiredSkill[]> {
+  private async loadAllSkills(): Promise<LoadSkillsResult> {
     try {
       const items = await this.store.search(this.namespace, { limit: 1000 })
       const skills: AcquiredSkill[] = []
@@ -370,9 +415,13 @@ export class SkillAcquisitionEngine {
         const skill = recordToSkill(item.value as Record<string, unknown>)
         if (skill) skills.push(skill)
       }
-      return skills
-    } catch {
-      return []
+      return { skills, readFailed: false }
+    } catch (error) {
+      return {
+        skills: [],
+        readFailed: true,
+        error: error instanceof Error ? error : new Error(String(error)),
+      }
     }
   }
 
@@ -395,7 +444,9 @@ export class SkillAcquisitionEngine {
    */
   private async pruneIfNeeded(): Promise<void> {
     try {
-      const allSkills = await this.loadAllSkills()
+      const { skills: allSkills, readFailed } = await this.loadAllSkills()
+      // Pruning an unreadable corpus would delete from a partial view.
+      if (readFailed) return
       if (allSkills.length <= this.maxSkills) return
 
       // Sort ascending by confidence so we can remove from the front

@@ -30,6 +30,15 @@ export interface CriterionResult {
   score: number;
   reasoning: string;
   method: 'deterministic' | 'llm-judge' | 'combined';
+  /**
+   * Whether this criterion was actually judged.
+   *
+   * False when the judge could not be reached and `score` is a placeholder
+   * rather than a measurement. Omitted means judged. Unscored criteria are
+   * excluded from the weighted aggregate: a mid-range placeholder folded into
+   * the average is indistinguishable from a genuine mid-range judgement.
+   */
+  scored?: boolean | undefined;
 }
 
 /** Result of a domain-specific evaluation. */

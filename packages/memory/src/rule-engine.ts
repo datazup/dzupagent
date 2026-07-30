@@ -75,6 +75,23 @@ export interface GetRulesParams {
   limit?: number | undefined
 }
 
+/** Outcome of reading the rule corpus from the store. */
+interface LoadRulesResult {
+  rules: Rule[]
+  /** True when the store threw; `rules` is then empty for lack of data, not because none exist. */
+  readFailed: boolean
+  error?: Error | undefined
+}
+
+export interface RetrieveRulesResult {
+  rules: Rule[]
+  /**
+   * True when the rule store could not be read. An empty `rules` with this set
+   * means "unknown", not "none" — do not report the agent as having no rules.
+   */
+  rulesUnavailable: boolean
+}
+
 // ---------------------------------------------------------------------------
 // Serialization helpers
 // ---------------------------------------------------------------------------
@@ -194,10 +211,24 @@ export class DynamicRuleEngine {
    * confidence * successRate descending.
    */
   async getRulesForContext(params: GetRulesParams): Promise<Rule[]> {
+    const result = await this.retrieveRulesForContext(params)
+    return result.rules
+  }
+
+  /**
+   * Retrieve applicable rules along with whether the rule store could be read.
+   *
+   * Prefer this over {@link getRulesForContext} when the absence of rules would
+   * change a decision: `rulesUnavailable` is the only way to tell a tenant that
+   * has learned nothing from a rule store that is down.
+   */
+  async retrieveRulesForContext(
+    params: GetRulesParams,
+  ): Promise<RetrieveRulesResult> {
     const { nodeId, taskType, limit } = params
     const effectiveLimit = limit ?? this.maxRulesPerContext
 
-    const allRules = await this.loadAllRules()
+    const { rules: allRules, readFailed } = await this.loadAllRules()
 
     // Filter by scope match and minimum confidence
     const matched = allRules.filter(rule => {
@@ -220,7 +251,7 @@ export class DynamicRuleEngine {
       return scoreB - scoreA
     })
 
-    return matched.slice(0, effectiveLimit)
+    return { rules: matched.slice(0, effectiveLimit), rulesUnavailable: readFailed }
   }
 
   // ---------- formatForPrompt ------------------------------------------------
@@ -277,7 +308,7 @@ export class DynamicRuleEngine {
    */
   async decayStaleRules(maxAgeDays = 30, decayFactor = 0.9): Promise<number> {
     try {
-      const allRules = await this.loadAllRules()
+      const { rules: allRules } = await this.loadAllRules()
       const now = Date.now()
       const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000
       let decayedCount = 0
@@ -324,8 +355,13 @@ export class DynamicRuleEngine {
 
   /**
    * Load all rules from the store.
+   *
+   * An unreadable store and a genuinely empty one are different facts, so the
+   * read outcome is reported in its own field rather than encoded as an empty
+   * array. Callers that make a decision from the corpus (prompt injection,
+   * dedup) must branch on `readFailed`; callers that only count may ignore it.
    */
-  private async loadAllRules(): Promise<Rule[]> {
+  private async loadAllRules(): Promise<LoadRulesResult> {
     try {
       const items = await this.store.search(this.namespace, { limit: 1000 })
       const rules: Rule[] = []
@@ -333,9 +369,13 @@ export class DynamicRuleEngine {
         const rule = recordToRule(item.value as Record<string, unknown>)
         if (rule) rules.push(rule)
       }
-      return rules
-    } catch {
-      return []
+      return { rules, readFailed: false }
+    } catch (error) {
+      return {
+        rules: [],
+        readFailed: true,
+        error: error instanceof Error ? error : new Error(String(error)),
+      }
     }
   }
 
@@ -346,7 +386,12 @@ export class DynamicRuleEngine {
    */
   private async storeWithDedup(rule: Rule): Promise<void> {
     try {
-      const existing = await this.loadAllRules()
+      const { rules: existing, readFailed } = await this.loadAllRules()
+      if (readFailed) {
+        // Cannot prove this rule is new. Writing it anyway would duplicate an
+        // existing rule on every outage, silently inflating the corpus.
+        return
+      }
       const newTokens = tokenizeText(rule.content)
 
       for (const existingRule of existing) {
