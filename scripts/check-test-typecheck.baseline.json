@@ -1,5 +1,5 @@
 {
-  "totalErrors": 2658,
+  "totalErrors": 2654,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -12,11 +12,11 @@
       }
     },
     "agent": {
-      "maxErrors": 205,
+      "maxErrors": 201,
       "perCode": {
         "TS2345": 44,
         "TS2322": 39,
-        "TS2379": 27,
+        "TS2379": 23,
         "TS2375": 16,
         "TS2339": 14,
         "TS2353": 13,
@@ -72,7 +72,6 @@
         "src/__tests__/policy-enabled-tool-executor.test.ts": 1,
         "src/__tests__/post-run-analyzer.test.ts": 1,
         "src/__tests__/postgres-checkpoint-store.test.ts": 2,
-        "src/__tests__/presets.factory.test.ts": 2,
         "src/__tests__/recovery-copilot.test.ts": 1,
         "src/__tests__/resume-utils.test.ts": 8,
         "src/__tests__/run-cancellation.test.ts": 1,
@@ -99,7 +98,6 @@
         "src/__tests__/tool-loop-deep.test.ts": 1,
         "src/__tests__/tool-loop-direct.test.ts": 1,
         "src/__tests__/tool-loop-stages.test.ts": 1,
-        "src/__tests__/tool-loop-telemetry.test.ts": 2,
         "src/__tests__/tool-result-schema-validation.test.ts": 1,
         "src/__tests__/workflow-engine-branches.test.ts": 13,
         "src/cluster/__tests__/in-memory-agent-cluster.test.ts": 1,
