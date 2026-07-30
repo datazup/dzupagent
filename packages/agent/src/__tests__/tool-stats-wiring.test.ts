@@ -195,7 +195,7 @@ describe('ToolStatsTracker wiring into tool loop', () => {
       formatAsPromptHint: vi.fn(() => 'Preferred tools:\n1. write (80% success)'),
     }
 
-    const invokeFn = vi.fn(async () => new AIMessage('ok'))
+    const invokeFn = vi.fn(async (_messages: BaseMessage[]) => new AIMessage('ok'))
     const model = { invoke: invokeFn } as unknown as BaseChatModel
 
     await runToolLoop(
@@ -206,7 +206,7 @@ describe('ToolStatsTracker wiring into tool loop', () => {
     )
 
     // The model should have been called with messages that include the hint
-    const calledMessages = invokeFn.mock.calls[0]![0] as BaseMessage[]
+    const calledMessages = invokeFn.mock.calls[0]![0]
     const systemMsg = calledMessages.find(
       m => m._getType() === 'system' && typeof m.content === 'string' && m.content.includes('Preferred tools'),
     )
@@ -218,7 +218,7 @@ describe('ToolStatsTracker wiring into tool loop', () => {
       formatAsPromptHint: vi.fn(() => 'Preferred tools:\n1. code (75% success)'),
     }
 
-    const invokeFn = vi.fn(async () => new AIMessage('ok'))
+    const invokeFn = vi.fn(async (_messages: BaseMessage[]) => new AIMessage('ok'))
     const model = { invoke: invokeFn } as unknown as BaseChatModel
 
     await runToolLoop(
@@ -228,7 +228,7 @@ describe('ToolStatsTracker wiring into tool loop', () => {
       { maxIterations: 10, toolStatsTracker: tracker },
     )
 
-    const calledMessages = invokeFn.mock.calls[0]![0] as BaseMessage[]
+    const calledMessages = invokeFn.mock.calls[0]![0]
     // Find hint position
     const hintIdx = calledMessages.findIndex(
       m =>

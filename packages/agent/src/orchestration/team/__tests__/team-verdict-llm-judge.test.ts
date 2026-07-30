@@ -16,6 +16,7 @@ import {
   withJudgeCache,
   withJudgeTimeout,
 } from "../team-verdict-judge-controls.js";
+import type { JudgeInvoker } from "../team-verdict-llm-judge.js";
 import type { TeamVerdictInput } from "../team-runtime-verdict.js";
 import type { TeamPolicies } from "../team-policy.js";
 
@@ -158,7 +159,7 @@ describe("createLlmJudgeVerdictService — scoring", () => {
 
 describe("createLlmJudgeVerdictService — prompt construction", () => {
   it("uses the policy's scoringCriteria", async () => {
-    const judge = vi.fn(async () => '{"score": 1}');
+    const judge = vi.fn<JudgeInvoker>(async () => '{"score": 1}');
     const service = createLlmJudgeVerdictService({
       judge,
       onJudgeFailure: "reject",
@@ -178,7 +179,7 @@ describe("createLlmJudgeVerdictService — prompt construction", () => {
       })
     );
 
-    const prompt = judge.mock.calls[0]![0] as string;
+    const prompt = judge.mock.calls[0]![0];
     expect(prompt).toContain("must cite sources");
     // The declared criteria win outright — a stale default must not leak in
     // alongside them.
@@ -186,7 +187,7 @@ describe("createLlmJudgeVerdictService — prompt construction", () => {
   });
 
   it("falls back to defaultCriteria when the policy declares none", async () => {
-    const judge = vi.fn(async () => '{"score": 1}');
+    const judge = vi.fn<JudgeInvoker>(async () => '{"score": 1}');
     const service = createLlmJudgeVerdictService({
       judge,
       onJudgeFailure: "reject",
@@ -201,7 +202,7 @@ describe("createLlmJudgeVerdictService — prompt construction", () => {
   });
 
   it("includes the task and the run's output", async () => {
-    const judge = vi.fn(async () => '{"score": 1}');
+    const judge = vi.fn<JudgeInvoker>(async () => '{"score": 1}');
     const service = createLlmJudgeVerdictService({
       judge,
       onJudgeFailure: "reject",
@@ -211,7 +212,7 @@ describe("createLlmJudgeVerdictService — prompt construction", () => {
 
     await service.score(input());
 
-    const prompt = judge.mock.calls[0]![0] as string;
+    const prompt = judge.mock.calls[0]![0];
     expect(prompt).toContain("summarise the incident");
     // Guards the field name: `result.content` is the merged output. Reading a
     // non-existent field would silently judge "undefined" on every run.
@@ -219,7 +220,7 @@ describe("createLlmJudgeVerdictService — prompt construction", () => {
   });
 
   it("marks an empty output rather than judging an empty string", async () => {
-    const judge = vi.fn(async () => '{"score": 1}');
+    const judge = vi.fn<JudgeInvoker>(async () => '{"score": 1}');
     const service = createLlmJudgeVerdictService({
       judge,
       onJudgeFailure: "reject",

@@ -80,14 +80,15 @@ describe("run-engine prepareRunState — beforeModelCall", () => {
   });
 
   it("passes model id + hook context to beforeModelCall", async () => {
-    const beforeModelCall = vi.fn(async () => undefined);
+    const beforeModelCall =
+      vi.fn<NonNullable<AgentHooks["beforeModelCall"]>>(async () => undefined);
     await prepareRunState(
       baseParams({ hooks: { beforeModelCall }, id: "agent-x" }),
     );
 
     const call = beforeModelCall.mock.calls[0]!;
     expect(call[1]).toBe("gpt-4"); // resolved model id (string config.model)
-    expect((call[2] as { agentId: string }).agentId).toBe("agent-x");
+    expect(call[2].agentId).toBe("agent-x");
   });
 
   it("ORDERING: cache markers are computed on the hook-modified array", async () => {

@@ -507,7 +507,14 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
 
   describe('RF-020 output filtering — native streaming completion', () => {
     it('applies outputFilter before final done content and memory write-back', async () => {
-      const put = vi.fn(async () => {})
+      const put = vi.fn(
+        async (
+          _namespace: string,
+          _scope: Record<string, string>,
+          _key: string,
+          _value: Record<string, unknown>,
+        ) => {},
+      )
       const memory = {
         get: vi.fn(async () => []),
         formatForPrompt: vi.fn(() => ''),

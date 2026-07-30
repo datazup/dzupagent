@@ -136,7 +136,7 @@ describe("native streaming — model-lifecycle hooks", () => {
 
   it("afterModelCall fires once per completed stream with the final message", async () => {
     const { model } = makeRecordingStreamModel();
-    const afterModelCall = vi.fn(async () => {});
+    const afterModelCall = vi.fn<NonNullable<AgentHooks["afterModelCall"]>>(async () => {});
     const agent = new DzupAgent({
       id: "stream-after",
       instructions: "x",
@@ -162,7 +162,7 @@ describe("native streaming — model-lifecycle hooks", () => {
       bindTools: vi.fn().mockReturnThis(),
       model: "test-model",
     } as unknown as BaseChatModel;
-    const onModelError = vi.fn(async () => {});
+    const onModelError = vi.fn<NonNullable<AgentHooks["onModelError"]>>(async () => {});
     const agent = new DzupAgent({
       id: "stream-error",
       instructions: "x",
@@ -174,7 +174,7 @@ describe("native streaming — model-lifecycle hooks", () => {
       "stream open boom"
     );
     expect(onModelError).toHaveBeenCalledTimes(1);
-    expect((onModelError.mock.calls[0]![0] as Error).message).toContain(
+    expect(onModelError.mock.calls[0]![0].message).toContain(
       "stream open boom"
     );
   });

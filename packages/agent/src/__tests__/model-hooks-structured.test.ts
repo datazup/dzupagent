@@ -115,7 +115,7 @@ describe("structured-generate — model-lifecycle hooks", () => {
 
   it("afterModelCall fires once on a successful native invocation", async () => {
     const { model } = makeNativeStructuredModel();
-    const afterModelCall = vi.fn(async () => {});
+    const afterModelCall = vi.fn<NonNullable<AgentHooks["afterModelCall"]>>(async () => {});
     await generateStructured(
       makeCtx(model, { afterModelCall }),
       [new HumanMessage("hi")],
@@ -129,7 +129,7 @@ describe("structured-generate — model-lifecycle hooks", () => {
 
   it("onModelError fires when the native invocation throws", async () => {
     const { model } = makeNativeStructuredModel({ fail: true });
-    const onModelError = vi.fn(async () => {});
+    const onModelError = vi.fn<NonNullable<AgentHooks["onModelError"]>>(async () => {});
     // Native fails → falls back to text path (generate stub returns valid JSON).
     await generateStructured(
       makeCtx(model, { onModelError }),
@@ -138,7 +138,7 @@ describe("structured-generate — model-lifecycle hooks", () => {
     );
     expect(onModelError).toHaveBeenCalledTimes(1);
     const call = onModelError.mock.calls[0]!;
-    expect((call[0] as Error).message).toContain("native structured boom");
+    expect(call[0].message).toContain("native structured boom");
     expect(call[1]).toBe("claude-3-5-sonnet");
   });
 });

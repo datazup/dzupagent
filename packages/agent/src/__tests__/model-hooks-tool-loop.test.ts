@@ -130,7 +130,7 @@ describe("generate tool-loop — model-lifecycle hooks", () => {
       aiWithToolCall("echo"),
       new AIMessage("final"),
     ]);
-    const afterModelCall = vi.fn(async () => {});
+    const afterModelCall = vi.fn<NonNullable<AgentHooks["afterModelCall"]>>(async () => {});
     const agent = new DzupAgent({
       id: "tool-loop-after",
       instructions: "x",
@@ -153,7 +153,7 @@ describe("generate tool-loop — model-lifecycle hooks", () => {
       bindTools: vi.fn().mockReturnThis(),
       model: "test-model",
     } as unknown as BaseChatModel;
-    const onModelError = vi.fn(async () => {});
+    const onModelError = vi.fn<NonNullable<AgentHooks["onModelError"]>>(async () => {});
     const agent = new DzupAgent({
       id: "tool-loop-error",
       instructions: "x",
@@ -165,7 +165,7 @@ describe("generate tool-loop — model-lifecycle hooks", () => {
       "model turn boom"
     );
     expect(onModelError).toHaveBeenCalledTimes(1);
-    expect((onModelError.mock.calls[0]![0] as Error).message).toContain(
+    expect(onModelError.mock.calls[0]![0].message).toContain(
       "model turn boom"
     );
   });
