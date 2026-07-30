@@ -14,6 +14,7 @@ import { describe, it, expect, vi } from "vitest";
 import { DzupAgent } from "../agent/dzip-agent.js";
 import { runConsolidateFinalizer } from "../agent/agent-finalizers.js";
 import type { DzupAgentConfig } from "../agent/agent-types.js";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 
 // ── Minimal fake store matching ConsolidationStore / PrunerMemoryStore ────────
 
@@ -231,7 +232,8 @@ describe("DzupAgent.consolidate()", () => {
     const agent = new DzupAgent({
       id: "no-mem-agent",
       name: "No Memory",
-      model: { invoke: vi.fn(async () => ({ content: "" })) } as never,
+      model: { invoke: vi.fn(async () => ({ content: "" })) } as unknown as BaseChatModel,
+      instructions: "test",
     });
 
     const result = await agent.consolidate();
@@ -242,7 +244,8 @@ describe("DzupAgent.consolidate()", () => {
     const agent = new DzupAgent({
       id: "no-store-agent",
       name: "No Store",
-      model: { invoke: vi.fn(async () => ({ content: "" })) } as never,
+      model: { invoke: vi.fn(async () => ({ content: "" })) } as unknown as BaseChatModel,
+      instructions: "test",
       memory: { put: vi.fn(), get: vi.fn() } as never,
       memoryNamespace: "ns",
       memoryScope: { t: "x" },
@@ -266,7 +269,8 @@ describe("DzupAgent.consolidate()", () => {
     const agent = new DzupAgent({
       id: agentId,
       name: "Has Store",
-      model: { invoke: vi.fn(async () => ({ content: "" })) } as never,
+      model: { invoke: vi.fn(async () => ({ content: "" })) } as unknown as BaseChatModel,
+      instructions: "test",
       memory: { getStore: () => store } as never,
       memoryNamespace: "facts",
       memoryScope: { t: "x" },
