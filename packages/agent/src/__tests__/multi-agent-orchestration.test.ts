@@ -121,7 +121,6 @@ function makeSpecialist(
     name: overrides.name ?? id,
     instructions: `You are the ${id} specialist`,
     modelTier: "codegen",
-    metadata: overrides.metadata,
     ...overrides,
   };
 }
