@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { diffErrors } from '../safe-codemod.mjs'
+import { diffErrors, parseArgs } from '../safe-codemod.mjs'
 
 function err(file, code, message) {
   return { file, code, message, key: `${file}|${code}|${message}` }
@@ -88,4 +88,21 @@ test('flags a growing duplicate count as introduced', () => {
   assert.equal(result.introduced[0].was, 1)
   assert.equal(result.introduced[0].now, 2)
   assert.equal(result.improved, false)
+})
+
+test("parseArgs defaults to the agent package so existing invocations are unchanged", () => {
+  const a = parseArgs([])
+  assert.equal(a.package, "agent")
+  assert.equal(a.target, "packages/agent/src")
+})
+
+test("parseArgs derives the revert target from --package", () => {
+  assert.equal(parseArgs(["--package", "core"]).target, "packages/core/src")
+})
+
+test("parseArgs lets --target narrow the revert scope below the package root", () => {
+  // The target is what git checkout reverts, so a narrower target keeps the
+  // revert away from unrelated edits elsewhere in the same package.
+  const a = parseArgs(["--package", "core", "--target", "packages/core/src/memory"])
+  assert.equal(a.target, "packages/core/src/memory")
 })
