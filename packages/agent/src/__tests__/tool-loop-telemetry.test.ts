@@ -158,7 +158,7 @@ describe("Tool Loop Telemetry", () => {
     const latencies: Array<{
       name: string;
       durationMs: number;
-      error?: string;
+      error?: string | undefined;
     }> = [];
 
     const model = createMockModel([
@@ -185,7 +185,7 @@ describe("Tool Loop Telemetry", () => {
     const latencies: Array<{
       name: string;
       durationMs: number;
-      error?: string;
+      error?: string | undefined;
     }> = [];
 
     const model = createMockModel([
