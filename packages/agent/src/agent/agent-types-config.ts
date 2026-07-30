@@ -136,9 +136,24 @@ export interface DzupAgentConfig extends MemoryConfigSlice, ObservabilityConfigS
    * system.
    *
    * Errors thrown by this callback are caught and never propagated --- the
-   * run result is always returned regardless of callback success.
+   * run result is always returned regardless of callback success. They are
+   * NOT silent: see {@link DzupAgentConfig.onReflectionError}.
    */
   onReflectionComplete?: (summary: ReflectionSummary) => Promise<void>
+
+  /**
+   * Called when post-run reflection throws --- either the analyzer itself or the
+   * {@link DzupAgentConfig.onReflectionComplete} callback (including a failing
+   * reflection store behind it).
+   *
+   * Reflection is best-effort and its failure never affects the run result, so
+   * without this hook a permanently broken reflection store produced no signal
+   * anywhere: every run succeeded and the learning system stayed empty, which is
+   * indistinguishable from a system that simply had nothing to reflect on.
+   *
+   * When unset, failures are reported with `console.warn` rather than dropped.
+   */
+  onReflectionError?: (error: unknown) => void
 
   /**
    * Configuration for the ReflectionAnalyzer used in post-run analysis.

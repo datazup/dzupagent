@@ -43,6 +43,18 @@ export interface StrategyRecommendation {
   escalateModel: boolean
   /** Suggested max fix attempts. */
   suggestedMaxAttempts: number
+  /**
+   * True when the historical rates could NOT be read, so every rate below is a
+   * floor of 0 rather than a measurement of zero.
+   *
+   * A store outage and a genuinely-new (nodeId, errorType) pair both yield
+   * all-zero rates, and the selector's answer is the same 'targeted' default in
+   * both cases. Without this flag the caller cannot tell that its adaptive
+   * escalation silently stopped adapting: the reasoning string would claim
+   * 'Insufficient historical data' for a node with hundreds of recorded
+   * outcomes that simply could not be loaded.
+   */
+  historyUnavailable: boolean
 }
 
 /** Configuration for the {@link StrategySelector}. */
@@ -95,6 +107,13 @@ function asOutcomeRecord(value: unknown): OutcomeRecord | undefined {
   return value as OutcomeRecord
 }
 
+/** Historical rates plus whether the underlying read actually succeeded. */
+interface RatesReadResult {
+  rates: Record<FixStrategy, StrategyRate>
+  /** False when the store read threw or could not be enumerated. */
+  readable: boolean
+}
+
 /** Ordered escalation path. */
 const STRATEGY_ORDER: readonly FixStrategy[] = [
   'targeted',
@@ -141,8 +160,26 @@ export class StrategySelector {
     errorMessage?: string
   }): Promise<StrategyRecommendation> {
     const { errorType, nodeId } = params
-    const rates = await this.getHistoricalRates(nodeId, errorType)
+    const { rates, readable } = await this.readHistoricalRates(nodeId, errorType)
     const totalAttempts = rates.targeted.attempts + rates.contextual.attempts + rates.regenerative.attempts
+
+    // History could not be read at all. The recommendation is the same
+    // 'targeted' default as a cold start, but the reason must not claim the
+    // history is empty — it is unknown. Confidence drops below the cold-start
+    // value because we cannot even establish that this node is new.
+    if (!readable) {
+      return {
+        strategy: 'targeted',
+        confidence: 0,
+        reasoning:
+          'Historical outcome data could not be read, so no strategy adaptation was applied. ' +
+          'Defaulting to targeted strategy. The rates below are floors of 0, not measurements.',
+        historicalRates: rates,
+        escalateModel: false,
+        suggestedMaxAttempts: 3,
+        historyUnavailable: true,
+      }
+    }
 
     // Insufficient data — return default
     if (totalAttempts < this.minDataPoints) {
@@ -153,6 +190,7 @@ export class StrategySelector {
         historicalRates: rates,
         escalateModel: false,
         suggestedMaxAttempts: 3,
+        historyUnavailable: false,
       }
     }
 
@@ -224,6 +262,7 @@ export class StrategySelector {
       historicalRates: rates,
       escalateModel,
       suggestedMaxAttempts,
+      historyUnavailable: false,
     }
   }
 
@@ -261,13 +300,24 @@ export class StrategySelector {
     nodeId: string,
     errorType?: string,
   ): Promise<Record<FixStrategy, StrategyRate>> {
+    return (await this.readHistoricalRates(nodeId, errorType)).rates
+  }
+
+  /**
+   * Same aggregation as {@link getHistoricalRates}, but also reports whether the
+   * underlying store read succeeded. All-zero rates are ambiguous on their own.
+   */
+  async readHistoricalRates(
+    nodeId: string,
+    errorType?: string,
+  ): Promise<RatesReadResult> {
     const empty: Record<FixStrategy, StrategyRate> = {
       targeted: { attempts: 0, successes: 0, rate: 0 },
       contextual: { attempts: 0, successes: 0, rate: 0 },
       regenerative: { attempts: 0, successes: 0, rate: 0 },
     }
 
-    const outcomes = await this.loadOutcomes(nodeId, errorType)
+    const { outcomes, readable } = await this.loadOutcomes(nodeId, errorType)
 
     for (const outcome of outcomes) {
       const strat = outcome.strategy
@@ -285,7 +335,7 @@ export class StrategySelector {
       entry.rate = entry.attempts > 0 ? entry.successes / entry.attempts : 0
     }
 
-    return empty
+    return { rates: empty, readable }
   }
 
   // -------------------------------------------------------------------------
@@ -298,22 +348,23 @@ export class StrategySelector {
   private async loadOutcomes(
     nodeId: string,
     errorType?: string,
-  ): Promise<OutcomeRecord[]> {
+  ): Promise<{ outcomes: OutcomeRecord[]; readable: boolean }> {
     if (errorType) {
       // Specific error type — load from the exact namespace
       const ns = [...this.namespace, 'outcomes', nodeId, errorType]
       return this.loadOutcomesFromNs(ns)
     }
 
-    // No error type specified — we would need to enumerate all error types.
-    // Since BaseStore doesn't support namespace listing, we search the
-    // node-level namespace. For now, we return an empty set when no errorType
-    // is given and the store doesn't support namespace enumeration.
-    // Callers should always provide errorType for meaningful results.
-    return []
+    // No error type specified — enumerating every error type would require
+    // namespace listing, which BaseStore does not support. This is a genuine
+    // inability to read, not an observation that no history exists, so it is
+    // reported as unreadable rather than as an empty history.
+    return { outcomes: [], readable: false }
   }
 
-  private async loadOutcomesFromNs(ns: string[]): Promise<OutcomeRecord[]> {
+  private async loadOutcomesFromNs(
+    ns: string[],
+  ): Promise<{ outcomes: OutcomeRecord[]; readable: boolean }> {
     try {
       const items = await this.store.search(ns, { limit: MAX_OUTCOMES })
       const outcomes: OutcomeRecord[] = []
@@ -324,9 +375,12 @@ export class StrategySelector {
         outcomes.push(value)
       }
 
-      return outcomes
+      return { outcomes, readable: true }
     } catch {
-      return []
+      // A failed read is NOT an absence of history. Returning a bare [] here
+      // made a store outage indistinguishable from a brand-new node, and the
+      // caller then reported 'Insufficient historical data' as the reason.
+      return { outcomes: [], readable: false }
     }
   }
 

@@ -38,6 +38,12 @@ export interface ReflectionLearningBridgeConfig {
   /**
    * Optional reflection store for persisting summaries.
    * When provided, the bridge saves summaries before calling onSummary.
+   *
+   * A save failure propagates to the caller rather than being swallowed here,
+   * and skips `onSummary`. When this bridge is wired into an agent via
+   * `onReflectionComplete`, that throw lands in the run engine's best-effort
+   * handler, which reports it through
+   * `DzupAgentConfig.onReflectionError` instead of discarding it.
    */
   store?: RunReflectionStore
 
@@ -82,7 +88,10 @@ export function createReflectionLearningBridge(
       return
     }
 
-    // Persist to store (best-effort)
+    // Persist to store, then forward. A save failure propagates to the caller
+    // by design (see the 'propagates errors from store.save' spec): the bridge
+    // does not decide the policy. The run engine, which is the caller that
+    // previously discarded this, now reports it via onReflectionError.
     if (config.store) {
       await config.store.save(summary)
     }
