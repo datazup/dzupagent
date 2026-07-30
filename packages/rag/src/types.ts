@@ -143,14 +143,42 @@ export interface ChunkMetadata {
 // Retrieval Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Names a retrieval channel that the requested mode called for but which was
+ * not available, so its contribution is missing from the result.
+ */
+export interface RetrievalDegradation {
+  /** The channel that did not run. */
+  channel: 'vector' | 'keyword'
+  /** Why it did not run. */
+  reason: string
+}
+
 /** Result returned by the retriever */
 export interface RetrievalResult {
   /** Scored and ranked chunks */
   chunks: ScoredChunk[]
   /** Total tokens across all returned chunks */
   totalTokens: number
-  /** Search mode that was used */
+  /**
+   * Search mode that was *requested*.
+   *
+   * Not on its own evidence of what ran: a `hybrid` retrieval whose keyword
+   * channel is unconfigured still reports `hybrid`. Check {@link
+   * RetrievalResult.degraded} before treating this as a description of the
+   * channels that actually contributed.
+   */
   searchMode: SearchMode
+  /**
+   * Channels the requested mode called for that did not run, or `undefined`
+   * when every requested channel contributed.
+   *
+   * An empty chunk list is otherwise ambiguous — "the corpus has nothing
+   * relevant" and "half the retrieval was switched off" produce identical
+   * results, and downstream prompt builders tell the user their corpus is
+   * empty on the strength of it.
+   */
+  degraded?: RetrievalDegradation[]
   /** Wall-clock time of the search in ms */
   queryTimeMs: number
 }

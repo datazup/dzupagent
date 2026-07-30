@@ -7,6 +7,7 @@
 
 import type {
   RetrievalConfig,
+  RetrievalDegradation,
   RetrievalResult,
   ScoredChunk,
   VectorSearchFn,
@@ -120,13 +121,16 @@ export class HybridRetriever {
     const tokenBudget = options?.tokenBudget ?? this.config.tokenBudget
 
     let chunks: ScoredChunk[]
+    // Collected rather than thrown: a half-configured retriever should still
+    // return what it can find, but must say what it could not search.
+    const degraded: RetrievalDegradation[] = []
 
     if (mode === 'vector') {
       chunks = await this.vectorSearch(query, filter, topK)
     } else if (mode === 'keyword') {
-      chunks = await this.keywordSearch(query, filter, topK)
+      chunks = await this.keywordSearch(query, filter, topK, degraded)
     } else {
-      chunks = await this.hybridSearch(query, filter, topK)
+      chunks = await this.hybridSearch(query, filter, topK, degraded)
     }
 
     // Apply quality boosting
@@ -152,6 +156,7 @@ export class HybridRetriever {
       chunks,
       totalTokens,
       searchMode: mode,
+      ...(degraded.length > 0 ? { degraded } : {}),
       queryTimeMs,
     }
   }
@@ -170,12 +175,26 @@ export class HybridRetriever {
     return hits.map(hit => this.vectorHitToChunk(hit))
   }
 
+  /**
+   * Search the keyword channel.
+   *
+   * When no `keywordSearch` function is configured the channel contributes
+   * nothing; `degraded` records that so the caller can tell an unsearched
+   * channel from one that searched and found nothing.
+   */
   private async keywordSearch(
     query: string,
     filter: Record<string, unknown>,
     limit: number,
+    degraded?: RetrievalDegradation[],
   ): Promise<ScoredChunk[]> {
-    if (!this.config.keywordSearch) return []
+    if (!this.config.keywordSearch) {
+      degraded?.push({
+        channel: 'keyword',
+        reason: 'no keywordSearch function was configured on the retriever',
+      })
+      return []
+    }
     const hits = await this.config.keywordSearch(query, filter, limit)
     return hits.map(hit => this.keywordHitToChunk(hit))
   }
@@ -184,10 +203,11 @@ export class HybridRetriever {
     query: string,
     filter: Record<string, unknown>,
     limit: number,
+    degraded?: RetrievalDegradation[],
   ): Promise<ScoredChunk[]> {
     const [vectorResults, keywordResults] = await Promise.all([
       this.vectorSearch(query, filter, limit),
-      this.keywordSearch(query, filter, limit),
+      this.keywordSearch(query, filter, limit, degraded),
     ])
 
     return this.reciprocalRankFusion(vectorResults, keywordResults, limit)
@@ -256,9 +276,30 @@ export class HybridRetriever {
     const weights = this.config.qualityWeights
 
     return Promise.all(chunks.map(async (chunk) => {
-      const chunkQuality = (chunk.qualityScore ?? 0.5)
       const sourceQuality = await this.resolveSourceQuality(chunk, context)
-      const blended = chunkQuality * weights.chunk + sourceQuality * weights.source
+
+      // Re-weight over the dimensions that were actually measured rather than
+      // substituting 0.5 for a missing one. Feeding the midpoint in would let
+      // an unmeasured dimension dilute a measured one toward no-op, so a
+      // source known to be poor would rank as though it were average.
+      const measured: Array<{ value: number; weight: number }> = []
+      if (chunk.qualityScore !== undefined) {
+        measured.push({ value: chunk.qualityScore, weight: weights.chunk })
+      }
+      if (sourceQuality !== undefined) {
+        measured.push({ value: sourceQuality, weight: weights.source })
+      }
+
+      // Nothing was measured: leave the score untouched instead of applying a
+      // boost derived from invented inputs.
+      if (measured.length === 0) return chunk
+
+      const totalWeight = measured.reduce((sum, m) => sum + m.weight, 0)
+      const blended =
+        totalWeight > 0
+          ? measured.reduce((sum, m) => sum + m.value * m.weight, 0) / totalWeight
+          : measured.reduce((sum, m) => sum + m.value, 0) / measured.length
+
       // +/- 15% max adjustment around quality midpoint (0.5)
       const boost = 1 + (blended - 0.5) * 0.3
 
@@ -282,7 +323,7 @@ export class HybridRetriever {
   private async resolveSourceQuality(
     chunk: ScoredChunk,
     context: Omit<SourceQualityContext, 'chunk'>,
-  ): Promise<number> {
+  ): Promise<number | undefined> {
     const strategy = this.config.sourceQuality
 
     if (strategy?.provider) {
@@ -291,15 +332,19 @@ export class HybridRetriever {
         const normalized = this.normalizeQuality(resolved)
         if (normalized !== undefined) return normalized
       } catch {
-        // Provider errors should not fail retrieval; fall through to chunk/fallback.
+        // Provider errors must not fail retrieval, but they also must not be
+        // reported as a quality of 0.5: that is the exact midpoint, so a total
+        // provider outage would compute boost === 1 and look identical to
+        // "every source is precisely average". Fall through to the chunk value
+        // and then to the configured fallback; if neither exists the quality is
+        // genuinely unknown and is returned as undefined.
       }
     }
 
     const direct = this.normalizeQuality(chunk.sourceQuality)
     if (direct !== undefined) return direct
 
-    const fallback = this.normalizeQuality(strategy?.fallback)
-    return fallback ?? 0.5
+    return this.normalizeQuality(strategy?.fallback)
   }
 
   private normalizeQuality(value: unknown): number | undefined {

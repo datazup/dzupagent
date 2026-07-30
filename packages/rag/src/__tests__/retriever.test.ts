@@ -354,3 +354,107 @@ describe('HybridRetriever', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Degradation reporting — an unsearched channel vs a channel that found nothing
+// ---------------------------------------------------------------------------
+
+describe("HybridRetriever — degraded channels", () => {
+  it("reports the keyword channel as degraded when hybrid runs without one", async () => {
+    const retriever = makeRetriever({
+      mode: "hybrid",
+      vectorHits: [makeVectorHit({ id: "v1" })],
+      // keywordHits omitted => no keywordSearch function configured
+    })
+
+    const result = await retriever.retrieve("q", {})
+
+    // searchMode still records what was *asked* for...
+    expect(result.searchMode).toBe("hybrid")
+    // ...but the result must say the keyword arm never ran, otherwise a
+    // vector-only retrieval is indistinguishable from a real hybrid one.
+    expect(result.degraded).toHaveLength(1)
+    expect(result.degraded?.[0]?.channel).toBe("keyword")
+    expect(result.degraded?.[0]?.reason).toMatch(/no keywordSearch function/)
+  })
+
+  it("reports degradation for a keyword-only search with no keyword function", async () => {
+    const retriever = makeRetriever({ mode: "keyword" })
+    const result = await retriever.retrieve("q", {})
+    expect(result.chunks).toEqual([])
+    // Empty chunks here means "never searched", not "searched, found nothing".
+    expect(result.degraded?.[0]?.channel).toBe("keyword")
+  })
+
+  it("omits degraded entirely when every requested channel ran", async () => {
+    const retriever = makeRetriever({
+      mode: "hybrid",
+      vectorHits: [makeVectorHit({ id: "v1" })],
+      keywordHits: [makeKeywordHit({ id: "k1" })],
+    })
+    const result = await retriever.retrieve("q", {})
+    expect(result.degraded).toBeUndefined()
+  })
+
+  it("does not mark a configured keyword channel that legitimately found nothing", async () => {
+    const retriever = makeRetriever({
+      mode: "hybrid",
+      vectorHits: [makeVectorHit({ id: "v1" })],
+      keywordHits: [],
+    })
+    const result = await retriever.retrieve("q", {})
+    expect(result.degraded).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Quality boosting must not invent inputs
+// ---------------------------------------------------------------------------
+
+describe("HybridRetriever — unmeasured source quality", () => {
+  function retrieverWithQuality(provider: () => Promise<number>) {
+    return new HybridRetriever({
+      mode: "vector",
+      topK: 10,
+      qualityBoosting: true,
+      qualityWeights: { chunk: 0.6, source: 0.4 },
+      tokenBudget: 8000,
+      embedQuery: async () => [0.1],
+      vectorSearch: async () => [
+        {
+          id: "v1",
+          score: 1,
+          text: "t",
+          metadata: { source_id: "s1", chunk_index: 0 },
+        },
+      ],
+      sourceQuality: { provider },
+    })
+  }
+
+  it("leaves the score untouched when no quality dimension was measured", async () => {
+    const retriever = retrieverWithQuality(async () => {
+      throw new Error("quality service down")
+    })
+
+    const result = await retriever.retrieve("q", {})
+
+    // A provider outage previously resolved to 0.5 — the exact midpoint — so
+    // boost computed to 1.0 and the outage was indistinguishable from "this
+    // source is precisely average". An unmeasured dimension must not be
+    // scored at all.
+    expect(result.chunks[0]?.score).toBe(1)
+    expect(result.chunks[0]?.qualityScore).toBeUndefined()
+  })
+
+  it("re-weights onto the measured dimension instead of diluting it with 0.5", async () => {
+    const retriever = retrieverWithQuality(async () => 0)
+    const result = await retriever.retrieve("q", {})
+
+    // Only source quality is measured (0), and chunk quality is absent. The
+    // blend must be 0 — not 0.6*0.5 + 0.4*0 = 0.3, which would drag a
+    // known-terrible source most of the way back to average.
+    expect(result.chunks[0]?.qualityScore).toBe(0)
+    expect(result.chunks[0]?.score).toBeCloseTo(1 * (1 + (0 - 0.5) * 0.3), 10)
+  })
+})
