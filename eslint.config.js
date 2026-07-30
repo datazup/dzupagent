@@ -1,6 +1,31 @@
 import tsParser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
 import securityPlugin from "eslint-plugin-security";
+import { TEST_QUALITY_BASELINE } from "./eslint.baseline.js";
+
+// The two test-quality selectors below are defined once and applied at two
+// severities: `error` on files written since 2026-07-29, and `warn` on the
+// pre-existing violations listed in eslint.baseline.js. Defining them once
+// keeps the selector and its message from drifting between the two blocks.
+const STATELESS_MEMORY_DOUBLE = {
+  selector:
+    "ObjectExpression:has(Property[key.name='get']):has(Property[key.name='put']):not(:has(Property[key.name='getKeyed']))",
+  message:
+    "Stateless memory double: a spy cannot observe what the store holds, only that it was called. Use createMemoryHarness() from @dzupagent/memory/testing, which wraps a real MemoryService over an InMemoryStore and exposes snapshot()/keys()/liveKeys() for assertions. If this object is not a memory service, add an eslint-disable-next-line with a reason.",
+};
+
+const VACUOUS_EVERY = {
+  selector:
+    "CallExpression[callee.property.name='toBe'][arguments.0.value=true][callee.object.callee.name='expect'][callee.object.arguments.0.callee.property.name='every']",
+  message:
+    "Vacuous on an empty array: [].every() is true, so this passes when the collection is empty. Assert the collection is non-empty first (expect(xs.length).toBeGreaterThan(0) or toHaveLength(n)), or use expect(xs.filter(p)).toHaveLength(n). If an empty collection is an acceptable pass here, add an eslint-disable-next-line with a reason.",
+};
+
+const SET_TIMEOUT_IN_TEST = {
+  selector: "CallExpression[callee.name='setTimeout']",
+  message:
+    "Avoid real setTimeout in tests. Use vi.useFakeTimers() + vi.advanceTimersByTimeAsync() instead.",
+};
 
 export default [
   {
@@ -86,26 +111,58 @@ export default [
       ],
     },
   },
-  // Quality rules for test files — warns without blocking CI immediately.
+  // Quality rules for test files.
+  //
+  // NOTE ON LAYERING: ESLint severity is per-config-object, and a later config
+  // REPLACES an earlier `no-restricted-syntax` entry rather than merging with
+  // it. So each severity needs its own block, and every block that matches a
+  // file must list every selector meant to apply to it — omitting one silently
+  // drops that rule for those files.
+  //
   // M-05: Real timers cause non-deterministic / slow tests; prefer fake timers
   // (vi.useFakeTimers() + vi.advanceTimersByTimeAsync()). Justified exceptions
   // (real-time polling loops, real subprocess/IO timing) must carry an
-  // eslint-disable-next-line with a reason.
+  // eslint-disable-next-line with a reason. `warn` everywhere: 401 pre-existing
+  // instances and no baseline taken, so gating it would just be noise.
+  //
+  // The other two rules FAIL the build. Both shipped as `warn` so the debt they
+  // surfaced would not block CI, but a rule people learn to ignore decays into
+  // noise — and both exist to catch defect classes that a stateless mock or an
+  // empty collection can hide from a passing test. They error everywhere EXCEPT
+  // the 194 files that already violated them when the baseline was taken
+  // (eslint.baseline.js), so new and newly-touched code gets the real gate while
+  // the backlog keeps warning. A bulk migration was measured and rejected: 341
+  // warnings across 194 files, and ~15% of the vacuity hits are negative
+  // predicates where an empty collection is a fair pass — judgement, not codemod.
   {
     files: ["**/*.test.ts", "**/*.spec.ts", "**/__tests__/**/*.ts"],
+    ignores: TEST_QUALITY_BASELINE,
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        STATELESS_MEMORY_DOUBLE,
+        VACUOUS_EVERY,
+        SET_TIMEOUT_IN_TEST,
+      ],
+    },
+  },
+  // Grandfathered violations of the two rules above: keep warning, never fail.
+  // This list must only ever shrink — see the header of eslint.baseline.js.
+  {
+    files: TEST_QUALITY_BASELINE,
     rules: {
       "no-restricted-syntax": [
         "warn",
-        {
-          selector: "CallExpression[callee.name='setTimeout']",
-          message:
-            "Avoid real setTimeout in tests. Use vi.useFakeTimers() + vi.advanceTimersByTimeAsync() instead.",
-        },
+        STATELESS_MEMORY_DOUBLE,
+        VACUOUS_EVERY,
+        SET_TIMEOUT_IN_TEST,
       ],
     },
   },
   // Type-aware rules for TypeScript source files only (requires tsconfig project).
-  // Test files are excluded from all package tsconfigs, so they cannot use project-based parsing.
+  // Most package tsconfigs still exclude test files, so they cannot use
+  // project-based parsing. (memory-ipc, security, rag and context now include
+  // their tests; the exclusion here is kept uniform rather than per-package.)
   {
     files: ["**/*.ts", "**/*.tsx"],
     ignores: ["**/*.test.ts", "**/*.test.tsx", "**/__tests__/**"],

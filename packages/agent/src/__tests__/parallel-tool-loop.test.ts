@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { runToolLoop, type ToolLoopConfig } from '../agent/tool-loop.js'
+import { runToolLoop } from '../agent/tool-loop.js'
 
 // ---------- Helpers ----------
 

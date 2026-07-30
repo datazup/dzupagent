@@ -498,7 +498,7 @@ describe('CorpusManager', () => {
 
     it('updates stats correctly after re-ingest', async () => {
       const corpus = await manager.createCorpus('Stats After Re')
-      const r1 = await manager.ingestSource(corpus.id, {
+      await manager.ingestSource(corpus.id, {
         id: 'doc',
         text: SHORT_TEXT,
       })

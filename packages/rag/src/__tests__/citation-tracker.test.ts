@@ -6,13 +6,39 @@ import type { RetrievalResult, ScoredChunk } from '../types.js'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeChunk(overrides: Partial<ScoredChunk> & { id: string }): ScoredChunk {
+/**
+ * Overrides for the chunk factory.
+ *
+ * Optional fields of ScoredChunk accept an explicit `undefined` so tests can
+ * exercise the "field absent" path under exactOptionalPropertyTypes; required
+ * fields keep their types, so an override cannot silently un-set one.
+ */
+type ChunkOverrides = { [K in keyof ScoredChunk]?: ScoredChunk[K] | undefined } & {
+  id: string
+}
+
+/**
+ * Drops keys whose value is an explicit `undefined`.
+ *
+ * Tests pass e.g. `{ sourceTitle: undefined }` to mean "this field is absent".
+ * Spreading that directly would overwrite the factory default with undefined,
+ * which exactOptionalPropertyTypes correctly rejects.
+ */
+function defined<T extends object>(
+  o: T,
+): { [K in keyof T]: Exclude<T[K], undefined> } {
+  return Object.fromEntries(
+    Object.entries(o).filter(([, v]) => v !== undefined),
+  ) as { [K in keyof T]: Exclude<T[K], undefined> }
+}
+
+function makeChunk(overrides: ChunkOverrides): ScoredChunk {
   return {
     text: `Text for ${overrides.id}`,
     score: 0.8,
     sourceId: 'src-1',
     chunkIndex: 0,
-    ...overrides,
+    ...defined(overrides),
   }
 }
 

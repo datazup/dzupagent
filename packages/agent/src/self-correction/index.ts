@@ -73,6 +73,7 @@ export type {
   SignalSeverity,
   ObservabilityThresholds,
   ObservabilityBridgeConfig,
+  ObservabilityBridgeOptions,
 } from './observability-bridge.js'
 
 export { SelfLearningPipelineHook } from './self-learning-hook.js'

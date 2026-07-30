@@ -24,6 +24,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createMemoryHarness } from "../testing/index.js";
 import {
   consolidateNamespace,
   consolidateAll,
@@ -54,7 +55,7 @@ function daysAgo(days: number): number {
 function makeMemoryEntry(
   key: string,
   text: string,
-  overrides: Partial<MemoryEntry> = {},
+  overrides: Partial<MemoryEntry> = {}
 ): MemoryEntry {
   return { key, text, ...overrides };
 }
@@ -66,7 +67,7 @@ function makeNsStore(
     key: string;
     value: Record<string, unknown>;
     createdAt?: Date;
-  }> = [],
+  }> = []
 ): BaseStore {
   const data = new Map<
     string,
@@ -90,7 +91,7 @@ function makeNsStore(
     put: vi.fn(
       async (_ns: string[], key: string, value: Record<string, unknown>) => {
         data.set(key, { key, value, createdAt: new Date() });
-      },
+      }
     ),
     delete: vi.fn(async (_ns: string[], key: string) => {
       data.delete(key);
@@ -105,7 +106,7 @@ function makeNsStore(
 
 /** ConsolidationStore backed by a Map for ConsolidationEngine tests. */
 function makeConsolidationStore(
-  records: Array<{ key: string; value: Record<string, unknown> }> = [],
+  records: Array<{ key: string; value: Record<string, unknown> }> = []
 ): ConsolidationStore & { data: Map<string, Record<string, unknown>> } {
   const data = new Map<string, Record<string, unknown>>();
   for (const { key, value } of records) {
@@ -115,12 +116,12 @@ function makeConsolidationStore(
     data,
     search: vi.fn(
       async (): Promise<ConsolidationStoreItem[]> =>
-        [...data.entries()].map(([key, value]) => ({ key, value })),
+        [...data.entries()].map(([key, value]) => ({ key, value }))
     ),
     put: vi.fn(
       async (_ns: string[], key: string, value: Record<string, unknown>) => {
         data.set(key, value);
-      },
+      }
     ),
     delete: vi.fn(async (_ns: string[], key: string) => {
       data.delete(key);
@@ -158,7 +159,7 @@ describe("Dedup — identical memories merged into one", () => {
             timestamp: new Date(daysAgo(1)).toISOString(),
           },
         },
-      ],
+      ]
     );
     const result = await consolidateNamespace(store, ["ns"]);
     expect(result.merged).toBe(1);
@@ -190,7 +191,7 @@ describe("Dedup — identical memories merged into one", () => {
             timestamp: new Date(daysAgo(1)).toISOString(),
           },
         },
-      ],
+      ]
     );
     const result = await consolidateNamespace(store, ["ns"]);
     expect(result.merged).toBe(2);
@@ -203,7 +204,7 @@ describe("Dedup — identical memories merged into one", () => {
       [
         { key: "k1", value: { text: "Use TypeScript" } },
         { key: "k2", value: { text: "use typescript" } },
-      ],
+      ]
     );
     // Normalization lowercases, so these ARE treated as the same
     const result = await consolidateNamespace(store, ["ns"]);
@@ -216,7 +217,7 @@ describe("Dedup — identical memories merged into one", () => {
       [
         { key: "k1", value: { text: "always test your code" } },
         { key: "k2", value: { text: "document public APIs thoroughly" } },
-      ],
+      ]
     );
     const result = await consolidateNamespace(store, ["ns"]);
     expect(result.merged).toBe(0);
@@ -238,10 +239,10 @@ describe("Dedup — identical memories merged into one", () => {
           key: "new-entry",
           value: { text: "prefer functional style", timestamp: newerDate },
         },
-      ],
+      ]
     );
     (store.delete as ReturnType<typeof vi.fn>).mockImplementation(
-      async (ns: string[], key: string) => deleteSpy(ns, key),
+      async (ns: string[], key: string) => deleteSpy(ns, key)
     );
     await consolidateNamespace(store, ["ns"]);
     expect(deleteSpy).toHaveBeenCalledWith(["ns"], "old-entry");
@@ -323,7 +324,7 @@ describe("Near-duplicate detection — similar but not identical memories", () =
             timestamp: new Date(daysAgo(1)).toISOString(),
           },
         },
-      ],
+      ]
     );
     const result = await consolidateNamespace(store, ["ns"]);
     expect(result.merged).toBe(1);
@@ -335,7 +336,7 @@ describe("Near-duplicate detection — similar but not identical memories", () =
       [
         { key: "k1", value: { text: `Alpha${"a".repeat(95)}suffix` } },
         { key: "k2", value: { text: `Beta${"a".repeat(96)}suffix` } },
-      ],
+      ]
     );
     const result = await consolidateNamespace(store, ["ns"]);
     expect(result.merged).toBe(0);
@@ -346,7 +347,7 @@ describe("Near-duplicate detection — similar but not identical memories", () =
       makeMemoryEntry("k1", "always validate user inputs at the boundary"),
       makeMemoryEntry(
         "k2",
-        "always validate user inputs at the boundary layer",
+        "always validate user inputs at the boundary layer"
       ),
     ];
     const result = dedupLessons(lessons, 0.7);
@@ -359,7 +360,7 @@ describe("Near-duplicate detection — similar but not identical memories", () =
       makeMemoryEntry("k1", "always write comprehensive unit tests"),
       makeMemoryEntry(
         "k2",
-        "configure database indexes for optimal query performance",
+        "configure database indexes for optimal query performance"
       ),
     ];
     const result = dedupLessons(lessons, 0.6);
@@ -384,35 +385,25 @@ describe("Near-duplicate detection — similar but not identical memories", () =
 
 describe("Merge strategy — two related memories merged into combined memory", () => {
   it("MERGE action produces a merged content entry in the store", async () => {
-    const putSpy = vi.fn();
-    const store: BaseStore = {
-      search: vi
-        .fn()
-        .mockResolvedValueOnce([
-          {
-            key: "fact-a",
-            value: { text: "system uses OAuth2 for authentication" },
-          },
-          {
-            key: "fact-b",
-            value: { text: "system uses JWT tokens for session management" },
-          },
-        ])
-        .mockResolvedValue([
-          {
-            key: "fact-b",
-            value: { text: "system uses JWT tokens for session management" },
-            score: 0.85,
-          },
-        ]),
-      put: putSpy,
-      delete: vi.fn(),
-      get: vi.fn(),
-      batch: vi.fn(),
-      start: vi.fn(),
-      setup: vi.fn(),
-      listNamespaces: vi.fn(),
-    } as unknown as BaseStore;
+    // Backed by a real InMemoryStore rather than put/search spies. A spy can
+    // confirm that put() was called with merged text; it cannot confirm the
+    // namespace actually ends up holding it, which is the property a merge
+    // has to deliver.
+    // The store tuple is built from scope *values*, so a single-key scope of
+    // { bucket: "ns" } puts these records exactly where the consolidator
+    // looks: store.search(["ns"]).
+    const scope = { bucket: "ns" };
+    const harness = createMemoryHarness({
+      namespace: "facts",
+      scope,
+      searchable: true,
+    });
+    await harness.memory.put("facts", scope, "fact-a", {
+      text: "system uses OAuth2 for authentication",
+    });
+    await harness.memory.put("facts", scope, "fact-b", {
+      text: "system uses JWT tokens for session management",
+    });
 
     const mergeModel = makeMockModel(
       JSON.stringify({
@@ -420,21 +411,18 @@ describe("Merge strategy — two related memories merged into combined memory", 
         mergedContent:
           "system uses OAuth2 + JWT tokens for authentication and session management",
         reason: "complementary facts",
-      }),
+      })
     );
     const consolidator = new SemanticConsolidator({ model: mergeModel });
-    await consolidator.consolidate(store, ["ns"]);
-    expect(putSpy).toHaveBeenCalled();
-    const calls = putSpy.mock.calls as Array<
-      [string[], string, Record<string, unknown>]
-    >;
-    const writtenValues = calls.map(([, , v]) => v);
-    const hasMergedContent = writtenValues.some(
-      (v) =>
-        typeof v["text"] === "string" &&
-        (v["text"] as string).includes("OAuth2"),
-    );
-    expect(hasMergedContent).toBe(true);
+    await consolidator.consolidate(harness.store, ["ns"]);
+
+    // A merge must both write the combined text under the surviving key and
+    // remove the record it absorbed. Asserting only "some record contains
+    // OAuth2" would accept a write to a fresh key that left both originals in
+    // place — a duplication, not a consolidation.
+    const after = await harness.snapshot({ scope });
+    expect(after.map((r) => r.key)).toEqual(["fact-b"]);
+    expect(after[0]?.value["text"]).toContain("OAuth2");
   });
 
   it("MERGE action is recorded in result actions list", async () => {
@@ -466,13 +454,13 @@ describe("Merge strategy — two related memories merged into combined memory", 
         action: "merge",
         mergedContent: "service A handles payments and refunds",
         reason: "combined",
-      }),
+      })
     );
     const consolidator = new SemanticConsolidator({ model: mergeModel });
     const result = await consolidator.consolidate(store, ["ns"]);
     expect(result.actions.length).toBeGreaterThanOrEqual(1);
     const mergeActions = result.actions.filter(
-      (a) => a.decision.action === "merge",
+      (a) => a.decision.action === "merge"
     );
     expect(mergeActions.length).toBeGreaterThanOrEqual(1);
   });
@@ -778,7 +766,7 @@ describe("Conflict detection — contradictory facts flagged", () => {
       JSON.stringify({
         action: "contradict",
         reason: "mutually exclusive database types",
-      }),
+      })
     );
     const consolidator = new SemanticConsolidator({ model: conflictModel });
     const result = await consolidator.consolidate(store, ["ns"]);
@@ -813,7 +801,7 @@ describe("Conflict detection — contradictory facts flagged", () => {
       JSON.stringify({
         action: "contradict",
         reason: "different port numbers",
-      }),
+      })
     );
     const consolidator = new SemanticConsolidator({ model: conflictModel });
     const result = await consolidator.consolidate(store, ["ns"]);
@@ -848,7 +836,7 @@ describe("Conflict detection — contradictory facts flagged", () => {
     } as unknown as BaseStore;
 
     const conflictModel = makeMockModel(
-      JSON.stringify({ action: "contradict", reason: "different TTL values" }),
+      JSON.stringify({ action: "contradict", reason: "different TTL values" })
     );
     const consolidator = new SemanticConsolidator({ model: conflictModel });
     await consolidator.consolidate(store, ["ns"]);
@@ -881,7 +869,7 @@ describe("Conflict detection — contradictory facts flagged", () => {
 
     const reason = "two different memory configurations reported";
     const conflictModel = makeMockModel(
-      JSON.stringify({ action: "contradict", reason }),
+      JSON.stringify({ action: "contradict", reason })
     );
     const consolidator = new SemanticConsolidator({ model: conflictModel });
     const result = await consolidator.consolidate(store, ["ns"]);
@@ -909,10 +897,10 @@ describe("Conflict resolution — latest wins", () => {
           key: "current",
           value: { text: "system version is 1.0", timestamp: newerTs },
         },
-      ],
+      ]
     );
     (store.delete as ReturnType<typeof vi.fn>).mockImplementation(
-      async (ns: string[], key: string) => deleteSpy(key),
+      async (ns: string[], key: string) => deleteSpy(key)
     );
     await consolidateNamespace(store, ["ns"]);
     expect(deleteSpy).toHaveBeenCalledWith("stale");
@@ -934,10 +922,10 @@ describe("Conflict resolution — latest wins", () => {
           key: "second-in-list",
           value: { text: "api endpoint is /v1/users", timestamp: newerTs },
         },
-      ],
+      ]
     );
     (store.delete as ReturnType<typeof vi.fn>).mockImplementation(
-      async (ns: string[], key: string) => deleteSpy(key),
+      async (ns: string[], key: string) => deleteSpy(key)
     );
     await consolidateNamespace(store, ["ns"]);
     expect(deleteSpy).toHaveBeenCalledWith("first-in-list");
@@ -966,7 +954,7 @@ describe("Conflict resolution — latest wins", () => {
     } as unknown as BaseStore;
 
     const deleteModel = makeMockModel(
-      JSON.stringify({ action: "delete", reason: "superseded by newer entry" }),
+      JSON.stringify({ action: "delete", reason: "superseded by newer entry" })
     );
     const consolidator = new SemanticConsolidator({ model: deleteModel });
     const result = await consolidator.consolidate(store, ["ns"]);
@@ -1008,7 +996,7 @@ describe("Conflict resolution — highest confidence wins", () => {
       JSON.stringify({
         action: "noop",
         reason: "keep the more confident entry",
-      }),
+      })
     );
     const consolidator = new SemanticConsolidator({ model: noopModel });
     const result = await consolidator.consolidate(store, ["ns"]);
@@ -1050,7 +1038,7 @@ describe("Conflict resolution — highest confidence wins", () => {
         mergedContent:
           "service responds in 200ms under normal load; may be slower under high load",
         reason: "combining both signals",
-      }),
+      })
     );
     const consolidator = new SemanticConsolidator({ model: updateModel });
     await consolidator.consolidate(store, ["ns"]);
@@ -1061,7 +1049,7 @@ describe("Conflict resolution — highest confidence wins", () => {
     const updatedContent = calls.find(
       ([, , v]) =>
         typeof v["text"] === "string" &&
-        (v["text"] as string).includes("under normal load"),
+        (v["text"] as string).includes("under normal load")
     );
     expect(updatedContent).toBeDefined();
   });
@@ -1107,7 +1095,7 @@ describe("Conflict resolution — manual review", () => {
       JSON.stringify({
         action: "contradict",
         reason: "irreconcilable style preferences",
-      }),
+      })
     );
     const consolidator = new SemanticConsolidator({ model: conflictModel });
     const result = await consolidator.consolidate(store, ["ns"]);
@@ -1142,7 +1130,7 @@ describe("Conflict resolution — manual review", () => {
       JSON.stringify({
         action: "contradict",
         reason: "different timeout values",
-      }),
+      })
     );
     const consolidator = new SemanticConsolidator({ model: conflictModel });
     await consolidator.consolidate(store, ["ns"]);
@@ -1150,7 +1138,7 @@ describe("Conflict resolution — manual review", () => {
       [string[], string, Record<string, unknown>]
     >;
     const flaggedCalls = calls.filter(
-      ([, , v]) => "_contradictionFlaggedAt" in v,
+      ([, , v]) => "_contradictionFlaggedAt" in v
     );
     expect(flaggedCalls.length).toBeGreaterThanOrEqual(1);
     // _contradictionFlaggedAt is stored as an ISO 8601 string
@@ -1234,7 +1222,7 @@ describe("Consolidation result — fewer memories after consolidation", () => {
           },
         },
         { key: "d3", value: { text: "unique entry alpha" } },
-      ],
+      ]
     );
     const result = await consolidateNamespace(store, ["ns"]);
     expect(result.after).toBeLessThan(result.before);
@@ -1294,7 +1282,7 @@ describe("Source preservation — source memory IDs tracked in consolidated memo
     const result = await engine.consolidate("s", "n", store);
     const sourceIds = result.provenance["track:__summary__"]!;
     expect(sourceIds).toEqual(
-      expect.arrayContaining(["track:a", "track:b", "track:c"]),
+      expect.arrayContaining(["track:a", "track:b", "track:c"])
     );
   });
 
@@ -1308,7 +1296,7 @@ describe("Source preservation — source memory IDs tracked in consolidated memo
     await engine.consolidate("s", "n", store);
     for (const key of ["child:1", "child:2", "child:3"]) {
       expect(store.data.get(key)!["consolidatedInto"]).toBe(
-        "child:__summary__",
+        "child:__summary__"
       );
     }
   });
@@ -1406,7 +1394,7 @@ describe("Empty consolidation — consolidating 0 or 1 memory returns unchanged"
   it("single memory: not merged or pruned", async () => {
     const store = makeNsStore(
       ["ns"],
-      [{ key: "solo", value: { text: "only entry" } }],
+      [{ key: "solo", value: { text: "only entry" } }]
     );
     const result = await consolidateNamespace(store, ["ns"]);
     expect(result.before).toBe(1);

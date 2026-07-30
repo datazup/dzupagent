@@ -13,7 +13,7 @@
  *
  * Target: ≥ 75 it()/test() blocks, all passing.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 import { ToolOutputValidator } from "../agent/tool-loop/output-validator.js";
 import { applyOutputValidation } from "../agent/tool-loop/result-pipeline.js";

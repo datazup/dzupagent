@@ -39,7 +39,7 @@ describe('durable approval gate', () => {
     const checkpointStore = new InMemoryApprovalCheckpointStore()
     const bus = createEventBus()
     const granted: unknown[] = []
-    bus.on('approval:granted', (e) => granted.push(e))
+    bus.on('approval:granted', (e) => { granted.push(e) })
 
     const gate = new ApprovalGate(
       { mode: 'required', durableResume: true, checkpointStore },
@@ -69,7 +69,7 @@ describe('durable approval gate', () => {
     // Simulate restart -- new gate instance, same store.
     const bus2 = createEventBus()
     const granted2: unknown[] = []
-    bus2.on('approval:granted', (e) => granted2.push(e))
+    bus2.on('approval:granted', (e) => { granted2.push(e) })
     const gate2 = new ApprovalGate(
       { mode: 'required', durableResume: true, checkpointStore },
       bus2,
@@ -88,7 +88,7 @@ describe('durable approval gate', () => {
     const checkpointStore = new InMemoryApprovalCheckpointStore()
     const bus = createEventBus()
     const rejected: unknown[] = []
-    bus.on('approval:rejected', (e) => rejected.push(e))
+    bus.on('approval:rejected', (e) => { rejected.push(e) })
 
     const gate = new ApprovalGate(
       { mode: 'required', durableResume: true, checkpointStore },

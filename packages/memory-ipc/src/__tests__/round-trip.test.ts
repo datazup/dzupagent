@@ -3,6 +3,7 @@ import { FrameBuilder } from '../frame-builder.js'
 import { FrameReader } from '../frame-reader.js'
 import { serializeToIPC, deserializeFromIPC, ipcToBase64, base64ToIPC } from '../ipc-serializer.js'
 import type { FrameRecordMeta, FrameRecordValue } from '../frame-builder.js'
+import { at } from './helpers/at.js'
 
 function makeMeta(i: number): FrameRecordMeta {
   return {
@@ -169,7 +170,7 @@ describe('FrameReader', () => {
     const filtered = reader.filterActive()
     expect(filtered.rowCount).toBe(1)
     const records = filtered.toRecords()
-    expect(records[0].value.text).toBe('active')
+    expect(at(records, 0).value.text).toBe('active')
   })
 
   it('filterByDecayAbove returns correct subset', () => {
@@ -209,7 +210,7 @@ describe('Full Round Trip: Record → Arrow → IPC → Arrow → Record', () =>
     expect(reader.rowCount).toBe(1)
 
     const records = reader.toRecords()
-    const rec = records[0]
+    const rec = at(records, 0)
 
     // Identity
     expect(rec.meta.id).toBe('rec-42')
@@ -256,7 +257,7 @@ describe('Full Round Trip: Record → Arrow → IPC → Arrow → Record', () =>
 
     const records = reader.toRecords()
     expect(records.length).toBe(100)
-    expect(records[99].meta.id).toBe('rec-99')
+    expect(at(records, 99).meta.id).toBe('rec-99')
   })
 
   it('preserves unicode content', () => {
@@ -266,7 +267,7 @@ describe('Full Round Trip: Record → Arrow → IPC → Arrow → Record', () =>
       { id: 'u1', namespace: 'test', key: 'unicode' },
     )
     const reader = FrameReader.fromIPC(builder.toIPC())
-    const rec = reader.toRecords()[0]
+    const rec = at(reader.toRecords(), 0)
     expect(rec.value.text).toBe('日本語テスト 🎉 émojis & accénts')
   })
 

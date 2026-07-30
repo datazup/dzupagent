@@ -226,11 +226,16 @@ export class EncryptedMemoryService {
       return { rotated: 0, failed: 0 }
     }
 
-    const records = await this.memoryService.get(namespace, scope)
+    // Read with store keys attached. Rotation MUST re-put each record under
+    // the key it already occupies: writing to any other key leaves the
+    // original record in place, still sealed with the superseded key, while
+    // reporting success — the namespace would keep un-rotated ciphertext and
+    // grow a duplicate on every rotation.
+    const records = await this.memoryService.getKeyed(namespace, scope)
     let rotated = 0
     let failed = 0
 
-    for (const record of records) {
+    for (const { key: storeKey, value: record } of records) {
       try {
         // Decrypt the record first
         const decryptedRecord = await this.decryptRecord(record)
@@ -239,14 +244,12 @@ export class EncryptedMemoryService {
           continue
         }
 
-        // Re-encrypt with the new active key
-        // We need the original key to figure out the record key name.
-        // Since get() doesn't return keys, we store a _key field during put.
-        // For rotation, the caller must provide namespace+scope, and we
-        // re-put each record. We use a content hash as key fallback.
-        const recordKey = typeof record['_key'] === 'string'
-          ? record['_key']
-          : `rotated_${rotated}`
+        // An explicit `_key` in the value wins so records carrying their own
+        // identity keep it; otherwise re-put under the actual store key.
+        const recordKey =
+          typeof record['_key'] === 'string' && record['_key']
+            ? record['_key']
+            : storeKey
 
         await this.put(namespace, scope, recordKey, decryptedRecord)
         rotated++

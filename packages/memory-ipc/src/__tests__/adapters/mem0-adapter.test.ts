@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Mem0Adapter, type Mem0Memory } from '../../adapters/mem0-adapter.js'
+import { at } from '../helpers/at.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -101,7 +102,7 @@ describe('Mem0Adapter', () => {
       ])
       expect(result.valid).toBe(1)
       expect(result.warnings.length).toBe(1)
-      expect(result.warnings[0].field).toBe('created_at')
+      expect(at(result.warnings, 0).field).toBe('created_at')
     })
 
     it('provides per-field warnings for invalid records', () => {
@@ -222,10 +223,10 @@ describe('Mem0Adapter', () => {
       const result = adapter.fromFrame(table)
 
       expect(result).toHaveLength(1)
-      expect(result[0].id).toBe('mem-1')
-      expect(result[0].memory).toBe('User likes TypeScript over JavaScript')
-      expect(result[0].user_id).toBe('user-42')
-      expect(result[0].agent_id).toBe('agent-x')
+      expect(at(result, 0).id).toBe('mem-1')
+      expect(at(result, 0).memory).toBe('User likes TypeScript over JavaScript')
+      expect(at(result, 0).user_id).toBe('user-42')
+      expect(at(result, 0).agent_id).toBe('agent-x')
     })
 
     it('skips rows with null id or text', () => {
@@ -245,9 +246,9 @@ describe('Mem0Adapter', () => {
       })
       const table = adapter.toFrame([mem])
       const result = adapter.fromFrame(table)
-      expect(result[0].metadata).toEqual({ source: 'chat' })
-      expect(result[0].categories).toEqual(['tech'])
-      expect(result[0].hash).toBe('xyz')
+      expect(at(result, 0).metadata).toEqual({ source: 'chat' })
+      expect(at(result, 0).categories).toEqual(['tech'])
+      expect(at(result, 0).hash).toBe('xyz')
     })
 
     it('sets user_id to "unknown" when scope_tenant is null', () => {
@@ -255,15 +256,15 @@ describe('Mem0Adapter', () => {
       const mem = makeMemory()
       const table = adapter.toFrame([mem])
       const result = adapter.fromFrame(table)
-      expect(result[0].user_id).toBe('user-42')
+      expect(at(result, 0).user_id).toBe('user-42')
     })
 
     it('sets created_at and updated_at from system_created_at', () => {
       const mem = makeMemory({ created_at: '2025-03-15T10:00:00Z' })
       const table = adapter.toFrame([mem])
       const result = adapter.fromFrame(table)
-      expect(new Date(result[0].created_at).getTime()).toBe(Date.parse('2025-03-15T10:00:00Z'))
-      expect(result[0].created_at).toBe(result[0].updated_at)
+      expect(new Date(at(result, 0).created_at).getTime()).toBe(Date.parse('2025-03-15T10:00:00Z'))
+      expect(at(result, 0).created_at).toBe(at(result, 0).updated_at)
     })
 
     it('handles empty table', () => {
@@ -294,7 +295,7 @@ describe('Mem0Adapter', () => {
       const restored = adapter.fromFrame(table)
 
       expect(restored).toHaveLength(1)
-      const r = restored[0]
+      const r = at(restored, 0)
       expect(r.id).toBe('mem-rt')
       expect(r.memory).toBe('User preference: React with TypeScript strict mode')
       expect(r.user_id).toBe('user-99')
@@ -319,8 +320,8 @@ describe('Mem0Adapter', () => {
 
       expect(restored).toHaveLength(30)
       for (let i = 0; i < 30; i++) {
-        expect(restored[i].id).toBe(`mem-${i}`)
-        expect(restored[i].memory).toBe(`Memory entry ${i}`)
+        expect(at(restored, i).id).toBe(`mem-${i}`)
+        expect(at(restored, i).memory).toBe(`Memory entry ${i}`)
       }
     })
   })

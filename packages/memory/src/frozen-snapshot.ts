@@ -29,6 +29,8 @@ interface BufferedWrite {
 
 export class FrozenMemorySnapshot {
   private snapshots = new Map<string, Record<string, unknown>[]>()
+  /** Keyed form of each snapshot, so keyed reads work while frozen. */
+  private keyedSnapshots = new Map<string, Array<{ key: string; value: Record<string, unknown> }>>()
   private writeBuffer: BufferedWrite[] = []
   private frozen = false
 
@@ -40,8 +42,9 @@ export class FrozenMemorySnapshot {
     scope: Record<string, string>,
   ): Promise<void> {
     for (const ns of namespaces) {
-      const records = await this.memoryService.get(ns, scope)
-      this.snapshots.set(ns, records)
+      const keyed = await this.memoryService.getKeyed(ns, scope)
+      this.keyedSnapshots.set(ns, keyed)
+      this.snapshots.set(ns, keyed.map(k => k.value))
     }
     this.frozen = true
     this.writeBuffer = []
@@ -60,7 +63,12 @@ export class FrozenMemorySnapshot {
   ): Promise<Record<string, unknown>[]> {
     if (this.frozen && this.snapshots.has(namespace)) {
       const records = this.snapshots.get(namespace)!
-      if (key) return records.filter(r => r['key'] === key)
+      if (key) {
+        // Records carry no key field — match on the store key captured at
+        // freeze time, otherwise every keyed read returns [] while frozen.
+        const keyed = this.keyedSnapshots.get(namespace) ?? []
+        return keyed.filter(k => k.key === key).map(k => k.value)
+      }
       return records
     }
     return this.memoryService.get(namespace, scope, key)
@@ -90,6 +98,7 @@ export class FrozenMemorySnapshot {
 
     this.writeBuffer = []
     this.snapshots.clear()
+    this.keyedSnapshots.clear()
   }
 
   /** Number of buffered writes waiting to be flushed */

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { FrozenSnapshot } from '@dzupagent/context'
 
 import { DzupAgent } from '../agent/dzip-agent.js'

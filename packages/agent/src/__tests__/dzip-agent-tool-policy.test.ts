@@ -144,7 +144,7 @@ describe('DzupAgent generate() — tool policy generate (MJ-AGENT-01)', () => {
 
       const bus = createEventBus()
       const events: unknown[] = []
-      bus.on('approval:requested', (e) => events.push(e))
+      bus.on('approval:requested', (e) => { events.push(e) })
 
       const governance = new ToolGovernance({
         approvalRequired: ['migrate_db'],
@@ -355,9 +355,9 @@ describe('DzupAgent generate() — tool policy generate (MJ-AGENT-01)', () => {
       // NOT be emitted (preserving the pre-MJ-AGENT-01 behaviour).
       const bus = createEventBus()
       const toolEvents: unknown[] = []
-      bus.on('tool:called', (e) => toolEvents.push(e))
-      bus.on('tool:result', (e) => toolEvents.push(e))
-      bus.on('approval:requested', (e) => toolEvents.push(e))
+      bus.on('tool:called', (e) => { toolEvents.push(e) })
+      bus.on('tool:result', (e) => { toolEvents.push(e) })
+      bus.on('approval:requested', (e) => { toolEvents.push(e) })
 
       const agent = new DzupAgent(
         baseConfig({

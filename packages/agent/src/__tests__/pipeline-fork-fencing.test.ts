@@ -23,7 +23,6 @@ import type { PipelineDefinition } from "@dzupagent/core";
 import type {
   NodeExecutor,
   NodeLedgerLike,
-  NodeLeaseLike,
 } from "../pipeline/pipeline-runtime-types.js";
 import {
   nodeIdempotencyKey,

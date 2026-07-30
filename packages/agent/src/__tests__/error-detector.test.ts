@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { ErrorDetectionOrchestrator } from '../self-correction/error-detector.js'
 import type { ErrorSource, ErrorSeverity } from '../self-correction/error-detector.js'
 

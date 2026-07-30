@@ -462,6 +462,7 @@ describe("TeamRuntime blackboard memory policy", () => {
     expect(result.agentResults[0]?.content).toContain("keep-tail");
     expect(result.content.length).toBeLessThanOrEqual(240);
     expect(prompts[1]).toContain("[compacted:");
+    expect(prompts.length).toBeGreaterThan(0)
     expect(prompts.every((prompt) => prompt.length < 700)).toBe(true);
   });
 

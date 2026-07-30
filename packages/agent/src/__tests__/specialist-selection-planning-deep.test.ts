@@ -22,7 +22,6 @@ import {
   scoreMatch,
   toAgentSpecs,
 } from "../orchestration/specialist-selection.js";
-import type { SelectionAssignment } from "../orchestration/specialist-selection.js";
 import type {
   AgentSpec,
   RoutingDecision,
@@ -50,7 +49,7 @@ import type { StructuredLLM } from "../structured/structured-output-engine.js";
 /** Build a minimal AgentExecutionSpec for tests. */
 function makeSpec(
   id: string,
-  overrides: Partial<AgentExecutionSpec> = {}
+  overrides: Partial<AgentExecutionSpec> = {},
 ): AgentExecutionSpec {
   return {
     id,
@@ -63,7 +62,7 @@ function makeSpec(
 
 /** Build a minimal PlanningSupervisor for planning-decomposition tests. */
 function makeSupervisor(
-  specialists: Record<string, Partial<AgentExecutionSpec> & { id?: string }>
+  specialists: Record<string, Partial<AgentExecutionSpec> & { id?: string }>,
 ): PlanningSupervisor {
   const specsMap = new Map<string, AgentExecutionSpec>();
   for (const [id, partial] of Object.entries(specialists)) {
@@ -244,15 +243,13 @@ describe("scoreMatch", () => {
   });
 
   it("multiple tags matched produce cumulative score", () => {
-    const def = makeSpec("agent", { metadata: { tags: ["database", "sql"] } });
-    const scoreOne = scoreMatch(
-      "write a sql query",
-      makeSpec("a", { metadata: { tags: ["sql"] } }).id,
-      makeSpec("a", { metadata: { tags: ["sql"] } })
-    );
-    const scoreTwo = scoreMatch("write a database sql query", "agent", def);
-    // Two tag hits should be strictly higher than no hits
-    expect(scoreTwo).toBeGreaterThan(0);
+    const oneTagDef = makeSpec("agent", { metadata: { tags: ["sql"] } });
+    const scoreOne = scoreMatch("write a database sql query", "agent", oneTagDef);
+    const twoTagDef = makeSpec("agent", { metadata: { tags: ["database", "sql"] } });
+    const scoreTwo = scoreMatch("write a database sql query", "agent", twoTagDef);
+    // Two tag hits must score strictly higher than one hit on the same subtask
+    expect(scoreOne).toBeGreaterThan(0);
+    expect(scoreTwo).toBeGreaterThan(scoreOne);
   });
 
   it("specialist with no tags, name, or tools scores 0 for unrelated subtask", () => {
@@ -286,7 +283,7 @@ describe("matchSubtasksToSpecialists", () => {
     ]);
     const result = matchSubtasksToSpecialists(
       ["create a database schema"],
-      specialists
+      specialists,
     );
     expect(result).toHaveLength(1);
     expect(result[0]!.specialistId).toBe("db");
@@ -298,7 +295,7 @@ describe("matchSubtasksToSpecialists", () => {
     ]);
     const [assignment] = matchSubtasksToSpecialists(
       ["migrate database"],
-      specialists
+      specialists,
     );
     expect(assignment!.input).toEqual({ subtask: "migrate database" });
   });
@@ -310,7 +307,7 @@ describe("matchSubtasksToSpecialists", () => {
     ]);
     const result = matchSubtasksToSpecialists(
       ["write a database migration", "expose REST api endpoint"],
-      specialists
+      specialists,
     );
     expect(result).toHaveLength(2);
     const dbTask = result.find((a) => a.specialistId === "db")!;
@@ -325,7 +322,7 @@ describe("matchSubtasksToSpecialists", () => {
     ]);
     const result = matchSubtasksToSpecialists(
       ["paint the office walls", "order coffee"],
-      specialists
+      specialists,
     );
     expect(result).toEqual([]);
   });
@@ -339,7 +336,7 @@ describe("matchSubtasksToSpecialists", () => {
     ]);
     const result = matchSubtasksToSpecialists(
       ["create database table", "add database index"],
-      specialists
+      specialists,
     );
     expect(result).toHaveLength(2);
     expect(result[0]!.specialistId).toBe("db");
@@ -422,7 +419,7 @@ describe("toAgentSpecs", () => {
     ]);
     const breaker = {
       filterAvailable: vi.fn((specs: AgentSpec[]) =>
-        specs.filter((s) => s.id === "open")
+        specs.filter((s) => s.id === "open"),
       ),
     } as unknown as AgentCircuitBreaker;
 
@@ -462,7 +459,7 @@ describe("routeSubtasksViaPolicy", () => {
       ["migrate db"],
       policy,
       [],
-      undefined
+      undefined,
     );
     expect(result).toEqual([]);
     expect(policy.select).not.toHaveBeenCalled();
@@ -475,14 +472,14 @@ describe("routeSubtasksViaPolicy", () => {
           selected: [available[0]!],
           strategy: "rule",
           reason: "first",
-        })
+        }),
       ),
     };
     routeSubtasksViaPolicy(
       ["task-a", "task-b", "task-c"],
       policy,
       candidates,
-      undefined
+      undefined,
     );
     expect(policy.select).toHaveBeenCalledTimes(3);
   });
@@ -494,14 +491,14 @@ describe("routeSubtasksViaPolicy", () => {
           selected: [available[0]!],
           strategy: "rule",
           reason: "first",
-        })
+        }),
       ),
     };
     const result = routeSubtasksViaPolicy(
       ["only-task"],
       policy,
       candidates,
-      undefined
+      undefined,
     );
     expect(result).toHaveLength(1);
     expect(result[0]!.specialistId).toBe("db");
@@ -516,14 +513,14 @@ describe("routeSubtasksViaPolicy", () => {
           selected: [available[0]!, available[1]!],
           strategy: "round-robin",
           reason: "multi",
-        })
+        }),
       ),
     };
     const result = routeSubtasksViaPolicy(
       ["broadcast-task"],
       policy,
       candidates,
-      undefined
+      undefined,
     );
     expect(result).toHaveLength(2);
     expect(result.map((a) => a.specialistId)).toEqual(["db", "api"]);
@@ -532,7 +529,9 @@ describe("routeSubtasksViaPolicy", () => {
   it("emits supervisor:routing_decision event for each selected agent", () => {
     const events: DzupEvent[] = [];
     const bus = createEventBus();
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
 
     const policy: RoutingPolicy = {
       select: vi.fn(
@@ -540,13 +539,13 @@ describe("routeSubtasksViaPolicy", () => {
           selected: [available[0]!, available[1]!],
           strategy: "rule",
           reason: "multi-select",
-        })
+        }),
       ),
     };
     routeSubtasksViaPolicy(["task-x"], policy, candidates, bus);
 
     const routingEvents = events.filter(
-      (e) => e.type === "supervisor:routing_decision"
+      (e) => e.type === "supervisor:routing_decision",
     );
     expect(routingEvents).toHaveLength(2);
   });
@@ -554,7 +553,9 @@ describe("routeSubtasksViaPolicy", () => {
   it("routing event carries agentId, strategy, and reason fields", () => {
     const events: DzupEvent[] = [];
     const bus = createEventBus();
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
 
     const policy: RoutingPolicy = {
       select: vi.fn(
@@ -562,13 +563,13 @@ describe("routeSubtasksViaPolicy", () => {
           selected: [available[0]!],
           strategy: "hash",
           reason: "hash-test",
-        })
+        }),
       ),
     };
     routeSubtasksViaPolicy(["task-y"], policy, candidates, bus);
 
     const event = events.find(
-      (e) => e.type === "supervisor:routing_decision"
+      (e) => e.type === "supervisor:routing_decision",
     ) as Record<string, unknown>;
     expect(event!["agentId"]).toBe("db");
     expect(event!["strategy"]).toBe("hash");
@@ -578,7 +579,9 @@ describe("routeSubtasksViaPolicy", () => {
   it("propagates fallbackReason to routing events when present", () => {
     const events: DzupEvent[] = [];
     const bus = createEventBus();
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
 
     const policy: RoutingPolicy = {
       select: vi.fn(
@@ -587,13 +590,13 @@ describe("routeSubtasksViaPolicy", () => {
           strategy: "llm",
           reason: "llm-picked",
           fallbackReason: "no-match-fell-back",
-        })
+        }),
       ),
     };
     routeSubtasksViaPolicy(["task-z"], policy, candidates, bus);
 
     const event = events.find(
-      (e) => e.type === "supervisor:routing_decision"
+      (e) => e.type === "supervisor:routing_decision",
     ) as Record<string, unknown>;
     expect(event!["fallbackReason"]).toBe("no-match-fell-back");
   });
@@ -601,7 +604,9 @@ describe("routeSubtasksViaPolicy", () => {
   it("uses diagnostics.selectedIds when present in routing event", () => {
     const events: DzupEvent[] = [];
     const bus = createEventBus();
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
 
     const diagnostics: RoutingDiagnostics = {
       candidateIds: ["db", "api"],
@@ -614,13 +619,13 @@ describe("routeSubtasksViaPolicy", () => {
           strategy: "rule",
           reason: "with-diagnostics",
           diagnostics,
-        })
+        }),
       ),
     };
     routeSubtasksViaPolicy(["task-diag"], policy, candidates, bus);
 
     const event = events.find(
-      (e) => e.type === "supervisor:routing_decision"
+      (e) => e.type === "supervisor:routing_decision",
     ) as Record<string, unknown>;
     expect(event!["selectedCandidates"]).toEqual(["db"]);
     expect(event!["candidateSpecialists"]).toEqual(["db", "api"]);
@@ -629,7 +634,9 @@ describe("routeSubtasksViaPolicy", () => {
   it("falls back to computed selectedCandidates/candidateSpecialists when no diagnostics", () => {
     const events: DzupEvent[] = [];
     const bus = createEventBus();
-    bus.onAny((e) => events.push(e));
+    bus.onAny((e) => {
+      events.push(e);
+    });
 
     const policy: RoutingPolicy = {
       select: vi.fn(
@@ -637,17 +644,17 @@ describe("routeSubtasksViaPolicy", () => {
           selected: [available[1]!],
           strategy: "rule",
           reason: "second-candidate",
-        })
+        }),
       ),
     };
     routeSubtasksViaPolicy(["task-fallback"], policy, candidates, bus);
 
     const event = events.find(
-      (e) => e.type === "supervisor:routing_decision"
+      (e) => e.type === "supervisor:routing_decision",
     ) as Record<string, unknown>;
     // Without diagnostics, selectedCandidates = [selected agent id]
     expect((event!["selectedCandidates"] as string[]).includes("api")).toBe(
-      true
+      true,
     );
     // candidateSpecialists = all candidate ids
     const candidateSpec = event!["candidateSpecialists"] as string[];
@@ -663,12 +670,12 @@ describe("routeSubtasksViaPolicy", () => {
           selected: [available[0]!],
           strategy: "rule",
           reason: "no-bus",
-        })
+        }),
       ),
     };
     // Should not throw
     expect(() =>
-      routeSubtasksViaPolicy(["task-no-bus"], policy, candidates, undefined)
+      routeSubtasksViaPolicy(["task-no-bus"], policy, candidates, undefined),
     ).not.toThrow();
   });
 
@@ -679,14 +686,14 @@ describe("routeSubtasksViaPolicy", () => {
           selected: [available[0]!],
           strategy: "rule",
           reason: "check-task",
-        })
+        }),
       ),
     };
     routeSubtasksViaPolicy(
       ["verify the auth module"],
       policy,
       candidates,
-      undefined
+      undefined,
     );
 
     const passedTask = (policy.select as ReturnType<typeof vi.fn>).mock
@@ -697,21 +704,20 @@ describe("routeSubtasksViaPolicy", () => {
 
   it("processes multiple subtasks independently", () => {
     let callCount = 0;
-    const selectedIds = ["db", "api", "ui"];
     const policy: RoutingPolicy = {
       select: vi.fn(
         (_task, available): RoutingDecision => ({
           selected: [available[callCount++ % available.length]!],
           strategy: "round-robin",
           reason: "round",
-        })
+        }),
       ),
     };
     const result = routeSubtasksViaPolicy(
       ["task-1", "task-2", "task-3"],
       policy,
       candidates,
-      undefined
+      undefined,
     );
     expect(result).toHaveLength(3);
     expect(result[0]!.task).toBe("task-1");
@@ -961,7 +967,7 @@ describe("refineDecomposition", () => {
       ],
     };
     expect(() =>
-      refineDecomposition(goal, decomposition, validSpecialists)
+      refineDecomposition(goal, decomposition, validSpecialists),
     ).toThrow(OrchestrationError);
   });
 
@@ -977,7 +983,7 @@ describe("refineDecomposition", () => {
       ],
     };
     expect(() =>
-      refineDecomposition(goal, decomposition, validSpecialists)
+      refineDecomposition(goal, decomposition, validSpecialists),
     ).toThrow(/no valid nodes/i);
   });
 
@@ -994,7 +1000,7 @@ describe("refineDecomposition", () => {
       ],
     };
     expect(() =>
-      refineDecomposition(goal, decomposition, validSpecialists)
+      refineDecomposition(goal, decomposition, validSpecialists),
     ).toThrow(/unknown-specialist/i);
   });
 
@@ -1011,7 +1017,7 @@ describe("refineDecomposition", () => {
       ],
     };
     expect(() =>
-      refineDecomposition(goal, decomposition, validSpecialists)
+      refineDecomposition(goal, decomposition, validSpecialists),
     ).toThrow(OrchestrationError);
   });
 
@@ -1027,7 +1033,7 @@ describe("refineDecomposition", () => {
       ],
     };
     expect(() =>
-      refineDecomposition(goal, decomposition, validSpecialists)
+      refineDecomposition(goal, decomposition, validSpecialists),
     ).toThrow(/Dangling dependencies/);
   });
 
@@ -1173,7 +1179,7 @@ describe("refineDecomposition", () => {
       ],
     };
     expect(() =>
-      refineDecomposition(goal, decomposition, validSpecialists)
+      refineDecomposition(goal, decomposition, validSpecialists),
     ).toThrow(/Cycle detected/);
   });
 
@@ -1256,7 +1262,7 @@ describe("decomposeGoal (LLM-powered, planning-decomposition)", () => {
     const plan = await decomposeGoalLLM(
       supervisor,
       "Build user management",
-      llm
+      llm,
     );
     expect(plan.goal).toBe("Build user management");
     expect(plan.nodes).toHaveLength(2);
@@ -1354,7 +1360,7 @@ describe("decomposeGoal (LLM-powered, planning-decomposition)", () => {
     const llm = makeMockLLM(llmResponse);
 
     await expect(decomposeGoalLLM(supervisor, "Goal", llm)).rejects.toThrow(
-      OrchestrationError
+      OrchestrationError,
     );
   });
 

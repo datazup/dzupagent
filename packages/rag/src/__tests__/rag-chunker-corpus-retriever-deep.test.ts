@@ -47,7 +47,7 @@ function makeClient(): QdrantClientLike & {
 function makeVectorHit(
   id: string,
   score = 0.8,
-  extra: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {}
 ): VectorSearchHit {
   return {
     id,
@@ -65,7 +65,7 @@ function makeVectorHit(
 function makeKeywordHit(
   id: string,
   score = 0.7,
-  extra: Record<string, unknown> = {},
+  extra: Record<string, unknown> = {}
 ): KeywordSearchHit {
   return {
     id,
@@ -143,7 +143,7 @@ describe("HybridRetriever — deep branch coverage", () => {
       expect(vectorSearch).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
-        3,
+        3
       );
     });
   });
@@ -322,7 +322,7 @@ describe("HybridRetriever — deep branch coverage", () => {
       expect(vectorSearch).toHaveBeenCalledWith(
         expect.anything(),
         filter,
-        expect.any(Number),
+        expect.any(Number)
       );
     });
 
@@ -343,7 +343,7 @@ describe("HybridRetriever — deep branch coverage", () => {
       expect(keywordSearch).toHaveBeenCalledWith(
         "q",
         filter,
-        expect.any(Number),
+        expect.any(Number)
       );
     });
   });
@@ -416,7 +416,7 @@ describe("HybridRetriever — deep branch coverage", () => {
       expect(vectorSearch).toHaveBeenCalledWith(
         expect.anything(),
         { tenantId: "tenant-A", namespace: "legal" },
-        expect.any(Number),
+        expect.any(Number)
       );
     });
   });
@@ -452,7 +452,7 @@ describe("QdrantVectorStore — standalone", () => {
       expect(client.upsert).toHaveBeenCalledTimes(1);
       const [, body] = client.upsert.mock.calls[0] as [
         string,
-        { points: Array<{ id: string }> },
+        { points: Array<{ id: string }> }
       ];
       expect(body.points).toHaveLength(2);
       expect(body.points.map((p) => p.id).sort()).toEqual(["p1", "p2"]);
@@ -477,7 +477,7 @@ describe("QdrantVectorStore — standalone", () => {
       await store.search([0.1], 3, { tenantId: "t1", category: "kb" });
       const [, body] = client.search.mock.calls[0] as [
         string,
-        { filter: { must: Array<{ key: string }> } },
+        { filter: { must: Array<{ key: string }> } }
       ];
       const keys = body.filter.must.map((c) => c.key);
       expect(keys).toContain("category");
@@ -492,7 +492,7 @@ describe("QdrantVectorStore — standalone", () => {
           filter: {
             must: Array<{ key: string; match: Record<string, unknown> }>;
           };
-        },
+        }
       ];
       const tagsClause = body.filter.must.find((c) => c.key === "tags");
       expect(tagsClause).toBeDefined();
@@ -503,7 +503,7 @@ describe("QdrantVectorStore — standalone", () => {
       await store.search([0.1], 3);
       const [, body] = client.search.mock.calls[0] as [
         string,
-        { filter?: unknown },
+        { filter?: unknown }
       ];
       expect(body.filter).toBeUndefined();
     });
@@ -519,7 +519,7 @@ describe("QdrantVectorStore — standalone", () => {
         string,
         {
           filter: { must: Array<{ key: string; match: { value?: unknown } }> };
-        },
+        }
       ];
       const tenant = body.filter.must.find((c) => c.key === "tenantId");
       expect(tenant?.match).toEqual({ value: "default-t" });
@@ -554,7 +554,7 @@ describe("QdrantVectorStore — standalone", () => {
           filter: {
             must: Array<{ key: string; match: Record<string, unknown> }>;
           };
-        },
+        }
       ];
       const textClause = body.filter.must.find((c) => c.key === "text");
       expect(textClause?.match).toEqual({ value: "my query" });
@@ -628,7 +628,7 @@ describe("QdrantCorpusStore — standalone", () => {
     it("no-ops when collection was never created", async () => {
       // Should not throw
       await expect(
-        corpusStore.deleteCollection("ghost"),
+        corpusStore.deleteCollection("ghost")
       ).resolves.toBeUndefined();
     });
 
@@ -655,7 +655,7 @@ describe("QdrantCorpusStore — standalone", () => {
       ]);
       const [, body] = client.upsert.mock.calls[0] as [
         string,
-        { points: Array<{ payload: Record<string, unknown> }> },
+        { points: Array<{ payload: Record<string, unknown> }> }
       ];
       expect(body.points[0]!.payload["_collection"]).toBe("my-coll");
     });
@@ -669,7 +669,7 @@ describe("QdrantCorpusStore — standalone", () => {
       ]);
       const [, body] = client.upsert.mock.calls[0] as [
         string,
-        { points: Array<{ payload: Record<string, unknown> }> },
+        { points: Array<{ payload: Record<string, unknown> }> }
       ];
       expect(body.points[0]!.payload["_ns"]).toBe("my-coll");
       expect(body.points[0]!.payload["_collection"]).toBeUndefined();
@@ -747,12 +747,49 @@ describe("QdrantCorpusStore — standalone", () => {
     });
 
     it("deletes by metadata filter scoped to the logical collection", async () => {
-      await corpusStore.delete("coll-x", { metadata: { foo: "bar" } });
+      // The caller's terms must survive alongside the collection scope.
+      // Emitting only the `_collection` clause would turn a narrow delete
+      // into "delete every row in this corpus".
+      await corpusStore.delete("coll-x", {
+        filter: { field: "foo", op: "eq", value: "bar" },
+      });
       expect(client.delete).toHaveBeenCalledWith("shared_col", {
         filter: {
-          must: [{ key: "_collection", match: { value: "coll-x" } }],
+          must: [
+            { key: "_collection", match: { value: "coll-x" } },
+            { key: "foo", match: { value: "bar" } },
+          ],
         },
       });
+    });
+
+    it("flattens an `and` filter into sibling must clauses", async () => {
+      await corpusStore.delete("coll-x", {
+        filter: {
+          and: [
+            { field: "foo", op: "eq", value: "bar" },
+            { field: "lang", op: "in", value: ["en", "de"] },
+          ],
+        },
+      });
+      expect(client.delete).toHaveBeenCalledWith("shared_col", {
+        filter: {
+          must: [
+            { key: "_collection", match: { value: "coll-x" } },
+            { key: "foo", match: { value: "bar" } },
+            { key: "lang", match: { any: ["en", "de"] } },
+          ],
+        },
+      });
+    });
+
+    it("refuses a filter it cannot express rather than widening the delete", async () => {
+      await expect(
+        corpusStore.delete("coll-x", {
+          filter: { field: "score", op: "lt", value: 0.2 },
+        })
+      ).rejects.toThrow(/unsupported filter operator 'lt'/);
+      expect(client.delete).not.toHaveBeenCalled();
     });
 
     it("no-ops when client has no delete method", async () => {
@@ -768,7 +805,7 @@ describe("QdrantCorpusStore — standalone", () => {
       const noDelCorpus = new QdrantCorpusStore(noDelStore);
       // Should not throw
       await expect(
-        noDelCorpus.delete("coll-x", { ids: ["id1"] }),
+        noDelCorpus.delete("coll-x", { ids: ["id1"] })
       ).resolves.toBeUndefined();
     });
   });
@@ -811,7 +848,7 @@ describe("FolderContextGenerator — additional coverage", () => {
     await writeAt("a.ts");
     const gen = new FolderContextGenerator(
       { rootDir: root },
-      { serialize: () => "" }, // returns empty string → falls back
+      { serialize: () => "" } // returns empty string → falls back
     );
     const snap = await gen.generate();
     expect(snap.summary).toContain(root);
@@ -941,7 +978,7 @@ describe("FolderContextGenerator — additional coverage", () => {
           received.push(...items);
           return `count=${items.length}`;
         },
-      },
+      }
     );
     const snap = await gen.generate();
     expect(snap.summary).toBe("count=2");
@@ -1085,33 +1122,31 @@ describe("QdrantCorpusStore — namespace isolation via _collection field", () =
   it("search on collection A does not return points tagged with collection B", async () => {
     const client = {
       upsert: vi.fn().mockResolvedValue({}),
-      search: vi
-        .fn()
-        .mockImplementation(
-          (
-            _name: string,
-            body: {
-              filter: {
-                must: Array<{ key: string; match: { value?: unknown } }>;
-              };
-            },
-          ) => {
-            const collClause = body.filter.must.find(
-              (c) => c.key === "_collection",
-            );
-            // Return a hit only if searching for collection-A
-            if (collClause?.match?.value === "collection-A") {
-              return Promise.resolve([
-                {
-                  id: "p1",
-                  score: 0.9,
-                  payload: { text: "from A", _collection: "collection-A" },
-                },
-              ]);
-            }
-            return Promise.resolve([]);
-          },
-        ),
+      search: vi.fn().mockImplementation(
+        (
+          _name: string,
+          body: {
+            filter: {
+              must: Array<{ key: string; match: { value?: unknown } }>;
+            };
+          }
+        ) => {
+          const collClause = body.filter.must.find(
+            (c) => c.key === "_collection"
+          );
+          // Return a hit only if searching for collection-A
+          if (collClause?.match?.value === "collection-A") {
+            return Promise.resolve([
+              {
+                id: "p1",
+                score: 0.9,
+                payload: { text: "from A", _collection: "collection-A" },
+              },
+            ]);
+          }
+          return Promise.resolve([]);
+        }
+      ),
       scroll: vi.fn().mockResolvedValue({ points: [] }),
       delete: vi.fn().mockResolvedValue({}),
     };
@@ -1156,7 +1191,7 @@ describe("QdrantCorpusStore — namespace isolation via _collection field", () =
 
     const [, body] = client.upsert.mock.calls[0] as [
       string,
-      { points: Array<{ payload: Record<string, unknown> }> },
+      { points: Array<{ payload: Record<string, unknown> }> }
     ];
     for (const pt of body.points) {
       expect(pt.payload["_collection"]).toBe("ns-X");

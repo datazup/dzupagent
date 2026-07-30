@@ -3,8 +3,21 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentOrchestrator } from "../../../orchestrator.js";
+import type { SupervisorResult } from "../../../supervisor-types.js";
 import { supervisorPattern } from "../supervisor-pattern.js";
 import { buildContext, buildResolved } from "./test-helpers.js";
+
+/**
+ * Pin the supervisor spy to the modern config-object overload.
+ *
+ * `AgentOrchestrator.supervisor` is overloaded; the deprecated positional form
+ * resolves last and returns `Promise<string>`, so `vi.spyOn(...)` infers that
+ * one and rejects a `SupervisorResult` mock value. These tests exercise the
+ * config-object form, so the spy is narrowed to its return type.
+ */
+const mockSupervisor = (value: SupervisorResult) =>
+  vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue(value as never);
+
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -33,9 +46,7 @@ describe("supervisorPattern", () => {
   });
 
   it("delegates to AgentOrchestrator.supervisor for manager + specialists", async () => {
-    const supervisorSpy = vi
-      .spyOn(AgentOrchestrator, "supervisor")
-      .mockResolvedValue({
+    const supervisorSpy = mockSupervisor({
         content: "supervised",
         availableSpecialists: ["s1"],
         filteredSpecialists: [],
@@ -55,7 +66,7 @@ describe("supervisorPattern", () => {
   });
 
   it("propagates routingDecisionId onto the run result when the supervisor routed", async () => {
-    vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+    mockSupervisor({
       content: "supervised",
       availableSpecialists: ["s1"],
       filteredSpecialists: [],
@@ -71,7 +82,7 @@ describe("supervisorPattern", () => {
   });
 
   it("omits routingDecisionId from the run result when the supervisor did not route", async () => {
-    vi.spyOn(AgentOrchestrator, "supervisor").mockResolvedValue({
+    mockSupervisor({
       content: "supervised",
       availableSpecialists: ["s1"],
       filteredSpecialists: [],

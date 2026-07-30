@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { evictIfNeeded, type EvictionConfig } from '../context-eviction.js'
+import { evictIfNeeded } from '../context-eviction.js'
 
 describe('evictIfNeeded', () => {
   // -----------------------------------------------------------------------

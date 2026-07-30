@@ -20,7 +20,6 @@ import {
   compressSnapshot,
   decompressSnapshot,
 } from '../snapshot/agent-snapshot.js'
-import type { AgentStateSnapshot } from '../snapshot/agent-snapshot.js'
 import {
   serializeMessage,
   migrateMessages,

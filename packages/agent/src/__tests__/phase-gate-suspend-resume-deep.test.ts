@@ -15,7 +15,7 @@
  * - Edge cases: abort before approval, timeout in gate, loadPending inspection
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createEventBus } from "@dzupagent/core";
 import { ApprovalGate } from "../approval/approval-gate.js";
 import { ApprovalSuspendedError } from "../approval/approval-errors.js";
@@ -23,7 +23,6 @@ import {
   APPROVAL_PENDING_KEY,
   type ApprovalCheckpointStore,
   type ApprovalPendingState,
-  type ApprovalDecision,
 } from "../approval/approval-types.js";
 import { createWorkflow } from "../workflow/index.js";
 import type {
@@ -62,7 +61,7 @@ class InMemoryApprovalStore implements ApprovalCheckpointStore {
  * in-memory store so tests can call cpStore.load(pipelineRunId).
  */
 function getFirstPipelineRunId(
-  cpStore: InMemoryPipelineCheckpointStore
+  cpStore: InMemoryPipelineCheckpointStore,
 ): string {
   const storeMap = (cpStore as unknown as { store: Map<string, unknown[]> })
     .store;
@@ -73,7 +72,7 @@ function getFirstPipelineRunId(
 
 function makeStep(
   id: string,
-  fn: (s: Record<string, unknown>) => Record<string, unknown> = (s) => s
+  fn: (s: Record<string, unknown>) => Record<string, unknown> = (s) => s,
 ): WorkflowStep {
   return { id, execute: async (input) => fn(input as Record<string, unknown>) };
 }
@@ -91,7 +90,9 @@ describe("ApprovalGate — auto mode", () => {
   it("returns approved immediately without emitting any event", async () => {
     const bus = createEventBus();
     const emitted: unknown[] = [];
-    bus.on("approval:requested", (e) => emitted.push(e));
+    bus.on("approval:requested", (e) => {
+      emitted.push(e);
+    });
     const gate = new ApprovalGate({ mode: "auto" }, bus);
     const result = await gate.waitForApproval("r1", "plan");
     expect(result).toBe("approved");
@@ -105,7 +106,7 @@ describe("ApprovalGate — auto mode", () => {
     // checks mode first and returns 'approved' immediately for 'auto' mode.
     const gate = new ApprovalGate(
       { mode: "auto", checkpointStore: store },
-      bus
+      bus,
     );
     const result = await gate.waitForApproval("r2", "p");
     expect(result).toBe("approved");
@@ -117,7 +118,9 @@ describe("ApprovalGate — required mode", () => {
   it("emits approval:requested and resolves approved when granted", async () => {
     const bus = createEventBus();
     const requested: unknown[] = [];
-    bus.on("approval:requested", (e) => requested.push(e));
+    bus.on("approval:requested", (e) => {
+      requested.push(e);
+    });
     const gate = new ApprovalGate({ mode: "required" }, bus);
     const p = gate.waitForApproval("r3", "deploy to prod");
     setTimeout(() => bus.emit({ type: "approval:granted", runId: "r3" }), 5);
@@ -133,7 +136,7 @@ describe("ApprovalGate — required mode", () => {
     setTimeout(
       () =>
         bus.emit({ type: "approval:rejected", runId: "r4", reason: "not now" }),
-      5
+      5,
     );
     const result = await p;
     expect(result).toBe("rejected");
@@ -149,12 +152,14 @@ describe("ApprovalGate — required mode", () => {
   it("emits approval:timed_out event with correct timeoutMs on timeout", async () => {
     const bus = createEventBus();
     const timedOut: unknown[] = [];
-    bus.on("approval:timed_out", (e) => timedOut.push(e));
+    bus.on("approval:timed_out", (e) => {
+      timedOut.push(e);
+    });
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("r6", "deploy");
     expect(timedOut.length).toBeGreaterThanOrEqual(1);
     const evt = timedOut.find(
-      (e) => (e as Record<string, unknown>)["runId"] === "r6"
+      (e) => (e as Record<string, unknown>)["runId"] === "r6",
     ) as Record<string, unknown>;
     expect(evt).toBeDefined();
     expect(evt["timeoutMs"]).toBe(30);
@@ -186,7 +191,9 @@ describe("ApprovalGate — required mode", () => {
   it("emits approval:cancelled with reason when abort fires", async () => {
     const bus = createEventBus();
     const cancelled: unknown[] = [];
-    bus.on("approval:cancelled", (e) => cancelled.push(e));
+    bus.on("approval:cancelled", (e) => {
+      cancelled.push(e);
+    });
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 5000 }, bus);
     const ctrl = new AbortController();
     ctrl.abort(new Error("run stopped"));
@@ -206,7 +213,7 @@ describe("ApprovalGate — required mode", () => {
     bus.emit({ type: "approval:granted", runId: "other-run" });
     setTimeout(
       () => bus.emit({ type: "approval:granted", runId: "target-run" }),
-      20
+      20,
     );
     const result = await p;
     expect(result).toBe("approved");
@@ -215,10 +222,12 @@ describe("ApprovalGate — required mode", () => {
   it("emits approval:requested with contactId, channel, and timeoutAt", async () => {
     const bus = createEventBus();
     const requested: unknown[] = [];
-    bus.on("approval:requested", (e) => requested.push(e));
+    bus.on("approval:requested", (e) => {
+      requested.push(e);
+    });
     const gate = new ApprovalGate(
       { mode: "required", timeoutMs: 1000, channel: "email" },
-      bus
+      bus,
     );
     const p = gate.waitForApproval("r10", "do something");
     setTimeout(() => bus.emit({ type: "approval:granted", runId: "r10" }), 5);
@@ -239,7 +248,7 @@ describe("ApprovalGate — conditional mode", () => {
         mode: "conditional",
         condition: async () => false,
       },
-      bus
+      bus,
     );
     const result = await gate.waitForApproval("r11", "safe", {
       agentId: "a1",
@@ -257,7 +266,7 @@ describe("ApprovalGate — conditional mode", () => {
         condition: async () => true,
         timeoutMs: 50,
       },
-      bus
+      bus,
     );
     const result = await gate.waitForApproval("r12", "risky", {
       agentId: "a1",
@@ -286,7 +295,7 @@ describe("ApprovalGate — conditional mode", () => {
         condition,
         timeoutMs: 30,
       },
-      bus
+      bus,
     );
     const result = await gate.waitForApproval("r14", "plan");
     // No ctx — condition is not called, falls through to approval wait
@@ -305,10 +314,10 @@ describe("ApprovalGate — durable suspend", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
     await expect(
-      gate.requestApproval({ runId: "ds-1", plan: "deploy" })
+      gate.requestApproval({ runId: "ds-1", plan: "deploy" }),
     ).rejects.toBeInstanceOf(ApprovalSuspendedError);
   });
 
@@ -317,7 +326,7 @@ describe("ApprovalGate — durable suspend", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
     await gate
       .requestApproval({ runId: "ds-2", plan: "migrate db" })
@@ -334,10 +343,12 @@ describe("ApprovalGate — durable suspend", () => {
     const store = new InMemoryApprovalStore();
     const bus = createEventBus();
     const requested: unknown[] = [];
-    bus.on("approval:requested", (e) => requested.push(e));
+    bus.on("approval:requested", (e) => {
+      requested.push(e);
+    });
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
     await gate.requestApproval({ runId: "ds-3", plan: "x" }).catch(() => {});
     expect(requested).toHaveLength(1);
@@ -348,7 +359,7 @@ describe("ApprovalGate — durable suspend", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
     await gate
       .requestApproval({ runId: "ds-4", contactId: "my-contact", plan: "do x" })
@@ -367,7 +378,7 @@ describe("ApprovalGate — durable suspend", () => {
         checkpointStore: store,
         timeoutMs: 60000,
       },
-      bus
+      bus,
     );
     await gate
       .requestApproval({ runId: "ds-5", plan: "action" })
@@ -382,7 +393,7 @@ describe("ApprovalGate — durable suspend", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
     await gate
       .requestApproval({ runId: "ds-6", plan: "action" })
@@ -401,7 +412,7 @@ describe("ApprovalGate — durable suspend", () => {
         checkpointStore: store,
         timeoutMs: 30,
       },
-      bus
+      bus,
     );
     // Should NOT throw ApprovalSuspendedError — should just time out
     const result = await gate.requestApproval({
@@ -418,10 +429,12 @@ describe("ApprovalGate — resume", () => {
     const store = new InMemoryApprovalStore();
     const bus = createEventBus();
     const granted: unknown[] = [];
-    bus.on("approval:granted", (e) => granted.push(e));
+    bus.on("approval:granted", (e) => {
+      granted.push(e);
+    });
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
     await gate.requestApproval({ runId: "res-1", plan: "p" }).catch(() => {});
     await gate.resume("res-1", { decision: "approved" });
@@ -433,10 +446,12 @@ describe("ApprovalGate — resume", () => {
     const store = new InMemoryApprovalStore();
     const bus = createEventBus();
     const rejected: unknown[] = [];
-    bus.on("approval:rejected", (e) => rejected.push(e));
+    bus.on("approval:rejected", (e) => {
+      rejected.push(e);
+    });
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
     await gate.requestApproval({ runId: "res-2", plan: "p" }).catch(() => {});
     await gate.resume("res-2", {
@@ -453,7 +468,7 @@ describe("ApprovalGate — resume", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
     await gate.requestApproval({ runId: "res-3", plan: "p" }).catch(() => {});
     expect(await store.load("res-3", APPROVAL_PENDING_KEY)).not.toBeNull();
@@ -466,10 +481,10 @@ describe("ApprovalGate — resume", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
     await expect(
-      gate.resume("nonexistent", { decision: "approved" })
+      gate.resume("nonexistent", { decision: "approved" }),
     ).rejects.toThrow("No pending approval for runId: nonexistent");
   });
 
@@ -477,7 +492,7 @@ describe("ApprovalGate — resume", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate({ mode: "required" }, bus);
     await expect(gate.resume("r", { decision: "approved" })).rejects.toThrow(
-      "checkpointStore"
+      "checkpointStore",
     );
   });
 
@@ -486,7 +501,7 @@ describe("ApprovalGate — resume", () => {
     const bus1 = createEventBus();
     const gate1 = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus1
+      bus1,
     );
     await gate1
       .requestApproval({ runId: "res-4", plan: "restart-test" })
@@ -495,10 +510,12 @@ describe("ApprovalGate — resume", () => {
     // Simulate process restart with new bus + gate instance
     const bus2 = createEventBus();
     const granted: unknown[] = [];
-    bus2.on("approval:granted", (e) => granted.push(e));
+    bus2.on("approval:granted", (e) => {
+      granted.push(e);
+    });
     const gate2 = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus2
+      bus2,
     );
     await gate2.resume("res-4", { decision: "approved" });
     expect(granted).toHaveLength(1);
@@ -511,7 +528,7 @@ describe("ApprovalGate — loadPending", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", checkpointStore: store },
-      bus
+      bus,
     );
     expect(await gate.loadPending("run-x")).toBeNull();
   });
@@ -527,7 +544,7 @@ describe("ApprovalGate — loadPending", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
     await gate
       .requestApproval({ runId: "lp-1", plan: { env: "prod" } })
@@ -544,7 +561,7 @@ describe("ApprovalGate — loadPending", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
     await gate.requestApproval({ runId: "lp-2", plan: "x" }).catch(() => {});
     await gate.resume("lp-2", { decision: "approved" });
@@ -558,7 +575,7 @@ describe("ApprovalGate — sequential gates", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
 
     // First gate suspend
@@ -593,7 +610,7 @@ describe("ApprovalGate — sequential gates", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
 
     await gate
@@ -706,7 +723,7 @@ describe("CompiledWorkflow — resume", () => {
       .build()
       .withCheckpointStore(cpStore);
 
-    const { events: runEvents, onEvent: onRunEvent } = collectEvents();
+    const { onEvent: onRunEvent } = collectEvents();
     await workflow.run({}, { onEvent: onRunEvent });
 
     // PipelineRuntime generates its own internal pipelineRunId — retrieve it from the store
@@ -718,7 +735,7 @@ describe("CompiledWorkflow — resume", () => {
     const resumeResult = await workflow.resume(
       checkpoint!,
       { resumed: true },
-      { onEvent: onResumeEvent }
+      { onEvent: onResumeEvent },
     );
 
     expect(resumeResult["step1"]).toBe(true);
@@ -735,7 +752,7 @@ describe("CompiledWorkflow — resume", () => {
       .then(makeStep("pre", () => ({ pre: "done" })))
       .suspend("waiting")
       .then(
-        makeStep("use-injection", (s) => ({ ...s, consumed: s["injected"] }))
+        makeStep("use-injection", (s) => ({ ...s, consumed: s["injected"] })),
       )
       .build()
       .withCheckpointStore(cpStore);
@@ -798,7 +815,7 @@ describe("CompiledWorkflow — resume", () => {
       .build();
 
     await expect(workflow.resume("nonexistent-run-id")).rejects.toThrow(
-      "checkpoint store"
+      "checkpoint store",
     );
   });
 
@@ -810,7 +827,7 @@ describe("CompiledWorkflow — resume", () => {
       .withCheckpointStore(cpStore);
 
     await expect(workflow.resume("does-not-exist")).rejects.toThrow(
-      "No checkpoint found"
+      "No checkpoint found",
     );
   });
 });
@@ -834,7 +851,7 @@ describe("suspend/resume round-trip", () => {
     const phase1Events: WorkflowEvent[] = [];
     const phase1Result = await workflow.run(
       { job: "deploy" },
-      { onEvent: (e) => phase1Events.push(e) }
+      { onEvent: (e) => phase1Events.push(e) },
     );
     expect(phase1Events.find((e) => e.type === "suspended")).toBeDefined();
     expect(phase1Result["phase"]).toBe("init");
@@ -853,13 +870,13 @@ describe("suspend/resume round-trip", () => {
       { approved: true },
       {
         onEvent: (e) => phase2Events.push(e),
-      }
+      },
     );
     expect(phase2Result["phase"]).toBe("finalize");
     expect(phase2Result["job"]).toBe("deploy");
     expect(phase2Result["approved"]).toBe(true);
     expect(
-      phase2Events.find((e) => e.type === "workflow:completed")
+      phase2Events.find((e) => e.type === "workflow:completed"),
     ).toBeDefined();
   });
 
@@ -1047,7 +1064,7 @@ describe("CompiledWorkflow — stream() with suspend", () => {
 
     expect(collected.find((e) => e.type === "suspended")).toBeDefined();
     expect(
-      collected.find((e) => e.type === "workflow:completed")
+      collected.find((e) => e.type === "workflow:completed"),
     ).toBeUndefined();
     // stream should terminate after suspended
     expect(collected.at(-1)?.type).toBe("suspended");
@@ -1090,14 +1107,12 @@ describe("suspend/resume edge cases", () => {
 
   it("abort during resumed execution stops processing", async () => {
     const cpStore = new InMemoryPipelineCheckpointStore();
-    let signalOnStep: (() => void) | undefined;
     const slowStep: WorkflowStep = {
       id: "slow",
       execute: async (input, ctx) => {
         await new Promise<void>((resolve, reject) => {
-          signalOnStep = resolve;
           ctx.signal?.addEventListener("abort", () =>
-            reject(new Error("aborted"))
+            reject(new Error("aborted")),
           );
           setTimeout(resolve, 5000);
         });
@@ -1174,7 +1189,7 @@ describe("suspend/resume edge cases", () => {
         checkpointStore: store,
         channel: "slack",
       },
-      bus
+      bus,
     );
 
     await gate
@@ -1194,7 +1209,7 @@ describe("suspend/resume edge cases", () => {
         checkpointStore: store,
         channel: "email",
       },
-      bus
+      bus,
     );
 
     await gate
@@ -1209,7 +1224,7 @@ describe("suspend/resume edge cases", () => {
     const bus = createEventBus();
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
-      bus
+      bus,
     );
 
     let caught: unknown;

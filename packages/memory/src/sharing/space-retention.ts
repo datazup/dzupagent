@@ -13,7 +13,6 @@ import {
   extractCreatedAt,
   extractDeletedAt,
   isTombstoneRecord,
-  keyFromValue,
   spaceNamespace,
   spaceScope,
 } from './space-helpers.js'
@@ -47,7 +46,12 @@ export async function enforceRetentionForSpace(
 
   const scope = spaceScope(space.id)
   const ns = spaceNamespace(space.id)
-  const records = await memoryService.get(ns, scope)
+  // Keyed read: `get()` returns bare values, so a record's store key is not
+  // recoverable from it. Deriving one from the value fabricates `record-N`
+  // keys, which writes tombstones to non-existent keys and leaves the real
+  // records in place.
+  const keyed = await memoryService.getKeyed(ns, scope)
+  const records = keyed.map(k => k.value)
 
   let pruned = 0
   const now = Date.now()
@@ -85,7 +89,9 @@ export async function enforceRetentionForSpace(
   for (const idx of toPrune) {
     const record = records[idx]
     if (!record) continue
-    const key = keyFromValue(record, idx)
+    const entry = keyed[idx]
+    if (!entry) continue
+    const key = entry.key
     await memoryService.put(
       ns,
       scope,
@@ -110,7 +116,8 @@ export async function compactTombstonesForSpace(
 ): Promise<CompactTombstonesResult> {
   const scope = spaceScope(space.id)
   const ns = spaceNamespace(space.id)
-  const records = await memoryService.get(ns, scope)
+  const keyed = await memoryService.getKeyed(ns, scope)
+  const records = keyed.map(k => k.value)
   const tombstones = records
     .map((record, index) => ({ record, index, deletedAt: extractDeletedAt(record) }))
     .filter(item => isTombstoneRecord(item.record))
@@ -136,7 +143,9 @@ export async function compactTombstonesForSpace(
     for (const candidate of candidates) {
       const record = records[candidate.index]
       if (!record) continue
-      const key = keyFromValue(record, candidate.index)
+      const entry = keyed[candidate.index]
+      if (!entry) continue
+      const key = entry.key
       const deleted = await memoryService.delete(ns, scope, key)
       if (deleted) {
         compacted++

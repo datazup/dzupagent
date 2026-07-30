@@ -7,8 +7,8 @@
  * This file documents the canonical behaviour of each pattern and verifies
  * the circuit-breaker integration.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { AIMessage, HumanMessage } from '@langchain/core/messages'
+import { describe, it, expect, vi } from 'vitest'
+import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
 import { createEventBus, type DzupEvent } from '@dzupagent/core'

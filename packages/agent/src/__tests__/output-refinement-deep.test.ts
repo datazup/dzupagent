@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { OutputRefinementLoop } from '../self-correction/output-refinement.js'
-import type { RefinementResult, ScoreFn } from '../self-correction/output-refinement.js'
+import type { ScoreFn } from '../self-correction/output-refinement.js'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { AIMessage } from '@langchain/core/messages'
 

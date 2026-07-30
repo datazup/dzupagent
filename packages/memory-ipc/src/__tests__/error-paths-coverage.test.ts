@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
-import { type Table, tableFromArrays } from 'apache-arrow'
+import { tableFromArrays } from 'apache-arrow'
 import {
   selectMemoriesByBudget,
   TokenBudgetAllocator,

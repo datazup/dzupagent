@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { RecoveryFeedback } from '../self-correction/recovery-feedback.js'
 import { LearningCandidateService } from '../self-correction/learning-candidate-service.js'
 import type { RecoveryLesson } from '../self-correction/recovery-feedback.js'

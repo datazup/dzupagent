@@ -21,7 +21,6 @@ import type { PipelineNode } from '@dzupagent/core'
 
 import {
   createSelfCorrectingExecutor,
-  type SelfCorrectingConfig,
   type SelfCorrectingResult,
 } from '../self-correction/self-correcting-node.js'
 import { AdaptiveIterationController } from '../self-correction/iteration-controller.js'
@@ -45,7 +44,6 @@ import type {
   NodeExecutor,
   NodeResult,
   NodeExecutionContext,
-  PipelineRuntimeEvent,
 } from '../pipeline/pipeline-runtime-types.js'
 
 // ---------------------------------------------------------------------------

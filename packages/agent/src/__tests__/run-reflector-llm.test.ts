@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   RunReflector,
   type ReflectionInput,
-  type ReflectorConfig,
 } from '../reflection/run-reflector.js'
 
 describe('RunReflector LLM reflection', () => {
@@ -320,7 +319,7 @@ describe('RunReflector LLM reflection', () => {
         }),
       )
 
-      const prompt = (llm as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+      const prompt = (llm as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string
       expect(prompt).toContain('Test input text')
       expect(prompt).toContain('Test output text')
       expect(prompt).toContain('readFile')
@@ -333,7 +332,7 @@ describe('RunReflector LLM reflection', () => {
 
       await reflector.score(makeInput({ toolCalls: undefined }))
 
-      const prompt = (llm as ReturnType<typeof vi.fn>).mock.calls[0][0] as string
+      const prompt = (llm as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string
       expect(prompt).toContain('(none)')
     })
   })

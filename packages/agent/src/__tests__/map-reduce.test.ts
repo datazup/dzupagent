@@ -4,7 +4,7 @@
  * Uses the same mock chat model convention as supervisor.test.ts
  * so all tests are deterministic (no real LLM calls).
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'

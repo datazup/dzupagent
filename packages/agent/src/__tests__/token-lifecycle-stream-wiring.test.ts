@@ -124,7 +124,7 @@ describe('DzupAgent.stream() — tokenLifecyclePlugin wiring', () => {
     await drainStream(agent, [new HumanMessage('Hi')])
 
     expect(plugin.onUsage).toHaveBeenCalledTimes(1)
-    const usage = plugin.onUsage.mock.calls[0][0] as TokenUsage
+    const usage = plugin.onUsage.mock.calls[0]![0] as TokenUsage
     expect(usage.inputTokens).toBe(123)
     expect(usage.outputTokens).toBe(45)
     expect(typeof usage.model).toBe('string')
@@ -148,7 +148,7 @@ describe('DzupAgent.stream() — tokenLifecyclePlugin wiring', () => {
     await drainStream(agent, [new HumanMessage('Hi')])
 
     expect(plugin.onUsage).toHaveBeenCalled()
-    const usage = plugin.onUsage.mock.calls[0][0] as TokenUsage
+    const usage = plugin.onUsage.mock.calls[0]![0] as TokenUsage
     expect(usage.inputTokens).toBe(77)
     expect(usage.outputTokens).toBe(11)
   })
@@ -173,7 +173,7 @@ describe('DzupAgent.stream() — tokenLifecyclePlugin wiring', () => {
 
     expect(plugin.onUsage).toHaveBeenCalledTimes(1)
     expect(userCallback).toHaveBeenCalledTimes(1)
-    expect(userCallback.mock.calls[0][0]).toEqual(plugin.onUsage.mock.calls[0][0])
+    expect(userCallback.mock.calls[0]![0]).toEqual(plugin.onUsage.mock.calls[0]![0])
   })
 
   it('does not require a plugin to call user-supplied onUsage', async () => {
@@ -194,7 +194,7 @@ describe('DzupAgent.stream() — tokenLifecyclePlugin wiring', () => {
     await drainStream(agent, [new HumanMessage('Hi')], { onUsage: userCallback })
 
     expect(userCallback).toHaveBeenCalledTimes(1)
-    const usage = userCallback.mock.calls[0][0] as TokenUsage
+    const usage = userCallback.mock.calls[0]![0] as TokenUsage
     expect(usage.inputTokens).toBe(3)
     expect(usage.outputTokens).toBe(2)
   })

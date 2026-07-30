@@ -7,6 +7,7 @@ import {
   type BaseMessage,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
+import { at } from './helpers/at.js'
 import {
   shouldSummarize,
   pruneToolResults,
@@ -288,8 +289,8 @@ describe('summarizeAndTrim boundary conditions', () => {
       ...makeConversation(6),
     ]
     await summarizeAndTrim(msgs, null, model, { keepRecentMessages: 4 })
-    const call = (model.invoke as ReturnType<typeof vi.fn>).mock.calls[0]
-    const humanPrompt = (call[0] as BaseMessage[])[1].content as string
+    const call = at((model.invoke as ReturnType<typeof vi.fn>).mock.calls, 0)
+    const humanPrompt = at(at(call, 0) as BaseMessage[], 1).content as string
     expect(humanPrompt).toMatch(/Keep the summary under \d+ tokens/)
   })
 
@@ -297,8 +298,8 @@ describe('summarizeAndTrim boundary conditions', () => {
     const model = createMockModel('tiny')
     const msgs = makeConversation(12)
     await summarizeAndTrim(msgs, null, model, { keepRecentMessages: 10 })
-    const call = (model.invoke as ReturnType<typeof vi.fn>).mock.calls[0]
-    const humanPrompt = (call[0] as BaseMessage[])[1].content as string
+    const call = at((model.invoke as ReturnType<typeof vi.fn>).mock.calls, 0)
+    const humanPrompt = at(at(call, 0) as BaseMessage[], 1).content as string
     expect(humanPrompt).toMatch(/Keep the summary under \d+ tokens/)
     const match = humanPrompt.match(/under (\d+) tokens/)
     if (match && match[1]) {

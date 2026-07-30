@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   HumanMessage,
   AIMessage,
-  SystemMessage,
   ToolMessage,
   type BaseMessage,
 } from '@langchain/core/messages'

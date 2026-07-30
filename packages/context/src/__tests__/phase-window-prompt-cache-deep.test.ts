@@ -26,14 +26,11 @@ import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { PhaseAwareWindowManager, DEFAULT_PHASES } from "../phase-window.js";
 import type {
   PhaseConfig,
-  PhaseWindowConfig,
-  ConversationPhase,
 } from "../phase-window.js";
 import {
   applyCacheBreakpoints,
   applyAnthropicCacheControl,
 } from "../prompt-cache.js";
-import type { CacheBreakpointOptions } from "../prompt-cache.js";
 import {
   isClaudeId,
   resolveModelId,

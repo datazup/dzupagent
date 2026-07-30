@@ -9,7 +9,6 @@ import {
   resolveStructuredOutputCapabilities,
 } from '../structured/structured-output-engine.js'
 import type {
-  StructuredOutputCapabilities,
   StructuredLLM,
   StructuredLLMWithMeta,
 } from '../structured/structured-output-engine.js'

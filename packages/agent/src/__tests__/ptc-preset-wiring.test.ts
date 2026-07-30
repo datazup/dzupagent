@@ -4,7 +4,6 @@ import {
   createProductionToolGovernancePreset,
   type ProductionToolGovernancePresetOptions,
 } from '../agent/production-tool-governance-preset.js'
-import type { ToolGovernance, ToolGovernanceConfig } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Helpers

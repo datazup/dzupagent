@@ -4,7 +4,7 @@
  * Covers: constructor, model resolution, asTool(), createChildBudget(),
  * generateStructured(), launch(), stream lifecycle, and configuration.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   AIMessage,
   HumanMessage,
@@ -12,7 +12,6 @@ import {
   type BaseMessage,
 } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { StructuredToolInterface } from '@langchain/core/tools'
 import type { ModelRegistry, DzupEventBus } from '@dzupagent/core'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import type { AgentStreamEvent, DzupAgentConfig } from '../agent/agent-types.js'

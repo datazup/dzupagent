@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SkillRegistry } from '@dzupagent/core'
-import type { LoadedSkill } from '@dzupagent/core'
 
 // ---------------------------------------------------------------------------
 // Mock DzupAgent — its real constructor pulls in heavy deps (ModelRegistry,

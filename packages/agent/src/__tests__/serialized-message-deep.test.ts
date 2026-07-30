@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { serializeMessage, migrateMessages } from '../snapshot/serialized-message.js'
-import type { SerializedMessage } from '../snapshot/serialized-message.js'
 
 describe('serializeMessage', () => {
   describe('null / undefined / string input', () => {

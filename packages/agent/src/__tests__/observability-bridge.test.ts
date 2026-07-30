@@ -222,10 +222,12 @@ describe('ObservabilityCorrectionBridge', () => {
       bridge.recordNodeMetric({ ...normalMetric('nodeA'), costCents: 250 })
 
       const nodeASignals = bridge.getNodeSignals('nodeA')
+      expect(nodeASignals.length).toBeGreaterThan(0)
       expect(nodeASignals.every((s) => s.nodeId === 'nodeA')).toBe(true)
       expect(nodeASignals.length).toBeGreaterThanOrEqual(2)
 
       const nodeBSignals = bridge.getNodeSignals('nodeB')
+      expect(nodeBSignals.length).toBeGreaterThan(0)
       expect(nodeBSignals.every((s) => s.nodeId === 'nodeB')).toBe(true)
       expect(nodeBSignals.length).toBeGreaterThanOrEqual(1)
     })
@@ -418,6 +420,38 @@ describe('ObservabilityCorrectionBridge', () => {
       expect(signal.details).toHaveProperty('durationMs', 35_000)
       expect(signal.suggestedAction).toBeDefined()
       expect(signal.timestamp).toBeInstanceOf(Date)
+    })
+  })
+
+  describe('partial threshold overrides', () => {
+    it('accepts a single threshold and keeps the defaults for the rest', () => {
+      // The constructor merges thresholds key-by-key, so overriding one must
+      // not require restating the other seven.
+      const partial = new ObservabilityCorrectionBridge({
+        thresholds: { costWarnCents: 1 },
+      })
+
+      // The overridden threshold takes effect: 5 cents now trips the warning.
+      const overridden = partial.recordNodeMetric(normalMetric())
+      expect(overridden.map((s) => s.type)).toContain('cost_overrun')
+
+      // A non-overridden threshold keeps its default: 35s still only warns,
+      // which would be impossible had the merge zeroed the untouched keys.
+      const untouched = partial.recordNodeMetric({
+        ...normalMetric('other'),
+        durationMs: 35_000,
+      })
+      const latency = untouched.filter((s) => s.type === 'latency_spike')
+      expect(latency).toHaveLength(1)
+      expect(latency[0]!.severity).toBe('warning')
+    })
+
+    it('accepts maxSignals alone, without thresholds', () => {
+      const bounded = new ObservabilityCorrectionBridge({ maxSignals: 2 })
+      for (let i = 0; i < 5; i++) {
+        bounded.recordNodeMetric({ ...normalMetric(), durationMs: 35_000 })
+      }
+      expect(bounded.getSignals()).toHaveLength(2)
     })
   })
 })

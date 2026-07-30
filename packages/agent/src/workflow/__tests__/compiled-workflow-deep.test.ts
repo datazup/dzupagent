@@ -13,7 +13,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   createWorkflow,
-  WorkflowBuilder,
   CompiledWorkflow,
   type WorkflowEvent,
   type WorkflowStep,

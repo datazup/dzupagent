@@ -340,7 +340,7 @@ describe('SelfLearningRuntime', () => {
 
       // The store should be called with self-learning namespace prefix
       if (mockStore.put.mock.calls.length > 0) {
-        const firstNs = mockStore.put.mock.calls[0][0] as string[]
+        const firstNs = mockStore.put.mock.calls[0]![0] as string[]
         expect(firstNs[0]).toBe('self-learning')
       }
     })
@@ -351,7 +351,7 @@ describe('SelfLearningRuntime', () => {
       await slr.execute()
 
       if (mockStore.put.mock.calls.length > 0) {
-        const firstNs = mockStore.put.mock.calls[0][0] as string[]
+        const firstNs = mockStore.put.mock.calls[0]![0] as string[]
         expect(firstNs[0]).toBe('custom')
         expect(firstNs[1]).toBe('ns')
       }

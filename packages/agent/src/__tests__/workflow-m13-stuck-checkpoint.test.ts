@@ -20,7 +20,6 @@ import { InMemoryPipelineCheckpointStore } from "../pipeline/in-memory-checkpoin
 import type {
   PipelineCheckpoint,
   PipelineCheckpointStore,
-  PipelineCheckpointSummary,
 } from "@dzupagent/core/pipeline";
 
 function step(

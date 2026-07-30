@@ -31,7 +31,7 @@ vi.mock("../orchestration/planning-agent.js");
 /** Creates an executor that marks the run as completed in the store. */
 function withStoreUpdate(
   store: InMemoryRunStore,
-  output: unknown = "specialist result"
+  output: unknown = "specialist result",
 ): DelegationExecutor {
   return async (runId, _agentId, _input, signal) => {
     if (signal.aborted)
@@ -66,7 +66,7 @@ function specialistExecutor(store: InMemoryRunStore): DelegationExecutor {
 /** Creates a failing executor for a specific agent. */
 function failingForAgent(
   store: InMemoryRunStore,
-  failAgentId: string
+  failAgentId: string,
 ): DelegationExecutor {
   return async (runId, agentId, _input, signal) => {
     if (signal.aborted)
@@ -85,7 +85,7 @@ function failingForAgent(
 
 function makeSpecialist(
   id: string,
-  overrides: Partial<AgentExecutionSpec> = {}
+  overrides: Partial<AgentExecutionSpec> = {},
 ): AgentExecutionSpec {
   return {
     id,
@@ -146,7 +146,9 @@ describe("DelegatingSupervisor", () => {
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => {
+      events.push(e);
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -185,7 +187,7 @@ describe("DelegatingSupervisor", () => {
       await supervisor.delegateTask("Task A", "agent-timeout", {});
 
       expect(circuitBreaker.recordTimeout).toHaveBeenCalledWith(
-        "agent-timeout"
+        "agent-timeout",
       );
       expect(circuitBreaker.recordFailure).not.toHaveBeenCalled();
       expect(circuitBreaker.recordSuccess).not.toHaveBeenCalled();
@@ -243,7 +245,7 @@ describe("DelegatingSupervisor", () => {
       const result = await supervisor.delegateTask(
         "Create the users table schema",
         "db-specialist",
-        { tables: ["users"] }
+        { tables: ["users"] },
       );
 
       expect(result.success).toBe(true);
@@ -265,7 +267,7 @@ describe("DelegatingSupervisor", () => {
       });
 
       await expect(
-        supervisor.delegateTask("Do something", "nonexistent-agent", {})
+        supervisor.delegateTask("Do something", "nonexistent-agent", {}),
       ).rejects.toThrow('Specialist "nonexistent-agent" not found');
     });
 
@@ -284,7 +286,7 @@ describe("DelegatingSupervisor", () => {
       });
 
       await expect(
-        supervisor.delegateTask("task", "missing", {})
+        supervisor.delegateTask("task", "missing", {}),
       ).rejects.toThrow(/agent-db.*agent-api|agent-api.*agent-db/);
     });
 
@@ -307,15 +309,15 @@ describe("DelegatingSupervisor", () => {
 
       const delegating = events.find((e) => e.type === "supervisor:delegating");
       const complete = events.find(
-        (e) => e.type === "supervisor:delegation_complete"
+        (e) => e.type === "supervisor:delegation_complete",
       );
 
       expect(delegating).toBeDefined();
       expect((delegating as Record<string, unknown>).specialistId).toBe(
-        "db-specialist"
+        "db-specialist",
       );
       expect((delegating as Record<string, unknown>).task).toBe(
-        "Create schema"
+        "Create schema",
       );
 
       expect(complete).toBeDefined();
@@ -385,13 +387,13 @@ describe("DelegatingSupervisor", () => {
       expect(aggregated.totalDurationMs).toBeGreaterThanOrEqual(0);
 
       expect(aggregated.results.get("agent-db")?.output).toBe(
-        "Result from agent-db"
+        "Result from agent-db",
       );
       expect(aggregated.results.get("agent-api")?.output).toBe(
-        "Result from agent-api"
+        "Result from agent-api",
       );
       expect(aggregated.results.get("agent-ui")?.output).toBe(
-        "Result from agent-ui"
+        "Result from agent-ui",
       );
     });
 
@@ -468,7 +470,7 @@ describe("DelegatingSupervisor", () => {
       expect(aggregated.succeeded).toEqual(["node-a", "node-b"]);
       expect(aggregated.failed).toEqual([]);
       expect(aggregated.results.get("node-a")?.output).toBe(
-        "Result from agent-coder"
+        "Result from agent-coder",
       );
       expect(aggregated.results.get("node-a")?.metadata).toMatchObject({
         assignmentId: "node-a",
@@ -480,8 +482,8 @@ describe("DelegatingSupervisor", () => {
       });
       expect(
         events.some(
-          (e) => e.type === "supervisor:duplicate_specialist_assignment_ids"
-        )
+          (e) => e.type === "supervisor:duplicate_specialist_assignment_ids",
+        ),
       ).toBe(false);
     });
 
@@ -509,7 +511,7 @@ describe("DelegatingSupervisor", () => {
       ]);
 
       const warning = events.find(
-        (e) => e.type === "supervisor:duplicate_specialist_assignment_ids"
+        (e) => e.type === "supervisor:duplicate_specialist_assignment_ids",
       );
       expect(warning).toMatchObject({
         mode: "warn",
@@ -522,7 +524,7 @@ describe("DelegatingSupervisor", () => {
         ],
       });
       expect((warning as { message?: string } | undefined)?.message).toContain(
-        "TaskAssignment.id"
+        "TaskAssignment.id",
       );
     });
 
@@ -539,9 +541,9 @@ describe("DelegatingSupervisor", () => {
         supervisor.delegateAndCollect([
           { task: "Implement A", specialistId: "agent-coder", input: {} },
           { task: "Implement B", specialistId: "agent-coder", input: {} },
-        ])
+        ]),
       ).rejects.toThrow(
-        "duplicate specialist assignments without stable assignment IDs"
+        "duplicate specialist assignments without stable assignment IDs",
       );
 
       expect(tracker.delegate).not.toHaveBeenCalled();
@@ -564,7 +566,7 @@ describe("DelegatingSupervisor", () => {
       ];
 
       await expect(supervisor.delegateAndCollect(tasks)).rejects.toThrow(
-        'Specialist "agent-unknown" not found'
+        'Specialist "agent-unknown" not found',
       );
     });
   });
@@ -602,7 +604,7 @@ describe("DelegatingSupervisor", () => {
       });
 
       const aggregated = await supervisor.planAndDelegate(
-        "create the database schema and build the REST API endpoints"
+        "create the database schema and build the REST API endpoints",
       );
 
       // Should have matched at least some sub-tasks to specialists
@@ -639,7 +641,7 @@ describe("DelegatingSupervisor", () => {
       });
 
       const aggregated = await supervisor.planAndDelegate(
-        "implement authentication, build the login component"
+        "implement authentication, build the login component",
       );
 
       // Both specialists should have been matched
@@ -671,7 +673,7 @@ describe("DelegatingSupervisor", () => {
       });
 
       await expect(
-        supervisor.planAndDelegate("do something completely unrelated xyz")
+        supervisor.planAndDelegate("do something completely unrelated xyz"),
       ).rejects.toThrow("No specialists matched");
     });
 
@@ -700,11 +702,11 @@ describe("DelegatingSupervisor", () => {
       await supervisor.planAndDelegate("set up the database schema");
 
       const planEvent = events.find(
-        (e) => e.type === "supervisor:plan_created"
+        (e) => e.type === "supervisor:plan_created",
       );
       expect(planEvent).toBeDefined();
       expect((planEvent as Record<string, unknown>).goal).toBe(
-        "set up the database schema"
+        "set up the database schema",
       );
       expect((planEvent as Record<string, unknown>).assignments).toBeDefined();
     });
@@ -714,9 +716,8 @@ describe("DelegatingSupervisor", () => {
     // before each LLM-path branch test configures its own implementation.
 
     it("calls PlanningAgent.decompose only when llm option is provided and returns succeeded node IDs", async () => {
-      const { PlanningAgent } = await import(
-        "../orchestration/planning-agent.js"
-      );
+      const { PlanningAgent } =
+        await import("../orchestration/planning-agent.js");
       const decomposeMock = vi.fn().mockResolvedValue({
         goal: "build the api",
         nodes: [
@@ -742,7 +743,7 @@ describe("DelegatingSupervisor", () => {
               failedNodes: [],
               skippedNodes: [],
             }),
-          } as unknown as InstanceType<typeof PlanningAgent>)
+          }) as unknown as InstanceType<typeof PlanningAgent>,
       );
 
       const tracker = new SimpleDelegationTracker({
@@ -771,7 +772,7 @@ describe("DelegatingSupervisor", () => {
       decomposeMock.mockClear();
 
       const keywordResult = await supervisor.planAndDelegate(
-        "build the api endpoint"
+        "build the api endpoint",
       );
 
       expect(keywordResult.succeeded).toContain("spec-a");
@@ -780,9 +781,8 @@ describe("DelegatingSupervisor", () => {
     });
 
     it("emits supervisor:llm_decompose_fallback only on LLM failure and falls back to keyword matching", async () => {
-      const { PlanningAgent } = await import(
-        "../orchestration/planning-agent.js"
-      );
+      const { PlanningAgent } =
+        await import("../orchestration/planning-agent.js");
       const successfulDecompose = vi.fn().mockResolvedValue({
         goal: "set up the database schema",
         nodes: [
@@ -816,7 +816,7 @@ describe("DelegatingSupervisor", () => {
           ({
             decompose: successfulDecompose,
             executePlan: executePlanMock,
-          } as unknown as InstanceType<typeof PlanningAgent>)
+          }) as unknown as InstanceType<typeof PlanningAgent>,
       );
 
       const tracker = new SimpleDelegationTracker({
@@ -841,32 +841,32 @@ describe("DelegatingSupervisor", () => {
         "set up the database schema",
         {
           llm: mockLlm,
-        }
+        },
       );
 
       expect(llmResult.succeeded).toEqual(["llm-node"]);
       expect(
-        events.some((e) => e.type === "supervisor:llm_decompose_fallback")
+        events.some((e) => e.type === "supervisor:llm_decompose_fallback"),
       ).toBe(false);
 
       vi.mocked(PlanningAgent).mockImplementation(
         () =>
           ({
             decompose: failingDecompose,
-          } as unknown as InstanceType<typeof PlanningAgent>)
+          }) as unknown as InstanceType<typeof PlanningAgent>,
       );
 
       const fallbackResult = await supervisor.planAndDelegate(
         "set up the database schema",
         {
           llm: mockLlm,
-        }
+        },
       );
 
       expect(fallbackResult.succeeded).toContain("db-specialist");
 
       const fallbackEvent = events.find(
-        (e) => e.type === "supervisor:llm_decompose_fallback"
+        (e) => e.type === "supervisor:llm_decompose_fallback",
       );
       expect(fallbackEvent).toMatchObject({
         type: "supervisor:llm_decompose_fallback",
@@ -876,7 +876,7 @@ describe("DelegatingSupervisor", () => {
       const keywordPlanCreatedEvents = events.filter(
         (e) =>
           e.type === "supervisor:plan_created" &&
-          (e as Record<string, unknown>).source === "keyword"
+          (e as Record<string, unknown>).source === "keyword",
       );
       expect(keywordPlanCreatedEvents).toHaveLength(1);
     });
@@ -895,9 +895,8 @@ describe("DelegatingSupervisor", () => {
         ],
         executionLevels: [["node-1"]],
       });
-      const { PlanningAgent } = await import(
-        "../orchestration/planning-agent.js"
-      );
+      const { PlanningAgent } =
+        await import("../orchestration/planning-agent.js");
       vi.mocked(PlanningAgent).mockImplementation(
         () =>
           ({
@@ -910,7 +909,7 @@ describe("DelegatingSupervisor", () => {
               failedNodes: [],
               skippedNodes: [],
             }),
-          } as unknown as InstanceType<typeof PlanningAgent>)
+          }) as unknown as InstanceType<typeof PlanningAgent>,
       );
 
       const tracker = new SimpleDelegationTracker({
@@ -941,7 +940,7 @@ describe("DelegatingSupervisor", () => {
       const acknowledgedOptions = decomposeMock.mock.calls[1]?.[2];
       expect(defaultOptions).not.toHaveProperty(
         "acknowledgeUnresolvedNodes",
-        true
+        true,
       );
       expect(acknowledgedOptions).toMatchObject({
         acknowledgeUnresolvedNodes: true,
@@ -969,14 +968,14 @@ describe("DelegatingSupervisor", () => {
       const select = vi.fn(
         (
           _task: Parameters<RoutingPolicy["select"]>[0],
-          candidates: Parameters<RoutingPolicy["select"]>[1]
+          candidates: Parameters<RoutingPolicy["select"]>[1],
         ) => ({
           selected: [
             candidates.find((candidate) => candidate.id === "policy-agent")!,
           ],
           reason: "force policy branch",
           strategy: "rule",
-        })
+        }),
       );
       const routingPolicy: RoutingPolicy = {
         select,
@@ -989,7 +988,7 @@ describe("DelegatingSupervisor", () => {
       });
 
       const policyResult = await policySupervisor.planAndDelegate(
-        "set up the database schema"
+        "set up the database schema",
       );
 
       expect(select).toHaveBeenCalledTimes(1);
@@ -1004,7 +1003,7 @@ describe("DelegatingSupervisor", () => {
         eventBus,
       });
       const keywordResult = await keywordSupervisor.planAndDelegate(
-        "set up the database schema"
+        "set up the database schema",
       );
 
       expect(select).not.toHaveBeenCalled();
@@ -1033,26 +1032,26 @@ describe("DelegatingSupervisor", () => {
         .mockImplementationOnce(
           (
             _task: Parameters<RoutingPolicy["select"]>[0],
-            candidates: Parameters<RoutingPolicy["select"]>[1]
+            candidates: Parameters<RoutingPolicy["select"]>[1],
           ) => ({
             selected: [
               candidates.find((candidate) => candidate.id === "api-agent")!,
             ],
             reason: "api branch",
             strategy: "rule",
-          })
+          }),
         )
         .mockImplementationOnce(
           (
             _task: Parameters<RoutingPolicy["select"]>[0],
-            candidates: Parameters<RoutingPolicy["select"]>[1]
+            candidates: Parameters<RoutingPolicy["select"]>[1],
           ) => ({
             selected: [
               candidates.find((candidate) => candidate.id === "ui-agent")!,
             ],
             reason: "ui branch",
             strategy: "rule",
-          })
+          }),
         );
       const routingPolicy: RoutingPolicy = {
         select,
@@ -1065,22 +1064,22 @@ describe("DelegatingSupervisor", () => {
       });
 
       const apiResult = await supervisor.planAndDelegate(
-        "build the api endpoint"
+        "build the api endpoint",
       );
 
       expect(apiResult.succeeded).toEqual(["api-agent"]);
       expect(apiResult.results.get("api-agent")?.output).toBe(
-        "Result from api-agent"
+        "Result from api-agent",
       );
       expect(apiResult.results.has("ui-agent")).toBe(false);
 
       const uiResult = await supervisor.planAndDelegate(
-        "build the api endpoint"
+        "build the api endpoint",
       );
 
       expect(uiResult.succeeded).toEqual(["ui-agent"]);
       expect(uiResult.results.get("ui-agent")?.output).toBe(
-        "Result from ui-agent"
+        "Result from ui-agent",
       );
       expect(uiResult.results.has("api-agent")).toBe(false);
     });
@@ -1100,7 +1099,7 @@ describe("DelegatingSupervisor", () => {
       const selectingPolicy: RoutingPolicy = {
         select: (
           _task: Parameters<RoutingPolicy["select"]>[0],
-          candidates: Parameters<RoutingPolicy["select"]>[1]
+          candidates: Parameters<RoutingPolicy["select"]>[1],
         ) => ({
           selected: [candidates[0]!],
           reason: "select first candidate",
@@ -1115,7 +1114,7 @@ describe("DelegatingSupervisor", () => {
       });
 
       await expect(
-        successfulSupervisor.planAndDelegate("do something unrelated xyz")
+        successfulSupervisor.planAndDelegate("do something unrelated xyz"),
       ).resolves.toMatchObject({
         succeeded: ["api-agent"],
       });
@@ -1137,7 +1136,7 @@ describe("DelegatingSupervisor", () => {
       let thrown: unknown;
       try {
         await emptyRouteSupervisor.planAndDelegate(
-          "do something unrelated xyz"
+          "do something unrelated xyz",
         );
       } catch (err) {
         thrown = err;
@@ -1223,7 +1222,7 @@ describe("DelegatingSupervisor", () => {
         recordTimeout: vi.fn(),
         // filterAvailable only returns agent-ok; agent-tripped is excluded
         filterAvailable: vi.fn((items: { id: string }[]) =>
-          items.filter((a) => a.id !== "agent-tripped")
+          items.filter((a) => a.id !== "agent-tripped"),
         ),
         isAvailable: vi.fn(() => true),
         getState: vi.fn(() => "closed"),
@@ -1255,14 +1254,16 @@ describe("DelegatingSupervisor", () => {
     it("emits supervisor:circuit_breaker_filtered when tasks are skipped", async () => {
       const localEventBus = createEventBus();
       const localEvents: DzupEvent[] = [];
-      localEventBus.onAny((e) => localEvents.push(e));
+      localEventBus.onAny((e) => {
+        localEvents.push(e);
+      });
 
       const circuitBreaker: AgentCircuitBreaker = {
         recordSuccess: vi.fn(),
         recordFailure: vi.fn(),
         recordTimeout: vi.fn(),
         filterAvailable: vi.fn((items: { id: string }[]) =>
-          items.filter((a) => a.id === "agent-healthy")
+          items.filter((a) => a.id === "agent-healthy"),
         ),
         isAvailable: vi.fn(() => true),
         getState: vi.fn(() => "closed"),
@@ -1285,11 +1286,11 @@ describe("DelegatingSupervisor", () => {
       ]);
 
       const filtered = localEvents.find(
-        (e) => e.type === "supervisor:circuit_breaker_filtered"
+        (e) => e.type === "supervisor:circuit_breaker_filtered",
       );
       expect(filtered).toBeDefined();
       expect((filtered as Record<string, unknown>).skipped).toContain(
-        "agent-open"
+        "agent-open",
       );
     });
 
@@ -1437,7 +1438,7 @@ describe("DelegatingSupervisor", () => {
       const result = await supervisor.delegateTask(
         "Create users table",
         "db-specialist",
-        { tables: ["users"] }
+        { tables: ["users"] },
       );
 
       expect(result.success).toBe(true);
@@ -1484,7 +1485,7 @@ describe("DelegatingSupervisor", () => {
       await supervisor.delegateTask(
         "Build REST endpoints",
         "api-specialist",
-        {}
+        {},
       );
 
       expect(capturedTasks).toHaveLength(1);
@@ -1525,7 +1526,7 @@ describe("DelegatingSupervisor", () => {
                 usageCents: 3,
               },
             };
-          }
+          },
         ),
         stream: vi.fn(),
       };
@@ -1549,7 +1550,7 @@ describe("DelegatingSupervisor", () => {
         "Create users table",
         "db-specialist",
         structuredInput,
-        { runId: "delegation-run-1", signal: controller.signal }
+        { runId: "delegation-run-1", signal: controller.signal },
       );
 
       expect(captured).toHaveLength(1);
@@ -1621,15 +1622,15 @@ describe("DelegatingSupervisor", () => {
 
       const delegating = events.find((e) => e.type === "supervisor:delegating");
       const complete = events.find(
-        (e) => e.type === "supervisor:delegation_complete"
+        (e) => e.type === "supervisor:delegation_complete",
       );
 
       expect(delegating).toBeDefined();
       expect((delegating as Record<string, unknown>).specialistId).toBe(
-        "ui-specialist"
+        "ui-specialist",
       );
       expect((delegating as Record<string, unknown>).task).toBe(
-        "Build login page"
+        "Build login page",
       );
 
       expect(complete).toBeDefined();
@@ -1661,7 +1662,7 @@ describe("DelegatingSupervisor", () => {
         extra: Partial<
           ConstructorParameters<typeof DelegatingSupervisor>[0]
         > = {},
-        port: ProviderExecutionPort = okPort()
+        port: ProviderExecutionPort = okPort(),
       ) {
         return new DelegatingSupervisor({
           specialists: new Map([
@@ -1691,14 +1692,19 @@ describe("DelegatingSupervisor", () => {
 
       it("correlates started and completed on one delegationId and parentRunId", async () => {
         await portSupervisor({
-          parentContext: { parentRunId: "parent-run-9" },
+          parentContext: {
+            parentRunId: "parent-run-9",
+            decisions: [],
+            constraints: [],
+            relevantFiles: [],
+          },
         }).delegateTask("Do work", "worker", {});
 
         const started = events.find((e) => e.type === "delegation:started") as
           | Extract<DzupEvent, { type: "delegation:started" }>
           | undefined;
         const completed = events.find(
-          (e) => e.type === "delegation:completed"
+          (e) => e.type === "delegation:completed",
         ) as Extract<DzupEvent, { type: "delegation:completed" }> | undefined;
 
         expect(started).toBeDefined();
@@ -1716,7 +1722,7 @@ describe("DelegatingSupervisor", () => {
         await portSupervisor().delegateTask("Do work", "worker", {});
 
         const started = events.find(
-          (e) => e.type === "delegation:started"
+          (e) => e.type === "delegation:started",
         ) as Extract<DzupEvent, { type: "delegation:started" }>;
         expect(started.parentRunId).toBe("unknown");
       });
@@ -1725,7 +1731,7 @@ describe("DelegatingSupervisor", () => {
         await portSupervisor().delegateTask("Do work", "worker", {});
 
         const started = events.find(
-          (e) => e.type === "delegation:started"
+          (e) => e.type === "delegation:started",
         ) as Extract<DzupEvent, { type: "delegation:started" }>;
 
         // Absence, not `=== undefined`: the payload must stay byte-identical
@@ -1747,7 +1753,7 @@ describe("DelegatingSupervisor", () => {
         }).delegateTask("Do work", "worker", {});
 
         const started = events.find(
-          (e) => e.type === "delegation:started"
+          (e) => e.type === "delegation:started",
         ) as Extract<DzupEvent, { type: "delegation:started" }>;
 
         expect(started.hierarchy).toEqual({
@@ -1767,7 +1773,7 @@ describe("DelegatingSupervisor", () => {
         };
 
         await expect(
-          portSupervisor({}, failingPort).delegateTask("Do work", "worker", {})
+          portSupervisor({}, failingPort).delegateTask("Do work", "worker", {}),
         ).rejects.toBe(boom);
 
         const lifecycle = events
@@ -1776,14 +1782,14 @@ describe("DelegatingSupervisor", () => {
         expect(lifecycle).toEqual(["delegation:started", "delegation:failed"]);
 
         const failed = events.find(
-          (e) => e.type === "delegation:failed"
+          (e) => e.type === "delegation:failed",
         ) as Extract<DzupEvent, { type: "delegation:failed" }>;
         expect(failed.error).toBe("provider exploded");
         expect(failed.targetAgentId).toBe("worker");
 
         // No completed event on the failure path.
         expect(events.some((e) => e.type === "delegation:completed")).toBe(
-          false
+          false,
         );
       });
 
@@ -1802,7 +1808,11 @@ describe("DelegatingSupervisor", () => {
         };
 
         await expect(
-          portSupervisor({}, abortingPort).delegateTask("Do work", "worker", {})
+          portSupervisor({}, abortingPort).delegateTask(
+            "Do work",
+            "worker",
+            {},
+          ),
         ).rejects.toBe(abortErr);
 
         const lifecycle = events
@@ -1813,8 +1823,8 @@ describe("DelegatingSupervisor", () => {
           events.some(
             (e) =>
               e.type === "delegation:cancelled" ||
-              e.type === "delegation:timeout"
-          )
+              e.type === "delegation:timeout",
+          ),
         ).toBe(false);
       });
 
@@ -1843,11 +1853,11 @@ describe("DelegatingSupervisor", () => {
         const result = await portSupervisor().delegateTask(
           "Do work",
           "worker",
-          {}
+          {},
         );
 
         const completed = events.find(
-          (e) => e.type === "delegation:completed"
+          (e) => e.type === "delegation:completed",
         ) as Extract<DzupEvent, { type: "delegation:completed" }>;
 
         // One shared measurement — the event and the metadata cannot disagree.
@@ -1928,9 +1938,9 @@ describe("DelegatingSupervisor", () => {
           new DelegatingSupervisor({
             ...baseConfig(),
             depth: MAX_ORCHESTRATION_DEPTH,
-          })
+          }),
       ).toThrow(
-        `Orchestration depth limit reached: depth=${MAX_ORCHESTRATION_DEPTH} >= max=${MAX_ORCHESTRATION_DEPTH}.`
+        `Orchestration depth limit reached: depth=${MAX_ORCHESTRATION_DEPTH} >= max=${MAX_ORCHESTRATION_DEPTH}.`,
       );
     });
 
@@ -1940,7 +1950,7 @@ describe("DelegatingSupervisor", () => {
           new DelegatingSupervisor({
             ...baseConfig(),
             depth: MAX_ORCHESTRATION_DEPTH + 5,
-          })
+          }),
       ).toThrow(/Orchestration depth limit reached/);
     });
 
@@ -2103,7 +2113,7 @@ describe("DelegatingSupervisor", () => {
         // level, so it must not descend the tree (which at this depth would
         // also collide with MAX_ORCHESTRATION_DEPTH).
         expect(soleRequest(tracker).hierarchy?.depth).toBe(
-          MAX_ORCHESTRATION_DEPTH - 1
+          MAX_ORCHESTRATION_DEPTH - 1,
         );
         expect(supervisor.hierarchy.depth).toBe(MAX_ORCHESTRATION_DEPTH - 1);
       });
@@ -2184,7 +2194,7 @@ describe("DelegatingSupervisor", () => {
         const runs = await store.list({ agentId: "agent-a" });
         expect(runs).toHaveLength(1);
         expect(
-          (runs[0]!.metadata as Record<string, unknown>).hierarchy
+          (runs[0]!.metadata as Record<string, unknown>).hierarchy,
         ).toEqual({
           parentRunId: "hierarchy-parent-run",
           branchId: "branch-left",
@@ -2241,7 +2251,9 @@ describe("DelegatingSupervisor", () => {
       function makeBus(): { bus: DzupEventBus; seen: DzupEvent[] } {
         const seen: DzupEvent[] = [];
         const bus = createEventBus();
-        bus.onAny((e) => seen.push(e));
+        bus.onAny((e) => {
+          seen.push(e);
+        });
         return { bus, seen };
       }
 
@@ -2375,7 +2387,7 @@ describe("DelegatingSupervisor", () => {
         // level, so the event carries the issuer's own depth un-incremented.
         // Incrementing here would exceed MAX_ORCHESTRATION_DEPTH.
         expect(startedEvent(seen).hierarchy?.depth).toBe(
-          MAX_ORCHESTRATION_DEPTH - 1
+          MAX_ORCHESTRATION_DEPTH - 1,
         );
       });
 
@@ -2425,7 +2437,7 @@ describe("DelegatingSupervisor", () => {
         expect(started).toHaveLength(2);
         for (const e of started) {
           expect(
-            (e as Extract<DzupEvent, { type: "delegation:started" }>).hierarchy
+            (e as Extract<DzupEvent, { type: "delegation:started" }>).hierarchy,
           ).toEqual({ parentRunId: "hierarchy-parent-run", depth: 1 });
         }
       });
@@ -2461,7 +2473,7 @@ describe("DelegatingSupervisor", () => {
         expect("hierarchy" in failed!).toBe(false);
         expect(
           (failed as Extract<DzupEvent, { type: "delegation:failed" }>)
-            .delegationId
+            .delegationId,
         ).toBe(started.delegationId);
       });
     });

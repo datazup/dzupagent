@@ -27,13 +27,30 @@ function createMockMemoryService(initialData?: {
 
   const data = initialData ?? {}
 
+  // Real records carry no `key` field, so keyed identity lives alongside the
+  // value (as `getKeyed` returns it), never inside it. Fixtures may supply an
+  // explicit `_fixtureKey` to be addressable by key.
+  const keyOf = (r: Record<string, unknown>, i: number): string =>
+    typeof r['_fixtureKey'] === 'string' ? r['_fixtureKey'] : `k${i}`
+
   const service = {
     get: vi.fn().mockImplementation(
       (ns: string, scope: Record<string, string>, key?: string) => {
         getCalls.push({ ns, scope, key })
         const records = data[ns] ?? []
-        if (key) return Promise.resolve(records.filter(r => r['key'] === key))
+        if (key) return Promise.resolve(records.filter((r, i) => keyOf(r, i) === key))
         return Promise.resolve(records)
+      },
+    ),
+    getKeyed: vi.fn().mockImplementation(
+      (ns: string, scope: Record<string, string>) => {
+        // Recorded alongside get(): both are namespace reads, and these tests
+        // assert that each namespace is read once with the right scope.
+        getCalls.push({ ns, scope })
+        const records = data[ns] ?? []
+        return Promise.resolve(
+          records.map((value, i) => ({ key: keyOf(value, i), value })),
+        )
       },
     ),
     put: vi.fn().mockImplementation(
@@ -175,9 +192,9 @@ describe('FrozenMemorySnapshot', () => {
     it('with key parameter: filters to only matching records', async () => {
       const { service } = createMockMemoryService({
         decisions: [
-          { key: 'd1', text: 'Use Postgres' },
-          { key: 'd2', text: 'Use Vue 3' },
-          { key: 'd3', text: 'Use Tailwind' },
+          { _fixtureKey: 'd1', text: 'Use Postgres' },
+          { _fixtureKey: 'd2', text: 'Use Vue 3' },
+          { _fixtureKey: 'd3', text: 'Use Tailwind' },
         ],
       })
       const snapshot = new FrozenMemorySnapshot(service)

@@ -4,7 +4,7 @@
  * Verifies that DzupAgent auto-persists the agent's final response content
  * to MemoryService after a successful generate() / launch() / stream() run.
  */
-import { AIMessage, HumanMessage } from '@langchain/core/messages'
+import { HumanMessage } from '@langchain/core/messages'
 import type { BaseStore } from '@langchain/langgraph'
 import { createEventBus, type DzupEvent } from '@dzupagent/core'
 import { MemoryService, type InMemoryReferenceTracker } from '@dzupagent/memory'
@@ -145,7 +145,7 @@ describe('DzupAgent memory write-back (P9)', () => {
     const model = createModel('final answer')
     const eventBus = createEventBus()
     const events: DzupEvent[] = []
-    eventBus.onAny((event) => events.push(event))
+    eventBus.onAny((event) => { events.push(event) })
 
     const agent = new DzupAgent({
       id: 'event-agent',
@@ -255,7 +255,7 @@ describe('DzupAgent memory write-back (P9)', () => {
     const model = createModel('still works')
     const eventBus = createEventBus()
     const events: DzupEvent[] = []
-    eventBus.onAny((event) => events.push(event))
+    eventBus.onAny((event) => { events.push(event) })
 
     const agent = new DzupAgent({
       id: 'put-throws-event',

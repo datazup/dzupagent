@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   HumanMessage,
   AIMessage,
-  SystemMessage,
   ToolMessage,
   type BaseMessage,
 } from '@langchain/core/messages'
@@ -12,7 +11,6 @@ import {
   compressToLevel,
   compressToBudget,
   type CompressionLevel,
-  type ProgressiveCompressConfig,
 } from '../progressive-compress.js'
 
 // ---------------------------------------------------------------------------

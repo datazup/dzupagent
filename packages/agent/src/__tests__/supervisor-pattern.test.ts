@@ -229,7 +229,7 @@ describe("DelegatingSupervisor — task delegation", () => {
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => { events.push(e) });
   });
 
   it("delegates a task to the named specialist and resolves with output", async () => {
@@ -405,7 +405,7 @@ describe("DelegatingSupervisor — delegation with context", () => {
   it("emits supervisor:delegating event with specialistId and task", async () => {
     const eventBus = createEventBus();
     const emitted: DzupEvent[] = [];
-    eventBus.onAny((e) => emitted.push(e));
+    eventBus.onAny((e) => { emitted.push(e) });
 
     const tracker = new SimpleDelegationTracker({
       runStore: store,
@@ -430,7 +430,7 @@ describe("DelegatingSupervisor — delegation with context", () => {
   it("emits supervisor:delegation_complete event after successful task", async () => {
     const eventBus = createEventBus();
     const emitted: DzupEvent[] = [];
-    eventBus.onAny((e) => emitted.push(e));
+    eventBus.onAny((e) => { emitted.push(e) });
 
     const tracker = new SimpleDelegationTracker({
       runStore: store,
@@ -467,7 +467,7 @@ describe("DelegatingSupervisor — result collection", () => {
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => { events.push(e) });
   });
 
   it("collects all specialist results in the results Map", async () => {
@@ -1046,7 +1046,7 @@ describe("DelegatingSupervisor — specialist selection via planAndDelegate", ()
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => { events.push(e) });
   });
 
   it("routes database sub-task to db-tagged specialist", async () => {
@@ -1265,7 +1265,7 @@ describe("DelegatingSupervisor — supervisor decisions", () => {
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => { events.push(e) });
   });
 
   it("supervisor continues — delegates again after first result", async () => {
@@ -1674,7 +1674,7 @@ describe("SimpleDelegationTracker — cancellation and timeout", () => {
   it("cancelled delegation returns success=false with cancellation message", async () => {
     const eventBus = createEventBus();
     const emitted: DzupEvent[] = [];
-    eventBus.onAny((e) => emitted.push(e));
+    eventBus.onAny((e) => { emitted.push(e) });
 
     // Executor that hangs until aborted
     const hangingExec: DelegationExecutor = async (
@@ -1717,7 +1717,7 @@ describe("SimpleDelegationTracker — cancellation and timeout", () => {
   it("delegate emits delegation:started event", async () => {
     const eventBus = createEventBus();
     const emitted: DzupEvent[] = [];
-    eventBus.onAny((e) => emitted.push(e));
+    eventBus.onAny((e) => { emitted.push(e) });
 
     const tracker = new SimpleDelegationTracker({
       runStore: store,
@@ -1739,7 +1739,7 @@ describe("SimpleDelegationTracker — cancellation and timeout", () => {
   it("delegate emits delegation:completed event on success", async () => {
     const eventBus = createEventBus();
     const emitted: DzupEvent[] = [];
-    eventBus.onAny((e) => emitted.push(e));
+    eventBus.onAny((e) => { emitted.push(e) });
 
     const tracker = new SimpleDelegationTracker({
       runStore: store,
@@ -1808,7 +1808,7 @@ describe("DelegatingSupervisor — circuit_breaker_filtered event", () => {
   it("emits supervisor:circuit_breaker_filtered event listing skipped agents", async () => {
     const eventBus = createEventBus();
     const emitted: DzupEvent[] = [];
-    eventBus.onAny((e) => emitted.push(e));
+    eventBus.onAny((e) => { emitted.push(e) });
 
     const cb: AgentCircuitBreaker = {
       recordSuccess: vi.fn(),

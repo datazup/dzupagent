@@ -80,7 +80,9 @@ describe('RagPipeline — coverage', () => {
       expect(deps.vectorStore.upsert).toHaveBeenCalled()
 
       // Verify collection name uses prefix
-      const upsertCall = (deps.vectorStore.upsert as ReturnType<typeof vi.fn>).mock.calls[0]
+      const upsertCall = (deps.vectorStore.upsert as ReturnType<typeof vi.fn>).mock
+        .calls[0]
+      if (!upsertCall) throw new Error('expected vectorStore.upsert to have been called')
       expect(upsertCall[0]).toBe('rag_tenant-1')
     })
 
@@ -139,7 +141,9 @@ describe('RagPipeline — coverage', () => {
         metadata: { custom_tag: 'important' },
       })
 
-      const upsertCall = (deps.vectorStore.upsert as ReturnType<typeof vi.fn>).mock.calls[0]
+      const upsertCall = (deps.vectorStore.upsert as ReturnType<typeof vi.fn>).mock
+        .calls[0]
+      if (!upsertCall) throw new Error('expected vectorStore.upsert to have been called')
       const entries = upsertCall[1] as Array<{ metadata: Record<string, unknown> }>
       expect(entries[0]!.metadata).toHaveProperty('custom_tag', 'important')
     })

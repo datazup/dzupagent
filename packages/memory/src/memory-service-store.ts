@@ -197,6 +197,48 @@ interface GetDeps {
 }
 
 /**
+ * A stored record paired with the store key it was written under.
+ *
+ * `getMemoryRecords` returns bare values, dropping the key the caller passed
+ * to `put()`. Callers that need record identity — export, reconciliation,
+ * de-duplication — cannot recover it from the value, because `put()` does not
+ * write the key into the record. This pairing carries it explicitly.
+ */
+export interface KeyedMemoryRecord {
+  /** The store key the record was written under. */
+  key: string;
+  /** The record value, returned verbatim — never mutated to carry the key. */
+  value: Record<string, unknown>;
+}
+
+/**
+ * Read every record in a namespace together with its store key.
+ *
+ * Unlike {@link getMemoryRecords}, this preserves the key each record was
+ * written under instead of discarding it. Values are returned untouched, so
+ * this does not change what a record's content hash or export signature is
+ * computed over.
+ *
+ * Non-fatal: returns `[]` on error, matching the plain read path.
+ */
+export async function getKeyedMemoryRecords(
+  ns: NamespaceConfig,
+  scope: Record<string, string>,
+  store: BaseStore
+): Promise<KeyedMemoryRecord[]> {
+  const tuple = buildNamespaceTuple(ns, scope);
+  try {
+    const items = await store.search(tuple);
+    return items.map((i) => ({
+      key: i.key,
+      value: i.value as Record<string, unknown>,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Read records from a namespace; either a single key or all entries.
  *
  * Non-fatal: returns `[]` on error. When `readContext` and a tracker are

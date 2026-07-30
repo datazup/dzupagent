@@ -24,7 +24,6 @@ import type {
   NodeExecutor,
   NodeResult,
   PipelineRuntimeEvent,
-  NodeExecutionContext,
 } from '../pipeline/pipeline-runtime-types.js'
 
 // ---------------------------------------------------------------------------

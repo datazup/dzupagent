@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { at } from '../helpers/at.js'
 import {
   LettaAdapter,
   lettaCoreToWorkingMemory,
@@ -104,7 +105,7 @@ describe('LettaAdapter', () => {
       ])
       expect(result.valid).toBe(1)
       expect(result.warnings.length).toBe(1)
-      expect(result.warnings[0].field).toBe('created_at')
+      expect(at(result.warnings, 0).field).toBe('created_at')
     })
 
     it('provides per-field warnings for invalid records', () => {
@@ -211,9 +212,9 @@ describe('LettaAdapter', () => {
       const result = adapter.fromFrame(table)
 
       expect(result).toHaveLength(1)
-      expect(result[0].id).toBe('passage-1')
-      expect(result[0].text).toBe('The user prefers PostgreSQL over MySQL')
-      expect(result[0].agent_id).toBe('agent-letta-1')
+      expect(at(result, 0).id).toBe('passage-1')
+      expect(at(result, 0).text).toBe('The user prefers PostgreSQL over MySQL')
+      expect(at(result, 0).agent_id).toBe('agent-letta-1')
     })
 
     it('skips rows with null id or text', () => {
@@ -227,14 +228,14 @@ describe('LettaAdapter', () => {
       const passage = makePassage({ metadata: { key: 'value' } })
       const table = adapter.toFrame([passage])
       const result = adapter.fromFrame(table)
-      expect(result[0].metadata).toEqual({ key: 'value' })
+      expect(at(result, 0).metadata).toEqual({ key: 'value' })
     })
 
     it('reconstructs embedding from payload_json', () => {
       const passage = makePassage({ embedding: [1.0, 2.0, 3.0] })
       const table = adapter.toFrame([passage])
       const result = adapter.fromFrame(table)
-      expect(result[0].embedding).toEqual([1.0, 2.0, 3.0])
+      expect(at(result, 0).embedding).toEqual([1.0, 2.0, 3.0])
     })
 
     it('sets agent_id to "unknown" when scope_agent is null', () => {
@@ -242,7 +243,7 @@ describe('LettaAdapter', () => {
       const passage = makePassage()
       const table = adapter.toFrame([passage])
       const result = adapter.fromFrame(table)
-      expect(result[0].agent_id).toBe('agent-letta-1')
+      expect(at(result, 0).agent_id).toBe('agent-letta-1')
     })
 
     it('handles empty table', () => {
@@ -270,7 +271,7 @@ describe('LettaAdapter', () => {
       const restored = adapter.fromFrame(table)
 
       expect(restored).toHaveLength(1)
-      const r = restored[0]
+      const r = at(restored, 0)
       expect(r.id).toBe('rt-passage')
       expect(r.text).toBe('Important architectural decision about caching')
       expect(r.agent_id).toBe('architect-agent')
@@ -293,8 +294,8 @@ describe('LettaAdapter', () => {
 
       expect(restored).toHaveLength(25)
       for (let i = 0; i < 25; i++) {
-        expect(restored[i].id).toBe(`p-${i}`)
-        expect(restored[i].text).toBe(`Passage content ${i}`)
+        expect(at(restored, i).id).toBe(`p-${i}`)
+        expect(at(restored, i).text).toBe(`Passage content ${i}`)
       }
     })
   })
@@ -333,31 +334,31 @@ describe('workingMemoryToLettaCore', () => {
 
     const result = workingMemoryToLettaCore(working)
     expect(result.blocks).toHaveLength(2)
-    expect(result.blocks[0].label).toBe('persona')
-    expect(result.blocks[0].value).toBe('I am a code reviewer')
-    expect(result.blocks[0].limit).toBe(2000)
-    expect(result.blocks[1].label).toBe('context')
-    expect(result.blocks[1].value).toBe('Vue 3 project')
+    expect(at(result.blocks, 0).label).toBe('persona')
+    expect(at(result.blocks, 0).value).toBe('I am a code reviewer')
+    expect(at(result.blocks, 0).limit).toBe(2000)
+    expect(at(result.blocks, 1).label).toBe('context')
+    expect(at(result.blocks, 1).value).toBe('Vue 3 project')
   })
 
   it('JSON-serializes non-string values', () => {
     const working = { config: { maxTokens: 4096 } }
     const result = workingMemoryToLettaCore(working)
-    expect(result.blocks[0].value).toBe(JSON.stringify({ maxTokens: 4096 }))
+    expect(at(result.blocks, 0).value).toBe(JSON.stringify({ maxTokens: 4096 }))
   })
 
   it('truncates values exceeding blockLimit', () => {
     const working = { long: 'x'.repeat(5000) }
     const result = workingMemoryToLettaCore(working, 100)
-    expect(result.blocks[0].value.length).toBe(100)
-    expect(result.blocks[0].limit).toBe(100)
+    expect(at(result.blocks, 0).value.length).toBe(100)
+    expect(at(result.blocks, 0).limit).toBe(100)
   })
 
   it('uses custom blockLimit', () => {
     const working = { short: 'hello' }
     const result = workingMemoryToLettaCore(working, 500)
-    expect(result.blocks[0].limit).toBe(500)
-    expect(result.blocks[0].value).toBe('hello')
+    expect(at(result.blocks, 0).limit).toBe(500)
+    expect(at(result.blocks, 0).value).toBe('hello')
   })
 
   it('handles empty record', () => {

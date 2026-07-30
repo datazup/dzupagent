@@ -7,6 +7,7 @@ describe('rag integration', () => {
       mode: 'hybrid',
       topK: 3,
       qualityBoosting: false,
+      qualityWeights: { chunk: 0.6, source: 0.4 },
       tokenBudget: 500,
       embedQuery: async () => [0.1, 0.2, 0.3],
       vectorSearch: async () => [

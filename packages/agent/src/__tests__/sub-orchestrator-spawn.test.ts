@@ -684,7 +684,7 @@ describe("spawnSubOrchestrator — event surface", () => {
   function makeBus(): { bus: DzupEventBus; seen: DzupEvent[] } {
     const bus = createEventBus();
     const seen: DzupEvent[] = [];
-    bus.onAny((e) => seen.push(e));
+    bus.onAny((e) => { seen.push(e) });
     return { bus, seen };
   }
 

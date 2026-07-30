@@ -93,6 +93,7 @@ describe('withTokenLifecycle', () => {
     hooks.onUsage(makeUsage(10, 5), 'tool-output')
 
     const phases = manager.report.phases
+    expect(phases.length).toBeGreaterThan(0)
     expect(phases.every(p => p.phase === 'tool-output')).toBe(true)
   })
 

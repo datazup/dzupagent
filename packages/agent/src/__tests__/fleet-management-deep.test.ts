@@ -17,7 +17,7 @@ import { InMemoryAgentCluster } from "../cluster/in-memory-agent-cluster.js";
 import type { InMemoryAgentClusterConfig } from "../cluster/in-memory-agent-cluster.js";
 import type { AgentCluster, ClusterRole } from "../cluster/cluster-types.js";
 import { InMemoryMailboxStore } from "../mailbox/in-memory-mailbox-store.js";
-import type { MailboxStore, MailMessage } from "../mailbox/types.js";
+import type { MailboxStore } from "../mailbox/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

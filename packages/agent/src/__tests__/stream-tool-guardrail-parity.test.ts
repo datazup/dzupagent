@@ -681,7 +681,7 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
 
       const bus = createEventBus()
       const events: unknown[] = []
-      bus.on('approval:requested', (e) => events.push(e))
+      bus.on('approval:requested', (e) => { events.push(e) })
 
       const governance = new ToolGovernance({
         approvalRequired: ['migrate_db'],
@@ -918,7 +918,7 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
 
       const bus = createEventBus()
       const policyEvents: DzupEvent[] = []
-      bus.on('tool:error', (e) => policyEvents.push(e))
+      bus.on('tool:error', (e) => { policyEvents.push(e) })
 
       const agent = new DzupAgent(
         baseConfig({
@@ -1364,7 +1364,7 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
       const { tool, invokeFn } = mockTool('deploy', () => 'deployed')
       const bus = createEventBus()
       const approvals: DzupEvent[] = []
-      bus.on('approval:requested', (event) => approvals.push(event))
+      bus.on('approval:requested', (event) => { approvals.push(event) })
       const preset = createProductionToolGovernancePreset({
         agentId: 'prod-agent',
         runId: 'prod-run-approval',
@@ -1515,9 +1515,9 @@ describe('DzupAgent stream() — stream tool guardrail parity (MJ-AGENT-02)', ()
 
       const bus = createEventBus()
       const policyEvents: unknown[] = []
-      bus.on('tool:called', (e) => policyEvents.push(e))
-      bus.on('tool:result', (e) => policyEvents.push(e))
-      bus.on('approval:requested', (e) => policyEvents.push(e))
+      bus.on('tool:called', (e) => { policyEvents.push(e) })
+      bus.on('tool:result', (e) => { policyEvents.push(e) })
+      bus.on('approval:requested', (e) => { policyEvents.push(e) })
 
       const agent = new DzupAgent(
         baseConfig({

@@ -62,6 +62,16 @@ function createMock(namespaces: string[]): {
         return Promise.resolve(Array.from(map.values()))
       },
     ),
+    getKeyed: vi.fn().mockImplementation(
+      (ns: string, scope: Record<string, string>) => {
+        const k = `${ns}:${JSON.stringify(scope)}`
+        const map = records.get(k)
+        if (!map) return Promise.resolve([])
+        return Promise.resolve(
+          Array.from(map.entries()).map(([key, value]) => ({ key, value })),
+        )
+      },
+    ),
     search: vi.fn().mockResolvedValue([]),
     formatForPrompt: vi.fn().mockReturnValue(''),
     getNamespaceNames: vi.fn().mockImplementation(() => Array.from(nsMap.keys())),
@@ -220,7 +230,7 @@ describe('AgentFileExporter — record key derivation', () => {
     expect(recs.map(r => r.key)).toEqual(['first', 'second'])
   })
 
-  it('uses synthetic record-N when _key is missing', async () => {
+  it('uses the store key when _key is missing', async () => {
     const mock = createMock(['decisions'])
     seed(mock.records, 'decisions', SCOPE, 'k1', { text: 'A' })
     seed(mock.records, 'decisions', SCOPE, 'k2', { text: 'B' })
@@ -233,11 +243,11 @@ describe('AgentFileExporter — record key derivation', () => {
     })
     const file = await exp.export()
     const recs = file.memory.namespaces['decisions']!
-    expect(recs[0]!.key).toBe('record-0')
-    expect(recs[1]!.key).toBe('record-1')
+    expect(recs[0]!.key).toBe('k1')
+    expect(recs[1]!.key).toBe('k2')
   })
 
-  it('uses synthetic key when _key is non-string', async () => {
+  it('uses the store key when _key is non-string', async () => {
     const mock = createMock(['decisions'])
     seed(mock.records, 'decisions', SCOPE, 'k1', { _key: 42, text: 'A' })
     const exp = new AgentFileExporter({
@@ -247,7 +257,7 @@ describe('AgentFileExporter — record key derivation', () => {
       scope: SCOPE,
     })
     const file = await exp.export()
-    expect(file.memory.namespaces['decisions']![0]!.key).toBe('record-0')
+    expect(file.memory.namespaces['decisions']![0]!.key).toBe('k1')
   })
 })
 

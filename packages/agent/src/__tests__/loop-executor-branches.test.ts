@@ -13,7 +13,6 @@ import {
 import type { LoopNode, PipelineNode } from '@dzupagent/core'
 import type {
   NodeExecutor,
-  NodeResult,
   NodeExecutionContext,
   PipelineRuntimeEvent,
 } from '../pipeline/pipeline-runtime-types.js'

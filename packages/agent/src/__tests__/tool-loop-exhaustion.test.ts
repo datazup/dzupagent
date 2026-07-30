@@ -28,13 +28,11 @@
  * - LLM calls match iteration count on exhaustion
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   AIMessage,
   HumanMessage,
   SystemMessage,
-  ToolMessage,
-  type BaseMessage,
 } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { StructuredToolInterface } from "@langchain/core/tools";
@@ -890,8 +888,7 @@ describe("Multiple tool calls per iteration", () => {
   it("two calls per iteration for 3 iterations = 6 total tool invocations", async () => {
     const { tool: a, invokeFn: invA } = mockTool("a");
     const { tool: b, invokeFn: invB } = mockTool("b");
-    const model = infiniteToolModel("a"); // will only call 'a' not 'b' in parallel
-    // Override to return both each time
+    // Model returns both tool calls each iteration
     const twoCallModel: BaseChatModel = {
       invoke: vi.fn(async () => aiWithCalls([{ name: "a" }, { name: "b" }])),
     } as unknown as BaseChatModel;

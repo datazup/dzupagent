@@ -55,6 +55,17 @@ export interface ObservabilityBridgeConfig {
   maxSignals: number
 }
 
+/**
+ * Constructor input for {@link ObservabilityCorrectionBridge}.
+ *
+ * Thresholds are merged key-by-key onto the defaults, so a caller may override
+ * a single threshold without restating the other seven.
+ */
+export interface ObservabilityBridgeOptions {
+  thresholds?: Partial<ObservabilityThresholds>
+  maxSignals?: number
+}
+
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
@@ -98,7 +109,7 @@ export class ObservabilityCorrectionBridge {
   private nodeSuccessWindow = new Map<string, boolean[]>()
   private readonly config: ObservabilityBridgeConfig
 
-  constructor(config?: Partial<ObservabilityBridgeConfig>) {
+  constructor(config?: ObservabilityBridgeOptions) {
     this.config = {
       maxSignals: config?.maxSignals ?? DEFAULT_CONFIG.maxSignals,
       thresholds: { ...DEFAULT_THRESHOLDS, ...config?.thresholds },

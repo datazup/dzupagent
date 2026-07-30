@@ -18,20 +18,23 @@ function createMockMemoryService(): {
   svc: MemoryService
   putSpy: ReturnType<typeof vi.fn>
   getSpy: ReturnType<typeof vi.fn>
+  getKeyedSpy: ReturnType<typeof vi.fn>
   searchSpy: ReturnType<typeof vi.fn>
 } {
   const putSpy = vi.fn().mockResolvedValue(undefined)
   const getSpy = vi.fn().mockResolvedValue([])
+  const getKeyedSpy = vi.fn().mockResolvedValue([])
   const searchSpy = vi.fn().mockResolvedValue([])
 
   const svc = {
     put: putSpy,
     get: getSpy,
+    getKeyed: getKeyedSpy,
     search: searchSpy,
     formatForPrompt: vi.fn().mockReturnValue(''),
   } as unknown as MemoryService
 
-  return { svc, putSpy, getSpy, searchSpy }
+  return { svc, putSpy, getSpy, getKeyedSpy, searchSpy }
 }
 
 function createMockKeyProvider(keys: EncryptionKeyDescriptor[]): EncryptionKeyProvider {
@@ -385,8 +388,11 @@ describe('EncryptedMemoryService', () => {
         keyProvider: provider1,
       })
 
-      // Mock get() returning the old-key-encrypted record
-      mockMs.getSpy.mockResolvedValueOnce([storedValue])
+      // Mock the keyed read returning the old-key-encrypted record under the
+      // key it was written to; rotation must re-put to that same key.
+      mockMs.getKeyedSpy.mockResolvedValueOnce([
+        { key: 'k1', value: storedValue },
+      ])
 
       const result = await service2.rotateKey('ns', scope)
       expect(result.rotated).toBe(1)

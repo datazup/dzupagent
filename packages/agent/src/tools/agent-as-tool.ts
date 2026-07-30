@@ -27,10 +27,16 @@ export const DEFAULT_MAX_AGENT_TOOL_DEPTH = 3;
 export interface AgentAsToolContext {
   id: string;
   description: string;
+  /**
+   * Runs the wrapped agent. Only `content` is read from the result (see the
+   * call site below), so the contract asks for exactly that — a caller or test
+   * double need not synthesise usage counters and tool stats it never uses.
+   * Picked from `GenerateResult` so the field cannot drift from the real one.
+   */
   generate: (
     messages: BaseMessage[],
     options?: GenerateOptions
-  ) => Promise<GenerateResult>;
+  ) => Promise<Pick<GenerateResult, 'content'>>;
   /**
    * Depth-propagation options (AGENT-M-14). Optional so existing callers keep
    * working; when omitted the guard uses {@link DEFAULT_MAX_AGENT_TOOL_DEPTH}

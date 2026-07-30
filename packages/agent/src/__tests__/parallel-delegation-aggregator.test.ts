@@ -93,7 +93,7 @@ describe('aggregateSettledResults', () => {
   it('invokes the merge strategy and emits supervisor:merge_complete', () => {
     const events: DzupEvent[] = []
     const bus = createEventBus()
-    bus.onAny((e) => events.push(e))
+    bus.onAny((e) => { events.push(e) })
 
     const merged: MergedResult = {
       output: 'merged',

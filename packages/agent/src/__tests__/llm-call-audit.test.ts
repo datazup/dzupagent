@@ -131,7 +131,7 @@ describe('LLM-call audit log (RF-12)', () => {
     }
     const bus = createEventBus()
     const events: DzupEvent[] = []
-    bus.onAny((event) => events.push(event))
+    bus.onAny((event) => { events.push(event) })
     const agent = new DzupAgent({
       id: 'sink-failure-event-agent',
       instructions: 'You are a test agent.',

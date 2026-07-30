@@ -15,7 +15,7 @@
  *  - stream() generator contract
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   createWorkflow,
   WorkflowBuilder,
@@ -63,27 +63,6 @@ function asyncStep(
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function collectEvents(
-  workflow: CompiledWorkflow,
-  initialState: Record<string, unknown> = {},
-  opts?: { signal?: AbortSignal; runId?: string },
-): Promise<{
-  result: Record<string, unknown> | null;
-  events: WorkflowEvent[];
-  error: Error | null;
-}> {
-  const events: WorkflowEvent[] = [];
-  try {
-    const result = await workflow.run(initialState, {
-      ...opts,
-      onEvent: (e) => events.push(e),
-    });
-    return { result, events, error: null };
-  } catch (err) {
-    return { result: null, events, error: err as Error };
-  }
 }
 
 // ===========================================================================
@@ -1246,7 +1225,7 @@ describe("WorkflowBuilder — complex compositions", () => {
 
   it("parallel with all three merge strategies in one workflow", async () => {
     // Verify each strategy can run sequentially in the same workflow instance
-    for (const [strategy, key, check] of [
+    for (const [strategy, _key, check] of [
       [
         "merge-objects",
         "p1",

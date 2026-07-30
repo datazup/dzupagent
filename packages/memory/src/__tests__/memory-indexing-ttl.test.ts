@@ -45,7 +45,7 @@ function makePrunerStore(
     key: string;
     value: Record<string, unknown>;
     createdAt?: Date | number;
-  }> = [],
+  }> = []
 ): MockPrunerStore {
   const data = new Map<string, Record<string, unknown>>();
   const itemsWithMeta: Array<{
@@ -73,7 +73,7 @@ function makePrunerStore(
     put: vi.fn(
       async (_ns: string[], key: string, value: Record<string, unknown>) => {
         data.set(key, value);
-      },
+      }
     ),
     delete: vi.fn(async (ns: string[], key: string) => {
       data.delete(key);
@@ -95,7 +95,7 @@ function makeDecay(createdAt: number, strength = 1.0): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 function makeIndexStore(
-  initialData: Record<string, Record<string, unknown>[]> = {},
+  initialData: Record<string, Record<string, unknown>[]> = {}
 ): {
   store: SessionSearchStore;
   data: Record<string, Record<string, unknown>[]>;
@@ -103,7 +103,17 @@ function makeIndexStore(
   const data: Record<string, Record<string, unknown>[]> = { ...initialData };
   const store: SessionSearchStore = {
     get: vi.fn(
-      async (ns: string, _scope: Record<string, string>) => data[ns] ?? [],
+      async (ns: string, _scope: Record<string, string>) => data[ns] ?? []
+    ),
+    // `getKeyed` is required on the store contract: a record's key is not
+    // recoverable from its value, so `SessionSearch` reads keyed or not at all.
+    // These fixtures carry an explicit `key` field, so pair each value with it
+    // and fall back to the index only for fixtures that omit one.
+    getKeyed: vi.fn(async (ns: string, _scope: Record<string, string>) =>
+      (data[ns] ?? []).map((value, i) => ({
+        key: typeof value["key"] === "string" ? value["key"] : `rec-${i}`,
+        value,
+      }))
     ),
   };
   return { store, data };
@@ -116,7 +126,7 @@ const SCOPE = { tenantId: "t1" };
 // ---------------------------------------------------------------------------
 
 function makeTemporalRecord(
-  overrides: Partial<TemporalMetadata> = {},
+  overrides: Partial<TemporalMetadata> = {}
 ): Record<string, unknown> {
   const meta: TemporalMetadata = {
     systemCreatedAt: 1000,
@@ -131,7 +141,7 @@ function makeTemporalRecord(
 function createMockMemoryService(
   opts: {
     getReturn?: Record<string, unknown>[][];
-  } = {},
+  } = {}
 ): {
   svc: MemoryService;
   putSpy: ReturnType<typeof vi.fn>;
@@ -388,7 +398,7 @@ describe("GC runs — MemoryPruner full and partial GC", () => {
           { key: "exp1", value: makeDecay(now - SEVEN_DAYS * 2) },
           { key: "exp2", value: makeDecay(now - SEVEN_DAYS * 2) },
           { key: "exp3", value: makeDecay(now - SEVEN_DAYS * 2) },
-        ],
+        ]
       ),
       put: vi.fn(),
       delete: vi.fn(async (_ns: string[], key: string) => {
@@ -543,16 +553,18 @@ describe("Index rebuild — full and incremental", () => {
     expect(r).toHaveLength(0);
   });
 
-  it("store.get is called once per index() call (no caching across rebuild)", async () => {
+  it("the store is read once per index() call (no caching across rebuild)", async () => {
     const { store } = makeIndexStore({ ns: [{ key: "a", text: "foo" }] });
-    const getMock = store.get as ReturnType<typeof vi.fn>;
+    // Indexing reads through `getKeyed`, not `get` — a record's key is not
+    // recoverable from its value, so the keyed read is the only usable one.
+    const getKeyedMock = store.getKeyed as ReturnType<typeof vi.fn>;
     const search = new SessionSearch(store);
 
     await search.index("ns", SCOPE);
     await search.index("ns", SCOPE);
     await search.index("ns", SCOPE);
 
-    expect(getMock.mock.calls.length).toBe(3);
+    expect(getKeyedMock.mock.calls.length).toBe(3);
   });
 
   it("rebuilding large namespace replaces entire prior index atomically", async () => {
@@ -697,14 +709,14 @@ describe("Multiple TTL policies coexisting", () => {
     // Short policy: 3 days > 1 day → expired
     const shortResult = await new MemoryPruner().prune(
       makePrunerStore([{ key: "entry", value: makeDecay(now - age) }]),
-      { ttlMs: shortTtl, now: () => now },
+      { ttlMs: shortTtl, now: () => now }
     );
     expect(shortResult.expired).toBe(1);
 
     // Long policy: 3 days < 7 days → survives
     const longResult = await new MemoryPruner().prune(
       makePrunerStore([{ key: "entry", value: makeDecay(now - age) }]),
-      { ttlMs: longTtl, now: () => now },
+      { ttlMs: longTtl, now: () => now }
     );
     expect(longResult.expired).toBe(0);
     expect(longResult.remaining).toBe(1);
@@ -862,7 +874,7 @@ describe("Querying before vs after TTL expiry", () => {
     // Before TTL: survives
     const before = await new MemoryPruner().prune(
       makePrunerStore([{ key: "entry", value: makeDecay(startMs) }]),
-      { ttlMs },
+      { ttlMs }
     );
     expect(before.expired).toBe(0);
 
@@ -871,7 +883,7 @@ describe("Querying before vs after TTL expiry", () => {
 
     const after = await new MemoryPruner().prune(
       makePrunerStore([{ key: "entry", value: makeDecay(startMs) }]),
-      { ttlMs },
+      { ttlMs }
     );
     expect(after.expired).toBe(1);
 
@@ -1031,10 +1043,10 @@ describe("TemporalMemoryService TTL and expiry", () => {
     const result = filterByTemporal(records, { asOf: 1000 });
     expect(result).toHaveLength(1);
     expect((result[0]!["_temporal"] as TemporalMetadata).systemCreatedAt).toBe(
-      100,
+      100
     );
     expect(
-      (result[0]!["_temporal"] as TemporalMetadata).systemExpiredAt,
+      (result[0]!["_temporal"] as TemporalMetadata).systemExpiredAt
     ).toBeNull();
   });
 
@@ -1114,7 +1126,7 @@ describe("TemporalMemoryService TTL and expiry", () => {
     const result = await tms.getActive("ns", { tenantId: "t1" });
     expect(result).toHaveLength(1);
     expect(
-      (result[0]!["_temporal"] as TemporalMetadata).systemExpiredAt,
+      (result[0]!["_temporal"] as TemporalMetadata).systemExpiredAt
     ).toBeNull();
   });
 
@@ -1206,7 +1218,7 @@ describe("Edge cases", () => {
     ]);
     // maxEntries=1: one eviction; NaN vs 0.01 — NaN comparisons return false, so behavior is implementation-defined but no crash
     await expect(
-      new MemoryPruner().prune(store, { maxEntries: 1, now: () => now }),
+      new MemoryPruner().prune(store, { maxEntries: 1, now: () => now })
     ).resolves.toBeDefined();
   });
 

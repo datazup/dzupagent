@@ -100,7 +100,7 @@ describe('ApprovalGate', () => {
   it('emits approval:requested event', async () => {
     const bus = createEventBus()
     const events: unknown[] = []
-    bus.on('approval:requested', (e) => events.push(e))
+    bus.on('approval:requested', (e) => { events.push(e) })
 
     const gate = new ApprovalGate({ mode: 'required', timeoutMs: 50 }, bus)
     await gate.waitForApproval('run-1', { plan: 'test' })
@@ -167,7 +167,7 @@ describe('ApprovalGate', () => {
     vi.stubGlobal('fetch', fetchSpy)
 
     const failedEvents: unknown[] = []
-    bus.on('approval:webhook_failed', (e) => failedEvents.push(e))
+    bus.on('approval:webhook_failed', (e) => { failedEvents.push(e) })
 
     const gate = new ApprovalGate({
       mode: 'required',

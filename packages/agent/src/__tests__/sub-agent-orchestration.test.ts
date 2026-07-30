@@ -95,20 +95,6 @@ function createThrowingModel(message: string): BaseChatModel {
   } as unknown as BaseChatModel;
 }
 
-function createSlowModel(delayMs: number, content: string): BaseChatModel {
-  return {
-    invoke: vi.fn(async () => {
-      await new Promise((r) => setTimeout(r, delayMs));
-      return new AIMessage({ content, response_metadata: {} });
-    }),
-    bindTools: vi.fn(function (this: BaseChatModel) {
-      return this;
-    }),
-    _modelType: () => "base_chat_model",
-    _llmType: () => "mock",
-  } as unknown as BaseChatModel;
-}
-
 function createAgent(id: string, model: BaseChatModel): DzupAgent {
   return new DzupAgent({
     id,
@@ -343,7 +329,9 @@ describe("Fan-out patterns — parallel sub-agent dispatch", () => {
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => {
+      events.push(e);
+    });
   });
 
   it("AgentOrchestrator.parallel dispatches all agents with the same input", async () => {
@@ -834,7 +822,9 @@ describe("Sub-agent error handling — failures and timeouts", () => {
     const store = new InMemoryRunStore();
     const eventBus = createEventBus();
     const collectedEvents: DzupEvent[] = [];
-    eventBus.onAny((e) => collectedEvents.push(e));
+    eventBus.onAny((e) => {
+      collectedEvents.push(e);
+    });
     const tracker = new SimpleDelegationTracker({
       runStore: store,
       eventBus,
@@ -847,9 +837,9 @@ describe("Sub-agent error handling — failures and timeouts", () => {
       timeoutMs: 30,
     });
     await vi.waitFor(() => {
-      expect(
-        collectedEvents.some((e) => e.type === "delegation:timeout"),
-      ).toBe(true);
+      expect(collectedEvents.some((e) => e.type === "delegation:timeout")).toBe(
+        true,
+      );
     });
     expect(collectedEvents.some((e) => e.type === "delegation:timeout")).toBe(
       true,
@@ -962,7 +952,9 @@ describe("Sub-agent lifecycle — creation, execution, teardown", () => {
     store = new InMemoryRunStore();
     eventBus = createEventBus();
     events = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => {
+      events.push(e);
+    });
   });
 
   afterEach(() => {
@@ -1143,7 +1135,8 @@ describe("Sub-agent lifecycle — creation, execution, teardown", () => {
     await vi.waitFor(() => {
       expect(
         events.some(
-          (e) => e.type === "delegation:completed" || e.type === "delegation:failed",
+          (e) =>
+            e.type === "delegation:completed" || e.type === "delegation:failed",
         ),
       ).toBe(true);
     });
@@ -1417,7 +1410,9 @@ describe("Circuit breaker interactions with sub-agents", () => {
     const store = new InMemoryRunStore();
     const eventBus = createEventBus();
     const events: DzupEvent[] = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => {
+      events.push(e);
+    });
 
     const tracker = new SimpleDelegationTracker({
       runStore: store,
@@ -1481,7 +1476,9 @@ describe("planAndDelegate goal decomposition", () => {
     const store = new InMemoryRunStore();
     const eventBus = createEventBus();
     const events: DzupEvent[] = [];
-    eventBus.onAny((e) => events.push(e));
+    eventBus.onAny((e) => {
+      events.push(e);
+    });
     const tracker = new SimpleDelegationTracker({
       runStore: store,
       eventBus,

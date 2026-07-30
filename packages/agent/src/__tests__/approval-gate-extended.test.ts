@@ -227,7 +227,7 @@ describe("ApprovalGate.requestApproval() — non-durable falls through to waitFo
   it("emits approval:requested event in non-durable requestApproval", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => { events.push(e) });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 40 }, bus);
     await gate.requestApproval({ runId: "run-nd4", plan: "p" });
@@ -282,7 +282,7 @@ describe("ApprovalGate webhook — DLQ on HTTP error response", () => {
     const fetchSpy = vi.fn().mockResolvedValue({ ok: false, status: 403 });
     vi.stubGlobal("fetch", fetchSpy);
     const failedEvents: unknown[] = [];
-    bus.on("approval:webhook_failed", (e) => failedEvents.push(e));
+    bus.on("approval:webhook_failed", (e) => { failedEvents.push(e) });
 
     const gate = new ApprovalGate(
       {
@@ -541,7 +541,7 @@ describe("ApprovalGate.resume() approved event shape", () => {
     const store = new InMemoryStore();
     const bus = createEventBus();
     const granted: unknown[] = [];
-    bus.on("approval:granted", (e) => granted.push(e));
+    bus.on("approval:granted", (e) => { granted.push(e) });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
@@ -560,7 +560,7 @@ describe("ApprovalGate.resume() approved event shape", () => {
     const store = new InMemoryStore();
     const bus = createEventBus();
     const granted: unknown[] = [];
-    bus.on("approval:granted", (e) => granted.push(e));
+    bus.on("approval:granted", (e) => { granted.push(e) });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
@@ -597,7 +597,7 @@ describe("ApprovalGate.waitForApproval() — durableResume + timeoutMs", () => {
   it("emits timed_out event when durableResume + timeoutMs combination times out", async () => {
     const bus = createEventBus();
     const timedOut: unknown[] = [];
-    bus.on("approval:timed_out", (e) => timedOut.push(e));
+    bus.on("approval:timed_out", (e) => { timedOut.push(e) });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, timeoutMs: 40 },
@@ -622,7 +622,7 @@ describe("ApprovalGate effective timeout — default applied", () => {
   it("approval:requested event request.timeoutAt reflects DEFAULT_APPROVAL_TIMEOUT_MS", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => { events.push(e) });
 
     const gate = new ApprovalGate({ mode: "required" }, bus);
     const before = Date.now();
@@ -654,7 +654,7 @@ describe("ApprovalGate contactId format", () => {
     const store = new InMemoryStore();
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => { events.push(e) });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
@@ -675,7 +675,7 @@ describe("ApprovalGate contactId format", () => {
     const store = new InMemoryStore();
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => { events.push(e) });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
@@ -725,7 +725,7 @@ describe("ApprovalGate — non-default channel values", () => {
     it(`channel "${ch}" is emitted in approval:requested event`, async () => {
       const bus = createEventBus();
       const events: unknown[] = [];
-      bus.on("approval:requested", (e) => events.push(e));
+      bus.on("approval:requested", (e) => { events.push(e) });
 
       const gate = new ApprovalGate(
         { mode: "required", timeoutMs: 30, channel: ch },
@@ -767,7 +767,7 @@ describe("ApprovalGate.resume() idempotency", () => {
     const store = new InMemoryStore();
     const bus = createEventBus();
     const granted: unknown[] = [];
-    bus.on("approval:granted", (e) => granted.push(e));
+    bus.on("approval:granted", (e) => { granted.push(e) });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
@@ -812,7 +812,7 @@ describe("ApprovalGate approval:timed_out event shape", () => {
   it("carries runId, contactId, and timeoutMs fields", async () => {
     const bus = createEventBus();
     const timedOut: unknown[] = [];
-    bus.on("approval:timed_out", (e) => timedOut.push(e));
+    bus.on("approval:timed_out", (e) => { timedOut.push(e) });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("run-timed-shape", "plan");
@@ -833,7 +833,7 @@ describe("ApprovalGate approval:cancelled event shape", () => {
   it("carries runId and contactId fields", async () => {
     const bus = createEventBus();
     const cancelled: unknown[] = [];
-    bus.on("approval:cancelled", (e) => cancelled.push(e));
+    bus.on("approval:cancelled", (e) => { cancelled.push(e) });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 1_000 }, bus);
     const ctrl = new AbortController();
@@ -890,7 +890,7 @@ describe("ApprovalGate — edge-case plan values", () => {
   it("large plan (>1KB) serialised in request.data.context without throwing", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => { events.push(e) });
 
     const largePlan = {
       items: Array.from({ length: 100 }, (_, i) => ({
@@ -924,7 +924,7 @@ describe("ApprovalGate.requestApproval() — auto mode", () => {
   it("does not emit approval:requested in auto mode via requestApproval", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => { events.push(e) });
 
     const gate = new ApprovalGate({ mode: "auto" }, bus);
     await gate.requestApproval({ runId: "run-auto2", plan: "p" });
@@ -1042,7 +1042,7 @@ describe("ApprovalGate.requestApproval() — durable path event emission", () =>
     const store = new InMemoryStore();
     const bus = createEventBus();
     const sequence: string[] = [];
-    bus.on("approval:requested", () => sequence.push("requested"));
+    bus.on("approval:requested", () => { sequence.push("requested") });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
@@ -1065,7 +1065,7 @@ describe("ApprovalGate.requestApproval() — durable path event emission", () =>
     const store = new InMemoryStore();
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => { events.push(e) });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },

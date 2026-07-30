@@ -31,7 +31,6 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { StuckDetector } from "../guardrails/stuck-detector.js";
-import type { StuckDetectorConfig } from "../guardrails/stuck-detector.js";
 import { PipelineStuckDetector } from "../self-correction/pipeline-stuck-detector.js";
 import { StuckError } from "../agent/stuck-error.js";
 
@@ -359,6 +358,7 @@ describe("StuckDetector — reset between runs", () => {
     // Third sequence should NOT trigger stuck (hash history was cleared)
     const results: boolean[] = [];
     for (const t of seq) results.push(det.recordToolCall(t, {}).stuck);
+    expect(results.length).toBeGreaterThan(0)
     expect(results.every((r) => r === false)).toBe(true);
   });
 });

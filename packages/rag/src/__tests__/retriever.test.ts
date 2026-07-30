@@ -48,9 +48,9 @@ function makeRetriever(opts: {
     tokenBudget: opts.tokenBudget ?? 8000,
     embedQuery: async () => [0.1, 0.2, 0.3],
     vectorSearch: async () => opts.vectorHits ?? [],
-    keywordSearch: opts.keywordHits !== undefined
-      ? async () => opts.keywordHits!
-      : undefined,
+    ...(opts.keywordHits !== undefined
+      ? { keywordSearch: async () => opts.keywordHits! }
+      : {}),
   })
 }
 

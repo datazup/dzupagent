@@ -72,7 +72,7 @@ describe('ApprovalGate - extended', () => {
     it('emits approval:requested with contactId and channel', async () => {
       const bus = createEventBus()
       const events: unknown[] = []
-      bus.on('approval:requested', (e) => events.push(e))
+      bus.on('approval:requested', (e) => { events.push(e) })
 
       const gate = new ApprovalGate({ mode: 'required', timeoutMs: 50 }, bus)
       await gate.waitForApproval('run-1', { plan: 'test' })
@@ -87,7 +87,7 @@ describe('ApprovalGate - extended', () => {
     it('uses custom channel when configured', async () => {
       const bus = createEventBus()
       const events: unknown[] = []
-      bus.on('approval:requested', (e) => events.push(e))
+      bus.on('approval:requested', (e) => { events.push(e) })
 
       const gate = new ApprovalGate({
         mode: 'required',
@@ -103,7 +103,7 @@ describe('ApprovalGate - extended', () => {
     it('handles plan as string for question', async () => {
       const bus = createEventBus()
       const events: unknown[] = []
-      bus.on('approval:requested', (e) => events.push(e))
+      bus.on('approval:requested', (e) => { events.push(e) })
 
       const gate = new ApprovalGate({ mode: 'required', timeoutMs: 50 }, bus)
       await gate.waitForApproval('run-1', 'Please approve deployment')
@@ -117,7 +117,7 @@ describe('ApprovalGate - extended', () => {
     it('handles plan as object for context', async () => {
       const bus = createEventBus()
       const events: unknown[] = []
-      bus.on('approval:requested', (e) => events.push(e))
+      bus.on('approval:requested', (e) => { events.push(e) })
 
       const gate = new ApprovalGate({ mode: 'required', timeoutMs: 50 }, bus)
       await gate.waitForApproval('run-1', { action: 'deploy', env: 'prod' })
@@ -134,7 +134,7 @@ describe('ApprovalGate - extended', () => {
     it('emits approval:timed_out event on timeout', async () => {
       const bus = createEventBus()
       const timeouts: unknown[] = []
-      bus.on('approval:timed_out', (e) => timeouts.push(e))
+      bus.on('approval:timed_out', (e) => { timeouts.push(e) })
 
       const gate = new ApprovalGate({ mode: 'required', timeoutMs: 30 }, bus)
       await gate.waitForApproval('run-timeout', 'slow')
@@ -148,7 +148,7 @@ describe('ApprovalGate - extended', () => {
     it('uses default bounded behavior when timeoutMs is not set', async () => {
       const bus = createEventBus()
       const events: unknown[] = []
-      bus.on('approval:requested', (e) => events.push(e))
+      bus.on('approval:requested', (e) => { events.push(e) })
 
       const gate = new ApprovalGate({ mode: 'required' }, bus)
 
@@ -208,7 +208,7 @@ describe('ApprovalGate - extended', () => {
     it('cancels approval waits via AbortSignal', async () => {
       const bus = createEventBus()
       const cancellations: unknown[] = []
-      bus.on('approval:cancelled', (e) => cancellations.push(e))
+      bus.on('approval:cancelled', (e) => { cancellations.push(e) })
 
       const gate = new ApprovalGate({ mode: 'required', timeoutMs: 500 }, bus)
       const controller = new AbortController()
@@ -280,7 +280,7 @@ describe('ApprovalGate - extended', () => {
         }),
       )
 
-      const body = JSON.parse(fetchSpy.mock.calls[0][1].body)
+      const body = JSON.parse(fetchSpy.mock.calls[0]![1].body)
       expect(body.type).toBe('approval_requested')
       expect(body.runId).toBe('run-wh')
       expect(body.plan).toEqual({ action: 'deploy' })
@@ -316,7 +316,7 @@ describe('ApprovalGate - extended', () => {
     it('includes timeoutAt when timeoutMs is set', async () => {
       const bus = createEventBus()
       const events: unknown[] = []
-      bus.on('approval:requested', (e) => events.push(e))
+      bus.on('approval:requested', (e) => { events.push(e) })
 
       const gate = new ApprovalGate({ mode: 'required', timeoutMs: 60_000 }, bus)
 
@@ -333,7 +333,7 @@ describe('ApprovalGate - extended', () => {
     it('does not include timeoutAt for explicit durable resume waits', async () => {
       const bus = createEventBus()
       const events: unknown[] = []
-      bus.on('approval:requested', (e) => events.push(e))
+      bus.on('approval:requested', (e) => { events.push(e) })
 
       // Store supplied because durableResume without one (and without a
       // timeoutMs) is now a construction error — see the guard in ApprovalGate.

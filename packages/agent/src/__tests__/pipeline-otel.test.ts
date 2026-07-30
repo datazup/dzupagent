@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { PipelineRuntime } from '../pipeline/pipeline-runtime.js'
 import type {
   PipelineDefinition,
