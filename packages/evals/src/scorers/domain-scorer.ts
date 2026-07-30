@@ -201,6 +201,11 @@ export class DomainScorer implements Scorer<EvalInput> {
         score: result.score,
         reasoning: result.reasoning,
         method: 'llm-judge',
+        // Forward the judge unscored flag: this path has no deterministic
+        // signal, so an unreachable judge means the criterion was never
+        // measured. Dropping it here republished the 0.5 placeholder as a
+        // real verdict.
+        ...(result.scored === false ? { scored: false } : {}),
       };
     }
 
@@ -209,13 +214,22 @@ export class DomainScorer implements Scorer<EvalInput> {
       const deterResult = criterion.deterministicCheck!(input);
       const llmResult = await this.llmJudgeCriterion(criterion, input);
 
-      // Weighted combination: 40% deterministic, 60% LLM when both available
-      const combinedScore = clamp01(deterResult.score * 0.4 + llmResult.score * 0.6);
+      // Weighted combination: 40% deterministic, 60% LLM when both available.
+      // If the judge was unreachable its 0.5 is a placeholder, not a verdict,
+      // so blending it would publish a fabricated number as a measurement.
+      // The deterministic half WAS measured, so the criterion stays scored and
+      // falls back to that score alone, saying plainly why.
+      const judgeUnavailable = llmResult.scored === false;
+      const combinedScore = judgeUnavailable
+        ? clamp01(deterResult.score)
+        : clamp01(deterResult.score * 0.4 + llmResult.score * 0.6);
 
       return {
         criterion: criterion.name,
         score: combinedScore,
-        reasoning: `Deterministic (${deterResult.score.toFixed(2)}): ${deterResult.reasoning} | LLM (${llmResult.score.toFixed(2)}): ${llmResult.reasoning}`,
+        reasoning: judgeUnavailable
+          ? `Deterministic (${deterResult.score.toFixed(2)}): ${deterResult.reasoning} | LLM unavailable: ${llmResult.reasoning}`
+          : `Deterministic (${deterResult.score.toFixed(2)}): ${deterResult.reasoning} | LLM (${llmResult.score.toFixed(2)}): ${llmResult.reasoning}`,
         method: 'combined',
       };
     }
@@ -235,7 +249,7 @@ export class DomainScorer implements Scorer<EvalInput> {
   private async llmJudgeCriterion(
     criterion: DomainCriterion,
     input: EvalInput,
-  ): Promise<{ score: number; reasoning: string }> {
+  ): Promise<{ score: number; reasoning: string; scored?: boolean }> {
     if (!this.model) {
       return { score: 0, reasoning: 'No LLM model provided for judge-based criterion' };
     }
