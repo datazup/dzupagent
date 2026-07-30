@@ -29,14 +29,25 @@
  *
  * REMAINING BLIND SPOTS:
  *   • a type reached only through a container in PARAMETER position
- *     (`items: Map<string, T>`) is still skipped by design — see above.
+ *     (`items: Map<string, T>`) is skipped by design — see above. MEASURED
+ *     2026-07-30 and deliberately NOT implemented: the package has 100 such
+ *     sites but only 26 distinct value types, and every one is a result
+ *     payload (`NodeResult`, `DelegationResult`), a vendor type
+ *     (`StructuredToolInterface`), an AST node (`PipelineNode`) or a small
+ *     value record. The largest genuine candidate has 6 members, barely over
+ *     --min-declared, and none is an injected port. Narrowing a result payload
+ *     is unsafe anyway: producers must populate every field regardless of what
+ *     one consumer reads. Following values through `.get()` would add real
+ *     complexity to search a population with no findings in it.
  *   • members read via computed access (`obj[k]`) are invisible, so a port
  *     driven entirely by dynamic keys can look narrower than it is.
  *   • a member used ONLY as a type (`typeof x.foo`) counts as unused.
  *
- * VALIDATION: both hand-found cases are regression-checked by widening the
- * (now narrowed) port and confirming the tool re-finds it —
- * `AgentMemoryService` 2/18 and `GenerateResult` 3/11.
+ * VALIDATION: by ground-truth probe — enumerate a reported port's real call
+ * sites and confirm the "unused" members genuinely have none. Note that
+ * re-widening an already-narrowed port does NOT regression-test this tool: the
+ * narrowed consumer no longer references the wide type at all, so the output is
+ * byte-identical either way.
  *
  * Usage:
  *   node find-over-declared-ports.mjs <tsconfig> [--min-declared N] [--max-used N]
