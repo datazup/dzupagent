@@ -36,6 +36,16 @@ export interface OptimizationDecision {
   confidence: number
   /** When this decision was made */
   timestamp: Date
+  /**
+   * True when the execution history could not be read from the store, so this
+   * decision is a default rather than an optimization.
+   *
+   * An unreadable store and a never-written store both yield an empty history
+   * and the same default decision, so `reasoning` alone left consumers unable
+   * to tell that the optimizer had silently stopped optimizing. Optional for
+   * back-compat; treat `undefined` as readable.
+   */
+  historyUnavailable?: boolean
 }
 
 export interface PerformanceHistory {
@@ -343,18 +353,38 @@ export class AgentPerformanceOptimizer {
   }
 
   /**
+   * Whether the most recent {@link load} failed to read the store.
+   *
+   * A failed read and a store that has never been written both left
+   * `executions` empty, and every decision then reported 'No execution
+   * history; using defaults' — blaming absent history for what was actually an
+   * unreadable store, while silently reverting to defaults forever.
+   */
+  private historyLoadFailed = false
+
+  /**
    * Load state from store (if configured).
+   *
+   * Never throws: loading is best-effort. A failure is recorded and surfaced in
+   * the `reasoning` of subsequent decisions rather than being swallowed.
    */
   async load(): Promise<void> {
     if (!this.store) return
 
     try {
       const item = await this.store.get(this.namespace, STORE_KEY)
-      if (!item?.value) return
+      // A successful read of an absent key genuinely means 'nothing stored yet'.
+      if (!item?.value) {
+        this.historyLoadFailed = false
+        return
+      }
 
       const value = item.value as Record<string, unknown>
       const executionsRaw = value['executions'] as Record<string, unknown> | undefined
-      if (!executionsRaw || typeof executionsRaw !== 'object') return
+      if (!executionsRaw || typeof executionsRaw !== 'object') {
+        this.historyLoadFailed = false
+        return
+      }
 
       this.executions.clear()
 
@@ -374,8 +404,11 @@ export class AgentPerformanceOptimizer {
         }
         this.executions.set(nodeId, records)
       }
+      this.historyLoadFailed = false
     } catch {
-      // Store may not have data yet --- that is fine
+      // A throw here is NOT 'no data yet'. The read itself failed, so the empty
+      // execution set below is a floor, not a measurement.
+      this.historyLoadFailed = true
     }
   }
 
@@ -390,9 +423,13 @@ export class AgentPerformanceOptimizer {
       reflectionDepth: 1,
       qualityThreshold: 0.5,
       tokenBudgetMultiplier: 1.0,
-      reasoning: 'No execution history; using defaults',
+      reasoning: this.historyLoadFailed
+        ? 'Execution history could not be read from the store; using defaults. ' +
+          'This is a storage failure, not an absence of history.'
+        : 'No execution history; using defaults',
       confidence: Math.min(totalRuns / this.historyWindow, 1.0),
       timestamp: new Date(),
+      historyUnavailable: this.historyLoadFailed,
     }
   }
 
