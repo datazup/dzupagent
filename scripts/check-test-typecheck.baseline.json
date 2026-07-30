@@ -1,11 +1,11 @@
 {
-  "maxErrors": 206,
+  "maxErrors": 205,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. perFile is enforced too, so a fix in one file cannot mask a regression in another. perCode is informational.",
   "perCode": {
     "TS2345": 44,
     "TS2322": 39,
     "TS2379": 27,
-    "TS2375": 17,
+    "TS2375": 16,
     "TS2339": 14,
     "TS2353": 13,
     "TS2740": 9,
@@ -80,7 +80,6 @@
     "src/__tests__/supervisor-orchestration-comprehensive.test.ts": 6,
     "src/__tests__/supervisor.test.ts": 1,
     "src/__tests__/team-runtime.test.ts": 2,
-    "src/__tests__/template-registry-extended.test.ts": 1,
     "src/__tests__/token-lifecycle-stream-wiring.test.ts": 2,
     "src/__tests__/token-usage.test.ts": 1,
     "src/__tests__/tool-call-cache-deep.test.ts": 3,

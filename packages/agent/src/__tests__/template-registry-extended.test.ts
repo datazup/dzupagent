@@ -34,8 +34,6 @@ function makeTemplate(overrides: Partial<AgentTemplate> & { id: string }): Agent
     instructions: overrides.instructions ?? `Instructions for ${overrides.id} that are longer than fifty characters for validation purposes.`,
     modelTier: overrides.modelTier ?? 'fast',
     tags: overrides.tags ?? [overrides.id],
-    suggestedTools: overrides.suggestedTools,
-    guardrails: overrides.guardrails,
     ...overrides,
   }
 }
