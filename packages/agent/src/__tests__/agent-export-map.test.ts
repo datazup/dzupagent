@@ -24,7 +24,10 @@ describe('agent export map', () => {
         '--pack-destination',
         tempDir,
       ], { cwd: process.cwd() })
-      const [{ filename }] = JSON.parse(stdout) as Array<{ filename: string }>
+      const packed = JSON.parse(stdout) as Array<{ filename: string }>
+      const first = packed[0]
+      if (!first) throw new Error(`npm pack returned no tarball: ${stdout}`)
+      const { filename } = first
       await execFileAsync('tar', ['-xzf', join(tempDir, filename), '-C', tempDir])
 
       const packageRoot = join(tempDir, 'package')
