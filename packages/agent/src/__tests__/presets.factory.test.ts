@@ -175,7 +175,7 @@ describe('buildConfigFromPreset', () => {
 
     it('memoryProfile is undefined when not set anywhere', () => {
       const cfg = buildConfigFromPreset(
-        makePreset({ memoryProfile: undefined }),
+        makePreset(),
         makeDeps(),
       )
       expect(cfg.memoryProfile).toBeUndefined()
@@ -226,7 +226,7 @@ describe('buildConfigFromPreset', () => {
     })
 
     it('returns undefined tools when deps.tools is undefined', () => {
-      const cfg = buildConfigFromPreset(makePreset(), makeDeps({ tools: undefined }))
+      const cfg = buildConfigFromPreset(makePreset(), makeDeps())
       expect(cfg.tools).toBeUndefined()
     })
 
