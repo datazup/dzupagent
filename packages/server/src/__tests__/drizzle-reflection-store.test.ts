@@ -24,6 +24,10 @@ function createMockDb() {
       errorCount: data.errorCount ?? 0,
       patterns: data.patterns ?? [],
       qualityScore: data.qualityScore ?? 0,
+      // Mirrors `scored boolean NOT NULL DEFAULT true` from migration 0019:
+      // pre-migration rows read back as scored, since their score was the best
+      // measurement the old scorer could express.
+      scored: data.scored ?? true,
       // RUN-REFLECTION-STORE-WIDEN: schema default mirrors `tenant_id text
       // NOT NULL DEFAULT 'default'`; ownerId stays NULL for legacy rows.
       tenantId: data.tenantId ?? 'default',
@@ -971,5 +975,74 @@ describe('DrizzleReflectionStore', () => {
       expect(result!.tenantId).toBe('default')
       expect(result!.ownerId).toBeUndefined()
     })
+  })
+})
+
+describe('DrizzleReflectionStore — the scored flag survives the round-trip', () => {
+  it('persists and returns scored: false for an unobserved run', async () => {
+    const db = createMockDb()
+    const store = new DrizzleReflectionStore(db as never)
+
+    await store.save({
+      runId: 'unscored-run',
+      completedAt: new Date('2026-07-30T00:00:00.000Z'),
+      durationMs: 0,
+      totalSteps: 0,
+      toolCallCount: 0,
+      errorCount: 0,
+      patterns: [],
+      qualityScore: 1,
+      scored: false,
+    } as ReflectionSummary)
+
+    const loaded = await store.get('unscored-run')
+
+    // The store is where a later reader looks. Dropping this field on write or
+    // read would resurrect an unobserved run as a flawless one — a 1.0 score
+    // with nothing marking it as unmeasured.
+    expect(loaded?.scored).toBe(false)
+    expect(loaded?.qualityScore).toBe(1)
+  })
+
+  it('converse: a genuinely scored run round-trips as scored', async () => {
+    const db = createMockDb()
+    const store = new DrizzleReflectionStore(db as never)
+
+    await store.save({
+      runId: 'scored-run',
+      completedAt: new Date('2026-07-30T00:00:00.000Z'),
+      durationMs: 100,
+      totalSteps: 2,
+      toolCallCount: 1,
+      errorCount: 0,
+      patterns: [],
+      qualityScore: 1,
+      scored: true,
+    } as ReflectionSummary)
+
+    const loaded = await store.get('scored-run')
+
+    // Pinned to the flag, not to the score: both runs above score 1.0.
+    expect(loaded?.scored).toBe(true)
+  })
+
+  it('treats a legacy row with no scored column as scored', async () => {
+    const db = createMockDb()
+    const store = new DrizzleReflectionStore(db as never)
+
+    await store.save({
+      runId: 'legacy-run',
+      completedAt: new Date('2026-07-30T00:00:00.000Z'),
+      durationMs: 100,
+      totalSteps: 2,
+      toolCallCount: 1,
+      errorCount: 0,
+      patterns: [],
+      qualityScore: 0.8,
+    } as ReflectionSummary)
+
+    const loaded = await store.get('legacy-run')
+
+    expect(loaded?.scored).toBe(true)
   })
 })

@@ -1652,3 +1652,65 @@ describe('RF-04 default cost ceiling (SEC-08)', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Post-run reflection failure reporting
+// ---------------------------------------------------------------------------
+
+describe('executeGenerateRun — reflection failure is not discarded', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockCreateToolLoopLearningHook.mockReturnValue(undefined)
+    mockExtractFinalAiMessageContent.mockReturnValue('done')
+  })
+
+  it('reports a throwing onReflectionComplete via onReflectionError', async () => {
+    mockRunToolLoop.mockResolvedValue(makeToolLoopResult())
+    const runState = await prepareRunState(basePrepareParams({}))
+    const onReflectionError = vi.fn()
+
+    const result = await executeGenerateRun(baseExecuteParams(runState, {
+      config: {
+        id: 'test-agent',
+        instructions: '',
+        model: 'gpt-4',
+        onReflectionComplete: async () => {
+          throw new Error('reflection store unavailable')
+        },
+        onReflectionError,
+      } as DzupAgentConfig,
+    }))
+
+    // The run must still succeed — reflection is best-effort.
+    expect(result.content).toBeDefined()
+    // But the failure must leave a trace. A bare catch {} here meant a
+    // permanently broken reflection store produced no signal anywhere: every
+    // run passed and the learning system stayed empty, which is
+    // indistinguishable from a system with nothing to reflect on.
+    expect(onReflectionError).toHaveBeenCalledTimes(1)
+    expect((onReflectionError.mock.calls[0]![0] as Error).message).toBe(
+      'reflection store unavailable',
+    )
+  })
+
+  it('converse: a healthy reflection callback reports no error', async () => {
+    mockRunToolLoop.mockResolvedValue(makeToolLoopResult())
+    const runState = await prepareRunState(basePrepareParams({}))
+    const onReflectionError = vi.fn()
+    const onReflectionComplete = vi.fn(async () => {})
+
+    await executeGenerateRun(baseExecuteParams(runState, {
+      config: {
+        id: 'test-agent',
+        instructions: '',
+        model: 'gpt-4',
+        onReflectionComplete,
+        onReflectionError,
+      } as DzupAgentConfig,
+    }))
+
+    // Pinned to actual failure, not merely to reflection having run.
+    expect(onReflectionComplete).toHaveBeenCalledTimes(1)
+    expect(onReflectionError).not.toHaveBeenCalled()
+  })
+})

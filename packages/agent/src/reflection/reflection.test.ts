@@ -449,3 +449,42 @@ describe('InMemoryReflectionStore', () => {
     })
   })
 })
+
+describe('ReflectionAnalyzer — an unobserved run is not a perfect run', () => {
+  it('marks a summary with no events as unscored', () => {
+    const analyzer = new ReflectionAnalyzer()
+
+    const summary = analyzer.analyze('run-empty', [])
+
+    // Every penalty is evidence-driven, so an empty event list left the score at
+    // its 1.0 seed and reported a flawless run for a run we observed nothing of.
+    expect(summary.scored).toBe(false)
+    expect(summary.totalSteps).toBe(0)
+  })
+
+  it('converse: a genuinely clean run is scored and still scores high', () => {
+    const analyzer = new ReflectionAnalyzer()
+
+    const summary = analyzer.analyze('run-clean', [
+      makeStarted('a'),
+      makeCompleted('a', 10),
+    ])
+
+    // The flag must be pinned to the absence of evidence, not to a high score —
+    // otherwise a real clean run would be reported as unmeasured.
+    expect(summary.scored).toBe(true)
+    expect(summary.qualityScore).toBeGreaterThan(0.9)
+  })
+
+  it('converse: a failing run is scored, not treated as unobserved', () => {
+    const analyzer = new ReflectionAnalyzer()
+
+    const summary = analyzer.analyze('run-bad', [
+      makeStarted('a'),
+      makeFailed('a', 'boom'),
+    ])
+
+    expect(summary.scored).toBe(true)
+    expect(summary.qualityScore).toBeLessThan(1)
+  })
+})

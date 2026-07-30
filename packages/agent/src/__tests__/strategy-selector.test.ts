@@ -367,3 +367,72 @@ describe('StrategySelector', () => {
     expect(recMany.confidence).toBeGreaterThan(recFew.confidence)
   })
 })
+
+describe('StrategySelector — unreadable history is not empty history', () => {
+  function createFailingStore(): BaseStore {
+    return {
+      async get() { return null },
+      async put() { /* writes succeed */ },
+      async delete() { /* noop */ },
+      async search() { throw new Error('store unavailable') },
+      async batch() { return [] },
+      async list() { return [] },
+      async start() { /* noop */ },
+      async stop() { /* noop */ },
+    } as unknown as BaseStore
+  }
+
+  it('reports history as unavailable instead of claiming insufficient data', async () => {
+    const selector = new StrategySelector({ store: createFailingStore() })
+
+    const rec = await selector.recommend({ errorType: 'TypeError', nodeId: 'n1' })
+
+    // A store outage previously produced the byte-identical answer to a cold
+    // start, including a reasoning string asserting the history was empty.
+    expect(rec.historyUnavailable).toBe(true)
+    expect(rec.reasoning).toContain('could not be read')
+    expect(rec.reasoning).not.toContain('Insufficient historical data')
+    expect(rec.confidence).toBe(0)
+  })
+
+  it('converse: a genuinely new node still reports available-but-empty history', async () => {
+    const selector = new StrategySelector({ store: createMemoryStore() })
+
+    const rec = await selector.recommend({ errorType: 'TypeError', nodeId: 'fresh' })
+
+    // The signal must be pinned to a failed read, not to all-zero rates —
+    // otherwise every cold start would be reported as an outage.
+    expect(rec.historyUnavailable).toBe(false)
+    expect(rec.reasoning).toContain('Insufficient historical data')
+    expect(rec.strategy).toBe('targeted')
+  })
+
+  it('converse: a node with real history reports it as available', async () => {
+    const store = createMemoryStore()
+    const selector = new StrategySelector({ store })
+    for (let i = 0; i < 4; i++) {
+      await selector.recordOutcome({
+        errorType: 'TypeError', nodeId: 'n2', strategy: 'targeted', success: true,
+      })
+    }
+
+    const rec = await selector.recommend({ errorType: 'TypeError', nodeId: 'n2' })
+
+    expect(rec.historyUnavailable).toBe(false)
+    expect(rec.historicalRates.targeted.attempts).toBe(4)
+  })
+
+  it('marks rates unreadable when no errorType is given, since it cannot enumerate', async () => {
+    const selector = new StrategySelector({ store: createMemoryStore() })
+    await selector.recordOutcome({
+      errorType: 'TypeError', nodeId: 'n3', strategy: 'targeted', success: true,
+    })
+
+    // BaseStore cannot list namespaces, so this returns nothing — but that is an
+    // inability to read, not an observation that the node has no history.
+    const result = await selector.readHistoricalRates('n3')
+
+    expect(result.readable).toBe(false)
+    expect(result.rates.targeted.attempts).toBe(0)
+  })
+})

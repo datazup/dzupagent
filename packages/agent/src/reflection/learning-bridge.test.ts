@@ -484,3 +484,40 @@ describe('end-to-end reflection feedback loop', () => {
     expect(allSummaries).toHaveLength(2)
   })
 })
+
+describe('reflection failure is reported, not discarded', () => {
+  it('a dead store still surfaces through the propagate-then-report seam', async () => {
+    const store = new InMemoryReflectionStore()
+    store.save = async () => {
+      throw new Error('store unavailable')
+    }
+    const onSummary = vi.fn().mockResolvedValue(undefined)
+    const bridge = createReflectionLearningBridge({ onSummary, store })
+
+    // The bridge propagates (its documented contract). What changed is that the
+    // run engine, standing in for the caller here, no longer swallows it:
+    // previously the throw hit a bare catch {} and left no trace anywhere, so a
+    // permanently broken reflection store looked exactly like a system with
+    // nothing to reflect on.
+    const reported: unknown[] = []
+    try {
+      await bridge(makeSummary())
+    } catch (error) {
+      reported.push(error)
+    }
+
+    expect(reported).toHaveLength(1)
+    expect((reported[0] as Error).message).toBe('store unavailable')
+    // The learning handoff is skipped, which is why the failure must be visible.
+    expect(onSummary).not.toHaveBeenCalled()
+  })
+
+  it('converse: a healthy store reports nothing and completes the handoff', async () => {
+    const store = new InMemoryReflectionStore()
+    const onSummary = vi.fn().mockResolvedValue(undefined)
+    const bridge = createReflectionLearningBridge({ onSummary, store })
+
+    await expect(bridge(makeSummary())).resolves.toBeUndefined()
+    expect(onSummary).toHaveBeenCalledTimes(1)
+  })
+})
