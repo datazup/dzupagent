@@ -41,7 +41,12 @@ import {
 // Helpers to create test data
 // ---------------------------------------------------------------------------
 
-function makeNode(overrides: Partial<TimelineNode> = {}): TimelineNode {
+// Several tests pass an explicit 'durationMs: undefined' to exercise the
+// no-duration branch, overriding the default below. exactOptionalPropertyTypes
+// forbids that through a plain Partial<>, so relax the optional keys.
+function makeNode(
+  overrides: { [K in keyof TimelineNode]?: TimelineNode[K] | undefined } = {},
+): TimelineNode {
   return {
     index: 0,
     timestamp: 1000,

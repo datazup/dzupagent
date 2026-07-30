@@ -24,12 +24,24 @@ import { assertDepthAllowed, MAX_ORCHESTRATION_DEPTH } from '../delegating-super
 // Test data helpers
 // ---------------------------------------------------------------------------
 
+// durationMs is optional on AgentResult; under exactOptionalPropertyTypes an
+// absent duration must omit the KEY, not write 'undefined' into it.
 function success<T>(agentId: string, output: T, durationMs?: number): AgentResult<T> {
-  return { agentId, status: 'success', output, durationMs }
+  return {
+    agentId,
+    status: 'success',
+    output,
+    ...(durationMs === undefined ? {} : { durationMs }),
+  }
 }
 
 function timeout(agentId: string, durationMs?: number): AgentResult<string> {
-  return { agentId, status: 'timeout', error: 'timed out', durationMs }
+  return {
+    agentId,
+    status: 'timeout',
+    error: 'timed out',
+    ...(durationMs === undefined ? {} : { durationMs }),
+  }
 }
 
 function error(agentId: string, msg = 'agent crashed'): AgentResult<string> {
