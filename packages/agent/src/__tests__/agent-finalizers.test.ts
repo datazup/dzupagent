@@ -12,6 +12,7 @@
  * MemoryService) to keep the suite fast and deterministic.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { Mock } from 'vitest'
 import { HumanMessage, AIMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type * as ContextModule from '@dzupagent/context'
@@ -267,12 +268,29 @@ describe('maybeWriteBackMemory', () => {
     vi.clearAllMocks()
   })
 
+  type PutMock = Mock<MemoryService["put"]>
+
+  function makePutMock(): PutMock {
+    return vi.fn<MemoryService["put"]>(async () => undefined)
+  }
+
+  /**
+   * Reads back the put mock the helpers installed. Asserts presence rather
+   * than casting: if a test forgets to configure memory, this fails loudly
+   * instead of asserting against an undefined method.
+   */
+  function memoryPutOf(config: DzupAgentConfig): PutMock {
+    const memory = config.memory
+    if (!memory) throw new Error("test bug: config has no memory service")
+    return memory.put as PutMock
+  }
+
   function makeMemoryConfig(overrides: Partial<DzupAgentConfig> = {}): DzupAgentConfig {
     return makeConfig({
       memoryNamespace: 'test-ns',
       memoryScope: { userId: 'user-1' },
       memory: {
-        put: vi.fn(async () => undefined),
+        put: makePutMock(),
         get: vi.fn(async () => []),
         search: vi.fn(async () => []),
         delete: vi.fn(async () => false),
@@ -290,7 +308,7 @@ describe('maybeWriteBackMemory', () => {
       content: '',
     })
 
-    expect((config.memory as { put: ReturnType<typeof vi.fn> }).put).not.toHaveBeenCalled()
+    expect(memoryPutOf(config)).not.toHaveBeenCalled()
   })
 
   it('is a no-op when memoryWriteBack is false', async () => {
@@ -302,7 +320,7 @@ describe('maybeWriteBackMemory', () => {
       content: 'Important result',
     })
 
-    expect((config.memory as { put: ReturnType<typeof vi.fn> }).put).not.toHaveBeenCalled()
+    expect(memoryPutOf(config)).not.toHaveBeenCalled()
   })
 
   it('is a no-op when memory is not configured', async () => {
@@ -320,23 +338,23 @@ describe('maybeWriteBackMemory', () => {
   it('is a no-op when memoryNamespace is not configured', async () => {
     const config = makeConfig({
       memoryScope: { userId: 'u1' },
-      memory: { put: vi.fn(), get: vi.fn(), search: vi.fn(), delete: vi.fn() } as unknown as MemoryService,
+      memory: { put: makePutMock(), get: vi.fn(), search: vi.fn(), delete: vi.fn() } as unknown as MemoryService,
     })
 
     await maybeWriteBackMemory({ agentId: 'agent-1', config, content: 'result' })
 
-    expect((config.memory as { put: ReturnType<typeof vi.fn> }).put).not.toHaveBeenCalled()
+    expect(memoryPutOf(config)).not.toHaveBeenCalled()
   })
 
   it('is a no-op when memoryScope is not configured', async () => {
     const config = makeConfig({
       memoryNamespace: 'ns',
-      memory: { put: vi.fn(), get: vi.fn(), search: vi.fn(), delete: vi.fn() } as unknown as MemoryService,
+      memory: { put: makePutMock(), get: vi.fn(), search: vi.fn(), delete: vi.fn() } as unknown as MemoryService,
     })
 
     await maybeWriteBackMemory({ agentId: 'agent-1', config, content: 'result' })
 
-    expect((config.memory as { put: ReturnType<typeof vi.fn> }).put).not.toHaveBeenCalled()
+    expect(memoryPutOf(config)).not.toHaveBeenCalled()
   })
 
   it('writes content to memory store with correct namespace and scope', async () => {
@@ -348,7 +366,7 @@ describe('maybeWriteBackMemory', () => {
       content: 'Agent final response.',
     })
 
-    const put = (config.memory as { put: ReturnType<typeof vi.fn> }).put
+    const put = memoryPutOf(config)
     expect(put).toHaveBeenCalledOnce()
     const [namespace, scope] = put.mock.calls[0]!
     expect(namespace).toBe('test-ns')
@@ -364,7 +382,7 @@ describe('maybeWriteBackMemory', () => {
       content: 'Content to persist.',
     })
 
-    const put = (config.memory as { put: ReturnType<typeof vi.fn> }).put
+    const put = memoryPutOf(config)
     const [,, , record] = put.mock.calls[0]!
     expect(record.agentId).toBe('my-agent')
     expect(typeof record.timestamp).toBe('number')
@@ -426,7 +444,7 @@ describe('maybeWriteBackMemory', () => {
     })
     const tsAfter = Date.now()
 
-    const put = (config.memory as { put: ReturnType<typeof vi.fn> }).put
+    const put = memoryPutOf(config)
     const [,, , record] = put.mock.calls[0]!
     expect(record.expiresAt).toBeGreaterThanOrEqual(tsBefore + 60_000)
     expect(record.expiresAt).toBeLessThanOrEqual(tsAfter + 60_000)
@@ -441,7 +459,7 @@ describe('maybeWriteBackMemory', () => {
       content: 'Non-expiring content.',
     })
 
-    const put = (config.memory as { put: ReturnType<typeof vi.fn> }).put
+    const put = memoryPutOf(config)
     const [,, , record] = put.mock.calls[0]!
     expect('expiresAt' in record).toBe(false)
   })
@@ -466,7 +484,7 @@ describe('maybeWriteBackMemory', () => {
       content: 'User SSN is 123-45-6789.',
     })
 
-    const put = (config.memory as { put: ReturnType<typeof vi.fn> }).put
+    const put = memoryPutOf(config)
     expect(put).not.toHaveBeenCalled()
 
     const errorEvent = emittedEvents.find(
@@ -487,7 +505,7 @@ describe('maybeWriteBackMemory', () => {
       content: 'User credit card 4111111111111111.',
     })
 
-    const put = (config.memory as { put: ReturnType<typeof vi.fn> }).put
+    const put = memoryPutOf(config)
     expect(put).toHaveBeenCalledOnce()
     const [,, , record] = put.mock.calls[0]!
     expect(record.text).not.toContain('4111111111111111')

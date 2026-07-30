@@ -297,7 +297,7 @@ describe('RecoveryExecutor', () => {
   // -------------------------------------------------------------------------
 
   it('emits events during execution', async () => {
-    const events: Array<{ type: string }> = []
+    const events: Array<{ type: string; reason?: string }> = []
     eventBus.onAny((e) => { events.push(e) })
 
     const executor = new RecoveryExecutor({
@@ -313,7 +313,7 @@ describe('RecoveryExecutor', () => {
     expect(events.length).toBeGreaterThan(0)
     const reasons = events
       .filter(e => e.type === 'agent:stuck_detected')
-      .map(e => (e as { reason: string }).reason)
+      .map(e => e.reason ?? '')
 
     expect(reasons.some(r => r.includes('execution_started'))).toBe(true)
     expect(reasons.some(r => r.includes('execution_completed'))).toBe(true)
