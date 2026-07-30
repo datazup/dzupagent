@@ -296,6 +296,12 @@ for (const file of sourceFiles) {
     const used = new Set();
     const consumers = new Set();
     let refCount = 0;
+    // Sites that BUILD a value of this type rather than consume one:
+    // `Partial<T>`, `omitUndefined<T>({...})`, `satisfies T`, `as T`.
+    // These contribute no member reads, so counting them as consumers deflates
+    // the used-ratio and manufactures a false positive. ToolLoopConfig read
+    // 25/40 this way while every "unused" member had 3-30 real call sites.
+    let buildSites = 0;
 
     let refs = [];
     try {
@@ -318,6 +324,17 @@ for (const file of sourceFiles) {
       // undefined to undefined, matches, and treats the import statement as a
       // consumer annotation.
       if (!typeRef) continue;
+
+      // A type ARGUMENT (Partial<T>, omitUndefined<T>, Pick<T,...>) or an
+      // assertion position is a construction site, not a consumption site.
+      const typeArgOwner = typeRef.getParentIfKind?.(SyntaxKind.TypeReference);
+      const inAssertion =
+        typeRef.getFirstAncestorByKind?.(SyntaxKind.AsExpression) ??
+        typeRef.getFirstAncestorByKind?.(SyntaxKind.SatisfiesExpression);
+      if (typeArgOwner || inAssertion) {
+        buildSites++;
+        continue;
+      }
       const decl =
         typeRef?.getFirstAncestor(
           (a) =>
@@ -371,6 +388,98 @@ for (const file of sourceFiles) {
 
       if (nameNode.getKind() !== SyntaxKind.Identifier) continue;
 
+      // PROPERTY-SIGNATURE PORT (blind spot: cost a false "unused" on
+      // AgentMemoryContextLoaderConfig, whose arrow consumer reads
+      // `opts.config.instructions` and three siblings).
+      //
+      // When the interface annotates a PROPERTY rather than a parameter
+      // (`interface Opts { config: T }`), reads arrive as `o.config.foo` —
+      // two hops. The single-hop walk below sees `o.config` and stops, so
+      // every member read this way looked unused. Chase the outer access one
+      // more level, and only for the property whose type IS this interface.
+      if (decl.getKind() === SyntaxKind.PropertySignature) {
+        const holder = decl.getFirstAncestorByKind(SyntaxKind.InterfaceDeclaration);
+        const propName = nameNode.getText();
+        if (holder) {
+          let holderRefs = [];
+          try {
+            holderRefs = holder.getNameNode().findReferencesAsNodes();
+          } catch {
+            holderRefs = [];
+          }
+          for (const hr of holderRefs) {
+            const hDecl = hr
+              .getFirstAncestorByKind(SyntaxKind.TypeReference)
+              ?.getFirstAncestor(
+                (a) =>
+                  a.getKind() === SyntaxKind.Parameter ||
+                  a.getKind() === SyntaxKind.VariableDeclaration
+              );
+            const hName = hDecl?.getNameNode?.();
+            if (!hName || hName.getKind() !== SyntaxKind.Identifier) continue;
+            let binds = [];
+            try {
+              binds = hName.findReferencesAsNodes();
+            } catch {
+              continue;
+            }
+            for (const b of binds) {
+              // `const { config } = o` — destructure the property straight
+              // off the holder, then read members off the local. This is the
+              // shape the standard memory loader uses; missing it made three
+              // genuinely-read members look unused.
+              const bindPat = b.getParentIfKind(SyntaxKind.VariableDeclaration)
+                ?.getNameNode?.();
+              if (bindPat && bindPat.getKind() === SyntaxKind.ObjectBindingPattern) {
+                for (const el of bindPat.getElements()) {
+                  const src = (el.getPropertyNameNode() ?? el.getNameNode()).getText?.();
+                  if (src !== propName) continue;
+                  const local = el.getNameNode();
+                  if (local.getKind() !== SyntaxKind.Identifier) continue;
+                  let lrefs = [];
+                  try {
+                    lrefs = local.findReferencesAsNodes();
+                  } catch {
+                    continue;
+                  }
+                  for (const lr of lrefs) {
+                    const la = lr.getParentIfKind(SyntaxKind.PropertyAccessExpression);
+                    if (la && la.getExpression() === lr) used.add(la.getName());
+                  }
+                }
+              }
+
+              // `o.config` — the outer hop must name THIS property...
+              const outer = b.getParentIfKind(SyntaxKind.PropertyAccessExpression);
+              if (!outer || outer.getExpression() !== b) continue;
+              if (outer.getName() !== propName) continue;
+              // ...then `.foo` is a genuine member read of the interface.
+              const inner = outer.getParentIfKind(SyntaxKind.PropertyAccessExpression);
+              if (inner && inner.getExpression() === outer) {
+                used.add(inner.getName());
+                continue;
+              }
+              // `const config = o.config` — property assigned to a local,
+              // members read off THAT.
+              const vd = outer.getParentIfKind(SyntaxKind.VariableDeclaration);
+              const localName = vd?.getNameNode?.();
+              if (!localName || localName.getKind() !== SyntaxKind.Identifier) continue;
+              let localRefs = [];
+              try {
+                localRefs = localName.findReferencesAsNodes();
+              } catch {
+                continue;
+              }
+              for (const lr of localRefs) {
+                const la = lr.getParentIfKind(SyntaxKind.PropertyAccessExpression);
+                if (la && la.getExpression() === lr) used.add(la.getName());
+              }
+            }
+          }
+        }
+        continue;
+      }
+
       consumers.add(
         path.relative(process.cwd(), refFile.getFilePath()) +
           ":" +
@@ -410,6 +519,7 @@ for (const file of sourceFiles) {
       declared: declared.size,
       used: usedDeclared.size,
       ratio: +(usedDeclared.size / declared.size).toFixed(2),
+      buildSites,
       usedMembers: [...usedDeclared].sort(),
       unusedMembers: unused.sort(),
       consumers: [...consumers].slice(0, 5),
@@ -435,6 +545,12 @@ if (AS_JSON) {
     console.log(
       `     unused: ${un.slice(0, 12).join(", ")}${un.length > 12 ? ` … +${un.length - 12} more` : ""}`
     );
+    if (r.buildSites) {
+      console.log(
+        `     ⚠ ${r.buildSites} construction site(s) (Partial<T>/as T/satisfies T) contribute no` +
+          ` member reads — the used-count is a LOWER BOUND, verify before narrowing`
+      );
+    }
     if (r.consumers.length) console.log(`     seen at: ${r.consumers[0]}`);
     console.log();
   }
