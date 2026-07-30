@@ -486,3 +486,115 @@ describe('AgentPerformanceOptimizer', () => {
     })
   })
 })
+
+describe('AgentPerformanceOptimizer — unreadable history is not absent history', () => {
+  function createFailingStore(): BaseStore {
+    return {
+      async get() { throw new Error('store unavailable') },
+      async put() { /* noop */ },
+      async delete() { /* noop */ },
+      async search() { return [] },
+      async batch() { return [] },
+      async list() { return [] },
+      async start() { /* noop */ },
+      async stop() { /* noop */ },
+    } as unknown as BaseStore
+  }
+
+  it('reports a storage failure instead of blaming absent history', async () => {
+    const optimizer = new AgentPerformanceOptimizer({ store: createFailingStore() })
+
+    await optimizer.load()
+    const decision = optimizer.getRecommendation('node-a')
+
+    // The optimizer silently reverts to defaults on a dead store. Previously the
+    // only symptom was 'No execution history; using defaults' — the same string a
+    // brand-new node produces, blaming absent history for a storage failure.
+    expect(decision.historyUnavailable).toBe(true)
+    expect(decision.reasoning).toContain('could not be read')
+    expect(decision.reasoning).not.toBe('No execution history; using defaults')
+  })
+
+  it('converse: a genuinely empty store reports absent history, not a failure', async () => {
+    const optimizer = new AgentPerformanceOptimizer({ store: createMockStore() })
+
+    await optimizer.load()
+    const decision = optimizer.getRecommendation('node-a')
+
+    // Pinned to a failed read, not to an empty execution set — otherwise every
+    // cold start would be reported as an outage.
+    expect(decision.historyUnavailable).toBe(false)
+    expect(decision.reasoning).toBe('No execution history; using defaults')
+  })
+
+  it('converse: no store configured is not a failure', () => {
+    const optimizer = new AgentPerformanceOptimizer()
+
+    const decision = optimizer.getRecommendation('node-a')
+
+    expect(decision.historyUnavailable).toBe(false)
+  })
+
+  it('clears the failure flag once a later load succeeds', async () => {
+    const optimizer = new AgentPerformanceOptimizer({ store: createFailingStore() })
+    await optimizer.load()
+    expect(optimizer.getRecommendation('node-a').historyUnavailable).toBe(true)
+
+    // A transient outage must not latch permanently on the SAME instance —
+    // that is where a sticky flag would actually cause a false alarm forever.
+    let failNext = true
+    const flakyStore = {
+      async get() {
+        if (failNext) throw new Error('store unavailable')
+        return null
+      },
+      async put() { /* noop */ },
+      async delete() { /* noop */ },
+      async search() { return [] },
+      async batch() { return [] },
+      async list() { return [] },
+      async start() { /* noop */ },
+      async stop() { /* noop */ },
+    } as unknown as BaseStore
+
+    const flaky = new AgentPerformanceOptimizer({ store: flakyStore })
+    await flaky.load()
+    expect(flaky.getRecommendation('node-a').historyUnavailable).toBe(true)
+
+    failNext = false
+    await flaky.load()
+    expect(flaky.getRecommendation('node-a').historyUnavailable).toBe(false)
+  })
+
+  it('clears the failure flag when a later load reads a valid but empty history', async () => {
+    // Recovery must be observable on the DEFAULT decision surface, since that is
+    // the only place historyUnavailable is reported. A store that recovers WITH
+    // records takes the optimized path instead, where the field is absent — so
+    // this store recovers into a valid, empty executions map and the node stays
+    // on defaults. That exercises the reset at the end of the load body.
+    let failNext = true
+    const dataStore = {
+      async get() {
+        if (failNext) throw new Error('store unavailable')
+        return { key: 'state', value: { executions: { 'other-node': [] } } }
+      },
+      async put() { /* noop */ },
+      async delete() { /* noop */ },
+      async search() { return [] },
+      async batch() { return [] },
+      async list() { return [] },
+      async start() { /* noop */ },
+      async stop() { /* noop */ },
+    } as unknown as BaseStore
+
+    const opt = new AgentPerformanceOptimizer({ store: dataStore })
+    await opt.load()
+    expect(opt.getRecommendation('node-a').historyUnavailable).toBe(true)
+
+    failNext = false
+    await opt.load()
+    // Strictly false, not merely falsy: undefined would mean the flag was never
+    // reported at all, which is what the weaker assertion used to allow.
+    expect(opt.getRecommendation('node-a').historyUnavailable).toBe(false)
+  })
+})
