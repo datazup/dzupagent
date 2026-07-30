@@ -9,7 +9,7 @@ import type { AppEnv } from "../types.js";
 import {
   parsePositiveInt,
   resolveTenantId,
-  settledValue,
+  settledResults,
   tenantScope,
 } from "./learning-schemas.js";
 
@@ -23,6 +23,26 @@ export function registerDashboardHandlers(
   deps: DashboardHandlerDeps
 ): void {
   const { memoryService, defaultTenantId } = deps;
+
+  /**
+   * Search, reporting whether the store was actually reachable.
+   *
+   * `searchWithStatus` is optional on the port, so fall back to plain
+   * `search`. In that case reachability is genuinely unknown rather than
+   * known-good, but plain `search` cannot tell us either way - so this
+   * reports false and the dashboard is no worse off than before.
+   */
+  const searchWithStatus = (
+    namespace: string,
+    scope: Record<string, string>,
+    query: string,
+    limit: number,
+  ): Promise<{ results: Record<string, unknown>[]; searchFailed: boolean }> =>
+    memoryService.searchWithStatus
+      ? memoryService.searchWithStatus(namespace, scope, query, limit)
+      : memoryService
+          .search(namespace, scope, query, limit)
+          .then((results) => ({ results, searchFailed: false }));
 
   // ── GET /dashboard — full dashboard ──────────────────────────
   app.get("/dashboard", async (c) => {
@@ -39,22 +59,36 @@ export function registerDashboardHandlers(
         packsLoaded,
         errors,
       ] = await Promise.allSettled([
-        memoryService.search("lessons", scope, "", 1000),
-        memoryService.search("rules", scope, "", 1000),
-        memoryService.search("skills", scope, "", 1000),
-        memoryService.search("trajectories", scope, "", 1000),
-        memoryService.search("feedback", scope, "", 1000),
-        memoryService.search("packs_loaded", scope, "", 1000),
-        memoryService.search("errors", scope, "", 1000),
+        searchWithStatus("lessons", scope, "", 1000),
+        searchWithStatus("rules", scope, "", 1000),
+        searchWithStatus("skills", scope, "", 1000),
+        searchWithStatus("trajectories", scope, "", 1000),
+        searchWithStatus("feedback", scope, "", 1000),
+        searchWithStatus("packs_loaded", scope, "", 1000),
+        searchWithStatus("errors", scope, "", 1000),
       ]);
 
-      const lessonsArr = settledValue(lessons);
-      const rulesArr = settledValue(rules);
-      const skillsArr = settledValue(skills);
-      const trajectoriesArr = settledValue(trajectories);
-      const feedbackArr = settledValue(feedback);
-      const packsArr = settledValue(packsLoaded);
-      const errorsArr = settledValue(errors);
+      // A namespace whose store could not be read contributes 0 to its count.
+      // Reporting that as fact would tell an operator the agent has learned
+      // nothing at precisely the moment its memory is unreachable, so the
+      // response declares the figures partial instead.
+      const partial = [
+        lessons,
+        rules,
+        skills,
+        trajectories,
+        feedback,
+        packsLoaded,
+        errors,
+      ].some((r) => r.status === "rejected" || r.value.searchFailed);
+
+      const lessonsArr = settledResults(lessons);
+      const rulesArr = settledResults(rules);
+      const skillsArr = settledResults(skills);
+      const trajectoriesArr = settledResults(trajectories);
+      const feedbackArr = settledResults(feedback);
+      const packsArr = settledResults(packsLoaded);
+      const errorsArr = settledResults(errors);
 
       // Compute quality trend from trajectories
       const qualityTrend = trajectoriesArr
@@ -96,6 +130,7 @@ export function registerDashboardHandlers(
 
       return c.json({
         success: true,
+        partial,
         data: {
           lessonCount: lessonsArr.length,
           ruleCount: rulesArr.length,
@@ -129,17 +164,22 @@ export function registerDashboardHandlers(
 
     try {
       const [lessons, rules, skills] = await Promise.allSettled([
-        memoryService.search("lessons", scope, "", 1000),
-        memoryService.search("rules", scope, "", 1000),
-        memoryService.search("skills", scope, "", 1000),
+        searchWithStatus("lessons", scope, "", 1000),
+        searchWithStatus("rules", scope, "", 1000),
+        searchWithStatus("skills", scope, "", 1000),
       ]);
+
+      const partial = [lessons, rules, skills].some(
+        (r) => r.status === "rejected" || r.value.searchFailed,
+      );
 
       return c.json({
         success: true,
+        partial,
         data: {
-          lessonCount: settledValue(lessons).length,
-          ruleCount: settledValue(rules).length,
-          skillCount: settledValue(skills).length,
+          lessonCount: settledResults(lessons).length,
+          ruleCount: settledResults(rules).length,
+          skillCount: settledResults(skills).length,
         },
       });
     } catch (err) {
