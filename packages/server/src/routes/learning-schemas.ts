@@ -53,6 +53,19 @@ export function settledValue<T>(result: PromiseSettledResult<T[]>): T[] {
   return result.status === 'fulfilled' ? result.value : []
 }
 
+/**
+ * Unwrap a settled `searchWithStatus` call to its records.
+ *
+ * Companion to {@link settledValue} for calls that report whether the store was
+ * reachable. This drops that signal deliberately, so read `searchFailed`
+ * separately before presenting any count derived from the result.
+ */
+export function settledResults<T>(
+  result: PromiseSettledResult<{ results: T[]; searchFailed: boolean }>,
+): T[] {
+  return result.status === 'fulfilled' ? result.value.results : []
+}
+
 /** Parse a positive integer from a query string, returning `fallback` on failure. */
 export function parsePositiveInt(value: string | undefined, fallback: number): number {
   if (value === undefined) return fallback
