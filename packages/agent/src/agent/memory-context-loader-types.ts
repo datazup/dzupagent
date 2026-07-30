@@ -38,7 +38,19 @@ export function defaultMemoryRanker(
   })
 }
 
-export type AgentMemoryService = NonNullable<DzupAgentConfig['memory']>
+/**
+ * The memory surface the context loaders actually consume.
+ *
+ * Previously aliased the whole `MemoryService` (18 members) via
+ * `NonNullable<DzupAgentConfig['memory']>`, but the loader family only ever
+ * calls `get()` and `formatForPrompt()`. Pick-ing those two keeps the port
+ * structurally tied to MemoryService (so signature drift still breaks the
+ * build) while letting callers and test fakes supply only what is read.
+ */
+export type AgentMemoryService = Pick<
+  NonNullable<DzupAgentConfig['memory']>,
+  'get' | 'formatForPrompt'
+>
 export type ResolvedArrowMemoryConfig = ArrowMemoryConfig
 export type StandardMemoryBudgetConfig = Required<
   Pick<
@@ -130,7 +142,11 @@ export interface ArrowMemoryRuntime {
 
 export interface AgentMemoryContextLoaderConfig {
   instructions: string
-  memory?: DzupAgentConfig['memory']
+  /**
+   * Narrowed to {@link AgentMemoryService} — the two members the loader
+   * forwards to the standard/arrow paths. A full MemoryService still assigns.
+   */
+  memory?: AgentMemoryService
   memoryNamespace?: string
   memoryScope?: Record<string, string>
   /**
