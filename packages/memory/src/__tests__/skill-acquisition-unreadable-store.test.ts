@@ -1,3 +1,8 @@
+/* eslint-disable no-restricted-syntax -- These are BaseStore doubles, not memory
+ * services. The whole point of this file is a store whose reads REJECT, which
+ * createMemoryHarness() (a real MemoryService over a working InMemoryStore)
+ * cannot express. Assertions read the backing Map and put() effects, never a
+ * spy call count, so the rule's rationale does not apply here. */
 import { describe, it, expect, vi } from 'vitest'
 import { SkillAcquisitionEngine } from '../skill-acquisition.js'
 import type { ScanLesson } from '../skill-acquisition.js'
