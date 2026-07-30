@@ -152,6 +152,7 @@ export async function autoCompress(
     messages.length > keep ? messages.slice(0, messages.length - keep) : [];
 
   let offloadPath: string | undefined;
+  let offloadFailure: string | undefined;
   if (willBeLost.length > 0 && config?.offload) {
     offloadPath = config.offload.path ?? ".dzup/history/conversation.log";
     try {
@@ -159,10 +160,19 @@ export async function autoCompress(
         offloadPath,
         serializeForOffload(willBeLost)
       );
-    } catch {
+    } catch (error) {
       // Non-fatal: offload failure must not prevent compression, and must not
       // name a path in the summary that was never actually written.
+      //
+      // But compression proceeds and destroys these messages either way, so
+      // staying silent here reports permanent transcript loss as an ordinary
+      // successful compaction. Blanking the path alone only removes the
+      // recovery pointer; it does not tell the caller there is nothing to
+      // recover.
       offloadPath = undefined;
+      offloadFailure = `offload-failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`;
     }
   }
 
@@ -225,12 +235,22 @@ export async function autoCompress(
         messages: truncated,
         summary,
         compressed: true,
-        fallbackReason: "truncation",
+        fallbackReason:
+          offloadFailure !== undefined
+            ? `truncation; ${offloadFailure}`
+            : "truncation",
       };
     }
   }
 
-  return { messages: trimmedMessages, summary, compressed: true };
+  return {
+    messages: trimmedMessages,
+    summary,
+    compressed: true,
+    ...(offloadFailure !== undefined
+      ? { fallbackReason: offloadFailure }
+      : {}),
+  };
 }
 
 /**
@@ -245,12 +265,35 @@ export class FrozenSnapshot {
   private frozen: string | null = null;
   private isFrozen = false;
   private frozenFrame: unknown = null;
+  private unavailableReason: string | null = null;
 
   /** Capture the current context as the frozen snapshot, optionally storing an Arrow frame */
   freeze(context: string, frame?: unknown): void {
     this.frozen = context;
     this.isFrozen = true;
     this.frozenFrame = frame ?? null;
+  }
+
+  /**
+   * Mark this snapshot as built while its source was unreachable, so its body
+   * reflects an outage rather than the source's real contents.
+   *
+   * A frozen, empty snapshot is otherwise identical whether the tenant has
+   * genuinely learned nothing or the memory store was down: both yield
+   * `isActive() === true` with a header-only body, and the agent runs with
+   * every durable lesson silently absent from its prompt.
+   */
+  markSourceUnavailable(reason: string): void {
+    this.unavailableReason = reason;
+  }
+
+  /**
+   * Why the snapshot's source could not be read, or `null` when it was read
+   * successfully. Callers gating on memory context should treat a non-null
+   * value as "unknown", not as "empty".
+   */
+  sourceUnavailable(): string | null {
+    return this.unavailableReason;
   }
 
   /** Get the frozen context, or null if not frozen */
@@ -293,5 +336,6 @@ export class FrozenSnapshot {
     this.frozen = null;
     this.isFrozen = false;
     this.frozenFrame = null;
+    this.unavailableReason = null;
   }
 }

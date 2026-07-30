@@ -49,6 +49,18 @@ export interface SummarizeAndTrimResult {
   trimmedMessages: BaseMessage[]
   /** Present only when a model summarization call was attempted. */
   summaryMetadata?: SummaryMetadata
+  /**
+   * Set when summarization was attempted and failed, so `summary` is the
+   * caller's previous summary (or empty) rather than one covering the
+   * messages that were just trimmed away.
+   *
+   * The failure is also emitted on the event bus, but telemetry is not
+   * something a caller can branch on: without this field a summarizer outage
+   * returns the same shape as a successful compaction, and a caller that
+   * persists `summary` back into session state stores a stale summary while
+   * the messages it fails to describe are already gone.
+   */
+  summarizeFailed?: string
 }
 
 export interface MessageManagerConfig {
@@ -578,7 +590,11 @@ export async function summarizeAndTrim(
       promptVersion: profile.version,
       modelId,
     })
-    return { summary: existingSummary ?? '', trimmedMessages: repairedRecent }
+    return {
+      summary: existingSummary ?? '',
+      trimmedMessages: repairedRecent,
+      summarizeFailed: err instanceof Error ? err.message : String(err),
+    }
   }
 }
 

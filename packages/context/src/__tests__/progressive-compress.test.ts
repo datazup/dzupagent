@@ -618,3 +618,53 @@ describe('compressToBudget', () => {
     expect((result.messages[0]?.content as string).length).toBeLessThanOrEqual(80)
   })
 })
+
+// ---------------------------------------------------------------------------
+// A summarizer outage must not look like a successful compaction
+// ---------------------------------------------------------------------------
+
+describe('compressToLevel — summarizer failure is reported', () => {
+  it('flags degradedFrom when the summarizer fails at level 3', async () => {
+    const model = createFailingModel('summarizer offline')
+    const result = await compressToLevel(makeConversation(20), 3, null, model)
+
+    // summarizeAndTrim swallows the model error and returns the *previous*
+    // summary, so level legitimately stays 3 — the messages really were
+    // trimmed. What was missing is any sign that the summary describing them
+    // was never written.
+    expect(result.level).toBe(3)
+    expect(result.degradedFrom?.requested).toBe(3)
+    expect(result.degradedFrom?.reason).toContain('summarizer offline')
+  })
+
+  it('preserves the existing summary and still flags the failure', async () => {
+    const model = createFailingModel('LLM is down')
+    const result = await compressToLevel(
+      makeConversation(20),
+      3,
+      'old summary',
+      model,
+    )
+
+    // A caller persisting result.summary would write back a summary that does
+    // not cover the messages just discarded. degradedFrom is the only warning.
+    expect(result.summary).toBe('old summary')
+    expect(result.degradedFrom).toBeDefined()
+  })
+
+  it('leaves degradedFrom unset when summarization succeeds', async () => {
+    const model = createMockModel('a fresh summary')
+    const result = await compressToLevel(makeConversation(20), 3, null, model)
+
+    expect(result.level).toBe(3)
+    expect(result.degradedFrom).toBeUndefined()
+  })
+
+  it('leaves degradedFrom unset for a level the model is not consulted for', async () => {
+    const model = createFailingModel('should never be called')
+    const result = await compressToLevel(makeConversation(20), 2, null, model)
+
+    expect(result.level).toBe(2)
+    expect(result.degradedFrom).toBeUndefined()
+  })
+})

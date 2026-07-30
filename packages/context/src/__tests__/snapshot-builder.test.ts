@@ -141,6 +141,37 @@ describe('buildFrozenSnapshot', () => {
     expect(snapshot.get()).toBe('## Memory Snapshot')
   })
 
+  it('records why the snapshot is empty when the memory service throws', async () => {
+    const memory: MemoryServiceLike = {
+      get: vi.fn().mockRejectedValue(new Error('store unreachable')),
+    }
+
+    const snapshot = await buildFrozenSnapshot(memory, 'lessons', { tenantId: 't1' })
+
+    // The header-only body above is byte-identical to a tenant that has
+    // genuinely learned nothing. Only this signal separates the two.
+    expect(snapshot.sourceUnavailable()).toContain('store unreachable')
+  })
+
+  it('leaves sourceUnavailable null when the store really is empty', async () => {
+    const memory: MemoryServiceLike = { get: vi.fn().mockResolvedValue([]) }
+
+    const snapshot = await buildFrozenSnapshot(memory, 'lessons', { tenantId: 't1' })
+
+    expect(snapshot.get()).toBe('## Memory Snapshot')
+    expect(snapshot.sourceUnavailable()).toBeNull()
+  })
+
+  it('thaw() clears the unavailable marker so a reused snapshot is not stuck', async () => {
+    const memory: MemoryServiceLike = {
+      get: vi.fn().mockRejectedValue(new Error('boom')),
+    }
+    const snapshot = await buildFrozenSnapshot(memory, 'lessons', { tenantId: 't1' })
+    expect(snapshot.sourceUnavailable()).not.toBeNull()
+    snapshot.thaw()
+    expect(snapshot.sourceUnavailable()).toBeNull()
+  })
+
   describe('memory decay / TTL filtering (P10 Track C)', () => {
     it('filters out expired records (expiresAt < Date.now())', async () => {
       const past = Date.now() - 10_000

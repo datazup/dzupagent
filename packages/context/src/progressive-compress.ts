@@ -47,8 +47,24 @@ export interface ProgressiveCompressResult {
   messages: BaseMessage[]
   /** Summary text (null if no summarization occurred) */
   summary: string | null
-  /** Which compression level was applied */
+  /** Which compression level was actually applied */
   level: CompressionLevel
+  /**
+   * Set when a higher level was requested but could not be applied, so
+   * `level` reflects a fallback rather than the caller's request.
+   *
+   * Without this, a summarizer outage that drops level 3 to level 2 is
+   * indistinguishable from a caller who asked for level 2 -- and the
+   * returned `summary` is then the *stale* existing summary, which a
+   * caller persisting it back into session state would store believing
+   * compaction had succeeded.
+   */
+  degradedFrom?: {
+    /** The level the caller asked for. */
+    requested: CompressionLevel
+    /** Why it could not be applied. */
+    reason: string
+  }
   /** Estimated token count after compression */
   estimatedTokens: number
   /** Compression ratio (0-1, higher = more compressed) */
@@ -91,6 +107,7 @@ function buildResult(
   level: CompressionLevel,
   originalTokens: number,
   charsPerToken: number,
+  degradedFrom?: ProgressiveCompressResult['degradedFrom'],
 ): ProgressiveCompressResult {
   const estimatedTokensAfter = estimateTokens(messages, charsPerToken)
   const ratio = originalTokens > 0
@@ -100,6 +117,7 @@ function buildResult(
     messages,
     summary,
     level,
+    ...(degradedFrom ? { degradedFrom } : {}),
     estimatedTokens: estimatedTokensAfter,
     ratio: Math.max(0, Math.min(1, ratio)),
   }
@@ -246,7 +264,7 @@ export async function compressToLevel(
   // --- Level 3: structured summarization via summarizeAndTrim ---
   if (level === 3) {
     try {
-      const { summary, trimmedMessages } = await summarizeAndTrim(
+      const { summary, trimmedMessages, summarizeFailed } = await summarizeAndTrim(
         result,
         existingSummary,
         model,
@@ -257,10 +275,24 @@ export async function compressToLevel(
             : {}),
         },
       )
-      return buildResult(trimmedMessages, summary, 3, originalTokens, charsPerToken)
-    } catch {
-      // Fallback: return level-2 result if LLM summarization fails
-      return buildResult(result, existingSummary, 2, originalTokens, charsPerToken)
+      return buildResult(
+        trimmedMessages,
+        summary,
+        3,
+        originalTokens,
+        charsPerToken,
+        summarizeFailed
+          ? { requested: 3, reason: summarizeFailed }
+          : undefined,
+      )
+    } catch (error) {
+      // Defensive: summarizeAndTrim swallows model failures internally (it
+      // reports them via the returned `summarizeFailed`), so reaching here
+      // means something outside the model call threw.
+      return buildResult(result, existingSummary, 2, originalTokens, charsPerToken, {
+        requested: 3,
+        reason: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 

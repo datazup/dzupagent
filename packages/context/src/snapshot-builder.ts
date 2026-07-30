@@ -70,7 +70,9 @@ function serializeRecord(record: Record<string, unknown>, maxChars: number): str
  *
  * This helper is intentionally non-fatal — if the memory service throws (for
  * example, because the scope is missing a required key) the returned snapshot
- * is frozen with an empty record list.
+ * is frozen with an empty record list. In that case
+ * {@link FrozenSnapshot.sourceUnavailable} returns the failure reason, which
+ * is the only way to tell an outage from a tenant with no memory yet.
  */
 export async function buildFrozenSnapshot(
   memory: MemoryServiceLike,
@@ -82,11 +84,16 @@ export async function buildFrozenSnapshot(
   const header = options?.header ?? DEFAULT_HEADER
 
   let records: Record<string, unknown>[] = []
+  let unavailable: string | undefined
   try {
     records = await memory.get(namespace, scope ?? {})
-  } catch {
-    // Non-fatal — fall through with an empty snapshot body.
+  } catch (error) {
+    // Non-fatal — fall through with an empty snapshot body, but remember that
+    // the body is empty because the store could not be read. Without this the
+    // snapshot is byte-identical to one built for a tenant that has genuinely
+    // learned nothing.
     records = []
+    unavailable = error instanceof Error ? error.message : String(error)
   }
 
   // Drop expired records (P10 Track C — memory decay / TTL).  A record is
@@ -111,5 +118,6 @@ export async function buildFrozenSnapshot(
 
   const snapshot = new FrozenSnapshot()
   snapshot.freeze(context)
+  if (unavailable !== undefined) snapshot.markSourceUnavailable(unavailable)
   return snapshot
 }

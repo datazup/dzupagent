@@ -113,3 +113,64 @@ describe("autoCompress offload", () => {
     expect(result.summary).toContain(".dzup/history/custom.log");
   });
 });
+
+describe("autoCompress offload — sink failure", () => {
+  it("reports the offload failure instead of returning a clean compaction", async () => {
+    const model = createMockModel("## Goal\nSummarized content");
+    const msgs = makeConversation(16);
+    const failing: OffloadSink = {
+      async write() {
+        throw new Error("disk full");
+      },
+      async append() {
+        throw new Error("disk full");
+      },
+    };
+
+    const result = await autoCompress(msgs, null, model, {
+      offload: { sink: failing },
+    });
+
+    // The messages are destroyed either way. Previously the only effect of a
+    // sink failure was dropping the recovery pointer from the summary, so the
+    // caller saw compressed:true with no fallbackReason -- permanent
+    // transcript loss reported as an ordinary successful compaction.
+    expect(result.compressed).toBe(true);
+    expect(result.fallbackReason).toContain("offload-failed");
+    expect(result.fallbackReason).toContain("disk full");
+    // And it must still not name a path that was never written.
+    expect(result.summary ?? "").not.toContain("conversation.log");
+  });
+
+  it("leaves fallbackReason unset when the sink succeeds", async () => {
+    const model = createMockModel("## Goal\nSummarized content");
+    const result = await autoCompress(makeConversation(16), null, model, {
+      offload: { sink: memorySink() },
+    });
+
+    expect(result.compressed).toBe(true);
+    expect(result.fallbackReason).toBeUndefined();
+  });
+
+  it("reports both truncation and the offload failure when the budget also bites", async () => {
+    const model = createMockModel("## Goal\nSummarized content");
+    const failing: OffloadSink = {
+      async write() {
+        throw new Error("disk full");
+      },
+      async append() {
+        throw new Error("disk full");
+      },
+    };
+
+    const result = await autoCompress(makeConversation(16), null, model, {
+      offload: { sink: failing },
+      budget: 5,
+    });
+
+    // The truncation path returns early; it must not overwrite the offload
+    // failure with its own reason, or the transcript loss goes unreported.
+    expect(result.fallbackReason).toContain("truncation");
+    expect(result.fallbackReason).toContain("offload-failed");
+  });
+});
