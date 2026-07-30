@@ -54,6 +54,17 @@ function createTestApp(memoryService: MemoryServiceLike): Hono {
   return app;
 }
 
+describe("MemoryService satisfies the searchWithStatus port", () => {
+  it("a real MemoryService actually implements searchWithStatus", async () => {
+    // searchWithStatus is OPTIONAL on MemoryServiceLike, so if the real
+    // implementation ever loses the method the dashboard silently falls back
+    // to plain search and `partial` can never be true in production - while
+    // every mock-based test above still passes. This pins the wiring.
+    const { MemoryService } = await import("@dzupagent/memory");
+    expect(typeof MemoryService.prototype.searchWithStatus).toBe("function");
+  });
+});
+
 describe("learning dashboard — an unreachable store is not an empty one", () => {
   for (const route of ["/api/learning/dashboard", "/api/learning/overview"]) {
     describe(route, () => {
