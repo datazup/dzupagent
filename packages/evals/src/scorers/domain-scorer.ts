@@ -201,6 +201,9 @@ export class DomainScorer implements Scorer<EvalInput> {
         score: result.score,
         reasoning: result.reasoning,
         method: 'llm-judge',
+        // With no deterministic check to fall back on, an unreachable judge
+        // leaves this criterion entirely unmeasured.
+        ...(result.scored === false ? { scored: false } : {}),
       };
     }
 
@@ -209,13 +212,22 @@ export class DomainScorer implements Scorer<EvalInput> {
       const deterResult = criterion.deterministicCheck!(input);
       const llmResult = await this.llmJudgeCriterion(criterion, input);
 
-      // Weighted combination: 40% deterministic, 60% LLM when both available
-      const combinedScore = clamp01(deterResult.score * 0.4 + llmResult.score * 0.6);
+      // Weighted combination: 40% deterministic, 60% LLM when both available.
+      // If the judge was unreachable its 0.5 is a placeholder, so giving it 60%
+      // of the weight would drag a passing deterministic result toward the
+      // middle on an outage. The deterministic half still measured something,
+      // so fall back to it alone rather than discarding the criterion.
+      const judgeScored = llmResult.scored !== false;
+      const combinedScore = judgeScored
+        ? clamp01(deterResult.score * 0.4 + llmResult.score * 0.6)
+        : deterResult.score;
 
       return {
         criterion: criterion.name,
         score: combinedScore,
-        reasoning: `Deterministic (${deterResult.score.toFixed(2)}): ${deterResult.reasoning} | LLM (${llmResult.score.toFixed(2)}): ${llmResult.reasoning}`,
+        reasoning: judgeScored
+          ? `Deterministic (${deterResult.score.toFixed(2)}): ${deterResult.reasoning} | LLM (${llmResult.score.toFixed(2)}): ${llmResult.reasoning}`
+          : `Deterministic (${deterResult.score.toFixed(2)}): ${deterResult.reasoning} | LLM unavailable: ${llmResult.reasoning}`,
         method: 'combined',
       };
     }
@@ -235,7 +247,7 @@ export class DomainScorer implements Scorer<EvalInput> {
   private async llmJudgeCriterion(
     criterion: DomainCriterion,
     input: EvalInput,
-  ): Promise<{ score: number; reasoning: string }> {
+  ): Promise<{ score: number; reasoning: string; scored?: boolean }> {
     if (!this.model) {
       return { score: 0, reasoning: 'No LLM model provided for judge-based criterion' };
     }
