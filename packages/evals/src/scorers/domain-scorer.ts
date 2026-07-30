@@ -101,12 +101,15 @@ export class DomainScorer implements Scorer<EvalInput> {
     for (let i = 0; i < effectiveConfig.criteria.length; i++) {
       const criterion = effectiveConfig.criteria[i];
       const criterionResult = criterionResults[i];
-      if (criterion && criterionResult) {
+      if (criterion && criterionResult && criterionResult.scored !== false) {
         totalWeight += criterion.weight;
         weightedSum += criterionResult.score * criterion.weight;
       }
     }
-    const aggregateScore = totalWeight > 0 ? weightedSum / totalWeight : 0;
+    // totalWeight is 0 when every criterion went unjudged: nothing was
+    // measured, so the scorer reports unmeasured rather than a score.
+    const measured = totalWeight > 0;
+    const aggregateScore = measured ? weightedSum / totalWeight : 0;
 
     const durationMs = Date.now() - startTime;
 
@@ -114,7 +117,8 @@ export class DomainScorer implements Scorer<EvalInput> {
       scorerId: this.config.id,
       scores: scorerScores,
       aggregateScore,
-      passed: aggregateScore >= this.passThreshold,
+      measured,
+      passed: measured && aggregateScore >= this.passThreshold,
       durationMs,
       domain: effectiveDomain,
       criterionResults,
@@ -282,9 +286,12 @@ export class DomainScorer implements Scorer<EvalInput> {
       }
     }
 
-    // All retries exhausted: return a neutral fallback
+    // All retries exhausted. 0.5 is a placeholder, not a judgement, so it is
+    // flagged unscored and excluded from the aggregate — folding it in would
+    // be indistinguishable from a genuine mid-range verdict.
     return {
       score: 0.5,
+      scored: false,
       reasoning: `Failed to get valid LLM judge response for "${criterion.name}" after ${this.maxRetries + 1} attempt(s)`,
     };
   }

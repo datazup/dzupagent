@@ -53,6 +53,17 @@ export interface ScorerResult {
   passed: boolean;
   durationMs: number;
   costCents?: number | undefined;
+  /**
+   * Whether this scorer actually inspected anything.
+   *
+   * A scorer with no criteria wired has no evidence to penalise, so its
+   * aggregateScore is vacuous rather than good. Omitted means measured — the
+   * common case — so only scorers that can be constructed with nothing to
+   * check need to set it. Consumers rolling results into a pass/fail gate or a
+   * regression baseline must exclude `measured: false` entries rather than
+   * counting them as clean passes.
+   */
+  measured?: boolean | undefined;
 }
 
 /**

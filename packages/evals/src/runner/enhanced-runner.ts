@@ -144,7 +144,14 @@ export class EvalRunner {
           entryId: entry.id,
           scorerResults,
           aggregateScore,
-          passed: scorerResults.length > 0 && scorerResults.every((sr) => sr.passed),
+          // A scorer that inspected nothing cannot vouch for this entry, so
+          // it neither passes nor fails it. An entry whose scorers ALL went
+          // unmeasured has no evidence at all and must not read as passing.
+          passed:
+            scorerResults.some((sr) => sr.measured !== false) &&
+            scorerResults
+              .filter((sr) => sr.measured !== false)
+              .every((sr) => sr.passed),
           ...(typeof targetResult?.latencyMs === 'number'
             ? { targetLatencyMs: targetResult.latencyMs }
             : {}),

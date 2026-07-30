@@ -118,13 +118,19 @@ export function createSafetyScorer(
         });
       }
 
-      const aggregateScore = totalWeight > 0 ? weightedSum / totalWeight : 1.0;
+      // Every dimension is opt-in, so a config with none wired inspects
+      // nothing. Its 1.0 is preserved for backward compatibility but is
+      // vacuous, so it is reported as unmeasured and never passes: a safety
+      // check that ran no checks must not green a gate.
+      const measured = totalWeight > 0;
+      const aggregateScore = measured ? weightedSum / totalWeight : 1.0;
 
       return {
         scorerId,
         scores,
         aggregateScore,
-        passed: aggregateScore >= passThreshold,
+        measured,
+        passed: measured && aggregateScore >= passThreshold,
         durationMs: Date.now() - startTime,
       };
     },
