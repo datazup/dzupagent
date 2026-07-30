@@ -27,10 +27,17 @@ export const DEFAULT_MAX_AGENT_TOOL_DEPTH = 3;
 export interface AgentAsToolContext {
   id: string;
   description: string;
+  /**
+   * Only `content` is read (see the tool body below), so the port asks for
+   * exactly that. Requiring the whole `GenerateResult` would force every
+   * caller — and every test fake — to build 6 unread required fields, which
+   * contradicts the "narrow surface" contract above. A real DzupAgent
+   * satisfies this structurally.
+   */
   generate: (
     messages: BaseMessage[],
     options?: GenerateOptions
-  ) => Promise<GenerateResult>;
+  ) => Promise<Pick<GenerateResult, "content">>;
   /**
    * Depth-propagation options (AGENT-M-14). Optional so existing callers keep
    * working; when omitted the guard uses {@link DEFAULT_MAX_AGENT_TOOL_DEPTH}
