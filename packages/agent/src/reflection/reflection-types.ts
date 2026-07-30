@@ -54,6 +54,17 @@ export interface ReflectionSummary {
   /** Overall quality score in the range [0, 1]. */
   qualityScore: number
   /**
+   * False when there were no workflow events to score, so `qualityScore` is the
+   * unpenalised 1.0 seed rather than a measurement.
+   *
+   * Quality scoring is evidence-driven: every penalty requires an observed
+   * event. A run that produced no events therefore scored a perfect 1.0, and
+   * consumers filtering for low-quality runs skipped exactly the runs they had
+   * no information about. Optional for back-compat with callers that synthesise
+   * summaries; treat `undefined` as scored.
+   */
+  scored?: boolean
+  /**
    * RUN-REFLECTION-STORE-WIDEN: tenant scope stamped by the run worker at
    * persistence time. Optional in the type for back-compat with callers that
    * synthesise summaries (analyzer output, learning bridge, tests). Storage

@@ -66,6 +66,15 @@ export const runReflections = pgTable(
       .default([]),
     qualityScore: real("quality_score").notNull(),
     /**
+     * False when the run produced no workflow events, so `quality_score` is the
+     * unpenalised 1.0 seed rather than a measurement.
+     *
+     * Defaults to true so pre-migration rows keep their existing meaning: they
+     * were all written by a scorer that could not represent 'unscored', and
+     * back-filling them as unscored would retroactively invalidate real scores.
+     */
+    scored: boolean("scored").notNull().default(true),
+    /**
      * RUN-REFLECTION-STORE-WIDEN: API key id that owns the originating run.
      * Nullable so legacy ownerless reflections remain visible under
      * `includeLegacyOwnerless` semantics at the route layer.

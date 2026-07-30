@@ -96,6 +96,14 @@ export class ReflectionAnalyzer {
     // --- Compute quality score ---
     const qualityScore = this.computeQualityScore(events, errorCount, toolCallCount, patterns)
 
+    // Every penalty in computeQualityScore is evidence-driven, so an empty event
+    // list leaves the score at its 1.0 seed — a flawless verdict on a run we
+    // observed nothing about. 0 would be just as wrong in the other direction
+    // (it asserts a terrible run), so the score is reported as unscored instead
+    // and the caller decides. Filters keyed on `qualityScore < threshold` were
+    // silently skipping these runs as if they were the best runs in the system.
+    const scored = events.length > 0
+
     return {
       runId,
       completedAt: now,
@@ -105,6 +113,7 @@ export class ReflectionAnalyzer {
       errorCount,
       patterns,
       qualityScore,
+      scored,
     }
   }
 

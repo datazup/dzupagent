@@ -33,6 +33,7 @@ interface ReflectionRow {
   errorCount: number
   patterns: ReflectionPattern[]
   qualityScore: number
+  scored: boolean
   tenantId: string | null
   ownerId: string | null
   createdAt: Date
@@ -88,6 +89,9 @@ export class DrizzleReflectionStore implements RunReflectionStore {
         errorCount: summary.errorCount,
         patterns: summary.patterns,
         qualityScore: summary.qualityScore,
+        // Undefined means 'legacy caller that synthesised a summary'; those are
+        // treated as scored, matching the column default.
+        scored: summary.scored ?? true,
         ...(summary.tenantId !== undefined ? { tenantId: summary.tenantId } : {}),
         ...(summary.ownerId !== undefined ? { ownerId: summary.ownerId } : {}),
       })
@@ -150,6 +154,7 @@ export class DrizzleReflectionStore implements RunReflectionStore {
       errorCount: row.errorCount,
       patterns: (row.patterns ?? []) as ReflectionPattern[],
       qualityScore: row.qualityScore,
+      scored: row.scored ?? true,
     }
     if (row.tenantId !== null && row.tenantId !== undefined) {
       summary.tenantId = row.tenantId

@@ -128,8 +128,19 @@ export async function processGeneratedRun(
         events,
       )
       await params.config.onReflectionComplete(summary)
-    } catch {
-      // Reflection callback errors must NEVER affect the run result.
+    } catch (error) {
+      // Reflection callback errors must NEVER affect the run result, but they
+      // must not be invisible either. A throwing reflection store or learning
+      // handler previously left no trace anywhere: the run succeeded, the
+      // learning system recorded nothing, and 'no reflections' looked identical
+      // to 'reflection never ran'.
+      params.config.onReflectionError?.(error)
+      if (!params.config.onReflectionError) {
+        console.warn(
+          '[run-engine] post-run reflection failed (run result unaffected): ' +
+            (error instanceof Error ? error.message : String(error)),
+        )
+      }
     }
   }
 
