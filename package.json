@@ -65,6 +65,7 @@
     "test:scripts": "node --test \"scripts/__tests__/*.test.mjs\"",
     "check:test-typecheck": "node scripts/check-test-typecheck.mjs",
     "check:test-typecheck:report": "node scripts/check-test-typecheck.mjs --report-only",
+    "triage:exact-optional": "node scripts/triage-exact-optional.mjs",
     "release:version": "changeset version",
     "release:publish": "changeset publish",
     "release:status": "changeset status",
