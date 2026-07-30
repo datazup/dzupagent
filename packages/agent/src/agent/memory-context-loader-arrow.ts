@@ -12,8 +12,21 @@ import {
   safeNamespace,
 } from './memory-context-loader-budget.js'
 
+/**
+ * The arrow path reads four members of the loader config. Declaring the whole
+ * \`AgentMemoryContextLoaderConfig\` (14 members) forced every caller and test
+ * double to satisfy ten fields this function never looks at.
+ */
+export type ArrowMemoryLoaderConfig = Pick<
+  AgentMemoryContextLoaderConfig,
+  | 'instructions'
+  | 'estimateConversationTokens'
+  | 'onFallback'
+  | 'onFallbackDetail'
+>
+
 export interface ArrowMemoryRuntimeOptions {
-  config: AgentMemoryContextLoaderConfig
+  config: ArrowMemoryLoaderConfig
   loadArrowRuntime: () => Promise<ArrowMemoryRuntime>
 }
 
