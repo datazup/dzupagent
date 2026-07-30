@@ -49,6 +49,19 @@ export interface MemoryServiceLike {
     query: string,
     limit?: number,
   ): Promise<Record<string, unknown>[]>
+  /**
+   * As {@link search}, but reports whether the store could actually be read.
+   *
+   * Optional so existing implementations keep satisfying this port; callers
+   * must fall back to {@link search} when it is absent. An empty `results`
+   * with `searchFailed: true` means "unknown", not "none".
+   */
+  searchWithStatus?(
+    namespace: string,
+    scope: Record<string, string>,
+    query: string,
+    limit?: number,
+  ): Promise<{ results: Record<string, unknown>[]; searchFailed: boolean }>
   put(
     namespace: string,
     scope: Record<string, string>,
