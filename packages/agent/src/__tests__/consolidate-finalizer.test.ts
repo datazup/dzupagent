@@ -70,7 +70,12 @@ function makeMemoryWithStore(store: FakeStore) {
 
 // ── Config builder ──────────────────────────────────────────────────────────
 
-function makeConfig(overrides: Partial<DzupAgentConfig> = {}): DzupAgentConfig {
+function makeConfig(
+  // Accepts explicitly-undefined values: several cases assert the
+  // "not configured" path, and agent-finalizers no-ops on falsy `memory`,
+  // so an undefined value and an absent key mean the same thing here.
+  overrides: { [K in keyof DzupAgentConfig]?: DzupAgentConfig[K] | undefined } = {}
+): DzupAgentConfig {
   return {
     id: "agent-test",
     name: "Test Agent",
