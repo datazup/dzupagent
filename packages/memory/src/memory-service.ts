@@ -51,7 +51,7 @@ import {
   getNamespace,
   putMemoryRecord,
 } from './memory-service-store.js'
-import { searchMemory } from './memory-service-search.js'
+import { searchMemory, searchMemoryWithStatus } from './memory-service-search.js'
 import { formatMemoryForPrompt } from './memory-service-prompt.js'
 
 // Re-export public types so existing callers continue to import from
@@ -191,6 +191,34 @@ export class MemoryService {
     // surface they had with the inlined implementation.
     buildNamespaceTuple(ns, scope)
     return searchMemory(ns, scope, query, limit, readContext, {
+      store: this.store,
+      semanticStore: this.semanticStore,
+      capabilities: this.storeCapabilities,
+      referenceTracker: this.referenceTracker,
+    })
+  }
+
+  /**
+   * As {@link search}, but reports whether the memory store could be read.
+   *
+   * `searchFailed: true` with empty results means "unknown", not "none". Use
+   * this wherever a result count is shown to an operator or drives a decision,
+   * so a store outage is never rendered as "nothing has been learned".
+   */
+  async searchWithStatus(
+    namespace: string,
+    scope: Record<string, string>,
+    query: string,
+    limit = 5,
+    readContext?: ReadContext,
+  ): Promise<{ results: Record<string, unknown>[]; searchFailed: boolean }> {
+    const ns = getNamespace(this.nsMap, namespace)
+    if (!ns.searchable) {
+      const results = await this.get(namespace, scope, undefined, readContext)
+      return { results, searchFailed: false }
+    }
+    buildNamespaceTuple(ns, scope)
+    return searchMemoryWithStatus(ns, scope, query, limit, readContext, {
       store: this.store,
       semanticStore: this.semanticStore,
       capabilities: this.storeCapabilities,

@@ -54,7 +54,9 @@ interface SearchDeps {
  * Run a semantic search within a searchable namespace, applying decay
  * re-ranking and (when configured) RRF fusion with the SemanticStore.
  *
- * Non-fatal: returns `[]` on error.
+ * Non-fatal: returns `[]` on error. This conflates "no matches" with "the
+ * store is unreachable"; callers that make a decision from the result count
+ * should use {@link searchMemoryWithStatus} instead.
  */
 export async function searchMemory(
   ns: NamespaceConfig,
@@ -64,6 +66,32 @@ export async function searchMemory(
   readContext: ReadContext | undefined,
   deps: SearchDeps,
 ): Promise<Record<string, unknown>[]> {
+  const { results } = await searchMemoryWithStatus(
+    ns,
+    scope,
+    query,
+    limit,
+    readContext,
+    deps,
+  )
+  return results
+}
+
+/**
+ * As {@link searchMemory}, but reports whether the store could be read.
+ *
+ * An empty `results` with `searchFailed: true` means "unknown", not "none".
+ * Reporting a count from a failed read tells an operator the agent has learned
+ * nothing at exactly the moment its memory is unreachable.
+ */
+export async function searchMemoryWithStatus(
+  ns: NamespaceConfig,
+  scope: Record<string, string>,
+  query: string,
+  limit: number,
+  readContext: ReadContext | undefined,
+  deps: SearchDeps,
+): Promise<{ results: Record<string, unknown>[]; searchFailed: boolean }> {
   const tuple = buildNamespaceTuple(ns, scope)
   let finalResults: Record<string, unknown>[]
   try {
@@ -102,7 +130,7 @@ export async function searchMemory(
       finalResults = scored.slice(0, limit).map(s => s.value)
     }
   } catch {
-    return []
+    return { results: [], searchFailed: true }
   }
 
   // Fire-and-forget reference tracking (never blocks the search path)
@@ -121,7 +149,7 @@ export async function searchMemory(
     ).catch(() => { /* swallow tracker errors — non-fatal */ })
   }
 
-  return finalResults
+  return { results: finalResults, searchFailed: false }
 }
 
 /**
