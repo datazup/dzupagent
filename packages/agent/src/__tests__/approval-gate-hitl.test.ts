@@ -28,7 +28,6 @@
  * 22. Tool-loop integration: stop reason after second gate in same loop
  */
 
-import { createHmac } from "node:crypto";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   AIMessage,
@@ -323,7 +322,9 @@ describe("ApprovalGate.requestApproval() durable path", () => {
     const store = new InMemoryApprovalStore();
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
@@ -451,7 +452,9 @@ describe("ApprovalGate.resume() error cases", () => {
     const store = new InMemoryApprovalStore();
     const bus = createEventBus();
     const granted: unknown[] = [];
-    bus.on("approval:granted", (e) => granted.push(e));
+    bus.on("approval:granted", (e) => {
+      granted.push(e);
+    });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
@@ -471,7 +474,9 @@ describe("ApprovalGate.resume() error cases", () => {
     const store = new InMemoryApprovalStore();
     const bus = createEventBus();
     const rejected: unknown[] = [];
-    bus.on("approval:rejected", (e) => rejected.push(e));
+    bus.on("approval:rejected", (e) => {
+      rejected.push(e);
+    });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
@@ -495,7 +500,9 @@ describe("ApprovalGate.resume() error cases", () => {
     const store = new InMemoryApprovalStore();
     const bus = createEventBus();
     const rejected: unknown[] = [];
-    bus.on("approval:rejected", (e) => rejected.push(e));
+    bus.on("approval:rejected", (e) => {
+      rejected.push(e);
+    });
 
     const gate = new ApprovalGate(
       { mode: "required", durableResume: true, checkpointStore: store },
@@ -548,7 +555,9 @@ describe("ApprovalGate bypass (auto) mode", () => {
   it("does NOT emit approval:requested in auto mode", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "auto" }, bus);
     await gate.waitForApproval("r", "plan");
@@ -664,7 +673,9 @@ describe("ApprovalGate AbortSignal edge cases", () => {
   it("emits approval:cancelled when signal is already aborted", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:cancelled", (e) => events.push(e));
+    bus.on("approval:cancelled", (e) => {
+      events.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 5_000 }, bus);
     const controller = new AbortController();
@@ -684,7 +695,9 @@ describe("ApprovalGate AbortSignal edge cases", () => {
   it("abort reason as Error instance — message is used", async () => {
     const bus = createEventBus();
     const cancellations: unknown[] = [];
-    bus.on("approval:cancelled", (e) => cancellations.push(e));
+    bus.on("approval:cancelled", (e) => {
+      cancellations.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 5_000 }, bus);
     const controller = new AbortController();
@@ -700,7 +713,9 @@ describe("ApprovalGate AbortSignal edge cases", () => {
   it("abort reason as unknown type — falls back to default string", async () => {
     const bus = createEventBus();
     const cancellations: unknown[] = [];
-    bus.on("approval:cancelled", (e) => cancellations.push(e));
+    bus.on("approval:cancelled", (e) => {
+      cancellations.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 5_000 }, bus);
     const controller = new AbortController();
@@ -739,7 +754,9 @@ describe("ApprovalGate event sequence", () => {
   it("requested fires before granted resolves", async () => {
     const bus = createEventBus();
     const sequence: string[] = [];
-    bus.on("approval:requested", () => sequence.push("requested"));
+    bus.on("approval:requested", () => {
+      sequence.push("requested");
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 500 }, bus);
     const p = gate.waitForApproval("run-seq1", "plan");
@@ -760,8 +777,12 @@ describe("ApprovalGate event sequence", () => {
   it("requested fires before timed_out resolves", async () => {
     const bus = createEventBus();
     const sequence: string[] = [];
-    bus.on("approval:requested", () => sequence.push("requested"));
-    bus.on("approval:timed_out", () => sequence.push("timed_out"));
+    bus.on("approval:requested", () => {
+      sequence.push("requested");
+    });
+    bus.on("approval:timed_out", () => {
+      sequence.push("timed_out");
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("run-seq2", "plan");
@@ -775,8 +796,12 @@ describe("ApprovalGate event sequence", () => {
   it("requested fires before cancelled resolves", async () => {
     const bus = createEventBus();
     const sequence: string[] = [];
-    bus.on("approval:requested", () => sequence.push("requested"));
-    bus.on("approval:cancelled", () => sequence.push("cancelled"));
+    bus.on("approval:requested", () => {
+      sequence.push("requested");
+    });
+    bus.on("approval:cancelled", () => {
+      sequence.push("cancelled");
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 1_000 }, bus);
     const ctrl = new AbortController();
@@ -796,7 +821,9 @@ describe("ApprovalGate event sequence", () => {
   it("exactly one approval:requested event per waitForApproval call", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("run-once", "plan");
@@ -807,7 +834,9 @@ describe("ApprovalGate event sequence", () => {
   it("two sequential waitForApproval calls emit two requested events", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("run-s1", "plan");
@@ -840,7 +869,9 @@ describe("ApprovalGate — rapid grant beats timeout", () => {
   it("does not emit timed_out when approval arrives in time", async () => {
     const bus = createEventBus();
     const timeouts: unknown[] = [];
-    bus.on("approval:timed_out", (e) => timeouts.push(e));
+    bus.on("approval:timed_out", (e) => {
+      timeouts.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 200 }, bus);
     const p = gate.waitForApproval("run-fast2", "plan");
@@ -1011,7 +1042,9 @@ describe("ApprovalGate metadata in approval:requested event", () => {
   it("emits contactId as a UUID-like string", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("run-meta", "plan");
@@ -1027,7 +1060,9 @@ describe("ApprovalGate metadata in approval:requested event", () => {
   it("emits plan as the exact object passed in", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const plan = { op: "create", resource: "bucket", count: 3 };
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
@@ -1040,7 +1075,9 @@ describe("ApprovalGate metadata in approval:requested event", () => {
   it("emits plan as string when string plan is passed", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("run-plan-str", "approve the step");
@@ -1052,7 +1089,9 @@ describe("ApprovalGate metadata in approval:requested event", () => {
   it('request.data.question is "Approve this action?" for non-string plan', async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("run-q1", { x: 1 });
@@ -1066,7 +1105,9 @@ describe("ApprovalGate metadata in approval:requested event", () => {
   it("request.data.question is the string plan itself", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("run-q2", "Is this OK?");
@@ -1080,7 +1121,9 @@ describe("ApprovalGate metadata in approval:requested event", () => {
   it("request contains runId", async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("run-rid1", "plan");
@@ -1093,7 +1136,9 @@ describe("ApprovalGate metadata in approval:requested event", () => {
   it('request type is "approval"', async () => {
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("run-rt", "plan");
@@ -1113,8 +1158,12 @@ describe("ApprovalGate — multiple subscribers", () => {
     const bus = createEventBus();
     const a: unknown[] = [];
     const b: unknown[] = [];
-    bus.on("approval:requested", (e) => a.push(e));
-    bus.on("approval:requested", (e) => b.push(e));
+    bus.on("approval:requested", (e) => {
+      a.push(e);
+    });
+    bus.on("approval:requested", (e) => {
+      b.push(e);
+    });
 
     const gate = new ApprovalGate({ mode: "required", timeoutMs: 30 }, bus);
     await gate.waitForApproval("run-multi-sub", "plan");
@@ -1138,7 +1187,9 @@ describe("Tool-loop + ApprovalGate bypass mode", () => {
     ]);
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     // No approvalRequired configured
     const governance = new ToolGovernance({});
@@ -1178,7 +1229,9 @@ describe("Tool-loop + ApprovalGate second sequential gate", () => {
     ]);
     const bus = createEventBus();
     const events: unknown[] = [];
-    bus.on("approval:requested", (e) => events.push(e));
+    bus.on("approval:requested", (e) => {
+      events.push(e);
+    });
 
     const governance = new ToolGovernance({
       approvalRequired: ["deploy", "migrate"],
@@ -1244,7 +1297,7 @@ describe("ApprovalGate webhook channel forwarding", () => {
     await new Promise<void>((r) => setTimeout(r, 20));
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    const body = JSON.parse(fetchSpy.mock.calls[0]![1]!.body as string);
     expect(body.channel).toBe("email");
   });
 
@@ -1262,7 +1315,7 @@ describe("ApprovalGate webhook channel forwarding", () => {
     await gate.waitForApproval("run-type", { step: "final" });
     await new Promise<void>((r) => setTimeout(r, 20));
 
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    const body = JSON.parse(fetchSpy.mock.calls[0]![1]!.body as string);
     expect(body.type).toBe("approval_requested");
   });
 
@@ -1280,7 +1333,7 @@ describe("ApprovalGate webhook channel forwarding", () => {
     await gate.waitForApproval("run-wh-id", "plan");
     await new Promise<void>((r) => setTimeout(r, 20));
 
-    const body = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    const body = JSON.parse(fetchSpy.mock.calls[0]![1]!.body as string);
     expect(body.runId).toBe("run-wh-id");
   });
 
@@ -1298,7 +1351,7 @@ describe("ApprovalGate webhook channel forwarding", () => {
     await gate.waitForApproval("run-post", "plan");
     await new Promise<void>((r) => setTimeout(r, 20));
 
-    expect(fetchSpy.mock.calls[0][1].method).toBe("POST");
+    expect(fetchSpy.mock.calls[0]![1]!.method).toBe("POST");
   });
 });
 
