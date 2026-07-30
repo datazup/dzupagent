@@ -37,7 +37,7 @@ function toQdrantConditions(filter: MetadataFilter): QdrantFilterClause[] {
   if ("or" in filter) {
     throw new Error(
       "QdrantCorpusStore.delete: `or` filters are not supported; " +
-        "a top-level `must` cannot express disjunction without widening the delete"
+        "a top-level `must` cannot express disjunction without widening the delete",
     );
   }
   switch (filter.op) {
@@ -48,7 +48,7 @@ function toQdrantConditions(filter: MetadataFilter): QdrantFilterClause[] {
     default:
       throw new Error(
         `QdrantCorpusStore.delete: unsupported filter operator '${filter.op}' ` +
-          `on field '${filter.field}'`
+          `on field '${filter.field}'`,
       );
   }
 }
@@ -63,7 +63,7 @@ export class QdrantCorpusStore implements VectorStore {
 
   constructor(
     store: QdrantVectorStore,
-    options: { collectionField?: string } = {}
+    options: { collectionField?: string } = {},
   ) {
     this.store = store;
     this.collectionField = options.collectionField ?? "_collection";
@@ -71,7 +71,7 @@ export class QdrantCorpusStore implements VectorStore {
 
   async createCollection(
     name: string,
-    _config: CollectionConfig
+    _config: CollectionConfig,
   ): Promise<void> {
     // Single physical collection — provisioning is the operator's job.
     this.knownCollections.add(name);
@@ -118,13 +118,13 @@ export class QdrantCorpusStore implements VectorStore {
           ...(e.text !== undefined ? { text: e.text } : {}),
           [this.collectionField]: collection,
         },
-      }))
+      })),
     );
   }
 
   async search(
     collection: string,
-    query: VectorQuery
+    query: VectorQuery,
   ): Promise<VectorDBSearchResult[]> {
     // Inject the synthetic _collection filter alongside any tenant filter.
     const filter: Record<string, unknown> = {
@@ -159,7 +159,7 @@ export class QdrantCorpusStore implements VectorStore {
     const client = this.store.client as unknown as {
       delete?: (
         c: string,
-        body: { points?: Array<string | number>; filter?: QdrantFilter }
+        body: { points?: Array<string | number>; filter?: QdrantFilter },
       ) => Promise<unknown>;
     };
     if (typeof client.delete !== "function") return;
@@ -181,15 +181,91 @@ export class QdrantCorpusStore implements VectorStore {
     });
   }
 
-  async count(_collection: string): Promise<number> {
-    // Counting per logical collection requires a Qdrant `count` round-trip;
-    // CorpusManager doesn't actually call this on the hot path, so we
-    // return 0 rather than depend on an extra client surface.
-    return 0;
+  /**
+   * Count the vectors belonging to one logical collection.
+   *
+   * Scoped by the synthetic `_collection` payload field, because several
+   * logical corpora share one physical Qdrant collection; a bare count of the
+   * physical collection would report every corpus's vectors as this one's.
+   *
+   * Throws when the injected client cannot count. `count` returns a plain
+   * `number` with no sentinel for "unknown", and callers subtract counts to
+   * derive a result — `RagPipeline.deleteBySourceId` returns `before - after`
+   * as its deleted-chunk total. A fabricated `0` makes a purge of thousands of
+   * vectors report `0 deleted`, which is precisely the value that already
+   * means "nothing matched". A measurement that was never taken must not be
+   * spelled the same way as one that was.
+   */
+  async count(collection: string): Promise<number> {
+    const client = this.store.client as unknown as {
+      count?: (
+        c: string,
+        body: { filter?: QdrantFilter; exact?: boolean },
+      ) => Promise<{ count: number } | { result: { count: number } }>;
+    };
+    if (typeof client.count !== "function") {
+      throw new Error(
+        "QdrantCorpusStore.count: the injected Qdrant client does not " +
+          "implement `count`. Returning 0 would be indistinguishable from an " +
+          "empty collection, so the count is refused instead.",
+      );
+    }
+    const response = await client.count(this.store.collectionName, {
+      filter: {
+        must: [{ key: this.collectionField, match: { value: collection } }],
+      },
+      exact: true,
+    });
+    const count = "result" in response ? response.result.count : response.count;
+    if (typeof count !== "number" || !Number.isFinite(count)) {
+      throw new Error(
+        "QdrantCorpusStore.count: Qdrant returned a non-numeric count",
+      );
+    }
+    return count;
   }
 
+  /**
+   * Probe the backing Qdrant instance.
+   *
+   * Reports `healthy: false` when the round-trip fails, and when the client
+   * exposes no probe method at all. An unconditional `healthy: true` claims
+   * the remote is reachable without ever having asked it — the single thing a
+   * health check exists to establish.
+   */
   async healthCheck(): Promise<VectorStoreHealth> {
-    return { healthy: true, latencyMs: 0, provider: this.provider };
+    const startedAt = Date.now();
+    const client = this.store.client as unknown as {
+      getCollections?: () => Promise<unknown>;
+    };
+    if (typeof client.getCollections !== "function") {
+      return {
+        healthy: false,
+        latencyMs: 0,
+        provider: this.provider,
+        details: {
+          reason:
+            "client exposes no probe method; reachability was never checked",
+        },
+      };
+    }
+    try {
+      await client.getCollections();
+      return {
+        healthy: true,
+        latencyMs: Date.now() - startedAt,
+        provider: this.provider,
+      };
+    } catch (error) {
+      return {
+        healthy: false,
+        latencyMs: Date.now() - startedAt,
+        provider: this.provider,
+        details: {
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
   }
 
   async close(): Promise<void> {
@@ -198,7 +274,7 @@ export class QdrantCorpusStore implements VectorStore {
 }
 
 function pickTenant(
-  filter: VectorQuery["filter"] | undefined
+  filter: VectorQuery["filter"] | undefined,
 ): string | number | boolean | undefined {
   if (!filter) return undefined;
   if ("and" in filter || "or" in filter) {

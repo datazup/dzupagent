@@ -8,7 +8,7 @@
  *   - QdrantVectorStore (standalone): upsertMany, keywordSearch user clauses,
  *     array filter, empty-string tenant guard, buildFilter paths
  *   - QdrantCorpusStore (standalone): deleteCollection with client.delete,
- *     search minScore filter, count returns 0, healthCheck, close,
+ *     search minScore filter, collection-scoped count, healthCheck, close,
  *     upsert empty array no-op
  *   - FolderContextGenerator: ContextTransferService returning empty string
  *     falls back to default, maxFiles=0 edge, absolutePath forward-slash
@@ -47,7 +47,7 @@ function makeClient(): QdrantClientLike & {
 function makeVectorHit(
   id: string,
   score = 0.8,
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
 ): VectorSearchHit {
   return {
     id,
@@ -65,7 +65,7 @@ function makeVectorHit(
 function makeKeywordHit(
   id: string,
   score = 0.7,
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
 ): KeywordSearchHit {
   return {
     id,
@@ -143,7 +143,7 @@ describe("HybridRetriever — deep branch coverage", () => {
       expect(vectorSearch).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
-        3
+        3,
       );
     });
   });
@@ -322,7 +322,7 @@ describe("HybridRetriever — deep branch coverage", () => {
       expect(vectorSearch).toHaveBeenCalledWith(
         expect.anything(),
         filter,
-        expect.any(Number)
+        expect.any(Number),
       );
     });
 
@@ -343,7 +343,7 @@ describe("HybridRetriever — deep branch coverage", () => {
       expect(keywordSearch).toHaveBeenCalledWith(
         "q",
         filter,
-        expect.any(Number)
+        expect.any(Number),
       );
     });
   });
@@ -416,7 +416,7 @@ describe("HybridRetriever — deep branch coverage", () => {
       expect(vectorSearch).toHaveBeenCalledWith(
         expect.anything(),
         { tenantId: "tenant-A", namespace: "legal" },
-        expect.any(Number)
+        expect.any(Number),
       );
     });
   });
@@ -452,7 +452,7 @@ describe("QdrantVectorStore — standalone", () => {
       expect(client.upsert).toHaveBeenCalledTimes(1);
       const [, body] = client.upsert.mock.calls[0] as [
         string,
-        { points: Array<{ id: string }> }
+        { points: Array<{ id: string }> },
       ];
       expect(body.points).toHaveLength(2);
       expect(body.points.map((p) => p.id).sort()).toEqual(["p1", "p2"]);
@@ -477,7 +477,7 @@ describe("QdrantVectorStore — standalone", () => {
       await store.search([0.1], 3, { tenantId: "t1", category: "kb" });
       const [, body] = client.search.mock.calls[0] as [
         string,
-        { filter: { must: Array<{ key: string }> } }
+        { filter: { must: Array<{ key: string }> } },
       ];
       const keys = body.filter.must.map((c) => c.key);
       expect(keys).toContain("category");
@@ -492,7 +492,7 @@ describe("QdrantVectorStore — standalone", () => {
           filter: {
             must: Array<{ key: string; match: Record<string, unknown> }>;
           };
-        }
+        },
       ];
       const tagsClause = body.filter.must.find((c) => c.key === "tags");
       expect(tagsClause).toBeDefined();
@@ -503,7 +503,7 @@ describe("QdrantVectorStore — standalone", () => {
       await store.search([0.1], 3);
       const [, body] = client.search.mock.calls[0] as [
         string,
-        { filter?: unknown }
+        { filter?: unknown },
       ];
       expect(body.filter).toBeUndefined();
     });
@@ -519,7 +519,7 @@ describe("QdrantVectorStore — standalone", () => {
         string,
         {
           filter: { must: Array<{ key: string; match: { value?: unknown } }> };
-        }
+        },
       ];
       const tenant = body.filter.must.find((c) => c.key === "tenantId");
       expect(tenant?.match).toEqual({ value: "default-t" });
@@ -554,7 +554,7 @@ describe("QdrantVectorStore — standalone", () => {
           filter: {
             must: Array<{ key: string; match: Record<string, unknown> }>;
           };
-        }
+        },
       ];
       const textClause = body.filter.must.find((c) => c.key === "text");
       expect(textClause?.match).toEqual({ value: "my query" });
@@ -628,7 +628,7 @@ describe("QdrantCorpusStore — standalone", () => {
     it("no-ops when collection was never created", async () => {
       // Should not throw
       await expect(
-        corpusStore.deleteCollection("ghost")
+        corpusStore.deleteCollection("ghost"),
       ).resolves.toBeUndefined();
     });
 
@@ -655,7 +655,7 @@ describe("QdrantCorpusStore — standalone", () => {
       ]);
       const [, body] = client.upsert.mock.calls[0] as [
         string,
-        { points: Array<{ payload: Record<string, unknown> }> }
+        { points: Array<{ payload: Record<string, unknown> }> },
       ];
       expect(body.points[0]!.payload["_collection"]).toBe("my-coll");
     });
@@ -669,7 +669,7 @@ describe("QdrantCorpusStore — standalone", () => {
       ]);
       const [, body] = client.upsert.mock.calls[0] as [
         string,
-        { points: Array<{ payload: Record<string, unknown> }> }
+        { points: Array<{ payload: Record<string, unknown> }> },
       ];
       expect(body.points[0]!.payload["_ns"]).toBe("my-coll");
       expect(body.points[0]!.payload["_collection"]).toBeUndefined();
@@ -719,16 +719,73 @@ describe("QdrantCorpusStore — standalone", () => {
   });
 
   describe("count", () => {
-    it("returns 0 (not implemented in corpus store)", async () => {
-      expect(await corpusStore.count("any-coll")).toBe(0);
+    it("returns the real count, scoped to the logical collection", async () => {
+      const counting = Object.assign(client, {
+        count: vi.fn(async () => ({ count: 7 })),
+      });
+      expect(await corpusStore.count("coll-a")).toBe(7);
+      // Several corpora share one physical collection, so the count must be
+      // narrowed by the synthetic _collection field or it reports every
+      // corpus's vectors as this one's.
+      expect(counting.count).toHaveBeenCalledWith("shared_col", {
+        filter: { must: [{ key: "_collection", match: { value: "coll-a" } }] },
+        exact: true,
+      });
+    });
+
+    it("unwraps the {result:{count}} response envelope", async () => {
+      Object.assign(client, {
+        count: vi.fn(async () => ({ result: { count: 3 } })),
+      });
+      expect(await corpusStore.count("coll-a")).toBe(3);
+    });
+
+    it("throws rather than reporting 0 when the client cannot count", async () => {
+      // 0 is the value that already means "nothing matched", and
+      // RagPipeline.deleteBySourceId returns `before - after`. Fabricating 0
+      // would make a real purge report that it deleted nothing.
+      await expect(corpusStore.count("any-coll")).rejects.toThrow(
+        /does not implement `count`/,
+      );
+    });
+
+    it("throws when Qdrant returns a non-numeric count", async () => {
+      Object.assign(client, {
+        count: vi.fn(async () => ({ count: undefined as unknown as number })),
+      });
+      await expect(corpusStore.count("coll-a")).rejects.toThrow(
+        /non-numeric count/,
+      );
     });
   });
 
   describe("healthCheck", () => {
-    it("returns healthy=true", async () => {
+    it("reports healthy after a successful round-trip", async () => {
+      const probe = vi.fn(async () => ({ collections: [] }));
+      Object.assign(client, { getCollections: probe });
       const health = await corpusStore.healthCheck();
       expect(health.healthy).toBe(true);
       expect(health.provider).toBe("qdrant-shared");
+      expect(probe).toHaveBeenCalled();
+    });
+
+    it("reports unhealthy when the probe throws", async () => {
+      Object.assign(client, {
+        getCollections: vi.fn(async () => {
+          throw new Error("ECONNREFUSED");
+        }),
+      });
+      const health = await corpusStore.healthCheck();
+      expect(health.healthy).toBe(false);
+      expect(health.details?.["reason"]).toContain("ECONNREFUSED");
+    });
+
+    it("does not claim health when it never probed the remote", async () => {
+      // An unconditional healthy:true asserts the remote is reachable without
+      // ever having asked it — the one thing a health check establishes.
+      const health = await corpusStore.healthCheck();
+      expect(health.healthy).toBe(false);
+      expect(String(health.details?.["reason"])).toContain("never checked");
     });
   });
 
@@ -787,7 +844,7 @@ describe("QdrantCorpusStore — standalone", () => {
       await expect(
         corpusStore.delete("coll-x", {
           filter: { field: "score", op: "lt", value: 0.2 },
-        })
+        }),
       ).rejects.toThrow(/unsupported filter operator 'lt'/);
       expect(client.delete).not.toHaveBeenCalled();
     });
@@ -805,7 +862,7 @@ describe("QdrantCorpusStore — standalone", () => {
       const noDelCorpus = new QdrantCorpusStore(noDelStore);
       // Should not throw
       await expect(
-        noDelCorpus.delete("coll-x", { ids: ["id1"] })
+        noDelCorpus.delete("coll-x", { ids: ["id1"] }),
       ).resolves.toBeUndefined();
     });
   });
@@ -848,7 +905,7 @@ describe("FolderContextGenerator — additional coverage", () => {
     await writeAt("a.ts");
     const gen = new FolderContextGenerator(
       { rootDir: root },
-      { serialize: () => "" } // returns empty string → falls back
+      { serialize: () => "" }, // returns empty string → falls back
     );
     const snap = await gen.generate();
     expect(snap.summary).toContain(root);
@@ -978,7 +1035,7 @@ describe("FolderContextGenerator — additional coverage", () => {
           received.push(...items);
           return `count=${items.length}`;
         },
-      }
+      },
     );
     const snap = await gen.generate();
     expect(snap.summary).toBe("count=2");
@@ -1129,10 +1186,10 @@ describe("QdrantCorpusStore — namespace isolation via _collection field", () =
             filter: {
               must: Array<{ key: string; match: { value?: unknown } }>;
             };
-          }
+          },
         ) => {
           const collClause = body.filter.must.find(
-            (c) => c.key === "_collection"
+            (c) => c.key === "_collection",
           );
           // Return a hit only if searching for collection-A
           if (collClause?.match?.value === "collection-A") {
@@ -1145,7 +1202,7 @@ describe("QdrantCorpusStore — namespace isolation via _collection field", () =
             ]);
           }
           return Promise.resolve([]);
-        }
+        },
       ),
       scroll: vi.fn().mockResolvedValue({ points: [] }),
       delete: vi.fn().mockResolvedValue({}),
@@ -1191,7 +1248,7 @@ describe("QdrantCorpusStore — namespace isolation via _collection field", () =
 
     const [, body] = client.upsert.mock.calls[0] as [
       string,
-      { points: Array<{ payload: Record<string, unknown> }> }
+      { points: Array<{ payload: Record<string, unknown> }> },
     ];
     for (const pt of body.points) {
       expect(pt.payload["_collection"]).toBe("ns-X");
