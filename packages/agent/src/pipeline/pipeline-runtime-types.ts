@@ -139,10 +139,12 @@ import type { RetryPolicy as CanonicalRetryPolicy } from "@dzupagent/agent-types
 export interface RetryPolicy
   extends Omit<
     CanonicalRetryPolicy,
-    "initialBackoffMs" | "maxBackoffMs" | "jitter"
+    "initialBackoffMs" | "maxBackoffMs" | "multiplier" | "jitter"
   > {
   /** Initial backoff delay in ms (default: 1000) */
   initialBackoffMs?: number;
+  /** Exponential backoff multiplier applied per attempt (default: 2) */
+  multiplier?: number;
   /** Maximum backoff delay in ms (default: 30000) */
   maxBackoffMs?: number;
   /**
