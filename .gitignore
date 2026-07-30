@@ -53,3 +53,7 @@ bun.lockb
 
 # Local agent worktrees
 .worktrees/
+
+# Local-only concurrency-guard opt-out. Must never be committed: a committed
+# marker disables the guard for every future session in every clone.
+.claude-concurrency-ok

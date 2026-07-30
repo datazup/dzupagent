@@ -13,21 +13,43 @@
  * a.ts, introduce one in b.ts, and the total is unchanged. Any file exceeding
  * its own recorded count fails even when the total holds steady.
  *
+ * Scope: EVERY package carrying a tsconfig.flipcheck.json, not just
+ * @dzupagent/agent. Measured 2026-07-31, the blind spot was workspace-wide —
+ * 2,453 errors across 17 packages, of which this guard covered only 205 (8%).
+ * server (661), agent-adapters (428) and core (387) each individually exceeded
+ * the one package being watched. Packages ratchet independently so a cleanup in
+ * one cannot mask a regression in another — the same reason per-file budgets
+ * exist within a package.
+ *
  * Usage:
  *   node scripts/check-test-typecheck.mjs                  # fail if over baseline
  *   node scripts/check-test-typecheck.mjs --report-only    # print counts, exit 0
  *   node scripts/check-test-typecheck.mjs --update-baseline # rewrite baseline to current
+ *   node scripts/check-test-typecheck.mjs --package core   # restrict to one package
  */
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
-const AGENT_DIR = join(ROOT, 'packages', 'agent')
+const PACKAGES_DIR = join(ROOT, 'packages')
 const BASELINE_FILE = join(__dirname, 'check-test-typecheck.baseline.json')
+
+/**
+ * A package opts into this guard by carrying a tsconfig.flipcheck.json. That
+ * makes enrolment explicit and reviewable: adding the file is the act of
+ * enrolling, so no package is silently dropped by a glob that stops matching.
+ */
+export function discoverPackages() {
+  return readdirSync(PACKAGES_DIR, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .filter((name) => existsSync(join(PACKAGES_DIR, name, 'tsconfig.flipcheck.json')))
+    .sort()
+}
 
 // tsc error lines look like:
 //   src/__tests__/foo.test.ts(27,16): error TS2339: Property 'x' does not exist...
@@ -36,12 +58,14 @@ const ERROR_LINE_RE = /^(.+?)\((\d+),(\d+)\): error (TS\d+):/
 const args = process.argv.slice(2)
 const reportOnly = args.includes('--report-only')
 const updateBaseline = args.includes('--update-baseline')
+const pkgFlagIndex = args.indexOf('--package')
+const onlyPackage = pkgFlagIndex === -1 ? null : args[pkgFlagIndex + 1]
 
-function runTypecheck() {
+function runTypecheck(pkg) {
   const result = spawnSync(
     'yarn',
     ['tsc', '-p', 'tsconfig.flipcheck.json', '--noEmit', '--pretty', 'false'],
-    { cwd: AGENT_DIR, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
+    { cwd: join(PACKAGES_DIR, pkg), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
   )
 
   if (result.error) {
@@ -62,7 +86,7 @@ function runTypecheck() {
 
   if (result.status !== 0 && errors.length === 0) {
     throw new Error(
-      `tsc exited ${result.status} without emitting parseable errors — ` +
+      `[${pkg}] tsc exited ${result.status} without emitting parseable errors — ` +
         `the typecheck itself is broken, not merely failing:\n${output.slice(0, 2000)}`
     )
   }
@@ -82,25 +106,44 @@ function loadBaseline() {
   return JSON.parse(readFileSync(BASELINE_FILE, 'utf8'))
 }
 
-function writeBaseline({ total, perFile, perCode }) {
-  const sortedFiles = Object.fromEntries(
-    Object.entries(perFile).sort(([a], [b]) => a.localeCompare(b))
-  )
-  const sortedCodes = Object.fromEntries(
-    Object.entries(perCode).sort(([, a], [, b]) => b - a)
-  )
+/**
+ * Baseline shape is a per-package map:
+ *   { packages: { core: { maxErrors, perCode, perFile }, ... } }
+ *
+ * The older flat shape ({ maxErrors, perFile }) described @dzupagent/agent
+ * alone. It is read as { packages: { agent: <flat> } } so an existing checkout
+ * keeps its agent budget instead of silently resetting it to zero — which would
+ * either fail every build or, worse, re-baseline 205 real errors as acceptable.
+ */
+function normalizeBaseline(raw) {
+  if (!raw) return null
+  if (raw.packages) return raw
+  return { packages: { agent: raw } }
+}
+
+function writeBaseline(perPackage) {
+  const packages = {}
+  for (const pkg of Object.keys(perPackage).sort()) {
+    const { total, perFile, perCode } = perPackage[pkg]
+    packages[pkg] = {
+      maxErrors: total,
+      perCode: Object.fromEntries(Object.entries(perCode).sort(([, a], [, b]) => b - a)),
+      perFile: Object.fromEntries(Object.entries(perFile).sort(([a], [b]) => a.localeCompare(b))),
+    }
+  }
+  const total = Object.values(packages).reduce((n, p) => n + p.maxErrors, 0)
   writeFileSync(
     BASELINE_FILE,
     JSON.stringify(
       {
-        maxErrors: total,
+        totalErrors: total,
         note:
-          'Test-file typecheck baseline (tsconfig.flipcheck.json). Ratchets down only. ' +
-          'Bump only via --update-baseline after FIXING errors, never to accommodate new ' +
-          'ones. perFile is enforced too, so a fix in one file cannot mask a regression ' +
-          'in another. perCode is informational.',
-        perCode: sortedCodes,
-        perFile: sortedFiles,
+          'Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets ' +
+          'down only. Bump only via --update-baseline after FIXING errors, never to ' +
+          'accommodate new ones. Enforced per package AND per file, so a fix in one ' +
+          'place cannot mask a regression in another. totalErrors and perCode are ' +
+          'informational; the per-file budgets are what fail the build.',
+        packages,
       },
       null,
       2
@@ -109,19 +152,47 @@ function writeBaseline({ total, perFile, perCode }) {
 }
 
 function main() {
-  const current = runTypecheck()
+  const targets = onlyPackage ? [onlyPackage] : discoverPackages()
 
-  if (updateBaseline) {
-    const previous = loadBaseline()
-    writeBaseline(current)
-    const was = previous ? `${previous.maxErrors} -> ` : ''
-    console.log(`[check-test-typecheck] baseline updated to ${was}${current.total}`)
+  if (targets.length === 0) {
+    console.error('[check-test-typecheck] no packages with tsconfig.flipcheck.json found.')
+    process.exitCode = 1
+    return
+  }
+  if (onlyPackage && !discoverPackages().includes(onlyPackage)) {
+    console.error(
+      `[check-test-typecheck] package '${onlyPackage}' has no tsconfig.flipcheck.json.`
+    )
+    process.exitCode = 1
     return
   }
 
-  console.log(`[check-test-typecheck] test-file type errors: ${current.total}`)
+  const current = {}
+  for (const pkg of targets) {
+    current[pkg] = runTypecheck(pkg)
+  }
 
-  const baseline = loadBaseline()
+  const baseline = normalizeBaseline(loadBaseline())
+
+  if (updateBaseline) {
+    // A single-package run must not erase the other packages' budgets, so the
+    // existing baseline is carried forward and only the measured keys replaced.
+    const merged = {}
+    for (const [pkg, entry] of Object.entries(baseline?.packages ?? {})) {
+      merged[pkg] = { total: entry.maxErrors, perFile: entry.perFile ?? {}, perCode: entry.perCode ?? {} }
+    }
+    Object.assign(merged, current)
+    writeBaseline(merged)
+    const now = Object.values(merged).reduce((n, p) => n + p.total, 0)
+    console.log(`[check-test-typecheck] baseline updated (${now} errors across ${Object.keys(merged).length} packages)`)
+    return
+  }
+
+  const currentTotal = Object.values(current).reduce((n, p) => n + p.total, 0)
+  console.log(
+    `[check-test-typecheck] test-file type errors: ${currentTotal} across ${targets.length} package(s)`
+  )
+
   if (!baseline) {
     console.error(
       '[check-test-typecheck] no baseline file — run with --update-baseline to create one.'
@@ -130,42 +201,62 @@ function main() {
     return
   }
 
-  // Files over their recorded budget. An unlisted file has a budget of 0, so a
-  // brand-new file carrying errors is caught as a regression.
-  const regressions = Object.entries(current.perFile)
-    .map(([file, count]) => ({ file, count, allowed: baseline.perFile?.[file] ?? 0 }))
-    .filter(({ count, allowed }) => count > allowed)
-    .sort((a, b) => b.count - a.count - (b.allowed - a.allowed))
+  const regressions = []
+  const overBudget = []
+  let unenrolled = false
+  for (const pkg of targets) {
+    const allowedPkg = baseline.packages?.[pkg]
+    // An unenrolled package has no budget. Defaulting it to 0 would fail the
+    // build on first enrolment; it is reported instead so the operator adds a
+    // baseline deliberately.
+    if (!allowedPkg) {
+      console.error(
+        `[check-test-typecheck] '${pkg}' has no baseline entry — run --update-baseline to enrol it.`
+      )
+      if (!reportOnly) process.exitCode = 1
+      unenrolled = true
+      continue
+    }
+    for (const [file, count] of Object.entries(current[pkg].perFile)) {
+      const allowed = allowedPkg.perFile?.[file] ?? 0
+      if (count > allowed) regressions.push({ pkg, file, count, allowed })
+    }
+    if (current[pkg].total > allowedPkg.maxErrors) {
+      overBudget.push({ pkg, count: current[pkg].total, allowed: allowedPkg.maxErrors })
+    }
+  }
 
   if (reportOnly) {
-    const improvements = Object.entries(baseline.perFile ?? {})
-      .map(([file, allowed]) => ({ file, allowed, count: current.perFile[file] ?? 0 }))
-      .filter(({ count, allowed }) => count < allowed)
+    for (const pkg of targets) {
+      const allowed = baseline.packages?.[pkg]?.maxErrors
+      const delta = allowed === undefined ? 'unenrolled' : `baseline ${allowed}`
+      console.log(`  ${pkg}: ${current[pkg].total} (${delta})`)
+    }
     console.log(
-      `[check-test-typecheck] baseline ${baseline.maxErrors}; ` +
-        `${regressions.length} file(s) over budget, ${improvements.length} improved`
+      `[check-test-typecheck] ${regressions.length} file(s) over budget, ` +
+        `${overBudget.length} package(s) over budget`
     )
     return
   }
 
-  let failed = false
+  let failed = unenrolled
 
   if (regressions.length > 0) {
     failed = true
     console.error('\n[check-test-typecheck] FAIL: files exceed their baseline error budget:')
-    for (const { file, count, allowed } of regressions.slice(0, 20)) {
-      console.error(`  ${file}: ${count} (allowed ${allowed})`)
+    for (const { pkg, file, count, allowed } of regressions.slice(0, 20)) {
+      console.error(`  [${pkg}] ${file}: ${count} (allowed ${allowed})`)
     }
     if (regressions.length > 20) {
       console.error(`  ... and ${regressions.length - 20} more`)
     }
   }
 
-  if (current.total > baseline.maxErrors) {
+  for (const { pkg, count, allowed } of overBudget) {
     failed = true
     console.error(
-      `\n[check-test-typecheck] FAIL: ${current.total} test-file type errors exceeds ` +
-        `baseline of ${baseline.maxErrors}.`
+      `\n[check-test-typecheck] FAIL: [${pkg}] ${count} test-file type errors exceeds ` +
+        `baseline of ${allowed}.`
     )
   }
 
@@ -180,15 +271,16 @@ function main() {
     return
   }
 
-  if (current.total < baseline.maxErrors) {
+  const baselineTotal = targets.reduce((n, pkg) => n + (baseline.packages?.[pkg]?.maxErrors ?? 0), 0)
+  if (currentTotal < baselineTotal) {
     console.log(
-      `[check-test-typecheck] OK — ${baseline.maxErrors - current.total} below baseline ` +
-        `(${baseline.maxErrors}). Run --update-baseline to lock in the improvement.`
+      `[check-test-typecheck] OK — ${baselineTotal - currentTotal} below baseline ` +
+        `(${baselineTotal}). Run --update-baseline to lock in the improvement.`
     )
     return
   }
 
-  console.log(`[check-test-typecheck] OK (baseline: ${baseline.maxErrors})`)
+  console.log(`[check-test-typecheck] OK (baseline: ${baselineTotal})`)
 }
 
 main()
