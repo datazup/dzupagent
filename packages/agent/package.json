@@ -73,6 +73,7 @@
   "scripts": {
     "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
     "typecheck": "tsc --noEmit",
+    "typecheck:tests": "tsc -p tsconfig.flipcheck.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run src/__tests__/pipeline-for-each-runtime.test.ts",
