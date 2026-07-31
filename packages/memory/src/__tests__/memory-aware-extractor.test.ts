@@ -94,6 +94,8 @@ describe('MemoryAwareExtractor', () => {
       expect(result.totalExtracted).toBe(2)
       expect(result.added).toHaveLength(2)
       expect(result.skipped).toHaveLength(0)
+      expect(result.failed).toHaveLength(0)
+      expect(result.status).toBe('completed')
       expect(putCalls).toHaveLength(2)
 
       // Verify stored metadata
@@ -199,10 +201,19 @@ describe('MemoryAwareExtractor', () => {
       // Search failed, so observation should be stored anyway
       expect(result.added).toHaveLength(1)
       expect(result.skipped).toHaveLength(0)
+      expect(result.status).toBe('degraded')
+      expect(result.degradations).toEqual([
+        {
+          operation: 'search',
+          impact: 'fallback-used',
+          reason: 'search failed',
+          target: 'observations',
+        },
+      ])
       expect(putCalls).toHaveLength(1)
     })
 
-    it('counts observation as added even when put fails', async () => {
+    it('reports observation as failed rather than added when put fails', async () => {
       const observations = [
         { text: 'Use strict TypeScript', category: 'convention', confidence: 0.9 },
       ]
@@ -219,9 +230,22 @@ describe('MemoryAwareExtractor', () => {
 
       const result = await extractor.extractAndStore(sampleMessages())
 
-      // Should still report as added (non-fatal put failure)
-      expect(result.added).toHaveLength(1)
+      expect(result.added).toHaveLength(0)
       expect(result.skipped).toHaveLength(0)
+      expect(result.failed).toHaveLength(1)
+      expect(result.failed[0]).toMatchObject({
+        observation: expect.objectContaining({ text: 'Use strict TypeScript' }),
+        key: expect.stringMatching(/^obs-\d+-0$/),
+        reason: 'put failed',
+      })
+      expect(result.status).toBe('degraded')
+      expect(result.degradations).toEqual([
+        expect.objectContaining({
+          operation: 'put',
+          impact: 'partial-result',
+          reason: 'put failed',
+        }),
+      ])
     })
 
     it('returns empty result when LLM extraction fails', async () => {
@@ -242,6 +266,8 @@ describe('MemoryAwareExtractor', () => {
       expect(result.totalExtracted).toBe(0)
       expect(result.added).toHaveLength(0)
       expect(result.skipped).toHaveLength(0)
+      expect(result.failed).toHaveLength(0)
+      expect(result.status).toBe('completed')
     })
   })
 

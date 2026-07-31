@@ -28,6 +28,13 @@ import type { BaseMessage } from '@langchain/core/messages'
 import { ObservationExtractor } from './observation-extractor.js'
 import type { ObservationExtractorConfig, Observation } from './observation-extractor.js'
 import type { MemoryService } from './memory-service.js'
+import {
+  degradation,
+  statusFor,
+  type MemoryOperationDegradation,
+  type MemoryOperationOutcome,
+  type MemoryOperationResult,
+} from './operation-outcome.js'
 
 export interface MemoryAwareExtractorConfig extends ObservationExtractorConfig {
   /** MemoryService for checking existing observations */
@@ -42,13 +49,31 @@ export interface MemoryAwareExtractorConfig extends ObservationExtractorConfig {
   deduplicationTopK?: number | undefined
 }
 
-export interface ExtractionResult {
+export interface ExtractionFailure {
+  observation: Observation
+  key: string
+  reason: string
+}
+
+export interface ExtractionResult extends MemoryOperationOutcome {
   /** Newly added observations */
   added: Observation[]
   /** Observations skipped because similar entry already exists */
   skipped: Array<{ observation: Observation; existingKey: string; reason: string }>
+  /** Observations that could not be persisted. */
+  failed?: ExtractionFailure[]
   /** Total extracted before dedup */
   totalExtracted: number
+}
+
+export type ExtractionOperationResult = ExtractionResult &
+  MemoryOperationResult & {
+    failed: ExtractionFailure[]
+  }
+
+interface DuplicateLookup {
+  duplicate: { key: string; similarity: number } | null
+  degradation?: MemoryOperationDegradation
 }
 
 /**
@@ -106,13 +131,18 @@ export class MemoryAwareExtractor {
    * Deduplication is best-effort: search failures are non-fatal and cause
    * the observation to be stored unconditionally.
    */
-  async extractAndStore(messages: BaseMessage[]): Promise<ExtractionResult> {
+  async extractAndStore(
+    messages: BaseMessage[],
+  ): Promise<ExtractionOperationResult> {
     const observations = await this.extractor.extract(messages)
 
-    const result: ExtractionResult = {
+    const result: ExtractionOperationResult = {
       added: [],
       skipped: [],
+      failed: [],
       totalExtracted: observations.length,
+      status: 'completed',
+      degradations: [],
     }
 
     for (let i = 0; i < observations.length; i++) {
@@ -120,7 +150,11 @@ export class MemoryAwareExtractor {
       if (!obs) continue
 
       // Attempt deduplication via semantic search
-      const duplicate = await this.findDuplicate(obs)
+      const lookup = await this.findDuplicate(obs)
+      if (lookup.degradation !== undefined) {
+        result.degradations.push(lookup.degradation)
+      }
+      const duplicate = lookup.duplicate
 
       if (duplicate !== null) {
         result.skipped.push({
@@ -145,13 +179,19 @@ export class MemoryAwareExtractor {
           evidenceReferences: obs.evidenceReferences,
         })
         result.added.push(obs)
-      } catch {
+      } catch (error) {
         // Non-fatal: storage failure should not break the pipeline.
-        // Still count as added since we attempted to store it.
-        result.added.push(obs)
+        const failure = degradation('put', 'partial-result', error, key)
+        result.degradations.push(failure)
+        result.failed.push({
+          observation: obs,
+          key,
+          reason: failure.reason,
+        })
       }
     }
 
+    result.status = statusFor(result.degradations)
     return result
   }
 
@@ -173,7 +213,7 @@ export class MemoryAwareExtractor {
    */
   private async findDuplicate(
     obs: Observation,
-  ): Promise<{ key: string; similarity: number } | null> {
+  ): Promise<DuplicateLookup> {
     try {
       const existing = await this.memoryService.search(
         this.namespace,
@@ -183,7 +223,7 @@ export class MemoryAwareExtractor {
       )
 
       // If search returned nothing, no duplicate
-      if (existing.length === 0) return null
+      if (existing.length === 0) return { duplicate: null }
 
       // Check each result for text similarity above threshold.
       // MemoryService.search() does semantic ranking but does not expose scores,
@@ -200,14 +240,22 @@ export class MemoryAwareExtractor {
           const key = typeof entry['key'] === 'string'
             ? entry['key']
             : 'existing-entry'
-          return { key, similarity }
+          return { duplicate: { key, similarity } }
         }
       }
 
-      return null
-    } catch {
+      return { duplicate: null }
+    } catch (error) {
       // Best-effort: search failure is non-fatal, allow storage
-      return null
+      return {
+        duplicate: null,
+        degradation: degradation(
+          'search',
+          'fallback-used',
+          error,
+          this.namespace,
+        ),
+      }
     }
   }
 }

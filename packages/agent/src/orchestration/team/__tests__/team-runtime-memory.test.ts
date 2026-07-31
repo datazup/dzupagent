@@ -138,6 +138,35 @@ describe("consolidateIfEnabled", () => {
     ]);
   });
 
+  it("reports a skip when a non-throwing consolidation result is degraded", async () => {
+    const consolidate = vi.fn(async () => ({
+      status: "degraded" as const,
+      degradations: [
+        {
+          operation: "search" as const,
+          impact: "source-unavailable" as const,
+          reason: "store unavailable",
+        },
+      ],
+    }));
+    const events = await run({
+      policies: memoryPolicy(true),
+      memory: { consolidate },
+    });
+
+    expect(events).toEqual([
+      {
+        type: "team_consolidation_skipped",
+        teamId: "team-mem",
+        runId: "run-mem",
+        namespace: "team-mem",
+        reason: "failed",
+        error: "store unavailable",
+        at: expect.any(Date),
+      },
+    ]);
+  });
+
   it("does not reject the run when a wired service throws", async () => {
     // Consolidation is a non-critical post-run step: reporting the failure must
     // not have converted it into a fatal one.
@@ -225,5 +254,27 @@ describe("consolidateIfEnabled", () => {
     // completion rather than a skip.
     expect(store.search).toHaveBeenCalled();
     expect(events[0]?.type).toBe("team_consolidation_completed");
+  });
+
+  it("does not report completion when the backing store search fails", async () => {
+    const store = {
+      search: vi.fn(async () => {
+        throw new Error("store unavailable");
+      }),
+      put: vi.fn(async () => {}),
+      delete: vi.fn(async () => {}),
+    };
+    const events = await run({
+      policies: memoryPolicy(true),
+      memory: { store: store as unknown as TeamRuntimeMemoryService["store"] },
+    });
+
+    expect(events[0]).toMatchObject({
+      type: "team_consolidation_skipped",
+      reason: "failed",
+      error: "store unavailable",
+    });
+    expect(events.some((event) => event.type === "team_consolidation_completed"))
+      .toBe(false);
   });
 });

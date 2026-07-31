@@ -221,12 +221,10 @@ describe('progressive-compress: level 3 LLM failure fallback', () => {
     ]).flat()
 
     const result = await compressToLevel(msgs, 3, null, model)
-    // summarizeAndTrim catches internally and returns empty summary + trimmed messages
-    // compressToLevel reports level 3 since summarizeAndTrim didn't throw
-    expect(result.level).toBe(3)
-    expect(result.messages.length).toBeGreaterThan(0)
-    // Summary should be empty (fallback from summarizeAndTrim catch)
-    expect(result.summary).toBe('')
+    expect(result.level).toBe(2)
+    expect(result.messages).toHaveLength(msgs.length)
+    expect(result.summary).toBeNull()
+    expect(result.degradations?.[0]?.adoptionSafe).toBe(false)
   })
 
   it('falls back to level 2 when compressToLevel outer catch is triggered', async () => {

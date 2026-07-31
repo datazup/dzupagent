@@ -149,15 +149,39 @@ describe('autoCompress', () => {
     expect(result.summary).toBe('summary despite error')
   })
 
-  it('handles LLM failure gracefully during compression', async () => {
+  it('preserves the original transcript when LLM summarization fails', async () => {
     const model = createFailingModel('LLM down')
     const msgs = makeConversation(16)
 
     const result = await autoCompress(msgs, 'fallback summary', model)
 
-    expect(result.compressed).toBe(true)
+    expect(result.compressed).toBe(false)
     expect(result.summary).toBe('fallback summary')
-    expect(result.messages.length).toBeLessThan(msgs.length)
+    expect(result.messages).toBe(msgs)
+    expect(result.degradations).toEqual([
+      {
+        stage: 'summary-invocation',
+        reason: 'LLM down',
+        adoptionSafe: false,
+      },
+    ])
+  })
+
+  it('preserves the original transcript when a required summary is rejected', async () => {
+    const model = createMockModel('incomplete')
+    const msgs = makeConversation(16)
+
+    const result = await autoCompress(msgs, 'prior summary', model, {
+      summaryValidation: 'required',
+    })
+
+    expect(result.compressed).toBe(false)
+    expect(result.summary).toBe('prior summary')
+    expect(result.messages).toBe(msgs)
+    expect(result.degradations?.[0]).toMatchObject({
+      stage: 'summary-validation',
+      adoptionSafe: false,
+    })
   })
 
   it('respects custom keepRecentMessages', async () => {
@@ -205,14 +229,16 @@ describe('autoCompress', () => {
     expect(result.messages).toEqual([])
   })
 
-  it('returns compressed=true even when summary is empty on LLM failure', async () => {
+  it('does not adopt an empty summary when the LLM fails', async () => {
     const model = createFailingModel('timeout')
     const msgs = makeConversation(16)
 
     const result = await autoCompress(msgs, null, model)
 
-    expect(result.compressed).toBe(true)
-    expect(result.summary).toBe('')
+    expect(result.compressed).toBe(false)
+    expect(result.summary).toBeNull()
+    expect(result.messages).toBe(msgs)
+    expect(result.degradations?.[0]?.adoptionSafe).toBe(false)
   })
 
   // -------------------------------------------------------------------------
@@ -412,6 +438,17 @@ describe('autoCompress with memoryFrame (Arrow-aware)', () => {
 // ---------------------------------------------------------------------------
 
 describe('FrozenSnapshot with frame (Task 2)', () => {
+  it('clears a stale source-unavailable marker when frozen again', () => {
+    const snapshot = new FrozenSnapshot()
+    snapshot.freeze('unavailable context')
+    snapshot.markSourceUnavailable('store offline')
+
+    snapshot.freeze('fresh context')
+
+    expect(snapshot.get()).toBe('fresh context')
+    expect(snapshot.sourceUnavailable()).toBeNull()
+  })
+
   it('shouldInvalidate returns true when no frame was stored', () => {
     const snapshot = new FrozenSnapshot()
     snapshot.freeze('context') // no frame

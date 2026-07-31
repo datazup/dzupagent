@@ -140,8 +140,34 @@ export async function maybeCompressTurn(
   try {
     const before = state.messages.length;
     const compressResult = await config.maybeCompress(state.messages);
-    // A non-throwing attempt (whether or not it actually compressed) means the
-    // pipeline is healthy — clear the consecutive-failure streak.
+    const degradations = compressResult.degradations ?? [];
+    for (const degradation of degradations) {
+      config.eventBus?.emit({
+        type: "context:compress_failed",
+        error: degradation.reason,
+        phase: `tool-loop:${degradation.stage}`,
+      });
+    }
+
+    const unsafe = degradations.filter(
+      (degradation) => !degradation.adoptionSafe
+    );
+    if (unsafe.length > 0) {
+      state.consecutiveCompressionFailures += 1;
+      if (
+        state.consecutiveCompressionFailures >=
+        MAX_CONSECUTIVE_COMPRESSION_FAILURES
+      ) {
+        throw new ContextCompressionFailedError({
+          consecutiveFailures: state.consecutiveCompressionFailures,
+          cause: new Error(unsafe.map((item) => item.reason).join("; ")),
+        });
+      }
+      return;
+    }
+
+    // A result with no adoption-blocking degradation means the compression
+    // pipeline is healthy, even when thresholds made the attempt a no-op.
     state.consecutiveCompressionFailures = 0;
     if (compressResult.compressed) {
       state.messages.length = 0;
@@ -150,9 +176,11 @@ export async function maybeCompressTurn(
         before,
         after: state.messages.length,
         summary: compressResult.summary,
+        ...(degradations.length > 0 ? { degradations } : {}),
       });
     }
   } catch (err) {
+    if (err instanceof ContextCompressionFailedError) throw err;
     // Compression must never abort a run on a single failure — emit event for
     // observability, then decide whether the streak warrants termination.
     config.eventBus?.emit({

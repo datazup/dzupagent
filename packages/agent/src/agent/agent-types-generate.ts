@@ -5,6 +5,7 @@
  * authoritative re-exports.
  */
 import type { BaseMessage } from "@langchain/core/messages";
+import type { CompressionDegradation } from "@dzupagent/context";
 import type { ToolStat, StopReason } from "./tool-loop.js";
 import type { StuckError } from "./stuck-error.js";
 import type { RunLearnings } from "./tool-loop-learning.js";
@@ -100,6 +101,8 @@ export interface CompressionLogEntry {
   before: number;
   after: number;
   summary: string | null;
+  /** Adoption-safe warnings encountered while producing this compression. */
+  degradations?: CompressionDegradation[];
   ts: number;
 }
 

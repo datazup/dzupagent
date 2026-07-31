@@ -185,7 +185,7 @@ describe('compressToLevel level 0 no-op', () => {
 })
 
 describe('compressToLevel level 3 fallback on LLM failure', () => {
-  it('returns level 3 with empty summary when LLM throws (inner swallow)', async () => {
+  it('returns level 2 without discarding messages when LLM throws', async () => {
     const model = createFailingModel('timeout')
     const msgs: BaseMessage[] = [
       new HumanMessage('Q'),
@@ -193,8 +193,9 @@ describe('compressToLevel level 3 fallback on LLM failure', () => {
       ...makeConversation(15),
     ]
     const result = await compressToLevel(msgs, 3, null, model)
-    expect(result.level).toBe(3)
-    expect(result.summary).toBe('')
+    expect(result.level).toBe(2)
+    expect(result.summary).toBeNull()
+    expect(result.messages).toHaveLength(msgs.length)
   })
 
   it('invokes onBeforeSummarize at level 3 with oldMessages slice', async () => {

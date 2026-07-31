@@ -19,6 +19,13 @@ import type {
   ConsolidationStore,
   ConsolidationStoreItem,
 } from './consolidation-engine.js'
+import {
+  degradation,
+  statusFor,
+  type MemoryOperationDegradation,
+  type MemoryOperationOutcome,
+  type MemoryOperationResult,
+} from './operation-outcome.js'
 
 /** Re-export under a more descriptive name for pruner consumers. */
 export type MemoryStore = ConsolidationStore
@@ -53,7 +60,7 @@ export interface PruneOptions {
   pageSize?: number
 }
 
-export interface PruneResult {
+export interface PruneResult extends MemoryOperationOutcome {
   /** Number of entries deleted because they exceeded the TTL. */
   expired: number
   /** Number of entries deleted because the store was over capacity. */
@@ -61,6 +68,8 @@ export interface PruneResult {
   /** Number of entries that survived both passes. */
   remaining: number
 }
+
+export type PruneOperationResult = PruneResult & MemoryOperationResult
 
 interface ParsedItem {
   key: string
@@ -84,22 +93,38 @@ export class MemoryPruner {
   async prune(
     store: MemoryStore,
     options: PruneOptions = {},
-  ): Promise<PruneResult> {
+  ): Promise<PruneOperationResult> {
     const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES
     const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS
     const namespace = options.namespace ?? []
     const now = (options.now ?? Date.now)()
     const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE
+    const degradations: MemoryOperationDegradation[] = []
 
     let items: ConsolidationStoreItem[]
     try {
       items = await store.search(namespace, { limit: pageSize })
-    } catch {
-      return { expired: 0, evicted: 0, remaining: 0 }
+    } catch (error) {
+      degradations.push(
+        degradation('search', 'source-unavailable', error, namespace.join('/')),
+      )
+      return {
+        expired: 0,
+        evicted: 0,
+        remaining: 0,
+        status: 'degraded',
+        degradations,
+      }
     }
 
     if (items.length === 0) {
-      return { expired: 0, evicted: 0, remaining: 0 }
+      return {
+        expired: 0,
+        evicted: 0,
+        remaining: 0,
+        status: 'completed',
+        degradations,
+      }
     }
 
     const cutoff = now - ttlMs
@@ -116,9 +141,12 @@ export class MemoryPruner {
         try {
           await store.delete(namespace, item.key)
           expired++
-        } catch {
+        } catch (error) {
           // delete failure → keep the entry for the next pass to consider
           survivors.push(parsed)
+          degradations.push(
+            degradation('delete', 'partial-result', error, item.key),
+          )
         }
         continue
       }
@@ -139,9 +167,12 @@ export class MemoryPruner {
         try {
           await store.delete(namespace, victim.key)
           evicted++
-        } catch {
+        } catch (error) {
           // Non-fatal — count the victim as a survivor on failure.
           survivors.push(victim)
+          degradations.push(
+            degradation('delete', 'partial-result', error, victim.key),
+          )
         }
       }
     }
@@ -150,6 +181,8 @@ export class MemoryPruner {
       expired,
       evicted,
       remaining: survivors.length,
+      status: statusFor(degradations),
+      degradations,
     }
   }
 }

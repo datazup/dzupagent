@@ -21,6 +21,8 @@ export type {
   SummaryProfile,
   SummaryValidationResult,
   SummaryMetadata,
+  CompressionDegradation,
+  CompressionDegradationStage,
   SummarizeAndTrimResult,
 } from "./message-manager.js";
 

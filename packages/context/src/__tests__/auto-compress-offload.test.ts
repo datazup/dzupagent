@@ -138,6 +138,13 @@ describe("autoCompress offload — sink failure", () => {
     expect(result.compressed).toBe(true);
     expect(result.fallbackReason).toContain("offload-failed");
     expect(result.fallbackReason).toContain("disk full");
+    expect(result.degradations).toEqual([
+      {
+        stage: "offload",
+        reason: "offload-failed: disk full",
+        adoptionSafe: true,
+      },
+    ]);
     // And it must still not name a path that was never written.
     expect(result.summary ?? "").not.toContain("conversation.log");
   });

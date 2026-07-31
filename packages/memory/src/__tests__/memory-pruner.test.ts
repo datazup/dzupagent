@@ -123,7 +123,13 @@ describe('MemoryPruner', () => {
   it('returns zero counts on empty store', async () => {
     const store = createMockStore()
     const result = await new MemoryPruner().prune(store)
-    expect(result).toEqual({ expired: 0, evicted: 0, remaining: 0 })
+    expect(result).toEqual({
+      expired: 0,
+      evicted: 0,
+      remaining: 0,
+      status: 'completed',
+      degradations: [],
+    })
   })
 
   it('returns zero counts when search throws', async () => {
@@ -133,7 +139,48 @@ describe('MemoryPruner', () => {
       delete: vi.fn(),
     }
     const result = await new MemoryPruner().prune(store)
-    expect(result).toEqual({ expired: 0, evicted: 0, remaining: 0 })
+    expect(result).toMatchObject({
+      expired: 0,
+      evicted: 0,
+      remaining: 0,
+      status: 'degraded',
+      degradations: [
+        {
+          operation: 'search',
+          impact: 'source-unavailable',
+          reason: 'boom',
+        },
+      ],
+    })
+  })
+
+  it('reports delete failures and keeps the failed record in remaining', async () => {
+    const now = 10_000_000
+    const store = createMockStore([
+      { key: 'old', value: { _decay: { createdAt: 1, strength: 0.1 } } },
+    ])
+    ;(store.delete as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error('delete failed'),
+    )
+
+    const result = await new MemoryPruner().prune(store, {
+      ttlMs: 1,
+      now: () => now,
+    })
+
+    expect(result).toMatchObject({
+      expired: 0,
+      remaining: 1,
+      status: 'degraded',
+      degradations: [
+        {
+          operation: 'delete',
+          impact: 'partial-result',
+          reason: 'delete failed',
+          target: 'old',
+        },
+      ],
+    })
   })
 
   it('falls back to value.createdAt and item.createdAt when _decay is missing', async () => {

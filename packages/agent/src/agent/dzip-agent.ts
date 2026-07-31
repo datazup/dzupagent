@@ -80,7 +80,10 @@ import {
   type ToolResolutionInput,
 } from "./dzip-agent-resolvers.js";
 import { maybeWriteBackMemory as maybeWriteBackMemoryFinalizer } from "./agent-finalizers.js";
-import { runConsolidation } from "./consolidation-coordinator.js";
+import {
+  runConsolidation,
+  type AgentConsolidationResult,
+} from "./consolidation-coordinator.js";
 import {
   runGenerate as runGenerateRun,
   runStream as runStreamRun,
@@ -485,9 +488,9 @@ export class DzupAgent {
    * Clusters semantically related entries and summarises each cluster into a
    * single record with low-strength children (pruned on the next decay sweep).
    * Safe from any async context. Requires `config.memory` to expose
-   * `getStore()`; returns `{ summarized: 0 }` silently when unavailable.
+   * `getStore()`; unavailable inputs return a non-throwing degraded result.
    */
-  async consolidate(): Promise<{ summarized: number; summaries: string[] }> {
+  async consolidate(): Promise<AgentConsolidationResult> {
     return runConsolidation({ agentId: this.id, config: this.config });
   }
 }

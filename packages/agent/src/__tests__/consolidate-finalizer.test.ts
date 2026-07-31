@@ -237,7 +237,17 @@ describe("DzupAgent.consolidate()", () => {
     });
 
     const result = await agent.consolidate();
-    expect(result).toEqual({ summarized: 0, summaries: [] });
+    expect(result).toMatchObject({
+      summarized: 0,
+      summaries: [],
+      status: "degraded",
+      degradations: [
+        expect.objectContaining({
+          operation: "get",
+          impact: "source-unavailable",
+        }),
+      ],
+    });
   });
 
   it("returns {summarized:0} when memory lacks getStore()", async () => {
@@ -252,7 +262,17 @@ describe("DzupAgent.consolidate()", () => {
     });
 
     const result = await agent.consolidate();
-    expect(result).toEqual({ summarized: 0, summaries: [] });
+    expect(result).toMatchObject({
+      summarized: 0,
+      summaries: [],
+      status: "degraded",
+      degradations: [
+        expect.objectContaining({
+          operation: "get",
+          impact: "source-unavailable",
+        }),
+      ],
+    });
   });
 
   it("delegates to ConsolidationEngine and returns summarized count", async () => {

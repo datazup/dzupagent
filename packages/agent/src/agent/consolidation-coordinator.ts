@@ -2,21 +2,44 @@
  * Memory consolidation coordinator for {@link DzupAgent}.
  *
  * Wraps `ConsolidationEngine` so the agent class can stay a thin
- * coordinator. Mirrors the original `consolidate()` semantics one-for-one:
+ * coordinator. The operation remains non-fatal, but unavailable inputs and
+ * partial work are reported through structured outcome metadata:
  *
- *   - returns `{ summarized: 0, summaries: [] }` silently when memory,
- *     namespace, or scope is unconfigured
- *   - returns `{ summarized: 0, summaries: [] }` silently when the
- *     memory provider does not expose `getStore()` (compatibility with
- *     non-{@link MemoryService} providers)
- *   - swallows `ConsolidationEngine` failures so a manual consolidation
- *     sweep never throws to the caller
+ *   - unconfigured memory and missing `getStore()` return `status: degraded`
+ *   - engine degradations are propagated to the caller
+ *   - thrown failures become non-throwing degraded results
  *
  * Extracted from `dzip-agent.ts` (MC-004).
  */
 import { ConsolidationEngine } from '@dzupagent/memory'
-import type { ConsolidationStore } from '@dzupagent/memory'
+import type {
+  ConsolidationStore,
+  MemoryOperationDegradation,
+  MemoryOperationStatus,
+} from '@dzupagent/memory'
 import type { DzupAgentConfig } from './agent-types.js'
+
+export interface AgentConsolidationResult {
+  summarized: number
+  summaries: string[]
+  status: MemoryOperationStatus
+  degradations: MemoryOperationDegradation[]
+}
+
+function unavailable(reason: string): AgentConsolidationResult {
+  return {
+    summarized: 0,
+    summaries: [],
+    status: 'degraded',
+    degradations: [
+      {
+        operation: 'get',
+        impact: 'source-unavailable',
+        reason,
+      },
+    ],
+  }
+}
 
 /**
  * Run a consolidation sweep on the agent's memory namespace.
@@ -27,21 +50,27 @@ import type { DzupAgentConfig } from './agent-types.js'
  */
 export async function runConsolidation(
   params: { agentId: string; config: DzupAgentConfig },
-): Promise<{ summarized: number; summaries: string[] }> {
+): Promise<AgentConsolidationResult> {
   const { agentId, config } = params
   const memory = config.memory
   const namespace = config.memoryNamespace
   const scope = config.memoryScope
-  if (!memory || !namespace || !scope) return { summarized: 0, summaries: [] }
+  if (!memory || !namespace || !scope) {
+    return unavailable('memory, namespace, or scope is not configured')
+  }
 
   const getStore = (memory as { getStore?: () => unknown }).getStore
-  if (typeof getStore !== 'function') return { summarized: 0, summaries: [] }
+  if (typeof getStore !== 'function') {
+    return unavailable('memory provider does not expose getStore()')
+  }
 
   let store: unknown
   try {
     store = getStore.call(memory)
-  } catch {
-    return { summarized: 0, summaries: [] }
+  } catch (error) {
+    return unavailable(
+      error instanceof Error ? error.message : String(error),
+    )
   }
 
   const engine = new ConsolidationEngine({
@@ -54,8 +83,15 @@ export async function runConsolidation(
       namespace,
       store as ConsolidationStore,
     )
-    return { summarized: result.summarized, summaries: result.summaries }
-  } catch {
-    return { summarized: 0, summaries: [] }
+    return {
+      summarized: result.summarized,
+      summaries: result.summaries,
+      status: result.status,
+      degradations: result.degradations,
+    }
+  } catch (error) {
+    return unavailable(
+      error instanceof Error ? error.message : String(error),
+    )
   }
 }

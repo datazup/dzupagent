@@ -71,6 +71,7 @@ export type {
 export { ConsolidationEngine } from "./consolidation-engine.js";
 export type {
   ConsolidationResult,
+  ConsolidationOperationResult,
   ConsolidationEngineConfig,
   ConsolidationStore,
   ConsolidationStoreItem,
@@ -81,9 +82,20 @@ export { MemoryPruner } from "./memory-pruner.js";
 export type {
   PruneOptions,
   PruneResult,
+  PruneOperationResult,
   MemoryStore as PrunerMemoryStore,
   MemoryStoreItem as PrunerMemoryStoreItem,
 } from "./memory-pruner.js";
+
+// --- Best-effort operation outcomes ---
+export type {
+  MemoryOperationStatus,
+  MemoryOperation,
+  MemoryDegradationImpact,
+  MemoryOperationDegradation,
+  MemoryOperationOutcome,
+  MemoryOperationResult,
+} from "./operation-outcome.js";
 
 // --- Semantic Consolidation (LLM-powered) ---
 export {
@@ -134,7 +146,9 @@ export type {
 export { MemoryAwareExtractor } from "./memory-aware-extractor.js";
 export type {
   MemoryAwareExtractorConfig,
+  ExtractionFailure,
   ExtractionResult,
+  ExtractionOperationResult,
 } from "./memory-aware-extractor.js";
 
 // --- Frozen Snapshot ---
@@ -339,6 +353,8 @@ export type {
   NetworkConfig,
   NetworkMemoryRecord,
   MultiNetworkSearchResult,
+  MultiNetworkSearchOutcome,
+  MultiNetworkPromptOutcome,
   NetworkStats,
   MultiNetworkMemoryConfig,
 } from "./multi-network-memory.js";

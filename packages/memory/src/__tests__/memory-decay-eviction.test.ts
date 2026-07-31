@@ -1028,7 +1028,13 @@ describe("Malformed and missing decay metadata — graceful handling", () => {
     const result = await new MemoryPruner().prune(store, {
       now: () => 10_000_000,
     });
-    expect(result).toEqual({ expired: 0, evicted: 0, remaining: 0 });
+    expect(result).toEqual({
+      expired: 0,
+      evicted: 0,
+      remaining: 0,
+      status: "completed",
+      degradations: [],
+    });
   });
 
   it("MemoryPruner: store.search() failure returns zero counts gracefully", async () => {
@@ -1038,7 +1044,19 @@ describe("Malformed and missing decay metadata — graceful handling", () => {
       delete: vi.fn(),
     };
     const result = await new MemoryPruner().prune(store);
-    expect(result).toEqual({ expired: 0, evicted: 0, remaining: 0 });
+    expect(result).toMatchObject({
+      expired: 0,
+      evicted: 0,
+      remaining: 0,
+      status: "degraded",
+      degradations: [
+        {
+          operation: "search",
+          impact: "source-unavailable",
+          reason: "search failure",
+        },
+      ],
+    });
   });
 });
 

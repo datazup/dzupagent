@@ -289,6 +289,50 @@ describe("Tool loop — maybeCompress wiring", () => {
     ).toHaveLength(2);
   });
 
+  it("treats adoption-unsafe degradation as a compression failure", async () => {
+    const { tool } = mockTool("echo", "hi");
+    const maybeCompress = vi.fn(
+      async (messages: BaseMessage[]): Promise<CompressResult> => ({
+        messages,
+        summary: "stale summary",
+        compressed: false,
+        degradations: [
+          {
+            stage: "summary-invocation",
+            reason: "summary provider offline",
+            adoptionSafe: false,
+          },
+        ],
+      })
+    );
+    const events: DzupEvent[] = [];
+    const eventBus = {
+      emit: vi.fn((event: DzupEvent) => events.push(event)),
+      on: vi.fn(),
+      once: vi.fn(),
+      onAny: vi.fn(),
+    } as unknown as DzupEventBus;
+    const model = createMockModel([
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      aiWithToolCalls([{ name: "echo", args: {} }]),
+      new AIMessage("final"),
+    ]);
+
+    const result = await runToolLoop(model, [new HumanMessage("go")], [tool], {
+      maxIterations: 10,
+      maybeCompress,
+      eventBus,
+    });
+
+    expect(result.stopReason).toBe("compression_failed");
+    expect(maybeCompress).toHaveBeenCalledTimes(2);
+    expect(events).toContainEqual({
+      type: "context:compress_failed",
+      error: "summary provider offline",
+      phase: "tool-loop:summary-invocation",
+    });
+  });
+
   it("AGENT-112: a successful compression resets the consecutive-failure streak", async () => {
     const { tool } = mockTool("echo", "hi");
     // fail, succeed, fail → never two in a row → run completes normally.

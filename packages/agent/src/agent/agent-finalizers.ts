@@ -364,6 +364,16 @@ export async function runConsolidateFinalizer(
 
   try {
     const result = await engine.consolidate(agentId, namespace, store as PrunerMemoryStore)
+    for (const item of result.degradations) {
+      config.eventBus?.emit({
+        type: 'memory:error',
+        agentId,
+        namespace,
+        key: item.target ?? 'consolidation',
+        scopeKeys: getSafeScopeKeys(scope),
+        message: `${item.operation}: ${item.reason}`,
+      })
+    }
     if (result.summarized > 0) {
       config.eventBus?.emit({
         type: 'memory:written',

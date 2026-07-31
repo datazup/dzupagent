@@ -7,6 +7,13 @@
  */
 import type { MemoryService } from './memory-service.js'
 import type { FormatOptions } from './memory-types.js'
+import {
+  degradation,
+  statusFor,
+  type MemoryOperationDegradation,
+  type MemoryOperationOutcome,
+  type MemoryOperationResult,
+} from './operation-outcome.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,11 +55,21 @@ export interface MultiNetworkSearchResult {
   score: number
 }
 
+/** Detailed cross-network search result with partial-outage metadata. */
+export interface MultiNetworkSearchOutcome extends MemoryOperationResult {
+  results: MultiNetworkSearchResult[]
+}
+
 /** Stats per network */
-export interface NetworkStats {
+export interface NetworkStats extends MemoryOperationOutcome {
   network: MemoryNetwork
   recordCount: number
   namespace: string
+}
+
+/** Prompt rendering result with partial-outage metadata. */
+export interface MultiNetworkPromptOutcome extends MemoryOperationResult {
+  prompt: string
 }
 
 // ---------------------------------------------------------------------------
@@ -211,7 +228,18 @@ export class MultiNetworkMemory {
     query: string,
     limit = 10,
   ): Promise<MultiNetworkSearchResult[]> {
+    return (await this.searchAllDetailed(query, limit)).results
+  }
+
+  /**
+   * Search all networks and retain the failures that made the result partial.
+   */
+  async searchAllDetailed(
+    query: string,
+    limit = 10,
+  ): Promise<MultiNetworkSearchOutcome> {
     const allResults: MultiNetworkSearchResult[] = []
+    const degradations: MemoryOperationDegradation[] = []
 
     for (const [network, config] of this.networks) {
       try {
@@ -235,13 +263,20 @@ export class MultiNetworkMemory {
             score: (1 / (i + 1)) * weightSum,
           })
         }
-      } catch {
+      } catch (error) {
         // Non-fatal: skip this network on failure
+        degradations.push(
+          degradation('search', 'partial-result', error, network),
+        )
       }
     }
 
     allResults.sort((a, b) => b.score - a.score)
-    return allResults.slice(0, limit)
+    return {
+      results: allResults.slice(0, limit),
+      status: statusFor(degradations),
+      degradations,
+    }
   }
 
   // ---- Classification -----------------------------------------------------
@@ -295,14 +330,28 @@ export class MultiNetworkMemory {
   /**
    * Get stats for all networks.
    */
-  async getStats(): Promise<NetworkStats[]> {
-    const stats: NetworkStats[] = []
+  async getStats(): Promise<Array<NetworkStats & MemoryOperationResult>> {
+    const stats: Array<NetworkStats & MemoryOperationResult> = []
     for (const [network, config] of this.networks) {
       try {
         const records = await this.memoryService.get(config.namespace, this.scope)
-        stats.push({ network, recordCount: records.length, namespace: config.namespace })
-      } catch {
-        stats.push({ network, recordCount: 0, namespace: config.namespace })
+        stats.push({
+          network,
+          recordCount: records.length,
+          namespace: config.namespace,
+          status: 'completed',
+          degradations: [],
+        })
+      } catch (error) {
+        stats.push({
+          network,
+          recordCount: 0,
+          namespace: config.namespace,
+          status: 'degraded',
+          degradations: [
+            degradation('get', 'source-unavailable', error, network),
+          ],
+        })
       }
     }
     return stats
@@ -318,9 +367,20 @@ export class MultiNetworkMemory {
     query: string,
     options?: FormatOptions & { maxPerNetwork?: number },
   ): Promise<string> {
+    return (await this.formatForPromptDetailed(query, options)).prompt
+  }
+
+  /**
+   * Format prompt memory while retaining networks omitted by read failures.
+   */
+  async formatForPromptDetailed(
+    query: string,
+    options?: FormatOptions & { maxPerNetwork?: number },
+  ): Promise<MultiNetworkPromptOutcome> {
     const maxPerNetwork = options?.maxPerNetwork ?? 5
     const maxChars = options?.maxCharsPerItem ?? 2000
     const sections: string[] = []
+    const degradations: MemoryOperationDegradation[] = []
 
     for (const [network, config] of this.networks) {
       try {
@@ -341,14 +401,22 @@ export class MultiNetworkMemory {
         })
 
         sections.push(`## ${NETWORK_LABELS[network]}\n${items.map(i => `- ${i}`).join('\n')}`)
-      } catch {
+      } catch (error) {
         // Non-fatal: skip network
+        degradations.push(
+          degradation('search', 'partial-result', error, network),
+        )
       }
     }
 
-    if (sections.length === 0) return ''
-    const header = options?.header ?? '# Multi-Network Memory'
-    return `${header}\n\n${sections.join('\n\n')}`
+    const prompt = sections.length === 0
+      ? ''
+      : `${options?.header ?? '# Multi-Network Memory'}\n\n${sections.join('\n\n')}`
+    return {
+      prompt,
+      status: statusFor(degradations),
+      degradations,
+    }
   }
 
   // ---- Config accessors ---------------------------------------------------

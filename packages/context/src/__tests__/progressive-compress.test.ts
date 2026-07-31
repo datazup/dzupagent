@@ -330,12 +330,12 @@ describe('compressToLevel', () => {
 
       const result = await compressToLevel(msgs, 3, null, model)
 
-      // summarizeAndTrim catches internally and returns empty summary,
-      // so compressToLevel still reports level 3 but with fallback summary
-      expect(result.level).toBe(3)
-      expect(result.summary).toBe('')
-      // Should still have trimmed messages
-      expect(result.messages.length).toBeLessThanOrEqual(10)
+      // A failed summary cannot cover discarded messages, so level 3 must
+      // genuinely fall back to the non-destructive level-2 result.
+      expect(result.level).toBe(2)
+      expect(result.summary).toBeNull()
+      expect(result.messages).toHaveLength(msgs.length)
+      expect(result.degradations?.[0]?.adoptionSafe).toBe(false)
     })
 
     it('preserves existing summary on LLM failure', async () => {
@@ -344,9 +344,9 @@ describe('compressToLevel', () => {
 
       const result = await compressToLevel(msgs, 3, 'old summary', model)
 
-      // summarizeAndTrim catches internally and returns existingSummary
-      expect(result.level).toBe(3)
+      expect(result.level).toBe(2)
       expect(result.summary).toBe('old summary')
+      expect(result.degradedFrom?.requested).toBe(3)
     })
 
     it('calls onBeforeSummarize hook before summarization', async () => {
@@ -628,13 +628,10 @@ describe('compressToLevel — summarizer failure is reported', () => {
     const model = createFailingModel('summarizer offline')
     const result = await compressToLevel(makeConversation(20), 3, null, model)
 
-    // summarizeAndTrim swallows the model error and returns the *previous*
-    // summary, so level legitimately stays 3 — the messages really were
-    // trimmed. What was missing is any sign that the summary describing them
-    // was never written.
-    expect(result.level).toBe(3)
+    expect(result.level).toBe(2)
     expect(result.degradedFrom?.requested).toBe(3)
     expect(result.degradedFrom?.reason).toContain('summarizer offline')
+    expect(result.degradations?.[0]?.stage).toBe('summary-invocation')
   })
 
   it('preserves the existing summary and still flags the failure', async () => {
@@ -646,10 +643,9 @@ describe('compressToLevel — summarizer failure is reported', () => {
       model,
     )
 
-    // A caller persisting result.summary would write back a summary that does
-    // not cover the messages just discarded. degradedFrom is the only warning.
     expect(result.summary).toBe('old summary')
     expect(result.degradedFrom).toBeDefined()
+    expect(result.level).toBe(2)
   })
 
   it('leaves degradedFrom unset when summarization succeeds', async () => {

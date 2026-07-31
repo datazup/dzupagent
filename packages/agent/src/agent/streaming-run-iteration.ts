@@ -319,6 +319,13 @@ export async function maybeAdoptCompression(
       runState.model,
       null,
     )
+    for (const degradation of compressResult.degradations ?? []) {
+      ctx.config.eventBus?.emit({
+        type: 'context:compress_failed',
+        error: degradation.reason,
+        phase: `stream:${degradation.stage}`,
+      })
+    }
     if (compressResult.compressed) {
       // WS3 Task 3.2 — model-lifecycle hooks run BEFORE prompt-cache
       // re-injection on the compressed transcript. ORDERING IS LOAD-BEARING:
@@ -350,8 +357,13 @@ export async function maybeAdoptCompression(
       allMessages.length = 0
       allMessages.push(...recached)
     }
-  } catch {
+  } catch (error) {
     // Compression is best-effort and must not abort an active stream.
+    ctx.config.eventBus?.emit({
+      type: 'context:compress_failed',
+      error: error instanceof Error ? error.message : String(error),
+      phase: 'stream',
+    })
   }
 }
 

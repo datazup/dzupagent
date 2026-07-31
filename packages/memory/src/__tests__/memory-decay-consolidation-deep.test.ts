@@ -405,6 +405,15 @@ describe("ConsolidationEngine — deep coverage", () => {
       // Non-fatal: should return empty result rather than throwing
       expect(result.summarized).toBe(0);
       expect(result.summaries).toHaveLength(0);
+      expect(result.status).toBe("degraded");
+      expect(result.degradations).toEqual([
+        {
+          operation: "put",
+          impact: "partial-result",
+          reason: "store write failed",
+          target: "task:__summary__",
+        },
+      ]);
     });
   });
 

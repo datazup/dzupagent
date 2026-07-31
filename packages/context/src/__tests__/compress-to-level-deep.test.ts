@@ -444,13 +444,12 @@ describe("compressToLevel level 3 — summarization branches", () => {
     );
   });
 
-  it("level 3 result still has level=3 even after fallback inside summarizeAndTrim", async () => {
-    // summarizeAndTrim itself catches LLM errors but compressToLevel sees the trimmed msgs
+  it("falls back to level 2 when summarizeAndTrim reports model failure", async () => {
     const model = createFailingModel();
     const msgs = makePairs(12);
     const result = await compressToLevel(msgs, 3, null, model);
-    // summarizeAndTrim catches, returns fallback, compressToLevel stays at level 3
-    expect(result.level).toBe(3);
+    expect(result.level).toBe(2);
+    expect(result.degradedFrom?.requested).toBe(3);
   });
 
   it("message count after level 3 is <= keepRecentLevel3", async () => {

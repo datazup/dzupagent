@@ -122,6 +122,8 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
 
     expect(result.summarized).toBe(0)
     expect(result.summaries).toEqual([])
+    expect(result.status).toBe('completed')
+    expect(result.degradations).toEqual([])
   })
 
   it('honours custom minClusterSize via options.consolidation', async () => {
@@ -188,7 +190,10 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
       get: vi.fn(),
       delete: vi.fn(),
     } as unknown as BaseStore
-    const svc = new MemoryService(failingStore, namespaces)
+    const events: Array<{ type: string } & Record<string, unknown>> = []
+    const svc = new MemoryService(failingStore, namespaces, {
+      eventBus: { emit: (event) => events.push(event) },
+    })
 
     const result = await svc.consolidateAfterRun(
       'run-fail',
@@ -201,6 +206,21 @@ describe('MemoryService.consolidateAfterRun (M-14 wiring)', () => {
     // wiring must never throw to the caller.
     expect(result.summarized).toBe(0)
     expect(result.summaries).toEqual([])
+    expect(result.status).toBe('degraded')
+    expect(result.degradations).toEqual([
+      expect.objectContaining({
+        operation: 'search',
+        impact: 'source-unavailable',
+        reason: 'search failed',
+      }),
+    ])
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'memory:error',
+        error: 'search: search failed',
+      }),
+    ])
+    expect(events.some((event) => event.type === 'memory:consolidated')).toBe(false)
   })
 
   // ---- AG-02 regression: tenantId required in scope ----------------------

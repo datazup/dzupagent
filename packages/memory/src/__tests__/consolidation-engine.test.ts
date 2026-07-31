@@ -55,6 +55,8 @@ describe('ConsolidationEngine', () => {
     })
     expect(typeof result.durationMs).toBe('number')
     expect(result.durationMs).toBeGreaterThanOrEqual(0)
+    expect(result.status).toBe('completed')
+    expect(result.degradations).toEqual([])
 
     // Summary entry exists with joined text
     const summary = store.data.get('task:__summary__')
@@ -134,6 +136,8 @@ describe('ConsolidationEngine', () => {
       summaries: [],
       provenance: {},
       durationMs: expect.any(Number) as unknown as number,
+      status: 'completed',
+      degradations: [],
     })
   })
 
@@ -165,9 +169,49 @@ describe('ConsolidationEngine', () => {
 
     const result = await engine.consolidate('teamX', 'session', store)
     expect(result.summarized).toBe(3)
+    expect(result.status).toBe('degraded')
+    expect(result.degradations).toEqual([
+      {
+        operation: 'summarize',
+        impact: 'fallback-used',
+        reason: 'judge failed',
+        target: 'task',
+      },
+    ])
     const summary = store.data.get('task:__summary__')
     expect(summary!['text']).toContain('alpha')
     expect(summary!['text']).toContain('gamma')
+  })
+
+  it('reports a partial result when a consolidated child cannot be marked', async () => {
+    const store = createMockStore([
+      { key: 'task:a', value: { text: 'alpha' } },
+      { key: 'task:b', value: { text: 'beta' } },
+      { key: 'task:c', value: { text: 'gamma' } },
+    ])
+    ;(store.put as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_namespace: string[], key: string, value: Record<string, unknown>) => {
+        if (key === 'task:b') throw new Error('child update failed')
+        store.data.set(key, value)
+      },
+    )
+
+    const result = await new ConsolidationEngine().consolidate(
+      'teamX',
+      'session',
+      store,
+    )
+
+    expect(result.summarized).toBe(3)
+    expect(result.status).toBe('degraded')
+    expect(result.degradations).toEqual([
+      {
+        operation: 'put',
+        impact: 'partial-result',
+        reason: 'child update failed',
+        target: 'task:b',
+      },
+    ])
   })
 
   it('skips already-written summary entries (idempotent)', async () => {
@@ -196,5 +240,14 @@ describe('ConsolidationEngine', () => {
     const result = await engine.consolidate('s', 'n', store)
     expect(result.summarized).toBe(0)
     expect(result.summaries).toEqual([])
+    expect(result.status).toBe('degraded')
+    expect(result.degradations).toEqual([
+      {
+        operation: 'search',
+        impact: 'source-unavailable',
+        reason: 'boom',
+        target: 's/n',
+      },
+    ])
   })
 })

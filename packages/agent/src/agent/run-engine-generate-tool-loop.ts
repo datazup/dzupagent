@@ -373,6 +373,9 @@ export async function setupModelCall(
           before: info.before,
           after: info.after,
           summary: info.summary,
+          ...(info.degradations !== undefined
+            ? { degradations: info.degradations }
+            : {}),
           ts: Date.now(),
         })
       },

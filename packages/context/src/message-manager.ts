@@ -44,11 +44,31 @@ export interface SummaryMetadata {
   missingSections: string[]
 }
 
+export type CompressionDegradationStage =
+  | 'summary-invocation'
+  | 'summary-validation'
+  | 'offload'
+
+/**
+ * A compression stage that could not provide its normal guarantee.
+ *
+ * `adoptionSafe` is the runtime decision boundary: false means callers must
+ * keep the pre-compression transcript because the returned summary does not
+ * cover the messages that would be removed.
+ */
+export interface CompressionDegradation {
+  stage: CompressionDegradationStage
+  reason: string
+  adoptionSafe: boolean
+}
+
 export interface SummarizeAndTrimResult {
   summary: string
   trimmedMessages: BaseMessage[]
   /** Present only when a model summarization call was attempted. */
   summaryMetadata?: SummaryMetadata
+  /** Structured failure signal for callers deciding whether trimming is safe. */
+  degradation?: CompressionDegradation
   /**
    * Set when summarization was attempted and failed, so `summary` is the
    * caller's previous summary (or empty) rather than one covering the
@@ -576,6 +596,11 @@ export async function summarizeAndTrim(
         summary: existingSummary ?? '',
         trimmedMessages: repairedRecent,
         summaryMetadata,
+        degradation: {
+          stage: 'summary-validation',
+          reason: `required summary missing sections: ${validation.missingSections.join(', ')}`,
+          adoptionSafe: false,
+        },
       }
     }
 
@@ -594,6 +619,11 @@ export async function summarizeAndTrim(
       summary: existingSummary ?? '',
       trimmedMessages: repairedRecent,
       summarizeFailed: err instanceof Error ? err.message : String(err),
+      degradation: {
+        stage: 'summary-invocation',
+        reason: err instanceof Error ? err.message : String(err),
+        adoptionSafe: false,
+      },
     }
   }
 }

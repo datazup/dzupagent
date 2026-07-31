@@ -30,9 +30,10 @@ import type {
 } from './memory-types.js'
 import {
   ConsolidationEngine,
-  type ConsolidationResult,
+  type ConsolidationOperationResult,
   type ConsolidationStore,
 } from './consolidation-engine.js'
+import { degradation } from './operation-outcome.js'
 import {
   getMemoryStoreCapabilities,
   type MemoryStoreCapabilities,
@@ -280,7 +281,7 @@ export class MemoryService {
     runId: string,
     scope: { readonly tenantId: string } & Record<string, string>,
     namespace: string,
-  ): Promise<ConsolidationResult> {
+  ): Promise<ConsolidationOperationResult> {
     const startedAt = Date.now()
 
     // AG-02: tenantId must be present and non-empty so consolidation is
@@ -307,16 +308,29 @@ export class MemoryService {
         this.store as unknown as ConsolidationStore,
       )
 
-      this.eventBus?.emit({
-        type: 'memory:consolidated',
-        agentId: this.agentId ?? 'unknown',
-        runId,
-        namespace,
-        scope,
-        summarized: result.summarized,
-        summaries: result.summaries,
-        durationMs: result.durationMs,
-      })
+      for (const item of result.degradations) {
+        this.eventBus?.emit({
+          type: 'memory:error',
+          agentId: this.agentId ?? 'unknown',
+          runId,
+          namespace,
+          scope,
+          error: `${item.operation}: ${item.reason}`,
+        })
+      }
+
+      if (result.status === 'completed') {
+        this.eventBus?.emit({
+          type: 'memory:consolidated',
+          agentId: this.agentId ?? 'unknown',
+          runId,
+          namespace,
+          scope,
+          summarized: result.summarized,
+          summaries: result.summaries,
+          durationMs: result.durationMs,
+        })
+      }
 
       return result
     } catch (err) {
@@ -334,6 +348,10 @@ export class MemoryService {
         summaries: [],
         provenance: {},
         durationMs: Date.now() - startedAt,
+        status: 'degraded',
+        degradations: [
+          degradation('search', 'source-unavailable', err, namespace),
+        ],
       }
     }
   }

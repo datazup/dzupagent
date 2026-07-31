@@ -413,6 +413,11 @@ describe('summarizeAndTrim', () => {
     expect(result.summary).toBe('prior safe summary')
     expect(result.summaryMetadata?.validation).toBe('failed')
     expect(result.summaryMetadata?.missingSections).toContain('Goal')
+    expect(result.degradation).toEqual({
+      stage: 'summary-validation',
+      reason: expect.stringContaining('Goal'),
+      adoptionSafe: false,
+    })
     expect(eventBus.emit).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'context:summary_validation_failed',
@@ -547,6 +552,11 @@ describe('summarizeAndTrim', () => {
 
     expect(result.summary).toBe('fallback context')
     expect(result.trimmedMessages.length).toBeLessThanOrEqual(10)
+    expect(result.degradation).toEqual({
+      stage: 'summary-invocation',
+      reason: 'network error',
+      adoptionSafe: false,
+    })
   })
 
   it('returns empty summary on LLM failure with no existing summary', async () => {

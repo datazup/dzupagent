@@ -13,7 +13,10 @@ import type { TokenUsage } from "@dzupagent/core/llm";
 import type { SafetyMonitor } from "@dzupagent/core/security";
 import type { ToolGovernance } from "@dzupagent/core/tools";
 import type { ToolPermissionPolicy } from "@dzupagent/agent-types";
-import type { CompressResult } from "@dzupagent/context";
+import type {
+  CompressResult,
+  CompressionDegradation,
+} from "@dzupagent/context";
 import type { IterationBudget } from "../../../guardrails/iteration-budget.js";
 import type { StuckDetector } from "../../../guardrails/stuck-detector.js";
 import { type ToolArgValidatorConfig } from "../../tool-arg-validator.js";
@@ -193,6 +196,7 @@ export interface ToolLoopConfig {
     before: number;
     after: number;
     summary: string | null;
+    degradations?: CompressionDegradation[];
   }) => void;
 
   /**

@@ -19,6 +19,7 @@ import {
   pruneToolResults,
   repairOrphanedToolPairs,
   summarizeAndTrim,
+  type CompressionDegradation,
 } from './message-manager.js'
 
 // ---------------------------------------------------------------------------
@@ -65,6 +66,8 @@ export interface ProgressiveCompressResult {
     /** Why it could not be applied. */
     reason: string
   }
+  /** Structured stage failures encountered while producing the fallback. */
+  degradations?: CompressionDegradation[]
   /** Estimated token count after compression */
   estimatedTokens: number
   /** Compression ratio (0-1, higher = more compressed) */
@@ -108,6 +111,7 @@ function buildResult(
   originalTokens: number,
   charsPerToken: number,
   degradedFrom?: ProgressiveCompressResult['degradedFrom'],
+  degradations?: CompressionDegradation[],
 ): ProgressiveCompressResult {
   const estimatedTokensAfter = estimateTokens(messages, charsPerToken)
   const ratio = originalTokens > 0
@@ -118,6 +122,7 @@ function buildResult(
     summary,
     level,
     ...(degradedFrom ? { degradedFrom } : {}),
+    ...(degradations && degradations.length > 0 ? { degradations } : {}),
     estimatedTokens: estimatedTokensAfter,
     ratio: Math.max(0, Math.min(1, ratio)),
   }
@@ -264,7 +269,11 @@ export async function compressToLevel(
   // --- Level 3: structured summarization via summarizeAndTrim ---
   if (level === 3) {
     try {
-      const { summary, trimmedMessages, summarizeFailed } = await summarizeAndTrim(
+      const {
+        summary,
+        trimmedMessages,
+        degradation,
+      } = await summarizeAndTrim(
         result,
         existingSummary,
         model,
@@ -275,24 +284,35 @@ export async function compressToLevel(
             : {}),
         },
       )
-      return buildResult(
-        trimmedMessages,
-        summary,
-        3,
-        originalTokens,
-        charsPerToken,
-        summarizeFailed
-          ? { requested: 3, reason: summarizeFailed }
-          : undefined,
-      )
+      if (degradation?.adoptionSafe === false) {
+        return buildResult(
+          result,
+          existingSummary,
+          2,
+          originalTokens,
+          charsPerToken,
+          {
+            requested: 3,
+            reason: degradation.reason,
+          },
+          [degradation],
+        )
+      }
+      return buildResult(trimmedMessages, summary, 3, originalTokens, charsPerToken)
     } catch (error) {
       // Defensive: summarizeAndTrim swallows model failures internally (it
       // reports them via the returned `summarizeFailed`), so reaching here
       // means something outside the model call threw.
-      return buildResult(result, existingSummary, 2, originalTokens, charsPerToken, {
-        requested: 3,
-        reason: error instanceof Error ? error.message : String(error),
-      })
+      const reason = error instanceof Error ? error.message : String(error)
+      return buildResult(
+        result,
+        existingSummary,
+        2,
+        originalTokens,
+        charsPerToken,
+        { requested: 3, reason },
+        [{ stage: 'summary-invocation', reason, adoptionSafe: false }],
+      )
     }
   }
 

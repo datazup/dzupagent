@@ -175,6 +175,28 @@ describe('MultiNetworkMemory', () => {
       expect(results).toHaveLength(3)
     })
 
+    it('reports the failed network in detailed search results', async () => {
+      const search = memory.search as ReturnType<typeof vi.fn>
+      search.mockImplementation((ns: string) => {
+        if (ns === 'net-opinion') {
+          return Promise.reject(new Error('opinion network down'))
+        }
+        return Promise.resolve([{ key: `${ns}-1`, text: 'data' }])
+      })
+
+      const outcome = await mnm.searchAllDetailed('query')
+      expect(outcome.results).toHaveLength(3)
+      expect(outcome.status).toBe('degraded')
+      expect(outcome.degradations).toEqual([
+        {
+          operation: 'search',
+          impact: 'partial-result',
+          reason: 'opinion network down',
+          target: 'opinion',
+        },
+      ])
+    })
+
     it('should respect limit', async () => {
       const search = memory.search as ReturnType<typeof vi.fn>
       search.mockResolvedValue([
@@ -270,7 +292,7 @@ describe('MultiNetworkMemory', () => {
       expect(entity!.recordCount).toBe(0)
     })
 
-    it('should return 0 count for networks that error', async () => {
+    it('should distinguish unavailable networks from empty networks', async () => {
       const get = memory.get as ReturnType<typeof vi.fn>
       get.mockRejectedValue(new Error('store error'))
 
@@ -278,6 +300,13 @@ describe('MultiNetworkMemory', () => {
       expect(stats).toHaveLength(4)
       for (const s of stats) {
         expect(s.recordCount).toBe(0)
+        expect(s.status).toBe('degraded')
+        expect(s.degradations[0]).toMatchObject({
+          operation: 'get',
+          impact: 'source-unavailable',
+          reason: 'store error',
+          target: s.network,
+        })
       }
     })
   })
@@ -304,6 +333,28 @@ describe('MultiNetworkMemory', () => {
     it('should return empty string when no results', async () => {
       const output = await mnm.formatForPrompt('query')
       expect(output).toBe('')
+    })
+
+    it('reports networks omitted from detailed prompt formatting', async () => {
+      const search = memory.search as ReturnType<typeof vi.fn>
+      search.mockImplementation((ns: string) => {
+        if (ns === 'net-entity') {
+          return Promise.reject(new Error('entity network down'))
+        }
+        return Promise.resolve([])
+      })
+
+      const outcome = await mnm.formatForPromptDetailed('query')
+      expect(outcome.prompt).toBe('')
+      expect(outcome.status).toBe('degraded')
+      expect(outcome.degradations).toEqual([
+        {
+          operation: 'search',
+          impact: 'partial-result',
+          reason: 'entity network down',
+          target: 'entity',
+        },
+      ])
     })
 
     it('should respect custom header option', async () => {

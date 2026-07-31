@@ -21,6 +21,13 @@
 
 import type { MemoryEntry } from './consolidation-types.js'
 import { parseMemoryEntry } from './consolidation-types.js'
+import {
+  degradation,
+  statusFor,
+  type MemoryOperationDegradation,
+  type MemoryOperationOutcome,
+  type MemoryOperationResult,
+} from './operation-outcome.js'
 
 /** Minimum number of entries in a cluster before consolidation runs. */
 const MIN_CLUSTER_SIZE = 3
@@ -64,7 +71,7 @@ export interface ConsolidationStore {
 }
 
 /** Per-run consolidation summary returned to the caller. */
-export interface ConsolidationResult {
+export interface ConsolidationResult extends MemoryOperationOutcome {
   /** Total entries that were rolled into summaries (i.e. cluster children). */
   summarized: number
   /** Keys of the summary entries written by this run. */
@@ -74,6 +81,9 @@ export interface ConsolidationResult {
   /** Wall-clock duration of the consolidation pass in milliseconds. */
   durationMs: number
 }
+
+export type ConsolidationOperationResult =
+  ConsolidationResult & MemoryOperationResult
 
 /** Optional dependency injection for the engine. */
 export interface ConsolidationEngineConfig {
@@ -121,23 +131,32 @@ export class ConsolidationEngine {
     scope: string,
     namespace: string,
     store: ConsolidationStore,
-  ): Promise<ConsolidationResult> {
+  ): Promise<ConsolidationOperationResult> {
     const startedAt = Date.now()
     const namespaceTuple: string[] = [scope, namespace]
     const summaries: string[] = []
     const provenance: Record<string, string[]> = {}
+    const degradations: MemoryOperationDegradation[] = []
     let summarized = 0
 
     let items: ConsolidationStoreItem[]
     try {
       items = await store.search(namespaceTuple, { limit: this.searchLimit })
-    } catch {
-      // Empty / unsupported store → return a zero result rather than throwing.
+    } catch (error) {
       return {
         summarized: 0,
         summaries: [],
         provenance: {},
         durationMs: Date.now() - startedAt,
+        status: 'degraded',
+        degradations: [
+          degradation(
+            'search',
+            'source-unavailable',
+            error,
+            namespaceTuple.join('/'),
+          ),
+        ],
       }
     }
 
@@ -147,6 +166,8 @@ export class ConsolidationEngine {
         summaries: [],
         provenance: {},
         durationMs: Date.now() - startedAt,
+        status: 'completed',
+        degradations,
       }
     }
 
@@ -170,9 +191,12 @@ export class ConsolidationEngine {
         summaryText = this.llmJudge
           ? await this.llmJudge(entries)
           : entries.map((e) => e.text).join('\n---\n')
-      } catch {
+      } catch (error) {
         // LLM judge failures are non-fatal — fall back to a join.
         summaryText = entries.map((e) => e.text).join('\n---\n')
+        degradations.push(
+          degradation('summarize', 'fallback-used', error, prefix),
+        )
       }
 
       const summaryKey = `${prefix}:__summary__`
@@ -197,9 +221,12 @@ export class ConsolidationEngine {
         summaries.push(summaryKey)
         provenance[summaryKey] = childKeys
         summarized += childKeys.length
-      } catch {
+      } catch (error) {
         // Failing to write the summary means children stay untouched —
         // skip the cluster rather than orphaning records.
+        degradations.push(
+          degradation('put', 'partial-result', error, summaryKey),
+        )
         continue
       }
 
@@ -226,8 +253,11 @@ export class ConsolidationEngine {
               halfLifeMs,
             },
           })
-        } catch {
+        } catch (error) {
           // Non-fatal — provenance still points to the original key.
+          degradations.push(
+            degradation('put', 'partial-result', error, item.key),
+          )
         }
       }
     }
@@ -237,6 +267,8 @@ export class ConsolidationEngine {
       summaries,
       provenance,
       durationMs: Date.now() - startedAt,
+      status: statusFor(degradations),
+      degradations,
     }
   }
 }

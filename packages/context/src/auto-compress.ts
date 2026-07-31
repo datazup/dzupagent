@@ -18,6 +18,7 @@ import { batchOverlapAnalysis, computeFrameDelta } from "@dzupagent/memory-ipc";
 import {
   shouldSummarize,
   summarizeAndTrim,
+  type CompressionDegradation,
   type MessageManagerConfig,
 } from "./message-manager.js";
 import type { OffloadSink } from "./context-eviction.js";
@@ -89,6 +90,8 @@ export interface CompressResult {
   compressed: boolean;
   /** Set when a fallback strategy (e.g. hard truncation) was applied. */
   fallbackReason?: string;
+  /** Stages that degraded while producing this result. */
+  degradations?: CompressionDegradation[];
 }
 
 /**
@@ -153,6 +156,7 @@ export async function autoCompress(
 
   let offloadPath: string | undefined;
   let offloadFailure: string | undefined;
+  const degradations: CompressionDegradation[] = [];
   if (willBeLost.length > 0 && config?.offload) {
     offloadPath = config.offload.path ?? ".dzup/history/conversation.log";
     try {
@@ -173,6 +177,11 @@ export async function autoCompress(
       offloadFailure = `offload-failed: ${
         error instanceof Error ? error.message : String(error)
       }`;
+      degradations.push({
+        stage: "offload",
+        reason: offloadFailure,
+        adoptionSafe: true,
+      });
     }
   }
 
@@ -203,12 +212,29 @@ export async function autoCompress(
   // 2. Boundary-aware split that respects tool call/result pairs
   // 3. Orphaned pair repair on the recent section
   // 4. LLM-based structured summarization of old messages
-  const { summary: rawSummary, trimmedMessages } = await summarizeAndTrim(
+  const {
+    summary: rawSummary,
+    trimmedMessages,
+    degradation: summaryDegradation,
+  } = await summarizeAndTrim(
     messagesToCompress,
     existingSummary,
     model,
     config
   );
+  if (summaryDegradation !== undefined) {
+    degradations.push(summaryDegradation);
+  }
+
+  if (summaryDegradation?.adoptionSafe === false) {
+    return {
+      messages,
+      summary: existingSummary,
+      compressed: false,
+      fallbackReason: `${summaryDegradation.stage}: ${summaryDegradation.reason}`,
+      degradations,
+    };
+  }
 
   const summary =
     offloadPath !== undefined && rawSummary !== null
@@ -239,6 +265,7 @@ export async function autoCompress(
           offloadFailure !== undefined
             ? `truncation; ${offloadFailure}`
             : "truncation",
+        ...(degradations.length > 0 ? { degradations } : {}),
       };
     }
   }
@@ -250,6 +277,7 @@ export async function autoCompress(
     ...(offloadFailure !== undefined
       ? { fallbackReason: offloadFailure }
       : {}),
+    ...(degradations.length > 0 ? { degradations } : {}),
   };
 }
 
@@ -272,6 +300,7 @@ export class FrozenSnapshot {
     this.frozen = context;
     this.isFrozen = true;
     this.frozenFrame = frame ?? null;
+    this.unavailableReason = null;
   }
 
   /**

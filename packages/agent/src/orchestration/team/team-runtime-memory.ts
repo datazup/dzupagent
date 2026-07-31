@@ -9,6 +9,7 @@
 
 import {
   ConsolidationEngine,
+  type ConsolidationOperationResult,
   type ConsolidationStore,
 } from "@dzupagent/memory";
 import type { TeamPolicies } from "./team-policy.js";
@@ -16,7 +17,13 @@ import type { TeamRuntimeEventEmitter } from "./team-runtime-events.js";
 
 /** Service port for post-run consolidation — see `TeamRuntimeOptions.memory`. */
 export interface TeamRuntimeMemoryService {
-  consolidate?(teamId: string, namespace: string): Promise<void>;
+  consolidate?(
+    teamId: string,
+    namespace: string
+  ): Promise<
+    | void
+    | Pick<ConsolidationOperationResult, "status" | "degradations">
+  >;
   /** Optional backing store; the runtime uses `ConsolidationEngine` if set. */
   store?: ConsolidationStore;
 }
@@ -58,14 +65,29 @@ export async function consolidateIfEnabled(
   }
 
   try {
+    let outcome:
+      | void
+      | Pick<
+          ConsolidationOperationResult,
+          "status" | "degradations"
+        > = undefined;
     if (memory.consolidate) {
-      await memory.consolidate(ctx.teamId, namespace);
+      outcome = await memory.consolidate(ctx.teamId, namespace);
     } else if (memory.store) {
-      await new ConsolidationEngine().consolidate(
+      outcome = await new ConsolidationEngine().consolidate(
         ctx.teamId,
         namespace,
         memory.store
       );
+    }
+    if (outcome?.status === "degraded") {
+      emitSkipped(
+        ctx,
+        namespace,
+        "failed",
+        outcome.degradations.map((item) => item.reason).join("; ")
+      );
+      return;
     }
     ctx.emitEvent({
       type: "team_consolidation_completed",

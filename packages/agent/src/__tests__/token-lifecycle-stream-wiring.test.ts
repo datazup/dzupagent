@@ -17,7 +17,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { AIMessage, HumanMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { BaseMessage } from '@langchain/core/messages'
-import type { TokenUsage } from '@dzupagent/core'
+import { createEventBus, type TokenUsage } from '@dzupagent/core'
 import { DzupAgent } from '../agent/dzip-agent.js'
 import type { GenerateOptions } from '../agent/agent-types.js'
 import type { AgentLoopPlugin } from '../token-lifecycle-wiring.js'
@@ -174,6 +174,44 @@ describe('DzupAgent.stream() — tokenLifecyclePlugin wiring', () => {
     expect(plugin.onUsage).toHaveBeenCalledTimes(1)
     expect(userCallback).toHaveBeenCalledTimes(1)
     expect(userCallback.mock.calls[0]![0]).toEqual(plugin.onUsage.mock.calls[0]![0])
+  })
+
+  it('reports an adoption-unsafe compression degradation on the native stream path', async () => {
+    const plugin = makeSpyPlugin()
+    plugin.maybeCompress = vi.fn(async (messages, _model, existingSummary = null) => ({
+      messages,
+      summary: existingSummary,
+      compressed: false,
+      degradations: [
+        {
+          stage: 'summary-validation' as const,
+          reason: 'required summary was rejected',
+          adoptionSafe: false,
+        },
+      ],
+    }))
+    const eventBus = createEventBus()
+    const emit = vi.spyOn(eventBus, 'emit')
+    const model = createStreamingModel('Hello world', {
+      input_tokens: 123,
+      output_tokens: 45,
+      total_tokens: 168,
+    })
+    const agent = new DzupAgent({
+      id: 'token-plugin-degraded',
+      instructions: 'Test agent.',
+      model,
+      tokenLifecyclePlugin: plugin,
+      eventBus,
+    })
+
+    await drainStream(agent, [new HumanMessage('Hi')])
+
+    expect(emit).toHaveBeenCalledWith({
+      type: 'context:compress_failed',
+      error: 'required summary was rejected',
+      phase: 'stream:summary-validation',
+    })
   })
 
   it('does not require a plugin to call user-supplied onUsage', async () => {

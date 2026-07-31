@@ -444,7 +444,13 @@ describe("GC runs — MemoryPruner full and partial GC", () => {
     const store = makePrunerStore();
     for (let i = 0; i < 5; i++) {
       const result = await pruner.prune(store);
-      expect(result).toEqual({ expired: 0, evicted: 0, remaining: 0 });
+      expect(result).toEqual({
+        expired: 0,
+        evicted: 0,
+        remaining: 0,
+        status: "completed",
+        degradations: [],
+      });
     }
   });
 
