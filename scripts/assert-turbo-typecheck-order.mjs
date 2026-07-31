@@ -3,14 +3,14 @@ import { fileURLToPath } from 'node:url'
 
 const turboConfigPath = new URL('../turbo.json', import.meta.url)
 const AGENT_ADAPTERS_DEPENDENCY_BUILDS = [
-  '@dzupagent/adapter-rules#build',
-  '@dzupagent/adapter-types#build',
-  '@dzupagent/agent#build',
-  '@dzupagent/agent-types#build',
-  '@dzupagent/core#build',
-  '@dzupagent/runtime-contracts#build',
-  '@dzupagent/security#build',
-  '@dzupagent/subagents#build',
+  '@dzupagent/adapter-rules#build:verify',
+  '@dzupagent/adapter-types#build:verify',
+  '@dzupagent/agent#build:verify',
+  '@dzupagent/agent-types#build:verify',
+  '@dzupagent/core#build:verify',
+  '@dzupagent/runtime-contracts#build:verify',
+  '@dzupagent/security#build:verify',
+  '@dzupagent/subagents#build:verify',
 ]
 
 export function checkTurboTypecheckOrder(turboConfig) {
@@ -19,8 +19,8 @@ export function checkTurboTypecheckOrder(turboConfig) {
   const typecheckDependsOn = turboConfig?.tasks?.typecheck?.dependsOn
   if (!Array.isArray(typecheckDependsOn)) {
     messages.push('turbo.tasks.typecheck.dependsOn must be an array')
-  } else if (!typecheckDependsOn.includes('^build')) {
-    messages.push('Expected turbo.tasks.typecheck.dependsOn to include "^build"')
+  } else if (!typecheckDependsOn.includes('^build:verify')) {
+    messages.push('Expected turbo.tasks.typecheck.dependsOn to include "^build:verify"')
   }
 
   const agentAdaptersTypecheck =
@@ -53,7 +53,7 @@ function main() {
     throw new Error(result.messages.join('\n'))
   }
   console.log(
-    'OK: turbo typecheck order builds upstream declaration artifacts before agent-adapters typecheck',
+    'OK: turbo typecheck order verifies upstream build artifacts before agent-adapters typecheck',
   )
 }
 

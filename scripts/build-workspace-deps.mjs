@@ -35,7 +35,7 @@ export function buildTurboBuildArgs(filters) {
   return [
     'turbo',
     'run',
-    'build',
+    'build:verify',
     ...filters.map((filter) => `--filter=${filter}`),
   ];
 }
