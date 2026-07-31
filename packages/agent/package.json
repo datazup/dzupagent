@@ -71,13 +71,14 @@
     }
   },
   "scripts": {
-    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false && node ../../scripts/strip-declaration-module-comments.mjs .",
+    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false && node ../../scripts/strip-declaration-module-comments.mjs . && node ../../scripts/write-build-artifact-manifest.mjs",
+    "build:verify": "node ../../scripts/check-build-artifact-integrity.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.flipcheck.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run src/__tests__/pipeline-for-each-runtime.test.ts",
-    "lint": "eslint src/",
+    "lint": "node ../../scripts/run-package-lint.mjs",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {

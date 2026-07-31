@@ -399,6 +399,21 @@ export type OrchestrationDomainEvent =
       coordinatorPattern: string;
     }
   | {
+      /** Sanitized proof result for TeamRuntime's initial task handoff. */
+      type: "team:context_handoff_budget_evaluated";
+      teamId: string;
+      runId: string;
+      coordinatorPattern: string;
+      contentTokenLimit: number;
+      reservedTokens: number;
+      measuredTokens: number;
+      measurementMethod: "exact" | "encoding-fallback" | "heuristic";
+      satisfied: boolean;
+      adoptionSafe: boolean;
+      truncated: boolean;
+      markerIncluded: boolean;
+    }
+  | {
       /**
        * A governance / evaluation acceptance gate was reached.
        *

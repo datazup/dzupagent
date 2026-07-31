@@ -77,12 +77,20 @@ export type {
 } from "./phase-window.js";
 
 // --- Progressive Compression ---
-export { compressToLevel, compressToBudget, selectCompressionLevel } from "./progressive-compress.js";
+export { compressToLevel, compressToBudget,
+  selectCompressionLevel } from "./progressive-compress.js";
 export type {
   CompressionLevel,
   ProgressiveCompressConfig,
   ProgressiveCompressResult,
 } from "./progressive-compress.js";
+export { compressToHardBudget } from "./hard-budget-compress.js";
+export type { HardBudgetCompressionResult } from "./hard-budget-compress.js";
+export { fitTextToHardBudget } from "./hard-budget-text.js";
+export type {
+  FitTextToHardBudgetOptions,
+  HardBudgetTextResult,
+} from "./hard-budget-text.js";
 
 // --- Prompt Cache ---
 export { applyAnthropicCacheControl, applyCacheBreakpoints } from "./prompt-cache.js";
@@ -93,13 +101,15 @@ export { injectPromptCacheMarkers, injectPromptCacheMarkersForModel,
 // --- Context Transfer ---
 export { ContextTransferService } from "./context-transfer.js";
 export type { IntentContext, IntentType, ContextTransferConfig,
-  IntentRelevanceRule, TransferScope } from "./context-transfer.js";
+  IntentRelevanceRule, TransferScope, HardBudgetContextMessageResult,
+  HardBudgetContextTransferResult } from "./context-transfer.js";
 
 // --- Token Lifecycle ---
 export { TokenLifecycleManager, createTokenBudget, measureTokenText } from "./token-lifecycle.js";
 export type { TokenBudget, TokenPhaseUsage, TokenLifecycleConfig,
   TokenLifecycleStatus, TokenLifecycleReport, TokenCounter,
-  TokenMeasurementMethod, TokenMeasurementResult } from "./token-lifecycle.js";
+  TokenMeasurementMethod, TokenMeasurementResult,
+  HardBudgetCompliance } from "./token-lifecycle.js";
 
 // --- Token Counters ---
 export { CharEstimateCounter } from "./char-estimate-counter.js";

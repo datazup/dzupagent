@@ -43,6 +43,8 @@ import {
 } from './streaming-run-iteration.js'
 import { runStreamFallback } from './streaming-run-fallback.js'
 import type { StreamRunContext } from './streaming-run-types.js'
+import { enforceAgentHardBudget } from './runtime-hard-budget.js'
+import { injectPromptCacheMarkersForModel } from '@dzupagent/context'
 
 export type { StreamRunContext } from './streaming-run-types.js'
 
@@ -124,6 +126,21 @@ export async function* streamRun(
     }
 
     const chunks: string[] = []
+    if (ctx.config.hardBudget) {
+      await enforceAgentHardBudget({
+        messages: allMessages,
+        model: runState.model,
+        config: ctx.config.hardBudget,
+        eventBus: ctx.config.eventBus,
+        agentId: ctx.agentId,
+        phase: 'stream',
+      })
+      const recached = injectPromptCacheMarkersForModel(
+        allMessages,
+        runState.model,
+      )
+      allMessages.splice(0, allMessages.length, ...recached)
+    }
     // WS3 Task 3.2 — snapshot the request transcript (what the model
     // receives this turn) so afterModelCall reports the exact input.
     const requestMessages = [...allMessages]

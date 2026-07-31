@@ -74,6 +74,22 @@ function publish(
           coordinatorPattern,
         });
         return;
+      case "context_handoff_budget_evaluated":
+        bus.emit({
+          type: "team:context_handoff_budget_evaluated",
+          teamId: event.teamId,
+          runId: event.runId,
+          coordinatorPattern,
+          contentTokenLimit: event.contentTokenLimit,
+          reservedTokens: event.reservedTokens,
+          measuredTokens: event.measuredTokens,
+          measurementMethod: event.measurementMethod,
+          satisfied: event.satisfied,
+          adoptionSafe: event.adoptionSafe,
+          truncated: event.truncated,
+          markerIncluded: event.markerIncluded,
+        });
+        return;
       case "team_verdict_evaluated":
         bus.emit({
           type: "team:verdict_evaluated",

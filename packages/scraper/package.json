@@ -11,12 +11,13 @@
     }
   },
   "scripts": {
-    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
+    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false && node ../../scripts/write-build-artifact-manifest.mjs",
+    "build:verify": "node ../../scripts/check-build-artifact-integrity.mjs",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint src/"
+    "lint": "node ../../scripts/run-package-lint.mjs"
   },
   "dependencies": {
     "@dzupagent/core": "0.2.0"

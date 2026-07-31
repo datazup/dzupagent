@@ -22,6 +22,14 @@ export type { ArrowMemoryConfig } from './arrow-memory-types.js'
 export type { DzupAgentConfig } from './agent-types-config.js'
 
 export type {
+  AgentHardBudgetConfig,
+  HardBudgetReservation,
+  HardBudgetReservationConfig,
+  RuntimeHardBudgetResult,
+  RuntimeHardBudgetTextResult,
+} from './runtime-hard-budget.js'
+
+export type {
   MemoryConfigSlice,
   MemoryPolicyConfig,
   MemoryContextLimitsConfig,

@@ -12,11 +12,12 @@
     }
   },
   "scripts": {
-    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
+    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false && node ../../scripts/write-build-artifact-manifest.mjs",
+    "build:verify": "node ../../scripts/check-build-artifact-integrity.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint src/",
+    "lint": "node ../../scripts/run-package-lint.mjs",
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {

@@ -50,6 +50,12 @@ export interface ProgressiveCompressConfig {
   model?: string
   /** Hook called before summarization */
   onBeforeSummarize?: (messages: BaseMessage[]) => Promise<void> | void
+  /**
+   * Whether hard-budget orchestration may invoke the model-based level 3
+   * summarizer. Defaults to true. Runtime provider gates should set this false
+   * unless the summarizer has its own independently enforced budget controls.
+   */
+  allowModelSummarization?: boolean
 }
 
 export interface ProgressiveCompressResult {

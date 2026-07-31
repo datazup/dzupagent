@@ -43,6 +43,9 @@ import type {
 import { EMPTY_RESUME_RESULT, planResume } from "./team-runtime-resume.js";
 import { buildPatternHooks } from "./team-runtime-hooks.js";
 import { executeTeamRun } from "./team-runtime-execute.js";
+import type { HardBudgetReservationConfig } from "../../agent/runtime-hard-budget.js";
+import { validateHardBudgetReservation } from "../../agent/runtime-hard-budget.js";
+import { prepareTeamTaskHandoff } from "./team-runtime-hard-budget.js";
 
 // Re-export structural types so existing callers keep working.
 export type { TeamOTelSpanLike, TeamRuntimeTracer } from "./team-otel-types.js";
@@ -112,6 +115,12 @@ export interface TeamRuntimeOptions {
    */
   eventBus?: DzupEventBus;
   /**
+   * Opt-in exact hard budget for the runtime-owned task handoff.
+   * Participant agents independently enforce their own `hardBudget` policy at
+   * the final provider boundary.
+   */
+  hardBudget?: HardBudgetReservationConfig;
+  /**
    * Non-declarative knobs for the `contract_net` pattern that cannot live in
    * `TeamPolicies.contractNet` because they are live objects rather than
    * JSON-expressible values.
@@ -139,6 +148,7 @@ export class TeamRuntime {
   private readonly evaluation: TeamEvaluationService | undefined;
   private readonly signal: AbortSignal | undefined;
   private readonly eventBus: DzupEventBus | undefined;
+  private readonly hardBudget: HardBudgetReservationConfig | undefined;
   private readonly contractNetRuntime:
     | TeamContractNetRuntimeOptions
     | undefined;
@@ -164,6 +174,8 @@ export class TeamRuntime {
     this.evaluation = options.evaluation;
     this.signal = options.signal;
     this.eventBus = options.eventBus;
+    if (options.hardBudget) validateHardBudgetReservation(options.hardBudget);
+    this.hardBudget = options.hardBudget;
     this.contractNetRuntime = options.contractNet;
     this.patternRegistry = options.patternRegistry ?? TEAM_PATTERN_REGISTRY;
     this.breakerTracker = options.supervisionPolicy
@@ -269,10 +281,20 @@ export class TeamRuntime {
     startedAt: number,
     span: TeamOTelSpanLike | undefined
   ): Promise<TeamPatternContext> {
+    const budgetedTask = this.hardBudget
+      ? prepareTeamTaskHandoff({
+          task,
+          config: this.hardBudget,
+          teamId: this.definition.id,
+          runId,
+          emitEvent: this.emitEvent,
+          ...(span ? { span } : {}),
+        })
+      : task;
     const participants = await this.resolveAll();
     const breaker = this.breakerTracker?.registry ?? new KeyedCircuitBreaker();
     return {
-      task,
+      task: budgetedTask,
       teamId: this.definition.id,
       runId,
       startedAt,

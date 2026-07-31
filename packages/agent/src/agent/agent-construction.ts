@@ -18,6 +18,7 @@ import { defaultTokenizerRegistry, TokenBucket, type ModelTier, type Tokenizer }
 import type { PermissionTier } from '@dzupagent/core/tools'
 import { filterToolsByTier } from '../tools/tool-tier-registry.js'
 import type { DzupAgentConfig } from './agent-types.js'
+import { validateHardBudgetReservation } from './runtime-hard-budget.js'
 
 /**
  * RF-21 — pre-construction validation of the {@link DzupAgentConfig}.
@@ -41,6 +42,9 @@ export function validateConfig(config: DzupAgentConfig): void {
     throw new Error(
       `DzupAgent "${config.id}": model is a string ("${config.model}") but no registry was provided`,
     )
+  }
+  if (config.hardBudget) {
+    validateHardBudgetReservation(config.hardBudget)
   }
 }
 

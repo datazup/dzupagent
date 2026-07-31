@@ -82,6 +82,24 @@ export interface TokenMeasurementResult {
 }
 
 /**
+ * Explicit outcome for an operation that claims to enforce a hard token
+ * ceiling. A false `adoptionSafe` means the caller must keep its pre-operation
+ * state and must not treat the requested budgeted operation as completed.
+ */
+export interface HardBudgetCompliance {
+  /** Maximum permitted token count for the returned budgeted payload. */
+  limit: number
+  /** True only when tokenizer-backed measurement proves the limit was met. */
+  satisfied: boolean
+  /** Whether the returned operation result is safe to adopt. */
+  adoptionSafe: boolean
+  /** Whether a final destructive truncation fallback was applied. */
+  truncated: boolean
+  /** Whether the complete, operator-visible truncation marker was retained. */
+  markerIncluded: boolean
+}
+
+/**
  * Pluggable token counter. Implementations may use chars/4 heuristics
  * (cheap, imprecise) or real model-specific encoders (e.g. `js-tiktoken`).
  *

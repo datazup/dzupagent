@@ -37,6 +37,7 @@ import type { AgentMailboxConfig } from './agent-types-mailbox.js'
 import type { MemoryConfigSlice } from './agent-types-memory.js'
 import type { ObservabilityConfigSlice } from './agent-types-observability.js'
 import type { SecurityConfig } from './agent-types-security.js'
+import type { AgentHardBudgetConfig } from './runtime-hard-budget.js'
 
 /** Configuration for creating a DzupAgent */
 export interface DzupAgentConfig extends MemoryConfigSlice, ObservabilityConfigSlice {
@@ -74,6 +75,14 @@ export interface DzupAgentConfig extends MemoryConfigSlice, ObservabilityConfigS
   middleware?: AgentMiddleware[]
   /** Message compression config */
   messageConfig?: MessageManagerConfig
+  /**
+   * Opt-in, provenance-enforced ceiling for every model input.
+   *
+   * Output, rolling-summary, and provider/chat-envelope reservations are all
+   * explicit. Unsafe compression retains the current transcript and aborts
+   * before the provider is invoked.
+   */
+  hardBudget?: AgentHardBudgetConfig
   /**
    * When set, applies phase-aware message retention windowing before each
    * prepareMessages() call. Uses PhaseAwareWindowManager.findRetentionSplit()

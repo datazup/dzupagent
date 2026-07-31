@@ -53,6 +53,22 @@ export type TeamRuntimeEvent =
       at: Date;
     }
   | {
+      /** Provenance-enforced result for the runtime-owned task handoff. */
+      type: "context_handoff_budget_evaluated";
+      teamId: string;
+      runId: string;
+      contextWindowTokens: number;
+      contentTokenLimit: number;
+      reservedTokens: number;
+      measuredTokens: number;
+      measurementMethod: "exact" | "encoding-fallback" | "heuristic";
+      satisfied: boolean;
+      adoptionSafe: boolean;
+      truncated: boolean;
+      markerIncluded: boolean;
+      at: Date;
+    }
+  | {
       type: "policy_applied";
       teamId: string;
       runId: string;

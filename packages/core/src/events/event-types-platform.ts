@@ -235,6 +235,21 @@ export type PlatformDomainEvent =
   | { type: "memory:index_failed"; namespace: string; recoverable: boolean }
   | { type: "context:transfer_partial"; recoverable: boolean }
   | { type: "context:compress_failed"; error: string; phase: string }
+  | {
+      /** Sanitized proof result for an agent model-input hard-budget gate. */
+      type: "context:hard_budget_evaluated";
+      agentId: string;
+      phase: "tool-loop" | "stream";
+      contextWindowTokens: number;
+      contentTokenLimit: number;
+      reservedTokens: number;
+      measuredTokens: number;
+      measurementMethod: "exact" | "encoding-fallback" | "heuristic";
+      satisfied: boolean;
+      adoptionSafe: boolean;
+      truncated: boolean;
+      markerIncluded: boolean;
+    }
   // --- Recovery extended ---
   | {
       type: "recovery:attempt_started";

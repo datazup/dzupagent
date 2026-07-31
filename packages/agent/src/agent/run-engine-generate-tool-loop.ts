@@ -37,6 +37,7 @@ import {
   resolveRunStateRunId,
 } from './run-engine-generate-snapshot.js'
 import { wrapInvokeModelWithAudit } from './run-engine-generate-audit.js'
+import { enforceAgentHardBudget } from './runtime-hard-budget.js'
 
 /**
  * Output of {@link prepareGuardPrelude}. Threads the compression log
@@ -190,6 +191,18 @@ export async function setupModelCall(
     model: typeof params.runState.model,
     messages: Parameters<typeof auditedInvokeModel>[1],
   ): ReturnType<typeof auditedInvokeModel> => {
+    if (params.config.hardBudget) {
+      await enforceAgentHardBudget({
+        messages,
+        model,
+        config: params.config.hardBudget,
+        eventBus: params.config.eventBus,
+        agentId: params.agentId,
+        phase: 'tool-loop',
+      })
+      const recached = injectPromptCacheMarkersForModel(messages, model)
+      messages.splice(0, messages.length, ...recached)
+    }
     try {
       const response = await auditedInvokeModel(model, messages)
       await runAfterModelCall(

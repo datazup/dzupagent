@@ -23,7 +23,19 @@ export type {
   PerToolTimeoutMap,
   ArgumentValidator,
   ToolTracer,
+  AgentHardBudgetConfig,
+  HardBudgetReservation,
+  HardBudgetReservationConfig,
+  RuntimeHardBudgetResult,
+  RuntimeHardBudgetTextResult,
 } from './agent/agent-types.js'
+export {
+  RuntimeHardBudgetAdoptionError,
+  applyRuntimeHardBudget,
+  applyRuntimeTextHardBudget,
+  resolveHardBudgetReservation,
+  validateHardBudgetReservation,
+} from './agent/runtime-hard-budget.js'
 export { getMemoryProfilePreset, resolveArrowMemoryConfig } from './agent/memory-profiles.js'
 export type { MemoryProfile, MemoryProfilePreset } from './agent/memory-profiles.js'
 export {

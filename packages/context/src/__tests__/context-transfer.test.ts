@@ -404,3 +404,181 @@ describe('ContextTransferService', () => {
     })
   })
 })
+
+describe('ContextTransferService hard-budget APIs', () => {
+  const exactCharacterCounter = {
+    count: (text: string) => text.length,
+    countDetailed: (text: string) => ({
+      tokens: text.length,
+      method: 'exact' as const,
+      model: 'transfer-exact',
+    }),
+  }
+
+  it('rejects heuristic transfer measurements', () => {
+    const service = new ContextTransferService({ maxTransferTokens: 100 })
+    const context = service.extractContext(makeMessages(['Plan', 'Use Postgres']), 'plan')
+    context.toIntent = 'implement'
+
+    const result = service.formatAsHardBudgetMessage(context)
+
+    expect(result.message).toBeNull()
+    expect(result.hardBudget).toMatchObject({
+      satisfied: false,
+      adoptionSafe: false,
+      markerIncluded: false,
+    })
+    expect(result.degradation).toMatchObject({
+      stage: 'token-measurement',
+      adoptionSafe: false,
+    })
+  })
+
+  it('formats a proven transfer without truncation when it fits', () => {
+    const service = new ContextTransferService({
+      maxTransferTokens: 1_000,
+      tokenCounter: exactCharacterCounter,
+    })
+    const context = service.extractContext(makeMessages(['Plan', 'Use Postgres']), 'plan')
+    context.toIntent = 'implement'
+
+    const result = service.formatAsHardBudgetMessage(context)
+
+    expect(result.message).toBeInstanceOf(SystemMessage)
+    expect(result.tokenMeasurement.method).toBe('exact')
+    expect(result.hardBudget).toMatchObject({
+      satisfied: true,
+      adoptionSafe: true,
+      truncated: false,
+      markerIncluded: false,
+    })
+  })
+
+  it('reserves the complete transfer marker before truncating', () => {
+    const service = new ContextTransferService({
+      maxTransferTokens: 100,
+      tokenCounter: exactCharacterCounter,
+    })
+    const context = service.extractContext(
+      makeMessages(['A'.repeat(100), 'B'.repeat(100)]),
+      'plan',
+    )
+    context.toIntent = 'implement'
+
+    const result = service.formatAsHardBudgetMessage(context)
+
+    expect(result.message?.content).toContain('[Context truncated to fit token budget]')
+    expect(result.message?.content).toMatch(/^## Context Transferred from "plan"/)
+    expect(result.tokenMeasurement.tokens).toBeLessThanOrEqual(100)
+    expect(result.hardBudget).toMatchObject({
+      satisfied: true,
+      adoptionSafe: true,
+      truncated: true,
+      markerIncluded: true,
+    })
+  })
+
+  it('returns no message when the transfer marker cannot fit', () => {
+    const service = new ContextTransferService({
+      maxTransferTokens: 1,
+      tokenCounter: exactCharacterCounter,
+    })
+    const context = service.extractContext(makeMessages(['A', 'B']), 'plan')
+    context.toIntent = 'implement'
+
+    const result = service.formatAsHardBudgetMessage(context)
+
+    expect(result.message).toBeNull()
+    expect(result.hardBudget.adoptionSafe).toBe(false)
+    expect(result.degradation).toMatchObject({
+      stage: 'hard-budget-marker',
+      adoptionSafe: false,
+    })
+  })
+
+  it('injects a relevant strict transfer and leaves the target unchanged on failure', () => {
+    const source = makeMessages(['Plan auth', 'Decided to use JWT'])
+    const target = messagesWithSystem('Debug safely', ['Broken', 'Inspecting'])
+    const proven = new ContextTransferService({
+      maxTransferTokens: 1_000,
+      tokenCounter: exactCharacterCounter,
+    })
+    const failed = new ContextTransferService({
+      maxTransferTokens: 1,
+      tokenCounter: exactCharacterCounter,
+    })
+
+    const success = proven.transferToHardBudget(
+      source,
+      'implement_auth',
+      target,
+      'debug_auth',
+    )
+    const failure = failed.transferToHardBudget(
+      source,
+      'implement_auth',
+      target,
+      'debug_auth',
+    )
+
+    expect(success).not.toBeNull()
+    expect(success?.transferred).toBe(true)
+    expect(success?.messages).toHaveLength(target.length + 1)
+    expect(success?.hardBudget.adoptionSafe).toBe(true)
+    expect(failure).not.toBeNull()
+    expect(failure?.transferred).toBe(false)
+    expect(failure?.messages).toEqual(target)
+    expect(failure?.messages).not.toBe(target)
+    expect(failure?.hardBudget.adoptionSafe).toBe(false)
+  })
+
+  it('preserves source identity so a truncated strict transfer stays idempotent', () => {
+    const service = new ContextTransferService({
+      maxTransferTokens: 100,
+      tokenCounter: exactCharacterCounter,
+    })
+    const source = makeMessages(['A'.repeat(200), 'B'.repeat(200)])
+    const target = messagesWithSystem('Target', ['Start', 'Continue'])
+
+    const first = service.transferToHardBudget(
+      source,
+      'implement_auth',
+      target,
+      'debug_auth',
+    )
+    const second = service.transferToHardBudget(
+      source,
+      'implement_auth',
+      first?.messages ?? target,
+      'debug_auth',
+    )
+
+    expect(first?.transferred).toBe(true)
+    expect(first?.hardBudget.truncated).toBe(true)
+    expect(second?.transferred).toBe(false)
+    expect(second?.messages).toHaveLength(first?.messages.length ?? 0)
+  })
+
+  it('keeps irrelevance and invalid-budget behavior explicit', () => {
+    const irrelevant = new ContextTransferService({
+      maxTransferTokens: 100,
+      tokenCounter: exactCharacterCounter,
+      relevanceRules: [
+        { from: 'generate', to: 'edit', transferScope: 'all', priority: 1 },
+      ],
+    })
+    expect(irrelevant.transferToHardBudget(
+      makeMessages(['A', 'B']),
+      'plan',
+      makeMessages(['C', 'D']),
+      'review',
+    )).toBeNull()
+
+    const invalid = new ContextTransferService({
+      maxTransferTokens: -1,
+      tokenCounter: exactCharacterCounter,
+    })
+    const context = invalid.extractContext(makeMessages(['A', 'B']), 'plan')
+    expect(() => invalid.formatAsHardBudgetMessage(context)).toThrow(RangeError)
+  })
+})

@@ -9,9 +9,12 @@
 import { SystemMessage, type BaseMessage } from '@langchain/core/messages'
 import {
   measureTokenText,
+  type HardBudgetCompliance,
   type TokenCounter,
   type TokenMeasurementResult,
 } from './token-lifecycle.js'
+import type { CompressionDegradation } from './message-manager.js'
+import { fitTextToHardBudget } from './hard-budget-text.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,6 +57,24 @@ export interface ContextTransferConfig {
   model?: string
   /** Intent relevance rules: which source intents are relevant to which targets */
   relevanceRules?: IntentRelevanceRule[]
+}
+
+/** Provenance-enforced result for formatting one transfer payload. */
+export interface HardBudgetContextMessageResult {
+  message: SystemMessage | null
+  tokenMeasurement: TokenMeasurementResult
+  hardBudget: HardBudgetCompliance
+  degradation?: CompressionDegradation
+}
+
+/** Full strict context-transfer result for a relevant intent pair. */
+export interface HardBudgetContextTransferResult {
+  messages: BaseMessage[]
+  context: IntentContext
+  transferred: boolean
+  tokenMeasurement: TokenMeasurementResult
+  hardBudget: HardBudgetCompliance
+  degradation?: CompressionDegradation
 }
 
 /** Rule defining which intents should transfer context to which */
@@ -285,36 +306,45 @@ export class ContextTransferService {
   }
 
   /**
+   * Format transferred context under a proven hard ceiling.
+   *
+   * Heuristic measurements are rejected. If truncation is needed, the full
+   * marker is reserved before any source text. A budget that cannot fit the
+   * marker returns `message: null` with an adoption-unsafe degradation.
+   */
+  formatAsHardBudgetMessage(context: IntentContext): HardBudgetContextMessageResult {
+    this.assertValidHardBudget()
+    const scope = context.toIntent
+      ? this.getTransferScope(context.fromIntent, context.toIntent)
+      : 'all'
+    const text = this.formatContextText(context, scope)
+    const requiredPrefix = `## Context Transferred from "${context.fromIntent}"`
+    const fitted = fitTextToHardBudget({
+      text,
+      tokenBudget: this.maxTransferTokens,
+      marker: '\n\n[Context truncated to fit token budget]',
+      requiredPrefix,
+      measure: (value) => this.measure(value),
+      operation: 'hard transfer budget',
+    })
+    context.tokenEstimate = fitted.tokenMeasurement.tokens
+    context.tokenMeasurement = fitted.tokenMeasurement
+    return {
+      message: fitted.text === null ? null : new SystemMessage(fitted.text),
+      tokenMeasurement: fitted.tokenMeasurement,
+      hardBudget: fitted.hardBudget,
+      ...(fitted.degradation ? { degradation: fitted.degradation } : {}),
+    }
+  }
+
+  /**
    * Inject transferred context into a new intent's message array.
    * Inserts after the first system message, or at position 0 if none exists.
    * Returns a new array — does not mutate the input.
    */
   injectContext(context: IntentContext, messages: readonly BaseMessage[]): BaseMessage[] {
-    // Idempotency: if the messages array already contains a transferred-context
-    // system message for the same source intent, return a shallow copy
-    // unchanged. The marker matches the header produced by formatContextText().
-    const marker = `## Context Transferred from "${context.fromIntent}"`
-    const alreadyInjected = messages.some((m) => {
-      if (m._getType() !== 'system') return false
-      const content = getContent(m)
-      return content.startsWith(marker)
-    })
-    if (alreadyInjected) {
-      return [...messages]
-    }
-
     const systemMsg = this.formatAsMessage(context)
-    const result = [...messages]
-
-    // Find the first system message and insert after it
-    const firstSystemIdx = result.findIndex((m) => m._getType() === 'system')
-    if (firstSystemIdx >= 0) {
-      result.splice(firstSystemIdx + 1, 0, systemMsg)
-    } else {
-      result.unshift(systemMsg)
-    }
-
-    return result
+    return this.injectFormattedContext(context, systemMsg, messages)
   }
 
   /**
@@ -338,6 +368,46 @@ export class ContextTransferService {
     return this.injectContext(context, targetMessages)
   }
 
+  /** Full transfer with provenance-enforced budget adoption. */
+  transferToHardBudget(
+    sourceMessages: readonly BaseMessage[],
+    sourceIntent: IntentType,
+    targetMessages: readonly BaseMessage[],
+    targetIntent: IntentType,
+    workingState?: Record<string, unknown>,
+  ): HardBudgetContextTransferResult | null {
+    if (!this.isRelevant(sourceIntent, targetIntent)) {
+      return null
+    }
+
+    const context = this.extractContext(sourceMessages, sourceIntent, workingState)
+    context.toIntent = targetIntent
+    const formatted = this.formatAsHardBudgetMessage(context)
+    if (!formatted.message) {
+      return {
+        messages: [...targetMessages],
+        context,
+        transferred: false,
+        tokenMeasurement: formatted.tokenMeasurement,
+        hardBudget: formatted.hardBudget,
+        ...(formatted.degradation ? { degradation: formatted.degradation } : {}),
+      }
+    }
+
+    const messages = this.injectFormattedContext(
+      context,
+      formatted.message,
+      targetMessages,
+    )
+    return {
+      messages,
+      context,
+      transferred: messages.length > targetMessages.length,
+      tokenMeasurement: formatted.tokenMeasurement,
+      hardBudget: formatted.hardBudget,
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Private helpers
   // -----------------------------------------------------------------------
@@ -349,6 +419,36 @@ export class ContextTransferService {
       this.model,
       this.charsPerToken,
     )
+  }
+
+  private assertValidHardBudget(): void {
+    if (!Number.isInteger(this.maxTransferTokens) || this.maxTransferTokens < 0) {
+      throw new RangeError('hard transfer token budget must be a non-negative integer')
+    }
+  }
+
+  private injectFormattedContext(
+    context: IntentContext,
+    systemMsg: SystemMessage,
+    messages: readonly BaseMessage[],
+  ): BaseMessage[] {
+    // Idempotency: if the messages array already contains a transferred-context
+    // system message for the same source intent, return a shallow copy.
+    const marker = `## Context Transferred from "${context.fromIntent}"`
+    const alreadyInjected = messages.some((message) => {
+      if (message._getType() !== 'system') return false
+      return getContent(message).startsWith(marker)
+    })
+    if (alreadyInjected) return [...messages]
+
+    const result = [...messages]
+    const firstSystemIdx = result.findIndex((message) => message._getType() === 'system')
+    if (firstSystemIdx >= 0) {
+      result.splice(firstSystemIdx + 1, 0, systemMsg)
+    } else {
+      result.unshift(systemMsg)
+    }
+    return result
   }
 
   private truncateToTokenBudget(text: string): string {

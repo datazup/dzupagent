@@ -12,6 +12,7 @@ import {
   compressToBudget,
   type CompressionLevel,
 } from '../progressive-compress.js'
+import { compressToHardBudget } from '../hard-budget-compress.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -57,6 +58,15 @@ function makeAIWithToolCalls(content: string, callId: string): AIMessage {
 /** Create a ToolMessage result. */
 function makeToolMessage(callId: string, content: string): ToolMessage {
   return new ToolMessage({ content, tool_call_id: callId, name: 'test_tool' })
+}
+
+const exactCharacterCounter = {
+  count: (text: string) => text.length,
+  countDetailed: (text: string) => ({
+    tokens: text.length,
+    method: 'exact' as const,
+    model: 'exact-character-counter',
+  }),
 }
 
 /** Estimate tokens the same way the module does. */
@@ -702,5 +712,171 @@ describe('progressive compression token provenance', () => {
       method: 'exact',
       model: 'test-model',
     })
+  })
+})
+
+describe('compressToHardBudget', () => {
+  it('rejects heuristic provenance without changing the transcript', async () => {
+    const messages = [makeHumanMessage(100)]
+    const model = createMockModel('unused')
+
+    const result = await compressToHardBudget(messages, 20, null, model)
+
+    expect(result.messages).toBe(messages)
+    expect(result.hardBudget).toMatchObject({
+      limit: 20,
+      satisfied: false,
+      adoptionSafe: false,
+      markerIncluded: false,
+    })
+    expect(result.degradations).toEqual([
+      expect.objectContaining({
+        stage: 'token-measurement',
+        adoptionSafe: false,
+      }),
+    ])
+    expect(model.invoke).not.toHaveBeenCalled()
+  })
+
+  it('accepts tokenizer-backed output already inside the ceiling', async () => {
+    const messages = [new HumanMessage('small')]
+    const result = await compressToHardBudget(
+      messages,
+      10,
+      null,
+      createMockModel('unused'),
+      { tokenCounter: exactCharacterCounter },
+    )
+
+    expect(result.messages).toBe(messages)
+    expect(result.tokenMeasurement.method).toBe('exact')
+    expect(result.hardBudget).toEqual({
+      limit: 10,
+      satisfied: true,
+      adoptionSafe: true,
+      truncated: false,
+      markerIncluded: false,
+    })
+  })
+
+  it('treats an empty payload as exactly zero without requiring a tokenizer', async () => {
+    const result = await compressToHardBudget(
+      [],
+      0,
+      null,
+      createMockModel('unused'),
+    )
+
+    expect(result.tokenMeasurement).toMatchObject({ tokens: 0, method: 'exact' })
+    expect(result.hardBudget.satisfied).toBe(true)
+  })
+
+  it('reserves the full marker before destructive hard trimming', async () => {
+    const result = await compressToHardBudget(
+      [makeHumanMessage(200)],
+      60,
+      null,
+      createMockModel('unused'),
+      { tokenCounter: exactCharacterCounter },
+    )
+
+    expect(result.estimatedTokens).toBeLessThanOrEqual(60)
+    expect(result.hardBudget).toMatchObject({
+      satisfied: true,
+      adoptionSafe: true,
+      truncated: true,
+      markerIncluded: true,
+    })
+    expect(result.messages[0]?._getType()).toBe('system')
+    expect(result.messages[0]?.content).toContain('truncated to fit context budget')
+  })
+
+  it('fails closed when a tiny budget cannot reserve the marker', async () => {
+    const messages = [makeHumanMessage(200)]
+    const result = await compressToHardBudget(
+      messages,
+      1,
+      null,
+      createMockModel('unused'),
+      { tokenCounter: exactCharacterCounter },
+    )
+
+    expect(result.messages).toBe(messages)
+    expect(result.hardBudget).toMatchObject({
+      satisfied: false,
+      adoptionSafe: false,
+      truncated: false,
+      markerIncluded: false,
+    })
+    expect(result.degradations?.[0]).toMatchObject({
+      stage: 'hard-budget-marker',
+      adoptionSafe: false,
+    })
+  })
+
+  it('does not bypass an adoption-unsafe summarizer failure', async () => {
+    const messages = makeConversation(20)
+    const result = await compressToHardBudget(
+      messages,
+      125,
+      null,
+      createFailingModel('summarizer unavailable'),
+      { tokenCounter: exactCharacterCounter },
+    )
+
+    expect(result.messages).toBe(messages)
+    expect(result.hardBudget.adoptionSafe).toBe(false)
+    expect(result.degradations?.[0]).toMatchObject({
+      stage: 'summary-invocation',
+      adoptionSafe: false,
+    })
+  })
+
+  it('skips model summarization when a runtime gate disables hidden calls', async () => {
+    const model = createMockModel('must not be used')
+    const result = await compressToHardBudget(
+      makeConversation(20),
+      125,
+      null,
+      model,
+      {
+        tokenCounter: exactCharacterCounter,
+        allowModelSummarization: false,
+      },
+    )
+
+    expect(model.invoke).not.toHaveBeenCalled()
+    expect(result.hardBudget).toMatchObject({
+      satisfied: true,
+      adoptionSafe: true,
+    })
+  })
+
+  it('accepts encoding-fallback provenance and rejects invalid limits', async () => {
+    const fallbackCounter = {
+      count: exactCharacterCounter.count,
+      countDetailed: (text: string) => ({
+        tokens: text.length,
+        method: 'encoding-fallback' as const,
+        encoding: 'fallback-test',
+      }),
+    }
+    const result = await compressToHardBudget(
+      [new HumanMessage('ok')],
+      2,
+      null,
+      createMockModel('unused'),
+      { tokenCounter: fallbackCounter },
+    )
+
+    expect(result.hardBudget.satisfied).toBe(true)
+    expect(result.tokenMeasurement.method).toBe('encoding-fallback')
+    await expect(compressToHardBudget(
+      [],
+      -1,
+      null,
+      createMockModel('unused'),
+      { tokenCounter: exactCharacterCounter },
+    )).rejects.toThrow(RangeError)
   })
 })

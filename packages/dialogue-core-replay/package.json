@@ -12,9 +12,10 @@
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node ../../scripts/write-build-artifact-manifest.mjs",
+    "build:verify": "node ../../scripts/check-build-artifact-integrity.mjs",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/",
+    "lint": "node ../../scripts/run-package-lint.mjs",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },
