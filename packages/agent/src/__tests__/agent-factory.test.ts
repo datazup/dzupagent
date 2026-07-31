@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { FrozenSnapshot } from '@dzupagent/context'
 
 import { DzupAgent } from '../agent/dzip-agent.js'
@@ -14,6 +14,39 @@ function createMemoryService(records: Array<Record<string, unknown>>) {
 }
 
 describe('createAgentWithMemory', () => {
+  it('captures an Arrow baseline during factory bootstrap', async () => {
+    const memory = createMemoryService([{ text: 'baseline fact' }])
+    const frame = { numRows: 1 }
+    const exportFrame = vi.fn(async () => frame)
+
+    const agent = await createAgentWithMemory({
+      id: 'factory-agent-arrow-baseline',
+      instructions: 'Base instructions',
+      model: createMockModel(),
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      arrowMemory: { currentPhase: 'general' },
+      loadArrowRuntime: async () => ({
+        extendMemoryServiceWithArrow: () => ({ exportFrame }),
+        selectMemoriesByBudget: () => [],
+        phaseWeightedSelection: () => [],
+        FrameReader: class {
+          toRecords() {
+            return [{ meta: { namespace: 'facts' }, value: { text: 'baseline fact' } }]
+          }
+        },
+      }),
+    })
+
+    expect(exportFrame).toHaveBeenCalledWith('facts', { project: 'demo' })
+    expect(memory.get).not.toHaveBeenCalled()
+    expect(agent.agentConfig.frozenSnapshot?.get()).toContain('baseline fact')
+    expect(
+      agent.agentConfig.frozenSnapshot?.shouldInvalidateDetailed({ numRows: 1 }),
+    ).toMatchObject({ reason: 'comparison-failure' })
+  })
+
   it('returns a DzupAgent instance with a populated frozen snapshot', async () => {
     const memory = createMemoryService([
       { text: 'fact one' },

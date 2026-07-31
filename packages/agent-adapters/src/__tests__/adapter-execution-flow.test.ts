@@ -892,6 +892,7 @@ describe('Adapter Execution Flow', () => {
         'adapter:message',      // I will fix the bug
         'adapter:tool_call',    // shell cat
         'adapter:tool_result',  // shell output
+        'adapter:tool_call',    // file_edit
         'adapter:tool_result',  // file_edit
         'adapter:message',      // Fixed the bug
         'adapter:completed',

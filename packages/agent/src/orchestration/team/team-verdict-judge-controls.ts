@@ -259,6 +259,44 @@ export interface JudgeBudgetOptions {
   onCall?: (callNumber: number, maxCalls: number) => void;
 }
 
+export interface GuardedJudgeInvokerOptions {
+  /** Per-call timeout (default: 30 seconds). */
+  timeoutMs?: number;
+  /** Finite call budget for this wrapper instance (default: 100). */
+  maxCalls?: number;
+  /** Cache identical prompts, or configure/disable the cache (default: true). */
+  cache?: boolean | JudgeCacheOptions;
+  /** Forwarded to the budget wrapper for spend telemetry. */
+  onCall?: JudgeBudgetOptions['onCall'];
+}
+
+const DEFAULT_JUDGE_TIMEOUT_MS = 30_000;
+const DEFAULT_JUDGE_MAX_CALLS = 100;
+
+/**
+ * Apply the recommended host-side controls in their safe composition order:
+ * cache outside budget outside abortable timeout. The defaults are finite so
+ * a convenience path cannot silently create an unbounded paid dependency.
+ */
+export function createGuardedJudgeInvoker(
+  invoker: AbortableJudgeInvoker,
+  options: GuardedJudgeInvokerOptions = {}
+): JudgeInvoker {
+  const timed = withJudgeTimeout(invoker, {
+    timeoutMs: options.timeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MS,
+  });
+  const budgeted = withJudgeBudget(timed, {
+    maxCalls: options.maxCalls ?? DEFAULT_JUDGE_MAX_CALLS,
+    ...(options.onCall ? { onCall: options.onCall } : {}),
+  });
+
+  if (options.cache === false) return budgeted;
+  return withJudgeCache(
+    budgeted,
+    typeof options.cache === 'object' ? options.cache : {}
+  );
+}
+
 /**
  * Cap the total number of judge calls made through this wrapper.
  *

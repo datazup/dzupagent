@@ -30,6 +30,11 @@ export interface FrameDelta {
   shouldRefreeze: boolean
 }
 
+/** Explicit outcome for callers that must distinguish change from failure. */
+export type FrameDeltaComparisonResult =
+  | { ok: true; delta: FrameDelta }
+  | { ok: false; reason: 'comparison-failure'; delta: FrameDelta }
+
 // ---------------------------------------------------------------------------
 // FNV-1a hash
 // ---------------------------------------------------------------------------
@@ -102,11 +107,26 @@ function buildIdHashMap(table: Table): Map<string, { rowIndex: number; hash: num
  * @param refreezeThreshold  Change ratio above which shouldRefreeze is true (default 0.1)
  * @returns FrameDelta describing the differences
  */
-export function computeFrameDelta(
+function safeNumRows(table: Table): number {
+  try {
+    return Number.isInteger(table.numRows) && table.numRows >= 0
+      ? table.numRows
+      : 0
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Compare frames and retain whether the comparison actually succeeded.
+ * The failure result remains conservative, but no longer relies on callers
+ * recognizing a zero-valued sentinel as an implicit error channel.
+ */
+export function computeFrameDeltaDetailed(
   frozen: Table,
   current: Table,
   refreezeThreshold = 0.1,
-): FrameDelta {
+): FrameDeltaComparisonResult {
   try {
     const frozenMap = buildIdHashMap(frozen)
     const currentMap = buildIdHashMap(current)
@@ -116,7 +136,7 @@ export function computeFrameDelta(
 
     // Handle both-empty case
     if (frozenTotal === 0 && currentTotal === 0) {
-      return {
+      return { ok: true, delta: {
         added: 0,
         removed: 0,
         modified: 0,
@@ -124,7 +144,7 @@ export function computeFrameDelta(
         currentTotal: 0,
         changeRatio: 0,
         shouldRefreeze: false,
-      }
+      } }
     }
 
     // Count added: IDs in current but not in frozen
@@ -158,7 +178,7 @@ export function computeFrameDelta(
     const changeRatio = totalChanges / denominator
     const shouldRefreeze = changeRatio > refreezeThreshold
 
-    return {
+    return { ok: true, delta: {
       added,
       removed,
       modified,
@@ -166,17 +186,28 @@ export function computeFrameDelta(
       currentTotal,
       changeRatio,
       shouldRefreeze,
-    }
+    } }
   } catch {
-    // On error, signal refreeze to be safe
-    return {
+    return { ok: false, reason: 'comparison-failure', delta: {
       added: 0,
       removed: 0,
       modified: 0,
-      frozenTotal: frozen.numRows,
-      currentTotal: current.numRows,
+      frozenTotal: safeNumRows(frozen),
+      currentTotal: safeNumRows(current),
       changeRatio: 0,
       shouldRefreeze: true,
-    }
+    } }
   }
+}
+
+/**
+ * Backwards-compatible conservative comparison API.
+ * Use {@link computeFrameDeltaDetailed} when failure provenance matters.
+ */
+export function computeFrameDelta(
+  frozen: Table,
+  current: Table,
+  refreezeThreshold = 0.1,
+): FrameDelta {
+  return computeFrameDeltaDetailed(frozen, current, refreezeThreshold).delta
 }

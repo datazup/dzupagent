@@ -30,6 +30,28 @@ export interface ArrowMemoryRuntimeOptions {
   loadArrowRuntime: () => Promise<ArrowMemoryRuntime>
 }
 
+export interface PreparedArrowMemoryFrame {
+  runtime: ArrowMemoryRuntime
+  frame: { numRows: number }
+}
+
+/** Export the current frame once so snapshot comparison and rendering share it. */
+export async function exportArrowMemoryFrame(
+  loadArrowRuntime: () => Promise<ArrowMemoryRuntime>,
+  memory: AgentMemoryService,
+  namespace: string,
+  scope: Record<string, string>,
+): Promise<PreparedArrowMemoryFrame> {
+  const runtime = await loadArrowRuntime()
+  const arrowExt = runtime.extendMemoryServiceWithArrow(
+    memory as unknown as MemoryServiceLike,
+  )
+  const frame = (await arrowExt.exportFrame(namespace, scope)) as {
+    numRows: number
+  }
+  return { runtime, frame }
+}
+
 export async function loadArrowMemoryContext(
   opts: ArrowMemoryRuntimeOptions,
   memory: AgentMemoryService,
@@ -37,22 +59,22 @@ export async function loadArrowMemoryContext(
   scope: Record<string, string>,
   messages: BaseMessage[],
   arrowCfg: ResolvedArrowMemoryConfig,
+  prepared?: PreparedArrowMemoryFrame,
 ): Promise<{ context: string | null; frame: unknown }> {
   const { config, loadArrowRuntime } = opts
 
+  const resolved = prepared ?? await exportArrowMemoryFrame(
+    loadArrowRuntime,
+    memory,
+    namespace,
+    scope,
+  )
+  const { frame } = resolved
   const {
-    extendMemoryServiceWithArrow,
     selectMemoriesByBudget,
     phaseWeightedSelection,
     FrameReader,
-  } = await loadArrowRuntime()
-
-  const arrowExt = extendMemoryServiceWithArrow(
-    memory as unknown as MemoryServiceLike,
-  )
-  const frame = (await arrowExt.exportFrame(namespace, scope)) as {
-    numRows: number
-  }
+  } = resolved.runtime
 
   if (frame.numRows === 0) {
     return { context: null, frame }

@@ -14,7 +14,7 @@
 import type { Table } from "apache-arrow";
 import type { BaseMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
-import { batchOverlapAnalysis, computeFrameDelta } from "@dzupagent/memory-ipc";
+import { batchOverlapAnalysis } from "@dzupagent/memory-ipc";
 import {
   shouldSummarize,
   summarizeAndTrim,
@@ -377,90 +377,10 @@ export async function autoCompress(
   };
 }
 
-/**
- * Frozen snapshot manager — captures memory/context at session start
- * and prevents mid-session reloads to preserve prompt cache prefix.
- *
- * Anthropic prompt caching gives 75% cost reduction when the beginning
- * of the messages array is stable. By freezing the system prompt + memory
- * context at session start, all subsequent calls share the cached prefix.
- */
-export class FrozenSnapshot {
-  private frozen: string | null = null;
-  private isFrozen = false;
-  private frozenFrame: unknown = null;
-  private unavailableReason: string | null = null;
-
-  /** Capture the current context as the frozen snapshot, optionally storing an Arrow frame */
-  freeze(context: string, frame?: unknown): void {
-    this.frozen = context;
-    this.isFrozen = true;
-    this.frozenFrame = frame ?? null;
-    this.unavailableReason = null;
-  }
-
-  /**
-   * Mark this snapshot as built while its source was unreachable, so its body
-   * reflects an outage rather than the source's real contents.
-   *
-   * A frozen, empty snapshot is otherwise identical whether the tenant has
-   * genuinely learned nothing or the memory store was down: both yield
-   * `isActive() === true` with a header-only body, and the agent runs with
-   * every durable lesson silently absent from its prompt.
-   */
-  markSourceUnavailable(reason: string): void {
-    this.unavailableReason = reason;
-  }
-
-  /**
-   * Why the snapshot's source could not be read, or `null` when it was read
-   * successfully. Callers gating on memory context should treat a non-null
-   * value as "unknown", not as "empty".
-   */
-  sourceUnavailable(): string | null {
-    return this.unavailableReason;
-  }
-
-  /** Get the frozen context, or null if not frozen */
-  get(): string | null {
-    return this.frozen;
-  }
-
-  /** Check if a snapshot has been frozen */
-  isActive(): boolean {
-    return this.isFrozen;
-  }
-
-  /**
-   * Check whether the frozen snapshot should be invalidated based on changes
-   * to the memory frame since it was frozen.
-   *
-   * Returns true when:
-   * - No frame was stored at freeze time (can't compare → conservative invalidate)
-   * - computeFrameDelta reports shouldRefreeze === true
-   * Returns false when delta has no significant changes.
-   */
-  shouldInvalidate(newFrame: unknown): boolean {
-    if (!this.isFrozen || this.frozenFrame === null) {
-      return true;
-    }
-    try {
-      const delta = computeFrameDelta(
-        this.frozenFrame as Table,
-        newFrame as Table
-      );
-      return delta.shouldRefreeze;
-    } catch {
-      // If comparison fails, conservatively return true
-      return true;
-    }
-  }
-
-  /** Clear the frozen snapshot (for next session) */
-  thaw(): void {
-    this.frozen = null;
-    this.isFrozen = false;
-    this.frozenFrame = null;
-    this.unavailableReason = null;
-  }
-}
+export { FrozenSnapshot } from './frozen-snapshot.js'
+export type {
+  FrozenSnapshotOptions,
+  SnapshotComparisonFailureTelemetry,
+  SnapshotInvalidationReason,
+  SnapshotInvalidationResult,
+} from './frozen-snapshot.js'

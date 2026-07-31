@@ -17,6 +17,19 @@ function makeMemory(
 }
 
 describe('buildFrozenSnapshot', () => {
+  it('retains an optional baseline frame for detailed invalidation', async () => {
+    const memory = makeMemory({ 'lessons::{}': [{ text: 'only fact' }] })
+    const frame = { numRows: 1 }
+
+    const snapshot = await buildFrozenSnapshot(memory, 'lessons', undefined, {
+      frame,
+    })
+
+    expect(snapshot.shouldInvalidateDetailed({ numRows: 1 })).toMatchObject({
+      reason: 'comparison-failure',
+    })
+  })
+
   it('returns a FrozenSnapshot with all records embedded in the context', async () => {
     const records = [
       { text: 'first observation' },

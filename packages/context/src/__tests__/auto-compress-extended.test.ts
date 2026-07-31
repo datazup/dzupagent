@@ -541,6 +541,22 @@ describe('FrozenSnapshot with frame (Task 2)', () => {
   it('shouldInvalidate returns true before any freeze', () => {
     const snapshot = new FrozenSnapshot()
     expect(snapshot.shouldInvalidate({} as never)).toBe(true)
+    expect(snapshot.shouldInvalidateDetailed({} as never)).toMatchObject({
+      shouldInvalidate: true,
+      reason: 'no-snapshot',
+      consecutiveComparisonFailures: 0,
+    })
+  })
+
+  it('reports a missing baseline frame separately from a missing snapshot', () => {
+    const snapshot = new FrozenSnapshot()
+    snapshot.freeze('context')
+
+    expect(snapshot.shouldInvalidateDetailed({} as never)).toEqual({
+      shouldInvalidate: true,
+      reason: 'no-baseline-frame',
+      consecutiveComparisonFailures: 0,
+    })
   })
 
   it('stores frame alongside context on freeze', async () => {
@@ -583,6 +599,11 @@ describe('FrozenSnapshot with frame (Task 2)', () => {
 
     const result = snapshot.shouldInvalidate(newFrame)
     expect(result).toBe(true)
+    expect(snapshot.shouldInvalidateDetailed(newFrame)).toMatchObject({
+      shouldInvalidate: true,
+      reason: 'significant-delta',
+      consecutiveComparisonFailures: 0,
+    })
   })
 
   it('shouldInvalidate returns true on error (conservative)', () => {
@@ -591,6 +612,62 @@ describe('FrozenSnapshot with frame (Task 2)', () => {
 
     // computeFrameDelta will throw — should return true (conservative)
     expect(snapshot.shouldInvalidate({ another: 'fake' })).toBe(true)
+  })
+
+  it('tracks comparison failures with a bounded streak and one threshold event', () => {
+    const events: unknown[] = []
+    const snapshot = new FrozenSnapshot({
+      comparisonFailureTelemetryThreshold: 2,
+      onRepeatedComparisonFailure: event => events.push(event),
+    })
+    snapshot.freeze('ctx', { fake: 'table' })
+
+    expect(snapshot.shouldInvalidateDetailed({ another: 'fake' })).toMatchObject({
+      reason: 'comparison-failure',
+      consecutiveComparisonFailures: 1,
+    })
+    const thresholdDecision = snapshot.shouldInvalidateDetailed({ another: 'fake' })
+    expect(thresholdDecision).toMatchObject({
+      reason: 'comparison-failure',
+      consecutiveComparisonFailures: 2,
+      comparisonFailureTelemetryTriggered: true,
+    })
+    const saturatedDecision = snapshot.shouldInvalidateDetailed({ another: 'fake' })
+    expect(saturatedDecision).toMatchObject({
+      reason: 'comparison-failure',
+      consecutiveComparisonFailures: 2,
+    })
+    expect(saturatedDecision).not.toHaveProperty('comparisonFailureTelemetryTriggered')
+    expect(events).toEqual([
+      {
+        reason: 'comparison-failure',
+        consecutiveFailures: 2,
+        threshold: 2,
+      },
+    ])
+  })
+
+  it('resets comparison-failure telemetry after a successful reuse decision', async () => {
+    const { tableFromArrays } = await import('apache-arrow')
+    const events: unknown[] = []
+    const snapshot = new FrozenSnapshot({
+      comparisonFailureTelemetryThreshold: 1,
+      onRepeatedComparisonFailure: event => events.push(event),
+    })
+    snapshot.freeze('ctx', { fake: 'table' })
+    snapshot.shouldInvalidateDetailed({ another: 'fake' })
+
+    const frame = tableFromArrays({ id: ['a'], text: ['same'] })
+    snapshot.freeze('ctx', frame)
+    expect(snapshot.shouldInvalidateDetailed(frame)).toMatchObject({
+      shouldInvalidate: false,
+      reason: 'reuse',
+      consecutiveComparisonFailures: 0,
+    })
+
+    snapshot.freeze('ctx', { fake: 'table' })
+    snapshot.shouldInvalidateDetailed({ another: 'fake' })
+    expect(events).toHaveLength(2)
   })
 
   it('thaw clears frame as well', async () => {

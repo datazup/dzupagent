@@ -325,9 +325,9 @@ describe("expectScopeIsPopulated", () => {
     // Every one of these passes against a population that does not exist,
     // which is exactly why the guard has to run before them.
     expect(wrongScope).toHaveLength(0);
-    // eslint-disable-next-line no-restricted-syntax -- deliberately vacuous: this
-    // line IS the hazard being demonstrated. It passes against a population that
-    // does not exist, which is the reason expectScopeIsPopulated has to run first.
+    // Deliberately vacuous: this is the hazard being demonstrated. The empty
+    // population is why expectScopeIsPopulated must run first.
+    // eslint-disable-next-line no-restricted-syntax -- intentional negative control
     expect(wrongScope.every((k) => k.startsWith("never-matches-"))).toBe(true);
 
     // The guard is what turns that silence into a failure.

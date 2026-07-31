@@ -277,6 +277,7 @@ export {
   JUDGE_GUARDED,
   JudgeBudgetExceededError,
   JudgeTimeoutError,
+  createGuardedJudgeInvoker,
   readJudgeGuards,
   withJudgeBudget,
   withJudgeCache,
@@ -288,4 +289,5 @@ export type {
   JudgeCacheOptions,
   JudgeGuards,
   JudgeTimeoutOptions,
+  GuardedJudgeInvokerOptions,
 } from "./orchestration/team/team-verdict-judge-controls.js";

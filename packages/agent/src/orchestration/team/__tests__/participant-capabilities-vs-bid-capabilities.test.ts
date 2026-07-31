@@ -220,9 +220,9 @@ describe("ParticipantDefinition.capabilities is documented as unused", () => {
       p.includes("Respond ONLY with a JSON object")
     );
     expect(bidPrompts.length).toBeGreaterThan(0);
-    expect(
-      bidPrompts.every((p) => p.includes("Required capabilities: clairvoyance"))
-    ).toBe(true);
+    for (const prompt of bidPrompts) {
+      expect(prompt).toContain("Required capabilities: clairvoyance");
+    }
   });
 
   it("does not let a participant's declared capabilities satisfy a CFP requirement", async () => {

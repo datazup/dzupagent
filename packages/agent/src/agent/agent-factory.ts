@@ -12,6 +12,9 @@ import { buildFrozenSnapshot } from '@dzupagent/context'
 
 import { DzupAgent } from './dzip-agent.js'
 import type { DzupAgentConfig } from './agent-types.js'
+import { exportArrowMemoryFrame } from './memory-context-loader-arrow.js'
+import type { ArrowMemoryRuntime } from './memory-context-loader-types.js'
+import { resolveArrowMemoryConfig } from './memory-profiles.js'
 
 /**
  * Build a frozen memory snapshot from the supplied memory service and
@@ -40,10 +43,35 @@ export async function createAgentWithMemory(
   }
   const effectiveNamespace = namespace ?? config.memoryNamespace ?? 'default'
   const effectiveScope = scope ?? config.memoryScope ?? {}
+  let baselineFrame: unknown
+  let baselineRecords: Record<string, unknown>[] | undefined
+  if (
+    resolveArrowMemoryConfig(config.arrowMemory, config.memoryProfile) &&
+    config.loadArrowRuntime
+  ) {
+    try {
+      const prepared = await exportArrowMemoryFrame(
+        config.loadArrowRuntime as () => Promise<ArrowMemoryRuntime>,
+        effectiveMemory,
+        effectiveNamespace,
+        effectiveScope,
+      )
+      baselineFrame = prepared.frame
+      baselineRecords = new prepared.runtime.FrameReader(prepared.frame)
+        .toRecords()
+        .map(record => record.value)
+    } catch {
+      // Snapshot text remains useful without a frame. The loader will report
+      // `no-baseline-frame` and retry frame acquisition on its first Arrow load.
+    }
+  }
   const frozenSnapshot = await buildFrozenSnapshot(
-    effectiveMemory,
+    baselineRecords
+      ? { get: async () => baselineRecords }
+      : effectiveMemory,
     effectiveNamespace,
     effectiveScope,
+    baselineFrame === undefined ? undefined : { frame: baselineFrame },
   )
   return new DzupAgent({ ...config, frozenSnapshot })
 }

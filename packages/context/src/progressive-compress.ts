@@ -21,6 +21,11 @@ import {
   summarizeAndTrim,
   type CompressionDegradation,
 } from './message-manager.js'
+import {
+  measureTokenText,
+  type TokenCounter,
+  type TokenMeasurementResult,
+} from './token-lifecycle.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,6 +44,10 @@ export interface ProgressiveCompressConfig {
   preserveRecentToolResults?: number
   /** Chars per token for estimation (default: 4) */
   charsPerToken?: number
+  /** Optional provenance-aware counter for model-backed measurements. */
+  tokenCounter?: TokenCounter
+  /** Model identifier forwarded to the token counter. */
+  model?: string
   /** Hook called before summarization */
   onBeforeSummarize?: (messages: BaseMessage[]) => Promise<void> | void
 }
@@ -70,6 +79,8 @@ export interface ProgressiveCompressResult {
   degradations?: CompressionDegradation[]
   /** Estimated token count after compression */
   estimatedTokens: number
+  /** Provenance for `estimatedTokens`; heuristic when no detailed counter exists. */
+  tokenMeasurement: TokenMeasurementResult
   /** Compression ratio (0-1, higher = more compressed) */
   ratio: number
 }
@@ -96,12 +107,14 @@ function getContent(m: BaseMessage): string {
   return typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
 }
 
-function estimateTokens(messages: BaseMessage[], charsPerToken: number): number {
-  let totalChars = 0
-  for (const m of messages) {
-    totalChars += getContent(m).length
-  }
-  return Math.ceil(totalChars / charsPerToken)
+function measureMessages(
+  messages: BaseMessage[],
+  charsPerToken: number,
+  tokenCounter?: TokenCounter,
+  model?: string,
+): TokenMeasurementResult {
+  const text = messages.map(getContent).join('')
+  return measureTokenText(text, tokenCounter, model, charsPerToken)
 }
 
 function buildResult(
@@ -110,10 +123,18 @@ function buildResult(
   level: CompressionLevel,
   originalTokens: number,
   charsPerToken: number,
+  tokenCounter?: TokenCounter,
+  model?: string,
   degradedFrom?: ProgressiveCompressResult['degradedFrom'],
   degradations?: CompressionDegradation[],
 ): ProgressiveCompressResult {
-  const estimatedTokensAfter = estimateTokens(messages, charsPerToken)
+  const tokenMeasurement = measureMessages(
+    messages,
+    charsPerToken,
+    tokenCounter,
+    model,
+  )
+  const estimatedTokensAfter = tokenMeasurement.tokens
   const ratio = originalTokens > 0
     ? 1 - estimatedTokensAfter / originalTokens
     : 0
@@ -124,6 +145,7 @@ function buildResult(
     ...(degradedFrom ? { degradedFrom } : {}),
     ...(degradations && degradations.length > 0 ? { degradations } : {}),
     estimatedTokens: estimatedTokensAfter,
+    tokenMeasurement,
     ratio: Math.max(0, Math.min(1, ratio)),
   }
 }
@@ -150,15 +172,35 @@ function hardTrimToBudget(
   messages: BaseMessage[],
   tokenBudget: number,
   charsPerToken: number,
+  tokenCounter?: TokenCounter,
+  model?: string,
 ): BaseMessage[] {
   if (tokenBudget <= 0) return []
 
   let result = [...messages]
-  while (result.length > 0 && estimateTokens(result, charsPerToken) > tokenBudget) {
+  while (
+    result.length > 0 &&
+    measureMessages(result, charsPerToken, tokenCounter, model).tokens > tokenBudget
+  ) {
     if (result.length === 1) {
       const only = result[0]
       if (!only) return []
-      const content = truncateTextToChars(getContent(only), tokenBudget * charsPerToken)
+      const original = getContent(only)
+      let low = 0
+      let high = original.length
+      while (low < high) {
+        const mid = Math.ceil((low + high) / 2)
+        const candidate = truncateTextToChars(original, mid)
+        const measured = measureTokenText(
+          candidate,
+          tokenCounter,
+          model,
+          charsPerToken,
+        ).tokens
+        if (measured <= tokenBudget) low = mid
+        else high = mid - 1
+      }
+      const content = truncateTextToChars(original, low)
       return content.length > 0 ? [cloneWithContent(only, content)] : []
     }
 
@@ -245,25 +287,30 @@ export async function compressToLevel(
 ): Promise<ProgressiveCompressResult> {
   const cfg = { ...DEFAULTS, ...config }
   const charsPerToken = cfg.charsPerToken
-  const originalTokens = estimateTokens(messages, charsPerToken)
+  const originalTokens = measureMessages(
+    messages,
+    charsPerToken,
+    cfg.tokenCounter,
+    cfg.model,
+  ).tokens
 
   // --- Level 0: no compression ---
   if (level === 0) {
-    return buildResult(messages, existingSummary, 0, originalTokens, charsPerToken)
+    return buildResult(messages, existingSummary, 0, originalTokens, charsPerToken, cfg.tokenCounter, cfg.model)
   }
 
   // --- Level 1: tool result pruning ---
   let result = applyLevel1(messages, cfg)
 
   if (level === 1) {
-    return buildResult(result, existingSummary, 1, originalTokens, charsPerToken)
+    return buildResult(result, existingSummary, 1, originalTokens, charsPerToken, cfg.tokenCounter, cfg.model)
   }
 
   // --- Level 2: trim verbose AI responses ---
   result = applyLevel2(result, cfg.aiResponseMaxChars)
 
   if (level === 2) {
-    return buildResult(result, existingSummary, 2, originalTokens, charsPerToken)
+    return buildResult(result, existingSummary, 2, originalTokens, charsPerToken, cfg.tokenCounter, cfg.model)
   }
 
   // --- Level 3: structured summarization via summarizeAndTrim ---
@@ -291,6 +338,8 @@ export async function compressToLevel(
           2,
           originalTokens,
           charsPerToken,
+          cfg.tokenCounter,
+          cfg.model,
           {
             requested: 3,
             reason: degradation.reason,
@@ -298,7 +347,7 @@ export async function compressToLevel(
           [degradation],
         )
       }
-      return buildResult(trimmedMessages, summary, 3, originalTokens, charsPerToken)
+      return buildResult(trimmedMessages, summary, 3, originalTokens, charsPerToken, cfg.tokenCounter, cfg.model)
     } catch (error) {
       // Defensive: summarizeAndTrim swallows model failures internally (it
       // reports them via the returned `summarizeFailed`), so reaching here
@@ -310,6 +359,8 @@ export async function compressToLevel(
         2,
         originalTokens,
         charsPerToken,
+        cfg.tokenCounter,
+        cfg.model,
         { requested: 3, reason },
         [{ stage: 'summary-invocation', reason, adoptionSafe: false }],
       )
@@ -337,7 +388,7 @@ export async function compressToLevel(
     ultraSummary = ultraSummary.slice(0, 500) + '...[truncated]'
   }
 
-  return buildResult(repairedKept, ultraSummary, 4, originalTokens, charsPerToken)
+  return buildResult(repairedKept, ultraSummary, 4, originalTokens, charsPerToken, cfg.tokenCounter, cfg.model)
 }
 
 /**
@@ -348,8 +399,10 @@ export function selectCompressionLevel(
   messages: BaseMessage[],
   tokenBudget: number,
   charsPerToken: number = DEFAULTS.charsPerToken,
+  tokenCounter?: TokenCounter,
+  model?: string,
 ): CompressionLevel {
-  const estimated = estimateTokens(messages, charsPerToken)
+  const estimated = measureMessages(messages, charsPerToken, tokenCounter, model).tokens
 
   if (estimated <= tokenBudget) return 0
   if (estimated * 0.70 <= tokenBudget) return 1
@@ -359,8 +412,9 @@ export function selectCompressionLevel(
 }
 
 /**
- * Compress messages to fit within a token budget.
- * Automatically selects the minimum compression level needed.
+ * Compress messages toward a token budget and select the minimum level needed.
+ * `tokenMeasurement` identifies whether the final fit is tokenizer-backed or
+ * remains a visible chars-per-token estimate.
  */
 export async function compressToBudget(
   messages: BaseMessage[],
@@ -370,12 +424,23 @@ export async function compressToBudget(
   config?: ProgressiveCompressConfig,
 ): Promise<ProgressiveCompressResult> {
   const charsPerToken = config?.charsPerToken ?? DEFAULTS.charsPerToken
-  const originalTokens = estimateTokens(messages, charsPerToken)
+  const originalTokens = measureMessages(
+    messages,
+    charsPerToken,
+    config?.tokenCounter,
+    config?.model,
+  ).tokens
   if (tokenBudget <= 0) {
-    return buildResult([], existingSummary, 4, originalTokens, charsPerToken)
+    return buildResult([], existingSummary, 4, originalTokens, charsPerToken, config?.tokenCounter, config?.model)
   }
 
-  const level = selectCompressionLevel(messages, tokenBudget, charsPerToken)
+  const level = selectCompressionLevel(
+    messages,
+    tokenBudget,
+    charsPerToken,
+    config?.tokenCounter,
+    config?.model,
+  )
   let result = await compressToLevel(messages, level, existingSummary, model, config)
   if (result.estimatedTokens <= tokenBudget) return result
 
@@ -390,12 +455,20 @@ export async function compressToBudget(
     if (result.estimatedTokens <= tokenBudget) return result
   }
 
-  const messagesWithinBudget = hardTrimToBudget(result.messages, tokenBudget, charsPerToken)
+  const messagesWithinBudget = hardTrimToBudget(
+    result.messages,
+    tokenBudget,
+    charsPerToken,
+    config?.tokenCounter,
+    config?.model,
+  )
   return buildResult(
     messagesWithinBudget,
     result.summary,
     4,
     originalTokens,
     charsPerToken,
+    config?.tokenCounter,
+    config?.model,
   )
 }

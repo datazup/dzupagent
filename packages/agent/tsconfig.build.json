@@ -3,5 +3,24 @@
   "compilerOptions": {
     "composite": false
   },
+  "files": [
+    "src/index.ts",
+    "src/agent.ts",
+    "src/orchestration.ts",
+    "src/self-correction.ts",
+    "src/replay.ts",
+    "src/pipeline.ts",
+    "src/runtime.ts",
+    "src/workflow.ts",
+    "src/tools.ts",
+    "src/compat.ts",
+    "src/mailbox.ts",
+    "src/cluster.ts",
+    "src/reflection.ts",
+    "src/presets.ts",
+    "src/streaming.ts",
+    "src/fleet.ts"
+  ],
+  "include": [],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/__tests__/**"]
 }

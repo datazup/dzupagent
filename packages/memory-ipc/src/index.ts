@@ -94,8 +94,8 @@ export {
 export type { ConversationPhase } from './phase-memory-selection.js'
 
 // --- Cache Delta ---
-export { computeFrameDelta } from './cache-delta.js'
-export type { FrameDelta } from './cache-delta.js'
+export { computeFrameDelta, computeFrameDeltaDetailed } from './cache-delta.js'
+export type { FrameDelta, FrameDeltaComparisonResult } from './cache-delta.js'
 
 // --- Memory-Aware Compression ---
 export { batchOverlapAnalysis } from './memory-aware-compress.js'

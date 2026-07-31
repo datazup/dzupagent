@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { FrameBuilder } from '../frame-builder.js'
 import type { FrameRecordMeta, FrameRecordValue } from '../frame-builder.js'
-import { computeFrameDelta } from '../cache-delta.js'
+import {
+  computeFrameDelta,
+  computeFrameDeltaDetailed,
+} from '../cache-delta.js'
 
 function buildTable(
   records: Array<{
@@ -26,6 +29,36 @@ function buildTable(
 }
 
 describe('computeFrameDelta', () => {
+  it('reports explicit success without changing the legacy delta shape', () => {
+    const frozen = buildTable([{ id: 'r0', text: 'same' }])
+    const current = buildTable([{ id: 'r0', text: 'same' }])
+
+    const result = computeFrameDeltaDetailed(frozen, current)
+
+    expect(result).toEqual({
+      ok: true,
+      delta: computeFrameDelta(frozen, current),
+    })
+  })
+
+  it('reports comparison failure explicitly and conservatively', () => {
+    const broken = {
+      numRows: 1,
+      getChild: () => {
+        throw new Error('broken frame')
+      },
+    }
+    const current = buildTable([{ id: 'r0' }])
+
+    const result = computeFrameDeltaDetailed(broken as never, current)
+
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'comparison-failure',
+      delta: { shouldRefreeze: true, frozenTotal: 1 },
+    })
+  })
+
   it('no changes: changeRatio=0, shouldRefreeze=false', () => {
     const records = Array.from({ length: 10 }, (_, i) => ({
       id: `r${i}`,

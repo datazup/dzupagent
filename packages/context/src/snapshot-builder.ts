@@ -45,6 +45,8 @@ export interface BuildFrozenSnapshotOptions {
   maxCharsPerRecord?: number
   /** Header line prepended to the formatted snapshot (default: "## Memory Snapshot") */
   header?: string
+  /** Optional Arrow frame captured from the same source for invalidation checks. */
+  frame?: unknown
 }
 
 const DEFAULT_HEADER = '## Memory Snapshot'
@@ -117,7 +119,7 @@ export async function buildFrozenSnapshot(
   const context = body.length === 0 ? header : `${header}\n\n${body}`
 
   const snapshot = new FrozenSnapshot()
-  snapshot.freeze(context)
+  snapshot.freeze(context, options?.frame)
   if (unavailable !== undefined) snapshot.markSourceUnavailable(unavailable)
   return snapshot
 }

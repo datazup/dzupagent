@@ -664,3 +664,43 @@ describe('compressToLevel — summarizer failure is reported', () => {
     expect(result.degradedFrom).toBeUndefined()
   })
 })
+
+describe('progressive compression token provenance', () => {
+  it('labels the legacy chars-per-token path as heuristic', async () => {
+    const result = await compressToLevel(
+      [new HumanMessage('abcdefgh')],
+      0,
+      null,
+      createMockModel('unused'),
+    )
+
+    expect(result.tokenMeasurement).toMatchObject({
+      tokens: 2,
+      method: 'heuristic',
+    })
+  })
+
+  it('propagates tokenizer-backed measurements through budget trimming', async () => {
+    const tokenCounter = {
+      count: (text: string) => Math.ceil(text.length / 2),
+      countDetailed: (text: string) => ({
+        tokens: Math.ceil(text.length / 2),
+        method: 'exact' as const,
+        model: 'test-model',
+      }),
+    }
+    const result = await compressToBudget(
+      [makeHumanMessage(100)],
+      20,
+      null,
+      createMockModel('unused'),
+      { tokenCounter, model: 'test-model' },
+    )
+
+    expect(result.estimatedTokens).toBeLessThanOrEqual(20)
+    expect(result.tokenMeasurement).toMatchObject({
+      method: 'exact',
+      model: 'test-model',
+    })
+  })
+})

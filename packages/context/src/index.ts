@@ -28,11 +28,9 @@ export type {
 
 // --- Auto-Compression Pipeline ---
 export { autoCompress, FrozenSnapshot } from "./auto-compress.js";
-export type {
-  AutoCompressConfig,
-  CompressResult,
-  AutoCompressTokenizer,
-} from "./auto-compress.js";
+export type { AutoCompressConfig, CompressResult, AutoCompressTokenizer,
+  FrozenSnapshotOptions, SnapshotComparisonFailureTelemetry,
+  SnapshotInvalidationReason, SnapshotInvalidationResult } from "./auto-compress.js";
 
 // --- Snapshot Builder ---
 export { buildFrozenSnapshot } from "./snapshot-builder.js";
@@ -79,11 +77,7 @@ export type {
 } from "./phase-window.js";
 
 // --- Progressive Compression ---
-export {
-  compressToLevel,
-  compressToBudget,
-  selectCompressionLevel,
-} from "./progressive-compress.js";
+export { compressToLevel, compressToBudget, selectCompressionLevel } from "./progressive-compress.js";
 export type {
   CompressionLevel,
   ProgressiveCompressConfig,
@@ -91,40 +85,21 @@ export type {
 } from "./progressive-compress.js";
 
 // --- Prompt Cache ---
-export {
-  applyAnthropicCacheControl,
-  applyCacheBreakpoints,
-} from "./prompt-cache.js";
+export { applyAnthropicCacheControl, applyCacheBreakpoints } from "./prompt-cache.js";
 export type { CacheStrategy, CacheBreakpointOptions } from "./prompt-cache.js";
-export {
-  injectPromptCacheMarkers,
-  injectPromptCacheMarkersForModel,
-  isClaudeId,
-  resolveModelId,
-} from "./prompt-cache-injector.js";
+export { injectPromptCacheMarkers, injectPromptCacheMarkersForModel,
+  isClaudeId, resolveModelId } from "./prompt-cache-injector.js";
 
 // --- Context Transfer ---
 export { ContextTransferService } from "./context-transfer.js";
-export type {
-  IntentContext,
-  IntentType,
-  ContextTransferConfig,
-  IntentRelevanceRule,
-  TransferScope,
-} from "./context-transfer.js";
+export type { IntentContext, IntentType, ContextTransferConfig,
+  IntentRelevanceRule, TransferScope } from "./context-transfer.js";
 
 // --- Token Lifecycle ---
-export { TokenLifecycleManager, createTokenBudget } from "./token-lifecycle.js";
-export type {
-  TokenBudget,
-  TokenPhaseUsage,
-  TokenLifecycleConfig,
-  TokenLifecycleStatus,
-  TokenLifecycleReport,
-  TokenCounter,
-  TokenMeasurementMethod,
-  TokenMeasurementResult,
-} from "./token-lifecycle.js";
+export { TokenLifecycleManager, createTokenBudget, measureTokenText } from "./token-lifecycle.js";
+export type { TokenBudget, TokenPhaseUsage, TokenLifecycleConfig,
+  TokenLifecycleStatus, TokenLifecycleReport, TokenCounter,
+  TokenMeasurementMethod, TokenMeasurementResult } from "./token-lifecycle.js";
 
 // --- Token Counters ---
 export { CharEstimateCounter } from "./char-estimate-counter.js";

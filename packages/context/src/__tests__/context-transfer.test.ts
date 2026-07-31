@@ -50,6 +50,30 @@ describe('ContextTransferService', () => {
       expect(ctx.summary).toContain('[ai]: I will create an auth module')
       expect(ctx.transferredAt).toBeGreaterThan(0)
       expect(ctx.tokenEstimate).toBeGreaterThan(0)
+      expect(ctx.tokenMeasurement?.method).toBe('heuristic')
+    })
+
+    it('records detailed tokenizer provenance when configured', () => {
+      const tokenCounter = {
+        count: (text: string) => text.length,
+        countDetailed: (text: string) => ({
+          tokens: text.length,
+          method: 'exact' as const,
+          model: 'transfer-model',
+        }),
+      }
+      const measured = new ContextTransferService({
+        tokenCounter,
+        model: 'transfer-model',
+      })
+
+      const ctx = measured.extractContext(makeMessages(['A', 'B']), 'plan')
+
+      expect(ctx.tokenEstimate).toBeGreaterThan(0)
+      expect(ctx.tokenMeasurement).toMatchObject({
+        method: 'exact',
+        model: 'transfer-model',
+      })
     })
 
     it('extracts decisions from messages', () => {

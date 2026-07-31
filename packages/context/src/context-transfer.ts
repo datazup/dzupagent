@@ -7,6 +7,11 @@
  * file references, and working state across intent boundaries.
  */
 import { SystemMessage, type BaseMessage } from '@langchain/core/messages'
+import {
+  measureTokenText,
+  type TokenCounter,
+  type TokenMeasurementResult,
+} from './token-lifecycle.js'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,6 +38,8 @@ export interface IntentContext {
   transferredAt: number
   /** Estimated token cost of this context */
   tokenEstimate: number
+  /** How `tokenEstimate` was produced. */
+  tokenMeasurement?: TokenMeasurementResult
 }
 
 /** Configuration for context transfer */
@@ -41,6 +48,10 @@ export interface ContextTransferConfig {
   maxTransferTokens?: number
   /** Chars per token for estimation (default: 4) */
   charsPerToken?: number
+  /** Optional provenance-aware counter used for transfer telemetry and trimming. */
+  tokenCounter?: TokenCounter
+  /** Model identifier forwarded to the token counter. */
+  model?: string
   /** Intent relevance rules: which source intents are relevant to which targets */
   relevanceRules?: IntentRelevanceRule[]
 }
@@ -117,11 +128,6 @@ function matchesPattern(intent: string, pattern: string | RegExp): boolean {
   return pattern.test(intent)
 }
 
-/** Estimate token count from character length */
-function estimateTokens(text: string, charsPerToken: number): number {
-  return Math.ceil(text.length / charsPerToken)
-}
-
 /** Extract sentences that match any of the decision patterns */
 function extractDecisionSentences(content: string): string[] {
   const results: string[] = []
@@ -155,11 +161,15 @@ function extractFilePaths(content: string): string[] {
 export class ContextTransferService {
   private readonly maxTransferTokens: number
   private readonly charsPerToken: number
+  private readonly tokenCounter?: TokenCounter
+  private readonly model?: string
   private readonly rules: IntentRelevanceRule[]
 
   constructor(config?: ContextTransferConfig) {
     this.maxTransferTokens = config?.maxTransferTokens ?? DEFAULT_MAX_TRANSFER_TOKENS
     this.charsPerToken = config?.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN
+    this.tokenCounter = config?.tokenCounter
+    this.model = config?.model
     this.rules = config?.relevanceRules ?? DEFAULT_RULES
   }
 
@@ -217,7 +227,9 @@ export class ContextTransferService {
 
     // Compute token estimate from the formatted output
     const formatted = this.formatContextText(ctx, 'all')
-    ctx.tokenEstimate = estimateTokens(formatted, this.charsPerToken)
+    const measurement = this.measure(formatted)
+    ctx.tokenEstimate = measurement.tokens
+    ctx.tokenMeasurement = measurement
 
     return ctx
   }
@@ -261,10 +273,13 @@ export class ContextTransferService {
     let text = this.formatContextText(context, scope)
 
     // Truncate if over budget
-    const maxChars = this.maxTransferTokens * this.charsPerToken
-    if (text.length > maxChars) {
-      text = text.slice(0, maxChars) + '\n\n[Context truncated to fit token budget]'
+    let measurement = this.measure(text)
+    if (measurement.tokens > this.maxTransferTokens) {
+      text = this.truncateToTokenBudget(text)
+      measurement = this.measure(text)
     }
+    context.tokenEstimate = measurement.tokens
+    context.tokenMeasurement = measurement
 
     return new SystemMessage(text)
   }
@@ -326,6 +341,35 @@ export class ContextTransferService {
   // -----------------------------------------------------------------------
   // Private helpers
   // -----------------------------------------------------------------------
+
+  private measure(text: string): TokenMeasurementResult {
+    return measureTokenText(
+      text,
+      this.tokenCounter,
+      this.model,
+      this.charsPerToken,
+    )
+  }
+
+  private truncateToTokenBudget(text: string): string {
+    const marker = '\n\n[Context truncated to fit token budget]'
+    let low = 0
+    let high = text.length
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2)
+      const candidate = text.slice(0, mid) + marker
+      if (this.measure(candidate).tokens <= this.maxTransferTokens) low = mid
+      else high = mid - 1
+    }
+
+    if (low === 0 && this.measure(marker).tokens > this.maxTransferTokens) {
+      // Preserve the historical, operator-visible truncation signal even when
+      // an extremely small budget cannot accommodate the marker itself. The
+      // returned measurement remains honest about that overage.
+      return marker
+    }
+    return text.slice(0, low) + marker
+  }
 
   /** Build the markdown text for a context block, filtered by scope */
   private formatContextText(context: IntentContext, scope: TransferScope): string {

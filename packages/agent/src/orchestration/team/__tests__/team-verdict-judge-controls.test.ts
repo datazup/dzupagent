@@ -14,6 +14,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   JudgeBudgetExceededError,
   JudgeTimeoutError,
+  createGuardedJudgeInvoker,
+  readJudgeGuards,
   withJudgeBudget,
   withJudgeCache,
   withJudgeTimeout,
@@ -116,6 +118,35 @@ describe("withJudgeTimeout", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("createGuardedJudgeInvoker", () => {
+  it("applies finite timeout, budget, and cache controls by default", async () => {
+    const inner = vi.fn(async (_prompt: string, _signal: AbortSignal) => "ok");
+    const judge = createGuardedJudgeInvoker(inner);
+
+    await expect(judge("same")).resolves.toBe("ok");
+    await expect(judge("same")).resolves.toBe("ok");
+
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(readJudgeGuards(judge)).toEqual({
+      timeout: true,
+      budget: true,
+      cache: true,
+    });
+  });
+
+  it("can disable caching while retaining timeout and budget", async () => {
+    const inner = vi.fn(async (_prompt: string, _signal: AbortSignal) => "ok");
+    const judge = createGuardedJudgeInvoker(inner, {
+      maxCalls: 1,
+      cache: false,
+    });
+
+    await expect(judge("first")).resolves.toBe("ok");
+    await expect(judge("second")).rejects.toThrow(JudgeBudgetExceededError);
+    expect(readJudgeGuards(judge)).toEqual({ timeout: true, budget: true });
   });
 });
 

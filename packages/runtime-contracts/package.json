@@ -27,6 +27,7 @@
       "types": "./dist/agent-blueprint.d.ts"
     },
     "./fixtures/agent-review-conformance-v1.json": {
+      "types": "./fixtures/agent-review-conformance-v1.d.ts",
       "default": "./fixtures/agent-review-conformance-v1.json"
     }
   },

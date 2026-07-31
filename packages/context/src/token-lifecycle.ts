@@ -109,6 +109,54 @@ export interface TokenCounter {
   countDetailed?(text: string, model?: string): TokenMeasurementResult
 }
 
+/**
+ * Measure text while preserving whether the result came from a tokenizer or
+ * from the legacy chars-per-token estimate.
+ *
+ * Count-only counters stay compatible, but are deliberately classified as
+ * heuristic because callers cannot prove how their number was produced.
+ */
+export function measureTokenText(
+  text: string,
+  counter?: TokenCounter,
+  model?: string,
+  charsPerToken = 4,
+): TokenMeasurementResult {
+  if (counter?.countDetailed) {
+    try {
+      const result = counter.countDetailed(text, model)
+      if (
+        Number.isInteger(result.tokens) &&
+        result.tokens >= 0 &&
+        Number.isFinite(result.tokens)
+      ) {
+        return result
+      }
+    } catch {
+      // Preserve compatibility with count-only behavior below, but do not
+      // promote the fallback to tokenizer-backed provenance.
+    }
+  }
+
+  if (counter) {
+    return {
+      tokens: counter.count(text, model),
+      method: 'heuristic',
+      ...(model ? { model } : {}),
+      reason: counter.countDetailed
+        ? 'detailed token measurement failed'
+        : 'token counter does not expose measurement provenance',
+    }
+  }
+
+  return {
+    tokens: Math.ceil(text.length / charsPerToken),
+    method: 'heuristic',
+    ...(model ? { model } : {}),
+    reason: `chars-per-token estimate (${charsPerToken})`,
+  }
+}
+
 const DEFAULT_WARN = 0.8
 const DEFAULT_CRITICAL = 0.95
 

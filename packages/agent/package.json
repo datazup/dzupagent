@@ -71,7 +71,7 @@
     }
   },
   "scripts": {
-    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false",
+    "build": "tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false && node ../../scripts/strip-declaration-module-comments.mjs .",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.flipcheck.json --noEmit",
     "test": "vitest run",

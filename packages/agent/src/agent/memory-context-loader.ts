@@ -26,7 +26,11 @@ import {
 } from './memory-context-loader-types.js'
 import { defaultLoadArrowRuntime } from './memory-context-loader-runtime.js'
 import { safeEstimateInputTokens, safeNamespace } from './memory-context-loader-budget.js'
-import { loadArrowMemoryContext } from './memory-context-loader-arrow.js'
+import {
+  exportArrowMemoryFrame,
+  loadArrowMemoryContext,
+  type PreparedArrowMemoryFrame,
+} from './memory-context-loader-arrow.js'
 import {
   loadBoundedStandardMemoryContext,
   loadStandardMemoryContext,
@@ -48,6 +52,8 @@ export class AgentMemoryContextLoader {
   private readonly standardMemoryMaxItems: number
   private readonly standardMemoryMaxCharsPerItem: number
   private readonly standardMemoryBudgetConfig: StandardMemoryBudgetConfig
+  private snapshotComparisonFailureStreak = 0
+  private snapshotComparisonFailureReported = false
 
   constructor(private readonly config: AgentMemoryContextLoaderConfig) {
     this.loadArrowRuntime = config.loadArrowRuntime ?? defaultLoadArrowRuntime
@@ -84,17 +90,17 @@ export class AgentMemoryContextLoader {
       return { context: null }
     }
 
-    // Frozen snapshot optimization: skip reload when cache prefix is stable.
-    // Returns the cached context immediately, preserving Anthropic prompt-cache
-    // prefix hits across agent iterations.
-    if (this.config.frozenSnapshot?.isActive()) {
-      return { context: this.config.frozenSnapshot.get() }
-    }
-
     const resolvedArrowConfig = resolveArrowMemoryConfig(
       this.config.arrowMemory,
       this.config.memoryProfile,
     )
+
+    // Non-Arrow snapshots have no comparable frame, so preserve the historical
+    // immediate reuse path. Arrow snapshots validate against one exported frame
+    // and reuse that same frame if rebuilding is required.
+    if (this.config.frozenSnapshot?.isActive() && !resolvedArrowConfig) {
+      return { context: this.config.frozenSnapshot.get() }
+    }
 
     const standardOpts: StandardMemoryRuntimeOptions = {
       config: this.config,
@@ -104,6 +110,25 @@ export class AgentMemoryContextLoader {
 
     if (resolvedArrowConfig) {
       try {
+        let prepared: PreparedArrowMemoryFrame | undefined
+        if (this.config.frozenSnapshot?.isActive()) {
+          prepared = await exportArrowMemoryFrame(
+            this.loadArrowRuntime,
+            memory,
+            namespace,
+            scope,
+          )
+          const decision = this.config.frozenSnapshot.shouldInvalidateDetailed(
+            prepared.frame,
+          )
+          this.recordSnapshotComparisonDecision(decision.reason, namespace)
+          if (!decision.shouldInvalidate) {
+            return {
+              context: this.config.frozenSnapshot.get(),
+              frame: prepared.frame,
+            }
+          }
+        }
         const result = await loadArrowMemoryContext(
           { config: this.config, loadArrowRuntime: this.loadArrowRuntime },
           memory,
@@ -111,6 +136,7 @@ export class AgentMemoryContextLoader {
           scope,
           messages,
           resolvedArrowConfig,
+          prepared,
         )
         // Freeze snapshot after a successful Arrow load so subsequent calls
         // can short-circuit to the cached context.
@@ -168,5 +194,35 @@ export class AgentMemoryContextLoader {
       this.standardMemoryBudgetConfig,
       memoryReadContext,
     )
+  }
+
+  private recordSnapshotComparisonDecision(
+    reason: string,
+    namespace: string,
+  ): void {
+    if (reason !== 'comparison-failure') {
+      this.snapshotComparisonFailureStreak = 0
+      this.snapshotComparisonFailureReported = false
+      return
+    }
+
+    const threshold = 3
+    this.snapshotComparisonFailureStreak = Math.min(
+      this.snapshotComparisonFailureStreak + 1,
+      threshold,
+    )
+    if (
+      this.snapshotComparisonFailureReported ||
+      this.snapshotComparisonFailureStreak < threshold
+    ) {
+      return
+    }
+    this.snapshotComparisonFailureReported = true
+    this.config.onFallbackDetail?.({
+      reason: 'snapshot_comparison_failure',
+      detail: `consecutiveFailures=${this.snapshotComparisonFailureStreak}`,
+      namespace: safeNamespace(namespace),
+      provider: 'arrow',
+    })
   }
 }

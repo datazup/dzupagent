@@ -547,6 +547,144 @@ describe('AgentMemoryContextLoader FrozenSnapshot integration (P4 Task 3)', () =
     await loader.load([new HumanMessage('hello')])
     expect(frozenSnapshot.freeze).toHaveBeenCalledTimes(1)
   })
+
+  it('validates an active Arrow snapshot and reuses its stable context', async () => {
+    const memory = createMemoryService()
+    const frame = { numRows: 1 }
+    const selectMemoriesByBudget = vi.fn(() => [{ rowIndex: 0 }])
+    const frozenSnapshot = {
+      isActive: vi.fn(() => true),
+      get: vi.fn(() => '## Memory Context\n- cached fact'),
+      freeze: vi.fn(),
+      shouldInvalidateDetailed: vi.fn(() => ({
+        shouldInvalidate: false,
+        reason: 'reuse',
+        consecutiveComparisonFailures: 0,
+      })),
+    }
+    const exportFrame = vi.fn(async () => frame)
+    const loadArrowRuntime = vi.fn(async (): Promise<ArrowMemoryRuntime> => ({
+      extendMemoryServiceWithArrow: () => ({ exportFrame }),
+      selectMemoriesByBudget,
+      phaseWeightedSelection: vi.fn(() => []),
+      FrameReader: class { toRecords() { return [] } },
+    }))
+
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      arrowMemory: { currentPhase: 'general' },
+      estimateConversationTokens: () => 0,
+      loadArrowRuntime,
+      frozenSnapshot: frozenSnapshot as unknown as FrozenSnapshot,
+    })
+
+    await expect(loader.load([new HumanMessage('hello')])).resolves.toEqual({
+      context: '## Memory Context\n- cached fact',
+      frame,
+    })
+    expect(exportFrame).toHaveBeenCalledTimes(1)
+    expect(selectMemoriesByBudget).not.toHaveBeenCalled()
+    expect(frozenSnapshot.freeze).not.toHaveBeenCalled()
+  })
+
+  it('rebuilds an invalidated snapshot from the already-exported frame', async () => {
+    const memory = createMemoryService()
+    const frame = { numRows: 1 }
+    const exportFrame = vi.fn(async () => frame)
+    const frozenSnapshot = {
+      isActive: vi.fn(() => true),
+      get: vi.fn(() => 'stale'),
+      freeze: vi.fn(),
+      shouldInvalidateDetailed: vi.fn(() => ({
+        shouldInvalidate: true,
+        reason: 'significant-delta',
+        consecutiveComparisonFailures: 0,
+      })),
+    }
+    const loadArrowRuntime = vi.fn(async (): Promise<ArrowMemoryRuntime> => ({
+      extendMemoryServiceWithArrow: () => ({ exportFrame }),
+      selectMemoriesByBudget: vi.fn(() => [{ rowIndex: 0 }]),
+      phaseWeightedSelection: vi.fn(() => []),
+      FrameReader: class {
+        toRecords() {
+          return [{ meta: { namespace: 'facts' }, value: { text: 'fresh fact' } }]
+        }
+      },
+    }))
+
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      arrowMemory: {
+        currentPhase: 'general',
+        totalBudget: 10_000,
+        maxMemoryFraction: 1,
+        minResponseReserve: 0,
+      },
+      estimateConversationTokens: () => 0,
+      loadArrowRuntime,
+      frozenSnapshot: frozenSnapshot as unknown as FrozenSnapshot,
+    })
+
+    const result = await loader.load([new HumanMessage('hello')])
+
+    expect(result.context).toContain('fresh fact')
+    expect(exportFrame).toHaveBeenCalledTimes(1)
+    expect(frozenSnapshot.freeze).toHaveBeenCalledWith(result.context, frame)
+  })
+
+  it('emits one bounded diagnostic when comparison failures reach threshold', async () => {
+    const memory = createMemoryService()
+    const onFallbackDetail = vi.fn()
+    const frozenSnapshot = {
+      isActive: vi.fn(() => true),
+      get: vi.fn(() => 'stale'),
+      freeze: vi.fn(),
+      shouldInvalidateDetailed: vi.fn(() => ({
+        shouldInvalidate: true,
+        reason: 'comparison-failure',
+        consecutiveComparisonFailures: 1,
+      })),
+    }
+    const loadArrowRuntime = vi.fn(async (): Promise<ArrowMemoryRuntime> => ({
+      extendMemoryServiceWithArrow: () => ({
+        exportFrame: async () => ({ numRows: 0 }),
+      }),
+      selectMemoriesByBudget: vi.fn(() => []),
+      phaseWeightedSelection: vi.fn(() => []),
+      FrameReader: class { toRecords() { return [] } },
+    }))
+
+    const loader = new AgentMemoryContextLoader({
+      instructions: 'Base',
+      memory,
+      memoryNamespace: 'facts',
+      memoryScope: { project: 'demo' },
+      arrowMemory: { currentPhase: 'general' },
+      estimateConversationTokens: () => 0,
+      loadArrowRuntime,
+      frozenSnapshot: frozenSnapshot as unknown as FrozenSnapshot,
+      onFallbackDetail,
+    })
+
+    await loader.load([new HumanMessage('hello')])
+    await loader.load([new HumanMessage('hello')])
+    await loader.load([new HumanMessage('hello')])
+    await loader.load([new HumanMessage('hello')])
+
+    expect(onFallbackDetail).toHaveBeenCalledTimes(1)
+    expect(onFallbackDetail).toHaveBeenCalledWith({
+      reason: 'snapshot_comparison_failure',
+      detail: 'consecutiveFailures=3',
+      namespace: 'facts',
+      provider: 'arrow',
+    })
+  })
 })
 
 // ─── M-08: per-agent tuneable memory limits ────────────────────────────────
