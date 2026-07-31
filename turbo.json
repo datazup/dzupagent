@@ -1,65 +1,83 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalEnv": ["YARN_IGNORE_PATH", "YARN_CACHE_FOLDER", "YARN_GLOBAL_FOLDER", "npm_config_prefix"],
+  "globalDependencies": [
+    "scripts/build-artifact-integrity.mjs",
+    "scripts/check-package-export-artifacts.mjs",
+    "scripts/write-build-artifact-manifest.mjs"
+  ],
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**"]
+      "dependsOn": ["^build:verify"],
+      "outputs": ["dist/**"],
+      "outputLogs": "new-only"
+    },
+    "build:verify": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "outputs": [],
+      "outputLogs": "new-only"
     },
     "@dzupagent/connectors-documents#build": {
-      "dependsOn": ["^build", "@dzupagent/core#build"],
-      "outputs": ["dist/**"]
+      "dependsOn": ["^build:verify", "@dzupagent/core#build:verify"],
+      "outputs": ["dist/**"],
+      "outputLogs": "new-only"
     },
     "@dzupagent/test-utils#build": {
-      "dependsOn": ["^build", "@dzupagent/testing#build"],
-      "outputs": ["dist/**"]
+      "dependsOn": ["^build:verify", "@dzupagent/testing#build:verify"],
+      "outputs": ["dist/**"],
+      "outputLogs": "new-only"
     },
     "@dzupagent/memory#build": {
-      "dependsOn": ["^build", "@dzupagent/memory-ipc#build"]
+      "dependsOn": ["^build:verify", "@dzupagent/memory-ipc#build:verify"],
+      "outputLogs": "new-only"
     },
     "@dzupagent/app-tools#build": {
       "dependsOn": [
-        "^build",
-        "@dzupagent/code-edit-kit#build",
-        "@dzupagent/hitl-kit#build"
+        "^build:verify",
+        "@dzupagent/code-edit-kit#build:verify",
+        "@dzupagent/hitl-kit#build:verify"
       ],
-      "outputs": ["dist/**"]
+      "outputs": ["dist/**"],
+      "outputLogs": "new-only"
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
     "typecheck": {
-      "dependsOn": ["^build", "^typecheck"],
-      "outputs": []
+      "dependsOn": ["^build:verify", "^typecheck"],
+      "outputs": [],
+      "outputLogs": "new-only"
     },
     "@dzupagent/memory#typecheck": {
-      "dependsOn": ["@dzupagent/memory-ipc#build"]
+      "dependsOn": ["@dzupagent/memory-ipc#build:verify"]
     },
     "@dzupagent/connectors#typecheck": {
-      "dependsOn": ["^build", "^typecheck", "@dzupagent/flow-ast#build"],
+      "dependsOn": ["^build:verify", "^typecheck", "@dzupagent/flow-ast#build:verify"],
       "outputs": []
     },
     "@dzupagent/agent-adapters#typecheck": {
       "dependsOn": [
-        "^build",
-        "@dzupagent/adapter-rules#build",
-        "@dzupagent/adapter-types#build",
-        "@dzupagent/agent#build",
-        "@dzupagent/agent-types#build",
-        "@dzupagent/core#build",
-        "@dzupagent/runtime-contracts#build",
-        "@dzupagent/security#build",
-        "@dzupagent/subagents#build"
+        "^build:verify",
+        "@dzupagent/adapter-rules#build:verify",
+        "@dzupagent/adapter-types#build:verify",
+        "@dzupagent/agent#build:verify",
+        "@dzupagent/agent-types#build:verify",
+        "@dzupagent/core#build:verify",
+        "@dzupagent/runtime-contracts#build:verify",
+        "@dzupagent/security#build:verify",
+        "@dzupagent/subagents#build:verify"
       ],
       "outputs": []
     },
     "lint": {
       "inputs": ["src/**", "package.json", ".eslintrc*", "eslint.config.*"],
-      "outputs": []
+      "outputs": [],
+      "outputLogs": "new-only"
     },
     "test": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build:verify"],
       "inputs": [
         "src/**",
         "test/**",
@@ -67,55 +85,57 @@
         "tsconfig.json",
         "vitest.config.*"
       ],
-      "outputs": []
+      "outputs": [],
+      "outputLogs": "new-only"
     },
     "@dzupagent/agent#test": {
-      "dependsOn": ["^build", "@dzupagent/agent#build"],
+      "dependsOn": ["^build:verify", "@dzupagent/agent#build:verify"],
       "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
       "outputs": []
     },
     "@dzupagent/agent-adapters#test": {
-      "dependsOn": ["^build", "@dzupagent/agent-adapters#build"],
+      "dependsOn": ["^build:verify", "@dzupagent/agent-adapters#build:verify"],
       "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
       "outputs": []
     },
     "@dzupagent/evals#test": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build:verify"],
       "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
       "outputs": []
     },
     "@dzupagent/rag#test": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build:verify"],
       "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
       "outputs": []
     },
     "@dzupagent/test-utils#test": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build:verify"],
       "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
       "outputs": []
     },
     "@dzupagent/testing#test": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build:verify"],
       "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
       "outputs": []
     },
     "@dzupagent/server#test": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build:verify"],
       "inputs": ["src/**", "package.json", "tsconfig.json", "vitest.config.*"],
       "outputs": []
     },
     "test:integration": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build:verify"],
       "inputs": [
         "src/**",
         "package.json",
         "tsconfig.json",
         "vitest.integration.config.*"
       ],
-      "outputs": []
+      "outputs": [],
+      "outputLogs": "new-only"
     },
     "@dzupagent/server#test:integration": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build:verify"],
       "inputs": [
         "src/**",
         "package.json",
@@ -125,7 +145,7 @@
       "outputs": []
     },
     "@dzupagent/dialogue-core-replay#test": {
-      "dependsOn": ["^build", "@dzupagent/dialogue-core-replay#build"],
+      "dependsOn": ["^build:verify", "@dzupagent/dialogue-core-replay#build:verify"],
       "inputs": ["src/**", "test/**", "package.json", "tsconfig.json"],
       "outputs": []
     }
