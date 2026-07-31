@@ -352,6 +352,7 @@
         { "match": "exact", "pattern": "./system-reminder.js" },
         { "match": "exact", "pattern": "./phase-window.js" },
         { "match": "exact", "pattern": "./progressive-compress.js" },
+        { "match": "exact", "pattern": "./hard-budget-compress.js" },
         { "match": "exact", "pattern": "./prompt-cache.js" },
         { "match": "exact", "pattern": "./context-transfer.js" },
         { "match": "exact", "pattern": "./token-lifecycle.js" },
