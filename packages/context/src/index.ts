@@ -122,6 +122,8 @@ export type {
   TokenLifecycleStatus,
   TokenLifecycleReport,
   TokenCounter,
+  TokenMeasurementMethod,
+  TokenMeasurementResult,
 } from "./token-lifecycle.js";
 
 // --- Token Counters ---

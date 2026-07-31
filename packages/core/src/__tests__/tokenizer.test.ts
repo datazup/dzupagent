@@ -28,6 +28,15 @@ describe('HeuristicTokenizer', () => {
     expect(t.countTokens('12345678')).toBe(2)
   })
 
+  it('reports heuristic measurement provenance', () => {
+    expect(new HeuristicTokenizer('custom').countDetailed('12345')).toEqual({
+      tokens: 2,
+      method: 'heuristic',
+      model: 'custom',
+      reason: 'chars-per-token estimate',
+    })
+  })
+
   it('encode returns array of token-count length', () => {
     const t = new HeuristicTokenizer()
     const text = 'hello world this is a test'
@@ -103,6 +112,19 @@ describe('AnthropicTokenizer (Claude BPE wiring)', () => {
     expect(tk.encode('').length).toBe(0)
   })
 
+  it('reports exact or heuristic provenance according to backend availability', () => {
+    const measurement = new AnthropicTokenizer(
+      'claude-3-5-sonnet-20241022',
+    ).countDetailed('The quick brown fox jumps over the lazy dog')
+
+    expect(['exact', 'heuristic']).toContain(measurement.method)
+    expect(measurement.tokens).toBeGreaterThan(0)
+    expect(measurement.model).toBe('claude-3-5-sonnet-20241022')
+    if (measurement.method === 'heuristic') {
+      expect(measurement.reason).toContain('unavailable or failed')
+    }
+  })
+
   it('returns a plausible count for a long string (>0 and < length)', () => {
     const tk = new AnthropicTokenizer('claude-3-5-sonnet-20241022')
     const long =
@@ -166,6 +188,18 @@ describe('TiktokenTokenizer (fallback path)', () => {
     const text = 'hello tokenizer fallback'
     // heuristic count for individual text
     expect(tk.countTokens(text)).toBeGreaterThan(0)
+  })
+
+  it('reports exact, encoding-fallback, or heuristic provenance', () => {
+    const measurement = new TiktokenTokenizer('gpt-4o').countDetailed(
+      'hello tokenizer provenance',
+    )
+
+    expect(['exact', 'encoding-fallback', 'heuristic']).toContain(
+      measurement.method,
+    )
+    expect(measurement.tokens).toBeGreaterThan(0)
+    expect(measurement.model).toBe('gpt-4o')
   })
 
   it('countMessages adds per-message overhead', () => {

@@ -135,7 +135,12 @@ export {
   AnthropicTokenizer,
   TiktokenTokenizer,
 } from "./llm/tokenizer.js";
-export type { Tokenizer, TokenizableMessage } from "./llm/tokenizer.js";
+export type {
+  Tokenizer,
+  TokenizableMessage,
+  TokenMeasurementMethod,
+  TokenMeasurementResult,
+} from "./llm/tokenizer.js";
 export {
   TokenizerRegistry,
   defaultTokenizerRegistry,

@@ -23,7 +23,11 @@
 import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { Tokenizer } from '@dzupagent/core/llm'
-import { shouldSummarize, summarizeAndTrim } from '@dzupagent/context'
+import {
+  shouldSummarize,
+  summarizeAndTrim,
+  type TokenCounter,
+} from '@dzupagent/context'
 import type { DzupAgentConfig } from './agent-types.js'
 import { ArrowRuntimeNotInjectedError } from './memory-context-loader.js'
 import type { AgentMemoryContextLoader } from './memory-context-loader.js'
@@ -180,6 +184,17 @@ export interface MaybeUpdateSummaryDeps {
   summary: ConversationSummaryAccessor
 }
 
+function adaptTokenizer(tokenizer: Tokenizer): TokenCounter {
+  return {
+    count: (text: string) => tokenizer.countTokens(text),
+    ...(tokenizer.countDetailed
+      ? {
+          countDetailed: (text: string) => tokenizer.countDetailed!(text),
+        }
+      : {}),
+  }
+}
+
 /**
  * Run the rolling summarizer when the message list crosses the
  * configured threshold. Mutates the conversation summary via the
@@ -192,7 +207,11 @@ export async function maybeUpdateSummary(
   memoryFrame?: unknown,
 ): Promise<void> {
   const { agentId, config, resolvedModel, tokenizer, summary } = deps
-  if (!shouldSummarize(messages, config.messageConfig)) return
+  const messageConfig = {
+    ...config.messageConfig,
+    tokenCounter: adaptTokenizer(tokenizer),
+  }
+  if (!shouldSummarize(messages, messageConfig)) return
 
   try {
     const summaryModel = config.registry
@@ -204,7 +223,7 @@ export async function maybeUpdateSummary(
       summary.get(),
       summaryModel,
       omitUndefined({
-        ...config.messageConfig,
+        ...messageConfig,
         ...(memoryFrame ? { memoryFrame } : {}),
         onFallback: config.onFallback
           ? (reason: string, before: number, after: number) => {

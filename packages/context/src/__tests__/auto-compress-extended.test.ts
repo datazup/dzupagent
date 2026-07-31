@@ -34,6 +34,20 @@ function makeConversation(pairs: number): BaseMessage[] {
   return msgs
 }
 
+const exactTokenizer = {
+  model: 'test-exact',
+  countTokens(text: string): number {
+    return Math.ceil(text.length / 4)
+  },
+  countDetailed(text: string) {
+    return {
+      tokens: Math.ceil(text.length / 4),
+      method: 'exact' as const,
+      model: 'test-exact',
+    }
+  },
+}
+
 function makeAIWithToolCalls(content: string, callId: string): AIMessage {
   return new AIMessage({
     content,
@@ -261,6 +275,7 @@ describe('autoCompress', () => {
         keepRecentMessages: 10,
         maxMessages: 5,
         budget: 100,
+        tokenizer: exactTokenizer,
         onFallback,
       }
 
@@ -278,6 +293,7 @@ describe('autoCompress', () => {
       // messages must now fit within the budget
       const afterTokens = Math.ceil(JSON.stringify(result.messages).length / 4)
       expect(afterTokens).toBeLessThanOrEqual(100)
+      expect(result.tokenMeasurement?.method).toBe('exact')
     })
 
     it('does not call onFallback when output already fits within budget', async () => {
@@ -287,12 +303,14 @@ describe('autoCompress', () => {
 
       const result = await autoCompress(msgs, null, model, {
         budget: 1_000_000, // absurdly large budget — no truncation expected
+        tokenizer: exactTokenizer,
         onFallback,
       })
 
       expect(result.compressed).toBe(true)
       expect(result.fallbackReason).toBeUndefined()
       expect(onFallback).not.toHaveBeenCalled()
+      expect(result.tokenMeasurement?.method).toBe('exact')
     })
 
     it('does not truncate when budget is unset', async () => {
@@ -305,6 +323,70 @@ describe('autoCompress', () => {
       expect(result.compressed).toBe(true)
       expect(result.fallbackReason).toBeUndefined()
       expect(onFallback).not.toHaveBeenCalled()
+    })
+
+    it('rejects chars/4 enforcement when no tokenizer provenance is available', async () => {
+      const model = createMockModel('unused')
+      const onFallback = vi.fn()
+      const msgs = makeConversation(3)
+
+      const result = await autoCompress(msgs, null, model, {
+        budget: 10,
+        onFallback,
+      })
+
+      expect(result.compressed).toBe(false)
+      expect(result.messages).toBe(msgs)
+      expect(result.tokenMeasurement?.method).toBe('heuristic')
+      expect(result.degradations).toEqual([
+        expect.objectContaining({
+          stage: 'token-measurement',
+          adoptionSafe: false,
+        }),
+      ])
+      expect(result.fallbackReason).toContain('token-measurement')
+      expect(onFallback).toHaveBeenCalledWith(
+        'token_measurement_unreliable',
+        expect.any(Number),
+        expect.any(Number),
+      )
+    })
+
+    it('treats a legacy count-only tokenizer as unproven for a hard budget', async () => {
+      const msgs = makeConversation(3)
+      const result = await autoCompress(msgs, null, createMockModel('unused'), {
+        budget: 10,
+        tokenizer: {
+          model: 'legacy',
+          countTokens: exactTokenizer.countTokens,
+        },
+      })
+
+      expect(result.compressed).toBe(false)
+      expect(result.tokenMeasurement).toMatchObject({
+        method: 'heuristic',
+        model: 'legacy',
+        reason: 'tokenizer does not expose measurement provenance',
+      })
+    })
+
+    it('enforces a hard budget even below the normal summarization threshold', async () => {
+      const msgs = [new HumanMessage('x'.repeat(400))]
+      const result = await autoCompress(msgs, null, createMockModel('unused'), {
+        maxMessages: 30,
+        maxMessageTokens: 12_000,
+        keepRecentMessages: 10,
+        budget: 10,
+        tokenizer: exactTokenizer,
+      })
+
+      expect(result.compressed).toBe(true)
+      expect(result.fallbackReason).toBe('truncation')
+      expect(result.messages).toEqual([])
+      expect(result.tokenMeasurement).toMatchObject({
+        tokens: 0,
+        method: 'exact',
+      })
     })
   })
 })

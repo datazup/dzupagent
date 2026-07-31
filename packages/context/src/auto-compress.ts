@@ -22,6 +22,7 @@ import {
   type MessageManagerConfig,
 } from "./message-manager.js";
 import type { OffloadSink } from "./context-eviction.js";
+import type { TokenMeasurementResult } from "./token-lifecycle.js";
 
 /**
  * Minimal structural tokenizer surface used by auto-compress (MC-08).
@@ -32,7 +33,11 @@ import type { OffloadSink } from "./context-eviction.js";
  * `Tokenizer` types exported from core.
  */
 export interface AutoCompressTokenizer {
+  /** Model identifier used for diagnostics, when known. */
+  readonly model?: string;
   countTokens(text: string): number;
+  /** Detailed provenance used by strict hard-budget enforcement. */
+  countDetailed?(text: string): TokenMeasurementResult;
 }
 
 export interface AutoCompressConfig extends MessageManagerConfig {
@@ -68,10 +73,13 @@ export interface AutoCompressConfig extends MessageManagerConfig {
   memoryFrame?: unknown;
 
   /**
-   * Optional real tokenizer used for hard-budget enforcement (MC-08).
+   * Optional provenance-aware tokenizer used for hard-budget enforcement
+   * (MC-08).
    *
-   * When set, `estimateMessageTokens()` delegates to `tokenizer.countTokens()`
-   * for accurate counts. When unset, the legacy char/4 heuristic is used.
+   * A configured hard budget requires `countDetailed()` to report `exact` or
+   * `encoding-fallback`. Missing provenance and chars/4 estimates return an
+   * adoption-unsafe `token-measurement` degradation instead of claiming that
+   * the ceiling was enforced.
    */
   tokenizer?: AutoCompressTokenizer;
 
@@ -92,24 +100,59 @@ export interface CompressResult {
   fallbackReason?: string;
   /** Stages that degraded while producing this result. */
   degradations?: CompressionDegradation[];
+  /** Final measurement, or the rejected preflight measurement on failure. */
+  tokenMeasurement?: TokenMeasurementResult;
 }
 
 /**
- * Token estimate for a message array.
+ * Token measurement for a message array.
  *
- * Uses a real tokenizer when one is supplied (MC-08); otherwise falls back
- * to the legacy JSON-stringified char/4 heuristic so existing behaviour is
- * preserved.
+ * Detailed tokenizer provenance is preserved when available. Count-only
+ * tokenizers and the legacy JSON-stringified char/4 path are explicitly
+ * classified as heuristic so strict consumers cannot mistake them for
+ * tokenizer-backed measurements.
  */
-function estimateMessageTokens(
+function measureMessageTokens(
   messages: BaseMessage[],
   tokenizer?: AutoCompressTokenizer
-): number {
-  const serialized = JSON.stringify(messages);
-  if (tokenizer) {
-    return tokenizer.countTokens(serialized);
+): TokenMeasurementResult {
+  if (messages.length === 0) {
+    return {
+      tokens: 0,
+      method: 'exact',
+      ...(tokenizer?.model ? { model: tokenizer.model } : {}),
+    };
   }
-  return Math.ceil(serialized.length / 4);
+  const serialized = JSON.stringify(messages);
+  if (tokenizer?.countDetailed) {
+    try {
+      const measurement = tokenizer.countDetailed(serialized);
+      if (
+        Number.isFinite(measurement.tokens) &&
+        measurement.tokens >= 0 &&
+        Number.isInteger(measurement.tokens)
+      ) {
+        return measurement;
+      }
+    } catch {
+      // A failed detailed path is unproven even if countTokens still works.
+    }
+  }
+  if (tokenizer) {
+    return {
+      tokens: tokenizer.countTokens(serialized),
+      method: 'heuristic',
+      ...(tokenizer.model ? { model: tokenizer.model } : {}),
+      reason: tokenizer.countDetailed
+        ? 'detailed token measurement failed'
+        : 'tokenizer does not expose measurement provenance',
+    };
+  }
+  return {
+    tokens: Math.ceil(serialized.length / 4),
+    method: 'heuristic',
+    reason: 'no tokenizer configured; used chars-per-token estimate',
+  };
 }
 
 let compactionSequence = 0;
@@ -134,8 +177,8 @@ function serializeForOffload(messages: BaseMessage[]): string {
 /**
  * Run the full 4-phase compression pipeline on a message array.
  *
- * Returns the compressed messages and updated summary. Only invokes
- * the LLM summarizer when the message count/token threshold is exceeded.
+ * Returns the compressed messages and updated summary. Invokes the LLM
+ * summarizer when the message count/token threshold or hard budget is exceeded.
  */
 export async function autoCompress(
   messages: BaseMessage[],
@@ -143,8 +186,45 @@ export async function autoCompress(
   model: BaseChatModel,
   config?: AutoCompressConfig
 ): Promise<CompressResult> {
-  if (!shouldSummarize(messages, config)) {
-    return { messages, summary: existingSummary, compressed: false };
+  let hardBudgetMeasurement: TokenMeasurementResult | undefined;
+  if (config?.budget !== undefined) {
+    hardBudgetMeasurement = measureMessageTokens(messages, config.tokenizer);
+    if (hardBudgetMeasurement.method === 'heuristic') {
+      const reason = hardBudgetMeasurement.reason ?? 'heuristic token measurement';
+      const degradation: CompressionDegradation = {
+        stage: 'token-measurement',
+        reason,
+        adoptionSafe: false,
+      };
+      config.onFallback?.(
+        'token_measurement_unreliable',
+        hardBudgetMeasurement.tokens,
+        hardBudgetMeasurement.tokens,
+      );
+      return {
+        messages,
+        summary: existingSummary,
+        compressed: false,
+        fallbackReason: `token-measurement: ${reason}`,
+        degradations: [degradation],
+        tokenMeasurement: hardBudgetMeasurement,
+      };
+    }
+  }
+
+  const exceedsHardBudget =
+    config?.budget !== undefined &&
+    hardBudgetMeasurement !== undefined &&
+    hardBudgetMeasurement.tokens > config.budget;
+  if (!exceedsHardBudget && !shouldSummarize(messages, config)) {
+    return {
+      messages,
+      summary: existingSummary,
+      compressed: false,
+      ...(hardBudgetMeasurement
+        ? { tokenMeasurement: hardBudgetMeasurement }
+        : {}),
+    };
   }
 
   // Estimate messages that will be lost for best-effort transcript offload.
@@ -246,21 +326,26 @@ export async function autoCompress(
   // until we fit.
   if (config?.budget !== undefined) {
     const tk = config.tokenizer;
-    const before = estimateMessageTokens(trimmedMessages, tk);
-    if (before > config.budget) {
+    const beforeMeasurement = measureMessageTokens(trimmedMessages, tk);
+    if (beforeMeasurement.tokens > config.budget) {
       let truncated = trimmedMessages;
       while (
         truncated.length > 0 &&
-        estimateMessageTokens(truncated, tk) > config.budget
+        measureMessageTokens(truncated, tk).tokens > config.budget
       ) {
         truncated = truncated.slice(1);
       }
-      const after = estimateMessageTokens(truncated, tk);
-      config.onFallback?.("truncation", before, after);
+      const afterMeasurement = measureMessageTokens(truncated, tk);
+      config.onFallback?.(
+        "truncation",
+        beforeMeasurement.tokens,
+        afterMeasurement.tokens,
+      );
       return {
         messages: truncated,
         summary,
         compressed: true,
+        tokenMeasurement: afterMeasurement,
         fallbackReason:
           offloadFailure !== undefined
             ? `truncation; ${offloadFailure}`
@@ -268,6 +353,17 @@ export async function autoCompress(
         ...(degradations.length > 0 ? { degradations } : {}),
       };
     }
+
+    return {
+      messages: trimmedMessages,
+      summary,
+      compressed: true,
+      tokenMeasurement: beforeMeasurement,
+      ...(offloadFailure !== undefined
+        ? { fallbackReason: offloadFailure }
+        : {}),
+      ...(degradations.length > 0 ? { degradations } : {}),
+    };
   }
 
   return {

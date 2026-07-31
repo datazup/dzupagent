@@ -23,6 +23,16 @@ function makeConversation(pairs: number): BaseMessage[] {
   return msgs;
 }
 
+const exactTokenizer = {
+  model: "test-exact",
+  countTokens: (text: string) => Math.ceil(text.length / 4),
+  countDetailed: (text: string) => ({
+    tokens: Math.ceil(text.length / 4),
+    method: "exact" as const,
+    model: "test-exact",
+  }),
+};
+
 function memorySink(): OffloadSink & { files: Map<string, string> } {
   const files = new Map<string, string>();
   return {
@@ -173,6 +183,7 @@ describe("autoCompress offload — sink failure", () => {
     const result = await autoCompress(makeConversation(16), null, model, {
       offload: { sink: failing },
       budget: 5,
+      tokenizer: exactTokenizer,
     });
 
     // The truncation path returns early; it must not overwrite the offload

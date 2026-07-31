@@ -16,7 +16,10 @@
  */
 
 import { createRequire } from 'node:module'
-import type { TokenCounter } from './token-lifecycle.js'
+import type {
+  TokenCounter,
+  TokenMeasurementResult,
+} from './token-lifecycle.js'
 
 type JsTiktokenModule = {
   encoding_for_model: (model: string) => { encode(text: string): number[] }
@@ -98,13 +101,28 @@ function heuristicCount(text: string): number {
 
 export class TiktokenCounter implements TokenCounter {
   count(text: string, model?: string): number {
-    if (text.length === 0) return 0
+    return this.countDetailed(text, model).tokens
+  }
+
+  countDetailed(text: string, model?: string): TokenMeasurementResult {
+    if (text.length === 0) {
+      return {
+        tokens: 0,
+        method: 'exact',
+        ...(model ? { model } : {}),
+      }
+    }
 
     if (isClaudeModel(model)) {
       try {
         const claudeCount = countWithAnthropicTokenizer(text)
         if (typeof claudeCount === 'number' && Number.isFinite(claudeCount)) {
-          return Math.max(0, Math.ceil(claudeCount))
+          return {
+            tokens: Math.max(0, Math.ceil(claudeCount)),
+            method: 'exact',
+            ...(model ? { model } : {}),
+            encoding: 'anthropic-tokenizer',
+          }
         }
       } catch {
         // Optional Claude tokenizer failures degrade to the shared fallback.
@@ -114,16 +132,43 @@ export class TiktokenCounter implements TokenCounter {
     const mod = tryLoadModule()
     if (!mod) {
       // Fallback: chars/4 heuristic when js-tiktoken is not installed.
-      return heuristicCount(text)
+      return {
+        tokens: heuristicCount(text),
+        method: 'heuristic',
+        ...(model ? { model } : {}),
+        reason: 'optional tokenizer backend unavailable',
+      }
     }
+
+    if (model && model.toLowerCase().startsWith('gpt')) {
+      try {
+        return {
+          tokens: mod.encoding_for_model(model).encode(text).length,
+          method: 'exact',
+          model,
+        }
+      } catch {
+        // A generic encoding is still tokenizer-backed, but not model-exact.
+      }
+    }
+
     try {
-      const encoder = model && model.startsWith('gpt')
-        ? mod.encoding_for_model(model)
-        : mod.get_encoding('cl100k_base')
-      return encoder.encode(text).length
+      return {
+        tokens: mod.get_encoding('cl100k_base').encode(text).length,
+        method: 'encoding-fallback',
+        ...(model ? { model } : {}),
+        encoding: 'cl100k_base',
+        reason: model
+          ? 'model-specific tokenizer unavailable'
+          : 'no model identifier supplied',
+      }
     } catch {
-      // Unknown model or encoder failure — degrade to heuristic.
-      return heuristicCount(text)
+      return {
+        tokens: heuristicCount(text),
+        method: 'heuristic',
+        ...(model ? { model } : {}),
+        reason: 'tokenizer encoding failed',
+      }
     }
   }
 }

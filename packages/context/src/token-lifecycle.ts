@@ -60,6 +60,27 @@ export interface TokenLifecycleReport {
   recommendation?: string
 }
 
+/** How a token measurement was produced. */
+export type TokenMeasurementMethod =
+  | 'exact'
+  | 'encoding-fallback'
+  | 'heuristic'
+
+/**
+ * Token count plus the provenance needed to decide whether it is safe to use
+ * at a hard budget boundary.
+ */
+export interface TokenMeasurementResult {
+  tokens: number
+  method: TokenMeasurementMethod
+  /** Model identifier supplied to or owned by the counter, when available. */
+  model?: string
+  /** Concrete encoding used when it is useful for diagnostics. */
+  encoding?: string
+  /** Why the preferred tokenizer path was unavailable or replaced. */
+  reason?: string
+}
+
 /**
  * Pluggable token counter. Implementations may use chars/4 heuristics
  * (cheap, imprecise) or real model-specific encoders (e.g. `js-tiktoken`).
@@ -77,6 +98,15 @@ export interface TokenCounter {
    *              heuristic counters may ignore it.
    */
   count(text: string, model?: string): number
+
+  /**
+   * Count tokens and report how the count was obtained.
+   *
+   * Optional for structural compatibility with existing count-only counters.
+   * Strict budget consumers must treat a missing implementation as unproven,
+   * rather than assuming that `count()` came from a tokenizer.
+   */
+  countDetailed?(text: string, model?: string): TokenMeasurementResult
 }
 
 const DEFAULT_WARN = 0.8

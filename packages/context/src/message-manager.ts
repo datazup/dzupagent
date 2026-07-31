@@ -48,6 +48,7 @@ export type CompressionDegradationStage =
   | 'summary-invocation'
   | 'summary-validation'
   | 'offload'
+  | 'token-measurement'
 
 /**
  * A compression stage that could not provide its normal guarantee.

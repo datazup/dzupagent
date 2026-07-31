@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { TiktokenCounter, __internals } from '../tiktoken-counter.js'
+import { CharEstimateCounter } from '../char-estimate-counter.js'
 
 /**
  * Coverage for TiktokenCounter provider routing (REC-M-02).
@@ -119,6 +120,43 @@ describe('TiktokenCounter — Claude routing (REC-M-02)', () => {
       expect(claudeN).toBeLessThanOrEqual(text.length)
       expect(gptN).toBeGreaterThan(0)
       expect(gptN).toBeLessThanOrEqual(text.length)
+    })
+  })
+
+  describe('countDetailed() — measurement provenance', () => {
+    const counter = new TiktokenCounter()
+
+    it('keeps count() aligned with the detailed result', () => {
+      const text = 'measurement provenance must not change legacy counts'
+      const detailed = counter.countDetailed(text, 'gpt-4o')
+
+      expect(counter.count(text, 'gpt-4o')).toBe(detailed.tokens)
+      expect(['exact', 'encoding-fallback', 'heuristic']).toContain(
+        detailed.method,
+      )
+      expect(detailed.model).toBe('gpt-4o')
+    })
+
+    it('marks an empty-input count as exact regardless of backend availability', () => {
+      expect(counter.countDetailed('', 'gpt-4o')).toEqual({
+        tokens: 0,
+        method: 'exact',
+        model: 'gpt-4o',
+      })
+    })
+
+    it('identifies chars/4 estimates as heuristic', () => {
+      const detailed = new CharEstimateCounter().countDetailed(
+        '12345678',
+        'custom-model',
+      )
+
+      expect(detailed).toMatchObject({
+        tokens: 2,
+        method: 'heuristic',
+        model: 'custom-model',
+      })
+      expect(detailed.reason).toContain('chars-per-token')
     })
   })
 })

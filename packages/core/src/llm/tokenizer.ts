@@ -21,6 +21,21 @@ export interface TokenizableMessage {
   type?: string
 }
 
+/** How a token measurement was produced. */
+export type TokenMeasurementMethod =
+  | 'exact'
+  | 'encoding-fallback'
+  | 'heuristic'
+
+/** Token count with provenance for enforcement and telemetry. */
+export interface TokenMeasurementResult {
+  tokens: number
+  method: TokenMeasurementMethod
+  model?: string
+  encoding?: string
+  reason?: string
+}
+
 /** Common interface implemented by every tokenizer backend. */
 export interface Tokenizer {
   /** Identifier of the underlying tokenizer model (e.g. `claude-3-5-sonnet`, `gpt-4o`, `heuristic`). */
@@ -33,6 +48,11 @@ export interface Tokenizer {
   encode(text: string): number[]
   /** Count tokens in `text`. Always synchronous and never throws. */
   countTokens(text: string): number
+  /**
+   * Detailed count with provenance. Optional so existing structural tokenizer
+   * implementations remain source-compatible.
+   */
+  countDetailed?(text: string): TokenMeasurementResult
   /** Sum tokens across an array of messages. */
   countMessages(messages: ReadonlyArray<TokenizableMessage | BaseMessage>): number
 }
@@ -49,7 +69,7 @@ function messageContentToString(content: unknown): string {
 
 /**
  * Char/4 fallback tokenizer. Zero dependencies, always available, deterministic.
- * Treat as a coarse upper-bound rather than a precise count.
+ * Treat as a coarse estimate rather than a precise count.
  */
 export class HeuristicTokenizer implements Tokenizer {
   readonly model: string
@@ -60,8 +80,15 @@ export class HeuristicTokenizer implements Tokenizer {
     return new Array<number>(this.countTokens(text)).fill(0)
   }
   countTokens(text: string): number {
-    if (!text) return 0
-    return Math.ceil(text.length / 4)
+    return this.countDetailed(text).tokens
+  }
+  countDetailed(text: string): TokenMeasurementResult {
+    return {
+      tokens: text ? Math.ceil(text.length / 4) : 0,
+      method: 'heuristic',
+      model: this.model,
+      reason: 'chars-per-token estimate',
+    }
   }
   countMessages(messages: ReadonlyArray<TokenizableMessage | BaseMessage>): number {
     let sum = 0
@@ -140,12 +167,23 @@ export class AnthropicTokenizer implements Tokenizer {
   }
 
   countTokens(text: string): number {
-    if (!text) return 0
+    return this.countDetailed(text).tokens
+  }
+
+  countDetailed(text: string): TokenMeasurementResult {
+    if (!text) return { tokens: 0, method: 'exact', model: this.model }
     this.ensureBackend()
     if (this.backend?.countTokens) {
       try {
         const n = this.backend.countTokens(text)
-        if (typeof n === 'number' && Number.isFinite(n) && n >= 0) return n
+        if (typeof n === 'number' && Number.isFinite(n) && n >= 0) {
+          return {
+            tokens: n,
+            method: 'exact',
+            model: this.model,
+            encoding: 'anthropic-tokenizer',
+          }
+        }
       } catch {
         // fall through
       }
@@ -154,15 +192,32 @@ export class AnthropicTokenizer implements Tokenizer {
       try {
         const tk = this.backend.getTokenizer()
         const out = tk.encode(text)
-        if (Array.isArray(out)) return out.length
+        if (Array.isArray(out)) {
+          return {
+            tokens: out.length,
+            method: 'exact',
+            model: this.model,
+            encoding: 'anthropic-tokenizer',
+          }
+        }
         if (out && typeof (out as { length?: number }).length === 'number') {
-          return (out as { length: number }).length
+          return {
+            tokens: (out as { length: number }).length,
+            method: 'exact',
+            model: this.model,
+            encoding: 'anthropic-tokenizer',
+          }
         }
       } catch {
         // fall through
       }
     }
-    return this.fallback.countTokens(text)
+    return {
+      tokens: this.fallback.countTokens(text),
+      method: 'heuristic',
+      model: this.model,
+      reason: 'optional Anthropic tokenizer unavailable or failed',
+    }
   }
 
   countMessages(messages: ReadonlyArray<TokenizableMessage | BaseMessage>): number {
@@ -181,6 +236,8 @@ export class AnthropicTokenizer implements Tokenizer {
 export class TiktokenTokenizer implements Tokenizer {
   readonly model: string
   private encoder: { encode: (t: string) => { length: number } | number[] } | null = null
+  private encoderMethod: 'exact' | 'encoding-fallback' | null = null
+  private encoding: string | undefined
   private fallback = new HeuristicTokenizer('heuristic')
   private resolved = false
 
@@ -198,14 +255,23 @@ export class TiktokenTokenizer implements Tokenizer {
     if (!mod) return
     try {
       if (mod.encodingForModel) {
-        this.encoder = mod.encodingForModel(this.model)
-        return
+        try {
+          this.encoder = mod.encodingForModel(this.model)
+          this.encoderMethod = 'exact'
+          return
+        } catch {
+          // Try a known generic encoding below.
+        }
       }
       if (mod.getEncoding) {
         this.encoder = mod.getEncoding('cl100k_base')
+        this.encoderMethod = 'encoding-fallback'
+        this.encoding = 'cl100k_base'
       }
     } catch {
       this.encoder = null
+      this.encoderMethod = null
+      this.encoding = undefined
     }
   }
 
@@ -226,20 +292,47 @@ export class TiktokenTokenizer implements Tokenizer {
   }
 
   countTokens(text: string): number {
-    if (!text) return 0
+    return this.countDetailed(text).tokens
+  }
+
+  countDetailed(text: string): TokenMeasurementResult {
+    if (!text) return { tokens: 0, method: 'exact', model: this.model }
     this.ensureBackend()
     if (this.encoder) {
       try {
         const out = this.encoder.encode(text)
-        if (Array.isArray(out)) return out.length
+        if (Array.isArray(out)) {
+          return {
+            tokens: out.length,
+            method: this.encoderMethod ?? 'encoding-fallback',
+            model: this.model,
+            ...(this.encoding ? { encoding: this.encoding } : {}),
+            ...(this.encoderMethod === 'encoding-fallback'
+              ? { reason: 'model-specific tokenizer unavailable' }
+              : {}),
+          }
+        }
         if (out && typeof (out as { length?: number }).length === 'number') {
-          return (out as { length: number }).length
+          return {
+            tokens: (out as { length: number }).length,
+            method: this.encoderMethod ?? 'encoding-fallback',
+            model: this.model,
+            ...(this.encoding ? { encoding: this.encoding } : {}),
+            ...(this.encoderMethod === 'encoding-fallback'
+              ? { reason: 'model-specific tokenizer unavailable' }
+              : {}),
+          }
         }
       } catch {
         // fall through
       }
     }
-    return this.fallback.countTokens(text)
+    return {
+      tokens: this.fallback.countTokens(text),
+      method: 'heuristic',
+      model: this.model,
+      reason: 'optional tiktoken backend unavailable or failed',
+    }
   }
 
   countMessages(messages: ReadonlyArray<TokenizableMessage | BaseMessage>): number {
