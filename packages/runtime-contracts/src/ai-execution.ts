@@ -5,6 +5,8 @@ import type {
   ProviderExecutionBackend,
 } from "./canonical-execution.js";
 
+export type { ExecutionRequest } from "./canonical-execution.js";
+
 export const AI_EXECUTION_REQUEST_SCHEMA =
   "dzupagent.aiExecutionRequest/v1" as const;
 export const AI_PUBLIC_TARGET_SCHEMA =
