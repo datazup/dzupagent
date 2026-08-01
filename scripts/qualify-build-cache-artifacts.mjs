@@ -61,7 +61,10 @@ async function runTurbo({ cacheDir, mode, packageName, writeOnly }) {
     let combined = ''
     child.stdout.on('data', (chunk) => { combined += chunk })
     child.stderr.on('data', (chunk) => { combined += chunk })
-    child.once('error', reject)
+    child.once('error', (error) => {
+      activeChild = undefined
+      reject(error)
+    })
     child.once('exit', (code, signal) => {
       activeChild = undefined
       if (code === 0 && !signal) resolve(combined)

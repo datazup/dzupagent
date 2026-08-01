@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
@@ -45,6 +45,14 @@ function validOwner(owner) {
     && typeof owner.acquiredAt === 'string'
 }
 
+function sameToken(left, right) {
+  if (typeof left !== 'string' || typeof right !== 'string') return false
+  const leftBuffer = Buffer.from(left)
+  const rightBuffer = Buffer.from(right)
+  return leftBuffer.length === rightBuffer.length
+    && timingSafeEqual(leftBuffer, rightBuffer)
+}
+
 async function parentPid(pid) {
   if (process.platform !== 'linux') return undefined
   try {
@@ -73,8 +81,10 @@ export async function validateBuildCustody({ root, token }) {
   if (typeof token !== 'string' || token.length === 0) {
     throw new Error('build custody token is missing')
   }
-  const owner = await readOwner(custodyPaths(root).ownerFile)
-  if (!validOwner(owner) || owner.token !== token) {
+  const { lockTarget, ownerFile } = custodyPaths(root)
+  const owner = await readOwner(ownerFile)
+  const locked = await lockfile.check(lockTarget, { realpath: false })
+  if (!locked || !validOwner(owner) || !sameToken(owner.token, token)) {
     throw new Error('inherited build custody is not owned by this build graph')
   }
   return owner
@@ -154,7 +164,7 @@ export async function acquireBuildCustody({
       if (released) return
       released = true
       const currentOwner = await readOwner(ownerFile)
-      if (currentOwner?.token === token) {
+      if (sameToken(currentOwner?.token, token)) {
         await rm(ownerFile, { force: true })
       }
       await releaseLock()
