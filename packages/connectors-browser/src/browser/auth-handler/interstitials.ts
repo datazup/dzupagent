@@ -78,6 +78,25 @@ export async function resolveAccountPickerInterstitial(
 }
 
 /**
+ * Detect the deterministic account-picker shape without acting on it.
+ *
+ * Some identity providers navigate away from the credential form before
+ * showing this picker, so URL change + password-field disappearance is not
+ * sufficient evidence that authentication has completed.
+ */
+export async function hasAccountPickerInterstitial(page: Page): Promise<boolean> {
+  const options = page.locator('input[type="radio"], [role="radio"]');
+  if ((await options.count()) === 0) return false;
+
+  const continueButton = page
+    .getByRole("button", {
+      name: /^(continue(?: to .+)?|next|proceed|select|choose|choose an organi[sz]ation)$/i,
+    })
+    .first();
+  return (await continueButton.count()) > 0;
+}
+
+/**
  * Resolve post-credential interstitial screens until login verifies or no
  * resolver can act. Consults `opts.onInterstitial` first (custom/LLM-guided
  * resolver), falling back to the built-in account-picker heuristic.

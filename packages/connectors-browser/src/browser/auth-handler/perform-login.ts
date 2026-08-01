@@ -11,7 +11,11 @@ import {
   enterSsoProvider,
   isLoginPage,
 } from "./discovery.js";
-import { readVisibleAlert, resolveInterstitials } from "./interstitials.js";
+import {
+  hasAccountPickerInterstitial,
+  readVisibleAlert,
+  resolveInterstitials,
+} from "./interstitials.js";
 
 /**
  * Full login-flow orchestration: position on the login page, submit + verify,
@@ -42,7 +46,11 @@ async function submitAndVerify(
   // indicator) AND the absence of a password field. Absence alone would
   // misclassify password-field-free interstitials (email verification,
   // CAPTCHA, IdP error pages) as successful logins.
-  if (sawPositiveSignal && !(await isLoginPage(page))) {
+  if (
+    sawPositiveSignal &&
+    !(await isLoginPage(page)) &&
+    !(await hasAccountPickerInterstitial(page))
+  ) {
     return { success: true, interstitialStepsTaken: 0 };
   }
 

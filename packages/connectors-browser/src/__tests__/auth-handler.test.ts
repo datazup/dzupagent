@@ -573,13 +573,15 @@ describe("AuthHandler", () => {
       expect(result.failureCode).toBe("LOGIN_FAILED");
     });
 
-    it("resolves an account/tenant-picker interstitial after credential submit and succeeds", async () => {
+    it("resolves a password-free account/tenant-picker after credential submit and succeeds", async () => {
       const { page, locatorInstance } = makeMockPage();
       locatorInstance.count
         .mockResolvedValueOnce(1) // isLoginPage at declared loginUrl: form present
-        .mockResolvedValueOnce(1) // isLoginPage after submit: password field still present (dzid keeps the form visible under the picker)
-        .mockResolvedValueOnce(1) // picker radio options present
-        .mockResolvedValueOnce(1) // explicit Continue-style button present
+        .mockResolvedValueOnce(0) // password field is gone on the picker
+        .mockResolvedValueOnce(1) // pre-success check: picker radio options present
+        .mockResolvedValueOnce(1) // pre-success check: Continue-style button present
+        .mockResolvedValueOnce(1) // resolver: picker radio options present
+        .mockResolvedValueOnce(1) // resolver: Continue-style button present
         .mockResolvedValueOnce(0); // isLoginPage after picker step: gone → success
       const handler = new AuthHandler();
 
