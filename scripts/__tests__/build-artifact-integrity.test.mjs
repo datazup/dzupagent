@@ -12,6 +12,7 @@ import { test } from 'node:test'
 
 import {
   BUILD_ARTIFACT_MANIFEST,
+  captureBuildInputSnapshot,
   verifyBuildArtifactManifest,
   writeBuildArtifactManifest,
 } from '../build-artifact-integrity.mjs'
@@ -32,6 +33,7 @@ function makeRepo() {
   writeText(root, '.yarnrc.yml', 'nodeLinker: pnp\n')
   writeText(root, 'scripts/build-artifact-integrity.mjs', 'export {}\n')
   writeText(root, 'scripts/check-package-export-artifacts.mjs', 'export {}\n')
+  writeText(root, 'scripts/prepare-build-artifact-manifest.mjs', 'export {}\n')
   writeText(root, 'scripts/write-build-artifact-manifest.mjs', 'export {}\n')
   writeText(
     root,
@@ -127,6 +129,25 @@ test('rejects stale dist output after a package source change', async () => {
     })
     assert.equal(result.ok, false)
     assert.match(result.messages.join('\n'), /dist was built from stale package inputs/)
+  })
+})
+
+test('rejects source drift that occurs while a package build is running', async () => {
+  await withRepo(async (root) => {
+    const expectedInputs = await captureBuildInputSnapshot({
+      root,
+      packageDir: 'packages/core',
+    })
+    writeText(root, 'packages/core/src/index.ts', 'export const value = 4\n')
+
+    await assert.rejects(
+      writeBuildArtifactManifest({
+        root,
+        packageDir: 'packages/core',
+        expectedInputs,
+      }),
+      /source inputs changed during build/,
+    )
   })
 })
 

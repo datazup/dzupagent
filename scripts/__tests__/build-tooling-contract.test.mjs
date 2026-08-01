@@ -24,7 +24,7 @@ test('every build workspace publishes and verifies a completion manifest', async
     )
     assert.match(
       packageJson.scripts.build,
-      /node \.\.\/\.\.\/scripts\/write-build-artifact-manifest\.mjs$/,
+      /^node \.\.\/\.\.\/scripts\/prepare-build-artifact-manifest\.mjs && .+ && node \.\.\/\.\.\/scripts\/write-build-artifact-manifest\.mjs$/,
       packageJson.name,
     )
     assert.equal(

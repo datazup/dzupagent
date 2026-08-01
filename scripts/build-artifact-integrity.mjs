@@ -5,12 +5,14 @@ import {
   readFile,
   readdir,
   rename,
+  rm,
   writeFile,
 } from 'node:fs/promises'
 import path from 'node:path'
 
 export const BUILD_ARTIFACT_MANIFEST = '.dzup-build-artifacts.json'
 export const BUILD_ARTIFACT_SCHEMA_VERSION = 1
+export const BUILD_INPUT_SNAPSHOT = '.dzup-build-inputs.json'
 
 const ROOT_BUILD_INPUTS = [
   '.yarnrc.yml',
@@ -20,6 +22,7 @@ const ROOT_BUILD_INPUTS = [
   'yarn.lock',
   'scripts/build-artifact-integrity.mjs',
   'scripts/check-package-export-artifacts.mjs',
+  'scripts/prepare-build-artifact-manifest.mjs',
   'scripts/write-build-artifact-manifest.mjs',
 ]
 
@@ -177,7 +180,58 @@ export function packageDirFromCwd(root, cwd) {
   return relativePath
 }
 
-export async function writeBuildArtifactManifest({ root, packageDir }) {
+export async function captureBuildInputSnapshot({ root, packageDir }) {
+  const packageJson = await packageMetadata(root, packageDir)
+  const inputs = await collectPackageBuildInputs(root, packageDir)
+  const snapshot = {
+    schemaVersion: BUILD_ARTIFACT_SCHEMA_VERSION,
+    packageName: packageJson.name,
+    inputFileCount: inputs.length,
+    inputFingerprint: await fingerprintFiles(root, inputs),
+  }
+  const turboDir = path.join(root, packageDir, '.turbo')
+  await mkdir(turboDir, { recursive: true })
+  const snapshotPath = path.join(turboDir, BUILD_INPUT_SNAPSHOT)
+  const temporaryPath = `${snapshotPath}.${process.pid}.tmp`
+  await writeFile(temporaryPath, `${JSON.stringify(snapshot, null, 2)}\n`)
+  await rename(temporaryPath, snapshotPath)
+  return snapshot
+}
+
+export async function readBuildInputSnapshot({ root, packageDir }) {
+  const snapshotPath = path.join(root, packageDir, '.turbo', BUILD_INPUT_SNAPSHOT)
+  let snapshot
+  try {
+    snapshot = JSON.parse(await readFile(snapshotPath, 'utf8'))
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      throw new Error('build input snapshot is missing; run the prepare step first')
+    }
+    throw new Error('build input snapshot is unreadable')
+  }
+  const packageJson = await packageMetadata(root, packageDir)
+  if (
+    snapshot.schemaVersion !== BUILD_ARTIFACT_SCHEMA_VERSION
+    || snapshot.packageName !== packageJson.name
+    || !Number.isInteger(snapshot.inputFileCount)
+    || typeof snapshot.inputFingerprint !== 'string'
+  ) {
+    throw new Error(`${packageJson.name} build input snapshot is invalid`)
+  }
+  return snapshot
+}
+
+export async function clearBuildInputSnapshot({ root, packageDir }) {
+  await rm(path.join(root, packageDir, '.turbo', BUILD_INPUT_SNAPSHOT), {
+    force: true,
+  })
+}
+
+export async function writeBuildArtifactManifest({
+  root,
+  packageDir,
+  expectedInputs,
+}) {
   const packageJson = await packageMetadata(root, packageDir)
   const inputs = await collectPackageBuildInputs(root, packageDir)
   const artifacts = await collectArtifacts(root, packageDir)
@@ -185,11 +239,21 @@ export async function writeBuildArtifactManifest({ root, packageDir }) {
     throw new Error(`${packageJson.name} produced no dist artifacts`)
   }
 
+  const inputFingerprint = await fingerprintFiles(root, inputs)
+  if (
+    expectedInputs
+    && (
+      expectedInputs.inputFileCount !== inputs.length
+      || expectedInputs.inputFingerprint !== inputFingerprint
+    )
+  ) {
+    throw new Error(`${packageJson.name} source inputs changed during build`)
+  }
   const manifest = {
     schemaVersion: BUILD_ARTIFACT_SCHEMA_VERSION,
     packageName: packageJson.name,
     inputFileCount: inputs.length,
-    inputFingerprint: await fingerprintFiles(root, inputs),
+    inputFingerprint,
     artifactFingerprint: artifactFingerprint(artifacts),
     artifacts,
   }
