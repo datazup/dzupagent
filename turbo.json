@@ -1,10 +1,13 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalEnv": ["YARN_IGNORE_PATH", "YARN_CACHE_FOLDER", "YARN_GLOBAL_FOLDER", "npm_config_prefix"],
+  "globalPassThroughEnv": ["DZUP_BUILD_CUSTODY_TOKEN"],
   "globalDependencies": [
     "scripts/build-artifact-integrity.mjs",
+    "scripts/build-custody.mjs",
     "scripts/check-package-export-artifacts.mjs",
     "scripts/prepare-build-artifact-manifest.mjs",
+    "scripts/run-with-build-custody.mjs",
     "scripts/write-build-artifact-manifest.mjs"
   ],
   "tasks": {

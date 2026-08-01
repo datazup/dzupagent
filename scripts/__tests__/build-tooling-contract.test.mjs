@@ -24,12 +24,12 @@ test('every build workspace publishes and verifies a completion manifest', async
     )
     assert.match(
       packageJson.scripts.build,
-      /^node \.\.\/\.\.\/scripts\/prepare-build-artifact-manifest\.mjs && .+ && node \.\.\/\.\.\/scripts\/write-build-artifact-manifest\.mjs$/,
+      /^node \.\.\/\.\.\/scripts\/run-with-build-custody\.mjs --shell "node \.\.\/\.\.\/scripts\/prepare-build-artifact-manifest\.mjs && .+ && node \.\.\/\.\.\/scripts\/write-build-artifact-manifest\.mjs"$/,
       packageJson.name,
     )
     assert.equal(
       packageJson.scripts['build:verify'],
-      'node ../../scripts/check-build-artifact-integrity.mjs',
+      'node ../../scripts/run-with-build-custody.mjs node ../../scripts/check-build-artifact-integrity.mjs',
       packageJson.name,
     )
     assert.equal(
@@ -46,6 +46,12 @@ test('Turbo verifies restored dependencies and suppresses replayed cache logs', 
     turbo.globalDependencies.includes('scripts/build-artifact-integrity.mjs'),
     true,
   )
+  assert.equal(turbo.globalDependencies.includes('scripts/build-custody.mjs'), true)
+  assert.equal(
+    turbo.globalDependencies.includes('scripts/run-with-build-custody.mjs'),
+    true,
+  )
+  assert.deepEqual(turbo.globalPassThroughEnv, ['DZUP_BUILD_CUSTODY_TOKEN'])
   assert.deepEqual(turbo.tasks['build:verify'].dependsOn, ['build'])
   assert.equal(turbo.tasks['build:verify'].cache, false)
   for (const taskName of ['build', 'typecheck', 'lint', 'test']) {
@@ -54,6 +60,34 @@ test('Turbo verifies restored dependencies and suppresses replayed cache logs', 
   assert.equal(turbo.tasks.typecheck.dependsOn.includes('^build:verify'), true)
   assert.equal(turbo.tasks.test.dependsOn.includes('^build:verify'), true)
   assert.equal(JSON.stringify(turbo).includes('"^build"'), false)
+})
+
+test('root artifact readers and graph commands hold build custody', () => {
+  const packageJson = JSON.parse(
+    readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),
+  )
+  for (const scriptName of ['build', 'typecheck', 'test']) {
+    assert.match(
+      packageJson.scripts[scriptName],
+      /^node scripts\/run-with-build-custody\.mjs turbo run /,
+      scriptName,
+    )
+  }
+  for (const scriptName of [
+    'check:build-artifact-integrity',
+    'check:package-export-artifacts',
+    'check:dts-budgets',
+  ]) {
+    assert.match(
+      packageJson.scripts[scriptName],
+      /^node scripts\/run-with-build-custody\.mjs node scripts\//,
+      scriptName,
+    )
+  }
+  assert.equal(
+    packageJson.scripts['test:build-cache'],
+    'node scripts/run-with-build-custody.mjs node scripts/qualify-build-cache-artifacts.mjs',
+  )
 })
 
 test('package lint uses its own cwd while resolving ESLint from root tooling', () => {

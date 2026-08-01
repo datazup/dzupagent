@@ -48,8 +48,8 @@
     "fixtures"
   ],
   "scripts": {
-    "build": "node ../../scripts/prepare-build-artifact-manifest.mjs && tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false && node ../../scripts/write-build-artifact-manifest.mjs",
-    "build:verify": "node ../../scripts/check-build-artifact-integrity.mjs",
+    "build": "node ../../scripts/run-with-build-custody.mjs --shell \"node ../../scripts/prepare-build-artifact-manifest.mjs && tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false && node ../../scripts/write-build-artifact-manifest.mjs\"",
+    "build:verify": "node ../../scripts/run-with-build-custody.mjs node ../../scripts/check-build-artifact-integrity.mjs",
     "lint": "node ../../scripts/run-package-lint.mjs",
     "test": "vitest run",
     "fixtures:ai-execution:check": "node scripts/check-ai-execution-conformance.mjs",

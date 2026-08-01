@@ -21,8 +21,10 @@ const ROOT_BUILD_INPUTS = [
   'tsconfig.json',
   'yarn.lock',
   'scripts/build-artifact-integrity.mjs',
+  'scripts/build-custody.mjs',
   'scripts/check-package-export-artifacts.mjs',
   'scripts/prepare-build-artifact-manifest.mjs',
+  'scripts/run-with-build-custody.mjs',
   'scripts/write-build-artifact-manifest.mjs',
 ]
 

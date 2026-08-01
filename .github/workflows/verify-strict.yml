@@ -93,6 +93,31 @@ jobs:
       - name: Build core package for subpath export consumers
         run: yarn build --filter=@dzupagent/core
 
+      - name: Qualify local Turbo artifact cache closure
+        run: yarn test:build-cache
+
+      - name: Rehearse concurrent build custody
+        run: yarn test:build-custody:concurrent
+
+      - name: Detect remote Turbo cache authority
+        id: remote-cache
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+        run: |
+          if [[ -n "$TURBO_TOKEN" && -n "$TURBO_TEAM" ]]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Qualify remote Turbo artifact cache closure
+        if: steps.remote-cache.outputs.enabled == 'true'
+        env:
+          TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+          TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+        run: yarn test:build-cache:remote
+
       - name: Check Turbo typecheck build order
         run: yarn check:turbo:typecheck-order
 

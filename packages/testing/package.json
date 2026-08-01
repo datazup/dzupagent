@@ -18,8 +18,8 @@
     "dzupagent-sdlc-mvp-evidence": "./dist/bin/sdlc-mvp-evidence.js"
   },
   "scripts": {
-    "build": "node ../../scripts/prepare-build-artifact-manifest.mjs && tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false && node ../../scripts/write-build-artifact-manifest.mjs",
-    "build:verify": "node ../../scripts/check-build-artifact-integrity.mjs",
+    "build": "node ../../scripts/run-with-build-custody.mjs --shell \"node ../../scripts/prepare-build-artifact-manifest.mjs && tsup && tsc -p tsconfig.build.json --emitDeclarationOnly --declarationMap false && node ../../scripts/write-build-artifact-manifest.mjs\"",
+    "build:verify": "node ../../scripts/run-with-build-custody.mjs node ../../scripts/check-build-artifact-integrity.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
