@@ -56,6 +56,7 @@ export interface BuildStreamSourceOptions {
   readonly timeoutMs?: number | undefined;
   /** Queue that receives raw events for the caller to flush before each batch. */
   readonly rawQueue: RawAgentEvent[];
+  readonly rawPersistence: { pending: Promise<void> };
 }
 
 /**
@@ -81,6 +82,7 @@ export function buildCliStreamSource(
     store,
     timeoutMs,
     rawQueue,
+    rawPersistence,
   } = opts;
 
   const source: AdapterStreamSource<Record<string, unknown>> = {
@@ -178,9 +180,10 @@ export function buildCliStreamSource(
           : {}),
       };
       rawQueue.push(rawEvent);
-      // Fire-and-forget persistence — errors are swallowed by RunEventStore
       if (store) {
-        void store.appendRaw(rawEvent);
+        rawPersistence.pending = rawPersistence.pending
+          .then(() => store.appendRaw(rawEvent))
+          .catch(() => undefined);
       }
     }
     return originalMapRawEvent(record, context);

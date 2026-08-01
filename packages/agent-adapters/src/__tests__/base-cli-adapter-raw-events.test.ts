@@ -246,13 +246,54 @@ describe('BaseCliAdapter — adapter:provider_raw emission', () => {
     const runId = 'gemini-persist-run'
     const store = new RunEventStore({ runId, projectDir })
     await store.open()
+    const appendRaw = store.appendRaw.bind(store)
+    let releaseWrites = (): void => {}
+    const writeGate = new Promise<void>((resolve) => {
+      releaseWrites = resolve
+    })
+    const appendSpy = vi.spyOn(store, 'appendRaw').mockImplementation(
+      async (event) => {
+        await writeGate
+        await appendRaw(event)
+      },
+    )
 
     const adapter = new TestCliAdapter('gemini')
     adapter.setRunStore(store)
-    // correlationId becomes the adapter run-context id stamped on each raw event.
-    await collectRaw(
-      adapter.executeWithRaw({ prompt: 'persist test', correlationId: 'run-ctx-1' }),
-    )
+    const stream = adapter.executeWithRaw({
+      prompt: 'persist test',
+      correlationId: 'run-ctx-1',
+    })
+    const prefix = []
+    for (let index = 0; index < 6; index += 1) {
+      prefix.push(await stream.next())
+    }
+    expect(prefix.map(({ value }) => (value as AgentStreamEvent).type)).toEqual([
+      'adapter:started',
+      'adapter:provider_raw',
+      'adapter:message',
+      'adapter:provider_raw',
+      'adapter:message',
+      'adapter:provider_raw',
+    ])
+
+    const terminal = stream.next()
+    let terminalSettled = false
+    void terminal.then(() => {
+      terminalSettled = true
+    })
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(terminalSettled).toBe(false)
+    } finally {
+      releaseWrites()
+    }
+    await expect(terminal).resolves.toMatchObject({
+      done: false,
+      value: { type: 'adapter:completed' },
+    })
+    await expect(stream.next()).resolves.toMatchObject({ done: true })
+    expect(appendSpy).toHaveBeenCalledTimes(3)
 
     const filePath = join(runLogRoot(projectDir, runId), 'raw-events.jsonl')
     const content = await readFile(filePath, 'utf8')

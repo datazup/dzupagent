@@ -21,7 +21,7 @@ This document supplements the root `ARCHITECTURE.md` with package-specific detai
 | `./recovery`        | Recovery copilot, policies, escalation, cross-provider handoff, approval gates  |
 | `./skills`          | Skill loading, indexing, registry, and prompt assembly helpers                  |
 | `./enrichment`      | Task enrichment planning, context enrichment, and execution helpers             |
-| `./hard-budget`     | Versioned profiles, exact provider preflight, and usage reconciliation            |
+| `./hard-budget`     | Versioned profiles, exact provider preflight, and usage reconciliation          |
 | `./fleet-executors` | Fleet executor implementations and registry for multi-repo orchestration runs   |
 | `./subagents`       | Subagent runtime helpers and integration surface                                |
 | `./routing`         | Deterministic candidate materialization, selection, transition, and recovery    |

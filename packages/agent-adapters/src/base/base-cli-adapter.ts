@@ -164,6 +164,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
     // Codex has its own raw channel — skip CLI raw emission for it.
     const emitRaw = this.providerId !== "codex";
     const rawQueue: RawAgentEvent[] = [];
+    const rawPersistence = { pending: Promise.resolve() };
 
     const source = buildCliStreamSource({
       adapter: {
@@ -187,6 +188,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
       store: this.runStore,
       timeoutMs: this.config.timeoutMs,
       rawQueue,
+      rawPersistence,
     });
 
     let runAbortController: AbortController | null = null;
@@ -222,6 +224,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
           // Re-emit the runner's adapter:failed but normalize the error code
           // back to the captured original (legacy preserves spawn error code).
           if (captured.error) {
+            await rawPersistence.pending;
             yield withCorrelationId(
               {
                 type: "adapter:failed",
@@ -236,6 +239,12 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
             continue;
           }
         }
+        if (
+          event.type === "adapter:completed" ||
+          event.type === "adapter:failed"
+        ) {
+          await rawPersistence.pending;
+        }
         yield event;
       }
 
@@ -244,6 +253,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
 
       // Synthesise adapter:completed when the stream ended without a terminal.
       if (!flags.hasCompleted && !flags.hasFailed) {
+        await rawPersistence.pending;
         yield withCorrelationId(
           {
             type: "adapter:completed",
@@ -257,6 +267,7 @@ export abstract class BaseCliAdapter implements AgentCLIAdapter {
         );
       }
     } finally {
+      await rawPersistence.pending;
       resolver?.dispose();
       if (resolver) this.activeInteractionResolvers.delete(resolver);
       if (runAbortController)

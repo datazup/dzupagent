@@ -26,7 +26,6 @@ import {
   defaultOpenAIOutboundPolicy,
   type OpenAIConfig,
   type OpenAIResponsesInputRequest,
-  type OpenAIToolWire,
 } from './openai/openai-types.js'
 
 export {
@@ -324,21 +323,6 @@ export function buildOpenAIResponsesInputRequest(
     ...(request.toolChoice !== undefined
       ? { tool_choice: flattenToolChoice(request.toolChoice) } : {}),
   }
-}
-
-export function buildOpenAIResponsesInputFromWire(args: {
-  model: string
-  messages: AdapterHardBudgetRequest['messages']
-  tools?: readonly OpenAIToolWire[]
-  toolChoice?: unknown
-}): OpenAIResponsesInputRequest {
-  return buildOpenAIResponsesInputRequest({
-    provider: 'openai',
-    model: args.model,
-    messages: args.messages,
-    ...(args.tools?.length ? { tools: args.tools } : {}),
-    ...(args.toolChoice !== undefined ? { toolChoice: args.toolChoice } : {}),
-  })
 }
 
 export function createOpenAIResponsesInputTokenProofBinding(

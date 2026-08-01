@@ -359,7 +359,6 @@ export function assertAdapterHardBudgetBinding(
   }
 }
 
-
 export function assertAdapterHardBudgetRequestProofBinding(
   definition: Readonly<AdapterHardBudgetHostProfileDefinition>,
   binding: AdapterHardBudgetRequestProofBinding,

@@ -14,7 +14,6 @@ import type { AdapterStreamSource, StreamContext } from '../base/stream-runner.j
 import { prepareAdapterHardBudgetInput } from '../context/hard-budget-input.js'
 import type { PreparedAdapterHardBudgetInput } from '../context/hard-budget-input.js'
 import {
-  buildOpenAIResponsesInputFromWire,
   buildOpenAIResponsesInputRequest,
   prepareAdapterHardBudgetInputWithProof,
   reconcileAdapterHardBudgetUsage,
@@ -92,7 +91,8 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
     if (this.transport === 'responses') {
       const inputRequest = prepared.budget
         ? buildOpenAIResponsesInputRequest(prepared.budget.request)
-        : buildOpenAIResponsesInputFromWire({
+        : buildOpenAIResponsesInputRequest({
+            provider: 'openai',
             model,
             messages: buildOpenAIMessages(
               prepared.input.prompt,
@@ -343,7 +343,8 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
   ): AsyncGenerator<OpenAIRawEvent, void, undefined> {
     const inputRequest = prepared.budget
       ? buildOpenAIResponsesInputRequest(prepared.budget.request)
-      : buildOpenAIResponsesInputFromWire({
+      : buildOpenAIResponsesInputRequest({
+          provider: 'openai',
           model,
           messages: buildOpenAIMessages(
             prepared.input.prompt,
