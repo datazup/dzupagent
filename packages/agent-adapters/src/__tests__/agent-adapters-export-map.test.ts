@@ -106,6 +106,10 @@ describe('agent-adapters export map', () => {
       expect(imports[6]).toEqual(expect.objectContaining({
         AdapterHardBudgetHostProfileRegistry: expect.any(Function),
         prepareAdapterHardBudgetInput: expect.any(Function),
+        prepareAdapterHardBudgetInputWithProof: expect.any(Function),
+        createOpenAIResponsesInputTokenProofBinding: expect.any(Function),
+        OPENAI_RESPONSES_REQUEST_FORMAT_FINGERPRINT:
+          expect.stringMatching(/^[a-f0-9]{64}$/),
       }))
     } finally {
       await rm(tempDir, { recursive: true, force: true })

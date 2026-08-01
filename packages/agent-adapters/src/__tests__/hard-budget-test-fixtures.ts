@@ -1,6 +1,11 @@
 import type { TokenMeasurementResult } from '@dzupagent/context'
 import {
   AdapterHardBudgetHostProfileRegistry,
+  OPENAI_RESPONSES_INPUT_TOKEN_PROOF_ID,
+  OPENAI_RESPONSES_INPUT_TOKEN_PROOF_REVISION,
+  OPENAI_RESPONSES_REQUEST_FORMAT_FINGERPRINT,
+  OPENAI_RESPONSES_REQUEST_FORMAT_ID,
+  OPENAI_RESPONSES_REQUEST_FORMAT_REVISION,
   type AdapterHardBudgetCounterBinding,
   type AdapterHardBudgetHostProfileDefinition,
 } from '../hard-budget.js'
@@ -32,6 +37,32 @@ export function fixtureProfile(
     },
     ...overrides,
   }
+}
+
+export function fixtureProofProfile(
+  overrides: Partial<AdapterHardBudgetHostProfileDefinition> = {},
+): AdapterHardBudgetHostProfileDefinition {
+  return fixtureProfile({
+    id: 'provider-free-openai-responses-fixture',
+    revision: '2026-08-01.2',
+    requestFormat: {
+      id: OPENAI_RESPONSES_REQUEST_FORMAT_ID,
+      revision: OPENAI_RESPONSES_REQUEST_FORMAT_REVISION,
+      fingerprint: OPENAI_RESPONSES_REQUEST_FORMAT_FINGERPRINT,
+    },
+    modelSnapshot: {
+      id: `${FIXTURE_MODEL}-snapshot`,
+      revision: '2026-08-01.1',
+      capturedAt: '2026-08-01T00:00:00.000Z',
+      expiresAt: '2026-09-01T00:00:00.000Z',
+    },
+    requestProof: {
+      id: OPENAI_RESPONSES_INPUT_TOKEN_PROOF_ID,
+      revision: OPENAI_RESPONSES_INPUT_TOKEN_PROOF_REVISION,
+      maxAgeMs: 5_000,
+    },
+    ...overrides,
+  })
 }
 
 function exactMeasurement(text: string, model: string): TokenMeasurementResult {

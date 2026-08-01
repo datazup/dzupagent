@@ -20,6 +20,7 @@ import {
   type AdapterHardBudgetCounterBinding,
   type AdapterHardBudgetHostProfileDefinition,
   type AdapterHardBudgetHostProfileRegistry,
+  type AdapterHardBudgetRequestProofBinding,
   type AdapterHardBudgetRequest,
   type AdapterHardBudgetProfileErrorCode,
 } from './hard-budget-profile-registry.js'
@@ -37,6 +38,12 @@ export interface AdapterHardBudgetEvaluation {
   tokenizerRevision?: string
   requestFormatId?: string
   requestFormatRevision?: string
+  requestFormatFingerprint?: string
+  modelSnapshotId?: string
+  modelSnapshotRevision?: string
+  modelSnapshotExpiresAt?: string
+  requestProofId?: string
+  requestProofRevision?: string
   toolSchemaFingerprint?: string
   contextWindowTokens?: number
   providerInputLimit?: number
@@ -46,15 +53,41 @@ export interface AdapterHardBudgetEvaluation {
   toolReservedTokens?: number
   envelopeTokens?: number
   measuredRequestTokens?: number
+  localMeasuredRequestTokens?: number
+  providerMeasuredRequestTokens?: number
   measurementMethod?: TokenMeasurementResult['method']
+  requestFingerprint?: string
+  preflightMeasuredAt?: string
+  preflightAgeMs?: number
   adoptionSafe: boolean
   satisfied: boolean
+}
+
+export interface AdapterHardBudgetUsageReconciliation {
+  type: 'adapter:hard_budget_usage_reconciled'
+  provider: AdapterProviderId
+  model: string
+  profileId: string
+  profileRevision: string
+  requestFingerprint: string
+  preflightInputTokens: number
+  responseInputTokens?: number
+  deltaTokens?: number
+  toleranceTokens: number
+  reconciled: boolean
+  code?: 'usage_missing' | 'usage_mismatch'
 }
 
 export interface AdapterHardBudgetPolicy {
   registry: AdapterHardBudgetHostProfileRegistry
   binding: AdapterHardBudgetCounterBinding
+  requestProof?: AdapterHardBudgetRequestProofBinding
+  clock?: () => number
+  usageReconciliationToleranceTokens?: number
   onEvaluation?: (evaluation: AdapterHardBudgetEvaluation) => void
+  onUsageReconciliation?: (
+    reconciliation: AdapterHardBudgetUsageReconciliation,
+  ) => void
 }
 
 export interface PreparedAdapterHardBudgetInput {
@@ -63,10 +96,11 @@ export interface PreparedAdapterHardBudgetInput {
   reservation: HardBudgetReservation
   hardBudget: HardBudgetCompliance
   requestMeasurement: TokenMeasurementResult
+  request: AdapterHardBudgetRequest
   evaluation: AdapterHardBudgetEvaluation
 }
 
-function emitEvaluation(
+export function emitAdapterHardBudgetEvaluation(
   policy: AdapterHardBudgetPolicy,
   evaluation: AdapterHardBudgetEvaluation,
 ): void {
@@ -84,7 +118,7 @@ function fail(
   message: string,
 ): never {
   const rejected = { ...evaluation, accepted: false, code }
-  emitEvaluation(policy, rejected)
+  emitAdapterHardBudgetEvaluation(policy, rejected)
   throw new AdapterHardBudgetProfileError(code, message)
 }
 
@@ -178,6 +212,25 @@ function baseEvaluation(args: {
           tokenizerRevision: args.definition.tokenizer.revision,
           requestFormatId: args.definition.requestFormat.id,
           requestFormatRevision: args.definition.requestFormat.revision,
+          ...(args.definition.requestFormat.fingerprint
+            ? {
+                requestFormatFingerprint:
+                  args.definition.requestFormat.fingerprint,
+              }
+            : {}),
+          ...(args.definition.modelSnapshot
+            ? {
+                modelSnapshotId: args.definition.modelSnapshot.id,
+                modelSnapshotRevision: args.definition.modelSnapshot.revision,
+                modelSnapshotExpiresAt: args.definition.modelSnapshot.expiresAt,
+              }
+            : {}),
+          ...(args.definition.requestProof
+            ? {
+                requestProofId: args.definition.requestProof.id,
+                requestProofRevision: args.definition.requestProof.revision,
+              }
+            : {}),
           contextWindowTokens: args.definition.contextWindowTokens,
           outputReservedTokens: args.definition.reservedOutputTokens,
           summaryReservedTokens: args.definition.reservedSummaryTokens,
@@ -191,18 +244,19 @@ function baseEvaluation(args: {
   }
 }
 
-/**
- * Bind and enforce a provider request before the adapter can open transport.
- * The returned input is a copy; failures never expose or mutate prompt text.
- */
-export function prepareAdapterHardBudgetInput(args: {
+interface PrepareAdapterHardBudgetInputOptions {
+  allowRequestProofPending?: boolean
+  deferAcceptedEvaluation?: boolean
+}
+
+export function prepareAdapterHardBudgetInputCore(args: {
   input: AgentInput
   provider: AdapterProviderId
   model: string
   tools?: readonly unknown[]
   toolChoice?: unknown
   policy: AdapterHardBudgetPolicy
-}): PreparedAdapterHardBudgetInput {
+}, options: PrepareAdapterHardBudgetInputOptions = {}): PreparedAdapterHardBudgetInput {
   const { input, provider, model, tools, toolChoice, policy } = args
   const unresolved = baseEvaluation({ provider, model, policy, tools })
   const definition = policy.registry.resolve(provider, model)
@@ -221,6 +275,14 @@ export function prepareAdapterHardBudgetInput(args: {
     definition,
     tools,
   })
+  if (definition.requestProof && !options.allowRequestProofPending) {
+    return fail(
+      policy,
+      evaluation,
+      'request_proof_required',
+      'adapter hard-budget profile requires authoritative request proof',
+    )
+  }
   try {
     assertAdapterHardBudgetBinding(definition, policy.binding)
   } catch (error) {
@@ -346,6 +408,13 @@ export function prepareAdapterHardBudgetInput(args: {
     )
   }
 
+  const request: AdapterHardBudgetRequest = {
+    provider,
+    model,
+    messages: preparedWire,
+    ...(tools && tools.length > 0 ? { tools } : {}),
+    ...(toolChoice !== undefined ? { toolChoice } : {}),
+  }
   const preparedInput: AgentInput = {
     ...input,
     prompt: preparedWire.find((message) => message.role === 'user')!.content,
@@ -375,13 +444,27 @@ export function prepareAdapterHardBudgetInput(args: {
     adoptionSafe: true,
     satisfied: true,
   }
-  emitEvaluation(policy, accepted)
+  if (!options.deferAcceptedEvaluation) {
+    emitAdapterHardBudgetEvaluation(policy, accepted)
+  }
   return {
     input: preparedInput,
     profile,
     reservation,
     hardBudget,
     requestMeasurement,
+    request,
     evaluation: accepted,
   }
+}
+
+export function prepareAdapterHardBudgetInput(args: {
+  input: AgentInput
+  provider: AdapterProviderId
+  model: string
+  tools?: readonly unknown[]
+  toolChoice?: unknown
+  policy: AdapterHardBudgetPolicy
+}): PreparedAdapterHardBudgetInput {
+  return prepareAdapterHardBudgetInputCore(args)
 }

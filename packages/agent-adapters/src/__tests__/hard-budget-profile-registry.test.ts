@@ -3,11 +3,13 @@ import {
   AdapterHardBudgetHostProfileRegistry,
   AdapterHardBudgetProfileError,
   assertAdapterHardBudgetBinding,
+  assertAdapterHardBudgetRequestProofBinding,
   defineAdapterHardBudgetHostProfile,
 } from '../hard-budget.js'
 import {
   FIXTURE_MODEL,
   fixtureBinding,
+  fixtureProofProfile,
   fixtureProfile,
 } from './hard-budget-test-fixtures.js'
 
@@ -81,6 +83,40 @@ describe('AdapterHardBudgetHostProfileRegistry', () => {
         revision: '1',
         allowedMethods: [],
       },
+    }))).toThrowError(expect.objectContaining({ code: 'invalid_profile' }))
+  })
+
+  it('binds hosted proof identity and request-format fingerprints', () => {
+    const profile = defineAdapterHardBudgetHostProfile(fixtureProofProfile())
+    const binding = {
+      id: profile.requestProof!.id,
+      revision: profile.requestProof!.revision,
+      requestFormatId: profile.requestFormat.id,
+      requestFormatRevision: profile.requestFormat.revision,
+      requestFormatFingerprint: profile.requestFormat.fingerprint!,
+      proveRequest: async () => ({
+        tokens: 1,
+        method: 'exact' as const,
+        model: profile.model,
+        requestFingerprint: 'a'.repeat(64),
+        requestFormatFingerprint: profile.requestFormat.fingerprint!,
+        measuredAt: '2026-08-01T00:00:00.000Z',
+      }),
+    }
+
+    expect(() => assertAdapterHardBudgetRequestProofBinding(profile, binding))
+      .not.toThrow()
+    expect(() => assertAdapterHardBudgetRequestProofBinding(profile, {
+      ...binding,
+      requestFormatFingerprint: 'b'.repeat(64),
+    })).toThrowError(expect.objectContaining({
+      code: 'request_format_fingerprint_mismatch',
+    }))
+  })
+
+  it('requires snapshot and serializer provenance for hosted proof', () => {
+    expect(() => defineAdapterHardBudgetHostProfile(fixtureProfile({
+      requestProof: fixtureProofProfile().requestProof,
     }))).toThrowError(expect.objectContaining({ code: 'invalid_profile' }))
   })
 })

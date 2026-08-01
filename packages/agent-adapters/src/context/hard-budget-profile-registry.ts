@@ -23,7 +23,6 @@ export interface AdapterHardBudgetRequest {
   toolChoice?: unknown
 }
 
-/** Host-owned counters bound to explicit tokenizer and request-format revisions. */
 export interface AdapterHardBudgetCounterBinding {
   tokenizerId: string
   tokenizerRevision: string
@@ -35,7 +34,40 @@ export interface AdapterHardBudgetCounterBinding {
   ) => TokenMeasurementResult
 }
 
-/** Serializable provider/model contract. Runtime counters are bound separately. */
+export interface AdapterHardBudgetModelSnapshot {
+  id: string
+  revision: string
+  capturedAt: string
+  expiresAt: string
+}
+
+export interface AdapterHardBudgetRequestProofContract {
+  id: string
+  revision: string
+  maxAgeMs: number
+}
+
+export interface AdapterHardBudgetRequestProofResult
+  extends TokenMeasurementResult {
+  method: 'exact'
+  model: string
+  requestFingerprint: string
+  requestFormatFingerprint: string
+  measuredAt: string
+}
+
+export interface AdapterHardBudgetRequestProofBinding {
+  id: string
+  revision: string
+  requestFormatId: string
+  requestFormatRevision: string
+  requestFormatFingerprint: string
+  proveRequest: (
+    request: AdapterHardBudgetRequest,
+    options?: { signal?: AbortSignal },
+  ) => Promise<AdapterHardBudgetRequestProofResult>
+}
+
 export interface AdapterHardBudgetHostProfileDefinition {
   schemaVersion: typeof ADAPTER_HARD_BUDGET_PROFILE_SCHEMA_VERSION
   id: string
@@ -49,7 +81,10 @@ export interface AdapterHardBudgetHostProfileDefinition {
   requestFormat: {
     id: string
     revision: string
+    fingerprint?: string
   }
+  modelSnapshot?: AdapterHardBudgetModelSnapshot
+  requestProof?: AdapterHardBudgetRequestProofContract
 }
 
 export type AdapterHardBudgetProfileErrorCode =
@@ -58,6 +93,12 @@ export type AdapterHardBudgetProfileErrorCode =
   | 'invalid_profile'
   | 'tokenizer_binding_mismatch'
   | 'request_format_binding_mismatch'
+  | 'request_format_fingerprint_mismatch'
+  | 'request_proof_binding_mismatch'
+  | 'request_proof_required'
+  | 'request_proof_failed'
+  | 'request_proof_stale'
+  | 'model_snapshot_stale'
   | 'measurement_unproven'
   | 'measurement_mismatch'
   | 'reservation_non_monotonic'
@@ -90,6 +131,18 @@ function assertNonNegativeInteger(name: string, value: number): void {
       `${name} must be a non-negative integer`,
     )
   }
+}
+
+function parseTimestamp(name: string, value: string): number {
+  assertNonEmpty(name, value)
+  const parsed = Date.parse(value)
+  if (!Number.isFinite(parsed)) {
+    throw new AdapterHardBudgetProfileError(
+      'invalid_profile',
+      `${name} must be an ISO-8601 timestamp`,
+    )
+  }
+  return parsed
 }
 
 function profileKey(provider: AdapterProviderId, model: string): string {
@@ -131,6 +184,14 @@ export function defineAdapterHardBudgetHostProfile(
   assertNonEmpty('tokenizer.revision', definition.tokenizer.revision)
   assertNonEmpty('requestFormat.id', definition.requestFormat.id)
   assertNonEmpty('requestFormat.revision', definition.requestFormat.revision)
+  if (definition.requestFormat.fingerprint !== undefined) {
+    if (!/^[a-f0-9]{64}$/.test(definition.requestFormat.fingerprint)) {
+      throw new AdapterHardBudgetProfileError(
+        'invalid_profile',
+        'requestFormat.fingerprint must be a lowercase SHA-256 digest',
+      )
+    }
+  }
   assertNonNegativeInteger(
     'contextWindowTokens',
     definition.contextWindowTokens,
@@ -153,6 +214,43 @@ export function defineAdapterHardBudgetHostProfile(
   if (definition.tokenizer.encoding !== undefined) {
     assertNonEmpty('tokenizer.encoding', definition.tokenizer.encoding)
   }
+  if (definition.modelSnapshot !== undefined) {
+    assertNonEmpty('modelSnapshot.id', definition.modelSnapshot.id)
+    assertNonEmpty('modelSnapshot.revision', definition.modelSnapshot.revision)
+    const capturedAt = parseTimestamp(
+      'modelSnapshot.capturedAt',
+      definition.modelSnapshot.capturedAt,
+    )
+    const expiresAt = parseTimestamp(
+      'modelSnapshot.expiresAt',
+      definition.modelSnapshot.expiresAt,
+    )
+    if (expiresAt <= capturedAt) {
+      throw new AdapterHardBudgetProfileError(
+        'invalid_profile',
+        'modelSnapshot.expiresAt must be later than capturedAt',
+      )
+    }
+  }
+  if (definition.requestProof !== undefined) {
+    assertNonEmpty('requestProof.id', definition.requestProof.id)
+    assertNonEmpty('requestProof.revision', definition.requestProof.revision)
+    if (
+      !Number.isInteger(definition.requestProof.maxAgeMs)
+      || definition.requestProof.maxAgeMs <= 0
+    ) {
+      throw new AdapterHardBudgetProfileError(
+        'invalid_profile',
+        'requestProof.maxAgeMs must be a positive integer',
+      )
+    }
+    if (!definition.modelSnapshot || !definition.requestFormat.fingerprint) {
+      throw new AdapterHardBudgetProfileError(
+        'invalid_profile',
+        'requestProof requires modelSnapshot and requestFormat.fingerprint',
+      )
+    }
+  }
   return Object.freeze({
     ...definition,
     tokenizer: Object.freeze({
@@ -160,6 +258,12 @@ export function defineAdapterHardBudgetHostProfile(
       allowedMethods: Object.freeze([...definition.tokenizer.allowedMethods]),
     }),
     requestFormat: Object.freeze({ ...definition.requestFormat }),
+    ...(definition.modelSnapshot
+      ? { modelSnapshot: Object.freeze({ ...definition.modelSnapshot }) }
+      : {}),
+    ...(definition.requestProof
+      ? { requestProof: Object.freeze({ ...definition.requestProof }) }
+      : {}),
   })
 }
 
@@ -181,7 +285,6 @@ function fingerprintDefinitions(
     .digest('hex')
 }
 
-/** Immutable exact-match registry; unknown provider/model pairs fail closed. */
 export class AdapterHardBudgetHostProfileRegistry {
   readonly fingerprint: string
   private readonly profiles = new Map<
@@ -252,6 +355,41 @@ export function assertAdapterHardBudgetBinding(
     throw new AdapterHardBudgetProfileError(
       'request_format_binding_mismatch',
       'hard-budget request-format binding does not match the profile',
+    )
+  }
+}
+
+
+export function assertAdapterHardBudgetRequestProofBinding(
+  definition: Readonly<AdapterHardBudgetHostProfileDefinition>,
+  binding: AdapterHardBudgetRequestProofBinding,
+): void {
+  const contract = definition.requestProof
+  if (
+    !contract
+    || binding.id !== contract.id
+    || binding.revision !== contract.revision
+  ) {
+    throw new AdapterHardBudgetProfileError(
+      'request_proof_binding_mismatch',
+      'hard-budget request proof binding does not match the profile',
+    )
+  }
+  if (
+    binding.requestFormatId !== definition.requestFormat.id
+    || binding.requestFormatRevision !== definition.requestFormat.revision
+  ) {
+    throw new AdapterHardBudgetProfileError(
+      'request_format_binding_mismatch',
+      'hard-budget request proof format does not match the profile',
+    )
+  }
+  if (
+    binding.requestFormatFingerprint !== definition.requestFormat.fingerprint
+  ) {
+    throw new AdapterHardBudgetProfileError(
+      'request_format_fingerprint_mismatch',
+      'hard-budget request proof fingerprint does not match the profile',
     )
   }
 }

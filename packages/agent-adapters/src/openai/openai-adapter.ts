@@ -1,15 +1,3 @@
-/**
- * OpenAI adapter — thin wrapper around the OpenAI Chat Completions API.
- *
- * Uses native `fetch` directly (no external SDK dependency). Stream lifecycle
- * delegates to {@link AdapterStreamRunner}; this class implements
- * {@link AdapterStreamSource} so the runner owns abort control, heartbeat
- * detection, and adapter:started/completed/failed lifecycle events.
- *
- * Wire-format types, tool-call assembly, and HTTP/audit helpers live in
- * sibling modules (`./openai-types`, `./openai-tool-calls`, `./openai-http`)
- * after the MC-027a-1 split.
- */
 import { randomUUID } from 'node:crypto'
 import { ForgeError } from '@dzupagent/core/events'
 import type {
@@ -24,23 +12,36 @@ import { getDefaultMonitorStatus } from '../provider-catalog.js'
 import { AdapterStreamRunner } from '../base/stream-runner.js'
 import type { AdapterStreamSource, StreamContext } from '../base/stream-runner.js'
 import { prepareAdapterHardBudgetInput } from '../context/hard-budget-input.js'
+import type { PreparedAdapterHardBudgetInput } from '../context/hard-budget-input.js'
+import {
+  buildOpenAIResponsesInputFromWire,
+  buildOpenAIResponsesInputRequest,
+  prepareAdapterHardBudgetInputWithProof,
+  reconcileAdapterHardBudgetUsage,
+  type ProvenAdapterHardBudgetInput,
+} from '../hard-budget.js'
 import {
   DEFAULT_MODEL,
   type OpenAIConfig,
   type OpenAIRawEvent,
   type OpenAIRunResult,
+  type OpenAIToolWire,
 } from './openai-types.js'
 import { OpenAIToolCallAccumulator, resolveOpenAITools } from './openai-tool-calls.js'
 import {
   buildOpenAIMessages,
+  parseOpenAIResponsesSSE,
   parseOpenAISSE,
+  postOpenAIResponses,
   postChatCompletions,
   resolveOpenAIApiKey,
+  runOpenAIResponsesNonStreaming,
   runOpenAINonStreaming,
 } from './openai-http.js'
 
 export type {
   OpenAIConfig,
+  OpenAITransport,
   OpenAIRunResult,
   OpenAIToolDefinition,
   OpenAIToolWire,
@@ -76,32 +77,53 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
     }
   }
 
-  /** Non-streaming convenience method returning the assembled content + usage. */
   async run(
     prompt: string,
     opts: { systemPrompt?: string; model?: string; signal?: AbortSignal } = {},
   ): Promise<OpenAIRunResult> {
     const model = opts.model ?? this.config.model ?? DEFAULT_MODEL
-    const prepared = this.prepareHardBudgetInput({
+    const prepared = await this.prepareHardBudgetInput({
       prompt,
       ...(opts.systemPrompt !== undefined
         ? { systemPrompt: opts.systemPrompt }
         : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
     }, model)
+    if (this.transport === 'responses') {
+      const inputRequest = prepared.budget
+        ? buildOpenAIResponsesInputRequest(prepared.budget.request)
+        : buildOpenAIResponsesInputFromWire({
+            model,
+            messages: buildOpenAIMessages(
+              prepared.input.prompt,
+              prepared.input.systemPrompt,
+            ),
+          })
+      const result = await runOpenAIResponsesNonStreaming({
+        config: this.config,
+        providerId: this.providerId,
+        inputRequest,
+        prompt: prepared.input.prompt,
+        ...(prepared.input.systemPrompt !== undefined
+          ? { systemPrompt: prepared.input.systemPrompt }
+          : {}),
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      })
+      this.reconcileUsage(prepared.budget, result.usage?.inputTokens)
+      return result
+    }
     return runOpenAINonStreaming({
       config: this.config,
       providerId: this.providerId,
-      prompt: prepared.prompt,
-      ...(prepared.systemPrompt !== undefined
-        ? { systemPrompt: prepared.systemPrompt }
+      prompt: prepared.input.prompt,
+      ...(prepared.input.systemPrompt !== undefined
+        ? { systemPrompt: prepared.input.systemPrompt }
         : {}),
       model,
       ...(opts.signal ? { signal: opts.signal } : {}),
     })
   }
 
-  /** Streaming convenience that delegates to {@link execute}. */
   async *chat(
     prompt: string,
     opts: {
@@ -162,15 +184,28 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
   async *open(input: AgentInput, signal: AbortSignal): AsyncIterable<OpenAIRawEvent> {
     const tools = resolveOpenAITools(input)
     const toolChoice = input.options?.['tool_choice']
-    const prepared = this.prepareHardBudgetInput(
+    const prepared = await this.prepareHardBudgetInput(
       input,
       this.currentModel,
       tools,
       toolChoice,
     )
+    if (this.transport === 'responses') {
+      yield* this.openResponses(
+        prepared,
+        this.currentModel,
+        signal,
+        tools,
+        toolChoice,
+      )
+      return
+    }
     const response = await postChatCompletions({
       config: this.config,
-      messages: buildOpenAIMessages(prepared.prompt, prepared.systemPrompt),
+      messages: buildOpenAIMessages(
+        prepared.input.prompt,
+        prepared.input.systemPrompt,
+      ),
       model: this.currentModel,
       stream: true,
       signal,
@@ -265,20 +300,102 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
     this.config = { ...this.config, ...opts }
   }
 
-  private prepareHardBudgetInput(
+  private get transport(): NonNullable<OpenAIConfig['transport']> {
+    return this.config.transport ?? 'chat-completions'
+  }
+
+  private async prepareHardBudgetInput(
     input: AgentInput,
     model: string,
-    tools?: readonly unknown[],
+    tools?: readonly OpenAIToolWire[],
     toolChoice?: unknown,
-  ): AgentInput {
-    if (!this.config.hardBudget) return input
-    return prepareAdapterHardBudgetInput({
+  ): Promise<{
+    input: AgentInput
+    budget?: PreparedAdapterHardBudgetInput
+  }> {
+    if (!this.config.hardBudget) return { input }
+    const args = {
       input,
       provider: this.providerId,
       model,
       ...(tools && tools.length > 0 ? { tools } : {}),
       ...(toolChoice !== undefined ? { toolChoice } : {}),
       policy: this.config.hardBudget,
-    }).input
+    }
+    const budget = this.transport === 'responses'
+      ? await prepareAdapterHardBudgetInputWithProof({
+          ...args,
+          ...(input.signal ? { signal: input.signal } : {}),
+        })
+      : prepareAdapterHardBudgetInput(args)
+    return { input: budget.input, budget }
+  }
+
+  private async *openResponses(
+    prepared: {
+      input: AgentInput
+      budget?: PreparedAdapterHardBudgetInput
+    },
+    model: string,
+    signal: AbortSignal,
+    tools?: readonly OpenAIToolWire[],
+    toolChoice?: unknown,
+  ): AsyncGenerator<OpenAIRawEvent, void, undefined> {
+    const inputRequest = prepared.budget
+      ? buildOpenAIResponsesInputRequest(prepared.budget.request)
+      : buildOpenAIResponsesInputFromWire({
+          model,
+          messages: buildOpenAIMessages(
+            prepared.input.prompt,
+            prepared.input.systemPrompt,
+          ),
+          ...(tools && tools.length > 0 ? { tools } : {}),
+          ...(toolChoice !== undefined ? { toolChoice } : {}),
+        })
+    const response = await postOpenAIResponses({
+      config: this.config,
+      inputRequest,
+      stream: true,
+      signal,
+    })
+    let usage: { inputTokens: number; outputTokens: number } | undefined
+    let completed = false
+    for await (const event of parseOpenAIResponsesSSE(response.body!, signal)) {
+      if (event.kind === 'chunk') {
+        yield { kind: 'sse', chunk: event.chunk }
+      } else {
+        completed = true
+        usage = event.usage
+      }
+    }
+    if (!completed) {
+      throw new ForgeError({
+        code: 'ADAPTER_EXECUTION_FAILED',
+        message: 'OpenAI Responses stream ended without a completed event',
+        recoverable: false,
+        context: { providerId: 'openai', reason: 'missing_completed_event' },
+      })
+    }
+    this.reconcileUsage(prepared.budget, usage?.inputTokens)
+    yield {
+      kind: 'completed',
+      fullText: this.currentFullText,
+      ...(usage ? { usage } : {}),
+      durationMs: Date.now() - this.currentStartTime,
+    }
+  }
+
+  private reconcileUsage(
+    prepared: PreparedAdapterHardBudgetInput | undefined,
+    responseInputTokens: number | undefined,
+  ): void {
+    if (!prepared || !('requestProof' in prepared) || !this.config.hardBudget) {
+      return
+    }
+    reconcileAdapterHardBudgetUsage({
+      prepared: prepared as ProvenAdapterHardBudgetInput,
+      ...(responseInputTokens !== undefined ? { responseInputTokens } : {}),
+      policy: this.config.hardBudget,
+    })
   }
 }

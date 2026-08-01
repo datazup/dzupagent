@@ -8,6 +8,7 @@ import {
   FIXTURE_MODEL,
   fixtureBinding,
   fixtureProfile,
+  fixtureProofProfile,
   fixtureRegistry,
 } from './hard-budget-test-fixtures.js'
 
@@ -146,5 +147,22 @@ describe('prepareAdapterHardBudgetInput', () => {
     })
 
     expect(result.hardBudget.adoptionSafe).toBe(true)
+  })
+
+  it('does not let synchronous preparation bypass a required hosted proof', () => {
+    expect(() => prepareAdapterHardBudgetInput({
+      input: { prompt: 'fixture' },
+      provider: 'openai',
+      model: FIXTURE_MODEL,
+      policy: {
+        registry: fixtureRegistry([fixtureProofProfile()]),
+        binding: fixtureBinding({
+          requestFormatId: fixtureProofProfile().requestFormat.id,
+          requestFormatRevision: fixtureProofProfile().requestFormat.revision,
+        }),
+      },
+    })).toThrowError(expect.objectContaining({
+      code: 'request_proof_required',
+    }))
   })
 })

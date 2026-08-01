@@ -21,12 +21,27 @@ This document supplements the root `ARCHITECTURE.md` with package-specific detai
 | `./recovery`        | Recovery copilot, policies, escalation, cross-provider handoff, approval gates  |
 | `./skills`          | Skill loading, indexing, registry, and prompt assembly helpers                  |
 | `./enrichment`      | Task enrichment planning, context enrichment, and execution helpers             |
-| `./hard-budget`     | Exact host-profile binding and fail-closed provider input preparation            |
+| `./hard-budget`     | Versioned profiles, exact provider preflight, and usage reconciliation            |
 | `./fleet-executors` | Fleet executor implementations and registry for multi-repo orchestration runs   |
 | `./subagents`       | Subagent runtime helpers and integration surface                                |
 | `./routing`         | Deterministic candidate materialization, selection, transition, and recovery    |
 
 All subpaths are defined in `package.json` `exports`. New consumers should prefer subpath imports over the root `.` barrel.
+
+## Strict Provider Input Budgets
+
+The hard-budget subpath keeps enablement explicit. A host supplies model limits,
+tokenizer provenance, and a local reservation counter. Profiles that require a
+provider preflight also bind an expiring model snapshot, request-format
+revision/fingerprint, proof endpoint revision, and maximum proof age.
+
+`OpenAIAdapter` retains Chat Completions as its default transport. The opt-in
+`responses` transport can use the OpenAI Responses input-token endpoint through
+`createOpenAIResponsesInputTokenProofBinding`. The counter and generation paths
+share `buildOpenAIResponsesInputRequest`; generation stays closed when the
+snapshot, binding, proof, or final input limit is invalid. Terminal input usage
+is reconciled through prompt-free telemetry. No provider/model limits are
+pre-filled by the package.
 
 ## Key Runtime Components
 

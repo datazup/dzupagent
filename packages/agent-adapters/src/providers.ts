@@ -67,7 +67,11 @@ export type { OllamaAdapterConfig, LocalModelInspection } from './ollama/ollama-
 export { OpenRouterAdapter } from './openrouter/openrouter-adapter.js'
 export type { OpenRouterConfig } from './openrouter/openrouter-adapter.js'
 export { OpenAIAdapter } from './openai/openai-adapter.js'
-export type { OpenAIConfig, OpenAIRunResult } from './openai/openai-adapter.js'
+export type {
+  OpenAIConfig,
+  OpenAIRunResult,
+  OpenAITransport,
+} from './openai/openai-adapter.js'
 export {
   assessModelAvailability,
   discoverClaudeModels,

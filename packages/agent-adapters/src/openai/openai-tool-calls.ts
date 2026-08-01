@@ -253,6 +253,7 @@ export function resolveOpenAITools(
           name: string;
           description?: unknown;
           parameters?: unknown;
+          strict?: unknown;
         };
         wire.push({
           type: "function",
@@ -263,6 +264,9 @@ export function resolveOpenAITools(
               : {}),
             ...(named.parameters && typeof named.parameters === "object"
               ? { parameters: named.parameters as Record<string, unknown> }
+              : {}),
+            ...(typeof named.strict === "boolean"
+              ? { strict: named.strict }
               : {}),
           },
         });
@@ -278,6 +282,7 @@ export function resolveOpenAITools(
         name: string;
         description?: unknown;
         parameters?: unknown;
+        strict?: unknown;
       };
       wire.push({
         type: "function",
@@ -289,6 +294,7 @@ export function resolveOpenAITools(
           ...(flat.parameters && typeof flat.parameters === "object"
             ? { parameters: flat.parameters as Record<string, unknown> }
             : {}),
+          ...(typeof flat.strict === "boolean" ? { strict: flat.strict } : {}),
         },
       });
     }

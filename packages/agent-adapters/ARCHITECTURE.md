@@ -30,6 +30,9 @@ Current responsibilities:
 - Enforce control-plane rules via policy compilation/conformance, approval, guardrails, and recovery.
 - Provide integration surfaces for HTTP handlers, plugin loading, MCP tool sharing, and adapter-as-tool bridges.
 - Provide `.dzupagent`/UCL ingestion helpers, skill projection/compilers, and run-event persistence for script automation.
+- Enforce opt-in provider input budgets with revision-bound local reservation
+  counters and, for OpenAI Responses, authoritative provider preflight plus
+  terminal usage reconciliation.
 
 ## Structure
 

@@ -1,10 +1,3 @@
-/**
- * HTTP / SSE / audit helpers for the OpenAI adapter.
- *
- * Extracted from `openai-adapter.ts` (MC-027a-1). Pure functions that
- * operate on a passed-in {@link OpenAIConfig} so they remain testable and
- * keep the main adapter class focused on lifecycle.
- */
 import {
   ForgeError,
   type LlmAuditSink,
@@ -19,15 +12,12 @@ import {
   DEFAULT_BASE_URL,
   defaultOpenAIOutboundPolicy,
   type OpenAIConfig,
+  type OpenAIResponsesInputRequest,
   type OpenAIRunResult,
   type OpenAIToolWire,
   type SSEChunk,
 } from "./openai-types.js";
 
-/**
- * Resolve an API key from config / environment, throwing a structured
- * {@link ForgeError} when neither is present.
- */
 export function resolveOpenAIApiKey(config: OpenAIConfig): string {
   const apiKey = config.apiKey ?? process.env["OPENAI_API_KEY"];
   if (!apiKey) {
@@ -42,12 +32,14 @@ export function resolveOpenAIApiKey(config: OpenAIConfig): string {
   return apiKey;
 }
 
-/** Build chat-completion message array from a prompt + optional system prompt. */
 export function buildOpenAIMessages(
   prompt: string,
   systemPrompt?: string
-): Array<{ role: string; content: string }> {
-  const messages: Array<{ role: string; content: string }> = [];
+): Array<{ role: "system" | "user"; content: string }> {
+  const messages: Array<{
+    role: "system" | "user";
+    content: string;
+  }> = [];
   if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
   messages.push({ role: "user", content: prompt });
   return messages;
@@ -63,10 +55,6 @@ export interface PostChatCompletionsArgs {
   toolChoice?: unknown;
 }
 
-/**
- * POST `/chat/completions` against the configured baseURL using the shared
- * outbound URL policy guard. Throws a structured ForgeError on non-2xx.
- */
 export async function postChatCompletions(
   args: PostChatCompletionsArgs
 ): Promise<Response> {
@@ -109,11 +97,6 @@ export async function postChatCompletions(
   return response;
 }
 
-/**
- * Parse an OpenAI SSE response body into typed `SSEChunk` records.
- * Lines that fail JSON parsing are skipped (the upstream parser handles
- * the `data: [DONE]` sentinel).
- */
 export function parseOpenAISSE(
   body: ReadableStream<Uint8Array>,
   signal: AbortSignal
@@ -144,11 +127,6 @@ export interface RunAuditArgs {
   errorCode?: string;
 }
 
-/**
- * Best-effort emit of an LLM audit record for the non-streaming `run()`
- * path. Sink failures are logged and swallowed so audit never breaks the
- * caller.
- */
 export function emitOpenAIRunAudit(args: RunAuditArgs): void {
   const sink: LlmAuditSink | undefined = args.config.auditSink;
   if (!sink) return;
@@ -191,10 +169,6 @@ function toAuditUsage(
   };
 }
 
-/**
- * Map an unknown error onto a stable audit error code. Falls back to
- * `'ADAPTER_EXECUTION_FAILED'` when the value carries no `code`.
- */
 export function resolveOpenAIAuditErrorCode(error: unknown): string {
   if (error !== null && typeof error === "object" && "code" in error) {
     const code = (error as { code?: unknown }).code;
@@ -212,10 +186,6 @@ export interface NonStreamingRunArgs {
   signal?: AbortSignal;
 }
 
-/**
- * Execute a non-streaming chat completion and emit an audit record on
- * either success or failure. Returns the assembled content + usage.
- */
 export async function runOpenAINonStreaming(
   args: NonStreamingRunArgs
 ): Promise<OpenAIRunResult> {
@@ -265,6 +235,233 @@ export async function runOpenAINonStreaming(
         ? { systemPrompt: args.systemPrompt }
         : {}),
       model: args.model,
+      status: "failed",
+      durationMs: Date.now() - startedAtMs,
+      startedAt,
+      errorCode: resolveOpenAIAuditErrorCode(error),
+    });
+    throw error;
+  }
+}
+
+export interface OpenAIResponsesUsage { inputTokens: number; outputTokens: number }
+
+interface OpenAIResponsesStreamEvent {
+  type?: string;
+  delta?: string;
+  output_index?: number;
+  item?: {
+    id?: string;
+    call_id?: string;
+    type?: string;
+    name?: string;
+    arguments?: string;
+  };
+  response?: {
+    status?: string;
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
+}
+
+export type OpenAIResponsesNormalizedEvent =
+  | { kind: "chunk"; chunk: SSEChunk }
+  | { kind: "completed"; usage?: OpenAIResponsesUsage };
+
+function responseUsage(
+  usage?: { input_tokens?: number; output_tokens?: number },
+): OpenAIResponsesUsage | undefined {
+  if (!usage) return undefined;
+  return {
+    inputTokens: usage.input_tokens ?? 0,
+    outputTokens: usage.output_tokens ?? 0,
+  };
+}
+
+export async function postOpenAIResponses(args: {
+  config: OpenAIConfig;
+  inputRequest: OpenAIResponsesInputRequest;
+  stream: boolean;
+  signal?: AbortSignal;
+}): Promise<Response> {
+  const apiKey = resolveOpenAIApiKey(args.config);
+  const baseURL = args.config.baseURL ?? DEFAULT_BASE_URL;
+  const response = await fetchWithOutboundUrlPolicy(
+    `${baseURL}/responses`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ...args.inputRequest, stream: args.stream }),
+      ...(args.signal ? { signal: args.signal } : {}),
+    },
+    {
+      policy:
+        args.config.outboundUrlPolicy ?? defaultOpenAIOutboundPolicy(baseURL),
+      ...(args.config.fetchImpl ? { fetchImpl: args.config.fetchImpl } : {}),
+    },
+  );
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    throw httpErrorToForgeError(response.status, errorText, "openai");
+  }
+  return response;
+}
+
+function normalizeResponsesEvent(
+  event: OpenAIResponsesStreamEvent,
+): OpenAIResponsesNormalizedEvent | undefined {
+  if (event.type === "response.output_text.delta" && event.delta) {
+    return {
+      kind: "chunk",
+      chunk: { choices: [{ delta: { content: event.delta } }] },
+    };
+  }
+  if (
+    event.type === "response.output_item.added"
+    && event.item?.type === "function_call"
+  ) {
+    return {
+      kind: "chunk",
+      chunk: { choices: [{ delta: { tool_calls: [{
+        index: event.output_index ?? 0,
+        id: event.item.call_id ?? event.item.id,
+        type: "function",
+        function: {
+          name: event.item.name,
+          arguments: event.item.arguments,
+        },
+      }] } }] },
+    };
+  }
+  if (event.type === "response.function_call_arguments.delta") {
+    return {
+      kind: "chunk",
+      chunk: { choices: [{ delta: { tool_calls: [{
+        index: event.output_index ?? 0,
+        function: { arguments: event.delta },
+      }] } }] },
+    };
+  }
+  if (
+    event.type === "response.output_item.done"
+    && event.item?.type === "function_call"
+  ) {
+    return {
+      kind: "chunk",
+      chunk: { choices: [{ delta: {}, finish_reason: "tool_calls" }] },
+    };
+  }
+  if (event.type === "response.completed") {
+    const usage = responseUsage(event.response?.usage);
+    return { kind: "completed", ...(usage ? { usage } : {}) };
+  }
+  return undefined;
+}
+
+export async function* parseOpenAIResponsesSSE(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+): AsyncGenerator<OpenAIResponsesNormalizedEvent> {
+  for await (const event of parseSSEStream<OpenAIResponsesStreamEvent>(
+    body,
+    (data) => {
+      try {
+        return JSON.parse(data) as OpenAIResponsesStreamEvent;
+      } catch {
+        return null;
+      }
+    },
+    signal,
+  )) {
+    if (
+      event.type === "error"
+      || event.type === "response.failed"
+      || event.type === "response.incomplete"
+    ) {
+      throw new ForgeError({
+        code: "ADAPTER_EXECUTION_FAILED",
+        message: "OpenAI Responses stream did not complete successfully",
+        recoverable: false,
+        context: { providerId: "openai", reason: event.type },
+      });
+    }
+    const normalized = normalizeResponsesEvent(event);
+    if (normalized) yield normalized;
+  }
+}
+
+function responsesOutputText(data: {
+  output?: readonly {
+    type?: string;
+    content?: readonly { type?: string; text?: string }[];
+  }[];
+}): string {
+  return (data.output ?? [])
+    .filter((item) => item.type === "message")
+    .flatMap((item) => item.content ?? [])
+    .filter((content) => content.type === "output_text")
+    .map((content) => content.text ?? "")
+    .join("");
+}
+
+export async function runOpenAIResponsesNonStreaming(args: {
+  config: OpenAIConfig;
+  providerId: AdapterProviderId;
+  inputRequest: OpenAIResponsesInputRequest;
+  prompt: string;
+  systemPrompt?: string;
+  signal?: AbortSignal;
+}): Promise<OpenAIRunResult> {
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
+  try {
+    const response = await postOpenAIResponses({
+      config: args.config,
+      inputRequest: args.inputRequest,
+      stream: false,
+      ...(args.signal ? { signal: args.signal } : {}),
+    });
+    const data = await response.json() as {
+      status?: string;
+      output?: readonly {
+        type?: string;
+        content?: readonly { type?: string; text?: string }[];
+      }[];
+      usage?: { input_tokens?: number; output_tokens?: number };
+    };
+    if (data.status !== undefined && data.status !== "completed") {
+      throw new ForgeError({
+        code: "ADAPTER_EXECUTION_FAILED",
+        message: "OpenAI Responses request did not complete successfully",
+        recoverable: false,
+        context: { providerId: "openai", reason: data.status },
+      });
+    }
+    const usage = responseUsage(data.usage);
+    const content = responsesOutputText(data);
+    emitOpenAIRunAudit({
+      config: args.config,
+      providerId: args.providerId,
+      prompt: args.prompt,
+      ...(args.systemPrompt !== undefined
+        ? { systemPrompt: args.systemPrompt } : {}),
+      model: args.inputRequest.model,
+      status: "completed",
+      durationMs: Date.now() - startedAtMs,
+      startedAt,
+      ...(usage ? { usage } : {}),
+    });
+    return usage ? { content, usage } : { content };
+  } catch (error) {
+    emitOpenAIRunAudit({
+      config: args.config,
+      providerId: args.providerId,
+      prompt: args.prompt,
+      ...(args.systemPrompt !== undefined
+        ? { systemPrompt: args.systemPrompt } : {}),
+      model: args.inputRequest.model,
       status: "failed",
       durationMs: Date.now() - startedAtMs,
       startedAt,
