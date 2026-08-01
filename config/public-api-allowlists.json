@@ -477,7 +477,8 @@
         "./learning": "learning loop, A/B testing, interaction policy, and enrichment pipeline",
         "./recovery": "recovery copilot, policies, escalation, cross-provider handoff, and approval gates",
         "./skills": "adapter skill registry, capability matrix, and bundle/compiled-skill contracts",
-        "./enrichment": "context enrichment pipeline"
+        "./enrichment": "context enrichment pipeline",
+        "./hard-budget": "revision-bound provider input budgeting profiles and fail-closed preparation"
       },
       "migrationWindow": "Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction."
     },

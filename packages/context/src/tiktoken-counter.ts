@@ -22,8 +22,11 @@ import type {
 } from './token-lifecycle.js'
 
 type JsTiktokenModule = {
-  encoding_for_model: (model: string) => { encode(text: string): number[] }
-  get_encoding: (encoding: string) => { encode(text: string): number[] }
+  encodingForModel?: (model: string) => { encode(text: string): number[] }
+  encoding_for_model?: (model: string) => { encode(text: string): number[] }
+  getEncoding?: (encoding: string) => { encode(text: string): number[] }
+  get_encoding?: (encoding: string) => { encode(text: string): number[] }
+  getEncodingNameForModel?: (model: string) => string
 }
 
 type AnthropicTokenizerModule = {
@@ -99,6 +102,24 @@ function heuristicCount(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
+function encodingForModel(
+  mod: JsTiktokenModule,
+  model: string,
+): { encode(text: string): number[] } {
+  const resolve = mod.encodingForModel ?? mod.encoding_for_model
+  if (!resolve) throw new TypeError('js-tiktoken model encoder is unavailable')
+  return resolve(model)
+}
+
+function getEncoding(
+  mod: JsTiktokenModule,
+  encoding: string,
+): { encode(text: string): number[] } {
+  const resolve = mod.getEncoding ?? mod.get_encoding
+  if (!resolve) throw new TypeError('js-tiktoken generic encoder is unavailable')
+  return resolve(encoding)
+}
+
 export class TiktokenCounter implements TokenCounter {
   count(text: string, model?: string): number {
     return this.countDetailed(text, model).tokens
@@ -142,10 +163,12 @@ export class TiktokenCounter implements TokenCounter {
 
     if (model && model.toLowerCase().startsWith('gpt')) {
       try {
+        const encoding = mod.getEncodingNameForModel?.(model)
         return {
-          tokens: mod.encoding_for_model(model).encode(text).length,
+          tokens: encodingForModel(mod, model).encode(text).length,
           method: 'exact',
           model,
+          ...(encoding ? { encoding } : {}),
         }
       } catch {
         // A generic encoding is still tokenizer-backed, but not model-exact.
@@ -154,7 +177,7 @@ export class TiktokenCounter implements TokenCounter {
 
     try {
       return {
-        tokens: mod.get_encoding('cl100k_base').encode(text).length,
+        tokens: getEncoding(mod, 'cl100k_base').encode(text).length,
         method: 'encoding-fallback',
         ...(model ? { model } : {}),
         encoding: 'cl100k_base',

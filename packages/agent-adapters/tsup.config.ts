@@ -18,6 +18,7 @@ export default defineConfig({
     "src/rules.ts",
     "src/skills.ts",
     "src/enrichment.ts",
+    "src/hard-budget.ts",
     "src/fleet-executors/index.ts",
     "src/subagents/index.ts",
   ],

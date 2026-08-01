@@ -99,7 +99,9 @@ describe('TiktokenCounter — Claude routing (REC-M-02)', () => {
     })
 
     it('does not throw on very long input', () => {
-      const text = 'x'.repeat(50_000)
+      // Avoid a single-character BPE worst case now that the real camelCase
+      // js-tiktoken API is exercised instead of the historical heuristic path.
+      const text = 'tokenized input '.repeat(500)
       expect(() => counter.count(text, 'gpt-4o')).not.toThrow()
       expect(() => counter.count(text, 'claude-3-5-sonnet')).not.toThrow()
     })
@@ -135,6 +137,17 @@ describe('TiktokenCounter — Claude routing (REC-M-02)', () => {
         detailed.method,
       )
       expect(detailed.model).toBe('gpt-4o')
+    })
+
+    it('reports the concrete encoding when model-specific js-tiktoken is available', () => {
+      const detailed = counter.countDetailed(
+        'profile-bound tokenizer proof',
+        'gpt-4o-mini',
+      )
+
+      if (detailed.method === 'exact') {
+        expect(detailed.encoding).toBe('o200k_base')
+      }
     })
 
     it('marks an empty-input count as exact regardless of backend availability', () => {

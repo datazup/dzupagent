@@ -26,9 +26,13 @@ import { emitAgentHardBudgetTelemetry } from './runtime-hard-budget-telemetry.js
 export {
   HARD_BUDGET_HOST_PROFILE_SCHEMA_VERSION,
   defineHardBudgetHostProfile,
+  hardBudgetMeasurementFailure,
   validateHardBudgetReservation,
 } from './hard-budget-host-profile.js'
-export { PROTECTED_TRANSCRIPT_MARKER } from './hard-budget-protection.js'
+export {
+  PROTECTED_TRANSCRIPT_MARKER,
+  fitProtectedTranscript,
+} from './hard-budget-protection.js'
 export type {
   AgentHardBudgetConfig,
   HardBudgetHostProfile,

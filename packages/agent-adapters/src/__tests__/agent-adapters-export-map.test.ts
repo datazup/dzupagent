@@ -29,6 +29,10 @@ describe('agent-adapters export map', () => {
       import: './dist/dzupagent/index.js',
       types: './dist/dzupagent/index.d.ts',
     })
+    expect(packageJson.exports['./hard-budget']).toEqual({
+      import: './dist/hard-budget.js',
+      types: './dist/hard-budget.d.ts',
+    })
   })
 
   it('imports the pipeline package subpath from built artifacts when dist exists', async () => {
@@ -73,6 +77,7 @@ describe('agent-adapters export map', () => {
         import(pathToFileURL(join(packageRoot, 'dist/enrichment.js')).href),
         import(pathToFileURL(join(packageRoot, 'dist/fleet-executors/index.js')).href),
         import(pathToFileURL(join(packageRoot, 'dist/subagents/index.js')).href),
+        import(pathToFileURL(join(packageRoot, 'dist/hard-budget.js')).href),
       ])
 
       expect(imports[0]).toEqual(expect.objectContaining({
@@ -97,6 +102,10 @@ describe('agent-adapters export map', () => {
       expect(imports[5]).toEqual(expect.objectContaining({
         RegistrySubagentExecutor: expect.any(Function),
         createWiredSubagentRuntime: expect.any(Function),
+      }))
+      expect(imports[6]).toEqual(expect.objectContaining({
+        AdapterHardBudgetHostProfileRegistry: expect.any(Function),
+        prepareAdapterHardBudgetInput: expect.any(Function),
       }))
     } finally {
       await rm(tempDir, { recursive: true, force: true })

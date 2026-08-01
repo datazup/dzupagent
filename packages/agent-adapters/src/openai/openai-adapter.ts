@@ -23,6 +23,7 @@ import type {
 import { getDefaultMonitorStatus } from '../provider-catalog.js'
 import { AdapterStreamRunner } from '../base/stream-runner.js'
 import type { AdapterStreamSource, StreamContext } from '../base/stream-runner.js'
+import { prepareAdapterHardBudgetInput } from '../context/hard-budget-input.js'
 import {
   DEFAULT_MODEL,
   type OpenAIConfig,
@@ -81,11 +82,20 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
     opts: { systemPrompt?: string; model?: string; signal?: AbortSignal } = {},
   ): Promise<OpenAIRunResult> {
     const model = opts.model ?? this.config.model ?? DEFAULT_MODEL
+    const prepared = this.prepareHardBudgetInput({
+      prompt,
+      ...(opts.systemPrompt !== undefined
+        ? { systemPrompt: opts.systemPrompt }
+        : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    }, model)
     return runOpenAINonStreaming({
       config: this.config,
       providerId: this.providerId,
-      prompt,
-      ...(opts.systemPrompt !== undefined ? { systemPrompt: opts.systemPrompt } : {}),
+      prompt: prepared.prompt,
+      ...(prepared.systemPrompt !== undefined
+        ? { systemPrompt: prepared.systemPrompt }
+        : {}),
       model,
       ...(opts.signal ? { signal: opts.signal } : {}),
     })
@@ -152,9 +162,15 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
   async *open(input: AgentInput, signal: AbortSignal): AsyncIterable<OpenAIRawEvent> {
     const tools = resolveOpenAITools(input)
     const toolChoice = input.options?.['tool_choice']
+    const prepared = this.prepareHardBudgetInput(
+      input,
+      this.currentModel,
+      tools,
+      toolChoice,
+    )
     const response = await postChatCompletions({
       config: this.config,
-      messages: buildOpenAIMessages(input.prompt, input.systemPrompt),
+      messages: buildOpenAIMessages(prepared.prompt, prepared.systemPrompt),
       model: this.currentModel,
       stream: true,
       signal,
@@ -247,5 +263,22 @@ export class OpenAIAdapter implements AgentCLIAdapter, AdapterStreamSource<OpenA
 
   configure(opts: Partial<OpenAIConfig>): void {
     this.config = { ...this.config, ...opts }
+  }
+
+  private prepareHardBudgetInput(
+    input: AgentInput,
+    model: string,
+    tools?: readonly unknown[],
+    toolChoice?: unknown,
+  ): AgentInput {
+    if (!this.config.hardBudget) return input
+    return prepareAdapterHardBudgetInput({
+      input,
+      provider: this.providerId,
+      model,
+      ...(tools && tools.length > 0 ? { tools } : {}),
+      ...(toolChoice !== undefined ? { toolChoice } : {}),
+      policy: this.config.hardBudget,
+    }).input
   }
 }

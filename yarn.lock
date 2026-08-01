@@ -1189,6 +1189,7 @@ __metadata:
     "@dzupagent/adapter-types": "npm:0.2.0"
     "@dzupagent/agent": "npm:0.2.0"
     "@dzupagent/agent-types": "npm:0.2.0"
+    "@dzupagent/context": "npm:0.2.0"
     "@dzupagent/core": "npm:0.2.0"
     "@dzupagent/runtime-contracts": "npm:0.2.0"
     "@dzupagent/security": "npm:0.2.0"

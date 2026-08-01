@@ -8,6 +8,7 @@
 import type { LlmAuditSink } from "@dzupagent/core/events";
 import type { OutboundUrlSecurityPolicy } from "@dzupagent/core/security";
 import type { AdapterConfig } from "../types.js";
+import type { AdapterHardBudgetPolicy } from "../context/hard-budget-input.js";
 
 /**
  * Streaming tool-call delta as emitted by OpenAI Chat Completions.
@@ -110,6 +111,12 @@ export interface OpenAIConfig extends AdapterConfig {
    * secure-fetch implementation.
    */
   fetchImpl?: typeof fetch;
+  /**
+   * Optional strict provider-bound input gate. When configured, an exact
+   * provider/model profile and matching counter revisions are required before
+   * either streaming or non-streaming transport can open.
+   */
+  hardBudget?: AdapterHardBudgetPolicy;
 }
 
 export interface OpenAIRunResult {

@@ -43,6 +43,8 @@ export {
   applyRuntimeHardBudget,
   applyRuntimeTextHardBudget,
   defineHardBudgetHostProfile,
+  fitProtectedTranscript,
+  hardBudgetMeasurementFailure,
   resolveHardBudgetReservation,
   validateHardBudgetReservation,
 } from './agent/runtime-hard-budget.js'
