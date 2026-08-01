@@ -23,8 +23,15 @@ export type { DzupAgentConfig } from './agent-types-config.js'
 
 export type {
   AgentHardBudgetConfig,
+  HardBudgetHostProfile,
+  HardBudgetHostProfileIdentity,
+  HardBudgetHostProfileProof,
   HardBudgetReservation,
   HardBudgetReservationConfig,
+  HardBudgetTokenizerProvenance,
+  ProtectedTranscriptEvidence,
+  ProtectedTranscriptPolicy,
+  ProvenTokenMeasurementMethod,
   RuntimeHardBudgetResult,
   RuntimeHardBudgetTextResult,
 } from './runtime-hard-budget.js'

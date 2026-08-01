@@ -3,7 +3,10 @@ import { AIMessage, type BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { createEventBus, type DzupEvent } from '@dzupagent/core/events'
 import { DzupAgent } from '../../../agent/dzip-agent.js'
-import { RuntimeHardBudgetAdoptionError } from '../../../agent/runtime-hard-budget.js'
+import {
+  RuntimeHardBudgetAdoptionError,
+  defineHardBudgetHostProfile,
+} from '../../../agent/runtime-hard-budget.js'
 import { TeamRuntime } from '../team-runtime.js'
 import type { TeamDefinition } from '../team-definition.js'
 import type { TeamRuntimeEvent } from '../team-runtime-events.js'
@@ -16,13 +19,42 @@ const definition: TeamDefinition = {
   participants: [{ id: 'worker', role: 'worker', model: 'mock' }],
 }
 
-const exactCharacterCounter = {
-  count: (text: string) => text.length,
-  countDetailed: (text: string) => ({
-    tokens: text.length,
-    method: 'exact' as const,
-  }),
-}
+const profiledTeamBudget = defineHardBudgetHostProfile({
+  contextWindowTokens: 120,
+  reservedOutputTokens: 20,
+  reservedSummaryTokens: 10,
+  reservedToolTokens: 8,
+  fixedEnvelopeTokens: 4,
+  perMessageEnvelopeTokens: 2,
+  tokenCounter: {
+    count: (text: string) => text.length,
+    countDetailed: (text: string, model?: string) => ({
+      tokens: text.length,
+      method: 'exact' as const,
+      model: model ?? 'team-profile-model',
+      encoding: 'character-v1',
+    }),
+  },
+  model: 'team-profile-model',
+  hostProfile: {
+    schemaVersion: '1',
+    id: 'team-test-host',
+    revision: '2026-08-01',
+    provider: 'test-provider',
+  },
+  tokenizerProvenance: {
+    id: 'character-tokenizer',
+    revision: '1',
+    model: 'team-profile-model',
+    allowedMethods: ['exact'],
+    encoding: 'character-v1',
+  },
+  protectedTranscript: {
+    preserveSystemMessages: true,
+    preserveLatestUserMessages: 1,
+    preserveRecentToolCallGroups: 1,
+  },
+})
 
 function spawnedAgent(requests: BaseMessage[][]): TeamSpawnedAgent {
   const model = {
@@ -63,14 +95,7 @@ describe('TeamRuntime hard-budget handoff', () => {
       generateRunId: () => 'run-budgeted',
       onEvent: (event) => teamEvents.push(event),
       eventBus: bus,
-      hardBudget: {
-        contextWindowTokens: 120,
-        reservedOutputTokens: 20,
-        reservedSummaryTokens: 10,
-        fixedEnvelopeTokens: 4,
-        perMessageEnvelopeTokens: 2,
-        tokenCounter: exactCharacterCounter,
-      },
+      hardBudget: profiledTeamBudget,
       resolveParticipant: async () => spawnedAgent(requests),
     })
 
@@ -85,12 +110,18 @@ describe('TeamRuntime hard-budget handoff', () => {
       adoptionSafe: true,
       truncated: true,
       markerIncluded: true,
+      profileId: 'team-test-host',
+      profileRevision: '2026-08-01',
+      toolReservedTokens: 8,
     }))
     expect(busEvents).toContainEqual(expect.objectContaining({
       type: 'team:context_handoff_budget_evaluated',
       teamId: 'budgeted-team',
       adoptionSafe: true,
       truncated: true,
+      profileId: 'team-test-host',
+      tokenizerId: 'character-tokenizer',
+      toolReservedTokens: 8,
     }))
   })
 

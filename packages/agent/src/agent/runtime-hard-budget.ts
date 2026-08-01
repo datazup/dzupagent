@@ -7,41 +7,47 @@ import {
   measureTokenText,
   type CompressionDegradation,
   type HardBudgetCompliance,
-  type ProgressiveCompressConfig,
-  type TokenCounter,
   type TokenMeasurementResult,
 } from '@dzupagent/context'
+import {
+  hardBudgetHostProfileProof,
+  hardBudgetMeasurementFailure,
+  validateHardBudgetReservation,
+  type AgentHardBudgetConfig,
+  type HardBudgetHostProfileProof,
+  type HardBudgetReservationConfig,
+} from './hard-budget-host-profile.js'
+import {
+  fitProtectedTranscript,
+  type ProtectedTranscriptEvidence,
+} from './hard-budget-protection.js'
+import { emitAgentHardBudgetTelemetry } from './runtime-hard-budget-telemetry.js'
+
+export {
+  HARD_BUDGET_HOST_PROFILE_SCHEMA_VERSION,
+  defineHardBudgetHostProfile,
+  validateHardBudgetReservation,
+} from './hard-budget-host-profile.js'
+export { PROTECTED_TRANSCRIPT_MARKER } from './hard-budget-protection.js'
+export type {
+  AgentHardBudgetConfig,
+  HardBudgetHostProfile,
+  HardBudgetHostProfileIdentity,
+  HardBudgetHostProfileProof,
+  HardBudgetReservationConfig,
+  HardBudgetTokenizerProvenance,
+  ProvenTokenMeasurementMethod,
+} from './hard-budget-host-profile.js'
+export type {
+  ProtectedTranscriptEvidence,
+  ProtectedTranscriptPolicy,
+} from './hard-budget-protection.js'
+export { emitAgentHardBudgetTelemetry } from './runtime-hard-budget-telemetry.js'
 
 const SUMMARY_PREFIX = '## Prior Conversation Context\n\n'
 const SUMMARY_MARKER = '\n\n...[summary truncated to fit reserved budget]...'
 export const RUNTIME_HARD_BUDGET_MARKER =
   '\n\n...[truncated to fit runtime context budget]...'
-
-/** Explicit model-input reservations used by agent and team handoff gates. */
-export interface HardBudgetReservationConfig {
-  /** Full model context window, including input and reserved output. */
-  contextWindowTokens: number
-  /** Tokens unavailable to input because they are reserved for model output. */
-  reservedOutputTokens: number
-  /** Content tokens reserved for a rolling summary produced by compression. */
-  reservedSummaryTokens: number
-  /** Fixed provider/chat serialization overhead. */
-  fixedEnvelopeTokens: number
-  /** Per-message provider/chat serialization overhead. */
-  perMessageEnvelopeTokens: number
-  /** Provenance-aware counter. Count-only and heuristic counters fail closed. */
-  tokenCounter: TokenCounter
-  /** Optional model identifier forwarded to the counter. */
-  model?: string
-}
-
-/** Agent-specific hard-budget policy, including compression knobs. */
-export interface AgentHardBudgetConfig extends HardBudgetReservationConfig {
-  compression?: Omit<
-    ProgressiveCompressConfig,
-    'tokenCounter' | 'model' | 'allowModelSummarization'
-  >
-}
 
 export interface HardBudgetReservation {
   contextWindowTokens: number
@@ -50,6 +56,7 @@ export interface HardBudgetReservation {
   transcriptTokenLimit: number
   outputTokens: number
   summaryTokens: number
+  toolTokens: number
   envelopeTokens: number
   totalReservedTokens: number
 }
@@ -61,6 +68,8 @@ export interface RuntimeHardBudgetResult {
   tokenMeasurement: TokenMeasurementResult
   hardBudget: HardBudgetCompliance
   reservation: HardBudgetReservation
+  profile?: HardBudgetHostProfileProof
+  protection?: ProtectedTranscriptEvidence
   degradations?: CompressionDegradation[]
 }
 
@@ -70,6 +79,7 @@ export interface RuntimeHardBudgetTextResult {
   tokenMeasurement: TokenMeasurementResult
   hardBudget: HardBudgetCompliance
   reservation: HardBudgetReservation
+  profile?: HardBudgetHostProfileProof
   degradation?: CompressionDegradation
 }
 
@@ -97,20 +107,6 @@ function assertNonNegativeInteger(name: string, value: number): void {
   }
 }
 
-/** Validate a reservation contract without invoking a model or counter. */
-export function validateHardBudgetReservation(
-  config: HardBudgetReservationConfig,
-): void {
-  assertNonNegativeInteger('contextWindowTokens', config.contextWindowTokens)
-  assertNonNegativeInteger('reservedOutputTokens', config.reservedOutputTokens)
-  assertNonNegativeInteger('reservedSummaryTokens', config.reservedSummaryTokens)
-  assertNonNegativeInteger('fixedEnvelopeTokens', config.fixedEnvelopeTokens)
-  assertNonNegativeInteger(
-    'perMessageEnvelopeTokens',
-    config.perMessageEnvelopeTokens,
-  )
-}
-
 export function resolveHardBudgetReservation(
   config: HardBudgetReservationConfig,
   messageCount: number,
@@ -124,7 +120,9 @@ export function resolveHardBudgetReservation(
     + config.perMessageEnvelopeTokens * (messageCount + 1)
   const inputTokenLimit = Math.max(
     0,
-    config.contextWindowTokens - config.reservedOutputTokens,
+    config.contextWindowTokens
+      - config.reservedOutputTokens
+      - (config.reservedToolTokens ?? 0),
   )
   const contentTokenLimit = Math.max(0, inputTokenLimit - envelopeTokens)
   const transcriptTokenLimit = Math.max(
@@ -138,10 +136,12 @@ export function resolveHardBudgetReservation(
     transcriptTokenLimit,
     outputTokens: config.reservedOutputTokens,
     summaryTokens: config.reservedSummaryTokens,
+    toolTokens: config.reservedToolTokens ?? 0,
     envelopeTokens,
     totalReservedTokens:
       config.reservedOutputTokens
       + config.reservedSummaryTokens
+      + (config.reservedToolTokens ?? 0)
       + envelopeTokens,
   }
 }
@@ -175,7 +175,10 @@ function unsafeResult(
   reservation: HardBudgetReservation,
   measurement: TokenMeasurementResult,
   degradations: CompressionDegradation[],
+  config: HardBudgetReservationConfig,
+  protection?: ProtectedTranscriptEvidence,
 ): RuntimeHardBudgetResult {
+  const profile = hardBudgetHostProfileProof(config)
   return {
     messages: [...messages],
     summary: null,
@@ -188,13 +191,10 @@ function unsafeResult(
       markerIncluded: false,
     },
     reservation,
+    ...(profile ? { profile } : {}),
+    ...(protection ? { protection } : {}),
     degradations,
   }
-}
-
-function isProven(measurement: TokenMeasurementResult): boolean {
-  return measurement.method === 'exact'
-    || measurement.method === 'encoding-fallback'
 }
 
 /**
@@ -209,6 +209,53 @@ export async function applyRuntimeHardBudget(args: {
 }): Promise<RuntimeHardBudgetResult> {
   const { messages, model, config } = args
   const reservation = resolveHardBudgetReservation(config, messages.length)
+  const profile = hardBudgetHostProfileProof(config)
+  if (config.protectedTranscript) {
+    const fitted = fitProtectedTranscript({
+      messages,
+      tokenBudget: reservation.transcriptTokenLimit,
+      policy: config.protectedTranscript,
+      measure: (candidate) => measureMessages(candidate, config),
+    })
+    const provenanceFailure = hardBudgetMeasurementFailure(
+      config,
+      fitted.tokenMeasurement,
+    )
+    if (!fitted.adoptionSafe || provenanceFailure) {
+      const reason = provenanceFailure
+        ?? fitted.reason
+        ?? 'protected transcript is unsafe to adopt'
+      return unsafeResult(
+        messages,
+        reservation,
+        fitted.tokenMeasurement,
+        [{
+          stage: provenanceFailure
+            ? 'token-measurement'
+            : 'hard-budget-marker',
+          reason,
+          adoptionSafe: false,
+        }],
+        config,
+        fitted.evidence,
+      )
+    }
+    return {
+      messages: fitted.messages,
+      summary: null,
+      tokenMeasurement: fitted.tokenMeasurement,
+      hardBudget: {
+        limit: reservation.contentTokenLimit,
+        satisfied: true,
+        adoptionSafe: true,
+        truncated: fitted.truncated,
+        markerIncluded: fitted.markerIncluded,
+      },
+      reservation,
+      ...(profile ? { profile } : {}),
+      protection: fitted.evidence,
+    }
+  }
   const compressed = await compressToHardBudget(
     messages,
     reservation.transcriptTokenLimit,
@@ -229,6 +276,7 @@ export async function applyRuntimeHardBudget(args: {
       reservation,
       compressed.tokenMeasurement,
       compressed.degradations ?? [],
+      config,
     )
   }
 
@@ -259,6 +307,7 @@ export async function applyRuntimeHardBudget(args: {
           ...degradations,
           ...(reservedSummary.degradation ? [reservedSummary.degradation] : []),
         ],
+        config,
       )
     }
 
@@ -284,6 +333,7 @@ export async function applyRuntimeHardBudget(args: {
           ...degradations,
           ...(combined.degradation ? [combined.degradation] : []),
         ],
+        config,
       )
     }
     fittedMessages = [new SystemMessage(combined.text), ...compressed.messages]
@@ -296,17 +346,26 @@ export async function applyRuntimeHardBudget(args: {
   }
 
   const finalMeasurement = measureMessages(fittedMessages, config)
+  const provenanceFailure = hardBudgetMeasurementFailure(
+    config,
+    finalMeasurement,
+  )
   if (
-    !isProven(finalMeasurement)
+    provenanceFailure
     || finalMeasurement.tokens > reservation.contentTokenLimit
   ) {
-    const reason = !isProven(finalMeasurement)
-      ? finalMeasurement.reason ?? 'final runtime measurement is heuristic'
-      : 'final runtime content exceeds its reserved input share'
-    return unsafeResult(messages, reservation, finalMeasurement, [
-      ...degradations,
-      { stage: 'token-measurement', reason, adoptionSafe: false },
-    ])
+    const reason = provenanceFailure
+      ?? 'final runtime content exceeds its reserved input share'
+    return unsafeResult(
+      messages,
+      reservation,
+      finalMeasurement,
+      [
+        ...degradations,
+        { stage: 'token-measurement', reason, adoptionSafe: false },
+      ],
+      config,
+    )
   }
 
   const truncated = compressed.hardBudget.truncated || summaryTruncated
@@ -324,6 +383,7 @@ export async function applyRuntimeHardBudget(args: {
         : false,
     },
     reservation,
+    ...(profile ? { profile } : {}),
     ...(degradations.length > 0 ? { degradations } : {}),
   }
 }
@@ -347,37 +407,39 @@ export function applyRuntimeTextHardBudget(args: {
     ),
     operation: 'runtime text handoff',
   })
+  const profile = hardBudgetHostProfileProof(args.config)
+  const provenanceFailure = hardBudgetMeasurementFailure(
+    args.config,
+    fitted.tokenMeasurement,
+  )
+  if (provenanceFailure) {
+    return {
+      text: null,
+      tokenMeasurement: fitted.tokenMeasurement,
+      hardBudget: {
+        limit: reservation.transcriptTokenLimit,
+        satisfied: false,
+        adoptionSafe: false,
+        truncated: false,
+        markerIncluded: false,
+      },
+      reservation,
+      ...(profile ? { profile } : {}),
+      degradation: {
+        stage: 'token-measurement',
+        reason: provenanceFailure,
+        adoptionSafe: false,
+      },
+    }
+  }
   return {
     text: fitted.text,
     tokenMeasurement: fitted.tokenMeasurement,
     hardBudget: fitted.hardBudget,
     reservation,
+    ...(profile ? { profile } : {}),
     ...(fitted.degradation ? { degradation: fitted.degradation } : {}),
   }
-}
-
-/** Emit an agent hard-budget proof without prompt or degradation text. */
-export function emitAgentHardBudgetTelemetry(args: {
-  eventBus?: DzupEventBus | undefined
-  agentId: string
-  phase: 'tool-loop' | 'stream'
-  result: RuntimeHardBudgetResult
-}): void {
-  const { result } = args
-  args.eventBus?.emit({
-    type: 'context:hard_budget_evaluated',
-    agentId: args.agentId,
-    phase: args.phase,
-    contextWindowTokens: result.reservation.contextWindowTokens,
-    contentTokenLimit: result.reservation.contentTokenLimit,
-    reservedTokens: result.reservation.totalReservedTokens,
-    measuredTokens: result.tokenMeasurement.tokens,
-    measurementMethod: result.tokenMeasurement.method,
-    satisfied: result.hardBudget.satisfied,
-    adoptionSafe: result.hardBudget.adoptionSafe,
-    truncated: result.hardBudget.truncated,
-    markerIncluded: result.hardBudget.markerIncluded,
-  })
 }
 
 /** Adopt only proven output; unsafe output leaves `messages` intact. */

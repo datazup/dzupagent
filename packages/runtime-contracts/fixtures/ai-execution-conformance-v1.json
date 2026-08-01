@@ -1,0 +1,178 @@
+{
+  "schema": "dzupagent.aiExecutionConformanceCorpus/v1",
+  "description": "Provider-free JSON round-trip corpus for canonical request, public target, event transcript, usage, and receipt contracts.",
+  "cases": [
+    {
+      "id": "text-generate-inline-success",
+      "request": {
+        "schema": "dzupagent.aiExecutionRequest/v1",
+        "execution": {
+          "schema": "dzupagent.executionRequest/v1",
+          "kind": "prompt",
+          "requestId": "request-1",
+          "correlationId": "correlation-1",
+          "attempt": 1,
+          "source": { "nodeId": "node-1", "nodePath": "node-1" },
+          "prompt": { "layers": [{ "kind": "task", "content": "Summarize" }], "bindings": {} },
+          "tools": { "mode": "none", "grants": [] },
+          "output": { "key": "answer", "format": "text" },
+          "route": {
+            "id": "route-request-1",
+            "requestId": "request-1",
+            "strategy": "fixed",
+            "candidates": [{ "id": "model-default", "provider": "provider" }],
+            "hardConstraints": [],
+            "preferenceOrder": [],
+            "fallback": "none",
+            "maxSelectionLatencyMs": 100
+          },
+          "policy": {},
+          "effects": { "effectClass": "llm" },
+          "cancellation": { "mode": "cooperative" },
+          "evidenceRequirements": []
+        },
+        "operation": {
+          "kind": "text.generate",
+          "input": { "text": "Summarize" },
+          "output": { "modality": "text" }
+        },
+        "target": { "kind": "target-id", "targetId": "docs.summary.default" }
+      },
+      "publicTarget": {
+        "schema": "dzupagent.aiPublicTarget/v1",
+        "targetId": "docs.summary.default",
+        "revision": "target-revision-1",
+        "displayName": "Docs summary",
+        "operations": ["text.generate"],
+        "capabilities": ["docs.summary/v1"],
+        "placement": "server",
+        "executionStyle": "inline",
+        "locality": "remote",
+        "health": { "status": "healthy", "checkedAt": "2026-08-01T00:00:00.000Z" }
+      },
+      "events": [
+        {
+          "schema": "dzupagent.aiExecutionEvent/v1",
+          "requestId": "request-1",
+          "correlationId": "correlation-1",
+          "sequence": 1,
+          "cursor": "1",
+          "attempt": 1,
+          "emittedAt": "2026-08-01T00:00:00.000Z",
+          "type": "started"
+        },
+        {
+          "schema": "dzupagent.aiExecutionEvent/v1",
+          "requestId": "request-1",
+          "correlationId": "correlation-1",
+          "sequence": 2,
+          "cursor": "2",
+          "attempt": 1,
+          "emittedAt": "2026-08-01T00:00:00.500Z",
+          "type": "usage",
+          "usage": {
+            "measurement": "known",
+            "tokens": { "input": 10, "output": 5, "cachedInput": 2 },
+            "cost": { "status": "reconciled", "currency": "USD", "amountMicros": 25 }
+          }
+        },
+        {
+          "schema": "dzupagent.aiExecutionEvent/v1",
+          "requestId": "request-1",
+          "correlationId": "correlation-1",
+          "sequence": 3,
+          "cursor": "3",
+          "attempt": 1,
+          "emittedAt": "2026-08-01T00:00:01.000Z",
+          "type": "completed",
+          "status": "succeeded"
+        }
+      ],
+      "receipt": {
+        "schema": "dzupagent.aiExecutionReceipt/v1",
+        "requestId": "request-1",
+        "correlationId": "correlation-1",
+        "operation": "text.generate",
+        "requestedTarget": { "kind": "target-id", "targetId": "docs.summary.default" },
+        "target": {
+          "schema": "dzupagent.aiResolvedTarget/v1",
+          "targetId": "docs.summary.default",
+          "targetRevision": "target-revision-1",
+          "policyRevision": "policy-revision-1",
+          "operation": "text.generate",
+          "placement": "server",
+          "executionStyle": "inline",
+          "routeCandidateId": "model-default",
+          "backend": "sdk",
+          "provider": "provider",
+          "model": "model",
+          "resolvedAt": "2026-08-01T00:00:00.000Z",
+          "snapshotDigest": "sha256:58e4f8377c32bf264f969a4aad69279b2b9d6957e1c5d74a767006547310c52b"
+        },
+        "attempts": [
+          {
+            "attempt": 1,
+            "target": {
+              "schema": "dzupagent.aiResolvedTarget/v1",
+              "targetId": "docs.summary.default",
+              "targetRevision": "target-revision-1",
+              "policyRevision": "policy-revision-1",
+              "operation": "text.generate",
+              "placement": "server",
+              "executionStyle": "inline",
+              "routeCandidateId": "model-default",
+              "backend": "sdk",
+              "provider": "provider",
+              "model": "model",
+              "resolvedAt": "2026-08-01T00:00:00.000Z",
+              "snapshotDigest": "sha256:58e4f8377c32bf264f969a4aad69279b2b9d6957e1c5d74a767006547310c52b"
+            },
+            "dispatch": { "status": "terminal" },
+            "usage": {
+              "measurement": "known",
+              "tokens": { "input": 10, "output": 5, "cachedInput": 2 },
+              "cost": { "status": "reconciled", "currency": "USD", "amountMicros": 25 }
+            },
+            "startedAt": "2026-08-01T00:00:00.000Z",
+            "completedAt": "2026-08-01T00:00:01.000Z"
+          }
+        ],
+        "result": {
+          "schema": "dzupagent.executionResult/v1",
+          "requestId": "request-1",
+          "correlationId": "correlation-1",
+          "routeDecision": {
+            "id": "decision-1",
+            "policyId": "route-request-1",
+            "requestId": "request-1",
+            "eligibleCandidateIds": ["model-default"],
+            "rejected": [],
+            "selectedCandidateId": "model-default",
+            "fallbackCandidateIds": [],
+            "strategy": "fixed",
+            "decidedAt": "2026-08-01T00:00:00.000Z"
+          },
+          "evidence": [],
+          "artifacts": [],
+          "status": "succeeded",
+          "output": "summary"
+        },
+        "usage": {
+          "measurement": "known",
+          "tokens": { "input": 10, "output": 5, "cachedInput": 2 },
+          "cost": { "status": "reconciled", "currency": "USD", "amountMicros": 25 }
+        },
+        "terminalEventSequence": 3,
+        "completedAt": "2026-08-01T00:00:01.000Z"
+      },
+      "expected": { "valid": true }
+    }
+  ],
+  "boundaries": {
+    "providerCalls": 0,
+    "executionAuthorized": false,
+    "mutationAuthorized": false,
+    "publicationAuthorized": false,
+    "authorityEffect": "none"
+  }
+}

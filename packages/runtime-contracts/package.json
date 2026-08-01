@@ -10,6 +10,14 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./ai-execution": {
+      "import": "./dist/ai-execution.js",
+      "types": "./dist/ai-execution.d.ts"
+    },
+    "./ai-execution/node": {
+      "import": "./dist/ai-execution-node.js",
+      "types": "./dist/ai-execution-node.d.ts"
+    },
     "./orchestration": {
       "import": "./dist/orchestration.js",
       "types": "./dist/orchestration.d.ts"
@@ -29,6 +37,10 @@
     "./fixtures/agent-review-conformance-v1.json": {
       "types": "./fixtures/agent-review-conformance-v1.d.ts",
       "default": "./fixtures/agent-review-conformance-v1.json"
+    },
+    "./fixtures/ai-execution-conformance-v1.json": {
+      "types": "./fixtures/ai-execution-conformance-v1.d.ts",
+      "default": "./fixtures/ai-execution-conformance-v1.json"
     }
   },
   "files": [
@@ -40,6 +52,7 @@
     "build:verify": "node ../../scripts/check-build-artifact-integrity.mjs",
     "lint": "node ../../scripts/run-package-lint.mjs",
     "test": "vitest run",
+    "fixtures:ai-execution:check": "node scripts/check-ai-execution-conformance.mjs",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },

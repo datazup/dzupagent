@@ -82,12 +82,44 @@ function publish(
           coordinatorPattern,
           contentTokenLimit: event.contentTokenLimit,
           reservedTokens: event.reservedTokens,
+          ...(event.outputReservedTokens === undefined
+            ? {}
+            : { outputReservedTokens: event.outputReservedTokens }),
+          ...(event.summaryReservedTokens === undefined
+            ? {}
+            : { summaryReservedTokens: event.summaryReservedTokens }),
+          ...(event.toolReservedTokens === undefined
+            ? {}
+            : { toolReservedTokens: event.toolReservedTokens }),
+          ...(event.envelopeTokens === undefined
+            ? {}
+            : { envelopeTokens: event.envelopeTokens }),
           measuredTokens: event.measuredTokens,
           measurementMethod: event.measurementMethod,
           satisfied: event.satisfied,
           adoptionSafe: event.adoptionSafe,
           truncated: event.truncated,
           markerIncluded: event.markerIncluded,
+          ...(event.profileSchemaVersion === undefined
+            ? {}
+            : { profileSchemaVersion: event.profileSchemaVersion }),
+          ...(event.profileId === undefined
+            ? {}
+            : { profileId: event.profileId }),
+          ...(event.profileRevision === undefined
+            ? {}
+            : { profileRevision: event.profileRevision }),
+          ...(event.provider === undefined ? {} : { provider: event.provider }),
+          ...(event.model === undefined ? {} : { model: event.model }),
+          ...(event.tokenizerId === undefined
+            ? {}
+            : { tokenizerId: event.tokenizerId }),
+          ...(event.tokenizerRevision === undefined
+            ? {}
+            : { tokenizerRevision: event.tokenizerRevision }),
+          ...(event.tokenizerEncoding === undefined
+            ? {}
+            : { tokenizerEncoding: event.tokenizerEncoding }),
         });
         return;
       case "team_verdict_evaluated":

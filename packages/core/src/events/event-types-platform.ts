@@ -243,12 +243,27 @@ export type PlatformDomainEvent =
       contextWindowTokens: number;
       contentTokenLimit: number;
       reservedTokens: number;
+      outputReservedTokens?: number;
+      summaryReservedTokens?: number;
+      toolReservedTokens?: number;
+      envelopeTokens?: number;
       measuredTokens: number;
       measurementMethod: "exact" | "encoding-fallback" | "heuristic";
       satisfied: boolean;
       adoptionSafe: boolean;
       truncated: boolean;
       markerIncluded: boolean;
+      profileSchemaVersion?: "1";
+      profileId?: string;
+      profileRevision?: string;
+      provider?: string;
+      model?: string;
+      tokenizerId?: string;
+      tokenizerRevision?: string;
+      tokenizerEncoding?: string;
+      protectedMessageCount?: number;
+      protectedToolGroupCount?: number;
+      droppedMessageCount?: number;
     }
   // --- Recovery extended ---
   | {

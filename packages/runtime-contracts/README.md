@@ -30,6 +30,12 @@ import {
   validateAgentBlueprint,
   validateCompiledAgentDescriptor,
 } from '@dzupagent/runtime-contracts/agent-blueprint'
+
+import {
+  validateAiExecutionReceipt,
+  validateAiExecutionRequest,
+  validateAiPublicTargetDescriptor,
+} from '@dzupagent/runtime-contracts/ai-execution'
 ```
 
 The agent-review contracts normalize bounded run results, reviewer
@@ -42,6 +48,18 @@ personas, tasks, prompt overlays, schemas, toolsets, policies, and allowlisted
 handler functions. A compiled descriptor contains no executable code and an AI
 `host-action-request` remains a request: authorization, signing keys, and
 side-effect execution stay host-owned.
+
+The AI execution subpath adds operation-specific inputs and outputs around the
+existing canonical `ExecutionRequest`, browser-safe target projections,
+private digest-bound target snapshots, ordered events, explicit usage/cost
+truth, attempts, and terminal receipts. It does not create a second route,
+policy, cancellation, effect, or provider request authority. Public targets
+contain opaque target IDs only; resolved provider, model, profile, backend, and
+Worker details remain private host evidence.
+
+The base `ai-execution` entrypoint stays environment-neutral. Node execution
+hosts use `@dzupagent/runtime-contracts/ai-execution/node` to materialize and
+verify canonical SHA-256 target-snapshot custody before accepting a receipt.
 
 The exported
 `fixtures/agent-review-conformance-v1.json` package subpath is the immutable
