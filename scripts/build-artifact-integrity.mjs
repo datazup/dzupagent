@@ -94,9 +94,11 @@ async function collectPackageBuildInputs(root, packageDir) {
   })
   for (const entry of packageEntries) {
     if (!entry.isFile()) continue
+    const isTsconfig = entry.name === 'tsconfig.json'
+      || (entry.name.startsWith('tsconfig.') && entry.name.endsWith('.json'))
     if (
       entry.name === 'package.json'
-      || /^tsconfig(?:\.[^.]+)*\.json$/.test(entry.name)
+      || isTsconfig
       || /^tsup\.config\.[cm]?[jt]s$/.test(entry.name)
     ) {
       inputs.push(toPosix(path.join(packageDir, entry.name)))
