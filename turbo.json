@@ -4,6 +4,7 @@
   "globalDependencies": [
     "scripts/build-artifact-integrity.mjs",
     "scripts/check-package-export-artifacts.mjs",
+    "scripts/prepare-build-artifact-manifest.mjs",
     "scripts/write-build-artifact-manifest.mjs"
   ],
   "tasks": {
