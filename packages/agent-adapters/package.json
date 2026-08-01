@@ -80,7 +80,7 @@
     }
   },
   "scripts": {
-    "build": "tsup && tsc --emitDeclarationOnly --declarationMap false && node ../../scripts/write-build-artifact-manifest.mjs",
+    "build": "node ../../scripts/prepare-build-artifact-manifest.mjs && tsup && tsc --emitDeclarationOnly --declarationMap false && node ../../scripts/write-build-artifact-manifest.mjs",
     "build:verify": "node ../../scripts/check-build-artifact-integrity.mjs",
     "typecheck": "yarn typecheck:deps && tsc --noEmit",
     "typecheck:deps": "node ../../scripts/build-workspace-deps.mjs @dzupagent/agent-adapters",
