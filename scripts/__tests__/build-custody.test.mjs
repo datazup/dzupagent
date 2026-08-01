@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import {
   acquireBuildCustody,
   BUILD_CUSTODY_SCHEMA_VERSION,
+  processDescendsFrom,
   validateBuildCustody,
 } from '../build-custody.mjs'
 
@@ -65,4 +66,10 @@ test('validates inherited custody and rejects a forged token', async () => {
     )
     await custody.release()
   })
+})
+
+test('recognizes the current process ancestry without treating itself as a child', async () => {
+  if (process.platform !== 'linux') return
+  assert.equal(await processDescendsFrom(process.ppid), true)
+  assert.equal(await processDescendsFrom(process.pid), false)
 })

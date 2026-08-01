@@ -45,6 +45,30 @@ function validOwner(owner) {
     && typeof owner.acquiredAt === 'string'
 }
 
+async function parentPid(pid) {
+  if (process.platform !== 'linux') return undefined
+  try {
+    const stat = await readFile(`/proc/${pid}/stat`, 'utf8')
+    const match = stat.match(/^\d+ \(.*\) \S+ (\d+) /)
+    return match ? Number(match[1]) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export async function processDescendsFrom(ancestorPid, pid = process.pid) {
+  if (!Number.isInteger(ancestorPid) || ancestorPid <= 1 || ancestorPid === pid) {
+    return false
+  }
+  let currentPid = pid
+  for (let depth = 0; depth < 64 && currentPid > 1; depth += 1) {
+    currentPid = await parentPid(currentPid)
+    if (currentPid === ancestorPid) return true
+    if (!currentPid) return false
+  }
+  return false
+}
+
 export async function validateBuildCustody({ root, token }) {
   if (typeof token !== 'string' || token.length === 0) {
     throw new Error('build custody token is missing')
@@ -76,6 +100,19 @@ export async function acquireBuildCustody({
   const { turboDir, lockTarget, ownerFile } = custodyPaths(root)
   await mkdir(turboDir, { recursive: true })
   await writeFile(lockTarget, '', { flag: 'a', mode: 0o600 })
+  const activeOwner = await readOwner(ownerFile)
+  if (
+    validOwner(activeOwner)
+    && await processDescendsFrom(activeOwner.pid)
+    && await lockfile.check(lockTarget, { realpath: false })
+  ) {
+    return {
+      inherited: true,
+      owner: activeOwner,
+      token: activeOwner.token,
+      release: async () => {},
+    }
+  }
   const alreadyLocked = await lockfile.check(lockTarget, { realpath: false })
   if (alreadyLocked) {
     process.stderr.write('build-custody: waiting for the active build graph\n')
