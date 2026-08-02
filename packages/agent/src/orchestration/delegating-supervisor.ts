@@ -49,6 +49,7 @@ import type {
   SubOrchestratorSpawnResult,
   SupervisorHierarchy,
   TaskAssignment,
+  SubOrchestratorChild,
 } from "./delegating-supervisor-types.js";
 import { assertDepthAllowed as assertOrchestrationDepthAllowed } from "./delegating-supervisor-types.js";
 
@@ -74,7 +75,7 @@ export {
 // Implementation
 // ---------------------------------------------------------------------------
 
-export class DelegatingSupervisor {
+export class DelegatingSupervisor implements SubOrchestratorChild {
   private readonly specialists: Map<string, AgentExecutionSpec>;
   private readonly tracker: DelegationTracker;
   private readonly parentContext: DelegationContext | undefined;

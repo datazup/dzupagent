@@ -17,7 +17,6 @@ import type {
 import type { OrchestrationMergeStrategy } from "./orchestration-merge-strategy-types.js";
 // Type-only, so this back-reference to the implementation module is erased at
 // compile time and creates no runtime import cycle.
-import type { DelegatingSupervisor } from "./delegating-supervisor.js";
 import type { ProviderExecutionPort } from "./provider-adapter/provider-execution-port.js";
 import type { RoutingPolicy } from "./routing-policy-types.js";
 import type { StructuredLLM } from "../structured/structured-output-engine.js";
@@ -253,12 +252,30 @@ export interface SubOrchestratorChildHierarchy {
  * responsible for passing `hierarchy` through onto the child config unchanged;
  * a factory that drops or rewrites it is rejected by `spawnSubOrchestrator`.
  */
+/**
+ * Structural contract for a spawned CHILD supervisor.
+ *
+ * `spawnSubOrchestrator` only ever reads the child's hierarchy and runs its
+ * delegation batch, so this declares exactly that surface. Naming the concrete
+ * `DelegatingSupervisor` class here instead would make this module and the
+ * implementation mutually dependent; `DelegatingSupervisor implements
+ * SubOrchestratorChild` keeps the conformance compiler-enforced without the
+ * cycle.
+ */
+export interface SubOrchestratorChild {
+  readonly hierarchy: SupervisorHierarchy;
+  planAndDelegate(
+    goal: string,
+    options?: PlanAndDelegateOptions
+  ): Promise<AggregatedDelegationResult>;
+}
+
 export type SubOrchestratorFactory = (args: {
   /** Pre-validated hierarchy the child MUST be constructed with. */
   hierarchy: SubOrchestratorChildHierarchy;
   /** The original spawn request, for persona/provider/budget wiring. */
   options: SubOrchestratorSpawnOptions;
-}) => DelegatingSupervisor | Promise<DelegatingSupervisor>;
+}) => SubOrchestratorChild | Promise<SubOrchestratorChild>;
 
 /**
  * Outcome of a sub-orchestrator dispatch.
@@ -271,7 +288,7 @@ export interface SubOrchestratorSpawnResult {
   /** Hierarchy the child supervisor was constructed with. */
   hierarchy: SubOrchestratorChildHierarchy;
   /** The child supervisor instance, for follow-up dispatches. */
-  supervisor: DelegatingSupervisor;
+  supervisor: SubOrchestratorChild;
   /** Aggregated result of the child's own delegation batch. */
   result: AggregatedDelegationResult;
 }
