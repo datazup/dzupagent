@@ -14,7 +14,10 @@ export type {
   EvalCase,
   EvalSuite,
   EvalRunResult,
-} from '@dzupagent/eval-contracts';
+  Measurable,
+} from "@dzupagent/eval-contracts";
+
+import type { Measurable } from "@dzupagent/eval-contracts";
 
 // --- Enhanced Scorer Types (ECO-111) ---
 
@@ -38,32 +41,26 @@ export interface ScorerConfig {
   id: string;
   name: string;
   description?: string | undefined;
-  type: 'deterministic' | 'llm-judge' | 'composite' | 'custom';
+  type: "deterministic" | "llm-judge" | "composite" | "custom";
   threshold?: number | undefined;
   version?: string | undefined;
 }
 
 /**
  * Result from an enhanced scorer, with per-criterion breakdown.
+ *
+ * Extends {@link Measurable}, which contributes the optional `measured` flag
+ * and documents its meaning and the `measured !== false` consumer rule. For a
+ * scorer specifically, `measured: false` means no criteria were wired, so
+ * `aggregateScore` is vacuous rather than good.
  */
-export interface ScorerResult {
+export interface ScorerResult extends Measurable {
   scorerId: string;
   scores: Array<{ criterion: string; score: number; reasoning: string }>;
   aggregateScore: number;
   passed: boolean;
   durationMs: number;
   costCents?: number | undefined;
-  /**
-   * Whether this scorer actually inspected anything.
-   *
-   * A scorer with no criteria wired has no evidence to penalise, so its
-   * aggregateScore is vacuous rather than good. Omitted means measured — the
-   * common case — so only scorers that can be constructed with nothing to
-   * check need to set it. Consumers rolling results into a pass/fail gate or a
-   * regression baseline must exclude `measured: false` entries rather than
-   * counting them as clean passes.
-   */
-  measured?: boolean | undefined;
 }
 
 /**
