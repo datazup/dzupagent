@@ -210,6 +210,25 @@ export function createFanoutReportAccuracyScorer(): FanoutScorer<FanoutReportAcc
         };
       }
 
+      // A case with no authoritative outcomes AND an empty report agrees with
+      // nothing: every comparison loop above is empty, so no input could have
+      // made this branch fail. Internal consistency of a zero-item report is
+      // likewise trivially true. Report it as unmeasured so a suite cannot
+      // count it as a clean pass.
+      if (
+        input.actualOutcomes.length === 0 &&
+        input.report.items.length === 0
+      ) {
+        return {
+          score: 1,
+          pass: true,
+          measured: false,
+          reasoning:
+            "No authoritative outcomes declared and the report has no items — " +
+            "nothing was checked (vacuous case, not evidence of accuracy).",
+        };
+      }
+
       return {
         score: 1,
         pass: true,
