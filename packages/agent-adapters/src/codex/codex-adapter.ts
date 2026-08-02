@@ -88,7 +88,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     input: AgentInput,
   ): AsyncGenerator<AgentStreamEvent, void, undefined> {
     const sdk = await this.loadSdk();
-    const codex = this.createInstance(sdk, input.systemPrompt);
+    const codex = this.createInstance(sdk, input);
     const threadOpts = this.buildThreadOptions(input);
 
     const thread = codex.startThread(threadOpts);
@@ -121,7 +121,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
     input: AgentInput,
   ): AsyncGenerator<AgentEvent, void, undefined> {
     const sdk = await this.loadSdk();
-    const codex = this.createInstance(sdk, input.systemPrompt);
+    const codex = this.createInstance(sdk, input);
     const threadOpts = this.buildThreadOptions(input);
 
     const thread = codex.resumeThread(sessionId, threadOpts);
@@ -238,7 +238,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
   /** Create a Codex instance from the loaded SDK module */
   private createInstance(
     sdk: { Codex: CodexClass },
-    systemPrompt?: string,
+    input: AgentInput,
   ): CodexInstance {
     const ctorOpts: CodexCtorOptions = {};
 
@@ -263,7 +263,7 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       typeof providerOpts["systemPrompt"] === "string"
         ? providerOpts["systemPrompt"]
         : undefined;
-    const effectiveSystemPrompt = systemPrompt ?? staticSystemPrompt;
+    const effectiveSystemPrompt = input.systemPrompt ?? staticSystemPrompt;
     const callerConfig =
       (providerOpts["config"] as Record<string, unknown> | undefined) ?? {};
     // developerInstructions sets meta-level agent behavior (separate from user-facing instructions).
@@ -273,6 +273,26 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
         : undefined;
 
     const configOverrides: Record<string, unknown> = { ...callerConfig };
+    const activePolicy = input.policyContext?.activePolicy;
+    if (activePolicy?.toolPolicy === "strict") {
+      // @openai/codex-sdk does not expose per-thread tool allow/block lists.
+      // Keep strict turns on the built-in local transport by removing user-configured
+      // MCP/app surfaces. The sandbox, network toggle, and downstream event verifier
+      // remain the enforcement boundary for the declared policy.
+      configOverrides["mcp_servers"] = {};
+      configOverrides["web_search"] = "disabled";
+      configOverrides["features"] = {
+        ...((configOverrides["features"] as Record<string, unknown> | undefined) ?? {}),
+        apps: false,
+        browser_use: false,
+        browser_use_external: false,
+        browser_use_full_cdp_access: false,
+        computer_use: false,
+        enable_mcp_apps: false,
+        image_generation: false,
+        multi_agent: false,
+      };
+    }
     if (effectiveSystemPrompt) {
       const builder = new SystemPromptBuilder(effectiveSystemPrompt, {
         codexDeveloperInstructions: developerInstructions,
@@ -343,17 +363,6 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
       "medium";
     if (reasoning) {
       opts.modelReasoningEffort = reasoning;
-    }
-
-    const activePolicy = input.policyContext?.activePolicy;
-    if (activePolicy?.allowedTools && activePolicy.allowedTools.length > 0) {
-      opts.allowedTools = [...activePolicy.allowedTools];
-    }
-    if (activePolicy?.blockedTools && activePolicy.blockedTools.length > 0) {
-      opts.blockedTools = [...activePolicy.blockedTools];
-    }
-    if (activePolicy?.toolPolicy !== undefined) {
-      opts.toolPolicy = activePolicy.toolPolicy;
     }
 
     return opts;

@@ -75,9 +75,9 @@ const PROVIDER_CAPABILITIES: Record<AdapterProviderId, ProviderCapabilities> = {
   codex: {
     supportsSandbox: true,
     supportsNetworkToggle: true,
-    supportsToolPolicyMode: true,
-    supportsToolAllowlist: true,
-    supportsToolBlocklist: true,
+    supportsToolPolicyMode: false,
+    supportsToolAllowlist: false,
+    supportsToolBlocklist: false,
     supportsBudget: false,
     supportsMaxTurns: true,
     supportsStructuredOutput: false,

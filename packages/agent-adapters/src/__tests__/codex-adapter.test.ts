@@ -735,7 +735,7 @@ describe("CodexAdapter", () => {
       );
     });
 
-    it("passes active policy tool controls to thread options", async () => {
+    it("isolates strict turns from configured MCP and app transports", async () => {
       const thread = createMockThread([
         threadStartedEvent(),
         turnCompletedEvent(),
@@ -757,10 +757,24 @@ describe("CodexAdapter", () => {
       );
 
       expect(mockStartThread).toHaveBeenCalledWith(
+        expect.not.objectContaining({
+          allowedTools: expect.anything(),
+          blockedTools: expect.anything(),
+          toolPolicy: expect.anything(),
+        }),
+      );
+      expect(mockCodexCtor).toHaveBeenCalledWith(
         expect.objectContaining({
-          allowedTools: ["read_file", "search"],
-          blockedTools: ["shell"],
-          toolPolicy: "strict",
+          config: expect.objectContaining({
+            mcp_servers: {},
+            web_search: "disabled",
+            features: expect.objectContaining({
+              apps: false,
+              browser_use: false,
+              image_generation: false,
+              multi_agent: false,
+            }),
+          }),
         }),
       );
     });

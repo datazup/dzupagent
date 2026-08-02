@@ -511,9 +511,9 @@ describe('PolicyConformanceChecker', () => {
       expect(result.violations.find((v) => v.field === 'allowedTools')).toBeUndefined()
     })
 
-    it('should not warn for Codex allowedTools because thread options carry native controls', () => {
+    it('should warn for Codex allowedTools because the SDK has no native control', () => {
       const result = compileAndCheck('codex', { allowedTools: ['read_file'] })
-      expect(result.violations.find((v) => v.field === 'allowedTools')).toBeUndefined()
+      expect(result.violations.find((v) => v.field === 'allowedTools')?.severity).toBe('warning')
     })
 
     it('should not warn for Claude allowedTools because query options filter tools natively', () => {
@@ -546,9 +546,9 @@ describe('PolicyConformanceChecker', () => {
       expect(result.violations.find((v) => v.field === 'blockedTools')).toBeUndefined()
     })
 
-    it('should not warn for Codex blockedTools because thread options carry native controls', () => {
+    it('should warn for Codex blockedTools because enforcement is downstream', () => {
       const result = compileAndCheck('codex', { blockedTools: ['shell'] })
-      expect(result.violations.find((v) => v.field === 'blockedTools')).toBeUndefined()
+      expect(result.violations.find((v) => v.field === 'blockedTools')?.severity).toBe('warning')
     })
 
     it('should not warn for Ollama blockedTools because request tools are filtered natively', () => {
@@ -561,9 +561,9 @@ describe('PolicyConformanceChecker', () => {
       expect(result.violations.find((v) => v.field === 'toolPolicy')).toBeUndefined()
     })
 
-    it('should not warn for Codex strict toolPolicy because thread options carry native controls', () => {
+    it('should warn for Codex strict toolPolicy because the SDK has no native mode', () => {
       const result = compileAndCheck('codex', { toolPolicy: 'strict' })
-      expect(result.violations.find((v) => v.field === 'toolPolicy')).toBeUndefined()
+      expect(result.violations.find((v) => v.field === 'toolPolicy')?.severity).toBe('warning')
     })
   })
 

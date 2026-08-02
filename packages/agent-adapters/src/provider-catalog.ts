@@ -82,7 +82,7 @@ export const PROVIDER_CATALOG = {
     approvalSupport: 'native',
     supportsPolicyProjection: true,
     supportsSkillProjection: true,
-    toolControlSupport: { mode: 'native', allowlist: 'native', blocklist: 'native' },
+    toolControlSupport: { mode: 'none', allowlist: 'none', blocklist: 'none' },
   },
   gemini: {
     runtimeExecution: true,
