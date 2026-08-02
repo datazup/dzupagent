@@ -12,16 +12,16 @@ import type {
 } from '../types.js'
 
 const adapterFactories = vi.hoisted(() => ({
-  createClaudeAdapter: vi.fn(),
-  createCodexAdapter: vi.fn(),
+  createClaudeBackendAdapter: vi.fn(),
+  createCodexBackendAdapter: vi.fn(),
 }))
 
-vi.mock('../codex/codex-adapter.js', () => ({
-  createCodexAdapter: adapterFactories.createCodexAdapter,
+vi.mock('../codex/codex-backend.js', () => ({
+  createCodexBackendAdapter: adapterFactories.createCodexBackendAdapter,
 }))
 
-vi.mock('../claude/claude-adapter.js', () => ({
-  createClaudeAdapter: adapterFactories.createClaudeAdapter,
+vi.mock('../claude/claude-backend.js', () => ({
+  createClaudeBackendAdapter: adapterFactories.createClaudeBackendAdapter,
 }))
 
 const capabilities: AdapterCapabilityProfile = {
@@ -95,22 +95,22 @@ function createFakeAdapter(
 
 describe('runAgentExecution', () => {
   beforeEach(() => {
-    adapterFactories.createCodexAdapter.mockReset()
-    adapterFactories.createClaudeAdapter.mockReset()
+    adapterFactories.createCodexBackendAdapter.mockReset()
+    adapterFactories.createClaudeBackendAdapter.mockReset()
   })
 
-  it('registers default Codex and Claude adapters and returns completed text, events, usage, and timing', async () => {
+  it('materializes exactly the explicit Codex backend/auth selection and returns execution truth', async () => {
     const usage = { inputTokens: 10, outputTokens: 20 }
-    adapterFactories.createCodexAdapter.mockReturnValue(createFakeAdapter('codex', {
+    const materializeAdapter = vi.fn(() => createFakeAdapter('codex', {
       result: 'codex text',
       usage,
-    }))
-    adapterFactories.createClaudeAdapter.mockReturnValue(createFakeAdapter('claude', {
-      result: 'claude text',
     }))
 
     const result = await runAgentExecution({
       providerId: 'codex',
+      backend: 'cli',
+      authMode: 'subscription_cli',
+      profileRef: 'codex-default',
       prompt: 'Implement this',
       workingDirectory: '/repo',
       model: 'gpt-test',
@@ -120,7 +120,10 @@ describe('runAgentExecution', () => {
       runId: 'run-1',
       packetId: 'P001',
       sandboxMode: 'workspace-write',
-    }, { now: vi.fn().mockReturnValueOnce(1_000).mockReturnValueOnce(1_025) })
+    }, {
+      materializeAdapter,
+      now: vi.fn().mockReturnValueOnce(1_000).mockReturnValueOnce(1_025),
+    })
 
     expect(result).toMatchObject({
       ok: true,
@@ -132,19 +135,85 @@ describe('runAgentExecution', () => {
       attemptedProviders: ['codex'],
     })
     expect(result.events.map((event) => event.type)).toContain('adapter:completed')
-    expect(adapterFactories.createCodexAdapter).toHaveBeenCalledWith(expect.objectContaining({
-      model: 'gpt-test',
-      timeoutMs: 30_000,
-      workingDirectory: '/repo',
-      sandboxMode: 'workspace-write',
-      reasoning: 'medium',
-      providerOptions: {
-        runId: 'run-1',
-        packetId: 'P001',
-        correlationId: 'corr-1',
-      },
-    } satisfies Partial<AdapterConfig>))
-    expect(adapterFactories.createClaudeAdapter).toHaveBeenCalled()
+    expect(materializeAdapter).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: 'codex',
+      backend: 'cli',
+      authMode: 'subscription_cli',
+      profileRef: 'codex-default',
+      config: expect.objectContaining({
+        model: 'gpt-test',
+        timeoutMs: 30_000,
+        workingDirectory: '/repo',
+        sandboxMode: 'workspace-write',
+        reasoning: 'medium',
+        providerOptions: {
+          runId: 'run-1',
+          packetId: 'P001',
+          correlationId: 'corr-1',
+        },
+      } satisfies Partial<AdapterConfig>),
+    }))
+    expect(adapterFactories.createClaudeBackendAdapter).not.toHaveBeenCalled()
+    const materializedConfig = materializeAdapter.mock.calls[0]![0].config
+    expect(materializedConfig.env?.OPENAI_API_KEY).toBeUndefined()
+  })
+
+  it('never ignores a subscription profile when no qualified materializer is injected', async () => {
+    const result = await runAgentExecution({
+      providerId: 'codex',
+      backend: 'cli',
+      authMode: 'subscription_cli',
+      profileRef: 'codex-default',
+      prompt: 'test',
+    })
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'AGENT_EXECUTION_SUBSCRIPTION_MATERIALIZER_REQUIRED',
+    })
+    expect(adapterFactories.createCodexBackendAdapter).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [{ providerId: 'codex' as const, authMode: 'subscription_cli' as const, profileRef: 'codex-default' }, 'AGENT_EXECUTION_BACKEND_REQUIRED'],
+    [{ providerId: 'codex' as const, backend: 'cli' as const, profileRef: 'codex-default' }, 'AGENT_EXECUTION_AUTH_MODE_REQUIRED'],
+    [{ providerId: 'codex' as const, backend: 'cli' as const, authMode: 'subscription_cli' as const }, 'AGENT_EXECUTION_PROFILE_REQUIRED'],
+  ])('fails closed when materialization selection is incomplete %#', async (selection, code) => {
+    const result = await runAgentExecution({ ...selection, prompt: 'test' })
+    expect(result).toMatchObject({ ok: false, code, error: { code } })
+  })
+
+  it('requires an injected key only when api_key authentication is selected', async () => {
+    const missing = await runAgentExecution({
+      providerId: 'claude',
+      backend: 'sdk',
+      authMode: 'api_key',
+      prompt: 'test',
+    })
+    expect(missing.code).toBe('AGENT_EXECUTION_API_KEY_REQUIRED')
+
+    adapterFactories.createClaudeBackendAdapter.mockReturnValue(createFakeAdapter('claude'))
+    const result = await runAgentExecution({
+      providerId: 'claude',
+      backend: 'sdk',
+      authMode: 'api_key',
+      prompt: 'test',
+    }, { resolveApiKey: () => 'injected-only' })
+    expect(result.ok).toBe(true)
+    expect(adapterFactories.createClaudeBackendAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({ backend: 'sdk', apiKey: 'injected-only' }),
+    )
+  })
+
+  it('streams normalized events to an injected observer', async () => {
+    const observed: AgentEvent[] = []
+    await runAgentExecution({ providerId: 'codex', prompt: 'observe' }, {
+      adapters: [createFakeAdapter('codex')],
+      onEvent: (event) => { observed.push(event) },
+    })
+    expect(observed.map(({ type }) => type)).toEqual(expect.arrayContaining([
+      'adapter:started',
+      'adapter:completed',
+    ]))
   })
 
   it('routes an explicit Claude request through the registry without invoking Codex first', async () => {

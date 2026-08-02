@@ -119,6 +119,8 @@ export interface ExecutionRouteCandidate {
   readonly provider?: string;
   /** How the provider is reached; independent from its logical identity. */
   readonly backend?: ProviderExecutionBackend;
+  /** Authentication mechanism is independent from provider and backend. */
+  readonly authMode?: ProviderAuthenticationMode;
   /** Optional agent host wrapping the provider (for example Goose). */
   readonly agentHost?: string;
   readonly model?: string;
@@ -155,6 +157,12 @@ export type ProviderExecutionBackend =
   | "sdk"
   | "api"
   | "remote";
+
+export type ProviderAuthenticationMode =
+  | "subscription_cli"
+  | "api_key"
+  | "workload_identity"
+  | "local_model";
 
 export type ExecutionRouteRejectionCode =
   | "PROVIDER_UNAVAILABLE"

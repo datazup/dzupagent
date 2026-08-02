@@ -287,10 +287,17 @@ export class CodexAdapter extends BaseSdkAdapter<{ Codex: CodexClass }> {
         browser_use: false,
         browser_use_external: false,
         browser_use_full_cdp_access: false,
+        code_mode: false,
+        code_mode_host: false,
+        code_mode_only: false,
         computer_use: false,
         enable_mcp_apps: false,
         image_generation: false,
         multi_agent: false,
+        plugin_sharing: false,
+        plugins: false,
+        remote_plugin: false,
+        skill_mcp_dependency_install: false,
       };
     }
     if (effectiveSystemPrompt) {

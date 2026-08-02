@@ -2,6 +2,7 @@ import type {
   ExecutionArtifactRef,
   ExecutionRequest,
   ExecutionResult,
+  ProviderAuthenticationMode,
   ProviderExecutionBackend,
 } from "./canonical-execution.js";
 
@@ -228,6 +229,7 @@ export interface AiResolvedTargetSnapshot {
   readonly executionStyle: AiExecutionStyle;
   readonly routeCandidateId: string;
   readonly backend: ProviderExecutionBackend;
+  readonly authMode?: ProviderAuthenticationMode;
   readonly provider?: string;
   readonly model?: string;
   readonly profileRef?: string;
@@ -936,6 +938,14 @@ function validateTargetSnapshot(
   enumValue(stringValue(value.operation), AI_EXECUTION_OPERATION_KINDS, `${path}.operation`, diagnostics);
   enumValue(stringValue(value.placement), AI_TARGET_PLACEMENTS, `${path}.placement`, diagnostics);
   enumValue(stringValue(value.executionStyle), AI_EXECUTION_STYLES, `${path}.executionStyle`, diagnostics);
+  if (value.authMode !== undefined) {
+    enumValue(
+      stringValue(value.authMode),
+      ["subscription_cli", "api_key", "workload_identity", "local_model"] as const,
+      `${path}.authMode`,
+      diagnostics,
+    );
+  }
   if (!/^sha256:[a-f0-9]{64}$/.test(stringValue(value.snapshotDigest) ?? "")) {
     add(
       diagnostics,

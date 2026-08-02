@@ -55,6 +55,7 @@ export type {
   McpStdioTransportDescriptor,
   PromptExecutionRequest,
   ProviderAuthSourceDescriptor,
+  ProviderAuthenticationMode,
   ProviderExecutionBackend,
   SanitizedEvidenceRef,
   WorkerDispatchExecutionRequest,
