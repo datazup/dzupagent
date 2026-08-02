@@ -9,15 +9,20 @@
  * `check-domain-boundaries.mjs` gate enforces. `subagents` therefore cannot
  * import `@dzupagent/evals` at runtime.
  *
- * Instead this module defines a small, dependency-free scorer contract that
- * is *structurally* compatible with the shared, runtime-free type contracts
- * in `@dzupagent/eval-contracts` (a Layer 0 leaf-primitives package any
- * layer may depend on): the field names of {@link FanoutEvalResult} mirror
- * `EvalResult` (score/pass/reasoning/metadata) and {@link FanoutScorerConfig}
- * mirrors `ScorerConfigLike` (id/name/description/type/threshold). A
- * consumer that sits above both packages (e.g. `@dzupagent/server`, or an
- * app) can trivially adapt a {@link FanoutScorerResult} into the generic
- * eval-contracts shape without this package ever importing `evals`.
+ * Instead this module defines a small scorer contract that is *structurally*
+ * compatible with the shared, runtime-free type contracts in
+ * `@dzupagent/eval-contracts` (a Layer 0 leaf-primitives package any layer may
+ * depend on): the field names of {@link FanoutEvalResult} mirror `EvalResult`
+ * (score/pass/reasoning/metadata) and {@link FanoutScorerConfig} mirrors
+ * `ScorerConfigLike` (id/name/description/type/threshold). A consumer that
+ * sits above both packages (e.g. `@dzupagent/server`, or an app) can trivially
+ * adapt a {@link FanoutEvalResult} into the generic eval-contracts shape
+ * without this package ever importing `evals`.
+ *
+ * Where a contract is genuinely SHARED rather than merely parallel, it is
+ * imported from `eval-contracts` instead of restated — {@link Measurable} is
+ * the first such case. A hand-written mirror of a semantic contract has no
+ * mechanism to keep the two copies honest; a Layer 0 import does.
  *
  * The three scorers under this directory score STRUCTURED objects (spawn
  * requests/decisions, resolved specs, fan-out reports/ledgers) rather than
@@ -25,14 +30,27 @@
  * — so `TInput` here is a domain object, not a prompt/completion string.
  */
 
+import type { Measurable } from "@dzupagent/eval-contracts";
+
+export type { Measurable };
+
 /**
- * Mirrors `@dzupagent/eval-contracts`'s `EvalResult` field-for-field, plus
- * {@link FanoutEvalResult.measured} — the same vacuity discriminator
- * `@dzupagent/evals`' `ScorerResult` carries, for the same reason. The extra
- * field is optional, so a `FanoutEvalResult` still structurally satisfies
- * `EvalResult` for the adapter described above.
+ * Mirrors `@dzupagent/eval-contracts`'s `EvalResult` field-for-field, and
+ * extends its {@link Measurable} contract for the vacuity flag.
+ *
+ * `measured` is INHERITED rather than redeclared on purpose: the identical
+ * flag exists on `@dzupagent/evals`' `ScorerResult`, and when both packages
+ * declared it independently nothing could catch the two definitions drifting
+ * apart. `Measurable` lives in Layer 0, which both may depend on, so the
+ * contract and its documented meaning now have exactly one home.
+ *
+ * For a fanout scorer specifically, `measured: false` means the case declared
+ * no items: every comparison loop was empty, so the scorer could not fail and
+ * `score: 1` records an absence of evidence rather than evidence of
+ * correctness. See {@link FanoutSuiteReport.measuredCount} for how the harness
+ * excludes those.
  */
-export interface FanoutEvalResult {
+export interface FanoutEvalResult extends Measurable {
   /** Score between 0.0 and 1.0. */
   score: number;
   /** Whether this evaluation passed. */
@@ -41,21 +59,6 @@ export interface FanoutEvalResult {
   reasoning: string;
   /** Optional structured metadata (e.g. which invariant failed). */
   metadata?: Record<string, unknown> | undefined;
-  /**
-   * Whether this scorer actually checked anything.
-   *
-   * Each scorer here compares a produced artifact against per-item ground
-   * truth supplied by the case. When a case declares NO items, there is
-   * nothing to disagree with, so the scorer cannot fail — `score: 1` then
-   * records an absence of evidence, not evidence of correctness. Omitted
-   * means measured (the common case); only the zero-evidence branches set
-   * `measured: false`.
-   *
-   * Consumers rolling these into a pass/fail gate or a regression baseline
-   * must EXCLUDE `measured: false` entries rather than counting them as clean
-   * passes — see {@link FanoutSuiteReport.measuredCount}.
-   */
-  measured?: boolean | undefined;
 }
 
 /** Mirrors `@dzupagent/eval-contracts`'s `ScorerConfigLike` field-for-field. */

@@ -1793,6 +1793,7 @@ __metadata:
   dependencies:
     "@dzupagent/adapter-types": "npm:0.2.0"
     "@dzupagent/core": "npm:0.2.0"
+    "@dzupagent/eval-contracts": "npm:0.2.0"
     "@dzupagent/hitl-kit": "npm:0.2.0"
     "@langchain/core": "npm:^1.1.39"
     "@types/node": "npm:^20.0.0"

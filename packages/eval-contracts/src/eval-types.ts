@@ -7,6 +7,49 @@
  */
 
 /**
+ * Vacuity discriminator for anything that reports a score.
+ *
+ * ## Why this is a shared contract rather than a per-package field
+ *
+ * A scorer that was constructed with nothing to check cannot fail: every
+ * comparison loop inside it is empty, so it returns its top score having
+ * examined no evidence. That value is an ABSENCE of evidence, not evidence of
+ * correctness, and a consumer that averages it into an aggregate or counts it
+ * toward a pass/fail gate reports an unrun suite as a green one.
+ *
+ * The same defect was found and fixed independently in `@dzupagent/evals`
+ * (`ScorerResult.measured`) and `@dzupagent/subagents`
+ * (`FanoutEvalResult.measured`). Those two packages are both Layer 2 and
+ * `layerGraph.rules.allowSameLayerEdges` is `false`, so neither can import the
+ * other and the second copy was written by hand from the first. Declaring the
+ * field ONCE here — Layer 0, which any layer may depend on — is what stops the
+ * two definitions drifting apart silently: a change to the contract or its
+ * documented meaning now reaches both consumers through the compiler instead
+ * of through someone remembering to copy it.
+ *
+ * ## The convention
+ *
+ * Omitted means measured. That keeps the common case free of ceremony, so only
+ * a scorer that CAN be constructed with nothing to check needs to say so. It
+ * also means the safe reading is `measured !== false` rather than
+ * `measured === true`, which is what consumers should filter on.
+ *
+ * Consumers rolling results into a gate or a regression baseline MUST exclude
+ * `measured: false` entries rather than counting them as clean passes, and a
+ * suite in which nothing was measured must not report as passing.
+ */
+export interface Measurable {
+  /**
+   * Whether the producer actually inspected anything.
+   *
+   * `false` means it ran but had no evidence to examine. Omitted (the common
+   * case) means it did. Never set this to `true` to mean "passed" — it
+   * describes whether a measurement happened, not its outcome.
+   */
+  measured?: boolean | undefined
+}
+
+/**
  * Result of a single evaluation scoring.
  */
 export interface EvalResult {

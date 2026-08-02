@@ -64,7 +64,7 @@ describe("packages/subagents boundary discipline (NFR3)", () => {
     for (const file of files) {
       const content = readFileSync(file, "utf8");
       const imports = content.matchAll(
-        /(?:from\s+|import\s*\(\s*|require\s*\(\s*)"(@dzupagent\/[^"]+)"/g,
+        /(?:from\s+|import\s*\(\s*|require\s*\(\s*)"(@dzupagent\/[^"]+)"/g
       );
       for (const match of imports) {
         const pkg = match[1] as string;
@@ -76,10 +76,21 @@ describe("packages/subagents boundary discipline (NFR3)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("only imports @dzupagent/adapter-types, core, and hitl-kit across the package", () => {
+  it("only imports its declared layer-0/layer-1 dependencies across the package", () => {
+    // Every entry must be a package this one may depend on WITHOUT losing the
+    // portability NFR3 buys: layer-0 leaf primitives (type-only, no runtime
+    // weight) plus the two layer-1 runtimes fan-out genuinely needs.
+    //
+    // `eval-contracts` is layer-0 and types-only. It is here because the
+    // `measured` vacuity flag is a contract SHARED with @dzupagent/evals, and
+    // both packages are layer 2 with `allowSameLayerEdges: false` — so neither
+    // can import the other and the flag was previously hand-copied. Importing
+    // the single Layer 0 declaration is what makes the two definitions unable
+    // to drift; restating it here would reintroduce exactly that risk.
     const allowed = new Set([
       "@dzupagent/adapter-types",
       "@dzupagent/core",
+      "@dzupagent/eval-contracts",
       "@dzupagent/hitl-kit",
     ]);
     const offenders: string[] = [];
