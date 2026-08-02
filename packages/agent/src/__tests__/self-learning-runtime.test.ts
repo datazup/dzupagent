@@ -176,7 +176,7 @@ describe('SelfLearningRuntime', () => {
 
     it('preserves existing stuck detector from pipeline config', () => {
       const existingDetector = { recordNodeFailure: vi.fn(), recordNodeOutput: vi.fn(), getSummary: vi.fn() }
-      pipelineConfig.stuckDetector = existingDetector as unknown as PipelineRuntimeConfig['stuckDetector']
+      pipelineConfig.stuckDetector = existingDetector as unknown as NonNullable<PipelineRuntimeConfig['stuckDetector']>
 
       const slr = new SelfLearningRuntime(pipelineConfig, learningConfig)
       expect(slr.runtime).toBeDefined()
