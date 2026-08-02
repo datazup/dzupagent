@@ -11,7 +11,7 @@
  * These tests pin both directions: a degraded sweep emits `memory:error`,
  * and a healthy sweep does not.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { maybeWriteBackMemory } from "../agent/agent-finalizers.js";
 import type { DzupAgentConfig } from "../agent/agent-types.js";
 
