@@ -217,6 +217,7 @@ export function createFanoutTemplateTool(
             aborted_budget: 0,
           },
           uncovered: [],
+          inFlight: [],
           items,
           extraDispatches: [],
           budget: { wallClockMs, aborted: false },
@@ -308,6 +309,7 @@ export function createFanoutTemplateTool(
               aborted_budget: declared,
             },
             uncovered: [],
+          inFlight: [],
             items,
             extraDispatches: [],
             budget: {
@@ -464,6 +466,11 @@ export function createFanoutTemplateTool(
         dispatched: state.dispatched,
         settled,
         uncovered,
+        // The live invoke path only builds a report after every item has
+        // settled, so nothing can be in flight here. The ledger-rebuild path
+        // (fanoutBatchRecordToReport) is the one that can observe non-terminal
+        // items.
+        inFlight: [],
         items,
         extraDispatches: [],
         budget: {

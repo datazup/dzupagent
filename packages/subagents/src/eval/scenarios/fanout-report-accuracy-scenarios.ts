@@ -17,6 +17,7 @@ function baseReport(overrides: Partial<FanoutReport>): FanoutReport {
       aborted_budget: 0,
     },
     uncovered: [],
+    inFlight: [],
     items: [],
     extraDispatches: [],
     budget: { wallClockMs: 100, aborted: false },
@@ -74,6 +75,7 @@ export const FANOUT_REPORT_ACCURACY_SCENARIOS: Array<
           aborted_budget: 0,
         },
         uncovered: ["c"],
+        inFlight: [],
         items: [
           { key: "a", taskId: "t-a", status: "succeeded" },
           { key: "b", taskId: "t-b", status: "failed", error: "boom" },
@@ -133,6 +135,7 @@ export const FANOUT_REPORT_ACCURACY_SCENARIOS: Array<
           aborted_budget: 1,
         },
         uncovered: ["c"],
+        inFlight: [],
         items: [
           { key: "a", taskId: "t-a", status: "succeeded" },
           {
