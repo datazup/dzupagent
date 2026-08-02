@@ -1,5 +1,5 @@
 {
-  "totalErrors": 2654,
+  "totalErrors": 2651,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -12,12 +12,12 @@
       }
     },
     "agent": {
-      "maxErrors": 201,
+      "maxErrors": 198,
       "perCode": {
         "TS2345": 44,
         "TS2322": 39,
         "TS2379": 23,
-        "TS2375": 16,
+        "TS2375": 14,
         "TS2339": 14,
         "TS2353": 13,
         "TS2740": 9,
@@ -35,7 +35,6 @@
         "TS2349": 1,
         "TS2677": 1,
         "TS6196": 1,
-        "TS2412": 1,
         "TS2774": 1,
         "TS2783": 1
       },
@@ -79,7 +78,7 @@
         "src/__tests__/run-reflector-llm.test.ts": 1,
         "src/__tests__/run-reflector.test.ts": 4,
         "src/__tests__/scan-human-messages.test.ts": 1,
-        "src/__tests__/self-learning-runtime.test.ts": 4,
+        "src/__tests__/self-learning-runtime.test.ts": 3,
         "src/__tests__/skill-chain-errors-deep.test.ts": 1,
         "src/__tests__/skill-chain-executor.test.ts": 1,
         "src/__tests__/stream-action-parser.test.ts": 1,
@@ -109,7 +108,6 @@
         "src/orchestration/fleet/__tests__/fleet-supervisor-failures.test.ts": 2,
         "src/orchestration/team/__tests__/participant-capabilities-vs-bid-capabilities.test.ts": 1,
         "src/orchestration/team/__tests__/team-runtime-bus-bridge.test.ts": 2,
-        "src/orchestration/team/__tests__/team-runtime-memory.test.ts": 2,
         "src/orchestration/team/__tests__/team-runtime-pattern-labels.test.ts": 5,
         "src/orchestration/team/__tests__/team-runtime-policy-validator.test.ts": 3,
         "src/orchestration/team/__tests__/team-runtime-policy.test.ts": 1,
