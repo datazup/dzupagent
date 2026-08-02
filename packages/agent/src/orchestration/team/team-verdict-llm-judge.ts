@@ -39,6 +39,7 @@
  */
 
 import { readJudgeGuards } from "./team-verdict-judge-controls.js";
+import type { JudgeInvoker } from "./team-verdict-judge-controls.js";
 import type {
   TeamEvaluationService,
   TeamGovernanceService,
@@ -57,7 +58,7 @@ export type LlmJudgeVerdictService = TeamGovernanceService &
  * module free of any provider dependency and lets a host route the judge
  * through whatever registry, budget, or cache it already has.
  */
-export type JudgeInvoker = (prompt: string) => Promise<string>;
+export type { JudgeInvoker };
 
 /** What the gate should do when the judge itself fails. */
 export type JudgeFailurePolicy = "skip" | "reject";

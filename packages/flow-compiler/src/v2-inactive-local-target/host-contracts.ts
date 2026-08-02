@@ -1,3 +1,8 @@
+import type { FlowTypedCondition } from "@dzupagent/flow-ast/expressions";
+import type { PrimitiveDefinitionV2 } from "@dzupagent/flow-dsl";
+import type { PrimitiveMultiPortSaveContract } from "@dzupagent/flow-dsl/v2-multi-port-save";
+import type { PrimitiveRetryPolicy } from "@dzupagent/flow-dsl/v2-retry-policy";
+import type { PrimitiveTerminalCatchContract } from "@dzupagent/flow-dsl/v2-terminal-catch";
 import type { PrimitivePolicyLimits } from "@dzupagent/flow-dsl/v2-policy-narrowing";
 
 import type { V2InactiveLocalTargetQualificationRequest } from "./contracts.js";
@@ -241,3 +246,47 @@ export type V2InactiveLocalHostResult =
       readonly ok: false;
       readonly errors: readonly V2InactiveLocalHostError[];
     };
+
+export interface PlanBase {
+  readonly index: number;
+  readonly id: string;
+  readonly authoredPath: string;
+  readonly use: string;
+  readonly condition?: FlowTypedCondition;
+  readonly branchRequirements: readonly {
+    readonly id: string;
+    readonly outcome: boolean;
+  }[];
+}
+
+export interface V2InactiveLocalHostPrimitiveStepPlan extends PlanBase {
+  readonly kind: "primitive";
+  readonly input: Readonly<Record<string, unknown>>;
+  readonly primitive: PrimitiveDefinitionV2;
+  readonly handler: V2InactiveLocalHandlerBinding;
+  readonly policy: PrimitivePolicyLimits;
+  readonly retry: PrimitiveRetryPolicy;
+  readonly terminalCatch: PrimitiveTerminalCatchContract;
+  readonly save: PrimitiveMultiPortSaveContract;
+}
+
+export interface V2InactiveLocalHostSetStepPlan extends PlanBase {
+  readonly kind: "set";
+  readonly assign: Readonly<Record<string, unknown>>;
+}
+
+export interface V2InactiveLocalHostBranchStepPlan extends PlanBase {
+  readonly kind: "branch";
+  readonly condition: FlowTypedCondition;
+}
+
+export interface V2InactiveLocalHostCompleteStepPlan extends PlanBase {
+  readonly kind: "complete";
+  readonly result: unknown;
+}
+
+export type V2InactiveLocalHostStepPlan =
+  | V2InactiveLocalHostPrimitiveStepPlan
+  | V2InactiveLocalHostSetStepPlan
+  | V2InactiveLocalHostBranchStepPlan
+  | V2InactiveLocalHostCompleteStepPlan;

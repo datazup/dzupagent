@@ -24,6 +24,16 @@ import type {
   V2InactiveLocalHandlerBinding,
   V2InactiveLocalHostError,
   V2InactiveLocalHostRequest,
+  V2InactiveLocalHostPrimitiveStepPlan,
+  V2InactiveLocalHostStepPlan,
+  PlanBase,
+} from "./host-contracts.js";
+export type {
+  V2InactiveLocalHostBranchStepPlan,
+  V2InactiveLocalHostCompleteStepPlan,
+  V2InactiveLocalHostPrimitiveStepPlan,
+  V2InactiveLocalHostSetStepPlan,
+  V2InactiveLocalHostStepPlan,
 } from "./host-contracts.js";
 import { validateV2InactiveLocalHostRequest } from "./host-plan-request.js";
 import {
@@ -37,49 +47,6 @@ import {
 } from "./host-plan-support.js";
 import { qualifyV2InactiveLocalTarget } from "./qualification.js";
 
-interface PlanBase {
-  readonly index: number;
-  readonly id: string;
-  readonly authoredPath: string;
-  readonly use: string;
-  readonly condition?: FlowTypedCondition;
-  readonly branchRequirements: readonly {
-    readonly id: string;
-    readonly outcome: boolean;
-  }[];
-}
-
-export interface V2InactiveLocalHostPrimitiveStepPlan extends PlanBase {
-  readonly kind: "primitive";
-  readonly input: Readonly<Record<string, unknown>>;
-  readonly primitive: PrimitiveDefinitionV2;
-  readonly handler: V2InactiveLocalHandlerBinding;
-  readonly policy: PrimitivePolicyLimits;
-  readonly retry: PrimitiveRetryPolicy;
-  readonly terminalCatch: PrimitiveTerminalCatchContract;
-  readonly save: PrimitiveMultiPortSaveContract;
-}
-
-export interface V2InactiveLocalHostSetStepPlan extends PlanBase {
-  readonly kind: "set";
-  readonly assign: Readonly<Record<string, unknown>>;
-}
-
-export interface V2InactiveLocalHostBranchStepPlan extends PlanBase {
-  readonly kind: "branch";
-  readonly condition: FlowTypedCondition;
-}
-
-export interface V2InactiveLocalHostCompleteStepPlan extends PlanBase {
-  readonly kind: "complete";
-  readonly result: unknown;
-}
-
-export type V2InactiveLocalHostStepPlan =
-  | V2InactiveLocalHostPrimitiveStepPlan
-  | V2InactiveLocalHostSetStepPlan
-  | V2InactiveLocalHostBranchStepPlan
-  | V2InactiveLocalHostCompleteStepPlan;
 
 export interface V2InactiveLocalHostContext {
   readonly request: V2InactiveLocalHostRequest;

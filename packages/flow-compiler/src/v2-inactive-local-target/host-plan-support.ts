@@ -3,8 +3,11 @@ import {
   type PrimitiveDefinitionV2,
 } from "@dzupagent/flow-dsl";
 
-import type { V2InactiveLocalHostRequest } from "./host-contracts.js";
-import type { V2InactiveLocalHostStepPlan } from "./host-plan.js";
+import type {
+  V2InactiveLocalHostRequest,
+  V2InactiveLocalHostStepPlan,
+} from "./host-contracts.js";
+
 
 export function hostPlanIdentity(step: V2InactiveLocalHostStepPlan) {
   return step.kind === "primitive"

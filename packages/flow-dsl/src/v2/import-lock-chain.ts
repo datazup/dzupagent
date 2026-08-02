@@ -1,24 +1,15 @@
 import { createHash } from "node:crypto";
 
 import type { DslDiagnostic } from "../types.js";
-import type { DslV2ResolvedImportLock } from "./types.js";
+import type {
+  DslV2ImportLockChainEntry,
+  DslV2ResolvedImportLock,
+} from "./types.js";
 
-/**
- * Revision-chain lineage over the v2 resolved import lock (ADR-0001 C2 / L1).
- *
- * The lock itself stays a pure function of resolved content: the same document
- * against the same catalogs always yields the same `lockSha256`. That is what
- * makes it a usable content address, but it also means a lock cannot record
- * *which* lock it superseded. This sibling contract carries that lineage, so a
- * lock change is verifiable as an ordered revision rather than a silent swap.
- */
-export interface DslV2ImportLockChainEntry {
-  readonly schema: "dzupagent.dslV2ImportLockChain/v1";
-  readonly lockSha256: `sha256:${string}`;
-  readonly parentLockSha256: `sha256:${string}` | null;
-  readonly revision: number;
-  readonly chainSha256: `sha256:${string}`;
-}
+// Re-exported so this module stays the public home of the chain contract even
+// though the type itself lives in ./types.js to keep the module graph acyclic.
+export type { DslV2ImportLockChainEntry };
+
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 

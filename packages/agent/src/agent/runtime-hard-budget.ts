@@ -14,13 +14,17 @@ import {
   hardBudgetMeasurementFailure,
   validateHardBudgetReservation,
   type AgentHardBudgetConfig,
-  type HardBudgetHostProfileProof,
   type HardBudgetReservationConfig,
 } from './hard-budget-host-profile.js'
 import {
   fitProtectedTranscript,
   type ProtectedTranscriptEvidence,
 } from './hard-budget-protection.js'
+import type {
+  HardBudgetReservation,
+  RuntimeHardBudgetResult,
+  RuntimeHardBudgetTextResult,
+} from './runtime-hard-budget-types.js'
 import { emitAgentHardBudgetTelemetry } from './runtime-hard-budget-telemetry.js'
 
 export {
@@ -47,45 +51,16 @@ export type {
   ProtectedTranscriptPolicy,
 } from './hard-budget-protection.js'
 export { emitAgentHardBudgetTelemetry } from './runtime-hard-budget-telemetry.js'
+export type {
+  HardBudgetReservation,
+  RuntimeHardBudgetResult,
+  RuntimeHardBudgetTextResult,
+} from './runtime-hard-budget-types.js'
 
 const SUMMARY_PREFIX = '## Prior Conversation Context\n\n'
 const SUMMARY_MARKER = '\n\n...[summary truncated to fit reserved budget]...'
 export const RUNTIME_HARD_BUDGET_MARKER =
   '\n\n...[truncated to fit runtime context budget]...'
-
-export interface HardBudgetReservation {
-  contextWindowTokens: number
-  inputTokenLimit: number
-  contentTokenLimit: number
-  transcriptTokenLimit: number
-  outputTokens: number
-  summaryTokens: number
-  toolTokens: number
-  envelopeTokens: number
-  totalReservedTokens: number
-}
-
-export interface RuntimeHardBudgetResult {
-  /** Original transcript on unsafe results; fitted transcript otherwise. */
-  messages: BaseMessage[]
-  summary: string | null
-  tokenMeasurement: TokenMeasurementResult
-  hardBudget: HardBudgetCompliance
-  reservation: HardBudgetReservation
-  profile?: HardBudgetHostProfileProof
-  protection?: ProtectedTranscriptEvidence
-  degradations?: CompressionDegradation[]
-}
-
-export interface RuntimeHardBudgetTextResult {
-  /** Null means the caller must keep its original text and abort the handoff. */
-  text: string | null
-  tokenMeasurement: TokenMeasurementResult
-  hardBudget: HardBudgetCompliance
-  reservation: HardBudgetReservation
-  profile?: HardBudgetHostProfileProof
-  degradation?: CompressionDegradation
-}
 
 /** Fail-closed error raised before a provider or participant receives input. */
 export class RuntimeHardBudgetAdoptionError extends Error {

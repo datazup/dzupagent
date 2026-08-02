@@ -1,5 +1,5 @@
 import type { DzupEventBus } from '@dzupagent/core/events'
-import type { RuntimeHardBudgetResult } from './runtime-hard-budget.js'
+import type { RuntimeHardBudgetResult } from './runtime-hard-budget-types.js'
 
 /** Emit an agent hard-budget proof without prompt or degradation text. */
 export function emitAgentHardBudgetTelemetry(args: {
