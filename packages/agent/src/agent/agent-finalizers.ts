@@ -314,6 +314,19 @@ async function runMemoryPruner(
       maxEntries: policy?.maxEntries ?? 1000,
       ttlMs: policy?.ttlMs ?? 7 * 24 * 60 * 60 * 1000,
     })
+    // Surface degraded sweeps the same way the consolidation finalizer does.
+    // Without this a pruner whose store fails every run is indistinguishable
+    // from one that had nothing to prune.
+    for (const item of result.degradations) {
+      config.eventBus?.emit({
+        type: 'memory:error',
+        agentId,
+        namespace,
+        key: item.target ?? 'pruner',
+        scopeKeys: getSafeScopeKeys(scope),
+        message: `${item.operation}: ${item.reason}`,
+      })
+    }
     if (result.expired > 0 || result.evicted > 0) {
       config.eventBus?.emit({
         type: 'memory:written',
