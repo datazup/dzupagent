@@ -46,40 +46,40 @@ export interface ProviderRequestCapabilityInspectionInput {
 }
 
 export interface ProviderRequestCapabilityInspection {
-  schemaVersion: 1;
-  artifactType: "dzupagent/provider-request-capability-inspection/v1";
-  providerId: string;
-  requirements: {
-    providerEnforcedIdempotency: boolean;
-    restartLookupBy: ProviderRequestLookupKey[];
-    stableIdentityLookup: boolean;
+  readonly schemaVersion: 1;
+  readonly artifactType: "dzupagent/provider-request-capability-inspection/v1";
+  readonly providerId: string;
+  readonly requirements: {
+    readonly providerEnforcedIdempotency: boolean;
+    readonly restartLookupBy: readonly ProviderRequestLookupKey[];
+    readonly stableIdentityLookup: boolean;
   };
-  declaredCapabilities: {
-    idempotencyKey: {
-      accepted: boolean;
-      enforcement: ProviderRequestIdempotencyEnforcement;
-      providerEnforced: boolean;
+  readonly declaredCapabilities: {
+    readonly idempotencyKey: {
+      readonly accepted: boolean;
+      readonly enforcement: ProviderRequestIdempotencyEnforcement;
+      readonly providerEnforced: boolean;
     };
-    restartLookup: {
-      declaredSupported: boolean;
-      lookupMethodAvailable: boolean;
-      supported: boolean;
-      lookupBy: ProviderRequestLookupKey[];
-      stableIdentityLookupBy: ProviderRequestLookupKey[];
+    readonly restartLookup: {
+      readonly declaredSupported: boolean;
+      readonly lookupMethodAvailable: boolean;
+      readonly supported: boolean;
+      readonly lookupBy: readonly ProviderRequestLookupKey[];
+      readonly stableIdentityLookupBy: readonly ProviderRequestLookupKey[];
     };
   };
-  qualification: {
-    accepted: boolean;
-    blockers: ProviderRequestCapabilityBlocker[];
+  readonly qualification: {
+    readonly accepted: boolean;
+    readonly blockers: readonly ProviderRequestCapabilityBlocker[];
   };
-  effects: {
-    credentialReads: 0;
-    networkAttempts: 0;
-    providerDispatches: 0;
-    providerSpendUsd: 0;
+  readonly effects: {
+    readonly credentialReads: 0;
+    readonly networkAttempts: 0;
+    readonly providerDispatches: 0;
+    readonly providerSpendUsd: 0;
   };
-  capabilitySha256: string;
-  inspectionId: string;
+  readonly capabilitySha256: string;
+  readonly inspectionId: string;
 }
 
 function sha256(value: string): string {
@@ -95,6 +95,13 @@ function normalizedLookupKeys(value: unknown): ProviderRequestLookupKey[] {
     .sort();
 }
 
+/**
+ * Evaluate an adapter's declared request-correlation capabilities without
+ * resolving credentials or contacting the provider.
+ *
+ * This produces immutable, content-addressed declaration evidence. It does
+ * not independently prove that the provider implements the declaration.
+ */
 export function inspectProviderRequestCapabilities(
   input: ProviderRequestCapabilityInspectionInput,
 ): ProviderRequestCapabilityInspection {
@@ -134,22 +141,25 @@ export function inspectProviderRequestCapabilities(
     blockers.push("stable_identity_lookup_unavailable");
   }
 
-  const requirements = {
+  const requirements = Object.freeze({
     providerEnforcedIdempotency: input.requirements.providerEnforcedIdempotency === true,
-    restartLookupBy: requestedLookupBy,
+    restartLookupBy: Object.freeze(requestedLookupBy),
     stableIdentityLookup: input.requirements.stableIdentityLookup === true,
-  };
-  const declaredCapabilities = {
-    idempotencyKey: { accepted, enforcement, providerEnforced },
-    restartLookup: {
+  });
+  const declaredCapabilities = Object.freeze({
+    idempotencyKey: Object.freeze({ accepted, enforcement, providerEnforced }),
+    restartLookup: Object.freeze({
       declaredSupported,
       lookupMethodAvailable,
       supported,
-      lookupBy,
-      stableIdentityLookupBy,
-    },
-  };
-  const qualification = { accepted: blockers.length === 0, blockers };
+      lookupBy: Object.freeze(lookupBy),
+      stableIdentityLookupBy: Object.freeze(stableIdentityLookupBy),
+    }),
+  });
+  const qualification = Object.freeze({
+    accepted: blockers.length === 0,
+    blockers: Object.freeze(blockers),
+  });
   const capabilitySha256 = sha256(JSON.stringify(declaredCapabilities));
   const body = {
     schemaVersion: 1 as const,
@@ -158,12 +168,12 @@ export function inspectProviderRequestCapabilities(
     requirements,
     declaredCapabilities,
     qualification,
-    effects: {
+    effects: Object.freeze({
       credentialReads: 0 as const,
       networkAttempts: 0 as const,
       providerDispatches: 0 as const,
       providerSpendUsd: 0 as const,
-    },
+    }),
     capabilitySha256,
   };
   return Object.freeze({ ...body, inspectionId: sha256(JSON.stringify(body)) });
