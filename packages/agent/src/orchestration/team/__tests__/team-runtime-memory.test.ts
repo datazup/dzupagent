@@ -230,7 +230,7 @@ describe("consolidateIfEnabled", () => {
       policies: memoryPolicy(true),
       memory: {
         consolidate,
-        store: store as unknown as TeamRuntimeMemoryService["store"],
+        store: store as unknown as NonNullable<TeamRuntimeMemoryService["store"]>,
       },
     });
 
@@ -247,7 +247,7 @@ describe("consolidateIfEnabled", () => {
     };
     const events = await run({
       policies: memoryPolicy(true),
-      memory: { store: store as unknown as TeamRuntimeMemoryService["store"] },
+      memory: { store: store as unknown as NonNullable<TeamRuntimeMemoryService["store"]> },
     });
 
     // The engine is reached (it queries the store), and the pass reports
@@ -266,7 +266,7 @@ describe("consolidateIfEnabled", () => {
     };
     const events = await run({
       policies: memoryPolicy(true),
-      memory: { store: store as unknown as TeamRuntimeMemoryService["store"] },
+      memory: { store: store as unknown as NonNullable<TeamRuntimeMemoryService["store"]> },
     });
 
     expect(events[0]).toMatchObject({
