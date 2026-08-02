@@ -312,25 +312,39 @@ describe("AdapterGuardrails", () => {
 
   it("enforces maxDurationMs timeout", async () => {
     const guardrails = new AdapterGuardrails({
-      maxDurationMs: 1, // 1ms timeout
+      maxDurationMs: 1000,
       maxIterations: 100,
     });
     const abortFn = vi.fn();
 
-    // Need a stream that takes some time
+    // The budget tracker reads Date.now() as each event is yielded, so drive
+    // the clock explicitly instead of racing a real sleep against the budget.
+    // The old form slept 20ms real against a 1ms budget: it passed on the
+    // 20x margin rather than on the guardrail actually firing, and would
+    // flake if the worker was descheduled between the two yields.
+    const realNow = Date.now.bind(Date);
+    const base = realNow();
+    let clock = base;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+
     async function* delayedStream(): AsyncGenerator<
       AgentEvent,
       void,
       undefined
     > {
       yield makeStartedEvent();
-      await new Promise((r) => setTimeout(r, 20));
+      clock = base + 5000; // well past the 1000ms budget
       yield makeToolCallEvent("read_file", "/a.ts");
     }
 
-    const output = await collectEvents(
-      guardrails.wrap(delayedStream(), abortFn)
-    );
+    let output;
+    try {
+      output = await collectEvents(guardrails.wrap(delayedStream(), abortFn));
+    } finally {
+      // restoreMocks is not enabled for this package, so an unrestored
+      // Date.now spy would leak into every later test in this file.
+      vi.mocked(Date.now).mockRestore();
+    }
 
     const lastEvent = output[output.length - 1]!;
     expect(lastEvent.type).toBe("adapter:failed");
