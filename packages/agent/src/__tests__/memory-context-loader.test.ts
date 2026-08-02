@@ -641,15 +641,27 @@ describe('AgentMemoryContextLoader FrozenSnapshot integration (P4 Task 3)', () =
   it('emits one bounded diagnostic when comparison failures reach threshold', async () => {
     const memory = createMemoryService()
     const onFallbackDetail = vi.fn()
+    let comparisonFailures = 0
+    let thresholdReported = false
     const frozenSnapshot = {
       isActive: vi.fn(() => true),
       get: vi.fn(() => 'stale'),
       freeze: vi.fn(),
-      shouldInvalidateDetailed: vi.fn(() => ({
-        shouldInvalidate: true,
-        reason: 'comparison-failure',
-        consecutiveComparisonFailures: 1,
-      })),
+      // Model the real FrozenSnapshot contract: it owns the saturating
+      // streak and sets comparisonFailureTelemetryTriggered on exactly the
+      // call that first reaches the threshold (verified against the real
+      // class: streaks 1,2,3,3,3 with triggered only on the third).
+      shouldInvalidateDetailed: vi.fn(() => {
+        comparisonFailures = Math.min(comparisonFailures + 1, 3)
+        const triggered = comparisonFailures === 3 && !thresholdReported
+        if (triggered) thresholdReported = true
+        return {
+          shouldInvalidate: true,
+          reason: 'comparison-failure',
+          consecutiveComparisonFailures: comparisonFailures,
+          ...(triggered ? { comparisonFailureTelemetryTriggered: true } : {}),
+        }
+      }),
     }
     const loadArrowRuntime = vi.fn(async (): Promise<ArrowMemoryRuntime> => ({
       extendMemoryServiceWithArrow: () => ({
