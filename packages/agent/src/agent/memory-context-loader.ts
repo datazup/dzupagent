@@ -11,6 +11,7 @@
  */
 
 import type { BaseMessage } from '@langchain/core/messages'
+import type { SnapshotInvalidationResult } from '@dzupagent/context'
 
 import { resolveArrowMemoryConfig } from './memory-profiles.js'
 import {
@@ -52,8 +53,6 @@ export class AgentMemoryContextLoader {
   private readonly standardMemoryMaxItems: number
   private readonly standardMemoryMaxCharsPerItem: number
   private readonly standardMemoryBudgetConfig: StandardMemoryBudgetConfig
-  private snapshotComparisonFailureStreak = 0
-  private snapshotComparisonFailureReported = false
 
   constructor(private readonly config: AgentMemoryContextLoaderConfig) {
     this.loadArrowRuntime = config.loadArrowRuntime ?? defaultLoadArrowRuntime
@@ -121,7 +120,7 @@ export class AgentMemoryContextLoader {
           const decision = this.config.frozenSnapshot.shouldInvalidateDetailed(
             prepared.frame,
           )
-          this.recordSnapshotComparisonDecision(decision.reason, namespace)
+          this.recordSnapshotComparisonDecision(decision, namespace)
           if (!decision.shouldInvalidate) {
             return {
               context: this.config.frozenSnapshot.get(),
@@ -196,31 +195,24 @@ export class AgentMemoryContextLoader {
     )
   }
 
+  /**
+   * Forward the snapshot's own comparison-failure telemetry.
+   *
+   * FrozenSnapshot already tracks the saturating streak and fires exactly
+   * once when it reaches its configured threshold, reporting that via
+   * `comparisonFailureTelemetryTriggered`. Recomputing the same streak here
+   * duplicated the rule and hardcoded threshold 3, so a snapshot built with
+   * a custom `comparisonFailureTelemetryThreshold` would honour it in the
+   * class and be ignored here. Consume the decision instead of re-deriving.
+   */
   private recordSnapshotComparisonDecision(
-    reason: string,
+    decision: SnapshotInvalidationResult,
     namespace: string,
   ): void {
-    if (reason !== 'comparison-failure') {
-      this.snapshotComparisonFailureStreak = 0
-      this.snapshotComparisonFailureReported = false
-      return
-    }
-
-    const threshold = 3
-    this.snapshotComparisonFailureStreak = Math.min(
-      this.snapshotComparisonFailureStreak + 1,
-      threshold,
-    )
-    if (
-      this.snapshotComparisonFailureReported ||
-      this.snapshotComparisonFailureStreak < threshold
-    ) {
-      return
-    }
-    this.snapshotComparisonFailureReported = true
+    if (!decision.comparisonFailureTelemetryTriggered) return
     this.config.onFallbackDetail?.({
       reason: 'snapshot_comparison_failure',
-      detail: `consecutiveFailures=${this.snapshotComparisonFailureStreak}`,
+      detail: `consecutiveFailures=${decision.consecutiveComparisonFailures}`,
       namespace: safeNamespace(namespace),
       provider: 'arrow',
     })
