@@ -87,6 +87,13 @@ export {
   discoverProviderModels,
   parseClaudeCliModelAliases,
 } from "./model-discovery.js";
+export { inspectProviderRequestCapabilities } from "./provider-request-capability-inspection.js";
+export type {
+  ProviderRequestCapabilityBlocker,
+  ProviderRequestCapabilityInspection,
+  ProviderRequestCapabilityInspectionInput,
+  ProviderRequestCapabilityRequirements,
+} from "./provider-request-capability-inspection.js";
 export type {
   ClaudeModelDiscoveryOptions,
   CodexModelDiscoveryOptions,
