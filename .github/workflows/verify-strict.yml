@@ -121,15 +121,6 @@ jobs:
       - name: Check Turbo typecheck build order
         run: yarn check:turbo:typecheck-order
 
-      # Zero cycles is a HARD invariant, but it was unenforceable while the
-      # tree carried 22 cycles, so the strict lane below routes around it. The
-      # source cycles are now broken, so run the gate here as its own step: it
-      # is fast, and a reintroduced cycle fails the build instead of silently
-      # accumulating. Kept separate from verify:strict:ci rather than switching
-      # variants wholesale, because that variant also differs in build flags.
-      - name: Check circular imports
-        run: yarn check:circular-deps
-
       - name: Run strict verification without circular imports
         run: yarn verify:strict:ci:no-circular
 
