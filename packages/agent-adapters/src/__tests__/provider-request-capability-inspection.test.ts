@@ -98,4 +98,24 @@ describe("provider request capability inspection", () => {
       blockers: ["restart_lookup_unavailable"],
     });
   });
+
+  it("keeps every content-addressed projection immutable after inspection", () => {
+    const inspection = inspectProviderRequestCapabilities({
+      providerId: "codex",
+      capabilities: new CodexAdapter().getCapabilities(),
+      lookupMethodAvailable: true,
+      requirements: packet7Requirements,
+    });
+
+    expect(Object.isFrozen(inspection)).toBe(true);
+    expect(Object.isFrozen(inspection.requirements)).toBe(true);
+    expect(Object.isFrozen(inspection.requirements.restartLookupBy)).toBe(true);
+    expect(Object.isFrozen(inspection.declaredCapabilities)).toBe(true);
+    expect(Object.isFrozen(inspection.declaredCapabilities.idempotencyKey)).toBe(true);
+    expect(Object.isFrozen(inspection.declaredCapabilities.restartLookup)).toBe(true);
+    expect(Object.isFrozen(inspection.declaredCapabilities.restartLookup.lookupBy)).toBe(true);
+    expect(Object.isFrozen(inspection.qualification)).toBe(true);
+    expect(Object.isFrozen(inspection.qualification.blockers)).toBe(true);
+    expect(Object.isFrozen(inspection.effects)).toBe(true);
+  });
 });
