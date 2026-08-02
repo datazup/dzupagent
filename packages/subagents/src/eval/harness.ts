@@ -27,10 +27,17 @@ export async function runFanoutEvalSuite<TInput>(
 
   const totalCount = scores.length;
   const passCount = scores.filter((s) => s.result.pass).length;
+
+  // Vacuous cases (measured === false) checked nothing, so their score is an
+  // absence of evidence rather than a 1.0 worth averaging in. Exclude them
+  // from the headline number and require at least one real measurement before
+  // the suite may call itself green.
+  const measured = scores.filter((s) => s.result.measured !== false);
+  const measuredCount = measured.length;
   const aggregateScore =
-    totalCount === 0
+    measuredCount === 0
       ? 0
-      : scores.reduce((sum, s) => sum + s.result.score, 0) / totalCount;
+      : measured.reduce((sum, s) => sum + s.result.score, 0) / measuredCount;
 
   return {
     suiteId,
@@ -40,7 +47,8 @@ export async function runFanoutEvalSuite<TInput>(
     aggregateScore,
     passCount,
     totalCount,
-    allPassed: totalCount > 0 && passCount === totalCount,
+    measuredCount,
+    allPassed: totalCount > 0 && passCount === totalCount && measuredCount > 0,
   };
 }
 

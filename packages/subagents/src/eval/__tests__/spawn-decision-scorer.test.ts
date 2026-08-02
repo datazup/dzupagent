@@ -12,7 +12,7 @@ describe("createSpawnDecisionScorer", () => {
     const report = await runFanoutEvalSuite(
       "spawn-decision-quality",
       SPAWN_DECISION_SCENARIOS,
-      scorer
+      scorer,
     );
 
     expect(report.allPassed).toBe(true);
@@ -21,6 +21,46 @@ describe("createSpawnDecisionScorer", () => {
     for (const score of report.scores) {
       expect(score.result.pass).toBe(true);
     }
+  });
+
+  it("reports an admitted batch with no per-item cases as unmeasured", async () => {
+    const scorer = createSpawnDecisionScorer();
+    const result = await scorer.score({
+      policy: { check: () => ({ allow: true, requiresApproval: false }) },
+      request: {
+        batchId: "b-no-items",
+        parentRunId: "run-1",
+        mode: "template",
+        template: { agentId: "x", input: "batch", outboundScope: ["repo"] },
+        itemKeys: ["a"],
+      },
+      expectedBatchOutcome: "allowed",
+      // No `items`: the scope half of this scorer runs no comparisons, so a
+      // bare pass here would report an unexercised dimension as clean.
+    });
+
+    expect(result.pass).toBe(true);
+    expect(result.measured).toBe(false);
+  });
+
+  it("keeps a correctly-denied batch measured — zero spawns IS the checked outcome", async () => {
+    const scorer = createSpawnDecisionScorer();
+    const result = await scorer.score({
+      policy: { check: () => ({ allow: false, reason: "policy-denied" }) },
+      request: {
+        batchId: "b-denied",
+        parentRunId: "run-1",
+        mode: "template",
+        template: { agentId: "x", input: "batch", outboundScope: ["repo"] },
+        itemKeys: ["a"],
+      },
+      expectedBatchOutcome: "denied",
+    });
+
+    expect(result.pass).toBe(true);
+    // The admission decision was genuinely compared against an expectation,
+    // so this is evidence — unlike the no-items case above.
+    expect(result.measured).not.toBe(false);
   });
 
   it("fails a known-bad case whose expected outcome contradicts the real gate", async () => {

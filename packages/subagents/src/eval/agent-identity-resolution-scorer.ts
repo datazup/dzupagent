@@ -123,6 +123,20 @@ export function createAgentIdentityResolutionScorer(): FanoutScorer<AgentIdentit
         };
       }
 
+      // With no items there is no spec to resolve and no expectation to
+      // contradict — the loop above never ran, so this is an absence of
+      // evidence rather than a clean resolution.
+      if (totalChecks === 0) {
+        return {
+          score: 1,
+          pass: true,
+          measured: false,
+          reasoning:
+            "No items declared — no agent identity or instruction " +
+            "resolution was checked.",
+        };
+      }
+
       return {
         score: 1,
         pass: true,

@@ -25,7 +25,13 @@
  * — so `TInput` here is a domain object, not a prompt/completion string.
  */
 
-/** Mirrors `@dzupagent/eval-contracts`'s `EvalResult` field-for-field. */
+/**
+ * Mirrors `@dzupagent/eval-contracts`'s `EvalResult` field-for-field, plus
+ * {@link FanoutEvalResult.measured} — the same vacuity discriminator
+ * `@dzupagent/evals`' `ScorerResult` carries, for the same reason. The extra
+ * field is optional, so a `FanoutEvalResult` still structurally satisfies
+ * `EvalResult` for the adapter described above.
+ */
 export interface FanoutEvalResult {
   /** Score between 0.0 and 1.0. */
   score: number;
@@ -35,6 +41,21 @@ export interface FanoutEvalResult {
   reasoning: string;
   /** Optional structured metadata (e.g. which invariant failed). */
   metadata?: Record<string, unknown> | undefined;
+  /**
+   * Whether this scorer actually checked anything.
+   *
+   * Each scorer here compares a produced artifact against per-item ground
+   * truth supplied by the case. When a case declares NO items, there is
+   * nothing to disagree with, so the scorer cannot fail — `score: 1` then
+   * records an absence of evidence, not evidence of correctness. Omitted
+   * means measured (the common case); only the zero-evidence branches set
+   * `measured: false`.
+   *
+   * Consumers rolling these into a pass/fail gate or a regression baseline
+   * must EXCLUDE `measured: false` entries rather than counting them as clean
+   * passes — see {@link FanoutSuiteReport.measuredCount}.
+   */
+  measured?: boolean | undefined;
 }
 
 /** Mirrors `@dzupagent/eval-contracts`'s `ScorerConfigLike` field-for-field. */
@@ -82,11 +103,30 @@ export interface FanoutSuiteReport {
   scorerId: string;
   timestamp: string;
   scores: FanoutCaseScore[];
-  /** Mean score across all cases. */
+  /**
+   * Mean score across MEASURED cases only.
+   *
+   * Vacuous cases are excluded rather than averaged in as 1.0, which would
+   * let zero-evidence cases inflate a suite's headline number. `0` when
+   * nothing was measured.
+   */
   aggregateScore: number;
-  /** Number of cases whose result.pass was true. */
+  /** Number of cases whose result.pass was true (includes vacuous passes). */
   passCount: number;
   totalCount: number;
-  /** True iff every case passed. */
+  /**
+   * Number of cases that actually checked something, i.e. whose result did
+   * not set `measured: false`. `totalCount - measuredCount` is the vacuous
+   * count.
+   */
+  measuredCount: number;
+  /**
+   * True iff every case passed AND at least one case actually measured
+   * something.
+   *
+   * A suite of nothing but vacuous cases is not a green suite — it is an
+   * unrun one, and reporting it as `allPassed` is the failure this field
+   * exists to prevent.
+   */
   allPassed: boolean;
 }

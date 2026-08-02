@@ -85,13 +85,21 @@ export function createSpawnDecisionScorer(): FanoutScorer<SpawnDecisionCase> {
         };
       }
 
+      // The admission outcome above WAS checked against an expectation, but
+      // with no per-item cases declared the scope half of this scorer ran no
+      // comparisons. Since the admission check already returns early on
+      // mismatch, reaching here with zero items means the per-item dimension
+      // contributed no evidence — flag it so a suite of such cases cannot read
+      // as a fully-exercised green.
       const items = input.items ?? [];
       if (items.length === 0) {
         return {
           score: 1,
           pass: true,
+          measured: false,
           reasoning:
-            "Batch admission matched expectation; no per-item cases declared.",
+            "Batch admission matched expectation, but no per-item cases were " +
+            "declared — per-item scope decisions were not checked.",
           metadata: { admission },
         };
       }
