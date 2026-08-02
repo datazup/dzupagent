@@ -236,7 +236,7 @@ export class PolicyConformanceChecker {
       policy.toolPolicy !== undefined &&
       policy.toolPolicy !== 'open' &&
       !caps.supportsToolPolicyMode &&
-      toolControlSupport?.mode !== 'native'
+      (toolControlSupport?.mode ?? 'none') === 'none'
     ) {
       violations.push({
         field: 'toolPolicy',
@@ -246,7 +246,12 @@ export class PolicyConformanceChecker {
     }
 
     // --- allowedTools ---
-    if (policy.allowedTools && policy.allowedTools.length > 0 && !caps.supportsToolAllowlist) {
+    if (
+      policy.allowedTools &&
+      policy.allowedTools.length > 0 &&
+      !caps.supportsToolAllowlist &&
+      (toolControlSupport?.allowlist ?? 'none') === 'none'
+    ) {
       violations.push({
         field: 'allowedTools',
         reason: `Provider '${provider}' does not support tool allowlists. The allowedTools policy cannot be enforced at the provider level.`,
@@ -255,7 +260,12 @@ export class PolicyConformanceChecker {
     }
 
     // --- blockedTools ---
-    if (policy.blockedTools && policy.blockedTools.length > 0 && !caps.supportsToolBlocklist) {
+    if (
+      policy.blockedTools &&
+      policy.blockedTools.length > 0 &&
+      !caps.supportsToolBlocklist &&
+      (toolControlSupport?.blocklist ?? 'none') === 'none'
+    ) {
       // Blocked tools can still be enforced through guardrails, so this is a warning
       violations.push({
         field: 'blockedTools',

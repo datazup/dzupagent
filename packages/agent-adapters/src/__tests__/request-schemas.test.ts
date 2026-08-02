@@ -134,9 +134,9 @@ describe('HTTP provider policy', () => {
 
   it('advertises OpenAI policy projection only where request-level controls exist', () => {
     expect(getProviderCapabilities('codex')?.toolControlSupport).toEqual({
-      mode: 'none',
-      allowlist: 'none',
-      blocklist: 'none',
+      mode: 'host-gated',
+      allowlist: 'host-gated',
+      blocklist: 'host-gated',
     })
     expect(getProviderCapabilities('openai')?.supportsPolicyProjection).toBe(true)
     expect(getProviderCapabilities('openai')?.toolControlSupport).toEqual({
