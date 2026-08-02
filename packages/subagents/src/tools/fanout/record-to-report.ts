@@ -38,6 +38,7 @@ export function fanoutBatchRecordToReport(
     aborted_budget: 0,
   };
   const uncovered: string[] = [];
+  const inFlight: string[] = [];
   let dispatched = 0;
   for (const item of items) {
     if (item.taskId !== undefined) {
@@ -65,7 +66,14 @@ export function fanoutBatchRecordToReport(
       case "never_dispatched":
         uncovered.push(item.key);
         break;
-      default:
+      case "queued":
+      case "awaiting_approval":
+      case "running":
+        // Dispatched but not settled. Previously these fell through the
+        // default arm and were counted in neither settled nor uncovered, so
+        // a ledger rebuilt mid-batch reported uncovered: [] — the documented
+        // clean-run signal — while items were still in flight.
+        inFlight.push(item.key);
         break;
     }
   }
@@ -81,6 +89,7 @@ export function fanoutBatchRecordToReport(
     dispatched,
     settled,
     uncovered,
+    inFlight,
     items,
     extraDispatches: [],
     budget: {

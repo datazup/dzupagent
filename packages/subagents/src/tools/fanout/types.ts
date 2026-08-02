@@ -126,6 +126,19 @@ export interface FanoutReport {
   };
   /** Declared keys never dispatched — MUST be [] for a clean run. */
   uncovered: string[];
+  /**
+   * Declared keys dispatched but still non-terminal (`queued`,
+   * `awaiting_approval`, `running`) at the moment the report was built.
+   *
+   * Only ever non-empty when rebuilding from a persisted ledger whose batch
+   * had not finished — e.g. via `fanoutBatchRecordToReport` after the
+   * coordinator crashed mid-batch. An in-flight item is neither `uncovered`
+   * (it WAS dispatched) nor counted in `settled` (it has no outcome yet), so
+   * without this field such a batch is indistinguishable from a clean run.
+   * A caller deciding whether work still needs re-dispatch must check this
+   * as well as `uncovered`.
+   */
+  inFlight: string[];
   /** Every declared item, exactly once, in declared order. */
   items: FanoutReportItem[];
   /** Script mode only; always [] in template mode. */
