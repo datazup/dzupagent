@@ -26,6 +26,11 @@
  *   node scripts/check-test-typecheck.mjs --report-only    # print counts, exit 0
  *   node scripts/check-test-typecheck.mjs --update-baseline # rewrite baseline to current
  *   node scripts/check-test-typecheck.mjs --package core   # restrict to one package
+ *   node scripts/check-test-typecheck.mjs --no-blame       # skip git attribution
+ *
+ * On failure each over-budget file is attributed to the commits that last
+ * touched its erroring lines, so a red CI log names the culprit instead of
+ * requiring the operator to run git blame by hand.
  */
 
 import { existsSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
@@ -60,6 +65,10 @@ const reportOnly = args.includes('--report-only')
 const updateBaseline = args.includes('--update-baseline')
 const pkgFlagIndex = args.indexOf('--package')
 const onlyPackage = pkgFlagIndex === -1 ? null : args[pkgFlagIndex + 1]
+// Attribution is on by default on failure: the whole point is that the operator
+// reading a red CI log should not have to re-run anything to learn whose commit
+// caused it. --no-blame exists for checkouts where git is unavailable or slow.
+const noBlame = args.includes('--no-blame')
 
 function runTypecheck(pkg) {
   const result = spawnSync(
@@ -81,7 +90,7 @@ function runTypecheck(pkg) {
   const errors = []
   for (const line of lines) {
     const match = ERROR_LINE_RE.exec(line)
-    if (match) errors.push({ file: match[1], code: match[4] })
+    if (match) errors.push({ file: match[1], line: Number(match[2]), code: match[4] })
   }
 
   if (result.status !== 0 && errors.length === 0) {
@@ -93,12 +102,94 @@ function runTypecheck(pkg) {
 
   const perFile = {}
   const perCode = {}
-  for (const { file, code } of errors) {
+  const linesByFile = {}
+  for (const { file, line, code } of errors) {
     perFile[file] = (perFile[file] ?? 0) + 1
     perCode[code] = (perCode[code] ?? 0) + 1
+    ;(linesByFile[file] ??= []).push({ line, code })
   }
 
-  return { total: errors.length, perFile, perCode }
+  return { total: errors.length, perFile, perCode, linesByFile }
+}
+
+/**
+ * Attribute over-budget files to the commits that last touched their erroring
+ * lines.
+ *
+ * Motivation: this guard fires on real regressions regularly (twice on
+ * 2026-08-02 alone, both from an unattended daemon), and each time the operator
+ * had to run `git log`/`git blame` by hand to learn whose commit to route it
+ * to. CI should name the culprit itself.
+ *
+ * Precision comes from blaming the ERRORING LINES, not the file. A file-level
+ * `git log -1` names whoever last touched the file for any reason — a rename or
+ * an import reorder gets blamed for a type error it never introduced. Blaming
+ * the exact lines tsc pointed at attributes the error to the change that wrote
+ * the offending code.
+ *
+ * Lines are grouped per commit with a count, so the heaviest contributor sorts
+ * first rather than being buried among incidental single-line hits.
+ */
+export function summarizeBlame(blameLines) {
+  const byCommit = new Map()
+  for (const entry of blameLines) {
+    if (!entry || !entry.sha) continue
+    const existing = byCommit.get(entry.sha)
+    if (existing) {
+      existing.lines += 1
+    } else {
+      byCommit.set(entry.sha, {
+        sha: entry.sha,
+        author: entry.author ?? 'unknown',
+        summary: entry.summary ?? '',
+        lines: 1,
+      })
+    }
+  }
+  return [...byCommit.values()].sort((a, b) => b.lines - a.lines || a.sha.localeCompare(b.sha))
+}
+
+/**
+ * Parse `git blame --line-porcelain` output into {sha, line, author, summary}.
+ *
+ * Porcelain is used rather than the default format because the default
+ * interleaves the source line with the metadata on one line, so an author name
+ * or a code line containing brackets or parens can corrupt a regex split.
+ * Porcelain puts `author` and `summary` on their own labelled lines.
+ */
+export function parseBlamePorcelain(output) {
+  const records = []
+  let current = null
+  for (const raw of output.split('\n')) {
+    const header = /^([0-9a-f]{40}) \d+ (\d+)/.exec(raw)
+    if (header) {
+      if (current) records.push(current)
+      current = { sha: header[1].slice(0, 8), line: Number(header[2]) }
+      continue
+    }
+    if (!current) continue
+    if (raw.startsWith('author ')) current.author = raw.slice('author '.length).trim()
+    else if (raw.startsWith('summary ')) current.summary = raw.slice('summary '.length).trim()
+  }
+  if (current) records.push(current)
+  return records
+}
+
+function blameFile(pkg, file, lines) {
+  if (lines.length === 0) return []
+  // -L is repeatable; one range per erroring line keeps blame narrow instead of
+  // walking the whole file.
+  const ranges = [...new Set(lines)].sort((a, b) => a - b).flatMap((n) => ['-L', `${n},${n}`])
+  const result = spawnSync('git', ['blame', '--line-porcelain', ...ranges, '--', file], {
+    cwd: join(PACKAGES_DIR, pkg),
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+  })
+  // Blame is diagnostic sugar. An untracked or newly added file, or a checkout
+  // without git, must degrade to "no attribution" rather than failing the guard
+  // whose verdict the operator actually needs.
+  if (result.error || result.status !== 0) return []
+  return parseBlamePorcelain(result.stdout ?? '')
 }
 
 function loadBaseline() {
@@ -244,8 +335,17 @@ function main() {
   if (regressions.length > 0) {
     failed = true
     console.error('\n[check-test-typecheck] FAIL: files exceed their baseline error budget:')
-    for (const { pkg, file, count, allowed } of regressions.slice(0, 20)) {
+    const shown = regressions.slice(0, 20)
+    for (const { pkg, file, count, allowed } of shown) {
       console.error(`  [${pkg}] ${file}: ${count} (allowed ${allowed})`)
+      if (noBlame) continue
+      const errorLines = (current[pkg].linesByFile?.[file] ?? []).map((e) => e.line)
+      const commits = summarizeBlame(blameFile(pkg, file, errorLines))
+      for (const c of commits.slice(0, 3)) {
+        console.error(
+          `      last touched by ${c.sha} (${c.author}) — ${c.summary} [${c.lines} erroring line(s)]`
+        )
+      }
     }
     if (regressions.length > 20) {
       console.error(`  ... and ${regressions.length - 20} more`)
