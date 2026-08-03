@@ -197,6 +197,8 @@ export interface InvokeModelDeps {
   middlewareRuntime: AgentMiddlewareRuntime;
   getProviderAttempts: (tools: StructuredToolInterface[]) => ProviderAttempt[];
   shouldRunFailover: (err: Error, messages: BaseMessage[]) => boolean;
+  /** Run-scoped cancellation, derived from the whole-run deadline when set. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -224,6 +226,12 @@ export async function invokeModelWithMiddleware(
     resolvedProvider: deps.resolvedProvider,
     getProviderAttempts: () => deps.getProviderAttempts(tools),
     shouldRunFailover: (err) => deps.shouldRunFailover(err, messages),
+    // ORCH-DSL-L1-C-01 / L1-H-02: per-call deadline and the run-scoped signal
+    // (derived from guardrails.maxDurationMs) reach the one unbounded await.
+    ...(deps.config.guardrails?.modelTimeoutMs !== undefined
+      ? { modelTimeoutMs: deps.config.guardrails.modelTimeoutMs }
+      : {}),
+    ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
   };
   return invokeModelWithMiddlewareCoord(invocationDeps, model, messages);
 }
