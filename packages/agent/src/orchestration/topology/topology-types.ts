@@ -68,6 +68,11 @@ export interface TopologyExecutorConfig {
   autoSwitch?: boolean;
   /** Error rate threshold to trigger switch (default: 0.5) */
   errorThreshold?: number;
+  /**
+   * ORCH-DSL-L1-H-07 — cap on simultaneous model calls per mesh round
+   * (default: `DEFAULT_ORCHESTRATION_FANOUT`, 5).
+   */
+  maxConcurrency?: number;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
 }

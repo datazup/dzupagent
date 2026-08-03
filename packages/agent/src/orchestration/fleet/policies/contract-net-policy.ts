@@ -11,11 +11,20 @@ import type {
   RepoAgentRef,
   KnowledgeStore,
 } from "@dzupagent/agent-types/fleet";
+import {
+  DEFAULT_ORCHESTRATION_FANOUT,
+  runAllConcurrently,
+} from "../../concurrency-runner.js";
 
 type Bid = number | null;
 
 export interface ContractNetPolicyOptions {
   bidder: (worker: RepoAgentRef, task: FleetTask) => Promise<Bid>;
+  /**
+   * ORCH-DSL-L1-H-07 — cap on simultaneous `bidder` invocations
+   * (default: `DEFAULT_ORCHESTRATION_FANOUT`, 5).
+   */
+  maxConcurrency?: number;
 }
 
 /**
@@ -34,11 +43,16 @@ export class ContractNetPolicy implements FleetPolicy {
     _knowledge: KnowledgeStore
   ): Promise<Assignment> {
     const candidates = fleet.filter((f) => !f.busy);
-    const bids = await Promise.all(
-      candidates.map(async (w) => ({
+    // ORCH-DSL-L1-H-07 — bounded fan-out. `bidder` is injected and is a model
+    // call in the LLM-backed wiring, so N idle workers previously meant N
+    // simultaneous inferences. Order is irrelevant here (the result is sorted
+    // by bid), but `runAllConcurrently` keeps the previous fail-fast semantics.
+    const bids = await runAllConcurrently(
+      candidates.map((w) => async () => ({
         w,
         bid: await this.opts.bidder(w, task),
-      }))
+      })),
+      this.opts.maxConcurrency ?? DEFAULT_ORCHESTRATION_FANOUT
     );
     const valid = bids.filter(
       (b): b is { w: RepoAgentRef; bid: number } => b.bid !== null

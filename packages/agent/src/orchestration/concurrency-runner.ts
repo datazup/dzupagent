@@ -15,6 +15,22 @@
  */
 
 /**
+ * ORCH-DSL-L1-H-07 — default cap for orchestration fan-out that dispatches one
+ * model call per item.
+ *
+ * Note these runners do NOT apply this themselves: `maxConcurrency` is a
+ * required positional parameter and `undefined` means *unbounded* (see
+ * {@link shouldRunUnbounded}). Call sites must pass a cap explicitly, and this
+ * is the value they should reach for when the caller expresses no preference.
+ *
+ * 5 matches the existing convention across the package — `map-reduce.ts`
+ * (`normalizeConcurrency`, default 5), `planning-executor.ts` and
+ * `planning-agent.ts` (`maxParallelism ?? 5`), and
+ * `DEFAULT_MAX_PARALLEL_PARTICIPANTS` in `team/patterns/pattern-utils.ts`.
+ */
+export const DEFAULT_ORCHESTRATION_FANOUT = 5;
+
+/**
  * A task factory. Receives an `AbortSignal` that fires when the run is
  * cancelled — either via the external signal passed to the runner, or, for
  * {@link runAllConcurrently}, when a sibling task fails. The parameter is

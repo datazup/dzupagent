@@ -8,6 +8,10 @@ import { HumanMessage } from "@langchain/core/messages";
 import { AgentOrchestrator } from "../orchestrator.js";
 import type { SupervisorResult } from "../orchestrator.js";
 import { OrchestrationError } from "../orchestration-error.js";
+import {
+  DEFAULT_ORCHESTRATION_FANOUT,
+  runConcurrently,
+} from "../concurrency-runner.js";
 import { TopologyAnalyzer } from "./topology-analyzer.js";
 import type {
   TopologyType,
@@ -92,8 +96,12 @@ export class TopologyExecutor {
 
       const previous = results;
 
-      const settled = await Promise.allSettled(
-        agents.map(async (agent, index) => {
+      // ORCH-DSL-L1-H-07 — bounded fan-out. Mesh previously issued one
+      // simultaneous model call per agent, per round, with no cap.
+      // `runConcurrently` preserves input order, which the index-aligned
+      // result contract below (and `buildMeshPrompt`) depends on.
+      const settled = await runConcurrently(
+        agents.map((agent, index) => async () => {
           messageCount++;
           const prompt =
             round === 0
@@ -104,7 +112,9 @@ export class TopologyExecutor {
             omitUndefined({ signal })
           );
           return result.content;
-        })
+        }),
+        config.maxConcurrency ?? DEFAULT_ORCHESTRATION_FANOUT,
+        omitUndefined({ signal })
       );
 
       const roundResults: string[] = [];

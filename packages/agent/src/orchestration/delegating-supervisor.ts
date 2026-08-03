@@ -11,6 +11,10 @@
 import type { AgentExecutionSpec } from "@dzupagent/core/persistence";
 import type { DzupEventBus } from "@dzupagent/core/events";
 import { OrchestrationError } from "./orchestration-error.js";
+import {
+  DEFAULT_ORCHESTRATION_FANOUT,
+  runConcurrently,
+} from "./concurrency-runner.js";
 import type {
   DelegationTracker,
   DelegationRequest,
@@ -337,10 +341,15 @@ export class DelegatingSupervisor implements SubOrchestratorChild {
   /**
    * Delegate multiple tasks in parallel and collect all results.
    *
-   * Uses Promise.allSettled so one failure does not block others.
+   * One failure does not block others. Fan-out is capped at
+   * `options.maxConcurrency` (default {@link DEFAULT_ORCHESTRATION_FANOUT});
+   * callers that already chunk their own work — `planning-executor.ts` sizes
+   * batches by `maxParallelism` — can pass a larger cap to opt out of the
+   * second layer of bounding.
    */
   async delegateAndCollect(
-    tasks: TaskAssignment[]
+    tasks: TaskAssignment[],
+    options?: { maxConcurrency?: number }
   ): Promise<AggregatedDelegationResult> {
     const start = Date.now();
 
@@ -389,10 +398,16 @@ export class DelegatingSupervisor implements SubOrchestratorChild {
       }
     }
 
-    const settled = await Promise.allSettled(
-      effectiveTasks.map((t) =>
-        this.delegateTask(t.task, t.specialistId, t.input)
-      )
+    // ORCH-DSL-L1-H-07 — bounded fan-out. `delegateTask` is a full model /
+    // provider-port invocation, and this previously dispatched one per task
+    // simultaneously with no cap. `runConcurrently` is the allSettled half of
+    // the pair and preserves input order, which `aggregateSettledResults`
+    // depends on to pair `settled[i]` with `assignments[i]`.
+    const settled = await runConcurrently(
+      effectiveTasks.map(
+        (t) => () => this.delegateTask(t.task, t.specialistId, t.input)
+      ),
+      options?.maxConcurrency ?? DEFAULT_ORCHESTRATION_FANOUT
     );
 
     return aggregateSettledResults(

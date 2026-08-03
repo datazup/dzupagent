@@ -13,6 +13,10 @@ import type { DzupAgent } from "../../agent/dzip-agent.js";
 import type { DzupEvent, DzupEventBus } from "@dzupagent/core/events";
 import { typedEmit } from "@dzupagent/core/events";
 import { OrchestrationError } from "../orchestration-error.js";
+import {
+  DEFAULT_ORCHESTRATION_FANOUT,
+  runAllConcurrently,
+} from "../concurrency-runner.js";
 import { createWeightedStrategy } from "./bid-strategies.js";
 import type {
   ContractNetConfig,
@@ -620,13 +624,21 @@ export class ContractNetManager {
   private static async collectBids(
     specialists: DzupAgent[],
     cfp: CallForProposals,
-    signal: AbortSignal | undefined
+    signal: AbortSignal | undefined,
+    maxConcurrency: number = DEFAULT_ORCHESTRATION_FANOUT
   ): Promise<ContractBid[]> {
-    const bidPromises = specialists.map((specialist) =>
-      collectBid(specialist, cfp, signal)
+    // ORCH-DSL-L1-H-07 — bounded fan-out. One model call per specialist was
+    // previously dispatched simultaneously with no cap. `collectBid` already
+    // absorbs its own failures and returns null, so `runAllConcurrently`
+    // preserves the previous semantics exactly while capping in-flight calls.
+    const results = await runAllConcurrently(
+      specialists.map(
+        (specialist) => (taskSignal?: AbortSignal) =>
+          collectBid(specialist, cfp, taskSignal ?? signal)
+      ),
+      maxConcurrency,
+      signal ? { signal } : undefined
     );
-
-    const results = await Promise.all(bidPromises);
     return results.filter((bid): bid is ContractBid => bid !== null);
   }
 }
