@@ -1,5 +1,13 @@
 # Flow and Orchestration Authoring Surfaces
 
+**Status: ARCHIVED REPO-LOCAL COPY**
+
+**Canonical document:** [`workspace-docs/repos/dzupagent/docs/flow-orchestration-authoring-surfaces.md`](../../workspace-docs/repos/dzupagent/docs/flow-orchestration-authoring-surfaces.md)
+
+**Supersession note:** Durable authoring-surface documentation now lives in `workspace-docs`. This divergent repo-local copy is preserved for history and is not an authority for current compiler targets.
+
+## Archived original content (preserved)
+
 This document maps the public authoring surfaces for flow and orchestration across the DzupAgent framework.
 
 ## Package Ownership
