@@ -21,7 +21,14 @@ import { TopologyExecutor } from "../orchestration/topology/topology-executor.js
 import { ContractNetPolicy } from "../orchestration/fleet/policies/contract-net-policy.js";
 import { DEFAULT_ORCHESTRATION_FANOUT } from "../orchestration/concurrency-runner.js";
 
+// Real timers are load-bearing here, not incidental. These tests assert *peak
+// simultaneous* in-flight calls, which only exists if tasks genuinely overlap
+// in wall-clock time. Fake timers would advance the clock deterministically and
+// collapse the overlap the probe is built to observe, making every peak
+// assertion vacuous. Same reason `concurrency-runner.test.ts` and
+// `map-reduce.test.ts` use real delays for their peak assertions.
 const delay = (ms: number): Promise<void> =>
+  // eslint-disable-next-line no-restricted-syntax -- peak-concurrency assertions require real overlap
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Tracks simultaneous entries so a test can assert the peak. */
