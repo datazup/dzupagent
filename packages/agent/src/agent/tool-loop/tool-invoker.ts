@@ -1,40 +1,39 @@
-import type { StructuredToolInterface } from '@langchain/core/tools'
-import { ForgeError } from '@dzupagent/core/events'
-import { isTransientError } from '@dzupagent/core/llm'
-import { calculateBackoff } from '@dzupagent/core/utils'
+import type { StructuredToolInterface } from "@langchain/core/tools";
+import { ForgeError } from "@dzupagent/core/events";
+import { isTransientError } from "@dzupagent/core/llm";
+import { calculateBackoff } from "@dzupagent/core/utils";
 import {
   emitToolCancellationRequested,
   invokeWithOptionalTimeout,
-} from '../tool-lifecycle-policy.js'
+} from "../tool-lifecycle-policy.js";
 import {
   isToolCancellationError,
   isToolTimeoutError,
-} from '../tool-timeout-error.js'
-import type { ToolLoopConfig, ToolRetryConfig } from './types.js'
-import { omitUndefined } from '../../utils/exact-optional.js'
+} from "../tool-timeout-error.js";
+import type { ToolLoopConfig, ToolRetryConfig } from "./types.js";
+import { resolveToolTimeoutMs } from "../run-engine-defaults.js";
+import { omitUndefined } from "../../utils/exact-optional.js";
 import {
   emitPermissionDeniedSafetyViolation,
   evaluateToolPermission,
-} from './policy-checks.js'
+} from "./policy-checks.js";
 
 /**
  * Resolve a {@link ToolRetryConfig} into the concrete shape expected by the
  * retry loop. Returns `null` when retry is disabled (no entry, or maxAttempts
  * <= 1). Defaults match the values documented on `ToolLoopConfig.toolRetry`.
  */
-export function resolveRetryConfig(
-  raw: ToolRetryConfig | undefined,
-): {
-  maxAttempts: number
-  initialBackoffMs: number
-  maxBackoffMs: number
-  multiplier: number
-  jitter: boolean
-  retryOn: (err: Error) => boolean
+export function resolveRetryConfig(raw: ToolRetryConfig | undefined): {
+  maxAttempts: number;
+  initialBackoffMs: number;
+  maxBackoffMs: number;
+  multiplier: number;
+  jitter: boolean;
+  retryOn: (err: Error) => boolean;
 } | null {
-  if (!raw) return null
-  const maxAttempts = raw.maxAttempts ?? 3
-  if (maxAttempts <= 1) return null
+  if (!raw) return null;
+  const maxAttempts = raw.maxAttempts ?? 3;
+  if (maxAttempts <= 1) return null;
   return {
     maxAttempts,
     initialBackoffMs: raw.initialBackoffMs ?? 200,
@@ -42,16 +41,16 @@ export function resolveRetryConfig(
     multiplier: raw.multiplier ?? 2,
     jitter: raw.jitter ?? true,
     retryOn: raw.retryOn ?? isTransientError,
-  }
+  };
 }
 
 export interface InvokeWithRetryParams {
-  tool: StructuredToolInterface
-  toolName: string
-  toolCallId: string
-  validatedArgs: Record<string, unknown>
-  validatedKeys: string[]
-  config: ToolLoopConfig
+  tool: StructuredToolInterface;
+  toolName: string;
+  toolCallId: string;
+  validatedArgs: Record<string, unknown>;
+  validatedKeys: string[];
+  config: ToolLoopConfig;
 }
 
 /**
@@ -65,15 +64,23 @@ export interface InvokeWithRetryParams {
  * Throws on terminal failure; returns the raw tool result on success.
  */
 export async function invokeToolWithRetry(
-  params: InvokeWithRetryParams,
+  params: InvokeWithRetryParams
 ): Promise<unknown> {
-  const { tool, toolName, toolCallId, validatedArgs, validatedKeys, config } = params
+  const { tool, toolName, toolCallId, validatedArgs, validatedKeys, config } =
+    params;
 
-  const retryCfg = resolveRetryConfig(config.toolRetry?.[toolName])
+  const retryCfg = resolveRetryConfig(config.toolRetry?.[toolName]);
+  // ORCH-DSL-L1-H-03 — resolved once so the invocation deadline and the
+  // `timeoutMs` reported on tool:cancellation_requested cannot disagree.
+  const timeoutMs = resolveToolTimeoutMs(
+    config.toolTimeouts,
+    toolName,
+    config.defaultToolTimeoutMs
+  );
   const invokeOnce = (): Promise<unknown> =>
     invokeWithOptionalTimeout(
       toolName,
-      config.toolTimeouts?.[toolName],
+      timeoutMs,
       async ({ signal }) => {
         // REC-M-06 — Second permission-tier check at tool issuance.
         // This fires immediately before the underlying tool runs,
@@ -93,59 +100,60 @@ export async function invokeToolWithRetry(
         // `invokeWithOptionalTimeout` chains `.catch()` on the returned
         // promise to remap aborts.
         if (!evaluateToolPermission(config, toolName)) {
-          emitPermissionDeniedSafetyViolation(config, toolName)
+          emitPermissionDeniedSafetyViolation(config, toolName);
           throw new ForgeError({
-            code: 'TOOL_PERMISSION_DENIED',
+            code: "TOOL_PERMISSION_DENIED",
             message: `Tool "${toolName}" is not accessible to agent "${config.agentId}"`,
-            context: { agentId: config.agentId, toolName, phase: 'issuance' },
-          })
+            context: { agentId: config.agentId, toolName, phase: "issuance" },
+          });
         }
-        return tool.invoke(validatedArgs, { signal })
+        return tool.invoke(validatedArgs, { signal });
       },
       omitUndefined({
         signal: config.signal,
-        onCancelRequested: (reason: 'timeout' | 'run_cancelled') => emitToolCancellationRequested(config, {
-          toolName,
-          toolCallId,
-          inputMetadataKeys: validatedKeys,
-          reason,
-          ...(reason === 'timeout' && config.toolTimeouts?.[toolName] !== undefined
-            ? { timeoutMs: config.toolTimeouts[toolName] }
-            : {}),
-        }),
-      }),
-    )
+        onCancelRequested: (reason: "timeout" | "run_cancelled") =>
+          emitToolCancellationRequested(config, {
+            toolName,
+            toolCallId,
+            inputMetadataKeys: validatedKeys,
+            reason,
+            ...(reason === "timeout" && timeoutMs !== undefined
+              ? { timeoutMs }
+              : {}),
+          }),
+      })
+    );
 
   if (!retryCfg) {
-    return invokeOnce()
+    return invokeOnce();
   }
 
-  let attempt = 0
+  let attempt = 0;
   // Loop is bounded by retryCfg.maxAttempts; the body either returns,
   // breaks (non-retryable), or sleeps then re-iterates.
   while (true) {
     try {
-      return await invokeOnce()
+      return await invokeOnce();
     } catch (err: unknown) {
       // Cancellation is upstream-driven and must never be retried —
       // the caller asked us to stop. Same for already-fired timeouts:
       // retrying would just hit the per-call deadline again.
-      if (isToolCancellationError(err) || isToolTimeoutError(err)) throw err
+      if (isToolCancellationError(err) || isToolTimeoutError(err)) throw err;
       // ForgeError surfaces structured permission/governance/approval
       // denials (raised before tool.invoke runs) — never retry.
-      if (err instanceof ForgeError) throw err
-      const errAsError = err instanceof Error ? err : new Error(String(err))
-      const remaining = retryCfg.maxAttempts - attempt - 1
-      if (remaining <= 0) throw err
-      if (!retryCfg.retryOn(errAsError)) throw err
+      if (err instanceof ForgeError) throw err;
+      const errAsError = err instanceof Error ? err : new Error(String(err));
+      const remaining = retryCfg.maxAttempts - attempt - 1;
+      if (remaining <= 0) throw err;
+      if (!retryCfg.retryOn(errAsError)) throw err;
       // Honor caller cancellation between attempts.
-      if (config.signal?.aborted) throw err
+      if (config.signal?.aborted) throw err;
       const delayMs = calculateBackoff(attempt, {
         initialBackoffMs: retryCfg.initialBackoffMs,
         maxBackoffMs: retryCfg.maxBackoffMs,
         multiplier: retryCfg.multiplier,
         jitter: retryCfg.jitter,
-      })
+      });
       // No dedicated `tool:retry` event exists in the DzupEvent union
       // (audit constraint: do not extend the union without owner sign-off).
       // Surface the retry decision via the optional onToolLatency hook so
@@ -154,30 +162,32 @@ export async function invokeToolWithRetry(
       config.onToolLatency?.(
         toolName,
         0,
-        `retry ${attempt + 1}/${retryCfg.maxAttempts - 1} after ${delayMs}ms: ${errAsError.message}`,
-      )
+        `retry ${attempt + 1}/${retryCfg.maxAttempts - 1} after ${delayMs}ms: ${
+          errAsError.message
+        }`
+      );
       // If the parent signal aborts during backoff, wake up early so
       // we can surface the cancellation on the next iteration.
       // The listener is always removed after the promise settles to
       // prevent accumulation across retries (DZUPAGENT-AGENT-L-05).
-      let onAbort: (() => void) | undefined
+      let onAbort: (() => void) | undefined;
       try {
         await new Promise<void>((resolve) => {
-          const t = setTimeout(resolve, delayMs)
+          const t = setTimeout(resolve, delayMs);
           if (config.signal) {
             onAbort = (): void => {
-              clearTimeout(t)
-              resolve()
-            }
-            config.signal.addEventListener('abort', onAbort, { once: true })
+              clearTimeout(t);
+              resolve();
+            };
+            config.signal.addEventListener("abort", onAbort, { once: true });
           }
-        })
+        });
       } finally {
         if (onAbort && config.signal) {
-          config.signal.removeEventListener('abort', onAbort)
+          config.signal.removeEventListener("abort", onAbort);
         }
       }
-      attempt++
+      attempt++;
     }
   }
 }

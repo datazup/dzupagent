@@ -27,10 +27,52 @@ export const DEFAULT_UNGUARDED_BUDGET = Object.freeze({
   outputTokens: 50_000,
   /** Lowered iteration cap when no explicit guardrails were provided. */
   maxIterations: 5,
-} as const)
+} as const);
 
 /** Default `maxIterations` when `config.guardrails` IS provided. */
-export const DEFAULT_GUARDED_MAX_ITERATIONS = 10
+export const DEFAULT_GUARDED_MAX_ITERATIONS = 10;
+
+/**
+ * ORCH-DSL-L1-H-03 — default per-tool wall-clock deadline.
+ *
+ * Timeouts are looked up by tool name, and before this default a tool absent
+ * from `toolTimeouts` ran with no deadline at all: the fail-open opposite of
+ * the fail-closed posture {@link DEFAULT_UNGUARDED_BUDGET} applies to tokens.
+ * The whole-run deadline (ORCH-DSL-L1-H-02) does not cover the gap, because
+ * `guardrails.maxDurationMs` is itself optional and has no default — and even
+ * when set, one hung tool would consume the entire run budget rather than
+ * failing fast and letting the loop recover.
+ *
+ * The value matches the long-standing `defaultToolTimeoutMs` in
+ * `production-tool-governance-preset.ts`, which already defaults to 30s; this
+ * makes the engine default agree with the preset instead of contradicting it.
+ *
+ * Opt out per tool with an explicit `Infinity` in `toolTimeouts`, or globally
+ * by setting `defaultToolTimeoutMs: Infinity` on the tool-execution policy.
+ */
+export const DEFAULT_TOOL_TIMEOUT_MS = 30_000;
+
+/**
+ * Resolve the deadline for a single tool invocation.
+ *
+ * Precedence: an explicit per-name entry wins; otherwise the caller-supplied
+ * default; otherwise {@link DEFAULT_TOOL_TIMEOUT_MS}. A non-finite or
+ * non-positive resolved value means "unbounded" and is returned as `undefined`
+ * so `invokeWithOptionalTimeout` installs no timer — the documented opt-out.
+ *
+ * Shared by the generate and streaming tool paths so the two cannot drift.
+ */
+export function resolveToolTimeoutMs(
+  perToolTimeouts: Record<string, number> | undefined,
+  toolName: string,
+  defaultToolTimeoutMs: number | undefined = DEFAULT_TOOL_TIMEOUT_MS
+): number | undefined {
+  const explicit = perToolTimeouts?.[toolName];
+  const resolved = explicit ?? defaultToolTimeoutMs;
+  if (resolved === undefined) return undefined;
+  if (!Number.isFinite(resolved) || resolved <= 0) return undefined;
+  return resolved;
+}
 
 /**
  * Internal: agent ids for which the "no guardrails" warning has already been
@@ -41,4 +83,4 @@ export const DEFAULT_GUARDED_MAX_ITERATIONS = 10
  * Exported only for tests (to clear between cases). Production callers
  * should not touch this.
  */
-export const _warnedAgentIds = new Set<string>()
+export const _warnedAgentIds = new Set<string>();

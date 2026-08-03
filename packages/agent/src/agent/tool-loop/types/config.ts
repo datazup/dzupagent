@@ -341,12 +341,25 @@ export interface ToolLoopConfig {
    *
    * Enforces {@link ToolGovernanceConfig.maxExecutionMs} semantics at the
    * call-site instead of at the governance layer (governance declares the
-   * policy; the loop enforces it). Tools not listed here run without an
-   * explicit timeout.
+   * policy; the loop enforces it).
+   *
+   * Tools not listed here fall back to {@link defaultToolTimeoutMs}
+   * (ORCH-DSL-L1-H-03); they are no longer unbounded. Pass `Infinity` for a
+   * specific tool to opt that one out.
    *
    * Example: `{ fetchUrl: 10_000, expensiveQuery: 60_000 }`.
    */
   toolTimeouts?: Record<string, number>;
+
+  /**
+   * Deadline applied to any tool with no explicit {@link toolTimeouts} entry.
+   *
+   * Defaults to `DEFAULT_TOOL_TIMEOUT_MS` (30s) — matching the long-standing
+   * default in `production-tool-governance-preset.ts`. Set to `Infinity` to
+   * restore the pre-ORCH-DSL-L1-H-03 unbounded behaviour for every unlisted
+   * tool.
+   */
+  defaultToolTimeoutMs?: number;
 
   /**
    * Optional OTel tracer for emitting one span per tool invocation.

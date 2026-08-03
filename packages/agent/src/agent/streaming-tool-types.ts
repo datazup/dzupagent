@@ -1,35 +1,30 @@
-import type { ToolMessage } from '@langchain/core/messages'
-import type { DzupEventBus } from '@dzupagent/core/events'
-import type { SafetyMonitor } from '@dzupagent/core/security'
-import type { ToolGovernance } from '@dzupagent/core/tools'
-import type { ToolPermissionPolicy } from '@dzupagent/agent-types'
-import type {
-  PiiMode,
-  PromptInjectionMode,
-} from '@dzupagent/security'
-import type {
-  ToolArgValidatorConfig,
-} from './tool-arg-validator.js'
+import type { ToolMessage } from "@langchain/core/messages";
+import type { DzupEventBus } from "@dzupagent/core/events";
+import type { SafetyMonitor } from "@dzupagent/core/security";
+import type { ToolGovernance } from "@dzupagent/core/tools";
+import type { ToolPermissionPolicy } from "@dzupagent/agent-types";
+import type { PiiMode, PromptInjectionMode } from "@dzupagent/security";
+import type { ToolArgValidatorConfig } from "./tool-arg-validator.js";
 import type {
   ToolLoopTracer,
   ToolResultScanFailureMode,
   ToolStat,
-} from './tool-loop.js'
+} from "./tool-loop.js";
 
 export interface StreamingToolExecutionResult {
-  message: ToolMessage
-  eventResult: string
-  approvalPending?: boolean
-  stuckReason?: string
-  stuckRecovery?: string
-  repeatedTool?: string
-  shouldStop?: boolean
-  stuckNudge?: ToolMessage
+  message: ToolMessage;
+  eventResult: string;
+  approvalPending?: boolean;
+  stuckReason?: string;
+  stuckRecovery?: string;
+  repeatedTool?: string;
+  shouldStop?: boolean;
+  stuckNudge?: ToolMessage;
 }
 
 export interface ToolStatTracker {
-  record: (name: string, durationMs: number, error?: string) => void
-  toArray: () => ToolStat[]
+  record: (name: string, durationMs: number, error?: string) => void;
+  toArray: () => ToolStat[];
 }
 
 /**
@@ -39,13 +34,18 @@ export interface ToolStatTracker {
  * sequential `tool-loop.ts` path.
  */
 export interface StreamingToolPolicyOptions {
-  toolGovernance?: ToolGovernance
-  toolPermissionPolicy?: ToolPermissionPolicy
-  validateToolArgs?: boolean | ToolArgValidatorConfig
-  toolTimeouts?: Record<string, number>
-  safetyMonitor?: SafetyMonitor
-  scanToolResults?: boolean
-  scanFailureMode?: ToolResultScanFailureMode
+  toolGovernance?: ToolGovernance;
+  toolPermissionPolicy?: ToolPermissionPolicy;
+  validateToolArgs?: boolean | ToolArgValidatorConfig;
+  toolTimeouts?: Record<string, number>;
+  /**
+   * ORCH-DSL-L1-H-03 — deadline for tools with no `toolTimeouts` entry.
+   * Defaults to `DEFAULT_TOOL_TIMEOUT_MS` (30s); `Infinity` opts out.
+   */
+  defaultToolTimeoutMs?: number;
+  safetyMonitor?: SafetyMonitor;
+  scanToolResults?: boolean;
+  scanFailureMode?: ToolResultScanFailureMode;
   /**
    * RF-15 — prompt-injection scanning on tool results.
    *
@@ -54,11 +54,11 @@ export interface StreamingToolPolicyOptions {
    * sanitized placeholder before reaching the model. On `'warn'`, matched
    * spans are rewritten and a `safety:violation` event is emitted.
    */
-  promptInjectionToolResults?: PromptInjectionMode
+  promptInjectionToolResults?: PromptInjectionMode;
   /**
    * PII scanning on tool results — mirrors `promptInjectionToolResults` for PII.
    */
-  piiToolResults?: PiiMode
+  piiToolResults?: PiiMode;
   /**
    * MC-3 (AGENT-H-06 / SEC-M-06) — prompt-injection guardrail. Mirrors
    * `ToolLoopConfig.promptInjectionGuard` so the streaming tool path wraps a
@@ -72,17 +72,17 @@ export interface StreamingToolPolicyOptions {
   promptInjectionGuard?: {
     wrap: (
       content: string,
-      opts?: { label?: string; screen?: boolean; delimit?: boolean },
-    ) => string
-  }
+      opts?: { label?: string; screen?: boolean; delimit?: boolean }
+    ) => string;
+  };
   /**
    * Disable wrapping tool results via {@link promptInjectionGuard}. Defaults
    * to `true` (wrapping ON), mirroring `ToolLoopConfig.wrapToolResults`.
    */
-  wrapToolResults?: boolean
-  tracer?: ToolLoopTracer
-  agentId?: string
-  runId?: string
-  eventBus?: DzupEventBus
-  signal?: AbortSignal
+  wrapToolResults?: boolean;
+  tracer?: ToolLoopTracer;
+  agentId?: string;
+  runId?: string;
+  eventBus?: DzupEventBus;
+  signal?: AbortSignal;
 }
