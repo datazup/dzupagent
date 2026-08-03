@@ -157,7 +157,7 @@ function buildPolicyConfig(
  */
 function raceAgainstSignal<T>(
   promise: Promise<T>,
-  signal: AbortSignal | undefined,
+  signal: AbortSignal | undefined
 ): Promise<T> {
   if (!signal) return promise;
   if (signal.aborted) return Promise.reject(new ModelCancellationError());
@@ -201,7 +201,7 @@ export async function setupModelCall(
   // closure below so that closure can race against it.
   const runDeadline = createRunDeadline(
     params.config.guardrails?.maxDurationMs,
-    params.options?.signal,
+    params.options?.signal
   );
   const raceRunDeadline = <T>(promise: Promise<T>): Promise<T> =>
     raceAgainstSignal(promise, runDeadline.signal);
@@ -216,10 +216,13 @@ export async function setupModelCall(
     params.config.model,
     params.runState.model
   );
+  // Resolved once and shared: the model-hook context and the `llm:invoked`
+  // telemetry event (ORCH-DSL-L1-H-16) must agree on the run identity.
+  const hookRunId = params.options?.runId ?? toolExec?.runId;
   const hookCtx = buildModelHookContext(
     params.config,
     params.agentId,
-    params.options?.runId ?? toolExec?.runId
+    hookRunId
   );
   const invokeModelWithHooks = async (
     model: typeof params.runState.model,
@@ -241,7 +244,9 @@ export async function setupModelCall(
       // ORCH-DSL-L1-C-01 / L1-H-02 — the generate path's model await. The tool
       // loop only samples `config.signal` *between* iterations, so a first call
       // that never settles is never reached by that check; bound it here.
-      const response = await raceRunDeadline(auditedInvokeModel(model, messages));
+      const response = await raceRunDeadline(
+        auditedInvokeModel(model, messages)
+      );
       await runAfterModelCall(
         modelHooks?.afterModelCall ? [modelHooks.afterModelCall] : undefined,
         params.config.eventBus,
@@ -316,9 +321,16 @@ export async function setupModelCall(
           // Compliance / audit — ISO/IEC 42001 traceability: every LLM
           // invocation must be recorded in the audit store. The event bus
           // listener in ComplianceAuditLogger picks this up automatically.
+          // ORCH-DSL-L1-H-16 — `runId` must ride along: the run-metrics bridge
+          // (`attachRunMetricsBridge`) early-returns on `llm:invoked` events
+          // that lack one, so omitting it silently zeroed per-run token and
+          // cost accumulation for every run. Resolved unconditionally rather
+          // than from `runStateRunId`, which is `undefined` unless a run-state
+          // store is configured — the same resolution the model hooks use.
           params.config.eventBus?.emit({
             type: "llm:invoked",
             agentId: params.agentId,
+            ...(hookRunId !== undefined ? { runId: hookRunId } : {}),
             model: usage.model,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
