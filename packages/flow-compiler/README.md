@@ -1,6 +1,6 @@
 # @dzupagent/flow-compiler
 
-Flow compiler for DzupAgent — compiles flow-ast into skill-chain, workflow-builder, or pipeline artifacts
+Flow compiler for DzupAgent — compiles flow-ast into skill-chain, workflow-builder, pipeline, or planning-dag artifacts
 
 Part of the [DzupAgent](../../README.md) framework.
 
