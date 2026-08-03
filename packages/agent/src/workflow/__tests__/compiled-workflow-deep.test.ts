@@ -997,9 +997,9 @@ describe("CompiledWorkflow — edge cases", () => {
       .then(step("passthrough", (s) => s))
       .build();
 
-    const result = await wf.run({ 日本語: "🎌テスト", key: "value null" });
+    const result = await wf.run({ 日本語: "🎌テスト", key: "value\0null" });
     expect(result["日本語"]).toBe("🎌テスト");
-    expect(result["key"]).toBe("value null");
+    expect(result["key"]).toBe("value\0null");
   });
 
   it("deeply nested state object survives multi-step workflow", async () => {

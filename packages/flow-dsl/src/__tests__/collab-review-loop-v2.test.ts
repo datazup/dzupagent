@@ -120,10 +120,19 @@ function validInput(): Record<string, unknown> {
 function flattenNodes(node: FlowNode): FlowNode[] {
   const nodes = [node];
   const value = node as unknown as Record<string, unknown>;
-  for (const field of ["nodes", "body", "then", "else", "onApprove", "onReject"]) {
+  for (const field of [
+    "nodes",
+    "body",
+    "then",
+    "else",
+    "onApprove",
+    "onReject",
+  ]) {
     const children = value[field];
     if (Array.isArray(children)) {
-      nodes.push(...children.flatMap((child) => flattenNodes(child as FlowNode)));
+      nodes.push(
+        ...children.flatMap((child) => flattenNodes(child as FlowNode))
+      );
     }
   }
   if (Array.isArray(value.branches)) {
@@ -137,8 +146,10 @@ function flattenNodes(node: FlowNode): FlowNode[] {
 describe("collab.review_loop@2", () => {
   it("is registered additively beside v1 and exported in the primitive catalog", () => {
     const versions = BUILT_IN_PRIMITIVES.filter(
-      (definition) => definition.kind === "collab.review_loop",
-    ).map((definition) => definition.version).sort();
+      (definition) => definition.kind === "collab.review_loop"
+    )
+      .map((definition) => definition.version)
+      .sort();
     expect(versions).toEqual(["1", "2"]);
 
     const catalogVersions = exportPrimitiveCatalog(BUILT_IN_PRIMITIVES)
@@ -149,8 +160,8 @@ describe("collab.review_loop@2", () => {
     expect(
       BUILT_IN_PRIMITIVES.find(
         (definition) =>
-          definition.kind === "collab.review_loop" && definition.version === "2",
-      )?.schema,
+          definition.kind === "collab.review_loop" && definition.version === "2"
+      )?.schema
     ).toMatchObject({
       type: "object",
       additionalProperties: false,
@@ -205,13 +216,16 @@ describe("collab.review_loop@2", () => {
       "return_to",
       "complete",
     ]);
+    // ORCH-DSL-TEST-H-05 — guard before `every()`: an empty expansion would
+    // otherwise satisfy both this and the meta assertion that follows.
+    expect(expanded.length).toBeGreaterThan(0);
     expect(expanded.every((node) => existingTypes.has(node.type))).toBe(true);
     expect(
       expanded.every(
         (node) =>
           node.meta?.collabExpansion === "packet" &&
-          node.meta?.primitive === "collab.review_loop@2",
-      ),
+          node.meta?.primitive === "collab.review_loop@2"
+      )
     ).toBe(true);
 
     const outputKeys = expanded.flatMap((node) => {
@@ -233,10 +247,11 @@ describe("collab.review_loop@2", () => {
     if (!parsed.ok) return;
 
     const nodes = flattenNodes(parsed.document.root);
-    const outputNodes = nodes.filter((node) =>
-      node.type === "adapter.run" ||
-      node.type === "evidence.write" ||
-      node.type === "validate.schema"
+    const outputNodes = nodes.filter(
+      (node) =>
+        node.type === "adapter.run" ||
+        node.type === "evidence.write" ||
+        node.type === "validate.schema"
     );
     const outputKeys = outputNodes.map((node) => node.output);
     expect(outputKeys).toEqual([
@@ -245,7 +260,9 @@ describe("collab.review_loop@2", () => {
       "packet_reviewer_output",
       "packet_reviewer_schema_validation",
     ]);
-    expect(outputKeys.every((key) => /^[A-Za-z][A-Za-z0-9_]*$/.test(key))).toBe(true);
+    expect(outputKeys.every((key) => /^[A-Za-z][A-Za-z0-9_]*$/.test(key))).toBe(
+      true
+    );
 
     const implementerOutput = { result: "candidate_submitted" };
     const candidateEvidence = { digest: "candidate-digest" };
@@ -259,33 +276,39 @@ describe("collab.review_loop@2", () => {
 
     const evidenceWrite = nodes.find((node) => node.type === "evidence.write");
     expect(evidenceWrite?.source).toBe("{{ state.packet_implementer_output }}");
-    expect(resolveFlowTemplateExpression(evidenceWrite?.source ?? "", state)).toBe(
-      implementerOutput,
-    );
+    expect(
+      resolveFlowTemplateExpression(evidenceWrite?.source ?? "", state)
+    ).toBe(implementerOutput);
 
     const reviewer = nodes.filter((node) => node.type === "adapter.run")[1];
-    const reviewerInput = reviewer?.input as Record<string, unknown> | undefined;
+    const reviewerInput = reviewer?.input as
+      | Record<string, unknown>
+      | undefined;
     const reviewerEvidence = reviewerInput?.evidence as
       | Record<string, unknown>
       | undefined;
     const reviewerCandidate = reviewerEvidence?.candidate;
     expect(reviewerCandidate).toBe("{{ state.packet_candidate_evidence }}");
-    expect(resolveFlowTemplateExpression(String(reviewerCandidate), state)).toBe(
-      candidateEvidence,
-    );
+    expect(
+      resolveFlowTemplateExpression(String(reviewerCandidate), state)
+    ).toBe(candidateEvidence);
 
-    const schemaValidation = nodes.find((node) => node.type === "validate.schema");
-    expect(schemaValidation?.source).toBe("{{ state.packet_reviewer_output }}");
-    expect(resolveFlowTemplateExpression(schemaValidation?.source ?? "", state)).toBe(
-      reviewerOutput,
+    const schemaValidation = nodes.find(
+      (node) => node.type === "validate.schema"
     );
+    expect(schemaValidation?.source).toBe("{{ state.packet_reviewer_output }}");
+    expect(
+      resolveFlowTemplateExpression(schemaValidation?.source ?? "", state)
+    ).toBe(reviewerOutput);
 
     const conditions = nodes
       .filter((node) => node.type === "branch" || node.type === "return_to")
       .map((node) => node.condition);
-    expect(conditions.map((condition) =>
-      resolveFlowConditionExpression(condition, state)
-    )).toEqual([true, false, false, false, false, false]);
+    expect(
+      conditions.map((condition) =>
+        resolveFlowConditionExpression(condition, state)
+      )
+    ).toEqual([true, false, false, false, false, false]);
   });
 
   it("binds explicit actors, schemas, evidence, validation, and bounded revision", () => {
@@ -328,9 +351,11 @@ describe("collab.review_loop@2", () => {
     expect(nodes.find((node) => node.type === "validate")).toMatchObject({
       ref: "packet_validation",
     });
-    expect(nodes.find((node) => node.type === "validate.schema")).toMatchObject({
-      schema: "controller-reviewer-output/v1",
-    });
+    expect(nodes.find((node) => node.type === "validate.schema")).toMatchObject(
+      {
+        schema: "controller-reviewer-output/v1",
+      }
+    );
     expect(nodes.find((node) => node.type === "return_to")).toMatchObject({
       targetId: "packet__implement",
       condition: "state.packet_reviewer_output.verdict === 'revise'",
@@ -357,20 +382,24 @@ describe("collab.review_loop@2", () => {
       "state.packet_reviewer_output.verdict === 'reject_scope'",
       "state.packet_reviewer_output.verdict === 'reject_correctness'",
     ]);
-    expect(conditions.every((condition) =>
-      condition.includes("state.packet_reviewer_output.verdict"),
-    )).toBe(true);
+    expect(
+      conditions.every((condition) =>
+        condition.includes("state.packet_reviewer_output.verdict")
+      )
+    ).toBe(true);
 
     const results = nodes
       .filter((node) => node.type === "complete")
       .map((node) => node.result);
-    expect(results).toEqual(expect.arrayContaining([
-      "review_accepted",
-      "blocked_external",
-      "rejected_scope",
-      "rejected_correctness",
-      "failed_invalid_reviewer_verdict",
-    ]));
+    expect(results).toEqual(
+      expect.arrayContaining([
+        "review_accepted",
+        "blocked_external",
+        "rejected_scope",
+        "rejected_correctness",
+        "failed_invalid_reviewer_verdict",
+      ])
+    );
     expect(new Set(results).size).toBe(results.length);
   });
 
@@ -384,7 +413,10 @@ describe("collab.review_loop@2", () => {
       "malformed identity",
       () => ({
         ...validInput(),
-        identity: { ...(validInput().identity as object), planHash: "not-a-hash" },
+        identity: {
+          ...(validInput().identity as object),
+          planHash: "not-a-hash",
+        },
       }),
       /identity\.planHash is invalid/,
     ],

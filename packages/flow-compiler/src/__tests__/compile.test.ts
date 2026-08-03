@@ -183,14 +183,15 @@ steps:
 `);
 
     expect("errors" in result).toBe(true);
-    if (!("errors" in result)) throw new Error("expected strict compile failure");
+    if (!("errors" in result))
+      throw new Error("expected strict compile failure");
     expect(result.errors).toContainEqual(
       expect.objectContaining({
         stage: 3,
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[0].input.prompt",
         message: expect.stringContaining("[MISSING_REFERENCE]"),
-      }),
+      })
     );
   });
 
@@ -456,6 +457,10 @@ describe("createFlowCompiler — stage 2 errors", () => {
 
     expect("errors" in result).toBe(true);
     const failure = result as { errors: Array<{ stage: number }> };
+    // ORCH-DSL-TEST-H-05 — `[].every(...)` is `true`, so without this guard a
+    // total loss of stage-2 diagnostics would still pass. Mirrors the guarded
+    // idiom already used above.
+    expect(failure.errors.length).toBeGreaterThan(0);
     expect(failure.errors.every((e) => e.stage === 2)).toBe(true);
   });
 
@@ -592,9 +597,12 @@ describe("createFlowCompiler — stage 3 errors", () => {
 
     expect("errors" in result).toBe(true);
     const failure = result as { errors: Array<{ stage: number }> };
-    expect(failure.errors.every((e) => e.stage === 3)).toBe(true);
+    // ORCH-DSL-TEST-H-05 — assert the count BEFORE `every()`, not after: an
+    // empty array satisfies `every()`, so the ordering is what makes the
+    // stage assertion meaningful rather than vacuous.
     // 2 unresolved refs → 2 errors
     expect(failure.errors).toHaveLength(2);
+    expect(failure.errors.every((e) => e.stage === 3)).toBe(true);
   });
 
   it("threads strict reference policy and binding snapshots through the compiler", async () => {
@@ -612,14 +620,15 @@ describe("createFlowCompiler — stage 3 errors", () => {
     });
 
     expect("errors" in result).toBe(true);
-    if (!("errors" in result)) throw new Error("expected strict compile failure");
+    if (!("errors" in result))
+      throw new Error("expected strict compile failure");
     expect(result.errors).toContainEqual(
       expect.objectContaining({
         stage: 3,
         code: "INVALID_CONDITION",
         nodePath: "root.condition",
         message: expect.stringContaining("MISSING_REFERENCE"),
-      }),
+      })
     );
   });
 
@@ -659,14 +668,15 @@ describe("createFlowCompiler — stage 3 errors", () => {
     });
 
     expect("errors" in result).toBe(true);
-    if (!("errors" in result)) throw new Error("expected strict compile failure");
+    if (!("errors" in result))
+      throw new Error("expected strict compile failure");
     expect(result.errors).toContainEqual(
       expect.objectContaining({
         stage: 3,
         code: "INVALID_CONDITION",
         nodePath: "root.nodes[0].condition",
         message: expect.stringContaining("MISSING_REFERENCE"),
-      }),
+      })
     );
   });
 
@@ -696,8 +706,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
           {
             type: "branch",
             id: "gate",
-            condition:
-              "state.ready === true && steps.prepare.result !== null",
+            condition: "state.ready === true && steps.prepare.result !== null",
             then: [
               {
                 type: "action",
@@ -745,14 +754,15 @@ describe("createFlowCompiler — stage 3 errors", () => {
     });
 
     expect("errors" in result).toBe(true);
-    if (!("errors" in result)) throw new Error("expected strict compile failure");
+    if (!("errors" in result))
+      throw new Error("expected strict compile failure");
     expect(result.errors).toContainEqual(
       expect.objectContaining({
         stage: 3,
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[0].input.prompt",
         message: expect.stringContaining("[MISSING_REFERENCE]"),
-      }),
+      })
     );
   });
 
@@ -792,19 +802,20 @@ describe("createFlowCompiler — stage 3 errors", () => {
     });
 
     expect("errors" in result).toBe(true);
-    if (!("errors" in result)) throw new Error("expected strict compile failure");
+    if (!("errors" in result))
+      throw new Error("expected strict compile failure");
     expect(result.errors).toContainEqual(
       expect.objectContaining({
         stage: 3,
         code: "UNSAFE_DATA_FLOW",
         nodePath: "root.nodes[0].input.prompt",
         message: expect.stringContaining("[SECRET_TO_TOOL_INPUT]"),
-      }),
+      })
     );
     expect(
       result.errors.some((error) =>
-        error.message.includes("[MISSING_REFERENCE]"),
-      ),
+        error.message.includes("[MISSING_REFERENCE]")
+      )
     ).toBe(false);
   });
 
@@ -835,7 +846,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[1].result",
         message: expect.stringContaining("[MISSING_REFERENCE_PORT]"),
-      }),
+      })
     );
   });
 
@@ -890,7 +901,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[0].assign.copied",
         message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
-      }),
+      })
     );
   });
 
@@ -931,7 +942,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
       expect.objectContaining({
         nodePath: "root.nodes[1].result",
         message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
-      }),
+      })
     );
   });
 
@@ -956,7 +967,8 @@ describe("createFlowCompiler — stage 3 errors", () => {
       ],
     });
     expect("errors" in invalid).toBe(true);
-    if (!("errors" in invalid)) throw new Error("expected cross-branch failure");
+    if (!("errors" in invalid))
+      throw new Error("expected cross-branch failure");
     expect(invalid.errors[0]?.message).toContain("[REFERENCE_NOT_AVAILABLE]");
 
     const valid = await compiler.compile({
@@ -1059,12 +1071,13 @@ describe("createFlowCompiler — stage 3 errors", () => {
       },
     });
     expect("errors" in wrongSource).toBe(true);
-    if (!("errors" in wrongSource)) throw new Error("expected loop type failure");
+    if (!("errors" in wrongSource))
+      throw new Error("expected loop type failure");
     expect(wrongSource.errors).toContainEqual(
       expect.objectContaining({
         nodePath: "root.nodes[0].source",
         message: expect.stringContaining("iteration requires an array"),
-      }),
+      })
     );
 
     const leakedAlias = await compiler.compileDocument({
@@ -1101,17 +1114,18 @@ describe("createFlowCompiler — stage 3 errors", () => {
       },
     });
     expect("errors" in leakedAlias).toBe(true);
-    if (!("errors" in leakedAlias)) throw new Error("expected lexical scope failure");
+    if (!("errors" in leakedAlias))
+      throw new Error("expected lexical scope failure");
     expect(leakedAlias.errors).toContainEqual(
       expect.objectContaining({
         nodePath: "root.nodes[1].result",
         message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
-      }),
+      })
     );
     expect(
       leakedAlias.errors.filter(
-        (error) => error.nodePath === "root.nodes[0].body[0].assign.itemCopy",
-      ),
+        (error) => error.nodePath === "root.nodes[0].body[0].assign.itemCopy"
+      )
     ).toEqual([]);
   });
 });

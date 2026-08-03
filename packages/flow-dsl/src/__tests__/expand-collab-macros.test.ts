@@ -32,6 +32,10 @@ describe("expandCollabMacros (MPCO P5)", () => {
     };
     const types = stepTypes(out);
     expect(types).not.toContain("collab.review_loop");
+    // ORCH-DSL-TEST-H-05 — an expansion that produced no steps at all would
+    // satisfy both the `not.toContain` above and the `every()` below. Pin that
+    // the macro actually expanded into something.
+    expect(types.length).toBeGreaterThan(0);
     expect(
       types.every((t) =>
         [
