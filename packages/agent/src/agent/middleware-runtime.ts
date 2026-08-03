@@ -1,76 +1,88 @@
-import type { BaseMessage } from '@langchain/core/messages'
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { StructuredToolInterface } from '@langchain/core/tools'
-import type { AgentMiddleware } from '@dzupagent/core/llm'
+import type { BaseMessage } from "@langchain/core/messages";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { StructuredToolInterface } from "@langchain/core/tools";
+import type { AgentMiddleware } from "@dzupagent/core/llm";
 
 export interface AgentMiddlewareRuntimeConfig {
-  agentId: string
-  middleware?: AgentMiddleware[]
+  agentId: string;
+  middleware?: AgentMiddleware[];
 }
 
 export class AgentMiddlewareRuntime {
   constructor(private readonly config: AgentMiddlewareRuntimeConfig) {}
 
-  resolveTools(tools: StructuredToolInterface[] = []): StructuredToolInterface[] {
-    const resolvedTools = [...tools]
+  resolveTools(
+    tools: StructuredToolInterface[] = []
+  ): StructuredToolInterface[] {
+    const resolvedTools = [...tools];
 
     for (const middleware of this.config.middleware ?? []) {
       if (middleware.tools) {
-        resolvedTools.push(...middleware.tools)
+        resolvedTools.push(...middleware.tools);
       }
     }
 
-    return resolvedTools
+    return resolvedTools;
   }
 
   async runBeforeAgentHooks(): Promise<void> {
     for (const middleware of this.config.middleware ?? []) {
       if (!middleware.beforeAgent) {
-        continue
+        continue;
       }
 
       try {
-        await middleware.beforeAgent({})
+        await middleware.beforeAgent({});
       } catch {
         // Middleware failures are non-fatal.
       }
     }
   }
 
+  /**
+   * @param options.signal Run/deadline cancellation (ORCH-DSL-L1-C-01). Passed
+   *   through to `model.invoke` so providers that honour it stop work at the
+   *   source. Optional so existing callers are unaffected.
+   */
   async invokeModel(
     model: BaseChatModel,
     messages: BaseMessage[],
+    options: { signal?: AbortSignal } = {}
   ): Promise<BaseMessage> {
     const wrapper = (this.config.middleware ?? []).find(
-      (middleware) => typeof middleware.wrapModelCall === 'function',
-    )
+      (middleware) => typeof middleware.wrapModelCall === "function"
+    );
 
     if (wrapper?.wrapModelCall) {
-      return wrapper.wrapModelCall(model, messages, { agentId: this.config.agentId })
+      return wrapper.wrapModelCall(model, messages, {
+        agentId: this.config.agentId,
+      });
     }
 
-    return model.invoke(messages)
+    return options.signal
+      ? model.invoke(messages, { signal: options.signal })
+      : model.invoke(messages);
   }
 
   async transformToolResult(
     toolName: string,
     input: Record<string, unknown>,
-    result: string,
+    result: string
   ): Promise<string> {
-    let current = result
+    let current = result;
 
     for (const middleware of this.config.middleware ?? []) {
       if (!middleware.wrapToolCall) {
-        continue
+        continue;
       }
 
       try {
-        current = await middleware.wrapToolCall(toolName, input, current)
+        current = await middleware.wrapToolCall(toolName, input, current);
       } catch {
         // Middleware failures are non-fatal.
       }
     }
 
-    return current
+    return current;
   }
 }

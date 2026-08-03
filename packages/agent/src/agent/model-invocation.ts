@@ -22,21 +22,104 @@
  * Extracted from `dzip-agent.ts` (MC-004). Re-exports `ProviderAttempt`
  * from `provider-failover.js` so callers have a single import site.
  */
-import type { BaseMessage } from '@langchain/core/messages'
-import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
-import type { ModelRegistry } from '@dzupagent/core/llm'
-import type { AgentMiddlewareRuntime } from './middleware-runtime.js'
+import type { BaseMessage } from "@langchain/core/messages";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import type { ModelRegistry } from "@dzupagent/core/llm";
+import type { AgentMiddlewareRuntime } from "./middleware-runtime.js";
+import {
+  ModelCancellationError,
+  ModelTimeoutError,
+} from "./model-timeout-error.js";
 import {
   attemptWithFailover,
   type ProviderAttempt,
-} from './provider-failover.js'
+} from "./provider-failover.js";
 import {
   awaitRateLimit,
   recordDistributedCost,
   type RateLimitCoordinatorDeps,
-} from './rate-limit-coordinator.js'
+} from "./rate-limit-coordinator.js";
 
-export type { ProviderAttempt } from './provider-failover.js'
+export type { ProviderAttempt } from "./provider-failover.js";
+
+/**
+ * Dispatch one model call under a deadline and the run's cancellation signal
+ * (ORCH-DSL-L1-C-01).
+ *
+ * The model call is otherwise the only unbounded await in the hot loop: tool
+ * calls are deadline-guarded, but a provider that accepts the connection and
+ * then stalls hangs the run forever -- `maxIterations` never advances and the
+ * token/cost budgets are never re-checked, because all three only tick when a
+ * call *returns*.
+ *
+ * `signal` is threaded into the middleware runtime so providers that honour it
+ * stop work at the source; the race additionally guarantees the *caller* is
+ * released even when a provider ignores it.
+ */
+async function invokeModelBounded(
+  deps: ModelInvocationDeps,
+  model: BaseChatModel,
+  messages: BaseMessage[]
+): Promise<BaseMessage> {
+  const timeoutMs = deps.modelTimeoutMs;
+  const parentSignal = deps.signal;
+
+  // Nothing to enforce -- keep the original single-await path so opted-out
+  // callers see byte-identical behaviour.
+  if (
+    (timeoutMs === undefined || timeoutMs <= 0) &&
+    parentSignal === undefined
+  ) {
+    return deps.middlewareRuntime.invokeModel(model, messages);
+  }
+
+  if (parentSignal?.aborted) throw new ModelCancellationError();
+
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let parentAbortHandler: (() => void) | undefined;
+  let abortKind: "timeout" | "run_cancelled" | undefined;
+
+  const failFor = (reason: "timeout" | "run_cancelled"): Error =>
+    reason === "timeout"
+      ? new ModelTimeoutError(timeoutMs ?? 0)
+      : new ModelCancellationError();
+
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    const requestAbort = (reason: "timeout" | "run_cancelled") => {
+      if (abortKind !== undefined) return;
+      abortKind = reason;
+      controller.abort(failFor(reason));
+      reject(failFor(reason));
+    };
+    if (timeoutMs !== undefined && timeoutMs > 0) {
+      timer = setTimeout(() => requestAbort("timeout"), timeoutMs);
+    }
+    if (parentSignal) {
+      parentAbortHandler = () => requestAbort("run_cancelled");
+      parentSignal.addEventListener("abort", parentAbortHandler, {
+        once: true,
+      });
+    }
+  });
+
+  try {
+    const invokePromise = deps.middlewareRuntime
+      .invokeModel(model, messages, { signal: controller.signal })
+      // A provider that honours the signal rejects with its own abort error;
+      // remap so callers always see the model-shaped reason.
+      .catch((err: unknown) => {
+        if (abortKind !== undefined) throw failFor(abortKind);
+        throw err;
+      });
+    return await Promise.race([invokePromise, abortPromise]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    if (parentSignal && parentAbortHandler) {
+      parentSignal.removeEventListener("abort", parentAbortHandler);
+    }
+  }
+}
 
 /**
  * Dependency bundle for {@link invokeModelWithMiddleware} and
@@ -45,20 +128,31 @@ export type { ProviderAttempt } from './provider-failover.js'
  * slices directly.
  */
 export interface ModelInvocationDeps extends RateLimitCoordinatorDeps {
-  middlewareRuntime: AgentMiddlewareRuntime
-  registry: ModelRegistry | undefined
-  resolvedProvider: string | undefined
+  middlewareRuntime: AgentMiddlewareRuntime;
+  registry: ModelRegistry | undefined;
+  resolvedProvider: string | undefined;
+  /**
+   * Per-call model deadline in ms (ORCH-DSL-L1-C-01). Undefined or <= 0 leaves
+   * the call unbounded, preserving the pre-existing behaviour for callers that
+   * have not opted in.
+   */
+  modelTimeoutMs?: number;
+  /**
+   * Run-scoped cancellation. When it aborts mid-call the invocation rejects
+   * with {@link ModelCancellationError} instead of waiting for the provider.
+   */
+  signal?: AbortSignal;
   /**
    * Resolves the tier-fallback candidates for the *current* tool set.
    * Identical contract to the agent's private `getProviderAttempts`:
    * empty array means "no failover" (single-provider path).
    */
-  getProviderAttempts: () => ProviderAttempt[]
+  getProviderAttempts: () => ProviderAttempt[];
   /**
    * Same-run failover policy. Receives the original (non-bound) tool-message
    * list so the caller can implement tool-result-aware retry rules.
    */
-  shouldRunFailover: (err: Error, messages: BaseMessage[]) => boolean
+  shouldRunFailover: (err: Error, messages: BaseMessage[]) => boolean;
 }
 
 /**
@@ -71,32 +165,32 @@ export interface ModelInvocationDeps extends RateLimitCoordinatorDeps {
 export async function invokeModelWithMiddleware(
   deps: ModelInvocationDeps,
   model: BaseChatModel,
-  messages: BaseMessage[],
+  messages: BaseMessage[]
 ): Promise<BaseMessage> {
-  const attempts = deps.getProviderAttempts()
+  const attempts = deps.getProviderAttempts();
   if (attempts.length > 1) {
-    return invokeModelWithProviderFailover(deps, attempts, messages)
+    return invokeModelWithProviderFailover(deps, attempts, messages);
   }
 
-  await awaitRateLimit(deps)
+  await awaitRateLimit(deps);
   try {
-    const result = await deps.middlewareRuntime.invokeModel(model, messages)
+    const result = await invokeModelBounded(deps, model, messages);
     // Feed the provider's circuit breaker a success signal. No-op when
     // the agent was constructed with an explicit model (no fallback
     // chain in play).
     if (deps.resolvedProvider && deps.registry) {
-      deps.registry.recordProviderSuccess(deps.resolvedProvider)
+      deps.registry.recordProviderSuccess(deps.resolvedProvider);
     }
-    await recordDistributedCost(deps, result)
-    return result
+    await recordDistributedCost(deps, result);
+    return result;
   } catch (err) {
     if (deps.resolvedProvider && deps.registry) {
-      const asError = err instanceof Error ? err : new Error(String(err))
+      const asError = err instanceof Error ? err : new Error(String(err));
       // Registry filters to transient errors internally, so unconditional
       // is safe.
-      deps.registry.recordProviderFailure(deps.resolvedProvider, asError)
+      deps.registry.recordProviderFailure(deps.resolvedProvider, asError);
     }
-    throw err
+    throw err;
   }
 }
 
@@ -108,25 +202,22 @@ export async function invokeModelWithMiddleware(
 export async function invokeModelWithProviderFailover(
   deps: ModelInvocationDeps,
   attempts: ProviderAttempt[],
-  messages: BaseMessage[],
+  messages: BaseMessage[]
 ): Promise<BaseMessage> {
   return attemptWithFailover<BaseMessage>({
     attempts,
-    phase: 'invoke',
+    phase: "invoke",
     agentId: deps.agentId,
     eventBus: deps.eventBus,
     registry: deps.registry,
     shouldRetry: (err) => deps.shouldRunFailover(err, messages),
     execute: async (attempt) => {
-      await awaitRateLimit(deps)
-      const result = await deps.middlewareRuntime.invokeModel(
-        attempt.model,
-        messages,
-      )
-      await recordDistributedCost(deps, result)
-      return result
+      await awaitRateLimit(deps);
+      const result = await invokeModelBounded(deps, attempt.model, messages);
+      await recordDistributedCost(deps, result);
+      return result;
     },
-  })
+  });
 }
 
 /**
@@ -137,7 +228,7 @@ export async function transformToolResultWithMiddleware(
   middlewareRuntime: AgentMiddlewareRuntime,
   toolName: string,
   input: Record<string, unknown>,
-  result: string,
+  result: string
 ): Promise<string> {
-  return middlewareRuntime.transformToolResult(toolName, input, result)
+  return middlewareRuntime.transformToolResult(toolName, input, result);
 }

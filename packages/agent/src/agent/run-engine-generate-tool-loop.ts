@@ -8,36 +8,38 @@
  * the pre-MC-026b-2 implementation.
  */
 
-import type { BaseMessage } from '@langchain/core/messages'
+import type { BaseMessage } from "@langchain/core/messages";
 import {
   calculateCostCents,
   estimateTokens,
   type TokenUsage,
-} from '@dzupagent/core/llm'
-import { injectPromptCacheMarkersForModel } from '@dzupagent/context'
+} from "@dzupagent/core/llm";
+import { injectPromptCacheMarkersForModel } from "@dzupagent/context";
+import { createRunDeadline } from "./run-deadline.js";
+import { ModelCancellationError } from "./model-timeout-error.js";
 import {
   runBeforeModelCall,
   runAfterModelCall,
   runOnModelError,
-} from '@dzupagent/core/orchestration'
+} from "@dzupagent/core/orchestration";
 import {
   buildModelHookContext,
   resolveModelIdForHooks,
-} from './model-hooks.js'
+} from "./model-hooks.js";
 import {
   runToolLoop,
   type ToolLoopConfig,
   type ToolLoopResult,
-} from './tool-loop.js'
-import type { ExecuteGenerateRunParams } from './run-engine/types.js'
-import { omitUndefined } from '../utils/exact-optional.js'
-import type { CompressionLogEntry, DzupAgentConfig } from './agent-types.js'
+} from "./tool-loop.js";
+import type { ExecuteGenerateRunParams } from "./run-engine/types.js";
+import { omitUndefined } from "../utils/exact-optional.js";
+import type { CompressionLogEntry, DzupAgentConfig } from "./agent-types.js";
 import {
   createRunStateSnapshotWriter,
   resolveRunStateRunId,
-} from './run-engine-generate-snapshot.js'
-import { wrapInvokeModelWithAudit } from './run-engine-generate-audit.js'
-import { enforceAgentHardBudget } from './runtime-hard-budget.js'
+} from "./run-engine-generate-snapshot.js";
+import { wrapInvokeModelWithAudit } from "./run-engine-generate-audit.js";
+import { enforceAgentHardBudget } from "./runtime-hard-budget.js";
 
 /**
  * Output of {@link prepareGuardPrelude}. Threads the compression log
@@ -45,16 +47,17 @@ import { enforceAgentHardBudget } from './runtime-hard-budget.js'
  * {@link setupModelCall}.
  */
 export interface GuardPrelude {
-  compressionLog: CompressionLogEntry[]
-  toolExec: DzupAgentConfig['toolExecution']
+  compressionLog: CompressionLogEntry[];
+  toolExec: DzupAgentConfig["toolExecution"];
   /**
    * `safetyMonitor` takes precedence over the public-surface alias
    * `resultScanner`; pre-resolved here so the loop config builder
    * doesn't have to recompute it.
    */
-  resolvedSafetyMonitor: NonNullable<DzupAgentConfig['toolExecution']>['safetyMonitor']
-    | NonNullable<DzupAgentConfig['toolExecution']>['resultScanner']
-    | undefined
+  resolvedSafetyMonitor:
+    | NonNullable<DzupAgentConfig["toolExecution"]>["safetyMonitor"]
+    | NonNullable<DzupAgentConfig["toolExecution"]>["resultScanner"]
+    | undefined;
 }
 
 /**
@@ -67,14 +70,12 @@ export interface GuardPrelude {
  * {@link ToolLoopConfig} stays identical to the pre-MJ-AGENT-01 shape
  * when `toolExecution` is unset (backwards-compatibility guarantee).
  */
-export function prepareGuardPrelude(
-  config: DzupAgentConfig,
-): GuardPrelude {
-  const compressionLog: CompressionLogEntry[] = []
-  const toolExec = config.toolExecution
+export function prepareGuardPrelude(config: DzupAgentConfig): GuardPrelude {
+  const compressionLog: CompressionLogEntry[] = [];
+  const toolExec = config.toolExecution;
   const resolvedSafetyMonitor =
-    toolExec?.safetyMonitor ?? toolExec?.resultScanner
-  return { compressionLog, toolExec, resolvedSafetyMonitor }
+    toolExec?.safetyMonitor ?? toolExec?.resultScanner;
+  return { compressionLog, toolExec, resolvedSafetyMonitor };
 }
 
 /**
@@ -82,7 +83,7 @@ export function prepareGuardPrelude(
  * downstream consumers can type the post-loop processing without
  * re-importing the tool-loop module.
  */
-export type RunLoopResult = ToolLoopResult
+export type RunLoopResult = ToolLoopResult;
 
 /**
  * Build the tool-execution policy slice of the loop config (MJ-AGENT-01).
@@ -92,9 +93,9 @@ export type RunLoopResult = ToolLoopResult
  */
 function buildPolicyConfig(
   params: ExecuteGenerateRunParams,
-  prelude: GuardPrelude,
+  prelude: GuardPrelude
 ): Partial<ToolLoopConfig> {
-  const { toolExec, resolvedSafetyMonitor } = prelude
+  const { toolExec, resolvedSafetyMonitor } = prelude;
   return {
     ...(toolExec?.governance !== undefined
       ? { toolGovernance: toolExec.governance }
@@ -116,7 +117,9 @@ function buildPolicyConfig(
     ...(toolExec?.wrapToolResults !== undefined
       ? { wrapToolResults: toolExec.wrapToolResults }
       : {}),
-    ...(toolExec?.timeouts !== undefined ? { toolTimeouts: toolExec.timeouts } : {}),
+    ...(toolExec?.timeouts !== undefined
+      ? { toolTimeouts: toolExec.timeouts }
+      : {}),
     ...(toolExec?.tracer !== undefined ? { tracer: toolExec.tracer } : {}),
     // agentId: fall back to the agent's own id ONLY when toolExecution is
     // provided, so the pre-MJ-AGENT-01 surface (no toolExecution) is
@@ -136,7 +139,7 @@ function buildPolicyConfig(
     ...(toolExec && params.config.eventBus !== undefined
       ? { eventBus: params.config.eventBus }
       : {}),
-  }
+  };
 }
 
 /**
@@ -147,49 +150,80 @@ function buildPolicyConfig(
  * telemetry. All event-bus emissions and OTel spans are emitted in the
  * same order as the pre-refactor implementation.
  */
+
+/**
+ * Reject as soon as the run deadline (or caller cancellation) fires, instead of
+ * waiting on a provider that may never settle. Resolves normally otherwise.
+ */
+function raceAgainstSignal<T>(
+  promise: Promise<T>,
+  signal: AbortSignal | undefined,
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new ModelCancellationError());
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(new ModelCancellationError());
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return Promise.race([promise, aborted]).finally(() => {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }) as Promise<T>;
+}
+
 export async function setupModelCall(
   params: ExecuteGenerateRunParams,
-  prelude: GuardPrelude,
+  prelude: GuardPrelude
 ): Promise<RunLoopResult> {
-  const { compressionLog, toolExec } = prelude
+  const { compressionLog, toolExec } = prelude;
 
   // MC-AGT-04 Phase 1 — accumulate token usage across the run so
   // snapshots can carry the full per-call breakdown. The accumulator is
   // shared between the `onUsage` callback (already wired below) and the
   // `onIteration` snapshot hook, both of which are activated only when
   // `runStateStore` is configured.
-  const cumulativeUsage: TokenUsage[] = []
-  const runStateStore = params.config.runStateStore
+  const cumulativeUsage: TokenUsage[] = [];
+  const runStateStore = params.config.runStateStore;
   const runStateSnapshotWriter = runStateStore
     ? createRunStateSnapshotWriter(runStateStore)
-    : undefined
+    : undefined;
   const runStateRunId = runStateStore
     ? resolveRunStateRunId(params.agentId, params.options, toolExec?.runId)
-    : undefined
+    : undefined;
   const runStateTenantId = runStateStore
-    ? params.config.memoryScope?.['tenantId']
-    : undefined
+    ? params.config.memoryScope?.["tenantId"]
+    : undefined;
 
-  const auditedInvokeModel = wrapInvokeModelWithAudit(params)
+  const auditedInvokeModel = wrapInvokeModelWithAudit(params);
+
+  // ORCH-DSL-L1-H-02 — wall-clock ceiling for the whole run, composed with any
+  // caller signal so whichever fires first wins. Created before the model
+  // closure below so that closure can race against it.
+  const runDeadline = createRunDeadline(
+    params.config.guardrails?.maxDurationMs,
+    params.options?.signal,
+  );
+  const raceRunDeadline = <T>(promise: Promise<T>): Promise<T> =>
+    raceAgainstSignal(promise, runDeadline.signal);
 
   // WS3 Task 3.2 — model-lifecycle hook plumbing for the generate tool-loop
   // path. `beforeModelCall` runs inside `maybeCompress` (below) immediately
   // BEFORE prompt-cache re-injection so cache breakpoints are computed on the
   // final, hook-rewritten transcript. `afterModelCall` / `onModelError` fire
   // at the model-invocation seam (the tool loop's `invokeModel`).
-  const modelHooks = params.config.hooks
+  const modelHooks = params.config.hooks;
   const resolvedModelId = resolveModelIdForHooks(
     params.config.model,
-    params.runState.model,
-  )
+    params.runState.model
+  );
   const hookCtx = buildModelHookContext(
     params.config,
     params.agentId,
-    params.options?.runId ?? toolExec?.runId,
-  )
+    params.options?.runId ?? toolExec?.runId
+  );
   const invokeModelWithHooks = async (
     model: typeof params.runState.model,
-    messages: Parameters<typeof auditedInvokeModel>[1],
+    messages: Parameters<typeof auditedInvokeModel>[1]
   ): ReturnType<typeof auditedInvokeModel> => {
     if (params.config.hardBudget) {
       await enforceAgentHardBudget({
@@ -198,221 +232,237 @@ export async function setupModelCall(
         config: params.config.hardBudget,
         eventBus: params.config.eventBus,
         agentId: params.agentId,
-        phase: 'tool-loop',
-      })
-      const recached = injectPromptCacheMarkersForModel(messages, model)
-      messages.splice(0, messages.length, ...recached)
+        phase: "tool-loop",
+      });
+      const recached = injectPromptCacheMarkersForModel(messages, model);
+      messages.splice(0, messages.length, ...recached);
     }
     try {
-      const response = await auditedInvokeModel(model, messages)
+      // ORCH-DSL-L1-C-01 / L1-H-02 — the generate path's model await. The tool
+      // loop only samples `config.signal` *between* iterations, so a first call
+      // that never settles is never reached by that check; bound it here.
+      const response = await raceRunDeadline(auditedInvokeModel(model, messages));
       await runAfterModelCall(
         modelHooks?.afterModelCall ? [modelHooks.afterModelCall] : undefined,
         params.config.eventBus,
         messages,
         response,
         resolvedModelId,
-        hookCtx,
-      )
-      return response
+        hookCtx
+      );
+      return response;
     } catch (err) {
       await runOnModelError(
         modelHooks?.onModelError ? [modelHooks.onModelError] : undefined,
         params.config.eventBus,
         err instanceof Error ? err : new Error(String(err)),
         resolvedModelId,
-        hookCtx,
-      )
-      throw err
+        hookCtx
+      );
+      throw err;
     }
-  }
+  };
 
-  const result = await runToolLoop(
-    params.runState.model,
-    params.runState.preparedMessages,
-    params.runState.tools,
-    omitUndefined<ToolLoopConfig>({
-      maxIterations: params.runState.maxIterations,
-      budget: params.runState.budget,
-      signal: params.options?.signal,
-      stuckDetector: params.runState.stuckDetector,
-      toolStatsTracker: params.config.toolStatsTracker,
-      intent: params.options?.intent,
-      ...buildPolicyConfig(params, prelude),
-      onStuckDetected: (reason, recovery) => {
-        params.config.eventBus?.emit({
-          type: 'agent:stuck_detected',
-          agentId: params.agentId,
-          reason,
-          recovery,
-          timestamp: Date.now(),
-        })
-      },
-      onStuck: (toolName, stage) => {
-        params.config.eventBus?.emit({
-          type: 'agent:stuck_detected',
-          agentId: params.agentId,
-          reason: `Stuck on tool "${toolName}" (escalation stage ${stage})`,
-          recovery:
-            stage >= 3
-              ? 'Aborting loop'
-              : stage === 2
-                ? 'Nudge injected'
-                : 'Tool blocked',
-          timestamp: Date.now(),
-        })
-      },
-      invokeModel: invokeModelWithHooks,
-      transformToolResult: (name, input, result) =>
-        params.transformToolResult(name, input, result),
-      onUsage: (usage) => {
-        params.options?.onUsage?.(usage)
-        // MC-AGT-04 Phase 1 — accumulate per-call usage so iteration
-        // snapshots can carry the full breakdown. Only collected when a
-        // run-state store is configured to avoid retaining usage objects
-        // for runs that don't persist them.
-        if (runStateStore) {
-          cumulativeUsage.push(usage)
-        }
-        // Compliance / audit — ISO/IEC 42001 traceability: every LLM
-        // invocation must be recorded in the audit store. The event bus
-        // listener in ComplianceAuditLogger picks this up automatically.
-        params.config.eventBus?.emit({
-          type: 'llm:invoked',
-          agentId: params.agentId,
-          model: usage.model,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          ...(usage.cacheReadTokens !== undefined ? { cacheReadTokens: usage.cacheReadTokens } : {}),
-          ...(usage.cacheWriteTokens !== undefined ? { cacheWriteTokens: usage.cacheWriteTokens } : {}),
-          costCents: calculateCostCents(usage),
-          timestamp: Date.now(),
-        })
-      },
-      // MC-AGT-04 Phase 1 — fire-and-forget run-state snapshot at every
-      // iteration boundary when a store is configured. The hook is a
-      // no-op otherwise, preserving the legacy fast path exactly.
-      ...(runStateStore && runStateRunId !== undefined
-        ? {
-            onIteration: (info: {
-              iteration: number
-              messages: BaseMessage[]
-              totalInputTokens: number
-              totalOutputTokens: number
-              llmCalls: number
-            }) => {
-              runStateSnapshotWriter?.({
-                runId: runStateRunId,
-                agentId: params.agentId,
-                ...(runStateTenantId !== undefined
-                  ? { tenantId: runStateTenantId }
-                  : {}),
-                iteration: info.iteration,
-                messages: info.messages,
-                cumulativeUsage: [...cumulativeUsage],
-              })
-            },
+  // ORCH-DSL-L1-H-02 — wall-clock ceiling for the whole run. Composed with
+  // any caller signal so whichever fires first wins.
+  try {
+    const result = await runToolLoop(
+      params.runState.model,
+      params.runState.preparedMessages,
+      params.runState.tools,
+      omitUndefined<ToolLoopConfig>({
+        maxIterations: params.runState.maxIterations,
+        budget: params.runState.budget,
+        signal: runDeadline.signal,
+        stuckDetector: params.runState.stuckDetector,
+        toolStatsTracker: params.config.toolStatsTracker,
+        intent: params.options?.intent,
+        ...buildPolicyConfig(params, prelude),
+        onStuckDetected: (reason, recovery) => {
+          params.config.eventBus?.emit({
+            type: "agent:stuck_detected",
+            agentId: params.agentId,
+            reason,
+            recovery,
+            timestamp: Date.now(),
+          });
+        },
+        onStuck: (toolName, stage) => {
+          params.config.eventBus?.emit({
+            type: "agent:stuck_detected",
+            agentId: params.agentId,
+            reason: `Stuck on tool "${toolName}" (escalation stage ${stage})`,
+            recovery:
+              stage >= 3
+                ? "Aborting loop"
+                : stage === 2
+                ? "Nudge injected"
+                : "Tool blocked",
+            timestamp: Date.now(),
+          });
+        },
+        invokeModel: invokeModelWithHooks,
+        transformToolResult: (name, input, result) =>
+          params.transformToolResult(name, input, result),
+        onUsage: (usage) => {
+          params.options?.onUsage?.(usage);
+          // MC-AGT-04 Phase 1 — accumulate per-call usage so iteration
+          // snapshots can carry the full breakdown. Only collected when a
+          // run-state store is configured to avoid retaining usage objects
+          // for runs that don't persist them.
+          if (runStateStore) {
+            cumulativeUsage.push(usage);
           }
-        : {}),
-      onToolResult: (_name, result) => {
-        // Charge tool-result bytes against the token lifecycle plugin so
-        // per-phase breakdowns reflect tool output ingestion separately
-        // from LLM input/output.
-        if (params.config.tokenLifecyclePlugin && result) {
-          params.config.tokenLifecyclePlugin.trackPhase(
-            'tool-result',
-            estimateTokens(result),
-          )
-        }
-      },
-      onToolLatency: (name, durationMs, error) => {
-        params.config.eventBus?.emit({
-          type: 'tool:latency',
-          toolName: name,
-          durationMs,
-          ...(error !== undefined ? { error } : {}),
-        })
-      },
-      shouldHalt: params.config.tokenLifecyclePlugin
-        ? () => params.config.tokenLifecyclePlugin!.shouldHalt()
-        : undefined,
-      // Auto-compression — delegates to the token lifecycle plugin. The
-      // plugin short-circuits internally when pressure is ok/warn; actual
-      // compression only runs when pressure transitions to critical or
-      // exhausted.
-      //
-      // REC-H-10 — when compression returns a fresh transcript we MUST
-      // re-inject Anthropic prompt-cache markers, otherwise every LLM turn
-      // for the rest of the run pays full input price. The injector is a
-      // no-op for non-Claude models and short transcripts so this is safe
-      // to apply unconditionally.
-      maybeCompress: params.config.tokenLifecyclePlugin
-        ? async (messages) => {
-            const result = await params.config.tokenLifecyclePlugin!.maybeCompress(
-              messages,
-              params.runState.model,
-              null,
-            )
-            if (result.compressed) {
-              // WS3 Task 3.2 — model-lifecycle hooks run BEFORE prompt-cache
-              // re-injection on the freshly compressed transcript. ORDERING IS
-              // LOAD-BEARING: `beforeModelCall` may rewrite the array and cache
-              // breakpoints must be computed on the final array.
-              const hookedMessages = await runBeforeModelCall(
-                modelHooks?.beforeModelCall
-                  ? [modelHooks.beforeModelCall]
-                  : undefined,
-                params.config.eventBus,
-                result.messages,
-                resolvedModelId,
-                hookCtx,
-              )
-              return {
-                ...result,
-                messages: injectPromptCacheMarkersForModel(
-                  hookedMessages,
-                  params.runState.model,
-                ),
-              }
+          // Compliance / audit — ISO/IEC 42001 traceability: every LLM
+          // invocation must be recorded in the audit store. The event bus
+          // listener in ComplianceAuditLogger picks this up automatically.
+          params.config.eventBus?.emit({
+            type: "llm:invoked",
+            agentId: params.agentId,
+            model: usage.model,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            ...(usage.cacheReadTokens !== undefined
+              ? { cacheReadTokens: usage.cacheReadTokens }
+              : {}),
+            ...(usage.cacheWriteTokens !== undefined
+              ? { cacheWriteTokens: usage.cacheWriteTokens }
+              : {}),
+            costCents: calculateCostCents(usage),
+            timestamp: Date.now(),
+          });
+        },
+        // MC-AGT-04 Phase 1 — fire-and-forget run-state snapshot at every
+        // iteration boundary when a store is configured. The hook is a
+        // no-op otherwise, preserving the legacy fast path exactly.
+        ...(runStateStore && runStateRunId !== undefined
+          ? {
+              onIteration: (info: {
+                iteration: number;
+                messages: BaseMessage[];
+                totalInputTokens: number;
+                totalOutputTokens: number;
+                llmCalls: number;
+              }) => {
+                runStateSnapshotWriter?.({
+                  runId: runStateRunId,
+                  agentId: params.agentId,
+                  ...(runStateTenantId !== undefined
+                    ? { tenantId: runStateTenantId }
+                    : {}),
+                  iteration: info.iteration,
+                  messages: info.messages,
+                  cumulativeUsage: [...cumulativeUsage],
+                });
+              },
             }
-            return result
+          : {}),
+        onToolResult: (_name, result) => {
+          // Charge tool-result bytes against the token lifecycle plugin so
+          // per-phase breakdowns reflect tool output ingestion separately
+          // from LLM input/output.
+          if (params.config.tokenLifecyclePlugin && result) {
+            params.config.tokenLifecyclePlugin.trackPhase(
+              "tool-result",
+              estimateTokens(result)
+            );
           }
-        : undefined,
-      // Persist each compression event to the run-scoped compressionLog so
-      // callers can inspect when (and by how much) the history was
-      // compacted. Only fires when `maybeCompress` returned
-      // `compressed: true`.
-      onCompressed: (info) => {
-        compressionLog.push({
-          before: info.before,
-          after: info.after,
-          summary: info.summary,
-          ...(info.degradations !== undefined
-            ? { degradations: info.degradations }
-            : {}),
-          ts: Date.now(),
-        })
-      },
-      // Note: run:halted:token-exhausted is emitted AFTER the loop
-      // completes (in processGeneratedRun) so the iteration count is
-      // accurate.
-    }),
-  )
+        },
+        onToolLatency: (name, durationMs, error) => {
+          params.config.eventBus?.emit({
+            type: "tool:latency",
+            toolName: name,
+            durationMs,
+            ...(error !== undefined ? { error } : {}),
+          });
+        },
+        shouldHalt: params.config.tokenLifecyclePlugin
+          ? () => params.config.tokenLifecyclePlugin!.shouldHalt()
+          : undefined,
+        // Auto-compression — delegates to the token lifecycle plugin. The
+        // plugin short-circuits internally when pressure is ok/warn; actual
+        // compression only runs when pressure transitions to critical or
+        // exhausted.
+        //
+        // REC-H-10 — when compression returns a fresh transcript we MUST
+        // re-inject Anthropic prompt-cache markers, otherwise every LLM turn
+        // for the rest of the run pays full input price. The injector is a
+        // no-op for non-Claude models and short transcripts so this is safe
+        // to apply unconditionally.
+        maybeCompress: params.config.tokenLifecyclePlugin
+          ? async (messages) => {
+              const result =
+                await params.config.tokenLifecyclePlugin!.maybeCompress(
+                  messages,
+                  params.runState.model,
+                  null
+                );
+              if (result.compressed) {
+                // WS3 Task 3.2 — model-lifecycle hooks run BEFORE prompt-cache
+                // re-injection on the freshly compressed transcript. ORDERING IS
+                // LOAD-BEARING: `beforeModelCall` may rewrite the array and cache
+                // breakpoints must be computed on the final array.
+                const hookedMessages = await runBeforeModelCall(
+                  modelHooks?.beforeModelCall
+                    ? [modelHooks.beforeModelCall]
+                    : undefined,
+                  params.config.eventBus,
+                  result.messages,
+                  resolvedModelId,
+                  hookCtx
+                );
+                return {
+                  ...result,
+                  messages: injectPromptCacheMarkersForModel(
+                    hookedMessages,
+                    params.runState.model
+                  ),
+                };
+              }
+              return result;
+            }
+          : undefined,
+        // Persist each compression event to the run-scoped compressionLog so
+        // callers can inspect when (and by how much) the history was
+        // compacted. Only fires when `maybeCompress` returned
+        // `compressed: true`.
+        onCompressed: (info) => {
+          compressionLog.push({
+            before: info.before,
+            after: info.after,
+            summary: info.summary,
+            ...(info.degradations !== undefined
+              ? { degradations: info.degradations }
+              : {}),
+            ts: Date.now(),
+          });
+        },
+        // Note: run:halted:token-exhausted is emitted AFTER the loop
+        // completes (in processGeneratedRun) so the iteration count is
+        // accurate.
+      })
+    );
 
-  // MC-AGT-04 Phase 1 — final snapshot at run termination so external
-  // observers can locate the last-known good state regardless of stop
-  // reason (complete / iteration_limit / budget_exceeded / stuck / etc).
-  // Errors are logged but never rethrown.
-  if (runStateSnapshotWriter && runStateRunId !== undefined) {
-    runStateSnapshotWriter({
-      runId: runStateRunId,
-      agentId: params.agentId,
-      ...(runStateTenantId !== undefined ? { tenantId: runStateTenantId } : {}),
-      iteration: result.llmCalls,
-      messages: result.messages,
-      cumulativeUsage: [...cumulativeUsage],
-      terminalReason: result.stopReason,
-    })
+    // MC-AGT-04 Phase 1 — final snapshot at run termination so external
+    // observers can locate the last-known good state regardless of stop
+    // reason (complete / iteration_limit / budget_exceeded / stuck / etc).
+    // Errors are logged but never rethrown.
+    if (runStateSnapshotWriter && runStateRunId !== undefined) {
+      runStateSnapshotWriter({
+        runId: runStateRunId,
+        agentId: params.agentId,
+        ...(runStateTenantId !== undefined
+          ? { tenantId: runStateTenantId }
+          : {}),
+        iteration: result.llmCalls,
+        messages: result.messages,
+        cumulativeUsage: [...cumulativeUsage],
+        terminalReason: result.stopReason,
+      });
+    }
+
+    return result;
+  } finally {
+    runDeadline.dispose();
   }
-
-  return result
 }
