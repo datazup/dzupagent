@@ -29,7 +29,11 @@ import {
   renderMergedParallelOutput,
   toParallelAgentResults,
 } from "./parallel-orchestration-results.js";
-import { runAllConcurrently, runConcurrently } from "./concurrency-runner.js";
+import {
+  DEFAULT_ORCHESTRATION_FANOUT,
+  runAllConcurrently,
+  runConcurrently,
+} from "./concurrency-runner.js";
 import { clearSupervisorCache, runSupervisor } from "./supervisor-runner.js";
 import type {
   MergeFn,
@@ -225,7 +229,7 @@ export class AgentOrchestrator {
     proposers: DzupAgent[],
     judge: DzupAgent,
     task: string,
-    options?: { rounds?: number; signal?: AbortSignal }
+    options?: { rounds?: number; signal?: AbortSignal; maxConcurrency?: number }
   ): Promise<string> {
     const rounds = options?.rounds ?? 1;
     const signal = options?.signal;
@@ -251,13 +255,23 @@ export class AgentOrchestrator {
                 "\n\n"
               )}\n\nImprove upon the best aspects of all proposals.`;
 
-      const results = await Promise.all(
-        proposers.map((agent) =>
-          agent.generate(
-            [new HumanMessage(roundInput)],
-            signal ? { signal } : undefined
-          )
-        )
+      // ORCH-DSL-L1-H-07 — bounded fan-out. This previously issued one
+      // simultaneous model call per proposer, per round, with no cap, even
+      // though `parallel()` above already routes through the same pool.
+      // `runAllConcurrently` is the right half of the pair here: it preserves
+      // input order (the proposals below are rendered as indexed "Proposal N")
+      // and rejects on first failure, matching the previous `Promise.all`
+      // semantics while additionally cancelling in-flight siblings.
+      const results = await runAllConcurrently(
+        proposers.map(
+          (agent) => (taskSignal?: AbortSignal) =>
+            agent.generate(
+              [new HumanMessage(roundInput)],
+              taskSignal ? { signal: taskSignal } : undefined
+            )
+        ),
+        options?.maxConcurrency ?? DEFAULT_ORCHESTRATION_FANOUT,
+        signal ? { signal } : undefined
       );
       proposals = results.map((r) => r.content);
     }
