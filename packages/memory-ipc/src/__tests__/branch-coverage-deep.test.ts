@@ -1095,9 +1095,11 @@ describe("ipc-serializer — branch coverage", () => {
     expect(restored.numRows).toBe(2);
   });
 
-  it("deserializeFromIPC: single-byte input returns empty table", () => {
-    const result = deserializeFromIPC(new Uint8Array([42]));
-    expect(result.numRows).toBe(0);
+  // ERR-C-23 (inverted): a single stray byte is a corrupt frame, not an empty one.
+  it("deserializeFromIPC: single-byte input throws", () => {
+    expect(() => deserializeFromIPC(new Uint8Array([42]))).toThrow(
+      /not valid Arrow IPC/
+    );
   });
 
   it("serialize with undefined options uses default format", () => {

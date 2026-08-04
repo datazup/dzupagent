@@ -44,6 +44,9 @@ const DEFAULT_PAGE_SIZE = 500;
 /** Default capacity before LRU/strength-based eviction kicks in. */
 const DEFAULT_MAX_ENTRIES = 1000;
 
+/** Bound each scan while still allowing the capacity pass to observe overflow. */
+const DEFAULT_SCAN_MULTIPLIER = 10;
+
 /** Default TTL: 7 days. */
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -73,6 +76,11 @@ export interface PruneOptions {
   now?: () => number;
   /** Override the page size used when scanning the store. */
   pageSize?: number;
+  /**
+   * Hard ceiling on entries loaded by one run. Must exceed `maxEntries` for
+   * capacity eviction to run. Defaults to `10 * maxEntries`.
+   */
+  maxScan?: number;
 }
 
 export interface PruneResult extends MemoryOperationOutcome {
@@ -114,6 +122,9 @@ export class MemoryPruner {
     const namespace = options.namespace ?? [];
     const now = (options.now ?? Date.now)();
     const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE;
+    const maxScan =
+      options.maxScan ??
+      Math.max(maxEntries + 1, maxEntries * DEFAULT_SCAN_MULTIPLIER);
     const degradations: MemoryOperationDegradation[] = [];
 
     // ---- Scan: page the whole namespace ------------------------------------
@@ -126,10 +137,15 @@ export class MemoryPruner {
     const seenKeys = new Set<string>();
     let scanComplete = true;
     let offset = 0;
-    for (let page = 0; page < MAX_SCAN_PAGES; page++) {
+    for (
+      let page = 0;
+      page < MAX_SCAN_PAGES && items.length < maxScan;
+      page++
+    ) {
+      const limit = Math.min(pageSize, maxScan - items.length);
       let batch: ConsolidationStoreItem[];
       try {
-        batch = await store.search(namespace, { limit: pageSize, offset });
+        batch = await store.search(namespace, { limit, offset });
       } catch (error) {
         degradations.push(
           degradation(
@@ -151,7 +167,7 @@ export class MemoryPruner {
         items.push(item);
         added++;
       }
-      if (batch.length < pageSize || added === 0) break;
+      if (batch.length < limit || added === 0) break;
       offset += batch.length;
       if (page === MAX_SCAN_PAGES - 1) {
         // Ran out of page budget before the namespace was exhausted — the

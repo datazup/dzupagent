@@ -24,6 +24,7 @@ import {
 } from './mcp-memory-server-types.js'
 import { MCP_MEMORY_TOOLS } from './mcp-memory-server-tools.js'
 import { buildDispatchTable } from './mcp-memory-server-dispatcher.js'
+import { logError, type FrameworkLogger } from './error-log.js'
 
 // Re-export public types and the tool catalogue so existing callers can
 // continue to import everything from `./mcp-memory-server.js` directly.
@@ -58,7 +59,11 @@ export class MCPMemoryHandler {
     (args: Record<string, unknown>) => Promise<MCPToolResult>
   >
 
-  constructor(services: MCPMemoryServices) {
+  /** Sink for structured error lines. Defaults to the console logger. */
+  private readonly logger: FrameworkLogger | undefined
+
+  constructor(services: MCPMemoryServices & { logger?: FrameworkLogger }) {
+    this.logger = services.logger
     // AG-02: Enforce tenantId at construction time so every tool call is
     // automatically scoped to the correct tenant.  Fail fast rather than
     // silently allowing cross-tenant reads during a session.
@@ -93,8 +98,22 @@ export class MCPMemoryHandler {
     try {
       return await handler(args)
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      return errorResult(`Tool "${name}" failed: ${message}`)
+      // ERR-C-22: never place a raw backend error into the tool result — it
+      // goes straight into the model's context. A Postgres/Redis driver error
+      // can carry connection strings, hosts and table names, and an
+      // HTTP-backed error can carry an attacker-controlled remote response
+      // body (a prompt-injection channel). Log the full detail server-side and
+      // return an opaque correlation id instead.
+      const errorId = logError({
+        component: 'mcp-memory-server',
+        operation: `handleToolCall:${name}`,
+        error: err,
+        logger: this.logger,
+      })
+      return errorResult(
+        `Tool "${name}" failed (ref: ${errorId}). The memory backend is temporarily unavailable. ` +
+        'No further detail is available to this tool; ask an operator to look up the reference id.',
+      )
     }
   }
 }

@@ -13,6 +13,11 @@ import type { PrimitiveMultiPortSaveContract } from "./multi-port-save.js";
  * makes it a usable content address, but it also means a lock cannot record
  * *which* lock it superseded. This sibling contract carries that lineage, so a
  * lock change is verifiable as an ordered revision rather than a silent swap.
+ *
+ * Declared here rather than in `./import-lock-chain.js` (which produces and
+ * verifies these entries, and re-exports this type) because
+ * `DslV2FrontendMetadata` below embeds it — declaring it in the implementation
+ * module made this leaf type module import its own consumer.
  */
 export interface DslV2ImportLockChainEntry {
   readonly schema: "dzupagent.dslV2ImportLockChain/v1";

@@ -45,12 +45,9 @@ import {
 import type {
   AggregatedDelegationResult,
   DelegateTaskOptions,
-  DelegatingSupervisorConfig,
   PlanAndDelegateOptions,
   SubOrchestratorChildHierarchy,
-  SubOrchestratorFactory,
   SubOrchestratorSpawnOptions,
-  SubOrchestratorSpawnResult,
   SupervisorHierarchy,
   TaskAssignment,
   SubOrchestratorChild,
@@ -61,12 +58,9 @@ export type { DuplicateSpecialistAssignmentIdMode } from "./assignment-validator
 export type {
   AggregatedDelegationResult,
   DelegateTaskOptions,
-  DelegatingSupervisorConfig,
   PlanAndDelegateOptions,
   SubOrchestratorChildHierarchy,
-  SubOrchestratorFactory,
   SubOrchestratorSpawnOptions,
-  SubOrchestratorSpawnResult,
   SupervisorHierarchy,
   TaskAssignment,
 } from "./delegating-supervisor-types.js";
@@ -74,6 +68,134 @@ export {
   MAX_ORCHESTRATION_DEPTH,
   assertDepthAllowed,
 } from "./delegating-supervisor-types.js";
+
+/** Configuration for DelegatingSupervisor. */
+export interface DelegatingSupervisorConfig {
+  /** Map of specialist ID -> AgentExecutionSpec metadata */
+  specialists: Map<string, AgentExecutionSpec>;
+  /** The delegation tracker that executes delegations */
+  tracker: DelegationTracker;
+  /** Parent run context for delegation requests */
+  parentContext?: DelegationContext;
+  /** Event bus for lifecycle events */
+  eventBus?: DzupEventBus;
+  /**
+   * Guard direct delegateAndCollect() callers from result-key collisions.
+   *
+   * PlanningAgent.executePlan() already passes TaskAssignment.id = node.id.
+   * Direct callers that repeat the same specialist should pass stable IDs for
+   * every assignment in the duplicate-specialist batch.
+   *
+   * Defaults to "warn" so legacy direct callers keep working while surfacing
+   * the collision risk. Use "strict" to fail before delegation starts.
+   */
+  duplicateSpecialistAssignmentIdMode?: DuplicateSpecialistAssignmentIdMode;
+  /**
+   * Provider execution port for adapter-based execution.
+   * When set, `delegateTask` routes through `providerPort.run()`
+   * instead of the delegation tracker.
+   */
+  providerPort?: ProviderExecutionPort;
+  /**
+   * Pluggable routing policy for agent selection.
+   * When not set, the existing keyword/LLM-based selection is used.
+   */
+  routingPolicy?: RoutingPolicy;
+  /**
+   * Pluggable merge strategy for combining parallel delegation results.
+   * Defaults to UsePartialMergeStrategy behavior when not set.
+   */
+  mergeStrategy?: OrchestrationMergeStrategy;
+  /**
+   * Circuit breaker for excluding unhealthy agents from routing.
+   * When set, agents with tripped circuits are filtered out before selection.
+   */
+  circuitBreaker?: AgentCircuitBreaker;
+  /**
+   * Builds the CHILD supervisor when `spawnSubOrchestrator` dispatches a
+   * subtask to another `DelegatingSupervisor`.
+   *
+   * Optional: a supervisor with no factory cannot spawn children and
+   * `spawnSubOrchestrator` throws rather than guessing the child's wiring. Can
+   * also be supplied per-call.
+   */
+  subOrchestratorFactory?: SubOrchestratorFactory;
+  // ── Hierarchy (ORCHESTRATION_V2) ──
+  /**
+   * ID of the parent run when this supervisor is itself a sub-orchestrator.
+   *
+   * NOTE: this is the *orchestrator-hierarchy* parent and is a DIFFERENT
+   * concept from {@link DelegationContext.parentRunId}, which identifies the
+   * run issuing an individual delegation. See `DelegatingSupervisor.hierarchy`
+   * for the full disambiguation.
+   */
+  parentRunId?: string;
+  /** Branch identifier when running inside a parallel/conditional tree. */
+  branchId?: string;
+  /**
+   * Depth in orchestration hierarchy. Root = 0.
+   *
+   * Validated at construction time against {@link MAX_ORCHESTRATION_DEPTH};
+   * constructing a supervisor at or beyond the limit throws.
+   */
+  depth?: number;
+  /**
+   * This supervisor's OWN run ID — a THIRD distinct identity, separate from
+   * both {@link parentRunId} (its orchestrator parent) and
+   * {@link DelegationContext.parentRunId} (the run issuing an individual
+   * delegation).
+   *
+   * Required only to spawn a child sub-orchestrator: it becomes the child's
+   * `SupervisorHierarchy.parentRunId`. Without it a supervisor cannot name
+   * itself as anyone's parent, and `spawnSubOrchestrator` throws rather than
+   * substituting a different identity.
+   *
+   * Deliberately NOT defaulted from `parentContext.parentRunId`: that field is
+   * the DELEGATION parent (the run issuing a delegation to a specialist), which
+   * is a different concept and would silently mis-attribute the tree.
+   */
+  runId?: string;
+}
+
+/**
+ * Builds the CHILD supervisor for a sub-orchestrator dispatch.
+ *
+ * The spawning supervisor cannot invent the child's specialists or delegation
+ * tracker — those are wiring decisions owned by the composition root — so it
+ * derives only the hierarchy and delegates construction here. The factory is
+ * responsible for passing `hierarchy` through onto the child config unchanged;
+ * a factory that drops or rewrites it is rejected by `spawnSubOrchestrator`.
+ *
+ * Declared here rather than in `./delegating-supervisor-types.js` because it
+ * names the concrete {@link DelegatingSupervisor} class; see that module's
+ * layering rule.
+ */
+export type SubOrchestratorFactory = (args: {
+  /** Pre-validated hierarchy the child MUST be constructed with. */
+  hierarchy: SubOrchestratorChildHierarchy;
+  /** The original spawn request, for persona/provider/budget wiring. */
+  options: SubOrchestratorSpawnOptions;
+}) => DelegatingSupervisor | Promise<DelegatingSupervisor>;
+
+/**
+ * Outcome of a sub-orchestrator dispatch.
+ *
+ * Carries the child's aggregated delegation result alongside the hierarchy the
+ * child actually ran with, so a caller can assert tree position without
+ * re-deriving it.
+ *
+ * Declared here rather than in `./delegating-supervisor-types.js` because it
+ * names the concrete {@link DelegatingSupervisor} class; see that module's
+ * layering rule.
+ */
+export interface SubOrchestratorSpawnResult {
+  /** Hierarchy the child supervisor was constructed with. */
+  hierarchy: SubOrchestratorChildHierarchy;
+  /** The child supervisor instance, for follow-up dispatches. */
+  supervisor: DelegatingSupervisor;
+  /** Aggregated result of the child's own delegation batch. */
+  result: AggregatedDelegationResult;
+}
 
 // ---------------------------------------------------------------------------
 // Implementation

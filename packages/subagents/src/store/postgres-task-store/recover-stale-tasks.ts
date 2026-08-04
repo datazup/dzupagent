@@ -4,6 +4,7 @@ import type {
 } from "../../contracts/background-task.js";
 import type { TaskStore } from "../../contracts/task-store.js";
 import type { SubagentLogger } from "../../contracts/logger.js";
+import { isLeaseLive } from "../../lifecycle/task-lease.js";
 
 export interface RecoverStaleRunningTasksOptions {
   store: TaskStore;
@@ -22,6 +23,10 @@ export async function recoverStaleRunningTasks(
   const running = await options.store.list({ status: "running" });
   const recovered: TaskId[] = [];
   for (const task of running) {
+    // AGENT-C-08 / H-29: a task whose owner is still heartbeating its execution
+    // lease is live work, not stale work — even if it has been running longer
+    // than `runningTimeoutMs`. Reclaiming it would double-run the task.
+    if (isLeaseLive(task, options.now)) continue;
     if (task.startedAt === undefined || task.startedAt > cutoff) continue;
     const patch: Partial<BackgroundTask> =
       action === "requeue"

@@ -1,26 +1,24 @@
 /**
- * Public type declarations for {@link DelegatingSupervisor}.
+ * Public type declarations for `DelegatingSupervisor`.
  *
  * Co-located in their own module so the supervisor implementation file stays
  * focused on behavior. The runtime entry point re-exports these types for
  * backward compatibility.
+ *
+ * ## Layering rule
+ *
+ * This module MUST NOT import from `./delegating-supervisor.js` (or any other
+ * non-`*-types` sibling that imports it back). A `*-types.ts` module is a leaf.
+ * The two declarations that genuinely need the concrete `DelegatingSupervisor`
+ * class type — `SubOrchestratorFactory` and `SubOrchestratorSpawnResult` —
+ * therefore live in `delegating-supervisor.ts` alongside the class, and are
+ * re-exported from there. `import type` is erased at runtime, but it is still a
+ * dependency edge for every static analyser, and it formed a 3-module cycle
+ * with `parallel-delegation-aggregator.ts`.
  */
 
-import type { AgentExecutionSpec } from "@dzupagent/core/persistence";
-import type { DzupEventBus } from "@dzupagent/core/events";
-import type { AgentCircuitBreaker } from "./circuit-breaker.js";
-import type {
-  DelegationContext,
-  DelegationResult,
-  DelegationTracker,
-} from "./delegation.js";
-import type { OrchestrationMergeStrategy } from "./orchestration-merge-strategy-types.js";
-// Type-only, so this back-reference to the implementation module is erased at
-// compile time and creates no runtime import cycle.
-import type { ProviderExecutionPort } from "./provider-adapter/provider-execution-port.js";
-import type { RoutingPolicy } from "./routing-policy-types.js";
+import type { DelegationContext, DelegationResult } from "./delegation.js";
 import type { StructuredLLM } from "../structured/structured-output-engine.js";
-import type { DuplicateSpecialistAssignmentIdMode } from "./assignment-validator.js";
 
 /** Options for LLM-powered planAndDelegate. */
 export interface PlanAndDelegateOptions {
@@ -68,94 +66,6 @@ export interface DelegateTaskOptions {
   runId?: string;
   /** Abort signal for provider-port cancellation. */
   signal?: AbortSignal;
-}
-
-/** Configuration for DelegatingSupervisor. */
-export interface DelegatingSupervisorConfig {
-  /** Map of specialist ID -> AgentExecutionSpec metadata */
-  specialists: Map<string, AgentExecutionSpec>;
-  /** The delegation tracker that executes delegations */
-  tracker: DelegationTracker;
-  /** Parent run context for delegation requests */
-  parentContext?: DelegationContext;
-  /** Event bus for lifecycle events */
-  eventBus?: DzupEventBus;
-  /**
-   * Guard direct delegateAndCollect() callers from result-key collisions.
-   *
-   * PlanningAgent.executePlan() already passes TaskAssignment.id = node.id.
-   * Direct callers that repeat the same specialist should pass stable IDs for
-   * every assignment in the duplicate-specialist batch.
-   *
-   * Defaults to "warn" so legacy direct callers keep working while surfacing
-   * the collision risk. Use "strict" to fail before delegation starts.
-   */
-  duplicateSpecialistAssignmentIdMode?: DuplicateSpecialistAssignmentIdMode;
-  /**
-   * Provider execution port for adapter-based execution.
-   * When set, `delegateTask` routes through `providerPort.run()`
-   * instead of the delegation tracker.
-   */
-  providerPort?: ProviderExecutionPort;
-  /**
-   * Pluggable routing policy for agent selection.
-   * When not set, the existing keyword/LLM-based selection is used.
-   */
-  routingPolicy?: RoutingPolicy;
-  /**
-   * Pluggable merge strategy for combining parallel delegation results.
-   * Defaults to UsePartialMergeStrategy behavior when not set.
-   */
-  mergeStrategy?: OrchestrationMergeStrategy;
-  /**
-   * Circuit breaker for excluding unhealthy agents from routing.
-   * When set, agents with tripped circuits are filtered out before selection.
-   */
-  circuitBreaker?: AgentCircuitBreaker;
-  /**
-   * Builds the CHILD supervisor when `spawnSubOrchestrator` dispatches a
-   * subtask to another `DelegatingSupervisor`.
-   *
-   * Optional: a supervisor with no factory cannot spawn children and
-   * `spawnSubOrchestrator` throws rather than guessing the child's wiring. Can
-   * also be supplied per-call.
-   */
-  subOrchestratorFactory?: SubOrchestratorFactory;
-  // ── Hierarchy (ORCHESTRATION_V2) ──
-  /**
-   * ID of the parent run when this supervisor is itself a sub-orchestrator.
-   *
-   * NOTE: this is the *orchestrator-hierarchy* parent and is a DIFFERENT
-   * concept from {@link DelegationContext.parentRunId}, which identifies the
-   * run issuing an individual delegation. See `DelegatingSupervisor.hierarchy`
-   * for the full disambiguation.
-   */
-  parentRunId?: string;
-  /** Branch identifier when running inside a parallel/conditional tree. */
-  branchId?: string;
-  /**
-   * Depth in orchestration hierarchy. Root = 0.
-   *
-   * Validated at construction time against {@link MAX_ORCHESTRATION_DEPTH};
-   * constructing a supervisor at or beyond the limit throws.
-   */
-  depth?: number;
-  /**
-   * This supervisor's OWN run ID — a THIRD distinct identity, separate from
-   * both {@link parentRunId} (its orchestrator parent) and
-   * {@link DelegationContext.parentRunId} (the run issuing an individual
-   * delegation).
-   *
-   * Required only to spawn a child sub-orchestrator: it becomes the child's
-   * `SupervisorHierarchy.parentRunId`. Without it a supervisor cannot name
-   * itself as anyone's parent, and `spawnSubOrchestrator` throws rather than
-   * substituting a different identity.
-   *
-   * Deliberately NOT defaulted from `parentContext.parentRunId`: that field is
-   * the DELEGATION parent (the run issuing a delegation to a specialist), which
-   * is a different concept and would silently mis-attribute the tree.
-   */
-  runId?: string;
 }
 
 /**
@@ -244,23 +154,11 @@ export interface SubOrchestratorChildHierarchy {
 }
 
 /**
- * Builds the CHILD supervisor for a sub-orchestrator dispatch.
+ * Structural surface required from a spawned child supervisor.
  *
- * The spawning supervisor cannot invent the child's specialists or delegation
- * tracker — those are wiring decisions owned by the composition root — so it
- * derives only the hierarchy and delegates construction here. The factory is
- * responsible for passing `hierarchy` through onto the child config unchanged;
- * a factory that drops or rewrites it is rejected by `spawnSubOrchestrator`.
- */
-/**
- * Structural contract for a spawned CHILD supervisor.
- *
- * `spawnSubOrchestrator` only ever reads the child's hierarchy and runs its
- * delegation batch, so this declares exactly that surface. Naming the concrete
- * `DelegatingSupervisor` class here instead would make this module and the
- * implementation mutually dependent; `DelegatingSupervisor implements
- * SubOrchestratorChild` keeps the conformance compiler-enforced without the
- * cycle.
+ * Keeping this contract in the leaf type module avoids naming the concrete
+ * `DelegatingSupervisor` class while still allowing the implementation to
+ * prove that it provides the child orchestration surface.
  */
 export interface SubOrchestratorChild {
   readonly hierarchy: SupervisorHierarchy;
@@ -270,28 +168,11 @@ export interface SubOrchestratorChild {
   ): Promise<AggregatedDelegationResult>;
 }
 
-export type SubOrchestratorFactory = (args: {
-  /** Pre-validated hierarchy the child MUST be constructed with. */
-  hierarchy: SubOrchestratorChildHierarchy;
-  /** The original spawn request, for persona/provider/budget wiring. */
-  options: SubOrchestratorSpawnOptions;
-}) => SubOrchestratorChild | Promise<SubOrchestratorChild>;
-
-/**
- * Outcome of a sub-orchestrator dispatch.
- *
- * Carries the child's aggregated delegation result alongside the hierarchy the
- * child actually ran with, so a caller can assert tree position without
- * re-deriving it.
- */
-export interface SubOrchestratorSpawnResult {
-  /** Hierarchy the child supervisor was constructed with. */
-  hierarchy: SubOrchestratorChildHierarchy;
-  /** The child supervisor instance, for follow-up dispatches. */
-  supervisor: SubOrchestratorChild;
-  /** Aggregated result of the child's own delegation batch. */
-  result: AggregatedDelegationResult;
-}
+// `SubOrchestratorFactory` and `SubOrchestratorSpawnResult` are declared in
+// `./delegating-supervisor.js` — both name the concrete `DelegatingSupervisor`
+// class, and this module may not import it (see the layering rule above).
+// `orchestration/index.ts` already re-exports them from there, so the package's
+// public surface is unaffected.
 
 /**
  * Guard that enforces the maximum orchestration depth.

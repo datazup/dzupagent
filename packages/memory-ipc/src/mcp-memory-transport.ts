@@ -15,6 +15,7 @@ import {
   ipcToBase64,
   base64ToIPC,
 } from './ipc-serializer.js'
+import { isMemoryFrameError } from './ipc-errors.js'
 import { MEMORY_FRAME_SCHEMA, MEMORY_FRAME_VERSION } from './schema.js'
 import { FrameReader } from './frame-reader.js'
 
@@ -48,6 +49,12 @@ export const importMemoryInputSchema = z.object({
 })
 
 export const importMemoryOutputSchema = z.object({
+  /**
+   * ERR-C-23: explicit outcome state. `invalid_payload` means the request body
+   * could not be decoded at all — it is NOT an empty result and callers
+   * (e.g. HTTP routes) should map it to 4xx, never a 200 "no records found".
+   */
+  status: z.enum(['ok', 'invalid_payload']).default('ok'),
   imported: z.number(),
   skipped: z.number(),
   conflicts: z.number(),
@@ -201,6 +208,7 @@ export async function handleImportMemory(
       const parsed: unknown = JSON.parse(jsonStr)
       if (!Array.isArray(parsed)) {
         return {
+          status: 'invalid_payload',
           imported: 0,
           skipped: 0,
           conflicts: 0,
@@ -248,6 +256,7 @@ export async function handleImportMemory(
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       return {
+        status: 'invalid_payload',
         imported: 0,
         skipped: 0,
         conflicts: 0,
@@ -259,17 +268,35 @@ export async function handleImportMemory(
     const ipcBytes = base64ToIPC(input.data)
     if (ipcBytes.byteLength === 0) {
       return {
+        status: 'invalid_payload',
         imported: 0,
         skipped: 0,
         conflicts: 0,
         warnings: ['Empty or invalid Arrow IPC data'],
       }
     }
-    table = deserializeFromIPC(ipcBytes)
+    // ERR-C-23: a corrupt/truncated frame must NOT fall through to the
+    // `numRows === 0` branch below and be reported as "No records found" on a
+    // successful response. Surface it as an explicit invalid_payload state.
+    try {
+      table = deserializeFromIPC(ipcBytes)
+    } catch (err: unknown) {
+      if (!isMemoryFrameError(err, 'MEMORY_FRAME_DESERIALIZE_FAILED')) throw err
+      return {
+        status: 'invalid_payload',
+        imported: 0,
+        skipped: 0,
+        conflicts: 0,
+        warnings: [
+          `Invalid Arrow IPC payload: ${err.message} (${ipcBytes.byteLength} bytes)`,
+        ],
+      }
+    }
   }
 
   if (table.numRows === 0) {
     return {
+      status: 'ok',
       imported: 0,
       skipped: 0,
       conflicts: 0,
@@ -285,6 +312,7 @@ export async function handleImportMemory(
   )
 
   return {
+    status: 'ok',
     imported: result.imported,
     skipped: result.skipped,
     conflicts: result.conflicts,

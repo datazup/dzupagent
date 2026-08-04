@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
 import { TiktokenCounter, __internals } from '../tiktoken-counter.js'
 import { CharEstimateCounter } from '../char-estimate-counter.js'
 
@@ -13,6 +13,16 @@ import { CharEstimateCounter } from '../char-estimate-counter.js'
  * counter returns a sensible positive integer for non-empty input.
  */
 describe('TiktokenCounter — Claude routing (REC-M-02)', () => {
+  // DZUPAGENT-AGENT-C-01: the counter now really tokenizes, and building a
+  // BPE rank table takes seconds (tens of seconds on a loaded box). Warm both
+  // vocabularies once, outside the per-test 30s budget — `resetCache()` below
+  // clears the module lookups but deliberately keeps built encoders.
+  beforeAll(() => {
+    const warm = new TiktokenCounter()
+    warm.count('warm up the o200k table', 'gpt-4o')
+    warm.count('warm up the cl100k table', 'gpt-4')
+  }, 240_000)
+
   beforeEach(() => {
     __internals.resetCache()
   })

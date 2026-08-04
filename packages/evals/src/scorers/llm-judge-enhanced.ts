@@ -145,7 +145,11 @@ export function createLLMJudge(config: LLMJudgeEnhancedConfig): Scorer<EvalInput
       const durationMs = Date.now() - startTime;
 
       if (scores === null) {
-        // Total failure: return zero scores for all criteria
+        // Total failure: the judge never produced a verdict. `measured:
+        // false` signals this is a neutral placeholder, not evidence of a
+        // 0-quality output — callers (e.g. the benchmark runner) must
+        // exclude it from averages and regression gating rather than
+        // treating the zero score as a real measurement (ERR-C-21).
         return {
           scorerId,
           scores: criteriaList.map((c) => ({
@@ -156,6 +160,7 @@ export function createLLMJudge(config: LLMJudgeEnhancedConfig): Scorer<EvalInput
           aggregateScore: 0,
           passed: false,
           durationMs,
+          measured: false,
         };
       }
 

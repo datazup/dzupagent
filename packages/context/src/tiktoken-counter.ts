@@ -21,11 +21,12 @@ import type {
   TokenMeasurementResult,
 } from './token-lifecycle.js'
 
+type JsTiktokenEncoder = { encode(text: string): number[] }
+
+/** `js-tiktoken` exposes camelCase APIs; snake_case belongs to other packages. */
 type JsTiktokenModule = {
-  encodingForModel?: (model: string) => { encode(text: string): number[] }
-  encoding_for_model?: (model: string) => { encode(text: string): number[] }
-  getEncoding?: (encoding: string) => { encode(text: string): number[] }
-  get_encoding?: (encoding: string) => { encode(text: string): number[] }
+  encodingForModel?: (model: string) => JsTiktokenEncoder
+  getEncoding?: (encoding: string) => JsTiktokenEncoder
   getEncodingNameForModel?: (model: string) => string
 }
 
@@ -42,6 +43,49 @@ type AnthropicTokenizerModule = {
 
 let cachedModule: JsTiktokenModule | null | undefined
 let cachedAnthropicModule: AnthropicTokenizerModule | null | undefined
+const encoderCache = new Map<string, JsTiktokenEncoder | null>()
+
+const DEFAULT_ENCODING = 'cl100k_base'
+const O200K_ENCODING = 'o200k_base'
+const O200K_PREFIXES = [
+  'gpt-4o',
+  'gpt-4.1',
+  'gpt-5',
+  'chatgpt-4o',
+  'o1',
+  'o3',
+  'o4',
+]
+
+function resolveEncodingName(mod: JsTiktokenModule, model?: string): string {
+  if (!model) return DEFAULT_ENCODING
+  const normalized = model.toLowerCase()
+  const bare = normalized.slice(normalized.lastIndexOf('/') + 1)
+  if (O200K_PREFIXES.some((prefix) => bare.startsWith(prefix))) {
+    return O200K_ENCODING
+  }
+  try {
+    return mod.getEncodingNameForModel?.(bare) ?? DEFAULT_ENCODING
+  } catch {
+    return DEFAULT_ENCODING
+  }
+}
+
+function getEncoder(
+  mod: JsTiktokenModule,
+  encodingName: string,
+): JsTiktokenEncoder | null {
+  const cached = encoderCache.get(encodingName)
+  if (cached !== undefined) return cached
+  let encoder: JsTiktokenEncoder | null = null
+  try {
+    encoder = mod.getEncoding?.(encodingName) ?? null
+  } catch {
+    encoder = null
+  }
+  encoderCache.set(encodingName, encoder)
+  return encoder
+}
 
 function tryLoadModule(): JsTiktokenModule | null {
   if (cachedModule !== undefined) return cachedModule
@@ -102,22 +146,39 @@ function heuristicCount(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
-function encodingForModel(
-  mod: JsTiktokenModule,
-  model: string,
-): { encode(text: string): number[] } {
-  const resolve = mod.encodingForModel ?? mod.encoding_for_model
-  if (!resolve) throw new TypeError('js-tiktoken model encoder is unavailable')
-  return resolve(model)
-}
+const MAX_TOKENIZABLE_RUN = 2000
+const OVERLONG_RUN = new RegExp(`\\S{${MAX_TOKENIZABLE_RUN + 1},}`)
 
-function getEncoding(
-  mod: JsTiktokenModule,
-  encoding: string,
-): { encode(text: string): number[] } {
-  const resolve = mod.getEncoding ?? mod.get_encoding
-  if (!resolve) throw new TypeError('js-tiktoken generic encoder is unavailable')
-  return resolve(encoding)
+/**
+ * Avoid quadratic tokenizer work on large whitespace-free blobs while still
+ * tokenizing ordinary text exactly.
+ */
+function countWithRunGuard(
+  countExact: (chunk: string) => number | undefined,
+  text: string,
+): number | undefined {
+  if (!OVERLONG_RUN.test(text)) return countExact(text)
+
+  let total = 0
+  let buffered = ''
+  const flush = (): boolean => {
+    if (buffered.length === 0) return true
+    const count = countExact(buffered)
+    buffered = ''
+    if (count === undefined) return false
+    total += count
+    return true
+  }
+
+  for (const part of text.split(/(\s+)/)) {
+    if (part.length > MAX_TOKENIZABLE_RUN && part.trim().length > 0) {
+      if (!flush()) return undefined
+      total += heuristicCount(part)
+    } else {
+      buffered += part
+    }
+  }
+  return flush() ? total : undefined
 }
 
 export class TiktokenCounter implements TokenCounter {
@@ -136,13 +197,17 @@ export class TiktokenCounter implements TokenCounter {
 
     if (isClaudeModel(model)) {
       try {
-        const claudeCount = countWithAnthropicTokenizer(text)
+        const guarded = OVERLONG_RUN.test(text)
+        const claudeCount = countWithRunGuard(countWithAnthropicTokenizer, text)
         if (typeof claudeCount === 'number' && Number.isFinite(claudeCount)) {
           return {
             tokens: Math.max(0, Math.ceil(claudeCount)),
-            method: 'exact',
+            method: guarded ? 'heuristic' : 'exact',
             ...(model ? { model } : {}),
             encoding: 'anthropic-tokenizer',
+            ...(guarded
+              ? { reason: 'overlong whitespace-free run used guarded estimate' }
+              : {}),
           }
         }
       } catch {
@@ -161,29 +226,42 @@ export class TiktokenCounter implements TokenCounter {
       }
     }
 
-    if (model && model.toLowerCase().startsWith('gpt')) {
-      try {
-        const encoding = mod.getEncodingNameForModel?.(model)
-        return {
-          tokens: encodingForModel(mod, model).encode(text).length,
-          method: 'exact',
-          model,
-          ...(encoding ? { encoding } : {}),
-        }
-      } catch {
-        // A generic encoding is still tokenizer-backed, but not model-exact.
-      }
-    }
-
     try {
+      const encoding = resolveEncodingName(mod, model)
+      const encoder = getEncoder(mod, encoding)
+      if (!encoder) throw new TypeError('js-tiktoken encoder is unavailable')
+      const guarded = OVERLONG_RUN.test(text)
+      const tokens = countWithRunGuard(
+        (chunk) => encoder.encode(chunk).length,
+        text,
+      )
+      if (tokens === undefined) {
+        throw new TypeError('js-tiktoken encoder failed')
+      }
+      const modelExact = Boolean(
+        model &&
+          (O200K_PREFIXES.some((prefix) =>
+            model.toLowerCase().split('/').at(-1)?.startsWith(prefix),
+          ) || mod.getEncodingNameForModel),
+      )
       return {
-        tokens: getEncoding(mod, 'cl100k_base').encode(text).length,
-        method: 'encoding-fallback',
+        tokens,
+        method: guarded
+          ? 'heuristic'
+          : modelExact
+            ? 'exact'
+            : 'encoding-fallback',
         ...(model ? { model } : {}),
-        encoding: 'cl100k_base',
-        reason: model
-          ? 'model-specific tokenizer unavailable'
-          : 'no model identifier supplied',
+        encoding,
+        ...(!guarded && modelExact
+          ? {}
+          : {
+              reason: guarded
+                ? 'overlong whitespace-free run used guarded estimate'
+                : model
+                  ? 'model-specific tokenizer unavailable'
+                  : 'no model identifier supplied',
+            }),
       }
     } catch {
       return {
@@ -198,8 +276,14 @@ export class TiktokenCounter implements TokenCounter {
 
 export const __internals = {
   isClaudeModel,
+  resolveEncodingName(model?: string): string {
+    return resolveEncodingName(tryLoadModule() ?? {}, model)
+  },
   resetCache(): void {
     cachedModule = undefined
     cachedAnthropicModule = undefined
+  },
+  resetEncoderCache(): void {
+    encoderCache.clear()
   },
 }

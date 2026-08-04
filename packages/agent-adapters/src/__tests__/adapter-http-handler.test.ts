@@ -121,7 +121,7 @@ describe("AdapterHttpHandler", () => {
 
   beforeEach(() => {
     orchestrator = createMockOrchestrator();
-    handler = new AdapterHttpHandler({ orchestrator });
+    handler = new AdapterHttpHandler({ orchestrator, allowUnauthenticated: true });
   });
 
   afterEach(() => {
@@ -223,7 +223,10 @@ describe("AdapterHttpHandler", () => {
           listAdapters: vi.fn().mockReturnValue(["claude"]),
         },
       });
-      const h = new AdapterHttpHandler({ orchestrator: orch });
+      const h = new AdapterHttpHandler({
+        orchestrator: orch,
+        allowUnauthenticated: true,
+      });
       const capture = captureStreamedEvents();
 
       try {
@@ -281,7 +284,10 @@ describe("AdapterHttpHandler", () => {
           listAdapters: vi.fn().mockReturnValue(["claude"]),
         },
       });
-      const h = new AdapterHttpHandler({ orchestrator: orch });
+      const h = new AdapterHttpHandler({
+        orchestrator: orch,
+        allowUnauthenticated: true,
+      });
       const capture = captureStreamedEvents();
 
       try {
@@ -330,7 +336,10 @@ describe("AdapterHttpHandler", () => {
           listAdapters: vi.fn().mockReturnValue([]),
         },
       });
-      const h = new AdapterHttpHandler({ orchestrator: orch });
+      const h = new AdapterHttpHandler({
+        orchestrator: orch,
+        allowUnauthenticated: true,
+      });
       const capture = captureStreamedEvents();
 
       try {
@@ -400,7 +409,10 @@ describe("AdapterHttpHandler", () => {
           }),
         },
       });
-      const h = new AdapterHttpHandler({ orchestrator: orch });
+      const h = new AdapterHttpHandler({
+        orchestrator: orch,
+        allowUnauthenticated: true,
+      });
 
       const result = await h.handle(makeRequest("GET", "/health"));
       const json = asJsonResponse(result as HttpResponse);
@@ -420,7 +432,10 @@ describe("AdapterHttpHandler", () => {
       const orch = createMockOrchestrator({
         getCostReport: vi.fn().mockReturnValue(undefined),
       });
-      const h = new AdapterHttpHandler({ orchestrator: orch });
+      const h = new AdapterHttpHandler({
+        orchestrator: orch,
+        allowUnauthenticated: true,
+      });
 
       const result = await h.handle(makeRequest("GET", "/cost"));
       const json = asJsonResponse(result as HttpResponse);
@@ -735,6 +750,7 @@ describe("AdapterHttpHandler", () => {
       const gatedHandler = new AdapterHttpHandler({
         orchestrator,
         approvalGate: mockGate,
+        allowUnauthenticated: true,
       });
 
       const result = await gatedHandler.handle(
@@ -763,6 +779,7 @@ describe("AdapterHttpHandler", () => {
       const gatedHandler = new AdapterHttpHandler({
         orchestrator,
         approvalGate: mockGate,
+        allowUnauthenticated: true,
       });
 
       const result = await gatedHandler.handle(
@@ -787,6 +804,7 @@ describe("AdapterHttpHandler", () => {
       const gatedHandler = new AdapterHttpHandler({
         orchestrator,
         approvalGate: mockGate,
+        allowUnauthenticated: true,
       });
 
       const result = await gatedHandler.handle(
@@ -807,6 +825,7 @@ describe("AdapterHttpHandler", () => {
       const gatedHandler = new AdapterHttpHandler({
         orchestrator,
         approvalGate: mockGate,
+        allowUnauthenticated: true,
       });
 
       const result = await gatedHandler.handle(
@@ -829,7 +848,10 @@ describe("AdapterHttpHandler", () => {
       const failingOrch = createMockOrchestrator({
         run: vi.fn().mockRejectedValue(new Error("kaboom")),
       });
-      const h = new AdapterHttpHandler({ orchestrator: failingOrch });
+      const h = new AdapterHttpHandler({
+        orchestrator: failingOrch,
+        allowUnauthenticated: true,
+      });
 
       const result = await h.handle(
         makeRequest("POST", "/run", { prompt: "hello" }),
@@ -855,6 +877,7 @@ describe("AdapterHttpHandler", () => {
       const h = new AdapterHttpHandler({
         orchestrator: failingOrch,
         eventBus: bus,
+        allowUnauthenticated: true,
       });
 
       await h.handle(makeRequest("POST", "/run", { prompt: "hello" }));

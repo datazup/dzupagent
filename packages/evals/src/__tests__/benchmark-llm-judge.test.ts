@@ -158,11 +158,16 @@ describe('Benchmark LLM Judge Integration', () => {
   });
 
   // -----------------------------------------------------------------------
-  // 3. LLM fails — returns 0.0
+  // 3. LLM fails — unmeasured, never a false regression
   // -----------------------------------------------------------------------
   describe('LLM failure', () => {
-    it('should return 0.5 fallback when the LLM throws', async () => {
-      const suite = makeSuite();
+    it('ERR-C-20/ERR-C-21: a fully unreachable judge is unmeasured, not averaged in as a real 0.5, and never a false regression', async () => {
+      const suite = makeSuite({
+        // A threshold above the (defective) fallback score: under the old
+        // behaviour, the 0.5 fallback was averaged in and could mask, or
+        // spuriously trigger, a regression depending on the threshold.
+        baselineThresholds: { judge: 0.9 },
+      });
       const llm = vi.fn(async (): Promise<string> => {
         throw new Error('LLM service unavailable');
       });
@@ -171,19 +176,25 @@ describe('Benchmark LLM Judge Integration', () => {
       const target = async (_input: string) => 'some output';
       const result = await runBenchmark(suite, target, config);
 
-      // LlmJudgeScorer retries once (maxRetries=1), all fail => fallback 0.5
-      expect(result.scores['judge']).toBe(0.5);
+      // LlmJudgeScorer retries once (maxRetries=1), all fail => unmeasured.
+      // With zero real measurements, this scorer must not be reported as
+      // regressed, and the run must not fail the baseline gate.
+      expect(result.regressions).not.toContain('judge');
+      expect(result.passedBaseline).toBe(true);
     });
 
-    it('should return 0.5 fallback when LLM returns unparseable response', async () => {
-      const suite = makeSuite();
+    it('ERR-C-20/ERR-C-21: an unparseable judge response is unmeasured and never a false regression', async () => {
+      const suite = makeSuite({
+        baselineThresholds: { judge: 0.9 },
+      });
       const llm = vi.fn(async (): Promise<string> => 'not valid json at all');
 
       const config: BenchmarkConfig = { llm };
       const target = async (_input: string) => 'some output';
       const result = await runBenchmark(suite, target, config);
 
-      expect(result.scores['judge']).toBe(0.5);
+      expect(result.regressions).not.toContain('judge');
+      expect(result.passedBaseline).toBe(true);
     });
   });
 

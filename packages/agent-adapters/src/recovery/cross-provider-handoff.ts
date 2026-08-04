@@ -27,7 +27,7 @@
  *   const fallbackInput = CrossProviderHandoff.enrichInput(originalInput, partialEvents)
  */
 
-import { PiiDetector } from "@dzupagent/security";
+import { PiiDetector, PromptInjectionGuard } from "@dzupagent/security";
 import type { AgentEvent, AgentInput } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -49,6 +49,35 @@ const MAX_ITEM_BYTES = 4096;
  * `[REDACTED-<TAG>]` markers.
  */
 const piiDetector = new PiiDetector();
+
+/**
+ * AGENT-C-05: canonical prompt-injection guard. The handoff block is prepended
+ * to the fallback provider's SYSTEM prompt, so it is the single
+ * highest-privilege position untrusted text reaches in this package. The guard
+ * owns both the delimiter and the boundary-neutralization pass.
+ */
+const injectionGuard = new PromptInjectionGuard();
+
+/** Provenance label rendered in the guard block's `source="..."` attribute. */
+const HANDOFF_LABEL = "previous_provider_context";
+
+/**
+ * Defang the *legacy* `<untrusted_previous_context>` delimiter that older
+ * builds emitted. The guard neutralizes its own `untrusted_content` boundary;
+ * this closes the same hole for the historical tag so a captured payload
+ * crafted against the previous format is inert here too.
+ */
+function neutralizeLegacyHandoffBoundary(content: string): string {
+  return content
+    .replace(
+      /<\s*\/\s*untrusted_previous_context\s*>/gi,
+      "&lt;/untrusted_previous_context&gt;"
+    )
+    .replace(
+      /<\s*untrusted_previous_context\b([^>]*)>/gi,
+      (_match, inner: string) => `&lt;untrusted_previous_context${inner}&gt;`
+    );
+}
 
 /**
  * Supplemental secret shapes the security `PiiDetector` does not cover.
@@ -239,7 +268,16 @@ export class CrossProviderHandoff {
     // content as untrusted prior context and resists prompt-injection attempts
     // embedded in tool results or assistant turns from the previous provider.
     const inner = `${this.opts.header}${lines.join("\n")}\n${this.opts.footer}`;
-    return `<untrusted_previous_context>\n${inner}\n</untrusted_previous_context>`;
+    // AGENT-C-05: the previous hand-rolled `<untrusted_previous_context>`
+    // template interpolated captured tool results with ZERO escaping, so a
+    // payload containing a literal closing tag could terminate the block early
+    // and have the fallback provider read the remainder of the block as
+    // authoritative SYSTEM instruction. The canonical guard neutralizes forged
+    // boundaries (both the closing tag and a forged opening tag carrying an
+    // attacker-chosen `source="..."` provenance label) before delimiting.
+    return injectionGuard.wrap(neutralizeLegacyHandoffBoundary(inner), {
+      label: HANDOFF_LABEL,
+    });
   }
 
   /** Reset all captured items (useful when reusing the instance). */

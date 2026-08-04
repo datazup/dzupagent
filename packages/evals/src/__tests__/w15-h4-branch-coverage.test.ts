@@ -1383,7 +1383,7 @@ describe('BenchmarkTrendStore branch coverage', () => {
 // ===========================================================================
 
 describe('benchmark-runner llm-judge branches', () => {
-  it('LlmJudgeScorer returns fallback 0.5 when all retries fail (default judge)', async () => {
+  it('ERR-C-20/ERR-C-21: unreachable default judge is unmeasured, not averaged in as fallback 0.5', async () => {
     const suite: BenchmarkSuite = {
       id: 'test',
       name: 'Test',
@@ -1397,7 +1397,8 @@ describe('benchmark-runner llm-judge branches', () => {
       baselineThresholds: {},
     };
 
-    // LLM that always throws -> internal retry loop catches -> returns 0.5 fallback
+    // LLM that always throws -> internal retry loop catches -> LlmJudgeScorer
+    // returns overall 0.5 with measured:false (ERR-C-20).
     const result = await runBenchmark(
       suite,
       async () => 'some output',
@@ -1408,8 +1409,10 @@ describe('benchmark-runner llm-judge branches', () => {
       },
     );
 
-    // LlmJudgeScorer internally catches LLM errors and returns 0.5 fallback
-    expect(result.scores['judge']).toBeCloseTo(0.5, 2);
+    // The benchmark runner must exclude the unmeasured fallback from the
+    // average (ERR-C-21) rather than reporting it as a real 0.5 score.
+    expect(result.scores['judge']).toBe(0);
+    expect(result.regressions).not.toContain('judge');
   });
 
   it('returns 0.0 when enhanced LLM judge (with custom criteria) throws', async () => {

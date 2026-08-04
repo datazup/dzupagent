@@ -482,28 +482,119 @@ describe('MCPMemoryHandler', () => {
 
   // ---- Handler errors → isError -------------------------------------------
 
+  // ERR-C-22 (inverted): these two previously asserted that the raw backend
+  // error text reached `content[0].text` — i.e. the model's context. That is
+  // the leak / prompt-injection channel the finding is about. The raw text now
+  // belongs in the server-side log only.
   describe('handler errors', () => {
-    it('should catch handler errors and return isError response', async () => {
+    it('returns a generic message with an errorId, not the backend error text', async () => {
+      const logged: string[] = []
+      const spy = vi
+        .spyOn(console, 'error')
+        .mockImplementation((msg: unknown) => { logged.push(String(msg)) })
+
+      try {
+        ;(services.memory.put as ReturnType<typeof vi.fn>).mockRejectedValue(
+          new Error('DB connection lost'),
+        )
+
+        const result = await handler.handleToolCall('memory_store', {
+          key: 'k1',
+          text: 'data',
+        })
+        expect(result.isError).toBe(true)
+        expect(result.content[0]!.text).not.toContain('DB connection lost')
+        expect(result.content[0]!.text).toContain('temporarily unavailable')
+        expect(result.content[0]!.text).toMatch(/\(ref: [0-9a-f-]{36}\)/)
+
+        // Full detail is in the structured log line, and nowhere else.
+        expect(logged).toHaveLength(1)
+        const line = JSON.parse(logged[0]!) as {
+          level: string
+          component: string
+          operation: string
+          errorId: string
+          error: { name: string; message: string; stack?: string }
+        }
+        expect(line.level).toBe('error')
+        expect(line.component).toBe('mcp-memory-server')
+        expect(line.operation).toBe('handleToolCall:memory_store')
+        expect(line.error.message).toBe('DB connection lost')
+        expect(result.content[0]!.text).toContain(line.errorId)
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('redacts a Prisma-shaped error, leaking neither table nor column names', async () => {
+      const logged: string[] = []
+      const spy = vi
+        .spyOn(console, 'error')
+        .mockImplementation((msg: unknown) => { logged.push(String(msg)) })
+
+      try {
+        ;(services.memory.put as ReturnType<typeof vi.fn>).mockRejectedValue(
+          new Error('Unique constraint failed on the fields: (`users.email`)'),
+        )
+
+        const result = await handler.handleToolCall('memory_store', {
+          key: 'k1',
+          text: 'data',
+        })
+
+        expect(result.isError).toBe(true)
+        const text = result.content[0]!.text
+        expect(text).not.toContain('Unique constraint failed')
+        expect(text).not.toContain('users.email')
+        expect(text).toContain('temporarily unavailable')
+
+        expect(logged).toHaveLength(1)
+        expect(logged[0]!).toContain(
+          'Unique constraint failed on the fields: (`users.email`)',
+        )
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('should handle non-Error thrown values without echoing them', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      try {
+        ;(services.memory.search as ReturnType<typeof vi.fn>).mockRejectedValue('string error')
+
+        const result = await handler.handleToolCall('memory_search', {
+          query: 'q',
+        })
+        expect(result.isError).toBe(true)
+        expect(result.content[0]!.text).not.toContain('string error')
+        expect(result.content[0]!.text).toContain('temporarily unavailable')
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('accepts an injected logger instead of the console', async () => {
+      const lines: string[] = []
+      const scoped = new MCPMemoryHandler({
+        ...services,
+        logger: {
+          debug: () => {},
+          info: () => {},
+          warn: () => {},
+          error: (m: string) => { lines.push(m) },
+        },
+      })
       ;(services.memory.put as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error('DB connection lost'),
+        new Error('leaky detail'),
       )
 
-      const result = await handler.handleToolCall('memory_store', {
+      const result = await scoped.handleToolCall('memory_store', {
         key: 'k1',
         text: 'data',
       })
-      expect(result.isError).toBe(true)
-      expect(result.content[0]!.text).toContain('DB connection lost')
-    })
-
-    it('should handle non-Error thrown values', async () => {
-      ;(services.memory.search as ReturnType<typeof vi.fn>).mockRejectedValue('string error')
-
-      const result = await handler.handleToolCall('memory_search', {
-        query: 'q',
-      })
-      expect(result.isError).toBe(true)
-      expect(result.content[0]!.text).toContain('string error')
+      expect(result.content[0]!.text).not.toContain('leaky detail')
+      expect(lines).toHaveLength(1)
+      expect(lines[0]!).toContain('leaky detail')
     })
   })
 

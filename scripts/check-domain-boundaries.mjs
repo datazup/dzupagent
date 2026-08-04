@@ -42,6 +42,30 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
+/**
+ * DZUPAGENT-ARCH-C-02: `rg` is not guaranteed to be installed on every host
+ * this gate runs on (it is absent on at least one CI/dev environment in
+ * active use). Probe for it once, so the gate can fall back to a pure-Node
+ * search instead of hard-crashing with an unhandled `ENOENT` from
+ * `spawnSync`.
+ */
+function probeRipgrep() {
+  try {
+    execFileSync('rg', ['--version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+const ripgrepAvailable = probeRipgrep()
+if (!ripgrepAvailable) {
+  console.warn(
+    '[check-domain-boundaries] `rg` (ripgrep) is not installed on this host; ' +
+      'falling back to a pure-Node source scan for the domain-import check.',
+  )
+}
+
 const repoRoot = process.cwd()
 const packagesDir = join(repoRoot, 'packages')
 const tiersConfigPath = join(repoRoot, 'config', 'package-tiers.json')
@@ -96,6 +120,73 @@ function rg(args) {
   }
 }
 
+/**
+ * Recursively list files under `dir`, honouring the same excludes Section 1
+ * passes to `rg` (dist/, node_modules/, *.test.ts, __tests__/).
+ */
+function walkSourceFiles(dir, out = []) {
+  let entries
+  try {
+    entries = readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return out
+  }
+  for (const entry of entries) {
+    if (entry.name === 'dist' || entry.name === 'node_modules' || entry.name === '__tests__') {
+      continue
+    }
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      walkSourceFiles(full, out)
+    } else if (entry.isFile() && !entry.name.endsWith('.test.ts')) {
+      out.push(full)
+    }
+  }
+  return out
+}
+
+/**
+ * Pure-Node substitute for `rg -l -e <pattern> <dir>` used when ripgrep is
+ * not installed on this host (DZUPAGENT-ARCH-C-02). Matches file paths
+ * whose contents contain `pattern`, applying the same glob excludes as the
+ * `rg` invocation it replaces.
+ */
+function grepFilesContaining(dir, pattern) {
+  const regex = new RegExp(pattern)
+  const matches = []
+  for (const file of walkSourceFiles(dir)) {
+    let contents
+    try {
+      contents = readFileSync(file, 'utf8')
+    } catch {
+      continue
+    }
+    if (regex.test(contents)) {
+      matches.push(file)
+    }
+  }
+  return matches
+}
+
+/**
+ * Find files under `dir` containing `pattern`, using ripgrep when available
+ * and falling back to a pure-Node scan otherwise (DZUPAGENT-ARCH-C-02).
+ */
+function findFilesContaining(dir, pattern) {
+  if (ripgrepAvailable) {
+    return rg([
+      '--glob', '!**/dist/**',
+      '--glob', '!**/node_modules/**',
+      '--glob', '!**/*.test.ts',
+      '--glob', '!**/__tests__/**',
+      '-l',
+      '-e', pattern,
+      dir,
+    ])
+  }
+  return grepFilesContaining(dir, pattern)
+}
+
 // ---------------------------------------------------------------------------
 // Section 1 — Domain-package import check (legacy rule, preserved verbatim)
 // ---------------------------------------------------------------------------
@@ -106,15 +197,7 @@ for (const pkg of FORBIDDEN_IMPORTS) {
   // Match any import/require/dynamic-import of the forbidden package inside packages/
   // Exclude dist/, node_modules/, and test files (*.test.ts, __tests__/)
   const pattern = `['"]${pkg}['"/]`
-  const matches = rg([
-    '--glob', '!**/dist/**',
-    '--glob', '!**/node_modules/**',
-    '--glob', '!**/*.test.ts',
-    '--glob', '!**/__tests__/**',
-    '-l',                           // print only file paths
-    '-e', pattern,
-    packagesDir,
-  ])
+  const matches = findFilesContaining(packagesDir, pattern)
 
   for (const file of matches) {
     domainViolations.push({ pkg, file })

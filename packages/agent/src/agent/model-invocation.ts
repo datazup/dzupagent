@@ -208,6 +208,10 @@ export async function invokeModelWithProviderFailover(
     attempts,
     phase: "invoke",
     agentId: deps.agentId,
+    // Correlation id so `provider:run_attempt` / `run_selected` / `run_failure`
+    // are attributable to a tenant (C-06 / M-29, partial: `runId` is not yet
+    // threaded into this deps bundle — see TASK.md deferred scope).
+    ...(deps.tenantId !== undefined && { tenantId: deps.tenantId }),
     eventBus: deps.eventBus,
     registry: deps.registry,
     shouldRetry: (err) => deps.shouldRunFailover(err, messages),
