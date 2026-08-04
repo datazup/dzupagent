@@ -5,13 +5,19 @@ import type {
   ProviderAuthenticationMode,
   ProviderExecutionBackend,
 } from "./canonical-execution.js";
+import {
+  AI_COST_UNKNOWN_REASONS,
+  validateAiQuotaTruth,
+  type AiCostUnknownReason,
+  type AiPriceProvenance,
+  type AiQuotaTruth,
+} from "./ai-economics.js";
 
 export type { ExecutionRequest } from "./canonical-execution.js";
 
 export const AI_EXECUTION_REQUEST_SCHEMA =
   "dzupagent.aiExecutionRequest/v1" as const;
-export const AI_PUBLIC_TARGET_SCHEMA =
-  "dzupagent.aiPublicTarget/v1" as const;
+export const AI_PUBLIC_TARGET_SCHEMA = "dzupagent.aiPublicTarget/v1" as const;
 export const AI_RESOLVED_TARGET_SCHEMA =
   "dzupagent.aiResolvedTarget/v1" as const;
 export const AI_EXECUTION_EVENT_SCHEMA =
@@ -41,8 +47,7 @@ export const AI_EXECUTION_STYLES = ["inline", "durable"] as const;
 export type AiExecutionStyle = (typeof AI_EXECUTION_STYLES)[number];
 
 /** Capability identifiers are stable names with an explicit major version. */
-export const AI_CAPABILITY_ID_PATTERN =
-  /^[a-z][a-z0-9.-]*\/v[1-9][0-9]*$/;
+export const AI_CAPABILITY_ID_PATTERN = /^[a-z][a-z0-9.-]*\/v[1-9][0-9]*$/;
 
 const AI_PUBLIC_TARGET_FORBIDDEN_KEYS = new Set([
   "apikey",
@@ -242,32 +247,55 @@ export interface AiTokenUsage {
   readonly input: number;
   readonly output: number;
   readonly cachedInput?: number;
+  readonly cacheWrite?: number;
   readonly reasoning?: number;
 }
 
+/**
+ * Monetary truth. `reason` explains an unknown amount and `tariffRef`/`provenance`
+ * record which rate produced an estimate — all optional, so every value written
+ * against the pre-economics contract stays valid.
+ */
 export type AiCostTruth =
-  | { readonly status: "unknown" }
+  | {
+      readonly status: "unknown";
+      readonly reason?: AiCostUnknownReason;
+    }
   | {
       readonly status: "estimated" | "reconciled";
       readonly currency: string;
       readonly amountMicros: number;
+      readonly tariffRef?: string;
+      readonly provenance?: AiPriceProvenance;
     };
 
-/** Unknown and partial usage are explicit states and are never interpreted as zero. */
+/**
+ * Unknown and partial usage are explicit states and are never interpreted as zero.
+ *
+ * `quota` is independent of `cost`: a subscription-billed call reports
+ * `cost.status: "unknown"` with `reason: "subscription"` while still carrying a
+ * measured quota draw. Money being unknown never implies nothing was consumed.
+ */
 export type AiUsageTruth =
   | {
       readonly measurement: "unknown";
-      readonly cost: { readonly status: "unknown" };
+      readonly cost: {
+        readonly status: "unknown";
+        readonly reason?: AiCostUnknownReason;
+      };
+      readonly quota?: AiQuotaTruth;
     }
   | {
       readonly measurement: "partial";
       readonly tokens?: AiTokenUsage;
       readonly cost: AiCostTruth;
+      readonly quota?: AiQuotaTruth;
     }
   | {
       readonly measurement: "known";
       readonly tokens: AiTokenUsage;
       readonly cost: AiCostTruth;
+      readonly quota?: AiQuotaTruth;
     };
 
 interface AiExecutionEventBase {
@@ -378,7 +406,7 @@ export interface AiExecutionRequestProjection extends AiExecutionValidation {
 export function projectExecutionRequestToAi(
   execution: ExecutionRequest,
   operation: AiExecutionOperation,
-  target: AiTargetSelector,
+  target: AiTargetSelector
 ): AiExecutionRequestProjection {
   const request: AiExecutionRequest = {
     schema: AI_EXECUTION_REQUEST_SCHEMA,
@@ -390,19 +418,37 @@ export function projectExecutionRequestToAi(
 }
 
 export function validateAiExecutionRequest(
-  value: unknown,
+  value: unknown
 ): AiExecutionValidation {
   const diagnostics: AiExecutionDiagnostic[] = [];
   if (!isRecord(value)) {
-    add(diagnostics, "AI_INVALID_VALUE", "$", "AI execution request must be an object.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      "$",
+      "AI execution request must be an object."
+    );
     return validation(diagnostics);
   }
   if (value.schema !== AI_EXECUTION_REQUEST_SCHEMA) {
-    add(diagnostics, "AI_INVALID_SCHEMA", "schema", "Unsupported AI execution request schema.");
+    add(
+      diagnostics,
+      "AI_INVALID_SCHEMA",
+      "schema",
+      "Unsupported AI execution request schema."
+    );
   }
   const execution = isRecord(value.execution) ? value.execution : undefined;
-  nonEmpty(stringValue(execution?.requestId), "execution.requestId", diagnostics);
-  nonEmpty(stringValue(execution?.correlationId), "execution.correlationId", diagnostics);
+  nonEmpty(
+    stringValue(execution?.requestId),
+    "execution.requestId",
+    diagnostics
+  );
+  nonEmpty(
+    stringValue(execution?.correlationId),
+    "execution.correlationId",
+    diagnostics
+  );
   validateTargetSelector(value.target, "target", diagnostics);
   validateOperation(value.operation, "operation", diagnostics);
   const operation = isRecord(value.operation) ? value.operation : undefined;
@@ -411,15 +457,25 @@ export function validateAiExecutionRequest(
 }
 
 export function validateAiPublicTargetDescriptor(
-  value: unknown,
+  value: unknown
 ): AiExecutionValidation {
   const diagnostics: AiExecutionDiagnostic[] = [];
   if (!isRecord(value)) {
-    add(diagnostics, "AI_INVALID_VALUE", "$", "Public AI target must be an object.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      "$",
+      "Public AI target must be an object."
+    );
     return validation(diagnostics);
   }
   if (value.schema !== AI_PUBLIC_TARGET_SCHEMA) {
-    add(diagnostics, "AI_INVALID_SCHEMA", "schema", "Unsupported public AI target schema.");
+    add(
+      diagnostics,
+      "AI_INVALID_SCHEMA",
+      "schema",
+      "Unsupported public AI target schema."
+    );
   }
   nonEmpty(stringValue(value.targetId), "targetId", diagnostics);
   nonEmpty(stringValue(value.revision), "revision", diagnostics);
@@ -428,10 +484,15 @@ export function validateAiPublicTargetDescriptor(
     value.operations,
     AI_EXECUTION_OPERATION_KINDS,
     "operations",
-    diagnostics,
+    diagnostics
   );
   if (!Array.isArray(value.operations) || value.operations.length === 0) {
-    add(diagnostics, "AI_INVALID_VALUE", "operations", "A public target must declare at least one operation.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      "operations",
+      "A public target must declare at least one operation."
+    );
   }
   uniqueStrings(value.capabilities, "capabilities", diagnostics);
   if (Array.isArray(value.capabilities)) {
@@ -444,37 +505,55 @@ export function validateAiPublicTargetDescriptor(
           diagnostics,
           "AI_CAPABILITY_ID_INVALID",
           `capabilities[${index}]`,
-          "Capability identifiers must use a stable lowercase name and /v<major> suffix.",
+          "Capability identifiers must use a stable lowercase name and /v<major> suffix."
         );
       }
     });
   }
-  enumValue(stringValue(value.placement), AI_TARGET_PLACEMENTS, "placement", diagnostics);
-  enumValue(stringValue(value.executionStyle), AI_EXECUTION_STYLES, "executionStyle", diagnostics);
+  enumValue(
+    stringValue(value.placement),
+    AI_TARGET_PLACEMENTS,
+    "placement",
+    diagnostics
+  );
+  enumValue(
+    stringValue(value.executionStyle),
+    AI_EXECUTION_STYLES,
+    "executionStyle",
+    diagnostics
+  );
   const health = isRecord(value.health) ? value.health : undefined;
   enumValue(
     stringValue(health?.status),
     ["healthy", "degraded", "unhealthy", "unknown"] as const,
     "health.status",
-    diagnostics,
+    diagnostics
   );
   for (const leakPath of collectPublicTargetLeakPaths(value)) {
     add(
       diagnostics,
       "AI_PUBLIC_TARGET_LEAK",
       leakPath,
-      `Public targets cannot expose private routing field ${leakPath}.`,
+      `Public targets cannot expose private routing field ${leakPath}.`
     );
   }
-  if (health?.checkedAt !== undefined && !isIsoDate(stringValue(health.checkedAt))) {
-    add(diagnostics, "AI_INVALID_VALUE", "health.checkedAt", "Target health time must be ISO-8601.");
+  if (
+    health?.checkedAt !== undefined &&
+    !isIsoDate(stringValue(health.checkedAt))
+  ) {
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      "health.checkedAt",
+      "Target health time must be ISO-8601."
+    );
   }
   return validation(diagnostics);
 }
 
 export function validateAiExecutionTargetSelection(
   request: unknown,
-  target: unknown,
+  target: unknown
 ): AiExecutionValidation {
   const diagnostics = [
     ...validateAiExecutionRequest(request).diagnostics,
@@ -489,34 +568,43 @@ export function validateAiExecutionTargetSelection(
       diagnostics,
       "AI_TARGET_OPERATION_UNSUPPORTED",
       "target.operations",
-      `Target ${String(target.targetId ?? "<invalid>")} does not support operation ${operationKind}.`,
+      `Target ${String(
+        target.targetId ?? "<invalid>"
+      )} does not support operation ${operationKind}.`
     );
   }
   const selector = isRecord(request.target) ? request.target : undefined;
-  if (
-    selector?.kind === "target-id" &&
-    selector.targetId !== target.targetId
-  ) {
+  if (selector?.kind === "target-id" && selector.targetId !== target.targetId) {
     add(
       diagnostics,
       "AI_IDENTITY_MISMATCH",
       "target.targetId",
-      "Resolved public target differs from the requested opaque target.",
+      "Resolved public target differs from the requested opaque target."
     );
   }
   return validation(diagnostics);
 }
 
 export function validateAiExecutionEvent(
-  value: unknown,
+  value: unknown
 ): AiExecutionValidation {
   const diagnostics: AiExecutionDiagnostic[] = [];
   if (!isRecord(value)) {
-    add(diagnostics, "AI_INVALID_VALUE", "$", "AI execution event must be an object.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      "$",
+      "AI execution event must be an object."
+    );
     return validation(diagnostics);
   }
   if (value.schema !== AI_EXECUTION_EVENT_SCHEMA) {
-    add(diagnostics, "AI_INVALID_SCHEMA", "schema", "Unsupported AI execution event schema.");
+    add(
+      diagnostics,
+      "AI_INVALID_SCHEMA",
+      "schema",
+      "Unsupported AI execution event schema."
+    );
   }
   nonEmpty(stringValue(value.requestId), "requestId", diagnostics);
   nonEmpty(stringValue(value.correlationId), "correlationId", diagnostics);
@@ -524,37 +612,56 @@ export function validateAiExecutionEvent(
   positiveInteger(numberValue(value.attempt), "attempt", diagnostics);
   nonEmpty(stringValue(value.cursor), "cursor", diagnostics);
   if (!isIsoDate(stringValue(value.emittedAt))) {
-    add(diagnostics, "AI_INVALID_VALUE", "emittedAt", "Event time must be ISO-8601.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      "emittedAt",
+      "Event time must be ISO-8601."
+    );
   }
   enumValue(
     stringValue(value.type),
-    ["started", "output.delta", "artifact", "usage", "interaction.required", "completed"] as const,
+    [
+      "started",
+      "output.delta",
+      "artifact",
+      "usage",
+      "interaction.required",
+      "completed",
+    ] as const,
     "type",
-    diagnostics,
+    diagnostics
   );
-  if (value.type === "output.delta") nonEmpty(stringValue(value.delta), "delta", diagnostics);
+  if (value.type === "output.delta")
+    nonEmpty(stringValue(value.delta), "delta", diagnostics);
   if (value.type === "interaction.required") {
     nonEmpty(stringValue(value.interactionRef), "interactionRef", diagnostics);
   }
   if (value.type === "usage") validateUsage(value.usage, "usage", diagnostics);
-  if (value.type === "artifact") validateArtifact(value.artifact, "artifact", diagnostics);
+  if (value.type === "artifact")
+    validateArtifact(value.artifact, "artifact", diagnostics);
   if (value.type === "completed") {
     enumValue(
       stringValue(value.status),
       ["succeeded", "failed", "cancelled", "timed_out"] as const,
       "status",
-      diagnostics,
+      diagnostics
     );
   }
   return validation(diagnostics);
 }
 
 export function validateAiExecutionEventSequence(
-  values: unknown,
+  values: unknown
 ): AiExecutionValidation {
   const diagnostics: AiExecutionDiagnostic[] = [];
   if (!Array.isArray(values) || values.length === 0) {
-    add(diagnostics, "AI_EVENT_SEQUENCE_INVALID", "events", "At least one execution event is required.");
+    add(
+      diagnostics,
+      "AI_EVENT_SEQUENCE_INVALID",
+      "events",
+      "At least one execution event is required."
+    );
     return validation(diagnostics);
   }
   const first = isRecord(values[0]) ? values[0] : undefined;
@@ -567,7 +674,7 @@ export function validateAiExecutionEventSequence(
       ...validateAiExecutionEvent(candidate).diagnostics.map((diagnostic) => ({
         ...diagnostic,
         path: `events[${index}].${diagnostic.path}`,
-      })),
+      }))
     );
     if (!event || !first) return;
     if (
@@ -578,7 +685,7 @@ export function validateAiExecutionEventSequence(
         diagnostics,
         "AI_IDENTITY_MISMATCH",
         `events[${index}]`,
-        "All events must share one request and correlation identity.",
+        "All events must share one request and correlation identity."
       );
     }
     if (event.sequence !== index + 1) {
@@ -586,7 +693,7 @@ export function validateAiExecutionEventSequence(
         diagnostics,
         "AI_EVENT_SEQUENCE_INVALID",
         `events[${index}].sequence`,
-        "Event sequences must be contiguous and one-based.",
+        "Event sequences must be contiguous and one-based."
       );
     }
     const cursor = stringValue(event.cursor);
@@ -595,7 +702,7 @@ export function validateAiExecutionEventSequence(
         diagnostics,
         "AI_EVENT_SEQUENCE_INVALID",
         `events[${index}].cursor`,
-        "Event cursors must be unique within an execution.",
+        "Event cursors must be unique within an execution."
       );
     }
     if (cursor !== undefined) cursors.add(cursor);
@@ -605,7 +712,7 @@ export function validateAiExecutionEventSequence(
         diagnostics,
         "AI_EVENT_SEQUENCE_INVALID",
         `events[${index}].attempt`,
-        "Event attempts cannot move backwards.",
+        "Event attempts cannot move backwards."
       );
     }
     lastAttempt = attempt;
@@ -616,7 +723,7 @@ export function validateAiExecutionEventSequence(
           diagnostics,
           "AI_TERMINAL_EVENT_INVALID",
           `events[${index}]`,
-          "The terminal event must be the final event.",
+          "The terminal event must be the final event."
         );
       }
     }
@@ -626,29 +733,46 @@ export function validateAiExecutionEventSequence(
       diagnostics,
       "AI_TERMINAL_EVENT_INVALID",
       "events",
-      "An execution event sequence requires exactly one terminal event.",
+      "An execution event sequence requires exactly one terminal event."
     );
   }
   return validation(diagnostics);
 }
 
 export function validateAiExecutionReceipt(
-  value: unknown,
+  value: unknown
 ): AiExecutionValidation {
   const diagnostics: AiExecutionDiagnostic[] = [];
   if (!isRecord(value)) {
-    add(diagnostics, "AI_INVALID_VALUE", "$", "AI execution receipt must be an object.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      "$",
+      "AI execution receipt must be an object."
+    );
     return validation(diagnostics);
   }
   if (value.schema !== AI_EXECUTION_RECEIPT_SCHEMA) {
-    add(diagnostics, "AI_INVALID_SCHEMA", "schema", "Unsupported AI execution receipt schema.");
+    add(
+      diagnostics,
+      "AI_INVALID_SCHEMA",
+      "schema",
+      "Unsupported AI execution receipt schema."
+    );
   }
   nonEmpty(stringValue(value.requestId), "requestId", diagnostics);
   nonEmpty(stringValue(value.correlationId), "correlationId", diagnostics);
-  enumValue(stringValue(value.operation), AI_EXECUTION_OPERATION_KINDS, "operation", diagnostics);
+  enumValue(
+    stringValue(value.operation),
+    AI_EXECUTION_OPERATION_KINDS,
+    "operation",
+    diagnostics
+  );
   validateTargetSelector(value.requestedTarget, "requestedTarget", diagnostics);
   validateTargetSnapshot(value.target, "target", diagnostics);
-  const requestedTarget = isRecord(value.requestedTarget) ? value.requestedTarget : undefined;
+  const requestedTarget = isRecord(value.requestedTarget)
+    ? value.requestedTarget
+    : undefined;
   const target = isRecord(value.target) ? value.target : undefined;
   if (
     requestedTarget?.kind === "target-id" &&
@@ -658,7 +782,7 @@ export function validateAiExecutionReceipt(
       diagnostics,
       "AI_IDENTITY_MISMATCH",
       "target.targetId",
-      "Resolved target differs from the requested logical target.",
+      "Resolved target differs from the requested logical target."
     );
   }
   if (target?.operation !== value.operation) {
@@ -666,16 +790,26 @@ export function validateAiExecutionReceipt(
       diagnostics,
       "AI_OPERATION_KIND_MISMATCH",
       "target.operation",
-      "Resolved target operation must match the receipt operation.",
+      "Resolved target operation must match the receipt operation."
     );
   }
   if (!Array.isArray(value.attempts) || value.attempts.length === 0) {
-    add(diagnostics, "AI_INVALID_VALUE", "attempts", "An execution receipt requires at least one attempt.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      "attempts",
+      "An execution receipt requires at least one attempt."
+    );
   }
   const attempts = Array.isArray(value.attempts) ? value.attempts : [];
   attempts.forEach((candidate, index) => {
     if (!isRecord(candidate)) {
-      add(diagnostics, "AI_INVALID_VALUE", `attempts[${index}]`, "Execution attempt must be an object.");
+      add(
+        diagnostics,
+        "AI_INVALID_VALUE",
+        `attempts[${index}]`,
+        "Execution attempt must be an object."
+      );
       return;
     }
     const attempt = candidate;
@@ -684,28 +818,45 @@ export function validateAiExecutionReceipt(
         diagnostics,
         "AI_ATTEMPT_SEQUENCE_INVALID",
         `attempts[${index}].attempt`,
-        "Attempts must be contiguous and one-based.",
+        "Attempts must be contiguous and one-based."
       );
     }
-    validateTargetSnapshot(attempt.target, `attempts[${index}].target`, diagnostics);
+    validateTargetSnapshot(
+      attempt.target,
+      `attempts[${index}].target`,
+      diagnostics
+    );
     const attemptTarget = isRecord(attempt.target) ? attempt.target : undefined;
     if (attemptTarget?.operation !== value.operation) {
       add(
         diagnostics,
         "AI_OPERATION_KIND_MISMATCH",
         `attempts[${index}].target.operation`,
-        "Attempt target operation must match the receipt operation.",
+        "Attempt target operation must match the receipt operation."
       );
     }
     validateUsage(attempt.usage, `attempts[${index}].usage`, diagnostics);
-    validateOptionalTime(stringValue(attempt.startedAt), `attempts[${index}].startedAt`, diagnostics);
-    validateOptionalTime(stringValue(attempt.completedAt), `attempts[${index}].completedAt`, diagnostics);
-    validateDispatch(attempt.dispatch, `attempts[${index}].dispatch`, diagnostics);
+    validateOptionalTime(
+      stringValue(attempt.startedAt),
+      `attempts[${index}].startedAt`,
+      diagnostics
+    );
+    validateOptionalTime(
+      stringValue(attempt.completedAt),
+      `attempts[${index}].completedAt`,
+      diagnostics
+    );
+    validateDispatch(
+      attempt.dispatch,
+      `attempts[${index}].dispatch`,
+      diagnostics
+    );
   });
   const lastAttempt = attempts.at(-1);
-  const lastTarget = isRecord(lastAttempt) && isRecord(lastAttempt.target)
-    ? lastAttempt.target
-    : undefined;
+  const lastTarget =
+    isRecord(lastAttempt) && isRecord(lastAttempt.target)
+      ? lastAttempt.target
+      : undefined;
   if (
     attempts.length > 0 &&
     lastTarget?.snapshotDigest !== target?.snapshotDigest
@@ -714,38 +865,52 @@ export function validateAiExecutionReceipt(
       diagnostics,
       "AI_TARGET_SNAPSHOT_INVALID",
       "target.snapshotDigest",
-      "Receipt target must be the final attempt target snapshot.",
+      "Receipt target must be the final attempt target snapshot."
     );
   }
   const result = isRecord(value.result) ? value.result : undefined;
   if (result?.requestId !== value.requestId) {
-    add(diagnostics, "AI_IDENTITY_MISMATCH", "result.requestId", "Result requestId differs from the receipt.");
+    add(
+      diagnostics,
+      "AI_IDENTITY_MISMATCH",
+      "result.requestId",
+      "Result requestId differs from the receipt."
+    );
   }
   if (result?.correlationId !== value.correlationId) {
     add(
       diagnostics,
       "AI_IDENTITY_MISMATCH",
       "result.correlationId",
-      "Result correlationId differs from the receipt.",
+      "Result correlationId differs from the receipt."
     );
   }
-  const routeDecision = isRecord(result?.routeDecision) ? result.routeDecision : undefined;
-  if (
-    routeDecision?.selectedCandidateId !== target?.routeCandidateId
-  ) {
+  const routeDecision = isRecord(result?.routeDecision)
+    ? result.routeDecision
+    : undefined;
+  if (routeDecision?.selectedCandidateId !== target?.routeCandidateId) {
     add(
       diagnostics,
       "AI_ROUTE_TARGET_MISMATCH",
       "target.routeCandidateId",
-      "Receipt target must match the canonical route decision.",
+      "Receipt target must match the canonical route decision."
     );
   }
   validateUsage(value.usage, "usage", diagnostics);
   validateCanonicalUsageAlignment(result?.usage, value.usage, diagnostics);
   validateAttemptUsageAlignment(attempts, value.usage, diagnostics);
-  positiveInteger(numberValue(value.terminalEventSequence), "terminalEventSequence", diagnostics);
+  positiveInteger(
+    numberValue(value.terminalEventSequence),
+    "terminalEventSequence",
+    diagnostics
+  );
   if (!isIsoDate(stringValue(value.completedAt))) {
-    add(diagnostics, "AI_INVALID_VALUE", "completedAt", "Receipt completion time must be ISO-8601.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      "completedAt",
+      "Receipt completion time must be ISO-8601."
+    );
   }
   if (
     result?.status === "succeeded" &&
@@ -757,7 +922,7 @@ export function validateAiExecutionReceipt(
       diagnostics,
       "AI_RESULT_STATUS_MISMATCH",
       "attempts",
-      "A successful result requires a terminal final dispatch attempt.",
+      "A successful result requires a terminal final dispatch attempt."
     );
   }
   return validation(diagnostics);
@@ -766,7 +931,7 @@ export function validateAiExecutionReceipt(
 /** Validates one retained event transcript against its terminal receipt. */
 export function validateAiExecutionTranscript(
   receipt: unknown,
-  events: unknown,
+  events: unknown
 ): AiExecutionValidation {
   const diagnostics = [
     ...validateAiExecutionReceipt(receipt).diagnostics,
@@ -785,7 +950,7 @@ export function validateAiExecutionTranscript(
       diagnostics,
       "AI_TRANSCRIPT_RECEIPT_MISMATCH",
       "events",
-      "Transcript and receipt identities must match.",
+      "Transcript and receipt identities must match."
     );
   }
   if (terminal?.sequence !== receipt.terminalEventSequence) {
@@ -793,7 +958,7 @@ export function validateAiExecutionTranscript(
       diagnostics,
       "AI_TRANSCRIPT_RECEIPT_MISMATCH",
       "terminalEventSequence",
-      "Receipt terminal sequence must match the final event.",
+      "Receipt terminal sequence must match the final event."
     );
   }
   if (terminal?.type !== "completed" || terminal.status !== result?.status) {
@@ -801,7 +966,7 @@ export function validateAiExecutionTranscript(
       diagnostics,
       "AI_TRANSCRIPT_RECEIPT_MISMATCH",
       "events",
-      "Final event status must match the canonical result status.",
+      "Final event status must match the canonical result status."
     );
   }
   const latestUsage = [...events]
@@ -816,7 +981,7 @@ export function validateAiExecutionTranscript(
       diagnostics,
       "AI_TRANSCRIPT_RECEIPT_MISMATCH",
       "usage",
-      "Latest transcript usage truth must match the terminal receipt.",
+      "Latest transcript usage truth must match the terminal receipt."
     );
   }
   return validation(diagnostics);
@@ -825,15 +990,25 @@ export function validateAiExecutionTranscript(
 function validateOperation(
   value: unknown,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!isRecord(value)) {
-    add(diagnostics, "AI_INVALID_VALUE", path, "AI execution operation must be an object.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      path,
+      "AI execution operation must be an object."
+    );
     return;
   }
   const kind = value.kind;
   if (!(AI_EXECUTION_OPERATION_KINDS as readonly unknown[]).includes(kind)) {
-    add(diagnostics, "AI_INVALID_VALUE", `${path}.kind`, "Unsupported AI execution operation.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      `${path}.kind`,
+      "Unsupported AI execution operation."
+    );
     return;
   }
   const input = isRecord(value.input) ? value.input : {};
@@ -841,58 +1016,142 @@ function validateOperation(
   switch (kind) {
     case "text.generate":
       nonEmpty(stringValue(input.text), `${path}.input.text`, diagnostics);
-      enumValue(stringValue(output.modality), ["text"] as const, `${path}.output.modality`, diagnostics);
+      enumValue(
+        stringValue(output.modality),
+        ["text"] as const,
+        `${path}.output.modality`,
+        diagnostics
+      );
       break;
     case "chat.generate":
       validateMessages(input.messages, `${path}.input.messages`, diagnostics);
-      enumValue(stringValue(output.modality), ["text"] as const, `${path}.output.modality`, diagnostics);
+      enumValue(
+        stringValue(output.modality),
+        ["text"] as const,
+        `${path}.output.modality`,
+        diagnostics
+      );
       break;
     case "structured.generate":
       nonEmpty(stringValue(input.prompt), `${path}.input.prompt`, diagnostics);
-      enumValue(stringValue(output.modality), ["json"] as const, `${path}.output.modality`, diagnostics);
+      enumValue(
+        stringValue(output.modality),
+        ["json"] as const,
+        `${path}.output.modality`,
+        diagnostics
+      );
       if (!output.schemaRef && !output.schema) {
-        add(diagnostics, "AI_INVALID_VALUE", `${path}.output`, "Structured output requires a schemaRef or inline schema.");
+        add(
+          diagnostics,
+          "AI_INVALID_VALUE",
+          `${path}.output`,
+          "Structured output requires a schemaRef or inline schema."
+        );
       }
       break;
     case "embedding.create":
       nonEmptyStrings(input.texts, `${path}.input.texts`, diagnostics);
-      enumValue(stringValue(output.modality), ["embedding"] as const, `${path}.output.modality`, diagnostics);
+      enumValue(
+        stringValue(output.modality),
+        ["embedding"] as const,
+        `${path}.output.modality`,
+        diagnostics
+      );
       if (output.dimensions !== undefined) {
-        positiveInteger(numberValue(output.dimensions), `${path}.output.dimensions`, diagnostics);
+        positiveInteger(
+          numberValue(output.dimensions),
+          `${path}.output.dimensions`,
+          diagnostics
+        );
       }
       break;
     case "audio.transcribe":
       validateArtifact(input.audio, `${path}.input.audio`, diagnostics);
-      enumValue(stringValue(output.modality), ["text"] as const, `${path}.output.modality`, diagnostics);
+      enumValue(
+        stringValue(output.modality),
+        ["text"] as const,
+        `${path}.output.modality`,
+        diagnostics
+      );
       break;
     case "speech.synthesize":
       nonEmpty(stringValue(input.text), `${path}.input.text`, diagnostics);
-      enumValue(stringValue(output.modality), ["audio"] as const, `${path}.output.modality`, diagnostics);
-      if (input.voiceRef !== undefined) nonEmpty(stringValue(input.voiceRef), `${path}.input.voiceRef`, diagnostics);
+      enumValue(
+        stringValue(output.modality),
+        ["audio"] as const,
+        `${path}.output.modality`,
+        diagnostics
+      );
+      if (input.voiceRef !== undefined)
+        nonEmpty(
+          stringValue(input.voiceRef),
+          `${path}.input.voiceRef`,
+          diagnostics
+        );
       if (output.mediaTypes !== undefined) {
-        nonEmptyStrings(output.mediaTypes, `${path}.output.mediaTypes`, diagnostics);
+        nonEmptyStrings(
+          output.mediaTypes,
+          `${path}.output.mediaTypes`,
+          diagnostics
+        );
       }
       break;
     case "image.analyze":
       if (!Array.isArray(input.images) || input.images.length === 0) {
-        add(diagnostics, "AI_INVALID_VALUE", `${path}.input.images`, "Image analysis requires at least one image artifact.");
+        add(
+          diagnostics,
+          "AI_INVALID_VALUE",
+          `${path}.input.images`,
+          "Image analysis requires at least one image artifact."
+        );
       }
-      (Array.isArray(input.images) ? input.images : []).forEach((artifact, index) =>
-        validateArtifact(artifact, `${path}.input.images[${index}]`, diagnostics),
+      (Array.isArray(input.images) ? input.images : []).forEach(
+        (artifact, index) =>
+          validateArtifact(
+            artifact,
+            `${path}.input.images[${index}]`,
+            diagnostics
+          )
       );
-      enumValue(stringValue(output.modality), ["text", "json"] as const, `${path}.output.modality`, diagnostics);
+      enumValue(
+        stringValue(output.modality),
+        ["text", "json"] as const,
+        `${path}.output.modality`,
+        diagnostics
+      );
       if (output.modality === "json" && !output.schemaRef && !output.schema) {
-        add(diagnostics, "AI_INVALID_VALUE", `${path}.output`, "JSON image analysis requires a schemaRef or inline schema.");
+        add(
+          diagnostics,
+          "AI_INVALID_VALUE",
+          `${path}.output`,
+          "JSON image analysis requires a schemaRef or inline schema."
+        );
       }
       break;
     case "token.count":
-      if (Object.hasOwn(input, "text")) nonEmpty(stringValue(input.text), `${path}.input.text`, diagnostics);
-      else validateMessages(input.messages, `${path}.input.messages`, diagnostics);
-      enumValue(stringValue(output.modality), ["token-count"] as const, `${path}.output.modality`, diagnostics);
+      if (Object.hasOwn(input, "text"))
+        nonEmpty(stringValue(input.text), `${path}.input.text`, diagnostics);
+      else
+        validateMessages(input.messages, `${path}.input.messages`, diagnostics);
+      enumValue(
+        stringValue(output.modality),
+        ["token-count"] as const,
+        `${path}.output.modality`,
+        diagnostics
+      );
       break;
     case "agent.run":
-      nonEmpty(stringValue(input.agentRef), `${path}.input.agentRef`, diagnostics);
-      enumValue(stringValue(output.modality), ["text", "json", "unknown"] as const, `${path}.output.modality`, diagnostics);
+      nonEmpty(
+        stringValue(input.agentRef),
+        `${path}.input.agentRef`,
+        diagnostics
+      );
+      enumValue(
+        stringValue(output.modality),
+        ["text", "json", "unknown"] as const,
+        `${path}.output.modality`,
+        diagnostics
+      );
       break;
   }
 }
@@ -900,7 +1159,7 @@ function validateOperation(
 function validateExecutionKind(
   execution: unknown,
   operation: string | undefined,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!isRecord(execution) || !operation) return;
   const executionKind = stringValue(execution.kind);
@@ -917,7 +1176,9 @@ function validateExecutionKind(
       diagnostics,
       "AI_EXECUTION_KIND_INCOMPATIBLE",
       "execution.kind",
-      `Canonical execution kind ${String(executionKind)} cannot host operation ${operation}.`,
+      `Canonical execution kind ${String(
+        executionKind
+      )} cannot host operation ${operation}.`
     );
   }
 }
@@ -925,25 +1186,62 @@ function validateExecutionKind(
 function validateTargetSnapshot(
   value: unknown,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!isRecord(value) || value.schema !== AI_RESOLVED_TARGET_SCHEMA) {
-    add(diagnostics, "AI_INVALID_SCHEMA", `${path}.schema`, "Unsupported resolved AI target schema.");
+    add(
+      diagnostics,
+      "AI_INVALID_SCHEMA",
+      `${path}.schema`,
+      "Unsupported resolved AI target schema."
+    );
     return;
   }
   nonEmpty(stringValue(value.targetId), `${path}.targetId`, diagnostics);
-  nonEmpty(stringValue(value.targetRevision), `${path}.targetRevision`, diagnostics);
-  nonEmpty(stringValue(value.policyRevision), `${path}.policyRevision`, diagnostics);
-  nonEmpty(stringValue(value.routeCandidateId), `${path}.routeCandidateId`, diagnostics);
-  enumValue(stringValue(value.operation), AI_EXECUTION_OPERATION_KINDS, `${path}.operation`, diagnostics);
-  enumValue(stringValue(value.placement), AI_TARGET_PLACEMENTS, `${path}.placement`, diagnostics);
-  enumValue(stringValue(value.executionStyle), AI_EXECUTION_STYLES, `${path}.executionStyle`, diagnostics);
+  nonEmpty(
+    stringValue(value.targetRevision),
+    `${path}.targetRevision`,
+    diagnostics
+  );
+  nonEmpty(
+    stringValue(value.policyRevision),
+    `${path}.policyRevision`,
+    diagnostics
+  );
+  nonEmpty(
+    stringValue(value.routeCandidateId),
+    `${path}.routeCandidateId`,
+    diagnostics
+  );
+  enumValue(
+    stringValue(value.operation),
+    AI_EXECUTION_OPERATION_KINDS,
+    `${path}.operation`,
+    diagnostics
+  );
+  enumValue(
+    stringValue(value.placement),
+    AI_TARGET_PLACEMENTS,
+    `${path}.placement`,
+    diagnostics
+  );
+  enumValue(
+    stringValue(value.executionStyle),
+    AI_EXECUTION_STYLES,
+    `${path}.executionStyle`,
+    diagnostics
+  );
   if (value.authMode !== undefined) {
     enumValue(
       stringValue(value.authMode),
-      ["subscription_cli", "api_key", "workload_identity", "local_model"] as const,
+      [
+        "subscription_cli",
+        "api_key",
+        "workload_identity",
+        "local_model",
+      ] as const,
       `${path}.authMode`,
-      diagnostics,
+      diagnostics
     );
   }
   if (!/^sha256:[a-f0-9]{64}$/.test(stringValue(value.snapshotDigest) ?? "")) {
@@ -951,25 +1249,30 @@ function validateTargetSnapshot(
       diagnostics,
       "AI_TARGET_SNAPSHOT_INVALID",
       `${path}.snapshotDigest`,
-      "Target snapshot identity must be a lowercase SHA-256 digest.",
+      "Target snapshot identity must be a lowercase SHA-256 digest."
     );
   }
   if (!isIsoDate(value.resolvedAt)) {
-    add(diagnostics, "AI_INVALID_VALUE", `${path}.resolvedAt`, "Target resolution time must be ISO-8601.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      `${path}.resolvedAt`,
+      "Target resolution time must be ISO-8601."
+    );
   }
 }
 
 function collectPublicTargetLeakPaths(
   value: unknown,
   path = "$",
-  seen = new WeakSet<object>(),
+  seen = new WeakSet<object>()
 ): string[] {
   if (value === null || typeof value !== "object") return [];
   if (seen.has(value)) return [];
   seen.add(value);
   if (Array.isArray(value)) {
     return value.flatMap((item, index) =>
-      collectPublicTargetLeakPaths(item, `${path}[${index}]`, seen),
+      collectPublicTargetLeakPaths(item, `${path}[${index}]`, seen)
     );
   }
   return Object.entries(value).flatMap(([key, nested]) => {
@@ -985,20 +1288,29 @@ function collectPublicTargetLeakPaths(
 function validateTargetSelector(
   value: unknown,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!isRecord(value)) {
-    add(diagnostics, "AI_INVALID_VALUE", `${path}.kind`, "Target selector must use target-id or task-profile.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      `${path}.kind`,
+      "Target selector must use target-id or task-profile."
+    );
   } else if (value.kind === "target-id") {
     nonEmpty(stringValue(value.targetId), `${path}.targetId`, diagnostics);
   } else if (value.kind === "task-profile") {
-    nonEmpty(stringValue(value.taskProfileId), `${path}.taskProfileId`, diagnostics);
+    nonEmpty(
+      stringValue(value.taskProfileId),
+      `${path}.taskProfileId`,
+      diagnostics
+    );
   } else {
     add(
       diagnostics,
       "AI_INVALID_VALUE",
       `${path}.kind`,
-      "Target selector must use target-id or task-profile.",
+      "Target selector must use target-id or task-profile."
     );
   }
 }
@@ -1006,31 +1318,38 @@ function validateTargetSelector(
 function validateUsage(
   value: unknown,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!isRecord(value) || !isRecord(value.cost)) {
-    add(diagnostics, "AI_USAGE_TRUTH_INVALID", path, "Usage truth is required.");
+    add(
+      diagnostics,
+      "AI_USAGE_TRUTH_INVALID",
+      path,
+      "Usage truth is required."
+    );
     return;
   }
   enumValue(
     stringValue(value.measurement),
     ["unknown", "partial", "known"] as const,
     `${path}.measurement`,
-    diagnostics,
+    diagnostics
   );
   enumValue(
     stringValue(value.cost.status),
     ["unknown", "estimated", "reconciled"] as const,
     `${path}.cost.status`,
-    diagnostics,
+    diagnostics
   );
+  validateUsageCostReason(value.cost, `${path}.cost`, diagnostics);
+  validateUsageQuota(value.quota, `${path}.quota`, diagnostics);
   if (value.measurement === "unknown") {
     if (value.cost.status !== "unknown" || Object.hasOwn(value, "tokens")) {
       add(
         diagnostics,
         "AI_USAGE_TRUTH_INVALID",
         path,
-        "Unknown usage cannot carry token or monetary values.",
+        "Unknown usage cannot carry token or monetary values."
       );
     }
     return;
@@ -1043,28 +1362,94 @@ function validateUsage(
           diagnostics,
           "AI_USAGE_TRUTH_INVALID",
           `${path}.tokens.${key}`,
-          "Token counts must be non-negative safe integers.",
+          "Token counts must be non-negative safe integers."
         );
       }
     }
   } else if (value.measurement === "known") {
-    add(diagnostics, "AI_USAGE_TRUTH_INVALID", `${path}.tokens`, "Known usage requires token measurements.");
+    add(
+      diagnostics,
+      "AI_USAGE_TRUTH_INVALID",
+      `${path}.tokens`,
+      "Known usage requires token measurements."
+    );
   }
   if (value.cost.status !== "unknown") {
     if (!/^[A-Z]{3}$/.test(stringValue(value.cost.currency) ?? "")) {
-      add(diagnostics, "AI_USAGE_TRUTH_INVALID", `${path}.cost.currency`, "Cost currency must be an uppercase ISO-style code.");
+      add(
+        diagnostics,
+        "AI_USAGE_TRUTH_INVALID",
+        `${path}.cost.currency`,
+        "Cost currency must be an uppercase ISO-style code."
+      );
     }
     const amountMicros = numberValue(value.cost.amountMicros);
     if (!Number.isSafeInteger(amountMicros) || (amountMicros ?? -1) < 0) {
-      add(diagnostics, "AI_USAGE_TRUTH_INVALID", `${path}.cost.amountMicros`, "Cost must use non-negative integer micro-units.");
+      add(
+        diagnostics,
+        "AI_USAGE_TRUTH_INVALID",
+        `${path}.cost.amountMicros`,
+        "Cost must use non-negative integer micro-units."
+      );
     }
   }
-  if (value.measurement === "partial" && !isRecord(value.tokens) && value.cost.status === "unknown") {
+  if (
+    value.measurement === "partial" &&
+    !isRecord(value.tokens) &&
+    value.cost.status === "unknown" &&
+    !isRecord(value.quota)
+  ) {
     add(
       diagnostics,
       "AI_USAGE_TRUTH_INVALID",
       path,
-      "Partial usage requires at least one measured token or monetary value.",
+      "Partial usage requires at least one measured token, monetary, or quota value."
+    );
+  }
+}
+
+/** An unknown-cost reason is optional, but an unrecognised one is a hard error. */
+function validateUsageCostReason(
+  cost: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  if (!isRecord(cost) || cost.reason === undefined) return;
+  if (cost.status !== "unknown") {
+    add(
+      diagnostics,
+      "AI_USAGE_TRUTH_INVALID",
+      `${path}.reason`,
+      "Only an unknown cost may carry an unknown-reason."
+    );
+    return;
+  }
+  if (!AI_COST_UNKNOWN_REASONS.includes(cost.reason as AiCostUnknownReason)) {
+    add(
+      diagnostics,
+      "AI_USAGE_TRUTH_INVALID",
+      `${path}.reason`,
+      "Unknown cost reason is not a recognised value."
+    );
+  }
+}
+
+/**
+ * Quota is validated by its own contract; its diagnostics are re-coded into the
+ * usage namespace so a caller validating a receipt gets one diagnostic stream.
+ */
+function validateUsageQuota(
+  quota: unknown,
+  path: string,
+  diagnostics: AiExecutionDiagnostic[]
+): void {
+  if (quota === undefined) return;
+  for (const diagnostic of validateAiQuotaTruth(quota)) {
+    add(
+      diagnostics,
+      "AI_USAGE_TRUTH_INVALID",
+      diagnostic.path.replace(/^quota/, path),
+      diagnostic.message
     );
   }
 }
@@ -1072,7 +1457,7 @@ function validateUsage(
 function validateCanonicalUsageAlignment(
   canonical: unknown,
   usage: unknown,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!isRecord(canonical)) return;
   if (!isRecord(usage) || usage.measurement === "unknown") {
@@ -1080,56 +1465,83 @@ function validateCanonicalUsageAlignment(
       diagnostics,
       "AI_USAGE_RESULT_MISMATCH",
       "result.usage",
-      "Canonical result usage cannot carry measured values when receipt usage is unknown.",
+      "Canonical result usage cannot carry measured values when receipt usage is unknown."
     );
     return;
   }
   if (
     canonical.inputTokens !== undefined &&
-    canonical.inputTokens !== (isRecord(usage.tokens) ? usage.tokens.input : undefined)
+    canonical.inputTokens !==
+      (isRecord(usage.tokens) ? usage.tokens.input : undefined)
   ) {
-    add(diagnostics, "AI_USAGE_RESULT_MISMATCH", "result.usage.inputTokens", "Canonical and receipt input-token usage differ.");
+    add(
+      diagnostics,
+      "AI_USAGE_RESULT_MISMATCH",
+      "result.usage.inputTokens",
+      "Canonical and receipt input-token usage differ."
+    );
   }
   if (
     canonical.outputTokens !== undefined &&
-    canonical.outputTokens !== (isRecord(usage.tokens) ? usage.tokens.output : undefined)
+    canonical.outputTokens !==
+      (isRecord(usage.tokens) ? usage.tokens.output : undefined)
   ) {
-    add(diagnostics, "AI_USAGE_RESULT_MISMATCH", "result.usage.outputTokens", "Canonical and receipt output-token usage differ.");
+    add(
+      diagnostics,
+      "AI_USAGE_RESULT_MISMATCH",
+      "result.usage.outputTokens",
+      "Canonical and receipt output-token usage differ."
+    );
   }
   if (
     numberValue(canonical.costCents) !== undefined &&
     (!isRecord(usage.cost) ||
       usage.cost.status === "unknown" ||
-      (numberValue(canonical.costCents) ?? 0) * 10_000 !== usage.cost.amountMicros)
+      (numberValue(canonical.costCents) ?? 0) * 10_000 !==
+        usage.cost.amountMicros)
   ) {
-    add(diagnostics, "AI_USAGE_RESULT_MISMATCH", "result.usage.costCents", "Canonical and receipt monetary usage differ.");
+    add(
+      diagnostics,
+      "AI_USAGE_RESULT_MISMATCH",
+      "result.usage.costCents",
+      "Canonical and receipt monetary usage differ."
+    );
   }
 }
 
 function validateDispatch(
   value: unknown,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!isRecord(value)) {
-    add(diagnostics, "AI_INVALID_VALUE", path, "Dispatch outcome must be an object.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      path,
+      "Dispatch outcome must be an object."
+    );
     return;
   }
   enumValue(
     stringValue(value.status),
     ["not-dispatched", "accepted", "terminal", "outcome-unknown"] as const,
     `${path}.status`,
-    diagnostics,
+    diagnostics
   );
   if (value.idempotencyKey !== undefined) {
-    nonEmpty(stringValue(value.idempotencyKey), `${path}.idempotencyKey`, diagnostics);
+    nonEmpty(
+      stringValue(value.idempotencyKey),
+      `${path}.idempotencyKey`,
+      diagnostics
+    );
   }
 }
 
 function validateAttemptUsageAlignment(
   attempts: readonly unknown[],
   aggregate: unknown,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!isRecord(aggregate)) return;
   const usage = attempts
@@ -1143,29 +1555,36 @@ function validateAttemptUsageAlignment(
         diagnostics,
         "AI_ATTEMPT_USAGE_MISMATCH",
         "usage",
-        "Aggregate usage cannot be unknown when every attempt has known usage.",
+        "Aggregate usage cannot be unknown when every attempt has known usage."
       );
     }
     return;
   }
   if (aggregate.measurement !== "known") return;
-  if (!usage.every((item) => item.measurement === "known" && isRecord(item.tokens))) {
+  if (
+    !usage.every(
+      (item) => item.measurement === "known" && isRecord(item.tokens)
+    )
+  ) {
     add(
       diagnostics,
       "AI_ATTEMPT_USAGE_MISMATCH",
       "usage",
-      "Known aggregate usage requires known usage for every attempt.",
+      "Known aggregate usage requires known usage for every attempt."
     );
     return;
   }
 
   const expectedTokens = sumTokens(usage.map((item) => item.tokens));
-  if (!isRecord(aggregate.tokens) || !jsonEqual(expectedTokens, aggregate.tokens)) {
+  if (
+    !isRecord(aggregate.tokens) ||
+    !jsonEqual(expectedTokens, aggregate.tokens)
+  ) {
     add(
       diagnostics,
       "AI_ATTEMPT_USAGE_MISMATCH",
       "usage.tokens",
-      "Aggregate token usage must equal the sum of attempt usage.",
+      "Aggregate token usage must equal the sum of attempt usage."
     );
   }
 
@@ -1178,27 +1597,27 @@ function validateAttemptUsageAlignment(
       (cost) =>
         cost.status === "unknown" ||
         cost.currency !== currency ||
-        !Number.isSafeInteger(cost.amountMicros),
+        !Number.isSafeInteger(cost.amountMicros)
     )
   ) {
     add(
       diagnostics,
       "AI_ATTEMPT_USAGE_MISMATCH",
       "usage.cost",
-      "Measured aggregate cost requires compatible measured cost for every attempt.",
+      "Measured aggregate cost requires compatible measured cost for every attempt."
     );
     return;
   }
   const amountMicros = attemptCosts.reduce(
     (total, cost) => total + (numberValue(cost.amountMicros) ?? 0),
-    0,
+    0
   );
   if (amountMicros !== numberValue(aggregate.cost.amountMicros)) {
     add(
       diagnostics,
       "AI_ATTEMPT_USAGE_MISMATCH",
       "usage.cost.amountMicros",
-      "Aggregate cost must equal the sum of attempt costs.",
+      "Aggregate cost must equal the sum of attempt costs."
     );
   }
 }
@@ -1207,7 +1626,13 @@ function sumTokens(values: readonly unknown[]): Record<string, number> {
   const total: Record<string, number> = { input: 0, output: 0 };
   for (const value of values) {
     if (!isRecord(value)) continue;
-    for (const key of ["input", "output", "cachedInput", "reasoning"] as const) {
+    for (const key of [
+      "input",
+      "output",
+      "cachedInput",
+      "cacheWrite",
+      "reasoning",
+    ] as const) {
       const amount = numberValue(value[key]);
       if (amount !== undefined) total[key] = (total[key] ?? 0) + amount;
     }
@@ -1220,7 +1645,8 @@ function jsonEqual(left: unknown, right: unknown): boolean {
 }
 
 function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (value === null || typeof value !== "object")
+    return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   return `{${Object.entries(value)
     .filter(([, item]) => item !== undefined)
@@ -1232,35 +1658,53 @@ function canonicalJson(value: unknown): string {
 function validateMessages(
   messages: unknown,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!Array.isArray(messages) || messages.length === 0) {
-    add(diagnostics, "AI_INVALID_VALUE", path, "At least one chat message is required.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      path,
+      "At least one chat message is required."
+    );
     return;
   }
   messages.forEach((message, index) => {
     const item = isRecord(message) ? message : {};
-    enumValue(stringValue(item.role), ["system", "user", "assistant", "tool"] as const, `${path}[${index}].role`, diagnostics);
-    nonEmpty(stringValue(item.content), `${path}[${index}].content`, diagnostics);
+    enumValue(
+      stringValue(item.role),
+      ["system", "user", "assistant", "tool"] as const,
+      `${path}[${index}].role`,
+      diagnostics
+    );
+    nonEmpty(
+      stringValue(item.content),
+      `${path}[${index}].content`,
+      diagnostics
+    );
   });
 }
 
 function validateArtifact(
   artifact: unknown,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   const value = isRecord(artifact) ? artifact : {};
   nonEmpty(stringValue(value.uri), `${path}.uri`, diagnostics);
   nonEmpty(stringValue(value.digest), `${path}.digest`, diagnostics);
-  nonEmpty(stringValue(value.contentClass), `${path}.contentClass`, diagnostics);
+  nonEmpty(
+    stringValue(value.contentClass),
+    `${path}.contentClass`,
+    diagnostics
+  );
 }
 
 function uniqueEnumValues<T extends string>(
   values: unknown,
   allowed: readonly T[],
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!Array.isArray(values)) {
     add(diagnostics, "AI_INVALID_VALUE", path, "Value must be an array.");
@@ -1271,7 +1715,12 @@ function uniqueEnumValues<T extends string>(
     const string = stringValue(value);
     enumValue(string, allowed, `${path}[${index}]`, diagnostics);
     if (string !== undefined && seen.has(string)) {
-      add(diagnostics, "AI_DUPLICATE_VALUE", `${path}[${index}]`, `Duplicate value ${string}.`);
+      add(
+        diagnostics,
+        "AI_DUPLICATE_VALUE",
+        `${path}[${index}]`,
+        `Duplicate value ${string}.`
+      );
     }
     if (string !== undefined) seen.add(string);
   });
@@ -1280,7 +1729,7 @@ function uniqueEnumValues<T extends string>(
 function uniqueStrings(
   values: unknown,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!Array.isArray(values)) {
     add(diagnostics, "AI_INVALID_VALUE", path, "Value must be an array.");
@@ -1291,7 +1740,12 @@ function uniqueStrings(
     const string = stringValue(value);
     nonEmpty(string, `${path}[${index}]`, diagnostics);
     if (string !== undefined && seen.has(string)) {
-      add(diagnostics, "AI_DUPLICATE_VALUE", `${path}[${index}]`, `Duplicate value ${string}.`);
+      add(
+        diagnostics,
+        "AI_DUPLICATE_VALUE",
+        `${path}[${index}]`,
+        `Duplicate value ${string}.`
+      );
     }
     if (string !== undefined) seen.add(string);
   });
@@ -1300,13 +1754,20 @@ function uniqueStrings(
 function nonEmptyStrings(
   values: unknown,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!Array.isArray(values) || values.length === 0) {
-    add(diagnostics, "AI_INVALID_VALUE", path, "At least one value is required.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      path,
+      "At least one value is required."
+    );
     return;
   }
-  values.forEach((value, index) => nonEmpty(stringValue(value), `${path}[${index}]`, diagnostics));
+  values.forEach((value, index) =>
+    nonEmpty(stringValue(value), `${path}[${index}]`, diagnostics)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1325,40 +1786,60 @@ function enumValue<T extends string>(
   value: T | undefined,
   allowed: readonly T[],
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!allowed.includes(value as T)) {
-    add(diagnostics, "AI_INVALID_VALUE", path, `Value must be one of: ${allowed.join(", ")}.`);
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      path,
+      `Value must be one of: ${allowed.join(", ")}.`
+    );
   }
 }
 
 function nonEmpty(
   value: string | undefined,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (typeof value !== "string" || value.trim().length === 0) {
-    add(diagnostics, "AI_INVALID_VALUE", path, "Value must be a non-empty string.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      path,
+      "Value must be a non-empty string."
+    );
   }
 }
 
 function positiveInteger(
   value: number | undefined,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (!Number.isSafeInteger(value) || (value ?? 0) < 1) {
-    add(diagnostics, "AI_INVALID_VALUE", path, "Value must be a positive safe integer.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      path,
+      "Value must be a positive safe integer."
+    );
   }
 }
 
 function validateOptionalTime(
   value: string | undefined,
   path: string,
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): void {
   if (value !== undefined && !isIsoDate(value)) {
-    add(diagnostics, "AI_INVALID_VALUE", path, "Value must be an ISO-8601 timestamp.");
+    add(
+      diagnostics,
+      "AI_INVALID_VALUE",
+      path,
+      "Value must be an ISO-8601 timestamp."
+    );
   }
 }
 
@@ -1367,7 +1848,7 @@ function isIsoDate(value: unknown): boolean {
 }
 
 function validation(
-  diagnostics: AiExecutionDiagnostic[],
+  diagnostics: AiExecutionDiagnostic[]
 ): AiExecutionValidation {
   return { valid: diagnostics.length === 0, diagnostics };
 }
@@ -1376,7 +1857,7 @@ function add(
   diagnostics: AiExecutionDiagnostic[],
   code: AiExecutionDiagnosticCode,
   path: string,
-  message: string,
+  message: string
 ): void {
   diagnostics.push({ code, path, message });
 }

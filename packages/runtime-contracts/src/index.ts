@@ -90,3 +90,26 @@ export {
   canonicalInputDigest,
   materializeIdempotencyKey,
 } from "./idempotency.js";
+export {
+  AI_COST_UNKNOWN_REASONS,
+  AI_PRICE_SOURCE_KINDS,
+  AI_QUOTA_SCHEMA,
+  AI_QUOTA_UNITS,
+  AI_TARIFF_SCHEMA,
+  MICROS_PER_CENT,
+  selectTariffRates,
+  validateAiQuotaTruth,
+  validateAiTariff,
+} from "./ai-economics.js";
+export type {
+  AiCostUnknownReason,
+  AiEconomicsDiagnostic,
+  AiEconomicsDiagnosticCode,
+  AiPriceProvenance,
+  AiPriceSourceKind,
+  AiQuotaTruth,
+  AiQuotaUnit,
+  AiTariff,
+  AiTariffTier,
+  AiTokenRates,
+} from "./ai-economics.js";
