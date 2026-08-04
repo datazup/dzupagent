@@ -20,9 +20,12 @@ describe("AGENT-C-10 — live zero-copy views are not overwritten", () => {
     const handle = channel.write(payload);
 
     // Reader takes a zero-copy view and keeps holding it.
+    // `filter(...).toHaveLength(n)` rather than `every(...)`: it asserts the
+    // byte count AND the predicate together, so it cannot pass vacuously if
+    // `read()` ever returns an empty view — which is exactly the corruption
+    // this test exists to catch.
     const view = channel.read(handle);
-    expect(view).toHaveLength(60);
-    expect(view.every((b) => b === 0xa1)).toBe(true);
+    expect(view.filter((b) => b === 0xa1)).toHaveLength(60);
 
     // 60 + 60 = 120 > 100 → the allocator would wrap to offset 0, straight over
     // `view`. It must refuse loudly instead.
@@ -31,11 +34,8 @@ describe("AGENT-C-10 — live zero-copy views are not overwritten", () => {
     );
 
     // The reader's data is untouched — no silent corruption.
-    expect(view.byteLength).toBe(60);
-    expect(view.every((b) => b === 0xa1)).toBe(true);
-    const reread = channel.read(handle);
-    expect(reread).toHaveLength(60);
-    expect(reread.every((b) => b === 0xa1)).toBe(true);
+    expect(view.filter((b) => b === 0xa1)).toHaveLength(60);
+    expect(channel.read(handle).filter((b) => b === 0xa1)).toHaveLength(60);
   });
 
   it("a refused write does not leak the slot it acquired", () => {
@@ -56,7 +56,7 @@ describe("AGENT-C-10 — live zero-copy views are not overwritten", () => {
     channel.release(handle);
     const next = channel.write(new Uint8Array(60).fill(0xb4));
     expect(next.offset).toBe(0);
-    expect(channel.read(next).every((b) => b === 0xb4)).toBe(true);
+    expect(channel.read(next).filter((b) => b === 0xb4)).toHaveLength(60);
   });
 
   it("wrapping is still allowed when no live slot occupies the region", () => {
@@ -85,6 +85,6 @@ describe("AGENT-C-10 — live zero-copy views are not overwritten", () => {
     expect(() => channel.write(new Uint8Array(80).fill(0xa4))).toThrow(
       /overlaps live slot/
     );
-    expect(liveView.every((b) => b === 0xa1)).toBe(true);
+    expect(liveView.filter((b) => b === 0xa1)).toHaveLength(50);
   });
 });
