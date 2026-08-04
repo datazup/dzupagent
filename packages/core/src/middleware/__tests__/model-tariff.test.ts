@@ -12,8 +12,10 @@ import {
   MODEL_RATES_REVISION,
   PROVIDER_RATE_TABLE,
   getModelRate,
+  hasKnownModelRate,
 } from "../model-rates.js";
 import {
+  buildKnownModelTariff,
   buildModelTariff,
   centsPer1MToMicrosPerToken,
   modelRatesProvenance,
@@ -152,5 +154,40 @@ describe("buildModelTariff", () => {
   it("selects base rates when the tariff declares no tiers", () => {
     const tariff: AiTariff = buildModelTariff("claude-sonnet-4-6");
     expect(selectTariffRates(tariff, 5_000_000)).toEqual(tariff.baseRates);
+  });
+});
+
+describe("hasKnownModelRate", () => {
+  it("knows concrete model ids and provider families", () => {
+    expect(hasKnownModelRate("claude-sonnet-4-6")).toBe(true);
+    expect(hasKnownModelRate("gemini")).toBe(true);
+  });
+
+  it("does not claim to know an unlisted id", () => {
+    expect(hasKnownModelRate("shared-model")).toBe(false);
+    expect(hasKnownModelRate("no-such-model-xyz")).toBe(false);
+  });
+
+  it("treats the `default` fallback key as not-known", () => {
+    // `default` is the fallback bucket, not a model anyone invokes. Reporting
+    // it as known would let the generic rate be billed as a real price.
+    expect(hasKnownModelRate("default")).toBe(false);
+  });
+});
+
+describe("buildKnownModelTariff", () => {
+  it("returns a tariff for a known model", () => {
+    const tariff = buildKnownModelTariff("claude-sonnet-4-6");
+    expect(tariff).toBeDefined();
+    expect(tariff?.baseRates.inputMicrosPerToken).toBe(3);
+  });
+
+  it("returns undefined instead of pricing an unknown model", () => {
+    // buildModelTariff would happily return the `default` rate here; billing
+    // callers must get nothing rather than an invented number.
+    expect(buildModelTariff("shared-model").baseRates.inputMicrosPerToken).toBe(
+      2,
+    );
+    expect(buildKnownModelTariff("shared-model")).toBeUndefined();
   });
 });

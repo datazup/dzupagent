@@ -252,10 +252,12 @@ export {
   MODEL_RATES_AUTHORITY_ID,
   MODEL_RATES_EFFECTIVE_AT,
   MODEL_RATES_REVISION,
+  hasKnownModelRate,
   getModelRate,
 } from "./middleware/model-rates.js";
 export type { ModelRate } from "./middleware/model-rates.js";
 export {
+  buildKnownModelTariff,
   buildModelTariff,
   centsPer1MToMicrosPerToken,
   modelRatesProvenance,

@@ -123,6 +123,25 @@ function providerFamilyOf(model: string): ProviderRateKey | undefined {
 }
 
 /**
+ * Whether the table actually knows this id, as opposed to pricing it from the
+ * `default` fallback.
+ *
+ * {@link getModelRate} never reports which branch it took, so a caller cannot
+ * otherwise tell a real rate from the generic default. Billing callers need the
+ * difference: charging an unrecognised model at the default rate invents a
+ * plausible number and stores it as the record of what was spent. Such callers
+ * should price only when this returns `true` and report cost as unknown
+ * otherwise.
+ *
+ * Exposed here, beside the tables, so consumers never re-derive table
+ * membership and drift from it (ARCH-M-08).
+ */
+export function hasKnownModelRate(providerOrModel: string): boolean {
+  if (providerOrModel in MODEL_RATE_TABLE) return providerOrModel !== "default";
+  return providerOrModel in PROVIDER_RATE_TABLE;
+}
+
+/**
  * Resolve the canonical rate for a provider family or concrete model.
  *
  * Resolution order:

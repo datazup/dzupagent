@@ -28,6 +28,7 @@ import {
   MODEL_RATES_EFFECTIVE_AT,
   MODEL_RATES_REVISION,
   getModelRate,
+  hasKnownModelRate,
   type ModelRate,
 } from "./model-rates.js";
 
@@ -113,4 +114,26 @@ export function buildModelTariff(
     baseRates: toAiTokenRates(rate),
     provenance: modelRatesProvenance(),
   };
+}
+
+/**
+ * Like {@link buildModelTariff}, but `undefined` when the table does not know
+ * the id rather than pricing it from the `default` fallback.
+ *
+ * Billing callers should prefer this. `buildModelTariff` always returns a
+ * tariff, so an unrecognised model id yields a confident-looking price derived
+ * from a generic default — and that number becomes the stored record of what
+ * was spent. Reporting the cost as unknown is recoverable; a fabricated charge
+ * is not distinguishable after the fact.
+ *
+ * @example
+ * buildKnownModelTariff('claude-sonnet-4-6') // AiTariff
+ * buildKnownModelTariff('some-unlisted-model') // undefined
+ */
+export function buildKnownModelTariff(
+  providerOrModel: string,
+  options: { readonly provider?: string } = {}
+): AiTariff | undefined {
+  if (!hasKnownModelRate(providerOrModel)) return undefined;
+  return buildModelTariff(providerOrModel, options);
 }
