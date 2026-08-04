@@ -1,0 +1,116 @@
+/**
+ * Projects the canonical rate table (ARCH-M-08) into `AiTariff` contract values.
+ *
+ * `@dzupagent/runtime-contracts` defines what a priced call looks like, but ships
+ * no prices; `model-rates.ts` holds the prices in a legacy unit
+ * (cents per 1M tokens) that predates the contract. Without this adapter the
+ * economics contracts have no data source at all, so nothing can be priced.
+ *
+ * Unit conversion is the whole point of this module:
+ *   micros/token = centsPer1M x MICROS_PER_CENT / 1_000_000 = centsPer1M / 100
+ * Results are deliberately **not** rounded. A rate like Gemini's 10 cents/1M is
+ * 0.1 micros/token; rounding to an integer would price it at zero and bill real
+ * traffic as free. The contract requires non-negative finite rates, not integers
+ * — integers are only required of `amountMicros` totals, which round once at the
+ * end of a cost computation rather than per-token here.
+ */
+
+import {
+  AI_TARIFF_SCHEMA,
+  MICROS_PER_CENT,
+  type AiPriceProvenance,
+  type AiTariff,
+  type AiTokenRates,
+} from "@dzupagent/runtime-contracts";
+
+import {
+  MODEL_RATES_AUTHORITY_ID,
+  MODEL_RATES_EFFECTIVE_AT,
+  MODEL_RATES_REVISION,
+  getModelRate,
+  type ModelRate,
+} from "./model-rates.js";
+
+/** Cents per 1M tokens is the table's unit; a tariff is micros per token. */
+const CENTS_PER_1M_TO_MICROS_PER_TOKEN = MICROS_PER_CENT / 1_000_000;
+
+/** ISO-4217 code for every rate in the canonical table. */
+const MODEL_RATES_CURRENCY = "USD";
+
+/** Converts one legacy cents-per-1M figure to contract micros-per-token. */
+export function centsPer1MToMicrosPerToken(centsPer1M: number): number {
+  return centsPer1M * CENTS_PER_1M_TO_MICROS_PER_TOKEN;
+}
+
+/**
+ * Provenance for any rate read from the canonical table.
+ *
+ * The table is hand-maintained, so `sourceKind` is `hand-maintained` — a
+ * provider-published price may later overwrite it, and reconciliation needs to
+ * know that before it does.
+ */
+export function modelRatesProvenance(): AiPriceProvenance {
+  return {
+    sourceKind: "hand-maintained",
+    authorityId: MODEL_RATES_AUTHORITY_ID,
+    revision: MODEL_RATES_REVISION,
+    effectiveAt: MODEL_RATES_EFFECTIVE_AT,
+  };
+}
+
+/** Projects a raw table entry into contract token rates. */
+export function toAiTokenRates(rate: ModelRate): AiTokenRates {
+  // Built conditionally: under `exactOptionalPropertyTypes` an explicit
+  // `undefined` is not the same as an omitted optional rate.
+  const rates: {
+    inputMicrosPerToken: number;
+    outputMicrosPerToken: number;
+    cachedInputMicrosPerToken?: number;
+    cacheWriteMicrosPerToken?: number;
+  } = {
+    inputMicrosPerToken: centsPer1MToMicrosPerToken(rate.inputCentsPer1M),
+    outputMicrosPerToken: centsPer1MToMicrosPerToken(rate.outputCentsPer1M),
+  };
+  if (rate.cachedInputCentsPer1M !== undefined) {
+    rates.cachedInputMicrosPerToken = centsPer1MToMicrosPerToken(
+      rate.cachedInputCentsPer1M
+    );
+  }
+  if (rate.cacheWriteCentsPer1M !== undefined) {
+    rates.cacheWriteMicrosPerToken = centsPer1MToMicrosPerToken(
+      rate.cacheWriteCentsPer1M
+    );
+  }
+  return rates;
+}
+
+/**
+ * Builds the `AiTariff` for a provider family or concrete model id.
+ *
+ * Resolution (including cache-tier inheritance for concrete model ids) is
+ * delegated to {@link getModelRate}, so this never becomes a second pricing
+ * authority — the failure mode ARCH-M-08 exists to prevent.
+ *
+ * @param providerOrModel - a provider family (`'claude'`) or model id
+ *   (`'claude-sonnet-4-6'`). Unknown ids resolve to the table's default rate.
+ * @param options.provider - provider recorded on the tariff; defaults to
+ *   `providerOrModel`, which is correct when a family key was passed.
+ *
+ * @example
+ * buildModelTariff('claude-sonnet-4-6').baseRates.inputMicrosPerToken // 3
+ */
+export function buildModelTariff(
+  providerOrModel: string,
+  options: { readonly provider?: string } = {}
+): AiTariff {
+  const rate = getModelRate(providerOrModel);
+  return {
+    schema: AI_TARIFF_SCHEMA,
+    tariffId: `${MODEL_RATES_AUTHORITY_ID}@${MODEL_RATES_REVISION}:${providerOrModel}`,
+    provider: options.provider ?? providerOrModel,
+    model: providerOrModel,
+    currency: MODEL_RATES_CURRENCY,
+    baseRates: toAiTokenRates(rate),
+    provenance: modelRatesProvenance(),
+  };
+}

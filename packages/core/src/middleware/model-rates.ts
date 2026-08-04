@@ -16,6 +16,32 @@
  * All prices are **cents per 1,000,000 tokens**.
  */
 
+/**
+ * Stable identity of this table as a pricing authority (ARCH-M-08).
+ *
+ * Consumers that record where a price came from must be able to name the
+ * authority without hardcoding a string that drifts from this module.
+ */
+export const MODEL_RATES_AUTHORITY_ID = "dzupagent.core/model-rates" as const;
+
+/**
+ * Revision of the rate values below, bumped whenever any number changes.
+ *
+ * Machine-readable on purpose: a prose "last reviewed" comment cannot be
+ * compared by a reconciler, so two tables that disagree could not be ordered.
+ * Bump this and {@link MODEL_RATES_EFFECTIVE_AT} together in the same edit that
+ * changes a rate — a stale revision claims prices are current when they are not.
+ */
+export const MODEL_RATES_REVISION = "2025-05-01" as const;
+
+/**
+ * When these rate values took effect, not when they were read.
+ *
+ * Feeds `AiPriceProvenance.effectiveAt`, which reconciliation uses to decide
+ * which of two disagreeing tables is newer.
+ */
+export const MODEL_RATES_EFFECTIVE_AT = "2025-05-01T00:00:00.000Z" as const;
+
 /** Full rate for a provider family or model, cents per 1M tokens. */
 export interface ModelRate {
   /** Uncached input (prompt) tokens. */

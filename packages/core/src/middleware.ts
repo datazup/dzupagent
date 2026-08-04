@@ -21,3 +21,14 @@ export type {
   ProviderRateKey,
   ModelRateKey,
 } from "./middleware/cost-tracking.js";
+export {
+  MODEL_RATES_AUTHORITY_ID,
+  MODEL_RATES_EFFECTIVE_AT,
+  MODEL_RATES_REVISION,
+} from "./middleware/model-rates.js";
+export {
+  buildModelTariff,
+  centsPer1MToMicrosPerToken,
+  modelRatesProvenance,
+  toAiTokenRates,
+} from "./middleware/model-tariff.js";
