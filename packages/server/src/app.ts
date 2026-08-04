@@ -167,7 +167,7 @@ export function buildForgeApp(config: ForgeHostRuntimeConfig): Hono<AppEnv> {
   // Always-mounted routes are generic framework primitives or compatibility
   // aliases. New product-control-plane routes should be owned by consuming apps
   // and mounted through `routePlugins` or app-level Hono composition.
-  mountCoreRoutes(app, runtimeConfig);
+  mountCoreRoutes(app, runtimeConfig, effectiveAuth);
 
   // Conditional routes are existing compatibility/maintenance surfaces or
   // generic framework primitives gated on injected capability config.
@@ -209,7 +209,7 @@ export function buildForgeApp(config: ForgeHostRuntimeConfig): Hono<AppEnv> {
  */
 export function startForgeRuntime(
   config: ForgeHostRuntimeConfig,
-  app: Hono<AppEnv>
+  app: Hono<AppEnv>,
 ): RuntimeHandle {
   const disposers: Array<() => Promise<void> | void> = [];
   let stopped = false;
@@ -239,7 +239,7 @@ export function startForgeRuntime(
         // eslint-disable-next-line no-console
         console.warn(
           "[ForgeServer] audit logger flush surfaced error during shutdown",
-          err
+          err,
         );
       } finally {
         auditLogger.dispose();

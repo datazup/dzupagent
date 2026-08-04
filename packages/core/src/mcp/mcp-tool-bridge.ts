@@ -31,7 +31,7 @@ const MCP_RESULT_GUARD = new PromptInjectionGuard();
  */
 export function mcpToolToLangChain(
   descriptor: MCPToolDescriptor,
-  client: MCPClient
+  client: MCPClient,
 ): StructuredToolInterface {
   const inputSchema = buildInputSchema(descriptor);
 
@@ -44,7 +44,20 @@ export function mcpToolToLangChain(
           .filter((c) => c.type === "text")
           .map((c) => c.text)
           .join("\n");
-        return `Error: ${errorText}`;
+
+        // AGENT-C-21 — the error branch is just as attacker-controlled as the
+        // success branch: a malicious or compromised MCP server can set
+        // `isError: true` and place an injection payload in `content`. Fence it
+        // with the same boundary the success branch uses, otherwise flipping one
+        // boolean is enough to bypass the AGENT-M-16 fencing entirely.
+        //
+        // The `Error: ` prefix stays OUTSIDE the fence — it is framework-
+        // generated text that consumers may match on, and keeping it out of the
+        // block preserves that contract while the untrusted server text sits
+        // inside the quoted-data boundary.
+        return `Error: ${MCP_RESULT_GUARD.wrap(errorText, {
+          label: "tool_result",
+        })}`;
       }
 
       const text = result.content
@@ -67,7 +80,7 @@ export function mcpToolToLangChain(
       name: descriptor.name,
       description: descriptor.description,
       schema: inputSchema,
-    }
+    },
   );
 }
 
@@ -75,7 +88,7 @@ export function mcpToolToLangChain(
  * Convert all eagerly-loaded MCP tools to LangChain tools.
  */
 export function mcpToolsToLangChain(
-  client: MCPClient
+  client: MCPClient,
 ): StructuredToolInterface[] {
   return client
     .getEagerTools()
@@ -92,7 +105,7 @@ export function mcpToolsToLangChain(
  * otherwise falls back to simple type string.
  */
 function descriptionPart(
-  schema: z.ZodType
+  schema: z.ZodType,
 ): { description: string } | Record<string, never> {
   return schema.description !== undefined
     ? { description: schema.description }
@@ -170,7 +183,7 @@ function zodToJsonSchema(schema: z.ZodType): MCPToolParameter {
  */
 export function langChainToolToMcp(
   langChainTool: StructuredToolInterface,
-  serverId: string
+  serverId: string,
 ): MCPToolDescriptor {
   const schema = langChainTool.schema as z.ZodObject<Record<string, z.ZodType>>;
   const shape = schema.shape as Record<string, z.ZodType>;
