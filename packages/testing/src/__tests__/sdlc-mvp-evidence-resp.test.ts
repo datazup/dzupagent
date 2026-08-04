@@ -213,3 +213,106 @@ describe("LiveRedisClient — command sequencing", () => {
     await expect(client.set("k", "v")).resolves.toBe("OK");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sorted-set / set / exists command wrappers.
+//
+// `RedisPipelineCheckpointStore` (the only production caller of
+// `LiveRedisClient`) never happens to invoke `zscore` or `exists`, and the
+// other-package tests exercise it only through a `FakeRedisClient` stub, so
+// these thin command-encoding wrappers sat completely uncalled on the real
+// client despite each hiding its own command name / argument order. A typo
+// in any of these (e.g. sending "ZSCOR" or swapping key/member order) would
+// silently desync a checkpoint proof without ever throwing.
+// ---------------------------------------------------------------------------
+describe("LiveRedisClient — sorted-set, set, and exists command wrappers", () => {
+  it("zadd encodes ZADD with score before member", async () => {
+    const { client, received } = await connect([":1\r\n"]);
+    await expect(client.zadd("z", 5, "m")).resolves.toBe(1);
+    const wire = Buffer.concat(received).toString("utf8");
+    expect(wire).toBe("*4\r\n$4\r\nZADD\r\n$1\r\nz\r\n$1\r\n5\r\n$1\r\nm\r\n");
+  });
+
+  it("zrevrange encodes ZREVRANGE and returns members in server-provided order", async () => {
+    const { client, received } = await connect([
+      "*2\r\n$1\r\nb\r\n$1\r\na\r\n",
+    ]);
+    await expect(client.zrevrange("z", 0, -1)).resolves.toEqual(["b", "a"]);
+    const wire = Buffer.concat(received).toString("utf8");
+    expect(wire).toBe(
+      "*4\r\n$9\r\nZREVRANGE\r\n$1\r\nz\r\n$1\r\n0\r\n$2\r\n-1\r\n"
+    );
+  });
+
+  it("zscore encodes ZSCORE and parses a bulk-string score reply", async () => {
+    const { client, received } = await connect(["$1\r\n7\r\n"]);
+    await expect(client.zscore("z", "m")).resolves.toBe("7");
+    const wire = Buffer.concat(received).toString("utf8");
+    expect(wire).toBe("*3\r\n$6\r\nZSCORE\r\n$1\r\nz\r\n$1\r\nm\r\n");
+  });
+
+  it("zscore resolves null for a member that is not in the set", async () => {
+    const { client } = await connect(["$-1\r\n"]);
+    await expect(client.zscore("z", "missing")).resolves.toBeNull();
+  });
+
+  it("zrem encodes ZREM with all member arguments", async () => {
+    const { client, received } = await connect([":2\r\n"]);
+    await expect(client.zrem("z", "a", "b")).resolves.toBe(2);
+    const wire = Buffer.concat(received).toString("utf8");
+    expect(wire).toBe("*4\r\n$4\r\nZREM\r\n$1\r\nz\r\n$1\r\na\r\n$1\r\nb\r\n");
+  });
+
+  it("sadd encodes SADD with all member arguments", async () => {
+    const { client, received } = await connect([":1\r\n"]);
+    await expect(client.sadd("s", "x")).resolves.toBe(1);
+    const wire = Buffer.concat(received).toString("utf8");
+    expect(wire).toBe("*3\r\n$4\r\nSADD\r\n$1\r\ns\r\n$1\r\nx\r\n");
+  });
+
+  it("srem encodes SREM with all member arguments", async () => {
+    const { client, received } = await connect([":1\r\n"]);
+    await expect(client.srem("s", "x")).resolves.toBe(1);
+    const wire = Buffer.concat(received).toString("utf8");
+    expect(wire).toBe("*3\r\n$4\r\nSREM\r\n$1\r\ns\r\n$1\r\nx\r\n");
+  });
+
+  it("exists encodes EXISTS and returns 1 for a present key", async () => {
+    const { client, received } = await connect([":1\r\n"]);
+    await expect(client.exists("k")).resolves.toBe(1);
+    const wire = Buffer.concat(received).toString("utf8");
+    expect(wire).toBe("*2\r\n$6\r\nEXISTS\r\n$1\r\nk\r\n");
+  });
+
+  it("exists returns 0 for an absent key", async () => {
+    const { client } = await connect([":0\r\n"]);
+    await expect(client.exists("missing")).resolves.toBe(0);
+  });
+});
+
+describe("LiveRedisClient — socket error while awaiting a reply", () => {
+  it("rejects the pending command when the socket errors mid-flight, instead of hanging forever", async () => {
+    const server = createServer((socket: Socket) => {
+      // Accept the connection but never reply to any command, then abort the
+      // socket from the server side with a RST (not a graceful FIN) so the
+      // client's `socket.once("error", ...)` actually fires ECONNRESET — a
+      // plain `destroy()` only emits `close`, which would make this test
+      // hang rather than exercise the error path it targets.
+      socket.on("data", () => {
+        socket.resetAndDestroy();
+      });
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve)
+    );
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const client = await createLiveRedisClient(`redis://127.0.0.1:${port}`);
+    try {
+      await expect(client.get("k")).rejects.toBeTruthy();
+    } finally {
+      client.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});

@@ -58,6 +58,20 @@ describe("createDeterministicVerdictService", () => {
     expect(verdict.unanimous).toBe(false);
   });
 
+  it("scores 0 when agentResults is entirely absent (not just an empty array)", async () => {
+    // inputWith([]) sets agentResults to [], which exercises the
+    // results.length === 0 branch but never the `?? []` nullish-coalescing
+    // default itself. A team-runtime caller that omits agentResults
+    // entirely (e.g. a crashed run that never populated it) must be scored
+    // exactly like an empty run, not throw on `.length` of undefined.
+    const svc = createDeterministicVerdictService();
+    const input = inputWith([]);
+    delete (input.result as { agentResults?: unknown }).agentResults;
+    const verdict = await svc.evaluate(input);
+    expect(verdict.score).toBe(0);
+    expect(verdict.unanimous).toBe(false);
+  });
+
   it("honours a pinned score over the computed one", async () => {
     const svc = createDeterministicVerdictService({ score: 0.25 });
     // Participants all succeeded, so the computed score would be 1.

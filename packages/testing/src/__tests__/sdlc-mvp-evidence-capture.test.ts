@@ -83,14 +83,21 @@ describe("captureSdlcMvpEvidenceCommandOutput — process lifecycle", () => {
     expect(realpathSync(output.stdout)).toBe(realpathSync("/tmp"));
   });
 
-  it("reports a spawn error (unresolvable executable) as exitCode 1 with the error message in stderr", async () => {
+  it("reports an unresolvable executable as a non-zero exit code with a not-found message in stderr", async () => {
+    // With `shell: true` the OS shell (not Node) resolves the executable, so
+    // a missing binary surfaces as the shell's own "command not found" exit
+    // (127 on sh/bash) via the `close` event — Node's `error` event never
+    // fires for this case. A shell-less spawn (shell: false) would hit
+    // `error` instead and exitCode would be forced to 1; this test locks in
+    // the `shell: true` behavior actually exercised by this module.
     const output = await captureSdlcMvpEvidenceCommandOutput({
       id: "bad-exe",
       command: "/definitely/not/a/real/executable-xyz --flag",
       env: {},
     });
 
-    expect(output.exitCode).toBe(1);
+    expect(output.exitCode).not.toBe(0);
+    expect(output.stderr.toLowerCase()).toMatch(/not found|no such file/);
   });
 
   it("records a durationMs proportional to real elapsed time", async () => {
