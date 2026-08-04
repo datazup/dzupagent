@@ -74,14 +74,14 @@ describe("createFlowCompiler — forwardInnerEvents guard", () => {
   it("throws when forwardInnerEvents is true and no eventBus is provided", () => {
     const resolver = makeResolver([]);
     expect(() =>
-      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: true })
+      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: true }),
     ).toThrow(/forwardInnerEvents.*eventBus|eventBus.*forwardInnerEvents/);
   });
 
   it("does not throw when forwardInnerEvents is false", () => {
     const resolver = makeResolver([]);
     expect(() =>
-      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: false })
+      createFlowCompiler({ toolResolver: resolver, forwardInnerEvents: false }),
     ).not.toThrow();
   });
 
@@ -191,7 +191,7 @@ steps:
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[0].input.prompt",
         message: expect.stringContaining("[MISSING_REFERENCE]"),
-      })
+      }),
     );
   });
 
@@ -355,7 +355,7 @@ describe("createFlowCompiler — happy path workflow-builder", () => {
     };
     expect(success.target).toBe("workflow-builder");
     expect(
-      success.reasons.some((reason) => reason.code === "BRANCH_PRESENT")
+      success.reasons.some((reason) => reason.code === "BRANCH_PRESENT"),
     ).toBe(true);
 
     const pipeline = success.artifact as PipelineDefinition;
@@ -394,7 +394,7 @@ describe("createFlowCompiler — happy path pipeline", () => {
     };
     expect(success.target).toBe("pipeline");
     expect(
-      success.reasons.some((reason) => reason.code === "FOR_EACH_PRESENT")
+      success.reasons.some((reason) => reason.code === "FOR_EACH_PRESENT"),
     ).toBe(true);
 
     const pipeline = success.artifact as PipelineDefinition;
@@ -402,7 +402,7 @@ describe("createFlowCompiler — happy path pipeline", () => {
     const loop = pipeline.nodes.find((n) => n.type === "loop");
     expect(loop).toBeDefined();
     expect(
-      (loop as NonNullable<typeof loop> & { forEach?: unknown }).forEach
+      (loop as NonNullable<typeof loop> & { forEach?: unknown }).forEach,
     ).toEqual({
       source: "items",
       as: "item",
@@ -470,7 +470,7 @@ describe("createFlowCompiler — stage 2 errors", () => {
     const resolver = makeResolver([]);
     const compiler = createFlowCompiler({ toolResolver: resolver });
     const result = await compiler.compile(
-      JSON.stringify({ type: "sequence", nodes: [] })
+      JSON.stringify({ type: "sequence", nodes: [] }),
     );
     expect("errors" in result).toBe(true);
     const failure = result as { errors: Array<{ stage: number }> };
@@ -548,7 +548,7 @@ steps:
       }),
     ]);
     expect(failure.errors.some((e) => e.code === "UNKNOWN_NODE_TYPE")).toBe(
-      false
+      false,
     );
   });
 });
@@ -628,7 +628,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_CONDITION",
         nodePath: "root.condition",
         message: expect.stringContaining("MISSING_REFERENCE"),
-      })
+      }),
     );
   });
 
@@ -676,7 +676,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_CONDITION",
         nodePath: "root.nodes[0].condition",
         message: expect.stringContaining("MISSING_REFERENCE"),
-      })
+      }),
     );
   });
 
@@ -762,7 +762,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[0].input.prompt",
         message: expect.stringContaining("[MISSING_REFERENCE]"),
-      })
+      }),
     );
   });
 
@@ -810,12 +810,12 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "UNSAFE_DATA_FLOW",
         nodePath: "root.nodes[0].input.prompt",
         message: expect.stringContaining("[SECRET_TO_TOOL_INPUT]"),
-      })
+      }),
     );
     expect(
       result.errors.some((error) =>
-        error.message.includes("[MISSING_REFERENCE]")
-      )
+        error.message.includes("[MISSING_REFERENCE]"),
+      ),
     ).toBe(false);
   });
 
@@ -846,7 +846,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[1].result",
         message: expect.stringContaining("[MISSING_REFERENCE_PORT]"),
-      })
+      }),
     );
   });
 
@@ -901,7 +901,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
         code: "INVALID_REFERENCE",
         nodePath: "root.nodes[0].assign.copied",
         message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
-      })
+      }),
     );
   });
 
@@ -942,7 +942,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
       expect.objectContaining({
         nodePath: "root.nodes[1].result",
         message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
-      })
+      }),
     );
   });
 
@@ -1077,7 +1077,7 @@ describe("createFlowCompiler — stage 3 errors", () => {
       expect.objectContaining({
         nodePath: "root.nodes[0].source",
         message: expect.stringContaining("iteration requires an array"),
-      })
+      }),
     );
 
     const leakedAlias = await compiler.compileDocument({
@@ -1120,12 +1120,12 @@ describe("createFlowCompiler — stage 3 errors", () => {
       expect.objectContaining({
         nodePath: "root.nodes[1].result",
         message: expect.stringContaining("[REFERENCE_NOT_AVAILABLE]"),
-      })
+      }),
     );
     expect(
       leakedAlias.errors.filter(
-        (error) => error.nodePath === "root.nodes[0].body[0].assign.itemCopy"
-      )
+        (error) => error.nodePath === "root.nodes[0].body[0].assign.itemCopy",
+      ),
     ).toEqual([]);
   });
 });
@@ -1197,5 +1197,160 @@ describe("createFlowCompiler — stage 4 on_error backstop (structural verificat
     expect("errors" in result).toBe(false);
     const success = result as { target: string };
     expect(success.target).toBe("skill-chain");
+  });
+});
+describe("C1a — document-level truth survives the DSL entry point", () => {
+  // CR-08: compileDocument() extracts document-level policy/durability and
+  // re-attaches it to the result. compileDsl() prepares the very same document
+  // (it uses `prepared.document` for reference bindings, types and
+  // classifications at compile-orchestrator/document.ts:187-192) but never
+  // calls extractDocumentPolicy/extractDocumentDurability — those run only at
+  // lines 65/68, inside runCompileDocument.
+  //
+  // C0 finding that narrows this slice: the DSL grammar's TOP_LEVEL_KEYS
+  // (flow-dsl/src/normalize.ts) admits `durability` but NOT `policy`. So a
+  // top-level `policy:` block is a hard UNSUPPORTED_FIELD error in DSL text and
+  // is not the reachable defect. `durability` IS authorable, compiles cleanly
+  // on both paths, and is silently dropped by compileDsl() — that is the real,
+  // user-visible loss of document truth, and what this slice fixes.
+  //
+  // Raw compile() is deliberately NOT covered: it takes a root/AST input that
+  // may carry no document at all and must not fabricate one.
+  const DURABILITY = { checkpointStrategy: "every-node" } as const;
+
+  const DURABILITY_DOCUMENT = {
+    dsl: "dzupflow/v1",
+    id: "durability_bearing_flow",
+    version: 1,
+    durability: DURABILITY,
+    root: {
+      type: "sequence",
+      id: "root",
+      nodes: [{ type: "action", id: "run", toolRef: "tasks.run", input: {} }],
+    },
+  } as const;
+
+  // The same flow authored as DSL text.
+  const DURABILITY_DSL = [
+    "dsl: dzupflow/v1",
+    "id: durability_bearing_flow",
+    "version: 1",
+    "durability:",
+    "  checkpointStrategy: every-node",
+    "steps:",
+    "  - action:",
+    "      id: run",
+    "      ref: tasks.run",
+    "      input:",
+    "        mode: run",
+    "",
+  ].join("\n");
+
+  it("compileDocument() reports documentDurability (baseline — already passing)", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tasks.run"]),
+    });
+
+    const result = await compiler.compileDocument(DURABILITY_DOCUMENT);
+
+    expect("errors" in result).toBe(false);
+    const success = result as {
+      documentDurability?: Record<string, unknown>;
+    };
+    expect(success.documentDurability).toEqual(DURABILITY);
+  });
+
+  it("compileDsl() preserves the same documentDurability as compileDocument()", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tasks.run"]),
+    });
+
+    const fromDocument = await compiler.compileDocument(DURABILITY_DOCUMENT);
+    const fromDsl = await compiler.compileDsl(DURABILITY_DSL);
+
+    // Both paths compile cleanly — the defect is silent data loss, not an error.
+    expect("errors" in fromDocument).toBe(false);
+    expect("errors" in fromDsl).toBe(false);
+
+    const documentSuccess = fromDocument as {
+      documentDurability?: Record<string, unknown>;
+    };
+    const dslSuccess = fromDsl as {
+      documentDurability?: Record<string, unknown>;
+    };
+
+    // Pinning the two entry points to each other (rather than to a literal)
+    // keeps a future change to extraction from silently desynchronising them.
+    expect(dslSuccess.documentDurability).toEqual(
+      documentSuccess.documentDurability,
+    );
+    expect(dslSuccess.documentDurability).toEqual(DURABILITY);
+  });
+
+  it("compileDsl() omits documentDurability when the source declares none", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tasks.run"]),
+    });
+
+    // Guards against "fixing" the above by fabricating an empty object: a
+    // source with no durability block must stay undefined, matching
+    // compileDocument().
+    const result = await compiler.compileDsl(
+      [
+        "dsl: dzupflow/v1",
+        "id: durability_free_flow",
+        "version: 1",
+        "steps:",
+        "  - action:",
+        "      id: run",
+        "      ref: tasks.run",
+        "      input:",
+        "        mode: run",
+        "",
+      ].join("\n"),
+    );
+
+    expect("errors" in result).toBe(false);
+    const success = result as {
+      documentDurability?: Record<string, unknown>;
+    };
+    expect(success.documentDurability).toBeUndefined();
+  });
+
+  it("rejects a top-level policy block in DSL text (grammar gap, not a compileDsl defect)", async () => {
+    const compiler = createFlowCompiler({
+      toolResolver: makeResolver(["tasks.run"]),
+    });
+
+    // Pins the C0 finding. `policy` is absent from TOP_LEVEL_KEYS, so document
+    // budget/timeout truth is UNREACHABLE from DSL text — it fails loudly here
+    // rather than being dropped silently. Admitting `policy` into the DSL
+    // grammar is a separate, larger change (it needs narrowing semantics
+    // against per-node policy) and is deliberately NOT part of C1a. This test
+    // exists so that work is a deliberate decision rather than an accident.
+    const result = await compiler.compileDsl(
+      [
+        "dsl: dzupflow/v1",
+        "id: policy_bearing_flow",
+        "version: 1",
+        "policy:",
+        "  budgetCents: 250",
+        "steps:",
+        "  - action:",
+        "      id: run",
+        "      ref: tasks.run",
+        "      input:",
+        "        mode: run",
+        "",
+      ].join("\n"),
+    );
+
+    expect("errors" in result).toBe(true);
+    const failure = result as {
+      errors: readonly { code: string; nodePath?: string }[];
+    };
+    expect(failure.errors.some((e) => e.code === "UNSUPPORTED_FIELD")).toBe(
+      true,
+    );
   });
 });

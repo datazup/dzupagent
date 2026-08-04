@@ -48,7 +48,7 @@ import { extractFragmentExpansions } from "./evidence.js";
  */
 export async function runCompileDocument(
   deps: CompileOrchestratorDeps,
-  document: unknown
+  document: unknown,
 ): Promise<CompileSuccess | CompileFailure> {
   const prepared = prepareFlowInputFromDocument(document);
   if (!prepared.ok) {
@@ -157,7 +157,7 @@ export async function runCompileDocument(
  */
 export async function runCompileDsl(
   deps: CompileOrchestratorDeps,
-  source: unknown
+  source: unknown,
 ): Promise<CompileSuccess | CompileFailure> {
   const prepared = prepareFlowInputFromDsl(source, {
     ...(deps.opts.primitiveRegistry === undefined
@@ -166,8 +166,7 @@ export async function runCompileDsl(
     ...(deps.opts.primitiveExpansionHandlers === undefined
       ? {}
       : {
-          primitiveExpansionHandlers:
-            deps.opts.primitiveExpansionHandlers,
+          primitiveExpansionHandlers: deps.opts.primitiveExpansionHandlers,
         }),
   });
   if (!prepared.ok) {
@@ -177,7 +176,7 @@ export async function runCompileDsl(
       diagnosticCountsByCategory: countDiagnosticsByCategory(prepared.errors),
     };
   }
-  return runCompile(
+  const result = await runCompile(
     deps,
     prepared.flowInput,
     {
@@ -197,30 +196,54 @@ export async function runCompileDsl(
           ...(prepared.frontend?.policyNarrowings === undefined
             ? {}
             : {
-                dslV2PolicyNarrowings:
-                  prepared.frontend.policyNarrowings,
+                dslV2PolicyNarrowings: prepared.frontend.policyNarrowings,
               }),
           ...(prepared.frontend?.retryPolicies === undefined
             ? {}
             : {
-                dslV2RetryPolicies:
-                  prepared.frontend.retryPolicies,
+                dslV2RetryPolicies: prepared.frontend.retryPolicies,
               }),
           ...(prepared.frontend?.terminalCatches === undefined
             ? {}
             : {
-                dslV2TerminalCatches:
-                  prepared.frontend.terminalCatches,
+                dslV2TerminalCatches: prepared.frontend.terminalCatches,
               }),
           ...(prepared.frontend?.multiPortSaves === undefined
             ? {}
             : {
-                dslV2MultiPortSaves:
-                  prepared.frontend.multiPortSaves,
+                dslV2MultiPortSaves: prepared.frontend.multiPortSaves,
               }),
         }
       : {},
   );
+
+  if ("errors" in result) return result;
+
+  // CR-08 / C1a: `prepared.document` is the same document shape that
+  // `runCompileDocument` extracts from — it is already used above for reference
+  // bindings, types and classifications. Without this step a DSL-authored flow
+  // silently lost its document-level durability truth: it compiled cleanly and
+  // simply reported nothing, so the loss was invisible to callers.
+  //
+  // Scope is deliberately narrow. Only extraction/re-attachment is mirrored
+  // here; the durability *lowering* onto the artifact (checkpointStrategy /
+  // resume / checkpoint / executionLog) and the D4/D5 advisory diagnostics stay
+  // exclusive to `runCompileDocument`, because those change emitted artifact
+  // bytes and can fail compilation. Bringing them to the DSL path is a
+  // behavioural change that needs its own slice and golden-artifact evidence.
+  //
+  // Note the DSL grammar admits `durability` but not `policy` (flow-dsl
+  // `TOP_LEVEL_KEYS`), so `documentPolicy` is currently always undefined here.
+  // It is extracted anyway so that admitting `policy` into the grammar later
+  // needs no second fix in this file.
+  const documentPolicy = extractDocumentPolicy(prepared.document);
+  const documentDurability = extractDocumentDurability(prepared.document);
+
+  return {
+    ...result,
+    ...(documentPolicy !== undefined ? { documentPolicy } : {}),
+    ...(documentDurability !== undefined ? { documentDurability } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -233,7 +256,7 @@ export async function runCompileDsl(
  * cast is safe. Returns `undefined` when the field is absent.
  */
 function extractDocumentPolicy(
-  document: unknown
+  document: unknown,
 ): FlowDocumentPolicy | undefined {
   if (typeof document !== "object" || document === null) return undefined;
   const raw = (document as Record<string, unknown>)["policy"];
@@ -255,7 +278,7 @@ function extractDocumentPolicy(
  * when present and an object — is well-typed; we pass it through verbatim.
  */
 function extractDocumentDurability(
-  document: unknown
+  document: unknown,
 ): FlowDurabilityPolicy | undefined {
   if (typeof document !== "object" || document === null) return undefined;
   const raw = (document as Record<string, unknown>)["durability"];
