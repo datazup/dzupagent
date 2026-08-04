@@ -234,4 +234,54 @@ describe("fitTextToHardBudget — truncation", () => {
     });
     expect(result.tokenMeasurement.tokens).toBe(3);
   });
+
+  it("falls back to the reserved measurement when the final re-measured candidate still exceeds budget", () => {
+    // The binary search converges to low=0 (every non-empty trimmed
+    // candidate reports over budget), so the "final candidate" the search
+    // settles on is textually identical to prefix+marker — but this
+    // measure() reports a *different*, over-budget token count the first
+    // time prefix+marker is measured (line 92's reserved-measurement check,
+    // which the search needs to pass to even start) versus the second time
+    // the identical string is re-measured as the search's final candidate
+    // (line 131). This models a genuinely non-monotonic/non-deterministic
+    // encoding where re-measuring identical text can disagree — the exact
+    // scenario the trailing fallback exists to survive without adopting an
+    // unproven payload.
+    const marker = "[cut]";
+    const prefix = "ID: ";
+    const reservedText = prefix + marker;
+    let reservedMeasureCalls = 0;
+    const result = fitTextToHardBudget({
+      text: prefix + "z".repeat(400),
+      tokenBudget: 10,
+      marker,
+      requiredPrefix: prefix,
+      measure: (text) => {
+        if (text === reservedText) {
+          reservedMeasureCalls += 1;
+          // First call (the dedicated reserved-measurement gate) reports a
+          // safe, in-budget count; every later call for the same string
+          // (the final re-measured candidate) reports over budget.
+          return reservedMeasureCalls === 1
+            ? { tokens: 3, method: "exact" }
+            : { tokens: 999, method: "exact" };
+        }
+        return { tokens: 999, method: "exact" };
+      },
+      operation: "summarise",
+    });
+
+    expect(result.text).toBe(reservedText);
+    expect(result.hardBudget).toMatchObject({
+      satisfied: true,
+      adoptionSafe: true,
+      truncated: true,
+      markerIncluded: true,
+    });
+    // The returned measurement must be the *reserved* one (tokens: 3, from
+    // the gate that already proved it fits), not the over-budget
+    // re-measurement — proves the fallback uses reservedMeasurement rather
+    // than trusting the final candidate's own (possibly stale) reading.
+    expect(result.tokenMeasurement.tokens).toBe(3);
+  });
 });
