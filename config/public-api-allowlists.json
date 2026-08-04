@@ -331,6 +331,9 @@
         { "match": "exact", "pattern": "./skill-packs.js" },
         { "match": "exact", "pattern": "./memory-integrator.js" },
         { "match": "exact", "pattern": "./tenant-scoped-store.js" },
+        { "match": "exact", "pattern": "./error-log.js" },
+        { "match": "exact", "pattern": "./operation-outcome.js" },
+        { "match": "exact", "pattern": "./observation-candidate-store.js" },
         { "match": "prefix", "pattern": "./shared/" },
         { "match": "prefix", "pattern": "./graph/" }
       ],
@@ -357,6 +360,7 @@
         { "match": "exact", "pattern": "./context-transfer.js" },
         { "match": "exact", "pattern": "./token-lifecycle.js" },
         { "match": "exact", "pattern": "./char-estimate-counter.js" },
+        { "match": "exact", "pattern": "./hard-budget-text.js" },
         { "match": "exact", "pattern": "./tiktoken-counter.js" }
       ],
       "transitionalRoot": [],
@@ -465,6 +469,11 @@
           "pattern": "./controlled-execution/create-controlled-handle.js"
         },
         { "match": "exact", "pattern": "./cli-runtime/index.js" },
+        { "match": "exact", "pattern": "./model-discovery.js" },
+        {
+          "match": "exact",
+          "pattern": "./provider-request-capability-inspection.js"
+        },
         { "match": "exact", "pattern": "@dzupagent/adapter-types" }
       ],
       "subpaths": {
@@ -521,7 +530,8 @@
         { "match": "exact", "pattern": "./canonical-execution.js" },
         { "match": "exact", "pattern": "./canonical-gates.js" },
         { "match": "exact", "pattern": "./local-model.js" },
-        { "match": "exact", "pattern": "./idempotency.js" }
+        { "match": "exact", "pattern": "./idempotency.js" },
+        { "match": "exact", "pattern": "./ai-economics.js" }
       ],
       "transitionalRoot": [],
       "subpaths": {
@@ -572,7 +582,16 @@
         { "match": "exact", "pattern": "./recorded-agent-port.js" },
         { "match": "exact", "pattern": "./recorded-validator-port.js" },
         { "match": "exact", "pattern": "./recorded-workspace-port.js" },
-        { "match": "exact", "pattern": "./replay-dialogue.js" }
+        { "match": "exact", "pattern": "./replay-dialogue.js" },
+        { "match": "exact", "pattern": "./continuation-conformance.js" },
+        {
+          "match": "exact",
+          "pattern": "./continuation-conformance-validation.js"
+        },
+        {
+          "match": "exact",
+          "pattern": "./continuation-conformance-runner.js"
+        }
       ],
       "transitionalRoot": [],
       "subpaths": {},
@@ -638,6 +657,7 @@
       "rootIndex": "packages/adapter-types/src/index.ts",
       "stableRoot": [
         { "match": "prefix", "pattern": "./contracts/" },
+        { "match": "exact", "pattern": "./ai-execution-port.js" },
         { "match": "exact", "pattern": "./provider-execution-port.js" },
         { "match": "exact", "pattern": "./pipeline-executor-port.js" },
         { "match": "exact", "pattern": "./utils/correlation.js" }
@@ -697,6 +717,7 @@
         { "match": "exact", "pattern": "./token-budget.js" },
         { "match": "exact", "pattern": "./phase-memory-selection.js" },
         { "match": "exact", "pattern": "./cache-delta.js" },
+        { "match": "exact", "pattern": "./ipc-errors.js" },
         { "match": "exact", "pattern": "./memory-aware-compress.js" },
         { "match": "exact", "pattern": "./shared-memory-channel.js" },
         { "match": "exact", "pattern": "./ipc-client.js" },
