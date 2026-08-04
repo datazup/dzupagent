@@ -21,7 +21,7 @@ describe("AGENT-C-10 — live zero-copy views are not overwritten", () => {
 
     // Reader takes a zero-copy view and keeps holding it.
     const view = channel.read(handle);
-    expect(view.byteLength).toBe(60);
+    expect(view).toHaveLength(60);
     expect(view.every((b) => b === 0xa1)).toBe(true);
 
     // 60 + 60 = 120 > 100 → the allocator would wrap to offset 0, straight over
