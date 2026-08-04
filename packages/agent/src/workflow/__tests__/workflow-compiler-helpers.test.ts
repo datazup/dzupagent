@@ -20,6 +20,7 @@ import {
 import type { WorkflowContext, WorkflowEvent } from "../workflow-types.js";
 import type { WorkflowErrorHandler } from "../workflow-builder-types.js";
 import type { NodeExecutionContext } from "../../pipeline/pipeline-runtime-types.js";
+import type { WorkflowTransformHandler } from "../workflow-compiler-types.js";
 
 function transformNode(transformName: string): PipelineNode {
   return { type: "transform", transformName } as unknown as PipelineNode;
@@ -66,7 +67,9 @@ describe("createNodeExecutorFactory", () => {
   });
 
   it("invokes the registered handler and returns its output", async () => {
-    const handler = vi.fn(async () => ({ produced: true }));
+    const handler = vi.fn<WorkflowTransformHandler>(async () => ({
+      produced: true,
+    }));
     const handlers = new Map([["step", handler]]);
     const emit = vi.fn();
     const executor = createNodeExecutorFactory("wf-id", handlers)(
@@ -118,7 +121,9 @@ describe("createNodeExecutorFactory", () => {
 
   it("observes state before execution and again after a successful handler", async () => {
     const onStateObserved = vi.fn();
-    const handlers = new Map([["step", vi.fn(async () => null)]]);
+    const handlers = new Map([
+      ["step", vi.fn<WorkflowTransformHandler>(async () => undefined)],
+    ]);
     const executor = createNodeExecutorFactory("wf", handlers)(
       vi.fn(),
       onStateObserved

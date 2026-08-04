@@ -199,6 +199,7 @@ describe("orchestration fan-out is bounded (ORCH-DSL-L1-H-07)", () => {
       Array.from({ length: count }, (_unused, i) => ({
         task: `task-${i}`,
         specialistId: `agent-${i}`,
+        input: {},
       })),
       { maxConcurrency: 3 }
     );

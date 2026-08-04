@@ -2,13 +2,15 @@ import { Router } from "express";
 import type { NextFunction, Request, Response } from "express";
 import { isMCPRequest } from "@dzupagent/core/pipeline";
 import type { MCPRequest, MCPRequestId } from "@dzupagent/core/pipeline";
+import { defaultLogger } from "@dzupagent/core/utils";
+import { routeError } from "./route-error.js";
 import type { MCPRequestHandler, MCPRouterConfig } from "./types.js";
 
 const JSON_RPC_INVALID_REQUEST = -32600;
 const JSON_RPC_INTERNAL_ERROR = -32603;
 
 function asyncHandler(
-  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>,
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req, res, next): void => {
     fn(req, res, next).catch(next);
@@ -18,6 +20,7 @@ function asyncHandler(
 export function createMcpRouter(config: MCPRouterConfig): Router {
   const router = Router();
   const basePath = config.basePath ?? "/mcp";
+  const logger = config.logger ?? defaultLogger;
   const exposeTools = config.expose?.tools ?? true;
   const exposeResources = config.expose?.resources ?? true;
   const exposeResourceTemplates = config.expose?.resourceTemplates ?? true;
@@ -67,8 +70,15 @@ export function createMcpRouter(config: MCPRouterConfig): Router {
 
         res.json(response);
       } catch (err: unknown) {
-        const error = err instanceof Error ? err : new Error(String(err));
         const requestId = extractRequestId(body);
+        // Logs unconditionally via the configured logger: the `onError` hook is
+        // optional, so relying on it alone dropped the failure entirely when unset.
+        const { safeMessage, error } = routeError(
+          logger,
+          "[express/mcp-router]",
+          err,
+          { path: req.path, method: req.method, requestId }
+        );
         await config.hooks?.onError?.(req, error, requestId);
 
         res.status(500).json({
@@ -76,11 +86,11 @@ export function createMcpRouter(config: MCPRouterConfig): Router {
           id: requestId,
           error: {
             code: JSON_RPC_INTERNAL_ERROR,
-            message: error.message,
+            message: safeMessage,
           },
         });
       }
-    }),
+    })
   );
 
   if (exposeTools) {
@@ -89,7 +99,7 @@ export function createMcpRouter(config: MCPRouterConfig): Router {
       asyncHandler(async (req, res) => {
         const server = await resolveServer(config, req);
         res.json({ tools: server.listTools() });
-      }),
+      })
     );
   }
 
@@ -99,7 +109,7 @@ export function createMcpRouter(config: MCPRouterConfig): Router {
       asyncHandler(async (req, res) => {
         const server = await resolveServer(config, req);
         res.json({ resources: server.listResources?.() ?? [] });
-      }),
+      })
     );
   }
 
@@ -109,7 +119,7 @@ export function createMcpRouter(config: MCPRouterConfig): Router {
       asyncHandler(async (req, res) => {
         const server = await resolveServer(config, req);
         res.json({ resourceTemplates: server.listResourceTemplates?.() ?? [] });
-      }),
+      })
     );
   }
 
@@ -118,7 +128,7 @@ export function createMcpRouter(config: MCPRouterConfig): Router {
 
 async function resolveServer(
   config: MCPRouterConfig,
-  req: Request,
+  req: Request
 ): Promise<MCPRequestHandler> {
   if (typeof config.server === "function") {
     return await config.server(req);

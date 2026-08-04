@@ -45,6 +45,15 @@ export type {
 
 export { PromptInjectionGuard } from "./guardrails/index.js";
 export type { GuardOptions, ScreenResult } from "./guardrails/index.js";
+export {
+  TOOL_RESULT_LABEL,
+  fenceToolError,
+  fenceToolResult,
+} from "./guardrails/index.js";
+export type {
+  FenceToolResultOptions,
+  ToolResultGuardLike,
+} from "./guardrails/index.js";
 
 export { ContentScanner } from "./content-scanner.js";
 export type {

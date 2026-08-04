@@ -1,31 +1,45 @@
-import type { Request, Response, NextFunction } from 'express'
-import type { FrameworkLogger } from '@dzupagent/core/utils'
-import type { MCPRequest, MCPRequestId, MCPResponse, MCPToolDescriptor, MCPResource, MCPResourceTemplate } from '@dzupagent/core/pipeline'
+import type { Request, Response, NextFunction } from "express";
+import type { FrameworkLogger } from "@dzupagent/core/utils";
+import type {
+  MCPRequest,
+  MCPRequestId,
+  MCPResponse,
+  MCPToolDescriptor,
+  MCPResource,
+  MCPResourceTemplate,
+} from "@dzupagent/core/pipeline";
 
 /** A single streamed event from a compatible DzupAgent runtime. */
 export interface AgentStreamEvent {
-  type: 'text' | 'tool_call' | 'tool_result' | 'done' | 'error' | 'budget_warning' | 'stuck'
-  data: Record<string, unknown>
+  type:
+    | "text"
+    | "tool_call"
+    | "tool_result"
+    | "done"
+    | "error"
+    | "budget_warning"
+    | "stuck";
+  data: Record<string, unknown>;
 }
 
 /** Minimal generate result surface consumed by the Express adapter. */
 export interface GenerateResult {
-  content: string
+  content: string;
   usage: {
-    totalInputTokens: number
-    totalOutputTokens: number
-    llmCalls: number
-  }
-  toolStats: unknown[]
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    llmCalls: number;
+  };
+  toolStats: unknown[];
 }
 
 /** Minimal agent contract required by the Express router. */
 export interface DzupAgentLike {
-  generate(messages: unknown[]): Promise<GenerateResult>
+  generate(messages: unknown[]): Promise<GenerateResult>;
   stream(
     messages: unknown[],
-    options?: { signal?: AbortSignal },
-  ): AsyncGenerator<AgentStreamEvent, unknown, unknown>
+    options?: { signal?: AbortSignal }
+  ): AsyncGenerator<AgentStreamEvent, unknown, unknown>;
 }
 
 /**
@@ -33,11 +47,11 @@ export interface DzupAgentLike {
  */
 export interface SSEEvent {
   /** Event type sent as the SSE event field (e.g. 'chunk', 'tool_call', 'done') */
-  type: string
+  type: string;
   /** Event payload serialized as JSON in the SSE data field */
-  data: unknown
+  data: unknown;
   /** Optional SSE event id */
-  id?: string
+  id?: string;
 }
 
 /**
@@ -45,15 +59,17 @@ export interface SSEEvent {
  */
 export interface AgentResult {
   /** Full accumulated text content */
-  content: string
+  content: string;
   /** Token usage if reported by the agent */
-  usage?: { inputTokens: number; outputTokens: number; totalTokens: number } | undefined
+  usage?:
+    | { inputTokens: number; outputTokens: number; totalTokens: number }
+    | undefined;
   /** Estimated cost in USD if reported */
-  cost?: number | undefined
+  cost?: number | undefined;
   /** Number of tool calls made during the stream */
-  toolCalls: number
+  toolCalls: number;
   /** Wall-clock duration in milliseconds */
-  durationMs: number
+  durationMs: number;
 }
 
 /**
@@ -61,17 +77,22 @@ export interface AgentResult {
  */
 export interface SSEHandlerConfig {
   /** Custom event formatter (default: standard SSE format) */
-  formatEvent?: (event: SSEEvent) => string
+  formatEvent?: (event: SSEEvent) => string;
   /** Additional headers to set on the SSE response */
-  headers?: Record<string, string>
+  headers?: Record<string, string>;
   /** Called when the client disconnects before the stream completes */
-  onDisconnect?: (req: Request) => void
+  onDisconnect?: (req: Request) => void;
   /** Called when the stream completes successfully */
-  onComplete?: (result: AgentResult, req: Request) => void | Promise<void>
+  onComplete?: (result: AgentResult, req: Request) => void | Promise<void>;
   /** Called on stream error */
-  onError?: (error: Error, req: Request, res: Response) => void
+  onError?: (error: Error, req: Request, res: Response) => void;
   /** Keep-alive interval in milliseconds (default: 15000) */
-  keepAliveMs?: number
+  keepAliveMs?: number;
+  /**
+   * Structured logger used for sanitised server-side error reporting.
+   * Defaults to `defaultLogger` from `@dzupagent/core`.
+   */
+  logger?: FrameworkLogger;
 }
 
 /**
@@ -79,17 +100,17 @@ export interface SSEHandlerConfig {
  */
 export interface ChatRequestBody {
   /** The user's message (1..32_768 chars) */
-  message: string
+  message: string;
   /** Which agent to use (must be a key of the config `agents` map) */
-  agentName?: string
+  agentName?: string;
   /** Conversation ID for multi-turn context */
-  conversationId?: string
+  conversationId?: string;
   /** Model override */
-  model?: string
+  model?: string;
   /** Extra configurable params passed to the agent */
-  configurable?: Record<string, unknown>
+  configurable?: Record<string, unknown>;
   /** Free-form metadata forwarded to hooks */
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -99,9 +120,9 @@ export interface ChatRequestBody {
  */
 export interface AgentRouterRateLimitConfig {
   /** Window in milliseconds. Default: 60_000 */
-  windowMs?: number
+  windowMs?: number;
   /** Maximum requests per window per IP. Default: 60 */
-  max?: number
+  max?: number;
 }
 
 /**
@@ -109,85 +130,92 @@ export interface AgentRouterRateLimitConfig {
  */
 export interface AgentRouterConfig {
   /** Map of agent name to DzupAgent-compatible instance */
-  agents: Record<string, DzupAgentLike>
+  agents: Record<string, DzupAgentLike>;
   /** Express auth middleware to apply to all routes */
-  auth?: (req: Request, res: Response, next: NextFunction) => void
+  auth?: (req: Request, res: Response, next: NextFunction) => void;
   /** SSE streaming configuration */
-  sse?: SSEHandlerConfig
+  sse?: SSEHandlerConfig;
   /** Lifecycle hooks */
   hooks?: {
     /** Called before the agent starts processing */
-    beforeAgent?: (req: Request, agentName: string) => Promise<void> | void
+    beforeAgent?: (req: Request, agentName: string) => Promise<void> | void;
     /** Called after the agent finishes (for both stream and sync) */
-    afterAgent?: (req: Request, agentName: string, result: AgentResult | GenerateResult) => Promise<void> | void
+    afterAgent?: (
+      req: Request,
+      agentName: string,
+      result: AgentResult | GenerateResult
+    ) => Promise<void> | void;
     /** Called on errors */
-    onError?: (req: Request, error: Error) => Promise<void> | void
-  }
+    onError?: (req: Request, error: Error) => Promise<void> | void;
+  };
   /** Base path prefix (default: '/') */
-  basePath?: string
+  basePath?: string;
   /**
    * Rate-limit configuration for `/chat*` routes. Pass `false` to disable.
    * Defaults to 60 req/min per IP.
    */
-  rateLimit?: AgentRouterRateLimitConfig | false
+  rateLimit?: AgentRouterRateLimitConfig | false;
   /**
    * Maximum body size accepted by the adapter's own JSON parser.
    * Defaults to `'256kb'`. Hosts SHOULD also enforce a global cap upstream;
    * this parser is mounted on `/chat*` as a defense-in-depth safety net.
    */
-  bodyLimit?: string
+  bodyLimit?: string;
   /**
    * Structured logger used for sanitised server-side error reporting.
    * Defaults to `defaultLogger` from `@dzupagent/core`.
    */
-  logger?: FrameworkLogger
+  logger?: FrameworkLogger;
 }
 
 /**
  * Minimal MCP server surface expected by the shared Express MCP router.
  */
 export interface MCPRequestHandler {
-  handleRequest(request: MCPRequest): Promise<MCPResponse | null>
-  listTools(): MCPToolDescriptor[]
-  listResources?(): MCPResource[]
-  listResourceTemplates?(): MCPResourceTemplate[]
+  handleRequest(request: MCPRequest): Promise<MCPResponse | null>;
+  listTools(): MCPToolDescriptor[];
+  listResources?(): MCPResource[];
+  listResourceTemplates?(): MCPResourceTemplate[];
 }
 
 export type MCPRequestHandlerResolver =
   | MCPRequestHandler
-  | ((req: Request) => MCPRequestHandler | Promise<MCPRequestHandler>)
+  | ((req: Request) => MCPRequestHandler | Promise<MCPRequestHandler>);
 
 export interface MCPAuthFailurePayload {
-  error: string
-  message: string
-  timestamp: string
+  error: string;
+  message: string;
+  timestamp: string;
 }
 
 export interface MCPAuthFailureContext {
-  req: Request
-  res: Response
-  reason: 'missing_credentials' | 'invalid_credentials'
+  req: Request;
+  res: Response;
+  reason: "missing_credentials" | "invalid_credentials";
 }
 
 export type MCPRequestContextResolver<TContext> = (
   credential: string,
-  req: Request,
-) => Promise<TContext | null | undefined> | TContext | null | undefined
+  req: Request
+) => Promise<TContext | null | undefined> | TContext | null | undefined;
 
-export type MCPRequestContextAssigner<TContext> = (req: Request, context: TContext) => void
+export type MCPRequestContextAssigner<TContext> = (
+  req: Request,
+  context: TContext
+) => void;
 
 export type MCPRequestContextFailureHandler = (
-  context: MCPAuthFailureContext,
-) => void | Promise<void>
+  context: MCPAuthFailureContext
+) => void | Promise<void>;
 
 export interface MCPRequestContextAuthConfig<TContext> {
-  resolveContext: MCPRequestContextResolver<TContext>
-  assign?: MCPRequestContextAssigner<TContext>
-  credentialHeader?: string
-  allowBearerAuth?: boolean
-  missingCredentialMessage?: string
-  invalidCredentialMessage?: string
-  onAuthFailure?: MCPRequestContextFailureHandler
+  resolveContext: MCPRequestContextResolver<TContext>;
+  assign?: MCPRequestContextAssigner<TContext>;
+  credentialHeader?: string;
+  allowBearerAuth?: boolean;
+  missingCredentialMessage?: string;
+  invalidCredentialMessage?: string;
+  onAuthFailure?: MCPRequestContextFailureHandler;
 }
 
 /**
@@ -195,29 +223,34 @@ export interface MCPRequestContextAuthConfig<TContext> {
  */
 export interface MCPRouterConfig {
   /** MCP server instance or request-scoped compatible handler */
-  server: MCPRequestHandlerResolver
+  server: MCPRequestHandlerResolver;
   /** Express auth middleware to apply to all MCP routes */
-  auth?: (req: Request, res: Response, next: NextFunction) => void
+  auth?: (req: Request, res: Response, next: NextFunction) => void;
   /** Base path for the JSON-RPC endpoint and helper routes. Default: '/mcp' */
-  basePath?: string
+  basePath?: string;
+  /**
+   * Structured logger used for sanitised server-side error reporting.
+   * Defaults to `defaultLogger` from `@dzupagent/core`.
+   */
+  logger?: FrameworkLogger;
   /** Optional route toggles for metadata/listing endpoints */
   expose?: {
-    tools?: boolean
-    resources?: boolean
-    resourceTemplates?: boolean
-  }
+    tools?: boolean;
+    resources?: boolean;
+    resourceTemplates?: boolean;
+  };
   /** Lifecycle hooks */
   hooks?: {
-    beforeRequest?: (req: Request, request: MCPRequest) => Promise<void> | void
+    beforeRequest?: (req: Request, request: MCPRequest) => Promise<void> | void;
     afterRequest?: (
       req: Request,
       request: MCPRequest,
-      response: MCPResponse | null,
-    ) => Promise<void> | void
+      response: MCPResponse | null
+    ) => Promise<void> | void;
     onError?: (
       req: Request,
       error: Error,
-      requestId: MCPRequestId,
-    ) => Promise<void> | void
-  }
+      requestId: MCPRequestId
+    ) => Promise<void> | void;
+  };
 }

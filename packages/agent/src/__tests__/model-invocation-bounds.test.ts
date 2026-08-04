@@ -10,6 +10,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import type { BaseMessage } from "@langchain/core/messages";
+import { HumanMessage } from "@langchain/core/messages";
 import { AIMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 
@@ -277,7 +278,9 @@ describe("engine bounds are wired into the real run path", () => {
     // Without the wiring this never settles and the test times out. That is
     // the whole point: a unit test of createRunDeadline alone passes even when
     // the deadline is not connected to anything.
-    await expect(agent.generate("hello")).rejects.toBeDefined();
+    await expect(
+      agent.generate([new HumanMessage("hello")])
+    ).rejects.toBeDefined();
   }, 10_000);
 
   it("terminates a run whose model never responds, via guardrails.modelTimeoutMs", async () => {
@@ -288,6 +291,8 @@ describe("engine bounds are wired into the real run path", () => {
       guardrails: { modelTimeoutMs: 150 },
     } as DzupAgentConfig);
 
-    await expect(agent.generate("hello")).rejects.toBeDefined();
+    await expect(
+      agent.generate([new HumanMessage("hello")])
+    ).rejects.toBeDefined();
   }, 10_000);
 });
