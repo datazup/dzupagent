@@ -17,9 +17,9 @@ const TMP_FIXTURE_PREFIX = join(tmpdir(), "dzupagent-llm-recorder-");
 // under `exactOptionalPropertyTypes` a bare `Partial<MiddlewareContext>`
 // rejects an explicitly-undefined value.
 function makeCtx(
-  overrides: Partial<MiddlewareContext> & {
-    temperature?: number | undefined;
-    maxTokens?: number | undefined;
+  overrides: Omit<Partial<MiddlewareContext>, "temperature" | "maxTokens"> & {
+    temperature?: MiddlewareContext["temperature"] | undefined;
+    maxTokens?: MiddlewareContext["maxTokens"] | undefined;
   } = {}
 ): MiddlewareContext {
   return {
@@ -27,7 +27,7 @@ function makeCtx(
     model: "claude-haiku-4-5-20251001",
     provider: "anthropic",
     ...overrides,
-  };
+  } as MiddlewareContext;
 }
 
 // ---------------------------------------------------------------------------

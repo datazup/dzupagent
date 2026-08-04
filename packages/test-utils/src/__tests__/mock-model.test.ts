@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { HumanMessage, type AIMessageChunk } from "@langchain/core/messages";
-import { MockChatModel } from "../mock-model.js";
+import { HumanMessage } from "@langchain/core/messages";
+import { MockChatModel, type MockUsageMetadata } from "../mock-model.js";
 
 describe("MockChatModel", () => {
   it("returns responses in order", async () => {
@@ -130,7 +130,7 @@ describe("MockChatModel.stream()", () => {
       },
     ]);
 
-    let assembled: AIMessageChunk | null = null;
+    let assembled: Awaited<ReturnType<MockChatModel["invoke"]>> | null = null;
     for await (const chunk of await model.stream([
       new HumanMessage("read a.ts"),
     ])) {
@@ -143,8 +143,14 @@ describe("MockChatModel.stream()", () => {
     expect(assembled!.tool_calls![0]!.name).toBe("read_file");
     expect(assembled!.tool_calls![0]!.args).toEqual({ path: "a.ts" });
     // Usage arrived on a non-terminal delta and must survive assembly.
-    expect(assembled!.usage_metadata?.input_tokens).toBe(42);
-    expect(assembled!.usage_metadata?.output_tokens).toBe(8);
+    //
+    // Read through `MockUsageMetadata`: LangChain's message types are generic
+    // over their structure, and at the default instantiation used here
+    // `usage_metadata` resolves to `never`, so the field cannot be dereferenced
+    // directly. The mock declares exactly this shape when it emits the delta.
+    const usage = assembled!.usage_metadata as MockUsageMetadata | undefined;
+    expect(usage?.input_tokens).toBe(42);
+    expect(usage?.output_tokens).toBe(8);
   });
 
   it("synthesises a single delta when no stream_chunks are declared", async () => {
