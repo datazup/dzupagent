@@ -21,12 +21,12 @@
  *   - Metadata: model name, latency, token count recorded per evaluation
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   LlmJudgeScorer,
   judgeResponseSchema,
 } from "../scorers/llm-judge-scorer.js";
-import { createLLMJudge, PINNED_JUDGE } from "../scorers/llm-judge-enhanced.js";
+import { createLLMJudge } from "../scorers/llm-judge-enhanced.js";
 import type {
   JudgeDimension,
   JudgeScorerResult,
@@ -34,7 +34,6 @@ import type {
   JudgeScorerConfig,
   JudgeAnchor,
 } from "../scorers/llm-judge-scorer.js";
-import type { EvalInput, ScorerResult } from "../types.js";
 import type { JudgeCriterion } from "../scorers/criteria.js";
 
 // ---------------------------------------------------------------------------
@@ -735,6 +734,9 @@ describe("Judge timeout with fallback", () => {
             safety: 0.5,
           },
           reasoning: "Timeout: LLM call exceeded time limit",
+          // Not a real verdict — the LLM never answered. `measured: false`
+          // is what stops consumers reading this neutral 0.5 as a score.
+          measured: false,
         });
       }, timeoutMs)
     );
