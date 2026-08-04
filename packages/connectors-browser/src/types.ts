@@ -151,6 +151,12 @@ export interface LoginFlowOptions {
    * labels; first option is used when absent or unmatched).
    */
   accountHint?: string | undefined;
+  /**
+   * Outbound-URL policy enforced on the login page. Installed as a route
+   * interceptor before the first navigation, so every navigation, subresource
+   * and redirect on this credential-carrying page is SSRF-checked.
+   */
+  navigationPolicy?: BrowserNavigationPolicy | undefined;
 }
 
 export interface LoginFlowResult {

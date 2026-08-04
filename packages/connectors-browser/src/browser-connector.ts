@@ -60,7 +60,7 @@ async function createBrowserSession(config: BrowserConnectorConfig) {
     const authHandler = new AuthHandler()
     const page = await context.newPage()
     try {
-      await authHandler.loginWithCredentials(page, config.auth)
+      await authHandler.loginWithCredentials(page, config.auth, config.navigationPolicy)
     } finally {
       await page.close()
     }
