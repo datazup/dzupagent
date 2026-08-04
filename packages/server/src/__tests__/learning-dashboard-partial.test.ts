@@ -10,8 +10,12 @@ import { createLearningRoutes } from "../routes/learning.js";
  * exactly what makes an outage indistinguishable from an empty tenant.
  */
 function unreachableMemoryService(
-  overrides: Partial<MemoryServiceLike> = {},
+  overrides: Partial<MemoryServiceLike> = {}
 ): MemoryServiceLike {
+  // A real createMemoryHarness() store is precisely what this double must NOT
+  // be: the test asserts how the dashboard reports a store it cannot read
+  // (`searchFailed: true`), and a working harness cannot represent that outage.
+  // eslint-disable-next-line no-restricted-syntax -- deliberate unreadable-store double
   return {
     async get() {
       return [];
@@ -30,6 +34,10 @@ function unreachableMemoryService(
 
 /** A healthy but genuinely empty store. */
 function emptyMemoryService(): MemoryServiceLike {
+  // Paired control for unreachableMemoryService: same empty results, but
+  // `searchFailed: false`. The two differ ONLY in that flag, which is what
+  // proves the dashboard distinguishes an outage from an empty tenant.
+  // eslint-disable-next-line no-restricted-syntax -- deliberate empty-store control
   return {
     async get() {
       return [];
@@ -49,7 +57,7 @@ function createTestApp(memoryService: MemoryServiceLike): Hono {
   const app = new Hono();
   app.route(
     "/api/learning",
-    createLearningRoutes({ memoryService, defaultTenantId: "test-tenant" }),
+    createLearningRoutes({ memoryService, defaultTenantId: "test-tenant" })
   );
   return app;
 }
@@ -100,7 +108,10 @@ describe("learning dashboard — an unreachable store is not an empty one", () =
 
       it("falls back cleanly when the port lacks searchWithStatus", async () => {
         // searchWithStatus is optional on MemoryServiceLike, so every existing
-        // implementation must keep working.
+        // implementation must keep working. This double exists specifically to
+        // OMIT that method — a real harness implements it, so it cannot cover
+        // the fallback path under test.
+        // eslint-disable-next-line no-restricted-syntax -- deliberate pre-searchWithStatus double
         const legacy = {
           async get() {
             return [];
