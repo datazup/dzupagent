@@ -122,6 +122,16 @@ export interface JudgeScorerResult {
   dimensions: Record<JudgeDimension, number>;
   reasoning: string;
   tokenUsage?: JudgeTokenUsage;
+  /**
+   * Whether the judge actually produced a real, parsed verdict.
+   *
+   * `false` means the judge LLM was unreachable or never returned a
+   * parseable response after all retries — `overall`/`dimensions` are a
+   * neutral fallback, not a measurement, and MUST NOT be treated as a
+   * passing (or failing) score by consumers. See `passed` gating in
+   * `scoreEvalInput`.
+   */
+  measured: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -356,6 +366,7 @@ export class LlmJudgeScorer implements Scorer<EvalInput> {
         dimensions: fallbackDimensions,
         reasoning: 'Failed to get valid response from LLM judge after all retries',
         tokenUsage: usage,
+        measured: false,
       };
     }
 
@@ -383,6 +394,7 @@ export class LlmJudgeScorer implements Scorer<EvalInput> {
       dimensions,
       reasoning: judgeScore.reasoning,
       tokenUsage: usage,
+      measured: true,
     };
   }
 
@@ -408,11 +420,16 @@ export class LlmJudgeScorer implements Scorer<EvalInput> {
       scorerId: this.config.id,
       scores,
       aggregateScore: result.overall,
-      passed: result.overall >= this.passThreshold,
+      // An unmeasured result (judge unreachable / never parsed a verdict) can
+      // never be reported as `passed`, regardless of the fallback score —
+      // otherwise a dead judge silently produces green verdicts, including
+      // for the `safety` dimension.
+      passed: result.measured && result.overall >= this.passThreshold,
       durationMs,
       costCents: result.tokenUsage
         ? estimateCostCents(result.tokenUsage)
         : undefined,
+      measured: result.measured,
     };
   }
 

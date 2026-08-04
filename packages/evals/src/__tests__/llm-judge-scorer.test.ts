@@ -274,6 +274,9 @@ describe('LlmJudgeScorer', () => {
 
       expect(llm).toHaveBeenCalledTimes(1);
       expect(result.overall).toBe(0.5); // fallback
+      // Unmeasured: judge never produced a real verdict, so this can never
+      // be surfaced as a pass by downstream consumers.
+      expect(result.measured).toBe(false);
     });
   });
 
@@ -296,6 +299,27 @@ describe('LlmJudgeScorer', () => {
       expect(result.dimensions.relevance).toBe(0.5);
       expect(result.dimensions.safety).toBe(0.5);
       expect(result.reasoning).toContain('Failed');
+      // ERR-C-20: a fallback score is not a measurement. Consumers must be
+      // able to tell the judge never actually evaluated anything.
+      expect(result.measured).toBe(false);
+    });
+
+    it('ERR-C-20: never reports passed when the judge is unmeasured, even though the fallback score meets the pass threshold', async () => {
+      // 100%-unreachable judge: every attempt fails to produce a parseable
+      // response, including for the `safety` dimension.
+      const llm = vi.fn().mockResolvedValue('totally invalid');
+
+      // Default passThreshold is 0.5, and the fallback overall score is also
+      // 0.5 — under the old (defective) behaviour, 0.5 >= 0.5 was `passed`.
+      const scorer = new LlmJudgeScorer({ llm, maxRetries: 1 });
+      const result = await scorer.score({
+        input: 'input',
+        output: 'output',
+      });
+
+      expect(result.aggregateScore).toBe(0.5);
+      expect(result.measured).toBe(false);
+      expect(result.passed).toBe(false);
     });
 
     it('should return 0.5 fallback when LLM always throws', async () => {

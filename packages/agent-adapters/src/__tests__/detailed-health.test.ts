@@ -201,7 +201,7 @@ describe('Detailed Health', () => {
       registry: mockRegistry,
     } as unknown as OrchestratorFacade
 
-    const handler = new AdapterHttpHandler({ orchestrator })
+    const handler = new AdapterHttpHandler({ orchestrator, allowUnauthenticated: true })
     const result = await handler.handle(makeRequest('GET', '/health/detailed'))
 
     expect(isStreamResponse(result)).toBe(false)
@@ -239,7 +239,7 @@ describe('Detailed Health', () => {
       registry: mockRegistry,
     } as unknown as OrchestratorFacade
 
-    const handler = new AdapterHttpHandler({ orchestrator })
+    const handler = new AdapterHttpHandler({ orchestrator, allowUnauthenticated: true })
     const result = await handler.handle(makeRequest('GET', '/health/detailed'))
 
     expect(isStreamResponse(result)).toBe(false)

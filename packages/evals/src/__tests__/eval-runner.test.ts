@@ -255,7 +255,12 @@ describe('runEvalSuite', () => {
   })
 
   describe('error handling', () => {
-    it('propagates a scorer that throws (Promise.all reject) — caller observes the error', async () => {
+    // ERR-C-25: runEvalSuite used to nest two bare Promise.all calls with no
+    // try/catch, so one throwing scorer rejected the whole suite and
+    // silently discarded every other case's (already-completed) results.
+    // Failures must now be isolated per case/scorer, recorded as errored
+    // results, and logged — never fatal to the rest of the suite.
+    it('isolates a scorer that throws: the case survives, other scorers for it still score, and the failure is recorded', async () => {
       const broken: EvalScorer = {
         name: 'broken',
         score: vi.fn().mockRejectedValue(new Error('scorer crashed')),
@@ -275,25 +280,76 @@ describe('runEvalSuite', () => {
         scorers: [broken, fine],
       }
 
-      await expect(
-        runEvalSuite(suite, async () => 'out'),
-      ).rejects.toThrow('scorer crashed')
+      const result = await runEvalSuite(suite, async () => 'out')
+
+      expect(result.results).toHaveLength(1)
+      const [case1] = result.results
+      // The throwing scorer is recorded as an errored (failing) result, not
+      // dropped.
+      const brokenResult = case1!.scorerResults.find((sr) => sr.scorerName === 'broken')
+      expect(brokenResult).toBeDefined()
+      expect(brokenResult!.result.pass).toBe(false)
+      expect(brokenResult!.result.score).toBe(0)
+      expect(brokenResult!.result.reasoning).toContain('scorer crashed')
+      // The other, working scorer for the same case is unaffected.
+      const fineResult = case1!.scorerResults.find((sr) => sr.scorerName === 'fine')
+      expect(fineResult!.result.pass).toBe(true)
+      expect(fineResult!.result.score).toBe(1.0)
     })
 
-    it('propagates a target function that throws', async () => {
+    it('with one scorer throwing, the run still returns results for all other cases', async () => {
+      const brokenOnC2: EvalScorer = {
+        name: 'flaky',
+        score: vi.fn(async (input: string) => {
+          if (input === 'c2-input') throw new Error('scorer crashed on c2')
+          return { score: 1.0, pass: true, reasoning: 'ok' }
+        }),
+      }
+
+      const suite: EvalSuite = {
+        name: 'multi-case-error-suite',
+        cases: [
+          { id: 'c1', input: 'c1-input' },
+          { id: 'c2', input: 'c2-input' },
+          { id: 'c3', input: 'c3-input' },
+        ],
+        scorers: [brokenOnC2],
+      }
+
+      const result = await runEvalSuite(suite, async (input) => input)
+
+      expect(result.results).toHaveLength(3)
+      expect(result.results.find((r) => r.caseId === 'c1')!.aggregateScore).toBe(1.0)
+      expect(result.results.find((r) => r.caseId === 'c3')!.aggregateScore).toBe(1.0)
+      const c2 = result.results.find((r) => r.caseId === 'c2')!
+      expect(c2.pass).toBe(false)
+      expect(c2.scorerResults[0]!.result.reasoning).toContain('scorer crashed on c2')
+    })
+
+    it('isolates a target function that throws for one case: other cases still complete', async () => {
       const suite: EvalSuite = {
         name: 'target-error',
-        cases: [{ id: 'c1', input: 'x' }],
+        cases: [
+          { id: 'c1', input: 'good', expectedOutput: 'good' },
+          { id: 'c2', input: 'bad', expectedOutput: 'bad' },
+        ],
         scorers: [
           new DeterministicScorer({ mode: 'exactMatch' }),
         ],
       }
 
-      await expect(
-        runEvalSuite(suite, async () => {
-          throw new Error('target failure')
-        }),
-      ).rejects.toThrow('target failure')
+      const result = await runEvalSuite(suite, async (input) => {
+        if (input === 'bad') throw new Error('target failure')
+        return input
+      })
+
+      expect(result.results).toHaveLength(2)
+      const good = result.results.find((r) => r.caseId === 'c1')!
+      expect(good.pass).toBe(true)
+      const bad = result.results.find((r) => r.caseId === 'c2')!
+      expect(bad.pass).toBe(false)
+      expect(bad.scorerResults).toHaveLength(0)
+      expect(bad.aggregateScore).toBe(0)
     })
   })
 

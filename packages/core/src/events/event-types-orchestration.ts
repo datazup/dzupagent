@@ -180,6 +180,25 @@ export type OrchestrationDomainEvent =
       runId?: string;
       tenantId?: string;
     }
+  /**
+   * A provider was removed from the same-run failover chain before it was
+   * ever attempted (`DZUPAGENT-AGENT-C-06`).
+   *
+   * - `capability`: the candidate's spec cannot satisfy the run's declared
+   *   capability / context-window requirements.
+   * - `vendor-not-approved`: a cross-vendor hop to a provider outside the
+   *   host's `approvedFallbackProviders` allowlist.
+   */
+  | {
+      type: "provider:fallback_blocked";
+      agentId: string;
+      provider: string;
+      model: string;
+      reason: "capability" | "vendor-not-approved";
+      detail: string;
+      runId?: string;
+      tenantId?: string;
+    }
   // --- Adapter Registry ---
   | {
       type: "adapter_registry:provider_registered";

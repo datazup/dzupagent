@@ -302,9 +302,10 @@ describe('IPC Serializer', () => {
     expect(reader.rowCount).toBe(1)
   })
 
-  it('handles invalid bytes non-fatally', () => {
+  // ERR-C-23 (inverted): "non-fatally" meant a corrupt frame was reported to
+  // the caller as an empty result. It must be an explicit error.
+  it('surfaces invalid bytes as an explicit error, not an empty table', () => {
     const bad = new Uint8Array([1, 2, 3, 4])
-    const table = deserializeFromIPC(bad)
-    expect(table.numRows).toBe(0)
+    expect(() => deserializeFromIPC(bad)).toThrow(/not valid Arrow IPC/)
   })
 })

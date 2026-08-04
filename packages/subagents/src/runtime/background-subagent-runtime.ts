@@ -96,7 +96,17 @@ export class BackgroundSubagentRuntime {
       // The pipeline owns the AbortController registry; the closure resolves it
       // lazily so the sweep-triggered abort reaches the live controller map.
       (taskId) => this.pipeline.abort(taskId),
-      this.logger
+      this.logger,
+      {
+        ...(deps.ownerId !== undefined ? { ownerId: deps.ownerId } : {}),
+        ...(deps.orphanGraceMs !== undefined
+          ? { orphanGraceMs: deps.orphanGraceMs }
+          : {}),
+        // A run in flight in THIS process is never an orphan, whatever the row
+        // says (AGENT-C-08 defence-in-depth against clock skew / stalled
+        // heartbeats). Resolved lazily: the pipeline is built just below.
+        isLocallyRunning: (taskId) => this.pipeline.hasController(taskId),
+      }
     );
     this.pipeline = new AdmissionPipeline({
       store: this.store,

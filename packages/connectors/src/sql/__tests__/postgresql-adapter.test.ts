@@ -13,6 +13,7 @@ const mockClientRelease = vi.fn()
 const mockPoolQuery = vi.fn()
 const mockPoolConnect = vi.fn()
 const mockPoolEnd = vi.fn()
+const mockPoolOn = vi.fn()
 
 vi.mock('pg', () => {
   return {
@@ -21,6 +22,7 @@ vi.mock('pg', () => {
         query: mockPoolQuery,
         connect: mockPoolConnect,
         end: mockPoolEnd,
+        on: mockPoolOn,
       })),
     },
   }
@@ -113,6 +115,20 @@ describe('PostgreSQLConnector', () => {
           options: '-c default_transaction_read_only=on',
         }),
       )
+    })
+
+    it('attaches an error listener to the pool so idle-client errors do not crash the process (DZUPAGENT-ERR-C-09)', () => {
+      new PostgreSQLConnector(baseConfig)
+
+      expect(mockPoolOn).toHaveBeenCalledWith('error', expect.any(Function))
+
+      // node-postgres emits 'error' on idle clients (network blip, server
+      // restart). Without a listener this throws inside the EventEmitter and
+      // crashes the process. Simulate that emission and assert it is handled,
+      // not rethrown.
+      const errorHandler = mockPoolOn.mock.calls.find(([event]) => event === 'error')?.[1]
+      expect(errorHandler).toBeInstanceOf(Function)
+      expect(() => errorHandler(new Error('Connection terminated unexpectedly'))).not.toThrow()
     })
   })
 

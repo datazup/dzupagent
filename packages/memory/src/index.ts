@@ -77,6 +77,10 @@ export type {
   ConsolidationStoreItem,
 } from "./consolidation-engine.js";
 
+// --- Structured error logging (ERR-C-22) ---
+export { logError, defaultLogger, noopLogger } from "./error-log.js";
+export type { FrameworkLogger, LogErrorInput } from "./error-log.js";
+
 // --- Memory Pruner (TTL + capacity cap, MC-02) ---
 export { MemoryPruner } from "./memory-pruner.js";
 export type {

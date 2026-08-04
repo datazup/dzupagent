@@ -25,6 +25,8 @@ export async function* runJsonlProcess(
   let child: ChildProcess | undefined
   let terminationReason: TerminationReason | undefined
   let closed = false
+  // ERR-C-08: first ChildProcess/stdin 'error' observed *after* spawn resolved.
+  let postSpawnError: Error | undefined
   let timeout: ReturnType<typeof setTimeout> | undefined
   let escalation: ReturnType<typeof setTimeout> | undefined
   let stderr = ''
@@ -77,6 +79,20 @@ export async function* runJsonlProcess(
       shell: false,
     })
     closed = child.exitCode !== null
+
+    // ERR-C-08: `waitForSpawn` only attaches a `once('error')` listener, which
+    // is consumed the moment spawn settles. A ChildProcess 'error' emitted
+    // afterwards (EPERM from kill, stdio teardown) would then have NO listener,
+    // and Node turns an unlistened 'error' into an uncaught exception that
+    // kills the host process — every CLI adapter routes through this function
+    // and the package installs no `uncaughtException` net. These listeners are
+    // persistent: they survive spawn and route the failure into the normal
+    // error path below instead of crashing the process.
+    const recordProcessError = (error: Error): void => {
+      postSpawnError ??= error
+    }
+    child.on('error', recordProcessError)
+    child.stdin?.on('error', recordProcessError)
 
     specification.signal?.addEventListener('abort', onAbort, { once: true })
     if (specification.signal?.aborted) terminate('abort')
@@ -151,7 +167,12 @@ export async function* runJsonlProcess(
           const settledAnswer = await pendingAnswer
           if (settledAnswer && 'error' in settledAnswer) throw settledAnswer.error
           const answer = settledAnswer?.answer
-          if (answer !== undefined && answer !== null && child.stdin && !child.stdin.destroyed) child.stdin.write(`${answer}\n`)
+          // ERR-C-08: a write to a stdin whose peer already exited emits EPIPE.
+          // Without a callback the stream raises it as an 'error' event; the
+          // persistent listener above captures it, and the callback keeps the
+          // write itself from rejecting unobserved.
+          if (answer !== undefined && answer !== null && child.stdin && !child.stdin.destroyed)
+            child.stdin.write(`${answer}\n`, (error) => { if (error) postSpawnError ??= error })
         }
         newline = buffer.indexOf(0x0a)
       }
@@ -175,6 +196,9 @@ export async function* runJsonlProcess(
     if (terminationReason === 'timeout') throw timeoutError(specification)
     if (terminationReason === 'abort') throw abortedError(specification.command)
     if (terminationReason === 'overflow') throw overflowError(specification.command, limits)
+    // ERR-C-08: a post-spawn process error is the authoritative cause; report
+    // it as a clean adapter failure rather than an opaque non-zero exit.
+    if (postSpawnError) throw classifySpawnError(specification.command, postSpawnError)
     if (code !== 0) {
       throw new ForgeError({
         code: 'ADAPTER_EXECUTION_FAILED',
@@ -318,7 +342,12 @@ function waitForSpawn(child: ChildProcess): Promise<Error | null> {
 
 function waitForClose(child: ChildProcess): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
   if (child.exitCode !== null) return Promise.resolve({ code: child.exitCode, signal: child.signalCode })
-  return new Promise((resolve) => child.once('close', (code, signal) => resolve({ code, signal })))
+  return new Promise((resolve) => {
+    child.once('close', (code, signal) => resolve({ code, signal }))
+    // ERR-C-08: a child that errors after spawn may never emit 'close'; settle
+    // so the caller reports the recorded error instead of hanging forever.
+    child.once('error', () => resolve({ code: null, signal: null }))
+  })
 }
 
 function classifySpawnError(command: string, error: Error): ForgeError {

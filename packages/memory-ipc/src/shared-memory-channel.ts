@@ -161,8 +161,18 @@ export class SharedMemoryChannel {
       throw new Error('SharedMemoryChannel: no free slots available')
     }
 
-    // Allocate space in data region (bump allocator)
-    const offset = this.allocateData(ipcBytes.byteLength)
+    // Allocate space in data region (bump allocator).
+    // AGENT-C-10: this can now refuse to allocate rather than wrap over bytes
+    // a reader still holds a zero-copy view into. Release the slot we just
+    // claimed so a refused write does not leak it.
+    let offset: number
+    try {
+      offset = this.allocateData(ipcBytes.byteLength, slotIndex)
+    } catch (err) {
+      Atomics.store(this.int32View, this.slotMetaIndex(slotIndex) + 2, SlotState.FREE)
+      Atomics.notify(this.int32View, this.slotMetaIndex(slotIndex) + 2)
+      throw err
+    }
 
     // Copy data into the SharedArrayBuffer data region
     const absoluteOffset = this.dataRegionOffset + offset
@@ -183,7 +193,15 @@ export class SharedMemoryChannel {
 
   /** Write an Arrow Table (serializes to IPC first). */
   writeTable(table: Table): SlotHandle {
-    const ipcBytes = serializeToIPC(table)
+    let ipcBytes: Uint8Array
+    try {
+      ipcBytes = serializeToIPC(table)
+    } catch (err) {
+      throw new Error(
+        'SharedMemoryChannel: failed to serialize table to IPC bytes',
+        { cause: err },
+      )
+    }
     if (ipcBytes.byteLength === 0) {
       throw new Error(
         'SharedMemoryChannel: failed to serialize table to IPC bytes',
@@ -320,8 +338,20 @@ export class SharedMemoryChannel {
    * Safe for concurrent async writes within a single Node.js process. Cross-process
    * multi-writer requires external coordination (e.g. file locks or a dedicated
    * allocator process).
+   *
+   * **AGENT-C-10 — live-region protection.** `read()` hands out a
+   * `Uint8Array.subarray` view directly into the SharedArrayBuffer (zero copy),
+   * and a slot stays live until `release()` is called. The bump pointer used to
+   * wrap to offset 0 whenever the next write did not fit, memcpy'ing the new
+   * payload straight over bytes that outstanding readers were still looking at
+   * — silent, undetectable corruption of in-flight reads.
+   *
+   * The allocator now refuses to hand out any region that overlaps a live
+   * (WRITING / READY / CLAIMED) slot's byte range and throws instead. The
+   * caller must `release()` outstanding handles, or the channel must be sized
+   * larger, before the write can proceed.
    */
-  private allocateData(size: number): number {
+  private allocateData(size: number, excludeSlot: number): number {
     // CAS loop: atomically claim space in the bump allocator.
     // Retries on contention from concurrent async writers.
     const MAX_CAS_RETRIES = 64
@@ -334,6 +364,19 @@ export class SharedMemoryChannel {
         // Wrap around to beginning
         claimedOffset = 0
         newOffset = size
+      }
+
+      // Refuse to reuse bytes that a reader may still hold a view into.
+      const conflict = this.findLiveOverlap(claimedOffset, size, excludeSlot)
+      if (conflict !== -1) {
+        throw new Error(
+          `SharedMemoryChannel: refusing to allocate ${size} bytes at data-region offset ` +
+          `${claimedOffset} — the region overlaps live slot ${conflict} ` +
+          `(offset=${Atomics.load(this.int32View, this.slotMetaIndex(conflict))}, ` +
+          `length=${Atomics.load(this.int32View, this.slotMetaIndex(conflict) + 1)}), ` +
+          'whose data may still be held as a zero-copy view by a reader. ' +
+          'Call release() on outstanding slot handles or increase maxBytes.',
+        )
       }
 
       // Atomically try to advance the write pointer
@@ -354,6 +397,32 @@ export class SharedMemoryChannel {
     throw new Error(
       `SharedMemoryChannel: allocateData CAS failed after ${MAX_CAS_RETRIES} retries (contention too high)`,
     )
+  }
+
+  /**
+   * Return the index of the first non-FREE slot whose byte range intersects
+   * `[offset, offset + size)`, or -1 when the region is safe to reuse.
+   *
+   * `excludeSlot` is the slot the current writer already owns (state WRITING,
+   * length still 0) and is skipped.
+   */
+  private findLiveOverlap(
+    offset: number,
+    size: number,
+    excludeSlot: number,
+  ): number {
+    const end = offset + size
+    for (let i = 0; i < this.maxSlots; i++) {
+      if (i === excludeSlot) continue
+      const slotBase = this.slotMetaIndex(i)
+      const state = Atomics.load(this.int32View, slotBase + 2)
+      if (state === SlotState.FREE) continue
+      const slotLength = Atomics.load(this.int32View, slotBase + 1)
+      if (slotLength <= 0) continue
+      const slotOffset = Atomics.load(this.int32View, slotBase)
+      if (offset < slotOffset + slotLength && slotOffset < end) return i
+    }
+    return -1
   }
 
   /** Validate that a handle references a valid slot index. */

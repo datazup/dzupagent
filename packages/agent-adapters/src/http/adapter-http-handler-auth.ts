@@ -15,9 +15,14 @@ import type { HandlerContext } from "./adapter-http-handler-context.js";
  *
  * Order of precedence:
  *   1. public endpoints pass through
- *   2. no auth configured -> pass through
+ *   2. no auth configured -> fail CLOSED (500) unless `allowUnauthenticated`
  *   3. custom tokenValidator (takes precedence over legacy key check)
  *   4. legacy simple API key check
+ *
+ * SEC-C-01: this used to fail OPEN — a handler constructed without any
+ * validator served every endpoint (including `POST /run`, which spawns a CLI
+ * agent in a caller-supplied working directory) to anonymous callers. Auth is
+ * now mandatory; opting out requires the explicit `allowUnauthenticated` flag.
  */
 export async function checkAuth(
   ctx: HandlerContext,
@@ -28,9 +33,18 @@ export async function checkAuth(
     return undefined;
   }
 
-  // If no auth configured, pass through
+  // SEC-C-01: fail closed when no authentication mechanism is configured.
+  // The dev/loopback path must be opted into explicitly. The response body
+  // carries only a stable code — never any configuration detail.
   if (!ctx.validateApiKey && !ctx.config.tokenValidator) {
-    return undefined;
+    if (ctx.config.allowUnauthenticated === true) {
+      return undefined;
+    }
+    return errorResponse(
+      500,
+      "Adapter HTTP handler has no authentication configured",
+      "AUTH_NOT_CONFIGURED"
+    );
   }
 
   const authHeader =

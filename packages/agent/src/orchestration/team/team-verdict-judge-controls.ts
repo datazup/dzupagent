@@ -60,8 +60,7 @@
  * the exact `LLMJudgeScorer` failure mode this design exists to avoid.
  */
 
-/** Invokes the judge model with a prompt and returns its raw completion. */
-export type JudgeInvoker = (prompt: string) => Promise<string>;
+import type { JudgeInvoker } from "./team-verdict-contracts.js";
 
 /** Raised when a judge call exceeds its latency budget. */
 export class JudgeTimeoutError extends Error {

@@ -15,7 +15,6 @@ import type { BaseMessage } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { ModelRegistry } from "../llm/model-registry.js";
-import type { SkillLoader } from "../skills/skill-loader.js";
 import { extractTokenUsage } from "../llm/invoke.js";
 import { attachStructuredOutputCapabilities } from "../llm/structured-output-capabilities.js";
 import { mergeFileChanges } from "./file-merge.js";
@@ -23,8 +22,20 @@ import { REACT_DEFAULTS } from "./subagent-types.js";
 import type {
   SubAgentConfig,
   SubAgentResult,
+  SubAgentSpawnerOptions,
   SubAgentUsage,
 } from "./subagent-types.js";
+import { resolveSpawnDepth, runAtSpawnDepth } from "./spawn-depth-context.js";
+import {
+  DEFAULT_SUBAGENT_INJECTION_GUARD,
+  checkToolPolicy,
+  emitToolCalled,
+  emitToolError,
+  emitToolResult,
+  fenceToolResult,
+  inputMetadataKeysOf,
+  type SubAgentGuardrailContext,
+} from "./subagent-guardrails.js";
 
 interface ToolCall {
   id?: string;
@@ -38,7 +49,7 @@ const FILE_TOOL_NAMES = new Set(["write_file", "edit_file", "create_file"]);
 export class SubAgentSpawner {
   constructor(
     private registry: ModelRegistry,
-    private options?: { skillLoader?: SkillLoader; maxDepth?: number },
+    private options?: SubAgentSpawnerOptions,
   ) {}
 
   /**
@@ -78,7 +89,10 @@ export class SubAgentSpawner {
           ).bindTools(config.tools) as BaseChatModel)
         : model;
 
-    const response = await effectiveModel.invoke(messages);
+    const response = await effectiveModel.invoke(
+      messages,
+      config.signal ? { signal: config.signal } : undefined,
+    );
 
     // 5. Extract files from response (if any tool calls produced files)
     const files: Record<string, string> = {};
@@ -110,7 +124,10 @@ export class SubAgentSpawner {
     parentFiles?: Record<string, string>,
   ): Promise<SubAgentResult> {
     const maxDepth = this.options?.maxDepth ?? REACT_DEFAULTS.maxDepth;
-    const currentDepth = config._depth ?? 0;
+    // DZUPAGENT-AGENT-C-04: depth comes from the ambient spawn-depth context
+    // when the caller did not pin `_depth`, so a sub-agent that recurses via a
+    // spawn tool is counted even though no code assigns `_depth`.
+    const currentDepth = resolveSpawnDepth(config._depth);
 
     if (currentDepth >= maxDepth) {
       return {
@@ -120,11 +137,28 @@ export class SubAgentSpawner {
           ),
         ],
         files: {},
-        metadata: { agentName: config.name, stoppedReason: "max_depth" },
+        metadata: {
+          agentName: config.name,
+          stoppedReason: "max_depth",
+          depth: currentDepth,
+        },
         hitIterationLimit: false,
       };
     }
 
+    // Run the whole loop — model turns and tool invocations alike — one level
+    // deeper, so any spawn started from inside a tool inherits depth + 1.
+    return runAtSpawnDepth(currentDepth + 1, () =>
+      this.runReActLoop(config, task, currentDepth, parentFiles),
+    );
+  }
+
+  private async runReActLoop(
+    config: SubAgentConfig,
+    task: string,
+    currentDepth: number,
+    parentFiles?: Record<string, string>,
+  ): Promise<SubAgentResult> {
     const maxIterations = config.maxIterations ?? REACT_DEFAULTS.maxIterations;
     const timeoutMs = config.timeoutMs ?? REACT_DEFAULTS.timeoutMs;
 
@@ -150,9 +184,47 @@ export class SubAgentSpawner {
       new HumanMessage(task + contextBlock),
     ];
 
-    // 3. Setup timeout via AbortController
+    // 3. Guardrail context (DZUPAGENT-AGENT-C-04). Every member is inert when
+    //    the corresponding option was not supplied, except injection fencing
+    //    which defaults on.
+    const guardrails: SubAgentGuardrailContext = {
+      agentId: this.options?.agentId ?? config.name,
+      executionRunId:
+        config.executionRunId ?? `subagent_${crypto.randomUUID()}`,
+      eventBus: this.options?.eventBus,
+      promptInjectionGuard:
+        this.options?.wrapToolResults === false
+          ? undefined
+          : (this.options?.promptInjectionGuard ??
+            DEFAULT_SUBAGENT_INJECTION_GUARD),
+      toolPermissionPolicy: this.options?.toolPermissionPolicy,
+      toolGovernance: this.options?.toolGovernance,
+    };
+
+    // 4. Cancellation: own timeout plus the parent's signal. The signal is
+    //    wired into `model.invoke` AND every `tool.invoke`, so an abort
+    //    interrupts work in flight rather than only the next iteration.
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let abortReason: "timeout" | "cancelled" | undefined;
+    const timer = setTimeout(() => {
+      abortReason ??= "timeout";
+      controller.abort();
+    }, timeoutMs);
+
+    const parentSignal = config.signal;
+    const onParentAbort = (): void => {
+      abortReason ??= "cancelled";
+      controller.abort();
+    };
+    if (parentSignal) {
+      if (parentSignal.aborted) onParentAbort();
+      else parentSignal.addEventListener("abort", onParentAbort, { once: true });
+    }
+
+    const abortMessage = (): string =>
+      abortReason === "cancelled"
+        ? `[Sub-agent "${config.name}" stopped: cancelled by parent]`
+        : `[Sub-agent "${config.name}" stopped: timeout after ${timeoutMs}ms]`;
 
     // 4. Run ReAct loop
     const usage: SubAgentUsage = {
@@ -168,16 +240,23 @@ export class SubAgentSpawner {
     try {
       for (let iteration = 0; iteration < maxIterations; iteration++) {
         if (controller.signal.aborted) {
-          allMessages.push(
-            new AIMessage(
-              `[Sub-agent "${config.name}" stopped: timeout after ${timeoutMs}ms]`,
-            ),
-          );
+          allMessages.push(new AIMessage(abortMessage()));
           break;
         }
 
-        // Invoke LLM
-        const response = await model.invoke(allMessages);
+        // Invoke LLM under the run's abort signal
+        let response: BaseMessage;
+        try {
+          response = await model.invoke(allMessages, {
+            signal: controller.signal,
+          });
+        } catch (err: unknown) {
+          if (controller.signal.aborted) {
+            allMessages.push(new AIMessage(abortMessage()));
+            break;
+          }
+          throw err;
+        }
         usage.llmCalls++;
 
         // Track token usage
@@ -203,11 +282,21 @@ export class SubAgentSpawner {
             tc.id ??
             `call_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
           const tool = toolMap.get(tc.name);
+          const inputMetadataKeys = inputMetadataKeysOf(tc.args);
 
           if (!tool) {
+            const message = `Error: Tool "${tc.name}" not found. Available tools: ${[...toolMap.keys()].join(", ")}`;
+            emitToolError(guardrails, {
+              toolName: tc.name,
+              toolCallId,
+              durationMs: 0,
+              inputMetadataKeys,
+              errorCode: "TOOL_NOT_FOUND",
+              message,
+            });
             allMessages.push(
               new ToolMessage({
-                content: `Error: Tool "${tc.name}" not found. Available tools: ${[...toolMap.keys()].join(", ")}`,
+                content: message,
                 tool_call_id: toolCallId,
                 name: tc.name,
               }),
@@ -215,14 +304,56 @@ export class SubAgentSpawner {
             continue;
           }
 
+          // Pre-execution policy gate: permission policy, then governance
+          // access / approval.
+          const decision = checkToolPolicy(guardrails, tc.name, tc.args);
+          if (decision.kind !== "allow") {
+            if (decision.kind === "blocked") {
+              emitToolError(guardrails, {
+                toolName: tc.name,
+                toolCallId,
+                durationMs: 0,
+                inputMetadataKeys,
+                errorCode: decision.errorCode,
+                message: decision.content,
+              });
+            }
+            allMessages.push(
+              new ToolMessage({
+                content: decision.content,
+                tool_call_id: toolCallId,
+                name: tc.name,
+              }),
+            );
+            continue;
+          }
+
+          emitToolCalled(guardrails, {
+            toolName: tc.name,
+            toolCallId,
+            args: tc.args,
+          });
+          const startedAt = Date.now();
+
           try {
-            const result = await tool.invoke(tc.args);
+            const result = await tool.invoke(tc.args, {
+              signal: controller.signal,
+            });
             const resultStr =
               typeof result === "string" ? result : JSON.stringify(result);
 
+            emitToolResult(guardrails, {
+              toolName: tc.name,
+              toolCallId,
+              durationMs: Date.now() - startedAt,
+              inputMetadataKeys,
+            });
+
             allMessages.push(
               new ToolMessage({
-                content: resultStr,
+                // Tool output crosses a trust boundary — fence it so the model
+                // cannot read an injected payload as instruction.
+                content: fenceToolResult(guardrails, resultStr),
                 tool_call_id: toolCallId,
                 name: tc.name,
               }),
@@ -233,14 +364,30 @@ export class SubAgentSpawner {
           } catch (err: unknown) {
             // Non-fatal: return error as ToolMessage so the LLM can recover
             const errMsg = err instanceof Error ? err.message : String(err);
+            emitToolError(guardrails, {
+              toolName: tc.name,
+              toolCallId,
+              durationMs: Date.now() - startedAt,
+              inputMetadataKeys,
+              errorCode: controller.signal.aborted
+                ? "TOOL_TIMEOUT"
+                : "TOOL_EXECUTION_FAILED",
+              message: errMsg,
+            });
             allMessages.push(
               new ToolMessage({
-                content: `Error executing tool "${tc.name}": ${errMsg}`,
+                content: fenceToolResult(
+                  guardrails,
+                  `Error executing tool "${tc.name}": ${errMsg}`,
+                ),
                 tool_call_id: toolCallId,
                 name: tc.name,
               }),
             );
           }
+
+          // An abort mid-batch must stop the remaining tool calls too.
+          if (controller.signal.aborted) break;
         }
 
         // Check if this was the last allowed iteration
@@ -250,6 +397,7 @@ export class SubAgentSpawner {
       }
     } finally {
       clearTimeout(timer);
+      parentSignal?.removeEventListener("abort", onParentAbort);
     }
 
     return {
@@ -259,6 +407,8 @@ export class SubAgentSpawner {
         agentName: config.name,
         modelUsed: modelName,
         depth: currentDepth,
+        executionRunId: guardrails.executionRunId,
+        ...(abortReason ? { stoppedReason: abortReason } : {}),
       },
       usage,
       hitIterationLimit,

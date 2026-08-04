@@ -75,3 +75,92 @@ describe('MockChatModel', () => {
     expect(model._llmType()).toBe('mock')
   })
 })
+
+/**
+ * C-03 — a mock that yields ONE chunk lets a consumer that overwrites
+ * (instead of concatenating) deltas pass every streaming test. These
+ * cover the multi-delta script that makes such a bug observable.
+ */
+describe('MockChatModel.stream()', () => {
+  it('yields one delta per stream_chunks entry', async () => {
+    const model = new MockChatModel([
+      {
+        content: '',
+        stream_chunks: [
+          { content: 'Hel' },
+          { content: 'lo ' },
+          { content: 'world' },
+        ],
+      },
+    ])
+
+    const chunks = []
+    for await (const chunk of await model.stream([new HumanMessage('hi')])) {
+      chunks.push(chunk)
+    }
+
+    expect(chunks).toHaveLength(3)
+    expect(chunks.map(c => c.content).join('')).toBe('Hello world')
+  })
+
+  it('splits tool-call args across deltas and assembles them via concat', async () => {
+    const model = new MockChatModel([
+      {
+        content: '',
+        stream_chunks: [
+          {
+            content: 'work',
+            usage_metadata: { input_tokens: 42, output_tokens: 8, total_tokens: 50 },
+            tool_call_chunks: [{ id: 'tc1', name: 'read_file', args: '{"pa', index: 0 }],
+          },
+          { tool_call_chunks: [{ id: 'tc1', args: 'th":"a', index: 0 }] },
+          { tool_call_chunks: [{ id: 'tc1', args: '.ts"}', index: 0 }] },
+          // Terminal delta carries NO tool-call data and NO usage.
+          { content: 'ing' },
+        ],
+      },
+    ])
+
+    let assembled = null
+    for await (const chunk of await model.stream([new HumanMessage('read a.ts')])) {
+      assembled = assembled === null ? chunk : assembled.concat(chunk)
+    }
+
+    expect(assembled).not.toBeNull()
+    expect(assembled!.content).toBe('working')
+    expect(assembled!.tool_calls).toHaveLength(1)
+    expect(assembled!.tool_calls![0]!.name).toBe('read_file')
+    expect(assembled!.tool_calls![0]!.args).toEqual({ path: 'a.ts' })
+    // Usage arrived on a non-terminal delta and must survive assembly.
+    expect(assembled!.usage_metadata?.input_tokens).toBe(42)
+    expect(assembled!.usage_metadata?.output_tokens).toBe(8)
+  })
+
+  it('synthesises a single delta when no stream_chunks are declared', async () => {
+    const model = new MockChatModel([
+      {
+        content: 'plain',
+        tool_calls: [{ id: 'tc1', name: 'read_file', args: { path: 'a.ts' } }],
+      },
+    ])
+
+    const chunks = []
+    for await (const chunk of await model.stream([new HumanMessage('go')])) {
+      chunks.push(chunk)
+    }
+
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0]!.content).toBe('plain')
+    expect(chunks[0]!.tool_calls?.[0]?.args).toEqual({ path: 'a.ts' })
+  })
+
+  it('advances the response cursor and call log like invoke()', async () => {
+    const model = new MockChatModel(['first', 'second'])
+
+    for await (const _ of await model.stream([new HumanMessage('a')])) { /* drain */ }
+    expect(model.callCount).toBe(1)
+
+    const second = await model.invoke([new HumanMessage('b')])
+    expect(second.content).toBe('second')
+  })
+})

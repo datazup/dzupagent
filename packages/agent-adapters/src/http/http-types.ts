@@ -130,6 +130,18 @@ export interface AdapterHttpConfig {
   validateApiKey?: (key: string) => boolean | Promise<boolean>
   /** Custom async token validator. Takes precedence over validateApiKey. */
   tokenValidator?: (token: string) => Promise<TokenValidationResult>
+  /**
+   * Serve requests with **no authentication at all** when neither
+   * `validateApiKey` nor `tokenValidator` is configured.
+   *
+   * LOCAL DEVELOPMENT ONLY. `POST /run` spawns an external agent CLI in a
+   * caller-supplied working directory, so an unauthenticated handler exposed
+   * on a routable interface is a remote-code-execution surface (SEC-C-01).
+   * Without this flag an unconfigured handler fails closed with a 500.
+   *
+   * @default false
+   */
+  allowUnauthenticated?: boolean | undefined
   /** Endpoints that don't require auth (e.g., '/health') */
   publicEndpoints?: string[] | undefined
   /** Rate limit configuration. If set, enables rate limiting. */

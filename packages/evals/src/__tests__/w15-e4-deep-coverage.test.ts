@@ -1314,9 +1314,13 @@ describe('runBenchmark', () => {
       // No judgeCriteria => uses 5-dimension LlmJudgeScorer
     };
     const result = await runBenchmark(suite, async () => 'output', config);
-    // LlmJudgeScorer returns fallback 0.5 on total failure, then catch returns 0.0
-    // But the scorer itself returns 0.5 without throwing, so no catch triggered
-    expect(result.scores['judge']).toBe(0.5);
+    // LlmJudgeScorer returns a fallback overall of 0.5 on total failure, but
+    // marks the result `measured: false` (ERR-C-20). The benchmark runner
+    // must exclude unmeasured samples from the average rather than treating
+    // the fallback as a real 0.5 score (ERR-C-21), so with zero real
+    // measurements the average is 0 and it is never reported as regressed.
+    expect(result.scores['judge']).toBe(0);
+    expect(result.regressions).not.toContain('judge');
   });
 
   it('should handle composite scorer type', async () => {

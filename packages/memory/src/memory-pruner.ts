@@ -37,6 +37,9 @@ const DEFAULT_PAGE_SIZE = 500
 /** Default capacity before LRU/strength-based eviction kicks in. */
 const DEFAULT_MAX_ENTRIES = 1000
 
+/** Bound each scan while still allowing the capacity pass to observe overflow. */
+const DEFAULT_SCAN_MULTIPLIER = 10
+
 /** Default TTL: 7 days. */
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -58,6 +61,11 @@ export interface PruneOptions {
   now?: () => number
   /** Override the page size used when scanning the store. */
   pageSize?: number
+  /**
+   * Hard ceiling on entries loaded by one run. Must exceed `maxEntries` for
+   * capacity eviction to run. Defaults to `10 * maxEntries`.
+   */
+  maxScan?: number
 }
 
 export interface PruneResult extends MemoryOperationOutcome {
@@ -99,11 +107,14 @@ export class MemoryPruner {
     const namespace = options.namespace ?? []
     const now = (options.now ?? Date.now)()
     const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE
+    const maxScan =
+      options.maxScan ??
+      Math.max(maxEntries + 1, maxEntries * DEFAULT_SCAN_MULTIPLIER)
     const degradations: MemoryOperationDegradation[] = []
 
     let items: ConsolidationStoreItem[]
     try {
-      items = await store.search(namespace, { limit: pageSize })
+      items = await scanNamespace(store, namespace, pageSize, maxScan)
     } catch (error) {
       degradations.push(
         degradation('search', 'source-unavailable', error, namespace.join('/')),
@@ -190,6 +201,35 @@ export class MemoryPruner {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Page through a namespace without trusting every backend to honor offsets. */
+async function scanNamespace(
+  store: MemoryStore,
+  namespace: string[],
+  pageSize: number,
+  maxScan: number,
+): Promise<ConsolidationStoreItem[]> {
+  const collected: ConsolidationStoreItem[] = []
+  const seen = new Set<string>()
+
+  for (let offset = 0; collected.length < maxScan; offset += pageSize) {
+    const limit = Math.min(pageSize, maxScan - collected.length)
+    const page = await store.search(namespace, { limit, offset })
+    if (page.length === 0) break
+
+    let added = 0
+    for (const item of page) {
+      if (seen.has(item.key)) continue
+      seen.add(item.key)
+      collected.push(item)
+      added += 1
+    }
+
+    if (added === 0 || page.length < limit) break
+  }
+
+  return collected
+}
 
 /**
  * Parse the data we need for pruning out of a raw store item.

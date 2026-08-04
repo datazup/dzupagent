@@ -48,7 +48,7 @@ export { OTelBridge, InMemoryMetricSink } from './otel-bridge.js'
 export type { OTelBridgeConfig, MetricSink } from './otel-bridge.js'
 
 // --- Cost Attribution ---
-export { CostAttributor } from './cost-attribution.js'
+export { CostAttributor, DEFAULT_MAX_COST_ENTRIES } from './cost-attribution.js'
 export type {
   CostEntry,
   CostReport,

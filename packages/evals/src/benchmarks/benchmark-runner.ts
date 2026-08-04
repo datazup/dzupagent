@@ -12,6 +12,30 @@ import type { JudgeCriterion } from "../scorers/criteria.js";
 import { createLLMJudge } from "../scorers/llm-judge-enhanced.js";
 import { LlmJudgeScorer } from "../scorers/llm-judge-scorer.js";
 import { STANDARD_CRITERIA } from "../scorers/criteria.js";
+import { defaultLogger } from "@dzupagent/core/utils";
+
+/**
+ * Emit one structured JSON log line for a judge-scoring failure/outage.
+ *
+ * ERR-C-21: an unreachable judge must never fail silently — it must be
+ * logged so the outage is visible, instead of surfacing only as a bare
+ * `0.0` score indistinguishable from a real regression.
+ */
+function logJudgeScoringError(operation: string, error: unknown): void {
+  const err = error instanceof Error
+    ? { name: error.name, message: error.message, stack: error.stack }
+    : { name: "UnknownError", message: String(error), stack: undefined };
+
+  defaultLogger.error(
+    JSON.stringify({
+      level: "error",
+      timestamp: new Date().toISOString(),
+      component: "@dzupagent/evals/benchmark-runner",
+      operation,
+      error: err,
+    }),
+  );
+}
 
 /**
  * Configuration for benchmark execution.
@@ -58,12 +82,12 @@ export async function runBenchmark(
 ): Promise<BenchmarkResult> {
   const scorerAccumulators = new Map<
     string,
-    { total: number; count: number }
+    { total: number; count: number; unmeasuredCount: number }
   >();
 
   // Initialize accumulators for each scorer
   for (const scorer of suite.scorers) {
-    scorerAccumulators.set(scorer.id, { total: 0, count: 0 });
+    scorerAccumulators.set(scorer.id, { total: 0, count: 0, unmeasuredCount: 0 });
   }
 
   // Run each dataset entry through the target
@@ -72,7 +96,7 @@ export async function runBenchmark(
 
     // Score the output against each scorer config
     for (const scorer of suite.scorers) {
-      const score = await computeScore(
+      const { score, measured } = await computeScore(
         scorer.type,
         output,
         entry.input,
@@ -81,13 +105,19 @@ export async function runBenchmark(
       );
       const acc = scorerAccumulators.get(scorer.id);
       if (acc) {
-        acc.total += score;
-        acc.count++;
+        if (measured) {
+          acc.total += score;
+          acc.count++;
+        } else {
+          // ERR-C-21: an unmeasured (errored/unreachable judge) sample must
+          // not be folded into the average as if it were a real score.
+          acc.unmeasuredCount++;
+        }
       }
     }
   }
 
-  // Compute average scores
+  // Compute average scores (over measured samples only)
   const scores: Record<string, number> = {};
   const regressions: string[] = [];
 
@@ -95,9 +125,24 @@ export async function runBenchmark(
     const avg = acc.count > 0 ? acc.total / acc.count : 0;
     scores[scorerId] = avg;
 
+    // Only gate on the baseline threshold when there is at least one real
+    // measurement. A scorer that never produced a real measurement (e.g. a
+    // 100%-unreachable judge) must not be reported as a regression — that
+    // would turn an outage into a CI-blocking false positive.
     const threshold = suite.baselineThresholds[scorerId];
-    if (threshold !== undefined && avg < threshold) {
+    if (threshold !== undefined && acc.count > 0 && avg < threshold) {
       regressions.push(scorerId);
+    }
+
+    if (acc.unmeasuredCount > 0) {
+      logJudgeScoringError(
+        "runBenchmark.scoreEntry",
+        new Error(
+          `scorer "${scorerId}" produced ${acc.unmeasuredCount} unmeasured ` +
+            `(errored/unreachable) sample(s) out of ${acc.count + acc.unmeasuredCount} total; ` +
+            `excluded from the average and from regression gating`,
+        ),
+      );
     }
   }
 
@@ -149,6 +194,24 @@ export function compareBenchmarks(
 }
 
 /**
+ * Score plus whether it reflects a real measurement.
+ *
+ * `measured: false` means the judge never actually produced a verdict (it
+ * was unreachable, threw, or exhausted retries without a parseable
+ * response). Such a score is a neutral placeholder, not evidence — callers
+ * must exclude it from averages and regression gating rather than treating
+ * it as a real 0.0 (or 0.5) result. See ERR-C-21.
+ */
+interface ComputedScore {
+  score: number;
+  measured: boolean;
+}
+
+function measuredScore(score: number): ComputedScore {
+  return { score, measured: true };
+}
+
+/**
  * Score an output based on scorer type.
  *
  * - 'deterministic': keyword overlap between output and reference
@@ -163,10 +226,10 @@ async function computeScore(
   input: string,
   reference: string | undefined,
   config?: BenchmarkConfig,
-): Promise<number> {
+): Promise<ComputedScore> {
   switch (type) {
     case "deterministic": {
-      if (!reference) return output.length > 0 ? 1.0 : 0.0;
+      if (!reference) return measuredScore(output.length > 0 ? 1.0 : 0.0);
       // Keyword overlap scoring
       const refWords = new Set(
         reference
@@ -174,13 +237,13 @@ async function computeScore(
           .split(/\s+/)
           .filter((w) => w.length > 2),
       );
-      if (refWords.size === 0) return output.length > 0 ? 1.0 : 0.0;
+      if (refWords.size === 0) return measuredScore(output.length > 0 ? 1.0 : 0.0);
       const outLower = output.toLowerCase();
       let matches = 0;
       for (const word of refWords) {
         if (outLower.includes(word)) matches++;
       }
-      return matches / refWords.size;
+      return measuredScore(matches / refWords.size);
     }
     case "llm-judge": {
       if (!config?.llm) {
@@ -195,7 +258,7 @@ async function computeScore(
           "benchmark-runner: llm-judge scorer used without providing an llm function in BenchmarkConfig. " +
             "Falling back to non-empty heuristic. Pass { llm: yourLlmFn } to runBenchmark() for real scoring.",
         );
-        return output.trim().length > 0 ? 0.5 : 0.0;
+        return measuredScore(output.trim().length > 0 ? 0.5 : 0.0);
       }
 
       // Use 5-dimension LlmJudgeScorer when available, fall back to enhanced multi-criteria judge
@@ -216,9 +279,13 @@ async function computeScore(
 
         try {
           const result = await judge.score(evalInput);
-          return result.aggregateScore;
-        } catch {
-          return 0.0;
+          // `measured` defaults to true (omitted = measured) per the
+          // ScorerResult contract; the enhanced judge sets it to false when
+          // every retry failed to produce a parseable verdict.
+          return { score: result.aggregateScore, measured: result.measured ?? true };
+        } catch (error) {
+          logJudgeScoringError("computeScore.llm-judge.customCriteria", error);
+          return { score: 0.0, measured: false };
         }
       }
 
@@ -230,13 +297,14 @@ async function computeScore(
 
       try {
         const result = await scorer.score(input, output, reference);
-        return result.overall;
-      } catch {
-        return 0.0;
+        return { score: result.overall, measured: result.measured };
+      } catch (error) {
+        logJudgeScoringError("computeScore.llm-judge.fiveDimension", error);
+        return { score: 0.0, measured: false };
       }
     }
     case "composite": {
-      const deterministicScore = await computeScore(
+      const deterministic = await computeScore(
         "deterministic",
         output,
         input,
@@ -244,11 +312,14 @@ async function computeScore(
         config,
       );
       const existenceScore = output.trim().length > 0 ? 1.0 : 0.0;
-      return (deterministicScore + existenceScore) / 2;
+      return {
+        score: (deterministic.score + existenceScore) / 2,
+        measured: deterministic.measured,
+      };
     }
     case "custom":
-      return output.trim().length > 0 ? 1.0 : 0.0;
+      return measuredScore(output.trim().length > 0 ? 1.0 : 0.0);
     default:
-      return output.trim().length > 0 ? 1.0 : 0.0;
+      return measuredScore(output.trim().length > 0 ? 1.0 : 0.0);
   }
 }

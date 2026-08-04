@@ -134,6 +134,28 @@ export interface BackgroundTask {
   endedAt?: number;
   /** Time-to-live in ms; the lifecycle sweep expires non-terminal tasks past this. */
   ttlMs: number;
+  /**
+   * Identity of the worker/process that currently owns execution of this task
+   * (AGENT-C-08). Written when a runner claims the task (the `queued` →
+   * `running` transition) and left in place afterwards for audit. A task with
+   * no `ownerId` has never been claimed by a lease-aware runner.
+   */
+  ownerId?: string;
+  /**
+   * Epoch-ms expiry of the owner's execution lease (AGENT-C-08). The owning
+   * runner renews it on a heartbeat while the task actually runs, so a
+   * long-running task is not mistaken for abandoned work. Orphan reclamation
+   * MUST refuse to reap a task whose `leaseUntil` is still in the future —
+   * that task belongs to a live worker.
+   */
+  leaseUntil?: number;
+  /**
+   * Monotonic fencing token, incremented on every ownership claim. A previous
+   * owner that wakes up after losing its lease can compare this against the
+   * epoch it claimed under and abandon its writes instead of clobbering the
+   * new owner's state.
+   */
+  leaseEpoch?: number;
   /** Opaque handle into the checkpointer for resumability. */
   checkpointRef?: string;
   /** Approval correlation id when the task passed (or is passing) an HITL gate. */

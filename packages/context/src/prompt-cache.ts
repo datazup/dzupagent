@@ -160,11 +160,14 @@ const CONTENT_ADDRESSED_MIN_LENGTH = 2000
  * Apply cache breakpoints to LangChain BaseMessage[] format.
  *
  * This is a convenience wrapper that works with the LangChain message types
- * used throughout dzupagent-core. It modifies the `additional_kwargs`
- * on each marked message to include Anthropic's cache_control metadata.
+ * used throughout dzupagent-core. Each marked message has its content
+ * normalized to a content-block array with `cache_control` on the last
+ * block — the only placement `@langchain/anthropic` serializes to the wire
+ * (see {@link _setCacheControl}). The same marker is mirrored onto
+ * `additional_kwargs` as an inert observability signal.
  *
  * Note: This only has effect when using ChatAnthropic — other providers
- * ignore the additional_kwargs.cache_control field.
+ * ignore `cache_control` on content blocks.
  *
  * @param messages Full message array (system + conversation)
  * @param options  Optional placement strategy config. Defaults to
@@ -304,10 +307,56 @@ function _cloneMessage(m: BaseMessage): BaseMessage {
   return cloned
 }
 
-/** Set Anthropic cache_control in additional_kwargs */
+/**
+ * Place an Anthropic cache breakpoint on `m`.
+ *
+ * DZUPAGENT-AGENT-C-02: this used to write `cache_control` onto
+ * `additional_kwargs` only. `@langchain/anthropic` (verified against 1.5.1,
+ * `dist/utils/message_inputs.js`) reads `cache_control` **exclusively off
+ * content blocks** — `_formatContentBlocks` does
+ * `"cache_control" in contentPart ? contentPart.cache_control : void 0`, and
+ * `additional_kwargs` appears nowhere in that module. Every breakpoint was
+ * therefore dropped before serialization and prompt caching was inert.
+ *
+ * The authoritative placement is now the content block. `additional_kwargs`
+ * keeps carrying the same marker as a cheap, non-wire observability signal
+ * (several call sites and tests use it to detect that a breakpoint was
+ * placed); it has no effect on the request payload either way.
+ */
 function _setCacheControl(m: BaseMessage): void {
   m.additional_kwargs = {
     ...m.additional_kwargs,
     cache_control: CACHE_MARKER,
   }
+  m.content = _markContentBlocks(m.content)
+}
+
+/**
+ * Return `content` with `cache_control` on its last block, in the shape
+ * `@langchain/anthropic` consumes.
+ *
+ * - `string` → `[{ type: 'text', text, cache_control }]`
+ * - block array → copy with the marker merged onto the last block
+ * - empty string / empty array → returned unchanged (Anthropic rejects
+ *   empty text blocks, and there is nothing to anchor a breakpoint to)
+ */
+function _markContentBlocks(content: BaseMessage['content']): BaseMessage['content'] {
+  if (typeof content === 'string') {
+    if (content.length === 0) return content
+    return [
+      { type: 'text', text: content, cache_control: CACHE_MARKER },
+    ] as unknown as BaseMessage['content']
+  }
+
+  if (!Array.isArray(content) || content.length === 0) return content
+
+  const blocks = content.map(b =>
+    typeof b === 'string' ? { type: 'text', text: b } : { ...b },
+  )
+  const lastIndex = blocks.length - 1
+  const last = blocks[lastIndex]
+  if (last && typeof last === 'object') {
+    blocks[lastIndex] = { ...last, cache_control: CACHE_MARKER }
+  }
+  return blocks as unknown as BaseMessage['content']
 }
