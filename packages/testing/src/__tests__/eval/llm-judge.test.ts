@@ -155,7 +155,11 @@ describe("LlmJudgeScorer", () => {
           async create() {
             return {
               content: [
-                { type: "image", text: undefined },
+                // `text` is omitted, not set to `undefined`: under
+                // `exactOptionalPropertyTypes` an explicit `undefined` is not
+                // assignable to `text?: string`. Omission is also the truer
+                // model of a real non-text block.
+                { type: "image" },
                 {
                   type: "text",
                   text: JSON.stringify({

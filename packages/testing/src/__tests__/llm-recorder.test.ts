@@ -12,8 +12,15 @@ import type { MiddlewareContext } from "@dzupagent/core";
 const FIXED_FIXTURE_DIR = join(import.meta.dirname, "__fixtures__/llm");
 const TMP_FIXTURE_PREFIX = join(tmpdir(), "dzupagent-llm-recorder-");
 
+// `| undefined` on every override is deliberate: tests below pass
+// `{ temperature: undefined }` to exercise the *unset* hashing path, and
+// under `exactOptionalPropertyTypes` a bare `Partial<MiddlewareContext>`
+// rejects an explicitly-undefined value.
 function makeCtx(
-  overrides: Partial<MiddlewareContext> = {}
+  overrides: Partial<MiddlewareContext> & {
+    temperature?: number | undefined;
+    maxTokens?: number | undefined;
+  } = {}
 ): MiddlewareContext {
   return {
     messages: [{ role: "user", content: "What is 2 + 2?" }],
@@ -313,7 +320,7 @@ describe("LlmRecorder — hashContext optional-field defaults", () => {
     const withFields = recorder.getFixturePath(makeCtx());
     const withoutFields = recorder.getFixturePath({
       messages: makeCtx().messages,
-    });
+    } as MiddlewareContext);
     expect(withFields).not.toBe(withoutFields);
   });
 

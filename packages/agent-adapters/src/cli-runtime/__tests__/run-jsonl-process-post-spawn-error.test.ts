@@ -19,16 +19,21 @@ import { describe, expect, it, vi } from "vitest";
 
 import { runJsonlProcess } from "../run-jsonl-process.js";
 
-type InjectedChild = ChildProcess & {
+// `exitCode`/`signalCode` are readonly on the real `ChildProcess`, but these
+// tests drive the child by hand and must set them to stage a close. The
+// mutable widening therefore belongs on the exported shape, not only inside
+// the factory — otherwise every `child.exitCode = 0` at a call site is a
+// TS2540 against the readonly declaration.
+type InjectedChild = Omit<ChildProcess, "exitCode" | "signalCode"> & {
   stdout: PassThrough;
   stderr: PassThrough;
   stdin: PassThrough;
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | null;
 };
 
 function createInjectedChild(): InjectedChild {
   const child = new EventEmitter() as InjectedChild & {
-    exitCode: number | null;
-    signalCode: NodeJS.Signals | null;
     pid: number;
   };
   child.stdout = new PassThrough();
@@ -79,7 +84,10 @@ describe("ERR-C-08 — post-spawn ChildProcess 'error'", () => {
     // Emitting must NOT throw synchronously into this test (i.e. no uncaught
     // exception path); the run must fail cleanly instead.
     expect(() =>
-      child.emit("error", Object.assign(new Error("kill EPERM"), { code: "EPERM" }))
+      child.emit(
+        "error",
+        Object.assign(new Error("kill EPERM"), { code: "EPERM" })
+      )
     ).not.toThrow();
 
     // Stream teardown follows the error, as it would for a real child.
@@ -114,7 +122,10 @@ describe("ERR-C-08 — post-spawn ChildProcess 'error'", () => {
     child.stdout.write('{"event":"one"}\n');
     await new Promise((resolve) => setImmediate(resolve));
 
-    child.emit("error", Object.assign(new Error("stdio teardown"), { code: "EPIPE" }));
+    child.emit(
+      "error",
+      Object.assign(new Error("stdio teardown"), { code: "EPIPE" })
+    );
     child.stdout.end();
     child.stderr.end();
     child.exitCode = 0;
@@ -145,7 +156,10 @@ describe("ERR-C-08 — post-spawn ChildProcess 'error'", () => {
 
     expect(child.stdin.listenerCount("error")).toBeGreaterThan(0);
     expect(() =>
-      child.stdin.emit("error", Object.assign(new Error("write EPIPE"), { code: "EPIPE" }))
+      child.stdin.emit(
+        "error",
+        Object.assign(new Error("write EPIPE"), { code: "EPIPE" })
+      )
     ).not.toThrow();
 
     await generator.return(undefined);
