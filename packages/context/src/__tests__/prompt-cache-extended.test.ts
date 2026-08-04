@@ -343,7 +343,12 @@ describe('applyCacheBreakpoints', () => {
     expect(result[0]!.additional_kwargs.cache_control).toEqual({ type: 'ephemeral' })
   })
 
-  it('preserves message type and content', () => {
+  it('preserves message type and text, normalizing marked content to blocks', () => {
+    // DZUPAGENT-AGENT-C-02: this used to assert `content` stayed a raw
+    // string, which is exactly what made the breakpoint invisible to
+    // `@langchain/anthropic` — it reads `cache_control` off content blocks
+    // only. A marked message now carries `[{ type: 'text', text,
+    // cache_control }]`; the text itself is unchanged.
     const msgs: BaseMessage[] = [
       new SystemMessage('sys'),
       new HumanMessage('hello'),
@@ -352,12 +357,28 @@ describe('applyCacheBreakpoints', () => {
 
     const result = applyCacheBreakpoints(msgs)
 
+    const textOf = (m: BaseMessage): string => {
+      if (typeof m.content === 'string') return m.content
+      const blocks = m.content as Array<{ text?: string }>
+      return blocks.map(b => b.text ?? '').join('')
+    }
+    const markerOf = (m: BaseMessage): unknown => {
+      if (typeof m.content === 'string') return undefined
+      const blocks = m.content as Array<{ cache_control?: unknown }>
+      return blocks[blocks.length - 1]?.cache_control
+    }
+
     expect(result[0]!._getType()).toBe('system')
-    expect(result[0]!.content).toBe('sys')
+    expect(textOf(result[0]!)).toBe('sys')
+    expect(markerOf(result[0]!)).toEqual({ type: 'ephemeral' })
+
     expect(result[1]!._getType()).toBe('human')
-    expect(result[1]!.content).toBe('hello')
+    expect(textOf(result[1]!)).toBe('hello')
+    expect(markerOf(result[1]!)).toEqual({ type: 'ephemeral' })
+
     expect(result[2]!._getType()).toBe('ai')
-    expect(result[2]!.content).toBe('world')
+    expect(textOf(result[2]!)).toBe('world')
+    expect(markerOf(result[2]!)).toEqual({ type: 'ephemeral' })
   })
 
   it('preserves existing additional_kwargs while adding cache_control', () => {

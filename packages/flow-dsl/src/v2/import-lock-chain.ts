@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 
-import type { DslDiagnostic } from "../types.js";
-import type { DslV2ResolvedImportLock } from "./types.js";
+import type { DslDiagnostic } from "../diagnostic-types.js";
+import type {
+  DslV2ImportLockChainEntry,
+  DslV2ResolvedImportLock,
+} from "./types.js";
 
 /**
  * Revision-chain lineage over the v2 resolved import lock (ADR-0001 C2 / L1).
@@ -11,14 +14,13 @@ import type { DslV2ResolvedImportLock } from "./types.js";
  * makes it a usable content address, but it also means a lock cannot record
  * *which* lock it superseded. This sibling contract carries that lineage, so a
  * lock change is verifiable as an ordered revision rather than a silent swap.
+ *
+ * The entry shape itself lives in `./types.js` (the leaf type module for v2) so
+ * that `types.ts` — which embeds it in `DslV2FrontendMetadata` — does not have
+ * to import this implementation module back. It is re-exported here so the
+ * `@dzupagent/flow-dsl/v2-import-lock-chain` subpath surface is unchanged.
  */
-export interface DslV2ImportLockChainEntry {
-  readonly schema: "dzupagent.dslV2ImportLockChain/v1";
-  readonly lockSha256: `sha256:${string}`;
-  readonly parentLockSha256: `sha256:${string}` | null;
-  readonly revision: number;
-  readonly chainSha256: `sha256:${string}`;
-}
+export type { DslV2ImportLockChainEntry } from "./types.js";
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 

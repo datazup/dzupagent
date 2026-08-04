@@ -114,6 +114,19 @@ export interface BackgroundSubagentRuntimeDeps {
   resolveAdmission?: SubagentAdmissionResolver;
   /** Deterministic id generator (no Math.random in core paths). */
   generateId: () => string;
+  /**
+   * Identity of this worker process (AGENT-C-08). Used by orphan detection to
+   * recognise its own rows; pair it with the same id on the runner so claims
+   * and reclamation agree. Optional — lease liveness alone already prevents a
+   * peer's live task from being reaped.
+   */
+  ownerId?: string;
+  /**
+   * Grace period for `running` rows that carry no lease at all (legacy or
+   * foreign writers) before they count as orphans. Undefined keeps the
+   * historical "reclaim immediately" behaviour.
+   */
+  orphanGraceMs?: number;
   /** Optional policy for durable runners that should settle stale running work. */
   staleRunningRecovery?: Pick<
     RecoverStaleRunningTasksOptions,

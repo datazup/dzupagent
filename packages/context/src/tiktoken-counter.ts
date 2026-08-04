@@ -18,9 +18,20 @@
 import { createRequire } from 'node:module'
 import type { TokenCounter } from './token-lifecycle.js'
 
+type JsTiktokenEncoder = { encode(text: string): number[] }
+
+/**
+ * `js-tiktoken`'s public surface is camelCase (`getEncoding`,
+ * `encodingForModel`, `getEncodingNameForModel`). The snake_case names
+ * (`get_encoding` / `encoding_for_model`) belong to the *wasm* `tiktoken` /
+ * `@dqbd/tiktoken` packages and are `undefined` here — calling them threw on
+ * every count, which silently degraded 100% of counts to the chars/4
+ * heuristic (DZUPAGENT-AGENT-C-01).
+ */
 type JsTiktokenModule = {
-  encoding_for_model: (model: string) => { encode(text: string): number[] }
-  get_encoding: (encoding: string) => { encode(text: string): number[] }
+  encodingForModel?: (model: string) => JsTiktokenEncoder
+  getEncoding?: (encoding: string) => JsTiktokenEncoder
+  getEncodingNameForModel?: (model: string) => string
 }
 
 type AnthropicTokenizerModule = {
@@ -36,6 +47,51 @@ type AnthropicTokenizerModule = {
 
 let cachedModule: JsTiktokenModule | null | undefined
 let cachedAnthropicModule: AnthropicTokenizerModule | null | undefined
+const encoderCache = new Map<string, JsTiktokenEncoder | null>()
+
+const DEFAULT_ENCODING = 'cl100k_base'
+const O200K_ENCODING = 'o200k_base'
+
+/**
+ * Model-id prefixes that use the `o200k_base` vocabulary. Everything else
+ * that looks like an OpenAI id keeps `cl100k_base`.
+ */
+const O200K_PREFIXES = ['gpt-4o', 'gpt-4.1', 'gpt-5', 'chatgpt-4o', 'o1', 'o3', 'o4']
+
+/**
+ * Resolve the tiktoken encoding name for a model id. Explicit prefix routing
+ * runs first so newer ids (`gpt-5.x`, `o4-*`) resolve correctly even on a
+ * `js-tiktoken` build whose model table predates them; the library's own
+ * lookup is consulted second, and `cl100k_base` is the final default.
+ */
+function resolveEncodingName(mod: JsTiktokenModule, model?: string): string {
+  if (!model) return DEFAULT_ENCODING
+  const normalized = model.toLowerCase()
+  // Strip a provider prefix such as `openai/` or `azure/`.
+  const bare = normalized.slice(normalized.lastIndexOf('/') + 1)
+  if (O200K_PREFIXES.some(p => bare.startsWith(p))) return O200K_ENCODING
+  if (typeof mod.getEncodingNameForModel === 'function') {
+    try {
+      return mod.getEncodingNameForModel(bare)
+    } catch {
+      // Unknown model id — fall through to the default vocabulary.
+    }
+  }
+  return DEFAULT_ENCODING
+}
+
+function getEncoder(mod: JsTiktokenModule, encodingName: string): JsTiktokenEncoder | null {
+  const cached = encoderCache.get(encodingName)
+  if (cached !== undefined) return cached
+  let encoder: JsTiktokenEncoder | null = null
+  try {
+    encoder = typeof mod.getEncoding === 'function' ? mod.getEncoding(encodingName) : null
+  } catch {
+    encoder = null
+  }
+  encoderCache.set(encodingName, encoder)
+  return encoder
+}
 
 function tryLoadModule(): JsTiktokenModule | null {
   if (cachedModule !== undefined) return cachedModule
@@ -96,13 +152,71 @@ function heuristicCount(text: string): number {
   return Math.ceil(text.length / 4)
 }
 
+/**
+ * Longest whitespace-free run handed to the BPE encoder.
+ *
+ * `js-tiktoken` splits input into words with a regex and then runs byte-pair
+ * merges **per word**, and that merge loop is quadratic in the word's length.
+ * Ordinary prose never trips it (measured: a 2.5 KB English paragraph encodes
+ * in microseconds), but a base64 blob, a minified bundle or a long hash in a
+ * tool result is a single multi-kilobyte "word" — measured 9.9 s for a 1 000
+ * char run and 66 s for 5 000 on a loaded box, growing quadratically, all of
+ * it blocking the event loop.
+ *
+ * Runs longer than this are estimated with the chars/4 heuristic instead. The
+ * surrounding text is still tokenized exactly, so this only degrades accuracy
+ * for the opaque blobs where an exact count is least meaningful.
+ */
+const MAX_TOKENIZABLE_RUN = 2000
+const OVERLONG_RUN = new RegExp(`\\S{${MAX_TOKENIZABLE_RUN + 1},}`)
+
+/**
+ * Count `text` with `countExact`, substituting the chars/4 heuristic for any
+ * whitespace-free run longer than {@link MAX_TOKENIZABLE_RUN}. Applies to both
+ * backends — `js-tiktoken` and `@anthropic-ai/tokenizer` are both quadratic
+ * per word (measured: a 50 KB unbroken run costs 2 ms guarded vs 38 600 ms
+ * unguarded on the Anthropic tokenizer).
+ *
+ * Returns `undefined` as soon as `countExact` does, so an unavailable backend
+ * still falls through to the caller's own fallback.
+ */
+function countWithRunGuard(
+  countExact: (chunk: string) => number | undefined,
+  text: string,
+): number | undefined {
+  if (!OVERLONG_RUN.test(text)) return countExact(text)
+
+  let total = 0
+  let buffered = ''
+  // Splitting on a capturing whitespace group keeps the separators, so
+  // `buffered` reconstructs the original text exactly for tokenized parts.
+  const flush = (): boolean => {
+    if (buffered.length === 0) return true
+    const n = countExact(buffered)
+    buffered = ''
+    if (n === undefined) return false
+    total += n
+    return true
+  }
+
+  for (const part of text.split(/(\s+)/)) {
+    if (part.length > MAX_TOKENIZABLE_RUN && part.trim().length > 0) {
+      if (!flush()) return undefined
+      total += heuristicCount(part)
+    } else {
+      buffered += part
+    }
+  }
+  return flush() ? total : undefined
+}
+
 export class TiktokenCounter implements TokenCounter {
   count(text: string, model?: string): number {
     if (text.length === 0) return 0
 
     if (isClaudeModel(model)) {
       try {
-        const claudeCount = countWithAnthropicTokenizer(text)
+        const claudeCount = countWithRunGuard(countWithAnthropicTokenizer, text)
         if (typeof claudeCount === 'number' && Number.isFinite(claudeCount)) {
           return Math.max(0, Math.ceil(claudeCount))
         }
@@ -117,10 +231,10 @@ export class TiktokenCounter implements TokenCounter {
       return heuristicCount(text)
     }
     try {
-      const encoder = model && model.startsWith('gpt')
-        ? mod.encoding_for_model(model)
-        : mod.get_encoding('cl100k_base')
-      return encoder.encode(text).length
+      const encoder = getEncoder(mod, resolveEncodingName(mod, model))
+      if (!encoder) return heuristicCount(text)
+      return countWithRunGuard(chunk => encoder.encode(chunk).length, text)
+        ?? heuristicCount(text)
     } catch {
       // Unknown model or encoder failure — degrade to heuristic.
       return heuristicCount(text)
@@ -130,8 +244,21 @@ export class TiktokenCounter implements TokenCounter {
 
 export const __internals = {
   isClaudeModel,
+  /** Encoding routing, exposed for tests (`gpt-4o` → `o200k_base`). */
+  resolveEncodingName(model?: string): string {
+    return resolveEncodingName(tryLoadModule() ?? {}, model)
+  },
+  /**
+   * Reset the optional-module lookups. Deliberately does **not** discard
+   * built encoders: they are pure, keyed by encoding name, and rebuilding a
+   * BPE rank table costs seconds. Use {@link __internals.resetEncoderCache}
+   * when a test genuinely needs a cold encoder.
+   */
   resetCache(): void {
     cachedModule = undefined
     cachedAnthropicModule = undefined
+  },
+  resetEncoderCache(): void {
+    encoderCache.clear()
   },
 }

@@ -871,11 +871,10 @@ describe('Integration — SharedMemoryChannel write/read round-trip', () => {
 // ---------------------------------------------------------------------------
 
 describe('Error paths — corrupt IPC, oversized frames, validation failures', () => {
-  it('corrupt IPC buffer returns empty Table (non-fatal)', () => {
-    // Non-fatal contract: deserializeFromIPC swallows errors and returns empty
+  // ERR-C-23 (inverted): the old "non-fatal contract" is the defect.
+  it('corrupt IPC buffer throws instead of returning an empty Table', () => {
     const garbage = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
-    const table = deserializeFromIPC(garbage)
-    expect(table.numRows).toBe(0)
+    expect(() => deserializeFromIPC(garbage)).toThrow(/not valid Arrow IPC/)
   })
 
   it('oversized frame (> channel data region) rejects with error', () => {

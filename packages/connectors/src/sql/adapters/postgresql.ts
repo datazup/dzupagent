@@ -53,6 +53,7 @@ interface PgPoolLike {
   query(text: string, values?: unknown[]): Promise<PgQueryResult>
   connect(): Promise<PgPoolClient>
   end(): Promise<void>
+  on(event: 'error', listener: (err: unknown) => void): void
 }
 
 export class PostgreSQLConnector extends BaseSQLConnector {
@@ -82,6 +83,25 @@ export class PostgreSQLConnector extends BaseSQLConnector {
       // resolves and fail the connection closed if PostgreSQL rejects them.
       options: '-c default_transaction_read_only=on',
     }) as unknown as PgPoolLike
+
+    // node-postgres emits 'error' on idle clients (e.g. a network blip drops
+    // a pooled connection). With no listener this error propagates to the
+    // process and crashes the runtime (DZUPAGENT-ERR-C-09, sibling of C-01's
+    // fix in db-connection.ts).
+    this.pool.on('error', (err: unknown) => {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          component: 'sql-postgresql',
+          operation: 'pool_idle_error',
+          error: {
+            message: err instanceof Error ? err.message : String(err),
+            name: err instanceof Error ? err.constructor.name : typeof err,
+          },
+          timestamp: new Date().toISOString(),
+        }),
+      )
+    })
   }
 
   // ---------------------------------------------------------------------------

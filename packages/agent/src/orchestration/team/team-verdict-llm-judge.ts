@@ -39,6 +39,7 @@
  */
 
 import { readJudgeGuards } from "./team-verdict-judge-controls.js";
+import type { JudgeInvoker } from "./team-verdict-contracts.js";
 import type {
   TeamEvaluationService,
   TeamGovernanceService,
@@ -53,11 +54,10 @@ export type LlmJudgeVerdictService = TeamGovernanceService &
 /**
  * Invokes a model with a prompt and returns its raw text.
  *
- * Deliberately a bare callback rather than a `BaseChatModel`: it keeps this
- * module free of any provider dependency and lets a host route the judge
- * through whatever registry, budget, or cache it already has.
+ * Declared in `./team-verdict-contracts.js` and re-exported here so this
+ * module's public surface is unchanged; see that module for why.
  */
-export type JudgeInvoker = (prompt: string) => Promise<string>;
+export type { JudgeInvoker } from "./team-verdict-contracts.js";
 
 /** What the gate should do when the judge itself fails. */
 export type JudgeFailurePolicy = "skip" | "reject";

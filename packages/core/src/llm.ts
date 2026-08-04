@@ -17,13 +17,14 @@
 // Model registry
 // ---------------------------------------------------------------------------
 export { ModelRegistry } from './llm/model-registry.js'
-export type { ModelFallbackCandidate } from './llm/model-registry.js'
+export type { ModelFallbackCandidate, FallbackRequirements } from './llm/model-registry.js'
 export type {
   KnownLLMProvider,
   LLMProviderConfig,
   LLMProviderName,
   ModelTier,
   ModelSpec,
+  ModelCapability,
   ModelOverrides,
   ModelFactory,
   StructuredOutputStrategy,

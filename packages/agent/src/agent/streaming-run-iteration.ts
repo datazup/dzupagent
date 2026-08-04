@@ -8,6 +8,7 @@
  */
 
 import type { AIMessage, BaseMessage } from '@langchain/core/messages'
+import { isAIMessageChunk } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import {
   estimateTokens,
@@ -149,6 +150,38 @@ export async function openIterationStream(
 }
 
 /**
+ * C-03 — accumulate a streamed delta into the running assembled message.
+ *
+ * Providers split a single logical response across many deltas: text
+ * arrives token-by-token, tool-call arguments arrive as partial JSON
+ * fragments in `tool_call_chunks`, and `usage_metadata` may land on any
+ * chunk (Anthropic emits input tokens on the FIRST delta). Overwriting
+ * the accumulator per chunk therefore dropped every streamed tool call
+ * and any usage metadata not carried by the terminal delta.
+ *
+ * `AIMessageChunk.concat` merges content, `tool_call_chunks` (collapsing
+ * completed partial JSON into real `tool_calls`), `additional_kwargs`,
+ * `response_metadata` and `usage_metadata`. Providers/mocks that emit
+ * plain `AIMessage`s instead of chunks have no `concat`; for those the
+ * last-chunk semantics are retained, which matches how a non-chunk
+ * stream necessarily behaves (each message is already complete).
+ */
+function mergeStreamChunk(
+  accumulated: AIMessage | null,
+  chunk: AIMessage,
+): AIMessage {
+  if (!accumulated) return chunk
+  if (!isAIMessageChunk(accumulated) || !isAIMessageChunk(chunk)) return chunk
+  try {
+    return accumulated.concat(chunk)
+  } catch {
+    // A malformed delta must not abort an otherwise healthy stream;
+    // fall back to last-chunk semantics for this one merge.
+    return chunk
+  }
+}
+
+/**
  * Consume an open stream, yielding `text` events for partial content
  * and recording circuit-breaker failure on a consumption-time throw.
  * Returns the final assembled {@link AIMessage}, or `null` if the
@@ -170,7 +203,7 @@ export async function* consumeStream(args: {
   let fullResponse: AIMessage | null = null
   try {
     for await (const chunk of stream) {
-      fullResponse = chunk
+      fullResponse = mergeStreamChunk(fullResponse, chunk)
       const content = typeof chunk.content === 'string' ? chunk.content : ''
       if (content) {
         chunks.push(content)

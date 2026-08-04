@@ -95,9 +95,12 @@ describe('runBenchmark', () => {
 
     const result = await runBenchmark(suite, target);
     expect(result.scores['scorer-1']).toBe(0);
-    // With 0 entries, avg is 0, which is below the 0.5 threshold
-    expect(result.passedBaseline).toBe(false);
-    expect(result.regressions).toContain('scorer-1');
+    // ERR-C-21: zero entries means zero real measurements — the same
+    // "inconclusive, not failing" rule that applies to an unreachable judge.
+    // Gating on a fabricated 0-vs-threshold comparison would turn "no data"
+    // into a false-positive regression.
+    expect(result.passedBaseline).toBe(true);
+    expect(result.regressions).toHaveLength(0);
   });
 
   it('handles multiple scorers', async () => {
@@ -279,21 +282,36 @@ describe('runBenchmark with llm-judge', () => {
     expect(result.scores['judge']).toBeGreaterThan(0);
   });
 
-  it('returns 0.0 when llm judge throws', async () => {
+  it('ERR-C-21: a 100%-unreachable judge is not treated as a real regression, and the outage is logged', async () => {
     const llm = vi.fn().mockRejectedValue(new Error('API error'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const suite = makeSuite({
-      scorers: [{ id: 'judge', name: 'J', type: 'llm-judge', description: 'test' }],
-      baselineThresholds: {},
-      dataset: [{ id: 'e1', input: 'q', expectedOutput: 'a' }],
-    });
+    try {
+      const suite = makeSuite({
+        scorers: [{ id: 'judge', name: 'J', type: 'llm-judge', description: 'test' }],
+        // A high baseline threshold: under the old (defective) behaviour
+        // the outage would score 0.0 and be reported as a regression.
+        baselineThresholds: { judge: 0.9 },
+        dataset: [{ id: 'e1', input: 'q', expectedOutput: 'a' }],
+      });
 
-    const target = async () => 'response';
-    const result = await runBenchmark(suite, target, {
-      llm,
-      judgeCriteria: [{ name: 'test', description: 'test', weight: 1 }],
-    });
-    expect(result.scores['judge']).toBe(0.0);
+      const target = async () => 'response';
+      const result = await runBenchmark(suite, target, {
+        llm,
+        judgeCriteria: [{ name: 'test', description: 'test', weight: 1 }],
+      });
+
+      // No real measurement was ever taken, so this scorer must not be
+      // reported as regressed, and the run must not fail the baseline gate
+      // because of the outage.
+      expect(result.regressions).not.toContain('judge');
+      expect(result.passedBaseline).toBe(true);
+
+      // The outage must still be visible via structured logging.
+      expect(errorSpy).toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
 

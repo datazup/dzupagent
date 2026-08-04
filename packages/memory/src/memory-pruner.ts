@@ -30,6 +30,17 @@ const DEFAULT_PAGE_SIZE = 500
 /** Default capacity before LRU/strength-based eviction kicks in. */
 const DEFAULT_MAX_ENTRIES = 1000
 
+/**
+ * Hard ceiling on how many entries a single prune run will pull into memory.
+ *
+ * The capacity pass has to observe *more* than `maxEntries` rows before it can
+ * evict anything, so the scan must be able to exceed `maxEntries` — but it must
+ * still be bounded so a pathological store cannot OOM the pruner. Each run
+ * therefore scans at most `DEFAULT_SCAN_MULTIPLIER * maxEntries` entries;
+ * anything beyond that is handled by the next run.
+ */
+const DEFAULT_SCAN_MULTIPLIER = 10
+
 /** Default TTL: 7 days. */
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -51,6 +62,13 @@ export interface PruneOptions {
   now?: () => number
   /** Override the page size used when scanning the store. */
   pageSize?: number
+  /**
+   * Hard ceiling on the number of entries a single run pulls into memory.
+   *
+   * Must be `> maxEntries` for the capacity pass to be able to fire.
+   * Defaults to `10 * maxEntries`.
+   */
+  maxScan?: number
 }
 
 export interface PruneResult {
@@ -90,10 +108,18 @@ export class MemoryPruner {
     const namespace = options.namespace ?? []
     const now = (options.now ?? Date.now)()
     const pageSize = options.pageSize ?? DEFAULT_PAGE_SIZE
+    const maxScan =
+      options.maxScan ?? Math.max(maxEntries + 1, maxEntries * DEFAULT_SCAN_MULTIPLIER)
 
+    // AGENT-C-09: the scan MUST be able to exceed `maxEntries`, otherwise the
+    // capacity pass below is structurally unreachable. A single
+    // `search(ns, { limit: pageSize })` caps the result at 500 while
+    // `maxEntries` defaults to 1000, so `survivors.length > maxEntries` could
+    // never be true and the only global bound on the store was dead code.
+    // We therefore page through the namespace up to `maxScan` entries.
     let items: ConsolidationStoreItem[]
     try {
-      items = await store.search(namespace, { limit: pageSize })
+      items = await scanNamespace(store, namespace, pageSize, maxScan)
     } catch {
       return { expired: 0, evicted: 0, remaining: 0 }
     }
@@ -157,6 +183,45 @@ export class MemoryPruner {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Page through `namespace` in batches of `pageSize`, accumulating at most
+ * `maxScan` entries.
+ *
+ * Stops early when a page comes back shorter than `pageSize` (store exhausted)
+ * or when a page repeats the previous page's keys — the latter guards against
+ * backends that ignore `offset`, which would otherwise spin forever.
+ */
+async function scanNamespace(
+  store: MemoryStore,
+  namespace: string[],
+  pageSize: number,
+  maxScan: number,
+): Promise<ConsolidationStoreItem[]> {
+  const collected: ConsolidationStoreItem[] = []
+  const seen = new Set<string>()
+
+  for (let offset = 0; collected.length < maxScan; offset += pageSize) {
+    const remaining = maxScan - collected.length
+    const limit = Math.min(pageSize, remaining)
+    const page = await store.search(namespace, { limit, offset })
+    if (page.length === 0) break
+
+    let added = 0
+    for (const item of page) {
+      if (seen.has(item.key)) continue
+      seen.add(item.key)
+      collected.push(item)
+      added++
+    }
+
+    // Backend ignored `offset` (page is a duplicate of what we already have)
+    // or the namespace is exhausted — either way, stop.
+    if (added === 0 || page.length < limit) break
+  }
+
+  return collected
+}
 
 /**
  * Parse the data we need for pruning out of a raw store item.

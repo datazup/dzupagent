@@ -112,6 +112,31 @@ function runDomainBoundaryCheckResult(repoRoot) {
   })
 }
 
+test('detects forbidden domain-package imports without ripgrep installed (DZUPAGENT-ARCH-C-02)', () => {
+  // Regression test for the `spawnSync rg ENOENT` hard-crash: force the
+  // pure-Node fallback by running the script with a PATH that cannot
+  // resolve `rg`, and assert the domain-import violation is still caught
+  // rather than the process dying with an unhandled exception.
+  const repoRoot = createRepo({
+    alphaSource: "import { thing } from '@dzupagent/domain-nl2sql'\nvoid thing\n",
+  })
+
+  try {
+    const result = spawnSync(process.execPath, [scriptPath], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PATH: dirname(process.execPath) },
+    })
+
+    assert.equal(result.status, 1, `expected a reported violation, not a crash:\n${result.stderr}`)
+    assert.doesNotMatch(result.stderr, /ENOENT/)
+    assert.match(result.stdout + result.stderr, /domain-nl2sql/)
+  } finally {
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
 test('fails when a production source import is missing from supported manifest fields', () => {
   const repoRoot = createRepo({
     alphaSource: "import { thing } from '@dzupagent/beta'\nvoid thing\n",

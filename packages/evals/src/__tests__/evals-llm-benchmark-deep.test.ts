@@ -466,11 +466,15 @@ describe('runBenchmark — deep coverage', () => {
     expect(result.passedBaseline).toBe(true);
   });
 
-  it('empty dataset with threshold yields regression', async () => {
+  it('empty dataset with threshold does not yield a false-positive regression (ERR-C-21)', async () => {
+    // Zero dataset entries means zero real measurements. Gating a threshold
+    // against a fabricated average would turn "no data" into a CI-blocking
+    // false positive — the same "inconclusive, not failing" rule applied to
+    // an unreachable judge.
     const suite = mkSuite({ dataset: [], baselineThresholds: { s1: 0.5 } });
     const result = await runBenchmark(suite, async () => 'x');
-    expect(result.passedBaseline).toBe(false);
-    expect(result.regressions).toContain('s1');
+    expect(result.passedBaseline).toBe(true);
+    expect(result.regressions).toHaveLength(0);
   });
 
   it('unknown scorer type falls back to non-empty heuristic (1.0)', async () => {
@@ -1016,7 +1020,7 @@ describe('error and corrupt-input paths', () => {
     expect(result.scores['s1']).toBe(0);
   });
 
-  it('runEvalSuite rejects when any scorer throws', async () => {
+  it('ERR-C-25: runEvalSuite isolates a throwing scorer instead of rejecting the whole suite', async () => {
     const bad: EvalScorer = {
       name: 'bad',
       score: vi.fn().mockRejectedValue(new Error('nope')),
@@ -1026,7 +1030,10 @@ describe('error and corrupt-input paths', () => {
       cases: [{ id: 'c1', input: 'x' }],
       scorers: [bad],
     };
-    await expect(runEvalSuite(suite, async () => 'o')).rejects.toThrow('nope');
+    const result = await runEvalSuite(suite, async () => 'o');
+    expect(result.results).toHaveLength(1);
+    expect(result.results[0]!.pass).toBe(false);
+    expect(result.results[0]!.scorerResults[0]!.result.reasoning).toContain('nope');
   });
 
   it('CompositeScorer surfaces errors from sub-scorers', async () => {

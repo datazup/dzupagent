@@ -300,6 +300,8 @@ export class DzupAgent {
           getProviderAttemptsHelper({
             config: this.config,
             resolvedTier: this.resolvedTier,
+            resolvedProvider: this.resolvedProvider,
+            tenantId: this.tenantId,
             tools,
           }),
         prepareMessages: (inputMessages) =>
@@ -469,6 +471,8 @@ export class DzupAgent {
           getProviderAttemptsHelper({
             config: this.config,
             resolvedTier: this.resolvedTier,
+            resolvedProvider: this.resolvedProvider,
+            tenantId: this.tenantId,
             tools: attemptTools,
           }),
         shouldRunFailover: (err, failoverMessages) =>

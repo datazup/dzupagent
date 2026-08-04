@@ -78,7 +78,17 @@ export {
 export {
   LifecycleController,
   type AdmissionDecision,
+  type LifecycleOwnershipOptions,
 } from "./lifecycle/lifecycle-controller.js";
+export {
+  DEFAULT_TASK_LEASE_MS,
+  isLeaseLive,
+  nextLeaseClaim,
+  renewTaskLease,
+  startTaskLeaseHeartbeat,
+  type TaskLeaseClaim,
+  type TaskLeaseHeartbeatOptions,
+} from "./lifecycle/task-lease.js";
 
 // Governance
 export {

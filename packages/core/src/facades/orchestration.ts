@@ -70,7 +70,8 @@ export type { EscalationPolicyConfig, EscalationResult } from '../router/escalat
 // ---------------------------------------------------------------------------
 export { SubAgentSpawner } from '../subagent/subagent-spawner.js'
 export { REACT_DEFAULTS } from '../subagent/subagent-types.js'
-export type { SubAgentConfig, SubAgentResult, SubAgentUsage } from '../subagent/subagent-types.js'
+export type { SubAgentConfig, SubAgentResult, SubAgentSpawnerOptions, SubAgentUsage } from '../subagent/subagent-types.js'
+export { currentSpawnDepth, runAtSpawnDepth } from '../subagent/spawn-depth-context.js'
 export { mergeFileChanges, fileDataReducer } from '../subagent/file-merge.js'
 
 // ---------------------------------------------------------------------------

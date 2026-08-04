@@ -18,6 +18,47 @@ const HttpRoutableProviderIds = HTTP_ROUTABLE_PROVIDER_IDS as [
 export const AdapterProviderIdSchema = z.enum(HttpRoutableProviderIds)
 export const PolicyConformanceModeSchema = z.enum(['strict', 'warn-only'])
 
+/**
+ * Tool names are forwarded to external agent CLIs as **variadic** argv values
+ * (`--allowedTools a b c`), so any value starting with `-` would be parsed by
+ * the CLI as a new flag (e.g. `--dangerously-skip-permissions`). Restricting
+ * the character class rejects that class of argument injection outright.
+ */
+const ToolNameSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_.:-]+$/)
+  // The character class above permits `-`, which is legitimate *inside* a tool
+  // name (`web-search`) but is exactly the smuggling vector when it leads
+  // (`--dangerously-skip-permissions`). Reject a leading `-` explicitly.
+  .refine((value) => !value.startsWith('-'), {
+    message: 'Tool name must not start with "-"',
+  })
+const ToolListSchema = z.array(ToolNameSchema).max(200)
+
+export const SandboxModeSchema = z.enum([
+  'read-only',
+  'workspace-write',
+  'full-access',
+])
+export const ReasoningEffortSchema = z.enum(['low', 'medium', 'high'])
+
+/**
+ * SEC-C-01: the HTTP `options` bag used to be `z.record(z.string(),
+ * z.unknown())` — an untyped channel forwarded verbatim into `AgentInput`,
+ * which is exactly where sandbox-tier downgrades (SEC-H-11) and tool-list
+ * argument injection (SEC-H-10) are consumed. It is now an explicit,
+ * `.strict()` allowlist: unknown keys are rejected rather than forwarded.
+ */
+export const RunOptionsSchema = z
+  .object({
+    sandboxMode: SandboxModeSchema.optional(),
+    allowedTools: ToolListSchema.optional(),
+    blockedTools: ToolListSchema.optional(),
+    model: z.string().max(200).optional(),
+    reasoning: ReasoningEffortSchema.optional(),
+  })
+  .strict()
+
 export const RunRequestSchema = z.object({
   prompt: z.string().min(1).max(100_000),
   tags: z.array(z.string().max(100)).max(50).optional(),
@@ -28,7 +69,7 @@ export const RunRequestSchema = z.object({
   maxTurns: z.number().int().positive().max(1000).optional(),
   maxBudgetUsd: z.number().positive().max(100).optional(),
   policyConformanceMode: PolicyConformanceModeSchema.optional(),
-  options: z.record(z.string(), z.unknown()).optional(),
+  options: RunOptionsSchema.optional(),
 })
 
 export const SupervisorRequestSchema = z.object({
@@ -59,6 +100,7 @@ export const ApproveRequestSchema = z.object({
   reason: z.string().max(10_000).optional(),
 })
 
+export type RunOptions = z.infer<typeof RunOptionsSchema>
 export type RunRequest = z.infer<typeof RunRequestSchema>
 export type SupervisorRequest = z.infer<typeof SupervisorRequestSchema>
 export type ParallelRequest = z.infer<typeof ParallelRequestSchema>

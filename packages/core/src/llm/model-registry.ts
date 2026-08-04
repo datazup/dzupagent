@@ -42,7 +42,9 @@ export interface FallbackRequirements {
   /**
    * Capabilities that every selected model must declare.
    * A model with no `capabilities` array is treated as not having any
-   * capability (i.e. it will be skipped when any requirement is listed).
+   * capability (i.e. it will be skipped when any requirement is listed)
+   * unless {@link FallbackRequirements.undeclaredCapabilityPolicy} is
+   * set to `'allow'`.
    */
   requiredCapabilities?: ModelCapability[];
   /**
@@ -51,6 +53,86 @@ export interface FallbackRequirements {
    * `contextWindow` value are NOT skipped — unknown ≠ insufficient.
    */
   minContextWindow?: number;
+  /**
+   * How to treat a spec that declares **no** `capabilities` array at all.
+   *
+   * - `'skip'` (default): unknown ≠ capable. Any listed requirement skips
+   *   the candidate. This is the original {@link ModelRegistry.getModelWithFallback}
+   *   contract and is kept as the default so existing callers are unaffected.
+   * - `'allow'`: an *undeclared* capability set is not treated as evidence of
+   *   incapability — only specs that declare `capabilities` are filtered.
+   *   Used by the agent layer's derived requirements (`C-06`) so that
+   *   registries which never populated `capabilities` keep working instead of
+   *   hard-failing every failover chain.
+   */
+  undeclaredCapabilityPolicy?: "skip" | "allow";
+}
+
+/**
+ * Capability aliases treated as equivalent when matching requirements.
+ *
+ * `tool_use` and `function_calling` name the same provider feature under two
+ * vendor vocabularies; a spec declaring either satisfies a requirement for
+ * the other. Without this, a derived `tool_use` requirement would reject an
+ * OpenAI-style spec that declared `function_calling`.
+ */
+const CAPABILITY_ALIASES: Partial<Record<ModelCapability, ModelCapability[]>> = {
+  tool_use: ["function_calling"],
+  function_calling: ["tool_use"],
+};
+
+function declaresCapability(
+  declared: readonly ModelCapability[],
+  required: ModelCapability,
+): boolean {
+  if (declared.includes(required)) return true;
+  const aliases = CAPABILITY_ALIASES[required];
+  return aliases !== undefined && aliases.some((a) => declared.includes(a));
+}
+
+/**
+ * Evaluate a single spec against {@link FallbackRequirements}.
+ *
+ * Returns `null` when the spec satisfies every requirement, or a human-readable
+ * skip reason (without the provider prefix) when it does not. Shared by
+ * {@link ModelRegistry.getModelWithFallback} (selection-time) and
+ * {@link ModelRegistry.getModelFallbackCandidates} (same-run failover chain) so
+ * the two paths cannot drift — the drift between them was `DZUPAGENT-AGENT-C-06`.
+ */
+function evaluateFallbackRequirements(
+  spec: ModelSpec,
+  requirements: FallbackRequirements,
+): string | null {
+  const { requiredCapabilities, minContextWindow } = requirements;
+
+  // Context-window check: skip if known to be too small.
+  // An unknown contextWindow is never treated as insufficient.
+  if (
+    minContextWindow !== undefined &&
+    spec.contextWindow !== undefined &&
+    spec.contextWindow < minContextWindow
+  ) {
+    return `contextWindow ${spec.contextWindow} < required ${minContextWindow}`;
+  }
+
+  // Capability check: skip if any required capability is missing.
+  if (requiredCapabilities && requiredCapabilities.length > 0) {
+    const declared = spec.capabilities;
+    if (declared === undefined) {
+      if ((requirements.undeclaredCapabilityPolicy ?? "skip") === "allow") {
+        return null;
+      }
+      return `missing capabilities [${requiredCapabilities.join(", ")}]`;
+    }
+    const missing = requiredCapabilities.filter(
+      (cap) => !declaresCapability(declared, cap),
+    );
+    if (missing.length > 0) {
+      return `missing capabilities [${missing.join(", ")}]`;
+    }
+  }
+
+  return null;
 }
 
 function resolveStructuredOutputCapabilities(
@@ -528,36 +610,11 @@ export class ModelRegistry {
 
       // Capability + context-window check
       if (requirements) {
-        const { requiredCapabilities, minContextWindow } = requirements;
-
-        // Context-window check: skip if known to be too small
-        if (
-          minContextWindow !== undefined &&
-          spec.contextWindow !== undefined &&
-          spec.contextWindow < minContextWindow
-        ) {
-          errors.push(
-            `${provider.provider}: contextWindow ${spec.contextWindow} < required ${minContextWindow}`,
-          );
+        const skipReason = evaluateFallbackRequirements(spec, requirements);
+        if (skipReason !== null) {
+          errors.push(`${provider.provider}: ${skipReason}`);
           capabilitySkipCount++;
           continue;
-        }
-
-        // Capability check: skip if any required capability is missing
-        if (requiredCapabilities && requiredCapabilities.length > 0) {
-          const modelCaps = spec.capabilities ?? [];
-          const missing = requiredCapabilities.filter(
-            (cap) => !modelCaps.includes(cap),
-          );
-          if (missing.length > 0) {
-            errors.push(
-              `${provider.provider}: missing capabilities [${missing.join(
-                ", ",
-              )}]`,
-            );
-            capabilitySkipCount++;
-            continue;
-          }
         }
       }
 
@@ -627,13 +684,32 @@ export class ModelRegistry {
    * open circuits and factory errors are filtered before invocation. Callers
    * that implement explicit run-level retry/failover can use this candidate
    * chain to attempt a different provider after a transient invocation error.
+   *
+   * When `requirements` is supplied the SAME capability / context-window guard
+   * that {@link getModelWithFallback} applies is applied to every candidate in
+   * the chain (`DZUPAGENT-AGENT-C-06`). Before this parameter existed, a
+   * tool-calling run could fail over onto a tier peer that does not support
+   * tool calling and silently degrade to plain text. Candidates that cannot
+   * satisfy the requirements are dropped; if *every* candidate is dropped for
+   * a capability/context reason a {@link ForgeError} with code
+   * `NO_CAPABLE_FALLBACK` is thrown rather than returning a chain that would
+   * misbehave.
+   *
+   * Omitting `requirements` preserves the pre-C-06 behaviour exactly.
+   *
+   * @throws ForgeError with code NO_CAPABLE_FALLBACK when candidates existed
+   *   but none satisfied `requirements`
+   * @throws ForgeError with code ALL_PROVIDERS_EXHAUSTED when no candidate is
+   *   selectable at all
    */
   getModelFallbackCandidates(
     tier: ModelTier,
     overrides?: ModelOverrides,
+    requirements?: FallbackRequirements,
   ): ModelFallbackCandidate[] {
     const errors: string[] = [];
     const candidates: ModelFallbackCandidate[] = [];
+    let capabilitySkipCount = 0;
 
     for (const provider of this.orderedProviders()) {
       const spec = provider.models[tier];
@@ -643,6 +719,18 @@ export class ModelRegistry {
       if (!breaker.canExecute()) {
         errors.push(`${provider.provider}: circuit open`);
         continue;
+      }
+
+      // Capability + context-window guard (C-06). Applied to every candidate
+      // in the chain, including the first — a run that needs tool calling must
+      // not be handed a model declared as incapable of it.
+      if (requirements) {
+        const skipReason = evaluateFallbackRequirements(spec, requirements);
+        if (skipReason !== null) {
+          errors.push(`${provider.provider}: ${skipReason}`);
+          capabilitySkipCount++;
+          continue;
+        }
       }
 
       try {
@@ -664,6 +752,23 @@ export class ModelRegistry {
     }
 
     if (candidates.length > 0) return candidates;
+
+    // At least one candidate was dropped because it could not meet the run's
+    // requirements: surface that specifically instead of the generic
+    // "exhausted" error, so the caller can tell a capability gap from an
+    // outage.
+    if (requirements !== undefined && capabilitySkipCount > 0) {
+      throw new ForgeError({
+        code: "NO_CAPABLE_FALLBACK",
+        message: `No provider for tier "${tier}" satisfies the required capabilities/context. Checked: ${errors.join(
+          "; ",
+        )}`,
+        recoverable: false,
+        suggestion:
+          "Add a provider with the required capabilities or reduce the minContextWindow requirement",
+        context: { tier, requirements, errors },
+      });
+    }
 
     throw new ForgeError({
       code: "ALL_PROVIDERS_EXHAUSTED",

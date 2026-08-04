@@ -27,6 +27,8 @@ export interface RunnerFactoryDeps {
   events: SubagentEventSink;
   clock: Clock;
   checkpointer?: CheckpointerPort;
+  /** Worker identity this process claims task leases under (AGENT-C-08). */
+  ownerId?: string;
 }
 
 /**
@@ -46,6 +48,15 @@ export interface CreateInProcessRuntimeOptions {
   lifecyclePolicy?: Partial<LifecyclePolicy>;
   clock?: Clock;
   generateId?: () => string;
+  /**
+   * Identity of this worker process (AGENT-C-08). Shared by the runner (which
+   * writes it to `task.ownerId` when claiming an execution lease) and the
+   * runtime's orphan detection. Defaults to a per-process id; set it explicitly
+   * when several processes share one task store.
+   */
+  ownerId?: string;
+  /** Grace period for unowned `running` rows before they count as orphans. */
+  orphanGraceMs?: number;
   /** Provide a custom runner factory to use a non-default execution substrate. */
   runnerFactory?: (deps: RunnerFactoryDeps) => TaskRunner;
 }
@@ -68,11 +79,13 @@ export function createInProcessSubagentRuntime(
     options.approvalGate
   );
 
+  const ownerId = options.ownerId ?? `subagent-worker-${process.pid}`;
   const runnerDeps: RunnerFactoryDeps = {
     store,
     executor: options.executor,
     events: options.events,
     clock,
+    ownerId,
     ...(options.checkpointer ? { checkpointer: options.checkpointer } : {}),
   };
   const runner = options.runnerFactory
@@ -90,6 +103,10 @@ export function createInProcessSubagentRuntime(
       : {}),
     ...(options.lifecyclePolicy ? { policy: options.lifecyclePolicy } : {}),
     clock,
+    ownerId,
+    ...(options.orphanGraceMs !== undefined
+      ? { orphanGraceMs: options.orphanGraceMs }
+      : {}),
     generateId: options.generateId ?? (() => randomUUID()),
   });
 }

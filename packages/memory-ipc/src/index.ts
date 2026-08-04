@@ -33,10 +33,20 @@ export type { FrameRecord } from './frame-reader.js'
 export {
   serializeToIPC,
   deserializeFromIPC,
+  tryDeserializeFromIPC,
   ipcToBase64,
   base64ToIPC,
 } from './ipc-serializer.js'
 export type { SerializeOptions } from './ipc-serializer.js'
+
+// --- IPC boundary errors (ERR-C-23) ---
+export {
+  MemoryFrameError,
+  isMemoryFrameError,
+  logFrameError,
+  defaultLogger,
+} from './ipc-errors.js'
+export type { MemoryFrameErrorCode, FrameworkLogger } from './ipc-errors.js'
 
 // --- Adapters ---
 export { createAdapterRegistry } from './adapters/adapter-interface.js'

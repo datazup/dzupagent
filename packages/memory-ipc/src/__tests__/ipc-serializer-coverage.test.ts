@@ -10,6 +10,7 @@ import {
   ipcToBase64,
   base64ToIPC,
 } from '../ipc-serializer.js'
+import { isMemoryFrameError, type MemoryFrameError } from '../ipc-errors.js'
 
 // ---------------------------------------------------------------------------
 // serializeToIPC
@@ -38,11 +39,17 @@ describe('serializeToIPC', () => {
     expect(bytes.byteLength).toBeGreaterThan(0)
   })
 
-  it('returns empty Uint8Array on error', () => {
+  // ERR-C-23 (inverted): returning an empty Uint8Array made a serialization
+  // failure indistinguishable from a legitimately empty frame.
+  it('throws MEMORY_FRAME_SERIALIZE_FAILED on error instead of returning empty bytes', () => {
     // Force an error by passing an invalid object as a table
     const badTable = { not: 'a table' } as unknown as Table
-    const bytes = serializeToIPC(badTable)
-    expect(bytes.byteLength).toBe(0)
+    expect(() => serializeToIPC(badTable)).toThrow(/serialize Arrow table/)
+    try {
+      serializeToIPC(badTable)
+    } catch (err) {
+      expect(isMemoryFrameError(err, 'MEMORY_FRAME_SERIALIZE_FAILED')).toBe(true)
+    }
   })
 })
 
@@ -60,15 +67,38 @@ describe('deserializeFromIPC', () => {
     expect(restored.getChild('age')?.get(1)).toBe(25)
   })
 
-  it('returns empty table for empty bytes', () => {
-    const table = deserializeFromIPC(new Uint8Array(0))
-    expect(table.numRows).toBe(0)
+  // ERR-C-23 (inverted): these two previously asserted `numRows === 0`, which
+  // is exactly the confusion the finding is about — a corrupt payload has to be
+  // distinguishable from an empty result, not collapse into one.
+  it('throws for empty bytes rather than returning an empty table', () => {
+    expect(() => deserializeFromIPC(new Uint8Array(0))).toThrow(
+      /not valid Arrow IPC/,
+    )
   })
 
-  it('returns empty table for malformed bytes', () => {
+  it('throws MEMORY_FRAME_DESERIALIZE_FAILED for malformed bytes', () => {
     const garbage = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7])
-    const table = deserializeFromIPC(garbage)
-    expect(table.numRows).toBe(0)
+    expect(() => deserializeFromIPC(garbage)).toThrow(/not valid Arrow IPC/)
+    try {
+      deserializeFromIPC(garbage)
+    } catch (err) {
+      expect(isMemoryFrameError(err, 'MEMORY_FRAME_DESERIALIZE_FAILED')).toBe(true)
+      expect((err as MemoryFrameError).context['byteLength']).toBe(8)
+    }
+  })
+
+  it('distinguishes a genuinely empty frame from a corrupt one', () => {
+    // A real, schema-carrying but row-less frame round-trips fine...
+    const emptyFrame = serializeToIPC(tableFromArrays({ x: new Int32Array([]) }))
+    const restored = deserializeFromIPC(emptyFrame)
+    expect(restored.numRows).toBe(0)
+    expect(restored.schema.fields.length).toBe(1)
+    // ...while a truncated version of that same frame is a loud error. Note
+    // apache-arrow does NOT throw here: it hands back a schema-less 0-column
+    // table, which is exactly the empty/corrupt ambiguity ERR-C-23 is about.
+    expect(() =>
+      deserializeFromIPC(emptyFrame.subarray(0, 4)),
+    ).toThrow(/not valid Arrow IPC/)
   })
 })
 

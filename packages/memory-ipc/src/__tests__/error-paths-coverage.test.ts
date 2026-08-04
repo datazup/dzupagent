@@ -140,15 +140,15 @@ describe('DuckDBEngine.create — unavailable error', () => {
 // ---------------------------------------------------------------------------
 
 describe('ipc-serializer — empty table edge case', () => {
-  it('serializes and deserializes a table with no rows and no columns', () => {
+  // ERR-C-23 (inverted): a *column-less* table carries no Arrow schema, so it
+  // is byte-for-byte indistinguishable from a corrupt payload once decoded.
+  // Accepting it silently is the empty/corrupt collapse this finding is about.
+  it('rejects a table with no rows and no columns as an undecodable frame', () => {
     const empty = tableFromArrays({})
     const bytes = serializeToIPC(empty)
-    // May be 0 bytes or valid IPC depending on Arrow version
     expect(bytes).toBeInstanceOf(Uint8Array)
 
-    // Deserialization of the resulting bytes should not throw
-    const restored = deserializeFromIPC(bytes)
-    expect(restored.numRows).toBe(0)
+    expect(() => deserializeFromIPC(bytes)).toThrow(/not valid Arrow IPC/)
   })
 
   it('base64 encodes and decodes empty table bytes', () => {

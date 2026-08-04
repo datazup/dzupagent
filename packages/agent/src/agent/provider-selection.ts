@@ -26,8 +26,16 @@
 import type { BaseMessage } from '@langchain/core/messages'
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import type { StructuredToolInterface } from '@langchain/core/tools'
-import { attachStructuredOutputCapabilities, isTransientError, type ModelTier } from '@dzupagent/core/llm'
+import {
+  attachStructuredOutputCapabilities,
+  isTransientError,
+  type FallbackRequirements,
+  type ModelTier,
+} from '@dzupagent/core/llm'
+import { typedEmit } from '@dzupagent/core/events'
+import type { ModelCapability } from '@dzupagent/core/llm'
 import type { DzupAgentConfig } from './agent-types.js'
+import type { ModelFallbackCandidate } from '@dzupagent/core/llm'
 import type { ProviderAttempt } from './provider-failover.js'
 
 const MODEL_TIERS: Set<string> = new Set([
@@ -99,6 +107,109 @@ export interface GetProviderAttemptsParams {
   config: DzupAgentConfig
   resolvedTier: ModelTier | undefined
   tools: StructuredToolInterface[]
+  /**
+   * The provider the run is currently pinned to (from `resolveModel`). Used as
+   * the "home vendor" for the cross-vendor allowlist gate: a hop to any other
+   * vendor must be explicitly approved. Falls back to the first candidate in
+   * the chain when not supplied.
+   */
+  resolvedProvider?: string | undefined
+  /** Optional correlation ids forwarded on `provider:fallback_blocked`. */
+  runId?: string | undefined
+  tenantId?: string | undefined
+}
+
+/**
+ * Derive the capability / context-window requirements a failover candidate
+ * must satisfy for THIS run (`DZUPAGENT-AGENT-C-06`).
+ *
+ * Derived automatically:
+ *  - `tool_use` whenever the run has bound tools, or when the configured
+ *    structured-output strategy is tool-based (`anthropic-tool-use`). A model
+ *    that cannot call tools would silently answer in prose instead.
+ *  - `minContextWindow` from `messageConfig.maxMessageTokens`, which is the
+ *    budget the agent will actually fill.
+ *
+ * Merged on top of the host's explicit `capabilityRequirements` (which is the
+ * only way to express `vision`, since the chain is built before the run's
+ * messages are known — see the deferred note in TASK.md).
+ *
+ * Returns `undefined` when the guard is disabled or nothing is required, in
+ * which case the registry keeps its pre-C-06 unfiltered behaviour.
+ */
+export function deriveFallbackRequirements(
+  config: DzupAgentConfig,
+  tools: StructuredToolInterface[],
+): FallbackRequirements | undefined {
+  const policy = config.providerFailover
+  const guard = policy?.capabilityGuard ?? 'declared'
+  if (guard === 'off') return undefined
+
+  const explicit = policy?.capabilityRequirements
+  const required = new Set<ModelCapability>(explicit?.requiredCapabilities ?? [])
+
+  if (tools.length > 0) required.add('tool_use')
+  if (config.structuredOutputCapabilities?.preferredStrategy === 'anthropic-tool-use') {
+    required.add('tool_use')
+  }
+
+  const minContextWindow =
+    explicit?.minContextWindow ?? config.messageConfig?.maxMessageTokens
+
+  if (required.size === 0 && minContextWindow === undefined) return undefined
+
+  return {
+    ...(required.size > 0 ? { requiredCapabilities: [...required] } : {}),
+    ...(minContextWindow !== undefined ? { minContextWindow } : {}),
+    undeclaredCapabilityPolicy: guard === 'strict' ? 'skip' : 'allow',
+  }
+}
+
+/**
+ * Apply the cross-vendor allowlist to an already capability-filtered chain.
+ *
+ * Deny-by-default *within* `'allowlist'` mode, mirroring the adapter layer's
+ * `approvedFallbackProviders` contract: the home provider is always kept, and
+ * every other vendor must be named explicitly. Each drop emits a
+ * `provider:fallback_blocked` event so the decision is auditable.
+ *
+ * In the default `'allow-all'` mode the chain is returned untouched.
+ */
+function applyVendorAllowlist(
+  params: GetProviderAttemptsParams,
+  candidates: ModelFallbackCandidate[],
+): ModelFallbackCandidate[] {
+  const { config, resolvedProvider, runId, tenantId } = params
+  const policy = config.providerFailover
+  const mode =
+    policy?.crossVendorFallback
+    ?? (policy?.approvedFallbackProviders !== undefined ? 'allowlist' : 'allow-all')
+  if (mode !== 'allowlist') return candidates
+
+  const home = resolvedProvider ?? candidates[0]?.provider
+  const approved = new Set(policy?.approvedFallbackProviders ?? [])
+  const kept: ModelFallbackCandidate[] = []
+
+  for (const candidate of candidates) {
+    if (candidate.provider === home || approved.has(candidate.provider)) {
+      kept.push(candidate)
+      continue
+    }
+    if (config.eventBus) {
+      typedEmit(config.eventBus, {
+        type: 'provider:fallback_blocked',
+        agentId: config.id,
+        provider: candidate.provider,
+        model: candidate.modelName,
+        reason: 'vendor-not-approved',
+        detail: `provider "${candidate.provider}" is not in approvedFallbackProviders`,
+        ...(runId !== undefined && { runId }),
+        ...(tenantId !== undefined && { tenantId }),
+      })
+    }
+  }
+
+  return kept
 }
 
 /**
@@ -107,6 +218,14 @@ export interface GetProviderAttemptsParams {
  *
  * Each candidate is bound to the supplied tools eagerly so the failover
  * loop only needs to invoke the model.
+ *
+ * Two gates run before the chain is returned (`DZUPAGENT-AGENT-C-06`):
+ *  1. the registry's capability / context-window guard, driven by
+ *     {@link deriveFallbackRequirements}. When no candidate can satisfy the
+ *     run's needs the registry throws `NO_CAPABLE_FALLBACK` and it propagates
+ *     — a loud failure is the point; silently degrading was the defect.
+ *  2. the cross-vendor allowlist, which drops unapproved vendors and emits
+ *     `provider:fallback_blocked` for each.
  */
 export function getProviderAttempts(
   params: GetProviderAttemptsParams,
@@ -121,8 +240,14 @@ export function getProviderAttempts(
   }
 
   const maxAttempts = Math.max(1, config.providerFailover.maxAttempts ?? 2)
-  return config.registry
-    .getModelFallbackCandidates(resolvedTier)
+  const requirements = deriveFallbackRequirements(config, tools)
+  const candidates = config.registry.getModelFallbackCandidates(
+    resolvedTier,
+    undefined,
+    requirements,
+  )
+
+  return applyVendorAllowlist(params, candidates)
     .slice(0, maxAttempts)
     .map((candidate): ProviderAttempt => ({
       provider: candidate.provider,

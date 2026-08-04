@@ -36,7 +36,16 @@ export interface CostReport {
   byAgent: Record<string, { costCents: number; tokens: number }>
   byPhase: Record<string, { costCents: number; tokens: number }>
   byTool: Record<string, { costCents: number; tokens: number }>
+  /**
+   * Retained entries — the most recent `maxEntries` (see
+   * {@link CostAttributorConfig.maxEntries}). Totals and bucket aggregates
+   * above are computed over *all* recorded entries, including evicted ones.
+   */
   entries: CostEntry[]
+  /** Total number of entries ever recorded, including evicted ones. */
+  recordedEntryCount: number
+  /** True when at least one entry has been evicted by the retention cap. */
+  entriesTruncated: boolean
 }
 
 export interface CostAlertThreshold {
@@ -49,7 +58,21 @@ export interface CostAlertThreshold {
 export interface CostAttributorConfig {
   thresholds?: CostAlertThreshold
   eventBus?: DzupEventBus
+  /**
+   * Maximum number of individual {@link CostEntry} records retained for
+   * {@link CostReport.entries}. `attach()`-ed attributors are long-lived and
+   * see one entry per LLM call / tool result / agent completion, so the entry
+   * log is a ring buffer: once the cap is reached the oldest entry is dropped.
+   * Running totals and the per-agent/phase/tool buckets are unaffected by
+   * eviction — they are accumulated, not recomputed from `entries`.
+   *
+   * Default: 10 000. Set to `0` to disable retention entirely (totals only).
+   */
+  maxEntries?: number
 }
+
+/** Default retention cap for the per-entry cost log. */
+export const DEFAULT_MAX_COST_ENTRIES = 10_000
 
 // ----------------------------------------------------------- Accumulator
 
@@ -91,7 +114,11 @@ export class CostAttributor {
   private _totalCostCents = 0
   private _totalTokens = 0
 
+  private _recordedEntryCount = 0
+  private _entriesTruncated = false
+
   private readonly _thresholds: CostAlertThreshold
+  private readonly _maxEntries: number
   private _eventBus: DzupEventBus | undefined
   private _unsubscribes: Array<() => void> = []
   private _currentPhase: string | undefined
@@ -100,6 +127,11 @@ export class CostAttributor {
 
   constructor(config?: CostAttributorConfig) {
     this._thresholds = config?.thresholds ?? {}
+    const configuredMax = config?.maxEntries
+    this._maxEntries =
+      configuredMax !== undefined && Number.isFinite(configuredMax) && configuredMax >= 0
+        ? Math.floor(configuredMax)
+        : DEFAULT_MAX_COST_ENTRIES
     if (config?.eventBus) {
       this.attach(config.eventBus)
     }
@@ -116,16 +148,50 @@ export class CostAttributor {
     this._eventBus = eventBus
 
     this._unsubscribes.push(
+      // Adapter-layer runs report their spend on the terminal event
+      // (`packages/agent-adapters/src/registry/event-bus-bridge.ts`). `usage`
+      // is best-effort metadata: when the producer omits it we still record
+      // the completion so entry/agent bookkeeping stays complete, but with an
+      // explicit zero — there is genuinely no usage data to attribute, and
+      // fabricating one would be worse than reporting none.
       eventBus.on('agent:completed', (e) => {
         this.record({
           agentId: e.agentId,
           phase: this._currentPhase,
-          costCents: 0,
-          tokens: 0,
+          costCents: e.usage?.costCents ?? 0,
+          tokens: (e.usage?.inputTokens ?? 0) + (e.usage?.outputTokens ?? 0),
           timestamp: new Date(),
         })
       }),
 
+      // Native (in-process) runs report spend per LLM call instead
+      // (`packages/agent/src/agent/run-engine-generate-tool-loop.ts` emits one
+      // `llm:invoked` per invocation, with cost already resolved by
+      // `calculateCostCents`). The two producers are disjoint — the native run
+      // engine never populates `agent:completed.usage`, and the adapter bridge
+      // never emits `llm:invoked` — so subscribing to both does not
+      // double-count.
+      //
+      // NOTE: `cacheReadTokens` / `cacheWriteTokens` are deliberately excluded
+      // from the token total here; cache-tier accounting is tracked separately
+      // by DZUPAGENT-AGENT-M-27 and folding it in now would silently change
+      // the meaning of `maxTokens` thresholds.
+      eventBus.on('llm:invoked', (e) => {
+        this.record({
+          agentId: e.agentId,
+          phase: this._currentPhase,
+          costCents: e.costCents,
+          tokens: e.inputTokens + e.outputTokens,
+          timestamp: new Date(),
+        })
+      }),
+
+      // `tool:result` carries no usage or cost fields (see
+      // `packages/core/src/events/event-types-*.ts`), so tool-level cost is
+      // structurally zero: the entry exists to populate `byTool` call counts
+      // and phase attribution only. Attributing LLM spend to the tool that
+      // triggered it requires correlating `tool:result` with the surrounding
+      // `llm:invoked` — out of scope for C-07, tracked under MJ-03.
       eventBus.on('tool:result', (e) => {
         this.record({
           agentId: '__unknown__',
@@ -168,7 +234,16 @@ export class CostAttributor {
    * Record a cost entry manually.
    */
   record(entry: CostEntry): void {
-    this._entries.push(entry)
+    this._recordedEntryCount += 1
+    if (this._maxEntries > 0) {
+      this._entries.push(entry)
+      if (this._entries.length > this._maxEntries) {
+        this._entries.splice(0, this._entries.length - this._maxEntries)
+        this._entriesTruncated = true
+      }
+    } else if (this._recordedEntryCount > 0) {
+      this._entriesTruncated = true
+    }
     this._totalCostCents += entry.costCents
     this._totalTokens += entry.tokens
 
@@ -197,6 +272,8 @@ export class CostAttributor {
       byPhase: bucketMapToRecord(this._byPhase),
       byTool: bucketMapToRecord(this._byTool),
       entries: [...this._entries],
+      recordedEntryCount: this._recordedEntryCount,
+      entriesTruncated: this._entriesTruncated,
     }
   }
 
@@ -205,6 +282,8 @@ export class CostAttributor {
    */
   reset(): void {
     this._entries.length = 0
+    this._recordedEntryCount = 0
+    this._entriesTruncated = false
     this._byAgent.clear()
     this._byPhase.clear()
     this._byTool.clear()
@@ -279,7 +358,8 @@ export class CostAttributor {
       tokensLimit: maxTokens,
       costCents: this._totalCostCents,
       costLimitCents: maxCostCents,
-      iterations: this._entries.length,
+      // Monotonic count — must not shrink when the entry log is evicted.
+      iterations: this._recordedEntryCount,
       iterationsLimit: maxVal,
       percent,
     }
