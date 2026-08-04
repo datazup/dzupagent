@@ -226,7 +226,9 @@ export async function captureSdlcMvpEvidenceCommandOutput(
       if (timeout !== undefined) clearTimeout(timeout);
       const exitCode = code ?? 1;
       const timeoutSuffix = timedOut
-        ? `${stderr.length > 0 ? "\n" : ""}terminated after ${input.timeoutMs}ms`
+        ? `${stderr.length > 0 ? "\n" : ""}terminated after ${
+            input.timeoutMs
+          }ms`
         : "";
       const signalSuffix =
         signal !== null && !timedOut
@@ -252,7 +254,7 @@ async function executeSdlcMvpEvidenceFlow(input: {
   blockedReason?: string;
 }): Promise<SdlcMvpFlowExecution> {
   const source = sdlcMvpCloseoutFlowSource(
-    input.passed ? "complete" : "blocked",
+    input.passed ? "complete" : "blocked"
   );
   const parsed = parseDslToDocument(source, {
     fragmentRegistry: BUILT_IN_FRAGMENT_REGISTRY,
@@ -347,7 +349,9 @@ async function executeSdlcMvpEvidenceFlow(input: {
     nodeExecutor,
   }).execute({
     packetItems: input.packetItems,
-    validationItems: shapeCommandOutputsForBatchValidation(input.commandOutputs),
+    validationItems: shapeCommandOutputsForBatchValidation(
+      input.commandOutputs
+    ),
   });
   const finalCheckpoint = await checkpointStore.load(runtimeResult.runId);
   const exportedState = {
@@ -366,7 +370,9 @@ async function executeSdlcMvpEvidenceFlow(input: {
     runtimeReady,
     readinessReport: runtimeReady
       ? "Runtime tool readiness: ready"
-      : `Runtime tool readiness: blocked (${input.blockedReason ?? "closeout status is not complete"})`,
+      : `Runtime tool readiness: blocked (${
+          input.blockedReason ?? "closeout status is not complete"
+        })`,
     execution: {
       state: runtimeReady ? "completed" : "blocked",
       runId: input.runId,
@@ -843,6 +849,12 @@ function encodeRedisCommand(parts: Array<string | number>): string {
 function parseRedisReply(
   buffer: Buffer
 ): { complete: false } | { complete: true; value?: unknown; error?: string } {
+  // An empty buffer is an INCOMPLETE reply, not an unsupported one: a
+  // multi-element array split at an element boundary recurses into this with
+  // nothing left to read. Without this guard the destructure below yields
+  // `undefined` and the reply is rejected as a protocol error, failing a
+  // checkpoint verification for an otherwise valid response.
+  if (buffer.length === 0) return { complete: false };
   const [prefix] = buffer.toString("utf8", 0, 1);
   if (prefix === "+") {
     const end = buffer.indexOf("\r\n");
