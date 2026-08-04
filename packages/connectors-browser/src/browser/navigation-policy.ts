@@ -87,6 +87,8 @@ function isReservedNonRoutableHost(hostname: string): boolean {
     normalized.endsWith(".example.com") ||
     normalized.endsWith(".example.net") ||
     normalized.endsWith(".example.org") ||
+    normalized === "test" ||
+    normalized.endsWith(".test") ||
     normalized === "invalid" ||
     normalized.endsWith(".invalid")
   );
@@ -299,9 +301,9 @@ export async function safeBrowserGoto(
   options: NonNullable<Parameters<Page["goto"]>[1]>,
   policy: BrowserNavigationPolicy = {}
 ): Promise<Response | null> {
-  const target = await assertBrowserNavigationAllowed(url, policy);
+  await assertBrowserNavigationAllowed(url, policy);
   await installBrowserNavigationPolicy(page, policy);
-  const response = await page.goto(target.href, options);
+  const response = await page.goto(url, options);
   // Re-validate the final landing URL: defends against any redirect that the
   // route interceptor did not surface (e.g. client-side or meta-refresh hops).
   await assertBrowserNavigationAllowed(page.url(), policy);

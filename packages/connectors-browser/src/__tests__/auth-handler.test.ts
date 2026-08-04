@@ -832,7 +832,8 @@ describe("AuthHandler", () => {
       const { page, locatorInstance } = makeMockPage();
       // Simulate SSO: landing check happens on the IdP, final lands back on the app
       vi.mocked(page.url)
-        .mockReturnValueOnce("https://auth.sso-provider.test/authorize") // after initial goto
+        .mockReturnValueOnce("https://auth.sso-provider.test/authorize") // final-navigation policy check
+        .mockReturnValueOnce("https://auth.sso-provider.test/authorize") // audit records the landing origin
         .mockReturnValue("https://app.example.com/dashboard"); // thereafter
       locatorInstance.count
         .mockResolvedValueOnce(1) // isLoginPage on IdP: yes

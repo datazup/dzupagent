@@ -115,6 +115,16 @@ describe("assertBrowserNavigationAllowed (DNS-resolved IP check)", () => {
     expect(result.href).toBe("https://public.example/path");
   });
 
+  it("skips DNS resolution for RFC-reserved test hostnames", async () => {
+    const lookup = vi.fn(fakeLookup({}));
+    await expect(
+      assertBrowserNavigationAllowed("https://auth.sso-provider.test/login", {
+        lookup,
+      })
+    ).resolves.toBeInstanceOf(URL);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
   it("blocks a hostname that fails to resolve", async () => {
     const lookup = fakeLookup({});
     await expect(
