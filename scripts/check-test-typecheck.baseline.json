@@ -1,5 +1,5 @@
 {
-  "totalErrors": 2651,
+  "totalErrors": 2647,
   "note": "Test-file typecheck baseline (tsconfig.flipcheck.json per package). Ratchets down only. Bump only via --update-baseline after FIXING errors, never to accommodate new ones. Enforced per package AND per file, so a fix in one place cannot mask a regression in another. totalErrors and perCode are informational; the per-file budgets are what fail the build.",
   "packages": {
     "adapter-rules": {
@@ -509,10 +509,10 @@
       }
     },
     "evals": {
-      "maxErrors": 192,
+      "maxErrors": 188,
       "perCode": {
         "TS2345": 62,
-        "TS6133": 46,
+        "TS6133": 43,
         "TS2322": 36,
         "TS6196": 20,
         "TS2741": 10,
@@ -520,7 +520,6 @@
         "TS18048": 4,
         "TS2375": 3,
         "TS2739": 3,
-        "TS6192": 1,
         "TS2353": 1
       },
       "perFile": {
@@ -537,7 +536,6 @@
         "src/__tests__/learning-curve-benchmark.test.ts": 1,
         "src/__tests__/llm-as-judge.test.ts": 3,
         "src/__tests__/llm-judge-comprehensive.test.ts": 6,
-        "src/__tests__/llm-judge-pipeline-deep.test.ts": 4,
         "src/__tests__/llm-judge-scorer.test.ts": 1,
         "src/__tests__/multi-turn-eval.test.ts": 3,
         "src/__tests__/prompt-experiment-coverage.test.ts": 4,
