@@ -94,22 +94,30 @@
     {
       "package": "agent-adapters",
       "path": "src/recovery/adapter-recovery.ts",
-      "coveredBy": ["src/__tests__/adapter-recovery.test.ts"]
+      "coveredBy": [
+        "src/__tests__/adapter-recovery.test.ts"
+      ]
     },
     {
       "package": "agent-adapters",
       "path": "src/workflow/adapter-workflow.ts",
-      "coveredBy": ["src/__tests__/adapter-workflow.test.ts"]
+      "coveredBy": [
+        "src/__tests__/adapter-workflow.test.ts"
+      ]
     },
     {
       "package": "agent-adapters",
       "path": "src/facade/orchestrator-facade.ts",
-      "coveredBy": ["src/__tests__/orchestrator-facade.test.ts"]
+      "coveredBy": [
+        "src/__tests__/orchestrator-facade.test.ts"
+      ]
     },
     {
       "package": "agent-adapters",
       "path": "src/http/adapter-http-handler.ts",
-      "coveredBy": ["src/__tests__/adapter-http-handler.test.ts"]
+      "coveredBy": [
+        "src/__tests__/adapter-http-handler.test.ts"
+      ]
     },
     {
       "package": "core",
@@ -130,7 +138,9 @@
     {
       "package": "memory",
       "path": "src/sharing/memory-space-manager.ts",
-      "coveredBy": ["src/sharing/__tests__/shared-spaces.test.ts"]
+      "coveredBy": [
+        "src/sharing/__tests__/shared-spaces.test.ts"
+      ]
     },
     {
       "package": "connectors-browser",
@@ -151,12 +161,16 @@
     {
       "package": "flow-ast",
       "path": "src/validate.ts",
-      "coveredBy": ["src/__tests__/validate.test.ts"]
+      "coveredBy": [
+        "src/__tests__/validate.test.ts"
+      ]
     },
     {
       "package": "flow-ast",
       "path": "src/parse.ts",
-      "coveredBy": ["src/__tests__/parse.test.ts"]
+      "coveredBy": [
+        "src/__tests__/parse.test.ts"
+      ]
     },
     {
       "package": "flow-compiler",
@@ -169,22 +183,30 @@
     {
       "package": "flow-dsl",
       "path": "src/normalize.ts",
-      "coveredBy": ["src/__tests__/normalize.test.ts"]
+      "coveredBy": [
+        "src/__tests__/normalize.test.ts"
+      ]
     },
     {
       "package": "app-tools",
       "path": "src/tools/website.ts",
-      "coveredBy": ["src/tools/website.test.ts"]
+      "coveredBy": [
+        "src/tools/website.test.ts"
+      ]
     },
     {
       "package": "server",
       "path": "src/runtime/tool-resolver.ts",
-      "coveredBy": ["src/__tests__/tool-resolver.test.ts"]
+      "coveredBy": [
+        "src/__tests__/tool-resolver.test.ts"
+      ]
     },
     {
       "package": "server",
       "path": "src/runtime/run-worker-stages.ts",
-      "coveredBy": ["src/runtime/__tests__/run-worker-stages.test.ts"]
+      "coveredBy": [
+        "src/runtime/__tests__/run-worker-stages.test.ts"
+      ]
     },
     {
       "package": "scraper",
@@ -198,12 +220,18 @@
   "packages": {
     "adapter-rules": {
       "baseline": {
-        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-01",
+        "thresholds": {
+          "statements": 93.84,
+          "branches": 93.08,
+          "functions": 99.0,
+          "lines": 93.84
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-01",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -216,12 +244,18 @@
     },
     "adapter-types": {
       "baseline": {
-        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-01",
+        "thresholds": {
+          "statements": 82.04,
+          "branches": 82.84,
+          "functions": 79.0,
+          "lines": 82.04
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-01",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -233,37 +267,61 @@
       }
     },
     "agent": {
-      "thresholds": {
-        "statements": 80,
-        "branches": 75,
-        "functions": 80,
-        "lines": 80
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-01",
+        "thresholds": {
+          "statements": 91.42,
+          "branches": 88.49,
+          "functions": 95.15,
+          "lines": 91.42
+        },
+        "targets": []
       }
     },
     "agent-adapters": {
-      "thresholds": {
-        "statements": 85,
-        "branches": 80,
-        "functions": 85,
-        "lines": 85
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-01",
+        "thresholds": {
+          "statements": 88.86,
+          "branches": 83.83,
+          "functions": 93.21,
+          "lines": 88.86
+        },
+        "targets": []
       }
     },
     "memory": {
-      "thresholds": {
-        "statements": 85,
-        "branches": 80,
-        "functions": 90,
-        "lines": 85
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-22",
+        "thresholds": {
+          "statements": 94.67,
+          "branches": 88.59,
+          "functions": 97.66,
+          "lines": 94.67
+        },
+        "targets": []
       }
     },
     "agent-types": {
       "baseline": {
-        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-01",
+        "thresholds": {
+          "statements": 91.76,
+          "branches": 90.01,
+          "functions": 94.45,
+          "lines": 91.76
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-01",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -276,12 +334,18 @@
     },
     "app-tools": {
       "baseline": {
-        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-01",
+        "thresholds": {
+          "statements": 97.61,
+          "branches": 87.63,
+          "functions": 94.6,
+          "lines": 97.61
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-01",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -294,12 +358,18 @@
     },
     "cache": {
       "baseline": {
-        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-01",
+        "thresholds": {
+          "statements": 99.0,
+          "branches": 99.0,
+          "functions": 99.0,
+          "lines": 99.0
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-01",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -312,12 +382,18 @@
     },
     "code-edit-kit": {
       "baseline": {
-        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-01",
+        "thresholds": {
+          "statements": 87.47,
+          "branches": 74.47,
+          "functions": 92.47,
+          "lines": 87.47
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-01",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -329,27 +405,33 @@
       }
     },
     "core": {
-      "thresholds": {
-        "statements": 80,
-        "branches": 75,
-        "functions": 80,
-        "lines": 80
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-01",
+        "thresholds": {
+          "statements": 86.14,
+          "branches": 87.41,
+          "functions": 91.89,
+          "lines": 86.14
+        },
+        "targets": []
       }
     },
     "codegen": {
       "baseline": {
-        "reason": "Coverage report is present; protect the current floor while staged targets are adopted.",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-01",
         "thresholds": {
-          "statements": 85,
-          "branches": 90,
-          "functions": 94.81,
-          "lines": 85
+          "statements": 89.62,
+          "branches": 90.05,
+          "functions": 95.88,
+          "lines": 89.62
         },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-01",
             "thresholds": {
               "statements": 90,
               "branches": 90,
@@ -361,21 +443,33 @@
       }
     },
     "connectors": {
-      "thresholds": {
-        "statements": 70,
-        "branches": 60,
-        "functions": 60,
-        "lines": 70
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-01",
+        "thresholds": {
+          "statements": 97.42,
+          "branches": 96.02,
+          "functions": 96.26,
+          "lines": 97.42
+        },
+        "targets": []
       }
     },
     "connectors-browser": {
       "baseline": {
-        "reason": "Browser connector now publishes a test:coverage script emitting json-summary; critical source files are tracked by file-level inventory; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-01",
+        "thresholds": {
+          "statements": 86.94,
+          "branches": 80.11,
+          "functions": 92.82,
+          "lines": 86.94
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-01",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -388,12 +482,18 @@
     },
     "connectors-documents": {
       "baseline": {
-        "reason": "Document connector now publishes a test:coverage script emitting json-summary; critical source files are tracked by file-level inventory; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-22",
+        "thresholds": {
+          "statements": 97.75,
+          "branches": 90.8,
+          "functions": 99.0,
+          "lines": 97.75
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-22",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -406,9 +506,9 @@
     },
     "context": {
       "baseline": {
-        "reason": "Coverage report is present; protect the current floor while staged targets are adopted.",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-22",
         "thresholds": {
           "statements": 96.98,
           "branches": 93.24,
@@ -417,7 +517,7 @@
         },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-22",
             "thresholds": {
               "statements": 99,
               "branches": 97,
@@ -430,12 +530,18 @@
     },
     "create-dzupagent": {
       "baseline": {
-        "reason": "CLI scaffolding coverage is still being baselined.",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-22",
+        "thresholds": {
+          "statements": 82.98,
+          "branches": 78.08,
+          "functions": 70.42,
+          "lines": 82.98
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-22",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -447,29 +553,47 @@
       }
     },
     "dialogue-core": {
-      "thresholds": {
-        "statements": 75,
-        "branches": 70,
-        "functions": 80,
-        "lines": 75
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-01",
+        "thresholds": {
+          "statements": 84.98,
+          "branches": 80.95,
+          "functions": 94.32,
+          "lines": 84.98
+        },
+        "targets": []
       }
     },
     "dialogue-core-replay": {
-      "thresholds": {
-        "statements": 60,
-        "branches": 65,
-        "functions": 60,
-        "lines": 60
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-01",
+        "thresholds": {
+          "statements": 82.87,
+          "branches": 66.2,
+          "functions": 81.35,
+          "lines": 82.87
+        },
+        "targets": []
       }
     },
     "subagents": {
       "baseline": {
-        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); staged thresholds pending a verified floor.",
-        "since": "2026-07-12",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-10-15",
+        "thresholds": {
+          "statements": 91.18,
+          "branches": 84.75,
+          "functions": 88.36,
+          "lines": 91.18
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-10-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -482,12 +606,18 @@
     },
     "eval-contracts": {
       "baseline": {
-        "reason": "All 36 packages now publish a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-22",
+        "thresholds": {
+          "statements": 99.0,
+          "branches": 99.0,
+          "functions": 99.0,
+          "lines": 99.0
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-22",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -499,21 +629,33 @@
       }
     },
     "evals": {
-      "thresholds": {
-        "statements": 70,
-        "branches": 75,
-        "functions": 75,
-        "lines": 70
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-22",
+        "thresholds": {
+          "statements": 96.56,
+          "branches": 94.02,
+          "functions": 98.69,
+          "lines": 96.56
+        },
+        "targets": []
       }
     },
     "express": {
       "baseline": {
-        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); staged thresholds pending a verified floor.",
-        "since": "2026-07-12",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-10-15",
+        "thresholds": {
+          "statements": 89.9,
+          "branches": 82.67,
+          "functions": 99.0,
+          "lines": 89.9
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-10-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -525,21 +667,33 @@
       }
     },
     "flow-ast": {
-      "thresholds": {
-        "statements": 70,
-        "branches": 60,
-        "functions": 60,
-        "lines": 70
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-22",
+        "thresholds": {
+          "statements": 77.31,
+          "branches": 77.22,
+          "functions": 93.59,
+          "lines": 77.31
+        },
+        "targets": []
       }
     },
     "flow-compiler": {
       "baseline": {
-        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); semantic stage remains tracked by file-level inventory. Staged thresholds pending a verified floor.",
-        "since": "2026-07-12",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-10-15",
+        "thresholds": {
+          "statements": 85.05,
+          "branches": 78.71,
+          "functions": 95.07,
+          "lines": 85.05
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-10-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -552,12 +706,18 @@
     },
     "flow-dsl": {
       "baseline": {
-        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); normalizer remains tracked by file-level inventory. Staged thresholds pending a verified floor.",
-        "since": "2026-07-12",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-10-15",
+        "thresholds": {
+          "statements": 82.95,
+          "branches": 79.46,
+          "functions": 95.29,
+          "lines": 82.95
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-10-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -570,12 +730,18 @@
     },
     "hitl-kit": {
       "baseline": {
-        "reason": "test:coverage script publishes coverage-summary.json (vitest.config.ts coverage block added under DZUPAGENT-TEST-M-05); staged thresholds pending a verified floor.",
-        "since": "2026-07-12",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-10-15",
+        "thresholds": {
+          "statements": 94.34,
+          "branches": 89.21,
+          "functions": 99.0,
+          "lines": 94.34
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-10-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -587,37 +753,61 @@
       }
     },
     "memory-ipc": {
-      "thresholds": {
-        "statements": 95,
-        "branches": 80,
-        "functions": 90,
-        "lines": 95
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-22",
+        "thresholds": {
+          "statements": 95,
+          "branches": 93.81,
+          "functions": 96.12,
+          "lines": 95
+        },
+        "targets": []
       }
     },
     "otel": {
-      "thresholds": {
-        "statements": 90,
-        "branches": 90,
-        "functions": 80,
-        "lines": 90
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-22",
+        "thresholds": {
+          "statements": 93.72,
+          "branches": 95.89,
+          "functions": 94.45,
+          "lines": 93.72
+        },
+        "targets": []
       }
     },
     "rag": {
-      "thresholds": {
-        "statements": 90,
-        "branches": 85,
-        "functions": 85,
-        "lines": 90
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-22",
+        "thresholds": {
+          "statements": 91.6,
+          "branches": 89.85,
+          "functions": 97.05,
+          "lines": 91.6
+        },
+        "targets": []
       }
     },
     "runtime-contracts": {
       "baseline": {
-        "reason": "Runtime contracts package now publishes a test:coverage script emitting json-summary; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-22",
+        "thresholds": {
+          "statements": 78.53,
+          "branches": 72.6,
+          "functions": 95.55,
+          "lines": 78.53
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-22",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -630,12 +820,18 @@
     },
     "scraper": {
       "baseline": {
-        "reason": "Scraper package now publishes a test:coverage script emitting json-summary; critical source files are tracked by file-level inventory; staged thresholds pending a verified floor (DZUPAGENT-TEST-M-08).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-22",
+        "thresholds": {
+          "statements": 97.01,
+          "branches": 90.52,
+          "functions": 99.0,
+          "lines": 97.01
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-22",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -647,21 +843,33 @@
       }
     },
     "server": {
-      "thresholds": {
-        "statements": 70,
-        "branches": 60,
-        "functions": 60,
-        "lines": 70
+      "baseline": {
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): converted from unpinned top-level thresholds to an enforced, measured baseline floor.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-12-22",
+        "thresholds": {
+          "statements": 85.01,
+          "branches": 84.55,
+          "functions": 90.77,
+          "lines": 85.01
+        },
+        "targets": []
       }
     },
     "test-utils": {
       "baseline": {
-        "reason": "Shared test utilities are still being baselined.",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-22",
+        "thresholds": {
+          "statements": 62.76,
+          "branches": 90.22,
+          "functions": 58.45,
+          "lines": 62.76
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-22",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -674,9 +882,9 @@
     },
     "testing": {
       "baseline": {
-        "reason": "Testing package coverage is staged; protect the current floor while staged targets are adopted (DZUPAGENT-TEST-M-08/L-10).",
-        "since": "2026-04-29",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-09-22",
         "thresholds": {
           "statements": 95.25,
           "branches": 87.89,
@@ -685,7 +893,7 @@
         },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-09-22",
             "thresholds": {
               "statements": 100,
               "branches": 100,
@@ -698,12 +906,18 @@
     },
     "execution-contracts": {
       "baseline": {
-        "reason": "vitest.config.ts added under DZUPAGENT-TEST-M-07 so test:coverage emits json-summary; staged thresholds pending a verified floor.",
-        "since": "2026-07-25",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-11-15",
+        "thresholds": {
+          "statements": 86.59,
+          "branches": 66.61,
+          "functions": 89.32,
+          "lines": 86.59
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-11-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
@@ -716,12 +930,18 @@
     },
     "security": {
       "baseline": {
-        "reason": "Now tracked by the coverage gate under DZUPAGENT-TEST-M-07; test:coverage emits json-summary; staged thresholds pending a verified floor.",
-        "since": "2026-07-25",
-        "reviewBy": "2026-08-15",
+        "reason": "Ratchet renewal (DZUPAGENT-TEST-C-15): floor pinned at measured coverage as of 2026-08-04, ~1.0pt safety margin below observed values.",
+        "since": "2026-08-04",
+        "reviewBy": "2026-11-15",
+        "thresholds": {
+          "statements": 79.34,
+          "branches": 85.95,
+          "functions": 80.57,
+          "lines": 79.34
+        },
         "targets": [
           {
-            "by": "2026-08-15",
+            "by": "2026-11-15",
             "thresholds": {
               "statements": 70,
               "branches": 60,
