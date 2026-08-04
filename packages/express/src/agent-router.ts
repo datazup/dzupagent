@@ -1,11 +1,17 @@
-import express, { Router } from 'express'
-import type { Request, Response, NextFunction, RequestHandler } from 'express'
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
-import { z } from 'zod'
-import { HumanMessage } from '@langchain/core/messages'
-import { defaultLogger, type FrameworkLogger } from '@dzupagent/core/utils'
-import { SSEHandler } from './sse-handler.js'
-import type { AgentRouterConfig, ChatRequestBody, AgentResult, DzupAgentLike } from './types.js'
+import express, { Router } from "express";
+import type { Request, Response, NextFunction, RequestHandler } from "express";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import { z } from "zod";
+import { HumanMessage } from "@langchain/core/messages";
+import { defaultLogger, type FrameworkLogger } from "@dzupagent/core/utils";
+import { SSEHandler } from "./sse-handler.js";
+import { routeError, toError } from "./route-error.js";
+import type {
+  AgentRouterConfig,
+  ChatRequestBody,
+  AgentResult,
+  DzupAgentLike,
+} from "./types.js";
 
 /**
  * Maximum length for an inbound `message` field — 32 KB.
@@ -14,7 +20,7 @@ import type { AgentRouterConfig, ChatRequestBody, AgentResult, DzupAgentLike } f
  * limit can still be rejected when its message payload alone exceeds the
  * per-field policy.
  */
-const MAX_MESSAGE_LENGTH = 32_768
+const MAX_MESSAGE_LENGTH = 32_768;
 
 /**
  * Default JSON body cap mounted by the router on `/chat*` routes.
@@ -22,12 +28,12 @@ const MAX_MESSAGE_LENGTH = 32_768
  * Hosts SHOULD also enforce a global limit upstream; this is a defense-in-depth
  * safety net specific to chat endpoints.
  */
-const DEFAULT_BODY_LIMIT = '256kb'
+const DEFAULT_BODY_LIMIT = "256kb";
 
 /** Default rate-limit window: 1 minute. */
-const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000
+const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 /** Default rate-limit cap: 60 requests / window / IP. */
-const DEFAULT_RATE_LIMIT_MAX = 60
+const DEFAULT_RATE_LIMIT_MAX = 60;
 
 /**
  * Zod schema for the `/chat` and `/chat/sync` request body.
@@ -43,18 +49,18 @@ export const ChatRequestSchema = z
     agentName: z.string().min(1).optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
-  .passthrough()
+  .passthrough();
 
 /**
  * Wraps an async Express route handler so it returns void and forwards
  * any rejected promise to the next error-handling middleware.
  */
 function asyncHandler(
-  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>,
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req, res, next): void => {
-    fn(req, res, next).catch(next)
-  }
+    fn(req, res, next).catch(next);
+  };
 }
 
 /**
@@ -66,40 +72,40 @@ function asyncHandler(
  */
 function resolveAgent(
   agents: Record<string, DzupAgentLike>,
-  agentName?: string,
+  agentName?: string
 ): { agent: DzupAgentLike; name: string } | null {
   if (agentName) {
-    const agent = agents[agentName]
-    if (agent) return { agent, name: agentName }
-    return null
+    const agent = agents[agentName];
+    if (agent) return { agent, name: agentName };
+    return null;
   }
 
-  const firstKey = Object.keys(agents)[0]
-  if (!firstKey) return null
+  const firstKey = Object.keys(agents)[0];
+  if (!firstKey) return null;
 
-  const agent = agents[firstKey]
-  if (!agent) return null
+  const agent = agents[firstKey];
+  if (!agent) return null;
 
-  return { agent, name: firstKey }
+  return { agent, name: firstKey };
 }
 
 /** Format a Zod issue list into a stable, structured 400 payload. */
 function buildValidationError(issues: z.ZodIssue[]): {
-  error: string
-  code: string
-  message: string
-  issues: Array<{ path: string; message: string; code: string }>
+  error: string;
+  code: string;
+  message: string;
+  issues: Array<{ path: string; message: string; code: string }>;
 } {
   return {
-    error: 'Bad Request',
-    code: 'VALIDATION_ERROR',
-    message: issues[0]?.message ?? 'Invalid request body',
+    error: "Bad Request",
+    code: "VALIDATION_ERROR",
+    message: issues[0]?.message ?? "Invalid request body",
     issues: issues.map((issue) => ({
-      path: issue.path.join('.'),
+      path: issue.path.join("."),
       message: issue.message,
       code: issue.code,
     })),
-  }
+  };
 }
 
 /**
@@ -109,12 +115,12 @@ function buildValidationError(issues: z.ZodIssue[]): {
  * On success: return the parsed body typed as `ChatRequestBody`.
  */
 function parseChatBody(req: Request, res: Response): ChatRequestBody | null {
-  const parsed = ChatRequestSchema.safeParse(req.body)
+  const parsed = ChatRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json(buildValidationError(parsed.error.issues))
-    return null
+    res.status(400).json(buildValidationError(parsed.error.issues));
+    return null;
   }
-  return parsed.data as ChatRequestBody
+  return parsed.data as ChatRequestBody;
 }
 
 /**
@@ -125,16 +131,16 @@ function parseChatBody(req: Request, res: Response): ChatRequestBody | null {
 function ensureAgentAllowed(
   agents: Record<string, DzupAgentLike>,
   agentName: string | undefined,
-  res: Response,
+  res: Response
 ): boolean {
-  if (!agentName) return true
-  if (Object.prototype.hasOwnProperty.call(agents, agentName)) return true
+  if (!agentName) return true;
+  if (Object.prototype.hasOwnProperty.call(agents, agentName)) return true;
   res.status(400).json({
-    error: 'Bad Request',
-    code: 'UNKNOWN_AGENT',
+    error: "Bad Request",
+    code: "UNKNOWN_AGENT",
     message: `Unknown agentName: ${agentName}`,
-  })
-  return false
+  });
+  return false;
 }
 
 /**
@@ -144,43 +150,45 @@ function ensureAgentAllowed(
  */
 function buildRateLimiter(config: AgentRouterConfig): RequestHandler {
   if (config.rateLimit === false) {
-    return (_req, _res, next): void => next()
+    return (_req, _res, next): void => next();
   }
-  const windowMs = config.rateLimit?.windowMs ?? DEFAULT_RATE_LIMIT_WINDOW_MS
-  const max = config.rateLimit?.max ?? DEFAULT_RATE_LIMIT_MAX
+  const windowMs = config.rateLimit?.windowMs ?? DEFAULT_RATE_LIMIT_WINDOW_MS;
+  const max = config.rateLimit?.max ?? DEFAULT_RATE_LIMIT_MAX;
   return rateLimit({
     windowMs,
     max,
-    standardHeaders: 'draft-7',
+    standardHeaders: "draft-7",
     legacyHeaders: false,
     // Resolve the per-IP key defensively. `req.ip` reads `req.socket.remoteAddress`,
     // which can be undefined in tests / mock harnesses; fall back to a header /
     // known-unknown sentinel so the limiter never crashes the request. The
     // resolved IP is then normalised through `ipKeyGenerator` for IPv6 safety.
     keyGenerator: (req): string => {
-      let ip: string | undefined
+      let ip: string | undefined;
       try {
-        ip = req.ip
+        ip = req.ip;
       } catch {
         /* fall through */
       }
       if (!ip) {
-        const fwd = req.headers['x-forwarded-for']
-        if (typeof fwd === 'string' && fwd.length > 0) ip = fwd.split(',')[0]!.trim()
+        const fwd = req.headers["x-forwarded-for"];
+        if (typeof fwd === "string" && fwd.length > 0)
+          ip = fwd.split(",")[0]!.trim();
       }
       if (!ip) {
-        ip = (req.socket as { remoteAddress?: string } | undefined)?.remoteAddress
+        ip = (req.socket as { remoteAddress?: string } | undefined)
+          ?.remoteAddress;
       }
-      return ipKeyGenerator(ip ?? 'unknown')
+      return ipKeyGenerator(ip ?? "unknown");
     },
     handler: (_req, res) => {
       res.status(429).json({
-        error: 'Too Many Requests',
-        code: 'RATE_LIMITED',
-        message: 'Rate limit exceeded',
-      })
+        error: "Too Many Requests",
+        code: "RATE_LIMITED",
+        message: "Rate limit exceeded",
+      });
     },
-  })
+  });
 }
 
 /**
@@ -191,40 +199,44 @@ function buildRateLimiter(config: AgentRouterConfig): RequestHandler {
  * past application middleware).
  */
 function buildBodyParser(config: AgentRouterConfig): RequestHandler {
-  const limit = config.bodyLimit ?? DEFAULT_BODY_LIMIT
-  const parser = express.json({ limit })
+  const limit = config.bodyLimit ?? DEFAULT_BODY_LIMIT;
+  const parser = express.json({ limit });
   return (req, res, next): void => {
     if (req.body !== undefined) {
-      next()
-      return
+      next();
+      return;
     }
 
     parser(req, res, (err?: unknown) => {
       if (!err) {
-        next()
-        return
+        next();
+        return;
       }
-      const errorObj = err as { type?: string; status?: number; statusCode?: number }
-      const status = errorObj.status ?? errorObj.statusCode
-      if (errorObj.type === 'entity.too.large' || status === 413) {
+      const errorObj = err as {
+        type?: string;
+        status?: number;
+        statusCode?: number;
+      };
+      const status = errorObj.status ?? errorObj.statusCode;
+      if (errorObj.type === "entity.too.large" || status === 413) {
         res.status(413).json({
-          error: 'Payload Too Large',
-          code: 'BODY_TOO_LARGE',
+          error: "Payload Too Large",
+          code: "BODY_TOO_LARGE",
           message: `Request body exceeds limit (${limit})`,
-        })
-        return
+        });
+        return;
       }
-      if (status === 400 || errorObj.type === 'entity.parse.failed') {
+      if (status === 400 || errorObj.type === "entity.parse.failed") {
         res.status(400).json({
-          error: 'Bad Request',
-          code: 'INVALID_JSON',
-          message: 'Request body is not valid JSON',
-        })
-        return
+          error: "Bad Request",
+          code: "INVALID_JSON",
+          message: "Request body is not valid JSON",
+        });
+        return;
       }
-      next(err)
-    })
-  }
+      next(err);
+    });
+  };
 }
 
 /**
@@ -232,23 +244,25 @@ function buildBodyParser(config: AgentRouterConfig): RequestHandler {
  * logs the real error server-side via the structured logger.
  */
 function buildErrorHandler(logger: FrameworkLogger) {
-  return (err: unknown, req: Request, res: Response, next: NextFunction): void => {
-    const error = err instanceof Error ? err : new Error(String(err))
-    logger.error('[express/agent-router] unhandled route error', {
-      message: error.message,
-      stack: error.stack,
+  return (
+    err: unknown,
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): void => {
+    routeError(logger, "[express/agent-router]", err, {
       path: req.path,
       method: req.method,
-    })
+    });
     if (res.headersSent) {
-      next(err)
-      return
+      next(err);
+      return;
     }
     res.status(500).json({
-      error: 'Internal error',
-      code: 'INTERNAL_ERROR',
-    })
-  }
+      error: "Internal error",
+      code: "INTERNAL_ERROR",
+    });
+  };
 }
 
 /**
@@ -269,18 +283,18 @@ function buildErrorHandler(logger: FrameworkLogger) {
  * All routes are relative to the `basePath` in config (default: '/').
  */
 export function createAgentRouter(config: AgentRouterConfig): Router {
-  const router = Router()
-  const sseHandler = new SSEHandler(config.sse)
-  const basePath = config.basePath ?? ''
-  const logger = config.logger ?? defaultLogger
+  const router = Router();
+  const sseHandler = new SSEHandler(config.sse);
+  const basePath = config.basePath ?? "";
+  const logger = config.logger ?? defaultLogger;
 
   // Apply auth middleware to all routes if provided
   if (config.auth) {
-    router.use(config.auth)
+    router.use(config.auth);
   }
 
-  const bodyParser = buildBodyParser(config)
-  const limiter = buildRateLimiter(config)
+  const bodyParser = buildBodyParser(config);
+  const limiter = buildRateLimiter(config);
 
   // ---------- POST /chat — SSE streaming ----------
   router.post(
@@ -288,65 +302,69 @@ export function createAgentRouter(config: AgentRouterConfig): Router {
     bodyParser,
     limiter,
     asyncHandler(async (req, res) => {
-      const body = parseChatBody(req, res)
-      if (!body) return
+      const body = parseChatBody(req, res);
+      if (!body) return;
 
-      if (!ensureAgentAllowed(config.agents, body.agentName, res)) return
+      if (!ensureAgentAllowed(config.agents, body.agentName, res)) return;
 
-      const resolved = resolveAgent(config.agents, body.agentName)
+      const resolved = resolveAgent(config.agents, body.agentName);
       if (!resolved) {
         res.status(503).json({
-          error: 'Service Unavailable',
-          code: 'NO_AGENTS',
-          message: 'No agents configured',
-        })
-        return
+          error: "Service Unavailable",
+          code: "NO_AGENTS",
+          message: "No agents configured",
+        });
+        return;
       }
 
-      const { agent, name: agentName } = resolved
+      const { agent, name: agentName } = resolved;
 
       try {
         // Before-agent hook
-        await config.hooks?.beforeAgent?.(req, agentName)
+        await config.hooks?.beforeAgent?.(req, agentName);
 
-        const messages = [new HumanMessage(body.message)]
-        const abortController = new AbortController()
+        const messages = [new HumanMessage(body.message)];
+        const abortController = new AbortController();
 
         // Abort the agent when the client disconnects
-        req.on('close', () => {
-          abortController.abort()
-        })
+        req.on("close", () => {
+          abortController.abort();
+        });
 
         const agentStream = agent.stream(messages, {
           signal: abortController.signal,
-        })
+        });
 
-        const result = await sseHandler.streamAgent(agentStream, res, req)
+        const result = await sseHandler.streamAgent(agentStream, res, req);
 
         // After-agent hook
-        await config.hooks?.afterAgent?.(req, agentName, result)
+        await config.hooks?.afterAgent?.(req, agentName, result);
       } catch (err: unknown) {
-        const error = err instanceof Error ? err : new Error(String(err))
-        await config.hooks?.onError?.(req, error)
+        await config.hooks?.onError?.(req, toError(err));
 
-        logger.error('[express/agent-router] /chat handler error', {
-          message: error.message,
-          stack: error.stack,
-        })
+        routeError(logger, "[express/agent-router] /chat", err, {
+          path: req.path,
+          method: req.method,
+        });
 
         // If headers are already sent (SSE started), send a generic SSE error event
         if (res.headersSent) {
-          res.write(`data: ${JSON.stringify({ error: 'Internal error', code: 'INTERNAL_ERROR' })}\n\n`)
-          res.end()
+          res.write(
+            `data: ${JSON.stringify({
+              error: "Internal error",
+              code: "INTERNAL_ERROR",
+            })}\n\n`
+          );
+          res.end();
         } else {
           res.status(500).json({
-            error: 'Internal error',
-            code: 'INTERNAL_ERROR',
-          })
+            error: "Internal error",
+            code: "INTERNAL_ERROR",
+          });
         }
       }
-    }),
-  )
+    })
+  );
 
   // ---------- POST /chat/sync — JSON response ----------
   router.post(
@@ -354,31 +372,31 @@ export function createAgentRouter(config: AgentRouterConfig): Router {
     bodyParser,
     limiter,
     asyncHandler(async (req, res) => {
-      const body = parseChatBody(req, res)
-      if (!body) return
+      const body = parseChatBody(req, res);
+      if (!body) return;
 
-      if (!ensureAgentAllowed(config.agents, body.agentName, res)) return
+      if (!ensureAgentAllowed(config.agents, body.agentName, res)) return;
 
-      const resolved = resolveAgent(config.agents, body.agentName)
+      const resolved = resolveAgent(config.agents, body.agentName);
       if (!resolved) {
         res.status(503).json({
-          error: 'Service Unavailable',
-          code: 'NO_AGENTS',
-          message: 'No agents configured',
-        })
-        return
+          error: "Service Unavailable",
+          code: "NO_AGENTS",
+          message: "No agents configured",
+        });
+        return;
       }
 
-      const { agent, name: agentName } = resolved
+      const { agent, name: agentName } = resolved;
 
       try {
-        await config.hooks?.beforeAgent?.(req, agentName)
+        await config.hooks?.beforeAgent?.(req, agentName);
 
-        const messages = [new HumanMessage(body.message)]
-        const startTime = Date.now()
+        const messages = [new HumanMessage(body.message)];
+        const startTime = Date.now();
 
-        const generateResult = await agent.generate(messages)
-        const durationMs = Date.now() - startTime
+        const generateResult = await agent.generate(messages);
+        const durationMs = Date.now() - startTime;
 
         const result: AgentResult = {
           content: generateResult.content,
@@ -386,49 +404,49 @@ export function createAgentRouter(config: AgentRouterConfig): Router {
             inputTokens: generateResult.usage.totalInputTokens,
             outputTokens: generateResult.usage.totalOutputTokens,
             totalTokens:
-              (generateResult.usage.totalInputTokens ?? 0) + (generateResult.usage.totalOutputTokens ?? 0),
+              (generateResult.usage.totalInputTokens ?? 0) +
+              (generateResult.usage.totalOutputTokens ?? 0),
           },
           toolCalls: generateResult.toolStats.length,
           durationMs,
-        }
+        };
 
-        await config.hooks?.afterAgent?.(req, agentName, generateResult)
+        await config.hooks?.afterAgent?.(req, agentName, generateResult);
 
         res.json({
           content: result.content,
           usage: result.usage,
           toolCalls: result.toolCalls,
           durationMs: result.durationMs,
-        })
+        });
       } catch (err: unknown) {
-        const error = err instanceof Error ? err : new Error(String(err))
-        await config.hooks?.onError?.(req, error)
+        await config.hooks?.onError?.(req, toError(err));
 
-        logger.error('[express/agent-router] /chat/sync handler error', {
-          message: error.message,
-          stack: error.stack,
-        })
+        routeError(logger, "[express/agent-router] /chat/sync", err, {
+          path: req.path,
+          method: req.method,
+        });
 
         res.status(500).json({
-          error: 'Internal error',
-          code: 'INTERNAL_ERROR',
-        })
+          error: "Internal error",
+          code: "INTERNAL_ERROR",
+        });
       }
-    }),
-  )
+    })
+  );
 
   // ---------- GET /health ----------
   router.get(`${basePath}/health`, (_req, res) => {
-    const agentNames = Object.keys(config.agents)
+    const agentNames = Object.keys(config.agents);
     res.json({
-      status: 'ok',
+      status: "ok",
       agents: agentNames,
       count: agentNames.length,
-    })
-  })
+    });
+  });
 
   // ---------- Sanitised error handler (last) ----------
-  router.use(buildErrorHandler(logger))
+  router.use(buildErrorHandler(logger));
 
-  return router
+  return router;
 }

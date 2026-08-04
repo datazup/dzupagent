@@ -19,7 +19,10 @@
  * policy-checks.ts` so a later migration to the shared executor is a
  * behaviour-preserving swap.
  */
-import { PromptInjectionGuard } from "@dzupagent/security";
+import {
+  fenceToolResult as fenceSecurityToolResult,
+  PromptInjectionGuard,
+} from "@dzupagent/security";
 import type { ToolPermissionPolicy } from "@dzupagent/agent-types";
 import type { DzupEventBus } from "../events/event-bus.js";
 import { requireTerminalToolExecutionRunId } from "../events/tool-event-correlation.js";
@@ -111,7 +114,9 @@ export function fenceToolResult(
   content: string,
 ): string {
   if (!ctx.promptInjectionGuard) return content;
-  return ctx.promptInjectionGuard.wrap(content, { label: "tool_result" });
+  return fenceSecurityToolResult(content, {
+    guard: ctx.promptInjectionGuard,
+  });
 }
 
 /** Emit `tool:called`. Never throws — telemetry must not abort a run. */

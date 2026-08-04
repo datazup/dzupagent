@@ -14,6 +14,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
+import type { StandardMessageStructure } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { createEventBus, type DzupEvent } from "@dzupagent/core";
 import { DzupAgent } from "../agent/dzip-agent.js";
@@ -25,14 +26,14 @@ import {
 function createUsageModel(): BaseChatModel {
   return {
     invoke: vi.fn(() => {
-      const msg = new AIMessage("hello");
-      (
-        msg as AIMessage & { usage_metadata: Record<string, unknown> }
-      ).usage_metadata = {
-        input_tokens: 100,
-        output_tokens: 50,
-        total_tokens: 150,
-      };
+      const msg = new AIMessage<StandardMessageStructure>({
+        content: "hello",
+        usage_metadata: {
+          input_tokens: 100,
+          output_tokens: 50,
+          total_tokens: 150,
+        },
+      });
       return Promise.resolve(msg);
     }),
     bindTools: vi.fn().mockReturnThis(),

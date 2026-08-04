@@ -17,7 +17,7 @@ import type {
   McpInvocationResult,
 } from "@dzupagent/core/pipeline";
 import type { JSONSchema7 } from "json-schema";
-import { PromptInjectionGuard } from "@dzupagent/security";
+import { fenceToolResult } from "@dzupagent/security";
 
 /**
  * AGENT-M-16 — shared guard used to fence untrusted MCP server text at the
@@ -32,7 +32,9 @@ import { PromptInjectionGuard } from "@dzupagent/security";
  * schema-mismatched arg is already rejected as an `isError` result before the
  * transport — the resolver inherits that guarantee.
  */
-const MCP_RESULT_GUARD = new PromptInjectionGuard();
+// DZUPAGENT-AGENT-C-22 — fencing itself lives in `fenceToolResult`
+// (@dzupagent/security) so this resolver cannot drift from the tool loop,
+// the sub-agent spawner, or the MCP tool bridge.
 
 /** Options for the MCPAsyncToolResolver. */
 export interface MCPAsyncToolResolverOptions {
@@ -156,9 +158,7 @@ export class MCPAsyncToolResolver implements AsyncToolResolver {
               // callers can read the structured reason cleanly.
               return {
                 type: "text" as const,
-                value: isError
-                  ? text
-                  : MCP_RESULT_GUARD.wrap(text, { label: "tool_result" }),
+                value: isError ? text : fenceToolResult(text),
               };
             }
             if (part.type === "image") {

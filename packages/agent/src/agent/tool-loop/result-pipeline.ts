@@ -1,37 +1,35 @@
-import { ToolMessage } from '@langchain/core/messages'
-import { PromptInjectionGuard } from '@dzupagent/security'
-import { emitToolError, statusFromError } from '../tool-lifecycle-policy.js'
-import type { ToolLoopConfig } from './types.js'
-import type { StuckStatus } from '../../guardrails/stuck-detector.js'
+import { ToolMessage } from "@langchain/core/messages";
+import { fenceToolError } from "@dzupagent/security";
+import type { ToolResultGuardLike } from "@dzupagent/security";
+import { emitToolError, statusFromError } from "../tool-lifecycle-policy.js";
+import type { ToolLoopConfig } from "./types.js";
+import type { StuckStatus } from "../../guardrails/stuck-detector.js";
 
 /**
- * MC-3 (AGENT-H-06 / SEC-M-06) — process-wide default prompt-injection
- * guardrail used when a {@link ToolLoopConfig} does not supply its own
- * {@link ToolLoopConfig.promptInjectionGuard}. Mirrors the default used by
- * the success path in `policy-enabled-tool-executor.ts`. The guard is
- * stateless, so a single shared instance is safe and avoids per-call
- * allocation.
+ * MC-3 (AGENT-H-06 / SEC-M-06 / QF-04 / DZUPAGENT-AGENT-C-22) — translate a
+ * {@link ToolLoopConfig} into the shared fencing primitive's options.
+ *
+ * The fencing logic itself lives in `@dzupagent/security`
+ * (`fenceToolResult` / `fenceToolError`) so that this loop, the sub-agent
+ * spawner, and the MCP tool bridge cannot drift apart. This function only
+ * maps config -> options; it must not re-implement the wrap.
  */
-const DEFAULT_PROMPT_INJECTION_GUARD = new PromptInjectionGuard()
-
-/**
- * MC-3 (AGENT-H-06 / SEC-M-06 / QF-04) — wrap untrusted, model-visible text
- * in the same labelled `<untrusted_content source="tool_result">` delimiter
- * the success path applies, so an injection payload embedded in the text is
- * presented as external data rather than authoritative instruction. Honors
- * the `wrapToolResults === false` opt-out identically to the success path.
- */
-function wrapModelVisible(text: string, config: ToolLoopConfig): string {
-  if (config.wrapToolResults === false) return text
-  return (config.promptInjectionGuard ?? DEFAULT_PROMPT_INJECTION_GUARD).wrap(text, {
-    label: 'tool_result',
-  })
+export function fenceOptions(config: ToolLoopConfig): {
+  guard?: ToolResultGuardLike;
+  enabled?: boolean;
+} {
+  return {
+    ...(config.promptInjectionGuard
+      ? { guard: config.promptInjectionGuard }
+      : {}),
+    ...(config.wrapToolResults === false ? { enabled: false as const } : {}),
+  };
 }
 
 export type ToolSpan = {
-  setAttribute(key: string, value: string | number | boolean): unknown
-  end(): void
-}
+  setAttribute(key: string, value: string | number | boolean): unknown;
+  end(): void;
+};
 
 /**
  * Apply caller-supplied attributes to an OTel span and end it. No-op when
@@ -39,14 +37,14 @@ export type ToolSpan = {
  */
 export function endSpan(
   span: ToolSpan | undefined,
-  attributes: Record<string, string | number | boolean>,
+  attributes: Record<string, string | number | boolean>
 ): void {
-  if (!span) return
+  if (!span) return;
   try {
     for (const [key, value] of Object.entries(attributes)) {
-      span.setAttribute(key, value)
+      span.setAttribute(key, value);
     }
-    span.end()
+    span.end();
   } catch {
     // Tracer failures must not abort the tool loop.
   }
@@ -58,22 +56,22 @@ export function endSpan(
  * shared base type.
  */
 function coerceResultToRecord(value: unknown): Record<string, unknown> | null {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
   }
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed.startsWith('{')) return null
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed.startsWith("{")) return null;
     try {
-      const parsed = JSON.parse(trimmed) as unknown
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
       }
     } catch {
       // Non-JSON tool result.
     }
   }
-  return null
+  return null;
 }
 
 /**
@@ -85,41 +83,46 @@ function coerceResultToRecord(value: unknown): Record<string, unknown> | null {
 export function maybeEmitCheckpointEvent(
   config: ToolLoopConfig,
   toolName: string,
-  rawResult: unknown,
+  rawResult: unknown
 ): void {
-  if (!config.eventBus || !config.runId) return
-  const record = coerceResultToRecord(rawResult)
-  if (!record) return
+  if (!config.eventBus || !config.runId) return;
+  const record = coerceResultToRecord(rawResult);
+  if (!record) return;
 
   try {
-    if (record['checkpointed'] === true && typeof record['label'] === 'string') {
-      const nodeIdValue = record['nodeId']
-      const checkpointAtValue = record['checkpointAt']
-      const nodeId = typeof nodeIdValue === 'string' ? nodeIdValue : toolName
+    if (
+      record["checkpointed"] === true &&
+      typeof record["label"] === "string"
+    ) {
+      const nodeIdValue = record["nodeId"];
+      const checkpointAtValue = record["checkpointAt"];
+      const nodeId = typeof nodeIdValue === "string" ? nodeIdValue : toolName;
       const checkpointAt =
-        typeof checkpointAtValue === 'string' ? checkpointAtValue : new Date().toISOString()
+        typeof checkpointAtValue === "string"
+          ? checkpointAtValue
+          : new Date().toISOString();
       config.eventBus.emit({
-        type: 'checkpoint:created',
+        type: "checkpoint:created",
         runId: config.runId,
         nodeId,
-        label: record['label'] as string,
+        label: record["label"] as string,
         checkpointAt,
-      })
-      return
+      });
+      return;
     }
 
     if (
-      typeof record['restored'] === 'boolean'
-      && typeof record['label'] === 'string'
+      typeof record["restored"] === "boolean" &&
+      typeof record["label"] === "string"
     ) {
-      const reasonValue = record['reason']
+      const reasonValue = record["reason"];
       config.eventBus.emit({
-        type: 'checkpoint:restored',
+        type: "checkpoint:restored",
         runId: config.runId,
-        checkpointLabel: record['label'] as string,
-        restored: record['restored'] as boolean,
-        ...(typeof reasonValue === 'string' ? { reason: reasonValue } : {}),
-      })
+        checkpointLabel: record["label"] as string,
+        restored: record["restored"] as boolean,
+        ...(typeof reasonValue === "string" ? { reason: reasonValue } : {}),
+      });
     }
   } catch {
     // Telemetry must never abort the tool loop.
@@ -127,20 +130,20 @@ export function maybeEmitCheckpointEvent(
 }
 
 export interface SafetyScanContext {
-  toolName: string
-  toolCallId: string
-  validatedKeys: string[]
-  startMs: number
-  span: ToolSpan | undefined
-  config: ToolLoopConfig
-  stat: { calls: number; errors: number; totalMs: number }
+  toolName: string;
+  toolCallId: string;
+  validatedKeys: string[];
+  startMs: number;
+  span: ToolSpan | undefined;
+  config: ToolLoopConfig;
+  stat: { calls: number; errors: number; totalMs: number };
 }
 
 export interface SafetyScanOutcome {
   /** When set, the caller should return this short-circuit result. */
-  shortCircuit?: { message: ToolMessage }
+  shortCircuit?: { message: ToolMessage };
   /** When `shortCircuit` is unset, the (possibly transformed) result string. */
-  resultStr: string
+  resultStr: string;
 }
 
 /**
@@ -151,99 +154,101 @@ export interface SafetyScanOutcome {
  */
 export function applySafetyScan(
   resultStr: string,
-  ctx: SafetyScanContext,
+  ctx: SafetyScanContext
 ): SafetyScanOutcome {
-  const { config, toolName, toolCallId, validatedKeys, startMs, span, stat } = ctx
+  const { config, toolName, toolCallId, validatedKeys, startMs, span, stat } =
+    ctx;
   if (!config.safetyMonitor || config.scanToolResults === false) {
-    return { resultStr }
+    return { resultStr };
   }
   try {
     const violations = config.safetyMonitor.scanContent(resultStr, {
-      source: 'tool:result',
+      source: "tool:result",
       toolName,
-    })
+    });
     const hardBlock = violations.find(
-      v => v.action === 'block' || v.action === 'kill' || v.severity === 'critical',
-    )
+      (v) =>
+        v.action === "block" || v.action === "kill" || v.severity === "critical"
+    );
     if (hardBlock) {
-      const blockedStr = `[blocked] Tool result contained potentially unsafe content (${hardBlock.category}): ${hardBlock.message}`
-      config.onToolResult?.(toolName, '[blocked: unsafe tool output]')
+      const blockedStr = `[blocked] Tool result contained potentially unsafe content (${hardBlock.category}): ${hardBlock.message}`;
+      config.onToolResult?.(toolName, "[blocked: unsafe tool output]");
       const message = new ToolMessage({
         content: blockedStr,
         tool_call_id: toolCallId,
         name: toolName,
-      })
-      const durationMs = Date.now() - startMs
-      stat.calls++
-      stat.totalMs += durationMs
-      config.onToolLatency?.(toolName, durationMs, 'unsafe-result')
+      });
+      const durationMs = Date.now() - startMs;
+      stat.calls++;
+      stat.totalMs += durationMs;
+      config.onToolLatency?.(toolName, durationMs, "unsafe-result");
       emitToolError(config, {
         toolName,
         toolCallId,
         durationMs,
         inputMetadataKeys: validatedKeys,
-        errorCode: 'TOOL_EXECUTION_FAILED',
+        errorCode: "TOOL_EXECUTION_FAILED",
         errorMessage: `Tool result blocked: ${hardBlock.category} — ${hardBlock.message}`,
-        status: 'denied',
-      })
+        status: "denied",
+      });
       endSpan(span, {
         durationMs,
         outputSize: blockedStr.length,
         blocked: true,
-      })
-      return { shortCircuit: { message }, resultStr: blockedStr }
+      });
+      return { shortCircuit: { message }, resultStr: blockedStr };
     }
-    return { resultStr }
+    return { resultStr };
   } catch {
     // RF-11 / DZUPAGENT-AGENT-M-01 — resolve the effective failure mode once.
     // A bare DzupAgent (no explicit `scanFailureMode`) is fail-closed: a
     // crashing scanner must NOT silently leak tool output. `fail-open` remains
     // available only as an explicit, opt-in legacy override.
-    const effectiveMode = config.scanFailureMode ?? 'fail-closed'
+    const effectiveMode = config.scanFailureMode ?? "fail-closed";
     config.eventBus?.emit({
-      type: 'safety:violation',
-      category: 'tool_result_scanner_failure',
-      severity: effectiveMode === 'fail-closed' ? 'critical' : 'warning',
+      type: "safety:violation",
+      category: "tool_result_scanner_failure",
+      severity: effectiveMode === "fail-closed" ? "critical" : "warning",
       ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
-      message: 'Tool result safety scanner failed',
-    })
+      message: "Tool result safety scanner failed",
+    });
 
-    if (effectiveMode === 'fail-closed') {
-      const blockedStr = '[blocked: tool result safety scanner failed]'
-      config.onToolResult?.(toolName, blockedStr)
+    if (effectiveMode === "fail-closed") {
+      const blockedStr = "[blocked: tool result safety scanner failed]";
+      config.onToolResult?.(toolName, blockedStr);
       const message = new ToolMessage({
         content: blockedStr,
         tool_call_id: toolCallId,
         name: toolName,
-      })
-      const durationMs = Date.now() - startMs
-      stat.calls++
-      stat.totalMs += durationMs
-      config.onToolLatency?.(toolName, durationMs, 'scanner-failure')
+      });
+      const durationMs = Date.now() - startMs;
+      stat.calls++;
+      stat.totalMs += durationMs;
+      config.onToolLatency?.(toolName, durationMs, "scanner-failure");
       emitToolError(config, {
         toolName,
         toolCallId,
         durationMs,
         inputMetadataKeys: validatedKeys,
-        errorCode: 'TOOL_EXECUTION_FAILED',
-        errorMessage: 'Tool result safety scanner failed; output withheld',
-        status: 'error',
-      })
-      endSpan(span, { durationMs, scannerFailure: true })
-      return { shortCircuit: { message }, resultStr: blockedStr }
+        errorCode: "TOOL_EXECUTION_FAILED",
+        errorMessage: "Tool result safety scanner failed; output withheld",
+        status: "error",
+      });
+      endSpan(span, { durationMs, scannerFailure: true });
+      return { shortCircuit: { message }, resultStr: blockedStr };
     }
-    return { resultStr }
+    return { resultStr };
   }
 }
 
 export interface ToolErrorContext {
-  toolName: string
-  toolCallId: string
-  validatedKeys: string[]
-  startMs: number
-  span: ToolSpan | undefined
-  config: ToolLoopConfig
-  stat: { calls: number; errors: number; totalMs: number }
+  toolName: string;
+  toolCallId: string;
+  validatedKeys: string[];
+  startMs: number;
+  span: ToolSpan | undefined;
+  config: ToolLoopConfig;
+  stat: { calls: number; errors: number; totalMs: number };
 }
 
 /**
@@ -255,10 +260,11 @@ export interface ToolErrorContext {
  */
 export function handleToolError(
   err: unknown,
-  ctx: ToolErrorContext,
+  ctx: ToolErrorContext
 ): { message: ToolMessage; errorMsg: string } {
-  const { toolName, toolCallId, validatedKeys, startMs, span, config, stat } = ctx
-  const errorMsg = err instanceof Error ? err.message : String(err)
+  const { toolName, toolCallId, validatedKeys, startMs, span, config, stat } =
+    ctx;
+  const errorMsg = err instanceof Error ? err.message : String(err);
   // QF-04 (DZUPAGENT-ERR-H-07 / SEC-M-06) — a thrown error message is
   // attacker-controllable untrusted content. Neutralize the MODEL-VISIBLE
   // ToolMessage content through the same prompt-injection wrapper the success
@@ -267,40 +273,39 @@ export function handleToolError(
   // observability fields below (`onToolResult`, `emitToolError`, span) keep
   // the RAW error string, matching the success path's raw-telemetry contract.
   const message = new ToolMessage({
-    content: wrapModelVisible(`Error executing tool "${toolName}": ${errorMsg}`, config),
+    content: fenceToolError(toolName, errorMsg, fenceOptions(config)),
     tool_call_id: toolCallId,
     name: toolName,
-  })
-  config.onToolResult?.(toolName, `[error: ${errorMsg}]`)
-  stat.errors++
-  const lifecycleStatus = statusFromError(err)
+  });
+  config.onToolResult?.(toolName, `[error: ${errorMsg}]`);
+  stat.errors++;
+  const lifecycleStatus = statusFromError(err);
   emitToolError(config, {
     toolName,
     toolCallId,
     durationMs: Date.now() - startMs,
     inputMetadataKeys: validatedKeys,
-    errorCode: lifecycleStatus === 'timeout'
-      ? 'TOOL_TIMEOUT'
-      : 'TOOL_EXECUTION_FAILED',
+    errorCode:
+      lifecycleStatus === "timeout" ? "TOOL_TIMEOUT" : "TOOL_EXECUTION_FAILED",
     errorMessage: errorMsg,
     status: lifecycleStatus,
-  })
+  });
   if (span) {
     try {
-      span.setAttribute('durationMs', Date.now() - startMs)
-      config.tracer?.endSpanWithError(span, err)
+      span.setAttribute("durationMs", Date.now() - startMs);
+      config.tracer?.endSpanWithError(span, err);
     } catch {
       // Tracer failures must not abort the tool loop.
     }
   }
-  return { message, errorMsg }
+  return { message, errorMsg };
 }
 
 export interface StuckEvaluation {
-  stuckBreak: boolean
-  stuckNudge: ToolMessage | undefined
-  stuckToolName: string | undefined
-  stuckReason: string | undefined
+  stuckBreak: boolean;
+  stuckNudge: ToolMessage | undefined;
+  stuckToolName: string | undefined;
+  stuckReason: string | undefined;
 }
 
 /**
@@ -314,38 +319,38 @@ export function evaluateStuck(
   args: Record<string, unknown>,
   toolCallId: string,
   errorMsg: string | undefined,
-  config: ToolLoopConfig,
+  config: ToolLoopConfig
 ): StuckEvaluation {
-  let stuckBreak = false
-  let stuckNudge: ToolMessage | undefined
-  let stuckToolName: string | undefined
-  let stuckReason: string | undefined
+  let stuckBreak = false;
+  let stuckNudge: ToolMessage | undefined;
+  let stuckToolName: string | undefined;
+  let stuckReason: string | undefined;
   if (config.stuckDetector) {
     const stuckCheck: StuckStatus = errorMsg
       ? config.stuckDetector.recordError(new Error(errorMsg))
-      : config.stuckDetector.recordToolCall(toolName, args)
+      : config.stuckDetector.recordToolCall(toolName, args);
 
     if (stuckCheck.stuck) {
-      const reason = stuckCheck.reason ?? 'Unknown stuck condition'
-      stuckToolName = toolName
-      stuckReason = reason
+      const reason = stuckCheck.reason ?? "Unknown stuck condition";
+      stuckToolName = toolName;
+      stuckReason = reason;
       if (errorMsg) {
-        const recovery = 'Stopping due to repeated errors.'
-        config.onStuckDetected?.(reason, recovery)
-        stuckBreak = true
+        const recovery = "Stopping due to repeated errors.";
+        config.onStuckDetected?.(reason, recovery);
+        stuckBreak = true;
       } else {
-        const recovery = `Tool "${toolName}" has been blocked. Try a different approach.`
-        config.budget?.blockTool(toolName)
-        config.onStuckDetected?.(reason, recovery)
+        const recovery = `Tool "${toolName}" has been blocked. Try a different approach.`;
+        config.budget?.blockTool(toolName);
+        config.onStuckDetected?.(reason, recovery);
         stuckNudge = new ToolMessage({
           content: `[Agent appears stuck: ${reason}. ${recovery}]`,
           tool_call_id: toolCallId,
           name: toolName,
-        })
+        });
       }
     }
   }
-  return { stuckBreak, stuckNudge, stuckToolName, stuckReason }
+  return { stuckBreak, stuckNudge, stuckToolName, stuckReason };
 }
 
 /**
@@ -357,27 +362,31 @@ export function applyOutputValidation(
   resultStr: string,
   toolName: string,
   toolCallId: string,
-  config: ToolLoopConfig,
+  config: ToolLoopConfig
 ): void {
-  if (!config.toolOutputValidator?.has(toolName)) return
+  if (!config.toolOutputValidator?.has(toolName)) return;
   try {
-    const outcome = config.toolOutputValidator.validate(toolName, resultStr)
+    const outcome = config.toolOutputValidator.validate(toolName, resultStr);
     if (!outcome.valid) {
-      const errorText = outcome.error ?? 'Tool output failed schema validation'
+      const errorText = outcome.error ?? "Tool output failed schema validation";
       try {
         config.eventBus?.emit({
-          type: 'tool:output:invalid',
+          type: "tool:output:invalid",
           toolName,
           toolCallId,
           ...(config.agentId !== undefined ? { agentId: config.agentId } : {}),
           ...(config.runId !== undefined ? { runId: config.runId } : {}),
           error: errorText,
-        })
+        });
       } catch {
         // Telemetry must never abort the tool loop.
       }
       try {
-        config.onToolOutputInvalid?.({ toolName, toolCallId, error: errorText })
+        config.onToolOutputInvalid?.({
+          toolName,
+          toolCallId,
+          error: errorText,
+        });
       } catch {
         // Listener errors must never abort the tool loop.
       }

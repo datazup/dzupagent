@@ -23,7 +23,7 @@ function createRequest(
   method: string,
   url: string,
   body: string | undefined,
-  headers: Record<string, string>,
+  headers: Record<string, string>
 ): Request {
   const stream = Readable.from(body ? [body] : []) as Readable &
     Partial<Request>;
@@ -31,7 +31,7 @@ function createRequest(
   stream.url = url;
   stream.originalUrl = url;
   stream.headers = Object.fromEntries(
-    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]),
+    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value])
   ) as Request["headers"];
   return stream as Request;
 }
@@ -53,15 +53,15 @@ function createResponse(app: TestApp): Response & { state: TestResponseState } {
     statusCode: number;
     setHeader: (
       name: string,
-      value: string | number | readonly string[],
+      value: string | number | readonly string[]
     ) => Response;
     getHeader: (
-      name: string,
+      name: string
     ) => string | number | readonly string[] | undefined;
     getHeaders: () => Record<string, string>;
     writeHead: (
       statusCode: number,
-      headers?: Record<string, string>,
+      headers?: Record<string, string>
     ) => Response;
     write: (chunk: unknown) => boolean;
     end: (chunk?: unknown) => Response;
@@ -107,7 +107,7 @@ function createResponse(app: TestApp): Response & { state: TestResponseState } {
       state.chunks.push(
         typeof chunk === "string"
           ? chunk
-          : Buffer.from(chunk as ArrayBufferView).toString(),
+          : Buffer.from(chunk as ArrayBufferView).toString()
       );
     }
     return true;
@@ -118,7 +118,7 @@ function createResponse(app: TestApp): Response & { state: TestResponseState } {
       state.chunks.push(
         typeof chunk === "string"
           ? chunk
-          : Buffer.from(chunk as ArrayBufferView).toString(),
+          : Buffer.from(chunk as ArrayBufferView).toString()
       );
     }
     state.ended = true;
@@ -144,7 +144,7 @@ function createResponse(app: TestApp): Response & { state: TestResponseState } {
 function dispatch(
   app: TestApp,
   req: Request,
-  res: Response & { state: TestResponseState },
+  res: Response & { state: TestResponseState }
 ): Promise<TestResponseState> {
   return new Promise((resolve, reject) => {
     const onFinish = (): void => {
@@ -214,7 +214,7 @@ describe("createMcpRouter", () => {
           beforeRequest,
           afterRequest,
         },
-      }),
+      })
     );
 
     const unauthorizedReq = createRequest("GET", "/mcp/tools", undefined, {});
@@ -222,7 +222,7 @@ describe("createMcpRouter", () => {
     const unauthorizedState = await dispatch(
       app,
       unauthorizedReq,
-      unauthorizedRes,
+      unauthorizedRes
     );
     expect(unauthorizedState.statusCode).toBe(401);
 
@@ -250,7 +250,7 @@ describe("createMcpRouter", () => {
       "GET",
       "/mcp/resource-templates",
       undefined,
-      { "x-api-key": "secret" },
+      { "x-api-key": "secret" }
     );
     const templatesRes = createResponse(app);
     const templatesState = await dispatch(app, templatesReq, templatesRes);
@@ -302,7 +302,7 @@ describe("createMcpRouter", () => {
         id: 1,
         method: "initialize",
       },
-      expect.objectContaining({ id: 1 }),
+      expect.objectContaining({ id: 1 })
     );
   });
 
@@ -315,7 +315,7 @@ describe("createMcpRouter", () => {
           name: "test-mcp",
           version: "1.0.0",
         }),
-      }),
+      })
     );
 
     const payload = JSON.stringify({ hello: "world" });
@@ -355,7 +355,7 @@ describe("createMcpRouter", () => {
             },
           ],
         }),
-      }),
+      })
     );
 
     const payload = JSON.stringify({
@@ -378,11 +378,20 @@ describe("createMcpRouter", () => {
     expect(handler).toHaveBeenCalledWith({ text: "hi" });
   });
 
-  it("returns a 500 JSON-RPC envelope when the server handler throws", async () => {
+  // DZUPAGENT-ERR-C-04 / DZUPAGENT-SEC-M-14: the JSON-RPC error envelope must
+  // carry a generic message, with the real one logged server-side.
+  it("returns a sanitised 500 JSON-RPC envelope and logs the real error", async () => {
     const onError = vi.fn();
+    const logError = vi.fn();
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: logError,
+    };
     const crashingServer: MCPRequestHandler = {
       handleRequest: vi.fn(async () => {
-        throw new Error("boom");
+        throw new Error("boom: postgres://user:pw@10.0.0.4:5432 refused");
       }),
       listTools: () => [],
     };
@@ -392,8 +401,9 @@ describe("createMcpRouter", () => {
     app.use(
       createMcpRouter({
         server: crashingServer,
+        logger,
         hooks: { onError },
-      }),
+      })
     );
 
     const payload = JSON.stringify({
@@ -409,18 +419,75 @@ describe("createMcpRouter", () => {
     const state = await dispatch(app, req, res);
 
     expect(state.statusCode).toBe(500);
-    expect(JSON.parse(state.chunks.join(""))).toEqual({
+    const body = state.chunks.join("");
+    expect(JSON.parse(body)).toEqual({
       jsonrpc: "2.0",
       id: "abc",
       error: {
         code: -32603,
-        message: "boom",
+        message: "Internal error",
       },
     });
+    expect(body).not.toContain("postgres://");
+
+    // Exactly one structured log entry carrying the real detail.
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith(
+      expect.stringContaining("[express/mcp-router]"),
+      expect.objectContaining({
+        message: "boom: postgres://user:pw@10.0.0.4:5432 refused",
+        requestId: "abc",
+      })
+    );
     expect(onError).toHaveBeenCalledWith(
       expect.any(Object),
       expect.any(Error),
-      "abc",
+      "abc"
+    );
+  });
+
+  // The pre-fix code optional-chained `hooks?.onError?.`, so with no hook
+  // configured the failure leaked to the client AND vanished from the logs.
+  it("logs the real error even when no onError hook is configured", async () => {
+    const logError = vi.fn();
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: logError,
+    };
+    const crashingServer: MCPRequestHandler = {
+      handleRequest: vi.fn(async () => {
+        throw new Error("internal detail with no hook");
+      }),
+      listTools: () => [],
+    };
+
+    const app = express();
+    app.use(express.json());
+    app.use(createMcpRouter({ server: crashingServer, logger }));
+
+    const payload = JSON.stringify({
+      jsonrpc: "2.0",
+      id: "no-hook",
+      method: "initialize",
+    });
+    const req = createRequest("POST", "/mcp", payload, {
+      "content-type": "application/json",
+      "content-length": String(Buffer.byteLength(payload)),
+    });
+    const res = createResponse(app);
+    const state = await dispatch(app, req, res);
+
+    expect(state.statusCode).toBe(500);
+    const body = state.chunks.join("");
+    expect(JSON.parse(body).error.message).toBe("Internal error");
+    expect(body).not.toContain("internal detail");
+
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith(
+      expect.stringContaining("[express/mcp-router]"),
+      expect.objectContaining({ message: "internal detail with no hook" })
     );
   });
 
@@ -493,13 +560,13 @@ describe("createMcpRouter", () => {
         "GET",
         "/api/v1/mcp/tools",
         undefined,
-        {},
+        {}
       );
       const unauthorizedRes = createResponse(app);
       const unauthorizedState = await dispatch(
         app,
         unauthorizedReq,
-        unauthorizedRes,
+        unauthorizedRes
       );
       expect(unauthorizedState.statusCode).toBe(401);
 
@@ -507,7 +574,7 @@ describe("createMcpRouter", () => {
         "GET",
         "/api/v1/mcp/tools",
         undefined,
-        { "x-api-key": "secret" },
+        { "x-api-key": "secret" }
       );
       const authorizedRes = createResponse(app);
       const authorizedState = await dispatch(app, authorizedReq, authorizedRes);
@@ -544,7 +611,7 @@ describe("createMcpRouter", () => {
             ],
           });
         },
-      }),
+      })
     );
 
     const alphaReq = createRequest("GET", "/mcp/tools", undefined, {});

@@ -8,18 +8,10 @@
 import { type z } from "zod";
 import { tool } from "@langchain/core/tools";
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import { PromptInjectionGuard } from "@dzupagent/security";
+import { fenceToolResult } from "@dzupagent/security";
 import type { MCPClient } from "./mcp-client.js";
 import type { MCPToolDescriptor, MCPToolParameter } from "./mcp-types.js";
 import { buildInputSchema } from "./mcp-input-schema.js";
-
-/**
- * AGENT-M-16 — process-wide guard used to fence untrusted MCP result text at
- * the source (this bridge is a direct-invoke path that bypasses the agent
- * tool loop's AGENT-H-06 wrap). The guard is stateless, so one shared instance
- * is safe. Double-fencing with the tool-loop wrap is idempotent-harmless.
- */
-const MCP_RESULT_GUARD = new PromptInjectionGuard();
 
 // ---------------------------------------------------------------------------
 // MCP → LangChain
@@ -44,7 +36,18 @@ export function mcpToolToLangChain(
           .filter((c) => c.type === "text")
           .map((c) => c.text)
           .join("\n");
-        return `Error: ${errorText}`;
+
+        // AGENT-C-21 — the error branch is just as attacker-controlled as the
+        // success branch: a malicious or compromised MCP server can set
+        // `isError: true` and place an injection payload in `content`. Fence it
+        // with the same boundary the success branch uses, otherwise flipping one
+        // boolean is enough to bypass the AGENT-M-16 fencing entirely.
+        //
+        // The `Error: ` prefix stays OUTSIDE the fence — it is framework-
+        // generated text that consumers may match on, and keeping it out of the
+        // block preserves that contract while the untrusted server text sits
+        // inside the quoted-data boundary.
+        return `Error: ${fenceToolResult(errorText)}`;
       }
 
       const text = result.content
@@ -61,7 +64,7 @@ export function mcpToolToLangChain(
       // consumers (outside the agent tool loop) inherit the same
       // <untrusted_content source="tool_result"> boundary the tool loop
       // applies via AGENT-H-06. Idempotent with that wrap.
-      return MCP_RESULT_GUARD.wrap(text, { label: "tool_result" });
+      return fenceToolResult(text);
     },
     {
       name: descriptor.name,

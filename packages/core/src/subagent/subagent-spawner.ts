@@ -63,7 +63,7 @@ export class SubAgentSpawner {
   async spawn(
     config: SubAgentConfig,
     task: string,
-    parentFiles?: Record<string, string>,
+    parentFiles?: Record<string, string>
   ): Promise<SubAgentResult> {
     // 1. Resolve model
     const model = this.resolveModel(config);
@@ -121,7 +121,7 @@ export class SubAgentSpawner {
   async spawnReAct(
     config: SubAgentConfig,
     task: string,
-    parentFiles?: Record<string, string>,
+    parentFiles?: Record<string, string>
   ): Promise<SubAgentResult> {
     const maxDepth = this.options?.maxDepth ?? REACT_DEFAULTS.maxDepth;
     // DZUPAGENT-AGENT-C-04: depth comes from the ambient spawn-depth context
@@ -133,7 +133,7 @@ export class SubAgentSpawner {
       return {
         messages: [
           new AIMessage(
-            `[Sub-agent "${config.name}" stopped: max recursion depth ${maxDepth} reached]`,
+            `[Sub-agent "${config.name}" stopped: max recursion depth ${maxDepth} reached]`
           ),
         ],
         files: {},
@@ -296,10 +296,12 @@ export class SubAgentSpawner {
             });
             allMessages.push(
               new ToolMessage({
-                content: message,
+                // The model controls `tc.name`; keep raw telemetry above but
+                // fence the model-visible error like every other tool result.
+                content: fenceToolResult(guardrails, message),
                 tool_call_id: toolCallId,
                 name: tc.name,
-              }),
+              })
             );
             continue;
           }
@@ -356,13 +358,15 @@ export class SubAgentSpawner {
                 content: fenceToolResult(guardrails, resultStr),
                 tool_call_id: toolCallId,
                 name: tc.name,
-              }),
+              })
             );
 
             // Extract file data from write_file / edit_file / create_file tool calls
             this.extractFilesFromToolCall(tc.name, tc.args, resultStr, files);
           } catch (err: unknown) {
-            // Non-fatal: return error as ToolMessage so the LLM can recover
+            // Non-fatal: return error as ToolMessage so the LLM can recover.
+            // AGENT-C-22: a thrown message is attacker-controllable, so the
+            // error path fences through the same primitive as the success path.
             const errMsg = err instanceof Error ? err.message : String(err);
             emitToolError(guardrails, {
               toolName: tc.name,
@@ -382,7 +386,7 @@ export class SubAgentSpawner {
                 ),
                 tool_call_id: toolCallId,
                 name: tc.name,
-              }),
+              })
             );
           }
 
@@ -424,7 +428,7 @@ export class SubAgentSpawner {
   async spawnAndMerge(
     config: SubAgentConfig,
     task: string,
-    parentFiles: Record<string, string>,
+    parentFiles: Record<string, string>
   ): Promise<{ result: SubAgentResult; mergedFiles: Record<string, string> }> {
     const result =
       config.tools && config.tools.length > 0
@@ -442,7 +446,7 @@ export class SubAgentSpawner {
     const attachCapabilities = (model: BaseChatModel): BaseChatModel =>
       attachStructuredOutputCapabilities(
         model,
-        config.structuredOutputCapabilities,
+        config.structuredOutputCapabilities
       );
 
     if (!config.model) {
@@ -467,11 +471,11 @@ export class SubAgentSpawner {
       const allSkills = await this.options.skillLoader.discoverSkills();
       const configSkills = config.skills;
       const relevantSkills = allSkills.filter((s) =>
-        configSkills.includes(s.name),
+        configSkills.includes(s.name)
       );
       for (const skill of relevantSkills) {
         const content = await this.options.skillLoader.loadSkillContent(
-          skill.name,
+          skill.name
         );
         if (content) {
           systemPrompt += `\n\n## Skill: ${skill.name}\n\n${content}`;
@@ -486,7 +490,7 @@ export class SubAgentSpawner {
    */
   private buildContextBlock(
     config: SubAgentConfig,
-    parentFiles?: Record<string, string>,
+    parentFiles?: Record<string, string>
   ): string {
     if (!parentFiles || Object.keys(parentFiles).length === 0) {
       return "";
@@ -517,7 +521,7 @@ export class SubAgentSpawner {
     toolName: string,
     args: Record<string, unknown>,
     _resultStr: string,
-    files: Record<string, string>,
+    files: Record<string, string>
   ): void {
     if (!FILE_TOOL_NAMES.has(toolName)) return;
 

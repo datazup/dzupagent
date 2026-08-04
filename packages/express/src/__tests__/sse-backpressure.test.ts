@@ -14,19 +14,19 @@
  *  - closed flag: write after end() is a no-op (direct-constructor path)
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { Response } from 'express'
-import { SSEWriter } from '../sse-handler.js'
-import type { AgentResult } from '../types.js'
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { Response } from "express";
+import { SSEWriter } from "../sse-handler.js";
+import type { AgentResult } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 interface MockResponseState {
-  chunks: string[]
-  writableEnded: boolean
-  writeCallCount: number
+  chunks: string[];
+  writableEnded: boolean;
+  writeCallCount: number;
 }
 
 /**
@@ -36,284 +36,308 @@ interface MockResponseState {
  *   the Node.js backpressure signal (false = internal buffer full).
  */
 function createMockResponse(writeReturnValue = true): {
-  res: Response
-  state: MockResponseState
+  res: Response;
+  state: MockResponseState;
 } {
   const state: MockResponseState = {
     chunks: [],
     writableEnded: false,
     writeCallCount: 0,
-  }
+  };
 
   const res = {
     get writableEnded() {
-      return state.writableEnded
+      return state.writableEnded;
     },
     writeHead: vi.fn(),
     write: vi.fn((chunk: string) => {
-      state.chunks.push(chunk)
-      state.writeCallCount++
-      return writeReturnValue
+      state.chunks.push(chunk);
+      state.writeCallCount++;
+      return writeReturnValue;
     }),
     end: vi.fn(() => {
-      state.writableEnded = true
+      state.writableEnded = true;
     }),
-  } as unknown as Response
+  } as unknown as Response;
 
-  return { res, state }
+  return { res, state };
 }
 
 // ---------------------------------------------------------------------------
 // SSEWriter — backpressure (res.write returns false)
 // ---------------------------------------------------------------------------
 
-describe('SSEWriter — backpressure: res.write() returning false', () => {
-  it('write() completes without throwing even when res.write returns false', () => {
+describe("SSEWriter — backpressure: res.write() returning false", () => {
+  it("write() completes without throwing even when res.write returns false", () => {
     // Node.js signals backpressure by returning false from writable.write().
     // SSEWriter has no buffering, so it should simply forward the call and not throw.
-    const { res, state } = createMockResponse(false /* backpressure */)
-    const writer = new SSEWriter(res)
+    const { res, state } = createMockResponse(false /* backpressure */);
+    const writer = new SSEWriter(res);
 
-    expect(() => writer.writeChunk('hello')).not.toThrow()
-    expect(state.writeCallCount).toBe(1)
-    expect(state.chunks[0]).toContain('event: chunk')
-  })
+    expect(() => writer.writeChunk("hello")).not.toThrow();
+    expect(state.writeCallCount).toBe(1);
+    expect(state.chunks[0]).toContain("event: chunk");
+  });
 
-  it('multiple write() calls each reach res.write even under backpressure', () => {
-    const { res, state } = createMockResponse(false)
-    const writer = new SSEWriter(res)
+  it("multiple write() calls each reach res.write even under backpressure", () => {
+    const { res, state } = createMockResponse(false);
+    const writer = new SSEWriter(res);
 
-    writer.writeChunk('a')
-    writer.writeChunk('b')
-    writer.writeChunk('c')
+    writer.writeChunk("a");
+    writer.writeChunk("b");
+    writer.writeChunk("c");
 
-    expect(state.writeCallCount).toBe(3)
-  })
+    expect(state.writeCallCount).toBe(3);
+  });
 
-  it('write() after end() is a no-op even when res.write would return false', () => {
-    const { res, state } = createMockResponse(false)
-    const writer = new SSEWriter(res)
+  it("write() after end() is a no-op even when res.write would return false", () => {
+    const { res, state } = createMockResponse(false);
+    const writer = new SSEWriter(res);
 
-    writer.end()
-    writer.writeChunk('should-be-dropped')
+    writer.end();
+    writer.writeChunk("should-be-dropped");
 
     // end() calls res.end(), write() should be untouched
-    expect(state.writeCallCount).toBe(0)
-  })
-})
+    expect(state.writeCallCount).toBe(0);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // SSEWriter — keep-alive timer behaviour
 // ---------------------------------------------------------------------------
 
-describe('SSEWriter — keep-alive timer', () => {
+describe("SSEWriter — keep-alive timer", () => {
   beforeEach(() => {
-    vi.useFakeTimers()
-  })
+    vi.useFakeTimers();
+  });
 
   afterEach(() => {
-    vi.useRealTimers()
-  })
+    vi.useRealTimers();
+  });
 
   it('keep-alive tick writes the correct SSE comment ": keepalive\\n\\n"', () => {
-    const { res, state } = createMockResponse()
-    const writer = new SSEWriter(res, { keepAliveMs: 1_000 })
-    writer.startKeepAlive()
+    const { res, state } = createMockResponse();
+    const writer = new SSEWriter(res, { keepAliveMs: 1_000 });
+    writer.startKeepAlive();
 
-    vi.advanceTimersByTime(1_000)
+    vi.advanceTimersByTime(1_000);
 
-    expect(state.chunks).toContain(': keepalive\n\n')
-    writer.stopKeepAlive()
-  })
+    expect(state.chunks).toContain(": keepalive\n\n");
+    writer.stopKeepAlive();
+  });
 
-  it('stopKeepAlive() prevents further pings after it is called', () => {
-    const { res, state } = createMockResponse()
-    const writer = new SSEWriter(res, { keepAliveMs: 500 })
-    writer.startKeepAlive()
+  it("stopKeepAlive() prevents further pings after it is called", () => {
+    const { res, state } = createMockResponse();
+    const writer = new SSEWriter(res, { keepAliveMs: 500 });
+    writer.startKeepAlive();
 
-    vi.advanceTimersByTime(500) // first ping
-    expect(state.writeCallCount).toBe(1)
+    vi.advanceTimersByTime(500); // first ping
+    expect(state.writeCallCount).toBe(1);
 
-    writer.stopKeepAlive()
+    writer.stopKeepAlive();
 
-    vi.advanceTimersByTime(2_000) // would be 4 more pings if not stopped
-    expect(state.writeCallCount).toBe(1) // still only 1
-  })
+    vi.advanceTimersByTime(2_000); // would be 4 more pings if not stopped
+    expect(state.writeCallCount).toBe(1); // still only 1
+  });
 
-  it('end() implicitly stops the keep-alive timer', () => {
-    const { res, state } = createMockResponse()
-    const writer = new SSEWriter(res, { keepAliveMs: 500 })
-    writer.startKeepAlive()
+  it("end() implicitly stops the keep-alive timer", () => {
+    const { res, state } = createMockResponse();
+    const writer = new SSEWriter(res, { keepAliveMs: 500 });
+    writer.startKeepAlive();
 
-    vi.advanceTimersByTime(500) // one ping before end
-    const pingsBefore = state.writeCallCount
+    vi.advanceTimersByTime(500); // one ping before end
+    const pingsBefore = state.writeCallCount;
 
-    writer.end()
+    writer.end();
 
-    vi.advanceTimersByTime(2_000) // timer must be cleared
-    expect(state.writeCallCount).toBe(pingsBefore) // no new pings
-  })
+    vi.advanceTimersByTime(2_000); // timer must be cleared
+    expect(state.writeCallCount).toBe(pingsBefore); // no new pings
+  });
 
-  it('keepAliveMs config controls the interval duration', () => {
-    const { res, state } = createMockResponse()
-    const writer = new SSEWriter(res, { keepAliveMs: 2_000 })
-    writer.startKeepAlive()
+  it("keepAliveMs config controls the interval duration", () => {
+    const { res, state } = createMockResponse();
+    const writer = new SSEWriter(res, { keepAliveMs: 2_000 });
+    writer.startKeepAlive();
 
-    vi.advanceTimersByTime(1_999)
-    expect(state.writeCallCount).toBe(0) // too early
+    vi.advanceTimersByTime(1_999);
+    expect(state.writeCallCount).toBe(0); // too early
 
-    vi.advanceTimersByTime(1)
-    expect(state.writeCallCount).toBe(1) // exactly at 2 000 ms
+    vi.advanceTimersByTime(1);
+    expect(state.writeCallCount).toBe(1); // exactly at 2 000 ms
 
-    vi.advanceTimersByTime(2_000)
-    expect(state.writeCallCount).toBe(2) // second tick
+    vi.advanceTimersByTime(2_000);
+    expect(state.writeCallCount).toBe(2); // second tick
 
-    writer.stopKeepAlive()
-  })
+    writer.stopKeepAlive();
+  });
 
-  it('startKeepAlive() called twice does not double-fire pings', () => {
+  it("startKeepAlive() called twice does not double-fire pings", () => {
     // The second call overwrites keepAliveTimer without clearing the first,
     // which means one orphan interval could fire. We test the observable
     // outcome: pings should not arrive at double the expected rate.
-    const { res, state } = createMockResponse()
-    const writer = new SSEWriter(res, { keepAliveMs: 1_000 })
-    writer.startKeepAlive()
-    writer.startKeepAlive() // second call
+    const { res, state } = createMockResponse();
+    const writer = new SSEWriter(res, { keepAliveMs: 1_000 });
+    writer.startKeepAlive();
+    writer.startKeepAlive(); // second call
 
-    vi.advanceTimersByTime(1_000)
+    vi.advanceTimersByTime(1_000);
 
     // At most 2 pings (one per timer). The implementation detail that the
     // first interval is leaked is acceptable — we just document it fires
     // at most twice per tick.
-    expect(state.writeCallCount).toBeLessThanOrEqual(2)
-    writer.stopKeepAlive()
-  })
+    expect(state.writeCallCount).toBeLessThanOrEqual(2);
+    writer.stopKeepAlive();
+  });
 
-  it('stopKeepAlive() is idempotent — calling it multiple times does not throw', () => {
-    const { res } = createMockResponse()
-    const writer = new SSEWriter(res, { keepAliveMs: 1_000 })
-    writer.startKeepAlive()
+  it("stopKeepAlive() is idempotent — calling it multiple times does not throw", () => {
+    const { res } = createMockResponse();
+    const writer = new SSEWriter(res, { keepAliveMs: 1_000 });
+    writer.startKeepAlive();
 
     expect(() => {
-      writer.stopKeepAlive()
-      writer.stopKeepAlive()
-      writer.stopKeepAlive()
-    }).not.toThrow()
-  })
+      writer.stopKeepAlive();
+      writer.stopKeepAlive();
+      writer.stopKeepAlive();
+    }).not.toThrow();
+  });
 
-  it('stopKeepAlive() before startKeepAlive() does not throw', () => {
-    const { res } = createMockResponse()
-    const writer = new SSEWriter(res)
+  it("stopKeepAlive() before startKeepAlive() does not throw", () => {
+    const { res } = createMockResponse();
+    const writer = new SSEWriter(res);
 
-    expect(() => writer.stopKeepAlive()).not.toThrow()
-  })
-})
+    expect(() => writer.stopKeepAlive()).not.toThrow();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // SSEWriter — isConnected()
 // ---------------------------------------------------------------------------
 
-describe('SSEWriter — isConnected()', () => {
-  it('returns false when res.writableEnded is set externally (not via writer.end())', () => {
+describe("SSEWriter — isConnected()", () => {
+  it("returns false when res.writableEnded is set externally (not via writer.end())", () => {
     // Simulate the underlying socket being closed externally by Express/Node.
-    const state = { writableEnded: false }
+    const state = { writableEnded: false };
     const res = {
       get writableEnded() {
-        return state.writableEnded
+        return state.writableEnded;
       },
       writeHead: vi.fn(),
       write: vi.fn().mockReturnValue(true),
       end: vi.fn(),
-    } as unknown as Response
+    } as unknown as Response;
 
-    const writer = new SSEWriter(res)
-    expect(writer.isConnected()).toBe(true)
+    const writer = new SSEWriter(res);
+    expect(writer.isConnected()).toBe(true);
 
     // Simulate the socket being destroyed by the OS / proxy
-    state.writableEnded = true
-    expect(writer.isConnected()).toBe(false)
-  })
+    state.writableEnded = true;
+    expect(writer.isConnected()).toBe(false);
+  });
 
-  it('returns false after end() regardless of res.writableEnded', () => {
-    const { res } = createMockResponse()
-    const writer = new SSEWriter(res)
+  it("returns false after end() regardless of res.writableEnded", () => {
+    const { res } = createMockResponse();
+    const writer = new SSEWriter(res);
 
-    writer.end()
-    expect(writer.isConnected()).toBe(false)
-  })
-})
+    writer.end();
+    expect(writer.isConnected()).toBe(false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // SSEWriter — writeDone / writeError direct API
 // ---------------------------------------------------------------------------
 
-describe('SSEWriter — writeDone()', () => {
-  it('serialises all AgentResult fields into the SSE data payload', () => {
-    const { res, state } = createMockResponse()
-    const writer = new SSEWriter(res)
+describe("SSEWriter — writeDone()", () => {
+  it("serialises all AgentResult fields into the SSE data payload", () => {
+    const { res, state } = createMockResponse();
+    const writer = new SSEWriter(res);
 
     const result: AgentResult = {
-      content: 'Final answer',
+      content: "Final answer",
       usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
       cost: 0.001,
       toolCalls: 3,
       durationMs: 1234,
-    }
+    };
 
-    writer.writeDone(result)
+    writer.writeDone(result);
 
-    const output = state.chunks.join('')
-    expect(output).toContain('event: done')
-    expect(output).toContain('"content":"Final answer"')
-    expect(output).toContain('"inputTokens":10')
-    expect(output).toContain('"outputTokens":20')
-    expect(output).toContain('"totalTokens":30')
-    expect(output).toContain('"cost":0.001')
-    expect(output).toContain('"toolCalls":3')
-    expect(output).toContain('"durationMs":1234')
-  })
+    const output = state.chunks.join("");
+    expect(output).toContain("event: done");
+    expect(output).toContain('"content":"Final answer"');
+    expect(output).toContain('"inputTokens":10');
+    expect(output).toContain('"outputTokens":20');
+    expect(output).toContain('"totalTokens":30');
+    expect(output).toContain('"cost":0.001');
+    expect(output).toContain('"toolCalls":3');
+    expect(output).toContain('"durationMs":1234');
+  });
 
-  it('writeDone with undefined optional fields produces valid JSON', () => {
-    const { res, state } = createMockResponse()
-    const writer = new SSEWriter(res)
+  it("writeDone with undefined optional fields produces valid JSON", () => {
+    const { res, state } = createMockResponse();
+    const writer = new SSEWriter(res);
 
     const result: AgentResult = {
-      content: 'ok',
+      content: "ok",
       usage: undefined,
       cost: undefined,
       toolCalls: 0,
       durationMs: 5,
-    }
+    };
 
-    writer.writeDone(result)
+    writer.writeDone(result);
 
-    const raw = state.chunks.join('')
+    const raw = state.chunks.join("");
     // Extract the data line
-    const dataLine = raw.split('\n').find((l) => l.startsWith('data:'))
-    expect(dataLine).toBeDefined()
-    expect(() => JSON.parse(dataLine!.replace('data: ', ''))).not.toThrow()
-  })
-})
+    const dataLine = raw.split("\n").find((l) => l.startsWith("data:"));
+    expect(dataLine).toBeDefined();
+    expect(() => JSON.parse(dataLine!.replace("data: ", ""))).not.toThrow();
+  });
+});
 
-describe('SSEWriter — writeError()', () => {
-  it('writes an event: error SSE frame with the error message', () => {
-    const { res, state } = createMockResponse()
-    const writer = new SSEWriter(res)
+describe("SSEWriter — writeError()", () => {
+  it("writes an event: error SSE frame with a sanitised message", () => {
+    // DZUPAGENT-ERR-C-04 / DZUPAGENT-SEC-M-14: the raw message never reaches
+    // the frame; it is logged via the configured logger instead.
+    const logError = vi.fn();
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: logError,
+    };
+    const { res, state } = createMockResponse();
+    const writer = new SSEWriter(res, { logger });
 
-    writer.writeError(new Error('Something went wrong'))
+    writer.writeError(new Error("Something went wrong"));
 
-    const output = state.chunks.join('')
-    expect(output).toContain('event: error')
-    expect(output).toContain('"message":"Something went wrong"')
-  })
+    const output = state.chunks.join("");
+    expect(output).toContain("event: error");
+    expect(output).toContain('"message":"Internal error"');
+    expect(output).not.toContain("Something went wrong");
 
-  it('writeError after end() is a no-op', () => {
-    const { res, state } = createMockResponse()
-    const writer = new SSEWriter(res)
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith(
+      expect.stringContaining("[express/sse-handler]"),
+      expect.objectContaining({ message: "Something went wrong" })
+    );
+  });
 
-    writer.end()
-    writer.writeError(new Error('too late'))
+  it("writeError after end() is a no-op and does not log", () => {
+    const logError = vi.fn();
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: logError,
+    };
+    const { res, state } = createMockResponse();
+    const writer = new SSEWriter(res, { logger });
 
-    expect(state.writeCallCount).toBe(0)
-  })
-})
+    writer.end();
+    writer.writeError(new Error("too late"));
+
+    expect(state.writeCallCount).toBe(0);
+    expect(logError).not.toHaveBeenCalled();
+  });
+});

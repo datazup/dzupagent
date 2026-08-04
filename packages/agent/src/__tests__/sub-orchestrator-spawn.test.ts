@@ -470,7 +470,12 @@ describe("spawnSubOrchestrator — depth limit at the dispatch site", () => {
     expect(childSpawn.supervisor.hierarchy.depth).toBe(1);
 
     // The child can spawn once more...
-    const grandchild = await childSpawn.supervisor.spawnSubOrchestrator(
+    // `SubOrchestratorChild` deliberately omits `spawnSubOrchestrator` (see its
+    // doc comment) to avoid a module cycle with the concrete class. At runtime
+    // `chainableFactory` always constructs a `DelegatingSupervisor`, so this
+    // cast reflects the real object, not a type-safety hole.
+    const childSupervisor = childSpawn.supervisor as DelegatingSupervisor;
+    const grandchild = await childSupervisor.spawnSubOrchestrator(
       {
         parentRunId: "child-run",
         branchId: "branch-left",
@@ -484,8 +489,9 @@ describe("spawnSubOrchestrator — depth limit at the dispatch site", () => {
 
     // ...but the grandchild, at depth 2, is the deepest level: spawning again
     // would put a child at MAX_ORCHESTRATION_DEPTH.
+    const grandchildSupervisor = grandchild.supervisor as DelegatingSupervisor;
     await expect(
-      grandchild.supervisor.spawnSubOrchestrator(
+      grandchildSupervisor.spawnSubOrchestrator(
         {
           parentRunId: "grandchild-run",
           branchId: "branch-left",
@@ -512,9 +518,10 @@ describe("spawnSubOrchestrator — chained spawning needs a child runId", () => 
     const child = await root.spawnSubOrchestrator(
       spawnOptions({ parentRunId: "root-run" })
     );
+    const childSupervisor = child.supervisor as DelegatingSupervisor;
 
     await expect(
-      child.supervisor.spawnSubOrchestrator(
+      childSupervisor.spawnSubOrchestrator(
         {
           parentRunId: "child-run",
           branchId: "b",
@@ -684,7 +691,9 @@ describe("spawnSubOrchestrator — event surface", () => {
   function makeBus(): { bus: DzupEventBus; seen: DzupEvent[] } {
     const bus = createEventBus();
     const seen: DzupEvent[] = [];
-    bus.onAny((e) => { seen.push(e) });
+    bus.onAny((e) => {
+      seen.push(e);
+    });
     return { bus, seen };
   }
 

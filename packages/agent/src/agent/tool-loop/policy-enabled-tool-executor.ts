@@ -1,39 +1,32 @@
-import { ToolMessage } from '@langchain/core/messages'
-import type { StructuredToolInterface } from '@langchain/core/tools'
-import { ForgeError } from '@dzupagent/core/events'
-import { PromptInjectionGuard } from '@dzupagent/security'
+import { ToolMessage } from "@langchain/core/messages";
+import type { StructuredToolInterface } from "@langchain/core/tools";
+import { ForgeError } from "@dzupagent/core/events";
+import { fenceToolResult } from "@dzupagent/security";
 import {
   emitToolCalled,
   emitToolError,
   emitToolResult,
   extractInputMetadataKeys,
-} from '../tool-lifecycle-policy.js'
-import type { ToolLoopConfig } from './types.js'
-import type { StatGetter, ToolCall, ToolCallResult } from './contracts.js'
-import { omitUndefined } from '../../utils/exact-optional.js'
-import { runPolicyChecks } from './policy-checks.js'
-import { invokeToolWithRetry } from './tool-invoker.js'
+} from "../tool-lifecycle-policy.js";
+import type { ToolLoopConfig } from "./types.js";
+import type { StatGetter, ToolCall, ToolCallResult } from "./contracts.js";
+import { omitUndefined } from "../../utils/exact-optional.js";
+import { runPolicyChecks } from "./policy-checks.js";
+import { invokeToolWithRetry } from "./tool-invoker.js";
 import {
   applyOutputValidation,
   applySafetyScan,
   endSpan,
   evaluateStuck,
+  fenceOptions,
   handleToolError,
   maybeEmitCheckpointEvent,
-} from './result-pipeline.js'
-
-/**
- * MC-3 (AGENT-H-06) — process-wide default prompt-injection guardrail used
- * when a {@link ToolLoopConfig} does not supply its own
- * {@link ToolLoopConfig.promptInjectionGuard}. The guard is stateless, so a
- * single shared instance is safe and avoids per-call allocation.
- */
-const DEFAULT_PROMPT_INJECTION_GUARD = new PromptInjectionGuard()
+} from "./result-pipeline.js";
 
 export interface PolicyEnabledToolExecutorParams {
-  toolMap: Map<string, StructuredToolInterface>
-  config: ToolLoopConfig
-  getOrCreateStat: StatGetter
+  toolMap: Map<string, StructuredToolInterface>;
+  config: ToolLoopConfig;
+  getOrCreateStat: StatGetter;
 }
 
 /**
@@ -53,35 +46,41 @@ export interface PolicyEnabledToolExecutorParams {
  */
 export async function executePolicyEnabledToolCall(
   tc: ToolCall,
-  params: PolicyEnabledToolExecutorParams,
+  params: PolicyEnabledToolExecutorParams
 ): Promise<ToolCallResult> {
-  const { toolMap, config, getOrCreateStat } = params
-  const toolName = tc.name
-  const toolCallId = tc.id ?? `call_${Date.now()}`
-  const inputMetadataKeys = extractInputMetadataKeys(tc.args)
+  const { toolMap, config, getOrCreateStat } = params;
+  const toolName = tc.name;
+  const toolCallId = tc.id ?? `call_${Date.now()}`;
+  const inputMetadataKeys = extractInputMetadataKeys(tc.args);
 
-  const checks = runPolicyChecks(tc, toolMap, config, toolCallId, inputMetadataKeys)
-  if (checks.thrown) throw checks.thrown
-  if (checks.result) return checks.result
+  const checks = runPolicyChecks(
+    tc,
+    toolMap,
+    config,
+    toolCallId,
+    inputMetadataKeys
+  );
+  if (checks.thrown) throw checks.thrown;
+  if (checks.result) return checks.result;
   // After `runPolicyChecks` succeeds these fields are guaranteed present.
-  const tool = checks.tool!
-  const validatedArgs = checks.validatedArgs!
-  const validatedKeys = checks.validatedKeys!
+  const tool = checks.tool!;
+  const validatedArgs = checks.validatedArgs!;
+  const validatedKeys = checks.validatedKeys!;
 
   emitToolCalled(config, {
     toolName,
     toolCallId,
     input: validatedArgs,
     inputMetadataKeys: validatedKeys,
-  })
-  config.onToolCall?.(toolName, validatedArgs)
+  });
+  config.onToolCall?.(toolName, validatedArgs);
 
-  const stat = getOrCreateStat(toolName)
-  const startMs = Date.now()
-  let errorMsg: string | undefined
-  let message: ToolMessage
-  const inputSize = JSON.stringify(validatedArgs).length
-  const span = config.tracer?.startToolSpan(toolName, { inputSize })
+  const stat = getOrCreateStat(toolName);
+  const startMs = Date.now();
+  let errorMsg: string | undefined;
+  let message: ToolMessage;
+  const inputSize = JSON.stringify(validatedArgs).length;
+  const span = config.tracer?.startToolSpan(toolName, { inputSize });
 
   try {
     const result = await invokeToolWithRetry({
@@ -91,11 +90,12 @@ export async function executePolicyEnabledToolCall(
       validatedArgs,
       validatedKeys,
       config,
-    })
-    const rawResultStr = typeof result === 'string' ? result : JSON.stringify(result)
+    });
+    const rawResultStr =
+      typeof result === "string" ? result : JSON.stringify(result);
     const transformedStr = config.transformToolResult
       ? await config.transformToolResult(toolName, validatedArgs, rawResultStr)
-      : rawResultStr
+      : rawResultStr;
 
     const safetyOutcome = applySafetyScan(transformedStr, {
       toolName,
@@ -105,13 +105,13 @@ export async function executePolicyEnabledToolCall(
       span,
       config,
       stat,
-    })
+    });
     if (safetyOutcome.shortCircuit) {
-      return { message: safetyOutcome.shortCircuit.message }
+      return { message: safetyOutcome.shortCircuit.message };
     }
-    const resultStr = safetyOutcome.resultStr
+    const resultStr = safetyOutcome.resultStr;
 
-    applyOutputValidation(resultStr, toolName, toolCallId, config)
+    applyOutputValidation(resultStr, toolName, toolCallId, config);
 
     // MC-3 (AGENT-H-06 / SEC-M-06) — wrap the untrusted tool output in a
     // labelled, delimited quoted-data block before it enters the model's
@@ -120,32 +120,26 @@ export async function executePolicyEnabledToolCall(
     // Observability (`onToolResult`, `emitToolResult`, span) intentionally
     // sees the RAW result string; only the context-bound ToolMessage is
     // wrapped. Opt out with `wrapToolResults === false`.
-    const contextContent =
-      config.wrapToolResults === false
-        ? resultStr
-        : (config.promptInjectionGuard ?? DEFAULT_PROMPT_INJECTION_GUARD).wrap(
-            resultStr,
-            { label: 'tool_result' },
-          )
+    const contextContent = fenceToolResult(resultStr, fenceOptions(config));
 
     message = new ToolMessage({
       content: contextContent,
       tool_call_id: toolCallId,
       name: toolName,
-    })
-    config.onToolResult?.(toolName, resultStr)
+    });
+    config.onToolResult?.(toolName, resultStr);
     emitToolResult(config, {
       toolName,
       toolCallId,
       durationMs: Date.now() - startMs,
       inputMetadataKeys: validatedKeys,
       output: resultStr,
-    })
-    maybeEmitCheckpointEvent(config, toolName, result ?? resultStr)
+    });
+    maybeEmitCheckpointEvent(config, toolName, result ?? resultStr);
     endSpan(span, {
       durationMs: Date.now() - startMs,
       outputSize: resultStr.length,
-    })
+    });
   } catch (err: unknown) {
     // REC-M-06 — When the issuance-time permission check denies a tool,
     // the helper throws a ForgeError(TOOL_PERMISSION_DENIED) shaped to
@@ -156,27 +150,27 @@ export async function executePolicyEnabledToolCall(
     // ToolMessage, and never count as an "error" in tool stats.
     if (
       err instanceof ForgeError &&
-      err.code === 'TOOL_PERMISSION_DENIED' &&
-      err.context?.['phase'] === 'issuance'
+      err.code === "TOOL_PERMISSION_DENIED" &&
+      err.context?.["phase"] === "issuance"
     ) {
       emitToolError(config, {
         toolName,
         toolCallId,
         durationMs: Date.now() - startMs,
         inputMetadataKeys: validatedKeys,
-        errorCode: 'TOOL_PERMISSION_DENIED',
+        errorCode: "TOOL_PERMISSION_DENIED",
         errorMessage: err.message,
-        status: 'denied',
-      })
+        status: "denied",
+      });
       if (span) {
         try {
-          span.setAttribute('durationMs', Date.now() - startMs)
-          config.tracer?.endSpanWithError(span, err)
+          span.setAttribute("durationMs", Date.now() - startMs);
+          config.tracer?.endSpanWithError(span, err);
         } catch {
           // Tracer failures must not abort the tool loop.
         }
       }
-      throw err
+      throw err;
     }
     const handled = handleToolError(err, {
       toolName,
@@ -186,22 +180,22 @@ export async function executePolicyEnabledToolCall(
       span,
       config,
       stat,
-    })
-    message = handled.message
-    errorMsg = handled.errorMsg
+    });
+    message = handled.message;
+    errorMsg = handled.errorMsg;
   }
 
-  const durationMs = Date.now() - startMs
-  stat.calls++
-  stat.totalMs += durationMs
-  config.onToolLatency?.(toolName, durationMs, errorMsg)
+  const durationMs = Date.now() - startMs;
+  stat.calls++;
+  stat.totalMs += durationMs;
+  config.onToolLatency?.(toolName, durationMs, errorMsg);
 
-  const stuck = evaluateStuck(toolName, tc.args, toolCallId, errorMsg, config)
+  const stuck = evaluateStuck(toolName, tc.args, toolCallId, errorMsg, config);
   return omitUndefined({
     message,
     stuckNudge: stuck.stuckNudge,
     stuckBreak: stuck.stuckBreak,
     stuckToolName: stuck.stuckToolName,
     stuckReason: stuck.stuckReason,
-  })
+  });
 }
