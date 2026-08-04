@@ -14,6 +14,9 @@ import {
   MODEL_RATE_TABLE,
   PROVIDER_RATE_TABLE,
 } from "../cost-tracking.js";
+// Declared in model-rates, and deliberately NOT re-exported by cost-tracking —
+// import it from the module that owns it rather than widening that surface.
+import { hasKnownModelRate } from "../model-rates.js";
 
 describe("ARCH-M-08 canonical rate consolidation", () => {
   it("core getModelCosts and agent-adapters getModelRate agree for a shared model (claude)", () => {
@@ -127,6 +130,39 @@ describe("ARCH-M-08 canonical rate consolidation", () => {
         outputTokens: 1_000_000,
       })
     ).toBe(1800);
+  });
+
+  it("prices the models docs-app actually selects, rather than defaulting them", () => {
+    // These two ids are the live docs-app RAG chat primary and fallback. Before
+    // this entry both were absent, so `hasKnownModelRate` was false and every
+    // docs-app call reported cost unknown / no-tariff. A regression here is
+    // silent at the call site — it re-reports unknown rather than throwing.
+    expect(hasKnownModelRate("gpt-4o-mini")).toBe(true);
+    expect(hasKnownModelRate("claude-3-5-haiku-20241022")).toBe(true);
+
+    expect(getModelRate("gpt-4o-mini")).toMatchObject({
+      inputCentsPer1M: 15,
+      outputCentsPer1M: 60,
+    });
+    expect(getModelRate("claude-3-5-haiku-20241022")).toMatchObject({
+      inputCentsPer1M: 80,
+      outputCentsPer1M: 400,
+    });
+  });
+
+  it("gives each new model the cache tiers its family does (or does not) define", () => {
+    // The two ids resolve families differently, and only one gains cache tiers:
+    // `claude-3-5-haiku-*` prefix-matches the `claude` family; `gpt-4o-mini`
+    // matches no family, because OpenAI's family key is `openai`, not `gpt`.
+    // Asserting this pins that the ids are not interchangeable.
+    expect(getModelRate("claude-3-5-haiku-20241022")).toEqual({
+      inputCentsPer1M: 80,
+      outputCentsPer1M: 400,
+      cachedInputCentsPer1M: PROVIDER_RATE_TABLE.claude.cachedInputCentsPer1M,
+      cacheWriteCentsPer1M: PROVIDER_RATE_TABLE.claude.cacheWriteCentsPer1M,
+    });
+    expect(getModelRate("gpt-4o-mini").cachedInputCentsPer1M).toBeUndefined();
+    expect(getModelRate("gpt-4o-mini").cacheWriteCentsPer1M).toBeUndefined();
   });
 
   it("PROVIDER_RATE_TABLE preserves the previously hand-maintained adapter values", () => {
