@@ -116,7 +116,7 @@
     "@anthropic-ai/sdk": "0.103.0",
     "@google/generative-ai": "^0.24.1",
     "@modelcontextprotocol/sdk": "1.29.0",
-    "@openai/codex-sdk": "^0.144.5"
+    "@openai/codex-sdk": "0.146.0"
   },
   "devDependencies": {
     "@langchain/core": "^1.1.39",
