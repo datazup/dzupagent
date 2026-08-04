@@ -44,9 +44,20 @@ describe("ARCH-M-08 canonical rate consolidation", () => {
   });
 
   it("getModelRate resolves concrete models, provider families, and falls back to default", () => {
-    expect(getModelRate("claude-sonnet-4-6")).toEqual(
-      MODEL_RATE_TABLE["claude-sonnet-4-6"]
-    );
+    // Base prices come from the concrete entry; cache tiers are inherited from
+    // the `claude` family, which is the only place they are maintained.
+    expect(getModelRate("claude-sonnet-4-6")).toEqual({
+      ...MODEL_RATE_TABLE["claude-sonnet-4-6"],
+      cachedInputCentsPer1M: PROVIDER_RATE_TABLE.claude.cachedInputCentsPer1M,
+      cacheWriteCentsPer1M: PROVIDER_RATE_TABLE.claude.cacheWriteCentsPer1M,
+    });
+    // An explicit model entry still wins on base prices — never inherited.
+    expect(getModelRate("claude-haiku-4-5-20251001")).toMatchObject({
+      inputCentsPer1M: 80,
+      outputCentsPer1M: 400,
+    });
+    // A family with no cache tiers gains no phantom ones.
+    expect(getModelRate("gpt-5").cachedInputCentsPer1M).toBeUndefined();
     expect(getModelRate("gemini")).toEqual(PROVIDER_RATE_TABLE.gemini);
     expect(getModelRate("totally-unknown-model")).toEqual(
       MODEL_RATE_TABLE.default
@@ -57,6 +68,65 @@ describe("ARCH-M-08 canonical rate consolidation", () => {
     expect(getModelCosts("totally-unknown-model")).toBeNull();
     // `default` is a fallback bucket, not a "known" model — must not leak here.
     expect(getModelCosts("default")).not.toBeNull(); // 'default' IS a literal table key
+  });
+
+  it("calculateCostCents bills cache-read tokens at the cache-read rate, not for free", () => {
+    // 1M cache-read tokens on claude cost 30c (0.1x the 300c input rate).
+    // Before the fix these tokens were dropped entirely and billed as 0.
+    const usage = {
+      model: "claude-sonnet-4-6",
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 1_000_000,
+    };
+    expect(calculateCostCents(usage)).toBe(30);
+  });
+
+  it("calculateCostCents bills cache-write tokens at the cache-write premium", () => {
+    // Cache writes cost MORE than base input (375c vs 300c per 1M) — dropping
+    // them under-reports spend on exactly the traffic that is most expensive.
+    const usage = {
+      model: "claude-sonnet-4-6",
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheWriteTokens: 1_000_000,
+    };
+    expect(calculateCostCents(usage)).toBe(375);
+  });
+
+  it("calculateCostCents falls back to the input rate when a model has no cache tier", () => {
+    // codex declares no cache rates; cached tokens must still be billed at the
+    // base input rate rather than silently vanishing.
+    const usage = {
+      model: "codex",
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 1_000_000,
+      cacheWriteTokens: 1_000_000,
+    };
+    expect(calculateCostCents(usage)).toBe(220); // 110 + 110
+  });
+
+  it("calculateCostCents sums every token class in one call", () => {
+    const usage = {
+      model: "claude-sonnet-4-6",
+      inputTokens: 1_000_000, // 300
+      outputTokens: 1_000_000, // 1500
+      cacheReadTokens: 1_000_000, // 30
+      cacheWriteTokens: 1_000_000, // 375
+    };
+    expect(calculateCostCents(usage)).toBe(2205);
+  });
+
+  it("calculateCostCents is unchanged for usage carrying no cache tokens", () => {
+    // Regression guard: the fix must not move existing uncached totals.
+    expect(
+      calculateCostCents({
+        model: "claude-sonnet-4-6",
+        inputTokens: 1_000_000,
+        outputTokens: 1_000_000,
+      })
+    ).toBe(1800);
   });
 
   it("PROVIDER_RATE_TABLE preserves the previously hand-maintained adapter values", () => {

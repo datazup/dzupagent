@@ -28,12 +28,31 @@ export interface CostTracker {
 
 /**
  * Calculate cost in cents for a given token usage.
+ *
+ * Every token class {@link TokenUsage} can report is priced. Cache-read and
+ * cache-write tokens are billed at their own tiers when the model declares
+ * them, and fall back to the base input rate otherwise — never to zero.
+ * Omitting them under-reports spend on cache-heavy traffic, and cache *writes*
+ * are the expensive case (claude: 375c/1M vs 300c/1M base input), so the
+ * silent-drop failure mode under-counted precisely the costliest calls.
  */
 export function calculateCostCents(usage: TokenUsage): number {
   const rate = getModelRate(usage.model);
-  const inputCost = (usage.inputTokens / 1_000_000) * rate.inputCentsPer1M;
-  const outputCost = (usage.outputTokens / 1_000_000) * rate.outputCentsPer1M;
-  return Math.ceil(inputCost + outputCost);
+  const perMillion = (tokens: number, centsPer1M: number): number =>
+    (tokens / 1_000_000) * centsPer1M;
+
+  const inputCost = perMillion(usage.inputTokens, rate.inputCentsPer1M);
+  const outputCost = perMillion(usage.outputTokens, rate.outputCentsPer1M);
+  const cacheReadCost = perMillion(
+    usage.cacheReadTokens ?? 0,
+    rate.cachedInputCentsPer1M ?? rate.inputCentsPer1M
+  );
+  const cacheWriteCost = perMillion(
+    usage.cacheWriteTokens ?? 0,
+    rate.cacheWriteCentsPer1M ?? rate.inputCentsPer1M
+  );
+
+  return Math.ceil(inputCost + outputCost + cacheReadCost + cacheWriteCost);
 }
 
 /**

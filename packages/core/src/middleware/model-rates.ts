@@ -83,6 +83,20 @@ export const MODEL_RATE_TABLE = {
 export type ModelRateKey = keyof typeof MODEL_RATE_TABLE;
 
 /**
+ * Provider family a concrete model id belongs to, or `undefined` when the id
+ * matches no known family. Longest prefix wins so that a future `gemini-sdk-*`
+ * id resolves to `gemini-sdk` rather than `gemini`.
+ */
+function providerFamilyOf(model: string): ProviderRateKey | undefined {
+  let match: ProviderRateKey | undefined;
+  for (const family of Object.keys(PROVIDER_RATE_TABLE) as ProviderRateKey[]) {
+    if (!model.startsWith(family)) continue;
+    if (match === undefined || family.length > match.length) match = family;
+  }
+  return match;
+}
+
+/**
  * Resolve the canonical rate for a provider family or concrete model.
  *
  * Resolution order:
@@ -90,18 +104,52 @@ export type ModelRateKey = keyof typeof MODEL_RATE_TABLE;
  * 2. Exact provider-family match in {@link PROVIDER_RATE_TABLE}.
  * 3. The `default` model rate.
  *
+ * Concrete-model entries carry only base input/output prices; the cache-read
+ * and cache-write tiers are maintained once per provider family. A concrete
+ * match therefore inherits any cache tier it does not declare from its family,
+ * because returning the model entry alone would leave those tiers unreachable
+ * for every concrete id and bill cached traffic at the uncached rate.
+ * Base prices are never inherited — an explicit model entry always wins.
+ *
  * @param providerOrModel - a provider family (`'claude'`) or model id
  *   (`'claude-sonnet-4-6'`).
  * @returns the resolved {@link ModelRate}. Never null — falls back to `default`.
  *
  * @example
- * getModelRate('claude-sonnet-4-6') // { inputCentsPer1M: 300, outputCentsPer1M: 1500 }
+ * getModelRate('claude-sonnet-4-6') // input 300, output 1500, cache tiers from `claude`
  * getModelRate('gemini')            // { inputCentsPer1M: 10,  outputCentsPer1M: 40 }
  * getModelRate('unknown-model')     // default rate
  */
 export function getModelRate(providerOrModel: string): ModelRate {
+  const model = (MODEL_RATE_TABLE as Record<string, ModelRate>)[
+    providerOrModel
+  ];
+  if (model) {
+    const family = providerFamilyOf(providerOrModel);
+    if (!family) return model;
+    const familyRate: ModelRate = PROVIDER_RATE_TABLE[family];
+    if (
+      model.cachedInputCentsPer1M !== undefined &&
+      model.cacheWriteCentsPer1M !== undefined
+    ) {
+      return model;
+    }
+    // Built conditionally: under `exactOptionalPropertyTypes`, assigning an
+    // explicit `undefined` to an optional rate is not the same as omitting it.
+    const inherited: ModelRate = { ...model };
+    const cachedInput =
+      model.cachedInputCentsPer1M ?? familyRate.cachedInputCentsPer1M;
+    if (cachedInput !== undefined) {
+      inherited.cachedInputCentsPer1M = cachedInput;
+    }
+    const cacheWrite =
+      model.cacheWriteCentsPer1M ?? familyRate.cacheWriteCentsPer1M;
+    if (cacheWrite !== undefined) {
+      inherited.cacheWriteCentsPer1M = cacheWrite;
+    }
+    return inherited;
+  }
   return (
-    (MODEL_RATE_TABLE as Record<string, ModelRate>)[providerOrModel] ??
     (PROVIDER_RATE_TABLE as Record<string, ModelRate>)[providerOrModel] ??
     MODEL_RATE_TABLE.default
   );
