@@ -13,7 +13,7 @@ interface MockStore extends ConsolidationStore {
 }
 
 function createMockStore(
-  records: Array<{ key: string; value: Record<string, unknown> }> = [],
+  records: Array<{ key: string; value: Record<string, unknown> }> = []
 ): MockStore {
   const data = new Map<string, Record<string, unknown>>();
   for (const { key, value } of records) {
@@ -27,7 +27,7 @@ function createMockStore(
     put: vi.fn(
       async (_ns: string[], key: string, value: Record<string, unknown>) => {
         data.set(key, value);
-      },
+      }
     ),
     delete: vi.fn(async (_ns: string[], key: string) => {
       data.delete(key);
@@ -42,30 +42,35 @@ function createMockStore(
  * pageSize 500 < maxEntries 1000 the capacity cap could never fire.
  */
 function createPagingStore(
-  records: Array<{ key: string; value: Record<string, unknown> }>,
-): MockStore & { searchCalls: Array<{ limit?: number; offset?: number }> } {
+  records: Array<{ key: string; value: Record<string, unknown> }>
+): MockStore & {
+  searchCalls: Array<{ limit: number | undefined; offset: number | undefined }>;
+} {
   const data = new Map<string, Record<string, unknown>>();
   for (const { key, value } of records) data.set(key, value);
-  const searchCalls: Array<{ limit?: number; offset?: number }> = [];
+  const searchCalls: Array<{
+    limit: number | undefined;
+    offset: number | undefined;
+  }> = [];
   return {
     data,
     searchCalls,
     search: vi.fn(
       async (
         _ns: string[],
-        options?: { query?: string; limit?: number; offset?: number },
+        options?: { query?: string; limit?: number; offset?: number }
       ): Promise<ConsolidationStoreItem[]> => {
         searchCalls.push({ limit: options?.limit, offset: options?.offset });
         const all = [...data.entries()].map(([key, value]) => ({ key, value }));
         const offset = options?.offset ?? 0;
         const limit = options?.limit ?? all.length;
         return all.slice(offset, offset + limit);
-      },
+      }
     ),
     put: vi.fn(
       async (_ns: string[], key: string, value: Record<string, unknown>) => {
         data.set(key, value);
-      },
+      }
     ),
     delete: vi.fn(async (_ns: string[], key: string) => {
       data.delete(key);
@@ -221,7 +226,7 @@ describe("MemoryPruner", () => {
       { key: "old", value: { _decay: { createdAt: 1, strength: 0.1 } } },
     ]);
     (store.delete as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new Error("delete failed"),
+      new Error("delete failed")
     );
 
     const result = await new MemoryPruner().prune(store, {
@@ -257,7 +262,7 @@ describe("MemoryPruner", () => {
           { key: "a", value: { createdAt: now - tenDays } },
           { key: "b", value: {}, createdAt: new Date(now - tenDays) },
           { key: "c", value: { _decay: { createdAt: now, strength: 0.9 } } },
-        ],
+        ]
       ),
       put: vi.fn(),
       delete: vi.fn(async () => undefined),
@@ -335,7 +340,7 @@ describe("MemoryPruner", () => {
       const store = createPagingStore(records);
       const realSearch = store.search as unknown as (
         ns: string[],
-        options?: { limit?: number; offset?: number },
+        options?: { limit?: number; offset?: number }
       ) => Promise<ConsolidationStoreItem[]>;
       let call = 0;
       store.search = vi.fn(
@@ -343,7 +348,7 @@ describe("MemoryPruner", () => {
           call++;
           if (call === 3) throw new Error("page 3 exploded");
           return realSearch(ns, options);
-        },
+        }
       ) as MockStore["search"];
 
       const result = await new MemoryPruner().prune(store, { now: () => now });
@@ -355,7 +360,7 @@ describe("MemoryPruner", () => {
           operation: "search",
           impact: "partial-result",
           reason: "page 3 exploded",
-        }),
+        })
       );
     });
 
@@ -367,7 +372,7 @@ describe("MemoryPruner", () => {
         (_, i) => ({
           key: `entry:${i}`,
           value: { _decay: { createdAt: now, strength: 0.5 } },
-        }),
+        })
       );
       const store: ConsolidationStore = {
         search: vi.fn(async () => page),
@@ -381,7 +386,7 @@ describe("MemoryPruner", () => {
       expect(result.remaining).toBe(500);
       expect(result.evicted).toBe(0);
       expect((store.search as ReturnType<typeof vi.fn>).mock.calls.length).toBe(
-        2,
+        2
       );
     });
   });
