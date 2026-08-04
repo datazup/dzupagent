@@ -32,7 +32,7 @@ export const MODEL_RATES_AUTHORITY_ID = "dzupagent.core/model-rates" as const;
  * Bump this and {@link MODEL_RATES_EFFECTIVE_AT} together in the same edit that
  * changes a rate — a stale revision claims prices are current when they are not.
  */
-export const MODEL_RATES_REVISION = "2025-05-01" as const;
+export const MODEL_RATES_REVISION = "2026-08-05" as const;
 
 /**
  * When these rate values took effect, not when they were read.
@@ -40,7 +40,7 @@ export const MODEL_RATES_REVISION = "2025-05-01" as const;
  * Feeds `AiPriceProvenance.effectiveAt`, which reconciliation uses to decide
  * which of two disagreeing tables is newer.
  */
-export const MODEL_RATES_EFFECTIVE_AT = "2025-05-01T00:00:00.000Z" as const;
+export const MODEL_RATES_EFFECTIVE_AT = "2026-08-05T00:00:00.000Z" as const;
 
 /** Full rate for a provider family or model, cents per 1M tokens. */
 export interface ModelRate {
@@ -96,8 +96,20 @@ export type ProviderRateKey = keyof typeof PROVIDER_RATE_TABLE;
  */
 export const MODEL_RATE_TABLE = {
   "claude-haiku-4-5-20251001": { inputCentsPer1M: 80, outputCentsPer1M: 400 },
+  // Haiku 3.5 has distinct prompt-cache tiers; do not inherit Sonnet prices.
+  "claude-3-5-haiku-20241022": {
+    inputCentsPer1M: 80,
+    outputCentsPer1M: 400,
+    cachedInputCentsPer1M: 8,
+    cacheWriteCentsPer1M: 100,
+  },
   "claude-sonnet-4-6": { inputCentsPer1M: 300, outputCentsPer1M: 1500 },
   "claude-opus-4-6": { inputCentsPer1M: 1500, outputCentsPer1M: 7500 },
+  "gpt-4o-mini": {
+    inputCentsPer1M: 15,
+    outputCentsPer1M: 60,
+    cachedInputCentsPer1M: 7.5,
+  },
   "gpt-5-mini": { inputCentsPer1M: 15, outputCentsPer1M: 60 },
   "gpt-5": { inputCentsPer1M: 250, outputCentsPer1M: 1000 },
   "gemini-2.5-pro": { inputCentsPer1M: 125, outputCentsPer1M: 1000 },

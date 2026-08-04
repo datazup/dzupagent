@@ -4,6 +4,7 @@ import type {
   LoginFlowOptions,
   LoginFlowResult,
 } from "../../types.js";
+import { safeBrowserGoto } from "../navigation-policy.js";
 import { fillAndSubmitLogin } from "./credential-form.js";
 import { waitForLoginNavigationReady } from "./readiness.js";
 import {
@@ -36,10 +37,11 @@ async function submitAndVerify(
   recordOrigin: () => void,
   loginPageUrl: string
 ): Promise<{ success: boolean; interstitialStepsTaken: number }> {
-  const sawPositiveSignal = await fillAndSubmitLogin(page, {
-    ...creds,
-    loginUrl: undefined,
-  });
+  const sawPositiveSignal = await fillAndSubmitLogin(
+    page,
+    { ...creds, loginUrl: undefined },
+    opts.navigationPolicy
+  );
   recordOrigin();
 
   // Success requires BOTH a positive signal (URL change or post-login DOM
@@ -102,10 +104,15 @@ export async function performLogin(
   let ssoPivotUsed = false;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const entryUrl = opts.loginUrl ?? startUrl;
-    await page.goto(entryUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000,
-    });
+    // safeBrowserGoto installs the outbound-URL-policy route interceptor
+    // BEFORE navigating. This is a credential-submission path, so the page
+    // must be guarded from its very first navigation onward.
+    await safeBrowserGoto(
+      page,
+      entryUrl,
+      { waitUntil: "domcontentloaded", timeout: 30_000 },
+      opts.navigationPolicy
+    );
     await waitForLoginNavigationReady(page);
     recordOrigin();
 

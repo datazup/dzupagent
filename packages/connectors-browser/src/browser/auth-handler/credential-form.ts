@@ -1,6 +1,10 @@
 import type { Page } from "playwright";
-import type { AuthCredentials } from "../../types.js";
+import type { AuthCredentials, BrowserNavigationPolicy } from "../../types.js";
 import { LOGIN_TIMEOUT } from "./selectors.js";
+import {
+  installBrowserNavigationPolicy,
+  safeBrowserGoto,
+} from "../navigation-policy.js";
 import {
   waitForLoginComplete,
   waitForLoginNavigationReady,
@@ -23,16 +27,22 @@ import {
  */
 export async function loginWithCredentials(
   page: Page,
-  creds: AuthCredentials
+  creds: AuthCredentials,
+  policy: BrowserNavigationPolicy = {}
 ): Promise<void> {
   if (creds.loginUrl) {
-    await page.goto(creds.loginUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000,
-    });
+    // safeBrowserGoto installs the outbound-URL-policy route interceptor
+    // BEFORE navigating, so the credential-carrying page is SSRF-guarded for
+    // this navigation, every subresource, and every redirect hop.
+    await safeBrowserGoto(
+      page,
+      creds.loginUrl,
+      { waitUntil: "domcontentloaded", timeout: 30_000 },
+      policy
+    );
     await waitForLoginNavigationReady(page);
   }
-  await fillAndSubmitLogin(page, creds);
+  await fillAndSubmitLogin(page, creds, policy);
 }
 
 /**
@@ -41,8 +51,16 @@ export async function loginWithCredentials(
  */
 export async function fillAndSubmitLogin(
   page: Page,
-  creds: AuthCredentials
+  creds: AuthCredentials,
+  policy: BrowserNavigationPolicy = {}
 ): Promise<boolean> {
+  // This page carries the credentials to whatever host the form posts to, and
+  // the submit click below navigates without going through safeBrowserGoto.
+  // Install the outbound-URL-policy interceptor first so that submit-driven
+  // navigation and any redirect chain are SSRF-checked. Idempotent: the helper
+  // no-ops on a page it has already guarded.
+  await installBrowserNavigationPolicy(page, policy);
+
   // Wait for SPA hydration — login forms may not be interactive until JS loads
   await waitForSpaReady(page);
 

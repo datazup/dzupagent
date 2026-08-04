@@ -2,6 +2,7 @@ import type { Page, BrowserContext } from "playwright";
 import type {
   AuthCredentials,
   BrowserAuthCookie,
+  BrowserNavigationPolicy,
   LoginFlowOptions,
   LoginFlowResult,
 } from "../types.js";
@@ -39,9 +40,10 @@ export class AuthHandler {
    */
   async loginWithCredentials(
     page: Page,
-    creds: AuthCredentials
+    creds: AuthCredentials,
+    policy: BrowserNavigationPolicy = {}
   ): Promise<void> {
-    return loginWithCredentials(page, creds);
+    return loginWithCredentials(page, creds, policy);
   }
 
   /**

@@ -56,6 +56,7 @@ export function makeMockPage(overrides: Partial<Page> = {}): {
   const page = {
     url: vi.fn().mockReturnValue("https://example.com/login"),
     goto: vi.fn().mockResolvedValue(undefined),
+    route: vi.fn().mockResolvedValue(undefined),
     waitForSelector: vi.fn().mockResolvedValue(undefined),
     waitForURL: vi.fn().mockResolvedValue(undefined),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
