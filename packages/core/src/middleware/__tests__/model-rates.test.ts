@@ -143,25 +143,26 @@ describe("ARCH-M-08 canonical rate consolidation", () => {
     expect(getModelRate("gpt-4o-mini")).toMatchObject({
       inputCentsPer1M: 15,
       outputCentsPer1M: 60,
+      cachedInputCentsPer1M: 7.5,
     });
     expect(getModelRate("claude-3-5-haiku-20241022")).toMatchObject({
       inputCentsPer1M: 80,
       outputCentsPer1M: 400,
+      cachedInputCentsPer1M: 8,
+      cacheWriteCentsPer1M: 100,
     });
   });
 
-  it("gives each new model the cache tiers its family does (or does not) define", () => {
-    // The two ids resolve families differently, and only one gains cache tiers:
-    // `claude-3-5-haiku-*` prefix-matches the `claude` family; `gpt-4o-mini`
-    // matches no family, because OpenAI's family key is `openai`, not `gpt`.
-    // Asserting this pins that the ids are not interchangeable.
+  it("uses each concrete model's published cache tiers", () => {
+    // These models have cache-read prices that differ from their generic
+    // provider-family fallback, and Haiku also publishes a cache-write tier.
     expect(getModelRate("claude-3-5-haiku-20241022")).toEqual({
       inputCentsPer1M: 80,
       outputCentsPer1M: 400,
-      cachedInputCentsPer1M: PROVIDER_RATE_TABLE.claude.cachedInputCentsPer1M,
-      cacheWriteCentsPer1M: PROVIDER_RATE_TABLE.claude.cacheWriteCentsPer1M,
+      cachedInputCentsPer1M: 8,
+      cacheWriteCentsPer1M: 100,
     });
-    expect(getModelRate("gpt-4o-mini").cachedInputCentsPer1M).toBeUndefined();
+    expect(getModelRate("gpt-4o-mini").cachedInputCentsPer1M).toBe(7.5);
     expect(getModelRate("gpt-4o-mini").cacheWriteCentsPer1M).toBeUndefined();
   });
 
