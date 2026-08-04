@@ -186,7 +186,13 @@ describe("TiktokenCounter — js-tiktoken degradation", () => {
   it("marks a generic encoding as encoding-fallback, not exact", async () => {
     requireMock.impl = withTiktoken({ getEncoding: () => encoder(5) });
     const { TiktokenCounter } = await loadCounter();
-    const result = new TiktokenCounter().countDetailed("hello", "gpt-4o");
+    // A model OUTSIDE O200K_PREFIXES with no `getEncodingNameForModel`: the
+    // encoding is a generic guess, so it must not be reported as `exact`.
+    // (`gpt-4o` would now be `exact` on the prefix alone — see the o200k test.)
+    const result = new TiktokenCounter().countDetailed(
+      "hello",
+      "gpt-3.5-turbo"
+    );
     expect(result).toMatchObject({
       tokens: 5,
       method: "encoding-fallback",
@@ -203,19 +209,27 @@ describe("TiktokenCounter — js-tiktoken degradation", () => {
     );
   });
 
-  it("accepts the snake_case get_encoding variant", async () => {
+  it("ignores a snake_case get_encoding and degrades to the heuristic", async () => {
+    // `js-tiktoken` exposes camelCase only; snake_case belongs to other
+    // packages, so a module offering just `get_encoding` supplies no usable
+    // encoder. The counter must degrade loudly rather than silently adopt a
+    // foreign API — `heuristic` is the non-adoptable classification.
     requireMock.impl = withTiktoken({ get_encoding: () => encoder(4) });
     const { TiktokenCounter } = await loadCounter();
-    expect(new TiktokenCounter().countDetailed("hello").tokens).toBe(4);
+    const result = new TiktokenCounter().countDetailed("hello");
+    expect(result.method).toBe("heuristic");
+    expect(result.tokens).not.toBe(4);
   });
 
-  it("prefers the model-exact encoder for gpt models", async () => {
+  it("resolves gpt-4o to the o200k encoding and reports it exact", async () => {
     requireMock.impl = withTiktoken({
-      encodingForModel: () => encoder(9),
       getEncodingNameForModel: () => "o200k_base",
-      getEncoding: () => encoder(999),
+      getEncoding: () => encoder(9),
     });
     const { TiktokenCounter } = await loadCounter();
+    // Counting now always goes through `getEncoding(resolveEncodingName(...))`;
+    // `gpt-4o` matches O200K_PREFIXES, so the encoding is picked by prefix and
+    // the result is `exact` without consulting a per-model encoder.
     expect(
       new TiktokenCounter().countDetailed("hello", "gpt-4o")
     ).toMatchObject({ tokens: 9, method: "exact", encoding: "o200k_base" });
@@ -237,9 +251,11 @@ describe("TiktokenCounter — js-tiktoken degradation", () => {
   it("falls back when the module offers no model encoder at all", async () => {
     requireMock.impl = withTiktoken({ getEncoding: () => encoder(6) });
     const { TiktokenCounter } = await loadCounter();
-    expect(new TiktokenCounter().countDetailed("hello", "gpt-4o").method).toBe(
-      "encoding-fallback"
-    );
+    // `gpt-3.5-turbo` is not an O200K prefix, and without
+    // `getEncodingNameForModel` there is nothing model-specific to trust.
+    expect(
+      new TiktokenCounter().countDetailed("hello", "gpt-3.5-turbo").method
+    ).toBe("encoding-fallback");
   });
 
   it("degrades to a heuristic when the generic encoder also throws", async () => {
