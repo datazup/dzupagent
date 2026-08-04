@@ -11,6 +11,28 @@ import { isLoginPage } from "./discovery.js";
  */
 
 /**
+ * Accessible name of an explicit continue-style button on an account picker.
+ *
+ * The original pattern nested `+` inside an optional group —
+ * `(continue(?: to .+)?|next|…)` — giving star height 2, which
+ * `security/detect-unsafe-regex` (safe-regex) rejects as ReDoS-prone.
+ *
+ * The fix follows the idiom established by the 2026-07-26 redos audit
+ * (`d49df8e4`, flow-dsl `quote()`): make the alternatives mutually exclusive
+ * so there is nothing to backtrack across, rather than suppressing the rule.
+ * Here the optional `" to …"` suffix is flattened into its own top-level
+ * alternative, so no quantifier is nested inside another and star height
+ * drops to 1. `continue` and `continue to X` are disjoint (the second
+ * requires a literal `" to "`), so at most one branch can apply.
+ *
+ * The accepted language is UNCHANGED — differential-tested against the old
+ * pattern over 6,859 generated strings with 0 mismatches. See
+ * `interstitials-redos.test.ts`.
+ */
+export const CONTINUE_BUTTON_NAME =
+  /^(?:continue|continue to .+|next|proceed|select|choose|choose an organi[sz]ation)$/i;
+
+/**
  * Built-in resolver for account/tenant-picker interstitials: a group of
  * radio options plus an explicit Continue/Next-style button (the pattern
  * IdPs use for "select your organisation" after credential submit).
@@ -33,9 +55,7 @@ export async function resolveAccountPickerInterstitial(
   // "Continue with Google", and a bare `button[type="submit"]` fallback
   // could re-click the credential submit button and loop.
   const continueButton = page
-    .getByRole("button", {
-      name: /^(continue(?: to .+)?|next|proceed|select|choose|choose an organi[sz]ation)$/i,
-    })
+    .getByRole("button", { name: CONTINUE_BUTTON_NAME })
     .first();
   if ((await continueButton.count()) === 0) return false;
 
@@ -84,14 +104,14 @@ export async function resolveAccountPickerInterstitial(
  * showing this picker, so URL change + password-field disappearance is not
  * sufficient evidence that authentication has completed.
  */
-export async function hasAccountPickerInterstitial(page: Page): Promise<boolean> {
+export async function hasAccountPickerInterstitial(
+  page: Page
+): Promise<boolean> {
   const options = page.locator('input[type="radio"], [role="radio"]');
   if ((await options.count()) === 0) return false;
 
   const continueButton = page
-    .getByRole("button", {
-      name: /^(continue(?: to .+)?|next|proceed|select|choose|choose an organi[sz]ation)$/i,
-    })
+    .getByRole("button", { name: CONTINUE_BUTTON_NAME })
     .first();
   return (await continueButton.count()) > 0;
 }
