@@ -1,6 +1,6 @@
 # Public API Surface Allowlists
 
-Date: 2026-07-22
+Date: 2026-08-04
 
 Generated from package root facades plus `config/public-api-allowlists.json` and `config/server-api-tiers.json`.
 
@@ -32,7 +32,7 @@ No stable subpaths configured.
 | `stable` | `./prompt-injection/index.js` | 7 | `exact:./prompt-injection/index.js` | `INJECTION_PATTERNS`, `INJECTION_REDACTION`, `PromptInjectionDetector`, `PromptInjectionBlockedError` |
 | `stable` | `./pii/index.js` | 6 | `exact:./pii/index.js` | `PII_PATTERNS`, `PiiDetector`, `PiiCanonicalType`, `PiiDetailedScanResult` |
 | `stable` | `./rate-limit/index.js` | 5 | `exact:./rate-limit/index.js` | `FixedWindowRateLimiter`, `KeyedTokenBucketRateLimiter`, `FixedWindowRateLimiterConfig`, `KeyedTokenBucketConfig` |
-| `stable` | `./guardrails/index.js` | 3 | `exact:./guardrails/index.js` | `PromptInjectionGuard`, `GuardOptions`, `ScreenResult` |
+| `stable` | `./guardrails/index.js` | 8 | `exact:./guardrails/index.js` | `PromptInjectionGuard`, `GuardOptions`, `ScreenResult`, `TOOL_RESULT_LABEL` |
 | `stable` | `./content-scanner.js` | 6 | `exact:./content-scanner.js` | `ContentScanner`, `ContentScannerConfig`, `ContentScanResult`, `ContentScanVerdict` |
 | `stable` | `./policy-config.js` | 1 | `exact:./policy-config.js` | `SecurityPolicyConfig` |
 | `stable` | `./sanitizer-patterns.js` | 5 | `exact:./sanitizer-patterns.js` | `SANITIZER_INJECTION_PATTERNS`, `SANITIZER_EXFILTRATION_PATTERNS`, `SANITIZER_INVISIBLE_UNICODE_PATTERN`, `SANITIZER_INVISIBLE_UNICODE_STRIP_PATTERN` |
@@ -42,7 +42,7 @@ No stable subpaths configured.
 Root index: `packages/core/src/index.ts`
 
 - Stable root sources: `54`
-- Deprecated transitional root sources: `89`
+- Deprecated transitional root sources: `90`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
 
@@ -67,7 +67,7 @@ Root index: `packages/core/src/index.ts`
 | `stable` | `./errors/error-codes.js` | 1 | `prefix:./errors/` | `ForgeErrorCode` |
 | `stable` | `./errors/classify-provider-error.js` | 3 | `prefix:./errors/` | `classifyProviderError`, `isRecoverableProviderError`, `isContextLengthProviderError` |
 | `stable` | `./events/event-bus.js` | 3 | `prefix:./events/` | `createEventBus`, `typedEmit`, `DzupEventBus` |
-| `stable` | `./events/event-types.js` | 14 | `prefix:./events/` | `AdapterProgressDzupEvent`, `AdapterRuntimeDzupEvent`, `DzupEvent`, `DzupEventOf` |
+| `stable` | `./events/event-types.js` | 15 | `prefix:./events/` | `AdapterProgressDzupEvent`, `AdapterRuntimeDzupEvent`, `DelegationEventHierarchy`, `DzupEvent` |
 | `stable` | `./events/llm-audit-bridge.js` | 2 | `prefix:./events/` | `attachLlmAuditEventBridge`, `LlmAuditSink` |
 | `stable` | `./events/degraded-operation.js` | 1 | `prefix:./events/` | `emitDegradedOperation` |
 | `stable` | `./events/tool-event-correlation.js` | 3 | `prefix:./events/` | `requireTerminalToolExecutionRunId`, `TerminalToolExecutionRunIdOptions`, `TerminalToolEventType` |
@@ -87,7 +87,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./rate-limit/token-bucket.js` | 2 | `exact:./rate-limit/token-bucket.js` | `TokenBucket`, `TokenBucketConfig` |
 | `stable` | `./llm/invoke.js` | 5 | `prefix:./llm/` | `invokeWithTimeout`, `extractTokenUsage`, `estimateTokens`, `TokenUsage` |
 | `stable` | `./llm/resilient-invoker.js` | 2 | `prefix:./llm/` | `ResilientModelInvoker`, `ResilientInvokerOptions` |
-| `stable` | `./llm/tokenizer.js` | 5 | `prefix:./llm/` | `HeuristicTokenizer`, `AnthropicTokenizer`, `TiktokenTokenizer`, `Tokenizer` |
+| `stable` | `./llm/tokenizer.js` | 7 | `prefix:./llm/` | `HeuristicTokenizer`, `AnthropicTokenizer`, `TiktokenTokenizer`, `Tokenizer` |
 | `stable` | `./llm/tokenizer-registry.js` | 2 | `prefix:./llm/` | `TokenizerRegistry`, `defaultTokenizerRegistry` |
 | `stable` | `./llm/retry.js` | 4 | `prefix:./llm/` | `isTransientError`, `isContextLengthError`, `DEFAULT_RETRY_CONFIG`, `RetryConfig` |
 | `stable` | `./llm/registry-middleware.js` | 4 | `prefix:./llm/` | `RegistryMiddleware`, `MiddlewareContext`, `MiddlewareResult`, `MiddlewareTokenUsage` |
@@ -179,6 +179,7 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./observability/health-aggregator.js` | 5 | `prefix:./observability/` | `HealthAggregator`, `HealthStatus`, `HealthCheck`, `HealthReport` |
 | `deprecated-transitional` | `./concurrency/semaphore.js` | 1 | `prefix:./concurrency/` | `Semaphore` |
 | `deprecated-transitional` | `./concurrency/pool.js` | 3 | `prefix:./concurrency/` | `ConcurrencyPool`, `PoolConfig`, `PoolStats` |
+| `deprecated-transitional` | `./concurrency/rate-limiter.js` | 6 | `prefix:./concurrency/` | `RateLimiter`, `RateLimiterConfig`, `RateLimiterProviderConfig`, `RateLimitRequest` |
 | `deprecated-transitional` | `./output/format-adapter.js` | 6 | `prefix:./output/` | `OutputFormat`, `FormatAdapter`, `FormatValidationResult`, `FORMAT_ADAPTERS` |
 | `deprecated-transitional` | `./i18n/locale-manager.js` | 5 | `prefix:./i18n/` | `Locale`, `LocaleConfig`, `LocaleStrings`, `EN_STRINGS` |
 | `stable` | `./config/index.js` | 11 | `prefix:./config/` | `DEFAULT_CONFIG`, `loadEnvConfig`, `loadFileConfig`, `mergeConfigs` |
@@ -465,7 +466,7 @@ Root index: `packages/codegen/src/index.ts`
 Root index: `packages/memory/src/index.ts`
 
 - Stable root sources: `25`
-- Deprecated transitional root sources: `42`
+- Deprecated transitional root sources: `45`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x; new consumers should prefer future memory/retrieval/store subpaths as they are introduced.
 
@@ -487,18 +488,21 @@ No stable subpaths configured.
 | `deprecated-transitional` | `./decay-engine.js` | 6 | `exact:./decay-engine.js` | `calculateStrength`, `reinforceMemory`, `createDecayMetadata`, `scoreWithDecay` |
 | `stable` | `./memory-sanitizer.js` | 3 | `exact:./memory-sanitizer.js` | `sanitizeMemoryContent`, `stripInvisibleUnicode`, `SanitizeResult` |
 | `deprecated-transitional` | `./memory-consolidation.js` | 4 | `exact:./memory-consolidation.js` | `consolidateNamespace`, `consolidateAll`, `ConsolidationConfig`, `ConsolidationResult` |
-| `deprecated-transitional` | `./consolidation-engine.js` | 5 | `exact:./consolidation-engine.js` | `ConsolidationEngine`, `ConsolidationResult`, `ConsolidationEngineConfig`, `ConsolidationStore` |
-| `deprecated-transitional` | `./memory-pruner.js` | 5 | `exact:./memory-pruner.js` | `MemoryPruner`, `PruneOptions`, `PruneResult`, `MemoryStore` |
+| `deprecated-transitional` | `./consolidation-engine.js` | 6 | `exact:./consolidation-engine.js` | `ConsolidationEngine`, `ConsolidationResult`, `ConsolidationOperationResult`, `ConsolidationEngineConfig` |
+| `deprecated-transitional` | `./error-log.js` | 5 | `exact:./error-log.js` | `logError`, `defaultLogger`, `noopLogger`, `FrameworkLogger` |
+| `deprecated-transitional` | `./memory-pruner.js` | 6 | `exact:./memory-pruner.js` | `MemoryPruner`, `PruneOptions`, `PruneResult`, `PruneOperationResult` |
+| `deprecated-transitional` | `./operation-outcome.js` | 6 | `exact:./operation-outcome.js` | `MemoryOperationStatus`, `MemoryOperation`, `MemoryDegradationImpact`, `MemoryOperationDegradation` |
 | `deprecated-transitional` | `./semantic-consolidation.js` | 6 | `exact:./semantic-consolidation.js` | `SemanticConsolidator`, `consolidateWithLLM`, `SemanticConsolidationConfig`, `SemanticConsolidationResult` |
 | `deprecated-transitional` | `./memory-healer.js` | 7 | `exact:./memory-healer.js` | `findDuplicates`, `findContradictions`, `findStaleRecords`, `healMemory` |
 | `stable` | `./working-memory.js` | 2 | `exact:./working-memory.js` | `WorkingMemory`, `WorkingMemoryConfig` |
 | `deprecated-transitional` | `./versioned-working-memory.js` | 3 | `exact:./versioned-working-memory.js` | `VersionedWorkingMemory`, `VersionedWorkingMemoryConfig`, `WorkingMemoryDiff` |
-| `deprecated-transitional` | `./observation-extractor.js` | 4 | `exact:./observation-extractor.js` | `ObservationExtractor`, `ObservationExtractorConfig`, `Observation`, `ObservationCategory` |
-| `deprecated-transitional` | `./memory-aware-extractor.js` | 3 | `exact:./memory-aware-extractor.js` | `MemoryAwareExtractor`, `MemoryAwareExtractorConfig`, `ExtractionResult` |
+| `deprecated-transitional` | `./observation-extractor.js` | 5 | `exact:./observation-extractor.js` | `ObservationExtractor`, `ObservationExtractorConfig`, `Observation`, `ObservationCategory` |
+| `deprecated-transitional` | `./memory-aware-extractor.js` | 5 | `exact:./memory-aware-extractor.js` | `MemoryAwareExtractor`, `MemoryAwareExtractorConfig`, `ExtractionFailure`, `ExtractionResult` |
 | `deprecated-transitional` | `./frozen-snapshot.js` | 1 | `exact:./frozen-snapshot.js` | `FrozenMemorySnapshot` |
 | `stable` | `./session-search.js` | 5 | `exact:./session-search.js` | `SessionSearch`, `SearchQuery`, `SearchResult`, `SessionSearchConfig` |
 | `deprecated-transitional` | `./staged-writer.js` | 4 | `exact:./staged-writer.js` | `StagedWriter`, `StagedRecord`, `MemoryStage`, `StagedWriterConfig` |
 | `deprecated-transitional` | `./policy-aware-staged-writer.js` | 2 | `exact:./policy-aware-staged-writer.js` | `PolicyAwareStagedWriter`, `PolicyAwareStagedWriterConfig` |
+| `deprecated-transitional` | `./observation-candidate-store.js` | 8 | `exact:./observation-candidate-store.js` | `MemoryServiceObservationCandidateStore`, `OBSERVATION_CANDIDATE_SCHEMA`, `OBSERVATION_CONFIRMATION_RECEIPT_SCHEMA`, `createObservationConfirmationReceipt` |
 | `deprecated-transitional` | `./write-policy.js` | 4 | `exact:./write-policy.js` | `defaultWritePolicy`, `composePolicies`, `WritePolicy`, `WriteAction` |
 | `stable` | `./retrieval/vector-search.js` | 3 | `prefix:./retrieval/` | `StoreVectorSearch`, `VectorSearchResult`, `VectorSearchProvider` |
 | `stable` | `./retrieval/vector-store-search.js` | 1 | `prefix:./retrieval/` | `VectorStoreSearch` |
@@ -516,9 +520,9 @@ No stable subpaths configured.
 | `deprecated-transitional` | `./dual-stream-writer.js` | 4 | `exact:./dual-stream-writer.js` | `DualStreamWriter`, `DualStreamConfig`, `PendingRecord`, `IngestResult` |
 | `deprecated-transitional` | `./sleep-consolidator.js` | 5 | `exact:./sleep-consolidator.js` | `SleepConsolidator`, `runSleepConsolidation`, `SleepConsolidationConfig`, `SleepConsolidationReport` |
 | `stable` | `./retrieval/community-detector.js` | 4 | `prefix:./retrieval/` | `CommunityDetector`, `MemoryCommunity`, `CommunityDetectorConfig`, `CommunityDetectionResult` |
-| `deprecated-transitional` | `./observational-memory.js` | 5 | `exact:./observational-memory.js` | `ObservationalMemory`, `ObservationalMemoryConfig`, `ObservationalMemoryStats`, `ObserverResult` |
+| `deprecated-transitional` | `./observational-memory.js` | 7 | `exact:./observational-memory.js` | `ObservationalMemory`, `ObservationalMemoryConfig`, `ObservationalMemoryStats`, `ObservationLifecycleEvent` |
 | `stable` | `./retrieval/relationship-store.js` | 5 | `prefix:./retrieval/` | `RelationshipStore`, `RelationshipType`, `RelationshipEdge`, `EdgeMetadata` |
-| `deprecated-transitional` | `./multi-network-memory.js` | 8 | `exact:./multi-network-memory.js` | `MultiNetworkMemory`, `DEFAULT_NETWORK_CONFIGS`, `MemoryNetwork`, `NetworkConfig` |
+| `deprecated-transitional` | `./multi-network-memory.js` | 10 | `exact:./multi-network-memory.js` | `MultiNetworkMemory`, `DEFAULT_NETWORK_CONFIGS`, `MemoryNetwork`, `NetworkConfig` |
 | `stable` | `./provenance/index.js` | 8 | `prefix:./provenance/` | `ProvenanceWriter`, `createProvenance`, `extractProvenance`, `createContentHash` |
 | `deprecated-transitional` | `./convention/index.js` | 10 | `prefix:./convention/` | `ConventionExtractor`, `ALL_CONVENTION_CATEGORIES`, `ConventionCategory`, `DetectedConvention` |
 | `deprecated-transitional` | `./causal/index.js` | 5 | `prefix:./causal/` | `CausalGraph`, `CausalRelation`, `CausalNode`, `CausalTraversalOptions` |
@@ -549,7 +553,7 @@ No stable subpaths configured.
 
 Root index: `packages/context/src/index.ts`
 
-- Stable root sources: `15`
+- Stable root sources: `17`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Context root exports are currently the contracted package surface; add allowlist rules before exposing new root modules.
@@ -562,8 +566,8 @@ No stable subpaths configured.
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
-| `stable` | `./message-manager.js` | 6 | `exact:./message-manager.js` | `shouldSummarize`, `summarizeAndTrim`, `formatSummaryContext`, `pruneToolResults` |
-| `stable` | `./auto-compress.js` | 5 | `exact:./auto-compress.js` | `autoCompress`, `FrozenSnapshot`, `AutoCompressConfig`, `CompressResult` |
+| `stable` | `./message-manager.js` | 14 | `exact:./message-manager.js` | `shouldSummarize`, `summarizeAndTrim`, `validateSummaryAgainstProfile`, `STRUCTURED_SUMMARY_PROFILE_V1` |
+| `stable` | `./auto-compress.js` | 9 | `exact:./auto-compress.js` | `autoCompress`, `FrozenSnapshot`, `AutoCompressConfig`, `CompressResult` |
 | `stable` | `./snapshot-builder.js` | 3 | `exact:./snapshot-builder.js` | `buildFrozenSnapshot`, `MemoryServiceLike`, `BuildFrozenSnapshotOptions` |
 | `stable` | `./extraction-bridge.js` | 2 | `exact:./extraction-bridge.js` | `createExtractionHook`, `MessageExtractionFn` |
 | `stable` | `./completeness-scorer.js` | 3 | `exact:./completeness-scorer.js` | `scoreCompleteness`, `CompletenessResult`, `DescriptionInput` |
@@ -571,10 +575,12 @@ No stable subpaths configured.
 | `stable` | `./system-reminder.js` | 3 | `exact:./system-reminder.js` | `SystemReminderInjector`, `SystemReminderConfig`, `ReminderContent` |
 | `stable` | `./phase-window.js` | 7 | `exact:./phase-window.js` | `PhaseAwareWindowManager`, `DEFAULT_PHASES`, `ConversationPhase`, `PhaseConfig` |
 | `stable` | `./progressive-compress.js` | 6 | `exact:./progressive-compress.js` | `compressToLevel`, `compressToBudget`, `selectCompressionLevel`, `CompressionLevel` |
+| `stable` | `./hard-budget-compress.js` | 2 | `exact:./hard-budget-compress.js` | `compressToHardBudget`, `HardBudgetCompressionResult` |
+| `stable` | `./hard-budget-text.js` | 3 | `exact:./hard-budget-text.js` | `fitTextToHardBudget`, `FitTextToHardBudgetOptions`, `HardBudgetTextResult` |
 | `stable` | `./prompt-cache.js` | 4 | `exact:./prompt-cache.js` | `applyAnthropicCacheControl`, `applyCacheBreakpoints`, `CacheStrategy`, `CacheBreakpointOptions` |
 | `stable` | `./prompt-cache-injector.js` | 4 | `exact:./prompt-cache-injector.js` | `injectPromptCacheMarkers`, `injectPromptCacheMarkersForModel`, `isClaudeId`, `resolveModelId` |
-| `stable` | `./context-transfer.js` | 6 | `exact:./context-transfer.js` | `ContextTransferService`, `IntentContext`, `IntentType`, `ContextTransferConfig` |
-| `stable` | `./token-lifecycle.js` | 8 | `exact:./token-lifecycle.js` | `TokenLifecycleManager`, `createTokenBudget`, `TokenBudget`, `TokenPhaseUsage` |
+| `stable` | `./context-transfer.js` | 8 | `exact:./context-transfer.js` | `ContextTransferService`, `IntentContext`, `IntentType`, `ContextTransferConfig` |
+| `stable` | `./token-lifecycle.js` | 12 | `exact:./token-lifecycle.js` | `TokenLifecycleManager`, `createTokenBudget`, `measureTokenText`, `TokenBudget` |
 | `stable` | `./char-estimate-counter.js` | 1 | `exact:./char-estimate-counter.js` | `CharEstimateCounter` |
 | `stable` | `./tiktoken-counter.js` | 1 | `exact:./tiktoken-counter.js` | `TiktokenCounter` |
 
@@ -589,7 +595,9 @@ Root index: `packages/rag/src/index.ts`
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/rag/local-evaluation` | provider-free deterministic lexical host and classified-corpus retrieval, grounding, abstention, latency, and cost evaluation |
 
 ### Root Allowlist
 
@@ -619,16 +627,18 @@ Root index: `packages/connectors/src/index.ts`
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/connectors/github-security` | reviewed provider-free GitHub REST tool policy catalog and exact enabled-tool selection |
 
 ### Root Allowlist
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
 | `stable` | `./connector-types.js` | 3 | `exact:./connector-types.js` | `Connector`, `ConnectorConfig`, `filterTools` |
-| `stable` | `./connector-contract.js` | 7 | `exact:./connector-contract.js` | `ConnectorTool`, `ConnectorToolLike`, `ConnectorToolkit`, `ConnectorFactory` |
+| `stable` | `./connector-contract.js` | 10 | `exact:./connector-contract.js` | `ConnectorTool`, `ConnectorToolLike`, `ConnectorToolkit`, `ConnectorFactory` |
 | `stable` | `./github/index.js` | 20 | `prefix:./github/` | `createGitHubConnector`, `createGitHubConnectorToolkit`, `GitHubClient`, `GitHubApiError` |
-| `stable` | `./http/index.js` | 3 | `prefix:./http/` | `createHTTPConnector`, `createHttpConnectorToolkit`, `HTTPConnectorConfig` |
+| `stable` | `./http/index.js` | 4 | `prefix:./http/` | `createHTTPConnector`, `createHttpConnectorToolkit`, `injectFlowHttpCredentialHeader`, `HTTPConnectorConfig` |
 | `stable` | `./slack/index.js` | 3 | `prefix:./slack/` | `createSlackConnector`, `createSlackConnectorToolkit`, `SlackConnectorConfig` |
 | `stable` | `./database/index.js` | 8 | `prefix:./database/` | `createDatabaseConnector`, `createDatabaseOperations`, `createDatabaseConnectorToolkit`, `DatabaseConnectorConfig` |
 | `stable` | `./sql/index.js` | 25 | `prefix:./sql/` | `createSQLConnector`, `createSQLTools`, `BaseSQLConnector`, `generateDDL` |
@@ -639,7 +649,7 @@ No stable subpaths configured.
 Root index: `packages/agent-adapters/src/index.ts`
 
 - Stable root sources: `17`
-- Deprecated transitional root sources: `95`
+- Deprecated transitional root sources: `97`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with new code expected to use providers/orchestration/workflow/http/persistence/rules/learning/recovery subpaths before a future 1.0 root contraction.
 
@@ -657,12 +667,13 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `@dzupagent/agent-adapters/recovery` | recovery copilot, policies, escalation, cross-provider handoff, and approval gates |
 | `@dzupagent/agent-adapters/skills` | adapter skill registry, capability matrix, and bundle/compiled-skill contracts |
 | `@dzupagent/agent-adapters/enrichment` | context enrichment pipeline |
+| `@dzupagent/agent-adapters/hard-budget` | revision-bound provider input budgeting profiles and fail-closed preparation |
 
 ### Root Allowlist
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
-| `stable` | `./types.js` | 28 | `exact:./types.js` | `AdapterProviderId`, `AdapterCapabilityProfile`, `AgentInput`, `AgentEvent` |
+| `stable` | `./types.js` | 33 | `exact:./types.js` | `AdapterProviderId`, `AdapterCapabilityProfile`, `ProviderRequestCorrelationCapability`, `ProviderRequestIdempotencyEnforcement` |
 | `deprecated-transitional` | `./claude/claude-adapter.js` | 2 | `prefix:./claude/` | `ClaudeAgentAdapter`, `createClaudeAdapter` |
 | `deprecated-transitional` | `./claude/claude-cli-adapter.js` | 4 | `prefix:./claude/` | `ClaudeCliAdapter`, `createClaudeCliAdapter`, `probeClaudeCliAuth`, `ClaudeCliAdapterConfig` |
 | `deprecated-transitional` | `./claude/claude-backend.js` | 2 | `prefix:./claude/` | `createClaudeBackendAdapter`, `ClaudeBackendConfig` |
@@ -678,6 +689,8 @@ Root index: `packages/agent-adapters/src/index.ts`
 | `deprecated-transitional` | `./ollama/ollama-adapter.js` | 5 | `exact:./ollama/ollama-adapter.js` | `OllamaAdapter`, `createOllamaAdapter`, `resolveLocalModelEndpoint`, `OllamaAdapterConfig` |
 | `deprecated-transitional` | `./openrouter/openrouter-adapter.js` | 2 | `prefix:./openrouter/` | `OpenRouterAdapter`, `OpenRouterConfig` |
 | `deprecated-transitional` | `./openai/openai-adapter.js` | 3 | `prefix:./openai/` | `OpenAIAdapter`, `OpenAIConfig`, `OpenAIRunResult` |
+| `deprecated-transitional` | `./model-discovery.js` | 15 | `exact:./model-discovery.js` | `assessModelAvailability`, `discoverClaudeModels`, `discoverCodexModels`, `discoverProviderModels` |
+| `deprecated-transitional` | `./provider-request-capability-inspection.js` | 5 | `exact:./provider-request-capability-inspection.js` | `inspectProviderRequestCapabilities`, `ProviderRequestCapabilityBlocker`, `ProviderRequestCapabilityInspection`, `ProviderRequestCapabilityInspectionInput` |
 | `deprecated-transitional` | `./prompts/system-prompt-builder.js` | 9 | `prefix:./prompts/` | `SystemPromptBuilder`, `SystemPromptPayload`, `ClaudeAppendPayload`, `ClaudeReplacePayload` |
 | `deprecated-transitional` | `./prompts/thinking-history.js` | 1 | `prefix:./prompts/` | `stripThinkingBlocks` |
 | `stable` | `./registry/adapter-registry.js` | 4 | `prefix:./registry/` | `ProviderAdapterRegistry`, `ProviderAdapterRegistryConfig`, `ProviderAdapterRegistryHealthStatus`, `ProviderAdapterHealthDetail` |
@@ -786,7 +799,9 @@ Root index: `packages/otel/src/index.ts`
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/otel/agent-loop` | provider-neutral Agent Loop trace projection contracts and non-fatal OTel emission |
 
 ### Root Allowlist
 
@@ -800,7 +815,7 @@ No stable subpaths configured.
 | `stable` | `./event-metric-map.js` | 3 | `exact:./event-metric-map.js` | `EVENT_METRIC_MAP`, `getAllMetricNames`, `MetricMapping` |
 | `stable` | `./vector-metrics.js` | 3 | `exact:./vector-metrics.js` | `VectorMetricsCollector`, `VectorMetrics`, `VectorMetricsReport` |
 | `stable` | `./otel-bridge.js` | 4 | `exact:./otel-bridge.js` | `OTelBridge`, `InMemoryMetricSink`, `OTelBridgeConfig`, `MetricSink` |
-| `stable` | `./cost-attribution.js` | 5 | `exact:./cost-attribution.js` | `CostAttributor`, `CostEntry`, `CostReport`, `CostAlertThreshold` |
+| `stable` | `./cost-attribution.js` | 6 | `exact:./cost-attribution.js` | `CostAttributor`, `DEFAULT_MAX_COST_ENTRIES`, `CostEntry`, `CostReport` |
 | `stable` | `./safety-monitor.js` | 6 | `exact:./safety-monitor.js` | `SafetyMonitor`, `SafetyCategory`, `SafetySeverity`, `SafetyEvent` |
 | `stable` | `./audit-trail.js` | 6 | `exact:./audit-trail.js` | `AuditTrail`, `InMemoryAuditStore`, `AuditCategory`, `AuditEntry` |
 | `stable` | `./otel-plugin.js` | 2 | `exact:./otel-plugin.js` | `createOTelPlugin`, `OTelPluginConfig` |
@@ -810,23 +825,27 @@ No stable subpaths configured.
 
 Root index: `packages/runtime-contracts/src/index.ts`
 
-- Stable root sources: `4`
+- Stable root sources: `5`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Runtime contract root exports are stable neutral contracts; add allowlist rules before exposing new contract modules.
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/runtime-contracts/orchestration` | primitive invocation, durable runtime task, continuation, and execution-leaf catalog contracts |
+| `@dzupagent/runtime-contracts/agent-blueprint` | provider-neutral agent blueprint, catalog, compiled descriptor, and validation contracts |
 
 ### Root Allowlist
 
 | Root Class | Source Module | Export Count | Matched Rule | Sample Exports |
 | --- | --- | ---: | --- | --- |
-| `stable` | `./canonical-execution.js` | 45 | `exact:./canonical-execution.js` | `validateExecutionRouteDecision`, `AdapterRunExecutionRequest`, `AgentExecutionRequest`, `ExecutionArtifactRef` |
+| `stable` | `./canonical-execution.js` | 46 | `exact:./canonical-execution.js` | `validateExecutionRouteDecision`, `AdapterRunExecutionRequest`, `AgentExecutionRequest`, `ExecutionArtifactRef` |
 | `stable` | `./canonical-gates.js` | 16 | `exact:./canonical-gates.js` | `validateGateResult`, `GateActor`, `GateActorRequirement`, `GateCheck` |
 | `stable` | `./local-model.js` | 6 | `exact:./local-model.js` | `LocalModelCapabilityProfile`, `LocalModelEndpointDescriptor`, `LocalModelEndpointRejectionCode`, `LocalModelHealthSnapshot` |
 | `stable` | `./idempotency.js` | 2 | `exact:./idempotency.js` | `canonicalInputDigest`, `materializeIdempotencyKey` |
+| `stable` | `./ai-economics.js` | 19 | `exact:./ai-economics.js` | `AI_COST_UNKNOWN_REASONS`, `AI_PRICE_SOURCE_KINDS`, `AI_QUOTA_SCHEMA`, `AI_QUOTA_UNITS` |
 
 ## @dzupagent/execution-contracts
 
@@ -887,7 +906,7 @@ No stable subpaths configured.
 
 Root index: `packages/dialogue-core-replay/src/index.ts`
 
-- Stable root sources: `6`
+- Stable root sources: `9`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Replay harness root exports are the contracted test-support surface; add allowlist rules before exposing new root modules.
@@ -906,6 +925,9 @@ No stable subpaths configured.
 | `stable` | `./recorded-workspace-port.js` | 3 | `exact:./recorded-workspace-port.js` | `RecordedWorkspacePort`, `RecordedWorkspaceEffectCapture`, `RecordedWorkspacePortOptions` |
 | `stable` | `./golden-trace.js` | 5 | `exact:./golden-trace.js` | `GoldenTraceValidationError`, `loadGoldenTrace`, `validateGoldenTrace`, `GoldenTrace` |
 | `stable` | `./replay-dialogue.js` | 4 | `exact:./replay-dialogue.js` | `ReplayAssertionError`, `replayDialogue`, `ReplayDialogueResult`, `SchedulerFactory` |
+| `stable` | `./continuation-conformance.js` | 10 | `exact:./continuation-conformance.js` | `CONTINUATION_CONFORMANCE_FIXTURE_SET_SCHEMA_V1`, `CONTINUATION_DIVERGENCE_LEDGER_SCHEMA_V1`, `ContinuationComparisonClassificationV1`, `ContinuationConformanceCaseV1` |
+| `stable` | `./continuation-conformance-validation.js` | 3 | `exact:./continuation-conformance-validation.js` | `ContinuationConformanceValidationError`, `loadContinuationConformanceFixtureSetV1`, `validateContinuationConformanceFixtureSetV1` |
+| `stable` | `./continuation-conformance-runner.js` | 5 | `exact:./continuation-conformance-runner.js` | `CONTINUATION_CONFORMANCE_REPORT_SCHEMA_V1`, `classifyContinuationComparisonV1`, `runContinuationConformanceV1`, `ContinuationConformanceCaseResultV1` |
 
 ## @dzupagent/agent-types
 
@@ -1026,7 +1048,10 @@ Root index: `packages/flow-ast/src/index.ts`
 
 ### Stable Subpaths
 
-No stable subpaths configured.
+| Subpath | Purpose |
+| --- | --- |
+| `@dzupagent/flow-ast/expressions` | typed expression and strict reference analysis contracts |
+| `@dzupagent/flow-ast/typed-condition-evaluator` | capability-gated provider-free typed-condition evaluation |
 
 ### Root Allowlist
 
@@ -1039,7 +1064,7 @@ No stable subpaths configured.
 
 Root index: `packages/memory-ipc/src/index.ts`
 
-- Stable root sources: `20`
+- Stable root sources: `21`
 - Deprecated transitional root sources: `0`
 - Internal-only root candidates: `0`
 - Migration window: Memory IPC root exports are stable Layer 0 Arrow frame and IPC primitives; add allowlist rules before exposing new root modules.
@@ -1055,13 +1080,14 @@ No stable subpaths configured.
 | `stable` | `./schema.js` | 5 | `exact:./schema.js` | `MEMORY_FRAME_VERSION`, `MEMORY_FRAME_SCHEMA`, `MEMORY_FRAME_COLUMNS`, `MEMORY_FRAME_FIELD_COUNT` |
 | `stable` | `./frame-builder.js` | 7 | `exact:./frame-builder.js` | `FrameBuilder`, `FrameScope`, `FrameTemporal`, `FrameDecay` |
 | `stable` | `./frame-reader.js` | 2 | `exact:./frame-reader.js` | `FrameReader`, `FrameRecord` |
-| `stable` | `./ipc-serializer.js` | 5 | `exact:./ipc-serializer.js` | `serializeToIPC`, `deserializeFromIPC`, `ipcToBase64`, `base64ToIPC` |
+| `stable` | `./ipc-serializer.js` | 6 | `exact:./ipc-serializer.js` | `serializeToIPC`, `deserializeFromIPC`, `tryDeserializeFromIPC`, `ipcToBase64` |
+| `stable` | `./ipc-errors.js` | 6 | `exact:./ipc-errors.js` | `MemoryFrameError`, `isMemoryFrameError`, `logFrameError`, `defaultLogger` |
 | `stable` | `./adapters/adapter-interface.js` | 4 | `prefix:./adapters/` | `createAdapterRegistry`, `MemoryFrameAdapter`, `AdapterValidationResult`, `AdapterRegistry` |
 | `stable` | `./adapters/frame-columns.js` | 8 | `prefix:./adapters/` | `createEmptyColumns`, `buildTable`, `pushDefaults`, `safeParseDate` |
 | `stable` | `./columnar-ops.js` | 12 | `exact:./columnar-ops.js` | `findWeakIndices`, `batchDecayUpdate`, `temporalMask`, `applyMask` |
 | `stable` | `./token-budget.js` | 6 | `exact:./token-budget.js` | `selectMemoriesByBudget`, `TokenBudgetAllocator`, `CompositeScoreWeights`, `ScoredRecord` |
 | `stable` | `./phase-memory-selection.js` | 4 | `exact:./phase-memory-selection.js` | `phaseWeightedSelection`, `PHASE_NAMESPACE_WEIGHTS`, `PHASE_CATEGORY_WEIGHTS`, `ConversationPhase` |
-| `stable` | `./cache-delta.js` | 2 | `exact:./cache-delta.js` | `computeFrameDelta`, `FrameDelta` |
+| `stable` | `./cache-delta.js` | 4 | `exact:./cache-delta.js` | `computeFrameDelta`, `computeFrameDeltaDetailed`, `FrameDelta`, `FrameDeltaComparisonResult` |
 | `stable` | `./memory-aware-compress.js` | 2 | `exact:./memory-aware-compress.js` | `batchOverlapAnalysis`, `OverlapAnalysis` |
 | `stable` | `./shared-memory-channel.js` | 3 | `exact:./shared-memory-channel.js` | `SharedMemoryChannel`, `SharedMemoryChannelOptions`, `SlotHandle` |
 | `stable` | `./ipc-client.js` | 3 | `exact:./ipc-client.js` | `IpcMemoryClient`, `IpcNotConfiguredError`, `IpcMemoryClientConfig` |

@@ -48,6 +48,8 @@ export { createApiKeyRoutes } from './routes/api-keys.js'
 export type { ApiKeyRoutesConfig } from './routes/api-keys.js'
 export { InMemoryRunTraceStore, computeStepDistribution } from './persistence/run-trace-store.js'
 export { DrizzleRunTraceStore } from './persistence/drizzle-run-trace-store.js'
+export { DrizzleV2ImportLockChainBackend } from './persistence/drizzle-import-lock-chain-backend.js'
+export type { DrizzleV2ImportLockChainBackendOptions } from './persistence/drizzle-import-lock-chain-backend.js'
 export type {
   TraceStep,
   RunTrace,

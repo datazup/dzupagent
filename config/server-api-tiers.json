@@ -242,6 +242,14 @@
     },
     {
       "match": "exact",
+      "pattern": "./persistence/drizzle-import-lock-chain-backend.js",
+      "tier": "secondary",
+      "area": "persistence",
+      "recommendedRootExposure": "candidate-subpath",
+      "reason": "Concrete Drizzle import-lock chain persistence is deployment-specific and should eventually move off the root surface."
+    },
+    {
+      "match": "exact",
       "pattern": "./persistence/benchmark-run-store.js",
       "tier": "secondary",
       "area": "persistence",
