@@ -10,6 +10,7 @@
  */
 
 import pg from 'pg'
+import { ForgeError } from '@dzupagent/core'
 import { BaseSQLConnector } from '../base-sql-connector.js'
 import type {
   SQLDialect,
@@ -33,7 +34,7 @@ const { Pool } = pg
 /** Minimal structural interface for a pooled pg client. */
 interface PgPoolClient {
   query(text: string, values?: unknown[]): Promise<PgQueryResult>
-  release(): void
+  release(force?: boolean | Error): void
 }
 
 /** Result shape returned by pg client.query(). */
@@ -73,13 +74,6 @@ export class PostgreSQLConnector extends BaseSQLConnector {
       idleTimeoutMillis: 30_000,
     }) as unknown as PgPoolLike
 
-    // Force every new connection into read-only mode so that
-    // user-supplied SQL cannot INSERT/UPDATE/DELETE/DROP.
-    this.pool.on('connect', (client: PgPoolClient) => {
-      client.query('SET default_transaction_read_only = ON').catch(() => {
-        // Swallow — worst case we fall back to the statement_timeout guard.
-      })
-    })
   }
 
   // ---------------------------------------------------------------------------
@@ -94,7 +88,7 @@ export class PostgreSQLConnector extends BaseSQLConnector {
     const start = Date.now()
     let client: PgPoolClient | undefined
     try {
-      client = await this.pool.connect()
+      client = await this.connectReadOnlyClient()
       await client.query('SELECT 1')
       return { ok: true, latencyMs: Date.now() - start }
     } catch (err) {
@@ -118,7 +112,7 @@ export class PostgreSQLConnector extends BaseSQLConnector {
 
     let client: PgPoolClient | undefined
     try {
-      client = await this.pool.connect()
+      client = await this.connectReadOnlyClient()
 
       // Per-query timeout — applied at the session level so the database
       // itself cancels runaway statements.
@@ -139,6 +133,9 @@ export class PostgreSQLConnector extends BaseSQLConnector {
         truncated,
       }
     } catch (err) {
+      if (ForgeError.is(err)) {
+        throw err
+      }
       const message = err instanceof Error ? err.message : String(err)
       throw new Error(`PostgreSQL query failed: ${message}`)
     } finally {
@@ -153,6 +150,24 @@ export class PostgreSQLConnector extends BaseSQLConnector {
 
   async destroy(): Promise<void> {
     await this.pool.end()
+  }
+
+  private async connectReadOnlyClient(): Promise<PgPoolClient> {
+    const client = await this.pool.connect()
+
+    try {
+      await client.query('SET default_transaction_read_only = ON')
+      return client
+    } catch (err) {
+      console.error('Failed to enforce PostgreSQL read-only mode; closing connection', err)
+      client.release(true)
+      throw new ForgeError({
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to enforce PostgreSQL read-only mode',
+        recoverable: false,
+        cause: err instanceof Error ? err : undefined,
+      })
+    }
   }
 
   // ---------------------------------------------------------------------------

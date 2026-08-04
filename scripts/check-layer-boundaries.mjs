@@ -3,6 +3,8 @@
  *
  * Enforces source-level layering between sibling workspace packages.
  *
+ * Current scope: this checker enforces one rule.
+ *
  * Specifically: production source files in `packages/agent-adapters/src/**`
  * MUST NOT reach into `packages/agent/src/**` via relative path. They must
  * import the public `@dzupagent/agent` (or subpath) entry instead. Direct

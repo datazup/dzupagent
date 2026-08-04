@@ -68,6 +68,13 @@ describe('decay-engine', () => {
       const meta = makeMeta({ lastAccessedAt: 5000 })
       expect(calculateStrength(meta, 5000)).toBe(1)
     })
+
+    it.each([0, -1])('returns 1 for non-positive halfLifeMs %s', (halfLifeMs) => {
+      const meta = makeMeta({ lastAccessedAt: 0, halfLifeMs })
+      const strength = calculateStrength(meta, 1000)
+      expect(Number.isFinite(strength)).toBe(true)
+      expect(strength).toBe(1)
+    })
   })
 
   describe('reinforceMemory', () => {

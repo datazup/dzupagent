@@ -12,6 +12,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // Mock pg — must be declared before importing the connector.
 // ---------------------------------------------------------------------------
 
+const mocks = vi.hoisted(() => ({
+  loggerError: vi.fn(),
+}));
+
 type PgQueryResult = {
   rows: Record<string, unknown>[];
   rowCount: number | null;
@@ -22,13 +26,43 @@ const mockPoolQuery =
   vi.fn<(text: string, values?: unknown[]) => Promise<PgQueryResult>>();
 const mockPoolEnd = vi.fn<() => Promise<void>>(async () => undefined);
 const poolCtorCalls: Array<Record<string, unknown>> = [];
+const poolInstances: MockPool[] = [];
+
+vi.mock("@dzupagent/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@dzupagent/core")>();
+  return {
+    ...actual,
+    secureLogger: {
+      ...actual.secureLogger,
+      error: mocks.loggerError,
+    },
+  };
+});
 
 class MockPool {
+  private readonly listeners = new Map<string, Array<(err: Error) => void>>();
+
   constructor(opts: Record<string, unknown>) {
     poolCtorCalls.push(opts);
+    poolInstances.push(this);
   }
   query(text: string, values?: unknown[]): Promise<PgQueryResult> {
     return mockPoolQuery(text, values);
+  }
+  on(event: string, listener: (err: Error) => void): void {
+    const listeners = this.listeners.get(event) ?? [];
+    listeners.push(listener);
+    this.listeners.set(event, listeners);
+  }
+  emit(event: string, err: Error): boolean {
+    const listeners = this.listeners.get(event) ?? [];
+    if (event === "error" && listeners.length === 0) {
+      throw err;
+    }
+    for (const listener of listeners) {
+      listener(err);
+    }
+    return listeners.length > 0;
   }
   end(): Promise<void> {
     return mockPoolEnd();
@@ -61,8 +95,10 @@ function pgResult(
 describe("Database connector — pg executor path (branch coverage)", () => {
   beforeEach(() => {
     poolCtorCalls.length = 0;
+    poolInstances.length = 0;
     mockPoolQuery.mockReset();
     mockPoolEnd.mockReset();
+    mocks.loggerError.mockReset();
     mockPoolEnd.mockResolvedValue(undefined);
   });
 
@@ -169,6 +205,22 @@ describe("Database connector — pg executor path (branch coverage)", () => {
         .find((t) => t.name === "db-query")!
         .invoke({ sql: "SELECT 1" });
       expect(poolCtorCalls[0]?.["statement_timeout"]).toBe(30_000);
+    });
+
+    it("handles idle pg pool error events by logging them", async () => {
+      mockPoolQuery.mockResolvedValue(pgResult());
+      const tools = createDatabaseConnector({});
+      await tools
+        .find((t) => t.name === "db-query")!
+        .invoke({ sql: "SELECT 1" });
+
+      const idleError = new Error("idle client failed");
+      expect(() => poolInstances[0]!.emit("error", idleError)).not.toThrow();
+      expect(mocks.loggerError).toHaveBeenCalledWith({
+        op: "pg.idle",
+        name: "Error",
+        err: idleError,
+      });
     });
   });
 

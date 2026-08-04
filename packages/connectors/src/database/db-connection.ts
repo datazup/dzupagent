@@ -4,7 +4,12 @@
  * Uses `pg` as an optional peer dependency via dynamic import with graceful
  * failure when the package is not installed.
  */
+import { secureLogger as logger } from '@dzupagent/core'
 import type { DatabaseConnectorConfig, PgPool } from './db-types.js'
+
+type PgPoolWithErrorEvents = PgPool & {
+  on(event: 'error', listener: (err: Error) => void): void
+}
 
 /** Data-type OID to human-readable name (PostgreSQL common types). */
 const PG_TYPE_MAP: Record<number, string> = {
@@ -33,7 +38,7 @@ export function oidToName(oid: number): string {
  * is not installed.
  */
 export async function createPool(config: DatabaseConnectorConfig): Promise<PgPool> {
-  let PgPool: new (opts: Record<string, unknown>) => PgPool
+  let PgPool: new (opts: Record<string, unknown>) => PgPoolWithErrorEvents
   try {
     const pgModule = await import('pg') as { Pool: typeof PgPool; default?: { Pool: typeof PgPool } }
     // Handle both ESM default export and named export
@@ -65,5 +70,7 @@ export async function createPool(config: DatabaseConnectorConfig): Promise<PgPoo
       : { rejectUnauthorized: config.sslAllowSelfSigned !== true }
   }
 
-  return new PgPool(poolConfig)
+  const pool = new PgPool(poolConfig)
+  pool.on('error', (err) => logger.error({ op: 'pg.idle', name: err?.constructor?.name, err }))
+  return pool
 }

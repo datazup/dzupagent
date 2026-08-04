@@ -144,6 +144,37 @@ describe('GET /api/runs/:id/stream — SSE integration', () => {
     expect(res.headers.get('cache-control')).toContain('no-cache')
   })
 
+  it('logs and stops the poll loop when runStore.get rejects', async () => {
+    vi.useFakeTimers()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { runId } = await setupRunForStream(config, { runStatus: 'running' })
+      const originalGet = config.runStore.get.bind(config.runStore)
+      let runGetCalls = 0
+      vi.spyOn(config.runStore, 'get').mockImplementation(async (id: string) => {
+        if (id === runId) {
+          runGetCalls += 1
+          if (runGetCalls === 1) return originalGet(id)
+          throw new Error('run store unavailable')
+        }
+        return originalGet(id)
+      })
+
+      const res = await app.request(`/api/runs/${runId}/stream`)
+      expect(res.status).toBe(200)
+
+      await vi.advanceTimersByTimeAsync(2_000)
+      await Promise.resolve()
+
+      expect(error).toHaveBeenCalledWith(
+        expect.stringContaining('run_stream_poll_error'),
+      )
+    } finally {
+      vi.useRealTimers()
+      error.mockRestore()
+    }
+  })
+
   // ──────────────────────────────────────────────────────────────────
   // 3. Init event
   // ──────────────────────────────────────────────────────────────────

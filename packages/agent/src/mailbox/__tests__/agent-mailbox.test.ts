@@ -121,6 +121,34 @@ describe('AgentMailboxImpl', () => {
   })
 
   describe('subscribe()', () => {
+    it('logs rejected async subscriber handlers without rethrowing from emit', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+      mailbox.subscribe(async () => {
+        throw new Error('subscriber failed')
+      })
+
+      expect(() => {
+        eventBus.emit({
+          type: 'mail:received',
+          message: {
+            id: 'msg-reject',
+            from: 'agent-c',
+            to: 'agent-a',
+            subject: 'Rejected subscriber',
+            body: {},
+            createdAt: Date.now(),
+          },
+        })
+      }).not.toThrow()
+
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      expect(error).toHaveBeenCalledWith(
+        '[AgentMailbox] subscriber handler failed',
+        expect.objectContaining({ agentId: 'agent-a', messageId: 'msg-reject', error: 'subscriber failed' }),
+      )
+    })
+
     it('throws if no event bus was provided', () => {
       const noBusMailbox = new AgentMailboxImpl('agent-a', store)
 

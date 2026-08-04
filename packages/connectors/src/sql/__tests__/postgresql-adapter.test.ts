@@ -2,6 +2,7 @@
  * Tests for PostgreSQLConnector — mocks the pg module at the driver level.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { ForgeError } from '@dzupagent/core'
 import type { SQLConnectionConfig } from '../types.js'
 
 // ---------------------------------------------------------------------------
@@ -105,9 +106,9 @@ describe('PostgreSQLConnector', () => {
       )
     })
 
-    it('registers a connect handler for read-only mode', () => {
+    it('does not rely on an async connect handler for read-only mode', () => {
       new PostgreSQLConnector(baseConfig)
-      expect(mockPoolOn).toHaveBeenCalledWith('connect', expect.any(Function))
+      expect(mockPoolOn).not.toHaveBeenCalled()
     })
   })
 
@@ -179,6 +180,7 @@ describe('PostgreSQLConnector', () => {
   describe('executeQuery', () => {
     it('executes a query and returns structured results', async () => {
       mockClientQuery
+        .mockResolvedValueOnce(undefined) // SET default_transaction_read_only
         .mockResolvedValueOnce(undefined) // SET statement_timeout
         .mockResolvedValueOnce({
           rows: [{ id: 1, name: 'Alice' }, { id: 2, name: 'Bob' }],
@@ -198,7 +200,8 @@ describe('PostgreSQLConnector', () => {
 
     it('sets statement_timeout from options', async () => {
       mockClientQuery
-        .mockResolvedValueOnce(undefined) // SET
+        .mockResolvedValueOnce(undefined) // SET default_transaction_read_only
+        .mockResolvedValueOnce(undefined) // SET statement_timeout
         .mockResolvedValueOnce({ rows: [], rowCount: 0, fields: [] })
         .mockResolvedValueOnce(undefined) // RESET
 
@@ -210,7 +213,8 @@ describe('PostgreSQLConnector', () => {
 
     it('applies LIMIT when not present', async () => {
       mockClientQuery
-        .mockResolvedValueOnce(undefined) // SET
+        .mockResolvedValueOnce(undefined) // SET default_transaction_read_only
+        .mockResolvedValueOnce(undefined) // SET statement_timeout
         .mockResolvedValueOnce({ rows: [], rowCount: 0, fields: [] })
         .mockResolvedValueOnce(undefined) // RESET
 
@@ -224,7 +228,8 @@ describe('PostgreSQLConnector', () => {
     it('truncates results when exceeding maxRows', async () => {
       const rows = Array.from({ length: 11 }, (_, i) => ({ id: i + 1 }))
       mockClientQuery
-        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined) // SET default_transaction_read_only
+        .mockResolvedValueOnce(undefined) // SET statement_timeout
         .mockResolvedValueOnce({
           rows,
           rowCount: 11,
@@ -241,7 +246,8 @@ describe('PostgreSQLConnector', () => {
 
     it('throws on query error with PostgreSQL prefix', async () => {
       mockClientQuery
-        .mockResolvedValueOnce(undefined) // SET
+        .mockResolvedValueOnce(undefined) // SET default_transaction_read_only
+        .mockResolvedValueOnce(undefined) // SET statement_timeout
         .mockRejectedValueOnce(new Error('relation "users" does not exist'))
 
       // Need to also handle the RESET call in finally block
@@ -255,7 +261,8 @@ describe('PostgreSQLConnector', () => {
 
     it('throws with stringified error when non-Error thrown', async () => {
       mockClientQuery
-        .mockResolvedValueOnce(undefined) // SET
+        .mockResolvedValueOnce(undefined) // SET default_transaction_read_only
+        .mockResolvedValueOnce(undefined) // SET statement_timeout
         .mockRejectedValueOnce('raw string error')
 
       mockClientQuery.mockResolvedValueOnce(undefined)
@@ -268,7 +275,8 @@ describe('PostgreSQLConnector', () => {
 
     it('resets statement_timeout in finally block', async () => {
       mockClientQuery
-        .mockResolvedValueOnce(undefined) // SET
+        .mockResolvedValueOnce(undefined) // SET default_transaction_read_only
+        .mockResolvedValueOnce(undefined) // SET statement_timeout
         .mockResolvedValueOnce({ rows: [], rowCount: 0, fields: [] })
         .mockResolvedValueOnce(undefined) // RESET
 
@@ -281,7 +289,8 @@ describe('PostgreSQLConnector', () => {
 
     it('handles empty fields gracefully', async () => {
       mockClientQuery
-        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(undefined) // SET default_transaction_read_only
+        .mockResolvedValueOnce(undefined) // SET statement_timeout
         .mockResolvedValueOnce({ rows: [{ id: 1 }], rowCount: 1, fields: undefined })
         .mockResolvedValueOnce(undefined)
 
@@ -289,6 +298,37 @@ describe('PostgreSQLConnector', () => {
       const result = await connector.executeQuery('SELECT 1 AS id')
 
       expect(result.columns).toEqual([])
+    })
+
+    it('throws a non-recoverable ForgeError when read-only enforcement fails', async () => {
+      const readOnlyError = new Error('permission denied to set read-only mode')
+      const client = {
+        query: vi.fn()
+          .mockRejectedValueOnce(readOnlyError)
+          .mockResolvedValueOnce(undefined),
+        release: vi.fn(),
+      }
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      mockPoolConnect.mockResolvedValue(client)
+
+      const connector = new PostgreSQLConnector(baseConfig)
+      const thrown = await connector.executeQuery('SELECT * FROM users').catch((err: unknown) => err)
+
+      expect(thrown).toBeInstanceOf(ForgeError)
+      expect(thrown).toMatchObject({
+        code: 'INTERNAL_ERROR',
+        recoverable: false,
+      })
+      expect((thrown as Error).message).toContain('Failed to enforce PostgreSQL read-only mode')
+      expect(client.query).toHaveBeenCalledTimes(1)
+      expect(client.query).toHaveBeenCalledWith('SET default_transaction_read_only = ON')
+      expect(client.release).toHaveBeenCalledWith(true)
+      expect(errorSpy).toHaveBeenCalledWith(
+        'Failed to enforce PostgreSQL read-only mode; closing connection',
+        readOnlyError,
+      )
+
+      errorSpy.mockRestore()
     })
   })
 

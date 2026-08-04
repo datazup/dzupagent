@@ -25,6 +25,18 @@ import type { DzupEventBus } from '@dzupagent/core/events'
 import type { PtcGovernanceConfig } from './ptc-types.js'
 import { checkPtcAccess, buildBlockedPtcResult } from './ptc-governance-adapter.js'
 
+function logPtcGovernanceAuditFailure(details: {
+  auditType: 'access' | 'result'
+  callerAgent: string
+  toolName: string
+  error: unknown
+}): void {
+  console.error('[PTC] governance audit failed', {
+    ...details,
+    error: details.error instanceof Error ? details.error.message : String(details.error),
+  })
+}
+
 export interface CreatePtcToolOptions {
   /** Governance instance — required to enforce the access policy. */
   governance: ToolGovernance
@@ -107,15 +119,18 @@ export function createPtcTool(options: CreatePtcToolOptions) {
           blocked: false,
         }
         // Audit the failure
+        const callerAgent = options.runId ?? 'ptc'
         void options.governance.auditResult({
           toolName,
-          callerAgent: options.runId ?? 'ptc',
+          callerAgent,
           timestamp: Date.now(),
           durationMs: result.durationMs,
           success: false,
           output: `error: ${msg}`,
           outputMetadata: { outputType: 'string', outputLength: msg.length, outputKeys: [] },
           resultAuditRetention: 'raw',
+        }).catch((error: unknown) => {
+          logPtcGovernanceAuditFailure({ auditType: 'result', callerAgent, toolName, error })
         })
         return JSON.stringify(result)
       }
@@ -128,9 +143,10 @@ export function createPtcTool(options: CreatePtcToolOptions) {
         blocked: false,
       }
 
+      const callerAgent = options.runId ?? 'ptc'
       void options.governance.auditResult({
         toolName,
-        callerAgent: options.runId ?? 'ptc',
+        callerAgent,
         timestamp: Date.now(),
         durationMs: execResult.durationMs,
         success: execResult.exitCode === 0,
@@ -141,6 +157,8 @@ export function createPtcTool(options: CreatePtcToolOptions) {
           outputKeys: [],
         },
         resultAuditRetention: 'raw',
+      }).catch((error: unknown) => {
+        logPtcGovernanceAuditFailure({ auditType: 'result', callerAgent, toolName, error })
       })
 
       return JSON.stringify(ptcResult)

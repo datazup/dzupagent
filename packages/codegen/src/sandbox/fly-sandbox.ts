@@ -35,6 +35,15 @@ const DEFAULT_IMAGE = 'node:20-slim'
 const DEFAULT_REGION = 'iad'
 const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_BASE_URL = 'https://api.machines.dev'
+const SAFE_SANDBOX_PATH = /^[A-Za-z0-9._@+/-]+$/
+const FLY_WRITE_FILE_SCRIPT = [
+  "const fs = require('node:fs');",
+  "const path = require('node:path');",
+  'const filePath = process.argv[1];',
+  'const content = process.argv[2];',
+  'fs.mkdirSync(path.dirname(filePath), { recursive: true });',
+  "fs.writeFileSync(filePath, content, 'utf8');",
+].join(' ')
 
 export class FlySandbox implements SandboxProtocol {
   private machineId: string | null = null
@@ -72,10 +81,9 @@ export class FlySandbox implements SandboxProtocol {
 
   async uploadFiles(files: Record<string, string>): Promise<void> {
     this.assertReady()
-    // Upload by writing files via exec commands
     for (const [filePath, content] of Object.entries(files)) {
-      const escaped = content.replace(/'/g, "'\\''")
-      await this.execute(`mkdir -p "$(dirname '${filePath}')" && printf '%s' '${escaped}' > '${filePath}'`)
+      const safePath = validateSandboxFilePath(filePath)
+      await this.executeArgv(['node', '-e', FLY_WRITE_FILE_SCRIPT, safePath, content])
     }
   }
 
@@ -83,7 +91,8 @@ export class FlySandbox implements SandboxProtocol {
     this.assertReady()
     const result: Record<string, string> = {}
     for (const filePath of paths) {
-      const execResult = await this.execute(`cat '${filePath}'`)
+      const safePath = validateSandboxFilePath(filePath)
+      const execResult = await this.executeArgv(['cat', safePath])
       if (execResult.exitCode === 0) {
         result[filePath] = execResult.stdout
       }
@@ -92,6 +101,10 @@ export class FlySandbox implements SandboxProtocol {
   }
 
   async execute(command: string, options?: ExecOptions): Promise<ExecResult> {
+    return this.executeArgv(['sh', '-c', command], options)
+  }
+
+  private async executeArgv(cmd: string[], options?: ExecOptions): Promise<ExecResult> {
     if (!this.machineId) {
       await this.init()
     }
@@ -103,7 +116,7 @@ export class FlySandbox implements SandboxProtocol {
         {
           method: 'POST',
           body: JSON.stringify({
-            cmd: ['sh', '-c', command],
+            cmd,
             timeout: Math.ceil(timeout / 1000),
             ...(options?.cwd ? { working_dir: options.cwd } : {}),
           }),
@@ -213,4 +226,22 @@ export class FlySandbox implements SandboxProtocol {
       clearTimeout(timer)
     }
   }
+}
+
+function validateSandboxFilePath(filePath: string): string {
+  if (
+    filePath.length === 0 ||
+    filePath.startsWith('/') ||
+    filePath.includes('\0') ||
+    !SAFE_SANDBOX_PATH.test(filePath)
+  ) {
+    throw new Error(`Invalid sandbox file path: ${filePath}`)
+  }
+
+  const segments = filePath.split('/')
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    throw new Error(`Invalid sandbox file path: ${filePath}`)
+  }
+
+  return filePath
 }

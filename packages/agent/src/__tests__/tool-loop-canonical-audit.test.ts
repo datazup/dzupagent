@@ -156,6 +156,44 @@ describe('Tool Loop — RF-AGENT-05 canonical lifecycle events', () => {
     expect(events).toEqual([])
   })
 
+  it('emits audit:sink_failure when tool governance audit rejects', async () => {
+    const bus = createEventBus()
+    const sinkFailures: DzupEvent[] = []
+    bus.on('audit:sink_failure', (event) => {
+      sinkFailures.push(event)
+    })
+
+    emitToolResult(
+      {
+        eventBus: bus,
+        agentId: 'agent_audit',
+        runId: 'run_audit',
+        toolGovernance: {
+          auditResult: vi.fn().mockRejectedValue(new Error('audit sink down')),
+        } as unknown as ToolGovernance,
+      },
+      {
+        toolName: 'read_file',
+        toolCallId: 'tc_audit',
+        durationMs: 1,
+        inputMetadataKeys: ['path'],
+        output: 'contents',
+      },
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(sinkFailures).toEqual([
+      expect.objectContaining({
+        type: 'audit:sink_failure',
+        sink: 'tool-governance',
+        agentId: 'agent_audit',
+        runId: 'run_audit',
+        message: 'audit sink down',
+      }),
+    ])
+  })
+
   it('keeps tool:result events metadata-only when governance redacts audit output', async () => {
     const bus = createEventBus()
     const events = captureToolEvents(bus)

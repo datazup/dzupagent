@@ -130,7 +130,14 @@ export class AgentMailboxImpl implements AgentMailbox {
 
     return this.eventBus.on('mail:received', (event) => {
       if (event.message.to === this.agentId) {
-        void handler(event.message as MailMessage)
+        const message = event.message as MailMessage
+        void Promise.resolve(handler(message)).catch((err: unknown) => {
+          console.error('[AgentMailbox] subscriber handler failed', {
+            agentId: this.agentId,
+            messageId: message.id,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        })
       }
     })
   }

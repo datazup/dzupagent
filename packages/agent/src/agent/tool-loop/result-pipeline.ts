@@ -1,7 +1,15 @@
 import { ToolMessage } from '@langchain/core/messages'
+import { PromptInjectionGuard } from '@dzupagent/security'
 import { emitToolError, statusFromError } from '../tool-lifecycle-policy.js'
 import type { ToolLoopConfig } from './types.js'
 import type { StuckStatus } from '../../guardrails/stuck-detector.js'
+
+/**
+ * Process-wide default prompt-injection guardrail used when a caller does not
+ * supply a {@link ToolLoopConfig.promptInjectionGuard}. The guard is stateless,
+ * so sharing one instance across tool calls is safe.
+ */
+const DEFAULT_PROMPT_INJECTION_GUARD = new PromptInjectionGuard()
 
 export type ToolSpan = {
   setAttribute(key: string, value: string | number | boolean): unknown
@@ -222,6 +230,23 @@ export interface ToolErrorContext {
 }
 
 /**
+ * Wrap tool-originated content before it is appended to model context. Tool
+ * results and tool-error strings are both untrusted external data; callers
+ * that intentionally need raw model-context content can opt out via
+ * `wrapToolResults === false`.
+ */
+export function wrapToolResultForContext(
+  content: string,
+  config: ToolLoopConfig,
+): string {
+  if (config.wrapToolResults === false) return content
+  return (config.promptInjectionGuard ?? DEFAULT_PROMPT_INJECTION_GUARD).wrap(
+    content,
+    { label: 'tool_result' },
+  )
+}
+
+/**
  * Common path for non-permission tool errors raised from the invocation
  * stage. Builds the error `ToolMessage`, increments the error stat,
  * emits the canonical `tool:error` event, and ends the span via the
@@ -234,8 +259,12 @@ export function handleToolError(
 ): { message: ToolMessage; errorMsg: string } {
   const { toolName, toolCallId, validatedKeys, startMs, span, config, stat } = ctx
   const errorMsg = err instanceof Error ? err.message : String(err)
+  const contextContent = wrapToolResultForContext(
+    `Error executing tool "${toolName}": ${errorMsg}`,
+    config,
+  )
   const message = new ToolMessage({
-    content: `Error executing tool "${toolName}": ${errorMsg}`,
+    content: contextContent,
     tool_call_id: toolCallId,
     name: toolName,
   })

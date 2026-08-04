@@ -115,6 +115,26 @@ describe('checkPtcAccess', () => {
     checkPtcAccess(request, { governance })
     expect(governance.audit).toHaveBeenCalled()
   })
+
+  it('logs governance audit rejection without changing the access decision', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const governance = makeGovernance({ allowed: true })
+    vi.mocked(governance.audit).mockRejectedValueOnce(new Error('audit sink down'))
+
+    const decision = checkPtcAccess(request, { governance, runId: 'run-ptc-access' })
+    await Promise.resolve()
+
+    expect(decision.allowed).toBe(true)
+    expect(error).toHaveBeenCalledWith(
+      '[PTC] governance audit failed',
+      expect.objectContaining({
+        auditType: 'access',
+        callerAgent: 'run-ptc-access',
+        toolName: 'ptc',
+        error: 'audit sink down',
+      }),
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------

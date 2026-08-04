@@ -54,6 +54,46 @@ describe('SandboxPool', () => {
     nextId = 0
   })
 
+  it('eviction timer catches destroy failures and removes stale sandboxes', async () => {
+    vi.useFakeTimers()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const stale = makeSandbox()
+      stale.lastUsedAt = new Date(Date.now() - 20_000)
+      const pool = new SandboxPool(
+        poolConfig({
+          minIdle: 0,
+          idleEvictionMs: 10_000,
+          createSandbox: async () => stale,
+          destroySandbox: async () => {
+            throw new Error('destroy failed')
+          },
+        }),
+      )
+
+      await pool.start()
+      const sb = await pool.acquire()
+      await pool.release(sb)
+      sb.lastUsedAt = new Date(Date.now() - 20_000)
+      expect(pool.metrics().currentIdle).toBe(1)
+
+      await vi.advanceTimersByTimeAsync(5_000)
+      await Promise.resolve()
+
+      expect(pool.metrics().currentIdle).toBe(0)
+      expect(pool.metrics().totalDestroyed).toBe(1)
+      expect(error).toHaveBeenCalledWith(
+        '[SandboxPool] stale eviction failed',
+        expect.objectContaining({ sandboxId: stale.id, error: 'destroy failed' }),
+      )
+
+      await pool.drain()
+    } finally {
+      vi.useRealTimers()
+      error.mockRestore()
+    }
+  })
+
   it('start() pre-warms minIdle sandboxes', async () => {
     const created: PooledSandbox[] = []
     const pool = new SandboxPool(

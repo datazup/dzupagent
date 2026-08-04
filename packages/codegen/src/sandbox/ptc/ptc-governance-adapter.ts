@@ -11,6 +11,18 @@ import type { ToolGovernance } from '@dzupagent/core'
 import type { DzupEventBus } from '@dzupagent/core'
 import type { PtcGovernanceConfig, PtcRequest, PtcResult } from './ptc-types.js'
 
+function logPtcGovernanceAuditFailure(details: {
+  auditType: 'access' | 'result'
+  callerAgent: string
+  toolName: string
+  error: unknown
+}): void {
+  console.error('[PTC] governance audit failed', {
+    ...details,
+    error: details.error instanceof Error ? details.error.message : String(details.error),
+  })
+}
+
 export interface PtcGovernanceAdapterOptions {
   /** Governance instance (from `@dzupagent/core`). */
   governance: ToolGovernance
@@ -65,6 +77,8 @@ export function checkPtcAccess(
       timestamp: Date.now(),
       allowed: false,
       blockedReason: access.reason,
+    }).catch((error: unknown) => {
+      logPtcGovernanceAuditFailure({ auditType: 'access', callerAgent: caller, toolName, error })
     })
     return { allowed: false, reason: access.reason ?? `Tool '${toolName}' is blocked by policy` }
   }
@@ -88,6 +102,8 @@ export function checkPtcAccess(
       timestamp: Date.now(),
       allowed: true,
       blockedReason: 'approval required',
+    }).catch((error: unknown) => {
+      logPtcGovernanceAuditFailure({ auditType: 'access', callerAgent: caller, toolName, error })
     })
     return {
       allowed: false,
@@ -103,6 +119,8 @@ export function checkPtcAccess(
     callerAgent: caller,
     timestamp: Date.now(),
     allowed: true,
+  }).catch((error: unknown) => {
+    logPtcGovernanceAuditFailure({ auditType: 'access', callerAgent: caller, toolName, error })
   })
   return { allowed: true }
 }

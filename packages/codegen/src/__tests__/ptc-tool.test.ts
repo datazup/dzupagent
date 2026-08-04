@@ -123,5 +123,25 @@ describe('createPtcTool', () => {
       await t.invoke({ code: '1 + 1' })
       expect(governance.auditResult).toHaveBeenCalled()
     })
+
+    it('logs governance auditResult rejection without failing the tool result', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const governance = makeGovernance({ allowed: true })
+      vi.mocked(governance.auditResult).mockRejectedValueOnce(new Error('audit sink down'))
+      const t = createPtcTool({ governance, runId: 'run-ptc-audit' })
+
+      await expect(t.invoke({ code: '1 + 1' })).resolves.toBeDefined()
+      await Promise.resolve()
+
+      expect(error).toHaveBeenCalledWith(
+        '[PTC] governance audit failed',
+        expect.objectContaining({
+          auditType: 'result',
+          callerAgent: 'run-ptc-audit',
+          toolName: 'ptc',
+          error: 'audit sink down',
+        }),
+      )
+    })
   })
 })

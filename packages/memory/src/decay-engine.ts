@@ -41,6 +41,9 @@ const DEFAULT_PRUNE_THRESHOLD = 0.1
 export function calculateStrength(meta: DecayMetadata, now?: number): number {
   const currentTime = now ?? Date.now()
   const elapsed = Math.max(0, currentTime - meta.lastAccessedAt)
+  if (!Number.isFinite(meta.halfLifeMs) || meta.halfLifeMs <= 0) {
+    return 1
+  }
   return Math.exp(-elapsed / meta.halfLifeMs)
 }
 

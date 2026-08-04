@@ -20,6 +20,27 @@ export interface ToolLifecyclePolicyContext {
   runId?: string
 }
 
+function emitToolGovernanceAuditFailure(
+  context: ToolLifecyclePolicyContext,
+  message: string,
+): void {
+  try {
+    context.eventBus?.emit({
+      type: 'audit:sink_failure',
+      sink: 'tool-governance',
+      agentId: context.agentId ?? 'unknown',
+      ...(context.runId !== undefined ? { runId: context.runId } : {}),
+      message,
+    })
+  } catch {
+    // Audit failure telemetry is best-effort.
+  }
+}
+
+function messageFromUnknown(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
 export type ToolLifecycleStatus =
   | 'success'
   | 'error'
@@ -137,8 +158,8 @@ export function emitToolCalled(
     }
     void context.toolGovernance
       .audit(auditEntry)
-      .catch(() => {
-        /* non-fatal */
+      .catch((err: unknown) => {
+        emitToolGovernanceAuditFailure(context, messageFromUnknown(err))
       })
   }
 }
@@ -186,8 +207,8 @@ export function emitToolResult(
         success: true,
         timestamp: Date.now(),
       })
-      .catch(() => {
-        /* non-fatal */
+      .catch((err: unknown) => {
+        emitToolGovernanceAuditFailure(context, messageFromUnknown(err))
       })
   }
 }
@@ -248,8 +269,8 @@ export function emitToolError(
         success: false,
         timestamp: Date.now(),
       })
-      .catch(() => {
-        /* non-fatal */
+      .catch((err: unknown) => {
+        emitToolGovernanceAuditFailure(context, messageFromUnknown(err))
       })
   }
 }

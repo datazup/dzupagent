@@ -133,7 +133,14 @@ export async function handleStreamRun(
         }
         clearInterval(checkInterval)
       }
-    })() }, 2000)
+    })().catch((e: unknown) => {
+      secureLogger.error({
+        event: 'run_stream_poll_error',
+        runId,
+        error: e instanceof Error ? e.message : String(e),
+      })
+      clearInterval(checkInterval)
+    }) }, 2000)
 
     // Pipe handle events to SSE; adapter handles onAbort → handle.cancel()
     await streamRunHandleToSSE(handle, stream, {

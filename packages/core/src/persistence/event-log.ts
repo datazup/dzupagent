@@ -200,8 +200,15 @@ export class EventLogSink {
   attach(eventBus: EventBusLike, runId: string): () => void {
     return eventBus.onAny((event) => {
       const { type, ...rest } = event
-      // Fire-and-forget; errors are silently swallowed to keep non-fatal
-      void this.log.append({ runId, type, payload: rest as Record<string, unknown> })
+      void this.log
+        .append({ runId, type, payload: rest as Record<string, unknown> })
+        .catch((err: unknown) => {
+          logger.warn('[EventLogSink] append failed', {
+            runId,
+            type,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        })
     })
   }
 }

@@ -46,6 +46,10 @@ export interface SandboxPoolMetrics {
   acquireWaitMs: number[]
 }
 
+function logSandboxPoolError(message: string, details: Record<string, unknown>): void {
+  console.error(message, details)
+}
+
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
@@ -107,7 +111,11 @@ export class SandboxPool {
 
     if (this.config.idleEvictionMs > 0) {
       this.evictionTimer = setInterval(() => {
-        void this.evictStale()
+        void this.evictStale().catch((err: unknown) => {
+          logSandboxPoolError('[SandboxPool] stale eviction failed', {
+            error: err instanceof Error ? err.message : String(err),
+          })
+        })
       }, Math.max(this.config.idleEvictionMs / 2, 5_000))
       // Allow the process to exit even if the timer is running
       if (typeof this.evictionTimer === 'object' && 'unref' in this.evictionTimer) {
@@ -271,6 +279,13 @@ export class SandboxPool {
     this.idle.length = 0
     this.idle.push(...toKeep)
 
-    await Promise.all(toEvict.map((sb) => this.destroySandbox(sb)))
+    const results = await Promise.allSettled(toEvict.map((sb) => this.destroySandbox(sb)))
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') return
+      logSandboxPoolError('[SandboxPool] stale eviction failed', {
+        sandboxId: toEvict[index]?.id,
+        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      })
+    })
   }
 }

@@ -155,6 +155,36 @@ describe('InMemoryEventLog', () => {
 })
 
 describe('EventLogSink', () => {
+  it('logs append failures without throwing from the event bus handler', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const log = {
+      append: vi.fn().mockRejectedValue(new Error('append failed')),
+      getEvents: vi.fn(),
+      getEventsSince: vi.fn(),
+      getLatest: vi.fn(),
+    }
+    const sink = new EventLogSink(log)
+    const bus = createEventBus()
+
+    const unsub = sink.attach(bus, 'run-append-fail')
+    expect(() => {
+      bus.emit({ type: 'agent:started', agentId: 'a1', runId: 'run-append-fail' } as never)
+    }).not.toThrow()
+
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(warn).toHaveBeenCalledWith(
+      '[EventLogSink] append failed',
+      expect.objectContaining({
+        runId: 'run-append-fail',
+        type: 'agent:started',
+        error: 'append failed',
+      }),
+    )
+
+    unsub()
+  })
+
   it('captures DzupEventBus events for a run', async () => {
     const log = new InMemoryEventLog()
     const sink = new EventLogSink(log)

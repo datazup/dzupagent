@@ -34,7 +34,7 @@ const SOURCE_IS_STATE_NODE_TYPES = new Set([
   "memory.write",
 ]);
 
-const STATE_TEMPLATE_RE = /\{\{\s*state\.([A-Za-z0-9_]+)((?:\.[A-Za-z0-9_]+)*)\s*\}\}/g;
+const STATE_TEMPLATE_RE = /\{\{\s*state\.([A-Za-z0-9_.]+)\s*\}\}/g;
 const CHILD_NODE_FIELDS = new Set([
   "nodes",
   "body",
@@ -55,11 +55,22 @@ function privateKey(instanceId: string, key: string): string {
   return `${instanceId}__${key}`;
 }
 
+function isValidStatePathSegment(segment: string): boolean {
+  return segment.length > 0 && /^[A-Za-z0-9_]+$/.test(segment);
+}
+
 function rewriteStateTemplates(value: string, instanceId: string): string {
-  return value.replace(
-    STATE_TEMPLATE_RE,
-    (_match, key: string, pathRest: string) => `{{ state.${privateKey(instanceId, key)}${pathRest} }}`,
-  );
+  return value.replace(STATE_TEMPLATE_RE, (match, path: string) => {
+    const [key, ...pathRest] = path.split(".");
+    if (
+      key === undefined ||
+      !isValidStatePathSegment(key) ||
+      !pathRest.every(isValidStatePathSegment)
+    ) {
+      return match;
+    }
+    return `{{ state.${privateKey(instanceId, key)}${pathRest.length > 0 ? `.${pathRest.join(".")}` : ""} }}`;
+  });
 }
 
 function instanceIdFor(node: FlowNode): string {

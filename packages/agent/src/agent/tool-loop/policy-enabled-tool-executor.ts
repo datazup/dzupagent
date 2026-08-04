@@ -1,7 +1,6 @@
 import { ToolMessage } from '@langchain/core/messages'
 import type { StructuredToolInterface } from '@langchain/core/tools'
 import { ForgeError } from '@dzupagent/core/events'
-import { PromptInjectionGuard } from '@dzupagent/security'
 import {
   emitToolCalled,
   emitToolError,
@@ -20,15 +19,8 @@ import {
   evaluateStuck,
   handleToolError,
   maybeEmitCheckpointEvent,
+  wrapToolResultForContext,
 } from './result-pipeline.js'
-
-/**
- * MC-3 (AGENT-H-06) — process-wide default prompt-injection guardrail used
- * when a {@link ToolLoopConfig} does not supply its own
- * {@link ToolLoopConfig.promptInjectionGuard}. The guard is stateless, so a
- * single shared instance is safe and avoids per-call allocation.
- */
-const DEFAULT_PROMPT_INJECTION_GUARD = new PromptInjectionGuard()
 
 export interface PolicyEnabledToolExecutorParams {
   toolMap: Map<string, StructuredToolInterface>
@@ -120,13 +112,7 @@ export async function executePolicyEnabledToolCall(
     // Observability (`onToolResult`, `emitToolResult`, span) intentionally
     // sees the RAW result string; only the context-bound ToolMessage is
     // wrapped. Opt out with `wrapToolResults === false`.
-    const contextContent =
-      config.wrapToolResults === false
-        ? resultStr
-        : (config.promptInjectionGuard ?? DEFAULT_PROMPT_INJECTION_GUARD).wrap(
-            resultStr,
-            { label: 'tool_result' },
-          )
+    const contextContent = wrapToolResultForContext(resultStr, config)
 
     message = new ToolMessage({
       content: contextContent,
