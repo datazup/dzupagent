@@ -14,6 +14,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { AIMessage } from "@langchain/core/messages";
+import type { StandardMessageStructure } from "@langchain/core/messages";
 import {
   recordDistributedCost,
   CostCeilingExceededError,
@@ -32,9 +33,15 @@ function makeEventBus(): DzupEventBus {
 
 /** A message carrying real usage so `calculateCostCents` yields a non-zero cost. */
 function makeMessage(): AIMessage {
-  return new AIMessage({
+  // `usage_metadata` is typed `never` on LangChain's default message
+  // structure but is honoured at runtime; naming the standard structure lets
+  // the literal type-check without a cast (cf. run-metrics-emit-site.spec.ts).
+  return new AIMessage<StandardMessageStructure>({
     content: "ok",
-    response_metadata: { model_name: "gpt-4o" },
+    // `extractTokenUsage` reads `response_metadata.model`, not `model_name`;
+    // with only the latter the model resolved to "unknown" and silently
+    // priced at the fallback rate.
+    response_metadata: { model: "gpt-4o" },
     usage_metadata: {
       input_tokens: 1000,
       output_tokens: 1000,
