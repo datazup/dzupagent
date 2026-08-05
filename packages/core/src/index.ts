@@ -248,22 +248,6 @@ export type {
   CostBucket,
   CostAttributionConfig,
 } from "./middleware/cost-attribution.js";
-export {
-  MODEL_RATES_AUTHORITY_ID,
-  MODEL_RATES_EFFECTIVE_AT,
-  MODEL_RATES_REVISION,
-  hasKnownModelRate,
-  getModelRate,
-} from "./middleware/model-rates.js";
-export type { ModelRate } from "./middleware/model-rates.js";
-export {
-  buildKnownModelTariff,
-  buildModelTariff,
-  centsPer1MToMicrosPerToken,
-  modelRatesProvenance,
-  toAiTokenRates,
-} from "./middleware/model-tariff.js";
-
 // --- Persistence ---
 export { createCheckpointer } from "./persistence/checkpointer.js";
 export type { CheckpointerConfig } from "./persistence/checkpointer.js";
