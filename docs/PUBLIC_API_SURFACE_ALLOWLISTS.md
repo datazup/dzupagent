@@ -42,7 +42,7 @@ No stable subpaths configured.
 Root index: `packages/core/src/index.ts`
 
 - Stable root sources: `54`
-- Deprecated transitional root sources: `92`
+- Deprecated transitional root sources: `90`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x and must move to subpaths before a future 1.0 root contraction.
 
@@ -104,8 +104,6 @@ Root index: `packages/core/src/index.ts`
 | `deprecated-transitional` | `./middleware/cost-tracking.js` | 3 | `prefix:./middleware/` | `calculateCostCents`, `getModelCosts`, `CostTracker` |
 | `deprecated-transitional` | `./middleware/langfuse.js` | 3 | `prefix:./middleware/` | `createLangfuseHandler`, `LangfuseConfig`, `LangfuseHandlerOptions` |
 | `deprecated-transitional` | `./middleware/cost-attribution.js` | 5 | `prefix:./middleware/` | `CostAttributionCollector`, `CostAttribution`, `CostReport`, `CostBucket` |
-| `deprecated-transitional` | `./middleware/model-rates.js` | 6 | `prefix:./middleware/` | `MODEL_RATES_AUTHORITY_ID`, `MODEL_RATES_EFFECTIVE_AT`, `MODEL_RATES_REVISION`, `hasKnownModelRate` |
-| `deprecated-transitional` | `./middleware/model-tariff.js` | 5 | `prefix:./middleware/` | `buildKnownModelTariff`, `buildModelTariff`, `centsPer1MToMicrosPerToken`, `modelRatesProvenance` |
 | `stable` | `./persistence/checkpointer.js` | 2 | `exact:./persistence/checkpointer.js` | `createCheckpointer`, `CheckpointerConfig` |
 | `deprecated-transitional` | `./persistence/session.js` | 1 | `prefix:./persistence/` | `SessionManager` |
 | `deprecated-transitional` | `./persistence/working-memory.js` | 2 | `prefix:./persistence/` | `WorkingMemory`, `createWorkingMemory` |
