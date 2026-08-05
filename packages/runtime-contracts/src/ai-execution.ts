@@ -14,6 +14,14 @@ import {
 } from "./ai-economics.js";
 
 export type { ExecutionRequest } from "./canonical-execution.js";
+/**
+ * Re-exported because `AiUsageTruth.cost` names this union in its own shape:
+ * a consumer importing the receipt types from this subpath could not otherwise
+ * name the reason it carries, and had to re-derive it via `Extract<...>`.
+ * `ai-economics` remains the declaring module; there is no `./ai-economics`
+ * export subpath, so this is the only path that reaches it.
+ */
+export type { AiCostUnknownReason } from "./ai-economics.js";
 
 export const AI_EXECUTION_REQUEST_SCHEMA =
   "dzupagent.aiExecutionRequest/v1" as const;
