@@ -223,6 +223,92 @@ function extractExports(indexPath) {
   return dedupeExports(fallback)
 }
 
+/**
+ * Maps a package.json `exports` target back to the source module that produces it.
+ * Targets point into `dist/`, which does not exist on a clean checkout and is not
+ * what this generator reads, so the dist prefix is stripped and the equivalent
+ * `src/` module resolved.
+ *
+ * Returns null for entries with no source module -- notably the JSON fixture
+ * exports in runtime-contracts, whose `.d.ts` target is a hand-written ambient
+ * declaration beside the data file. Those carry no API symbols and must be
+ * skipped rather than counted as an empty barrel.
+ */
+function resolveExportSource(packageDir, target) {
+  if (typeof target !== 'string') return null
+  if (!/\.d\.ts$/.test(target)) return null
+
+  const relative = target.replace(/^\.\//, '').replace(/^dist\//, '').replace(/\.d\.ts$/, '')
+  const srcDir = join(packageDir, 'src')
+  const candidates = [
+    join(srcDir, `${relative}.ts`),
+    join(srcDir, `${relative}.tsx`),
+    join(srcDir, `${relative}.mts`),
+    join(srcDir, `${relative}.cts`),
+    join(srcDir, relative, 'index.ts'),
+    join(srcDir, relative, 'index.tsx'),
+  ]
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+
+  return null
+}
+
+/**
+ * Picks the type-bearing target from an exports entry. Conditional entries are
+ * objects keyed by condition; `types` is the one that names the declaration file.
+ */
+function exportTarget(entry) {
+  if (typeof entry === 'string') return entry
+  if (!entry || typeof entry !== 'object') return null
+  return entry.types ?? entry.import ?? entry.default ?? null
+}
+
+/**
+ * Indexes every entry point a package publishes, not just its root barrel.
+ *
+ * The barrel ratchet deliberately moves API onto subpaths, so a root-only index
+ * gets progressively less accurate with each relocation: the pricing cluster
+ * moving to `@dzupagent/core/middleware` dropped eleven still-public symbols out
+ * of the matrix. Reading the `exports` map keeps the inventory tracking the
+ * package's actual public surface.
+ *
+ * Symbols reachable from both a root and a subpath are counted once --
+ * `dedupeExports` unions them by name, so a relocation that is still mid-flight
+ * (exported from both places) does not inflate the count.
+ */
+function extractPackageExports(packageDir, indexPath) {
+  const collected = { classes: [], functions: [], types: [], constants: [] }
+  let sawEntryPoint = false
+
+  let pkgJson
+  try {
+    pkgJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf-8'))
+  } catch {
+    pkgJson = {}
+  }
+
+  const entries = Object.entries(pkgJson.exports ?? {}).sort(([a], [b]) => a.localeCompare(b))
+  for (const [, entry] of entries) {
+    const sourcePath = resolveExportSource(packageDir, exportTarget(entry))
+    if (!sourcePath) continue
+    sawEntryPoint = true
+    mergeExports(collected, extractExportsFromFile(sourcePath))
+  }
+
+  // Packages with no usable `exports` map still publish through src/index.ts.
+  if (!sawEntryPoint) return extractExports(indexPath)
+
+  const deduped = dedupeExports(collected)
+  const total =
+    deduped.classes.length + deduped.functions.length + deduped.types.length + deduped.constants.length
+  // An exports map that resolved but yielded nothing means the regex extractor
+  // lost the chain; fall back to the directory scan rather than report zero.
+  return total > 0 ? deduped : extractExports(indexPath)
+}
+
 const FALLBACK_DESCRIPTIONS = {
   agent: 'Orchestration: workflows, guardrails, tool loops, supervisor',
   'agent-types': 'Shared type definitions for the agent package',
@@ -283,7 +369,7 @@ export function generateCapabilityMatrix(root = DEFAULT_ROOT) {
       name,
       description,
       status: determineStatus(dirName, coverageConfig),
-      ...extractExports(indexPath),
+      ...extractPackageExports(join(packagesDir, dirName), indexPath),
     })
   }
 
