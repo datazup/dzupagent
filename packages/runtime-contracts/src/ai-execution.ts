@@ -1630,17 +1630,34 @@ function validateAttemptUsageAlignment(
   }
 }
 
+/**
+ * Every {@link AiTokenUsage} field {@link sumTokens} aggregates.
+ *
+ * Exhaustive by construction: the `satisfies` below fails to compile (TS1360)
+ * naming the missing property if a field is added to `AiTokenUsage` and not
+ * listed here. Without it the key list is just strings — a new field compiles
+ * clean and is silently dropped from the sum. That has shipped repeatedly, and
+ * here it is worse than a wrong total: the sole caller feeds
+ * `AI_ATTEMPT_USAGE_MISMATCH`, so a dropped field turns into a false-positive
+ * validation failure against any aggregator that *does* sum it.
+ */
+const SUMMED_TOKEN_FIELDS = {
+  input: true,
+  output: true,
+  cachedInput: true,
+  cacheWrite: true,
+  reasoning: true,
+} satisfies Record<keyof AiTokenUsage, true>;
+
+const SUMMED_TOKEN_KEYS = Object.keys(SUMMED_TOKEN_FIELDS) as ReadonlyArray<
+  keyof AiTokenUsage
+>;
+
 function sumTokens(values: readonly unknown[]): Record<string, number> {
   const total: Record<string, number> = { input: 0, output: 0 };
   for (const value of values) {
     if (!isRecord(value)) continue;
-    for (const key of [
-      "input",
-      "output",
-      "cachedInput",
-      "cacheWrite",
-      "reasoning",
-    ] as const) {
+    for (const key of SUMMED_TOKEN_KEYS) {
       const amount = numberValue(value[key]);
       if (amount !== undefined) total[key] = (total[key] ?? 0) + amount;
     }
