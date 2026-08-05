@@ -100,4 +100,62 @@ describe("flow corpus qualification", () => {
     expect(report.passed).toBe(false);
     expect(report.summary.hashMismatches).toBe(1);
   });
+
+  it("keeps authoring-only examples visible without claiming compilation", async () => {
+    const report = await qualifyFlowCorpusSources(
+      [
+        {
+          id: "qualified",
+          path: "qualified.yaml",
+          sha256: hashFlowCorpusSource(VALID_DSL),
+          qualification: "authoring-only",
+          source: VALID_DSL,
+        },
+      ],
+      compiler,
+    );
+
+    expect(report.passed).toBe(true);
+    expect(report.summary).toMatchObject({
+      compileReady: 0,
+      compileFailed: 0,
+      authoringOnly: 1,
+    });
+    expect(report.items[0]).toMatchObject({
+      qualification: "authoring-only",
+      compileStatus: "not-required",
+      compileDiagnosticCodes: [],
+    });
+  });
+
+  it("fails closed when a compile-example cannot compile", async () => {
+    const source = [
+      "dsl: dzupflow/v1",
+      "id: unresolved-parent",
+      "version: 1",
+      "steps:",
+      "  - subflow:",
+      "      id: missing-child",
+      "      flowRef: unresolved-child",
+    ].join("\n");
+    const report = await qualifyFlowCorpusSources(
+      [
+        {
+          id: "unresolved-parent",
+          path: "unresolved-parent.yaml",
+          sha256: hashFlowCorpusSource(source),
+          qualification: "compile-example",
+          source,
+        },
+      ],
+      compiler,
+    );
+
+    expect(report.passed).toBe(false);
+    expect(report.summary.compileFailed).toBe(1);
+    expect(report.items[0]).toMatchObject({
+      compileStatus: "failed",
+      compileDiagnosticCodes: ["EMPTY_TARGET_ARTIFACT"],
+    });
+  });
 });
