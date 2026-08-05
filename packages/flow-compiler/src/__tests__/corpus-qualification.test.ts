@@ -164,6 +164,56 @@ describe("flow corpus qualification", () => {
       );
     });
 
+    // A node-level multi-line scalar still round-trips lossily (the document
+    // -level block scalar was fixed; node-level prose was not). This is the
+    // DISCRIMINATING case: it reaches the same classification branch as the
+    // lossless fixtures above and must NOT be reported as lossless.
+    const NODE_MULTILINE_DSL = [
+      "dsl: dzupflow/v1",
+      "id: lossy-node-prose",
+      "version: 1",
+      "steps:",
+      "  - prompt:",
+      "      id: greet",
+      "      userPrompt: |",
+      "        Line one of prose.",
+      "        Line two of prose.",
+      "      outputKey: greeting",
+    ].join("\n");
+
+    it("reports field-level loss with the authored path that did not survive", () => {
+      expect(measureFlowCorpusRoundTrip(NODE_MULTILINE_DSL)).toEqual({
+        status: "lossy",
+        lossPaths: ["document.root.nodes[0].userPrompt"],
+      });
+    });
+
+    it("counts a lossy source as lossy without failing qualification", async () => {
+      const report = await qualifyFlowCorpusSources(
+        [
+          {
+            id: "lossy-node-prose",
+            path: "lossy-node-prose.yaml",
+            sha256: hashFlowCorpusSource(NODE_MULTILINE_DSL),
+            qualification: "compile-example",
+            source: NODE_MULTILINE_DSL,
+          },
+        ],
+        compiler,
+      );
+
+      // Round-trip loss is tracked, never gated: `passed` stays true.
+      expect(report.passed).toBe(true);
+      expect(report.roundTrip).toMatchObject({ lossless: 0, lossy: 1 });
+      expect(report.items[0]).toMatchObject({
+        roundTripStatus: "lossy",
+        roundTripLossPaths: ["document.root.nodes[0].userPrompt"],
+      });
+      expect(renderFlowCorpusQualificationMarkdown(report)).toContain(
+        "Lossless: **0 / 1**",
+      );
+    });
+
     it("classifies a source that does not parse without blaming the formatter", () => {
       expect(measureFlowCorpusRoundTrip("not: a: valid: flow")).toEqual({
         status: "unparsable-source",
