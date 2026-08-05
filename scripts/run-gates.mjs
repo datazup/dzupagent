@@ -47,7 +47,11 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
  */
 const BUILD_STEP = {
   name: "build+typecheck+lint+test",
-  run: "node scripts/run-with-build-custody.mjs turbo run build:verify typecheck lint test --concurrency=4 --output-logs=new-only",
+  // Run through `yarn` like every other gate (see `asGate`): `turbo` is a
+  // Yarn-managed binary and is NOT on PATH, so spawning this string with bare
+  // `node` fails with "build-custody: spawn turbo ENOENT" — which, because this
+  // gate is blocking, aborted the profile and hid the four gates after it.
+  run: "yarn node scripts/run-with-build-custody.mjs turbo run build:verify typecheck lint test --concurrency=4 --output-logs=new-only",
   // Artifact/coverage gates below read the build output. Running them against
   // a failed build reports noise, not signal.
   blocking: true,
