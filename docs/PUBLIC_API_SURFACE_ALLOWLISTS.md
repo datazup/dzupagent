@@ -216,7 +216,7 @@ Root index: `packages/core/src/index.ts`
 Root index: `packages/agent/src/index.ts`
 
 - Stable root sources: `13`
-- Deprecated transitional root sources: `93`
+- Deprecated transitional root sources: `92`
 - Internal-only root candidates: `0`
 - Migration window: Root transitional exports remain available through 0.x with migration to runtime/workflow/tools/compat before a future 1.0 root contraction.
 
@@ -258,7 +258,6 @@ Root index: `packages/agent/src/index.ts`
 | `stable` | `./guardrails/guardrail-types.js` | 4 | `exact:./guardrails/guardrail-types.js` | `GuardrailConfig`, `BudgetState`, `BudgetWarning`, `DistributedGuardrailConfig` |
 | `deprecated-transitional` | `./guardrails/distributed-rate-limiter.js` | 4 | `prefix:./guardrails/` | `DistributedRateLimiter`, `RateLimiterClient`, `LocalRateLimiter`, `DistributedRateLimiterConfig` |
 | `deprecated-transitional` | `./guardrails/distributed-budget.js` | 4 | `prefix:./guardrails/` | `DistributedCostLedger`, `CostLedgerClient`, `DistributedCostLedgerConfig`, `CostLedgerRecordResult` |
-| `deprecated-transitional` | `./agent/rate-limit-coordinator.js` | 1 | `prefix:./agent/` | `CostCeilingExceededError` |
 | `stable` | `./workflow/workflow-builder.js` | 5 | `prefix:./workflow/` | `WorkflowBuilder`, `CompiledWorkflow`, `createWorkflow`, `WorkflowConfig` |
 | `stable` | `./workflow/workflow-types.js` | 4 | `prefix:./workflow/` | `WorkflowStep`, `WorkflowContext`, `WorkflowEvent`, `MergeStrategy` |
 | `deprecated-transitional` | `./orchestration/orchestrator.js` | 4 | `prefix:./orchestration/` | `AgentOrchestrator`, `MergeFn`, `SupervisorConfig`, `SupervisorResult` |
